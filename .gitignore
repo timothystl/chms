@@ -1,0 +1,4 @@
+# Ignore sensitive credential files
+*.txt
+breeze-proxy-worker.js
+.DS_Store
