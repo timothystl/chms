@@ -1071,26 +1071,8 @@ function buildHtmlEmail(person, assignments, replyTo) {
     + 'Timothy Lutheran Church'
     + (replyLink ? ' &mdash; Questions? Contact us at ' + replyLink : '')
     + '</p>'
-    + '</div></div>
-<!-- ══ STATS TAB ════════════════════════════════════════════════════════════ -->
-<div id="tab-stats" class="tab-content">
-  <div class="card">
-    <h2>&#128202; Volunteer Statistics</h2>
-    <p style="font-size:0.85rem;color:#888;margin-bottom:16px;">Counts from the current schedule plus all archived schedules.</p>
-    <div id="stats-content">
-      <p style="color:#aaa;font-size:0.85rem;">Generate or load a schedule to see statistics.</p>
-    </div>
-  </div>
-  <div class="card">
-    <h2>&#128203; Schedule History</h2>
-    <p style="font-size:0.85rem;color:#888;margin-bottom:12px;">Past schedules are auto-archived when you generate a new one. Click Restore to reload a past schedule.</p>
-    <div id="history-list-container">
-      <p style="color:#aaa;font-size:0.85rem;">No archived schedules yet.</p>
-    </div>
-  </div>
-</div>
-
-</body></html>';
+        + '</div></div>'
+    + '</body></html>';
 }
 
 function sendReminderEmails() {
@@ -2103,5 +2085,24 @@ function deleteHistoryItem(id) {
 }
 
 </script>
+
+<!-- ══ STATS TAB ════════════════════════════════════════════════════════════ -->
+<div id="tab-stats" class="tab-content">
+  <div class="card">
+    <h2>&#128202; Volunteer Statistics</h2>
+    <p style="font-size:0.85rem;color:#888;margin-bottom:16px;">Counts from the current schedule plus all archived schedules.</p>
+    <div id="stats-content">
+      <p style="color:#aaa;font-size:0.85rem;">Generate or load a schedule to see statistics.</p>
+    </div>
+  </div>
+  <div class="card">
+    <h2>&#128203; Schedule History</h2>
+    <p style="font-size:0.85rem;color:#888;margin-bottom:12px;">Past schedules are auto-archived when you generate a new one. Click Restore to reload a past schedule.</p>
+    <div id="history-list-container">
+      <p style="color:#aaa;font-size:0.85rem;">No archived schedules yet.</p>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
