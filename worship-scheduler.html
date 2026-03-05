@@ -73,16 +73,24 @@ select.form-select { width: 100%; padding: 7px 10px; border: 1px solid #d0d4e0; 
 .table-wrapper { overflow-x: auto; margin-top: 14px; }
 table { border-collapse: collapse; font-size: 0.82rem; }
 thead th { background: #2c3e6b; color: white; padding: 8px 10px; text-align: center; white-space: nowrap; border: 1px solid #1e2d52; }
-thead th.date-col { background: #1e2d52; }
-thead th.shared-col { background: #4a5a8a; }
-thead th.svc-header { background: #3d5a8a; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
-tbody tr:nth-child(even) { background: #f7f8fc; }
-tbody tr:hover { background: #eef0f8; }
-td { padding: 6px 8px; border: 1px solid #dde; text-align: center; vertical-align: middle; min-width: 110px; }
-td.date-cell { font-weight: 700; color: #2c3e6b; background: #f0f2f8; text-align: left; white-space: nowrap; min-width: 130px; }
+thead th.date-col { background: #1e2d52; position: sticky; left: 0; z-index: 3; }
+thead th.shared-col { background: #247a52; }
+thead th.svc-header { background: #1d6b48; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+tbody tr { background: transparent; }
+tbody tr:hover td { filter: brightness(0.96); }
+td { padding: 6px 8px; border: 1px solid #dde; text-align: center; vertical-align: middle; min-width: 90px; }
+td.date-cell { font-weight: 700; color: #2c3e6b; background: #f0f2f8; text-align: left; white-space: nowrap; min-width: 120px; position: sticky; left: 0; z-index: 1; }
 td .ordinal { font-size: 0.75rem; color: #888; display: block; }
 td.empty-cell { background: #fff3f3; }
 td.filled-cell { background: #f0fff4; }
+/* Service label column */
+td.svc-label { font-size: 0.74rem; font-weight: 700; white-space: nowrap; min-width: 44px; padding: 4px 6px; }
+td.svc-8am   { background: #d4e4ff !important; color: #1a3a8a; border-right: 2px solid #a0bcf0; }
+td.svc-1045  { background: #ffe8c0 !important; color: #7a4800; border-right: 2px solid #f0c878; }
+tr.row-1045 td { border-bottom: 2px solid #bbc; }
+td.shared-cell { background: #e8f5ee !important; }
+thead th.svc-col { background: #1e2d52; min-width: 36px; }
+thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
 .cell-select { width: 100%; font-size: 0.8rem; border: 1px solid #ccc; border-radius: 4px; background: transparent; cursor: pointer; padding: 2px 4px; }
 
 .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.8rem; }
@@ -201,7 +209,6 @@ td.filled-cell { background: #f0fff4; }
       <label><input type="checkbox" value="Preacher"> Preacher</label>
       <label><input type="checkbox" value="Childrens Message"> Children's Message</label>
       <label><input type="checkbox" value="Lectionary Class"> Lectionary Class</label>
-      <label><input type="checkbox" value="Preschool Chapel"> Preschool Chapel</label>
     </div>
 
     <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
@@ -247,7 +254,7 @@ td.filled-cell { background: #f0fff4; }
     </div>
     <div class="legend">
       <div class="legend-item"><div class="legend-dot" style="background:#3d5a8a;"></div> Per-service (8am / 10:45am)</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#4a5a8a;"></div> Shared (both services)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#247a52;"></div> Shared (both services)</div>
       <div class="legend-item"><div class="legend-dot" style="background:#fff3f3;border:1px solid #f5c6cb;"></div> Unfilled</div>
       <div class="legend-item"><div class="legend-dot" style="background:#f0fff4;border:1px solid #c3e6cb;"></div> Filled</div>
     </div>
@@ -312,27 +319,25 @@ td.filled-cell { background: #f0fff4; }
       <div style="display:flex;gap:24px;flex-wrap:wrap;">
         <div>
           <label style="font-size:0.85rem;font-weight:600;">8am Service</label>
-          <textarea id="breeze-rolemap-8am" rows="9" style="display:block;margin-top:4px;font-family:monospace;font-size:0.8rem;width:260px;padding:6px;border:1px solid #ccc;border-radius:4px;" placeholder="Elder =
+          <textarea id="breeze-rolemap-8am" rows="8" style="display:block;margin-top:4px;font-family:monospace;font-size:0.8rem;width:260px;padding:6px;border:1px solid #ccc;border-radius:4px;" placeholder="Elder =
 Acolyte =
 PowerPoint =
 Lector =
 Liturgist =
 Preacher =
 Childrens Message =
-Lectionary Class =
-Preschool Chapel = "></textarea>
+Lectionary Class = "></textarea>
         </div>
         <div>
           <label style="font-size:0.85rem;font-weight:600;">10:45am Service</label>
-          <textarea id="breeze-rolemap-1045" rows="9" style="display:block;margin-top:4px;font-family:monospace;font-size:0.8rem;width:260px;padding:6px;border:1px solid #ccc;border-radius:4px;" placeholder="Elder =
+          <textarea id="breeze-rolemap-1045" rows="8" style="display:block;margin-top:4px;font-family:monospace;font-size:0.8rem;width:260px;padding:6px;border:1px solid #ccc;border-radius:4px;" placeholder="Elder =
 Acolyte =
 PowerPoint =
 Lector =
 Liturgist =
 Preacher =
 Childrens Message =
-Lectionary Class =
-Preschool Chapel = "></textarea>
+Lectionary Class = "></textarea>
         </div>
       </div>
     </div>
@@ -382,25 +387,10 @@ Preschool Chapel = "></textarea>
     &#9888; No schedule generated yet. Go to the <strong>Schedule</strong> tab and generate a schedule first.
   </div>
 
-  <!-- Step 1: Map people -->
-  <div class="card sync-step" id="sync-step1">
-    <div class="sync-step-header">
-      <div class="step-badge">1</div>
-      <div class="step-title">Link People to Breeze Profiles</div>
-    </div>
-    <p style="font-size:0.85rem;color:#555;margin-bottom:12px;">
-      Search Breeze to find each person's Breeze ID. Click Search next to each name, then select the correct person from the results.
-    </p>
-    <table class="people-map-table" id="people-map-table">
-      <thead><tr><th>Name (in this app)</th><th>Breeze Person</th><th>Status</th><th></th></tr></thead>
-      <tbody id="people-map-tbody"></tbody>
-    </table>
-  </div>
-
-  <!-- Step 2: Map events -->
+  <!-- Step 1: Map events -->
   <div class="card sync-step" id="sync-step2">
     <div class="sync-step-header">
-      <div class="step-badge">2</div>
+      <div class="step-badge">1</div>
       <div class="step-title">Match Sundays to Breeze Event Instances</div>
     </div>
     <p style="font-size:0.85rem;color:#555;margin-bottom:12px;">
@@ -416,10 +406,10 @@ Preschool Chapel = "></textarea>
     </div>
   </div>
 
-  <!-- Step 3: Push -->
+  <!-- Step 2: Push -->
   <div class="card sync-step" id="sync-step3">
     <div class="sync-step-header">
-      <div class="step-badge">3</div>
+      <div class="step-badge">2</div>
       <div class="step-title">Sync Schedule to Breeze</div>
     </div>
     <p style="font-size:0.85rem;color:#555;margin-bottom:12px;">
@@ -460,7 +450,7 @@ function showAlert(elId, msg, type) {
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════════
 var PER_ROLES    = ['Elder', 'Acolyte', 'PowerPoint', 'Lector', 'Liturgist'];
-var SHARED_ROLES = ['Preacher', 'Childrens Message', 'Lectionary Class', 'Preschool Chapel'];
+var SHARED_ROLES = ['Preacher', 'Childrens Message', 'Lectionary Class'];
 var SHARED_LABELS = { 'Childrens Message': "Children's Message" };
 function roleLabel(r) { return SHARED_LABELS[r] || r; }
 var ALL_TABS = ['people','schedule','settings','breeze'];
@@ -736,12 +726,13 @@ document.getElementById('btn-clear-schedule').addEventListener('click', function
 // TABLE RENDERING
 // ══════════════════════════════════════════════════════════════════
 function renderTable(people, counts) {
-  var h1 = '<tr><th class="date-col" rowspan="2">Date</th>'
-    +'<th class="svc-header" colspan="'+PER_ROLES.length+'">8:00 AM</th>'
-    +'<th class="svc-header" colspan="'+PER_ROLES.length+'">10:45 AM</th>'
-    +'<th class="svc-header shared-col" colspan="'+SHARED_ROLES.length+'">Both Services</th></tr>';
+  var h1 = '<tr>'
+    +'<th class="date-col" rowspan="2">Date</th>'
+    +'<th class="svc-col" rowspan="2">Svc</th>'
+    +'<th class="per-header" colspan="'+PER_ROLES.length+'">Per-Service Roles</th>'
+    +'<th class="svc-header shared-col" colspan="'+SHARED_ROLES.length+'">Both Services</th>'
+    +'</tr>';
   var h2 = '<tr>';
-  PER_ROLES.forEach(function(r){ h2+='<th>'+esc(r)+'</th>'; });
   PER_ROLES.forEach(function(r){ h2+='<th>'+esc(r)+'</th>'; });
   SHARED_ROLES.forEach(function(r){ h2+='<th class="shared-col">'+esc(roleLabel(r))+'</th>'; });
   h2 += '</tr>';
@@ -752,11 +743,21 @@ function renderTable(people, counts) {
 
   var bodyHtml = '';
   currentSchedule.forEach(function(row, rowIdx) {
-    var cells = '<td class="date-cell">'+esc(fmtDate(row.date))+'<span class="ordinal">'+esc(row.ordinal+ordSuffix(row.ordinal)+' Sunday')+'</span></td>';
-    PER_ROLES.forEach(function(role){ cells += buildCell(row.assignments[role]['8am'],    pMap,rowIdx,role,'8am'); });
-    PER_ROLES.forEach(function(role){ cells += buildCell(row.assignments[role]['10:45am'],pMap,rowIdx,role,'10:45am'); });
-    SHARED_ROLES.forEach(function(role){ cells += buildCell(row.assignments[role].shared, pMap,rowIdx,role,'shared'); });
-    bodyHtml += '<tr>'+cells+'</tr>';
+    // Row 1: 8am — date cell and shared cells span both rows
+    var r1 = '<tr class="row-8am">';
+    r1 += '<td class="date-cell" rowspan="2">'+esc(fmtDate(row.date))+'<span class="ordinal">'+esc(row.ordinal+ordSuffix(row.ordinal)+' Sunday')+'</span></td>';
+    r1 += '<td class="svc-label svc-8am">8am</td>';
+    PER_ROLES.forEach(function(role){ r1 += buildCell(row.assignments[role]['8am'], pMap, rowIdx, role, '8am'); });
+    SHARED_ROLES.forEach(function(role){ r1 += buildCell(row.assignments[role].shared, pMap, rowIdx, role, 'shared', 2); });
+    r1 += '</tr>';
+
+    // Row 2: 10:45am — date and shared covered by rowspan above
+    var r2 = '<tr class="row-1045">';
+    r2 += '<td class="svc-label svc-1045">10:45</td>';
+    PER_ROLES.forEach(function(role){ r2 += buildCell(row.assignments[role]['10:45am'], pMap, rowIdx, role, '10:45am'); });
+    r2 += '</tr>';
+
+    bodyHtml += r1 + r2;
   });
   document.getElementById('schedule-tbody').innerHTML = bodyHtml;
 
@@ -769,7 +770,7 @@ function renderTable(people, counts) {
   }
 }
 
-function buildCell(pid, pMap, rowIdx, role, svc) {
+function buildCell(pid, pMap, rowIdx, role, svc, rowspan) {
   var filled = pid && pMap[pid];
   var people = getPeople(), ordinal = currentSchedule[rowIdx].ordinal;
   var pool = people.filter(function(p){ return p.roles.indexOf(role)>-1 && eligible(p,ordinal,svc); });
@@ -780,7 +781,9 @@ function buildCell(pid, pMap, rowIdx, role, svc) {
   if (pid && pMap[pid] && !pool.some(function(p){ return p.id===pid; })) {
     opts += '<option value="'+esc(pid)+'" selected>&#9888; '+esc(pMap[pid].name)+'</option>';
   }
-  return '<td class="'+(filled?'filled-cell':'empty-cell')+'">'
+  var rsAttr = rowspan > 1 ? ' rowspan="'+rowspan+'"' : '';
+  var extraClass = rowspan > 1 ? ' shared-cell' : '';
+  return '<td class="'+(filled?'filled-cell':'empty-cell')+extraClass+'"'+rsAttr+'>'
     +'<select class="cell-select" data-row="'+rowIdx+'" data-role="'+esc(role)+'" data-svc="'+esc(svc)+'">'+opts+'</select></td>';
 }
 
@@ -826,6 +829,48 @@ document.getElementById('btn-print').addEventListener('click', function(){ windo
 // ══════════════════════════════════════════════════════════════════
 // REMINDER EMAILS
 // ══════════════════════════════════════════════════════════════════
+function buildHtmlEmail(person, assignments, replyTo) {
+  var rows = assignments.map(function(a) {
+    var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
+    return '<tr>'
+      + '<td style="padding:8px 12px;border-bottom:1px solid #eee;white-space:nowrap;">' + esc(a.date) + '</td>'
+      + '<td style="padding:8px 12px;border-bottom:1px solid #eee;">' + esc(svcLabel) + '</td>'
+      + '<td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;">' + esc(roleLabel(a.role)) + '</td>'
+      + '</tr>';
+  }).join('');
+  var replyLink = replyTo
+    ? '<a href="mailto:' + esc(replyTo) + '" style="color:#2c3e6b;">' + esc(replyTo) + '</a>'
+    : '';
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"></head>'
+    + '<body style="margin:0;padding:0;background:#f0f2f5;font-family:Arial,Helvetica,sans-serif;color:#222;">'
+    + '<div style="max-width:580px;margin:24px auto;">'
+    + '<div style="background:#2c3e6b;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">'
+    + '<div style="font-size:1.2rem;font-weight:700;">Timothy Lutheran Church</div>'
+    + '<div style="font-size:0.85rem;opacity:0.8;margin-top:3px;">Worship Service Volunteer Schedule</div>'
+    + '</div>'
+    + '<div style="background:white;padding:24px;border:1px solid #dde;border-top:none;border-radius:0 0 8px 8px;">'
+    + '<p style="margin:0 0 14px;">Hello ' + esc(person.name) + ',</p>'
+    + '<p style="margin:0 0 12px;color:#444;">Here are your upcoming worship service assignments:</p>'
+    + '<table style="width:100%;border-collapse:collapse;margin:0 0 20px;font-size:0.9rem;">'
+    + '<thead><tr style="background:#f0f2f8;">'
+    + '<th style="padding:8px 12px;text-align:left;border-bottom:2px solid #dde;font-size:0.78rem;color:#2c3e6b;text-transform:uppercase;letter-spacing:0.05em;">Date</th>'
+    + '<th style="padding:8px 12px;text-align:left;border-bottom:2px solid #dde;font-size:0.78rem;color:#2c3e6b;text-transform:uppercase;letter-spacing:0.05em;">Service</th>'
+    + '<th style="padding:8px 12px;text-align:left;border-bottom:2px solid #dde;font-size:0.78rem;color:#2c3e6b;text-transform:uppercase;letter-spacing:0.05em;">Role</th>'
+    + '</tr></thead>'
+    + '<tbody>' + rows + '</tbody>'
+    + '</table>'
+    + '<div style="background:#fff8e1;border-left:4px solid #f0b429;padding:14px 16px;border-radius:0 6px 6px 0;margin-bottom:20px;">'
+    + '<strong style="color:#7a4800;">Unable to serve on one of these dates?</strong>'
+    + '<p style="margin:6px 0 0;font-size:0.88rem;color:#555;">Simply <strong>reply to this email</strong> with the date and role you need to be replaced for, and we will work to find a substitute as soon as possible.</p>'
+    + '</div>'
+    + '<p style="font-size:0.9rem;margin:0 0 0;">Thank you for your faithful service to our congregation!</p>'
+    + '<p style="font-size:0.8rem;color:#999;margin:20px 0 0;padding-top:14px;border-top:1px solid #eee;">'
+    + 'Timothy Lutheran Church'
+    + (replyLink ? ' &mdash; Questions? Contact us at ' + replyLink : '')
+    + '</p>'
+    + '</div></div></body></html>';
+}
+
 function sendReminderEmails() {
   var s = getBreezeSettings();
   if (!s.resendKey || !s.emailFrom) {
@@ -893,7 +938,15 @@ function sendReminderEmails() {
       var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
       lines.push('  \u2022 ' + a.date + ' \u2014 ' + svcLabel + ': ' + roleLabel(a.role));
     });
-    lines.push('', 'Thank you for serving!', '', 'Timothy Lutheran Church');
+    lines.push(
+      '',
+      'If you are unable to serve on any of these dates, please reply to this email',
+      'and we will work to find a replacement.',
+      '',
+      'Thank you for serving!',
+      '',
+      'Timothy Lutheran Church'
+    );
 
     chain = chain.then(function() {
       return fetch(s.workerUrl + '/email/send', {
@@ -904,9 +957,10 @@ function sendReminderEmails() {
           'Content-Type':  'application/json',
         },
         body: JSON.stringify({
-          to:      person.email,
-          subject: 'Your Upcoming Worship Service Assignments \u2014 Timothy Lutheran',
-          text:    lines.join('\n'),
+          to:       person.email,
+          subject:  'Your Upcoming Worship Service Assignments \u2014 Timothy Lutheran',
+          text:     lines.join('\n'),
+          html:     buildHtmlEmail(person, assignments, s.replyTo || ''),
           reply_to: s.replyTo || '',
         }),
       })
@@ -1092,35 +1146,7 @@ function initBreezeTab() {
   var s = getBreezeSettings();
   document.getElementById('breeze-no-settings').style.display = (!s.subdomain||!s.apiKey) ? 'block' : 'none';
   document.getElementById('breeze-no-schedule').style.display = (!currentSchedule.length) ? 'block' : 'none';
-  renderPeopleMapTable();
   renderEventMapTable();
-}
-
-// ── Step 1: People mapping ────────────────────────────────────────
-function renderPeopleMapTable() {
-  var people = getPeople();
-  var tbody = document.getElementById('people-map-tbody');
-  if (!people.length) { tbody.innerHTML = '<tr><td colspan="4" style="color:#888;text-align:center;">No people added yet.</td></tr>'; return; }
-  var html = '';
-  people.forEach(function(p) {
-    var linked = p.breezePersonId
-      ? '<span class="status-dot dot-ok"></span> ID: '+esc(p.breezePersonId)
-      : '<span class="status-dot dot-pending"></span> Not linked';
-    var searchVal = esc(p.name);
-    html += '<tr>'
-      +'<td>'+esc(p.name)+'</td>'
-      +'<td>'
-        +'<div style="display:flex;gap:6px;align-items:center;">'
-        +'<input type="text" value="'+searchVal+'" id="bsearch-'+esc(p.id)+'" style="max-width:180px;" placeholder="Name to search">'
-        +'<button class="btn btn-outline btn-sm" data-pid="'+esc(p.id)+'" onclick="searchBreezePerson(\''+esc(p.id)+'\')">Search</button>'
-        +'</div>'
-        +'<div id="bsearch-results-'+esc(p.id)+'" style="margin-top:4px;"></div>'
-      +'</td>'
-      +'<td id="bstatus-'+esc(p.id)+'">'+linked+'</td>'
-      +'<td>'+(p.breezePersonId?'<button class="btn btn-danger btn-sm" onclick="unlinkBreezePerson(\''+esc(p.id)+'\')">Unlink</button>':'')+'</td>'
-      +'</tr>';
-  });
-  tbody.innerHTML = html;
 }
 
 // ── Breeze import helpers (People tab) ──────────────────────────────────────
@@ -1139,6 +1165,37 @@ function tagsToRoles(tags) {
   return matched;
 }
 
+// Recursively scan any object/array for the first email-like string.
+// Prioritizes keys whose names contain 'email', then scans everything.
+function deepFindEmail(obj) {
+  var found = '';
+  function isEmail(s) { return typeof s === 'string' && s.indexOf('@') !== -1 && s.indexOf('.') !== -1 && s.length > 5; }
+  function scanPriority(o) {
+    if (found) return;
+    if (isEmail(o)) { found = o; return; }
+    if (!o || typeof o !== 'object') return;
+    var keys = Array.isArray(o) ? Object.keys(o) : Object.keys(o);
+    // First pass: keys mentioning email
+    keys.forEach(function(k) {
+      if (found) return;
+      if (String(k).toLowerCase().indexOf('email') !== -1 || String(k).toLowerCase().indexOf('mail') !== -1) {
+        var v = o[k];
+        if (isEmail(v)) { found = v; return; }
+        if (v && typeof v === 'object') {
+          // Check .address or .value sub-keys first
+          if (isEmail(v.address)) { found = v.address; return; }
+          if (isEmail(v.value))   { found = v.value;   return; }
+          scanPriority(v);
+        }
+      }
+    });
+    // Second pass: everything else
+    if (!found) keys.forEach(function(k) { if (!found) scanPriority(o[k]); });
+  }
+  scanPriority(obj);
+  return found;
+}
+
 function importBreezePersonToForm(breezeId) {
   var resultsEl = document.getElementById('breeze-import-results');
   resultsEl.innerHTML = '<span style="color:#888;">Loading\u2026</span>';
@@ -1147,17 +1204,8 @@ function importBreezePersonToForm(breezeId) {
       // Name
       document.getElementById('person-name').value = ((p.first_name||'')+' '+(p.last_name||'')).trim();
 
-      // Email — Breeze nests email in different places depending on version
-      var email = '';
-      if (p.details) {
-        if (p.details.email_primary && p.details.email_primary.address) {
-          email = p.details.email_primary.address;
-        } else if (Array.isArray(p.details.email) && p.details.email.length) {
-          email = p.details.email[0].address || p.details.email[0] || '';
-        } else if (typeof p.details.email === 'string') {
-          email = p.details.email;
-        }
-      }
+      // Email — deep recursive scan of entire response; handles all known Breeze API structures
+      var email = deepFindEmail(p);
       document.getElementById('person-email').value = email;
 
       // Roles from tags
@@ -1170,8 +1218,9 @@ function importBreezePersonToForm(breezeId) {
       // Store Breeze ID so savePerson() links it automatically
       document.getElementById('breeze-import-id').value = breezeId;
 
-      var roleNote = roles.length ? ' Roles pre-checked: ' + roles.join(', ') + '.' : ' No matching role tags found \u2014 check roles manually.';
-      resultsEl.innerHTML = '<span style="color:#27ae60;">\u2713 Filled in from Breeze.' + esc(roleNote) + ' Set Sunday preferences &amp; service preference, then Save.</span>';
+      var roleNote = roles.length ? ' Roles pre-checked: ' + roles.join(', ') + '.' : ' No matching role tags \u2014 check roles manually.';
+      var emailNote = email ? '' : ' <strong>No email found in Breeze \u2014 enter manually.</strong>';
+      resultsEl.innerHTML = '<span style="color:#27ae60;">\u2713 Filled in from Breeze.' + esc(roleNote) + '</span>' + emailNote + ' <span style="color:#555;">Set Sunday preferences &amp; service preference, then Save.</span>';
     })
     .catch(function(e) {
       resultsEl.innerHTML = '<span style="color:#e74c3c;">Error: ' + esc(String(e)) + '</span>';
@@ -1218,76 +1267,7 @@ document.getElementById('btn-breeze-import-search').addEventListener('click', fu
     });
 });
 
-// ── Breeze Sync tab search/link (existing) ───────────────────────────────────
-function searchBreezePerson(personId) {
-  var inputEl = document.getElementById('bsearch-'+personId);
-  var rawQuery = inputEl ? inputEl.value.trim() : '';
-  var queryParts = rawQuery.toLowerCase().split(/\s+/).filter(function(p){ return p.length > 0; });
-  if (!queryParts.length) { alert('Enter a name to search.'); return; }
-  var resultsEl = document.getElementById('bsearch-results-'+personId);
-  resultsEl.innerHTML = '<span style="color:#888;font-size:0.82rem;">Searching…</span>';
-
-  var breezeS = getBreezeSettings();
-  var searchParams = { details:0, limit:500 };
-  if (breezeS.tagId) searchParams.filter_json = JSON.stringify({ tag_contains: 'y_' + breezeS.tagId });
-  breezeGet('/api/people', searchParams)
-    .then(function(data) {
-      if (!data || !data.length) {
-        resultsEl.innerHTML = '<span style="color:#888;font-size:0.82rem;">No results found.</span>';
-        return;
-      }
-      // Filter client-side — Breeze API does not support a name search parameter.
-      // Each word in the query must match either first_name or last_name (case-insensitive).
-      var filtered = data.filter(function(bp) {
-        var first = (bp.first_name||'').toLowerCase();
-        var last  = (bp.last_name||'').toLowerCase();
-        return queryParts.every(function(part) {
-          return first.indexOf(part) !== -1 || last.indexOf(part) !== -1;
-        });
-      });
-      // Sort: people whose last name matches the last query word appear first
-      var qLast = queryParts[queryParts.length - 1];
-      filtered.sort(function(a, b) {
-        var aMatch = (a.last_name||'').toLowerCase().indexOf(qLast) !== -1 ? 0 : 1;
-        var bMatch = (b.last_name||'').toLowerCase().indexOf(qLast) !== -1 ? 0 : 1;
-        return aMatch - bMatch;
-      });
-      if (!filtered.length) {
-        resultsEl.innerHTML = '<span style="color:#888;font-size:0.82rem;">No results found.</span>';
-        return;
-      }
-      var html = '<select id="bselect-'+esc(personId)+'" class="form-select" style="max-width:240px;margin-top:4px;font-size:0.82rem;">';
-      html += '<option value="">-- Select person --</option>';
-      filtered.forEach(function(bp) {
-        html += '<option value="'+esc(bp.id)+'">'+esc((bp.first_name||'')+' '+(bp.last_name||'')).trim()+' (ID: '+esc(bp.id)+')</option>';
-      });
-      html += '</select>';
-      html += '<button class="btn btn-primary btn-sm" style="margin-top:4px;" onclick="linkBreezePerson(\''+esc(personId)+'\')">Link Selected</button>';
-      resultsEl.innerHTML = html;
-    })
-    .catch(function(err) {
-      resultsEl.innerHTML = '<span style="color:#e74c3c;font-size:0.82rem;">Error: '+esc(String(err))+'</span>';
-    });
-}
-
-function linkBreezePerson(personId) {
-  var sel = document.getElementById('bselect-'+personId);
-  if (!sel||!sel.value) { alert('Please select a person from the list.'); return; }
-  var breezeId = sel.value;
-  var people = getPeople();
-  people.forEach(function(p){ if (p.id===personId) p.breezePersonId = breezeId; });
-  savePeople(people);
-  renderPeopleMapTable();
-}
-
-function unlinkBreezePerson(personId) {
-  var people = getPeople();
-  people.forEach(function(p){ if (p.id===personId) p.breezePersonId = null; });
-  savePeople(people);
-  renderPeopleMapTable();
-}
-
-// ── Step 2: Event mapping ─────────────────────────────────────────
+// ── Event mapping ─────────────────────────────────────────
 var fetchedBreezeEvents = [];
 
 document.getElementById('btn-fetch-events').addEventListener('click', function() {
