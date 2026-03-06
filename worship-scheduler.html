@@ -321,6 +321,7 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
         <button class="btn btn-outline btn-sm" id="btn-print">Print</button>
         <button class="btn btn-outline btn-sm" id="btn-send-emails" style="background:#e8f4fd;border-color:#3498db;color:#2980b9;">&#9993; Send Reminder Emails</button>
         <button class="btn btn-outline btn-sm" id="btn-sync-confirmations" style="background:#f0fff4;border-color:#27ae60;color:#1a7a42;">&#8635; Sync Confirmations</button>
+        <button class="btn btn-outline btn-sm" id="btn-restore-tokens" style="background:#fdf6e8;border-color:#e0a800;color:#7a5500;" title="Re-upload RSVP tokens to Worker KV without re-sending emails">&#128274; Re-store Tokens</button>
         <span id="email-send-status" style="font-size:0.82rem;color:#555;"></span>
         <button class="btn btn-danger btn-sm" id="btn-clear-schedule">Clear Schedule</button>
       </div>
@@ -369,6 +370,15 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
       <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
         Required for browser access. Paste the Worker URL after deploying <strong>breeze-proxy-worker.js</strong> to Cloudflare.
         See instructions on the <a href="https://dash.cloudflare.com" target="_blank">Cloudflare Dashboard</a>.
+      </small>
+    </div>
+
+    <div style="border-top:1px solid #eee;margin-top:20px;padding-top:16px;">
+      <label for="breeze-worker-secret">Worker Secret <span style="font-weight:normal;color:#888;">(recommended)</span></label>
+      <input type="password" id="breeze-worker-secret" placeholder="Paste your WORKER_SECRET value" style="max-width:420px;">
+      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
+        In Cloudflare Dashboard: Worker Settings &rarr; Variables &rarr; add <code>WORKER_SECRET</code> = any long random string.
+        Paste the same value here. This prevents unauthorized use of your Worker.
       </small>
     </div>
 
@@ -1062,6 +1072,9 @@ window.addEventListener('afterprint', function() {
 // REMINDER EMAILS
 // ══════════════════════════════════════════════════════════════════
 function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
+  var th = 'padding:8px 12px;text-align:left;border-bottom:2px solid #dde;font-size:0.78rem;color:#2c3e6b;text-transform:uppercase;letter-spacing:0.05em;';
+
+  // Schedule table — always 3 columns, no confirm column (fits any screen width)
   var rows = assignments.map(function(a) {
     var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
     return '<tr>'
@@ -1070,24 +1083,51 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
       + '<td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;">' + esc(roleLabel(a.role)) + '</td>'
       + '</tr>';
   }).join('');
+
   var replyLink = replyTo
     ? '<a href="mailto:' + esc(replyTo) + '" style="color:#2c3e6b;">' + esc(replyTo) + '</a>'
     : '';
 
-  // RSVP buttons — only shown when a token and worker URL are provided
+  // RSVP section — separate block below the schedule table, mobile-safe 2-col layout
   var rsvpSection = '';
   if (rsvpToken && workerUrl) {
-    var confirmUrl     = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&status=confirmed';
-    var needsChangeUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&status=needs_changes';
+    var confirmAllUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&status=confirmed';
+    var changesAllUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&status=needs_changes';
+    var portalUrl     = workerUrl + '/rsvp/portal?token=' + encodeURIComponent(rsvpToken);
+
+    // Per-assignment rows in a 2-column table: "Date — Role (svc)" | [✓ Yes] [⚠ Change]
+    // Two columns is easy on any phone; no 4-col overflow
+    var confirmRows = assignments.map(function(a, idx) {
+      var svcLabel = a.svc === 'both services' ? 'Both Svcs' : a.svc;
+      var cfUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&idx=' + idx + '&status=confirmed';
+      var ncUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&idx=' + idx + '&status=needs_changes';
+      return '<tr>'
+        + '<td style="padding:10px 12px;border-bottom:1px solid #eef;font-size:0.86rem;vertical-align:middle;">'
+        + '<strong>' + esc(a.date) + '</strong>'
+        + '<span style="color:#666;"> &mdash; ' + esc(roleLabel(a.role)) + '</span>'
+        + '<br><span style="font-size:0.78rem;color:#999;">' + esc(svcLabel) + '</span>'
+        + '</td>'
+        + '<td style="padding:10px 12px;border-bottom:1px solid #eef;vertical-align:middle;text-align:right;width:1%;white-space:nowrap;">'
+        + '<a href="' + esc(cfUrl) + '" style="display:inline-block;background:#27ae60;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;margin-right:5px;">\u2713 Yes</a>'
+        + '<a href="' + esc(ncUrl) + '" style="display:inline-block;background:#e67e22;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;">\u26a0 Change</a>'
+        + '</td>'
+        + '</tr>';
+    }).join('');
+
     rsvpSection = ''
-      + '<div style="background:#eef4ff;border:1px solid #c0d0f0;border-radius:8px;padding:20px 24px;margin-bottom:20px;text-align:center;">'
-      + '<p style="margin:0 0 6px;font-size:0.88rem;color:#444;font-weight:600;">Can you serve on these dates?</p>'
-      + '<p style="margin:0 0 16px;font-size:0.82rem;color:#666;">Please let us know so we can plan accordingly.</p>'
-      + '<a href="' + esc(confirmUrl) + '" style="display:inline-block;background:#27ae60;color:white;text-decoration:none;padding:11px 28px;border-radius:6px;font-weight:700;font-size:0.95rem;margin:0 6px;">'
-      + '\u2713&nbsp; Yes, I\u2019ll be there</a>'
-      + '<a href="' + esc(needsChangeUrl) + '" style="display:inline-block;background:#e67e22;color:white;text-decoration:none;padding:11px 28px;border-radius:6px;font-weight:700;font-size:0.95rem;margin:6px 6px 0;">'
-      + '\u26a0&nbsp; I need a change</a>'
-      + '<p style="margin:14px 0 0;font-size:0.76rem;color:#999;">You can also reply directly to this email with any questions.</p>'
+      + '<div style="background:#f6f9ff;border:1px solid #c8d8f0;border-radius:8px;margin-bottom:20px;overflow:hidden;">'
+      + '<div style="background:#2c3e6b;padding:10px 14px;">'
+      + '<p style="margin:0;font-size:0.82rem;color:white;font-weight:600;">Can you serve on these Sundays? Please confirm each one:</p>'
+      + '</div>'
+      + '<table style="width:100%;border-collapse:collapse;">'
+      + confirmRows
+      + '</table>'
+      + '<div style="padding:12px 14px;background:#eef2fb;border-top:1px solid #c8d8f0;">'
+      + '<p style="margin:0 0 8px;font-size:0.78rem;color:#555;">Or respond to all at once:</p>'
+      + '<a href="' + esc(confirmAllUrl) + '" style="display:inline-block;background:#27ae60;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\u2713 Confirm All</a>'
+      + '<a href="' + esc(changesAllUrl) + '" style="display:inline-block;background:#e67e22;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\u26a0 Change All</a>'
+      + '<a href="' + esc(portalUrl) + '" style="display:inline-block;background:white;color:#2c3e6b;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:600;font-size:0.82rem;border:1px solid #c8d0e8;margin:0 0 4px 0;">\uD83D\uDCC5 My Full Schedule</a>'
+      + '</div>'
       + '</div>';
   }
 
@@ -1101,11 +1141,11 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
     + '<div style="background:white;padding:24px;border:1px solid #dde;border-top:none;border-radius:0 0 8px 8px;">'
     + '<p style="margin:0 0 14px;">Hello ' + esc(person.name) + ',</p>'
     + '<p style="margin:0 0 12px;color:#444;">Here are your upcoming worship service assignments:</p>'
-    + '<table style="width:100%;border-collapse:collapse;margin:0 0 20px;font-size:0.9rem;">'
+    + '<table style="width:100%;border-collapse:collapse;margin:0 0 20px;font-size:0.88rem;">'
     + '<thead><tr style="background:#f0f2f8;">'
-    + '<th style="padding:8px 12px;text-align:left;border-bottom:2px solid #dde;font-size:0.78rem;color:#2c3e6b;text-transform:uppercase;letter-spacing:0.05em;">Date</th>'
-    + '<th style="padding:8px 12px;text-align:left;border-bottom:2px solid #dde;font-size:0.78rem;color:#2c3e6b;text-transform:uppercase;letter-spacing:0.05em;">Service</th>'
-    + '<th style="padding:8px 12px;text-align:left;border-bottom:2px solid #dde;font-size:0.78rem;color:#2c3e6b;text-transform:uppercase;letter-spacing:0.05em;">Role</th>'
+    + '<th style="' + th + '">Date</th>'
+    + '<th style="' + th + '">Service</th>'
+    + '<th style="' + th + '">Role</th>'
     + '</tr></thead>'
     + '<tbody>' + rows + '</tbody>'
     + '</table>'
@@ -1113,7 +1153,7 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
     + (rsvpToken ? '' :
         '<div style="background:#fff8e1;border-left:4px solid #f0b429;padding:14px 16px;border-radius:0 6px 6px 0;margin-bottom:20px;">'
       + '<strong style="color:#7a4800;">Unable to serve on one of these dates?</strong>'
-      + '<p style="margin:6px 0 0;font-size:0.88rem;color:#555;">Simply <strong>reply to this email</strong> with the date and role you need to be replaced for, and we will work to find a substitute as soon as possible.</p>'
+      + '<p style="margin:6px 0 0;font-size:0.88rem;color:#555;">Simply <strong>reply to this email</strong> and we will work to find a substitute.</p>'
       + '</div>')
     + '<p style="font-size:0.9rem;margin:0 0 6px;">Thank you for your faithful service to our congregation!</p>'
     + '<p style="font-size:0.78rem;color:#aaa;margin:4px 0 0;">A calendar attachment (.ics) is included \u2014 add it to your calendar to be reminded on each Sunday you serve.</p>'
@@ -1271,7 +1311,7 @@ function sendReminderEmails() {
       var storePromise = (token && s.workerUrl)
         ? fetch(s.workerUrl + '/rsvp/store', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: Object.assign({ 'Content-Type': 'application/json' }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
             body: JSON.stringify({
               token:       token,
               name:        person.name,
@@ -1286,11 +1326,11 @@ function sendReminderEmails() {
       return storePromise.then(function() {
         return fetch(s.workerUrl + '/email/send', {
           method: 'POST',
-          headers: {
+          headers: Object.assign({
             'X-Resend-Key':  s.resendKey,
             'X-Email-From':  s.emailFrom,
             'Content-Type':  'application/json',
-          },
+          }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
           body: JSON.stringify({
             to:       person.email,
             subject:  'Your Upcoming Worship Service Assignments \u2014 Timothy Lutheran',
@@ -1359,7 +1399,7 @@ function syncConfirmations() {
 
   fetch(s.workerUrl + '/rsvp/sync', {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: Object.assign({ 'Content-Type': 'application/json' }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
     body:    JSON.stringify({ tokens: tokenList }),
   })
     .then(function(r) { return r.json(); })
@@ -1373,31 +1413,51 @@ function syncConfirmations() {
       var updated = 0;
 
       Object.keys(results).forEach(function(token) {
-        var pid = tokenToPid[token];
+        var pid    = tokenToPid[token];
         if (!pid) return;
-        var workerStatus = results[token].status;            // 'pending' | 'confirmed' | 'needs_changes'
-        var localStatus  = workerStatus === 'confirmed'     ? 'confirmed'
-                         : workerStatus === 'needs_changes' ? 'needs_changes'
-                         : 'pending';
+        var result = results[token];
 
-        // Find all slots in the schedule currently assigned to this person
-        currentSchedule.forEach(function(row) {
-          var dateISO = row.date.toISOString().slice(0, 10);
-          PER_ROLES.forEach(function(role) {
-            ['8am','10:45am'].forEach(function(svc) {
-              if (row.assignments[role][svc] === pid) {
-                var key = dateISO + '|' + role + '|' + svc;
+        // ── Per-assignment sync (preferred) ───────────────────────
+        // The Worker now returns assignments[] each with their own status.
+        // Map each assignment's dateISO+svc+role → confKey and update.
+        if (result.assignments && result.assignments.length) {
+          result.assignments.forEach(function(a) {
+            if (!a.dateISO) return;
+            var localStatus = a.status === 'confirmed'     ? 'confirmed'
+                            : a.status === 'needs_changes' ? 'needs_changes'
+                            : 'pending';
+            if (localStatus === 'pending') return; // leave pending pills alone
+            // confKey uses 'shared' for both-services slots, not 'both services'
+            var svcKey = a.svc === 'both services' ? 'shared' : a.svc;
+            var key    = a.dateISO + '|' + a.role + '|' + svcKey;
+            if (confs[key] !== localStatus) { confs[key] = localStatus; updated++; }
+          });
+
+        } else {
+          // ── Fallback: use overall status for all slots (older tokens) ──
+          var workerStatus = result.status;
+          var localStatus  = workerStatus === 'confirmed'     ? 'confirmed'
+                           : workerStatus === 'needs_changes' ? 'needs_changes'
+                           : 'pending';
+          if (localStatus === 'pending') return;
+          currentSchedule.forEach(function(row) {
+            var dateISO = row.date.toISOString().slice(0, 10);
+            PER_ROLES.forEach(function(role) {
+              ['8am','10:45am'].forEach(function(svc) {
+                if (row.assignments[role][svc] === pid) {
+                  var key = dateISO + '|' + role + '|' + svc;
+                  if (confs[key] !== localStatus) { confs[key] = localStatus; updated++; }
+                }
+              });
+            });
+            SHARED_ROLES.forEach(function(role) {
+              if (row.assignments[role].shared === pid) {
+                var key = dateISO + '|' + role + '|shared';
                 if (confs[key] !== localStatus) { confs[key] = localStatus; updated++; }
               }
             });
           });
-          SHARED_ROLES.forEach(function(role) {
-            if (row.assignments[role].shared === pid) {
-              var key = dateISO + '|' + role + '|shared';
-              if (confs[key] !== localStatus) { confs[key] = localStatus; updated++; }
-            }
-          });
-        });
+        }
       });
 
       saveConfirmations(confs);
@@ -1419,6 +1479,81 @@ function syncConfirmations() {
 }
 
 document.getElementById('btn-sync-confirmations').addEventListener('click', syncConfirmations);
+
+// ══════════════════════════════════════════════════════════════════
+// RE-STORE TOKENS — push existing tokens to Worker KV without
+// re-sending any emails (use when KV was set up after first send)
+// ══════════════════════════════════════════════════════════════════
+function restoreRsvpTokens() {
+  var s = getBreezeSettings();
+  if (!s.workerUrl) { alert('Configure your Worker URL in Settings first.'); return; }
+  var rsvpTokens = getRsvpTokens();
+  var people = getPeople();
+  var pMap = {};
+  people.forEach(function(p) { pMap[p.id] = p; });
+
+  // Rebuild personAssignments from currentSchedule
+  var personAssignments = {};
+  currentSchedule.forEach(function(row) {
+    var dateStr = fmtDate(row.date);
+    var dateISO = row.date.toISOString().slice(0, 10);
+    PER_ROLES.forEach(function(role) {
+      ['8am','10:45am'].forEach(function(svc) {
+        var pid = row.assignments[role][svc];
+        if (!pid) return;
+        if (!personAssignments[pid]) personAssignments[pid] = [];
+        personAssignments[pid].push({ date: dateStr, dateISO: dateISO, svc: svc, role: role });
+      });
+    });
+    SHARED_ROLES.forEach(function(role) {
+      var pid = row.assignments[role].shared;
+      if (!pid) return;
+      if (!personAssignments[pid]) personAssignments[pid] = [];
+      personAssignments[pid].push({ date: dateStr, dateISO: dateISO, svc: 'both services', role: role });
+    });
+  });
+
+  var pids = Object.keys(rsvpTokens);
+  if (!pids.length) {
+    document.getElementById('email-send-status').textContent = 'No tokens found \u2014 send reminder emails first.';
+    return;
+  }
+
+  var statusEl = document.getElementById('email-send-status');
+  statusEl.textContent = 'Re-storing tokens\u2026';
+  var done = 0, errors = 0;
+
+  var chain = Promise.resolve();
+  pids.forEach(function(pid) {
+    var person = pMap[pid];
+    var token  = rsvpTokens[pid];
+    if (!person || !token) return;
+    chain = chain.then(function() {
+      return fetch(s.workerUrl + '/rsvp/store', {
+        method:  'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
+        body: JSON.stringify({
+          token:       token,
+          name:        person.name,
+          personId:    person.id,
+          assignments: (personAssignments[pid] || []).map(function(a) {
+            return { date: a.date, dateISO: a.dateISO, svc: a.svc, role: a.role };
+          }),
+        }),
+      })
+        .then(function(r) { if (r.ok) done++; else errors++; })
+        .catch(function()  { errors++; });
+    });
+  });
+
+  chain.then(function() {
+    statusEl.textContent = errors
+      ? '\u00d7 Re-stored ' + done + ', failed ' + errors + '. Check Worker KV binding in Cloudflare.'
+      : '\u2713 Re-stored ' + done + ' token' + (done !== 1 ? 's' : '') + ' \u2014 existing email links will now work.';
+  });
+}
+
+document.getElementById('btn-restore-tokens').addEventListener('click', restoreRsvpTokens);
 
 // ══════════════════════════════════════════════════════════════════
 // SETTINGS
@@ -1454,24 +1589,26 @@ function loadSettingsForm() {
   if (s.tagId)      document.getElementById('breeze-tag-id').value     = s.tagId;
   document.getElementById('breeze-rolemap-8am').value  = roleMapToText(s.roleMap8am  || {});
   document.getElementById('breeze-rolemap-1045').value = roleMapToText(s.roleMap1045 || {});
-  if (s.resendKey)  document.getElementById('email-resend-key').value  = s.resendKey;
-  if (s.emailFrom)  document.getElementById('email-from').value        = s.emailFrom;
-  if (s.replyTo)    document.getElementById('email-reply-to').value    = s.replyTo;
+  if (s.resendKey)     document.getElementById('email-resend-key').value     = s.resendKey;
+  if (s.emailFrom)     document.getElementById('email-from').value            = s.emailFrom;
+  if (s.replyTo)       document.getElementById('email-reply-to').value        = s.replyTo;
+  if (s.workerSecret)  document.getElementById('breeze-worker-secret').value  = s.workerSecret;
 }
 
 document.getElementById('btn-save-settings').addEventListener('click', function() {
-  var subdomain   = document.getElementById('breeze-subdomain').value.trim().replace(/\//g,'');
-  var apiKey      = document.getElementById('breeze-apikey').value.trim();
-  var workerUrl   = document.getElementById('breeze-worker-url').value.trim().replace(/\/$/, '');
-  var tagId       = document.getElementById('breeze-tag-id').value.trim().replace(/\D/g,'');
-  var roleMap8am  = textToRoleMap(document.getElementById('breeze-rolemap-8am').value);
-  var roleMap1045 = textToRoleMap(document.getElementById('breeze-rolemap-1045').value);
-  var resendKey   = document.getElementById('email-resend-key').value.trim();
-  var emailFrom   = document.getElementById('email-from').value.trim();
-  var replyTo     = document.getElementById('email-reply-to').value.trim();
+  var subdomain     = document.getElementById('breeze-subdomain').value.trim().replace(/\//g,'');
+  var apiKey        = document.getElementById('breeze-apikey').value.trim();
+  var workerUrl     = document.getElementById('breeze-worker-url').value.trim().replace(/\/$/, '');
+  var workerSecret  = document.getElementById('breeze-worker-secret').value.trim();
+  var tagId         = document.getElementById('breeze-tag-id').value.trim().replace(/\D/g,'');
+  var roleMap8am    = textToRoleMap(document.getElementById('breeze-rolemap-8am').value);
+  var roleMap1045   = textToRoleMap(document.getElementById('breeze-rolemap-1045').value);
+  var resendKey     = document.getElementById('email-resend-key').value.trim();
+  var emailFrom     = document.getElementById('email-from').value.trim();
+  var replyTo       = document.getElementById('email-reply-to').value.trim();
   if (!subdomain||!apiKey) { showAlert('settings-alert','Please enter both subdomain and API key.','warning'); return; }
   if (!workerUrl) { showAlert('settings-alert','Please enter your Cloudflare Worker URL.','warning'); return; }
-  saveBreezeSettings({ subdomain:subdomain, apiKey:apiKey, workerUrl:workerUrl, tagId:tagId, roleMap8am:roleMap8am, roleMap1045:roleMap1045, resendKey:resendKey, emailFrom:emailFrom, replyTo:replyTo });
+  saveBreezeSettings({ subdomain:subdomain, apiKey:apiKey, workerUrl:workerUrl, workerSecret:workerSecret, tagId:tagId, roleMap8am:roleMap8am, roleMap1045:roleMap1045, resendKey:resendKey, emailFrom:emailFrom, replyTo:replyTo });
   showAlert('settings-alert','Settings saved!','success');
   document.getElementById('settings-status').textContent = '';
 });
@@ -1504,10 +1641,10 @@ function breezeGet(path, params) {
   var url = s.workerUrl + path + (qs ? '?'+qs : '');
   return fetch(url, {
     method: 'GET',
-    headers: {
+    headers: Object.assign({
       'X-Breeze-Subdomain': s.subdomain,
       'X-Breeze-Api-Key':   s.apiKey,
-    },
+    }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
   })
     .then(function(r) {
       if (!r.ok) throw 'HTTP '+r.status;
@@ -1529,11 +1666,11 @@ function breezePost(path, fields) {
   var url = s.workerUrl + path;
   return fetch(url, {
     method: 'POST',
-    headers: {
+    headers: Object.assign({
       'X-Breeze-Subdomain': s.subdomain,
       'X-Breeze-Api-Key':   s.apiKey,
       'Content-Type':       'application/x-www-form-urlencoded',
-    },
+    }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
     body: body,
   })
     .then(function(r) {
@@ -1550,10 +1687,10 @@ function breezeGetHtml(path) {
   var url = s.workerUrl + path;
   return fetch(url, {
     method: 'GET',
-    headers: {
+    headers: Object.assign({
       'X-Breeze-Subdomain': s.subdomain,
       'X-Breeze-Api-Key':   s.apiKey,
-    },
+    }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
   }).then(function(r) {
     if (!r.ok) throw 'HTTP '+r.status;
     return r.text();
