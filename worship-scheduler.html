@@ -276,7 +276,6 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
       <label><input type="checkbox" value="Liturgist"> Liturgist</label>
       <label><input type="checkbox" value="Preacher"> Preacher</label>
       <label><input type="checkbox" value="Childrens Message"> Children's Message</label>
-      <label><input type="checkbox" value="Lectionary Class"> Lectionary Class</label>
     </div>
 
     <label style="margin-top:16px;">Unavailable / Blackout Sundays</label>
@@ -294,7 +293,15 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
   </div>
 
   <div class="card">
-    <h2>All People (<span id="people-count">0</span>)</h2>
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+      <h2 style="margin:0;">All People (<span id="people-count">0</span>)</h2>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap;">
+        <span style="font-size:0.8rem;color:#666;font-weight:600;">Sort:</span>
+        <button class="btn btn-outline btn-sm" id="sort-btn-name"   onclick="setPeopleSort('name')"   >Name</button>
+        <button class="btn btn-outline btn-sm" id="sort-btn-role"   onclick="setPeopleSort('role')"   >Role</button>
+        <button class="btn btn-outline btn-sm" id="sort-btn-service" onclick="setPeopleSort('service')">Service</button>
+      </div>
+    </div>
     <div id="people-list" class="people-grid"></div>
   </div>
 </div>
@@ -389,11 +396,16 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
     </div>
 
     <div style="border-top:1px solid #eee;margin-top:20px;padding-top:16px;">
-      <label for="breeze-tag-id">People Search Tag ID <span style="font-weight:normal;color:#888;">(optional)</span></label>
+      <label for="breeze-tag-id">Members Tag ID <span style="font-weight:normal;color:#888;">(optional)</span></label>
       <input type="text" id="breeze-tag-id" placeholder="e.g. 4884325" style="max-width:240px;">
       <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
         Limits people search to a specific Breeze tag (e.g. "Members"). Find the tag ID in the URL when viewing the tag in Breeze:
         <code>people/filter#/tag_contains=y_XXXXXXX</code>
+      </small>
+      <label for="breeze-fieldworkers-tag-id" style="margin-top:12px;display:block;">Fieldworkers Tag ID <span style="font-weight:normal;color:#888;">(optional)</span></label>
+      <input type="text" id="breeze-fieldworkers-tag-id" placeholder="e.g. 5123456" style="max-width:240px;">
+      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
+        If set, people searches will also include those tagged as Fieldworkers. Results from both tags are combined automatically.
       </small>
     </div>
 
@@ -408,25 +420,23 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
       <div style="display:flex;gap:24px;flex-wrap:wrap;">
         <div>
           <label style="font-size:0.85rem;font-weight:600;">8am Service</label>
-          <textarea id="breeze-rolemap-8am" rows="8" style="display:block;margin-top:4px;font-family:monospace;font-size:0.8rem;width:260px;padding:6px;border:1px solid #ccc;border-radius:4px;" placeholder="Elder =
+          <textarea id="breeze-rolemap-8am" rows="7" style="display:block;margin-top:4px;font-family:monospace;font-size:0.8rem;width:260px;padding:6px;border:1px solid #ccc;border-radius:4px;" placeholder="Elder =
 Acolyte =
 PowerPoint =
 Lector =
 Liturgist =
 Preacher =
-Childrens Message =
-Lectionary Class = "></textarea>
+Childrens Message = "></textarea>
         </div>
         <div>
           <label style="font-size:0.85rem;font-weight:600;">10:45am Service</label>
-          <textarea id="breeze-rolemap-1045" rows="8" style="display:block;margin-top:4px;font-family:monospace;font-size:0.8rem;width:260px;padding:6px;border:1px solid #ccc;border-radius:4px;" placeholder="Elder =
+          <textarea id="breeze-rolemap-1045" rows="7" style="display:block;margin-top:4px;font-family:monospace;font-size:0.8rem;width:260px;padding:6px;border:1px solid #ccc;border-radius:4px;" placeholder="Elder =
 Acolyte =
 PowerPoint =
 Lector =
 Liturgist =
 Preacher =
-Childrens Message =
-Lectionary Class = "></textarea>
+Childrens Message = "></textarea>
         </div>
       </div>
     </div>
@@ -539,7 +549,7 @@ function showAlert(elId, msg, type) {
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════════
 var PER_ROLES    = ['Elder', 'Acolyte', 'PowerPoint', 'Lector', 'Liturgist'];
-var SHARED_ROLES = ['Preacher', 'Childrens Message', 'Lectionary Class'];
+var SHARED_ROLES = ['Preacher', 'Childrens Message'];
 var SHARED_LABELS = { 'Childrens Message': "Children's Message" };
 function roleLabel(r) { return SHARED_LABELS[r] || r; }
 var ALL_TABS = ['people','schedule','settings','breeze','stats'];
@@ -600,6 +610,7 @@ function loadSchedule() {
 // ══════════════════════════════════════════════════════════════════
 var currentSchedule = [];
 var currentBlackouts = []; // ISO date strings for the person currently in the form
+var peopleSortBy = 'name';  // 'name' | 'role' | 'service'
 
 // ══════════════════════════════════════════════════════════════════
 // TABS
@@ -730,8 +741,36 @@ document.getElementById('btn-clear-form').addEventListener('click', clearForm);
 // ══════════════════════════════════════════════════════════════════
 // PEOPLE LIST
 // ══════════════════════════════════════════════════════════════════
+function setPeopleSort(field) {
+  peopleSortBy = field;
+  renderPeopleList();
+}
+
 function renderPeopleList() {
-  var people = getPeople();
+  var people = getPeople().slice(); // copy so sort doesn't mutate storage
+  // Apply sort
+  var svcOrder = { '8am': 0, 'both': 1, '10:45am': 2 };
+  people.sort(function(a, b) {
+    if (peopleSortBy === 'name') {
+      return a.name.localeCompare(b.name);
+    } else if (peopleSortBy === 'role') {
+      var ar = (a.roles[0] || '').toLowerCase();
+      var br = (b.roles[0] || '').toLowerCase();
+      if (ar !== br) return ar.localeCompare(br);
+      return a.name.localeCompare(b.name);
+    } else { // service
+      var as = svcOrder[a.servicePreference] !== undefined ? svcOrder[a.servicePreference] : 99;
+      var bs = svcOrder[b.servicePreference] !== undefined ? svcOrder[b.servicePreference] : 99;
+      if (as !== bs) return as - bs;
+      return a.name.localeCompare(b.name);
+    }
+  });
+  // Update active sort button styles
+  ['name','role','service'].forEach(function(f) {
+    var btn = document.getElementById('sort-btn-' + f);
+    if (btn) btn.style.background = (f === peopleSortBy) ? '#2c3e6b' : '';
+    if (btn) btn.style.color      = (f === peopleSortBy) ? '#fff'     : '';
+  });
   document.getElementById('people-count').textContent = people.length;
   var container = document.getElementById('people-list');
   if (people.length === 0) {
@@ -1592,7 +1631,8 @@ function loadSettingsForm() {
   if (s.subdomain)  document.getElementById('breeze-subdomain').value  = s.subdomain;
   if (s.apiKey)     document.getElementById('breeze-apikey').value     = s.apiKey;
   if (s.workerUrl)  document.getElementById('breeze-worker-url').value = s.workerUrl;
-  if (s.tagId)      document.getElementById('breeze-tag-id').value     = s.tagId;
+  if (s.tagId)              document.getElementById('breeze-tag-id').value              = s.tagId;
+  if (s.fieldworkersTagId)  document.getElementById('breeze-fieldworkers-tag-id').value = s.fieldworkersTagId;
   document.getElementById('breeze-rolemap-8am').value  = roleMapToText(s.roleMap8am  || {});
   document.getElementById('breeze-rolemap-1045').value = roleMapToText(s.roleMap1045 || {});
   if (s.resendKey)     document.getElementById('email-resend-key').value     = s.resendKey;
@@ -1606,7 +1646,8 @@ document.getElementById('btn-save-settings').addEventListener('click', function(
   var apiKey        = document.getElementById('breeze-apikey').value.trim();
   var workerUrl     = document.getElementById('breeze-worker-url').value.trim().replace(/\/$/, '');
   var workerSecret  = document.getElementById('breeze-worker-secret').value.trim();
-  var tagId         = document.getElementById('breeze-tag-id').value.trim().replace(/\D/g,'');
+  var tagId              = document.getElementById('breeze-tag-id').value.trim().replace(/\D/g,'');
+  var fieldworkersTagId  = document.getElementById('breeze-fieldworkers-tag-id').value.trim().replace(/\D/g,'');
   var roleMap8am    = textToRoleMap(document.getElementById('breeze-rolemap-8am').value);
   var roleMap1045   = textToRoleMap(document.getElementById('breeze-rolemap-1045').value);
   var resendKey     = document.getElementById('email-resend-key').value.trim();
@@ -1614,7 +1655,7 @@ document.getElementById('btn-save-settings').addEventListener('click', function(
   var replyTo       = document.getElementById('email-reply-to').value.trim();
   if (!subdomain||!apiKey) { showAlert('settings-alert','Please enter both subdomain and API key.','warning'); return; }
   if (!workerUrl) { showAlert('settings-alert','Please enter your Cloudflare Worker URL.','warning'); return; }
-  saveBreezeSettings({ subdomain:subdomain, apiKey:apiKey, workerUrl:workerUrl, workerSecret:workerSecret, tagId:tagId, roleMap8am:roleMap8am, roleMap1045:roleMap1045, resendKey:resendKey, emailFrom:emailFrom, replyTo:replyTo });
+  saveBreezeSettings({ subdomain:subdomain, apiKey:apiKey, workerUrl:workerUrl, workerSecret:workerSecret, tagId:tagId, fieldworkersTagId:fieldworkersTagId, roleMap8am:roleMap8am, roleMap1045:roleMap1045, resendKey:resendKey, emailFrom:emailFrom, replyTo:replyTo });
   showAlert('settings-alert','Settings saved!','success');
   document.getElementById('settings-status').textContent = '';
 });
@@ -1798,13 +1839,32 @@ document.getElementById('btn-breeze-import-search').addEventListener('click', fu
   resultsEl.innerHTML = '<span style="color:#888;">Searching\u2026</span>';
 
   var s = getBreezeSettings();
-  var params = { details: 0, limit: 500 };
-  if (s.tagId) params.filter_json = JSON.stringify({ tag_contains: 'y_' + s.tagId });
 
-  breezeGet('/api/people', params)
-    .then(function(data) {
+  // Build one or two fetch promises depending on configured tag IDs
+  var fetches = [];
+  if (s.tagId) {
+    fetches.push(breezeGet('/api/people', { details: 0, limit: 500, filter_json: JSON.stringify({ tag_contains: 'y_' + s.tagId }) }));
+  }
+  if (s.fieldworkersTagId) {
+    fetches.push(breezeGet('/api/people', { details: 0, limit: 500, filter_json: JSON.stringify({ tag_contains: 'y_' + s.fieldworkersTagId }) }));
+  }
+  if (!fetches.length) {
+    // No tag filter — search all
+    fetches.push(breezeGet('/api/people', { details: 0, limit: 500 }));
+  }
+
+  Promise.all(fetches)
+    .then(function(results) {
+      // Merge and deduplicate by person id
+      var seen = {};
+      var merged = [];
+      results.forEach(function(data) {
+        (data || []).forEach(function(bp) {
+          if (!seen[bp.id]) { seen[bp.id] = true; merged.push(bp); }
+        });
+      });
       var parts = query.toLowerCase().split(/\s+/).filter(Boolean);
-      var filtered = (data || []).filter(function(bp) {
+      var filtered = merged.filter(function(bp) {
         var first = (bp.first_name||'').toLowerCase();
         var last  = (bp.last_name||'').toLowerCase();
         return parts.every(function(p) { return first.indexOf(p) !== -1 || last.indexOf(p) !== -1; });
@@ -1813,6 +1873,7 @@ document.getElementById('btn-breeze-import-search').addEventListener('click', fu
         resultsEl.innerHTML = '<span style="color:#888;">No results found.</span>';
         return;
       }
+      filtered.sort(function(a,b){ return ((a.last_name||'')+(a.first_name||'')).localeCompare((b.last_name||'')+(b.first_name||'')); });
       var html = '<select id="breeze-import-select" style="max-width:240px;margin-right:6px;font-size:0.82rem;">'
         + '<option value="">-- Select person --</option>';
       filtered.forEach(function(bp) {
@@ -2317,8 +2378,6 @@ function exportIcal() {
 // STATS / DASHBOARD
 // ══════════════════════════════════════════════════════════════════
 function renderStatsTab() {
-  renderHistoryList();
-
   var people = getPeople();
   if (!people.length) {
     document.getElementById('stats-content').innerHTML = '<p style="color:#aaa;font-size:0.85rem;">No people added yet.</p>';
@@ -2415,73 +2474,6 @@ function renderStatsTab() {
   document.getElementById('stats-content').innerHTML = html;
 }
 
-function renderHistoryList() {
-  var history = getHistory();
-  var container = document.getElementById('history-list-container');
-  if (!history.length) {
-    container.innerHTML = '<p style="color:#aaa;font-size:0.85rem;">No archived schedules yet. Archives are created automatically when you generate a new schedule.</p>';
-    return;
-  }
-  var html = '<div class="history-list">';
-  history.forEach(function(item) {
-    var savedStr = new Date(item.savedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});
-    var rangeStr = (item.startDate||'?') + ' – ' + (item.endDate||'?');
-    var weeks = item.rows ? item.rows.length : '?';
-    html += '<div class="history-item">'
-      +'<div>'
-      +'<div class="hi-label">'+esc(rangeStr)+'</div>'
-      +'<div class="hi-meta">Archived '+esc(savedStr)+' · '+weeks+' Sunday(s)</div>'
-      +'</div>'
-            +'<div class="hi-btns">'
-      +'<button class="btn btn-outline btn-sm" data-action="restore" data-id="'+esc(item.id)+'">Restore</button>'
-      +'<button class="btn btn-danger btn-sm" data-action="delete" data-id="'+esc(item.id)+'">Delete</button>'
-      +'</div>'
-      +'</div>';
-  });
-  html += '</div>';
-  container.innerHTML = html;
-}
-
-// Event delegation for history buttons (avoids inline onclick quote issues)
-document.getElementById('history-list-container').addEventListener('click', function(e) {
-  var btn = e.target.closest('button[data-action]');
-  if (!btn) return;
-  var action = btn.getAttribute('data-action');
-  var id = btn.getAttribute('data-id');
-  if (action === 'restore') restoreHistoryItem(id);
-  if (action === 'delete')  deleteHistoryItem(id);
-});
-
-function restoreHistoryItem(id) {
-  if (!confirm('Restore this archived schedule? The current schedule will be archived first.')) return;
-  var history = getHistory();
-  var item = null;
-  for (var i=0; i<history.length; i++) { if (history[i].id===id) { item=history[i]; break; } }
-  if (!item) return;
-  // Archive current first
-  if (currentSchedule.length) archiveCurrentSchedule();
-  // Restore
-  currentSchedule = item.rows.map(function(row) {
-    return { date: new Date(row.dateISO), ordinal: row.ordinal, assignments: row.assignments, label: row.label || '' };
-  });
-  if (item.startDate) document.getElementById('start-date').value = item.startDate;
-  if (item.endDate)   document.getElementById('end-date').value   = item.endDate;
-  var people = getPeople();
-  var counts = {};
-  people.forEach(function(p){ counts[p.id]=0; });
-  renderTable(people, counts);
-  document.getElementById('schedule-output').style.display = 'block';
-  saveSchedule();
-  showTab('schedule');
-  showAlert('schedule-alert','Schedule restored from archive.','success');
-}
-
-function deleteHistoryItem(id) {
-  if (!confirm('Delete this archived schedule? This cannot be undone.')) return;
-  var history = getHistory().filter(function(h){ return h.id!==id; });
-  saveHistory(history);
-  renderHistoryList();
-}
 
 </script>
 
@@ -2499,13 +2491,6 @@ function deleteHistoryItem(id) {
     </div>
     <div id="stats-content">
       <p style="color:#aaa;font-size:0.85rem;">Generate or load a schedule to see statistics.</p>
-    </div>
-  </div>
-  <div class="card">
-    <h2>&#128203; Schedule History</h2>
-    <p style="font-size:0.85rem;color:#888;margin-bottom:12px;">Past schedules are auto-archived when you generate a new one. Click Restore to reload a past schedule.</p>
-    <div id="history-list-container">
-      <p style="color:#aaa;font-size:0.85rem;">No archived schedules yet.</p>
     </div>
   </div>
 </div>
