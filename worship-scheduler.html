@@ -601,23 +601,29 @@ Childrens Message = "></textarea>
     <hr style="margin:24px 0 20px;border:none;border-top:1px solid #dde;">
 
     <div>
-      <label style="font-weight:600;">Remote Data Sync <span style="font-weight:400;font-size:.8rem;color:#888;">(GitHub Gist)</span></label>
+      <label style="font-weight:600;">Cloud Sync</label>
       <p style="font-size:0.82rem;color:#555;margin:4px 0 12px;">
-        Syncs volunteer &amp; schedule data to a private GitHub Gist so it's available on any device.<br>
-        Create a token at <a href="https://github.com/settings/tokens" target="_blank" style="color:#2c3e6b;">github.com/settings/tokens</a> → Fine-grained or Classic with only the <code>gist</code> scope.
+        Sign in to sync your data across any device. Data saves automatically after each change.
       </p>
-      <label for="gist-token">GitHub Personal Access Token</label>
-      <input type="password" id="gist-token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" style="max-width:340px;">
-      <label for="gist-id" style="margin-top:12px;">Gist ID <span style="font-weight:400;font-size:.78rem;color:#888;">(auto-filled after Create, or paste an existing ID)</span></label>
-      <div style="display:flex;gap:6px;align-items:center;max-width:420px;">
-        <input type="text" id="gist-id" placeholder="Will be filled automatically" style="flex:1;font-size:.82rem;">
-        <button class="btn btn-outline btn-sm" id="btn-create-gist">Create Gist</button>
+      <div id="fb-signin-panel">
+        <label for="fb-email">Email</label>
+        <input type="email" id="fb-email" placeholder="you@example.com" style="max-width:280px;">
+        <label for="fb-password" style="margin-top:8px;">Password</label>
+        <input type="password" id="fb-password" placeholder="Password" style="max-width:280px;">
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" id="btn-fb-signin">Sign In</button>
+          <button class="btn btn-outline btn-sm" id="btn-fb-register">Create Account</button>
+        </div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-        <button class="btn btn-outline btn-sm" id="btn-push-gist">&#8679; Push Local → Cloud</button>
-        <button class="btn btn-outline btn-sm" id="btn-pull-gist">&#8681; Pull Cloud → Local</button>
+      <div id="fb-signedin-panel" style="display:none;">
+        <p id="fb-user-display" style="font-size:.85rem;color:#27ae60;margin:0 0 10px;"></p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" id="btn-fb-push">&#8679; Push Local → Cloud</button>
+          <button class="btn btn-outline btn-sm" id="btn-fb-pull">&#8681; Pull Cloud → Local</button>
+          <button class="btn btn-outline btn-sm" id="btn-fb-signout">Sign Out</button>
+        </div>
       </div>
-      <div id="gist-status" style="font-size:.8rem;margin-top:8px;color:#666;min-height:18px;"></div>
+      <div id="sync-status" style="font-size:.8rem;margin-top:8px;color:#666;min-height:18px;"></div>
     </div>
 
     <hr style="margin:24px 0 20px;border:none;border-top:1px solid #dde;">
@@ -681,6 +687,9 @@ Childrens Message = "></textarea>
   </div>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-database-compat.js"></script>
 <script>
 // ══════════════════════════════════════════════════════════════════
 // HELPERS
@@ -825,7 +834,7 @@ function saveCurrentMonth() {
   saveMonthSchedules(months);
   updateLastServedFromRows(months[currentMonthKey].rows.filter(function(r){ return r.type !== 'special'; }));
   setDirty(false);
-  queueGistPush();
+  queueFbPush();
 }
 
 function setDirty(dirty) {
@@ -1095,7 +1104,7 @@ function savePerson() {
   clearForm();
   closeAllPanels();
   renderPeopleList();
-  queueGistPush();
+  queueFbPush();
 }
 
 document.getElementById('btn-save-person').addEventListener('click', savePerson);
@@ -2368,10 +2377,6 @@ function loadSettingsForm() {
   if (s.emailFrom)     document.getElementById('email-from').value            = s.emailFrom;
   if (s.replyTo)       document.getElementById('email-reply-to').value        = s.replyTo;
   if (s.workerSecret)  document.getElementById('breeze-worker-secret').value  = s.workerSecret;
-  var gs = getGistSettings();
-  if (gs.token)  document.getElementById('gist-token').value = gs.token;
-  if (gs.gistId) document.getElementById('gist-id').value    = gs.gistId;
-  if (gs.lastSynced) updateGistStatus('Last synced: ' + new Date(gs.lastSynced).toLocaleString());
 }
 
 document.getElementById('btn-save-settings').addEventListener('click', function() {
@@ -2389,12 +2394,6 @@ document.getElementById('btn-save-settings').addEventListener('click', function(
   if (!subdomain||!apiKey) { showAlert('settings-alert','Please enter both subdomain and API key.','warning'); return; }
   if (!workerUrl) { showAlert('settings-alert','Please enter your Cloudflare Worker URL.','warning'); return; }
   saveBreezeSettings({ subdomain:subdomain, apiKey:apiKey, workerUrl:workerUrl, workerSecret:workerSecret, tagId:tagId, fieldworkersTagId:fieldworkersTagId, roleMap8am:roleMap8am, roleMap1045:roleMap1045, resendKey:resendKey, emailFrom:emailFrom, replyTo:replyTo });
-  var gistToken = document.getElementById('gist-token').value.trim();
-  var gistId    = document.getElementById('gist-id').value.trim();
-  var gs = getGistSettings();
-  gs.token  = gistToken;
-  gs.gistId = gistId;
-  saveGistSettings(gs);
   showAlert('settings-alert','Settings saved!','success');
   document.getElementById('settings-status').textContent = '';
 });
@@ -2938,139 +2937,116 @@ function syncToBreeze() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// GITHUB GIST SYNC
+// FIREBASE CLOUD SYNC
 // ══════════════════════════════════════════════════════════════════
-function getGistSettings() {
-  try { return JSON.parse(localStorage.getItem('ws_gist_settings')) || {}; } catch(e) { return {}; }
-}
-function saveGistSettings(o) { localStorage.setItem('ws_gist_settings', JSON.stringify(o)); }
+var firebaseConfig = {
+  apiKey: "AIzaSyDYHJoLHArmcMDFZrXaMJ62RGUMgusJhD8",
+  authDomain: "tlc-worship-scheduler.firebaseapp.com",
+  databaseURL: "https://tlc-worship-scheduler-default-rtdb.firebaseio.com",
+  projectId: "tlc-worship-scheduler",
+  storageBucket: "tlc-worship-scheduler.firebasestorage.app",
+  messagingSenderId: "645397350092",
+  appId: "1:645397350092:web:d6c828f36f721ede3d2469"
+};
+firebase.initializeApp(firebaseConfig);
+var fbAuth = firebase.auth();
+var fbDb   = firebase.database();
 
-// Read token/gistId from the live input fields (so user doesn't have to hit Save Settings first)
-// Merges with any already-saved settings and persists before returning.
-function resolveGistSettings() {
-  var s = getGistSettings();
-  var tokenEl = document.getElementById('gist-token');
-  var idEl    = document.getElementById('gist-id');
-  if (tokenEl && tokenEl.value.trim()) s.token  = tokenEl.value.trim();
-  if (idEl    && idEl.value.trim())    s.gistId = idEl.value.trim();
-  saveGistSettings(s);
-  return s;
-}
-
-function updateGistStatus(msg, isError) {
-  var el = document.getElementById('gist-status');
+function updateSyncStatus(msg, isError) {
+  var el = document.getElementById('sync-status');
   if (!el) return;
   el.textContent = msg;
   el.style.color = isError ? '#c00' : (msg ? '#27ae60' : '#666');
 }
 
-function gistHeaders() {
+function buildDataSnapshot() {
   return {
-    'Authorization': 'Bearer ' + (getGistSettings().token || ''),
-    'Content-Type': 'application/json',
-    'Accept': 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28'
+    ws_people:             getPeople(),
+    ws_schedule_v2:        getMonthSchedules(),
+    ws_history:            getHistory(),
+    ws_last_served:        getLastServed(),
+    ws_schedule_overrides: getScheduleOverrides(),
+    ws_confirmations:      getConfirmations(),
+    ws_rsvp_tokens:        getRsvpTokens(),
+    ws_sun_labels:         getSundayLabels()
   };
 }
 
-function buildGistFiles() {
-  return {
-    'ws_people.json':             { content: JSON.stringify(getPeople()) },
-    'ws_schedule_v2.json':        { content: JSON.stringify(getMonthSchedules()) },
-    'ws_history.json':            { content: JSON.stringify(getHistory()) },
-    'ws_last_served.json':        { content: JSON.stringify(getLastServed()) },
-    'ws_schedule_overrides.json': { content: JSON.stringify(getScheduleOverrides()) },
-    'ws_confirmations.json':      { content: JSON.stringify(getConfirmations()) },
-    'ws_rsvp_tokens.json':        { content: JSON.stringify(getRsvpTokens()) },
-    'ws_sun_labels.json':         { content: JSON.stringify(getSundayLabels()) }
-  };
-}
-
-async function createGist() {
-  var s = resolveGistSettings();
-  if (!s.token) { updateGistStatus('Enter a GitHub token first.', true); return; }
-  updateGistStatus('Creating Gist…');
+async function fbPush() {
+  var user = fbAuth.currentUser;
+  if (!user) return;
+  updateSyncStatus('Saving\u2026');
   try {
-    var resp = await fetch('https://api.github.com/gists', {
-      method: 'POST',
-      headers: gistHeaders(),
-      body: JSON.stringify({
-        description: 'Timothy Lutheran Church – Worship Scheduler Data',
-        public: false,
-        files: buildGistFiles()
-      })
-    });
-    if (!resp.ok) { updateGistStatus('Create failed: ' + resp.status + ' ' + resp.statusText, true); return; }
-    var data = await resp.json();
-    s.gistId = data.id;
-    s.lastSynced = new Date().toISOString();
-    saveGistSettings(s);
-    var idEl = document.getElementById('gist-id');
-    if (idEl) idEl.value = data.id;
-    updateGistStatus('Created & synced \u2713 ' + new Date().toLocaleTimeString());
-  } catch(e) { updateGistStatus('Create error: ' + e.message, true); }
+    await fbDb.ref('ws_data/' + user.uid).set(buildDataSnapshot());
+    updateSyncStatus('Saved \u2713 ' + new Date().toLocaleTimeString());
+  } catch(e) { updateSyncStatus('Save error: ' + e.message, true); }
 }
 
-var _syncTimer = null;
-function queueGistPush() {
-  var s = getGistSettings();
-  if (!s.token || !s.gistId) return;
-  clearTimeout(_syncTimer);
-  _syncTimer = setTimeout(pushToGist, 1500);
-}
-
-async function pushToGist() {
-  var s = resolveGistSettings();
-  if (!s.token || !s.gistId) { updateGistStatus('Enter token and Gist ID first.', true); return; }
-  updateGistStatus('Syncing\u2026');
+async function fbPull() {
+  var user = fbAuth.currentUser;
+  if (!user) return;
+  updateSyncStatus('Loading\u2026');
   try {
-    var resp = await fetch('https://api.github.com/gists/' + s.gistId, {
-      method: 'PATCH',
-      headers: gistHeaders(),
-      body: JSON.stringify({ files: buildGistFiles() })
+    var snap = await fbDb.ref('ws_data/' + user.uid).get();
+    if (!snap.exists()) { updateSyncStatus('No cloud data found.'); return; }
+    var data = snap.val();
+    var keys = ['ws_people','ws_schedule_v2','ws_history','ws_last_served',
+                'ws_schedule_overrides','ws_confirmations','ws_rsvp_tokens','ws_sun_labels'];
+    keys.forEach(function(k) {
+      if (data[k] !== undefined) localStorage.setItem(k, JSON.stringify(data[k]));
     });
-    if (!resp.ok) { updateGistStatus('Push failed: ' + resp.status + ' ' + resp.statusText, true); return; }
-    s.lastSynced = new Date().toISOString();
-    saveGistSettings(s);
-    updateGistStatus('Synced \u2713 ' + new Date().toLocaleTimeString());
-  } catch(e) { updateGistStatus('Push error: ' + e.message, true); }
-}
-
-async function pullFromGist() {
-  var s = resolveGistSettings();
-  if (!s.token || !s.gistId) { updateGistStatus('Enter token and Gist ID first.', true); return; }
-  updateGistStatus('Pulling\u2026');
-  try {
-    var resp = await fetch('https://api.github.com/gists/' + s.gistId, { headers: gistHeaders() });
-    if (!resp.ok) { updateGistStatus('Pull failed: ' + resp.status + ' ' + resp.statusText, true); return; }
-    var gist = await resp.json();
-    var f = gist.files;
-    var keyMap = {
-      'ws_people.json':             'ws_people',
-      'ws_schedule_v2.json':        'ws_schedule_v2',
-      'ws_history.json':            'ws_history',
-      'ws_last_served.json':        'ws_last_served',
-      'ws_schedule_overrides.json': 'ws_schedule_overrides',
-      'ws_confirmations.json':      'ws_confirmations',
-      'ws_rsvp_tokens.json':        'ws_rsvp_tokens',
-      'ws_sun_labels.json':         'ws_sun_labels'
-    };
-    Object.keys(keyMap).forEach(function(fname) {
-      if (f[fname] && f[fname].content) {
-        try { localStorage.setItem(keyMap[fname], f[fname].content); } catch(e) {}
-      }
-    });
-    s.lastSynced = new Date().toISOString();
-    saveGistSettings(s);
-    updateGistStatus('Pulled \u2713 ' + new Date().toLocaleTimeString());
-    // Refresh UI
+    updateSyncStatus('Loaded \u2713 ' + new Date().toLocaleTimeString());
     renderPeopleList();
     if (loadSchedule()) {
       renderTable(getPeople(), null);
       document.getElementById('schedule-output').style.display = 'block';
     }
-  } catch(e) { updateGistStatus('Pull error: ' + e.message, true); }
+  } catch(e) { updateSyncStatus('Load error: ' + e.message, true); }
 }
+
+var _fbSyncTimer = null;
+function queueFbPush() {
+  if (!fbAuth.currentUser) return;
+  clearTimeout(_fbSyncTimer);
+  _fbSyncTimer = setTimeout(fbPush, 1500);
+}
+
+function fbSignIn() {
+  var email = document.getElementById('fb-email').value.trim();
+  var pass  = document.getElementById('fb-password').value;
+  if (!email || !pass) { updateSyncStatus('Enter email and password.', true); return; }
+  updateSyncStatus('Signing in\u2026');
+  fbAuth.signInWithEmailAndPassword(email, pass)
+    .catch(function(e) { updateSyncStatus('Sign-in failed: ' + e.message, true); });
+}
+
+function fbRegister() {
+  var email = document.getElementById('fb-email').value.trim();
+  var pass  = document.getElementById('fb-password').value;
+  if (!email || !pass) { updateSyncStatus('Enter email and password.', true); return; }
+  updateSyncStatus('Creating account\u2026');
+  fbAuth.createUserWithEmailAndPassword(email, pass)
+    .catch(function(e) { updateSyncStatus('Account creation failed: ' + e.message, true); });
+}
+
+function fbSignOut() { fbAuth.signOut(); }
+
+fbAuth.onAuthStateChanged(function(user) {
+  var signInPanel   = document.getElementById('fb-signin-panel');
+  var signedInPanel = document.getElementById('fb-signedin-panel');
+  var userDisplay   = document.getElementById('fb-user-display');
+  if (user) {
+    if (signInPanel)   signInPanel.style.display   = 'none';
+    if (signedInPanel) signedInPanel.style.display = 'block';
+    if (userDisplay)   userDisplay.textContent = 'Signed in as ' + user.email;
+    fbPull();
+  } else {
+    if (signInPanel)   signInPanel.style.display   = 'block';
+    if (signedInPanel) signedInPanel.style.display = 'none';
+    if (userDisplay)   userDisplay.textContent = '';
+    updateSyncStatus('');
+  }
+});
 
 // ══════════════════════════════════════════════════════════════════
 // DATA EXPORT / IMPORT
@@ -3111,7 +3087,7 @@ function importAllData(file) {
         document.getElementById('schedule-output').style.display = 'block';
       }
       showAlert('settings-alert', 'Imported ' + count + ' data sets successfully. Push to Cloud to sync.', 'success');
-      queueGistPush();
+      queueFbPush();
     } catch(err) {
       showAlert('settings-alert', 'Import failed: ' + err.message, 'warning');
     }
@@ -3133,13 +3109,6 @@ if (loadSchedule()) {
   document.getElementById('schedule-output').style.display = 'block';
 }
 
-// Auto-pull from Gist on load if credentials are configured
-(async function() {
-  var gs = getGistSettings();
-  if (gs.token && gs.gistId) {
-    await pullFromGist();
-  }
-})();
 
 // ══════════════════════════════════════════════════════════════════
 // SCHEDULE HISTORY & LAST-SERVED
@@ -3156,7 +3125,7 @@ function archiveCurrentSchedule() {
   if (history.length > 24) history = history.slice(0, 24);
   saveHistory(history);
   updateLastServedFromRows(rows);
-  queueGistPush();
+  queueFbPush();
 }
 
 function updateLastServedFromRows(rows) {
@@ -3459,11 +3428,13 @@ document.getElementById('btn-save-special').addEventListener('click', function()
 });
 
 // ══════════════════════════════════════════════════════════════════
-// GIST SYNC & DATA EXPORT/IMPORT BUTTON HANDLERS
+// CLOUD SYNC & DATA EXPORT/IMPORT BUTTON HANDLERS
 // ══════════════════════════════════════════════════════════════════
-document.getElementById('btn-create-gist').addEventListener('click', createGist);
-document.getElementById('btn-push-gist').addEventListener('click', pushToGist);
-document.getElementById('btn-pull-gist').addEventListener('click', pullFromGist);
+document.getElementById('btn-fb-signin').addEventListener('click', fbSignIn);
+document.getElementById('btn-fb-register').addEventListener('click', fbRegister);
+document.getElementById('btn-fb-push').addEventListener('click', fbPush);
+document.getElementById('btn-fb-pull').addEventListener('click', fbPull);
+document.getElementById('btn-fb-signout').addEventListener('click', fbSignOut);
 document.getElementById('btn-export-data').addEventListener('click', exportAllData);
 document.getElementById('import-data-file').addEventListener('change', function(e) {
   if (e.target.files && e.target.files[0]) {
