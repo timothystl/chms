@@ -350,17 +350,10 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
       style="display:block;width:100%;box-sizing:border-box;padding:9px 12px;
         border:1.5px solid #dde;border-radius:8px;font-size:.9rem;
         font-family:inherit;margin-bottom:14px;outline:none;">
-    <div style="display:flex;gap:8px;">
-      <button id="btn-fb-signin" style="flex:1;padding:9px;border:none;border-radius:8px;
-        background:#2c3e6b;color:#fff;font-size:.9rem;font-family:inherit;cursor:pointer;">
-        Sign In
-      </button>
-      <button id="btn-fb-register" style="flex:1;padding:9px;border:1.5px solid #2c3e6b;
-        border-radius:8px;background:#fff;color:#2c3e6b;font-size:.9rem;
-        font-family:inherit;cursor:pointer;">
-        Create Account
-      </button>
-    </div>
+    <button id="btn-fb-signin" style="width:100%;padding:9px;border:none;border-radius:8px;
+      background:#2c3e6b;color:#fff;font-size:.9rem;font-family:inherit;cursor:pointer;">
+      Sign In
+    </button>
     <div id="login-status" style="font-size:.8rem;min-height:20px;margin-top:10px;color:#c00;"></div>
   </div>
 </div>
@@ -2931,6 +2924,15 @@ firebase.initializeApp(firebaseConfig);
 var fbAuth = firebase.auth();
 var fbDb   = firebase.database();
 
+// ── ACCESS CONTROL ────────────────────────────────────────────────
+// To authorize a new user: add their email here, save, and re-deploy.
+// Capitalization does not matter — comparison is case-insensitive.
+var ALLOWED_EMAILS = [
+  'placeholder@timothystl.org'
+  // add more as needed
+];
+// ─────────────────────────────────────────────────────────────────
+
 function updateSyncStatus(msg, isError) {
   var el = document.getElementById('sync-status');
   if (!el) return;
@@ -3029,6 +3031,16 @@ fbAuth.onAuthStateChanged(function(user) {
   var appContent  = document.getElementById('app-content');
   var userDisplay = document.getElementById('fb-user-display');
   if (user) {
+    // Enforce allowlist — applies to email/password and Google SSO alike
+    var email   = (user.email || '').toLowerCase().trim();
+    var allowed = ALLOWED_EMAILS.map(function(e) { return e.toLowerCase().trim(); });
+    if (allowed.indexOf(email) === -1) {
+      fbAuth.signOut().then(function() {
+        updateLoginStatus('Access not authorized. Contact your administrator.', true);
+      });
+      return; // signOut re-triggers this callback with user=null, which restores login screen
+    }
+    // Authorized — show the app
     if (loginScreen) loginScreen.style.display = 'none';
     if (appContent)  appContent.style.display  = 'block';
     if (userDisplay) userDisplay.textContent   = 'Signed in as ' + user.email;
@@ -3425,7 +3437,6 @@ document.getElementById('btn-save-special').addEventListener('click', function()
 // ══════════════════════════════════════════════════════════════════
 document.getElementById('btn-login-google').addEventListener('click', fbSignInGoogle);
 document.getElementById('btn-fb-signin').addEventListener('click', fbSignIn);
-document.getElementById('btn-fb-register').addEventListener('click', fbRegister);
 document.getElementById('btn-fb-push').addEventListener('click', fbPush);
 document.getElementById('btn-fb-pull').addEventListener('click', fbPull);
 document.getElementById('btn-fb-signout').addEventListener('click', fbSignOut);
