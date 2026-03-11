@@ -272,6 +272,42 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 .sconf-declined  { background:#f8d7da; color:#842029; }
 .sunday-detail   { display:none; }
 .sunday-detail.visible { display:table-row; }
+
+/* ── Month navigation ──────────────────────────────────── */
+.month-nav-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:4px 0; }
+.month-nav-label { font-size:1.05rem; font-weight:700; color:#2c3e6b; min-width:150px; text-align:center; }
+
+/* ── Save button states ─────────────────────────────────── */
+#btn-save-schedule.saved { background:#f0fff4; border-color:#a8d8b9; color:#27ae60; }
+#btn-save-schedule.dirty { background:#fff3cd; border-color:#e6a817; color:#856404; font-weight:700; animation:pulse-save .8s ease-in-out; }
+@keyframes pulse-save { 0%,100%{box-shadow:none} 50%{box-shadow:0 0 0 3px rgba(240,180,40,0.35)} }
+
+/* ── Special service rows ───────────────────────────────── */
+.special-summary td { background:#fef9f0; }
+.special-summary:hover td { background:#fef3d0; }
+.ss-special-name { font-size:.82rem; font-weight:700; color:#b7631a; }
+.special-badge { font-size:.7rem; font-weight:700; background:#ffe5b0; color:#8a5000; border-radius:8px; padding:1px 8px; }
+.special-detail-card { padding:10px 14px; }
+.svc-time-block { margin-bottom:12px; border-left:3px solid #e6c080; padding-left:10px; }
+.svc-time-block strong { font-size:.85rem; color:#8a5000; display:block; margin-bottom:6px; }
+.svc-roles-grid { display:flex; flex-wrap:wrap; gap:8px; }
+.svc-role-item { display:flex; flex-direction:column; gap:2px; min-width:140px; }
+.svc-role-item label { font-size:.75rem; color:#555; font-weight:600; }
+.special-expanded { padding:14px 16px; display:flex; flex-wrap:wrap; gap:12px; }
+.special-svc-block { background:#fff; border:1px solid #e2d9c8; border-radius:8px; padding:10px 14px; min-width:190px; }
+.special-svc-time { font-weight:700; color:#2c3e6b; font-size:.85rem; margin-bottom:8px; border-bottom:1px solid #e8e4d8; padding-bottom:6px; }
+.special-svc-role-row { display:flex; align-items:center; gap:6px; margin-bottom:5px; font-size:.82rem; }
+.special-svc-role-label { color:#666; width:110px; flex-shrink:0; text-align:right; }
+
+/* ── Role Sunday override section ───────────────────────── */
+.role-override-toggle { font-size:.78rem; color:#3d5a8a; cursor:pointer; margin-top:8px; display:inline-block; text-decoration:underline; }
+#role-override-section { display:none; background:#f0f4ff; border:1px solid #c8d0e8; border-radius:6px; padding:10px 12px; margin-top:8px; }
+.role-override-table { width:100%; font-size:.78rem; border-collapse:collapse; }
+.role-override-table th { text-align:center; padding:2px 5px; color:#555; font-weight:600; }
+.role-override-table th:first-child { text-align:left; }
+.role-override-table td { text-align:center; padding:3px 4px; }
+.role-override-table td:first-child { font-weight:600; color:#2c3e6b; text-align:left; padding-right:8px; white-space:nowrap; }
+.role-override-table input[type=checkbox] { width:14px; height:14px; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -308,18 +344,13 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 <!-- ══ SCHEDULE TAB ════════════════════════════════════════════════════════ -->
 <div id="tab-schedule" class="tab-content">
   <div class="card">
-    <h2>Generate Schedule</h2>
-    <div class="schedule-controls">
-      <div class="field">
-        <label>Start Date</label>
-        <input type="date" id="start-date">
-      </div>
-      <div class="field">
-        <label>End Date</label>
-        <input type="date" id="end-date">
-      </div>
-      <button class="btn btn-primary" id="btn-generate">Generate Schedule</button>
-      <button class="btn btn-outline" id="btn-autofill" title="Auto-fill empty slots using volunteer history">&#9889; Auto-Fill Empty Slots</button>
+    <div class="month-nav-bar">
+      <button class="btn btn-outline btn-sm" id="btn-prev-month">&#8592;</button>
+      <span class="month-nav-label" id="current-month-label">Loading…</span>
+      <button class="btn btn-outline btn-sm" id="btn-next-month">&#8594;</button>
+      <button class="btn btn-primary btn-sm" id="btn-generate">Generate Month</button>
+      <button class="btn btn-outline btn-sm" id="btn-autofill" title="Auto-fill empty slots using volunteer history">&#9889; Auto-Fill</button>
+      <button class="btn btn-outline btn-sm" id="btn-add-special">+ Special Service</button>
     </div>
     <div id="schedule-alert"></div>
   </div>
@@ -335,6 +366,7 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
         <button class="btn btn-outline btn-sm" id="btn-sync-confirmations" style="background:#f0fff4;border-color:#27ae60;color:#1a7a42;">&#8635; Sync Confirmations</button>
         <button class="btn btn-outline btn-sm" id="btn-restore-tokens" style="background:#fdf6e8;border-color:#e0a800;color:#7a5500;" title="Re-upload RSVP tokens to Worker KV without re-sending emails">&#128274; Re-store Tokens</button>
         <span id="email-send-status" style="font-size:0.82rem;color:#555;"></span>
+        <button class="btn btn-outline btn-sm saved" id="btn-save-schedule">Saved &#10003;</button>
         <button class="btn btn-outline btn-sm" id="btn-expand-all">&#9660; Expand All</button>
         <button class="btn btn-danger btn-sm" id="btn-clear-schedule">Clear Schedule</button>
       </div>
@@ -351,7 +383,6 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
         <tbody id="schedule-tbody"></tbody>
       </table>
     </div>
-    <div id="assignment-summary" class="summary-bar"></div>
   </div>
 </div>
 
@@ -418,6 +449,17 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
       <label><input type="checkbox" value="Liturgist"> Liturgist</label>
       <label><input type="checkbox" value="Preacher"> Preacher</label>
       <label><input type="checkbox" value="Childrens Message"> Children's Message</label>
+    </div>
+
+    <span class="role-override-toggle" id="toggle-role-overrides">&#9658; Customize Sundays per role (optional)</span>
+    <div id="role-override-section">
+      <small style="color:#666;display:block;margin-bottom:8px;">Set role-specific Sundays for people who serve different roles on different weeks. Leave a role's row empty to use the global Preferred Sundays setting above.</small>
+      <table class="role-override-table">
+        <thead><tr>
+          <th>Role</th><th>1st</th><th>2nd</th><th>3rd</th><th>4th</th><th>5th</th>
+        </tr></thead>
+        <tbody id="role-override-body"></tbody>
+      </table>
     </div>
 
     <div style="margin-top:14px;padding:10px 14px;background:#f0faf4;border:1px solid #a8d8b9;border-radius:6px;">
@@ -576,6 +618,31 @@ Childrens Message = "></textarea>
   </div>
 </div>
 
+<!-- ══ SPECIAL SERVICE PANEL ══════════════════════════════════════════════ -->
+<div id="special-panel" class="side-panel">
+  <div class="panel-hdr">
+    <h2 id="special-panel-title">Add Special Service</h2>
+    <button class="panel-close" id="btn-close-special-panel">&times;</button>
+  </div>
+  <div class="panel-body">
+    <div class="field">
+      <label>Date</label>
+      <input type="date" id="special-date" style="width:100%;max-width:200px;">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label>Service Name</label>
+      <input type="text" id="special-name" placeholder="e.g., Christmas Eve, Ash Wednesday" style="width:100%;">
+    </div>
+    <div style="margin-top:16px;">
+      <label style="font-weight:600;">Service Times</label>
+      <div id="special-services-list" style="margin-top:8px;"></div>
+      <button class="btn btn-outline btn-sm" id="btn-add-svc-time" style="margin-top:8px;">+ Add Service Time</button>
+    </div>
+    <button class="btn btn-primary" id="btn-save-special" style="margin-top:20px;width:100%;">Add to Schedule</button>
+    <div id="special-alert" style="margin-top:8px;"></div>
+  </div>
+</div>
+
 <script>
 // ══════════════════════════════════════════════════════════════════
 // HELPERS
@@ -633,52 +700,149 @@ function saveRsvpTokens(o)   { localStorage.setItem('ws_rsvp_tokens',   JSON.str
 function saveEventMap(o){ localStorage.setItem('ws_breeze_event_map', JSON.stringify(o)); }
 
 // Schedule persistence
-function saveSchedule() {
-  if (!currentSchedule.length) return;
-  var rows = currentSchedule.map(function(row) {
-    return { dateISO: row.date.toISOString(), ordinal: row.ordinal, assignments: row.assignments, label: row.label || '' };
-  });
-  updateLastServedFromRows(rows);
-  localStorage.setItem('ws_schedule', JSON.stringify({
-    startDate: document.getElementById('start-date').value,
-    endDate:   document.getElementById('end-date').value,
-    rows: rows
-  }));
-}
-function loadSchedule() {
-  try {
-    var raw = localStorage.getItem('ws_schedule');
-    if (!raw) return false;
-    var data = JSON.parse(raw);
-    if (!data.rows || !data.rows.length) return false;
-    currentSchedule = data.rows.map(function(row) {
-      return { date: new Date(row.dateISO), ordinal: row.ordinal, assignments: row.assignments, label: row.label || '' };
-    });
-    if (data.startDate) document.getElementById('start-date').value = data.startDate;
-    if (data.endDate)   document.getElementById('end-date').value   = data.endDate;
-    return true;
-  } catch(e) { return false; }
-}
+function saveSchedule() { saveCurrentMonth(); }
+function loadSchedule() { return loadMonthSchedule(currentMonthKey); }
 
 // ══════════════════════════════════════════════════════════════════
 // SCHEDULE STATE
 // ══════════════════════════════════════════════════════════════════
 var currentSchedule = [];
-var currentBlackouts = []; // ISO date strings for the person currently in the form
-var peopleSortBy  = 'name'; // 'name' | 'role' | 'service'
-var peopleSortDir = 'asc';  // 'asc' | 'desc'
+var currentBlackouts = [];
+var peopleSortBy  = 'name';
+var peopleSortDir = 'asc';
 var peopleSearchQuery = '';
+var isDirty = false;
+
+// currentMonthKey: 'YYYY-MM' of the month currently viewed/edited
+var currentMonthKey = (function(){
+  var d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+})();
+
+function getMonthSchedules() {
+  try { return JSON.parse(localStorage.getItem('ws_schedule_v2')||'{}'); } catch(e){ return {}; }
+}
+function saveMonthSchedules(data) { localStorage.setItem('ws_schedule_v2', JSON.stringify(data)); }
+
+function getSundaysForMonth(key) {
+  var parts = key.split('-'), year=parseInt(parts[0]), month=parseInt(parts[1])-1;
+  var sundays=[], ordinal=1;
+  var d = new Date(year, month, 1);
+  while (d.getDay() !== 0) d.setDate(d.getDate()+1);
+  while (d.getMonth() === month) {
+    sundays.push({date: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0), ordinal: ordinal});
+    ordinal++; d.setDate(d.getDate()+7);
+  }
+  return sundays;
+}
+
+function monthKeyLabel(key) {
+  var parts = key.split('-');
+  var d = new Date(parseInt(parts[0]), parseInt(parts[1])-1, 1);
+  return d.toLocaleDateString('en-US', {month:'long', year:'numeric'});
+}
+
+function migrateOldSchedule() {
+  if (localStorage.getItem('ws_schedule_v2')) return;
+  try {
+    var raw = localStorage.getItem('ws_schedule');
+    if (!raw) return;
+    var data = JSON.parse(raw);
+    if (!data.rows || !data.rows.length) return;
+    var months = {};
+    data.rows.forEach(function(row) {
+      var iso = (row.dateISO||'').slice(0,10);
+      var key = iso.slice(0,7);
+      if (!months[key]) months[key] = {rows:[]};
+      months[key].rows.push({type:'sunday', dateISO:iso, ordinal:row.ordinal, label:row.label||'', assignments:row.assignments});
+    });
+    saveMonthSchedules(months);
+  } catch(e) {}
+}
+
+function loadMonthSchedule(key) {
+  var months = getMonthSchedules();
+  var data = months[key];
+  if (!data || !data.rows || !data.rows.length) { currentSchedule = []; return false; }
+  currentSchedule = data.rows.map(function(row) {
+    if (row.type === 'special') {
+      return {type:'special', date:new Date(row.dateISO+'T12:00:00'), name:row.name, services:row.services};
+    }
+    return {type:'sunday', date:new Date(row.dateISO+'T12:00:00'), ordinal:row.ordinal, label:row.label||'', assignments:row.assignments};
+  });
+  currentSchedule.sort(function(a,b){ return a.date-b.date; });
+  return true;
+}
+
+function saveCurrentMonth() {
+  if (!currentMonthKey) return;
+  var months = getMonthSchedules();
+  months[currentMonthKey] = {
+    rows: currentSchedule.map(function(row) {
+      if (row.type === 'special') {
+        return {type:'special', dateISO:row.date.toISOString().slice(0,10), name:row.name, services:row.services};
+      }
+      return {type:'sunday', dateISO:row.date.toISOString().slice(0,10), ordinal:row.ordinal, label:row.label||'', assignments:row.assignments};
+    })
+  };
+  saveMonthSchedules(months);
+  updateLastServedFromRows(months[currentMonthKey].rows.filter(function(r){ return r.type !== 'special'; }));
+  setDirty(false);
+}
+
+function setDirty(dirty) {
+  isDirty = !!dirty;
+  var btn = document.getElementById('btn-save-schedule');
+  if (!btn) return;
+  if (isDirty) {
+    btn.className = btn.className.replace(' saved','').replace(' dirty','') + ' dirty';
+    btn.innerHTML = 'Save Changes &#9650;';
+  } else {
+    btn.className = btn.className.replace(' saved','').replace(' dirty','') + ' saved';
+    btn.innerHTML = 'Saved &#10003;';
+  }
+}
+
+function switchMonth(key) {
+  if (isDirty) {
+    if (!confirm('You have unsaved changes. Discard them and switch months?')) return;
+    setDirty(false);
+  }
+  currentMonthKey = key;
+  document.getElementById('current-month-label').textContent = monthKeyLabel(key);
+  var found = loadMonthSchedule(key);
+  if (found) {
+    renderTable(getPeople(), null);
+    document.getElementById('schedule-output').style.display = 'block';
+  } else {
+    currentSchedule = [];
+    document.getElementById('schedule-output').style.display = 'none';
+  }
+  showAlert('schedule-alert','','');
+}
 
 // ══════════════════════════════════════════════════════════════════
 // TABS
 // ══════════════════════════════════════════════════════════════════
+var currentTabName = 'people';
 function showTab(name) {
+  // Warn if leaving schedule tab with unsaved changes
+  if (currentTabName === 'schedule' && name !== 'schedule' && isDirty) {
+    if (!confirm('You have unsaved schedule changes. Discard them?')) return;
+    setDirty(false);
+  }
+  currentTabName = name;
   ALL_TABS.forEach(function(t) {
     document.getElementById('tab-' + t).classList.toggle('active', t === name);
     document.getElementById('tab-btn-' + t).classList.toggle('active', t === name);
   });
   if (name === 'people') renderPeopleList();
   if (name === 'stats')  renderStatsTab();
+  if (name === 'schedule' && !currentSchedule.length) {
+    if (loadMonthSchedule(currentMonthKey)) {
+      renderTable(getPeople(), null);
+      document.getElementById('schedule-output').style.display = 'block';
+    }
+  }
 }
 ALL_TABS.forEach(function(t) {
   document.getElementById('tab-btn-' + t).addEventListener('click', function() { showTab(t); });
@@ -728,6 +892,60 @@ function syncLabels(groupId) {
 document.getElementById('pref-sundays').addEventListener('change',  function() { syncLabels('pref-sundays'); });
 document.getElementById('pref-roles').addEventListener('change',    function() { syncLabels('pref-roles'); });
 document.getElementById('primary-roles').addEventListener('change', function() { syncLabels('primary-roles'); });
+
+// ── Role override table ────────────────────────────────────────────
+function buildRoleOverrideTable(roles, existingOverrides) {
+  var tbody = document.getElementById('role-override-body');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  roles.forEach(function(role) {
+    var overrides = existingOverrides[role] || [];
+    var cells = [1,2,3,4,5].map(function(n){
+      return '<td style="text-align:center;padding:2px 4px;">'
+        +'<input type="checkbox" value="'+n+'"'+(overrides.indexOf(n)>-1?' checked':'')
+        +' title="'+n+ordSuffix(n)+' Sunday"></td>';
+    }).join('');
+    var tr = document.createElement('tr');
+    tr.setAttribute('data-role', role);
+    tr.innerHTML = '<td style="padding:3px 6px;font-size:.78rem;">'+esc(roleLabel(role))+'</td>'+cells;
+    tbody.appendChild(tr);
+  });
+}
+
+document.getElementById('toggle-role-overrides').addEventListener('click', function() {
+  var sec = document.getElementById('role-override-section');
+  var isOpen = sec.style.display !== 'none';
+  sec.style.display = isOpen ? 'none' : 'block';
+  this.innerHTML = (isOpen ? '&#9658;' : '&#9660;') + ' Customize Sundays per role (optional)';
+  if (!isOpen) {
+    var roles = [];
+    document.getElementById('pref-roles').querySelectorAll('input:checked').forEach(function(cb){ roles.push(cb.value); });
+    var existingOverrides = {};
+    document.getElementById('role-override-body').querySelectorAll('tr[data-role]').forEach(function(tr){
+      var roleKey = tr.getAttribute('data-role');
+      var checked = [];
+      tr.querySelectorAll('input:checked').forEach(function(cb){ checked.push(parseInt(cb.value,10)); });
+      if (checked.length) existingOverrides[roleKey] = checked;
+    });
+    buildRoleOverrideTable(roles, existingOverrides);
+  }
+});
+
+// When roles change, rebuild override table if section is visible
+document.getElementById('pref-roles').addEventListener('change', function() {
+  var sec = document.getElementById('role-override-section');
+  if (sec.style.display === 'none') return;
+  var roles = [];
+  this.querySelectorAll('input:checked').forEach(function(cb){ roles.push(cb.value); });
+  var existingOverrides = {};
+  document.getElementById('role-override-body').querySelectorAll('tr[data-role]').forEach(function(tr){
+    var roleKey = tr.getAttribute('data-role');
+    var checked = [];
+    tr.querySelectorAll('input:checked').forEach(function(cb){ checked.push(parseInt(cb.value,10)); });
+    if (checked.length) existingOverrides[roleKey] = checked;
+  });
+  buildRoleOverrideTable(roles, existingOverrides);
+});
 
 // ══════════════════════════════════════════════════════════════════
 // BLACKOUT DATES
@@ -786,6 +1004,9 @@ function clearForm() {
   document.getElementById('breeze-import-results').innerHTML = '';
   currentBlackouts = [];
   renderBlackoutChips();
+  document.getElementById('role-override-section').style.display = 'none';
+  document.getElementById('toggle-role-overrides').innerHTML = '&#9658; Customize Sundays per role (optional)';
+  document.getElementById('role-override-body').innerHTML = '';
 }
 
 function savePerson() {
@@ -810,18 +1031,26 @@ function savePerson() {
     primaryFor.push(cb.value);
   });
 
+  var roleSundayOverrides = {};
+  document.getElementById('role-override-body').querySelectorAll('tr[data-role]').forEach(function(tr){
+    var roleKey = tr.getAttribute('data-role');
+    var checked = [];
+    tr.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb){ checked.push(parseInt(cb.value,10)); });
+    if (checked.length) roleSundayOverrides[roleKey] = checked;
+  });
+
   var importedBreezeId = document.getElementById('breeze-import-id').value || null;
   var people = getPeople();
   var editId = document.getElementById('edit-id').value;
   if (editId) {
     for (var i = 0; i < people.length; i++) {
       if (people[i].id === editId) {
-        people[i] = { id: editId, name: name, email: email, preferredSundays: preferredSundays, servicePreference: servicePreference, roles: roles, primaryFor: primaryFor, breezePersonId: importedBreezeId || people[i].breezePersonId || null, blackoutDates: currentBlackouts.slice() };
+        people[i] = { id: editId, name: name, email: email, preferredSundays: preferredSundays, servicePreference: servicePreference, roles: roles, primaryFor: primaryFor, roleSundayOverrides: roleSundayOverrides, breezePersonId: importedBreezeId || people[i].breezePersonId || null, blackoutDates: currentBlackouts.slice() };
         break;
       }
     }
   } else {
-    people.push({ id: makeId(), name: name, email: email, preferredSundays: preferredSundays, servicePreference: servicePreference, roles: roles, primaryFor: primaryFor, breezePersonId: importedBreezeId, blackoutDates: currentBlackouts.slice() });
+    people.push({ id: makeId(), name: name, email: email, preferredSundays: preferredSundays, servicePreference: servicePreference, roles: roles, primaryFor: primaryFor, roleSundayOverrides: roleSundayOverrides, breezePersonId: importedBreezeId, blackoutDates: currentBlackouts.slice() });
   }
   savePeople(people);
   clearForm();
@@ -957,6 +1186,17 @@ function editPerson(id) {
   syncLabels('pref-sundays'); syncLabels('pref-roles'); syncLabels('primary-roles');
   currentBlackouts = (person.blackoutDates || []).slice();
   renderBlackoutChips();
+  // Load role override table if the person has any overrides
+  var hasOverrides = person.roleSundayOverrides && Object.keys(person.roleSundayOverrides).length > 0;
+  if (hasOverrides) {
+    document.getElementById('role-override-section').style.display = 'block';
+    document.getElementById('toggle-role-overrides').innerHTML = '&#9660; Customize Sundays per role (optional)';
+    buildRoleOverrideTable(person.roles, person.roleSundayOverrides || {});
+  } else {
+    document.getElementById('role-override-section').style.display = 'none';
+    document.getElementById('toggle-role-overrides').innerHTML = '&#9658; Customize Sundays per role (optional)';
+    document.getElementById('role-override-body').innerHTML = '';
+  }
   openPersonPanel('Edit Person');
 }
 
@@ -1002,8 +1242,12 @@ function getSundays(start, end) {
   return sundays;
 }
 function getOrdinal(date) { return Math.ceil(date.getDate()/7); }
-function eligible(person, ordinal, svc, dateISO) {
-  if (person.preferredSundays.length > 0 && person.preferredSundays.indexOf(ordinal) === -1) return false;
+function eligible(person, ordinal, svc, dateISO, role) {
+  // Use role-specific Sunday override if set, else global preferredSundays
+  var sundays = (role && person.roleSundayOverrides && person.roleSundayOverrides[role] && person.roleSundayOverrides[role].length > 0)
+    ? person.roleSundayOverrides[role]
+    : (person.preferredSundays || []);
+  if (sundays.length > 0 && sundays.indexOf(ordinal) === -1) return false;
   if (svc !== 'shared' && person.servicePreference !== 'both' && person.servicePreference !== svc) return false;
   if (dateISO && person.blackoutDates && person.blackoutDates.indexOf(dateISO) !== -1) return false;
   return true;
@@ -1015,66 +1259,58 @@ function pickBest(pool, counts) {
 }
 
 function generateSchedule() {
-  var start = document.getElementById('start-date').value;
-  var end   = document.getElementById('end-date').value;
   showAlert('schedule-alert','','');
-
-  // Validate before doing anything destructive
-  if (!start||!end) { showAlert('schedule-alert','Please select both a start and end date.','warning'); return; }
-  if (start>end)    { showAlert('schedule-alert','Start date must be before end date.','warning'); return; }
   var people = getPeople();
   if (!people.length) { showAlert('schedule-alert','No people added yet. Go to People &amp; Availability first.','warning'); return; }
-  var sundays = getSundays(start, end);
-  if (!sundays.length) { showAlert('schedule-alert','No Sundays found in that date range.','warning'); return; }
+  var sundayDates = getSundaysForMonth(currentMonthKey);
+  if (!sundayDates.length) { showAlert('schedule-alert','No Sundays found for this month.','warning'); return; }
 
-  // Check for existing manual overrides — ask before wiping them
+  // Keep any existing special services for this month
+  var existingSpecials = currentSchedule.filter(function(r){ return r.type === 'special'; });
+
+  // Check for existing manual overrides
   var existingOverrides = getScheduleOverrides();
-  var overrideCount = Object.keys(existingOverrides).length;
+  var overrideCount = Object.keys(existingOverrides).filter(function(k){ return k.slice(0,7)===currentMonthKey; }).length;
   var preserveOverrides = false;
   if (overrideCount > 0) {
     preserveOverrides = confirm(
-      'You have ' + overrideCount + ' manual slot assignment(s) in the current schedule.\n\n' +
-      'OK \u2192 Preserve your manual assignments in the new schedule\n' +
-      'Cancel \u2192 Discard manual assignments and regenerate everything fresh'
+      'You have ' + overrideCount + ' manual slot assignment(s) in ' + monthKeyLabel(currentMonthKey) + '.\n\n' +
+      'OK \u2192 Preserve your manual assignments\n' +
+      'Cancel \u2192 Discard and regenerate fresh'
     );
-    if (!preserveOverrides) saveScheduleOverrides({});
+    if (!preserveOverrides) {
+      var allOverrides = getScheduleOverrides();
+      Object.keys(allOverrides).forEach(function(k){ if(k.slice(0,7)===currentMonthKey) delete allOverrides[k]; });
+      saveScheduleOverrides(allOverrides);
+    }
   }
 
-  // Archive then generate
-  if (currentSchedule.length) archiveCurrentSchedule();
+  if (currentSchedule.filter(function(r){return r.type==='sunday';}).length) archiveCurrentSchedule();
 
-  // Build primary person map: role → person (first person with that role in primaryFor)
   var primaryMap = {};
   people.forEach(function(p) {
-    (p.primaryFor || []).forEach(function(role) {
-      if (!primaryMap[role]) primaryMap[role] = p;
-    });
+    (p.primaryFor || []).forEach(function(role) { if (!primaryMap[role]) primaryMap[role] = p; });
   });
-  // Primary person IDs: these people are NOT excluded from other roles after being assigned
-  var primaryIds = {};
-  Object.keys(primaryMap).forEach(function(r) { primaryIds[primaryMap[r].id] = true; });
 
   var pMap = {};
   people.forEach(function(p){ pMap[p.id] = p; });
   var counts = {};
   people.forEach(function(p){ counts[p.id] = 0; });
 
-  currentSchedule = sundays.map(function(date) {
-    var ordinal = getOrdinal(date), assignments = {};
-    var dateISO = date.toISOString().slice(0, 10);
+  var sundayRows = sundayDates.map(function(s) {
+    var ordinal = s.ordinal, assignments = {};
+    var dateISO = s.date.toISOString().slice(0,10);
 
     SHARED_ROLES.forEach(function(role) {
       var primary = primaryMap[role];
       var picked;
       if (primary) {
-        // Primary exists: assign unless blacked out — if blacked out leave empty (no fallback)
-        var blacked = (primary.blackoutDates || []).indexOf(dateISO) !== -1;
-        picked = blacked ? null : primary;
+        picked = (primary.blackoutDates||[]).indexOf(dateISO)!==-1 ? null : primary;
       } else {
-        var pool = people.filter(function(p){ return p.roles.indexOf(role)>-1 && eligible(p,ordinal,'shared',dateISO); });
+        var pool = people.filter(function(p){ return p.roles.indexOf(role)>-1 && eligible(p,ordinal,'shared',dateISO,role); });
         picked = pickBest(pool, counts);
       }
-      assignments[role] = { shared: picked ? picked.id : null };
+      assignments[role] = {shared: picked ? picked.id : null};
       if (picked) counts[picked.id]++;
     });
 
@@ -1085,47 +1321,82 @@ function generateSchedule() {
       ['8am','10:45am'].forEach(function(svc) {
         var picked;
         if (primary) {
-          var blacked = (primary.blackoutDates || []).indexOf(dateISO) !== -1;
-          var svcOk = primary.servicePreference === 'both' || primary.servicePreference === svc;
-          picked = (!blacked && svcOk) ? primary : null;
+          var blacked = (primary.blackoutDates||[]).indexOf(dateISO)!==-1;
+          var svcOk = primary.servicePreference==='both'||primary.servicePreference===svc;
+          picked = (!blacked&&svcOk) ? primary : null;
         } else {
           var pool = people.filter(function(p){
-            return p.roles.indexOf(role)>-1 && eligible(p,ordinal,svc,dateISO) && !usedIds[p.id];
+            return p.roles.indexOf(role)>-1 && eligible(p,ordinal,svc,dateISO,role) && !usedIds[p.id];
           });
           picked = pickBest(pool, counts);
         }
         assignments[role][svc] = picked ? picked.id : null;
-        if (picked) { counts[picked.id]++; usedIds[picked.id] = true; }
+        if (picked) { counts[picked.id]++; usedIds[picked.id]=true; }
       });
     });
 
-    return { date: date, ordinal: ordinal, assignments: assignments };
+    return {type:'sunday', date:s.date, ordinal:ordinal, label:'', assignments:assignments};
   });
 
-  // Re-apply preserved manual overrides
   if (preserveOverrides) {
     var overrides = getScheduleOverrides();
-    currentSchedule.forEach(function(row) {
-      var dateISO = row.date.toISOString().slice(0, 10);
+    sundayRows.forEach(function(row) {
+      var dateISO = row.date.toISOString().slice(0,10);
       Object.keys(overrides).forEach(function(key) {
         var parts = key.split('|');
-        if (parts[0] !== dateISO) return;
-        var role = parts[1], svc = parts[2];
+        if (parts[0]!==dateISO) return;
+        var role=parts[1], svc=parts[2];
         if (!row.assignments[role]) return;
-        if (svc === 'shared') row.assignments[role].shared = overrides[key] || null;
-        else                  row.assignments[role][svc]   = overrides[key] || null;
+        if (svc==='shared') row.assignments[role].shared=overrides[key]||null;
+        else                row.assignments[role][svc]=overrides[key]||null;
       });
     });
   }
 
-  renderTable(people, counts);
+  // Merge with existing specials and sort by date
+  currentSchedule = sundayRows.concat(existingSpecials);
+  currentSchedule.sort(function(a,b){ return a.date-b.date; });
+
+  renderTable(people, null);
   document.getElementById('schedule-output').style.display = 'block';
-  saveSchedule();
+  saveCurrentMonth();
+  setDirty(false);
 }
 
 document.getElementById('btn-generate').addEventListener('click', generateSchedule);
 
 document.getElementById('btn-autofill').addEventListener('click', autoFillSchedule);
+
+document.getElementById('btn-prev-month').addEventListener('click', function() {
+  var parts = currentMonthKey.split('-');
+  var d = new Date(parseInt(parts[0]), parseInt(parts[1])-2, 1); // month is 0-indexed, subtract 1 more for prev
+  switchMonth(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
+});
+
+document.getElementById('btn-next-month').addEventListener('click', function() {
+  var parts = currentMonthKey.split('-');
+  var d = new Date(parseInt(parts[0]), parseInt(parts[1]), 1); // month 0-indexed, add 0 extra = next month
+  switchMonth(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
+});
+
+document.getElementById('btn-save-schedule').addEventListener('click', function() {
+  saveCurrentMonth();
+  showAlert('schedule-alert', 'Schedule saved.', 'success');
+});
+
+document.getElementById('btn-add-special').addEventListener('click', function() {
+  document.getElementById('special-date').value = '';
+  document.getElementById('special-name').value = '';
+  document.getElementById('special-services-list').innerHTML = '';
+  addSpecialSvcTimeRow();
+  openPanel('special-panel');
+});
+
+document.getElementById('btn-close-special-panel').addEventListener('click', closeAllPanels);
+
+window.addEventListener('beforeunload', function(e) {
+  if (isDirty) { e.preventDefault(); e.returnValue = ''; }
+});
 
 document.getElementById('btn-export-ical').addEventListener('click', exportIcal);
 
@@ -1145,10 +1416,13 @@ document.getElementById('btn-expand-all').addEventListener('click', function() {
 });
 
 document.getElementById('btn-clear-schedule').addEventListener('click', function() {
-  if (!confirm('Clear the saved schedule? This will also discard any manual slot assignments.')) return;
+  if (!confirm('Clear the schedule for ' + monthKeyLabel(currentMonthKey) + '? This cannot be undone.')) return;
   currentSchedule = [];
-  localStorage.removeItem('ws_schedule');
+  var months = getMonthSchedules();
+  delete months[currentMonthKey];
+  saveMonthSchedules(months);
   saveScheduleOverrides({});
+  setDirty(false);
   document.getElementById('schedule-output').style.display = 'none';
 });
 
@@ -1220,8 +1494,50 @@ function renderTable(people, counts) {
   var confs = getConfirmations();
 
   var bodyHtml = '';
+  var allPeople = getPeople();
   currentSchedule.forEach(function(row, rowIdx) {
     var dateISO = row.date.toISOString().slice(0,10);
+
+    if (row.type === 'special') {
+      // Special service summary row
+      var filled=0, total=0;
+      (row.services||[]).forEach(function(svc){
+        (svc.roles||[]).forEach(function(role){ total++; if((svc.assignments||{})[role]) filled++; });
+      });
+      var fillColor = total===0?'#aaa':(filled===total?'#27ae60':(filled>0?'#e67e22':'#e74c3c'));
+      bodyHtml += '<tr class="sunday-summary special-summary" data-idx="'+rowIdx+'">'
+        +'<td colspan="'+totalCols+'"><div class="ss-inner">'
+        +'<span class="ss-toggle">&#9658;</span>'
+        +'<span class="ss-date">'+esc(fmtDate(row.date))+'</span>'
+        +'<span class="ss-special-name">'+esc(row.name||'Special Service')+'</span>'
+        +'<span class="special-badge">Special</span>'
+        +'<span class="ss-fill" style="color:'+fillColor+'">'+filled+'/'+total+' filled</span>'
+        +'</div></td></tr>';
+
+      // Special detail row
+      var detailHtml = '<div class="special-detail-card">';
+      (row.services||[]).forEach(function(svc, svcIdx) {
+        detailHtml += '<div class="svc-time-block"><strong>'+esc(svc.time||'Service')+'</strong><div class="svc-roles-grid">';
+        (svc.roles||[]).forEach(function(role){
+          var pid = (svc.assignments||{})[role] || '';
+          var opts = '<option value="">-- unassigned --</option>';
+          allPeople.filter(function(p){
+            return p.roles.indexOf(role)>-1 && (p.blackoutDates||[]).indexOf(dateISO)===-1;
+          }).forEach(function(p){
+            opts += '<option value="'+esc(p.id)+'"'+(pid===p.id?' selected':'')+'>'+esc(p.name)+'</option>';
+          });
+          detailHtml += '<div class="svc-role-item">'
+            +'<label>'+esc(roleLabel(role))+'</label>'
+            +'<select class="cell-select" data-row="'+rowIdx+'" data-svc-idx="'+svcIdx+'" data-role="'+esc(role)+'" data-special="1">'+opts+'</select>'
+            +'</div>';
+        });
+        detailHtml += '</div></div>';
+      });
+      detailHtml += '</div>';
+      bodyHtml += '<tr class="sunday-detail" data-idx="'+rowIdx+'"><td colspan="'+totalCols+'">'+detailHtml+'</td></tr>';
+      return;
+    }
+
     var existingLabel = getSundayLabels()[dateISO] || row.label || '';
 
     // Summary row (collapsed by default)
@@ -1250,13 +1566,7 @@ function renderTable(people, counts) {
   });
   document.getElementById('schedule-tbody').innerHTML = bodyHtml;
 
-  if (counts) {
-    var sumHtml = '<strong style="font-size:0.82rem;color:#2c3e6b;align-self:center;margin-right:4px;">Assignments per person:</strong>';
-    people.slice().sort(function(a,b){ return (counts[b.id]||0)-(counts[a.id]||0); }).forEach(function(p){
-      sumHtml += '<div class="summary-item"><strong>'+esc(p.name)+'</strong>: '+(counts[p.id]||0)+'</div>';
-    });
-    document.getElementById('assignment-summary').innerHTML = sumHtml;
-  }
+
 }
 
 function updateSundaySummary(rowIdx) {
@@ -1293,7 +1603,10 @@ function buildCell(pid, pMap, rowIdx, role, svc, rowspan) {
       var svcOk = svc === 'shared' || p.servicePreference === 'both' || p.servicePreference === svc;
       return p.roles.indexOf(role) > -1 && !blacked && svcOk;
     }
-    return p.roles.indexOf(role) > -1 && eligible(p, ordinal, svc, dateISO);
+    // Manual dropdown shows all role+service matches regardless of preferred Sunday
+    var blacked = (p.blackoutDates || []).indexOf(dateISO) !== -1;
+    var svcOk = svc === 'shared' || p.servicePreference === 'both' || p.servicePreference === svc;
+    return p.roles.indexOf(role) > -1 && !blacked && svcOk;
   });
   var opts = '<option value="">-- unassigned --</option>';
   pool.forEach(function(p){
@@ -1329,13 +1642,37 @@ document.getElementById('schedule-table').addEventListener('change', function(e)
   if (!sel.classList.contains('cell-select')) return;
   var rowIdx = parseInt(sel.getAttribute('data-row'),10);
   var role = sel.getAttribute('data-role');
+  var pid  = sel.value || null;
+  var row = currentSchedule[rowIdx];
+
+  // Special service row
+  if (sel.getAttribute('data-special') === '1') {
+    var svcIdx = parseInt(sel.getAttribute('data-svc-idx'),10);
+    if (row && row.services && row.services[svcIdx]) {
+      if (!row.services[svcIdx].assignments) row.services[svcIdx].assignments = {};
+      row.services[svcIdx].assignments[role] = pid;
+    }
+    setDirty(true);
+    // Refresh special summary row
+    var summaryRow = document.querySelector('.sunday-summary[data-idx="'+rowIdx+'"]');
+    if (summaryRow) {
+      var filled=0, total=0;
+      (row.services||[]).forEach(function(s){
+        (s.roles||[]).forEach(function(r){ total++; if((s.assignments||{})[r]) filled++; });
+      });
+      var fillColor = total===0?'#aaa':(filled===total?'#27ae60':(filled>0?'#e67e22':'#e74c3c'));
+      var fillEl = summaryRow.querySelector('.ss-fill');
+      if (fillEl) { fillEl.textContent = filled+'/'+total+' filled'; fillEl.style.color = fillColor; }
+    }
+    return;
+  }
+
   var svc  = sel.getAttribute('data-svc');
-  var pid  = sel.value;
-  if (svc==='shared') currentSchedule[rowIdx].assignments[role].shared = pid||null;
-  else                currentSchedule[rowIdx].assignments[role][svc]   = pid||null;
+  if (svc==='shared') row.assignments[role].shared = pid;
+  else                row.assignments[role][svc]   = pid;
 
   // Save as manual override
-  var dateISO = currentSchedule[rowIdx].date.toISOString().slice(0,10);
+  var dateISO = row.date.toISOString().slice(0,10);
   var overrideKey = dateISO + '|' + role + '|' + svc;
   var overrides = getScheduleOverrides();
   overrides[overrideKey] = pid || '';   // '' = explicitly cleared
@@ -1359,7 +1696,7 @@ document.getElementById('schedule-table').addEventListener('change', function(e)
     td.insertBefore(badge, confPill || null);
   }
 
-  saveSchedule();
+  setDirty(true);
   // Refresh summary row for this Sunday
   updateSundaySummary(rowIdx);
 });
@@ -2247,11 +2584,11 @@ document.getElementById('btn-breeze-import-search').addEventListener('click', fu
 // ── Event mapping ─────────────────────────────────────────
 var fetchedBreezeEvents = [];
 
-document.getElementById('btn-fetch-events').addEventListener('click', function() {
+(document.getElementById('btn-fetch-events') || {addEventListener: function(){}}).addEventListener('click', function() {
   if (!currentSchedule.length) { alert('Generate a schedule first.'); return; }
-  var startStr = document.getElementById('start-date').value;
-  var endStr   = document.getElementById('end-date').value;
-  if (!startStr||!endStr) { alert('Schedule date range is missing.'); return; }
+  var startStr = currentMonthKey ? currentMonthKey + '-01' : '';
+  var endStr   = currentMonthKey ? (function(){ var p=currentMonthKey.split('-'); return new Date(parseInt(p[0]),parseInt(p[1]),0).toISOString().slice(0,10); })() : '';
+  if (!startStr||!endStr) { alert('No active month selected.'); return; }
   var statusEl = document.getElementById('fetch-events-status');
   statusEl.textContent = 'Fetching…';
 
@@ -2322,7 +2659,7 @@ function renderEventMapTable() {
 }
 
 // Save event map on dropdown change
-document.getElementById('event-map-container').addEventListener('change', function(e) {
+(document.getElementById('event-map-container') || {addEventListener: function(){}}).addEventListener('change', function(e) {
   if (!e.target.classList.contains('event-map-select')) return;
   var iso = e.target.getAttribute('data-date');
   var svc = e.target.getAttribute('data-svc');
@@ -2334,7 +2671,7 @@ document.getElementById('event-map-container').addEventListener('change', functi
 });
 
 // ── Step 3: Push to Breeze ────────────────────────────────────────
-document.getElementById('btn-sync-breeze').addEventListener('click', syncToBreeze);
+(document.getElementById('btn-sync-breeze') || {addEventListener: function(){}}).addEventListener('click', syncToBreeze);
 
 function logLine(msg, cls) {
   var box = document.getElementById('sync-log');
@@ -2553,23 +2890,14 @@ function syncToBreeze() {
 // ══════════════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════════════
+migrateOldSchedule();
 renderPeopleList();
-
-// Set default date range to current month
-(function() {
-  var now = new Date(), y = now.getFullYear(), m = now.getMonth();
-  var first = new Date(y,m,1), last = new Date(y,m+1,0);
-  document.getElementById('start-date').value = first.toISOString().slice(0,10);
-  document.getElementById('end-date').value   = last.toISOString().slice(0,10);
-})();
+var _monthLabelEl = document.getElementById('current-month-label');
+if (_monthLabelEl) _monthLabelEl.textContent = monthKeyLabel(currentMonthKey);
 
 // Restore saved schedule if any
-// Seed last-served from current schedule on load
 if (loadSchedule()) {
-  var people = getPeople();
-  var counts = {};
-  people.forEach(function(p){ counts[p.id]=0; });
-  renderTable(people, null);
+  renderTable(getPeople(), null);
   document.getElementById('schedule-output').style.display = 'block';
 }
 
@@ -2579,9 +2907,9 @@ if (loadSchedule()) {
 function archiveCurrentSchedule() {
   if (!currentSchedule.length) return;
   var history = getHistory();
-  var startDate = document.getElementById('start-date').value;
-  var endDate   = document.getElementById('end-date').value;
-  var rows = currentSchedule.map(function(row) {
+  var startDate = currentMonthKey ? currentMonthKey + '-01' : '';
+  var endDate = currentMonthKey ? (function(){ var p=currentMonthKey.split('-'); return new Date(parseInt(p[0]),parseInt(p[1]),0).toISOString().slice(0,10); })() : '';
+  var rows = currentSchedule.filter(function(row){ return row.type !== 'special'; }).map(function(row) {
     return { dateISO: row.date.toISOString(), ordinal: row.ordinal, assignments: row.assignments, label: row.label || '' };
   });
   history.unshift({ id: makeId(), savedAt: new Date().toISOString(), startDate: startDate, endDate: endDate, rows: rows });
@@ -2826,7 +3154,71 @@ function renderStatsTab() {
   document.getElementById('stats-content').innerHTML = html;
 }
 
+// ══════════════════════════════════════════════════════════════════
+// SPECIAL SERVICE PANEL
+// ══════════════════════════════════════════════════════════════════
+function addSpecialSvcTimeRow() {
+  var list = document.getElementById('special-services-list');
+  var idx = list.querySelectorAll('.special-svc-row').length;
+  // Build role checkboxes (all known roles)
+  var allRoles = PER_ROLES.concat(SHARED_ROLES);
+  var roleCheckboxes = allRoles.map(function(r) {
+    return '<label style="display:inline-flex;align-items:center;gap:3px;font-size:.78rem;margin-right:6px;">'
+      +'<input type="checkbox" data-role="'+esc(r)+'"> '+esc(roleLabel(r))+'</label>';
+  }).join('');
+  var row = document.createElement('div');
+  row.className = 'special-svc-row';
+  row.style.cssText = 'background:#fafafa;border:1px solid #dde;border-radius:6px;padding:8px 10px;margin-bottom:8px;';
+  row.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+    +'<label style="font-size:.78rem;font-weight:600;">Time:</label>'
+    +'<input type="text" class="svc-time-input" placeholder="e.g. 5:00pm" style="width:110px;font-size:.82rem;">'
+    +'<button type="button" class="btn-remove-svc" style="margin-left:auto;background:none;border:none;color:#c00;cursor:pointer;font-size:1rem;">&times;</button>'
+    +'</div>'
+    +'<div style="font-size:.78rem;font-weight:600;margin-bottom:4px;">Roles needed:</div>'
+    +'<div class="svc-role-checks" style="display:flex;flex-wrap:wrap;gap:2px;">'+roleCheckboxes+'</div>';
+  row.querySelector('.btn-remove-svc').addEventListener('click', function(){ list.removeChild(row); });
+  list.appendChild(row);
+}
+
+document.getElementById('btn-add-svc-time').addEventListener('click', addSpecialSvcTimeRow);
+
+document.getElementById('btn-save-special').addEventListener('click', function() {
+  var date = document.getElementById('special-date').value;
+  var name = document.getElementById('special-name').value.trim();
+  if (!date) { showAlert('special-alert','Please select a date.','warning'); return; }
+  if (!name) { showAlert('special-alert','Please enter a service name.','warning'); return; }
+
+  var services = [];
+  document.getElementById('special-services-list').querySelectorAll('.special-svc-row').forEach(function(row) {
+    var time = row.querySelector('.svc-time-input').value.trim() || 'Service';
+    var roles = [];
+    row.querySelectorAll('.svc-role-checks input[type="checkbox"]:checked').forEach(function(cb){
+      roles.push(cb.getAttribute('data-role'));
+    });
+    if (roles.length) services.push({ time: time, roles: roles, assignments: {} });
+  });
+  if (!services.length) { showAlert('special-alert','Add at least one service time with roles.','warning'); return; }
+
+  var specialRow = {
+    type: 'special',
+    date: new Date(date+'T12:00:00'),
+    name: name,
+    services: services
+  };
+
+  // Insert in date order
+  currentSchedule.push(specialRow);
+  currentSchedule.sort(function(a,b){ return a.date - b.date; });
+  saveCurrentMonth();
+  setDirty(false);
+  renderTable(getPeople(), null);
+  document.getElementById('schedule-output').style.display = 'block';
+  closeAllPanels();
+  showAlert('schedule-alert', 'Special service "'+name+'" added.', 'success');
+});
+
 
 </script>
+
 </body>
 </html>
