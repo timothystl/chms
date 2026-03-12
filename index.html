@@ -3113,36 +3113,35 @@ function fbRegister() {
 function fbSignOut() { fbAuth.signOut(); }
 
 function fbSignInGoogle() {
-  updateLoginStatus('');
+  updateLoginStatus('Redirecting to Google…');
   var provider = new firebase.auth.GoogleAuthProvider();
-  fbAuth.signInWithPopup(provider)
-    .catch(function(e) { updateLoginStatus('Google sign-in failed: ' + e.message, true); });
+  fbAuth.signInWithRedirect(provider);
 }
+
+// Handle the result when Google redirects back to the app
+fbAuth.getRedirectResult()
+  .catch(function(e) { updateLoginStatus('Google sign-in failed: ' + e.message, true); });
 
 fbAuth.onAuthStateChanged(function(user) {
   var loginScreen = document.getElementById('login-screen');
   var appContent  = document.getElementById('app-content');
   var userDisplay = document.getElementById('fb-user-display');
-  console.log('[AUTH]', new Date().toISOString(), user ? 'user=' + user.email : 'null');
   if (user) {
     // Enforce allowlist — applies to email/password and Google SSO alike
     var email   = (user.email || '').toLowerCase().trim();
     var allowed = ALLOWED_EMAILS.map(function(e) { return e.toLowerCase().trim(); });
     if (allowed.indexOf(email) === -1) {
-      console.log('[AUTH] blocked - not in allowlist');
       fbAuth.signOut().then(function() {
-        updateLoginStatus('Access not authorized (' + email + '). Contact your administrator.', true);
+        updateLoginStatus('Access not authorized. Contact your administrator.', true);
       });
       return; // signOut re-triggers this callback with user=null, which restores login screen
     }
     // Authorized — show the app
-    console.log('[AUTH] authorized');
     if (loginScreen) loginScreen.style.display = 'none';
     if (appContent)  appContent.style.display  = 'block';
     if (userDisplay) userDisplay.textContent   = 'Signed in as ' + user.email;
     fbPull();
   } else {
-    console.log('[AUTH] signed out - showing login screen');
     if (loginScreen) loginScreen.style.display = 'flex';
     if (appContent)  appContent.style.display  = 'none';
     if (userDisplay) userDisplay.textContent   = '';
