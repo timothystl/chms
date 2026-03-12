@@ -3129,7 +3129,7 @@ fbAuth.onAuthStateChanged(function(user) {
     var allowed = ALLOWED_EMAILS.map(function(e) { return e.toLowerCase().trim(); });
     if (allowed.indexOf(email) === -1) {
       fbAuth.signOut().then(function() {
-        updateLoginStatus('Access not authorized (' + email + '). Contact your administrator.', true);
+        updateLoginStatus('Access not authorized. Contact your administrator.', true);
       });
       return; // signOut re-triggers this callback with user=null, which restores login screen
     }
