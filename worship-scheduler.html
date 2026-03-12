@@ -227,6 +227,8 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 /* ── Sunday label ──────────────────────────── */
 .label-input { font-size:0.7rem; color:#f0b429; background:transparent; border:none; border-bottom:1px dashed #c8ab6a; outline:none; width:100%; margin-top:3px; padding:1px 2px; font-weight:600; caret-color:#2c3e6b; }
 .label-input::placeholder { color:#bbb; font-weight:normal; }
+.lect-name-cell { display:block; font-size:.72rem; color:#5568a5; font-weight:500; margin-top:2px; }
+.series-cell { display:inline-block; font-size:.68rem; font-weight:700; background:#e8eaf6; color:#3949ab; border-radius:3px; padding:0 4px; margin-top:2px; }
 
 /* ── History list ──────────────────────────── */
 .history-list { display:flex; flex-direction:column; gap:8px; }
@@ -262,6 +264,8 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 .ss-date { font-weight:700; color:#2c3e6b; font-size:.9rem; white-space:nowrap; }
 .ss-label { font-size:.8rem; color:#e67e22; font-weight:600; }
 .ss-ordinal { font-size:.78rem; color:#8892b0; }
+.ss-lect-name { font-size:.78rem; color:#5568a5; font-weight:500; }
+.ss-series-badge { display:inline-block; font-size:.7rem; font-weight:700; background:#e8eaf6; color:#3949ab; border-radius:4px; padding:0 5px; margin-left:2px; vertical-align:middle; }
 .ss-fill { font-size:.8rem; font-weight:700; }
 .ss-open { font-size:.8rem; font-weight:700; color:#e74c3c; }
 .ss-complete { font-size:.8rem; font-weight:700; color:#27ae60; }
@@ -752,6 +756,15 @@ function saveSchedule() { saveCurrentMonth(); }
 function loadSchedule() { return loadMonthSchedule(currentMonthKey); }
 
 // ══════════════════════════════════════════════════════════════════
+// ── LECTIONARY CALENDAR ────────────────────────────────────────────
+// Populated by fetch('lcms_calendar.json') on load; keyed by ISO date
+var lectCalendar = {};
+function getLectEntry(date) {
+  if (!date || !Object.keys(lectCalendar).length) return null;
+  return lectCalendar[date.toISOString().slice(0, 10)] || null;
+}
+// ──────────────────────────────────────────────────────────────────
+
 // SCHEDULE STATE
 // ══════════════════════════════════════════════════════════════════
 var currentSchedule = [];
@@ -1526,9 +1539,18 @@ function buildSummaryInner(rowIdx, pMap, confs) {
   if(st.cfmd>0) confBadges+='<span class="sconf-badge sconf-confirmed">'+st.cfmd+' &#10003;</span>';
   if(st.decl>0) confBadges+='<span class="sconf-badge sconf-declined">'+st.decl+' &#10007;</span>';
   if(st.pend>0&&st.filled>0) confBadges+='<span class="sconf-badge sconf-pending">'+st.pend+' ?</span>';
-  var labelPart = existingLabel
-    ? '<span class="ss-label">'+esc(existingLabel)+'</span>'
-    : '<span class="ss-ordinal">'+esc(row.ordinal+ordSuffix(row.ordinal)+' Sunday')+'</span>';
+  var lectEntry = getLectEntry(row.date);
+  var labelPart = '';
+  if (existingLabel) {
+    labelPart += '<span class="ss-label">'+esc(existingLabel)+'</span>';
+  }
+  if (lectEntry) {
+    labelPart += '<span class="ss-lect-name">'+esc(lectEntry.sundayName)+'</span>'
+      +'<span class="ss-series-badge">'+esc(lectEntry.series)+'</span>';
+  }
+  if (!existingLabel && !lectEntry) {
+    labelPart = '<span class="ss-ordinal">'+esc(row.ordinal+ordSuffix(row.ordinal)+' Sunday')+'</span>';
+  }
   return '<span class="ss-toggle">&#9658;</span>'
     +'<span class="ss-date">'+esc(fmtDate(row.date))+'</span>'
     +labelPart
@@ -1632,8 +1654,13 @@ function renderTable(people, counts) {
 
     // Detail row 1: 8am
     var r1 = '<tr class="sunday-detail row-8am" data-idx="'+rowIdx+'">';
+    var lectEntryDetail = getLectEntry(row.date);
+    var ordinalOrLect = lectEntryDetail
+      ? '<span class="lect-name-cell">'+esc(lectEntryDetail.sundayName)+'</span>'
+        +'<span class="series-cell">Series '+esc(lectEntryDetail.series)+'</span>'
+      : '<span class="ordinal">'+esc(row.ordinal+ordSuffix(row.ordinal)+' Sunday')+'</span>';
     r1 += '<td class="date-cell" rowspan="2">'+esc(fmtDate(row.date))
-      +'<span class="ordinal">'+esc(row.ordinal+ordSuffix(row.ordinal)+' Sunday')+'</span>'
+      +ordinalOrLect
       +'<input class="label-input" placeholder="Add label…" value="'+esc(existingLabel)+'" data-date="'+esc(dateISO)+'" title="Add a special label (e.g. Christmas Eve)">'
       +'</td>';
     r1 += '<td class="svc-label svc-8am">8am</td>';
@@ -3300,7 +3327,8 @@ function exportIcal() {
   currentSchedule.forEach(function(row) {
     var ymd = isoToYMD(row.date);
     var dateISO = row.date.toISOString().slice(0,10);
-    var dayLabel = sunLabels[dateISO] || row.label || '';
+    var lectEntryPrint = getLectEntry(row.date);
+    var dayLabel = sunLabels[dateISO] || row.label || (lectEntryPrint ? lectEntryPrint.sundayName : '');
     var collect = [];
     PER_ROLES.forEach(function(role) {
       ['8am','10:45am'].forEach(function(svc) {
@@ -3538,6 +3566,17 @@ document.getElementById('import-data-file').addEventListener('change', function(
     e.target.value = ''; // reset so same file can be re-imported
   }
 });
+
+// Load LCMS lectionary calendar for Sunday name + series display
+fetch('lcms_calendar.json')
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    lectCalendar = data.calendar || {};
+    // Re-render if a schedule is already showing
+    var out = document.getElementById('schedule-output');
+    if (out && out.style.display !== 'none') renderTable(getPeople(), null);
+  })
+  .catch(function() { /* graceful degradation: lectCalendar stays {} */ });
 
 
 </script>
