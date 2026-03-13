@@ -366,8 +366,10 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
   <button class="tab-btn active" id="tab-btn-people">People &amp; Availability</button>
   <button class="tab-btn" id="tab-btn-schedule">Schedule</button>
   <button class="tab-btn" id="tab-btn-stats">&#128202; Stats</button>
-  <button class="header-gear" id="btn-open-settings" title="Settings">&#9881; Settings</button>
-  <button class="header-gear" id="btn-header-signout" title="Sign Out">&#x2192; Sign Out</button>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:4px;margin-right:8px;">
+    <button class="header-gear" id="btn-open-settings" title="Settings" style="margin-left:0;margin-right:0;">&#9881; Settings</button>
+    <button class="header-gear" id="btn-header-signout" title="Sign Out" style="margin-left:0;margin-right:0;">&#x2192; Sign Out</button>
+  </div>
 </div>
 
 <!-- ══ PEOPLE TAB ══════════════════════════════════════════════════════════ -->
@@ -3514,6 +3516,17 @@ function addSpecialSvcTimeRow(timeVal, preSelectedRoles) {
   if (preSelectedRoles) {
     row.querySelectorAll('.svc-role-checks input[type="checkbox"]').forEach(function(cb) {
       if (preSelectedRoles.indexOf(cb.getAttribute('data-role')) > -1) cb.checked = true;
+    });
+  }
+  // Sync Preacher checkbox across all service rows
+  var preacherCb = row.querySelector('.svc-role-checks input[data-role="Preacher"]');
+  if (preacherCb) {
+    preacherCb.addEventListener('change', function() {
+      var checked = this.checked;
+      list.querySelectorAll('.special-svc-row').forEach(function(otherRow) {
+        var cb = otherRow.querySelector('.svc-role-checks input[data-role="Preacher"]');
+        if (cb && cb !== preacherCb) cb.checked = checked;
+      });
     });
   }
 }
