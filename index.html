@@ -407,7 +407,7 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
       <h2 style="margin:0;">Volunteers (<span id="people-count">0</span>)</h2>
       <button class="btn btn-primary btn-sm" id="btn-open-person-panel" style="margin-left:auto;">+ Add Person</button>
       <input type="search" id="people-search" placeholder="Filter by name, role, or service…"
-             style="max-width:240px;font-size:.85rem;" oninput="peopleSearchQuery=this.value;renderPeopleList();">
+             style="max-width:240px;font-size:.85rem;" oninput="updatePeopleSearch(this.value)">
     </div>
     <div id="people-list" style="overflow-x:auto;"></div>
   </div>
@@ -793,10 +793,16 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 
 </div><!-- /#app-content -->
 
-<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-database-compat.js"></script>
-<script>
+<script type="module">
+import { initializeApp }                        from 'https://www.gstatic.com/firebasejs/10.11.1/firebase-app.js';
+import { getAuth, onAuthStateChanged,
+         signInWithEmailAndPassword,
+         createUserWithEmailAndPassword,
+         signOut, sendPasswordResetEmail,
+         signInWithPopup, GoogleAuthProvider,
+         getRedirectResult }                     from 'https://www.gstatic.com/firebasejs/10.11.1/firebase-auth.js';
+import { getDatabase, ref as dbRef,
+         set as dbSet, get as dbGet }            from 'https://www.gstatic.com/firebasejs/10.11.1/firebase-database.js';
 // ══════════════════════════════════════════════════════════════════
 // HELPERS
 // ══════════════════════════════════════════════════════════════════
@@ -3452,9 +3458,9 @@ var firebaseConfig = {
   messagingSenderId: "645397350092",
   appId: "1:645397350092:web:d6c828f36f721ede3d2469"
 };
-firebase.initializeApp(firebaseConfig);
-var fbAuth = firebase.auth();
-var fbDb   = firebase.database();
+var _fbApp = initializeApp(firebaseConfig);
+var fbAuth = getAuth(_fbApp);
+var fbDb   = getDatabase(_fbApp);
 
 // ── ACCESS CONTROL ────────────────────────────────────────────────
 // To authorize a new user: add their email here, save, and re-deploy.
@@ -3497,7 +3503,7 @@ async function fbPush() {
   if (!user) return;
   updateSyncStatus('Saving\u2026');
   try {
-    await fbDb.ref('ws_data/' + user.uid).set(buildDataSnapshot());
+    await dbSet(dbRef(fbDb, 'ws_data/' + user.uid), buildDataSnapshot());
     updateSyncStatus('Saved \u2713 ' + new Date().toLocaleTimeString());
   } catch(e) { updateSyncStatus('Save error: ' + e.message, true); }
 }
@@ -3507,7 +3513,7 @@ async function fbPull() {
   if (!user) return;
   updateSyncStatus('Loading\u2026');
   try {
-    var snap = await fbDb.ref('ws_data/' + user.uid).get();
+    var snap = await dbGet(dbRef(fbDb, 'ws_data/' + user.uid));
     if (!snap.exists()) { updateSyncStatus('No cloud data found.'); return; }
     var data = snap.val();
     var keys = ['ws_people','ws_schedule_v2','ws_history','ws_last_served',
@@ -3536,7 +3542,7 @@ function fbSignIn() {
   var pass  = document.getElementById('fb-password').value;
   if (!email || !pass) { updateLoginStatus('Enter email and password.', true); return; }
   updateLoginStatus('Signing in\u2026');
-  fbAuth.signInWithEmailAndPassword(email, pass)
+  signInWithEmailAndPassword(fbAuth, email, pass)
     .catch(function(e) { updateLoginStatus('Sign-in failed: ' + e.message, true); });
 }
 
@@ -3545,16 +3551,16 @@ function fbRegister() {
   var pass  = document.getElementById('fb-password').value;
   if (!email || !pass) { updateLoginStatus('Enter email and password.', true); return; }
   updateLoginStatus('Creating account\u2026');
-  fbAuth.createUserWithEmailAndPassword(email, pass)
+  createUserWithEmailAndPassword(fbAuth, email, pass)
     .catch(function(e) { updateLoginStatus('Account creation failed: ' + e.message, true); });
 }
 
-function fbSignOut() { fbAuth.signOut(); }
+function fbSignOut() { signOut(fbAuth); }
 
 function fbSignInGoogle() {
   updateLoginStatus('Opening Google sign-in…');
-  var provider = new firebase.auth.GoogleAuthProvider();
-  fbAuth.signInWithPopup(provider)
+  var provider = new GoogleAuthProvider();
+  signInWithPopup(fbAuth, provider)
     .catch(function(e) {
       if (e.code === 'auth/popup-blocked') {
         updateLoginStatus('Popup was blocked. Use Email/Password below instead.', true);
@@ -3575,7 +3581,7 @@ function fbForgotPassword() {
     return;
   }
   updateLoginStatus('Sending password reset email…');
-  fbAuth.sendPasswordResetEmail(email)
+  sendPasswordResetEmail(fbAuth, email)
     .then(function() {
       updateLoginStatus('Password reset email sent to ' + email + '. Check your inbox, then sign in with your new password.');
     })
@@ -3588,9 +3594,9 @@ function fbForgotPassword() {
 // Firebase compat SDK auto-processes pending redirects on init; if that redirect
 // was initiated on GitHub Pages (COOP: same-origin) it fails and can trigger an
 // internal signOut() that kills a valid email/password session.
-fbAuth.getRedirectResult().catch(function() { /* discard stale redirect errors */ });
+getRedirectResult(fbAuth).catch(function() { /* discard stale redirect errors */ });
 
-fbAuth.onAuthStateChanged(function(user) {
+onAuthStateChanged(fbAuth, function(user) {
   var loginScreen = document.getElementById('login-screen');
   var appContent  = document.getElementById('app-content');
   var userDisplay = document.getElementById('fb-user-display');
@@ -3599,7 +3605,7 @@ fbAuth.onAuthStateChanged(function(user) {
     var email   = (user.email || '').toLowerCase().trim();
     var allowed = ALLOWED_EMAILS.map(function(e) { return e.toLowerCase().trim(); });
     if (allowed.indexOf(email) === -1) {
-      fbAuth.signOut().then(function() {
+      signOut(fbAuth).then(function() {
         updateLoginStatus('Access not authorized. Contact your administrator.', true);
       });
       return; // signOut re-triggers this callback with user=null, which restores login screen
@@ -4104,6 +4110,12 @@ fetch('lcms_calendar.json')
   })
   .catch(function() { /* graceful degradation: lectCalendar stays {} */ });
 
+// ── Expose functions called from inline HTML event handlers ─────────────────
+// (needed because this script runs as a module, so functions aren't global)
+window.updatePeopleSearch = function(v) { peopleSearchQuery = v; renderPeopleList(); };
+window.renderPeopleList   = renderPeopleList;
+window.renderStatsTab     = renderStatsTab;
+window.setPeopleSort      = setPeopleSort;
 
 </script>
 
