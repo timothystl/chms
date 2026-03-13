@@ -716,7 +716,7 @@ function fmtTime(t) {
 }
 // Parse any reasonable time string to HH:MM for <input type="time">.
 function parseToHHMM(t) {
-  if (!t) return '';
+  if (!t || typeof t !== 'string') return '';
   if (/^\d{2}:\d{2}$/.test(t)) return t;
   var m = t.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
   if (m) {
@@ -3601,7 +3601,7 @@ function addSpecialSvcTimeRow(timeVal, preSelectedRoles) {
   }
 }
 
-document.getElementById('btn-add-svc-time').addEventListener('click', addSpecialSvcTimeRow);
+document.getElementById('btn-add-svc-time').addEventListener('click', function() { addSpecialSvcTimeRow(); });
 
 document.getElementById('btn-save-special').addEventListener('click', function() {
   var date = document.getElementById('special-date').value;
