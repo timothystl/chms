@@ -1755,6 +1755,18 @@ document.getElementById('schedule-table').addEventListener('change', function(e)
     if (row && row.services && row.services[svcIdx]) {
       if (!row.services[svcIdx].assignments) row.services[svcIdx].assignments = {};
       row.services[svcIdx].assignments[role] = pid;
+      // Sync Preacher across all service times for this special service date
+      if (role === 'Preacher') {
+        row.services.forEach(function(svc, i) {
+          if (i === svcIdx) return;
+          if (!svc.assignments) svc.assignments = {};
+          svc.assignments['Preacher'] = pid;
+          var otherSel = document.querySelector(
+            '.cell-select[data-row="'+rowIdx+'"][data-svc-idx="'+i+'"][data-role="Preacher"][data-special="1"]'
+          );
+          if (otherSel) otherSel.value = pid || '';
+        });
+      }
     }
     setDirty(true);
     // Refresh special summary row
@@ -2095,6 +2107,18 @@ function sendReminderEmails() {
   currentSchedule.forEach(function(row) {
     var dateStr = fmtDate(row.date);
     var dateISO = row.date.toISOString().slice(0, 10);
+    if (row.type === 'special') {
+      (row.services || []).forEach(function(svc) {
+        (svc.roles || []).forEach(function(role) {
+          var pid = (svc.assignments || {})[role];
+          if (!pid) return;
+          if (!personAssignments[pid]) personAssignments[pid] = [];
+          var svcLabel = (row.name || 'Special Service') + (svc.time ? ' \u2014 ' + svc.time : '');
+          personAssignments[pid].push({ date: dateStr, dateISO: dateISO, svc: svcLabel, role: role });
+        });
+      });
+      return;
+    }
     PER_ROLES.forEach(function(role) {
       ['8am','10:45am'].forEach(function(svc) {
         var pid = row.assignments[role][svc];
@@ -2367,6 +2391,18 @@ function restoreRsvpTokens() {
   currentSchedule.forEach(function(row) {
     var dateStr = fmtDate(row.date);
     var dateISO = row.date.toISOString().slice(0, 10);
+    if (row.type === 'special') {
+      (row.services || []).forEach(function(svc) {
+        (svc.roles || []).forEach(function(role) {
+          var pid = (svc.assignments || {})[role];
+          if (!pid) return;
+          if (!personAssignments[pid]) personAssignments[pid] = [];
+          var svcLabel = (row.name || 'Special Service') + (svc.time ? ' \u2014 ' + svc.time : '');
+          personAssignments[pid].push({ date: dateStr, dateISO: dateISO, svc: svcLabel, role: role });
+        });
+      });
+      return;
+    }
     PER_ROLES.forEach(function(role) {
       ['8am','10:45am'].forEach(function(svc) {
         var pid = row.assignments[role][svc];
