@@ -599,6 +599,9 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
       <label for="email-reply-to" style="margin-top:12px;">Reply-To Address</label>
       <input type="email" id="email-reply-to" placeholder="dinger@timothystl.org" style="max-width:320px;">
       <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">Where volunteer replies are sent.</small>
+      <label for="email-notify-admin" style="margin-top:12px;">Notify me at</label>
+      <input type="email" id="email-notify-admin" placeholder="your@email.com" style="max-width:320px;">
+      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">You'll get an email whenever a volunteer confirms or declines.</small>
     </div>
 
     <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-top:1px solid #eee;padding-top:16px;">
@@ -2244,6 +2247,7 @@ function sendReminderEmails() {
               token:       token,
               name:        person.name,
               personId:    person.id,
+              notifyEmail: s.notifyAdmin || '',
               assignments: assignments.map(function(a) {
                 return { date: a.date, dateISO: a.dateISO, svc: a.svc, role: a.role };
               }),
@@ -2476,6 +2480,7 @@ function restoreRsvpTokens() {
           token:       token,
           name:        person.name,
           personId:    person.id,
+          notifyEmail: s.notifyAdmin || '',
           assignments: (personAssignments[pid] || []).map(function(a) {
             return { date: a.date, dateISO: a.dateISO, svc: a.svc, role: a.role };
           }),
@@ -2508,6 +2513,7 @@ function loadSettingsForm() {
   if (s.resendKey)     document.getElementById('email-resend-key').value     = s.resendKey;
   if (s.emailFrom)     document.getElementById('email-from').value            = s.emailFrom;
   if (s.replyTo)       document.getElementById('email-reply-to').value        = s.replyTo;
+  if (s.notifyAdmin)   document.getElementById('email-notify-admin').value    = s.notifyAdmin;
   if (s.workerSecret)  document.getElementById('breeze-worker-secret').value  = s.workerSecret;
 }
 
@@ -2518,12 +2524,13 @@ document.getElementById('btn-save-settings').addEventListener('click', function(
   var workerSecret  = document.getElementById('breeze-worker-secret').value.trim();
   var tagIds    = document.getElementById('breeze-tag-ids').value
                     .split(',').map(function(t){ return t.trim().replace(/\D/g,''); }).filter(Boolean);
-  var resendKey = document.getElementById('email-resend-key').value.trim();
-  var emailFrom = document.getElementById('email-from').value.trim();
-  var replyTo   = document.getElementById('email-reply-to').value.trim();
+  var resendKey   = document.getElementById('email-resend-key').value.trim();
+  var emailFrom   = document.getElementById('email-from').value.trim();
+  var replyTo     = document.getElementById('email-reply-to').value.trim();
+  var notifyAdmin = document.getElementById('email-notify-admin').value.trim();
   if (!subdomain||!apiKey) { showAlert('settings-alert','Please enter both subdomain and API key.','warning'); return; }
   if (!workerUrl) { showAlert('settings-alert','Please enter your Cloudflare Worker URL.','warning'); return; }
-  saveBreezeSettings({ subdomain:subdomain, apiKey:apiKey, workerUrl:workerUrl, workerSecret:workerSecret, tagIds:tagIds, resendKey:resendKey, emailFrom:emailFrom, replyTo:replyTo });
+  saveBreezeSettings({ subdomain:subdomain, apiKey:apiKey, workerUrl:workerUrl, workerSecret:workerSecret, tagIds:tagIds, resendKey:resendKey, emailFrom:emailFrom, replyTo:replyTo, notifyAdmin:notifyAdmin });
   showAlert('settings-alert','Settings saved!','success');
   document.getElementById('settings-status').textContent = '';
 });
