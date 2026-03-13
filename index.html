@@ -911,9 +911,25 @@ function loadMonthSchedule(key) {
   var months = getMonthSchedules();
   var data = months[key];
   if (!data || !data.rows || !data.rows.length) { currentSchedule = []; return false; }
-  currentSchedule = data.rows.map(function(row) {
+  // Guard against corrupted data: only keep rows whose date actually belongs to this month
+  var validRows = data.rows.filter(function(row) {
+    return (row.dateISO || '').slice(0, 7) === key;
+  });
+  if (!validRows.length) {
+    // Silently fix the corrupted entry in storage so it doesn't persist
+    delete months[key];
+    saveMonthSchedules(months);
+    currentSchedule = []; return false;
+  }
+  if (validRows.length !== data.rows.length) {
+    // Partial corruption — keep only the valid rows and fix storage
+    data.rows = validRows;
+    months[key] = data;
+    saveMonthSchedules(months);
+  }
+  currentSchedule = validRows.map(function(row) {
     if (row.type === 'special') {
-      return {type:'special', date:new Date(row.dateISO+'T12:00:00'), name:row.name, services:row.services};
+      return {type:'special', date:new Date(row.dateISO+'T12:00:00'), name:row.name, services:row.services, readings:row.readings||{}};
     }
     return {type:'sunday', date:new Date(row.dateISO+'T12:00:00'), ordinal:row.ordinal, label:row.label||'', assignments:row.assignments};
   });
