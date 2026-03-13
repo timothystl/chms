@@ -3136,6 +3136,12 @@ function fbForgotPassword() {
     });
 }
 
+// Clear any stale signInWithRedirect state left over from a previous deployment.
+// Firebase compat SDK auto-processes pending redirects on init; if that redirect
+// was initiated on GitHub Pages (COOP: same-origin) it fails and can trigger an
+// internal signOut() that kills a valid email/password session.
+fbAuth.getRedirectResult().catch(function() { /* discard stale redirect errors */ });
+
 fbAuth.onAuthStateChanged(function(user) {
   var loginScreen = document.getElementById('login-screen');
   var appContent  = document.getElementById('app-content');
