@@ -680,8 +680,60 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
       <div id="special-services-list" style="margin-top:8px;"></div>
       <button class="btn btn-outline btn-sm" id="btn-add-svc-time" style="margin-top:8px;">+ Add Service Time</button>
     </div>
+    <div style="margin-top:20px;border-top:1px solid #eee;padding-top:16px;">
+      <label style="font-weight:600;">Readings</label>
+      <p style="font-size:.8rem;color:#888;margin:4px 0 10px;">Leave blank if not applicable.</p>
+      <div class="field">
+        <label>Old Testament</label>
+        <input type="text" id="special-readings-ot" placeholder="e.g. Isaiah 9:2-7" style="width:100%;">
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Epistle</label>
+        <input type="text" id="special-readings-epistle" placeholder="e.g. Titus 2:11-14" style="width:100%;">
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Gospel</label>
+        <input type="text" id="special-readings-gospel" placeholder="e.g. Luke 2:1-14" style="width:100%;">
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Psalm</label>
+        <input type="text" id="special-readings-psalm" placeholder="e.g. Psalm 96" style="width:100%;">
+      </div>
+    </div>
     <button class="btn btn-primary" id="btn-save-special" style="margin-top:20px;width:100%;">Add to Schedule</button>
     <div id="special-alert" style="margin-top:8px;"></div>
+  </div>
+</div>
+
+<!-- ══ READINGS PANEL ════════════════════════════════════════════════════════ -->
+<div id="readings-panel" class="side-panel">
+  <div class="panel-hdr">
+    <h2 id="readings-panel-title">Edit Readings</h2>
+    <button class="panel-close" id="btn-close-readings-panel">&times;</button>
+  </div>
+  <div class="panel-body">
+    <p id="readings-panel-subtitle" style="font-size:.85rem;color:#888;margin:0 0 16px;"></p>
+    <div class="field">
+      <label>Old Testament</label>
+      <input type="text" id="readings-ot" placeholder="e.g. Isaiah 40:1-11" style="width:100%;">
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Epistle</label>
+      <input type="text" id="readings-epistle" placeholder="e.g. Romans 8:14-17" style="width:100%;">
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Gospel</label>
+      <input type="text" id="readings-gospel" placeholder="e.g. John 3:1-17" style="width:100%;">
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Psalm</label>
+      <input type="text" id="readings-psalm" placeholder="e.g. Psalm 29" style="width:100%;">
+    </div>
+    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-primary" id="btn-save-readings">Save Readings</button>
+      <button class="btn btn-outline" id="btn-reset-readings">Reset to Lectionary</button>
+    </div>
+    <div id="readings-alert" style="margin-top:8px;"></div>
   </div>
 </div>
 
@@ -758,6 +810,21 @@ function getScheduleOverrides() { try { return JSON.parse(localStorage.getItem('
 function saveScheduleOverrides(o){ localStorage.setItem('ws_schedule_overrides', JSON.stringify(o)); }
 
 function getEventMap() { try { return JSON.parse(localStorage.getItem('ws_breeze_event_map') || '{}'); } catch(e) { return {}; } }
+function getReadingsOverrides() { try { return JSON.parse(localStorage.getItem('ws_readings') || '{}'); } catch(e) { return {}; } }
+function saveReadingsOverrides(o) { localStorage.setItem('ws_readings', JSON.stringify(o)); }
+function getReadingsForDate(dateISO) {
+  var ov = getReadingsOverrides()[dateISO];
+  if (ov) return ov;
+  var e = lectCalendar[dateISO];
+  return e ? { ot: e.ot||'', epistle: e.epistle||'', gospel: e.gospel||'', psalm: e.psalm||'' } : null;
+}
+// Strip LCMS parenthetical verse numbers (e.g. "Romans 13:( 8-10 ) 11-14" → "Romans 13:11-14")
+function cleanReading(r) { return (r||'').replace(/\s*\(.*?\)\s*/g,' ').replace(/\s+/g,' ').trim(); }
+function bibleLink(ref) {
+  var clean = cleanReading(ref);
+  if (!clean) return '';
+  return 'https://www.biblegateway.com/passage/?search=' + encodeURIComponent(clean) + '&version=ESV';
+}
 function getHistory()        { try { return JSON.parse(localStorage.getItem('ws_history')      || '[]'); } catch(e) { return []; } }
 function saveHistory(h)      { localStorage.setItem('ws_history', JSON.stringify(h)); }
 function getLastServed()     { try { return JSON.parse(localStorage.getItem('ws_last_served')  || '{}'); } catch(e) { return {}; } }
@@ -1480,6 +1547,10 @@ document.getElementById('btn-add-special').addEventListener('click', function() 
   document.getElementById('special-date').value = '';
   document.getElementById('special-name').value = '';
   document.getElementById('special-services-list').innerHTML = '';
+  document.getElementById('special-readings-ot').value = '';
+  document.getElementById('special-readings-epistle').value = '';
+  document.getElementById('special-readings-gospel').value = '';
+  document.getElementById('special-readings-psalm').value = '';
   addSpecialSvcTimeRow();
   // Reset any lingering edit mode
   var saveBtn = document.getElementById('btn-save-special');
@@ -1496,6 +1567,50 @@ document.getElementById('btn-close-special-panel').addEventListener('click', fun
   document.getElementById('special-panel-title').textContent = 'Add Special Service';
   closeAllPanels();
 });
+
+// ── Readings panel ────────────────────────────────────────────────────────────
+var _readingsDateISO = '';
+
+function openReadingsPanel(dateISO) {
+  _readingsDateISO = dateISO;
+  var d = new Date(dateISO + 'T12:00:00');
+  var lectEntry = getLectEntry(d);
+  var subtitle  = lectEntry ? lectEntry.sundayName + ' \u2014 Series ' + lectEntry.series : fmtDate(d);
+  document.getElementById('readings-panel-title').textContent = 'Readings for ' + fmtDate(d);
+  document.getElementById('readings-panel-subtitle').textContent = subtitle;
+  var r = getReadingsForDate(dateISO) || {};
+  document.getElementById('readings-ot').value      = r.ot      || '';
+  document.getElementById('readings-epistle').value = r.epistle || '';
+  document.getElementById('readings-gospel').value  = r.gospel  || '';
+  document.getElementById('readings-psalm').value   = r.psalm   || '';
+  showAlert('readings-alert', '', '');
+  openPanel('readings-panel');
+}
+
+document.getElementById('btn-save-readings').addEventListener('click', function() {
+  var overrides = getReadingsOverrides();
+  overrides[_readingsDateISO] = {
+    ot:      document.getElementById('readings-ot').value.trim(),
+    epistle: document.getElementById('readings-epistle').value.trim(),
+    gospel:  document.getElementById('readings-gospel').value.trim(),
+    psalm:   document.getElementById('readings-psalm').value.trim(),
+  };
+  saveReadingsOverrides(overrides);
+  showAlert('readings-alert', 'Readings saved.', 'success');
+  setTimeout(closeAllPanels, 800);
+});
+
+document.getElementById('btn-reset-readings').addEventListener('click', function() {
+  var e = lectCalendar[_readingsDateISO];
+  if (!e) { showAlert('readings-alert', 'No lectionary entry found for this date.', 'warning'); return; }
+  document.getElementById('readings-ot').value      = e.ot      || '';
+  document.getElementById('readings-epistle').value = e.epistle || '';
+  document.getElementById('readings-gospel').value  = e.gospel  || '';
+  document.getElementById('readings-psalm').value   = e.psalm   || '';
+  showAlert('readings-alert', 'Reset to lectionary. Click Save to keep.', 'info');
+});
+
+document.getElementById('btn-close-readings-panel').addEventListener('click', closeAllPanels);
 
 window.addEventListener('beforeunload', function(e) {
   if (isDirty) { e.preventDefault(); e.returnValue = ''; }
@@ -1690,6 +1805,7 @@ function renderTable(people, counts) {
       : '<span class="ordinal">'+esc(row.ordinal+ordSuffix(row.ordinal)+' Sunday')+'</span>';
     r1 += '<td class="date-cell" rowspan="2">'+esc(fmtDate(row.date))
       +ordinalOrLect
+      +'<button class="btn-edit-readings" data-date="'+esc(dateISO)+'" title="View or edit readings" style="display:block;font-size:.7rem;padding:1px 7px;margin-top:5px;background:#eef2ff;border:1px solid #c5cef5;border-radius:4px;color:#2c3e6b;cursor:pointer;">&#128214; Readings</button>'
       +'<input class="label-input" placeholder="Add label…" value="'+esc(existingLabel)+'" data-date="'+esc(dateISO)+'" title="Add a special label (e.g. Christmas Eve)">'
       +'</td>';
     r1 += '<td class="svc-label svc-8am">8:00 AM</td>';
@@ -1869,6 +1985,12 @@ document.getElementById('schedule-table').addEventListener('click', function(e) 
     }
     return;
   }
+  // Edit readings for a Sunday
+  if (e.target.closest('.btn-edit-readings')) {
+    var rdBtn = e.target.closest('.btn-edit-readings');
+    openReadingsPanel(rdBtn.getAttribute('data-date'));
+    return;
+  }
   // Edit special service — open panel pre-filled
   if (e.target.closest('.btn-edit-special')) {
     var editBtn = e.target.closest('.btn-edit-special');
@@ -1881,6 +2003,11 @@ document.getElementById('schedule-table').addEventListener('click', function(e) 
     (editRow.services||[]).forEach(function(svc) {
       addSpecialSvcTimeRow(svc.time, svc.roles);
     });
+    var editReadings = editRow.readings || {};
+    document.getElementById('special-readings-ot').value      = editReadings.ot      || '';
+    document.getElementById('special-readings-epistle').value = editReadings.epistle || '';
+    document.getElementById('special-readings-gospel').value  = editReadings.gospel  || '';
+    document.getElementById('special-readings-psalm').value   = editReadings.psalm   || '';
     document.getElementById('special-panel-title').textContent = 'Edit Special Service';
     var saveBtn = document.getElementById('btn-save-special');
     saveBtn.textContent = 'Update Service';
@@ -2007,6 +2134,48 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
     ? '<a href="mailto:' + esc(replyTo) + '" style="color:#2c3e6b;">' + esc(replyTo) + '</a>'
     : '';
 
+  // Readings section — Lectors get OT+Epistle, Liturgists get Gospel+Psalm
+  var readingsItems = [];
+  assignments.forEach(function(a) {
+    var role = (a.role || '').toLowerCase();
+    var isLector = role === 'lector';
+    var isLiturgist = role === 'liturgist';
+    if (!isLector && !isLiturgist) return;
+    var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
+    if (!rd) return;
+    var rdLines = [];
+    if (isLector) {
+      if (rd.ot)      rdLines.push({ label: 'OT',      ref: rd.ot });
+      if (rd.epistle) rdLines.push({ label: 'Epistle',  ref: rd.epistle });
+    } else {
+      if (rd.gospel)  rdLines.push({ label: 'Gospel',  ref: rd.gospel });
+      if (rd.psalm)   rdLines.push({ label: 'Psalm',   ref: rd.psalm });
+    }
+    if (!rdLines.length) return;
+    var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
+    readingsItems.push({ header: a.date + ' \u2014 ' + svcLabel + ' (' + roleLabel(a.role) + ')', lines: rdLines });
+  });
+  var readingsSection = '';
+  if (readingsItems.length) {
+    var itemsHtml = readingsItems.map(function(item) {
+      var lineHtml = item.lines.map(function(l) {
+        var link = bibleLink(l.ref);
+        var refDisplay = link
+          ? '<a href="' + esc(link) + '" style="color:#2c3e6b;">' + esc(l.ref) + '</a>'
+          : esc(l.ref);
+        return '<div style="margin-top:4px;"><span style="color:#555;font-size:.85rem;font-weight:600;">' + esc(l.label) + ':</span> ' + refDisplay + '</div>';
+      }).join('');
+      return '<div style="margin-bottom:14px;">'
+        + '<div style="font-size:.75rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.04em;">' + esc(item.header) + '</div>'
+        + lineHtml
+        + '</div>';
+    }).join('');
+    readingsSection = '<div style="background:#f8f9fb;border:1px solid #dde;border-radius:6px;padding:16px;margin-bottom:20px;">'
+      + '<div style="font-weight:700;color:#2c3e6b;margin-bottom:12px;font-size:.9rem;">&#128214; Your Readings</div>'
+      + itemsHtml
+      + '</div>';
+  }
+
   // RSVP section — separate block below the schedule table, mobile-safe 2-col layout
   var rsvpSection = '';
   if (rsvpToken && workerUrl) {
@@ -2068,6 +2237,7 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
     + '</tr></thead>'
     + '<tbody>' + rows + '</tbody>'
     + '</table>'
+    + readingsSection
     + rsvpSection
     + (rsvpToken ? '' :
         '<div style="background:#fff8e1;border-left:4px solid #f0b429;padding:14px 16px;border-radius:0 6px 6px 0;margin-bottom:20px;">'
@@ -2216,6 +2386,31 @@ function sendReminderEmails() {
       var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
       lines.push('  \u2022 ' + a.date + ' \u2014 ' + svcLabel + ': ' + roleLabel(a.role));
     });
+    // Readings for Lectors and Liturgists
+    var rdLines = [];
+    assignments.forEach(function(a) {
+      var role = (a.role || '').toLowerCase();
+      var isLector = role === 'lector';
+      var isLiturgist = role === 'liturgist';
+      if (!isLector && !isLiturgist) return;
+      var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
+      if (!rd) return;
+      var refs = [];
+      if (isLector) {
+        if (rd.ot)      refs.push('OT: '      + cleanReading(rd.ot));
+        if (rd.epistle) refs.push('Epistle: '  + cleanReading(rd.epistle));
+      } else {
+        if (rd.gospel)  refs.push('Gospel: '  + cleanReading(rd.gospel));
+        if (rd.psalm)   refs.push('Psalm: '   + cleanReading(rd.psalm));
+      }
+      if (!refs.length) return;
+      var svcLabel2 = a.svc === 'both services' ? 'Both Services' : a.svc;
+      rdLines.push('  ' + a.date + ' (' + svcLabel2 + '): ' + refs.join(' / '));
+    });
+    if (rdLines.length) {
+      lines.push('', 'Your readings:');
+      rdLines.forEach(function(l) { lines.push(l); });
+    }
     if (token && s.workerUrl) {
       lines.push(
         '',
@@ -3634,9 +3829,15 @@ document.getElementById('btn-save-special').addEventListener('click', function()
   });
   if (!services.length) { showAlert('special-alert','Add at least one service time with roles.','warning'); return; }
 
+  var specialReadings = {
+    ot:      document.getElementById('special-readings-ot').value.trim(),
+    epistle: document.getElementById('special-readings-epistle').value.trim(),
+    gospel:  document.getElementById('special-readings-gospel').value.trim(),
+    psalm:   document.getElementById('special-readings-psalm').value.trim(),
+  };
   var saveBtn = this;
   var editIdx = saveBtn.getAttribute('data-edit-idx');
-  var specialRow = { type:'special', date:new Date(date+'T12:00:00'), name:name, services:services };
+  var specialRow = { type:'special', date:new Date(date+'T12:00:00'), name:name, services:services, readings:specialReadings };
   var specialMonthKey = date.slice(0, 7);
   var successMsg;
 
@@ -3668,10 +3869,14 @@ document.getElementById('btn-save-special').addEventListener('click', function()
     var targetData = allMonths[specialMonthKey] || {rows:[]};
     // Replace any existing special on the same date
     targetData.rows = targetData.rows.filter(function(r){ return !(r.type==='special' && r.dateISO===date); });
-    targetData.rows.push({type:'special', dateISO:date, name:name, services:services});
+    targetData.rows.push({type:'special', dateISO:date, name:name, services:services, readings:specialReadings});
     targetData.rows.sort(function(a,b){ return a.dateISO > b.dateISO ? 1 : -1; });
     allMonths[specialMonthKey] = targetData;
     saveMonthSchedules(allMonths);
+    // Persist readings override for this date so getReadingsForDate() finds it
+    if (specialReadings.ot || specialReadings.epistle || specialReadings.gospel || specialReadings.psalm) {
+      var ov = getReadingsOverrides(); ov[date] = specialReadings; saveReadingsOverrides(ov);
+    }
     // Save the current month too (in case we removed an edited item above)
     saveCurrentMonth();
     setDirty(false);
@@ -3683,6 +3888,10 @@ document.getElementById('btn-save-special').addEventListener('click', function()
 
   currentSchedule.push(specialRow);
   currentSchedule.sort(function(a,b){ return a.date - b.date; });
+  // Persist readings override for this date so getReadingsForDate() finds it
+  if (specialReadings.ot || specialReadings.epistle || specialReadings.gospel || specialReadings.psalm) {
+    var ov2 = getReadingsOverrides(); ov2[date] = specialReadings; saveReadingsOverrides(ov2);
+  }
   saveCurrentMonth();
   setDirty(false);
   renderTable(getPeople(), null);
