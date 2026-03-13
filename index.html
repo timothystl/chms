@@ -134,7 +134,7 @@ thead th.shared-col { background: #247a52; }
 thead th.svc-header { background: #1d6b48; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
 tbody tr { background: transparent; }
 tbody tr:hover td { filter: brightness(0.96); }
-td { padding: 6px 8px; border: 1px solid #dde; text-align: center; vertical-align: middle; min-width: 90px; }
+td { padding: 6px 8px; border: 1px solid #dde; text-align: center; vertical-align: middle; min-width: 75px; }
 td.date-cell { font-weight: 700; color: #2c3e6b; background: #f0f2f8; text-align: left; white-space: nowrap; min-width: 120px; position: sticky; left: 0; z-index: 1; }
 td .ordinal { font-size: 0.75rem; color: #888; display: block; }
 td.empty-cell { background: #fff3f3; }
@@ -196,24 +196,52 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 .dot-err { background: #e74c3c; }
 .dot-pending { background: #aaa; }
 
+/* ── Settings integrations accordion ──────────────────── */
+#integrations-details summary { list-style:none; }
+#integrations-details summary::-webkit-details-marker { display:none; }
+#integrations-details[open] summary span:first-child { transform:rotate(90deg); }
+#integrations-details summary span:first-child { display:inline-block; transition:transform .2s; }
+
+/* ── Toolbar More dropdown ─────────────────────────────── */
+.toolbar-more { position:relative; display:inline-block; }
+.toolbar-more summary { list-style:none; cursor:pointer; user-select:none; }
+.toolbar-more summary::-webkit-details-marker { display:none; }
+.toolbar-more-menu {
+  position:absolute; right:0; top:calc(100% + 6px); z-index:20;
+  background:#fff; border:1px solid #dde; border-radius:8px;
+  box-shadow:0 4px 20px rgba(0,0,0,.12); padding:8px;
+  display:flex; flex-direction:column; gap:5px; min-width:220px;
+}
+.toolbar-more-menu .btn { justify-content:flex-start; text-align:left; width:100%; }
+.toolbar-more-menu hr { border:none; border-top:1px solid #eee; margin:3px 0; }
+.btn-bulletin-slide { display:inline-flex; align-items:center; gap:4px; }
+.btn-bulletin-slide:hover { background:#eef2ff !important; border-color:#2c3e6b !important; }
+
 /* ── Print styles ──────────────────────────────────────── */
+.print-header { display: none; }
 @page { size: landscape; margin: 0.5in; }
 @media print {
   header, .tabs, .schedule-controls, .legend, .summary-bar,
   #schedule-alert, #tab-people, #tab-settings, #tab-breeze,
-  .btn, #assignment-summary { display: none !important; }
+  .btn, #assignment-summary, .month-nav-bar, .toolbar-more { display: none !important; }
   body { background: white; }
-  .tab-content { display: block !important; padding: 0; }
+  .tab-content { display: none !important; padding: 0; }
   #tab-schedule { display: block !important; }
-  .card { box-shadow: none; padding: 8px 0; }
+  .print-header { display: block !important; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px solid #2c3e6b; }
+  .card { box-shadow: none; padding: 4px 0; }
+  #schedule-output { display: block !important; }
   table { font-size: 0.75rem; }
-  td, th { padding: 4px 6px; }
+  td, th { padding: 3px 5px; }
   .cell-select { display: none !important; }
   .conf-pill { display: none !important; }
   .print-name { display: inline !important; font-size: 0.78rem; }
   .label-input { border: none !important; font-size: 0.7rem; color: #333 !important; padding: 0; }
   td.empty-cell { background: #fff !important; }
   #tab-stats { display: none !important; }
+  /* Always show all detail rows when printing */
+  .sunday-summary { display: none !important; }
+  .sunday-detail { display: table-row !important; }
+  .btn-edit-readings { display: none !important; }
 }
 
 /* ── Confirmation tracking ─────────────────── */
@@ -363,8 +391,8 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 </header>
 
 <div class="tabs">
-  <button class="tab-btn active" id="tab-btn-people">People &amp; Availability</button>
-  <button class="tab-btn" id="tab-btn-schedule">Schedule</button>
+  <button class="tab-btn" id="tab-btn-people">People &amp; Availability</button>
+  <button class="tab-btn active" id="tab-btn-schedule">Schedule</button>
   <button class="tab-btn" id="tab-btn-stats">&#128202; Stats</button>
   <div style="margin-left:auto;display:flex;align-items:center;gap:4px;margin-right:8px;">
     <button class="header-gear" id="btn-open-settings" title="Settings" style="margin-left:0;margin-right:0;">&#9881; Settings</button>
@@ -373,7 +401,7 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 </div>
 
 <!-- ══ PEOPLE TAB ══════════════════════════════════════════════════════════ -->
-<div id="tab-people" class="tab-content active">
+<div id="tab-people" class="tab-content">
   <div class="card">
     <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
       <h2 style="margin:0;">Volunteers (<span id="people-count">0</span>)</h2>
@@ -386,7 +414,7 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 </div>
 
 <!-- ══ SCHEDULE TAB ════════════════════════════════════════════════════════ -->
-<div id="tab-schedule" class="tab-content">
+<div id="tab-schedule" class="tab-content active">
   <div class="card">
     <div class="month-nav-bar">
       <button class="btn btn-outline btn-sm" id="btn-prev-month">&#8592;</button>
@@ -399,20 +427,31 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
     <div id="schedule-alert"></div>
   </div>
 
+  <div class="print-header" id="print-header" style="display:none;">
+    <div style="font-size:1.3rem;font-weight:700;color:#2c3e6b;">Timothy Lutheran Church</div>
+    <div style="font-size:1rem;color:#555;" id="print-month-heading"></div>
+  </div>
+
   <div class="card" id="schedule-output" style="display:none;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
       <h2 style="margin:0; border:none; padding:0;">Schedule</h2>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-success btn-sm" id="btn-export-csv">Export CSV</button>
-        <button class="btn btn-outline btn-sm" id="btn-export-ical">&#128197; iCal</button>
-        <button class="btn btn-outline btn-sm" id="btn-print">Print</button>
-        <button class="btn btn-outline btn-sm" id="btn-send-emails" style="background:#e8f4fd;border-color:#3498db;color:#2980b9;">&#9993; Send Reminder Emails</button>
-        <button class="btn btn-outline btn-sm" id="btn-sync-confirmations" style="background:#f0fff4;border-color:#27ae60;color:#1a7a42;">&#8635; Sync Confirmations</button>
-        <button class="btn btn-outline btn-sm" id="btn-restore-tokens" style="background:#fdf6e8;border-color:#e0a800;color:#7a5500;" title="Re-upload RSVP tokens to Worker KV without re-sending emails">&#128274; Re-store Tokens</button>
-        <span id="email-send-status" style="font-size:0.82rem;color:#555;"></span>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
         <button class="btn btn-outline btn-sm saved" id="btn-save-schedule">Saved &#10003;</button>
         <button class="btn btn-outline btn-sm" id="btn-expand-all">&#9660; Expand All</button>
-        <button class="btn btn-danger btn-sm" id="btn-clear-schedule">Clear Schedule</button>
+        <button class="btn btn-outline btn-sm" id="btn-print">&#128424; Print</button>
+        <button class="btn btn-success btn-sm" id="btn-export-csv">CSV</button>
+        <button class="btn btn-outline btn-sm" id="btn-export-ical">&#128197; iCal</button>
+        <details class="toolbar-more">
+          <summary class="btn btn-outline btn-sm">&#8943; More</summary>
+          <div class="toolbar-more-menu">
+            <button class="btn btn-outline btn-sm" id="btn-send-emails" style="background:#e8f4fd;border-color:#3498db;color:#2980b9;">&#9993; Send Reminder Emails</button>
+            <button class="btn btn-outline btn-sm" id="btn-sync-confirmations" style="background:#f0fff4;border-color:#27ae60;color:#1a7a42;">&#8635; Sync Confirmations</button>
+            <button class="btn btn-outline btn-sm" id="btn-restore-tokens" style="background:#fdf6e8;border-color:#e0a800;color:#7a5500;" title="Re-upload RSVP tokens to Worker KV without re-sending emails">&#128274; Re-store Tokens</button>
+            <span id="email-send-status" style="font-size:0.82rem;color:#555;padding:0 4px;"></span>
+            <hr>
+            <button class="btn btn-danger btn-sm" id="btn-clear-schedule">&#128465; Clear Schedule</button>
+          </div>
+        </details>
       </div>
     </div>
     <div class="legend">
@@ -542,79 +581,20 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
     <button class="panel-close" id="btn-close-settings-panel">&times;</button>
   </div>
   <div class="panel-body">
-    <h3 style="margin:0 0 12px;font-size:1rem;color:#2c3e6b;">Breeze CHMS Connection</h3>
-    <p style="font-size:0.88rem;color:#555;margin-bottom:14px;">
-      Enter your Breeze subdomain and API key to enable syncing volunteers to Breeze.
-      Your credentials are stored only in this browser's localStorage.
-    </p>
 
-    <label for="breeze-subdomain">Breeze Subdomain</label>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <span style="color:#666;font-size:0.9rem;white-space:nowrap;">https://</span>
-      <input type="text" id="breeze-subdomain" placeholder="mychurch" style="max-width:200px;">
-      <span style="color:#666;font-size:0.9rem;white-space:nowrap;">.breezechms.com</span>
-    </div>
-
-    <label for="breeze-apikey" style="margin-top:12px;">API Key</label>
-    <input type="password" id="breeze-apikey" placeholder="Paste your Breeze API key here" style="max-width:360px;">
-    <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
-      Find this in Breeze: Settings &rarr; Advanced &rarr; API
-    </small>
-
-    <div style="border-top:1px solid #eee;margin-top:20px;padding-top:16px;">
-      <label for="breeze-worker-url">Cloudflare Worker Proxy URL</label>
-      <input type="text" id="breeze-worker-url" placeholder="https://your-worker.workers.dev" style="max-width:380px;">
-      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
-        Required for browser access. Paste the Worker URL after deploying <strong>breeze-proxy-worker.js</strong> to Cloudflare.
-      </small>
-    </div>
-
-    <div style="border-top:1px solid #eee;margin-top:20px;padding-top:16px;">
-      <label for="breeze-worker-secret">Worker Secret <span style="font-weight:normal;color:#888;">(recommended)</span></label>
-      <input type="password" id="breeze-worker-secret" placeholder="Paste your WORKER_SECRET value" style="max-width:380px;">
-      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
-        In Cloudflare Dashboard: Worker Settings &rarr; Variables &rarr; add <code>WORKER_SECRET</code> = any long random string.
-      </small>
-    </div>
-
-    <div style="border-top:1px solid #eee;margin-top:20px;padding-top:16px;">
-      <label for="breeze-tag-ids">Breeze Tag IDs <span style="font-weight:normal;color:#888;">(optional)</span></label>
-      <input type="text" id="breeze-tag-ids" placeholder="e.g. 4884325, 5123456" style="max-width:280px;">
-      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
-        Comma-separated tag IDs to include in people search. Leave blank to search all.
-        Find tag IDs in the Breeze URL: <code>people/filter#/tag_contains=y_XXXXXXX</code>
-      </small>
-    </div>
-
-    <div style="border-top:1px solid #eee;margin-top:20px;padding-top:16px;">
-      <label style="font-weight:600;">Volunteer Reminder Emails</label>
-      <p style="font-size:0.82rem;color:#555;margin:4px 0 10px;">
-        Send personalized reminder emails via <a href="https://resend.com" target="_blank" style="color:#2c3e6b;">Resend</a> (free up to 3,000/month).
-      </p>
-      <label for="email-resend-key">Resend API Key</label>
-      <input type="password" id="email-resend-key" placeholder="re_xxxxxxxxxxxxxxxx" style="max-width:320px;">
-      <label for="email-from" style="margin-top:12px;">From Address</label>
-      <input type="email" id="email-from" placeholder="dinger@reminder.timothystl.org" style="max-width:320px;">
-      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">Must be on a domain verified in Resend.</small>
-      <label for="email-reply-to" style="margin-top:12px;">Reply-To Address</label>
-      <input type="email" id="email-reply-to" placeholder="dinger@timothystl.org" style="max-width:320px;">
-      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">Where volunteer replies are sent.</small>
-      <label for="email-notify-admin" style="margin-top:12px;">Notify me at</label>
+    <!-- Notifications — most-used setting, shown first -->
+    <div style="margin-bottom:20px;">
+      <label style="font-weight:600;font-size:1rem;color:#2c3e6b;">&#128276; Notifications</label>
+      <p style="font-size:0.82rem;color:#555;margin:4px 0 8px;">Get an email whenever a volunteer confirms or declines.</p>
+      <label for="email-notify-admin">Notify me at</label>
       <input type="email" id="email-notify-admin" placeholder="your@email.com" style="max-width:320px;">
-      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">You'll get an email whenever a volunteer confirms or declines.</small>
     </div>
 
-    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-top:1px solid #eee;padding-top:16px;">
-      <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>
-      <button class="btn btn-outline" id="btn-test-breeze">Test Connection</button>
-      <span id="settings-status" style="font-size:0.88rem;"></span>
-    </div>
-    <div id="settings-alert" style="margin-top:12px;"></div>
+    <hr style="margin:0 0 20px;border:none;border-top:1px solid #dde;">
 
-    <hr style="margin:24px 0 20px;border:none;border-top:1px solid #dde;">
-
-    <div>
-      <label style="font-weight:600;">Cloud Sync</label>
+    <!-- Cloud Sync -->
+    <div style="margin-bottom:20px;">
+      <label style="font-weight:600;font-size:1rem;color:#2c3e6b;">&#9729; Cloud Sync</label>
       <p id="fb-user-display" style="font-size:.85rem;color:#27ae60;margin:4px 0 10px;"></p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-outline btn-sm" id="btn-fb-push">&#8679; Push Local → Cloud</button>
@@ -624,10 +604,11 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
       <div id="sync-status" style="font-size:.8rem;margin-top:8px;color:#666;min-height:18px;"></div>
     </div>
 
-    <hr style="margin:24px 0 20px;border:none;border-top:1px solid #dde;">
+    <hr style="margin:0 0 20px;border:none;border-top:1px solid #dde;">
 
-    <div>
-      <label style="font-weight:600;">Data Export / Import</label>
+    <!-- Data Export/Import -->
+    <div style="margin-bottom:20px;">
+      <label style="font-weight:600;font-size:1rem;color:#2c3e6b;">&#128193; Data</label>
       <p style="font-size:0.82rem;color:#555;margin:4px 0 12px;">
         To migrate from another browser: <strong>Export</strong> on the old browser, then <strong>Import</strong> here, then Push to Cloud.
       </p>
@@ -639,6 +620,79 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
         </label>
       </div>
     </div>
+
+    <hr style="margin:0 0 20px;border:none;border-top:1px solid #dde;">
+
+    <!-- Integrations — collapsed by default (set once, rarely changed) -->
+    <details id="integrations-details">
+      <summary style="cursor:pointer;user-select:none;font-weight:600;font-size:1rem;color:#2c3e6b;list-style:none;display:flex;align-items:center;gap:8px;padding:2px 0;">
+        <span style="font-size:.85rem;color:#8892b0;">&#9654;</span>
+        &#9881; Integrations
+        <span style="font-size:.76rem;color:#aaa;font-weight:400;">(Breeze, Email API — expand to configure)</span>
+      </summary>
+      <div style="margin-top:16px;">
+
+        <h4 style="margin:0 0 10px;font-size:.92rem;color:#2c3e6b;text-transform:uppercase;letter-spacing:.05em;">Breeze CHMS</h4>
+        <p style="font-size:0.82rem;color:#555;margin-bottom:12px;">
+          Your credentials are stored only in this browser's localStorage.
+        </p>
+
+        <label for="breeze-subdomain">Breeze Subdomain</label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:#666;font-size:0.9rem;white-space:nowrap;">https://</span>
+          <input type="text" id="breeze-subdomain" placeholder="mychurch" style="max-width:200px;">
+          <span style="color:#666;font-size:0.9rem;white-space:nowrap;">.breezechms.com</span>
+        </div>
+
+        <label for="breeze-apikey" style="margin-top:12px;">API Key</label>
+        <input type="password" id="breeze-apikey" placeholder="Paste your Breeze API key here" style="max-width:360px;">
+        <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
+          Find this in Breeze: Settings &rarr; Advanced &rarr; API
+        </small>
+
+        <label for="breeze-worker-url" style="margin-top:14px;">Cloudflare Worker URL</label>
+        <input type="text" id="breeze-worker-url" placeholder="https://your-worker.workers.dev" style="max-width:380px;">
+        <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
+          Deploy <strong>breeze-proxy-worker.js</strong> to Cloudflare, paste the URL here.
+        </small>
+
+        <label for="breeze-worker-secret" style="margin-top:14px;">Worker Secret <span style="font-weight:normal;color:#888;">(recommended)</span></label>
+        <input type="password" id="breeze-worker-secret" placeholder="Paste your WORKER_SECRET value" style="max-width:380px;">
+        <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
+          In Cloudflare: Worker Settings &rarr; Variables &rarr; add <code>WORKER_SECRET</code>.
+        </small>
+
+        <label for="breeze-tag-ids" style="margin-top:14px;">Tag IDs <span style="font-weight:normal;color:#888;">(optional)</span></label>
+        <input type="text" id="breeze-tag-ids" placeholder="e.g. 4884325, 5123456" style="max-width:280px;">
+        <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
+          Comma-separated. Leave blank to search all people.
+        </small>
+
+        <hr style="margin:20px 0 16px;border:none;border-top:1px solid #eee;">
+
+        <h4 style="margin:0 0 10px;font-size:.92rem;color:#2c3e6b;text-transform:uppercase;letter-spacing:.05em;">Reminder Emails (Resend)</h4>
+        <p style="font-size:0.82rem;color:#555;margin:0 0 10px;">
+          Send personalized reminders via <a href="https://resend.com" target="_blank" style="color:#2c3e6b;">Resend</a> (free up to 3,000/month).
+        </p>
+        <label for="email-resend-key">Resend API Key</label>
+        <input type="password" id="email-resend-key" placeholder="re_xxxxxxxxxxxxxxxx" style="max-width:320px;">
+        <label for="email-from" style="margin-top:12px;">From Address</label>
+        <input type="email" id="email-from" placeholder="dinger@reminder.timothystl.org" style="max-width:320px;">
+        <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">Must be on a domain verified in Resend.</small>
+        <label for="email-reply-to" style="margin-top:12px;">Reply-To Address</label>
+        <input type="email" id="email-reply-to" placeholder="dinger@timothystl.org" style="max-width:320px;">
+        <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">Where volunteer replies are sent.</small>
+
+      </div>
+    </details>
+
+    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-top:1px solid #eee;padding-top:16px;">
+      <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>
+      <button class="btn btn-outline" id="btn-test-breeze">Test Connection</button>
+      <span id="settings-status" style="font-size:0.88rem;"></span>
+    </div>
+    <div id="settings-alert" style="margin-top:12px;"></div>
+
   </div>
 </div>
 
@@ -796,6 +850,8 @@ var PER_ROLES    = ['Elder', 'Acolyte', 'PowerPoint', 'Lector', 'Liturgist'];
 var SHARED_ROLES = ['Preacher', 'Childrens Message'];
 var SHARED_LABELS = { 'Childrens Message': "Children's Message" };
 function roleLabel(r) { return SHARED_LABELS[r] || r; }
+var ROLE_ABBREVS = { 'Elder':'ELD', 'Acolyte':'ACO', 'PowerPoint':'PPT', 'Lector':'LCT', 'Liturgist':'LTG', 'Preacher':'PRCHR', 'Childrens Message':'CM' };
+function roleAbbrev(r) { return ROLE_ABBREVS[r] || roleLabel(r); }
 var ALL_TABS = ['people','schedule','stats'];
 
 // ══════════════════════════════════════════════════════════════════
@@ -974,6 +1030,7 @@ function switchMonth(key) {
   }
   currentMonthKey = key;
   document.getElementById('current-month-label').textContent = monthKeyLabel(key);
+  var _ph = document.getElementById('print-month-heading'); if(_ph) _ph.textContent = 'Worship Schedule — ' + monthKeyLabel(key);
   if (!loadMonthSchedule(key)) {
     // Auto-build empty Sunday rows so the month grid shows immediately
     currentSchedule = getSundaysForMonth(key).map(function(s) {
@@ -991,7 +1048,7 @@ function switchMonth(key) {
 // ══════════════════════════════════════════════════════════════════
 // TABS
 // ══════════════════════════════════════════════════════════════════
-var currentTabName = 'people';
+var currentTabName = 'schedule';
 function showTab(name) {
   // Warn if leaving schedule tab with unsaved changes
   if (currentTabName === 'schedule' && name !== 'schedule' && isDirty) {
@@ -1715,7 +1772,8 @@ function buildSummaryInner(rowIdx, pMap, confs) {
     +'<span class="ss-date">'+esc(fmtDate(row.date))+'</span>'
     +labelPart
     +'<span class="ss-fill" style="color:'+fillColor+'">'+st.filled+' filled</span>'
-    +openPart+confBadges;
+    +openPart+confBadges
+    +'<button class="btn-bulletin-slide" data-idx="'+rowIdx+'" title="Open 16:9 bulletin slide for this Sunday" style="margin-left:auto;background:none;border:1px solid #c8d0e8;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:.72rem;color:#2c3e6b;white-space:nowrap;">&#128250; Slide</button>';
 }
 
 function renderTable(people, counts) {
@@ -1727,8 +1785,8 @@ function renderTable(people, counts) {
     +'<th class="svc-header shared-col" colspan="'+SHARED_ROLES.length+'">Both Services</th>'
     +'</tr>';
   var h2 = '<tr>';
-  PER_ROLES.forEach(function(r){ h2+='<th>'+esc(r)+'</th>'; });
-  SHARED_ROLES.forEach(function(r){ h2+='<th class="shared-col">'+esc(roleLabel(r))+'</th>'; });
+  PER_ROLES.forEach(function(r){ h2+='<th title="'+esc(r)+'">'+esc(roleAbbrev(r))+'</th>'; });
+  SHARED_ROLES.forEach(function(r){ h2+='<th class="shared-col" title="'+esc(roleLabel(r))+'">'+esc(roleAbbrev(r))+'</th>'; });
   h2 += '</tr>';
   document.getElementById('schedule-thead').innerHTML = h1+h2;
 
@@ -2001,6 +2059,12 @@ document.getElementById('schedule-table').addEventListener('click', function(e) 
     }
     return;
   }
+  // Bulletin slide
+  if (e.target.closest('.btn-bulletin-slide')) {
+    var bsBtn = e.target.closest('.btn-bulletin-slide');
+    openBulletinSlide(parseInt(bsBtn.getAttribute('data-idx'), 10));
+    return;
+  }
   // Edit readings for a Sunday
   if (e.target.closest('.btn-edit-readings')) {
     var rdBtn = e.target.closest('.btn-edit-readings');
@@ -2040,6 +2104,101 @@ document.getElementById('schedule-table').addEventListener('click', function(e) 
     tr.classList.toggle('visible', isExpanded);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+// BULLETIN SLIDE (16×9)
+// ══════════════════════════════════════════════════════════════════
+function openBulletinSlide(rowIdx) {
+  var row = currentSchedule[rowIdx];
+  if (!row || row.type !== 'sunday') return;
+  var pMap = {};
+  getPeople().forEach(function(p){ pMap[p.id] = p; });
+  var dateISO = row.date.toISOString().slice(0, 10);
+  var lectEntry = getLectEntry(row.date);
+  var sundayLabel = getSundayLabels()[dateISO] || row.label || '';
+  var sundayName = sundayLabel || (lectEntry ? lectEntry.sundayName : '') || (row.ordinal + ordSuffix(row.ordinal) + ' Sunday');
+
+  function getName(pid) { return (pid && pMap[pid]) ? pMap[pid].name : ''; }
+
+  // Build role rows for a given service time
+  function buildServiceBlock(svcKey) {
+    var lines = '';
+    PER_ROLES.forEach(function(role) {
+      var pid = (row.assignments[role] || {})[svcKey] || '';
+      var name = getName(pid);
+      lines += '<tr>'
+        + '<td style="text-align:right;padding:6px 16px 6px 0;font-weight:600;font-size:1rem;color:#8892b0;white-space:nowrap;">' + esc(role) + '</td>'
+        + '<td style="padding:6px 0;font-size:1.05rem;color:#1a2747;font-weight:' + (name ? '700' : '400') + ';color:' + (name ? '#1a2747' : '#bbb') + ';">' + esc(name || '—') + '</td>'
+        + '</tr>';
+    });
+    return lines;
+  }
+
+  // Shared roles (Preacher, Children's Message)
+  var sharedLines = '';
+  SHARED_ROLES.forEach(function(role) {
+    var pid = (row.assignments[role] || {}).shared || '';
+    var name = getName(pid);
+    sharedLines += '<tr>'
+      + '<td style="text-align:right;padding:4px 16px 4px 0;font-weight:600;font-size:.95rem;color:#8892b0;">' + esc(roleLabel(role)) + '</td>'
+      + '<td style="font-size:1rem;color:' + (name ? '#1a2747' : '#bbb') + ';font-weight:' + (name ? '600' : '400') + ';">' + esc(name || '—') + '</td>'
+      + '</tr>';
+  });
+
+  var dateStr = row.date.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8">'
+    + '<title>Bulletin Slide — ' + esc(dateStr) + '</title>'
+    + '<style>'
+    + 'html,body{margin:0;padding:0;width:1920px;height:1080px;overflow:hidden;background:#f0f3fa;font-family:"Segoe UI",Arial,sans-serif;}'
+    + '.slide{width:1920px;height:1080px;display:flex;flex-direction:column;background:#f0f3fa;}'
+    + '.slide-header{background:#2c3e6b;color:#fff;padding:40px 80px;display:flex;justify-content:space-between;align-items:center;}'
+    + '.slide-header .church{font-size:2.2rem;font-weight:700;letter-spacing:.04em;}'
+    + '.slide-header .date{font-size:1.5rem;color:rgba(255,255,255,.8);}'
+    + '.slide-body{flex:1;display:flex;flex-direction:column;padding:50px 80px 40px;}'
+    + '.slide-title{font-size:2rem;font-weight:700;color:#2c3e6b;margin:0 0 10px;letter-spacing:.02em;}'
+    + '.sunday-name{font-size:1.3rem;color:#5568a5;margin:0 0 36px;font-weight:500;}'
+    + '.services{display:flex;gap:80px;flex:1;}'
+    + '.svc-col{flex:1;}'
+    + '.svc-time{font-size:1.3rem;font-weight:800;color:#2c3e6b;text-transform:uppercase;letter-spacing:.08em;border-bottom:3px solid #2c3e6b;padding-bottom:10px;margin-bottom:16px;}'
+    + '.shared-row{margin-top:30px;padding-top:20px;border-top:2px solid #dde;}'
+    + '.shared-label{font-size:1rem;font-weight:700;color:#247a52;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;}'
+    + 'table{border-collapse:collapse;}'
+    + '.print-note{font-size:.9rem;color:#aaa;text-align:right;margin-top:auto;padding-top:16px;}'
+    + '</style></head><body>'
+    + '<div class="slide">'
+    + '<div class="slide-header">'
+    + '<span class="church">Timothy Lutheran Church</span>'
+    + '<span class="date">' + esc(dateStr) + '</span>'
+    + '</div>'
+    + '<div class="slide-body">'
+    + '<div class="slide-title">Today\'s Worship Team</div>'
+    + '<div class="sunday-name">' + esc(sundayName) + '</div>'
+    + '<div class="services">'
+    + '<div class="svc-col">'
+    + '<div class="svc-time">8:00 AM</div>'
+    + '<table>' + buildServiceBlock('8am') + '</table>'
+    + '</div>'
+    + '<div class="svc-col">'
+    + '<div class="svc-time">10:45 AM</div>'
+    + '<table>' + buildServiceBlock('10:45am') + '</table>'
+    + '</div>'
+    + '<div class="svc-col" style="flex:0 0 320px;">'
+    + '<div class="svc-time" style="color:#247a52;border-color:#247a52;">Both Services</div>'
+    + '<table>' + sharedLines + '</table>'
+    + '</div>'
+    + '</div>'
+    + '<div class="print-note">Screenshot to use in your announcement slide deck &nbsp;·&nbsp; 1920 × 1080</div>'
+    + '</div>'
+    + '</div>'
+    + '</body></html>';
+
+  var win = window.open('', '_blank', 'width=1280,height=720');
+  if (!win) { alert('Pop-up blocked — please allow pop-ups for this page.'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
 
 // ══════════════════════════════════════════════════════════════════
 // EXPORT CSV
@@ -3512,6 +3671,7 @@ migrateOldSchedule();
 renderPeopleList();
 var _monthLabelEl = document.getElementById('current-month-label');
 if (_monthLabelEl) _monthLabelEl.textContent = monthKeyLabel(currentMonthKey);
+(function(){ var ph = document.getElementById('print-month-heading'); if(ph) ph.textContent = 'Worship Schedule — ' + monthKeyLabel(currentMonthKey); })();
 
 // Restore saved schedule if any; auto-build empty Sunday rows if no data
 if (!loadSchedule()) {
