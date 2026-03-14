@@ -252,6 +252,12 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
   .sunday-summary { display: none !important; }
   .sunday-detail { display: table-row !important; }
   .btn-edit-readings { display: none !important; }
+  /* Hide fixed-position side panels and overlay (they ignore translateX in print) */
+  .side-panel, .panel-overlay { display: none !important; }
+  /* Make table fill full page width */
+  table { width: 100% !important; }
+  .table-wrapper { overflow: visible !important; width: 100% !important; }
+  .card { width: 100% !important; }
 }
 
 /* ── Confirmation tracking ─────────────────── */
