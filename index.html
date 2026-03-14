@@ -317,12 +317,14 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
   .schedule-controls .field input { width: 100%; }
   .month-nav-label { width: 100%; text-align: center; order: -1; min-width: unset; }
 
-  /* ── Summary row: two-line layout ── */
-  .ss-inner { flex-wrap: wrap; padding: 8px 10px; gap: 4px; }
-  .ss-date { width: auto; flex: 1 0 auto; white-space: nowrap; }
-  .ss-stats-area { width: auto; flex-shrink: 0; margin-left: auto; }
-  .ss-label-area { order: 4; width: 100%; flex-shrink: 1; overflow: visible; padding-right: 0; flex-wrap: wrap; }
-  .ss-conf-area { order: 5; width: 100%; flex-wrap: wrap; }
+  /* ── Summary row: two-line layout ──
+     Use .sunday-summary .ss-* selectors (2 classes) to beat the base 1-class rules
+     that appear later in the stylesheet and would otherwise win the cascade. ── */
+  .sunday-summary .ss-inner { flex-wrap: wrap !important; padding: 8px 10px; gap: 4px; align-items: center; }
+  .sunday-summary .ss-date { width: auto !important; flex: 1 0 auto !important; flex-shrink: 1 !important; white-space: nowrap; }
+  .sunday-summary .ss-stats-area { width: auto !important; flex-shrink: 0 !important; margin-left: auto; }
+  .sunday-summary .ss-label-area { order: 4; width: 100% !important; flex-shrink: 1 !important; overflow: visible !important; padding-right: 0 !important; }
+  .sunday-summary .ss-conf-area { order: 5; width: 100%; flex-wrap: wrap; }
   /* Hide action buttons on summary row — still accessible via Readings panel */
   .btn-edit-readings, .btn-bulletin-slide { display: none !important; }
 
