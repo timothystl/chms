@@ -1,0 +1,17 @@
+{
+  "name": "Timothy Lutheran – Worship Scheduler",
+  "short_name": "Worship Sched",
+  "description": "Worship schedule builder for Timothy Lutheran Church",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f3f7",
+  "theme_color": "#2c3e6b",
+  "icons": [
+    {
+      "src": "tlc-logo.png",
+      "sizes": "500x500",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
