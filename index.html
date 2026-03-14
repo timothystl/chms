@@ -302,35 +302,35 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 /* ── Sunday summary row (collapsible) ─────────────────────────────────────── */
 .sunday-summary td { padding:0; cursor:pointer; background:#f8f9fc; border-bottom:2px solid #d0d4e8; border-top:1px solid #e0e4f0; }
 .sunday-summary:hover td { background:#eef0f8; }
-.ss-inner { display:flex; align-items:center; gap:12px; padding:9px 14px; flex-wrap:wrap; }
-.ss-toggle { font-size:.75rem; color:#8892b0; width:14px; display:inline-block; transition:transform .2s; flex-shrink:0; }
+.ss-inner { display:flex; align-items:center; gap:0; padding:9px 14px; flex-wrap:nowrap; }
+.ss-toggle { font-size:.75rem; color:#8892b0; width:20px; flex-shrink:0; transition:transform .2s; }
 .sunday-summary.expanded .ss-toggle { transform:rotate(90deg); }
-.ss-date { font-weight:700; color:#2c3e6b; font-size:.9rem; white-space:nowrap; }
-.ss-label { font-size:.8rem; color:#e67e22; font-weight:600; }
-.ss-ordinal { font-size:.78rem; color:#8892b0; }
-.ss-lect-name { font-size:.78rem; color:#5568a5; font-weight:500; }
-.ss-series-badge { display:inline-block; font-size:.7rem; font-weight:700; background:#e8eaf6; color:#3949ab; border-radius:4px; padding:0 5px; margin-left:2px; vertical-align:middle; }
+.ss-date { font-weight:700; color:#2c3e6b; font-size:.9rem; white-space:nowrap; width:118px; flex-shrink:0; }
+/* Fixed-width label column: Sunday name / ordinal / custom label */
+.ss-label-area { width:220px; flex-shrink:0; display:flex; align-items:center; gap:6px; overflow:hidden; padding-right:10px; }
+.ss-label { font-size:.8rem; color:#e67e22; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ss-ordinal { font-size:.78rem; color:#8892b0; white-space:nowrap; }
+.ss-lect-name { font-size:.78rem; color:#5568a5; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ss-series-badge { display:inline-block; font-size:.7rem; font-weight:700; background:#e8eaf6; color:#3949ab; border-radius:4px; padding:0 5px; flex-shrink:0; }
+/* Fixed-width stats column: "N filled / M open" */
+.ss-stats-area { width:175px; flex-shrink:0; display:flex; align-items:center; gap:8px; }
 .ss-fill { font-size:.8rem; font-weight:700; }
 .ss-open { font-size:.8rem; font-weight:700; color:#e74c3c; }
 .ss-complete { font-size:.8rem; font-weight:700; color:#27ae60; }
+/* Confirmation badges fill remaining space before buttons */
+.ss-conf-area { flex:1; display:flex; align-items:center; gap:5px; }
 .sconf-badge { display:inline-flex; align-items:center; font-size:.72rem; font-weight:700;
   padding:2px 7px; border-radius:10px; white-space:nowrap; }
 .sconf-confirmed { background:#d4edda; color:#1a6e32; }
 .sconf-pending   { background:#fff3cd; color:#856404; }
 .sconf-declined  { background:#f8d7da; color:#842029; }
-/* Hide the stats chips (filled/open/confirmation counts) when the row is expanded —
-   the detail rows below already show every assignment, so the summary is redundant. */
-.sunday-summary.expanded .ss-fill,
-.sunday-summary.expanded .ss-open,
-.sunday-summary.expanded .ss-complete,
-.sunday-summary.expanded .sconf-badge { display:none; }
-/* Also hide date/label/Sunday name from the summary row when expanded —
-   they are already shown in the date cell of the detail rows below. */
+/* When expanded, hide all summary info — detail rows below show everything */
 .sunday-summary.expanded .ss-date,
-.sunday-summary.expanded .ss-label,
-.sunday-summary.expanded .ss-lect-name,
-.sunday-summary.expanded .ss-series-badge,
-.sunday-summary.expanded .ss-ordinal { display:none; }
+.sunday-summary.expanded .ss-label-area,
+.sunday-summary.expanded .ss-stats-area,
+.sunday-summary.expanded .ss-conf-area,
+.sunday-summary.expanded .btn-edit-readings,
+.sunday-summary.expanded .btn-bulletin-slide { display:none; }
 .sunday-detail   { display:none; }
 .sunday-detail.visible { display:table-row; }
 
@@ -1801,9 +1801,9 @@ function buildSummaryInner(rowIdx, pMap, confs) {
   }
   return '<span class="ss-toggle">&#9658;</span>'
     +'<span class="ss-date">'+esc(fmtDate(row.date))+'</span>'
-    +labelPart
-    +'<span class="ss-fill" style="color:'+fillColor+'">'+st.filled+' filled</span>'
-    +openPart+confBadges
+    +'<span class="ss-label-area">'+labelPart+'</span>'
+    +'<span class="ss-stats-area"><span class="ss-fill" style="color:'+fillColor+'">'+st.filled+' filled</span>'+openPart+'</span>'
+    +'<span class="ss-conf-area">'+confBadges+'</span>'
     +'<button class="btn-edit-readings" data-date="'+esc(dateISO)+'" title="View or edit readings" style="margin-left:auto;background:none;border:1px solid #c5cef5;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:.72rem;color:#2c3e6b;white-space:nowrap;">&#128214; Readings</button>'
     +'<button class="btn-bulletin-slide" data-idx="'+rowIdx+'" title="Open 16:9 bulletin slide for this Sunday" style="background:none;border:1px solid #c8d0e8;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:.72rem;color:#2c3e6b;white-space:nowrap;">&#128250; Slide</button>';
 }
@@ -1838,10 +1838,10 @@ function renderTable(people, counts) {
         +'<td colspan="'+totalCols+'"><div class="ss-inner">'
         +'<span class="ss-toggle">&#9658;</span>'
         +'<span class="ss-date">'+esc(fmtDate(row.date))+'</span>'
-        +'<span class="ss-special-name">'+esc(row.name||'Special Service')+'</span>'
-        +'<span class="special-badge">Special</span>'
-        +'<span class="ss-fill" style="color:'+fillColor+'">'+filled+'/'+total+' filled</span>'
-        +'<button class="btn-edit-special"   data-idx="'+rowIdx+'" title="Edit">&#9998;</button>'
+        +'<span class="ss-label-area"><span class="ss-special-name">'+esc(row.name||'Special Service')+'</span><span class="special-badge">Special</span></span>'
+        +'<span class="ss-stats-area"><span class="ss-fill" style="color:'+fillColor+'">'+filled+'/'+total+' filled</span></span>'
+        +'<span class="ss-conf-area"></span>'
+        +'<button class="btn-edit-special"   data-idx="'+rowIdx+'" title="Edit" style="margin-left:auto;">&#9998;</button>'
         +'<button class="btn-delete-special" data-idx="'+rowIdx+'" title="Delete">&#128465;</button>'
         +'</div></td></tr>';
 
