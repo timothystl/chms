@@ -302,35 +302,35 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 /* ── Sunday summary row (collapsible) ─────────────────────────────────────── */
 .sunday-summary td { padding:0; cursor:pointer; background:#f8f9fc; border-bottom:2px solid #d0d4e8; border-top:1px solid #e0e4f0; }
 .sunday-summary:hover td { background:#eef0f8; }
-.ss-inner { display:flex; align-items:center; gap:12px; padding:9px 14px; flex-wrap:wrap; }
-.ss-toggle { font-size:.75rem; color:#8892b0; width:14px; display:inline-block; transition:transform .2s; flex-shrink:0; }
+.ss-inner { display:flex; align-items:center; gap:0; padding:9px 14px; flex-wrap:nowrap; }
+.ss-toggle { font-size:.75rem; color:#8892b0; width:20px; flex-shrink:0; transition:transform .2s; }
 .sunday-summary.expanded .ss-toggle { transform:rotate(90deg); }
-.ss-date { font-weight:700; color:#2c3e6b; font-size:.9rem; white-space:nowrap; }
-.ss-label { font-size:.8rem; color:#e67e22; font-weight:600; }
-.ss-ordinal { font-size:.78rem; color:#8892b0; }
-.ss-lect-name { font-size:.78rem; color:#5568a5; font-weight:500; }
-.ss-series-badge { display:inline-block; font-size:.7rem; font-weight:700; background:#e8eaf6; color:#3949ab; border-radius:4px; padding:0 5px; margin-left:2px; vertical-align:middle; }
+.ss-date { font-weight:700; color:#2c3e6b; font-size:.9rem; white-space:nowrap; width:118px; flex-shrink:0; }
+/* Fixed-width label column: Sunday name / ordinal / custom label */
+.ss-label-area { width:220px; flex-shrink:0; display:flex; align-items:center; gap:6px; overflow:hidden; padding-right:10px; }
+.ss-label { font-size:.8rem; color:#e67e22; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ss-ordinal { font-size:.78rem; color:#8892b0; white-space:nowrap; }
+.ss-lect-name { font-size:.78rem; color:#5568a5; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ss-series-badge { display:inline-block; font-size:.7rem; font-weight:700; background:#e8eaf6; color:#3949ab; border-radius:4px; padding:0 5px; flex-shrink:0; }
+/* Fixed-width stats column: "N filled / M open" */
+.ss-stats-area { width:175px; flex-shrink:0; display:flex; align-items:center; gap:8px; }
 .ss-fill { font-size:.8rem; font-weight:700; }
 .ss-open { font-size:.8rem; font-weight:700; color:#e74c3c; }
 .ss-complete { font-size:.8rem; font-weight:700; color:#27ae60; }
+/* Confirmation badges fill remaining space before buttons */
+.ss-conf-area { flex:1; display:flex; align-items:center; gap:5px; }
 .sconf-badge { display:inline-flex; align-items:center; font-size:.72rem; font-weight:700;
   padding:2px 7px; border-radius:10px; white-space:nowrap; }
 .sconf-confirmed { background:#d4edda; color:#1a6e32; }
 .sconf-pending   { background:#fff3cd; color:#856404; }
 .sconf-declined  { background:#f8d7da; color:#842029; }
-/* Hide the stats chips (filled/open/confirmation counts) when the row is expanded —
-   the detail rows below already show every assignment, so the summary is redundant. */
-.sunday-summary.expanded .ss-fill,
-.sunday-summary.expanded .ss-open,
-.sunday-summary.expanded .ss-complete,
-.sunday-summary.expanded .sconf-badge { display:none; }
-/* Also hide date/label/Sunday name from the summary row when expanded —
-   they are already shown in the date cell of the detail rows below. */
+/* When expanded, hide all summary info — detail rows below show everything */
 .sunday-summary.expanded .ss-date,
-.sunday-summary.expanded .ss-label,
-.sunday-summary.expanded .ss-lect-name,
-.sunday-summary.expanded .ss-series-badge,
-.sunday-summary.expanded .ss-ordinal { display:none; }
+.sunday-summary.expanded .ss-label-area,
+.sunday-summary.expanded .ss-stats-area,
+.sunday-summary.expanded .ss-conf-area,
+.sunday-summary.expanded .btn-edit-readings,
+.sunday-summary.expanded .btn-bulletin-slide { display:none; }
 .sunday-detail   { display:none; }
 .sunday-detail.visible { display:table-row; }
 
@@ -933,9 +933,126 @@ function loadSchedule() { return loadMonthSchedule(currentMonthKey); }
 // ── LECTIONARY CALENDAR ────────────────────────────────────────────
 // Populated by fetch('lcms_calendar.json') on load; keyed by ISO date
 var lectCalendar = {};
+function fmtSundayName(name) { return (name||'').replace(/\s*\(prop\d+\)/i,'').trim(); }
 function getLectEntry(date) {
   if (!date || !Object.keys(lectCalendar).length) return null;
   return lectCalendar[date.toISOString().slice(0, 10)] || null;
+}
+
+// ── Annual special-service date helpers ────────────────────────────────────
+function _computeEaster(yr) {
+  var a=yr%19, b=Math.floor(yr/100), c=yr%100,
+      d=Math.floor(b/4), e=b%4, f=Math.floor((b+8)/25),
+      g=Math.floor((b-f+1)/3), h=(19*a+b-d-g+15)%30,
+      i=Math.floor(c/4), k=c%4, l=(32+2*e+2*i-h-k)%7,
+      m=Math.floor((a+11*h+22*l)/451),
+      mo=Math.floor((h+l-7*m+114)/31),
+      dy=((h+l-7*m+114)%31)+1;
+  return new Date(yr, mo-1, dy, 12, 0, 0);
+}
+function _computeThanksgiving(yr) {
+  var nov1=new Date(yr,10,1), dow=nov1.getDay();
+  return new Date(yr, 10, 1+(4-dow+7)%7+21, 12, 0, 0);
+}
+function _computeAdvent1(yr) {
+  // Sunday on or before Dec 3
+  var dec3=new Date(yr,11,3), dow=dec3.getDay();
+  return new Date(yr, 11, 3-dow, 12, 0, 0);
+}
+function _isoFromDate(d) {
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function _addDays(d, n) { var r=new Date(d); r.setDate(r.getDate()+n); return r; }
+
+function seedAnnualSpecialServices(key) {
+  var parts=key.split('-'), yr=parseInt(parts[0]), mo=parseInt(parts[1]);
+  var candidates=[];
+
+  // Easter-anchored services
+  var easter=_computeEaster(yr);
+  var ashWed=_addDays(easter,-46);
+  candidates.push({name:'Ash Wednesday', date:ashWed, services:[
+    {time:'5:00 PM', roles:['Elder','PowerPoint','Liturgist','Preacher'], assignments:{}},
+    {time:'7:00 PM', roles:['Elder','PowerPoint','Liturgist','Preacher'], assignments:{}}
+  ]});
+  for (var w=1; w<=5; w++) {
+    candidates.push({name:'Lent Midweek '+w, date:_addDays(ashWed,w*7), services:[
+      {time:'5:00 PM', roles:['PowerPoint','Preacher'], assignments:{}},
+      {time:'7:00 PM', roles:['PowerPoint','Preacher'], assignments:{}}
+    ]});
+  }
+  candidates.push({name:'Maundy Thursday', date:_addDays(easter,-3), services:[
+    {time:'6:30 PM', roles:['Elder','PowerPoint','Liturgist','Preacher'], assignments:{}}
+  ]});
+  candidates.push({name:'Good Friday', date:_addDays(easter,-2), services:[
+    {time:'6:30 PM', roles:['Elder','PowerPoint','Liturgist','Preacher'], assignments:{}}
+  ]});
+  candidates.push({name:'Easter Vigil', date:_addDays(easter,-1), services:[
+    {time:'6:30 PM', roles:['Elder','PowerPoint','Liturgist','Preacher'], assignments:{}}
+  ]});
+
+  // Thanksgiving
+  var thanks=_computeThanksgiving(yr);
+  candidates.push({name:'Thanksgiving Day', date:thanks, services:[
+    {time:'9:00 AM', roles:['PowerPoint','Liturgist','Preacher'], assignments:{}}
+  ]});
+  candidates.push({name:'Thanksgiving Eve', date:_addDays(thanks,-1), services:[
+    {time:'6:30 PM', roles:['PowerPoint','Liturgist','Preacher'], assignments:{}}
+  ]});
+
+  // Advent midweeks (Wednesdays after each Advent Sunday, before Dec 24)
+  var adv1=_computeAdvent1(yr);
+  var dec24=new Date(yr,11,24,12,0,0);
+  for (var av=0; av<4; av++) {
+    var advWed=_addDays(_addDays(adv1,av*7),3);
+    if (advWed.getTime() < dec24.getTime()) {
+      candidates.push({name:'Advent Midweek '+(av+1), date:advWed, services:[
+        {time:'5:00 PM', roles:['PowerPoint','Preacher'], assignments:{}},
+        {time:'7:00 PM', roles:['PowerPoint','Preacher'], assignments:{}}
+      ]});
+    }
+  }
+
+  // Christmas
+  candidates.push({name:'Christmas Eve', date:new Date(yr,11,24,12,0,0), services:[
+    {time:'TBD', roles:['PowerPoint','Preacher'], assignments:{}}
+  ]});
+  candidates.push({name:'Christmas Day', date:new Date(yr,11,25,12,0,0), services:[
+    {time:'10:00 AM', roles:['Elder','PowerPoint','Liturgist','Preacher'], assignments:{}}
+  ]});
+
+  // Build lookup of already-existing special services in this month
+  var existing={};
+  currentSchedule.forEach(function(row) {
+    if (row.type==='special') existing[_isoFromDate(row.date)+'|'+row.name]=true;
+  });
+
+  // Also check what was previously deleted: any name+date combo that was ever seeded
+  // but is now absent means the user deleted it — we respect that by checking localStorage
+  // for a "ws_seeded" tombstone set.
+  var tombstones={};
+  try { tombstones=JSON.parse(localStorage.getItem('ws_seed_tombstones')||'{}'); } catch(e){}
+
+  var added=false;
+  candidates.forEach(function(c) {
+    var iso=_isoFromDate(c.date);
+    if (parseInt(iso.slice(0,4))!==yr || parseInt(iso.slice(5,7))!==mo) return;
+    var tk=iso+'|'+c.name;
+    if (existing[tk]) return;        // already in schedule
+    if (tombstones[tk]) return;      // user previously deleted it
+    currentSchedule.push({type:'special', date:c.date, name:c.name, services:c.services, readings:{}});
+    added=true;
+  });
+
+  if (added) {
+    currentSchedule.sort(function(a,b){ return a.date-b.date; });
+    var months=getMonthSchedules();
+    months[key]={rows:currentSchedule.map(function(row){
+      if (row.type==='special') return {type:'special', dateISO:_isoFromDate(row.date), name:row.name, services:row.services, readings:row.readings||{}};
+      return {type:'sunday', dateISO:_isoFromDate(row.date), ordinal:row.ordinal, label:row.label||'', assignments:row.assignments};
+    })};
+    saveMonthSchedules(months);
+  }
 }
 // ──────────────────────────────────────────────────────────────────
 
@@ -1071,6 +1188,7 @@ function switchMonth(key) {
       return {type:'sunday', date:s.date, ordinal:s.ordinal, label:'', assignments:assignments};
     });
   }
+  seedAnnualSpecialServices(key);
   renderTable(getPeople(), null);
   document.getElementById('schedule-output').style.display = 'block';
   showAlert('schedule-alert','','');
@@ -1102,6 +1220,7 @@ function showTab(name) {
         return {type:'sunday', date:s.date, ordinal:s.ordinal, label:'', assignments:assignments};
       });
     }
+    seedAnnualSpecialServices(currentMonthKey);
     renderTable(getPeople(), null);
     document.getElementById('schedule-output').style.display = 'block';
   }
@@ -1679,7 +1798,7 @@ function openReadingsPanel(dateISO) {
   _readingsDateISO = dateISO;
   var d = new Date(dateISO + 'T12:00:00');
   var lectEntry = getLectEntry(d);
-  var subtitle  = lectEntry ? lectEntry.sundayName + ' \u2014 Series ' + lectEntry.series : fmtDate(d);
+  var subtitle  = lectEntry ? fmtSundayName(lectEntry.sundayName) + ' \u2014 Series ' + lectEntry.series : fmtDate(d);
   document.getElementById('readings-panel-title').textContent = 'Readings for ' + fmtDate(d);
   document.getElementById('readings-panel-subtitle').textContent = subtitle;
   var r = getReadingsForDate(dateISO) || {};
@@ -1793,7 +1912,7 @@ function buildSummaryInner(rowIdx, pMap, confs) {
     labelPart += '<span class="ss-label">'+esc(existingLabel)+'</span>';
   }
   if (lectEntry) {
-    labelPart += '<span class="ss-lect-name">'+esc(lectEntry.sundayName)+'</span>'
+    labelPart += '<span class="ss-lect-name">'+esc(fmtSundayName(lectEntry.sundayName))+'</span>'
       +'<span class="ss-series-badge">'+esc(lectEntry.series)+'</span>';
   }
   if (!existingLabel && !lectEntry) {
@@ -1801,9 +1920,9 @@ function buildSummaryInner(rowIdx, pMap, confs) {
   }
   return '<span class="ss-toggle">&#9658;</span>'
     +'<span class="ss-date">'+esc(fmtDate(row.date))+'</span>'
-    +labelPart
-    +'<span class="ss-fill" style="color:'+fillColor+'">'+st.filled+' filled</span>'
-    +openPart+confBadges
+    +'<span class="ss-label-area">'+labelPart+'</span>'
+    +'<span class="ss-stats-area"><span class="ss-fill" style="color:'+fillColor+'">'+st.filled+' filled</span>'+openPart+'</span>'
+    +'<span class="ss-conf-area">'+confBadges+'</span>'
     +'<button class="btn-edit-readings" data-date="'+esc(dateISO)+'" title="View or edit readings" style="margin-left:auto;background:none;border:1px solid #c5cef5;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:.72rem;color:#2c3e6b;white-space:nowrap;">&#128214; Readings</button>'
     +'<button class="btn-bulletin-slide" data-idx="'+rowIdx+'" title="Open 16:9 bulletin slide for this Sunday" style="background:none;border:1px solid #c8d0e8;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:.72rem;color:#2c3e6b;white-space:nowrap;">&#128250; Slide</button>';
 }
@@ -1838,10 +1957,10 @@ function renderTable(people, counts) {
         +'<td colspan="'+totalCols+'"><div class="ss-inner">'
         +'<span class="ss-toggle">&#9658;</span>'
         +'<span class="ss-date">'+esc(fmtDate(row.date))+'</span>'
-        +'<span class="ss-special-name">'+esc(row.name||'Special Service')+'</span>'
-        +'<span class="special-badge">Special</span>'
-        +'<span class="ss-fill" style="color:'+fillColor+'">'+filled+'/'+total+' filled</span>'
-        +'<button class="btn-edit-special"   data-idx="'+rowIdx+'" title="Edit">&#9998;</button>'
+        +'<span class="ss-label-area"><span class="ss-special-name">'+esc(row.name||'Special Service')+'</span><span class="special-badge">Special</span></span>'
+        +'<span class="ss-stats-area"><span class="ss-fill" style="color:'+fillColor+'">'+filled+'/'+total+' filled</span></span>'
+        +'<span class="ss-conf-area"></span>'
+        +'<button class="btn-edit-special"   data-idx="'+rowIdx+'" title="Edit" style="margin-left:auto;">&#9998;</button>'
         +'<button class="btn-delete-special" data-idx="'+rowIdx+'" title="Delete">&#128465;</button>'
         +'</div></td></tr>';
 
@@ -1902,7 +2021,7 @@ function renderTable(people, counts) {
     var r1 = '<tr class="sunday-detail row-8am" data-idx="'+rowIdx+'">';
     var lectEntryDetail = getLectEntry(row.date);
     var ordinalOrLect = lectEntryDetail
-      ? '<span class="lect-name-cell">'+esc(lectEntryDetail.sundayName)+'</span>'
+      ? '<span class="lect-name-cell">'+esc(fmtSundayName(lectEntryDetail.sundayName))+'</span>'
         +'<span class="series-cell">Series '+esc(lectEntryDetail.series)+'</span>'
       : '<span class="ordinal">'+esc(row.ordinal+ordSuffix(row.ordinal)+' Sunday')+'</span>';
     r1 += '<td class="date-cell" rowspan="2">'+esc(fmtDate(row.date))
@@ -2079,6 +2198,15 @@ document.getElementById('schedule-table').addEventListener('click', function(e) 
     var delIdx = parseInt(delBtn.getAttribute('data-idx'), 10);
     var delName = currentSchedule[delIdx] && (currentSchedule[delIdx].name || 'this special service');
     if (confirm('Delete "'+delName+'"?')) {
+      // Record tombstone so auto-seeding won't recreate this service
+      var delRow = currentSchedule[delIdx];
+      if (delRow && delRow.type === 'special') {
+        try {
+          var _tb = JSON.parse(localStorage.getItem('ws_seed_tombstones')||'{}');
+          _tb[_isoFromDate(delRow.date)+'|'+delRow.name] = true;
+          localStorage.setItem('ws_seed_tombstones', JSON.stringify(_tb));
+        } catch(e) {}
+      }
       currentSchedule.splice(delIdx, 1);
       saveCurrentMonth();
       setDirty(false);
@@ -3834,7 +3962,7 @@ function exportIcal() {
     var ymd = isoToYMD(row.date);
     var dateISO = row.date.toISOString().slice(0,10);
     var lectEntryPrint = getLectEntry(row.date);
-    var dayLabel = sunLabels[dateISO] || row.label || (lectEntryPrint ? lectEntryPrint.sundayName : '');
+    var dayLabel = sunLabels[dateISO] || row.label || (lectEntryPrint ? fmtSundayName(lectEntryPrint.sundayName) : '');
     var collect = [];
     PER_ROLES.forEach(function(role) {
       ['8am','10:45am'].forEach(function(svc) {
