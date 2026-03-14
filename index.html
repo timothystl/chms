@@ -236,6 +236,9 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
   .conf-pill { display: none !important; }
   .print-name { display: inline !important; font-size: 0.78rem; }
   .label-input { border: none !important; font-size: 0.7rem; color: #333 !important; padding: 0; }
+  .label-input::placeholder { color: transparent !important; }
+  /* Consistent row height across all detail rows */
+  .sunday-detail td { height: 32px !important; box-sizing: border-box; }
   td.empty-cell { background: #fff !important; }
   #tab-stats { display: none !important; }
   /* Always show all detail rows when printing */
@@ -308,6 +311,13 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 .sunday-summary.expanded .ss-open,
 .sunday-summary.expanded .ss-complete,
 .sunday-summary.expanded .sconf-badge { display:none; }
+/* Also hide date/label/Sunday name from the summary row when expanded —
+   they are already shown in the date cell of the detail rows below. */
+.sunday-summary.expanded .ss-date,
+.sunday-summary.expanded .ss-label,
+.sunday-summary.expanded .ss-lect-name,
+.sunday-summary.expanded .ss-series-badge,
+.sunday-summary.expanded .ss-ordinal { display:none; }
 .sunday-detail   { display:none; }
 .sunday-detail.visible { display:table-row; }
 
