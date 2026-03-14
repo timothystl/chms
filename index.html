@@ -391,8 +391,8 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 </header>
 
 <div class="tabs">
-  <button class="tab-btn" id="tab-btn-people">People &amp; Availability</button>
   <button class="tab-btn active" id="tab-btn-schedule">Schedule</button>
+  <button class="tab-btn" id="tab-btn-people">People &amp; Availability</button>
   <button class="tab-btn" id="tab-btn-stats">&#128202; Stats</button>
   <div style="margin-left:auto;display:flex;align-items:center;gap:4px;margin-right:8px;">
     <button class="header-gear" id="btn-open-settings" title="Settings" style="margin-left:0;margin-right:0;">&#9881; Settings</button>
@@ -1784,16 +1784,12 @@ function buildSummaryInner(rowIdx, pMap, confs) {
 function renderTable(people, counts) {
   var totalCols = 2 + PER_ROLES.length + SHARED_ROLES.length;
   var h1 = '<tr>'
-    +'<th class="date-col" rowspan="2">Date</th>'
-    +'<th class="svc-col" rowspan="2">Svc</th>'
-    +'<th class="per-header" colspan="'+PER_ROLES.length+'">Per-Service Roles</th>'
-    +'<th class="svc-header shared-col" colspan="'+SHARED_ROLES.length+'">Both Services</th>'
-    +'</tr>';
-  var h2 = '<tr>';
-  PER_ROLES.forEach(function(r){ h2+='<th title="'+esc(r)+'">'+esc(roleAbbrev(r))+'</th>'; });
-  SHARED_ROLES.forEach(function(r){ h2+='<th class="shared-col" title="'+esc(roleLabel(r))+'">'+esc(roleAbbrev(r))+'</th>'; });
-  h2 += '</tr>';
-  document.getElementById('schedule-thead').innerHTML = h1+h2;
+    +'<th class="date-col">Date</th>'
+    +'<th class="svc-col">Svc</th>';
+  PER_ROLES.forEach(function(r){ h1+='<th>'+esc(r)+'</th>'; });
+  SHARED_ROLES.forEach(function(r){ h1+='<th class="shared-col">'+esc(roleLabel(r))+'</th>'; });
+  h1 += '</tr>';
+  document.getElementById('schedule-thead').innerHTML = h1;
 
   var pMap = {};
   people.forEach(function(p){ pMap[p.id]=p; });
@@ -2118,83 +2114,61 @@ function openBulletinSlide(rowIdx) {
   if (!row || row.type !== 'sunday') return;
   var pMap = {};
   getPeople().forEach(function(p){ pMap[p.id] = p; });
-  var dateISO = row.date.toISOString().slice(0, 10);
-  var lectEntry = getLectEntry(row.date);
-  var sundayLabel = getSundayLabels()[dateISO] || row.label || '';
-  var sundayName = sundayLabel || (lectEntry ? lectEntry.sundayName : '') || (row.ordinal + ordSuffix(row.ordinal) + ' Sunday');
 
   function getName(pid) { return (pid && pMap[pid]) ? pMap[pid].name : ''; }
 
-  // Build role rows for a given service time
-  function buildServiceBlock(svcKey) {
-    var lines = '';
-    PER_ROLES.forEach(function(role) {
+  // Build gold role cards for one service column
+  function buildServiceCards(svcKey) {
+    return PER_ROLES.map(function(role) {
       var pid = (row.assignments[role] || {})[svcKey] || '';
       var name = getName(pid);
-      lines += '<tr>'
-        + '<td style="text-align:right;padding:6px 16px 6px 0;font-weight:600;font-size:1rem;color:#8892b0;white-space:nowrap;">' + esc(role) + '</td>'
-        + '<td style="padding:6px 0;font-size:1.05rem;color:#1a2747;font-weight:' + (name ? '700' : '400') + ';color:' + (name ? '#1a2747' : '#bbb') + ';">' + esc(name || '—') + '</td>'
-        + '</tr>';
-    });
-    return lines;
+      return '<div class="role-card">'
+        + '<div class="role-badge">' + esc(role) + '</div>'
+        + (name ? '<div class="role-name">' + esc(name) + '</div>' : '')
+        + '</div>';
+    }).join('');
   }
-
-  // Shared roles (Preacher, Children's Message)
-  var sharedLines = '';
-  SHARED_ROLES.forEach(function(role) {
-    var pid = (row.assignments[role] || {}).shared || '';
-    var name = getName(pid);
-    sharedLines += '<tr>'
-      + '<td style="text-align:right;padding:4px 16px 4px 0;font-weight:600;font-size:.95rem;color:#8892b0;">' + esc(roleLabel(role)) + '</td>'
-      + '<td style="font-size:1rem;color:' + (name ? '#1a2747' : '#bbb') + ';font-weight:' + (name ? '600' : '400') + ';">' + esc(name || '—') + '</td>'
-      + '</tr>';
-  });
 
   var dateStr = row.date.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
 
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8">'
-    + '<title>Bulletin Slide — ' + esc(dateStr) + '</title>'
+    + '<title>Serving Slide \u2014 ' + esc(dateStr) + '</title>'
+    + '<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@700&display=swap" rel="stylesheet">'
     + '<style>'
-    + 'html,body{margin:0;padding:0;width:1920px;height:1080px;overflow:hidden;background:#f0f3fa;font-family:"Segoe UI",Arial,sans-serif;}'
-    + '.slide{width:1920px;height:1080px;display:flex;flex-direction:column;background:#f0f3fa;}'
-    + '.slide-header{background:#2c3e6b;color:#fff;padding:40px 80px;display:flex;justify-content:space-between;align-items:center;}'
-    + '.slide-header .church{font-size:2.2rem;font-weight:700;letter-spacing:.04em;}'
-    + '.slide-header .date{font-size:1.5rem;color:rgba(255,255,255,.8);}'
-    + '.slide-body{flex:1;display:flex;flex-direction:column;padding:50px 80px 40px;}'
-    + '.slide-title{font-size:2rem;font-weight:700;color:#2c3e6b;margin:0 0 10px;letter-spacing:.02em;}'
-    + '.sunday-name{font-size:1.3rem;color:#5568a5;margin:0 0 36px;font-weight:500;}'
-    + '.services{display:flex;gap:80px;flex:1;}'
-    + '.svc-col{flex:1;}'
-    + '.svc-time{font-size:1.3rem;font-weight:800;color:#2c3e6b;text-transform:uppercase;letter-spacing:.08em;border-bottom:3px solid #2c3e6b;padding-bottom:10px;margin-bottom:16px;}'
-    + '.shared-row{margin-top:30px;padding-top:20px;border-top:2px solid #dde;}'
-    + '.shared-label{font-size:1rem;font-weight:700;color:#247a52;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;}'
-    + 'table{border-collapse:collapse;}'
-    + '.print-note{font-size:.9rem;color:#aaa;text-align:right;margin-top:auto;padding-top:16px;}'
+    + '*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}'
+    + 'html,body{width:1920px;height:1080px;overflow:hidden;background:#f5f5d0;'
+    +   'font-family:"Oswald","Impact",Arial,sans-serif;}'
+    + '.slide{width:1920px;height:1080px;background:#f5f5d0;display:flex;flex-direction:column;'
+    +   'align-items:center;padding:52px 80px 36px;}'
+    + '.slide-title{font-size:3.6rem;font-weight:700;color:#5c1a1a;text-transform:uppercase;'
+    +   'letter-spacing:.06em;margin-bottom:36px;}'
+    + '.services{display:flex;gap:56px;flex:1;width:100%;}'
+    + '.svc-col{flex:1;display:flex;flex-direction:column;gap:10px;}'
+    + '.svc-header{background:#c8a020;color:#5c1a1a;font-size:2.1rem;font-weight:700;'
+    +   'text-transform:uppercase;letter-spacing:.06em;padding:16px 24px;}'
+    + '.role-card{flex:1;background:#c8a020;box-shadow:4px 5px 12px rgba(80,30,0,.25);'
+    +   'position:relative;display:flex;align-items:flex-end;padding:10px 18px 14px;}'
+    + '.role-badge{position:absolute;top:0;right:0;background:#5c1a1a;color:#fff;'
+    +   'font-size:1.05rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;'
+    +   'padding:5px 14px;}'
+    + '.role-name{font-size:2.4rem;font-weight:700;color:#5c1a1a;text-transform:uppercase;'
+    +   'letter-spacing:.04em;line-height:1.05;}'
+    + '.slide-footer{font-size:2rem;font-weight:700;color:#5c1a1a;text-transform:uppercase;'
+    +   'letter-spacing:.06em;margin-top:28px;}'
+    + '.print-note{font-size:.75rem;color:#bbb;margin-top:4px;}'
     + '</style></head><body>'
     + '<div class="slide">'
-    + '<div class="slide-header">'
-    + '<span class="church">Timothy Lutheran Church</span>'
-    + '<span class="date">' + esc(dateStr) + '</span>'
-    + '</div>'
-    + '<div class="slide-body">'
-    + '<div class="slide-title">Today\'s Worship Team</div>'
-    + '<div class="sunday-name">' + esc(sundayName) + '</div>'
+    + '<div class="slide-title">Serving the Lord Today</div>'
     + '<div class="services">'
-    + '<div class="svc-col">'
-    + '<div class="svc-time">8:00 AM</div>'
-    + '<table>' + buildServiceBlock('8am') + '</table>'
+    + '<div class="svc-col"><div class="svc-header">8:00 AM Service</div>'
+    + buildServiceCards('8am')
     + '</div>'
-    + '<div class="svc-col">'
-    + '<div class="svc-time">10:45 AM</div>'
-    + '<table>' + buildServiceBlock('10:45am') + '</table>'
-    + '</div>'
-    + '<div class="svc-col" style="flex:0 0 320px;">'
-    + '<div class="svc-time" style="color:#247a52;border-color:#247a52;">Both Services</div>'
-    + '<table>' + sharedLines + '</table>'
+    + '<div class="svc-col"><div class="svc-header">10:45 AM Service</div>'
+    + buildServiceCards('10:45am')
     + '</div>'
     + '</div>'
-    + '<div class="print-note">Screenshot to use in your announcement slide deck &nbsp;·&nbsp; 1920 × 1080</div>'
-    + '</div>'
+    + '<div class="slide-footer">Talk with our Pastors to Volunteer</div>'
+    + '<div class="print-note">Screenshot to use in your announcement slide deck &nbsp;\u00b7&nbsp; 1920 \u00d7 1080</div>'
     + '</div>'
     + '</body></html>';
 
@@ -3533,6 +3507,15 @@ function queueFbPush() {
   _fbSyncTimer = setTimeout(fbPush, 1500);
 }
 
+// Flush any pending push when the tab/browser is closed so no changes are lost
+window.addEventListener('beforeunload', function() {
+  if (_fbSyncTimer && fbAuth.currentUser) {
+    clearTimeout(_fbSyncTimer);
+    _fbSyncTimer = null;
+    fbPush(); // fire-and-forget; browser keeps connection open briefly
+  }
+});
+
 function fbSignIn() {
   var email = document.getElementById('fb-email').value.trim();
   var pass  = document.getElementById('fb-password').value;
@@ -3551,7 +3534,14 @@ function fbRegister() {
     .catch(function(e) { updateLoginStatus('Account creation failed: ' + e.message, true); });
 }
 
-function fbSignOut() { signOut(fbAuth); }
+function fbSignOut() {
+  // Flush any pending debounced push before signing out so no changes are lost
+  if (_fbSyncTimer) {
+    clearTimeout(_fbSyncTimer);
+    _fbSyncTimer = null;
+  }
+  fbPush().finally(function() { signOut(fbAuth); });
+}
 
 function fbSignInGoogle() {
   updateLoginStatus('Opening Google sign-in…');
@@ -3591,11 +3581,26 @@ onAuthStateChanged(fbAuth, function(user) {
   var appContent  = document.getElementById('app-content');
   var userDisplay = document.getElementById('fb-user-display');
   if (user) {
-    // Signed in — show the app
+    // Hide login, show app — but keep a "Loading cloud data…" overlay until
+    // fbPull completes so stale localStorage data never flashes on screen.
     if (loginScreen) loginScreen.style.display = 'none';
-    if (appContent)  appContent.style.display  = 'block';
     if (userDisplay) userDisplay.textContent   = 'Signed in as ' + user.email;
-    fbPull();
+
+    // Show app shell with loading indicator; fbPull will remove it when done
+    if (appContent) {
+      appContent.style.display = 'block';
+      var overlay = document.createElement('div');
+      overlay.id = 'cloud-load-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:8888;background:#f4f5f9;'
+        + 'display:flex;align-items:center;justify-content:center;font-size:1rem;color:#2c3e6b;';
+      overlay.textContent = 'Loading cloud data\u2026';
+      document.body.appendChild(overlay);
+    }
+
+    fbPull().finally(function() {
+      var overlay = document.getElementById('cloud-load-overlay');
+      if (overlay) overlay.remove();
+    });
   } else {
     // Signed out — show the login screen
     if (loginScreen) loginScreen.style.display = 'flex';
