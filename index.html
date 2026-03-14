@@ -219,7 +219,7 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 
 /* ── Print styles ──────────────────────────────────────── */
 .print-header { display: none; }
-@page { size: landscape; margin: 0.5in; }
+@page { size: 14in 8.5in landscape; margin: 0.4in; }
 @media print {
   header, .tabs, .schedule-controls, .legend, .summary-bar,
   #schedule-alert, #tab-people, #tab-settings, #tab-breeze,
@@ -240,6 +240,10 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
   /* Consistent row height across all detail rows */
   .sunday-detail td { height: 32px !important; box-sizing: border-box; }
   td.empty-cell { background: #fff !important; }
+  /* Remove dark green header band on shared columns */
+  thead th.shared-col { background: #2c3e6b !important; }
+  /* Hide lectionary series badge (Series A/B/C) */
+  .series-cell { display: none !important; }
   #tab-stats { display: none !important; }
   /* Always show all detail rows when printing */
   .sunday-summary { display: none !important; }
