@@ -1791,7 +1791,8 @@ function buildSummaryInner(rowIdx, pMap, confs) {
     +labelPart
     +'<span class="ss-fill" style="color:'+fillColor+'">'+st.filled+' filled</span>'
     +openPart+confBadges
-    +'<button class="btn-bulletin-slide" data-idx="'+rowIdx+'" title="Open 16:9 bulletin slide for this Sunday" style="margin-left:auto;background:none;border:1px solid #c8d0e8;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:.72rem;color:#2c3e6b;white-space:nowrap;">&#128250; Slide</button>';
+    +'<button class="btn-edit-readings" data-date="'+esc(dateISO)+'" title="View or edit readings" style="margin-left:auto;background:none;border:1px solid #c5cef5;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:.72rem;color:#2c3e6b;white-space:nowrap;">&#128214; Readings</button>'
+    +'<button class="btn-bulletin-slide" data-idx="'+rowIdx+'" title="Open 16:9 bulletin slide for this Sunday" style="background:none;border:1px solid #c8d0e8;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:.72rem;color:#2c3e6b;white-space:nowrap;">&#128250; Slide</button>';
 }
 
 function renderTable(people, counts) {
@@ -1893,7 +1894,6 @@ function renderTable(people, counts) {
       : '<span class="ordinal">'+esc(row.ordinal+ordSuffix(row.ordinal)+' Sunday')+'</span>';
     r1 += '<td class="date-cell" rowspan="2">'+esc(fmtDate(row.date))
       +ordinalOrLect
-      +'<button class="btn-edit-readings" data-date="'+esc(dateISO)+'" title="View or edit readings" style="display:block;font-size:.7rem;padding:1px 7px;margin-top:5px;background:#eef2ff;border:1px solid #c5cef5;border-radius:4px;color:#2c3e6b;cursor:pointer;">&#128214; Readings</button>'
       +'<input class="label-input" placeholder="Add label…" value="'+esc(existingLabel)+'" data-date="'+esc(dateISO)+'" title="Add a special label (e.g. Christmas Eve)">'
       +'</td>';
     r1 += '<td class="svc-label svc-8am">8:00 AM</td>';
