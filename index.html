@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Timothy Lutheran Church – Worship Schedule Builder</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="tlc-logo.png">
+<link rel="manifest" href="site.webmanifest">
+<meta name="theme-color" content="#2c3e6b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Worship Sched">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f2f3f7; color: #222; }
@@ -298,6 +306,89 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 .sv-last { font-size:.82rem; color:#555; white-space:nowrap; }
 @media(max-width:600px){ .stats-table th:nth-child(2), .stats-table td:nth-child(2) { display:none; } }
 
+/* ── Mobile layout (≤650px) ───────────────────────────────────────────────── */
+@media (max-width: 650px) {
+  /* General chrome */
+  .tab-content { padding: 12px; }
+  .card { padding: 14px 12px; }
+  .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .btn { min-height: 40px; }
+  .schedule-controls .field { width: 100%; }
+  .schedule-controls .field input { width: 100%; }
+  .month-nav-label { width: 100%; text-align: center; order: -1; min-width: unset; }
+
+  /* ── Summary row: two-line layout ── */
+  .ss-inner { flex-wrap: wrap; padding: 8px 10px; gap: 4px; }
+  .ss-date { width: auto; flex: 1 0 auto; white-space: nowrap; }
+  .ss-stats-area { width: auto; flex-shrink: 0; margin-left: auto; }
+  .ss-label-area { order: 4; width: 100%; flex-shrink: 1; overflow: visible; padding-right: 0; flex-wrap: wrap; }
+  .ss-conf-area { order: 5; width: 100%; flex-wrap: wrap; }
+  /* Hide action buttons on summary row — still accessible via Readings panel */
+  .btn-edit-readings, .btn-bulletin-slide { display: none !important; }
+
+  /* ── Schedule table: "no more tables" card layout ── */
+  #schedule-table, #schedule-table thead, #schedule-table tbody,
+  #schedule-table tr, #schedule-table td { display: block; width: 100%; box-sizing: border-box; }
+
+  /* Hide column headers — labels come from data-label pseudo-elements */
+  #schedule-thead { display: none; }
+
+  /* Detail rows: hidden by default, shown as block (not table-row) when expanded */
+  #schedule-table tr.sunday-detail         { display: none; }
+  #schedule-table tr.sunday-detail.visible { display: block; margin: 4px 0 8px; border: 1px solid #d0d4e8; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,0.07); }
+
+  /* Date cell → card header (only appears in 8am row; rowspan ignored in block mode) */
+  #schedule-table td.date-cell {
+    background: #2c3e6b; color: #fff; padding: 10px 14px;
+    border-radius: 0; position: static; min-width: unset;
+    border: none; white-space: normal; text-align: left; font-size: 1rem;
+  }
+  #schedule-table td.date-cell .ordinal,
+  #schedule-table td.date-cell .lect-name-cell { color: #a8b8e8; font-size: 0.78rem; }
+  #schedule-table td.date-cell .series-cell { background: rgba(255,255,255,0.18); color: #fff; }
+  #schedule-table td.date-cell .label-input { color: #f0b429; border-bottom-color: rgba(240,180,40,0.45); font-size: 0.78rem; }
+
+  /* Service-label cell → colored section sub-header */
+  #schedule-table td.svc-label {
+    display: block; padding: 5px 14px; font-size: 0.78rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    border: none; border-bottom: 1px solid #e0e4f0; min-width: unset;
+  }
+  #schedule-table td.svc-8am  { border-right: none; }
+  #schedule-table td.svc-1045 { border-right: none; border-top: 2px solid #bbc4d8; }
+
+  /* Role cells → labeled flex rows */
+  #schedule-table td[data-label] {
+    display: flex; align-items: flex-start; flex-wrap: nowrap;
+    padding: 8px 14px; border: none; border-bottom: 1px solid #f0f2f8;
+    min-width: unset; text-align: left; background: #fff;
+  }
+  #schedule-table td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 110px; font-size: 0.72rem; font-weight: 700;
+    color: #6b7a9f; text-transform: uppercase; letter-spacing: 0.04em;
+    padding-right: 8px; padding-top: 7px; line-height: 1.3;
+  }
+  #schedule-table td.shared-cell[data-label] { background: #f0faf5; }
+
+  /* Touch-friendly dropdown */
+  #schedule-table td[data-label] .cell-select {
+    flex: 1; font-size: 0.9rem; padding: 7px 6px;
+    min-height: 36px; border-radius: 8px; min-width: 0;
+  }
+  /* Conf pill: inline next to select */
+  #schedule-table td[data-label] .conf-pill {
+    flex: 0 0 auto; margin-left: 6px; margin-top: 0;
+    width: auto; align-self: center; font-size: 0.68rem; padding: 4px 6px; min-height: 36px;
+  }
+  /* Override / primary badge */
+  #schedule-table td[data-label] .cell-badge {
+    margin-left: 4px; font-size: 0.85rem; align-self: center;
+  }
+
+  /* N/A cells (role not used): hidden */
+  #schedule-table td.na-cell { display: none; }
+}
 
 /* ── Sunday summary row (collapsible) ─────────────────────────────────────── */
 .sunday-summary td { padding:0; cursor:pointer; background:#f8f9fc; border-bottom:2px solid #dde2f0; border-top:1px solid #e8eaf2; }
@@ -1984,7 +2075,7 @@ function renderTable(people, counts) {
             }).forEach(function(p){
               opts += '<option value="'+esc(p.id)+'"'+(pid===p.id?' selected':'')+'>'+esc(p.name)+'</option>';
             });
-            svcRow += '<td><select class="cell-select" data-row="'+rowIdx+'" data-svc-idx="'+svcIdx+'" data-role="'+esc(role)+'" data-special="1">'+opts+'</select></td>';
+            svcRow += '<td data-label="'+esc(roleLabel(role))+'"><select class="cell-select" data-row="'+rowIdx+'" data-svc-idx="'+svcIdx+'" data-role="'+esc(role)+'" data-special="1">'+opts+'</select></td>';
           } else {
             svcRow += '<td class="na-cell"></td>';
           }
@@ -1999,7 +2090,7 @@ function renderTable(people, counts) {
             }).forEach(function(p){
               opts += '<option value="'+esc(p.id)+'"'+(pid===p.id?' selected':'')+'>'+esc(p.name)+'</option>';
             });
-            svcRow += '<td class="shared-col"><select class="cell-select" data-row="'+rowIdx+'" data-svc-idx="'+svcIdx+'" data-role="'+esc(role)+'" data-special="1">'+opts+'</select></td>';
+            svcRow += '<td class="shared-col" data-label="'+esc(roleLabel(role))+'"><select class="cell-select" data-row="'+rowIdx+'" data-svc-idx="'+svcIdx+'" data-role="'+esc(role)+'" data-special="1">'+opts+'</select></td>';
           } else {
             svcRow += '<td class="shared-col na-cell"></td>';
           }
@@ -2109,7 +2200,8 @@ function buildCell(pid, pMap, rowIdx, role, svc, rowspan) {
             : isPrimary  ? '<span class="cell-badge cell-badge-primary"  title="Primary assignment">&#9733;</span>'
             : '';
 
-  return '<td class="'+tdClass+'"'+rsAttr+'>'
+  var mobileLabel = svc === 'shared' ? 'Both \u2014 ' + roleLabel(role) : roleLabel(role);
+  return '<td class="'+tdClass+'"'+rsAttr+' data-label="'+esc(mobileLabel)+'">'
     +'<select class="cell-select" data-row="'+rowIdx+'" data-role="'+esc(role)+'" data-svc="'+esc(svc)+'">'+opts+'</select>'
     +badge+confPill+'</td>';
 }
