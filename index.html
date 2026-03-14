@@ -302,6 +302,12 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 .sconf-confirmed { background:#d4edda; color:#1a6e32; }
 .sconf-pending   { background:#fff3cd; color:#856404; }
 .sconf-declined  { background:#f8d7da; color:#842029; }
+/* Hide the stats chips (filled/open/confirmation counts) when the row is expanded —
+   the detail rows below already show every assignment, so the summary is redundant. */
+.sunday-summary.expanded .ss-fill,
+.sunday-summary.expanded .ss-open,
+.sunday-summary.expanded .ss-complete,
+.sunday-summary.expanded .sconf-badge { display:none; }
 .sunday-detail   { display:none; }
 .sunday-detail.visible { display:table-row; }
 
@@ -439,7 +445,7 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
         <button class="btn btn-outline btn-sm saved" id="btn-save-schedule">Saved &#10003;</button>
         <button class="btn btn-outline btn-sm" id="btn-expand-all">&#9660; Expand All</button>
         <button class="btn btn-outline btn-sm" id="btn-print">&#128424; Print</button>
-        <button class="btn btn-success btn-sm" id="btn-export-csv">CSV</button>
+        <button class="btn btn-success btn-sm" id="btn-export-csv">&#128196; Excel</button>
         <button class="btn btn-outline btn-sm" id="btn-export-ical">&#128197; iCal</button>
         <details class="toolbar-more">
           <summary class="btn btn-outline btn-sm">&#8943; More</summary>
@@ -582,16 +588,6 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
   </div>
   <div class="panel-body">
 
-    <!-- Notifications — most-used setting, shown first -->
-    <div style="margin-bottom:20px;">
-      <label style="font-weight:600;font-size:1rem;color:#2c3e6b;">&#128276; Notifications</label>
-      <p style="font-size:0.82rem;color:#555;margin:4px 0 8px;">Get an email whenever a volunteer confirms or declines.</p>
-      <label for="email-notify-admin">Notify me at</label>
-      <input type="email" id="email-notify-admin" placeholder="your@email.com" style="max-width:320px;">
-    </div>
-
-    <hr style="margin:0 0 20px;border:none;border-top:1px solid #dde;">
-
     <!-- Cloud Sync -->
     <div style="margin-bottom:20px;">
       <label style="font-weight:600;font-size:1rem;color:#2c3e6b;">&#9729; Cloud Sync</label>
@@ -682,6 +678,13 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
         <label for="email-reply-to" style="margin-top:12px;">Reply-To Address</label>
         <input type="email" id="email-reply-to" placeholder="dinger@timothystl.org" style="max-width:320px;">
         <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">Where volunteer replies are sent.</small>
+
+        <hr style="margin:20px 0 16px;border:none;border-top:1px solid #eee;">
+
+        <h4 style="margin:0 0 10px;font-size:.92rem;color:#2c3e6b;text-transform:uppercase;letter-spacing:.05em;">&#128276; Notifications</h4>
+        <p style="font-size:0.82rem;color:#555;margin:4px 0 8px;">Get an email whenever a volunteer confirms or declines.</p>
+        <label for="email-notify-admin">Notify me at</label>
+        <input type="email" id="email-notify-admin" placeholder="your@email.com" style="max-width:320px;">
 
       </div>
     </details>
@@ -1785,7 +1788,7 @@ function renderTable(people, counts) {
   var totalCols = 2 + PER_ROLES.length + SHARED_ROLES.length;
   var h1 = '<tr>'
     +'<th class="date-col">Date</th>'
-    +'<th class="svc-col">Svc</th>';
+    +'<th class="svc-col">Service</th>';
   PER_ROLES.forEach(function(r){ h1+='<th>'+esc(r)+'</th>'; });
   SHARED_ROLES.forEach(function(r){ h1+='<th class="shared-col">'+esc(roleLabel(r))+'</th>'; });
   h1 += '</tr>';
@@ -2230,20 +2233,28 @@ document.getElementById('btn-export-csv').addEventListener('click', function() {
   var pMap = {};
   getPeople().forEach(function(p){ pMap[p.id]=p; });
   var headers = ['Date','Sunday'];
-  PER_ROLES.forEach(function(r){ headers.push('8am - '+r); });
-  PER_ROLES.forEach(function(r){ headers.push('10:45am - '+r); });
-  SHARED_ROLES.forEach(function(r){ headers.push('Both - '+roleLabel(r)); });
-  var lines = [headers.map(function(h){ return '"'+h.replace(/"/g,'""')+'"'; }).join(',')];
+  PER_ROLES.forEach(function(r){ headers.push('8am \u2013 '+r); });
+  PER_ROLES.forEach(function(r){ headers.push('10:45am \u2013 '+r); });
+  SHARED_ROLES.forEach(function(r){ headers.push('Both \u2013 '+roleLabel(r)); });
+  function xt(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  var rows = '';
   currentSchedule.forEach(function(row) {
+    if (row.type !== 'sunday') return;
     var cells = [fmtDate(row.date), row.ordinal+ordSuffix(row.ordinal)+' Sunday'];
     PER_ROLES.forEach(function(role){ var pid=row.assignments[role]['8am'];    cells.push(pid&&pMap[pid]?pMap[pid].name:''); });
     PER_ROLES.forEach(function(role){ var pid=row.assignments[role]['10:45am'];cells.push(pid&&pMap[pid]?pMap[pid].name:''); });
     SHARED_ROLES.forEach(function(role){ var pid=row.assignments[role].shared; cells.push(pid&&pMap[pid]?pMap[pid].name:''); });
-    lines.push(cells.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(','));
+    rows += '<tr>'+cells.map(function(c){ return '<td>'+xt(c)+'</td>'; }).join('')+'</tr>';
   });
-  var blob = new Blob([lines.join('\n')],{type:'text/csv'});
+  var thead = '<tr style="background:#2c3e6b;color:#fff;">'+headers.map(function(h){ return '<th>'+xt(h)+'</th>'; }).join('')+'</tr>';
+  var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">'
+    +'<head><meta charset="utf-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets>'
+    +'<x:ExcelWorksheet><x:Name>Schedule</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>'
+    +'</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head>'
+    +'<body><table border="1">'+thead+rows+'</table></body></html>';
+  var blob = new Blob(['\ufeff'+html], {type:'application/vnd.ms-excel;charset=utf-8'});
   var url = URL.createObjectURL(blob);
-  var a = document.createElement('a'); a.href=url; a.download='worship-schedule.csv';
+  var a = document.createElement('a'); a.href=url; a.download='worship-schedule.xls';
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 });
 
