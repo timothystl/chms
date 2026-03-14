@@ -2626,8 +2626,10 @@ function sendReminderEmails() {
   people.forEach(function(p){ pMap[p.id] = p; });
 
   // Build person → assignments map from entire schedule (include dateISO for iCal + RSVP)
+  var today = new Date(); today.setHours(0,0,0,0);
   var personAssignments = {};  // { personId: [{ date, dateISO, svc, role }, ...] }
   currentSchedule.forEach(function(row) {
+    if (row.date < today) return;  // skip past dates
     var dateStr = fmtDate(row.date);
     var dateISO = row.date.toISOString().slice(0, 10);
     if (row.type === 'special') {
