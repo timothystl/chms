@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TLC Slide Builder – Timothy Lutheran Church</title>
-<link rel="icon" type="image/svg+xml" href="../favicon.svg">
-<link rel="apple-touch-icon" href="../tlc-logo.png">
+<link rel="icon" type="image/svg+xml" href="./favicon.svg">
+<link rel="apple-touch-icon" href="./tlc-logo.png">
 <meta name="theme-color" content="#2c3e6b">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -220,7 +220,7 @@ select.form-select:focus { border-color: #2c3e6b; box-shadow: 0 0 0 3px rgba(44,
 <!-- ── Login Screen ──────────────────────────────────────────────── -->
 <div id="login-screen">
   <div class="login-box">
-    <img src="../tlc-logo.png" alt="TLC Logo" onerror="this.style.display='none'">
+    <img src="./tlc-logo.png" alt="TLC Logo" onerror="this.style.display='none'">
     <h1>TLC Slide Builder</h1>
     <p class="sub">Timothy Lutheran Church</p>
     <button class="google-btn" onclick="fbSignInGoogle()">
@@ -245,7 +245,7 @@ select.form-select:focus { border-color: #2c3e6b; box-shadow: 0 0 0 3px rgba(44,
 <div id="app-content" style="display:none;">
 
 <header>
-  <img src="../tlc-logo.png" alt="Logo" class="header-logo" onerror="this.style.display='none'">
+  <img src="./tlc-logo.png" alt="Logo" class="header-logo" onerror="this.style.display='none'">
   <div class="header-text">
     <div class="church-name">Timothy Lutheran Church</div>
     <h1>Worship Slide Builder</h1>
@@ -602,7 +602,7 @@ window.addEventListener('beforeunload', function() {
 // ══════════════════════════════════════════════════════════════════
 async function loadCalendar() {
   try {
-    var r = await fetch('../lcms_calendar.json');
+    var r = await fetch('./lcms_calendar.json');
     var j = await r.json();
     lcmsCalendar = j.calendar || {};
   } catch(e) { console.warn('Could not load LCMS calendar:', e); }
