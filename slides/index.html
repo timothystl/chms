@@ -1,0 +1,1276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TLC Slide Builder – Timothy Lutheran Church</title>
+<link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="apple-touch-icon" href="../tlc-logo.png">
+<meta name="theme-color" content="#2c3e6b">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f2f3f7; color: #222; }
+
+header { background: #ffffff; color: #2c3e6b; padding: 14px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 2px solid #d8dce8; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+header .header-logo { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid #d0d7ec; }
+header .header-text h1 { font-size: 1.05rem; font-weight: 700; line-height: 1.2; color: #2c3e6b; }
+header .header-text .church-name { font-size: 0.75rem; color: #6b7a9f; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; font-weight: 600; }
+header .header-text p { font-size: 0.82rem; color: #8892b0; margin-top: 2px; }
+#header-user { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+#fb-user-display { font-size: 0.82rem; color: #27ae60; white-space: nowrap; }
+#sync-status { font-size: 0.78rem; color: #888; white-space: nowrap; }
+
+.tabs { display: flex; background: #1e2d52; flex-wrap: wrap; }
+.tab-btn { padding: 12px 24px; background: none; border: none; color: rgba(255,255,255,0.65); font-size: 0.9rem; cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.15s; white-space: nowrap; }
+.tab-btn.active { color: white; border-bottom-color: #f0b429; }
+.tab-btn:hover:not(.active) { color: white; background: rgba(255,255,255,0.07); }
+
+.tab-content { display: none; padding: 24px; max-width: 1400px; margin: 0 auto; }
+.tab-content.active { display: block; }
+
+.card { background: white; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); padding: 20px; margin-bottom: 20px; }
+.card h2 { font-size: 1.05rem; color: #2c3e6b; margin-bottom: 14px; border-bottom: 2px solid #eef0f5; padding-bottom: 8px; }
+.card h3 { font-size: 0.95rem; color: #2c3e6b; margin: 14px 0 8px; }
+
+label { display: block; font-size: 0.85rem; font-weight: 600; color: #444; margin-bottom: 4px; margin-top: 10px; }
+input[type="text"], input[type="date"], input[type="password"], input[type="email"], textarea { width: 100%; padding: 8px 10px; border: 1px solid #d0d4e0; border-radius: 10px; font-size: 0.9rem; outline: none; font-family: inherit; }
+input:focus, textarea:focus { border-color: #2c3e6b; box-shadow: 0 0 0 3px rgba(44,62,107,0.10); }
+textarea { resize: vertical; min-height: 80px; }
+select.form-select { width: 100%; padding: 7px 10px; border: 1px solid #d0d4e0; border-radius: 10px; font-size: 0.9rem; outline: none; font-family: inherit; }
+select.form-select:focus { border-color: #2c3e6b; box-shadow: 0 0 0 3px rgba(44,62,107,0.10); }
+
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 10px; border: none; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+.btn-primary { background: #2c3e6b; color: white; }
+.btn-primary:hover { background: #1e2d52; }
+.btn-success { background: #27ae60; color: white; }
+.btn-success:hover { background: #1e9150; }
+.btn-danger { background: #e74c3c; color: white; }
+.btn-danger:hover { background: #c0392b; }
+.btn-warning { background: #f39c12; color: white; }
+.btn-warning:hover { background: #d68910; }
+.btn-outline { background: white; border: 1.5px solid #2c3e6b; color: #2c3e6b; }
+.btn-outline:hover { background: #f0f2f8; }
+.btn-sm { padding: 5px 12px; font-size: 0.82rem; }
+.btn-xs { padding: 3px 8px; font-size: 0.78rem; border-radius: 7px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-icon { padding: 5px 8px; border-radius: 8px; }
+
+.alert { padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 0.88rem; }
+.alert-warning { background: #fff3cd; border: 1px solid #ffc107; color: #856404; }
+.alert-success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+.alert-danger  { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+.alert-info    { background: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460; }
+
+.empty-state { text-align: center; padding: 40px 20px; color: #888; }
+.empty-state .icon { font-size: 2.5rem; margin-bottom: 10px; }
+.empty-state p { font-size: 0.9rem; }
+
+/* ── Builder two-panel layout ────────────────────────────────── */
+.builder-layout { display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 900px) { .builder-layout { grid-template-columns: 1fr; } }
+
+.slide-list { display: flex; flex-direction: column; gap: 6px; min-height: 60px; }
+.slide-item {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid #e0e4f0; border-radius: 10px; padding: 8px 10px;
+  background: white; cursor: pointer; transition: all 0.12s; user-select: none;
+}
+.slide-item:hover { border-color: #2c3e6b; background: #f5f7ff; }
+.slide-item.selected { border-color: #2c3e6b; background: #eef1fb; box-shadow: 0 0 0 2px rgba(44,62,107,0.15); }
+.slide-item-type {
+  font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 2px 6px; border-radius: 6px; flex-shrink: 0; white-space: nowrap;
+}
+.slide-item-title { flex: 1; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333; }
+.slide-item-body { font-size: 0.75rem; color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slide-item-actions { display: flex; gap: 4px; flex-shrink: 0; opacity: 0; transition: opacity 0.12s; }
+.slide-item:hover .slide-item-actions { opacity: 1; }
+
+/* Slide type color badges */
+.type-title       { background: #e8eaf5; color: #2c3e6b; }
+.type-hymn        { background: #fef3cd; color: #856404; }
+.type-reading     { background: #d4edda; color: #155724; }
+.type-liturgy     { background: #d1ecf1; color: #0c5460; }
+.type-sermon      { background: #f0e6ff; color: #5b2d8e; }
+.type-prayer      { background: #fff0e6; color: #7a3800; }
+.type-announcement { background: #e6f4ff; color: #004080; }
+.type-text        { background: #f0f0f0; color: #555; }
+.type-blank       { background: #f8f8f8; color: #aaa; border: 1px dashed #ccc; }
+
+/* ── Slide editor panel ───────────────────────────────────────── */
+.editor-panel { display: flex; flex-direction: column; gap: 16px; }
+.slide-preview-card {
+  aspect-ratio: 16/9; border-radius: 14px; padding: 32px 40px;
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  text-align: center; position: relative; overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  min-height: 200px;
+}
+.slide-preview-card .sp-eyebrow {
+  font-size: clamp(0.6rem, 1.5vw, 0.85rem); font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.12em; margin-bottom: 0.5em; opacity: 0.75;
+}
+.slide-preview-card .sp-title {
+  font-size: clamp(1rem, 3vw, 2rem); font-weight: 700; line-height: 1.25; margin-bottom: 0.4em;
+}
+.slide-preview-card .sp-body {
+  font-size: clamp(0.75rem, 1.8vw, 1.1rem); line-height: 1.6; opacity: 0.88; white-space: pre-wrap;
+}
+.slide-preview-card .sp-logo {
+  position: absolute; bottom: 14px; right: 18px; width: 36px; height: 36px; border-radius: 50%; opacity: 0.4;
+}
+
+/* Background themes */
+.bg-navy  { background: #1a2744; color: white; }
+.bg-black { background: #111; color: white; }
+.bg-white { background: #fff; color: #1a2744; }
+.bg-gold  { background: #c8960c; color: white; }
+.bg-slate { background: #2d3748; color: white; }
+
+/* ── Services list tab ────────────────────────────────────────── */
+.services-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.service-card {
+  background: white; border-radius: 14px; padding: 18px 20px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.07); cursor: pointer;
+  border: 2px solid transparent; transition: all 0.15s;
+}
+.service-card:hover { border-color: #2c3e6b; box-shadow: 0 4px 16px rgba(0,0,0,0.10); }
+.service-card.active-card { border-color: #2c3e6b; background: #f5f7ff; }
+.sc-date { font-size: 0.78rem; color: #6b7a9f; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.sc-title { font-size: 1rem; font-weight: 700; color: #2c3e6b; margin: 4px 0; }
+.sc-meta { font-size: 0.8rem; color: #888; }
+.sc-actions { display: flex; gap: 8px; margin-top: 12px; }
+
+/* ── Add slide buttons ─────────────────────────────────────────── */
+.add-slide-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.add-slide-btn {
+  font-size: 0.78rem; font-weight: 600; padding: 5px 12px; border-radius: 8px; border: 1.5px solid #d0d4e0;
+  background: white; cursor: pointer; transition: all 0.12s; font-family: inherit;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.add-slide-btn:hover { border-color: #2c3e6b; background: #f0f2f8; color: #2c3e6b; }
+
+/* ── Lect card ────────────────────────────────────────────────── */
+.lect-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 600px) { .lect-grid { grid-template-columns: 1fr; } }
+.lect-item { background: #f0f2f8; border-radius: 10px; padding: 10px 14px; }
+.lect-label { font-size: 0.72rem; font-weight: 700; color: #6b7a9f; text-transform: uppercase; letter-spacing: 0.06em; }
+.lect-value { font-size: 0.88rem; color: #1e2d52; font-weight: 600; margin-top: 2px; }
+
+/* ── Settings ─────────────────────────────────────────────────── */
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
+
+/* ── Color swatch picker ──────────────────────────────────────── */
+.swatch-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.swatch { width: 32px; height: 32px; border-radius: 50%; cursor: pointer; border: 3px solid transparent; transition: all 0.1s; }
+.swatch.selected { border-color: #2c3e6b; transform: scale(1.15); }
+.swatch-navy  { background: #1a2744; }
+.swatch-black { background: #111; }
+.swatch-white { background: #fff; border: 2px solid #ccc; }
+.swatch-gold  { background: #c8960c; }
+.swatch-slate { background: #2d3748; }
+
+/* ── Toolbar row ──────────────────────────────────────────────── */
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.toolbar .sep { flex: 1; }
+
+/* ── Reorder controls ─────────────────────────────────────────── */
+.reorder-btn { padding: 2px 6px; font-size: 1rem; line-height: 1; background: none; border: 1px solid #dde; border-radius: 6px; cursor: pointer; color: #555; }
+.reorder-btn:hover { background: #f0f2f8; color: #2c3e6b; }
+
+/* ── Modal ────────────────────────────────────────────────────── */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal-box { background: white; border-radius: 16px; padding: 28px; width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 40px rgba(0,0,0,0.2); }
+.modal-box h2 { font-size: 1.1rem; color: #2c3e6b; margin-bottom: 16px; }
+.modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+/* ── Login screen ────────────────────────────────────────────── */
+#login-screen {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; align-items: center; justify-content: center; background: #f4f5f9;
+}
+.login-box {
+  background: white; border-radius: 16px; padding: 40px 36px;
+  box-shadow: 0 6px 32px rgba(0,0,0,0.12); width: 100%; max-width: 360px; text-align: center;
+}
+.login-box img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; margin-bottom: 16px; border: 3px solid #d0d7ec; }
+.login-box h1 { font-size: 1.2rem; color: #2c3e6b; font-weight: 700; margin-bottom: 4px; }
+.login-box p.sub { font-size: 0.83rem; color: #888; margin-bottom: 24px; }
+.login-box input { margin-bottom: 10px; }
+.login-divider { display: flex; align-items: center; gap: 10px; margin: 16px 0; color: #bbb; font-size: 0.8rem; }
+.login-divider::before, .login-divider::after { content: ''; flex: 1; height: 1px; background: #e0e0e0; }
+.google-btn {
+  width: 100%; padding: 9px 16px; border: 1.5px solid #d0d4e0; border-radius: 10px;
+  background: white; font-size: 0.9rem; font-weight: 600; color: #333; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit;
+  transition: all 0.15s;
+}
+.google-btn:hover { background: #f5f5f5; border-color: #aaa; }
+.login-links { display: flex; gap: 10px; justify-content: center; margin-top: 12px; }
+.login-links button { background: none; border: none; color: #2c3e6b; font-size: 0.82rem; cursor: pointer; text-decoration: underline; font-family: inherit; }
+#login-status { font-size: 0.85rem; margin-top: 10px; min-height: 20px; }
+
+/* ── Number badge ─────────────────────────────────────────────── */
+.count-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; border-radius: 10px; background: #e0e4f0; color: #2c3e6b; font-size: 0.72rem; font-weight: 700; padding: 0 5px; }
+</style>
+</head>
+<body>
+
+<!-- ── Login Screen ──────────────────────────────────────────────── -->
+<div id="login-screen">
+  <div class="login-box">
+    <img src="../tlc-logo.png" alt="TLC Logo" onerror="this.style.display='none'">
+    <h1>TLC Slide Builder</h1>
+    <p class="sub">Timothy Lutheran Church</p>
+    <button class="google-btn" onclick="fbSignInGoogle()">
+      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 6.294C4.672 4.169 6.656 3.58 9 3.58z"/></svg>
+      Sign in with Google
+    </button>
+    <div class="login-divider">or</div>
+    <input type="email" id="fb-email" placeholder="Email" autocomplete="username" style="margin-bottom:8px;">
+    <input type="password" id="fb-password" placeholder="Password" autocomplete="current-password" style="margin-bottom:12px;">
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-primary" style="flex:1" onclick="fbSignIn()">Sign In</button>
+      <button class="btn btn-outline" style="flex:1" onclick="fbRegister()">Register</button>
+    </div>
+    <div class="login-links">
+      <button onclick="fbForgotPassword()">Forgot password?</button>
+    </div>
+    <div id="login-status"></div>
+  </div>
+</div>
+
+<!-- ── App Content ──────────────────────────────────────────────── -->
+<div id="app-content" style="display:none;">
+
+<header>
+  <img src="../tlc-logo.png" alt="Logo" class="header-logo" onerror="this.style.display='none'">
+  <div class="header-text">
+    <div class="church-name">Timothy Lutheran Church</div>
+    <h1>Worship Slide Builder</h1>
+    <p>LCMS · PowerPoint Export</p>
+  </div>
+  <div id="header-user">
+    <span id="sync-status"></span>
+    <span id="fb-user-display"></span>
+    <button class="btn btn-outline btn-sm" onclick="fbSignOut()">Sign Out</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="builder" onclick="switchTab('builder')">&#9998; Builder</button>
+  <button class="tab-btn" data-tab="services" onclick="switchTab('services')">&#128193; Services</button>
+  <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">&#9881; Settings</button>
+</nav>
+
+<!-- ════════════════ TAB: BUILDER ════════════════ -->
+<div id="tab-builder" class="tab-content active">
+  <div id="builder-alert"></div>
+
+  <div class="toolbar">
+    <button class="btn btn-success" onclick="newService()">+ New Service</button>
+    <button class="btn btn-outline" onclick="saveCurrentService()" id="btn-save">&#128190; Save</button>
+    <span class="sep"></span>
+    <button class="btn btn-primary" onclick="exportPptx()" id="btn-export" disabled>&#8595; Export PPTX</button>
+  </div>
+
+  <div class="builder-layout">
+    <!-- Left panel: service info + slide list -->
+    <div>
+      <!-- Service Info -->
+      <div class="card" id="service-info-card" style="display:none">
+        <h2 id="service-info-title">Service</h2>
+        <label>Service Date</label>
+        <input type="date" id="svc-date" onchange="onDateChange()">
+        <label>Service Title</label>
+        <input type="text" id="svc-title" placeholder="e.g. Divine Service, Setting Three">
+        <label>Notes (internal)</label>
+        <input type="text" id="svc-notes" placeholder="Optional notes">
+
+        <div id="lect-card" style="display:none; margin-top:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <h3 style="margin:0">Lectionary</h3>
+            <button class="btn btn-sm btn-outline" onclick="addLectionarySlides()" title="Add reading slides from lectionary">+ Add Readings</button>
+          </div>
+          <div id="lect-sunday-name" style="font-size:0.95rem;font-weight:700;color:#2c3e6b;margin-bottom:8px;"></div>
+          <div class="lect-grid" id="lect-grid"></div>
+        </div>
+
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-sm btn-outline" onclick="addDefaultSlides()">&#128196; From Template</button>
+        </div>
+      </div>
+
+      <!-- Slide List -->
+      <div class="card" id="slide-list-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <h2 style="margin:0;border:none;padding:0">Slides <span class="count-badge" id="slide-count">0</span></h2>
+        </div>
+        <div class="slide-list" id="slide-list"></div>
+        <div style="margin-top:14px;">
+          <div style="font-size:0.8rem;font-weight:600;color:#888;margin-bottom:6px;">ADD SLIDE</div>
+          <div class="add-slide-grid">
+            <button class="add-slide-btn" onclick="addSlide('title')">&#9733; Title</button>
+            <button class="add-slide-btn" onclick="addSlide('hymn')">&#9835; Hymn</button>
+            <button class="add-slide-btn" onclick="addSlide('reading')">&#128218; Reading</button>
+            <button class="add-slide-btn" onclick="addSlide('liturgy')">&#9997; Liturgy</button>
+            <button class="add-slide-btn" onclick="addSlide('sermon')">&#127908; Sermon</button>
+            <button class="add-slide-btn" onclick="addSlide('prayer')">&#128591; Prayer</button>
+            <button class="add-slide-btn" onclick="addSlide('announcement')">&#128227; Announcement</button>
+            <button class="add-slide-btn" onclick="addSlide('text')">&#128196; Text</button>
+            <button class="add-slide-btn" onclick="addSlide('blank')">&#9633; Blank</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="no-service-state" class="card">
+        <div class="empty-state">
+          <div class="icon">&#128196;</div>
+          <p>No service open.<br>Click <strong>+ New Service</strong> or pick one from <strong>Services</strong>.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right panel: slide editor + preview -->
+    <div class="editor-panel" id="editor-panel">
+      <div id="no-slide-state" class="card">
+        <div class="empty-state">
+          <div class="icon">&#9998;</div>
+          <p>Select a slide from the list to edit it.</p>
+        </div>
+      </div>
+
+      <!-- Slide preview -->
+      <div class="card" id="preview-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <h2 style="margin:0;border:none;padding:0">Preview</h2>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span style="font-size:0.78rem;color:#888;">Background:</span>
+            <div class="swatch-group" id="bg-swatches" style="margin:0">
+              <div class="swatch swatch-navy selected" data-bg="navy" onclick="setBg('navy')" title="Navy"></div>
+              <div class="swatch swatch-black" data-bg="black" onclick="setBg('black')" title="Black"></div>
+              <div class="swatch swatch-white" data-bg="white" onclick="setBg('white')" title="White"></div>
+              <div class="swatch swatch-gold" data-bg="gold" onclick="setBg('gold')" title="Gold"></div>
+              <div class="swatch swatch-slate" data-bg="slate" onclick="setBg('slate')" title="Slate"></div>
+            </div>
+          </div>
+        </div>
+        <div class="slide-preview-card bg-navy" id="slide-preview">
+          <div class="sp-title">Preview</div>
+        </div>
+      </div>
+
+      <!-- Slide editor form -->
+      <div class="card" id="slide-editor-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <h2 style="margin:0;border:none;padding:0" id="editor-title">Edit Slide</h2>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-sm btn-outline" id="btn-move-up" onclick="moveSlide(-1)" title="Move Up">&#8593;</button>
+            <button class="btn btn-sm btn-outline" id="btn-move-dn" onclick="moveSlide(1)" title="Move Down">&#8595;</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteCurrentSlide()" title="Delete Slide">&#128465; Delete</button>
+          </div>
+        </div>
+        <div id="editor-form"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ TAB: SERVICES ════════════════ -->
+<div id="tab-services" class="tab-content">
+  <div class="toolbar">
+    <button class="btn btn-success" onclick="newService(); switchTab('builder')">+ New Service</button>
+  </div>
+  <div id="services-alert"></div>
+  <div class="services-grid" id="services-grid">
+    <div class="empty-state" style="grid-column:1/-1">
+      <div class="icon">&#128193;</div>
+      <p>No saved services yet.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ TAB: SETTINGS ════════════════ -->
+<div id="tab-settings" class="tab-content">
+  <div class="card">
+    <h2>Export Defaults</h2>
+    <label>Default Background</label>
+    <div class="swatch-group" id="default-bg-swatches">
+      <div class="swatch swatch-navy selected" data-bg="navy" onclick="setDefaultBg('navy')" title="Navy"></div>
+      <div class="swatch swatch-black" data-bg="black" onclick="setDefaultBg('black')" title="Black"></div>
+      <div class="swatch swatch-white" data-bg="white" onclick="setDefaultBg('white')" title="White"></div>
+      <div class="swatch swatch-gold" data-bg="gold" onclick="setDefaultBg('gold')" title="Gold"></div>
+      <div class="swatch swatch-slate" data-bg="slate" onclick="setDefaultBg('slate')" title="Slate"></div>
+    </div>
+    <label style="margin-top:14px;">Church Name (on slides)</label>
+    <input type="text" id="set-church-name" placeholder="Timothy Lutheran Church" value="Timothy Lutheran Church">
+    <label>Slide Font</label>
+    <select class="form-select" id="set-font">
+      <option value="Calibri">Calibri (default)</option>
+      <option value="Arial">Arial</option>
+      <option value="Times New Roman">Times New Roman</option>
+      <option value="Georgia">Georgia</option>
+      <option value="Garamond">Garamond</option>
+    </select>
+    <label>Include Church Logo on Slides</label>
+    <select class="form-select" id="set-logo">
+      <option value="yes">Yes</option>
+      <option value="no">No</option>
+    </select>
+    <div style="margin-top:16px;">
+      <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+      <span id="settings-status" style="font-size:0.85rem;color:#27ae60;margin-left:12px;"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Account</h2>
+    <p id="settings-user" style="font-size:0.88rem;color:#555;margin-bottom:12px;"></p>
+    <button class="btn btn-outline" onclick="fbSignOut()">Sign Out</button>
+  </div>
+
+  <div class="card">
+    <h2>About</h2>
+    <p style="font-size:0.88rem;color:#555;line-height:1.6;">
+      Worship Slide Builder for Timothy Lutheran Church (LCMS).<br>
+      Lectionary data covers 2025–2044 · PowerPoint export via PptxGenJS.<br>
+      Data synced to Firebase Realtime Database.
+    </p>
+  </div>
+</div>
+
+</div><!-- /#app-content -->
+
+<!-- ── PptxGenJS (UMD, loaded before module script) ──────────────── -->
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgenjs.bundle.js"></script>
+
+<script type="module">
+import { initializeApp }                        from 'https://www.gstatic.com/firebasejs/10.11.1/firebase-app.js';
+import { getAuth, onAuthStateChanged,
+         signInWithEmailAndPassword,
+         createUserWithEmailAndPassword,
+         signOut, sendPasswordResetEmail,
+         signInWithPopup, GoogleAuthProvider }   from 'https://www.gstatic.com/firebasejs/10.11.1/firebase-auth.js';
+import { getDatabase, ref as dbRef,
+         set as dbSet, get as dbGet }            from 'https://www.gstatic.com/firebasejs/10.11.1/firebase-database.js';
+
+// ══════════════════════════════════════════════════════════════════
+// FIREBASE INIT
+// ══════════════════════════════════════════════════════════════════
+var firebaseConfig = {
+  apiKey: "AIzaSyDYHJoLHArmcMDFZrXaMJ62RGUMgusJhD8",
+  authDomain: "tlc-worship-scheduler.firebaseapp.com",
+  databaseURL: "https://tlc-worship-scheduler-default-rtdb.firebaseio.com",
+  projectId: "tlc-worship-scheduler",
+  storageBucket: "tlc-worship-scheduler.firebasestorage.app",
+  messagingSenderId: "645397350092",
+  appId: "1:645397350092:web:d6c828f36f721ede3d2469"
+};
+var _fbApp = initializeApp(firebaseConfig);
+var fbAuth = getAuth(_fbApp);
+var fbDb   = getDatabase(_fbApp);
+
+// ══════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════
+var lcmsCalendar   = {};  // loaded on start
+var services       = {};  // { [id]: serviceObj }
+var currentSvcId   = null;
+var selectedSlideId = null;
+var currentBg      = 'navy';
+var _syncTimer     = null;
+var settings       = {};
+
+// ══════════════════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════════════════
+function makeId() {
+  return 'id_' + Math.random().toString(36).slice(2, 11) + '_' + Date.now();
+}
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtDate(dateStr) {
+  if (!dateStr) return '';
+  var d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+}
+function showAlert(elId, msg, type) {
+  var el = document.getElementById(elId);
+  if (!el) return;
+  el.innerHTML = msg ? '<div class="alert alert-' + type + '">' + esc(msg) + '</div>' : '';
+}
+function updateSyncStatus(msg, isErr) {
+  var el = document.getElementById('sync-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = isErr ? '#c00' : (msg ? '#27ae60' : '#888');
+}
+function updateLoginStatus(msg, isErr) {
+  var el = document.getElementById('login-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = isErr ? '#c00' : '#27ae60';
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SETTINGS
+// ══════════════════════════════════════════════════════════════════
+function getSettings() {
+  try { return JSON.parse(localStorage.getItem('sb_settings') || '{}'); } catch(e) { return {}; }
+}
+function saveSettingsLocal(s) {
+  localStorage.setItem('sb_settings', JSON.stringify(s));
+}
+window.saveSettings = function() {
+  settings = {
+    churchName: document.getElementById('set-church-name').value.trim() || 'Timothy Lutheran Church',
+    font: document.getElementById('set-font').value || 'Calibri',
+    logo: document.getElementById('set-logo').value || 'yes',
+    defaultBg: settings.defaultBg || 'navy'
+  };
+  saveSettingsLocal(settings);
+  document.getElementById('settings-status').textContent = 'Saved ✓';
+  setTimeout(function() { document.getElementById('settings-status').textContent = ''; }, 2000);
+  queuePush();
+};
+window.setDefaultBg = function(bg) {
+  settings.defaultBg = bg;
+  document.querySelectorAll('#default-bg-swatches .swatch').forEach(function(s) {
+    s.classList.toggle('selected', s.dataset.bg === bg);
+  });
+};
+function loadSettingsUI() {
+  var s = settings;
+  if (s.churchName) document.getElementById('set-church-name').value = s.churchName;
+  if (s.font) document.getElementById('set-font').value = s.font;
+  if (s.logo) document.getElementById('set-logo').value = s.logo;
+  if (s.defaultBg) {
+    document.querySelectorAll('#default-bg-swatches .swatch').forEach(function(sw) {
+      sw.classList.toggle('selected', sw.dataset.bg === s.defaultBg);
+    });
+  }
+  var su = document.getElementById('settings-user');
+  if (su && fbAuth.currentUser) su.textContent = 'Signed in as: ' + fbAuth.currentUser.email;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// FIREBASE SYNC
+// ══════════════════════════════════════════════════════════════════
+function queuePush() {
+  if (!fbAuth.currentUser) return;
+  clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(fbPush, 1800);
+  updateSyncStatus('Unsaved…');
+}
+
+async function fbPush() {
+  var user = fbAuth.currentUser;
+  if (!user) return;
+  updateSyncStatus('Saving…');
+  try {
+    await dbSet(dbRef(fbDb, 'sb_data/' + user.uid), {
+      sb_services: services,
+      sb_settings: settings
+    });
+    updateSyncStatus('Saved ✓ ' + new Date().toLocaleTimeString());
+  } catch(e) { updateSyncStatus('Save error: ' + e.message, true); }
+}
+
+async function fbPull() {
+  var user = fbAuth.currentUser;
+  if (!user) return;
+  updateSyncStatus('Loading…');
+  try {
+    var snap = await dbGet(dbRef(fbDb, 'sb_data/' + user.uid));
+    if (snap.exists()) {
+      var data = snap.val();
+      if (data.sb_services) services = data.sb_services;
+      if (data.sb_settings) settings = data.sb_settings;
+    }
+    updateSyncStatus('Loaded ✓ ' + new Date().toLocaleTimeString());
+  } catch(e) { updateSyncStatus('Load error: ' + e.message, true); }
+}
+
+window.addEventListener('beforeunload', function() {
+  if (_syncTimer && fbAuth.currentUser) { clearTimeout(_syncTimer); fbPush(); }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// LCMS CALENDAR
+// ══════════════════════════════════════════════════════════════════
+async function loadCalendar() {
+  try {
+    var r = await fetch('../lcms_calendar.json');
+    var j = await r.json();
+    lcmsCalendar = j.calendar || {};
+  } catch(e) { console.warn('Could not load LCMS calendar:', e); }
+}
+function lookupLect(dateStr) {
+  return lcmsCalendar[dateStr] || null;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// TABS
+// ══════════════════════════════════════════════════════════════════
+window.switchTab = function(name) {
+  document.querySelectorAll('.tab-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.tab === name);
+  });
+  document.querySelectorAll('.tab-content').forEach(function(c) {
+    c.classList.toggle('active', c.id === 'tab-' + name);
+  });
+  if (name === 'services') renderServicesGrid();
+  if (name === 'settings') loadSettingsUI();
+};
+
+// ══════════════════════════════════════════════════════════════════
+// CURRENT SERVICE HELPERS
+// ══════════════════════════════════════════════════════════════════
+function getSvc() { return currentSvcId ? services[currentSvcId] : null; }
+
+function showServiceUI(show) {
+  document.getElementById('service-info-card').style.display  = show ? '' : 'none';
+  document.getElementById('slide-list-card').style.display    = show ? '' : 'none';
+  document.getElementById('no-service-state').style.display   = show ? 'none' : '';
+  document.getElementById('btn-export').disabled              = !show;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SERVICE CRUD
+// ══════════════════════════════════════════════════════════════════
+window.newService = function() {
+  var id = makeId();
+  var today = new Date().toISOString().slice(0, 10);
+  services[id] = {
+    id: id,
+    date: today,
+    title: 'Divine Service',
+    notes: '',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    slides: []
+  };
+  currentSvcId   = id;
+  selectedSlideId = null;
+  renderBuilderUI();
+  showAlert('builder-alert', '', '');
+  queuePush();
+};
+
+window.openService = function(id) {
+  currentSvcId    = id;
+  selectedSlideId = null;
+  renderBuilderUI();
+  switchTab('builder');
+};
+
+window.deleteService = function(id, ev) {
+  ev.stopPropagation();
+  if (!confirm('Delete this service?')) return;
+  if (currentSvcId === id) { currentSvcId = null; selectedSlideId = null; }
+  delete services[id];
+  renderServicesGrid();
+  if (!currentSvcId) showServiceUI(false);
+  queuePush();
+};
+
+window.saveCurrentService = function() {
+  var svc = getSvc();
+  if (!svc) { showAlert('builder-alert', 'No service open.', 'warning'); return; }
+  svc.date   = document.getElementById('svc-date').value;
+  svc.title  = document.getElementById('svc-title').value.trim() || 'Divine Service';
+  svc.notes  = document.getElementById('svc-notes').value.trim();
+  svc.updatedAt = Date.now();
+  updateSyncStatus('Saving…');
+  fbPush();
+};
+
+// ══════════════════════════════════════════════════════════════════
+// DATE CHANGE → LECTIONARY LOOKUP
+// ══════════════════════════════════════════════════════════════════
+window.onDateChange = function() {
+  var dateStr = document.getElementById('svc-date').value;
+  var lect = lookupLect(dateStr);
+  var lectCard = document.getElementById('lect-card');
+  var lectGrid = document.getElementById('lect-grid');
+  var lectName = document.getElementById('lect-sunday-name');
+  if (lect) {
+    lectCard.style.display = '';
+    lectName.textContent = lect.sundayName + (lect.season ? ' — ' + lect.season : '') + (lect.series ? ' · Series ' + lect.series : '');
+    var items = [
+      { label: 'Psalm',   val: lect.psalm   || '—' },
+      { label: 'OT Reading', val: lect.ot   || '—' },
+      { label: 'Epistle', val: lect.epistle  || '—' },
+      { label: 'Gospel',  val: lect.gospel   || '—' }
+    ];
+    lectGrid.innerHTML = items.map(function(i) {
+      return '<div class="lect-item"><div class="lect-label">' + esc(i.label) + '</div><div class="lect-value">' + esc(i.val) + '</div></div>';
+    }).join('');
+  } else {
+    lectCard.style.display = 'none';
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════
+// SLIDE TYPE METADATA
+// ══════════════════════════════════════════════════════════════════
+var SLIDE_TYPES = {
+  title:        { label: 'Title',        badge: 'type-title',        eyebrow: '' },
+  hymn:         { label: 'Hymn',         badge: 'type-hymn',         eyebrow: 'Hymn' },
+  reading:      { label: 'Reading',      badge: 'type-reading',      eyebrow: 'Reading' },
+  liturgy:      { label: 'Liturgy',      badge: 'type-liturgy',      eyebrow: '' },
+  sermon:       { label: 'Sermon',       badge: 'type-sermon',       eyebrow: 'Sermon' },
+  prayer:       { label: 'Prayer',       badge: 'type-prayer',       eyebrow: 'Prayer' },
+  announcement: { label: 'Announcement', badge: 'type-announcement', eyebrow: 'Announcements' },
+  text:         { label: 'Text',         badge: 'type-text',         eyebrow: '' },
+  blank:        { label: 'Blank',        badge: 'type-blank',        eyebrow: '' }
+};
+
+function slideDisplayTitle(slide) {
+  if (!slide) return '(empty)';
+  var t = slide.title || '';
+  var b = slide.body  || '';
+  if (slide.type === 'hymn' && slide.hymnNum) t = 'LSB ' + slide.hymnNum + (t ? ' · ' + t : '');
+  return t || b.slice(0, 50) || ('(' + (SLIDE_TYPES[slide.type] || {label:'Slide'}).label + ')');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SLIDE CRUD
+// ══════════════════════════════════════════════════════════════════
+window.addSlide = function(type) {
+  var svc = getSvc();
+  if (!svc) { showAlert('builder-alert', 'Open or create a service first.', 'warning'); return; }
+  var slide = { id: makeId(), type: type, title: '', body: '', hymnNum: '', reference: '', readingType: '' };
+  if (type === 'title') {
+    slide.title = svc.title || 'Divine Service';
+    slide.body  = fmtDate(svc.date);
+  }
+  svc.slides.push(slide);
+  selectedSlideId = slide.id;
+  renderSlideList();
+  renderSlideEditor(slide);
+  queuePush();
+};
+
+window.addLectionarySlides = function() {
+  var svc = getSvc();
+  if (!svc) return;
+  var lect = lookupLect(document.getElementById('svc-date').value);
+  if (!lect) return;
+  var toAdd = [];
+  if (lect.ot)      toAdd.push({ type: 'reading', readingType: 'Old Testament', reference: lect.ot,      title: 'Old Testament Reading', body: '' });
+  if (lect.epistle) toAdd.push({ type: 'reading', readingType: 'Epistle',       reference: lect.epistle, title: 'Epistle', body: '' });
+  if (lect.gospel)  toAdd.push({ type: 'reading', readingType: 'Holy Gospel',   reference: lect.gospel,  title: 'Holy Gospel', body: '' });
+  toAdd.forEach(function(s) {
+    s.id = makeId();
+    svc.slides.push(s);
+  });
+  renderSlideList();
+  if (toAdd.length) { selectedSlideId = toAdd[toAdd.length - 1].id; renderSlideEditor(getSvc().slides.find(function(s){ return s.id === selectedSlideId; })); }
+  queuePush();
+};
+
+window.addDefaultSlides = function() {
+  var svc = getSvc();
+  if (!svc) return;
+  if (svc.slides.length && !confirm('This will add template slides to the current list. Continue?')) return;
+  var lect = lookupLect(document.getElementById('svc-date').value);
+  var defaults = [
+    { type:'title',   title: svc.title || 'Divine Service', body: fmtDate(svc.date) },
+    { type:'hymn',    title: 'Opening Hymn',    hymnNum: '', body: '' },
+    { type:'liturgy', title: 'Confession & Absolution', body: '' },
+    { type:'liturgy', title: 'Kyrie & Gloria',  body: '' },
+    { type:'reading', readingType: 'Old Testament', reference: lect ? lect.ot : '', title: 'Old Testament Reading', body: '' },
+    { type:'reading', readingType: 'Epistle',    reference: lect ? lect.epistle : '', title: 'Epistle', body: '' },
+    { type:'reading', readingType: 'Holy Gospel', reference: lect ? lect.gospel : '', title: 'Holy Gospel', body: '' },
+    { type:'sermon',  title: '', body: lect ? (lect.gospel || '') : '' },
+    { type:'hymn',    title: 'Hymn of the Day', hymnNum: '', body: '' },
+    { type:'liturgy', title: 'Nicene Creed',    body: '' },
+    { type:'prayer',  title: 'Prayers of the Church', body: '' },
+    { type:'liturgy', title: 'Distribution',    body: '' },
+    { type:'liturgy', title: 'Post-Communion',  body: '' },
+    { type:'liturgy', title: 'Benediction',     body: '' },
+    { type:'hymn',    title: 'Closing Hymn',    hymnNum: '', body: '' }
+  ];
+  defaults.forEach(function(s) {
+    s.id = makeId();
+    if (!s.reference) s.reference = '';
+    if (!s.hymnNum)   s.hymnNum   = '';
+    if (!s.readingType) s.readingType = '';
+    svc.slides.push(s);
+  });
+  renderSlideList();
+  queuePush();
+};
+
+window.selectSlide = function(id) {
+  selectedSlideId = id;
+  var svc = getSvc();
+  var slide = svc && svc.slides.find(function(s){ return s.id === id; });
+  document.querySelectorAll('.slide-item').forEach(function(el) {
+    el.classList.toggle('selected', el.dataset.id === id);
+  });
+  renderSlideEditor(slide);
+};
+
+window.moveSlide = function(dir) {
+  var svc = getSvc();
+  if (!svc || !selectedSlideId) return;
+  var idx = svc.slides.findIndex(function(s){ return s.id === selectedSlideId; });
+  var newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= svc.slides.length) return;
+  var tmp = svc.slides[idx];
+  svc.slides[idx] = svc.slides[newIdx];
+  svc.slides[newIdx] = tmp;
+  renderSlideList();
+  document.querySelectorAll('.slide-item').forEach(function(el) {
+    el.classList.toggle('selected', el.dataset.id === selectedSlideId);
+  });
+  queuePush();
+};
+
+window.deleteCurrentSlide = function() {
+  var svc = getSvc();
+  if (!svc || !selectedSlideId) return;
+  if (!confirm('Delete this slide?')) return;
+  svc.slides = svc.slides.filter(function(s){ return s.id !== selectedSlideId; });
+  selectedSlideId = null;
+  renderSlideList();
+  document.getElementById('preview-card').style.display = 'none';
+  document.getElementById('slide-editor-card').style.display = 'none';
+  document.getElementById('no-slide-state').style.display = '';
+  queuePush();
+};
+
+// Save current editor form values back to the slide object
+function flushEditor() {
+  var svc = getSvc();
+  if (!svc || !selectedSlideId) return;
+  var slide = svc.slides.find(function(s){ return s.id === selectedSlideId; });
+  if (!slide) return;
+  var fields = ['title','body','hymnNum','reference','readingType'];
+  fields.forEach(function(f) {
+    var el = document.getElementById('ed-' + f);
+    if (el) slide[f] = el.value;
+  });
+  // update slide list label
+  var listItem = document.querySelector('.slide-item[data-id="' + slide.id + '"] .slide-item-title');
+  if (listItem) listItem.textContent = slideDisplayTitle(slide);
+  renderSlidePreview(slide);
+  queuePush();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// RENDER: BUILDER UI
+// ══════════════════════════════════════════════════════════════════
+function renderBuilderUI() {
+  var svc = getSvc();
+  if (!svc) { showServiceUI(false); return; }
+  showServiceUI(true);
+  document.getElementById('service-info-title').textContent = svc.title || 'Service';
+  document.getElementById('svc-date').value  = svc.date || '';
+  document.getElementById('svc-title').value = svc.title || '';
+  document.getElementById('svc-notes').value = svc.notes || '';
+  onDateChange();
+  renderSlideList();
+  // editor state
+  if (selectedSlideId) {
+    var slide = svc.slides.find(function(s){ return s.id === selectedSlideId; });
+    if (slide) renderSlideEditor(slide);
+  } else {
+    document.getElementById('no-slide-state').style.display = '';
+    document.getElementById('preview-card').style.display = 'none';
+    document.getElementById('slide-editor-card').style.display = 'none';
+  }
+}
+
+function renderSlideList() {
+  var svc = getSvc();
+  var list = document.getElementById('slide-list');
+  var countBadge = document.getElementById('slide-count');
+  if (!svc) { list.innerHTML = ''; countBadge.textContent = '0'; return; }
+  countBadge.textContent = svc.slides.length;
+  if (!svc.slides.length) {
+    list.innerHTML = '<div class="empty-state" style="padding:20px;"><p>No slides yet.<br>Add slides below.</p></div>';
+    return;
+  }
+  list.innerHTML = svc.slides.map(function(s, i) {
+    var meta = SLIDE_TYPES[s.type] || { label: s.type, badge: 'type-text' };
+    var isSelected = s.id === selectedSlideId;
+    return '<div class="slide-item' + (isSelected ? ' selected' : '') + '" data-id="' + esc(s.id) + '" onclick="selectSlide(\'' + esc(s.id) + '\')">'
+      + '<span class="slide-item-type ' + meta.badge + '">' + esc(meta.label) + '</span>'
+      + '<span class="slide-item-title">' + esc(slideDisplayTitle(s)) + '</span>'
+      + '<div class="slide-item-actions" onclick="event.stopPropagation()">'
+      + '<button class="reorder-btn" onclick="moveSlideById(\'' + esc(s.id) + '\',-1)" title="Up">&#8593;</button>'
+      + '<button class="reorder-btn" onclick="moveSlideById(\'' + esc(s.id) + '\',1)" title="Down">&#8595;</button>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+window.moveSlideById = function(id, dir) {
+  var svc = getSvc();
+  if (!svc) return;
+  var idx = svc.slides.findIndex(function(s){ return s.id === id; });
+  var ni = idx + dir;
+  if (ni < 0 || ni >= svc.slides.length) return;
+  var tmp = svc.slides[idx]; svc.slides[idx] = svc.slides[ni]; svc.slides[ni] = tmp;
+  if (selectedSlideId === id) selectedSlideId = id;
+  renderSlideList();
+  queuePush();
+};
+
+// ══════════════════════════════════════════════════════════════════
+// RENDER: SLIDE EDITOR FORM
+// ══════════════════════════════════════════════════════════════════
+function renderSlideEditor(slide) {
+  if (!slide) return;
+  document.getElementById('no-slide-state').style.display = 'none';
+  document.getElementById('preview-card').style.display = '';
+  document.getElementById('slide-editor-card').style.display = '';
+  var meta = SLIDE_TYPES[slide.type] || { label: slide.type };
+  document.getElementById('editor-title').textContent = 'Edit ' + meta.label + ' Slide';
+  var form = document.getElementById('editor-form');
+
+  var html = '';
+  // Type selector
+  html += '<label>Slide Type</label>'
+    + '<select class="form-select" id="ed-type" onchange="changeSlideType(this.value)">';
+  Object.keys(SLIDE_TYPES).forEach(function(t) {
+    html += '<option value="' + t + '"' + (t === slide.type ? ' selected' : '') + '>' + SLIDE_TYPES[t].label + '</option>';
+  });
+  html += '</select>';
+
+  if (slide.type === 'hymn') {
+    html += '<label>LSB Hymn Number</label><input type="text" id="ed-hymnNum" placeholder="e.g. 556" value="' + esc(slide.hymnNum||'') + '" oninput="flushEditor()">';
+  } else {
+    html += '<input type="hidden" id="ed-hymnNum" value="">';
+  }
+
+  if (slide.type === 'reading') {
+    html += '<label>Reading Type</label>'
+      + '<select class="form-select" id="ed-readingType" onchange="flushEditor()">'
+      + ['Old Testament','Epistle','Holy Gospel','Psalm','Verse'].map(function(rt) {
+          return '<option' + (slide.readingType===rt?' selected':'') + '>' + rt + '</option>';
+        }).join('')
+      + '</select>'
+      + '<label>Scripture Reference</label><input type="text" id="ed-reference" placeholder="e.g. John 3:16" value="' + esc(slide.reference||'') + '" oninput="flushEditor()">';
+  } else {
+    html += '<input type="hidden" id="ed-readingType" value=""><input type="hidden" id="ed-reference" value="">';
+  }
+
+  if (slide.type !== 'blank') {
+    html += '<label>Title / Heading</label><input type="text" id="ed-title" placeholder="Slide heading" value="' + esc(slide.title||'') + '" oninput="flushEditor()">';
+    html += '<label>Body Text</label><textarea id="ed-body" placeholder="Main slide text…" oninput="flushEditor()" rows="5">' + esc(slide.body||'') + '</textarea>';
+  } else {
+    html += '<input type="hidden" id="ed-title" value=""><textarea id="ed-body" style="display:none"></textarea>';
+    html += '<p style="font-size:0.85rem;color:#888;margin-top:12px;">Blank/separator slide with no text.</p>';
+  }
+
+  form.innerHTML = html;
+  renderSlidePreview(slide);
+}
+
+window.changeSlideType = function(newType) {
+  var svc = getSvc();
+  if (!svc || !selectedSlideId) return;
+  var slide = svc.slides.find(function(s){ return s.id === selectedSlideId; });
+  if (!slide) return;
+  flushEditor();
+  slide.type = newType;
+  renderSlideList();
+  renderSlideEditor(slide);
+  queuePush();
+};
+
+window.flushEditor = flushEditor;
+
+// ══════════════════════════════════════════════════════════════════
+// RENDER: SLIDE PREVIEW
+// ══════════════════════════════════════════════════════════════════
+window.setBg = function(bg) {
+  currentBg = bg;
+  document.querySelectorAll('#bg-swatches .swatch').forEach(function(s) {
+    s.classList.toggle('selected', s.dataset.bg === bg);
+  });
+  var svc = getSvc();
+  if (svc && selectedSlideId) {
+    var slide = svc.slides.find(function(s){ return s.id === selectedSlideId; });
+    if (slide) renderSlidePreview(slide);
+  }
+};
+
+function renderSlidePreview(slide) {
+  var preview = document.getElementById('slide-preview');
+  if (!slide) return;
+  var bg = currentBg || 'navy';
+  preview.className = 'slide-preview-card bg-' + bg;
+
+  var meta = SLIDE_TYPES[slide.type] || {};
+  var eyebrow = '';
+  if (slide.type === 'hymn' && slide.hymnNum) eyebrow = 'LSB ' + slide.hymnNum;
+  else if (slide.type === 'reading' && slide.readingType) eyebrow = slide.readingType;
+  else eyebrow = meta.eyebrow || '';
+
+  var mainTitle = slide.title || '';
+  if (slide.type === 'reading' && slide.reference && !mainTitle) mainTitle = slide.reference;
+
+  var body = slide.body || '';
+  if (slide.type === 'reading' && slide.reference) body = slide.reference + (body ? '\n' + body : '');
+
+  var inner = '';
+  if (eyebrow) inner += '<div class="sp-eyebrow">' + esc(eyebrow) + '</div>';
+  if (mainTitle) inner += '<div class="sp-title">' + esc(mainTitle) + '</div>';
+  if (body && slide.type !== 'blank') inner += '<div class="sp-body">' + esc(body) + '</div>';
+  if (!inner) inner = '<div class="sp-title" style="opacity:0.3">(empty slide)</div>';
+  preview.innerHTML = inner;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// RENDER: SERVICES GRID
+// ══════════════════════════════════════════════════════════════════
+function renderServicesGrid() {
+  var grid = document.getElementById('services-grid');
+  var keys = Object.keys(services).sort(function(a, b) {
+    return (services[b].updatedAt || 0) - (services[a].updatedAt || 0);
+  });
+  if (!keys.length) {
+    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon">&#128193;</div><p>No saved services yet.</p></div>';
+    return;
+  }
+  grid.innerHTML = keys.map(function(id) {
+    var s = services[id];
+    var isActive = id === currentSvcId;
+    return '<div class="service-card' + (isActive ? ' active-card' : '') + '" onclick="openService(\'' + esc(id) + '\')">'
+      + '<div class="sc-date">' + esc(fmtDate(s.date) || s.date || '—') + '</div>'
+      + '<div class="sc-title">' + esc(s.title || 'Untitled') + '</div>'
+      + '<div class="sc-meta">' + (s.slides ? s.slides.length : 0) + ' slides' + (s.notes ? ' · ' + esc(s.notes) : '') + '</div>'
+      + '<div class="sc-actions">'
+      + '<button class="btn btn-sm btn-primary" onclick="event.stopPropagation();openService(\'' + esc(id) + '\');switchTab(\'builder\')">Open</button>'
+      + '<button class="btn btn-sm btn-danger" onclick="deleteService(\'' + esc(id) + '\',event)">Delete</button>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PPTX EXPORT
+// ══════════════════════════════════════════════════════════════════
+var BG_COLORS = {
+  navy:  '1A2744',
+  black: '111111',
+  white: 'FFFFFF',
+  gold:  'C8960C',
+  slate: '2D3748'
+};
+var TEXT_COLORS = {
+  navy:  'FFFFFF',
+  black: 'FFFFFF',
+  white: '1A2744',
+  gold:  'FFFFFF',
+  slate: 'FFFFFF'
+};
+
+window.exportPptx = function() {
+  var svc = getSvc();
+  if (!svc) { showAlert('builder-alert', 'No service open.', 'warning'); return; }
+  if (!svc.slides || !svc.slides.length) { showAlert('builder-alert', 'No slides to export.', 'warning'); return; }
+
+  var PptxGenJS = window.PptxGenJS;
+  if (!PptxGenJS) { showAlert('builder-alert', 'PptxGenJS not loaded. Check your internet connection.', 'danger'); return; }
+
+  var prs = new PptxGenJS();
+  prs.layout = 'LAYOUT_WIDE'; // 13.33" x 7.5"
+  prs.title  = svc.title || 'Worship Service';
+  prs.author = (settings.churchName || 'Timothy Lutheran Church');
+
+  var bgKey   = settings.defaultBg || 'navy';
+  var bgHex   = BG_COLORS[bgKey]  || '1A2744';
+  var txtHex  = TEXT_COLORS[bgKey] || 'FFFFFF';
+  var font    = settings.font || 'Calibri';
+  var church  = settings.churchName || 'Timothy Lutheran Church';
+  var W = 13.33, H = 7.5;
+
+  svc.slides.forEach(function(slide) {
+    var pSlide = prs.addSlide();
+    pSlide.background = { color: bgHex };
+
+    if (slide.type === 'blank') return; // empty slide
+
+    var meta = SLIDE_TYPES[slide.type] || {};
+    var eyebrow = '';
+    if (slide.type === 'hymn' && slide.hymnNum) eyebrow = 'LSB ' + slide.hymnNum;
+    else if (slide.type === 'reading' && slide.readingType) eyebrow = slide.readingType;
+    else eyebrow = meta.eyebrow || '';
+
+    var mainTitle = slide.title || '';
+    var refLine   = (slide.type === 'reading' && slide.reference) ? slide.reference : '';
+    var body      = slide.body || '';
+
+    var yStart = eyebrow ? 1.0 : 1.6;
+    var centerY = H / 2;
+
+    // Eyebrow line
+    if (eyebrow) {
+      pSlide.addText(eyebrow.toUpperCase(), {
+        x: 0.5, y: 0.8, w: W - 1.0, h: 0.45,
+        fontFace: font, fontSize: 14, bold: true, color: txtHex,
+        align: 'center', charSpacing: 3,
+        transparency: 25
+      });
+    }
+
+    // Title
+    if (mainTitle) {
+      var titleSize = mainTitle.length > 60 ? 28 : mainTitle.length > 40 ? 32 : 40;
+      if (slide.type === 'title') titleSize = mainTitle.length > 30 ? 36 : 48;
+      pSlide.addText(mainTitle, {
+        x: 0.5, y: eyebrow ? 1.4 : 2.0, w: W - 1.0, h: 2.0,
+        fontFace: font, fontSize: titleSize, bold: true, color: txtHex,
+        align: 'center', valign: 'middle', wrap: true
+      });
+    }
+
+    // Reference line (readings)
+    if (refLine) {
+      pSlide.addText(refLine, {
+        x: 0.5, y: mainTitle ? 3.6 : 2.8, w: W - 1.0, h: 0.5,
+        fontFace: font, fontSize: 20, color: txtHex,
+        align: 'center', transparency: 20
+      });
+    }
+
+    // Body text
+    if (body) {
+      var bodyY = (mainTitle || refLine) ? 4.2 : 1.8;
+      var bodyH = H - bodyY - 0.6;
+      var bodySize = body.length > 300 ? 14 : body.length > 150 ? 16 : 20;
+      pSlide.addText(body, {
+        x: 0.7, y: bodyY, w: W - 1.4, h: bodyH,
+        fontFace: font, fontSize: bodySize, color: txtHex,
+        align: 'center', valign: 'top', wrap: true, lineSpacingMultiple: 1.4,
+        transparency: 10
+      });
+    }
+
+    // Footer: church name
+    pSlide.addText(church, {
+      x: 0.5, y: H - 0.55, w: W - 1.0, h: 0.4,
+      fontFace: font, fontSize: 10, color: txtHex,
+      align: 'center', transparency: 55
+    });
+  });
+
+  // Slide number on each slide (except first)
+  // (PptxGenJS handles this via slide number feature)
+
+  var filename = (svc.date ? svc.date + '-' : '') + (svc.title || 'service').replace(/\s+/g, '-').toLowerCase() + '.pptx';
+  prs.writeFile({ fileName: filename })
+    .then(function() { showAlert('builder-alert', 'PPTX exported: ' + filename, 'success'); })
+    .catch(function(e) { showAlert('builder-alert', 'Export error: ' + e.message, 'danger'); });
+};
+
+// ══════════════════════════════════════════════════════════════════
+// AUTH FUNCTIONS (exposed to window for onclick handlers)
+// ══════════════════════════════════════════════════════════════════
+window.fbSignIn = function() {
+  var email = document.getElementById('fb-email').value.trim();
+  var pass  = document.getElementById('fb-password').value;
+  if (!email || !pass) { updateLoginStatus('Enter email and password.', true); return; }
+  updateLoginStatus('Signing in…');
+  signInWithEmailAndPassword(fbAuth, email, pass)
+    .catch(function(e) { updateLoginStatus('Sign-in failed: ' + e.message, true); });
+};
+
+window.fbRegister = function() {
+  var email = document.getElementById('fb-email').value.trim();
+  var pass  = document.getElementById('fb-password').value;
+  if (!email || !pass) { updateLoginStatus('Enter email and password.', true); return; }
+  updateLoginStatus('Creating account…');
+  createUserWithEmailAndPassword(fbAuth, email, pass)
+    .catch(function(e) { updateLoginStatus('Account creation failed: ' + e.message, true); });
+};
+
+window.fbSignOut = function() {
+  if (_syncTimer) { clearTimeout(_syncTimer); _syncTimer = null; }
+  fbPush().finally(function() { signOut(fbAuth); });
+};
+
+window.fbSignInGoogle = function() {
+  updateLoginStatus('Opening Google sign-in…');
+  var provider = new GoogleAuthProvider();
+  signInWithPopup(fbAuth, provider)
+    .catch(function(e) {
+      if (e.code === 'auth/popup-blocked') {
+        updateLoginStatus('Popup blocked. Use email/password instead.', true);
+      } else if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') {
+        updateLoginStatus('');
+      } else {
+        updateLoginStatus('Google sign-in unavailable. Use email/password instead.', true);
+      }
+    });
+};
+
+window.fbForgotPassword = function() {
+  var email = document.getElementById('fb-email').value.trim();
+  if (!email) { updateLoginStatus('Enter your email above first.', true); return; }
+  updateLoginStatus('Sending reset email…');
+  sendPasswordResetEmail(fbAuth, email)
+    .then(function() { updateLoginStatus('Reset email sent to ' + email + '. Check your inbox.'); })
+    .catch(function(e) { updateLoginStatus('Error: ' + e.message, true); });
+};
+
+// ══════════════════════════════════════════════════════════════════
+// AUTH STATE → BOOT SEQUENCE
+// ══════════════════════════════════════════════════════════════════
+onAuthStateChanged(fbAuth, function(user) {
+  var loginScreen = document.getElementById('login-screen');
+  var appContent  = document.getElementById('app-content');
+  var userDisplay = document.getElementById('fb-user-display');
+
+  if (user) {
+    if (loginScreen) loginScreen.style.display = 'none';
+    if (userDisplay) userDisplay.textContent   = user.email;
+
+    if (appContent) {
+      appContent.style.display = 'block';
+      var overlay = document.createElement('div');
+      overlay.id = 'cloud-load-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:8888;background:#f4f5f9;'
+        + 'display:flex;align-items:center;justify-content:center;font-size:1rem;color:#2c3e6b;';
+      overlay.textContent = 'Loading…';
+      document.body.appendChild(overlay);
+    }
+
+    Promise.all([loadCalendar(), fbPull()]).then(function() {
+      settings = Object.assign({ churchName: 'Timothy Lutheran Church', font: 'Calibri', logo: 'yes', defaultBg: 'navy' }, getSettings(), settings);
+      saveSettingsLocal(settings);
+      // Load most-recent service if any
+      var keys = Object.keys(services).sort(function(a,b){ return (services[b].updatedAt||0)-(services[a].updatedAt||0); });
+      if (keys.length && !currentSvcId) { currentSvcId = keys[0]; }
+      if (currentSvcId && services[currentSvcId]) renderBuilderUI();
+      var overlay = document.getElementById('cloud-load-overlay');
+      if (overlay) overlay.remove();
+    }).catch(function() {
+      var overlay = document.getElementById('cloud-load-overlay');
+      if (overlay) overlay.remove();
+    });
+
+    var su = document.getElementById('settings-user');
+    if (su) su.textContent = 'Signed in as: ' + user.email;
+  } else {
+    if (loginScreen) loginScreen.style.display = 'flex';
+    if (appContent)  appContent.style.display  = 'none';
+    if (userDisplay) userDisplay.textContent   = '';
+    services    = {};
+    currentSvcId = null;
+    selectedSlideId = null;
+    updateSyncStatus('');
+    updateLoginStatus('');
+  }
+});
+</script>
+</body>
+</html>
