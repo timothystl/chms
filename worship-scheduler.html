@@ -4,79 +4,114 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Timothy Lutheran Church – Worship Schedule Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,700;1,400&family=Source+Sans+3:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 <style>
+:root {
+  --steel-anchor: #0A3C5C;
+  --deep-steel:   #2A5470;
+  --mid-steel:    #3D627C;
+  --sky-steel:    #5C8FA8;
+  --ice-blue:     #C4DDE8;
+  --blue-mist:    #EDF5F8;
+  --amber:        #D4922A;
+  --deep-amber:   #C07D1E;
+  --honey:        #E8B86D;
+  --pale-gold:    #F5E0B0;
+  --sage:         #6B8F71;
+  --soft-sage:    #9AB89E;
+  --pale-sage:    #CDE0CF;
+  --warm-white:   #FAF7F0;
+  --linen:        #F2EDE2;
+  --white:        #FFFFFF;
+  --border:       #E8E0D0;
+  --charcoal:     #3D3530;
+  --warm-gray:    #7A6E60;
+  --font-head: 'Lora', Georgia, serif;
+  --font-body: 'Source Sans 3', Arial, sans-serif;
+  /* Semantic text colors for status backgrounds */
+  --on-pale-gold:  #5a3a00;
+  --on-pale-sage:  #1a3d1f;
+  --on-error-bg:   #7a1f1f;
+  --error-bg:      #FAEAEA;
+  --error-border:  #D4726A;
+  --danger-btn:    #B85C3A;
+  --danger-hover:  #A04A2A;
+}
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #222; }
+body { font-family: var(--font-body); background: var(--warm-white); color: var(--charcoal); }
 
-header { background: #ffffff; color: #2c3e6b; padding: 14px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 3px solid #2c3e6b; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-header .header-logo { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid #d0d7ec; }
-header .header-logo-placeholder { width: 52px; height: 52px; border-radius: 50%; background: #eef0f8; border: 2px solid #d0d7ec; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
-header .header-text h1 { font-size: 1.05rem; font-weight: 700; line-height: 1.2; color: #2c3e6b; }
-header .header-text .church-name { font-size: 0.75rem; color: #6b7a9f; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; font-weight: 600; }
-header .header-text p { font-size: 0.82rem; color: #8892b0; margin-top: 2px; }
+header { background: var(--white); color: var(--steel-anchor); padding: 14px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 3px solid var(--amber); box-shadow: 0 2px 12px rgba(10,60,92,0.07); }
+header .header-logo { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid var(--ice-blue); }
+header .header-logo-placeholder { width: 52px; height: 52px; border-radius: 50%; background: var(--blue-mist); border: 2px solid var(--ice-blue); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+header .header-text h1 { font-size: 1.05rem; font-weight: 700; line-height: 1.2; color: var(--steel-anchor); font-family: var(--font-head); }
+header .header-text .church-name { font-size: 0.75rem; color: var(--amber); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; font-weight: 700; }
+header .header-text p { font-size: 0.82rem; color: var(--warm-gray); margin-top: 2px; }
 
-.tabs { display: flex; background: #1e2d52; flex-wrap: wrap; }
-.tab-btn { padding: 12px 24px; background: none; border: none; color: rgba(255,255,255,0.65); font-size: 0.9rem; cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.15s; white-space: nowrap; }
-.tab-btn.active { color: white; border-bottom-color: #f0b429; }
-.tab-btn:hover:not(.active) { color: white; background: rgba(255,255,255,0.07); }
+.tabs { display: flex; background: var(--steel-anchor); flex-wrap: wrap; border-bottom: 3px solid var(--amber); }
+.tab-btn { padding: 12px 24px; background: none; border: none; color: rgba(255,255,255,0.7); font-size: 0.88rem; font-weight: 700; font-family: var(--font-body); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -3px; transition: all 0.15s; white-space: nowrap; }
+.tab-btn.active { color: white; border-bottom-color: var(--amber); background: rgba(255,255,255,0.1); }
+.tab-btn:hover:not(.active) { color: white; background: rgba(255,255,255,0.1); }
 
-.tab-content { display: none; padding: 24px; max-width: 1400px; margin: 0 auto; }
+.tab-content { display: none; padding: 24px; max-width: 1100px; margin: 0 auto; }
 .tab-content.active { display: block; }
 
-.card { background: white; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 20px; }
-.card h2 { font-size: 1.05rem; color: #2c3e6b; margin-bottom: 14px; border-bottom: 2px solid #eef0f5; padding-bottom: 8px; }
-.card h3 { font-size: 0.95rem; color: #2c3e6b; margin: 16px 0 10px; }
+.card { background: var(--white); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 2px 12px rgba(10,60,92,0.07); padding: 20px; margin-bottom: 20px; transition: box-shadow 0.2s; }
+.card:hover { box-shadow: 0 6px 32px rgba(10,60,92,0.13); }
+.card h2 { font-size: 1.05rem; color: var(--steel-anchor); font-family: var(--font-head); margin-bottom: 14px; border-bottom: 2px solid var(--border); padding-bottom: 8px; }
+.card h3 { font-size: 0.95rem; color: var(--steel-anchor); font-family: var(--font-head); margin: 16px 0 10px; }
 
-label { display: block; font-size: 0.85rem; font-weight: 600; color: #444; margin-bottom: 4px; margin-top: 10px; }
-input[type="text"], input[type="date"], input[type="password"] { width: 100%; padding: 8px 10px; border: 1px solid #d0d4e0; border-radius: 6px; font-size: 0.9rem; outline: none; }
-input[type="text"]:focus, input[type="date"]:focus, input[type="password"]:focus { border-color: #2c3e6b; box-shadow: 0 0 0 3px rgba(44,62,107,0.12); }
-select.form-select { width: 100%; padding: 7px 10px; border: 1px solid #d0d4e0; border-radius: 6px; font-size: 0.9rem; outline: none; }
+label { display: block; font-size: 0.82rem; font-weight: 700; color: var(--warm-gray); margin-bottom: 4px; margin-top: 10px; font-family: var(--font-body); letter-spacing: 0.04em; }
+input[type="text"], input[type="date"], input[type="password"] { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; font-family: var(--font-body); color: var(--charcoal); background: var(--white); outline: none; }
+input[type="text"]:focus, input[type="date"]:focus, input[type="password"]:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(212,146,42,0.15); }
+select.form-select { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; font-family: var(--font-body); color: var(--charcoal); background: var(--white); outline: none; }
 
 .checkbox-group { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.checkbox-group label { display: flex; align-items: center; gap: 5px; font-weight: normal; font-size: 0.85rem; cursor: pointer; background: #f5f6fa; border: 1px solid #dde; border-radius: 5px; padding: 4px 9px; margin: 0; transition: all 0.1s; user-select: none; }
-.checkbox-group label:hover { background: #e8eaf5; }
-.checkbox-group label.checked { background: #2c3e6b; color: white; border-color: #2c3e6b; }
+.checkbox-group label { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 0.85rem; letter-spacing: 0; text-transform: none; cursor: pointer; background: var(--linen); border: 1px solid var(--border); border-radius: 8px; padding: 4px 9px; margin: 0; transition: all 0.1s; user-select: none; color: var(--charcoal); }
+.checkbox-group label:hover { background: var(--blue-mist); }
+.checkbox-group label.checked { background: var(--steel-anchor); color: white; border-color: var(--steel-anchor); }
 
 .radio-group { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
-.radio-group label { display: flex; align-items: center; gap: 5px; font-weight: normal; font-size: 0.85rem; cursor: pointer; background: #f5f6fa; border: 1px solid #dde; border-radius: 5px; padding: 6px 12px; margin: 0; transition: all 0.1s; user-select: none; }
-.radio-group label:hover { background: #e8eaf5; }
+.radio-group label { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 0.85rem; letter-spacing: 0; text-transform: none; cursor: pointer; background: var(--linen); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; margin: 0; transition: all 0.1s; user-select: none; color: var(--charcoal); }
+.radio-group label:hover { background: var(--blue-mist); }
 
-.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 6px; border: none; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
-.btn-primary { background: #2c3e6b; color: white; }
-.btn-primary:hover { background: #1e2d52; }
-.btn-success { background: #27ae60; color: white; }
-.btn-success:hover { background: #1e9150; }
-.btn-danger { background: #e74c3c; color: white; }
-.btn-danger:hover { background: #c0392b; }
-.btn-warning { background: #f39c12; color: white; }
-.btn-warning:hover { background: #d68910; }
-.btn-outline { background: white; border: 1.5px solid #2c3e6b; color: #2c3e6b; }
-.btn-outline:hover { background: #f0f2f8; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 20px; border-radius: 6px; border: none; font-size: 0.88rem; font-weight: 700; font-family: var(--font-body); cursor: pointer; transition: all 0.15s; }
+.btn-primary { background: var(--steel-anchor); color: white; }
+.btn-primary:hover { background: var(--deep-steel); }
+.btn-success { background: var(--sage); color: white; }
+.btn-success:hover { background: var(--soft-sage); }
+.btn-danger { background: var(--danger-btn); color: white; }
+.btn-danger:hover { background: var(--danger-hover); }
+.btn-warning { background: var(--amber); color: var(--steel-anchor); }
+.btn-warning:hover { background: var(--deep-amber); color: white; }
+.btn-outline { background: transparent; border: 1.5px solid var(--steel-anchor); color: var(--steel-anchor); }
+.btn-outline:hover { background: var(--blue-mist); }
 .btn-sm { padding: 5px 12px; font-size: 0.82rem; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* People table */
 .people-table { width:100%; border-collapse:collapse; font-size:.85rem; }
-.people-table thead tr { background:#f0f2f8; }
-.people-table thead th { background:#f0f2f8; color:#2c3e6b; border:none; text-align:left; }
-.people-table th { padding:9px 12px; text-align:left; font-weight:700; color:#2c3e6b; font-size:.8rem; white-space:nowrap; border-bottom:2px solid #d0d4e8; cursor:pointer; user-select:none; }
-.people-table th:hover { background:#e4e8f4; }
-.sort-arrow { display:inline-block; margin-left:4px; opacity:.35; font-size:.72rem; }
+.people-table thead tr { background: var(--steel-anchor); }
+.people-table thead th { background: var(--steel-anchor); color: white; border:none; text-align:left; }
+.people-table th { padding:9px 12px; text-align:left; font-weight:700; color: white; font-size:.8rem; font-family: var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; white-space:nowrap; border-bottom:2px solid var(--deep-steel); cursor:pointer; user-select:none; }
+.people-table th:hover { background: var(--deep-steel); }
+.sort-arrow { display:inline-block; margin-left:4px; opacity:.45; font-size:.72rem; }
 .sort-arrow.on { opacity:1; }
-.people-table td { padding:9px 12px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+.people-table td { padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
 .people-table tbody tr:last-child td { border-bottom:none; }
-.people-table tbody tr:hover { background:#f8f9fc; }
-.pt-name { font-weight:700; color:#2c3e6b; }
-.pt-email { font-size:.74rem; color:#888; margin-top:1px; }
+.people-table tbody tr:hover { background: var(--blue-mist); }
+.pt-name { font-weight:700; color: var(--steel-anchor); font-family: var(--font-head); }
+.pt-email { font-size:.74rem; color: var(--warm-gray); margin-top:1px; }
 .pt-roles { display:flex; flex-wrap:wrap; gap:4px; }
-.pt-svc { display:inline-block; font-size:.75rem; font-weight:700; color:#856404; background:#fef3cd; padding:2px 8px; border-radius:4px; white-space:nowrap; }
+.pt-svc { display:inline-block; font-size:.75rem; font-weight:700; color:var(--on-pale-gold); background: var(--pale-gold); padding:2px 8px; border-radius:999px; white-space:nowrap; border: 1px solid var(--honey); }
 .pt-actions { white-space:nowrap; text-align:right; }
 /* Schedule cell override / primary indicators */
-.override-cell { box-shadow: inset 3px 0 0 #e67e22; }
-.primary-cell  { box-shadow: inset 3px 0 0 #27ae60; }
+.override-cell { box-shadow: inset 3px 0 0 var(--amber); }
+.primary-cell  { box-shadow: inset 3px 0 0 var(--sage); }
 .cell-badge { font-size:.62rem; vertical-align:super; margin-left:2px; line-height:0; }
-.cell-badge-override { color:#c0392b; }
-.cell-badge-primary  { color:#27ae60; }
+.cell-badge-override { color: var(--deep-amber); }
+.cell-badge-primary  { color: var(--sage); }
 
 /* ── Side Panels ─────────────────────────────── */
 .panel-overlay {
@@ -86,16 +121,16 @@ select.form-select { width: 100%; padding: 7px 10px; border: 1px solid #d0d4e0; 
 .panel-overlay.open { opacity:1; pointer-events:auto; }
 .side-panel {
   position:fixed; top:0; right:0; width:min(520px,100vw); height:100vh;
-  background:#fff; z-index:301; box-shadow:-6px 0 32px rgba(0,0,0,0.18);
+  background: var(--white); z-index:301; box-shadow:-4px 0 40px rgba(10,60,92,0.18);
   display:flex; flex-direction:column;
   transform:translateX(100%); transition:transform .28s cubic-bezier(.4,0,.2,1);
 }
 .side-panel.open { transform:translateX(0); }
 .panel-hdr {
   display:flex; align-items:center; justify-content:space-between;
-  padding:14px 20px; background:#2c3e6b; color:white; flex-shrink:0;
+  padding:14px 20px; background: var(--steel-anchor); color:white; flex-shrink:0;
 }
-.panel-hdr h2 { margin:0; font-size:1.05rem; color:white; font-weight:700; }
+.panel-hdr h2 { margin:0; font-size:1.05rem; color:white; font-weight:700; font-family: var(--font-head); }
 .panel-close {
   background:none; border:none; color:rgba(255,255,255,0.8);
   font-size:1.6rem; cursor:pointer; padding:0 4px; line-height:1;
@@ -106,95 +141,95 @@ select.form-select { width: 100%; padding: 7px 10px; border: 1px solid #d0d4e0; 
   margin-left:auto; align-self:center;
   background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.3);
   color:rgba(255,255,255,0.85); border-radius:6px; padding:7px 14px; cursor:pointer;
-  font-size:.85rem; line-height:1; transition:background .15s; white-space:nowrap;
+  font-size:.85rem; font-family: var(--font-body); line-height:1; transition:background .15s; white-space:nowrap;
   margin-right:8px;
 }
 .header-gear:hover { background:rgba(255,255,255,0.28); }
 
-.tag { border-radius: 4px; padding: 2px 8px; font-size: 0.78rem; }
-.tag-sunday { background: #e8eaf5; color: #2c3e6b; }
-.tag-service { background: #fef3cd; color: #856404; }
-.tag-role { background: #d4edda; color: #155724; }
-.tag-breeze { background: #cce5ff; color: #004085; }
-.blackout-chip { display:inline-flex; align-items:center; gap:4px; background:#f8d7da; color:#721c24; border:1px solid #f5c6cb; border-radius:4px; padding:2px 8px; font-size:0.78rem; }
-.blackout-chip button { background:none; border:none; cursor:pointer; color:#721c24; font-size:0.9rem; line-height:1; padding:0 0 0 2px; }
+.tag { border-radius: 999px; padding: 2px 10px; font-size: 0.78rem; font-family: var(--font-body); font-weight: 700; }
+.tag-sunday { background: var(--blue-mist); color: var(--steel-anchor); border: 1px solid var(--ice-blue); }
+.tag-service { background: var(--pale-gold); color: var(--on-pale-gold); border: 1px solid var(--honey); }
+.tag-role { background: var(--pale-sage); color: var(--on-pale-sage); border: 1px solid var(--soft-sage); }
+.tag-breeze { background: var(--ice-blue); color: var(--steel-anchor); border: 1px solid var(--sky-steel); }
+.blackout-chip { display:inline-flex; align-items:center; gap:4px; background:var(--error-bg); color:var(--on-error-bg); border:1px solid var(--error-border); border-radius:999px; padding:2px 8px; font-size:0.78rem; font-family: var(--font-body); }
+.blackout-chip button { background:none; border:none; cursor:pointer; color:var(--on-error-bg); font-size:0.9rem; line-height:1; padding:0 0 0 2px; }
 #blackout-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; min-height:24px; }
 
 /* Schedule */
 .schedule-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-bottom: 16px; }
 .schedule-controls .field { display: flex; flex-direction: column; gap: 4px; }
-.schedule-controls .field label { font-size: 0.85rem; font-weight: 600; color: #444; margin: 0; }
+.schedule-controls .field label { font-size: 0.82rem; font-weight: 700; color: var(--warm-gray); margin: 0; }
 .schedule-controls .field input { width: 160px; }
 
-.table-wrapper { overflow-x: auto; margin-top: 14px; }
-table { border-collapse: collapse; font-size: 0.82rem; }
-thead th { background: #2c3e6b; color: white; padding: 8px 10px; text-align: center; white-space: nowrap; border: 1px solid #1e2d52; }
-thead th.date-col { background: #1e2d52; position: sticky; left: 0; z-index: 3; }
-thead th.shared-col { background: #247a52; }
-thead th.svc-header { background: #1d6b48; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.table-wrapper { overflow-x: auto; margin-top: 14px; background: var(--white); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+table { border-collapse: collapse; font-size: 0.82rem; width: 100%; }
+thead th { background: var(--steel-anchor); color: white; padding: 10px 10px; text-align: center; white-space: nowrap; border: 1px solid var(--deep-steel); font-family: var(--font-body); font-weight: 700; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; }
+thead th.date-col { background: var(--deep-steel); position: sticky; left: 0; z-index: 3; }
+thead th.shared-col { background: var(--sage); }
+thead th.svc-header { background: var(--mid-steel); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }
 tbody tr { background: transparent; }
-tbody tr:hover td { filter: brightness(0.96); }
-td { padding: 6px 8px; border: 1px solid #dde; text-align: center; vertical-align: middle; min-width: 90px; }
-td.date-cell { font-weight: 700; color: #2c3e6b; background: #f0f2f8; text-align: left; white-space: nowrap; min-width: 120px; position: sticky; left: 0; z-index: 1; }
-td .ordinal { font-size: 0.75rem; color: #888; display: block; }
-td.empty-cell { background: #fff3f3; }
-td.filled-cell { background: #f0fff4; }
+tbody tr:hover td { filter: brightness(0.97); }
+td { padding: 6px 8px; border: 1px solid var(--border); text-align: center; vertical-align: middle; min-width: 90px; font-family: var(--font-body); }
+td.date-cell { font-weight: 700; color: var(--steel-anchor); background: var(--blue-mist); text-align: left; white-space: nowrap; min-width: 120px; position: sticky; left: 0; z-index: 1; font-family: var(--font-head); }
+td .ordinal { font-size: 0.75rem; color: var(--warm-gray); display: block; font-family: var(--font-body); font-weight: 400; }
+td.empty-cell { background: var(--error-bg); }
+td.filled-cell { background: var(--pale-sage); }
 /* Service label column */
-td.svc-label { font-size: 0.74rem; font-weight: 700; white-space: nowrap; min-width: 44px; padding: 4px 6px; }
-td.svc-8am   { background: #d4e4ff !important; color: #1a3a8a; border-right: 2px solid #a0bcf0; }
-td.svc-1045  { background: #ffe8c0 !important; color: #7a4800; border-right: 2px solid #f0c878; }
-tr.row-1045 td { border-bottom: 2px solid #bbc; }
-td.shared-cell { background: #e8f5ee !important; }
-thead th.svc-col { background: #1e2d52; min-width: 36px; }
-thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
-.cell-select { width: 100%; font-size: 0.8rem; border: 1px solid #ccc; border-radius: 4px; background: transparent; cursor: pointer; padding: 2px 4px; }
+td.svc-label { font-size: 0.74rem; font-weight: 700; white-space: nowrap; min-width: 44px; padding: 4px 6px; font-family: var(--font-body); }
+td.svc-8am   { background: var(--ice-blue) !important; color: var(--steel-anchor); border-right: 2px solid var(--sky-steel); }
+td.svc-1045  { background: var(--pale-gold) !important; color: var(--on-pale-gold); border-right: 2px solid var(--honey); }
+tr.row-1045 td { border-bottom: 2px solid var(--border); }
+td.shared-cell { background: var(--pale-sage) !important; }
+thead th.svc-col { background: var(--steel-anchor); min-width: 36px; }
+thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.cell-select { width: 100%; font-size: 0.8rem; border: 1px solid var(--border); border-radius: 7px; background: transparent; cursor: pointer; padding: 2px 4px; font-family: var(--font-body); }
 
-.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.8rem; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.8rem; font-family: var(--font-body); }
 .legend-item { display: flex; align-items: center; gap: 5px; }
 .legend-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
 
 .summary-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
-.summary-item { background: #f0f2f8; border-radius: 6px; padding: 5px 12px; font-size: 0.82rem; }
-.summary-item strong { color: #2c3e6b; }
+.summary-item { background: var(--blue-mist); border: 1px solid var(--ice-blue); border-radius: 8px; padding: 5px 12px; font-size: 0.82rem; font-family: var(--font-body); }
+.summary-item strong { color: var(--steel-anchor); }
 
-.empty-state { text-align: center; padding: 40px 20px; color: #888; }
+.empty-state { text-align: center; padding: 40px 20px; color: var(--warm-gray); }
 .empty-state .icon { font-size: 2.5rem; margin-bottom: 10px; }
 
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
 @media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
 
-.alert { padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 0.88rem; }
-.alert-warning { background: #fff3cd; border: 1px solid #ffc107; color: #856404; }
-.alert-success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
-.alert-danger  { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
-.alert-info    { background: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460; }
+.alert { padding: 12px 16px; border-radius: 0 8px 8px 0; margin-bottom: 16px; font-size: 0.88rem; font-family: var(--font-body); }
+.alert-warning { background: var(--pale-gold); border-left: 3px solid var(--amber); color: var(--on-pale-gold); }
+.alert-success { background: var(--pale-sage); border-left: 3px solid var(--sage); color: var(--on-pale-sage); }
+.alert-danger  { background: var(--error-bg); border-left: 3px solid var(--error-border); color: var(--on-error-bg); }
+.alert-info    { background: var(--blue-mist); border-left: 3px solid var(--mid-steel); color: var(--steel-anchor); }
 
 /* Breeze sync */
-.sync-step { border: 1px solid #dde; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.sync-step { border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
 .sync-step-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.step-badge { background: #2c3e6b; color: white; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 700; flex-shrink: 0; }
-.step-title { font-weight: 700; font-size: 1rem; color: #2c3e6b; }
+.step-badge { background: var(--steel-anchor); color: white; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 700; flex-shrink: 0; font-family: var(--font-body); }
+.step-title { font-weight: 700; font-size: 1rem; color: var(--steel-anchor); font-family: var(--font-head); }
 
 .people-map-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-.people-map-table th { background: #f0f2f8; padding: 7px 10px; text-align: left; border: 1px solid #dde; font-weight: 600; color: #2c3e6b; }
-.people-map-table td { padding: 6px 10px; border: 1px solid #dde; vertical-align: middle; }
-.people-map-table tr:nth-child(even) { background: #f9f9fc; }
+.people-map-table th { background: var(--blue-mist); padding: 7px 10px; text-align: left; border: 1px solid var(--border); font-weight: 700; color: var(--steel-anchor); font-family: var(--font-body); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.people-map-table td { padding: 6px 10px; border: 1px solid var(--border); vertical-align: middle; font-family: var(--font-body); }
+.people-map-table tr:nth-child(even) { background: var(--linen); }
 
 .event-map-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-.event-map-table th { background: #f0f2f8; padding: 7px 10px; text-align: left; border: 1px solid #dde; font-weight: 600; color: #2c3e6b; }
-.event-map-table td { padding: 6px 10px; border: 1px solid #dde; vertical-align: middle; }
-.event-map-table tr:nth-child(even) { background: #f9f9fc; }
-.event-map-table select { width: 100%; font-size: 0.82rem; padding: 4px; border: 1px solid #ccc; border-radius: 4px; }
+.event-map-table th { background: var(--blue-mist); padding: 7px 10px; text-align: left; border: 1px solid var(--border); font-weight: 700; color: var(--steel-anchor); font-family: var(--font-body); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.event-map-table td { padding: 6px 10px; border: 1px solid var(--border); vertical-align: middle; font-family: var(--font-body); }
+.event-map-table tr:nth-child(even) { background: var(--linen); }
+.event-map-table select { width: 100%; font-size: 0.82rem; padding: 4px; border: 1px solid var(--border); border-radius: 4px; font-family: var(--font-body); }
 
-.log-box { background: #1a1a2e; color: #e0e0e0; border-radius: 8px; padding: 14px; font-family: monospace; font-size: 0.82rem; max-height: 300px; overflow-y: auto; margin-top: 12px; }
+.log-box { background: #1a1a2e; color: #e0e0e0; border-radius: 12px; padding: 14px; font-family: monospace; font-size: 0.82rem; max-height: 300px; overflow-y: auto; margin-top: 12px; }
 .log-ok  { color: #4ade80; }
 .log-err { color: #f87171; }
 .log-info { color: #93c5fd; }
 
 .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
-.dot-ok  { background: #27ae60; }
-.dot-err { background: #e74c3c; }
-.dot-pending { background: #aaa; }
+.dot-ok  { background: var(--sage); }
+.dot-err { background: var(--danger-btn); }
+.dot-pending { background: var(--warm-gray); }
 
 /* ── Print styles ──────────────────────────────────────── */
 @page { size: landscape; margin: 0.5in; }
@@ -211,7 +246,7 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
   .cell-select { display: none !important; }
   .conf-pill { display: none !important; }
   .print-name { display: inline !important; font-size: 0.78rem; }
-  .label-input { border: none !important; font-size: 0.7rem; color: #333 !important; padding: 0; }
+  .label-input { border: none !important; font-size: 0.7rem; color: var(--charcoal) !important; padding: 0; }
   td.empty-cell { background: #fff !important; }
   #tab-stats { display: none !important; }
 }
@@ -219,97 +254,97 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 /* ── Confirmation tracking ─────────────────── */
 .conf-pill { font-size:0.68rem; font-weight:700; padding:2px 7px; border-radius:10px; cursor:pointer; border:none; margin-top:3px; display:block; width:100%; text-align:center; user-select:none; text-transform:uppercase; letter-spacing:0.04em; transition:opacity 0.1s; }
 .conf-pill:hover { opacity:0.8; }
-.conf-pending   { background:#fff3cd; color:#856404; }
-.conf-confirmed { background:#d1e7dd; color:#0a3622; }
-.conf-declined      { background:#f8d7da; color:#58151c; }
-.conf-needs_changes { background:#fde8cc; color:#7a3800; }
+.conf-pending   { background: var(--pale-gold); color:var(--on-pale-gold); border-color: var(--honey); }
+.conf-confirmed { background: var(--pale-sage); color:var(--on-pale-sage); border-color: var(--soft-sage); }
+.conf-declined      { background:var(--error-bg); color:var(--on-error-bg); border-color:var(--error-border); }
+.conf-needs_changes { background: var(--pale-gold); color:var(--on-pale-gold); border-color: var(--honey); }
 
 /* ── Sunday label ──────────────────────────── */
-.label-input { font-size:0.7rem; color:#f0b429; background:transparent; border:none; border-bottom:1px dashed #c8ab6a; outline:none; width:100%; margin-top:3px; padding:1px 2px; font-weight:600; caret-color:#2c3e6b; }
+.label-input { font-size:0.7rem; color: var(--amber); background:transparent; border:none; border-bottom:1px dashed var(--honey); outline:none; width:100%; margin-top:3px; padding:1px 2px; font-weight:600; font-family: var(--font-body); caret-color: var(--steel-anchor); }
 .label-input::placeholder { color:#bbb; font-weight:normal; }
-.lect-name-cell { display:block; font-size:.72rem; color:#5568a5; font-weight:500; margin-top:2px; }
-.series-cell { display:inline-block; font-size:.68rem; font-weight:700; background:#e8eaf6; color:#3949ab; border-radius:3px; padding:0 4px; margin-top:2px; }
+.lect-name-cell { display:block; font-size:.72rem; color: var(--mid-steel); font-weight:500; margin-top:2px; }
+.series-cell { display:inline-block; font-size:.68rem; font-weight:700; background: var(--ice-blue); color: var(--steel-anchor); border-radius:6px; padding:0 4px; margin-top:2px; font-family: var(--font-body); }
 
 /* ── History list ──────────────────────────── */
 .history-list { display:flex; flex-direction:column; gap:8px; }
-.history-item { border:1px solid #dde; border-radius:6px; padding:10px 14px; display:flex; align-items:center; justify-content:space-between; background:#fafbfc; }
-.history-item .hi-label { font-weight:700; color:#2c3e6b; font-size:0.9rem; }
-.history-item .hi-meta  { font-size:0.78rem; color:#888; }
+.history-item { border:1px solid var(--border); border-radius:12px; padding:10px 14px; display:flex; align-items:center; justify-content:space-between; background: var(--white); }
+.history-item .hi-label { font-weight:700; color: var(--steel-anchor); font-size:0.9rem; font-family: var(--font-head); }
+.history-item .hi-meta  { font-size:0.78rem; color: var(--warm-gray); }
 .history-item .hi-btns  { display:flex; gap:6px; }
 
 /* ── Stats tab ─────────────────────────────── */
 .stats-filter { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
-.stats-filter label { font-size:.82rem; color:#555; font-weight:600; }
-.stats-filter input[type=date] { font-size:.82rem; padding:5px 8px; border:1px solid #ccd; border-radius:5px; color:#333; }
+.stats-filter label { font-size:.82rem; color: var(--warm-gray); font-weight:700; font-family: var(--font-body); }
+.stats-filter input[type=date] { font-size:.82rem; padding:5px 8px; border:1px solid var(--border); border-radius:8px; color: var(--charcoal); font-family: var(--font-body); }
 .stats-table { width:100%; border-collapse:collapse; font-size:.84rem; }
-.stats-table thead tr { background:#f0f2f8; }
-.stats-table th { padding:8px 12px; text-align:left; font-size:.72rem; color:#2c3e6b;
-                  text-transform:uppercase; letter-spacing:.05em; border-bottom:2px solid #dde; white-space:nowrap; }
+.stats-table thead tr { background: var(--steel-anchor); }
+.stats-table th { padding:10px 12px; text-align:left; font-size:.72rem; color:white; font-family: var(--font-body);
+                  text-transform:uppercase; letter-spacing:.06em; border-bottom:2px solid var(--deep-steel); white-space:nowrap; }
 .stats-table th.center { text-align:center; }
-.stats-table td { padding:9px 12px; border-bottom:1px solid #f0f0f0; vertical-align:top; }
-.stats-table tbody tr:hover { background:#fafbfe; }
-.sv-name { font-weight:600; color:#2c3e6b; white-space:nowrap; }
-.sv-roles { font-size:.78rem; color:#555; }
-.sv-count { text-align:center; font-weight:700; color:#2c3e6b; }
-.sv-last { font-size:.82rem; color:#555; white-space:nowrap; }
+.stats-table td { padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:top; font-family: var(--font-body); }
+.stats-table tbody tr:hover { background: var(--blue-mist); }
+.sv-name { font-weight:700; color: var(--steel-anchor); white-space:nowrap; font-family: var(--font-head); }
+.sv-roles { font-size:.78rem; color: var(--warm-gray); }
+.sv-count { text-align:center; font-weight:700; color: var(--steel-anchor); }
+.sv-last { font-size:.82rem; color: var(--warm-gray); white-space:nowrap; }
 @media(max-width:600px){ .stats-table th:nth-child(2), .stats-table td:nth-child(2) { display:none; } }
 
 
 /* ── Sunday summary row (collapsible) ─────────────────────────────────────── */
-.sunday-summary td { padding:0; cursor:pointer; background:#f8f9fc; border-bottom:2px solid #d0d4e8; border-top:1px solid #e0e4f0; }
-.sunday-summary:hover td { background:#eef0f8; }
+.sunday-summary td { padding:0; cursor:pointer; background: var(--linen); border-bottom:2px solid var(--border); border-top:1px solid var(--border); }
+.sunday-summary:hover td { background: var(--blue-mist); }
 .ss-inner { display:flex; align-items:center; gap:12px; padding:9px 14px; flex-wrap:wrap; }
-.ss-toggle { font-size:.75rem; color:#8892b0; width:14px; display:inline-block; transition:transform .2s; flex-shrink:0; }
+.ss-toggle { font-size:.75rem; color: var(--warm-gray); width:14px; display:inline-block; transition:transform .2s; flex-shrink:0; }
 .sunday-summary.expanded .ss-toggle { transform:rotate(90deg); }
-.ss-date { font-weight:700; color:#2c3e6b; font-size:.9rem; white-space:nowrap; }
-.ss-label { font-size:.8rem; color:#e67e22; font-weight:600; }
-.ss-ordinal { font-size:.78rem; color:#8892b0; }
-.ss-lect-name { font-size:.78rem; color:#5568a5; font-weight:500; }
-.ss-series-badge { display:inline-block; font-size:.7rem; font-weight:700; background:#e8eaf6; color:#3949ab; border-radius:4px; padding:0 5px; margin-left:2px; vertical-align:middle; }
-.ss-fill { font-size:.8rem; font-weight:700; }
-.ss-open { font-size:.8rem; font-weight:700; color:#e74c3c; }
-.ss-complete { font-size:.8rem; font-weight:700; color:#27ae60; }
+.ss-date { font-weight:700; color: var(--steel-anchor); font-size:.9rem; white-space:nowrap; font-family: var(--font-head); }
+.ss-label { font-size:.8rem; color: var(--amber); font-weight:600; font-family: var(--font-body); }
+.ss-ordinal { font-size:.78rem; color: var(--warm-gray); font-family: var(--font-body); }
+.ss-lect-name { font-size:.78rem; color: var(--mid-steel); font-weight:500; font-family: var(--font-body); }
+.ss-series-badge { display:inline-block; font-size:.7rem; font-weight:700; background: var(--ice-blue); color: var(--steel-anchor); border-radius:6px; padding:0 5px; margin-left:2px; vertical-align:middle; font-family: var(--font-body); }
+.ss-fill { font-size:.8rem; font-weight:700; font-family: var(--font-body); color: var(--charcoal); }
+.ss-open { font-size:.8rem; font-weight:700; color: var(--danger-btn); font-family: var(--font-body); }
+.ss-complete { font-size:.8rem; font-weight:700; color: var(--sage); font-family: var(--font-body); }
 .sconf-badge { display:inline-flex; align-items:center; font-size:.72rem; font-weight:700;
-  padding:2px 7px; border-radius:10px; white-space:nowrap; }
-.sconf-confirmed { background:#d4edda; color:#1a6e32; }
-.sconf-pending   { background:#fff3cd; color:#856404; }
-.sconf-declined  { background:#f8d7da; color:#842029; }
+  padding:2px 7px; border-radius:999px; white-space:nowrap; font-family: var(--font-body); border:1px solid transparent; }
+.sconf-confirmed { background: var(--pale-sage); color:var(--on-pale-sage); border-color: var(--soft-sage); }
+.sconf-pending   { background: var(--pale-gold); color:var(--on-pale-gold); border-color: var(--honey); }
+.sconf-declined  { background:var(--error-bg); color:var(--on-error-bg); border-color:var(--error-border); }
 .sunday-detail   { display:none; }
 .sunday-detail.visible { display:table-row; }
 
 /* ── Month navigation ──────────────────────────────────── */
 .month-nav-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:4px 0; }
-.month-nav-label { font-size:1.05rem; font-weight:700; color:#2c3e6b; min-width:150px; text-align:center; }
+.month-nav-label { font-size:1.05rem; font-weight:700; color: var(--steel-anchor); min-width:150px; text-align:center; font-family: var(--font-head); }
 
 /* ── Save button states ─────────────────────────────────── */
-#btn-save-schedule.saved { background:#f0fff4; border-color:#a8d8b9; color:#27ae60; }
-#btn-save-schedule.dirty { background:#fff3cd; border-color:#e6a817; color:#856404; font-weight:700; animation:pulse-save .8s ease-in-out; }
-@keyframes pulse-save { 0%,100%{box-shadow:none} 50%{box-shadow:0 0 0 3px rgba(240,180,40,0.35)} }
+#btn-save-schedule.saved { background: var(--pale-sage); border-color: var(--soft-sage); color: var(--sage); }
+#btn-save-schedule.dirty { background: var(--pale-gold); border-color: var(--honey); color:var(--on-pale-gold); font-weight:700; animation:pulse-save .8s ease-in-out; }
+@keyframes pulse-save { 0%,100%{box-shadow:none} 50%{box-shadow:0 0 0 3px rgba(212,146,42,0.35)} }
 
 /* ── Special service rows ───────────────────────────────── */
-.special-summary td { background:#fef9f0; }
-.special-summary:hover td { background:#fef3d0; }
-.ss-special-name { font-size:.82rem; font-weight:700; color:#b7631a; }
-.special-badge { font-size:.7rem; font-weight:700; background:#ffe5b0; color:#8a5000; border-radius:8px; padding:1px 8px; }
-.svc-special { background:#fef3d8; color:#8a5000; font-size:.8rem; font-weight:600; }
-.na-cell { background:#f8f8f8; }
+.special-summary td { background: var(--linen); }
+.special-summary:hover td { background: var(--pale-gold); }
+.ss-special-name { font-size:.82rem; font-weight:700; color: var(--amber); font-family: var(--font-head); }
+.special-badge { font-size:.7rem; font-weight:700; background: var(--pale-gold); color:var(--on-pale-gold); border-radius:999px; padding:1px 8px; border:1px solid var(--honey); font-family: var(--font-body); }
+.svc-special { background: var(--pale-gold); color:var(--on-pale-gold); font-size:.8rem; font-weight:600; }
+.na-cell { background: var(--linen); }
 .btn-edit-special, .btn-delete-special { background:none; border:none; cursor:pointer; font-size:.85rem; padding:0 4px; opacity:.55; transition:opacity .15s; margin-left:2px; }
-.btn-edit-special:hover  { opacity:1; color:#2c3e6b; }
-.btn-delete-special:hover{ opacity:1; color:#c00; }
+.btn-edit-special:hover  { opacity:1; color: var(--steel-anchor); }
+.btn-delete-special:hover{ opacity:1; color: var(--danger-btn); }
 .special-expanded { padding:14px 16px; display:flex; flex-wrap:wrap; gap:12px; }
-.special-svc-block { background:#fff; border:1px solid #e2d9c8; border-radius:8px; padding:10px 14px; min-width:190px; }
-.special-svc-time { font-weight:700; color:#2c3e6b; font-size:.85rem; margin-bottom:8px; border-bottom:1px solid #e8e4d8; padding-bottom:6px; }
-.special-svc-role-row { display:flex; align-items:center; gap:6px; margin-bottom:5px; font-size:.82rem; }
-.special-svc-role-label { color:#666; width:110px; flex-shrink:0; text-align:right; }
+.special-svc-block { background: var(--white); border:1px solid var(--border); border-radius:8px; padding:10px 14px; min-width:190px; }
+.special-svc-time { font-weight:700; color: var(--steel-anchor); font-size:.85rem; font-family: var(--font-head); margin-bottom:8px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+.special-svc-role-row { display:flex; align-items:center; gap:6px; margin-bottom:5px; font-size:.82rem; font-family: var(--font-body); }
+.special-svc-role-label { color: var(--warm-gray); width:110px; flex-shrink:0; text-align:right; }
 
 /* ── Role Sunday override section ───────────────────────── */
-.role-override-toggle { font-size:.78rem; color:#3d5a8a; cursor:pointer; margin-top:8px; display:inline-block; text-decoration:underline; }
-#role-override-section { display:none; background:#f0f4ff; border:1px solid #c8d0e8; border-radius:6px; padding:10px 12px; margin-top:8px; }
-.role-override-table { width:100%; font-size:.78rem; border-collapse:collapse; }
-.role-override-table th { text-align:center; padding:2px 5px; color:#555; font-weight:600; }
+.role-override-toggle { font-size:.78rem; color: var(--mid-steel); cursor:pointer; margin-top:8px; display:inline-block; text-decoration:underline; font-family: var(--font-body); }
+#role-override-section { display:none; background: var(--blue-mist); border:1px solid var(--ice-blue); border-radius:8px; padding:10px 12px; margin-top:8px; }
+.role-override-table { width:100%; font-size:.78rem; border-collapse:collapse; font-family: var(--font-body); }
+.role-override-table th { text-align:center; padding:2px 5px; color: var(--warm-gray); font-weight:700; }
 .role-override-table th:first-child { text-align:left; }
 .role-override-table td { text-align:center; padding:3px 4px; }
-.role-override-table td:first-child { font-weight:600; color:#2c3e6b; text-align:left; padding-right:8px; white-space:nowrap; }
+.role-override-table td:first-child { font-weight:700; color: var(--steel-anchor); text-align:left; padding-right:8px; white-space:nowrap; }
 .role-override-table input[type=checkbox] { width:14px; height:14px; cursor:pointer; }
 </style>
 </head>
@@ -317,14 +352,14 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 
 <!-- ══════════════════ LOGIN SCREEN ══════════════════ -->
 <div id="login-screen" style="position:fixed;inset:0;z-index:9999;display:flex;
-  align-items:center;justify-content:center;background:#f4f5f9;">
-  <div style="background:#fff;border-radius:14px;padding:40px 36px;
+  align-items:center;justify-content:center;background:var(--blue-mist);">
+  <div style="background:var(--white);border-radius:14px;padding:40px 36px;
     box-shadow:0 6px 32px rgba(0,0,0,.12);width:100%;max-width:360px;text-align:center;">
-    <div style="width:52px;height:52px;border-radius:50%;background:#2c3e6b;
+    <div style="width:52px;height:52px;border-radius:50%;background:var(--steel-anchor);
       display:flex;align-items:center;justify-content:center;margin:0 auto 14px;
-      font-size:24px;color:#fff;">✝</div>
-    <h2 style="margin:0 0 4px;font-size:1.25rem;font-weight:700;color:#2c3e6b;font-family:inherit;">Timothy Lutheran Church</h2>
-    <p style="margin:0 0 28px;font-size:.82rem;color:#888;font-family:inherit;">Worship Schedule Builder</p>
+      font-size:24px;color:var(--white);">✝</div>
+    <h2 style="margin:0 0 4px;font-size:1.25rem;font-weight:700;color:var(--steel-anchor);font-family:var(--font-head);">Timothy Lutheran Church</h2>
+    <p style="margin:0 0 28px;font-size:.82rem;color:var(--warm-gray);font-family:var(--font-body);">Worship Schedule Builder</p>
 
     <!-- Google Sign-In removed: GitHub Pages sets Cross-Origin-Opener-Policy: same-origin
          which breaks signInWithPopup (popup cleanup calls signOut() via COOP workaround),
@@ -333,22 +368,22 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 
     <input type="email" id="fb-email" placeholder="Email" autocomplete="username"
       style="display:block;width:100%;box-sizing:border-box;padding:9px 12px;
-        border:1.5px solid #dde;border-radius:8px;font-size:.9rem;
+        border:1.5px solid var(--border);border-radius:8px;font-size:.9rem;
         font-family:inherit;margin-bottom:10px;outline:none;">
     <input type="password" id="fb-password" placeholder="Password" autocomplete="current-password"
       style="display:block;width:100%;box-sizing:border-box;padding:9px 12px;
-        border:1.5px solid #dde;border-radius:8px;font-size:.9rem;
+        border:1.5px solid var(--border);border-radius:8px;font-size:.9rem;
         font-family:inherit;margin-bottom:14px;outline:none;">
     <button id="btn-fb-signin" style="width:100%;padding:9px;border:none;border-radius:8px;
-      background:#2c3e6b;color:#fff;font-size:.9rem;font-family:inherit;cursor:pointer;">
+      background:var(--steel-anchor);color:var(--white);font-size:.9rem;font-family:inherit;cursor:pointer;">
       Sign In
     </button>
     <button id="btn-fb-forgot" style="background:none;border:none;font-size:.78rem;
-      color:#5568a5;cursor:pointer;font-family:inherit;margin-top:6px;
+      color:var(--mid-steel);cursor:pointer;font-family:inherit;margin-top:6px;
       text-decoration:underline;display:block;width:100%;text-align:center;">
       Forgot password / set new password?
     </button>
-    <div id="login-status" style="font-size:.8rem;min-height:20px;margin-top:10px;color:#c00;"></div>
+    <div id="login-status" style="font-size:.8rem;min-height:20px;margin-top:10px;color:var(--danger-btn);"></div>
   </div>
 </div>
 
@@ -405,20 +440,20 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
         <button class="btn btn-success btn-sm" id="btn-export-csv">Export CSV</button>
         <button class="btn btn-outline btn-sm" id="btn-export-ical">&#128197; iCal</button>
         <button class="btn btn-outline btn-sm" id="btn-print">Print</button>
-        <button class="btn btn-outline btn-sm" id="btn-send-emails" style="background:#e8f4fd;border-color:#3498db;color:#2980b9;">&#9993; Send Reminder Emails</button>
-        <button class="btn btn-outline btn-sm" id="btn-sync-confirmations" style="background:#f0fff4;border-color:#27ae60;color:#1a7a42;">&#8635; Sync Confirmations</button>
+        <button class="btn btn-outline btn-sm" id="btn-send-emails" style="background:var(--blue-mist);border-color:var(--sky-steel);color:var(--mid-steel);">&#9993; Send Reminder Emails</button>
+        <button class="btn btn-outline btn-sm" id="btn-sync-confirmations" style="background:var(--pale-sage);border-color:var(--sage);color:var(--on-pale-sage);">&#8635; Sync Confirmations</button>
         <button class="btn btn-outline btn-sm" id="btn-restore-tokens" style="background:#fdf6e8;border-color:#e0a800;color:#7a5500;" title="Re-upload RSVP tokens to Worker KV without re-sending emails">&#128274; Re-store Tokens</button>
-        <span id="email-send-status" style="font-size:0.82rem;color:#555;"></span>
+        <span id="email-send-status" style="font-size:0.82rem;color:var(--warm-gray);"></span>
         <button class="btn btn-outline btn-sm saved" id="btn-save-schedule">Saved &#10003;</button>
         <button class="btn btn-outline btn-sm" id="btn-expand-all">&#9660; Expand All</button>
         <button class="btn btn-danger btn-sm" id="btn-clear-schedule">Clear Schedule</button>
       </div>
     </div>
     <div class="legend">
-      <div class="legend-item"><div class="legend-dot" style="background:#3d5a8a;"></div> Per-service (8am / 10:45am)</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#247a52;"></div> Shared (both services)</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#fff3f3;border:1px solid #f5c6cb;"></div> Unfilled</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#f0fff4;border:1px solid #c3e6cb;"></div> Filled</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--mid-steel);"></div> Per-service (8am / 10:45am)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--sage);"></div> Shared (both services)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--error-bg);border:1px solid var(--error-border);"></div> Unfilled</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--pale-sage);border:1px solid var(--soft-sage);"></div> Filled</div>
     </div>
     <div class="table-wrapper">
       <table id="schedule-table">
@@ -444,7 +479,7 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
     <button class="panel-close" id="btn-close-person-panel">&times;</button>
   </div>
   <div class="panel-body">
-    <div id="breeze-import-section" style="background:#f0f4ff;border:1px solid #c8d4f0;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
+    <div id="breeze-import-section" style="background:var(--blue-mist);border:1px solid var(--ice-blue);border-radius:8px;padding:12px 14px;margin-bottom:16px;">
       <label style="font-weight:600;margin-bottom:6px;display:block;">&#128269; Search Breeze to Import</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <input type="text" id="breeze-import-query" placeholder="Type a name…" style="max-width:220px;">
@@ -458,7 +493,7 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
     <label for="person-name">Name</label>
     <input type="text" id="person-name" placeholder="Full name">
 
-    <label for="person-email" style="margin-top:12px;">Email Address <span style="font-weight:normal;color:#888;">(for reminder emails)</span></label>
+    <label for="person-email" style="margin-top:12px;">Email Address <span style="font-weight:normal;color:var(--warm-gray);">(for reminder emails)</span></label>
     <input type="email" id="person-email" placeholder="volunteer@example.com" style="max-width:320px;">
 
     <div class="form-row">
@@ -471,7 +506,7 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
           <label><input type="checkbox" value="4"> 4th</label>
           <label><input type="checkbox" value="5"> 5th</label>
         </div>
-        <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">Leave all unchecked = any Sunday</small>
+        <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">Leave all unchecked = any Sunday</small>
       </div>
       <div>
         <label>Service Preference</label>
@@ -505,7 +540,7 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
       </table>
     </div>
 
-    <div style="margin-top:14px;padding:10px 14px;background:#f0faf4;border:1px solid #a8d8b9;border-radius:6px;">
+    <div style="margin-top:14px;padding:10px 14px;background:var(--pale-sage);border:1px solid var(--soft-sage);border-radius:8px;">
       <label style="font-weight:600;display:block;margin-bottom:6px;">Primary / Always-First For <span style="font-weight:normal;color:#666;">(optional)</span></label>
       <div class="checkbox-group" id="primary-roles">
         <label><input type="checkbox" value="Elder"> Elder</label>
@@ -527,7 +562,7 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
     <div id="blackout-date-error" style="font-size:0.8rem;color:#c0392b;margin-top:4px;display:none;">Please pick a Sunday.</div>
     <div id="blackout-chips"></div>
 
-    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;border-top:1px solid #eee;padding-top:16px;">
+    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:16px;">
       <button class="btn btn-primary" id="btn-save-person">Save Person</button>
       <button class="btn btn-outline" id="btn-clear-form">Clear</button>
     </div>
@@ -541,8 +576,8 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
     <button class="panel-close" id="btn-close-settings-panel">&times;</button>
   </div>
   <div class="panel-body">
-    <h3 style="margin:0 0 12px;font-size:1rem;color:#2c3e6b;">Breeze CHMS Connection</h3>
-    <p style="font-size:0.88rem;color:#555;margin-bottom:14px;">
+    <h3 style="margin:0 0 12px;font-size:1rem;color:var(--steel-anchor);font-family:var(--font-head);">Breeze CHMS Connection</h3>
+    <p style="font-size:0.88rem;color:var(--warm-gray);margin-bottom:14px;">
       Enter your Breeze subdomain and API key to enable syncing volunteers to Breeze.
       Your credentials are stored only in this browser's localStorage.
     </p>
@@ -556,62 +591,62 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
 
     <label for="breeze-apikey" style="margin-top:12px;">API Key</label>
     <input type="password" id="breeze-apikey" placeholder="Paste your Breeze API key here" style="max-width:360px;">
-    <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
+    <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
       Find this in Breeze: Settings &rarr; Advanced &rarr; API
     </small>
 
-    <div style="border-top:1px solid #eee;margin-top:20px;padding-top:16px;">
+    <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
       <label for="breeze-worker-url">Cloudflare Worker Proxy URL</label>
       <input type="text" id="breeze-worker-url" placeholder="https://your-worker.workers.dev" style="max-width:380px;">
-      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
+      <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
         Required for browser access. Paste the Worker URL after deploying <strong>breeze-proxy-worker.js</strong> to Cloudflare.
       </small>
     </div>
 
-    <div style="border-top:1px solid #eee;margin-top:20px;padding-top:16px;">
-      <label for="breeze-worker-secret">Worker Secret <span style="font-weight:normal;color:#888;">(recommended)</span></label>
+    <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
+      <label for="breeze-worker-secret">Worker Secret <span style="font-weight:normal;color:var(--warm-gray);">(recommended)</span></label>
       <input type="password" id="breeze-worker-secret" placeholder="Paste your WORKER_SECRET value" style="max-width:380px;">
-      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
+      <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
         In Cloudflare Dashboard: Worker Settings &rarr; Variables &rarr; add <code>WORKER_SECRET</code> = any long random string.
       </small>
     </div>
 
-    <div style="border-top:1px solid #eee;margin-top:20px;padding-top:16px;">
-      <label for="breeze-tag-ids">Breeze Tag IDs <span style="font-weight:normal;color:#888;">(optional)</span></label>
+    <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
+      <label for="breeze-tag-ids">Breeze Tag IDs <span style="font-weight:normal;color:var(--warm-gray);">(optional)</span></label>
       <input type="text" id="breeze-tag-ids" placeholder="e.g. 4884325, 5123456" style="max-width:280px;">
-      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">
+      <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
         Comma-separated tag IDs to include in people search. Leave blank to search all.
         Find tag IDs in the Breeze URL: <code>people/filter#/tag_contains=y_XXXXXXX</code>
       </small>
     </div>
 
-    <div style="border-top:1px solid #eee;margin-top:20px;padding-top:16px;">
+    <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
       <label style="font-weight:600;">Volunteer Reminder Emails</label>
-      <p style="font-size:0.82rem;color:#555;margin:4px 0 10px;">
-        Send personalized reminder emails via <a href="https://resend.com" target="_blank" style="color:#2c3e6b;">Resend</a> (free up to 3,000/month).
+      <p style="font-size:0.82rem;color:var(--warm-gray);margin:4px 0 10px;">
+        Send personalized reminder emails via <a href="https://resend.com" target="_blank" style="color:var(--mid-steel);">Resend</a> (free up to 3,000/month).
       </p>
       <label for="email-resend-key">Resend API Key</label>
       <input type="password" id="email-resend-key" placeholder="re_xxxxxxxxxxxxxxxx" style="max-width:320px;">
       <label for="email-from" style="margin-top:12px;">From Address</label>
       <input type="email" id="email-from" placeholder="dinger@reminder.timothystl.org" style="max-width:320px;">
-      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">Must be on a domain verified in Resend.</small>
+      <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">Must be on a domain verified in Resend.</small>
       <label for="email-reply-to" style="margin-top:12px;">Reply-To Address</label>
       <input type="email" id="email-reply-to" placeholder="dinger@timothystl.org" style="max-width:320px;">
-      <small style="color:#888;font-size:0.78rem;display:block;margin-top:4px;">Where volunteer replies are sent.</small>
+      <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">Where volunteer replies are sent.</small>
     </div>
 
-    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-top:1px solid #eee;padding-top:16px;">
+    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);padding-top:16px;">
       <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>
       <button class="btn btn-outline" id="btn-test-breeze">Test Connection</button>
       <span id="settings-status" style="font-size:0.88rem;"></span>
     </div>
     <div id="settings-alert" style="margin-top:12px;"></div>
 
-    <hr style="margin:24px 0 20px;border:none;border-top:1px solid #dde;">
+    <hr style="margin:24px 0 20px;border:none;border-top:1px solid var(--border);">
 
     <div>
       <label style="font-weight:600;">Cloud Sync</label>
-      <p id="fb-user-display" style="font-size:.85rem;color:#27ae60;margin:4px 0 10px;"></p>
+      <p id="fb-user-display" style="font-size:.85rem;color:var(--sage);margin:4px 0 10px;"></p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-outline btn-sm" id="btn-fb-push">&#8679; Push Local → Cloud</button>
         <button class="btn btn-outline btn-sm" id="btn-fb-pull">&#8681; Pull Cloud → Local</button>
@@ -620,11 +655,11 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
       <div id="sync-status" style="font-size:.8rem;margin-top:8px;color:#666;min-height:18px;"></div>
     </div>
 
-    <hr style="margin:24px 0 20px;border:none;border-top:1px solid #dde;">
+    <hr style="margin:24px 0 20px;border:none;border-top:1px solid var(--border);">
 
     <div>
       <label style="font-weight:600;">Data Export / Import</label>
-      <p style="font-size:0.82rem;color:#555;margin:4px 0 12px;">
+      <p style="font-size:0.82rem;color:var(--warm-gray);margin:4px 0 12px;">
         To migrate from another browser: <strong>Export</strong> on the old browser, then <strong>Import</strong> here, then Push to Cloud.
       </p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -645,13 +680,13 @@ thead th.per-header { background: #3361a8; font-size: 0.75rem; text-transform: u
     <div class="stats-filter">
       <label>Date range:</label>
       <input type="date" id="stats-from">
-      <span style="color:#999;font-size:.82rem;">to</span>
+      <span style="color:var(--warm-gray);font-size:.82rem;">to</span>
       <input type="date" id="stats-to">
       <button class="btn btn-outline btn-sm" onclick="renderStatsTab()">Apply</button>
       <button class="btn btn-outline btn-sm" onclick="document.getElementById('stats-from').value='';document.getElementById('stats-to').value='';renderStatsTab();">All time</button>
     </div>
     <div id="stats-content">
-      <p style="color:#aaa;font-size:0.85rem;">Generate or load a schedule to see statistics.</p>
+      <p style="color:var(--warm-gray);font-size:0.85rem;">Generate or load a schedule to see statistics.</p>
     </div>
   </div>
 </div>
@@ -1007,7 +1042,7 @@ function renderBlackoutChips() {
   var container = document.getElementById('blackout-chips');
   if (!container) return;
   if (!currentBlackouts.length) {
-    container.innerHTML = '<span style="color:#aaa;font-size:0.8rem;">None added</span>';
+    container.innerHTML = '<span style="color:#7A6E60;font-size:0.8rem;">None added</span>';
     return;
   }
   container.innerHTML = currentBlackouts.map(function(d, i) {
@@ -1171,7 +1206,7 @@ function renderPeopleList() {
     return;
   }
   if (people.length === 0) {
-    container.innerHTML = '<div style="padding:16px;color:#888;font-size:.88rem;">No matches for &ldquo;'+esc(peopleSearchQuery)+'&rdquo;</div>';
+    container.innerHTML = '<div style="padding:16px;color:#7A6E60;font-size:.88rem;">No matches for &ldquo;'+esc(peopleSearchQuery)+'&rdquo;</div>';
     return;
   }
 
@@ -1192,9 +1227,9 @@ function renderPeopleList() {
   people.forEach(function(p) {
     var roleTags = p.roles.length
       ? p.roles.map(function(r){ return '<span class="tag tag-role">'+esc(roleLabel(r))+'</span>'; }).join(' ')
-      : '<span style="color:#aaa;font-size:.78rem;">—</span>';
+      : '<span style="color:#7A6E60;font-size:.78rem;">—</span>';
     var breeze   = p.breezePersonId ? ' <span title="Breeze linked" style="font-size:.7rem;color:#004085;">&#9729;</span>' : '';
-    var primary  = (p.primaryFor && p.primaryFor.length) ? ' <span title="Primary: '+esc((p.primaryFor||[]).map(roleLabel).join(', '))+'" style="font-size:.72rem;color:#27ae60;">&#9733;</span>' : '';
+    var primary  = (p.primaryFor && p.primaryFor.length) ? ' <span title="Primary: '+esc((p.primaryFor||[]).map(roleLabel).join(', '))+'" style="font-size:.72rem;color:#6B8F71;">&#9733;</span>' : '';
     html += '<tr>'
       +'<td><div class="pt-name">'+esc(p.name)+primary+breeze+'</div>'
       +(p.email ? '<div class="pt-email">'+esc(p.email)+'</div>' : '')
@@ -1522,7 +1557,7 @@ function buildSummaryInner(rowIdx, pMap, confs) {
   var dateISO = row.date.toISOString().slice(0,10);
   var existingLabel = getSundayLabels()[dateISO] || row.label || '';
   var st = sundayStats(rowIdx, pMap, confs);
-  var fillColor = st.open===0 ? '#27ae60' : (st.open<=2 ? '#e67e22' : '#e74c3c');
+  var fillColor = st.open===0 ? '#6B8F71' : (st.open<=2 ? '#D4922A' : '#B85C3A');
   var openPart = st.open>0
     ? '<span class="ss-open">'+st.open+' open</span>'
     : '<span class="ss-complete">&#10003; Complete</span>';
@@ -1578,7 +1613,7 @@ function renderTable(people, counts) {
       (row.services||[]).forEach(function(svc){
         (svc.roles||[]).forEach(function(role){ total++; if((svc.assignments||{})[role]) filled++; });
       });
-      var fillColor = total===0?'#aaa':(filled===total?'#27ae60':(filled>0?'#e67e22':'#e74c3c'));
+      var fillColor = total===0?'#7A6E60':(filled===total?'#6B8F71':(filled>0?'#D4922A':'#B85C3A'));
       bodyHtml += '<tr class="sunday-summary special-summary" data-idx="'+rowIdx+'">'
         +'<td colspan="'+totalCols+'"><div class="ss-inner">'
         +'<span class="ss-toggle">&#9658;</span>'
@@ -1763,7 +1798,7 @@ document.getElementById('schedule-table').addEventListener('change', function(e)
       (row.services||[]).forEach(function(s){
         (s.roles||[]).forEach(function(r){ total++; if((s.assignments||{})[r]) filled++; });
       });
-      var fillColor = total===0?'#aaa':(filled===total?'#27ae60':(filled>0?'#e67e22':'#e74c3c'));
+      var fillColor = total===0?'#7A6E60':(filled===total?'#6B8F71':(filled>0?'#D4922A':'#B85C3A'));
       var fillEl = summaryRow.querySelector('.ss-fill');
       if (fillEl) { fillEl.textContent = filled+'/'+total+' filled'; fillEl.style.color = fillColor; }
     }
@@ -1941,20 +1976,20 @@ window.addEventListener('afterprint', function() {
 // REMINDER EMAILS
 // ══════════════════════════════════════════════════════════════════
 function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
-  var th = 'padding:8px 12px;text-align:left;border-bottom:2px solid #dde;font-size:0.78rem;color:#2c3e6b;text-transform:uppercase;letter-spacing:0.05em;';
+  var th = 'padding:8px 12px;text-align:left;border-bottom:2px solid #E8E0D0;font-size:0.78rem;color:#0A3C5C;text-transform:uppercase;letter-spacing:0.05em;';
 
   // Schedule table — always 3 columns, no confirm column (fits any screen width)
   var rows = assignments.map(function(a) {
     var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
     return '<tr>'
-      + '<td style="padding:8px 12px;border-bottom:1px solid #eee;white-space:nowrap;">' + esc(a.date) + '</td>'
-      + '<td style="padding:8px 12px;border-bottom:1px solid #eee;">' + esc(svcLabel) + '</td>'
-      + '<td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;">' + esc(roleLabel(a.role)) + '</td>'
+      + '<td style="padding:8px 12px;border-bottom:1px solid #E8E0D0;white-space:nowrap;">' + esc(a.date) + '</td>'
+      + '<td style="padding:8px 12px;border-bottom:1px solid #E8E0D0;">' + esc(svcLabel) + '</td>'
+      + '<td style="padding:8px 12px;border-bottom:1px solid #E8E0D0;font-weight:600;">' + esc(roleLabel(a.role)) + '</td>'
       + '</tr>';
   }).join('');
 
   var replyLink = replyTo
-    ? '<a href="mailto:' + esc(replyTo) + '" style="color:#2c3e6b;">' + esc(replyTo) + '</a>'
+    ? '<a href="mailto:' + esc(replyTo) + '" style="color:#3D627C;">' + esc(replyTo) + '</a>'
     : '';
 
   // RSVP section — separate block below the schedule table, mobile-safe 2-col layout
@@ -1974,44 +2009,44 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
         + '<td style="padding:10px 12px;border-bottom:1px solid #eef;font-size:0.86rem;vertical-align:middle;">'
         + '<strong>' + esc(a.date) + '</strong>'
         + '<span style="color:#666;"> &mdash; ' + esc(roleLabel(a.role)) + '</span>'
-        + '<br><span style="font-size:0.78rem;color:#999;">' + esc(svcLabel) + '</span>'
+        + '<br><span style="font-size:0.78rem;color:#7A6E60;">' + esc(svcLabel) + '</span>'
         + '</td>'
         + '<td style="padding:10px 12px;border-bottom:1px solid #eef;vertical-align:middle;text-align:right;width:1%;white-space:nowrap;">'
-        + '<a href="' + esc(cfUrl) + '" style="display:inline-block;background:#27ae60;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;margin-right:5px;">\u2713 Yes</a>'
-        + '<a href="' + esc(ncUrl) + '" style="display:inline-block;background:#e67e22;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;">\u26a0 Change</a>'
+        + '<a href="' + esc(cfUrl) + '" style="display:inline-block;background:#6B8F71;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;margin-right:5px;">\u2713 Yes</a>'
+        + '<a href="' + esc(ncUrl) + '" style="display:inline-block;background:#D4922A;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;">\u26a0 Change</a>'
         + '</td>'
         + '</tr>';
     }).join('');
 
     rsvpSection = ''
       + '<div style="background:#f6f9ff;border:1px solid #c8d8f0;border-radius:8px;margin-bottom:20px;overflow:hidden;">'
-      + '<div style="background:#2c3e6b;padding:10px 14px;">'
+      + '<div style="background:#0A3C5C;padding:10px 14px;">'
       + '<p style="margin:0;font-size:0.82rem;color:white;font-weight:600;">Can you serve on these Sundays? Please confirm each one:</p>'
       + '</div>'
       + '<table style="width:100%;border-collapse:collapse;">'
       + confirmRows
       + '</table>'
       + '<div style="padding:12px 14px;background:#eef2fb;border-top:1px solid #c8d8f0;">'
-      + '<p style="margin:0 0 8px;font-size:0.78rem;color:#555;">Or respond to all at once:</p>'
-      + '<a href="' + esc(confirmAllUrl) + '" style="display:inline-block;background:#27ae60;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\u2713 Confirm All</a>'
-      + '<a href="' + esc(changesAllUrl) + '" style="display:inline-block;background:#e67e22;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\u26a0 Change All</a>'
-      + '<a href="' + esc(portalUrl) + '" style="display:inline-block;background:white;color:#2c3e6b;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:600;font-size:0.82rem;border:1px solid #c8d0e8;margin:0 0 4px 0;">\uD83D\uDCC5 My Full Schedule</a>'
+      + '<p style="margin:0 0 8px;font-size:0.78rem;color:#7A6E60;">Or respond to all at once:</p>'
+      + '<a href="' + esc(confirmAllUrl) + '" style="display:inline-block;background:#6B8F71;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\u2713 Confirm All</a>'
+      + '<a href="' + esc(changesAllUrl) + '" style="display:inline-block;background:#D4922A;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\u26a0 Change All</a>'
+      + '<a href="' + esc(portalUrl) + '" style="display:inline-block;background:white;color:#0A3C5C;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:600;font-size:0.82rem;border:1px solid #C4DDE8;margin:0 0 4px 0;">\uD83D\uDCC5 My Full Schedule</a>'
       + '</div>'
       + '</div>';
   }
 
   return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"></head>'
-    + '<body style="margin:0;padding:0;background:#f0f2f5;font-family:Arial,Helvetica,sans-serif;color:#222;">'
+    + '<body style="margin:0;padding:0;background:#EDF5F8;font-family:Arial,Helvetica,sans-serif;color:#3D3530;">'
     + '<div style="max-width:580px;margin:24px auto;">'
-    + '<div style="background:#2c3e6b;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">'
+    + '<div style="background:#0A3C5C;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">'
     + '<div style="font-size:1.2rem;font-weight:700;">Timothy Lutheran Church</div>'
     + '<div style="font-size:0.85rem;opacity:0.8;margin-top:3px;">Worship Service Volunteer Schedule</div>'
     + '</div>'
-    + '<div style="background:white;padding:24px;border:1px solid #dde;border-top:none;border-radius:0 0 8px 8px;">'
+    + '<div style="background:white;padding:24px;border:1px solid #E8E0D0;border-top:none;border-radius:0 0 8px 8px;">'
     + '<p style="margin:0 0 14px;">Hello ' + esc(person.name) + ',</p>'
     + '<p style="margin:0 0 12px;color:#444;">Here are your upcoming worship service assignments:</p>'
     + '<table style="width:100%;border-collapse:collapse;margin:0 0 20px;font-size:0.88rem;">'
-    + '<thead><tr style="background:#f0f2f8;">'
+    + '<thead><tr style="background:#EDF5F8;">'
     + '<th style="' + th + '">Date</th>'
     + '<th style="' + th + '">Service</th>'
     + '<th style="' + th + '">Role</th>'
@@ -2020,13 +2055,13 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
     + '</table>'
     + rsvpSection
     + (rsvpToken ? '' :
-        '<div style="background:#fff8e1;border-left:4px solid #f0b429;padding:14px 16px;border-radius:0 6px 6px 0;margin-bottom:20px;">'
+        '<div style="background:#F5E0B0;border-left:4px solid #D4922A;padding:14px 16px;border-radius:0 6px 6px 0;margin-bottom:20px;">'
       + '<strong style="color:#7a4800;">Unable to serve on one of these dates?</strong>'
-      + '<p style="margin:6px 0 0;font-size:0.88rem;color:#555;">Simply <strong>reply to this email</strong> and we will work to find a substitute.</p>'
+      + '<p style="margin:6px 0 0;font-size:0.88rem;color:#5a3a00;">Simply <strong>reply to this email</strong> and we will work to find a substitute.</p>'
       + '</div>')
     + '<p style="font-size:0.9rem;margin:0 0 6px;">Thank you for your faithful service to our congregation!</p>'
-    + '<p style="font-size:0.78rem;color:#aaa;margin:4px 0 0;">A calendar attachment (.ics) is included \u2014 add it to your calendar to be reminded on each Sunday you serve.</p>'
-    + '<p style="font-size:0.8rem;color:#999;margin:20px 0 0;padding-top:14px;border-top:1px solid #eee;">'
+    + '<p style="font-size:0.78rem;color:#7A6E60;margin:4px 0 0;">A calendar attachment (.ics) is included \u2014 add it to your calendar to be reminded on each Sunday you serve.</p>'
+    + '<p style="font-size:0.8rem;color:#7A6E60;margin:20px 0 0;padding-top:14px;border-top:1px solid #E8E0D0;">'
     + 'Timothy Lutheran Church'
     + (replyLink ? ' &mdash; Questions? Contact us at ' + replyLink : '')
     + '</p>'
@@ -2622,10 +2657,10 @@ function importBreezePersonToForm(breezeId) {
 
       var roleNote = roles.length ? ' Roles pre-checked: ' + roles.join(', ') + '.' : ' No matching role tags \u2014 check roles manually.';
       var emailNote = email ? '' : ' <strong>No email found in Breeze \u2014 enter manually.</strong>';
-      resultsEl.innerHTML = '<span style="color:#27ae60;">\u2713 Filled in from Breeze.' + esc(roleNote) + '</span>' + emailNote + ' <span style="color:#555;">Set Sunday preferences &amp; service preference, then Save.</span>';
+      resultsEl.innerHTML = '<span style="color:#6B8F71;">\u2713 Filled in from Breeze.' + esc(roleNote) + '</span>' + emailNote + ' <span style="color:#7A6E60;">Set Sunday preferences &amp; service preference, then Save.</span>';
     })
     .catch(function(e) {
-      resultsEl.innerHTML = '<span style="color:#e74c3c;">Error: ' + esc(String(e)) + '</span>';
+      resultsEl.innerHTML = '<span style="color:#B85C3A;">Error: ' + esc(String(e)) + '</span>';
     });
 }
 
@@ -2682,7 +2717,7 @@ document.getElementById('btn-breeze-import-search').addEventListener('click', fu
       });
     })
     .catch(function(e) {
-      resultsEl.innerHTML = '<span style="color:#e74c3c;">Error: ' + esc(String(e)) + '</span>';
+      resultsEl.innerHTML = '<span style="color:#B85C3A;">Error: ' + esc(String(e)) + '</span>';
     });
 });
 
@@ -3021,14 +3056,14 @@ function updateSyncStatus(msg, isError) {
   var el = document.getElementById('sync-status');
   if (!el) return;
   el.textContent = msg;
-  el.style.color = isError ? '#c00' : (msg ? '#27ae60' : '#666');
+  el.style.color = isError ? '#B85C3A' : (msg ? '#6B8F71' : '#7A6E60');
 }
 
 function updateLoginStatus(msg, isError) {
   var el = document.getElementById('login-status');
   if (!el) return;
   el.textContent = msg;
-  el.style.color = isError ? '#c00' : '#27ae60';
+  el.style.color = isError ? '#B85C3A' : '#6B8F71';
 }
 
 function buildDataSnapshot() {
@@ -3494,7 +3529,7 @@ function addSpecialSvcTimeRow(timeVal, preSelectedRoles) {
   }).join('');
   var row = document.createElement('div');
   row.className = 'special-svc-row';
-  row.style.cssText = 'background:#fafafa;border:1px solid #dde;border-radius:6px;padding:8px 10px;margin-bottom:8px;';
+  row.style.cssText = 'background:#FAF7F0;border:1px solid #E8E0D0;border-radius:8px;padding:8px 10px;margin-bottom:8px;';
   row.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
     +'<label style="font-size:.78rem;font-weight:600;">Time:</label>'
     +'<input type="text" class="svc-time-input" placeholder="e.g. 5:00pm" style="width:110px;font-size:.82rem;">'
