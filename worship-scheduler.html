@@ -2518,6 +2518,7 @@ document.getElementById('btn-save-settings').addEventListener('click', function(
   if (!subdomain||!apiKey) { showAlert('settings-alert','Please enter both subdomain and API key.','warning'); return; }
   if (!workerUrl) { showAlert('settings-alert','Please enter your Cloudflare Worker URL.','warning'); return; }
   saveBreezeSettings({ subdomain:subdomain, apiKey:apiKey, workerUrl:workerUrl, workerSecret:workerSecret, tagIds:tagIds, resendKey:resendKey, emailFrom:emailFrom, replyTo:replyTo });
+  queueFbPush();
   showAlert('settings-alert','Settings saved!','success');
   document.getElementById('settings-status').textContent = '';
 });
@@ -2526,7 +2527,8 @@ document.getElementById('btn-test-breeze').addEventListener('click', function() 
   var s = getBreezeSettings();
   if (!s.subdomain||!s.apiKey) { showAlert('settings-alert','Save your settings first.','warning'); return; }
   var statusEl = document.getElementById('settings-status');
-  statusEl.textContent = 'Testing…';
+  var testUrl = (s.workerUrl||'') + '/api/people?limit=1&details=0';
+  statusEl.textContent = 'Testing… (→ '+testUrl+')';
   breezeGet('/api/people', { limit:1, details:0 })
     .then(function(data) {
       statusEl.innerHTML = '<span class="status-dot dot-ok"></span> Connected to Breeze!';
@@ -2556,7 +2558,7 @@ function breezeGet(path, params) {
     }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
   })
     .then(function(r) {
-      if (!r.ok) throw 'HTTP '+r.status;
+      if (!r.ok) throw 'HTTP '+r.status+' ('+url+')';
       return r.json();
     });
 }
@@ -3105,7 +3107,8 @@ function buildDataSnapshot() {
     ws_schedule_overrides: getScheduleOverrides(),
     ws_confirmations:      getConfirmations(),
     ws_rsvp_tokens:        getRsvpTokens(),
-    ws_sun_labels:         getSundayLabels()
+    ws_sun_labels:         getSundayLabels(),
+    ws_breeze_settings:    getBreezeSettings()
   };
 }
 
@@ -3128,11 +3131,13 @@ async function fbPull() {
     if (!snap.exists()) { updateSyncStatus('No cloud data found.'); return; }
     var data = snap.val();
     var keys = ['ws_people','ws_schedule_v2','ws_history','ws_last_served',
-                'ws_schedule_overrides','ws_confirmations','ws_rsvp_tokens','ws_sun_labels'];
+                'ws_schedule_overrides','ws_confirmations','ws_rsvp_tokens','ws_sun_labels',
+                'ws_breeze_settings'];
     keys.forEach(function(k) {
       if (data[k] !== undefined) localStorage.setItem(k, JSON.stringify(data[k]));
     });
     updateSyncStatus('Loaded \u2713 ' + new Date().toLocaleTimeString());
+    loadSettingsForm();
     renderPeopleList();
     if (loadSchedule()) {
       renderTable(getPeople(), null);

@@ -563,6 +563,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
     <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
       <h2 style="margin:0;">Volunteers (<span id="people-count">0</span>)</h2>
       <button class="btn btn-primary btn-sm" id="btn-open-person-panel" style="margin-left:auto;">+ Add Person</button>
+      <button class="btn btn-outline btn-sm" id="btn-pending-volunteers">Pending Signups</button>
       <input type="search" id="people-search" placeholder="Filter by name, role, or service…"
              style="max-width:240px;font-size:.85rem;" oninput="updatePeopleSearch(this.value)">
     </div>
@@ -944,6 +945,20 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
       <button class="btn btn-outline" id="btn-reset-readings">Reset to Lectionary</button>
     </div>
     <div id="readings-alert" style="margin-top:8px;"></div>
+  </div>
+</div>
+
+<!-- ══ PENDING VOLUNTEERS PANEL ══════════════════════════════════════════════ -->
+<div id="pending-panel" class="side-panel">
+  <div class="panel-hdr">
+    <h2>Pending Signups</h2>
+    <button class="panel-close" id="btn-close-pending-panel">&times;</button>
+  </div>
+  <div class="panel-body">
+    <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 16px;">
+      Worship volunteers who signed up via the website. Click <strong>Add to Scheduler</strong> to import them as a person.
+    </p>
+    <div id="pending-list"><em style="color:var(--warm-gray);font-size:.9rem;">Loading&hellip;</em></div>
   </div>
 </div>
 
@@ -1964,6 +1979,96 @@ document.getElementById('btn-reset-readings').addEventListener('click', function
 });
 
 document.getElementById('btn-close-readings-panel').addEventListener('click', closeAllPanels);
+
+// ══════════════════════════════════════════════════════════════════
+// PENDING VOLUNTEER SIGNUPS
+// ══════════════════════════════════════════════════════════════════
+document.getElementById('btn-pending-volunteers').addEventListener('click', function() {
+  openPanel('pending-panel');
+  loadPendingVolunteers();
+});
+document.getElementById('btn-close-pending-panel').addEventListener('click', closeAllPanels);
+
+function loadPendingVolunteers() {
+  var s = getBreezeSettings();
+  var listEl = document.getElementById('pending-list');
+  if (!s.workerUrl) {
+    listEl.innerHTML = '<p style="color:var(--warm-gray);font-size:.9rem;">No worker URL configured. Set it in Settings → Breeze Integration.</p>';
+    return;
+  }
+  listEl.innerHTML = '<em style="color:var(--warm-gray);font-size:.9rem;">Loading\u2026</em>';
+  var headers = { 'Content-Type': 'application/json' };
+  if (s.workerSecret) headers['X-Worker-Secret'] = s.workerSecret;
+  fetch(s.workerUrl + '/volunteer/pending', { headers: headers })
+    .then(function(r) { return r.json(); })
+    .then(function(data) { renderPendingList(data.volunteers || []); })
+    .catch(function() {
+      listEl.innerHTML = '<p style="color:#c0392b;font-size:.9rem;">Could not load pending signups. Check your worker URL and secret.</p>';
+    });
+}
+
+function renderPendingList(volunteers) {
+  var listEl = document.getElementById('pending-list');
+  if (!volunteers.length) {
+    listEl.innerHTML = '<p style="color:var(--warm-gray);font-size:.9rem;">No pending signups right now.</p>';
+    return;
+  }
+  var html = '';
+  volunteers.forEach(function(v) {
+    var rolesList = (v.roles && v.roles.length) ? v.roles.join(', ') : '(none)';
+    var svcLabel  = v.service === '8am' ? '8:00 AM' : v.service === '10:45am' ? '10:45 AM' : v.service === 'both' ? 'Both services' : '';
+    var sunLabel  = (v.sundays && v.sundays.length) ? v.sundays.map(function(s) { return s + (['1','2','3'].includes(s)?['st','nd','rd'][+s-1]:'th'); }).join(', ') : 'Flexible';
+    var date      = v.submittedAt ? v.submittedAt.slice(0,10) : '';
+    html += '<div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px;">'
+      + '<div style="font-weight:600;margin-bottom:4px;">' + esc(v.name) + '</div>'
+      + '<div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:6px;">' + esc(v.email) + (v.phone ? ' &middot; ' + esc(v.phone) : '') + (date ? ' &middot; signed up ' + date : '') + '</div>'
+      + '<div style="font-size:.82rem;margin-bottom:4px;"><strong>Roles:</strong> ' + esc(rolesList) + '</div>'
+      + (svcLabel ? '<div style="font-size:.82rem;margin-bottom:4px;"><strong>Service:</strong> ' + esc(svcLabel) + '</div>' : '')
+      + '<div style="font-size:.82rem;margin-bottom:4px;"><strong>Sundays:</strong> ' + esc(sunLabel) + '</div>'
+      + (v.notes ? '<div style="font-size:.82rem;margin-bottom:8px;color:var(--warm-gray);"><strong>Notes:</strong> ' + esc(v.notes) + '</div>' : '')
+      + '<button class="btn btn-primary btn-sm" onclick="importPendingVolunteer(' + JSON.stringify(v).replace(/"/g, '&quot;') + ')">Add to Scheduler</button>'
+      + '</div>';
+  });
+  listEl.innerHTML = html;
+}
+
+function importPendingVolunteer(v) {
+  var people = getPeople();
+  // Map service preference
+  var svcPref = (v.service === '8am' || v.service === '10:45am') ? v.service : 'both';
+  // Map preferred sundays (strings to numbers)
+  var prefSundays = (v.sundays || []).map(function(s) { return parseInt(s, 10); }).filter(Boolean);
+  var person = {
+    id: makeId(),
+    name: v.name,
+    email: v.email,
+    preferredSundays: prefSundays,
+    servicePreference: svcPref,
+    roles: v.roles || [],
+    primaryFor: {},
+    roleSundayOverrides: {},
+    breezePersonId: null,
+    blackoutDates: []
+  };
+  people.push(person);
+  savePeople(people);
+  renderPeopleList();
+  queueFbPush();
+
+  // Remove from KV pending queue
+  var s = getBreezeSettings();
+  if (s.workerUrl && v.id) {
+    var headers = { 'Content-Type': 'application/json' };
+    if (s.workerSecret) headers['X-Worker-Secret'] = s.workerSecret;
+    fetch(s.workerUrl + '/volunteer/claim', {
+      method: 'POST', headers: headers,
+      body: JSON.stringify({ id: v.id })
+    }).catch(function() {});
+  }
+
+  // Reload the pending list
+  loadPendingVolunteers();
+}
 
 window.addEventListener('beforeunload', function(e) {
   if (isDirty) { e.preventDefault(); e.returnValue = ''; }
@@ -3238,7 +3343,7 @@ function breezeGet(path, params) {
 
   params = params || {};
   var qs = Object.keys(params).map(function(k){ return encodeURIComponent(k)+'='+encodeURIComponent(params[k]); }).join('&');
-  var url = s.workerUrl + path + (qs ? '?'+qs : '');
+  var url = s.workerUrl + '/breeze' + path.replace(/^\/api/, '') + (qs ? '?'+qs : '');
   return fetch(url, {
     method: 'GET',
     headers: Object.assign({

@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Worship Slide Builder — Timothy Lutheran Church</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+:root {
+  --navy:  #013558;
+  --royal: #0A4F7A;
+  --steel: #5C8FAB;
+  --ice:   #C4DEE9;
+  --cloud: #F0F6F9;
+  --gold:  #D4922A;
+  --sage:  #8BAE9C;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--cloud); color: #222; min-height: 100vh; }
+
+/* ── Auth ───────────────────────────────────────────────── */
+#auth-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--navy) 0%, var(--royal) 100%); padding: 20px; }
+.auth-card { background: white; border-radius: 20px; padding: 36px 40px; width: 100%; max-width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+.auth-logo { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; display: block; margin: 0 auto 16px; border: 3px solid var(--ice); }
+.auth-logo-placeholder { width: 72px; height: 72px; border-radius: 50%; background: var(--ice); border: 3px solid var(--steel); margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 2rem; }
+.auth-title { text-align: center; font-size: 1.3rem; font-weight: 700; color: var(--navy); margin-bottom: 2px; }
+.auth-subtitle { text-align: center; font-size: 0.85rem; color: #888; margin-bottom: 24px; }
+.auth-lbl { display: block; font-size: 0.82rem; font-weight: 600; color: #555; margin: 12px 0 3px; }
+.auth-input { width: 100%; padding: 9px 12px; border: 1.5px solid #d0d4e0; border-radius: 10px; font-size: 0.95rem; outline: none; }
+.auth-input:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(1,53,88,0.1); }
+.auth-btn { width: 100%; padding: 11px; border-radius: 10px; border: none; font-size: 0.95rem; font-weight: 600; cursor: pointer; margin-top: 14px; transition: background 0.15s; }
+.auth-btn-primary { background: var(--navy); color: white; }
+.auth-btn-primary:hover { background: var(--royal); }
+.auth-btn-google { background: white; color: #444; border: 1.5px solid #d0d4e0; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.auth-btn-google:hover { background: #f8f9fa; }
+.auth-or { text-align: center; font-size: 0.82rem; color: #bbb; margin: 10px 0; }
+#auth-error { margin-top: 10px; padding: 8px 12px; background: #f8d7da; color: #721c24; border-radius: 8px; font-size: 0.85rem; display: none; }
+
+/* ── App chrome ─────────────────────────────────────────── */
+header { background: white; padding: 12px 24px; display: flex; align-items: center; gap: 14px; border-bottom: 2px solid #E2ECF2; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+.hdr-logo { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid var(--ice); }
+.hdr-text h1 { font-size: 1.05rem; font-weight: 700; color: var(--navy); line-height: 1.2; }
+.hdr-church { font-size: 0.72rem; color: #999; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+.hdr-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.hdr-user { font-size: 0.78rem; color: #888; }
+#save-indicator { font-size: 0.78rem; color: #aaa; transition: color 0.3s; min-width: 80px; }
+#save-indicator.saving { color: var(--gold); }
+#save-indicator.saved { color: #27ae60; }
+#save-indicator.error { color: #e74c3c; }
+.hdr-gear { background: rgba(1,53,88,0.08); border: 1px solid rgba(1,53,88,0.15); color: var(--navy); border-radius: 8px; padding: 7px 14px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: background 0.15s; }
+.hdr-gear:hover { background: rgba(1,53,88,0.15); }
+
+/* ── Tabs ───────────────────────────────────────────────── */
+.tabs { display: flex; background: var(--navy); }
+.tab-btn { padding: 11px 22px; background: none; border: none; color: rgba(255,255,255,0.65); font-size: 0.9rem; cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.15s; white-space: nowrap; }
+.tab-btn.active { color: white; border-bottom-color: var(--gold); }
+.tab-btn:hover:not(.active) { color: white; background: rgba(255,255,255,0.07); }
+.tab-content { display: none; padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
+.tab-content.active { display: block; }
+
+/* ── Cards ──────────────────────────────────────────────── */
+.card { background: white; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); padding: 18px 20px; margin-bottom: 18px; }
+.card-title { font-size: 1rem; font-weight: 700; color: var(--navy); margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid #EEF2F6; }
+
+/* ── Buttons ────────────────────────────────────────────── */
+.btn { display: inline-flex; align-items: center; gap: 5px; padding: 8px 16px; border-radius: 10px; border: none; font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+.btn-primary { background: var(--navy); color: white; }
+.btn-primary:hover { background: var(--royal); }
+.btn-success { background: #27ae60; color: white; }
+.btn-success:hover { background: #1e9150; }
+.btn-danger { background: #e74c3c; color: white; }
+.btn-danger:hover { background: #c0392b; }
+.btn-outline { background: white; border: 1.5px solid var(--navy); color: var(--navy); }
+.btn-outline:hover { background: #EEF2F6; }
+.btn-sm { padding: 5px 12px; font-size: 0.8rem; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Form controls ──────────────────────────────────────── */
+.lbl { display: block; font-size: 0.82rem; font-weight: 600; color: #555; margin: 10px 0 3px; }
+input[type="text"], input[type="date"], input[type="email"], input[type="password"], textarea, select {
+  width: 100%; padding: 8px 10px; border: 1.5px solid #D0D8E4; border-radius: 10px; font-size: 0.9rem; outline: none; font-family: inherit; background: white;
+}
+input:focus, textarea:focus, select:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(1,53,88,0.08); }
+textarea { resize: vertical; min-height: 80px; }
+
+/* ── Service bar ────────────────────────────────────────── */
+#service-bar { background: white; border-radius: 14px; padding: 14px 18px; margin-bottom: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
+.sbar-field { display: flex; flex-direction: column; gap: 3px; }
+.sbar-field label { font-size: 0.78rem; font-weight: 600; color: #666; }
+#sbar-date { width: 160px; }
+#sbar-title { min-width: 260px; }
+.sbar-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+
+/* ── Builder layout ─────────────────────────────────────── */
+#builder-main { display: grid; grid-template-columns: 420px 1fr; gap: 18px; }
+@media (max-width: 960px) { #builder-main { grid-template-columns: 1fr; } .preview-col { order: -1; } }
+
+/* ── Slide list ─────────────────────────────────────────── */
+.slide-toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #EEF2F6; }
+.slide-list { display: flex; flex-direction: column; gap: 5px; min-height: 60px; }
+.slide-item { display: flex; align-items: center; gap: 7px; padding: 8px 10px; background: #F8FAFD; border: 1.5px solid #E2E8F2; border-radius: 12px; cursor: pointer; transition: all 0.12s; user-select: none; }
+.slide-item:hover { border-color: var(--steel); background: #EEF5FF; }
+.slide-item.active { border-color: var(--navy); background: #E8F0FA; box-shadow: 0 0 0 2px rgba(1,53,88,0.1); }
+.slide-item.drag-over { border-color: var(--gold); background: #FFF8EC; border-style: dashed; }
+.drag-handle { cursor: grab; color: #bbb; font-size: 1rem; flex-shrink: 0; line-height: 1; }
+.drag-handle:active { cursor: grabbing; }
+.slide-type-badge { font-size: 0.66rem; font-weight: 700; padding: 2px 7px; border-radius: 6px; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+.badge-title        { background: #013558; color: white; }
+.badge-hymn         { background: #7B2D8B; color: white; }
+.badge-reading      { background: #1A6B3A; color: white; }
+.badge-liturgy      { background: #2255AA; color: white; }
+.badge-sermon       { background: #8B3A1A; color: white; }
+.badge-prayer       { background: #4A6B3A; color: white; }
+.badge-announcement { background: #8B6B1A; color: white; }
+.badge-text         { background: #555555; color: white; }
+.badge-blank        { background: #999999; color: white; }
+.slide-item-content { flex: 1; min-width: 0; }
+.slide-item-title { font-size: 0.84rem; font-weight: 600; color: #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slide-item-sub { font-size: 0.73rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slide-item-actions { display: flex; gap: 3px; flex-shrink: 0; }
+.sab { background: none; border: 1px solid #dde; border-radius: 6px; color: #777; cursor: pointer; padding: 3px 6px; font-size: 0.75rem; transition: all 0.1s; }
+.sab:hover { background: #EEF2F6; color: var(--navy); border-color: var(--navy); }
+.sab.del:hover { background: #FEE2E2; color: #c0392b; border-color: #c0392b; }
+.sab:disabled { opacity: 0.3; cursor: default; pointer-events: none; }
+
+/* ── Preview ────────────────────────────────────────────── */
+.preview-col .card { position: sticky; top: 16px; }
+.preview-wrap { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.18); margin-bottom: 16px; }
+.preview-inner { position: absolute; top: 0; left: 0; width: 1600px; height: 900px; transform-origin: top left; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 10% 8%; text-align: center; }
+.prev-logo { position: absolute; top: 5%; right: 5%; width: 9%; max-height: 12%; object-fit: contain; opacity: 0.8; }
+.prev-lsb { position: absolute; top: 5%; left: 5%; font-size: 20px; font-weight: 700; opacity: 0.7; line-height: 1; }
+.prev-overline { font-size: 22px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; opacity: 0.8; margin-bottom: 14px; }
+.prev-main { font-size: 64px; font-weight: 700; line-height: 1.15; }
+.prev-sub { font-size: 36px; opacity: 0.85; margin-top: 16px; line-height: 1.3; }
+.prev-body { font-size: 32px; line-height: 1.55; white-space: pre-line; max-width: 90%; }
+.prev-ref { font-size: 28px; opacity: 0.75; font-style: italic; margin-top: 10px; }
+.prev-empty { font-size: 28px; opacity: 0.35; font-style: italic; }
+
+/* ── Slide editor ───────────────────────────────────────── */
+#slide-editor { border-top: 1px solid #EEF2F6; padding-top: 14px; }
+.editor-hdr { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.editor-hdr-title { font-weight: 700; color: var(--navy); font-size: 0.95rem; }
+
+/* ── Theme swatches ─────────────────────────────────────── */
+.theme-row { display: flex; gap: 8px; }
+.theme-swatch { width: 34px; height: 34px; border-radius: 50%; cursor: pointer; border: 3px solid transparent; transition: all 0.15s; }
+.theme-swatch.active { box-shadow: 0 0 0 2px white, 0 0 0 4px var(--gold); }
+.theme-swatch.white-swatch { border-color: #C8D4E0; }
+.theme-swatch.white-swatch.active { border-color: var(--gold); }
+
+/* ── Services tab ───────────────────────────────────────── */
+.svc-card { border: 1.5px solid #E2E8F2; border-radius: 14px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; background: white; margin-bottom: 10px; transition: border-color 0.12s; }
+.svc-card:hover { border-color: var(--steel); }
+.svc-card.current { border-color: var(--navy); }
+.svc-info { flex: 1; }
+.svc-title { font-weight: 700; color: var(--navy); font-size: 0.95rem; }
+.svc-meta { font-size: 0.78rem; color: #888; margin-top: 2px; }
+.svc-actions { display: flex; gap: 8px; }
+.current-badge { font-size: 0.68rem; background: var(--navy); color: white; padding: 1px 7px; border-radius: 6px; font-weight: 700; margin-left: 6px; vertical-align: middle; }
+
+/* ── Settings ───────────────────────────────────────────── */
+.settings-section { margin-bottom: 24px; }
+.settings-section h3 { font-size: 0.9rem; font-weight: 700; color: var(--navy); margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid #EEF2F6; }
+.logo-preview { width: 80px; height: 80px; border-radius: 12px; object-fit: contain; border: 2px solid #E2E8F2; background: #f8f9fa; }
+.logo-empty { width: 80px; height: 80px; border-radius: 12px; border: 2px dashed #C0CCE0; display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #C8D4E0; background: #F8FAFD; }
+
+/* ── Empty state ────────────────────────────────────────── */
+.empty-state { text-align: center; padding: 36px 20px; color: #bbb; }
+.empty-state .icon { font-size: 2.8rem; display: block; margin-bottom: 10px; }
+.empty-state p { font-size: 0.85rem; margin-top: 4px; }
+
+/* ── Alert ──────────────────────────────────────────────── */
+.alert { padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 0.87rem; }
+.alert-info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+</style>
+</head>
+<body>
+
+<!-- ══ AUTH SCREEN ══════════════════════════════════════════════════════ -->
+<div id="auth-screen">
+  <div class="auth-card">
+    <img src="tlc-logo.png" class="auth-logo" alt="TLC" onerror="this.outerHTML='<div class=auth-logo-placeholder>✝</div>'">
+    <div class="auth-title">Worship Slide Builder</div>
+    <div class="auth-subtitle">Timothy Lutheran Church</div>
+    <label class="auth-lbl" for="auth-email">Email</label>
+    <input class="auth-input" type="email" id="auth-email" placeholder="you@example.com" autocomplete="email">
+    <label class="auth-lbl" for="auth-pw">Password</label>
+    <input class="auth-input" type="password" id="auth-pw" placeholder="••••••••" autocomplete="current-password">
+    <button class="auth-btn auth-btn-primary" id="btn-signin">Sign In</button>
+    <div class="auth-or">— or —</div>
+    <button class="auth-btn auth-btn-google" id="btn-google">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Continue with Google
+    </button>
+    <div id="auth-error"></div>
+  </div>
+</div>
+
+<!-- ══ MAIN APP ══════════════════════════════════════════════════════════ -->
+<div id="app" style="display:none">
+
+<header>
+  <img src="tlc-logo.png" class="hdr-logo" alt="TLC" onerror="this.style.display='none'">
+  <div class="hdr-text">
+    <div class="hdr-church" id="church-name-display">Timothy Lutheran Church</div>
+    <h1>Worship Slide Builder</h1>
+  </div>
+  <div class="hdr-actions">
+    <span class="hdr-user" id="user-email-display"></span>
+    <span id="save-indicator"></span>
+    <button class="hdr-gear" id="btn-signout">Sign Out</button>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" id="tab-btn-builder">🎞 Builder</button>
+  <button class="tab-btn" id="tab-btn-services">📁 Services</button>
+  <button class="tab-btn" id="tab-btn-settings">⚙ Settings</button>
+</div>
+
+<!-- ══ BUILDER TAB ═══════════════════════════════════════════════════════ -->
+<div id="tab-builder" class="tab-content active">
+
+  <div id="service-bar">
+    <div class="sbar-field">
+      <label for="sbar-date">Service Date</label>
+      <input type="date" id="sbar-date">
+    </div>
+    <div class="sbar-field">
+      <label for="sbar-title">Service Title</label>
+      <input type="text" id="sbar-title" placeholder="e.g. Third Sunday of Advent">
+    </div>
+    <div class="sbar-field">
+      <label>Background Theme</label>
+      <div class="theme-row" id="theme-swatches" style="padding-top:4px;"></div>
+    </div>
+    <div class="sbar-actions">
+      <button class="btn btn-primary" id="btn-export-pptx">⬇ Export PPTX</button>
+      <button class="btn btn-outline" id="btn-print-order">🖨 Print Order</button>
+      <button class="btn btn-success" id="btn-save-service">💾 Save</button>
+    </div>
+  </div>
+
+  <div id="builder-main">
+    <!-- Left: Slide List -->
+    <div class="list-col">
+      <div class="card">
+        <div class="slide-toolbar">
+          <button class="btn btn-sm btn-outline" id="add-title">+ Title</button>
+          <button class="btn btn-sm btn-outline" id="add-hymn">+ Hymn</button>
+          <button class="btn btn-sm btn-outline" id="add-reading">+ Reading</button>
+          <button class="btn btn-sm btn-outline" id="add-liturgy">+ Liturgy</button>
+          <button class="btn btn-sm btn-outline" id="add-sermon">+ Sermon</button>
+          <button class="btn btn-sm btn-outline" id="add-prayer">+ Prayer</button>
+          <button class="btn btn-sm btn-outline" id="add-announcement">+ Annmt</button>
+          <button class="btn btn-sm btn-outline" id="add-text">+ Text</button>
+          <button class="btn btn-sm btn-outline" id="add-blank">+ Blank</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap;">
+          <button class="btn btn-sm btn-primary" id="btn-from-template">📋 From Template</button>
+          <button class="btn btn-sm btn-success" id="btn-add-readings" disabled>📖 Add Readings</button>
+          <button class="btn btn-sm btn-outline" id="btn-new-service" style="margin-left:auto;">+ New Service</button>
+          <span style="font-size:0.78rem;color:#aaa;" id="slide-count-label">0 slides</span>
+        </div>
+        <div id="slide-list" class="slide-list">
+          <div class="empty-state"><span class="icon">🎞</span><div>No slides yet</div><p>Add slides using the buttons above,<br>or click "From Template" for a full service.</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Preview + Editor -->
+    <div class="preview-col">
+      <div class="card">
+        <div class="preview-wrap" id="preview-wrap">
+          <div class="preview-inner" id="preview-inner" style="background:#013558;color:#fff;">
+            <div class="prev-empty">Select a slide to preview</div>
+          </div>
+        </div>
+        <div id="slide-editor">
+          <div style="text-align:center;color:#bbb;font-size:0.85rem;padding:10px;">Click a slide to edit</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SERVICES TAB ═══════════════════════════════════════════════════════ -->
+<div id="tab-services" class="tab-content">
+  <div class="card">
+    <div class="card-title">Saved Services</div>
+    <div id="services-list"><div class="empty-state"><span class="icon">📁</span><div>No saved services yet</div><p>Build a service in the Builder tab and click Save.</p></div></div>
+  </div>
+</div>
+
+<!-- ══ SETTINGS TAB ═══════════════════════════════════════════════════════ -->
+<div id="tab-settings" class="tab-content">
+  <div class="card" style="max-width:540px;">
+    <div class="card-title">Settings</div>
+
+    <div class="settings-section">
+      <h3>Church</h3>
+      <label class="lbl" for="set-church-name">Church Name</label>
+      <input type="text" id="set-church-name" placeholder="Timothy Lutheran Church">
+      <label class="lbl">Church Logo</label>
+      <div style="display:flex;align-items:center;gap:16px;margin-top:8px;">
+        <div id="logo-preview-wrap"><div class="logo-empty">🏛</div></div>
+        <div>
+          <input type="file" id="set-logo-file" accept="image/*" style="display:none">
+          <button class="btn btn-outline btn-sm" id="btn-upload-logo">Upload Logo</button>
+          <button class="btn btn-sm" id="btn-remove-logo" style="background:#FEE2E2;color:#c0392b;border:1px solid #fcc;display:none;">Remove</button>
+          <div style="font-size:0.74rem;color:#aaa;margin-top:5px;">Appears in slide preview &amp; PPTX export</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Slide Defaults</h3>
+      <label class="lbl" for="set-font">Default Font</label>
+      <select id="set-font">
+        <option value="Arial">Arial</option>
+        <option value="Times New Roman">Times New Roman</option>
+        <option value="Georgia">Georgia</option>
+        <option value="Calibri">Calibri</option>
+        <option value="Garamond">Garamond</option>
+        <option value="Palatino Linotype">Palatino Linotype</option>
+      </select>
+      <label class="lbl">Default Background Theme</label>
+      <div class="theme-row" id="settings-theme-swatches" style="margin-top:8px;"></div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:12px;margin-top:8px;">
+      <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>
+      <span id="settings-saved" style="font-size:0.82rem;color:#27ae60;display:none;">✓ Saved</span>
+    </div>
+  </div>
+</div>
+
+</div><!-- #app -->
+
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+<script type="module">
+import { initializeApp }     from 'https://www.gstatic.com/firebasejs/10.11.1/firebase-app.js';
+import { getAuth, signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut }
+                              from 'https://www.gstatic.com/firebasejs/10.11.1/firebase-auth.js';
+import { getDatabase, ref, set, get, remove }
+                              from 'https://www.gstatic.com/firebasejs/10.11.1/firebase-database.js';
+
+// ── Firebase ──────────────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyDYHJoLHArmcMDFZrXaMJ62RGUMgusJhD8",
+  authDomain: "tlc-worship-scheduler.firebaseapp.com",
+  databaseURL: "https://tlc-worship-scheduler-default-rtdb.firebaseio.com",
+  projectId: "tlc-worship-scheduler",
+  storageBucket: "tlc-worship-scheduler.firebasestorage.app",
+  messagingSenderId: "645397350092",
+  appId: "1:645397350092:web:d6c828f36f721ede3d2469"
+};
+const fbApp  = initializeApp(firebaseConfig, 'slide-builder');
+const fbAuth = getAuth(fbApp);
+const fbDb   = getDatabase(fbApp);
+
+// ── State ─────────────────────────────────────────────────────────────────
+let fbUser          = null;
+let slides          = [];
+let currentIdx      = -1;
+let serviceDate     = '';
+let serviceTitle    = '';
+let serviceTheme    = 'navy';
+let currentSvcId    = null;
+let settings        = { churchName: 'Timothy Lutheran Church', font: 'Arial', defaultTheme: 'navy', logo: '' };
+let allServices     = {};
+let lectCalendar    = {};
+let saveTimer       = null;
+
+// ── Constants ─────────────────────────────────────────────────────────────
+const THEMES = {
+  navy:  { bg: '#013558', fg: '#FFFFFF', accent: '#D4922A', name: 'Navy'  },
+  black: { bg: '#0A0A0A', fg: '#FFFFFF', accent: '#D4922A', name: 'Black' },
+  white: { bg: '#F0F6F9', fg: '#013558', accent: '#D4922A', name: 'White' },
+  gold:  { bg: '#D4922A', fg: '#013558', accent: '#FFFFFF', name: 'Gold'  },
+  slate: { bg: '#4B5A72', fg: '#FFFFFF', accent: '#C4DEE9', name: 'Slate' },
+};
+const TYPE_LABELS = {
+  title: 'Title', hymn: 'Hymn', reading: 'Reading', liturgy: 'Liturgy',
+  sermon: 'Sermon', prayer: 'Prayer', announcement: 'Announcement', text: 'Text', blank: 'Blank'
+};
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────
+onAuthStateChanged(fbAuth, user => {
+  fbUser = user;
+  document.getElementById('auth-screen').style.display = user ? 'none' : '';
+  document.getElementById('app').style.display          = user ? 'block' : 'none';
+  if (user) {
+    document.getElementById('user-email-display').textContent = user.email || user.displayName || '';
+    loadUserData();
+  }
+});
+
+document.getElementById('btn-signin').addEventListener('click', async () => {
+  clearAuthError();
+  try { await signInWithEmailAndPassword(fbAuth, document.getElementById('auth-email').value.trim(), document.getElementById('auth-pw').value); }
+  catch(e) { showAuthError(friendlyAuthError(e.code)); }
+});
+document.getElementById('auth-pw').addEventListener('keydown', e => { if (e.key==='Enter') document.getElementById('btn-signin').click(); });
+document.getElementById('btn-google').addEventListener('click', async () => {
+  clearAuthError();
+  try { await signInWithPopup(fbAuth, new GoogleAuthProvider()); }
+  catch(e) { showAuthError(e.message); }
+});
+document.getElementById('btn-signout').addEventListener('click', () => signOut(fbAuth));
+
+function showAuthError(msg) { const el=document.getElementById('auth-error'); el.textContent=msg; el.style.display='block'; }
+function clearAuthError()   { document.getElementById('auth-error').style.display='none'; }
+function friendlyAuthError(code) {
+  if (code==='auth/user-not-found'||code==='auth/wrong-password'||code==='auth/invalid-credential') return 'Invalid email or password.';
+  if (code==='auth/too-many-requests') return 'Too many attempts. Please wait a moment.';
+  return 'Sign-in failed. Please try again.';
+}
+
+// ── Firebase data ─────────────────────────────────────────────────────────
+function sbRef(path) { return ref(fbDb, `sb_data/${fbUser.uid}/${path}`); }
+
+async function loadUserData() {
+  try { const s = await get(sbRef('settings')); if (s.exists()) settings = Object.assign(settings, s.val()); } catch(e){}
+  applySettings();
+  try { const s = await get(sbRef('services')); if (s.exists()) allServices = s.val()||{}; } catch(e){}
+  renderServicesList();
+  fetch('lcms_calendar.json').then(r=>r.json()).then(d=>{ lectCalendar=d.calendar||{}; }).catch(()=>{});
+}
+
+function applySettings() {
+  document.getElementById('church-name-display').textContent = settings.churchName || 'Timothy Lutheran Church';
+  document.getElementById('set-church-name').value = settings.churchName || '';
+  document.getElementById('set-font').value = settings.font || 'Arial';
+  renderThemeSwatches();
+  renderSettingsThemeSwatches();
+  renderLogoPreview();
+}
+
+function scheduleSave() {
+  if (saveTimer) clearTimeout(saveTimer);
+  setSaveInd('saving');
+  saveTimer = setTimeout(persistService, 1500);
+}
+
+async function persistService() {
+  if (!fbUser || !currentSvcId) return;
+  const data = { id: currentSvcId, date: serviceDate, title: serviceTitle, theme: serviceTheme, slides, updatedAt: Date.now() };
+  try {
+    await set(sbRef(`services/${currentSvcId}`), data);
+    allServices[currentSvcId] = data;
+    setSaveInd('saved');
+  } catch(e) { setSaveInd('error'); }
+}
+
+function setSaveInd(state) {
+  const el = document.getElementById('save-indicator');
+  el.className = '';
+  if (state==='saving') { el.textContent='⏳ Saving…'; el.classList.add('saving'); }
+  else if (state==='saved') { el.textContent='✓ Saved'; el.classList.add('saved'); setTimeout(()=>{ el.textContent=''; },3000); }
+  else if (state==='error') { el.textContent='✗ Save failed'; el.classList.add('error'); }
+  else el.textContent='';
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────
+function showTab(name) {
+  ['builder','services','settings'].forEach(t => {
+    document.getElementById(`tab-${t}`).classList.toggle('active', t===name);
+    document.getElementById(`tab-btn-${t}`).classList.toggle('active', t===name);
+  });
+  if (name==='services') renderServicesList();
+}
+['builder','services','settings'].forEach(t => {
+  document.getElementById(`tab-btn-${t}`).addEventListener('click', ()=>showTab(t));
+});
+
+// ── Service bar ───────────────────────────────────────────────────────────
+document.getElementById('sbar-date').addEventListener('change', e => {
+  serviceDate = e.target.value;
+  if (!currentSvcId) startNewService();
+  const entry = lectCalendar[serviceDate];
+  if (entry) {
+    const auto = document.getElementById('sbar-title').dataset.autoFill;
+    if (!serviceTitle || serviceTitle===auto) {
+      serviceTitle = entry.sundayName;
+      document.getElementById('sbar-title').value = serviceTitle;
+      document.getElementById('sbar-title').dataset.autoFill = serviceTitle;
+    }
+    document.getElementById('btn-add-readings').disabled = false;
+  } else {
+    document.getElementById('btn-add-readings').disabled = true;
+  }
+  scheduleSave();
+});
+
+document.getElementById('sbar-title').addEventListener('input', e => {
+  if (!currentSvcId) startNewService();
+  serviceTitle = e.target.value;
+  scheduleSave();
+});
+
+// ── Theme swatches ────────────────────────────────────────────────────────
+function renderThemeSwatches() {
+  const c = document.getElementById('theme-swatches');
+  c.innerHTML = '';
+  Object.entries(THEMES).forEach(([key,th]) => {
+    const sw = document.createElement('div');
+    sw.className = 'theme-swatch' + (key==='white'?' white-swatch':'') + (serviceTheme===key?' active':'');
+    sw.style.background = th.bg;
+    sw.title = th.name;
+    sw.addEventListener('click', ()=>{ serviceTheme=key; renderThemeSwatches(); renderPreview(); scheduleSave(); });
+    c.appendChild(sw);
+  });
+}
+
+function renderSettingsThemeSwatches() {
+  const c = document.getElementById('settings-theme-swatches');
+  c.innerHTML = '';
+  Object.entries(THEMES).forEach(([key,th]) => {
+    const sw = document.createElement('div');
+    sw.className = 'theme-swatch' + (key==='white'?' white-swatch':'') + (settings.defaultTheme===key?' active':'');
+    sw.style.background = th.bg;
+    sw.title = th.name;
+    sw.addEventListener('click', ()=>{ settings.defaultTheme=key; renderSettingsThemeSwatches(); });
+    c.appendChild(sw);
+  });
+}
+
+// ── Slide management ──────────────────────────────────────────────────────
+function newId() { return 'sl_' + Date.now() + '_' + Math.random().toString(36).slice(2,6); }
+
+function newSlide(type) {
+  const base = { id: newId(), type };
+  switch(type) {
+    case 'title':        return { ...base, title: 'Service Title', subtitle: '' };
+    case 'hymn':         return { ...base, lsbNumber: '', hymnTitle: '', verseText: '' };
+    case 'reading':      return { ...base, readingLabel: 'The Reading', reference: '', text: '' };
+    case 'liturgy':      return { ...base, title: '', body: '' };
+    case 'sermon':       return { ...base, title: 'Sermon', reference: '', preacher: '' };
+    case 'prayer':       return { ...base, title: 'Prayer of the Church', body: '' };
+    case 'announcement': return { ...base, title: 'Announcement', body: '' };
+    case 'text':         return { ...base, body: '' };
+    case 'blank':        return { ...base };
+    default:             return base;
+  }
+}
+
+function startNewService() {
+  currentSvcId = 'svc_' + Date.now();
+  serviceTheme = settings.defaultTheme || 'navy';
+  renderThemeSwatches();
+}
+
+function addSlide(type) {
+  if (!currentSvcId) startNewService();
+  const sl = newSlide(type);
+  slides.push(sl);
+  currentIdx = slides.length - 1;
+  renderSlideList(); renderPreview(); renderEditor(); updateCount(); scheduleSave();
+}
+
+window.addSlideW = addSlide;
+
+['title','hymn','reading','liturgy','sermon','prayer','announcement','text','blank'].forEach(t => {
+  document.getElementById('add-'+t).addEventListener('click', ()=>addSlide(t));
+});
+
+document.getElementById('btn-new-service').addEventListener('click', () => {
+  if (slides.length>0 && !confirm('Start a new service? Unsaved changes will be lost.')) return;
+  slides=[]; currentIdx=-1; serviceDate=''; serviceTitle=''; currentSvcId=null;
+  document.getElementById('sbar-date').value='';
+  document.getElementById('sbar-title').value='';
+  serviceTheme = settings.defaultTheme||'navy';
+  renderThemeSwatches(); renderSlideList(); renderPreview(); renderEditor(); updateCount();
+  setSaveInd('');
+});
+
+window.delSlide = function(idx) { if (confirm('Delete this slide?')) { slides.splice(idx,1); if(currentIdx>=slides.length) currentIdx=slides.length-1; renderSlideList(); renderPreview(); renderEditor(); updateCount(); scheduleSave(); } };
+window.dupSlide = function(idx) { const sl=JSON.parse(JSON.stringify(slides[idx])); sl.id=newId(); slides.splice(idx+1,0,sl); currentIdx=idx+1; renderSlideList(); renderPreview(); renderEditor(); updateCount(); scheduleSave(); };
+window.moveUp   = function(idx) { if(idx===0) return; [slides[idx],slides[idx-1]]=[slides[idx-1],slides[idx]]; currentIdx=idx-1; renderSlideList(); renderPreview(); scheduleSave(); };
+window.moveDown = function(idx) { if(idx>=slides.length-1) return; [slides[idx],slides[idx+1]]=[slides[idx+1],slides[idx]]; currentIdx=idx+1; renderSlideList(); renderPreview(); scheduleSave(); };
+window.splitHymnSlide = function(idx) {
+  const sl = slides[idx];
+  if (sl.type!=='hymn') return;
+  const verses = (sl.verseText||'').trim().split(/\n\s*\n/).map(v=>v.trim()).filter(Boolean);
+  if (verses.length<=1) { alert('No multiple verses found.\nSeparate verses with a blank line between them.'); return; }
+  const newSlides = verses.map((v,i)=>({ ...JSON.parse(JSON.stringify(sl)), id: 'sl_'+Date.now()+'_'+i, verseText: v }));
+  slides.splice(idx, 1, ...newSlides);
+  currentIdx = idx;
+  renderSlideList(); renderPreview(); renderEditor(); updateCount(); scheduleSave();
+};
+window.selectSlide = function(idx) { currentIdx=idx; renderSlideList(); renderPreview(); renderEditor(); };
+
+function updateCount() {
+  document.getElementById('slide-count-label').textContent = slides.length===1 ? '1 slide' : `${slides.length} slides`;
+}
+
+// ── Slide list rendering ──────────────────────────────────────────────────
+function slidePreviewText(sl) {
+  switch(sl.type) {
+    case 'title':        return { main: sl.title||'(untitled)', sub: sl.subtitle||'' };
+    case 'hymn':         return { main: sl.lsbNumber?`LSB ${sl.lsbNumber}`:'(no number)', sub: sl.hymnTitle||'' };
+    case 'reading':      return { main: sl.readingLabel||'Reading', sub: sl.reference||'' };
+    case 'liturgy':      return { main: sl.title||'(liturgy)', sub: '' };
+    case 'sermon':       return { main: sl.title||'Sermon', sub: sl.reference||'' };
+    case 'prayer':       return { main: sl.title||'Prayer', sub: '' };
+    case 'announcement': return { main: sl.title||'Announcement', sub: '' };
+    case 'text':         return { main: (sl.body||'').slice(0,60)||'(text)', sub: '' };
+    case 'blank':        return { main: '(blank)', sub: '' };
+    default:             return { main: sl.type, sub: '' };
+  }
+}
+
+function renderSlideList() {
+  const list = document.getElementById('slide-list');
+  if (slides.length===0) {
+    list.innerHTML='<div class="empty-state"><span class="icon">🎞</span><div>No slides yet</div><p>Add slides above or use "From Template"</p></div>';
+    return;
+  }
+  list.innerHTML='';
+  slides.forEach((sl,idx) => {
+    const {main,sub} = slidePreviewText(sl);
+    const item = document.createElement('div');
+    item.className='slide-item'+(idx===currentIdx?' active':'');
+    item.draggable=true;
+    item.dataset.idx=idx;
+    item.innerHTML=`
+      <span class="drag-handle" title="Drag to reorder">⠿</span>
+      <span class="slide-type-badge badge-${sl.type}">${TYPE_LABELS[sl.type]||sl.type}</span>
+      <div class="slide-item-content">
+        <div class="slide-item-title">${esc(main)}</div>
+        ${sub?`<div class="slide-item-sub">${esc(sub)}</div>`:''}
+      </div>
+      <div class="slide-item-actions">
+        <button class="sab" onclick="moveUp(${idx})" title="Move up"${idx===0?' disabled':''}>↑</button>
+        <button class="sab" onclick="moveDown(${idx})" title="Move down"${idx===slides.length-1?' disabled':''}>↓</button>
+        <button class="sab" onclick="dupSlide(${idx})" title="Duplicate">⧉</button>
+        ${sl.type==='hymn'?`<button class="sab" onclick="splitHymnSlide(${idx})" title="Split into one slide per verse">⊞</button>`:''}
+        <button class="sab del" onclick="delSlide(${idx})" title="Delete">✕</button>
+      </div>`;
+    item.addEventListener('click', e => { if(e.target.closest('.slide-item-actions')||e.target.classList.contains('drag-handle')) return; selectSlide(idx); });
+    // Drag & drop
+    item.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain',String(idx)); item.style.opacity='0.4'; });
+    item.addEventListener('dragend',   ()=> { item.style.opacity=''; });
+    item.addEventListener('dragover',  e => { e.preventDefault(); item.classList.add('drag-over'); });
+    item.addEventListener('dragleave', ()=> { item.classList.remove('drag-over'); });
+    item.addEventListener('drop',      e => {
+      e.preventDefault(); item.classList.remove('drag-over');
+      const from=parseInt(e.dataTransfer.getData('text/plain'),10), to=idx;
+      if(from===to) return;
+      const [moved]=slides.splice(from,1); slides.splice(to,0,moved);
+      currentIdx=to; renderSlideList(); renderPreview(); scheduleSave();
+    });
+    list.appendChild(item);
+  });
+}
+
+// ── Preview (scaled to 1600×900 virtual canvas) ───────────────────────────
+function updatePreviewScale() {
+  const wrap=document.getElementById('preview-wrap');
+  if(!wrap) return;
+  document.getElementById('preview-inner').style.transform=`scale(${wrap.clientWidth/1600})`;
+}
+new ResizeObserver(updatePreviewScale).observe(document.getElementById('preview-wrap'));
+updatePreviewScale();
+
+function renderPreview() {
+  const inner = document.getElementById('preview-inner');
+  const theme = THEMES[serviceTheme]||THEMES.navy;
+  inner.style.background = theme.bg;
+  inner.style.color = theme.fg;
+  const sl = slides[currentIdx];
+  if (!sl) { inner.innerHTML='<div class="prev-empty">Select a slide to preview</div>'; return; }
+  const fg=theme.fg, ac=theme.accent;
+  let h = settings.logo ? `<img src="${settings.logo}" class="prev-logo" alt="logo">` : '';
+  switch(sl.type) {
+    case 'title':
+      h+=`<div class="prev-main" style="color:${fg}">${esc(sl.title||'')}</div>`;
+      if(sl.subtitle) h+=`<div class="prev-sub" style="color:${ac}">${esc(sl.subtitle)}</div>`;
+      break;
+    case 'hymn':
+      if(sl.lsbNumber) h+=`<div class="prev-lsb" style="color:${ac}">LSB ${esc(sl.lsbNumber)}</div>`;
+      if(sl.hymnTitle) h+=`<div class="prev-overline" style="color:${ac}">${esc(sl.hymnTitle)}</div>`;
+      h+=`<div class="prev-body" style="color:${fg}">${esc(sl.verseText||'')}</div>`;
+      break;
+    case 'reading':
+      h+=`<div class="prev-overline" style="color:${ac}">${esc(sl.readingLabel||'The Reading')}</div>`;
+      if(sl.reference) h+=`<div class="prev-ref" style="color:${fg}">${esc(sl.reference)}</div>`;
+      if(sl.text) h+=`<div class="prev-body" style="color:${fg};font-size:26px;margin-top:16px">${esc(sl.text)}</div>`;
+      break;
+    case 'liturgy':
+      if(sl.title) h+=`<div class="prev-overline" style="color:${ac}">${esc(sl.title)}</div>`;
+      if(sl.body)  h+=`<div class="prev-body" style="color:${fg}">${esc(sl.body)}</div>`;
+      break;
+    case 'sermon':
+      h+=`<div class="prev-overline" style="color:${ac}">Sermon</div>`;
+      h+=`<div class="prev-main" style="color:${fg};font-size:52px">${esc(sl.title||'')}</div>`;
+      if(sl.reference) h+=`<div class="prev-sub" style="color:${ac}">${esc(sl.reference)}</div>`;
+      if(sl.preacher)  h+=`<div class="prev-sub" style="color:${fg};opacity:0.65;font-size:28px">${esc(sl.preacher)}</div>`;
+      break;
+    case 'prayer':
+      if(sl.title) h+=`<div class="prev-overline" style="color:${ac}">${esc(sl.title)}</div>`;
+      if(sl.body)  h+=`<div class="prev-body" style="color:${fg}">${esc(sl.body)}</div>`;
+      break;
+    case 'announcement':
+      h+=`<div class="prev-main" style="color:${fg};font-size:52px">${esc(sl.title||'')}</div>`;
+      if(sl.body) h+=`<div class="prev-body" style="color:${fg};font-size:26px;margin-top:20px">${esc(sl.body)}</div>`;
+      break;
+    case 'text':
+      h+=`<div class="prev-body" style="color:${fg}">${esc(sl.body||'')}</div>`;
+      break;
+    case 'blank': break;
+    default: h+=`<div class="prev-empty">No preview</div>`;
+  }
+  inner.innerHTML=h;
+}
+
+// ── Slide editor ──────────────────────────────────────────────────────────
+function renderEditor() {
+  const el = document.getElementById('slide-editor');
+  const sl = slides[currentIdx];
+  if (!sl) { el.innerHTML='<div style="text-align:center;color:#bbb;font-size:0.85rem;padding:10px;">Click a slide to edit</div>'; return; }
+  let h = `<div class="editor-hdr"><span class="slide-type-badge badge-${sl.type}">${TYPE_LABELS[sl.type]}</span><span class="editor-hdr-title">${TYPE_LABELS[sl.type]} Slide</span></div>`;
+  const fld = (label,type,fname,val,ph,extra='')=>{
+    const id=`ef-${sl.id}-${fname}`;
+    if(type==='textarea') return `<label class="lbl" for="${id}">${label}</label><textarea id="${id}" data-field="${fname}" placeholder="${esc(ph)}" ${extra}>${esc(val||'')}</textarea>`;
+    return `<label class="lbl" for="${id}">${label}</label><input type="text" id="${id}" data-field="${fname}" value="${esc(val||'')}" placeholder="${esc(ph)}" ${extra}>`;
+  };
+  switch(sl.type) {
+    case 'title':
+      h+=fld('Title','text','title',sl.title,'Service or Sunday name');
+      h+=fld('Subtitle','text','subtitle',sl.subtitle,'e.g. date, season');
+      break;
+    case 'hymn':
+      h+=fld('LSB Number','text','lsbNumber',sl.lsbNumber,'e.g. 370','style="width:120px"');
+      h+=fld('Hymn Title','text','hymnTitle',sl.hymnTitle,'Hymn name');
+      h+=fld('Verse Text','textarea','verseText',sl.verseText,'Paste verse text here.\nSeparate verses with a blank line for the ⊞ split feature.','style="min-height:100px"');
+      h+=`<div style="font-size:0.74rem;color:#aaa;margin-top:4px;">Tip: Separate verses with a blank line, then use ⊞ in the slide list to split into one slide per verse.</div>`;
+      break;
+    case 'reading':
+      h+=fld('Reading Label','text','readingLabel',sl.readingLabel,'e.g. The Old Testament Reading');
+      h+=fld('Reference','text','reference',sl.reference,'e.g. Isaiah 60:1-6');
+      h+=fld('Text','textarea','text',sl.text,'Paste reading text here','style="min-height:100px"');
+      break;
+    case 'liturgy':
+      h+=fld('Title / Label','text','title',sl.title,'e.g. Confession and Absolution');
+      h+=fld('Text','textarea','body',sl.body,'Liturgy text');
+      break;
+    case 'sermon':
+      h+=fld('Sermon Title','text','title',sl.title,'');
+      h+=fld('Scripture Reference','text','reference',sl.reference,'e.g. Luke 2:1-14');
+      h+=fld('Preacher','text','preacher',sl.preacher,'e.g. Rev. Smith');
+      break;
+    case 'prayer':
+      h+=fld('Title','text','title',sl.title,'e.g. Prayer of the Church');
+      h+=fld('Prayer Text','textarea','body',sl.body,'Optional text');
+      break;
+    case 'announcement':
+      h+=fld('Title','text','title',sl.title,'Announcement title');
+      h+=fld('Body Text','textarea','body',sl.body,'Details');
+      break;
+    case 'text':
+      h+=fld('Text','textarea','body',sl.body,'Enter text','style="min-height:120px"');
+      break;
+    case 'blank':
+      h+='<div style="color:#bbb;font-size:0.85rem;padding:8px 0;">Blank slide — no content.</div>';
+      break;
+  }
+  el.innerHTML=h;
+  el.querySelectorAll('[data-field]').forEach(inp => {
+    inp.addEventListener('input', e => {
+      slides[currentIdx][e.target.dataset.field] = e.target.value;
+      renderPreview(); renderSlideList(); scheduleSave();
+    });
+  });
+}
+
+// ── From Template ─────────────────────────────────────────────────────────
+document.getElementById('btn-from-template').addEventListener('click', ()=>{
+  if (slides.length>0 && !confirm('Replace current slides with the Divine Service III template?')) return;
+  if (!currentSvcId) startNewService();
+  const mk = (type,ov)=>({...newSlide(type),...ov});
+  slides = [
+    mk('title',   {title: serviceTitle||'Divine Service', subtitle: serviceDate?fmtDateLong(serviceDate):''}),
+    mk('hymn',    {hymnTitle:'Opening Hymn'}),
+    mk('liturgy', {title:'Confession and Absolution'}),
+    mk('liturgy', {title:'Kyrie'}),
+    mk('liturgy', {title:'Gloria in Excelsis'}),
+    mk('liturgy', {title:'Salutation and Collect of the Day'}),
+    mk('reading', {readingLabel:'The Old Testament Reading', reference:''}),
+    mk('reading', {readingLabel:'The Psalm', reference:''}),
+    mk('reading', {readingLabel:'The Epistle Reading', reference:''}),
+    mk('liturgy', {title:'Alleluia and Verse'}),
+    mk('reading', {readingLabel:'The Holy Gospel', reference:''}),
+    mk('hymn',    {hymnTitle:'Hymn of the Day'}),
+    mk('sermon',  {title:'Sermon', reference:''}),
+    mk('liturgy', {title:'Nicene Creed'}),
+    mk('prayer',  {title:'Prayer of the Church'}),
+    mk('liturgy', {title:'Offertory'}),
+    mk('liturgy', {title:'Preface'}),
+    mk('liturgy', {title:'Sanctus'}),
+    mk('liturgy', {title:"The Lord's Prayer"}),
+    mk('liturgy', {title:'The Words of Our Lord'}),
+    mk('liturgy', {title:'Pax Domini'}),
+    mk('liturgy', {title:'Agnus Dei'}),
+    mk('hymn',    {hymnTitle:'Distribution Hymn'}),
+    mk('liturgy', {title:'Post-Communion Canticle'}),
+    mk('liturgy', {title:'Post-Communion Collect'}),
+    mk('liturgy', {title:'Benediction'}),
+    mk('hymn',    {hymnTitle:'Closing Hymn'}),
+  ];
+  currentIdx=0; renderSlideList(); renderPreview(); renderEditor(); updateCount(); scheduleSave();
+});
+
+function fmtDateLong(d) {
+  if(!d) return '';
+  const [y,m,day]=d.split('-').map(Number);
+  return new Date(y,m-1,day).toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+}
+
+// ── Add Readings ──────────────────────────────────────────────────────────
+document.getElementById('btn-add-readings').addEventListener('click', ()=>{
+  const entry=lectCalendar[serviceDate];
+  if (!entry) { alert('No lectionary readings found for this date.'); return; }
+  if (!currentSvcId) startNewService();
+  const mk=(label,ref)=>({...newSlide('reading'),readingLabel:label,reference:ref});
+  const inserts=[];
+  if(entry.ot)      inserts.push(mk('The Old Testament Reading', entry.ot));
+  if(entry.psalm)   inserts.push(mk('The Psalm',                 entry.psalm));
+  if(entry.epistle) inserts.push(mk('The Epistle Reading',       entry.epistle));
+  if(entry.gospel)  inserts.push(mk('The Holy Gospel',           entry.gospel));
+  slides.push(...inserts);
+  currentIdx=slides.length-1;
+  renderSlideList(); renderPreview(); renderEditor(); updateCount(); scheduleSave();
+});
+
+// ── Save button ───────────────────────────────────────────────────────────
+document.getElementById('btn-save-service').addEventListener('click', async ()=>{
+  if (!fbUser) return;
+  if (!currentSvcId) {
+    if (slides.length===0) { alert('Add some slides first.'); return; }
+    startNewService();
+  }
+  if (!serviceTitle) { serviceTitle='Untitled Service'; document.getElementById('sbar-title').value=serviceTitle; }
+  clearTimeout(saveTimer);
+  await persistService();
+  renderServicesList();
+});
+
+// ── Print Order of Service ────────────────────────────────────────────────
+document.getElementById('btn-print-order').addEventListener('click', ()=>{
+  if (slides.length===0) { alert('No slides to print.'); return; }
+  const church = settings.churchName||'Timothy Lutheran Church';
+  const dateStr = serviceDate?fmtDateLong(serviceDate):'';
+  let h=`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>Order of Service — ${esc(serviceTitle||'Service')}</title>
+<style>
+body{font-family:Georgia,serif;max-width:660px;margin:40px auto;padding:0 24px;color:#222;}
+h1{font-size:1.8rem;text-align:center;color:#013558;margin-bottom:4px;}
+.dt{text-align:center;font-size:1rem;color:#555;margin-bottom:4px;}
+.ch{text-align:center;font-size:.82rem;color:#999;text-transform:uppercase;letter-spacing:.1em;margin-bottom:28px;}
+hr{border:none;border-top:1px solid #ddd;margin:16px 0;}
+.entry{margin-bottom:18px;page-break-inside:avoid;}
+.lbl{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#888;margin-bottom:2px;}
+.main{font-size:1.05rem;font-weight:700;color:#013558;}
+.ref{font-size:.9rem;color:#666;font-style:italic;}
+.body{font-size:.9rem;color:#444;margin-top:4px;white-space:pre-line;}
+@media print{body{margin:16px;}}
+</style></head><body>
+<h1>${esc(serviceTitle||'Order of Service')}</h1>
+${dateStr?`<div class="dt">${esc(dateStr)}</div>`:''}
+<div class="ch">${esc(church)}</div><hr>`;
+  slides.forEach(sl=>{
+    h+='<div class="entry">';
+    switch(sl.type){
+      case 'title':
+        h+=`<div class="main">${esc(sl.title||'')}</div>`;
+        if(sl.subtitle) h+=`<div class="ref">${esc(sl.subtitle)}</div>`;
+        break;
+      case 'hymn':
+        h+=`<div class="lbl">Hymn${sl.lsbNumber?' · LSB '+sl.lsbNumber:''}</div>`;
+        h+=`<div class="main">${esc(sl.hymnTitle||'')}</div>`;
+        if(sl.verseText) h+=`<div class="body">${esc(sl.verseText)}</div>`;
+        break;
+      case 'reading':
+        h+=`<div class="lbl">${esc(sl.readingLabel||'Reading')}</div>`;
+        if(sl.reference) h+=`<div class="main">${esc(sl.reference)}</div>`;
+        if(sl.text)      h+=`<div class="body">${esc(sl.text)}</div>`;
+        break;
+      case 'liturgy':
+        h+=`<div class="lbl">Liturgy</div><div class="main">${esc(sl.title||'')}</div>`;
+        if(sl.body) h+=`<div class="body">${esc(sl.body)}</div>`;
+        break;
+      case 'sermon':
+        h+=`<div class="lbl">Sermon</div><div class="main">${esc(sl.title||'')}</div>`;
+        if(sl.reference) h+=`<div class="ref">${esc(sl.reference)}</div>`;
+        if(sl.preacher)  h+=`<div class="ref">Preacher: ${esc(sl.preacher)}</div>`;
+        break;
+      case 'prayer':
+        h+=`<div class="lbl">Prayer</div><div class="main">${esc(sl.title||'')}</div>`;
+        if(sl.body) h+=`<div class="body">${esc(sl.body)}</div>`;
+        break;
+      case 'announcement':
+        h+=`<div class="lbl">Announcement</div><div class="main">${esc(sl.title||'')}</div>`;
+        if(sl.body) h+=`<div class="body">${esc(sl.body)}</div>`;
+        break;
+      case 'text':
+        if(sl.body) h+=`<div class="body">${esc(sl.body)}</div>`;
+        break;
+      case 'blank': break;
+    }
+    h+='</div>';
+  });
+  h+='</body></html>';
+  const w=window.open('','_blank');
+  w.document.write(h); w.document.close(); w.focus();
+  setTimeout(()=>w.print(), 500);
+});
+
+// ── PPTX Export ───────────────────────────────────────────────────────────
+document.getElementById('btn-export-pptx').addEventListener('click', exportPptx);
+
+function autoFontSize(text, maxPt=28, minPt=12) {
+  if(!text) return maxPt;
+  const n=text.length;
+  if(n<100)  return maxPt;
+  if(n<250)  return Math.max(minPt, maxPt-4);
+  if(n<500)  return Math.max(minPt, maxPt-8);
+  if(n<900)  return Math.max(minPt, maxPt-12);
+  return minPt;
+}
+
+async function exportPptx() {
+  if (slides.length===0) { alert('No slides to export.'); return; }
+  if (typeof PptxGenJS==='undefined') { alert('PptxGenJS library not loaded.'); return; }
+  const pptx = new PptxGenJS();
+  pptx.layout = 'LAYOUT_WIDE';
+  pptx.title  = serviceTitle||'Worship Service';
+  pptx.author = settings.churchName||'Timothy Lutheran Church';
+  const theme = THEMES[serviceTheme]||THEMES.navy;
+  const font  = settings.font||'Arial';
+  const logo  = settings.logo||null;
+  const fgHex = theme.fg.replace('#','');
+  const acHex = theme.accent.replace('#','');
+  const bgHex = theme.bg.replace('#','');
+
+  for (const sl of slides) {
+    const ps = pptx.addSlide();
+    ps.background = { color: bgHex };
+    // Logo
+    if (logo) {
+      try { ps.addImage({ data: logo, x:8.8, y:0.15, w:0.9, h:0.9, sizing:{type:'contain',w:0.9,h:0.9} }); }
+      catch(e){}
+    }
+    switch(sl.type) {
+      case 'title':
+        ps.addText(sl.title||'', { x:.5,y:1.4,w:9,h:2.2, fontSize:44, bold:true, fontFace:font, color:fgHex, align:'center', valign:'middle', wrap:true });
+        if(sl.subtitle) ps.addText(sl.subtitle, { x:.5,y:3.8,w:9,h:1.2, fontSize:26, fontFace:font, color:acHex, align:'center', valign:'middle', wrap:true });
+        break;
+      case 'hymn':
+        if(sl.lsbNumber) ps.addText(`LSB ${sl.lsbNumber}`, { x:.3,y:.15,w:2.5,h:.5, fontSize:14, fontFace:font, color:acHex, bold:true });
+        if(sl.hymnTitle) ps.addText(sl.hymnTitle, { x:.5,y:.5,w:9,h:.7, fontSize:20, fontFace:font, color:acHex, italic:true, align:'center' });
+        if(sl.verseText) ps.addText(sl.verseText, { x:.8,y:1.3,w:8.4,h:3.8, fontSize:autoFontSize(sl.verseText,22,13), fontFace:font, color:fgHex, align:'center', valign:'middle', wrap:true });
+        break;
+      case 'reading': {
+        const lY=.3;
+        if(sl.readingLabel) ps.addText(sl.readingLabel.toUpperCase(), { x:.5,y:lY,w:9,h:.6, fontSize:16, fontFace:font, color:acHex, bold:true, align:'center' });
+        if(sl.reference)    ps.addText(sl.reference, { x:.5,y:lY+.65,w:9,h:.55, fontSize:20, fontFace:font, color:fgHex, italic:true, align:'center' });
+        if(sl.text) {
+          const tY = (sl.readingLabel&&sl.reference)?lY+1.4:(sl.readingLabel?lY+.75:lY);
+          ps.addText(sl.text, { x:.5,y:tY,w:9,h:5.325-tY-.3, fontSize:autoFontSize(sl.text,20,11), fontFace:font, color:fgHex, align:'left', valign:'top', wrap:true });
+        }
+        break;
+      }
+      case 'liturgy':
+        if(sl.title) ps.addText(sl.title.toUpperCase(), { x:.5,y:.25,w:9,h:.6, fontSize:16, fontFace:font, color:acHex, bold:true, align:'center' });
+        if(sl.body)  ps.addText(sl.body, { x:.5,y:sl.title?.95:.5,w:9,h:sl.title?4.3:4.7, fontSize:autoFontSize(sl.body,26,12), fontFace:font, color:fgHex, align:'center', valign:'middle', wrap:true });
+        break;
+      case 'sermon':
+        ps.addText('SERMON', { x:.5,y:.45,w:9,h:.55, fontSize:16, fontFace:font, color:acHex, bold:true, align:'center' });
+        ps.addText(sl.title||'', { x:.5,y:1.2,w:9,h:2.0, fontSize:36, bold:true, fontFace:font, color:fgHex, align:'center', valign:'middle', wrap:true });
+        if(sl.reference) ps.addText(sl.reference, { x:.5,y:3.4,w:9,h:.7, fontSize:22, fontFace:font, color:acHex, align:'center' });
+        if(sl.preacher)  ps.addText(sl.preacher,  { x:.5,y:4.2,w:9,h:.5, fontSize:16, fontFace:font, color:fgHex, align:'center' });
+        break;
+      case 'prayer':
+        if(sl.title) ps.addText(sl.title.toUpperCase(), { x:.5,y:.25,w:9,h:.6, fontSize:16, fontFace:font, color:acHex, bold:true, align:'center' });
+        if(sl.body)  ps.addText(sl.body, { x:.5,y:sl.title?.95:.5,w:9,h:sl.title?4.3:4.7, fontSize:autoFontSize(sl.body,24,12), fontFace:font, color:fgHex, align:'center', valign:'middle', wrap:true });
+        break;
+      case 'announcement':
+        ps.addText(sl.title||'', { x:.5,y:.7,w:9,h:1.3, fontSize:36, bold:true, fontFace:font, color:fgHex, align:'center', valign:'middle', wrap:true });
+        if(sl.body) ps.addText(sl.body, { x:.8,y:2.2,w:8.4,h:2.9, fontSize:autoFontSize(sl.body,24,13), fontFace:font, color:fgHex, align:'center', valign:'top', wrap:true });
+        break;
+      case 'text':
+        if(sl.body) ps.addText(sl.body, { x:.5,y:.5,w:9,h:4.5, fontSize:autoFontSize(sl.body,28,12), fontFace:font, color:fgHex, align:'center', valign:'middle', wrap:true });
+        break;
+      case 'blank': break;
+    }
+  }
+  const fname = `${serviceDate||'service'}_${(serviceTitle||'worship').replace(/\s+/g,'_')}.pptx`;
+  pptx.writeFile({ fileName: fname });
+}
+
+// ── Services tab ──────────────────────────────────────────────────────────
+function renderServicesList() {
+  const list=document.getElementById('services-list');
+  const entries=Object.values(allServices).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+  if (entries.length===0) {
+    list.innerHTML='<div class="empty-state"><span class="icon">📁</span><div>No saved services yet</div><p>Build a service in the Builder tab and click Save.</p></div>';
+    return;
+  }
+  list.innerHTML='';
+  entries.forEach(svc=>{
+    const isCurrent=svc.id===currentSvcId;
+    const dateStr=svc.date?fmtDateLong(svc.date):'No date';
+    const div=document.createElement('div');
+    div.className='svc-card'+(isCurrent?' current':'');
+    div.innerHTML=`
+      <div class="svc-info">
+        <div class="svc-title">${esc(svc.title||'Untitled Service')}${isCurrent?'<span class="current-badge">Current</span>':''}</div>
+        <div class="svc-meta">${esc(dateStr)} &nbsp;·&nbsp; ${(svc.slides||[]).length} slides &nbsp;·&nbsp; ${svc.theme||'navy'}</div>
+      </div>
+      <div class="svc-actions">
+        <button class="btn btn-sm btn-primary" onclick="openService('${esc(svc.id)}')">Open</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteService('${esc(svc.id)}')">Delete</button>
+      </div>`;
+    list.appendChild(div);
+  });
+}
+
+window.openService = function(id) {
+  const svc=allServices[id]; if(!svc) return;
+  currentSvcId=id; serviceDate=svc.date||''; serviceTitle=svc.title||''; serviceTheme=svc.theme||settings.defaultTheme||'navy';
+  slides=svc.slides||[]; currentIdx=slides.length>0?0:-1;
+  document.getElementById('sbar-date').value=serviceDate;
+  document.getElementById('sbar-title').value=serviceTitle;
+  document.getElementById('btn-add-readings').disabled=!(lectCalendar[serviceDate]);
+  renderThemeSwatches(); renderSlideList(); renderPreview(); renderEditor(); updateCount();
+  showTab('builder');
+};
+
+window.deleteService = async function(id) {
+  if (!confirm('Delete this service? This cannot be undone.')) return;
+  try {
+    await remove(ref(fbDb,`sb_data/${fbUser.uid}/services/${id}`));
+    delete allServices[id];
+    if (currentSvcId===id) {
+      currentSvcId=null; slides=[]; currentIdx=-1; serviceDate=''; serviceTitle='';
+      serviceTheme=settings.defaultTheme||'navy';
+      document.getElementById('sbar-date').value=''; document.getElementById('sbar-title').value='';
+      renderThemeSwatches(); renderSlideList(); renderPreview(); renderEditor(); updateCount();
+    }
+    renderServicesList();
+  } catch(e) { alert('Delete failed: '+e.message); }
+};
+
+// ── Settings ──────────────────────────────────────────────────────────────
+document.getElementById('btn-upload-logo').addEventListener('click', ()=>document.getElementById('set-logo-file').click());
+document.getElementById('set-logo-file').addEventListener('change', e=>{
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=ev=>{ settings.logo=ev.target.result; renderLogoPreview(); renderPreview(); };
+  reader.readAsDataURL(file);
+  e.target.value='';
+});
+document.getElementById('btn-remove-logo').addEventListener('click', ()=>{ settings.logo=''; renderLogoPreview(); renderPreview(); });
+
+function renderLogoPreview() {
+  const wrap=document.getElementById('logo-preview-wrap');
+  const btn=document.getElementById('btn-remove-logo');
+  if (settings.logo) {
+    wrap.innerHTML=`<img src="${settings.logo}" class="logo-preview" alt="Church logo">`;
+    btn.style.display='inline-flex';
+  } else {
+    wrap.innerHTML='<div class="logo-empty">🏛</div>';
+    btn.style.display='none';
+  }
+}
+
+document.getElementById('btn-save-settings').addEventListener('click', async ()=>{
+  settings.churchName  = document.getElementById('set-church-name').value.trim()||'Timothy Lutheran Church';
+  settings.font        = document.getElementById('set-font').value;
+  // defaultTheme already set by swatch clicks
+  try {
+    await set(sbRef('settings'), settings);
+    const el=document.getElementById('settings-saved'); el.style.display='inline';
+    setTimeout(()=>el.style.display='none',3000);
+    applySettings();
+  } catch(e) { alert('Save failed: '+e.message); }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────
+renderThemeSwatches();
+renderSettingsThemeSwatches();
+updateCount();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,1609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Timothy Lutheran Church – Worship Slide Builder</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="tlc-logo.png">
+<meta name="theme-color" content="#2c3e6b">
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgenjs.bundle.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f2f3f7; color: #222; }
+
+header { background: #ffffff; color: #2c3e6b; padding: 14px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 2px solid #d8dce8; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+header .header-logo { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid #d0d7ec; }
+header .header-text h1 { font-size: 1.05rem; font-weight: 700; line-height: 1.2; color: #2c3e6b; }
+header .header-text .church-name { font-size: 0.75rem; color: #6b7a9f; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; font-weight: 600; }
+header .header-text p { font-size: 0.82rem; color: #8892b0; margin-top: 2px; }
+.header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.header-right .btn { font-size: 0.82rem; }
+#header-user { font-size: 0.78rem; color: #6b7a9f; }
+
+.tabs { display: flex; background: #1e2d52; flex-wrap: wrap; }
+.tab-btn { padding: 12px 24px; background: none; border: none; color: rgba(255,255,255,0.65); font-size: 0.9rem; cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.15s; white-space: nowrap; }
+.tab-btn.active { color: white; border-bottom-color: #f0b429; }
+.tab-btn:hover:not(.active) { color: white; background: rgba(255,255,255,0.07); }
+
+.tab-content { display: none; padding: 24px; max-width: 1400px; margin: 0 auto; }
+.tab-content.active { display: block; }
+
+.card { background: white; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); padding: 20px; margin-bottom: 20px; }
+.card h2 { font-size: 1.05rem; color: #2c3e6b; margin-bottom: 14px; border-bottom: 2px solid #eef0f5; padding-bottom: 8px; }
+
+label { display: block; font-size: 0.85rem; font-weight: 600; color: #444; margin-bottom: 4px; margin-top: 10px; }
+input[type="text"], input[type="date"], input[type="password"], input[type="number"], input[type="email"], input[type="color"] {
+  width: 100%; padding: 8px 10px; border: 1px solid #d0d4e0; border-radius: 10px; font-size: 0.9rem; outline: none;
+}
+input:focus { border-color: #2c3e6b; box-shadow: 0 0 0 3px rgba(44,62,107,0.10); }
+select { width: 100%; padding: 7px 10px; border: 1px solid #d0d4e0; border-radius: 10px; font-size: 0.9rem; outline: none; background: white; }
+textarea { width: 100%; padding: 8px 10px; border: 1px solid #d0d4e0; border-radius: 10px; font-size: 0.9rem; outline: none; font-family: inherit; resize: vertical; }
+textarea:focus { border-color: #2c3e6b; box-shadow: 0 0 0 3px rgba(44,62,107,0.10); }
+
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 10px; border: none; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+.btn-primary { background: #2c3e6b; color: white; }
+.btn-primary:hover { background: #1e2d52; }
+.btn-success { background: #27ae60; color: white; }
+.btn-success:hover { background: #1e9150; }
+.btn-danger { background: #e74c3c; color: white; }
+.btn-danger:hover { background: #c0392b; }
+.btn-warning { background: #f39c12; color: white; }
+.btn-warning:hover { background: #d68910; }
+.btn-outline { background: white; border: 1.5px solid #2c3e6b; color: #2c3e6b; }
+.btn-outline:hover { background: #f0f2f8; }
+.btn-sm { padding: 5px 12px; font-size: 0.82rem; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.tag { display: inline-block; border-radius: 7px; padding: 2px 8px; font-size: 0.78rem; font-weight: 600; }
+.tag-hymn { background: #e8eaf5; color: #2c3e6b; }
+.tag-liturgy { background: #d4edda; color: #155724; }
+.tag-reading { background: #fff3cd; color: #856404; }
+.tag-sermon { background: #f8d7da; color: #721c24; }
+.tag-announce { background: #cce5ff; color: #004085; }
+.tag-blank { background: #e2e3e5; color: #383d41; }
+.tag-source { background: #fef3cd; color: #856404; }
+
+/* Side Panels */
+.panel-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,0.45);
+  z-index:300; opacity:0; pointer-events:none; transition:opacity .25s;
+}
+.panel-overlay.open { opacity:1; pointer-events:auto; }
+.side-panel {
+  position:fixed; top:0; right:0; width:min(560px,100vw); height:100vh;
+  background:#fff; z-index:301; box-shadow:-4px 0 40px rgba(0,0,0,0.12);
+  display:flex; flex-direction:column;
+  transform:translateX(100%); transition:transform .28s cubic-bezier(.4,0,.2,1);
+}
+.side-panel.open { transform:translateX(0); }
+.panel-hdr {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 20px; background:#2c3e6b; color:white; flex-shrink:0;
+}
+.panel-hdr h2 { margin:0; font-size:1.05rem; color:white; font-weight:700; }
+.panel-close { background:none; border:none; color:rgba(255,255,255,0.8); font-size:1.6rem; cursor:pointer; padding:0 4px; line-height:1; }
+.panel-close:hover { color:white; }
+.panel-body { flex:1; overflow-y:auto; padding:20px; }
+
+/* Songs table */
+.songs-table { width:100%; border-collapse:collapse; font-size:.85rem; }
+.songs-table thead th { padding:9px 12px; text-align:left; font-weight:700; color:#2c3e6b; font-size:.8rem; border-bottom:2px solid #d0d4e8; background:#f0f2f8; cursor:pointer; }
+.songs-table td { padding:9px 12px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+.songs-table tbody tr:hover { background:#f8f9fc; }
+
+/* Service order items */
+.svc-item { display:flex; align-items:center; gap:10px; padding:10px 14px; background:#fff; border:1px solid #e8eaf2; border-radius:10px; margin-bottom:6px; cursor:grab; transition:box-shadow .15s, background .15s; }
+.svc-item:hover { box-shadow:0 2px 8px rgba(0,0,0,0.08); }
+.svc-item.dragging { opacity:0.5; background:#f0f2f8; }
+.svc-item .drag-handle { color:#bbb; cursor:grab; font-size:1.1rem; flex-shrink:0; }
+.svc-item .item-info { flex:1; min-width:0; }
+.svc-item .item-title { font-weight:600; color:#2c3e6b; font-size:.9rem; }
+.svc-item .item-detail { font-size:.78rem; color:#888; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.svc-item .item-actions { display:flex; gap:4px; flex-shrink:0; }
+.svc-item .item-actions button { background:none; border:none; cursor:pointer; padding:4px 6px; border-radius:6px; font-size:.85rem; color:#888; }
+.svc-item .item-actions button:hover { background:#f0f2f8; color:#2c3e6b; }
+.drop-zone { height:4px; border-radius:2px; transition:height .15s, background .15s; }
+.drop-zone.active { height:30px; background:#e8eaf5; border:2px dashed #2c3e6b; border-radius:8px; }
+
+/* Liturgy parts */
+.lit-part { border:1px solid #e8eaf2; border-radius:10px; margin-bottom:8px; overflow:hidden; }
+.lit-part-header { display:flex; align-items:center; gap:8px; padding:10px 14px; background:#f8f9fc; cursor:pointer; }
+.lit-part-header:hover { background:#f0f2f8; }
+.lit-part-body { padding:14px; border-top:1px solid #e8eaf2; display:none; }
+.lit-part-body.open { display:block; }
+.lit-line { display:flex; gap:8px; align-items:flex-start; margin-bottom:6px; }
+.lit-line select { width:60px; flex-shrink:0; }
+.lit-line textarea { flex:1; min-height:40px; }
+
+/* Presentation mode */
+#presentation-overlay {
+  position:fixed; inset:0; z-index:9000; background:#000; display:none;
+  flex-direction:column; align-items:center; justify-content:center;
+}
+#presentation-overlay.active { display:flex; }
+#pres-slide { width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 80px; color:white; text-align:center; }
+#pres-slide .slide-header { font-size:1.8rem; font-weight:700; margin-bottom:20px; opacity:0.7; }
+#pres-slide .slide-body { font-size:2.4rem; line-height:1.5; max-width:90%; }
+#pres-slide .slide-body .speaker-label { font-size:1.4rem; font-weight:700; opacity:0.6; }
+#pres-slide .slide-body .congregation { font-weight:700; }
+#pres-counter { position:fixed; bottom:20px; right:30px; color:rgba(255,255,255,0.4); font-size:1rem; z-index:9001; }
+
+/* Modal */
+.modal-overlay { position:fixed; inset:0; z-index:400; background:rgba(0,0,0,0.5); display:none; align-items:center; justify-content:center; }
+.modal-overlay.open { display:flex; }
+.modal { background:white; border-radius:16px; padding:24px; max-width:600px; width:90%; max-height:80vh; overflow-y:auto; box-shadow:0 8px 40px rgba(0,0,0,0.2); }
+.modal h2 { font-size:1.1rem; color:#2c3e6b; margin-bottom:16px; }
+.modal-close { float:right; background:none; border:none; font-size:1.4rem; cursor:pointer; color:#888; }
+
+/* Inline field groups */
+.field-row { display:flex; gap:12px; flex-wrap:wrap; }
+.field-row > * { flex:1; min-width:150px; }
+
+/* Sync status */
+#sync-status { font-size:.78rem; color:#666; }
+
+/* Login screen */
+#login-screen {
+  position:fixed; inset:0; z-index:9999; display:flex;
+  align-items:center; justify-content:center; background:#f4f5f9;
+}
+.login-box {
+  background:#fff; border-radius:14px; padding:40px 36px;
+  box-shadow:0 6px 32px rgba(0,0,0,.12); width:100%; max-width:360px; text-align:center;
+}
+.login-box img { width:80px; height:80px; border-radius:50%; margin-bottom:16px; }
+.login-box h2 { color:#2c3e6b; font-size:1.1rem; margin-bottom:4px; }
+.login-box p { color:#8892b0; font-size:.85rem; margin-bottom:20px; }
+.login-box input { margin-bottom:10px; }
+.login-box .btn { width:100%; justify-content:center; margin-bottom:8px; }
+#login-status { font-size:.82rem; margin-top:8px; min-height:20px; }
+.login-divider { display:flex; align-items:center; gap:12px; margin:16px 0; color:#aaa; font-size:.82rem; }
+.login-divider::before, .login-divider::after { content:''; flex:1; height:1px; background:#ddd; }
+</style>
+</head>
+<body>
+
+<!-- ══ LOGIN SCREEN ═══════════════════════════════════════════════════ -->
+<div id="login-screen">
+  <div class="login-box">
+    <img src="tlc-logo.png" alt="TLC Logo">
+    <h2>Worship Slide Builder</h2>
+    <p>Timothy Lutheran Church</p>
+    <input type="email" id="fb-email" placeholder="Email address">
+    <input type="password" id="fb-password" placeholder="Password" onkeydown="if(event.key==='Enter')fbSignIn()">
+    <button class="btn btn-primary" onclick="fbSignIn()">Sign In</button>
+    <div class="login-divider">or</div>
+    <button class="btn btn-outline" onclick="fbSignInGoogle()">Sign in with Google</button>
+    <div style="margin-top:12px;">
+      <a href="#" onclick="fbForgotPassword();return false" style="font-size:.82rem;color:#2c3e6b;">Forgot password?</a>
+    </div>
+    <div id="login-status"></div>
+  </div>
+</div>
+
+<!-- ══ APP CONTENT ═══════════════════════════════════════════════════ -->
+<div id="app-content" style="display:none;">
+
+<header>
+  <img src="tlc-logo.png" alt="TLC" class="header-logo">
+  <div class="header-text">
+    <div class="church-name">Timothy Lutheran Church</div>
+    <h1>Worship Slide Builder</h1>
+    <p id="sync-status"></p>
+  </div>
+  <div class="header-right">
+    <span id="header-user"></span>
+    <button class="btn btn-sm btn-outline" onclick="fbSignOut()">Sign Out</button>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('services')">Services</button>
+  <button class="tab-btn" onclick="switchTab('songs')">Songs &amp; Hymns</button>
+  <button class="tab-btn" onclick="switchTab('liturgies')">Liturgies</button>
+  <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
+</div>
+
+<!-- ══ TAB: SERVICES ═══════════════════════════════════════════════ -->
+<div id="tab-services" class="tab-content active">
+  <div class="card">
+    <h2>Service Builder</h2>
+    <div class="field-row">
+      <div>
+        <label>Date</label>
+        <input type="date" id="svc-date" onchange="onDateChange()">
+      </div>
+      <div>
+        <label>Liturgy Setting</label>
+        <select id="svc-liturgy" onchange="onLiturgyChange()">
+          <option value="">-- Select Liturgy --</option>
+        </select>
+      </div>
+      <div>
+        <label>Sunday / Festival</label>
+        <input type="text" id="svc-name" placeholder="e.g. Fourth Sunday in Lent">
+      </div>
+    </div>
+    <div class="field-row" style="margin-top:10px;">
+      <div>
+        <label>Sermon Title</label>
+        <input type="text" id="svc-sermon-title" placeholder="Sermon title">
+      </div>
+      <div>
+        <label>Preacher</label>
+        <input type="text" id="svc-preacher" placeholder="Pastor name">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <h2 style="margin-bottom:0;border:none;padding:0;">Service Order</h2>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-sm btn-primary" onclick="addServiceItem('hymn')">+ Hymn</button>
+        <button class="btn btn-sm btn-success" onclick="addServiceItem('liturgy')">+ Liturgy</button>
+        <button class="btn btn-sm btn-warning" onclick="addServiceItem('reading')">+ Reading</button>
+        <button class="btn btn-sm btn-danger" onclick="addServiceItem('sermon')">+ Sermon</button>
+        <button class="btn btn-sm btn-outline" onclick="addServiceItem('announcement')">+ Announce</button>
+        <button class="btn btn-sm" style="background:#e2e3e5;" onclick="addServiceItem('blank')">+ Blank</button>
+      </div>
+    </div>
+    <div id="service-order-list">
+      <p style="color:#aaa;font-size:.9rem;text-align:center;padding:30px;">Select a liturgy or add items to build your service order.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="saveService()">Save Service</button>
+      <button class="btn btn-outline" onclick="openLoadModal()">Load Service</button>
+      <button class="btn btn-success" onclick="previewSlides()">Preview Slides</button>
+      <button class="btn btn-warning" onclick="exportPptx()">Export PowerPoint</button>
+      <button class="btn btn-outline" onclick="startPresentation()">Present</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ TAB: SONGS & HYMNS ══════════════════════════════════════════ -->
+<div id="tab-songs" class="tab-content">
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <h2 style="margin:0;border:none;padding:0;">Songs &amp; Hymns</h2>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-sm btn-primary" onclick="openSongPanel()">Add Song</button>
+        <button class="btn btn-sm btn-outline" onclick="openBulkImportModal()">Bulk Import</button>
+      </div>
+    </div>
+    <div class="field-row" style="margin-top:14px;">
+      <div style="flex:2;">
+        <input type="text" id="song-search" placeholder="Search by title, number, or lyrics..." oninput="renderSongsList()">
+      </div>
+      <div style="flex:1;">
+        <select id="song-filter-source" onchange="renderSongsList()">
+          <option value="">All Sources</option>
+          <option value="LSB">LSB</option>
+          <option value="LUYH">Lift Up Your Hearts</option>
+          <option value="SING">Sing</option>
+          <option value="PFAS">Psalms for All Seasons</option>
+          <option value="SS">Sundays and Seasons</option>
+          <option value="CONTEMPORARY">Contemporary</option>
+          <option value="LOCAL">Local</option>
+        </select>
+      </div>
+    </div>
+    <div class="table-wrapper" style="margin-top:14px;">
+      <table class="songs-table" style="width:100%;">
+        <thead><tr><th>Title</th><th>Source</th><th>#</th><th>Tags</th><th style="text-align:right;">Actions</th></tr></thead>
+        <tbody id="songs-tbody"></tbody>
+      </table>
+    </div>
+    <p id="songs-empty" style="color:#aaa;font-size:.9rem;text-align:center;padding:20px;display:none;">No songs yet. Click "Add Song" to get started.</p>
+  </div>
+</div>
+
+<!-- ══ TAB: LITURGIES ══════════════════════════════════════════════ -->
+<div id="tab-liturgies" class="tab-content">
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <h2 style="margin:0;border:none;padding:0;">Liturgy Settings</h2>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-sm btn-primary" onclick="openLiturgyPanel()">Add Liturgy</button>
+        <button class="btn btn-sm btn-outline" onclick="importLiturgyJson()">Import JSON</button>
+      </div>
+    </div>
+    <div id="liturgies-list" style="margin-top:14px;"></div>
+    <p id="liturgies-empty" style="color:#aaa;font-size:.9rem;text-align:center;padding:20px;display:none;">No liturgies yet. Click "Add Liturgy" or "Import JSON" to get started.</p>
+  </div>
+</div>
+
+<!-- ══ TAB: SETTINGS ═══════════════════════════════════════════════ -->
+<div id="tab-settings" class="tab-content">
+  <div class="card">
+    <h2>Slide Appearance Defaults</h2>
+    <div class="field-row">
+      <div>
+        <label>Background Color</label>
+        <input type="color" id="pref-bg-color" value="#1a237e" onchange="savePreferences()">
+      </div>
+      <div>
+        <label>Text Color</label>
+        <input type="color" id="pref-text-color" value="#ffffff" onchange="savePreferences()">
+      </div>
+      <div>
+        <label>Font Family</label>
+        <select id="pref-font" onchange="savePreferences()">
+          <option value="Georgia">Georgia</option>
+          <option value="Arial">Arial</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Segoe UI">Segoe UI</option>
+          <option value="Palatino">Palatino</option>
+        </select>
+      </div>
+    </div>
+    <div class="field-row" style="margin-top:10px;">
+      <div>
+        <label>Title Font Size: <span id="pref-title-size-val">44</span>pt</label>
+        <input type="range" id="pref-title-size" min="32" max="60" value="44" oninput="document.getElementById('pref-title-size-val').textContent=this.value;savePreferences()">
+      </div>
+      <div>
+        <label>Body Font Size: <span id="pref-body-size-val">36</span>pt</label>
+        <input type="range" id="pref-body-size" min="24" max="48" value="36" oninput="document.getElementById('pref-body-size-val').textContent=this.value;savePreferences()">
+      </div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:16px;flex-wrap:wrap;">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:normal;"><input type="checkbox" id="pref-show-numbers" checked onchange="savePreferences()"> Show hymn numbers</label>
+      <label style="display:flex;align-items:center;gap:6px;font-weight:normal;"><input type="checkbox" id="pref-show-speakers" checked onchange="savePreferences()"> Show speaker labels (P/C)</label>
+      <label style="display:flex;align-items:center;gap:6px;font-weight:normal;"><input type="checkbox" id="pref-show-logo" checked onchange="savePreferences()"> Logo on title slide</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Data Management</h2>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-outline" onclick="exportAllData()">Export All Data (JSON)</button>
+      <button class="btn btn-outline" onclick="document.getElementById('import-file').click()">Import Data (JSON)</button>
+      <input type="file" id="import-file" accept=".json" style="display:none;" onchange="importAllData(event)">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Account</h2>
+    <p id="settings-user" style="font-size:.9rem;color:#666;margin-bottom:10px;"></p>
+    <button class="btn btn-danger btn-sm" onclick="fbSignOut()">Sign Out</button>
+  </div>
+
+  <div class="card" style="border:1px solid #fef3cd;background:#fffdf5;">
+    <h2 style="color:#856404;">Copyright Notice</h2>
+    <p style="font-size:.85rem;color:#666;">You are responsible for ensuring you hold appropriate licenses (CCLI, OneLicense, etc.) for all copyrighted material entered into this system. Only enter content you are licensed to project.</p>
+  </div>
+</div>
+
+<!-- ══ SIDE PANELS ══════════════════════════════════════════════════ -->
+<div id="panel-overlay" class="panel-overlay" onclick="closeAllPanels()"></div>
+
+<!-- Song Edit Panel -->
+<div id="song-panel" class="side-panel">
+  <div class="panel-hdr">
+    <h2 id="song-panel-title">Add Song</h2>
+    <button class="panel-close" onclick="closeAllPanels()">&times;</button>
+  </div>
+  <div class="panel-body">
+    <input type="hidden" id="song-edit-id">
+    <div class="field-row">
+      <div style="flex:2;"><label>Title</label><input type="text" id="song-title"></div>
+      <div><label>Number</label><input type="number" id="song-number" style="width:100%;"></div>
+    </div>
+    <div class="field-row">
+      <div>
+        <label>Source</label>
+        <select id="song-source">
+          <option value="LSB">LSB</option>
+          <option value="LUYH">Lift Up Your Hearts</option>
+          <option value="SING">Sing</option>
+          <option value="PFAS">Psalms for All Seasons</option>
+          <option value="SS">Sundays and Seasons</option>
+          <option value="CONTEMPORARY">Contemporary</option>
+          <option value="LOCAL">Local / Original</option>
+        </select>
+      </div>
+      <div><label>Author(s)</label><input type="text" id="song-authors"></div>
+    </div>
+    <label>Copyright</label>
+    <input type="text" id="song-copyright" placeholder="e.g. Public Domain, or CCLI #12345">
+    <label>Tags (comma-separated)</label>
+    <input type="text" id="song-tags" placeholder="e.g. opening, praise, communion">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;">
+      <h3 style="margin:0;color:#2c3e6b;">Stanzas</h3>
+      <button class="btn btn-sm btn-outline" onclick="addStanzaField()">+ Add Stanza</button>
+    </div>
+    <div id="stanza-editor" style="margin-top:10px;"></div>
+
+    <div style="margin-top:20px;display:flex;gap:10px;">
+      <button class="btn btn-primary" onclick="saveSong()">Save Song</button>
+      <button class="btn btn-outline" onclick="closeAllPanels()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Liturgy Edit Panel -->
+<div id="liturgy-panel" class="side-panel">
+  <div class="panel-hdr">
+    <h2 id="liturgy-panel-title">Add Liturgy</h2>
+    <button class="panel-close" onclick="closeAllPanels()">&times;</button>
+  </div>
+  <div class="panel-body">
+    <input type="hidden" id="lit-edit-id">
+    <div class="field-row">
+      <div style="flex:2;"><label>Name</label><input type="text" id="lit-name" placeholder="e.g. Divine Service, Setting One"></div>
+      <div><label>Abbreviation</label><input type="text" id="lit-abbr" placeholder="e.g. DS1"></div>
+    </div>
+    <label>Source</label>
+    <input type="text" id="lit-source" placeholder="e.g. LSB" value="LSB">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;">
+      <h3 style="margin:0;color:#2c3e6b;">Parts</h3>
+      <button class="btn btn-sm btn-outline" onclick="addLitPartField()">+ Add Part</button>
+    </div>
+    <div id="lit-parts-editor" style="margin-top:10px;"></div>
+
+    <div style="margin-top:20px;display:flex;gap:10px;">
+      <button class="btn btn-primary" onclick="saveLiturgy()">Save Liturgy</button>
+      <button class="btn btn-outline" onclick="closeAllPanels()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Service Item Edit Panel -->
+<div id="item-panel" class="side-panel">
+  <div class="panel-hdr">
+    <h2 id="item-panel-title">Edit Item</h2>
+    <button class="panel-close" onclick="closeAllPanels()">&times;</button>
+  </div>
+  <div class="panel-body" id="item-panel-body"></div>
+</div>
+
+</div><!-- /#app-content -->
+
+<!-- ══ MODALS ═══════════════════════════════════════════════════════ -->
+<div id="load-modal" class="modal-overlay">
+  <div class="modal">
+    <button class="modal-close" onclick="closeLoadModal()">&times;</button>
+    <h2>Load Service</h2>
+    <div id="load-modal-list"></div>
+  </div>
+</div>
+
+<div id="bulk-import-modal" class="modal-overlay">
+  <div class="modal">
+    <button class="modal-close" onclick="closeBulkImportModal()">&times;</button>
+    <h2>Bulk Import Songs</h2>
+    <p style="font-size:.85rem;color:#666;margin-bottom:12px;">Paste JSON array of songs. Each song needs: title, source, number, stanzas (array of {number, text}).</p>
+    <textarea id="bulk-import-text" rows="12" placeholder='[{"title":"Holy, Holy, Holy","source":"LSB","number":507,"stanzas":[{"number":1,"text":"Holy, holy, holy..."}]}]'></textarea>
+    <div style="margin-top:12px;display:flex;gap:10px;">
+      <button class="btn btn-primary" onclick="doBulkImport()">Import</button>
+      <button class="btn btn-outline" onclick="closeBulkImportModal()">Cancel</button>
+    </div>
+    <div id="bulk-import-status" style="margin-top:8px;font-size:.85rem;"></div>
+  </div>
+</div>
+
+<!-- Slide Preview Modal -->
+<div id="preview-modal" class="modal-overlay" onclick="if(event.target===this)closePreviewModal()">
+  <div class="modal" style="max-width:900px;max-height:90vh;">
+    <button class="modal-close" onclick="closePreviewModal()">&times;</button>
+    <h2>Slide Preview</h2>
+    <div id="preview-slides" style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;"></div>
+  </div>
+</div>
+
+<!-- Presentation overlay -->
+<div id="presentation-overlay">
+  <div id="pres-slide"></div>
+  <div id="pres-counter"></div>
+</div>
+
+
+<script type="module">
+// ══════════════════════════════════════════════════════════════════
+// FIREBASE SETUP
+// ══════════════════════════════════════════════════════════════════
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.11.1/firebase-app.js';
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword,
+         createUserWithEmailAndPassword, signOut, sendPasswordResetEmail,
+         signInWithPopup, GoogleAuthProvider } from 'https://www.gstatic.com/firebasejs/10.11.1/firebase-auth.js';
+import { getDatabase, ref as dbRef,
+         set as dbSet, get as dbGet } from 'https://www.gstatic.com/firebasejs/10.11.1/firebase-database.js';
+
+var firebaseConfig = {
+  apiKey: "AIzaSyDYHJoLHArmcMDFZrXaMJ62RGUMgusJhD8",
+  authDomain: "tlc-worship-scheduler.firebaseapp.com",
+  databaseURL: "https://tlc-worship-scheduler-default-rtdb.firebaseio.com",
+  projectId: "tlc-worship-scheduler",
+  storageBucket: "tlc-worship-scheduler.firebasestorage.app",
+  messagingSenderId: "645397350092",
+  appId: "1:645397350092:web:d6c828f36f721ede3d2469"
+};
+var _fbApp = initializeApp(firebaseConfig);
+var fbAuth = getAuth(_fbApp);
+var fbDb = getDatabase(_fbApp);
+
+// ══════════════════════════════════════════════════════════════════
+// GLOBAL STATE
+// ══════════════════════════════════════════════════════════════════
+var songs = {};        // id -> song object
+var liturgies = {};    // id -> liturgy object
+var services = {};     // id -> service object
+var preferences = {};
+var currentService = null;  // the service being built
+var serviceItems = [];      // current service order items
+var lectionary = {};        // date -> lectionary data
+var _editingStanzas = [];   // temp stanza data for song editor
+var _editingLitParts = [];  // temp part data for liturgy editor
+var _editingItemIdx = -1;   // index of item being edited in service order
+var _presSlides = [];       // slides for presentation mode
+var _presIdx = 0;
+
+// ══════════════════════════════════════════════════════════════════
+// LOCAL STORAGE
+// ══════════════════════════════════════════════════════════════════
+function loadLocal() {
+  try { songs = JSON.parse(localStorage.getItem('sb_songs') || '{}'); } catch(e) { songs = {}; }
+  try { liturgies = JSON.parse(localStorage.getItem('sb_liturgies') || '{}'); } catch(e) { liturgies = {}; }
+  try { services = JSON.parse(localStorage.getItem('sb_services') || '{}'); } catch(e) { services = {}; }
+  try { preferences = JSON.parse(localStorage.getItem('sb_preferences') || '{}'); } catch(e) { preferences = {}; }
+}
+
+function saveLocal() {
+  localStorage.setItem('sb_songs', JSON.stringify(songs));
+  localStorage.setItem('sb_liturgies', JSON.stringify(liturgies));
+  localStorage.setItem('sb_services', JSON.stringify(services));
+  localStorage.setItem('sb_preferences', JSON.stringify(preferences));
+}
+
+// ══════════════════════════════════════════════════════════════════
+// FIREBASE SYNC
+// ══════════════════════════════════════════════════════════════════
+function updateSyncStatus(msg, isError) {
+  var el = document.getElementById('sync-status');
+  if (el) { el.textContent = msg; el.style.color = isError ? '#c00' : (msg ? '#27ae60' : '#666'); }
+}
+
+function updateLoginStatus(msg, isError) {
+  var el = document.getElementById('login-status');
+  if (el) { el.textContent = msg; el.style.color = isError ? '#c00' : '#27ae60'; }
+}
+
+function buildSnapshot() {
+  return { songs: songs, liturgies: liturgies, services: services, preferences: preferences };
+}
+
+async function fbPush() {
+  var user = fbAuth.currentUser;
+  if (!user) return;
+  updateSyncStatus('Saving\u2026');
+  try {
+    await dbSet(dbRef(fbDb, 'sb_data/' + user.uid), buildSnapshot());
+    updateSyncStatus('Saved \u2713 ' + new Date().toLocaleTimeString());
+  } catch(e) { updateSyncStatus('Save error: ' + e.message, true); }
+}
+
+async function fbPull() {
+  var user = fbAuth.currentUser;
+  if (!user) return;
+  updateSyncStatus('Loading\u2026');
+  try {
+    var snap = await dbGet(dbRef(fbDb, 'sb_data/' + user.uid));
+    if (snap.exists()) {
+      var data = snap.val();
+      if (data.songs) songs = data.songs;
+      if (data.liturgies) liturgies = data.liturgies;
+      if (data.services) services = data.services;
+      if (data.preferences) preferences = data.preferences;
+      saveLocal();
+    }
+    updateSyncStatus('Loaded \u2713 ' + new Date().toLocaleTimeString());
+    renderAll();
+    loadPreferencesUI();
+  } catch(e) { updateSyncStatus('Load error: ' + e.message, true); }
+}
+
+var _fbSyncTimer = null;
+function queueFbPush() {
+  if (!fbAuth.currentUser) return;
+  saveLocal();
+  clearTimeout(_fbSyncTimer);
+  _fbSyncTimer = setTimeout(fbPush, 1500);
+}
+
+window.addEventListener('beforeunload', function() {
+  if (_fbSyncTimer && fbAuth.currentUser) { clearTimeout(_fbSyncTimer); _fbSyncTimer = null; fbPush(); }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════════════════════════
+window.fbSignIn = function() {
+  var email = document.getElementById('fb-email').value.trim();
+  var pass = document.getElementById('fb-password').value;
+  if (!email || !pass) { updateLoginStatus('Enter email and password.', true); return; }
+  updateLoginStatus('Signing in\u2026');
+  signInWithEmailAndPassword(fbAuth, email, pass)
+    .catch(function(e) { updateLoginStatus('Sign-in failed: ' + e.message, true); });
+};
+
+window.fbSignInGoogle = function() {
+  updateLoginStatus('Opening Google sign-in\u2026');
+  signInWithPopup(fbAuth, new GoogleAuthProvider())
+    .catch(function(e) {
+      if (e.code === 'auth/popup-blocked') updateLoginStatus('Popup blocked. Use email/password.', true);
+      else if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') updateLoginStatus('');
+      else updateLoginStatus('Google sign-in unavailable. Use email/password.', true);
+    });
+};
+
+window.fbSignOut = function() {
+  if (_fbSyncTimer) { clearTimeout(_fbSyncTimer); _fbSyncTimer = null; }
+  fbPush().finally(function() { signOut(fbAuth); });
+};
+
+window.fbForgotPassword = function() {
+  var email = document.getElementById('fb-email').value.trim();
+  if (!email) { updateLoginStatus('Enter your email above first.', true); return; }
+  updateLoginStatus('Sending reset email\u2026');
+  sendPasswordResetEmail(fbAuth, email)
+    .then(function() { updateLoginStatus('Reset email sent. Check your inbox.'); })
+    .catch(function(e) { updateLoginStatus('Error: ' + e.message, true); });
+};
+
+onAuthStateChanged(fbAuth, function(user) {
+  var loginScreen = document.getElementById('login-screen');
+  var appContent = document.getElementById('app-content');
+  if (user) {
+    if (loginScreen) loginScreen.style.display = 'none';
+    document.getElementById('header-user').textContent = user.email;
+    document.getElementById('settings-user').textContent = 'Signed in as ' + user.email;
+    var overlay = document.createElement('div');
+    overlay.id = 'cloud-load-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:8888;background:#f4f5f9;display:flex;align-items:center;justify-content:center;font-size:1rem;color:#2c3e6b;';
+    overlay.textContent = 'Loading cloud data\u2026';
+    document.body.appendChild(overlay);
+    if (appContent) appContent.style.display = 'block';
+    fbPull().finally(function() {
+      var ov = document.getElementById('cloud-load-overlay');
+      if (ov) ov.remove();
+    });
+  } else {
+    if (loginScreen) loginScreen.style.display = 'flex';
+    if (appContent) appContent.style.display = 'none';
+    updateSyncStatus(''); updateLoginStatus('');
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// TAB NAVIGATION
+// ══════════════════════════════════════════════════════════════════
+window.switchTab = function(tab) {
+  document.querySelectorAll('.tab-btn').forEach(function(b,i) {
+    b.classList.toggle('active', b.textContent.toLowerCase().includes(tab.substring(0,4)));
+  });
+  document.querySelectorAll('.tab-content').forEach(function(tc) { tc.classList.remove('active'); });
+  document.getElementById('tab-' + tab).classList.add('active');
+};
+
+// ══════════════════════════════════════════════════════════════════
+// LECTIONARY
+// ══════════════════════════════════════════════════════════════════
+async function loadLectionary() {
+  try {
+    var resp = await fetch('lcms_calendar.json');
+    var data = await resp.json();
+    lectionary = data.calendar || {};
+  } catch(e) { console.warn('Could not load lectionary:', e); }
+}
+
+window.onDateChange = function() {
+  var date = document.getElementById('svc-date').value;
+  if (!date) return;
+  var entry = lectionary[date];
+  if (entry) {
+    document.getElementById('svc-name').value = entry.sundayName || '';
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════
+// PANELS
+// ══════════════════════════════════════════════════════════════════
+function openPanel(id) {
+  document.getElementById('panel-overlay').classList.add('open');
+  document.getElementById(id).classList.add('open');
+}
+
+window.closeAllPanels = function() {
+  document.getElementById('panel-overlay').classList.remove('open');
+  document.querySelectorAll('.side-panel').forEach(function(p) { p.classList.remove('open'); });
+};
+
+// ══════════════════════════════════════════════════════════════════
+// SONGS CRUD
+// ══════════════════════════════════════════════════════════════════
+function renderSongsList() {
+  var search = (document.getElementById('song-search').value || '').toLowerCase();
+  var filterSrc = document.getElementById('song-filter-source').value;
+  var tbody = document.getElementById('songs-tbody');
+  var arr = Object.values(songs).sort(function(a,b) { return (a.title||'').localeCompare(b.title||''); });
+
+  if (search) arr = arr.filter(function(s) {
+    return (s.title||'').toLowerCase().includes(search)
+      || String(s.number||'').includes(search)
+      || (s.stanzas||[]).some(function(st) { return (st.text||'').toLowerCase().includes(search); });
+  });
+  if (filterSrc) arr = arr.filter(function(s) { return s.source === filterSrc; });
+
+  document.getElementById('songs-empty').style.display = arr.length === 0 ? 'block' : 'none';
+  tbody.innerHTML = arr.map(function(s) {
+    var tags = (s.tags||[]).map(function(t) { return '<span class="tag tag-source">' + esc(t) + '</span>'; }).join(' ');
+    return '<tr><td style="font-weight:600;color:#2c3e6b;">' + esc(s.title) + '</td>'
+      + '<td><span class="tag tag-source">' + esc(s.source||'') + '</span></td>'
+      + '<td>' + esc(String(s.number||'')) + '</td>'
+      + '<td>' + tags + '</td>'
+      + '<td style="text-align:right;white-space:nowrap;">'
+      + '<button class="btn btn-sm btn-outline" onclick="editSong(\'' + s.id + '\')">Edit</button> '
+      + '<button class="btn btn-sm btn-danger" onclick="deleteSong(\'' + s.id + '\')">Del</button></td></tr>';
+  }).join('');
+}
+
+window.openSongPanel = function(songId) {
+  var s = songId ? songs[songId] : null;
+  document.getElementById('song-panel-title').textContent = s ? 'Edit Song' : 'Add Song';
+  document.getElementById('song-edit-id').value = s ? s.id : '';
+  document.getElementById('song-title').value = s ? s.title : '';
+  document.getElementById('song-number').value = s ? s.number || '' : '';
+  document.getElementById('song-source').value = s ? s.source || 'LSB' : 'LSB';
+  document.getElementById('song-authors').value = s ? s.authors || '' : '';
+  document.getElementById('song-copyright').value = s ? s.copyright || '' : '';
+  document.getElementById('song-tags').value = s ? (s.tags||[]).join(', ') : '';
+  _editingStanzas = s && s.stanzas ? JSON.parse(JSON.stringify(s.stanzas)) : [{number:1, text:''}];
+  renderStanzaEditor();
+  openPanel('song-panel');
+};
+window.editSong = function(id) { openSongPanel(id); };
+
+function renderStanzaEditor() {
+  var container = document.getElementById('stanza-editor');
+  container.innerHTML = _editingStanzas.map(function(st, i) {
+    return '<div style="border:1px solid #e8eaf2;border-radius:8px;padding:10px;margin-bottom:8px;">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'
+      + '<strong style="font-size:.85rem;color:#2c3e6b;">Stanza ' + st.number + '</strong>'
+      + '<button class="btn btn-sm btn-danger" onclick="removeStanza(' + i + ')">Remove</button></div>'
+      + '<textarea rows="4" onchange="updateStanzaText(' + i + ',this.value)">' + esc(st.text) + '</textarea></div>';
+  }).join('');
+}
+
+window.addStanzaField = function() {
+  var nextNum = _editingStanzas.length > 0 ? Math.max.apply(null, _editingStanzas.map(function(s){return s.number;})) + 1 : 1;
+  _editingStanzas.push({number: nextNum, text: ''});
+  renderStanzaEditor();
+};
+window.removeStanza = function(i) { _editingStanzas.splice(i, 1); renderStanzaEditor(); };
+window.updateStanzaText = function(i, val) { _editingStanzas[i].text = val; };
+
+window.saveSong = function() {
+  var title = document.getElementById('song-title').value.trim();
+  if (!title) { alert('Title is required.'); return; }
+  var editId = document.getElementById('song-edit-id').value;
+  var source = document.getElementById('song-source').value;
+  var number = parseInt(document.getElementById('song-number').value) || 0;
+  var id = editId || (source.toLowerCase() + '-' + (number || Date.now()));
+  songs[id] = {
+    id: id, title: title, source: source, number: number,
+    authors: document.getElementById('song-authors').value.trim(),
+    copyright: document.getElementById('song-copyright').value.trim(),
+    tags: document.getElementById('song-tags').value.split(',').map(function(t){return t.trim();}).filter(Boolean),
+    stanzas: _editingStanzas.filter(function(s){return s.text.trim();}),
+    defaultStanzas: _editingStanzas.map(function(s){return s.number;})
+  };
+  queueFbPush();
+  renderSongsList();
+  closeAllPanels();
+};
+
+window.deleteSong = function(id) {
+  if (!confirm('Delete "' + (songs[id]||{}).title + '"?')) return;
+  delete songs[id];
+  queueFbPush();
+  renderSongsList();
+};
+
+// Bulk import
+window.openBulkImportModal = function() { document.getElementById('bulk-import-modal').classList.add('open'); };
+window.closeBulkImportModal = function() { document.getElementById('bulk-import-modal').classList.remove('open'); };
+
+window.doBulkImport = function() {
+  var text = document.getElementById('bulk-import-text').value.trim();
+  try {
+    var arr = JSON.parse(text);
+    if (!Array.isArray(arr)) throw new Error('Must be a JSON array');
+    var count = 0;
+    arr.forEach(function(s) {
+      if (!s.title) return;
+      var id = s.id || ((s.source||'song').toLowerCase() + '-' + (s.number || Date.now() + count));
+      songs[id] = Object.assign({id: id, source:'LSB', tags:[], stanzas:[], defaultStanzas:[]}, s);
+      count++;
+    });
+    queueFbPush();
+    renderSongsList();
+    document.getElementById('bulk-import-status').innerHTML = '<span style="color:#27ae60;">Imported ' + count + ' songs.</span>';
+  } catch(e) {
+    document.getElementById('bulk-import-status').innerHTML = '<span style="color:#c00;">Error: ' + e.message + '</span>';
+  }
+};
+
+
+// ══════════════════════════════════════════════════════════════════
+// LITURGIES CRUD
+// ══════════════════════════════════════════════════════════════════
+function renderLiturgiesList() {
+  var list = document.getElementById('liturgies-list');
+  var arr = Object.values(liturgies).sort(function(a,b) { return (a.name||'').localeCompare(b.name||''); });
+  document.getElementById('liturgies-empty').style.display = arr.length === 0 ? 'block' : 'none';
+  list.innerHTML = arr.map(function(lit) {
+    var partCount = (lit.parts||[]).length;
+    return '<div class="card" style="padding:14px;margin-bottom:8px;">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;">'
+      + '<div><strong style="color:#2c3e6b;">' + esc(lit.name) + '</strong>'
+      + ' <span class="tag tag-source">' + esc(lit.abbreviation||'') + '</span>'
+      + ' <span style="font-size:.78rem;color:#888;">' + partCount + ' parts</span></div>'
+      + '<div style="display:flex;gap:6px;">'
+      + '<button class="btn btn-sm btn-outline" onclick="editLiturgy(\'' + lit.id + '\')">Edit</button>'
+      + '<button class="btn btn-sm btn-danger" onclick="deleteLiturgy(\'' + lit.id + '\')">Del</button></div></div></div>';
+  }).join('');
+}
+
+window.openLiturgyPanel = function(litId) {
+  var lit = litId ? liturgies[litId] : null;
+  document.getElementById('liturgy-panel-title').textContent = lit ? 'Edit Liturgy' : 'Add Liturgy';
+  document.getElementById('lit-edit-id').value = lit ? lit.id : '';
+  document.getElementById('lit-name').value = lit ? lit.name : '';
+  document.getElementById('lit-abbr').value = lit ? lit.abbreviation || '' : '';
+  document.getElementById('lit-source').value = lit ? lit.source || 'LSB' : 'LSB';
+  _editingLitParts = lit && lit.parts ? JSON.parse(JSON.stringify(lit.parts)) : [];
+  renderLitPartsEditor();
+  openPanel('liturgy-panel');
+};
+window.editLiturgy = function(id) { openLiturgyPanel(id); };
+
+function renderLitPartsEditor() {
+  var container = document.getElementById('lit-parts-editor');
+  container.innerHTML = _editingLitParts.map(function(part, i) {
+    var linesHtml = '';
+    if (part.type === 'liturgy' && part.lines) {
+      linesHtml = part.lines.map(function(ln, li) {
+        return '<div class="lit-line">'
+          + '<select onchange="updateLitLine(' + i + ',' + li + ',\'speaker\',this.value)">'
+          + ['P','C','A','L'].map(function(s){ return '<option' + (ln.speaker===s?' selected':'') + '>' + s + '</option>'; }).join('')
+          + '</select>'
+          + '<textarea rows="2" onchange="updateLitLine(' + i + ',' + li + ',\'text\',this.value)">' + esc(ln.text||'') + '</textarea>'
+          + '<button class="btn btn-sm btn-danger" onclick="removeLitLine(' + i + ',' + li + ')" style="flex-shrink:0;">x</button></div>';
+      }).join('');
+      linesHtml += '<button class="btn btn-sm btn-outline" onclick="addLitLine(' + i + ')" style="margin-top:4px;">+ Line</button>';
+    }
+    return '<div class="lit-part">'
+      + '<div class="lit-part-header" onclick="toggleLitPart(this)">'
+      + '<span style="font-size:.9rem;color:#2c3e6b;font-weight:600;flex:1;">' + (i+1) + '. ' + esc(part.name||'Unnamed') + '</span>'
+      + '<span class="tag tag-' + (part.type==='liturgy'?'liturgy':part.type==='reading'?'reading':'hymn') + '">' + esc(part.type||'liturgy') + '</span>'
+      + '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();removeLitPart(' + i + ')" style="margin-left:8px;">x</button>'
+      + '</div>'
+      + '<div class="lit-part-body">'
+      + '<div class="field-row"><div style="flex:2;"><label>Name</label><input type="text" value="' + esc(part.name||'') + '" onchange="updateLitPart(' + i + ',\'name\',this.value)"></div>'
+      + '<div><label>Type</label><select onchange="updateLitPart(' + i + ',\'type\',this.value);renderLitPartsEditor()">'
+      + ['liturgy','proper','reading','sermon','placeholder'].map(function(t){ return '<option' + (part.type===t?' selected':'') + '>' + t + '</option>'; }).join('')
+      + '</select></div></div>'
+      + '<label style="display:flex;align-items:center;gap:6px;font-weight:normal;margin-top:8px;"><input type="checkbox" ' + (part.fixed?'checked':'') + ' onchange="updateLitPart(' + i + ',\'fixed\',this.checked)"> Fixed (same every week)</label>'
+      + '<label style="display:flex;align-items:center;gap:6px;font-weight:normal;margin-top:4px;"><input type="checkbox" ' + (part.canOmit?'checked':'') + ' onchange="updateLitPart(' + i + ',\'canOmit\',this.checked)"> Can be omitted</label>'
+      + (linesHtml ? '<div style="margin-top:12px;"><strong style="font-size:.85rem;color:#2c3e6b;">Lines:</strong>' + linesHtml + '</div>' : '')
+      + '</div></div>';
+  }).join('');
+}
+
+window.toggleLitPart = function(header) {
+  var body = header.nextElementSibling;
+  body.classList.toggle('open');
+};
+window.addLitPartField = function() {
+  _editingLitParts.push({id: 'part-' + Date.now(), name:'', type:'liturgy', fixed:true, lines:[], canOmit:false});
+  renderLitPartsEditor();
+};
+window.removeLitPart = function(i) { _editingLitParts.splice(i, 1); renderLitPartsEditor(); };
+window.updateLitPart = function(i, key, val) { _editingLitParts[i][key] = val; };
+window.addLitLine = function(pi) {
+  if (!_editingLitParts[pi].lines) _editingLitParts[pi].lines = [];
+  _editingLitParts[pi].lines.push({speaker:'P', text:''});
+  renderLitPartsEditor();
+};
+window.removeLitLine = function(pi, li) { _editingLitParts[pi].lines.splice(li, 1); renderLitPartsEditor(); };
+window.updateLitLine = function(pi, li, key, val) { _editingLitParts[pi].lines[li][key] = val; };
+
+window.saveLiturgy = function() {
+  var name = document.getElementById('lit-name').value.trim();
+  if (!name) { alert('Name is required.'); return; }
+  var editId = document.getElementById('lit-edit-id').value;
+  var abbr = document.getElementById('lit-abbr').value.trim();
+  var id = editId || abbr.toLowerCase().replace(/[^a-z0-9]/g,'-') || ('lit-' + Date.now());
+  liturgies[id] = {
+    id: id, name: name, abbreviation: abbr,
+    source: document.getElementById('lit-source').value.trim(),
+    parts: _editingLitParts
+  };
+  queueFbPush();
+  renderLiturgiesList();
+  populateLiturgyDropdown();
+  closeAllPanels();
+};
+
+window.deleteLiturgy = function(id) {
+  if (!confirm('Delete "' + (liturgies[id]||{}).name + '"?')) return;
+  delete liturgies[id];
+  queueFbPush();
+  renderLiturgiesList();
+  populateLiturgyDropdown();
+};
+
+window.importLiturgyJson = function() {
+  var input = document.createElement('input');
+  input.type = 'file'; input.accept = '.json';
+  input.onchange = function(e) {
+    var file = e.target.files[0]; if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      try {
+        var data = JSON.parse(ev.target.result);
+        var arr = Array.isArray(data) ? data : [data];
+        arr.forEach(function(lit) {
+          if (!lit.name) return;
+          var id = lit.id || lit.abbreviation?.toLowerCase().replace(/[^a-z0-9]/g,'-') || ('lit-' + Date.now());
+          lit.id = id;
+          liturgies[id] = lit;
+        });
+        queueFbPush();
+        renderLiturgiesList();
+        populateLiturgyDropdown();
+        alert('Imported ' + arr.length + ' liturgy setting(s).');
+      } catch(err) { alert('Error parsing JSON: ' + err.message); }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+};
+
+
+// ══════════════════════════════════════════════════════════════════
+// SERVICE BUILDER
+// ══════════════════════════════════════════════════════════════════
+function populateLiturgyDropdown() {
+  var sel = document.getElementById('svc-liturgy');
+  var val = sel.value;
+  sel.innerHTML = '<option value="">-- Select Liturgy --</option>';
+  Object.values(liturgies).sort(function(a,b){return (a.name||'').localeCompare(b.name||'');}).forEach(function(lit) {
+    sel.innerHTML += '<option value="' + lit.id + '">' + esc(lit.name) + '</option>';
+  });
+  sel.value = val;
+}
+
+window.onLiturgyChange = function() {
+  var litId = document.getElementById('svc-liturgy').value;
+  if (!litId || !liturgies[litId]) return;
+  var lit = liturgies[litId];
+  serviceItems = [];
+  (lit.parts||[]).forEach(function(part) {
+    if (part.type === 'reading') {
+      var date = document.getElementById('svc-date').value;
+      var lect = lectionary[date] || {};
+      var ref = '';
+      if (part.name.toLowerCase().includes('old testament') || part.name.toLowerCase().includes('first reading')) ref = lect.ot || '';
+      else if (part.name.toLowerCase().includes('epistle') || part.name.toLowerCase().includes('second reading')) ref = lect.epistle || '';
+      else if (part.name.toLowerCase().includes('gospel')) ref = lect.gospel || '';
+      else if (part.name.toLowerCase().includes('psalm')) ref = lect.psalm || '';
+      serviceItems.push({type:'reading', partId:part.id, label:part.name, reference:ref, text:''});
+    } else if (part.type === 'sermon') {
+      serviceItems.push({type:'sermon', partId:part.id, label:part.name, title:document.getElementById('svc-sermon-title').value||'', preacher:document.getElementById('svc-preacher').value||'', reference:''});
+    } else {
+      serviceItems.push({type:'liturgy', partId:part.id, label:part.name, customText:''});
+    }
+  });
+  renderServiceOrder();
+};
+
+window.addServiceItem = function(type) {
+  var item = {type: type};
+  if (type === 'hymn') { item.songId = ''; item.stanzas = []; item.label = 'Hymn'; }
+  else if (type === 'reading') { item.label = 'Reading'; item.reference = ''; item.text = ''; }
+  else if (type === 'sermon') { item.label = 'Sermon'; item.title = ''; item.preacher = ''; item.reference = ''; }
+  else if (type === 'announcement') { item.label = 'Announcements'; item.text = ''; }
+  else if (type === 'blank') { item.label = 'Blank Slide'; }
+  else if (type === 'liturgy') { item.partId = ''; item.label = 'Liturgy'; item.customText = ''; }
+  serviceItems.push(item);
+  renderServiceOrder();
+};
+
+var _dragIdx = -1;
+function renderServiceOrder() {
+  var container = document.getElementById('service-order-list');
+  if (serviceItems.length === 0) {
+    container.innerHTML = '<p style="color:#aaa;font-size:.9rem;text-align:center;padding:30px;">Select a liturgy or add items to build your service order.</p>';
+    return;
+  }
+  container.innerHTML = serviceItems.map(function(item, i) {
+    var tagClass = 'tag-' + (item.type === 'announcement' ? 'announce' : item.type);
+    var title = getItemDisplayTitle(item);
+    var detail = getItemDetail(item);
+    return '<div class="drop-zone" data-idx="' + i + '"></div>'
+      + '<div class="svc-item" draggable="true" data-idx="' + i + '">'
+      + '<span class="drag-handle">\u2630</span>'
+      + '<span class="tag ' + tagClass + '">' + esc(item.type) + '</span>'
+      + '<div class="item-info"><div class="item-title">' + esc(title) + '</div>'
+      + (detail ? '<div class="item-detail">' + esc(detail) + '</div>' : '') + '</div>'
+      + '<div class="item-actions">'
+      + '<button onclick="editServiceItem(' + i + ')" title="Edit">\u270E</button>'
+      + '<button onclick="removeServiceItem(' + i + ')" title="Delete">\u2716</button>'
+      + '</div></div>';
+  }).join('') + '<div class="drop-zone" data-idx="' + serviceItems.length + '"></div>';
+
+  // Drag and drop
+  container.querySelectorAll('.svc-item[draggable]').forEach(function(el) {
+    el.addEventListener('dragstart', function(e) {
+      _dragIdx = parseInt(el.dataset.idx);
+      el.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragend', function() { el.classList.remove('dragging'); _dragIdx = -1; clearDropZones(); });
+  });
+  container.querySelectorAll('.drop-zone').forEach(function(dz) {
+    dz.addEventListener('dragover', function(e) { e.preventDefault(); dz.classList.add('active'); });
+    dz.addEventListener('dragleave', function() { dz.classList.remove('active'); });
+    dz.addEventListener('drop', function(e) {
+      e.preventDefault();
+      var toIdx = parseInt(dz.dataset.idx);
+      if (_dragIdx >= 0 && _dragIdx !== toIdx && _dragIdx !== toIdx - 1) {
+        var item = serviceItems.splice(_dragIdx, 1)[0];
+        if (toIdx > _dragIdx) toIdx--;
+        serviceItems.splice(toIdx, 0, item);
+        renderServiceOrder();
+      }
+      clearDropZones();
+    });
+  });
+}
+
+function clearDropZones() {
+  document.querySelectorAll('.drop-zone').forEach(function(dz) { dz.classList.remove('active'); });
+}
+
+function getItemDisplayTitle(item) {
+  if (item.type === 'hymn') {
+    if (item.songId && songs[item.songId]) {
+      var s = songs[item.songId];
+      return (item.label || 'Hymn') + ': ' + s.title + (s.number ? ' (' + s.source + ' ' + s.number + ')' : '');
+    }
+    return item.label || 'Hymn (not selected)';
+  }
+  if (item.type === 'sermon') return 'Sermon' + (item.title ? ': ' + item.title : '');
+  if (item.type === 'reading') return (item.label || 'Reading') + (item.reference ? ': ' + item.reference : '');
+  return item.label || item.type;
+}
+
+function getItemDetail(item) {
+  if (item.type === 'hymn' && item.stanzas && item.stanzas.length) return 'Stanzas: ' + item.stanzas.join(', ');
+  if (item.type === 'sermon' && item.preacher) return item.preacher;
+  if (item.type === 'announcement' && item.text) return item.text.substring(0, 80);
+  if (item.type === 'liturgy' && item.customText) return item.customText.substring(0, 80);
+  return '';
+}
+
+window.removeServiceItem = function(i) { serviceItems.splice(i, 1); renderServiceOrder(); };
+
+window.editServiceItem = function(i) {
+  _editingItemIdx = i;
+  var item = serviceItems[i];
+  var body = document.getElementById('item-panel-body');
+  document.getElementById('item-panel-title').textContent = 'Edit ' + item.type.charAt(0).toUpperCase() + item.type.slice(1);
+
+  if (item.type === 'hymn') {
+    var songOptions = Object.values(songs).sort(function(a,b){return (a.title||'').localeCompare(b.title||'');}).map(function(s) {
+      return '<option value="' + s.id + '"' + (item.songId===s.id?' selected':'') + '>' + esc(s.title) + ' (' + s.source + ' ' + (s.number||'') + ')</option>';
+    }).join('');
+    var stanzaChecks = '';
+    if (item.songId && songs[item.songId]) {
+      stanzaChecks = (songs[item.songId].stanzas||[]).map(function(st) {
+        var checked = (item.stanzas||[]).includes(st.number) ? 'checked' : '';
+        return '<label style="display:flex;align-items:center;gap:6px;font-weight:normal;"><input type="checkbox" value="' + st.number + '" ' + checked + ' onchange="updateItemStanzas()"> Stanza ' + st.number + '</label>';
+      }).join('');
+    }
+    body.innerHTML = '<label>Label</label><input type="text" id="item-label" value="' + esc(item.label||'') + '" onchange="serviceItems[' + i + '].label=this.value;renderServiceOrder()">'
+      + '<label>Song</label><select id="item-song" onchange="onItemSongChange(' + i + ')"><option value="">-- Select --</option>' + songOptions + '</select>'
+      + '<div id="item-stanza-checks" style="margin-top:10px;">' + stanzaChecks + '</div>'
+      + '<div style="margin-top:16px;"><button class="btn btn-primary" onclick="closeAllPanels()">Done</button></div>';
+  } else if (item.type === 'reading') {
+    body.innerHTML = '<label>Label</label><input type="text" value="' + esc(item.label||'') + '" onchange="serviceItems[' + i + '].label=this.value;renderServiceOrder()">'
+      + '<label>Reference</label><input type="text" value="' + esc(item.reference||'') + '" onchange="serviceItems[' + i + '].reference=this.value;renderServiceOrder()">'
+      + '<label>Full Text (optional)</label><textarea rows="8" onchange="serviceItems[' + i + '].text=this.value">' + esc(item.text||'') + '</textarea>'
+      + '<div style="margin-top:16px;"><button class="btn btn-primary" onclick="closeAllPanels()">Done</button></div>';
+  } else if (item.type === 'sermon') {
+    body.innerHTML = '<label>Title</label><input type="text" value="' + esc(item.title||'') + '" onchange="serviceItems[' + i + '].title=this.value;renderServiceOrder()">'
+      + '<label>Preacher</label><input type="text" value="' + esc(item.preacher||'') + '" onchange="serviceItems[' + i + '].preacher=this.value;renderServiceOrder()">'
+      + '<label>Scripture Reference</label><input type="text" value="' + esc(item.reference||'') + '" onchange="serviceItems[' + i + '].reference=this.value;renderServiceOrder()">'
+      + '<div style="margin-top:16px;"><button class="btn btn-primary" onclick="closeAllPanels()">Done</button></div>';
+  } else if (item.type === 'announcement') {
+    body.innerHTML = '<label>Announcements</label><textarea rows="8" onchange="serviceItems[' + i + '].text=this.value">' + esc(item.text||'') + '</textarea>'
+      + '<p style="font-size:.78rem;color:#888;margin-top:4px;">One announcement per line.</p>'
+      + '<div style="margin-top:16px;"><button class="btn btn-primary" onclick="closeAllPanels()">Done</button></div>';
+  } else if (item.type === 'liturgy') {
+    var litId = document.getElementById('svc-liturgy').value;
+    var lit = liturgies[litId];
+    var partText = '';
+    if (lit) {
+      var part = (lit.parts||[]).find(function(p){return p.id === item.partId;});
+      if (part && part.lines) {
+        partText = part.lines.map(function(ln) {
+          return (ln.speaker ? ln.speaker + ': ' : '') + ln.text;
+        }).join('\n');
+      }
+    }
+    body.innerHTML = '<label>Label</label><input type="text" value="' + esc(item.label||'') + '" onchange="serviceItems[' + i + '].label=this.value;renderServiceOrder()">'
+      + (partText ? '<div style="margin-top:10px;padding:10px;background:#f8f9fc;border-radius:8px;font-size:.85rem;white-space:pre-wrap;max-height:200px;overflow-y:auto;">' + esc(partText) + '</div>' : '')
+      + '<label>Custom/Override Text</label><textarea rows="6" onchange="serviceItems[' + i + '].customText=this.value" placeholder="Leave empty to use liturgy default">' + esc(item.customText||'') + '</textarea>'
+      + '<div style="margin-top:16px;"><button class="btn btn-primary" onclick="closeAllPanels()">Done</button></div>';
+  } else {
+    body.innerHTML = '<label>Label</label><input type="text" value="' + esc(item.label||'') + '" onchange="serviceItems[' + i + '].label=this.value;renderServiceOrder()">'
+      + '<div style="margin-top:16px;"><button class="btn btn-primary" onclick="closeAllPanels()">Done</button></div>';
+  }
+  openPanel('item-panel');
+};
+
+window.onItemSongChange = function(i) {
+  var songId = document.getElementById('item-song').value;
+  serviceItems[i].songId = songId;
+  if (songId && songs[songId]) {
+    serviceItems[i].stanzas = songs[songId].defaultStanzas ? songs[songId].defaultStanzas.slice() : songs[songId].stanzas.map(function(s){return s.number;});
+  } else {
+    serviceItems[i].stanzas = [];
+  }
+  editServiceItem(i); // re-render panel with stanza checkboxes
+  renderServiceOrder();
+};
+
+window.updateItemStanzas = function() {
+  if (_editingItemIdx < 0) return;
+  var checks = document.querySelectorAll('#item-stanza-checks input[type=checkbox]');
+  serviceItems[_editingItemIdx].stanzas = [];
+  checks.forEach(function(cb) { if (cb.checked) serviceItems[_editingItemIdx].stanzas.push(parseInt(cb.value)); });
+  renderServiceOrder();
+};
+
+// Save / Load services
+window.saveService = function() {
+  var date = document.getElementById('svc-date').value;
+  var name = document.getElementById('svc-name').value.trim();
+  if (!date) { alert('Please select a date.'); return; }
+  var id = date;
+  services[id] = {
+    id: id, date: date, name: name,
+    liturgyId: document.getElementById('svc-liturgy').value,
+    sermonTitle: document.getElementById('svc-sermon-title').value.trim(),
+    preacher: document.getElementById('svc-preacher').value.trim(),
+    items: JSON.parse(JSON.stringify(serviceItems)),
+    slideSettings: {}
+  };
+  queueFbPush();
+  alert('Service saved for ' + date + '.');
+};
+
+window.openLoadModal = function() {
+  var list = document.getElementById('load-modal-list');
+  var arr = Object.values(services).sort(function(a,b) { return (b.date||'').localeCompare(a.date||''); });
+  if (arr.length === 0) { list.innerHTML = '<p style="color:#aaa;">No saved services.</p>'; }
+  else {
+    list.innerHTML = arr.map(function(s) {
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee;">'
+        + '<div><strong>' + esc(s.date) + '</strong> - ' + esc(s.name||'Untitled') + ' <span style="font-size:.78rem;color:#888;">(' + (s.items||[]).length + ' items)</span></div>'
+        + '<div style="display:flex;gap:6px;">'
+        + '<button class="btn btn-sm btn-primary" onclick="loadService(\'' + s.id + '\')">Load</button>'
+        + '<button class="btn btn-sm btn-danger" onclick="deleteService(\'' + s.id + '\')">Del</button></div></div>';
+    }).join('');
+  }
+  document.getElementById('load-modal').classList.add('open');
+};
+window.closeLoadModal = function() { document.getElementById('load-modal').classList.remove('open'); };
+
+window.loadService = function(id) {
+  var svc = services[id];
+  if (!svc) return;
+  document.getElementById('svc-date').value = svc.date || '';
+  document.getElementById('svc-name').value = svc.name || '';
+  document.getElementById('svc-liturgy').value = svc.liturgyId || '';
+  document.getElementById('svc-sermon-title').value = svc.sermonTitle || '';
+  document.getElementById('svc-preacher').value = svc.preacher || '';
+  serviceItems = svc.items ? JSON.parse(JSON.stringify(svc.items)) : [];
+  renderServiceOrder();
+  closeLoadModal();
+};
+
+window.deleteService = function(id) {
+  if (!confirm('Delete service for ' + id + '?')) return;
+  delete services[id];
+  queueFbPush();
+  openLoadModal();
+};
+
+
+// ══════════════════════════════════════════════════════════════════
+// SLIDE GENERATION (shared between preview, PPTX, and presentation)
+// ══════════════════════════════════════════════════════════════════
+function getSlideSettings() {
+  return {
+    bgColor: preferences.bgColor || document.getElementById('pref-bg-color').value || '#1a237e',
+    textColor: preferences.textColor || document.getElementById('pref-text-color').value || '#ffffff',
+    fontFamily: preferences.fontFamily || document.getElementById('pref-font').value || 'Georgia',
+    titleSize: parseInt(preferences.titleSize || document.getElementById('pref-title-size').value || 44),
+    bodySize: parseInt(preferences.bodySize || document.getElementById('pref-body-size').value || 36),
+    showNumbers: preferences.showNumbers !== undefined ? preferences.showNumbers : document.getElementById('pref-show-numbers').checked,
+    showSpeakers: preferences.showSpeakers !== undefined ? preferences.showSpeakers : document.getElementById('pref-show-speakers').checked,
+    showLogo: preferences.showLogo !== undefined ? preferences.showLogo : document.getElementById('pref-show-logo').checked
+  };
+}
+
+function generateSlides() {
+  var ss = getSlideSettings();
+  var slides = [];
+  var date = document.getElementById('svc-date').value;
+  var name = document.getElementById('svc-name').value || '';
+
+  // Title slide
+  slides.push({type:'title', header:'Timothy Lutheran Church', body: name, sub: formatDate(date)});
+
+  serviceItems.forEach(function(item) {
+    if (item.type === 'hymn' && item.songId && songs[item.songId]) {
+      var song = songs[item.songId];
+      var headerText = song.title;
+      if (ss.showNumbers && song.number) headerText += ' \u2013 ' + song.source + ' ' + song.number;
+      (item.stanzas||[]).forEach(function(stNum) {
+        var stanza = (song.stanzas||[]).find(function(s){return s.number === stNum;});
+        if (stanza) {
+          slides.push({type:'hymn', header: headerText, stanzaNum: stNum, body: stanza.text, label: item.label || 'Hymn'});
+        }
+      });
+    } else if (item.type === 'liturgy') {
+      var litId = document.getElementById('svc-liturgy').value;
+      var lit = liturgies[litId];
+      var lines = [];
+      if (item.customText) {
+        lines = [{speaker:'', text: item.customText}];
+      } else if (lit) {
+        var part = (lit.parts||[]).find(function(p){return p.id === item.partId;});
+        if (part && part.lines) lines = part.lines;
+      }
+      if (lines.length > 0) {
+        // Split into slides of ~8 lines each
+        var chunks = chunkLines(lines, 8);
+        chunks.forEach(function(chunk, ci) {
+          slides.push({type:'liturgy', header: item.label + (chunks.length > 1 ? ' (' + (ci+1) + '/' + chunks.length + ')' : ''), lines: chunk, showSpeakers: ss.showSpeakers});
+        });
+      } else {
+        slides.push({type:'section', header: item.label});
+      }
+    } else if (item.type === 'reading') {
+      slides.push({type:'reading', header: item.label || 'Reading', body: item.reference || ''});
+      if (item.text) {
+        var textChunks = chunkText(item.text, 600);
+        textChunks.forEach(function(chunk, ci) {
+          slides.push({type:'reading-text', header: (item.reference||'Reading') + (textChunks.length > 1 ? ' (' + (ci+1) + '/' + textChunks.length + ')' : ''), body: chunk});
+        });
+      }
+    } else if (item.type === 'sermon') {
+      slides.push({type:'sermon', header: item.title || 'Sermon', body: item.reference || '', sub: item.preacher || ''});
+    } else if (item.type === 'announcement') {
+      slides.push({type:'announcement', header: 'Announcements', body: item.text || ''});
+    } else if (item.type === 'blank') {
+      slides.push({type:'blank', header: item.label || ''});
+    }
+  });
+
+  return slides;
+}
+
+function chunkLines(lines, maxPerSlide) {
+  var chunks = []; var current = [];
+  lines.forEach(function(ln) {
+    current.push(ln);
+    if (current.length >= maxPerSlide) { chunks.push(current); current = []; }
+  });
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
+function chunkText(text, maxChars) {
+  var chunks = []; var words = text.split(/\s+/); var current = '';
+  words.forEach(function(w) {
+    if ((current + ' ' + w).length > maxChars && current) { chunks.push(current.trim()); current = w; }
+    else { current += (current ? ' ' : '') + w; }
+  });
+  if (current.trim()) chunks.push(current.trim());
+  return chunks;
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  var d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SLIDE PREVIEW
+// ══════════════════════════════════════════════════════════════════
+window.previewSlides = function() {
+  var slides = generateSlides();
+  var ss = getSlideSettings();
+  var container = document.getElementById('preview-slides');
+  container.innerHTML = slides.map(function(slide, i) {
+    return '<div style="width:320px;height:180px;background:' + ss.bgColor + ';color:' + ss.textColor + ';border-radius:8px;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;font-family:' + ss.fontFamily + ';position:relative;flex-shrink:0;">'
+      + '<div style="position:absolute;top:4px;right:8px;font-size:.6rem;opacity:.5;">' + (i+1) + '</div>'
+      + renderSlideContent(slide, ss, true)
+      + '</div>';
+  }).join('');
+  document.getElementById('preview-modal').classList.add('open');
+};
+window.closePreviewModal = function() { document.getElementById('preview-modal').classList.remove('open'); };
+
+function renderSlideContent(slide, ss, isThumbnail) {
+  var scale = isThumbnail ? 0.35 : 1;
+  var titlePx = Math.round(ss.titleSize * scale);
+  var bodyPx = Math.round(ss.bodySize * scale);
+
+  if (slide.type === 'title') {
+    return '<div style="font-size:' + Math.round(titlePx*1.2) + 'px;font-weight:700;margin-bottom:' + (isThumbnail?4:20) + 'px;">' + esc(slide.header) + '</div>'
+      + '<div style="font-size:' + bodyPx + 'px;">' + esc(slide.body) + '</div>'
+      + '<div style="font-size:' + Math.round(bodyPx*0.7) + 'px;opacity:.6;margin-top:' + (isThumbnail?2:10) + 'px;">' + esc(slide.sub||'') + '</div>';
+  }
+  if (slide.type === 'hymn') {
+    return '<div style="font-size:' + Math.round(titlePx*0.6) + 'px;opacity:.6;margin-bottom:' + (isThumbnail?2:8) + 'px;">' + esc(slide.header) + ' \u2013 Stanza ' + slide.stanzaNum + '</div>'
+      + '<div style="font-size:' + bodyPx + 'px;white-space:pre-wrap;line-height:1.5;text-align:center;">' + esc(slide.body) + '</div>';
+  }
+  if (slide.type === 'liturgy') {
+    var linesHtml = (slide.lines||[]).map(function(ln) {
+      var isCong = ln.speaker === 'C' || ln.speaker === 'A';
+      var prefix = slide.showSpeakers && ln.speaker ? '<span style="opacity:.5;font-size:' + Math.round(bodyPx*0.6) + 'px;">' + ln.speaker + ': </span>' : '';
+      return '<div style="font-size:' + bodyPx + 'px;' + (isCong?'font-weight:700;':'') + 'margin-bottom:' + (isThumbnail?1:4) + 'px;">' + prefix + esc(ln.text) + '</div>';
+    }).join('');
+    return '<div style="font-size:' + Math.round(titlePx*0.6) + 'px;opacity:.6;margin-bottom:' + (isThumbnail?2:10) + 'px;">' + esc(slide.header) + '</div>' + linesHtml;
+  }
+  if (slide.type === 'reading') {
+    return '<div style="font-size:' + Math.round(titlePx*0.6) + 'px;opacity:.6;margin-bottom:' + (isThumbnail?2:10) + 'px;">' + esc(slide.header) + '</div>'
+      + '<div style="font-size:' + titlePx + 'px;font-weight:700;">' + esc(slide.body) + '</div>';
+  }
+  if (slide.type === 'reading-text') {
+    return '<div style="font-size:' + Math.round(titlePx*0.6) + 'px;opacity:.6;margin-bottom:' + (isThumbnail?2:8) + 'px;">' + esc(slide.header) + '</div>'
+      + '<div style="font-size:' + bodyPx + 'px;text-align:left;line-height:1.4;">' + esc(slide.body) + '</div>';
+  }
+  if (slide.type === 'sermon') {
+    return '<div style="font-size:' + titlePx + 'px;font-weight:700;margin-bottom:' + (isThumbnail?4:16) + 'px;">' + esc(slide.header) + '</div>'
+      + '<div style="font-size:' + bodyPx + 'px;">' + esc(slide.body) + '</div>'
+      + '<div style="font-size:' + Math.round(bodyPx*0.7) + 'px;opacity:.6;margin-top:' + (isThumbnail?2:8) + 'px;">' + esc(slide.sub||'') + '</div>';
+  }
+  if (slide.type === 'announcement') {
+    var bullets = (slide.body||'').split('\n').filter(Boolean).map(function(line) {
+      return '<div style="font-size:' + bodyPx + 'px;margin-bottom:' + (isThumbnail?1:6) + 'px;">\u2022 ' + esc(line) + '</div>';
+    }).join('');
+    return '<div style="font-size:' + Math.round(titlePx*0.7) + 'px;opacity:.6;margin-bottom:' + (isThumbnail?2:10) + 'px;">' + esc(slide.header) + '</div>' + bullets;
+  }
+  if (slide.type === 'section') {
+    return '<div style="font-size:' + titlePx + 'px;font-weight:700;">' + esc(slide.header) + '</div>';
+  }
+  // blank
+  return '';
+}
+
+
+// ══════════════════════════════════════════════════════════════════
+// POWERPOINT EXPORT
+// ══════════════════════════════════════════════════════════════════
+window.exportPptx = function() {
+  var slides = generateSlides();
+  var ss = getSlideSettings();
+  if (slides.length === 0) { alert('No slides to export. Build a service first.'); return; }
+
+  var pptx = new PptxGenJS();
+  pptx.defineLayout({name:'WIDE', width:13.33, height:7.5});
+  pptx.layout = 'WIDE';
+
+  slides.forEach(function(slide) {
+    var s = pptx.addSlide();
+    s.background = {color: ss.bgColor.replace('#','')};
+
+    if (slide.type === 'title') {
+      s.addText(slide.header, {x:0.5, y:1.5, w:12.33, h:1.5, fontSize:ss.titleSize+8, fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), bold:true, align:'center'});
+      s.addText(slide.body||'', {x:0.5, y:3.2, w:12.33, h:1.2, fontSize:ss.titleSize, fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), align:'center'});
+      s.addText(slide.sub||'', {x:0.5, y:4.5, w:12.33, h:0.8, fontSize:Math.round(ss.bodySize*0.7), fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), align:'center', transparency:40});
+    }
+    else if (slide.type === 'hymn') {
+      s.addText(slide.header + ' \u2013 Stanza ' + slide.stanzaNum, {x:0.5, y:0.3, w:12.33, h:0.6, fontSize:Math.round(ss.titleSize*0.55), fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), align:'center', transparency:40});
+      s.addText(slide.body||'', {x:1, y:1.2, w:11.33, h:5.5, fontSize:ss.bodySize, fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), align:'center', valign:'middle', lineSpacing:ss.bodySize+12});
+    }
+    else if (slide.type === 'liturgy') {
+      s.addText(slide.header, {x:0.5, y:0.3, w:12.33, h:0.6, fontSize:Math.round(ss.titleSize*0.55), fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), align:'center', transparency:40});
+      var textParts = [];
+      (slide.lines||[]).forEach(function(ln) {
+        var isCong = ln.speaker === 'C' || ln.speaker === 'A';
+        if (slide.showSpeakers && ln.speaker) {
+          textParts.push({text: ln.speaker + ': ', options:{fontSize:Math.round(ss.bodySize*0.6), fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), bold:false, transparency:50}});
+        }
+        textParts.push({text: ln.text + '\n', options:{fontSize:ss.bodySize, fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), bold:isCong}});
+      });
+      s.addText(textParts, {x:0.8, y:1.2, w:11.73, h:5.5, valign:'middle', lineSpacing:ss.bodySize+8});
+    }
+    else if (slide.type === 'reading') {
+      s.addText(slide.header, {x:0.5, y:1.5, w:12.33, h:0.8, fontSize:Math.round(ss.titleSize*0.6), fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), align:'center', transparency:40});
+      s.addText(slide.body||'', {x:0.5, y:2.5, w:12.33, h:2, fontSize:ss.titleSize, fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), bold:true, align:'center', valign:'middle'});
+    }
+    else if (slide.type === 'reading-text') {
+      s.addText(slide.header, {x:0.5, y:0.3, w:12.33, h:0.6, fontSize:Math.round(ss.titleSize*0.55), fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), align:'center', transparency:40});
+      s.addText(slide.body||'', {x:0.8, y:1.2, w:11.73, h:5.5, fontSize:ss.bodySize, fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), align:'left', valign:'top', lineSpacing:ss.bodySize+6});
+    }
+    else if (slide.type === 'sermon') {
+      s.addText(slide.header||'Sermon', {x:0.5, y:2, w:12.33, h:1.5, fontSize:ss.titleSize, fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), bold:true, align:'center'});
+      s.addText(slide.body||'', {x:0.5, y:3.8, w:12.33, h:1, fontSize:ss.bodySize, fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), align:'center'});
+      if (slide.sub) s.addText(slide.sub, {x:0.5, y:5, w:12.33, h:0.8, fontSize:Math.round(ss.bodySize*0.7), fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), align:'center', transparency:40});
+    }
+    else if (slide.type === 'announcement') {
+      s.addText(slide.header, {x:0.5, y:0.5, w:12.33, h:0.8, fontSize:Math.round(ss.titleSize*0.7), fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), align:'center', transparency:40});
+      var bullets = (slide.body||'').split('\n').filter(Boolean).map(function(line) {
+        return {text: line, options:{fontSize:ss.bodySize, fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), bullet:true}};
+      });
+      if (bullets.length) s.addText(bullets, {x:1.5, y:1.5, w:10.33, h:5, valign:'top', lineSpacing:ss.bodySize+10});
+    }
+    else if (slide.type === 'section') {
+      s.addText(slide.header, {x:0.5, y:2.5, w:12.33, h:2, fontSize:ss.titleSize, fontFace:ss.fontFamily, color:ss.textColor.replace('#',''), bold:true, align:'center', valign:'middle'});
+    }
+    // blank: just the background
+  });
+
+  var dateStr = document.getElementById('svc-date').value || 'service';
+  pptx.writeFile({fileName: 'worship-slides-' + dateStr + '.pptx'});
+};
+
+// ══════════════════════════════════════════════════════════════════
+// PRESENTATION MODE
+// ══════════════════════════════════════════════════════════════════
+window.startPresentation = function() {
+  _presSlides = generateSlides();
+  if (_presSlides.length === 0) { alert('No slides to present.'); return; }
+  _presIdx = 0;
+  renderPresSlide();
+  document.getElementById('presentation-overlay').classList.add('active');
+  document.addEventListener('keydown', presKeyHandler);
+};
+
+function renderPresSlide() {
+  var ss = getSlideSettings();
+  var overlay = document.getElementById('presentation-overlay');
+  overlay.style.background = ss.bgColor;
+  var slide = _presSlides[_presIdx];
+  var container = document.getElementById('pres-slide');
+  container.style.color = ss.textColor;
+  container.style.fontFamily = ss.fontFamily;
+  container.innerHTML = renderSlideContent(slide, ss, false);
+  document.getElementById('pres-counter').textContent = (_presIdx+1) + ' / ' + _presSlides.length;
+}
+
+function presKeyHandler(e) {
+  if (e.key === 'Escape') { exitPresentation(); return; }
+  if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (_presIdx < _presSlides.length - 1) { _presIdx++; renderPresSlide(); }
+  }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (_presIdx > 0) { _presIdx--; renderPresSlide(); }
+  }
+}
+
+function exitPresentation() {
+  document.getElementById('presentation-overlay').classList.remove('active');
+  document.removeEventListener('keydown', presKeyHandler);
+}
+
+// Click to advance in presentation
+document.getElementById('presentation-overlay').addEventListener('click', function(e) {
+  if (e.target.id === 'pres-counter') return;
+  if (_presIdx < _presSlides.length - 1) { _presIdx++; renderPresSlide(); }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// SETTINGS / PREFERENCES
+// ══════════════════════════════════════════════════════════════════
+window.savePreferences = function() {
+  preferences = {
+    bgColor: document.getElementById('pref-bg-color').value,
+    textColor: document.getElementById('pref-text-color').value,
+    fontFamily: document.getElementById('pref-font').value,
+    titleSize: parseInt(document.getElementById('pref-title-size').value),
+    bodySize: parseInt(document.getElementById('pref-body-size').value),
+    showNumbers: document.getElementById('pref-show-numbers').checked,
+    showSpeakers: document.getElementById('pref-show-speakers').checked,
+    showLogo: document.getElementById('pref-show-logo').checked
+  };
+  queueFbPush();
+};
+
+function loadPreferencesUI() {
+  if (preferences.bgColor) document.getElementById('pref-bg-color').value = preferences.bgColor;
+  if (preferences.textColor) document.getElementById('pref-text-color').value = preferences.textColor;
+  if (preferences.fontFamily) document.getElementById('pref-font').value = preferences.fontFamily;
+  if (preferences.titleSize) { document.getElementById('pref-title-size').value = preferences.titleSize; document.getElementById('pref-title-size-val').textContent = preferences.titleSize; }
+  if (preferences.bodySize) { document.getElementById('pref-body-size').value = preferences.bodySize; document.getElementById('pref-body-size-val').textContent = preferences.bodySize; }
+  if (preferences.showNumbers !== undefined) document.getElementById('pref-show-numbers').checked = preferences.showNumbers;
+  if (preferences.showSpeakers !== undefined) document.getElementById('pref-show-speakers').checked = preferences.showSpeakers;
+  if (preferences.showLogo !== undefined) document.getElementById('pref-show-logo').checked = preferences.showLogo;
+}
+
+// Data export/import
+window.exportAllData = function() {
+  var data = buildSnapshot();
+  var blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'worship-slides-data-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+};
+
+window.importAllData = function(event) {
+  var file = event.target.files[0]; if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      var data = JSON.parse(ev.target.result);
+      if (data.songs) songs = data.songs;
+      if (data.liturgies) liturgies = data.liturgies;
+      if (data.services) services = data.services;
+      if (data.preferences) preferences = data.preferences;
+      saveLocal();
+      queueFbPush();
+      renderAll();
+      loadPreferencesUI();
+      alert('Data imported successfully.');
+    } catch(e) { alert('Error: ' + e.message); }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+};
+
+// ══════════════════════════════════════════════════════════════════
+// UTILITY
+// ══════════════════════════════════════════════════════════════════
+function esc(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// INITIALIZATION
+// ══════════════════════════════════════════════════════════════════
+function renderAll() {
+  renderSongsList();
+  renderLiturgiesList();
+  populateLiturgyDropdown();
+  renderServiceOrder();
+}
+
+loadLocal();
+loadLectionary();
+renderAll();
+loadPreferencesUI();
+
+// Set today's date as default
+document.getElementById('svc-date').value = new Date().toISOString().slice(0, 10);
+onDateChange();
+
+</script>
+</body>
+</html>
