@@ -178,6 +178,15 @@ main { max-width: 1060px; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
   gap: 0.3rem;
   position: relative;
   overflow: hidden;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.value-tile:hover, .value-tile:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(30,45,74,0.1);
+  border-color: rgba(30,45,74,0.22);
+  outline: none;
 }
 .value-tile::before {
   content: '';
@@ -471,7 +480,9 @@ main { max-width: 1060px; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
 .signup-section {
   background: var(--warm-white); border: 1px solid var(--border);
   border-radius: 16px; padding: 2rem 2.5rem; margin-top: 3rem;
+  display: none;
 }
+.signup-section.visible { display: block; }
 .signup-section-header {
   display: flex; align-items: center; gap: 1rem; margin-bottom: 1.75rem;
   padding-bottom: 1.25rem; border-bottom: 1px solid var(--border);
@@ -614,22 +625,22 @@ footer a:hover { text-decoration: underline; }
 
   <!-- Core values strip -->
   <div class="values-strip">
-    <div class="value-tile v-worship">
+    <a href="#ministry-worship" class="value-tile v-worship">
       <span class="value-tile-name">Worship</span>
       <span class="value-tile-desc">Lead and support the congregation in praise, prayer, and the sacraments</span>
-    </div>
-    <div class="value-tile v-education">
+    </a>
+    <a href="#ministry-education" class="value-tile v-education">
       <span class="value-tile-name">Christian Education</span>
       <span class="value-tile-desc">Nurture faith and discipleship across every age and stage of life</span>
-    </div>
-    <div class="value-tile v-acceptance">
+    </a>
+    <a href="#ministry-acceptance" class="value-tile v-acceptance">
       <span class="value-tile-name">Acceptance</span>
       <span class="value-tile-desc">Welcome every person and build a community where all belong</span>
-    </div>
-    <div class="value-tile v-outreach">
+    </a>
+    <a href="#ministry-outreach" class="value-tile v-outreach">
       <span class="value-tile-name">Outreach</span>
       <span class="value-tile-desc">Serve our neighbors and share God's love beyond our walls</span>
-    </div>
+    </a>
   </div>
 
   <p class="section-label">Timothy Lutheran Church</p>
@@ -816,7 +827,7 @@ footer a:hover { text-decoration: underline; }
 <main style="max-width: 860px;">
 
   <!-- ── WORSHIP ── -->
-  <div class="ministry-section">
+  <div class="ministry-section" id="ministry-worship">
     <div class="ministry-header worship">
       <div class="ministry-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
@@ -830,7 +841,7 @@ footer a:hover { text-decoration: underline; }
       <div class="role-grid">
 
         <label class="role-card" for="r-acolyte">
-          <input type="checkbox" id="r-acolyte" name="roles" value="Acolyte">
+          <input type="checkbox" id="r-acolyte" name="roles" value="Acolyte" data-ministry="worship">
           <div class="role-card-top">
             <div class="role-check" aria-hidden="true"></div>
             <span class="role-name">Acolyte</span>
@@ -843,7 +854,7 @@ footer a:hover { text-decoration: underline; }
         </label>
 
         <label class="role-card" for="r-powerpoint">
-          <input type="checkbox" id="r-powerpoint" name="roles" value="PowerPoint">
+          <input type="checkbox" id="r-powerpoint" name="roles" value="PowerPoint" data-ministry="worship">
           <div class="role-card-top">
             <div class="role-check" aria-hidden="true"></div>
             <span class="role-name">PowerPoint Operator</span>
@@ -856,7 +867,7 @@ footer a:hover { text-decoration: underline; }
         </label>
 
         <label class="role-card" for="r-lector">
-          <input type="checkbox" id="r-lector" name="roles" value="Lector">
+          <input type="checkbox" id="r-lector" name="roles" value="Lector" data-ministry="worship">
           <div class="role-card-top">
             <div class="role-check" aria-hidden="true"></div>
             <span class="role-name">Lector</span>
@@ -869,7 +880,7 @@ footer a:hover { text-decoration: underline; }
         </label>
 
         <label class="role-card" for="r-altar">
-          <input type="checkbox" id="r-altar" name="roles" value="Altar Guild">
+          <input type="checkbox" id="r-altar" name="roles" value="Altar Guild" data-ministry="worship">
           <div class="role-card-top">
             <div class="role-check" aria-hidden="true"></div>
             <span class="role-name">Altar Guild</span>
@@ -882,7 +893,7 @@ footer a:hover { text-decoration: underline; }
         </label>
 
         <label class="role-card" for="r-choir">
-          <input type="checkbox" id="r-choir" name="roles" value="Adult Choir">
+          <input type="checkbox" id="r-choir" name="roles" value="Adult Choir" data-ministry="worship">
           <div class="role-card-top">
             <div class="role-check" aria-hidden="true"></div>
             <span class="role-name">Adult Choir</span>
@@ -895,7 +906,7 @@ footer a:hover { text-decoration: underline; }
         </label>
 
         <label class="role-card" for="r-handbells">
-          <input type="checkbox" id="r-handbells" name="roles" value="Handbells">
+          <input type="checkbox" id="r-handbells" name="roles" value="Handbells" data-ministry="worship">
           <div class="role-card-top">
             <div class="role-check" aria-hidden="true"></div>
             <span class="role-name">Handbells</span>
@@ -924,7 +935,7 @@ footer a:hover { text-decoration: underline; }
   </div>
 
   <!-- ── CHRISTIAN EDUCATION ── -->
-  <div class="ministry-section">
+  <div class="ministry-section" id="ministry-education">
     <div class="ministry-header education">
       <div class="ministry-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
@@ -982,7 +993,7 @@ footer a:hover { text-decoration: underline; }
   </div>
 
   <!-- ── ACCEPTANCE ── -->
-  <div class="ministry-section">
+  <div class="ministry-section" id="ministry-acceptance">
     <div class="ministry-header acceptance">
       <div class="ministry-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
@@ -1030,7 +1041,7 @@ footer a:hover { text-decoration: underline; }
   </div>
 
   <!-- ── OUTREACH ── -->
-  <div class="ministry-section">
+  <div class="ministry-section" id="ministry-outreach">
     <div class="ministry-header outreach">
       <div class="ministry-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
@@ -1200,6 +1211,13 @@ function updateRolesPreview() {
     el.innerHTML = selected.map(function(r){
       return '<span style="display:inline-flex;align-items:center;gap:.3rem;background:rgba(30,45,74,0.08);border:1px solid rgba(30,45,74,0.15);border-radius:6px;padding:.2rem .65rem;font-size:.82rem;margin:.2rem .2rem 0 0;">' + r + '</span>';
     }).join('');
+  }
+
+  var hasWorshipRole = !!document.querySelector('input[name="roles"][data-ministry="worship"]:checked');
+  var form = document.getElementById('volunteer-form');
+  form.classList.toggle('visible', hasWorshipRole);
+  if (hasWorshipRole) {
+    form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 }
 </script>
