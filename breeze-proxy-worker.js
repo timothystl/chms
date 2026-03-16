@@ -64,8 +64,8 @@ export default {
     if (path === '/rsvp') {
       return handleRsvp(request, env);
     }
-    // Breeze API proxy
-    if (path.startsWith('/breeze/')) {
+    // Breeze API proxy — accepts both /api/* and /breeze/* request paths
+    if (path.startsWith('/breeze/') || path.startsWith('/api/')) {
       return handleBreezeProxy(request, env, url);
     }
 
@@ -268,7 +268,7 @@ async function handleBreezeProxy(request, env, url) {
   const breezeApiKey    = env.BREEZE_API_KEY    || request.headers.get('X-Breeze-Api-Key')    || '';
   if (!breezeSubdomain || !breezeApiKey) return json({ error: 'Breeze not configured' }, 500);
 
-  const breezePath = url.pathname.replace(/^\/breeze/, '');
+  const breezePath = url.pathname.replace(/^\/breeze/, '').replace(/^\/api/, '');
   const breezeUrl  = 'https://' + breezeSubdomain + '.breezechms.com/api' + breezePath + url.search;
 
   const res = await fetch(breezeUrl, {

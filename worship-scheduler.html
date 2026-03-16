@@ -2548,7 +2548,7 @@ function breezeGet(path, params) {
 
   params = params || {};
   var qs = Object.keys(params).map(function(k){ return encodeURIComponent(k)+'='+encodeURIComponent(params[k]); }).join('&');
-  var url = s.workerUrl + '/breeze' + path.replace(/^\/api/, '') + (qs ? '?'+qs : '');
+  var url = s.workerUrl + path + (qs ? '?'+qs : '');
   return fetch(url, {
     method: 'GET',
     headers: Object.assign({
