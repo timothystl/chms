@@ -318,6 +318,30 @@ header {
   background: var(--linen); border-radius: 4px; height: 12px; margin-bottom: 10px;
 }
 
+/* ── EVENT ACCORDION ── */
+.ev-admin-card { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; background: var(--white); overflow: hidden; }
+.ev-admin-header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; user-select: none; background: var(--blue-mist); }
+.ev-admin-header:hover { background: var(--ice-blue); }
+.ev-admin-toggle { font-size: .9rem; color: var(--steel-anchor); transition: transform .2s; display: inline-block; }
+.ev-admin-header.open .ev-admin-toggle { transform: rotate(90deg); }
+.ev-admin-title { font-weight: 700; font-size: .95rem; color: var(--steel-anchor); font-family: var(--font-head); flex: 1; }
+.ev-admin-date { font-size: .78rem; color: var(--warm-gray); }
+.ev-admin-count { font-size: .78rem; background: var(--pale-sage); color: #2E5E35; border: 1px solid var(--soft-sage); border-radius: 999px; padding: 1px 9px; font-weight: 700; }
+.ev-admin-body { display: none; padding: 12px 16px; border-top: 1px solid var(--border); }
+.ev-admin-body.open { display: block; }
+.ev-role-row { margin-bottom: 10px; }
+.ev-role-label { font-size: .82rem; font-weight: 700; color: var(--charcoal); margin-bottom: 4px; }
+.ev-role-signups { display: flex; flex-direction: column; gap: 4px; padding-left: 8px; }
+.ev-role-empty { font-size: .78rem; color: var(--warm-gray); font-style: italic; }
+.ev-signup-row { display: flex; align-items: center; gap: 8px; font-size: .82rem; flex-wrap: wrap; }
+.ev-signup-name { font-weight: 600; color: var(--steel-anchor); }
+.ev-signup-email { color: var(--warm-gray); }
+.ev-signup-dismiss { background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 1px 8px; font-size: .72rem; cursor: pointer; color: var(--warm-gray); }
+.ev-signup-dismiss:hover { background: var(--linen); }
+.ev-admin-add-role { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 8px; }
+.ev-add-role-btn { background: transparent; border: 1.5px solid var(--steel-anchor); color: var(--steel-anchor); border-radius: 8px; padding: 4px 12px; font-size: .78rem; font-family: var(--font-body); font-weight: 600; cursor: pointer; }
+.ev-add-role-btn:hover { background: var(--blue-mist); }
+
 /* ── MINISTRY COLOR MAP ── */
 .ministry-worship    { background: var(--min-worship); }
 .ministry-events     { background: var(--min-events); }
@@ -571,6 +595,26 @@ onAuthStateChanged(fbAuth, function(user) {
   }
 });
 
+// ── COMMUNITY EVENTS ─────────────────────────────────────────────
+var COMMUNITY_EVENTS = [
+  { id: 'egg-hunt', name: 'Easter Egg Hunt', date: 'Apr 4',
+    roles: ['Easter Egg Hunt \u2013 Egg Filling', 'Easter Egg Hunt \u2013 Setup & Cleanup',
+            'Easter Egg Hunt \u2013 Registration', 'Easter Egg Hunt \u2013 Activity Stations'] },
+  { id: 'vbs', name: 'VBS', date: 'Jun TBD',
+    roles: ['VBS \u2013 Group Leader', 'VBS \u2013 Station Helper',
+            'VBS \u2013 Crafts Coordinator', 'VBS \u2013 Snacks'] },
+  { id: 'christmas-market', name: 'Christmas Market', date: 'Dec 5',
+    roles: ['Christmas Market \u2013 Setup & Teardown', 'Christmas Market \u2013 Baked Goods & Food',
+            'Christmas Market \u2013 Kids\u2019 Activities', 'Christmas Market \u2013 Welcome Table'] }
+];
+
+function getEventRoles() {
+  try { return JSON.parse(localStorage.getItem('va_event_roles') || '{}'); } catch(e) { return {}; }
+}
+function saveEventRoles(obj) {
+  localStorage.setItem('va_event_roles', JSON.stringify(obj));
+}
+
 // ── DATA FETCHING ────────────────────────────────────────────────
 var _allVolunteers = [];
 var _currentFilter = 'all';
@@ -779,6 +823,12 @@ function renderVolCard(v) {
 function renderCards(list) {
   var container = document.getElementById('volunteers-container');
   if (!container) return;
+
+  if (_currentFilter === 'events') {
+    renderEventsAccordion(list);
+    return;
+  }
+
   if (!list.length) {
     container.innerHTML = '<div class="volunteers-grid">'
       + '<div class="empty-state">'
@@ -791,6 +841,111 @@ function renderCards(list) {
     + list.map(renderVolCard).join('')
     + '</div>';
 }
+
+function renderEventsAccordion(eventVols) {
+  var container = document.getElementById('volunteers-container');
+  if (!container) return;
+
+  // Build map: role name → array of volunteer objects
+  var roleToVols = {};
+  eventVols.forEach(function(v) {
+    (v.roles || []).forEach(function(r) {
+      if (!roleToVols[r]) roleToVols[r] = [];
+      roleToVols[r].push(v);
+    });
+  });
+
+  var storedRoles = getEventRoles();
+  var html = '';
+
+  COMMUNITY_EVENTS.forEach(function(evt) {
+    var extraRoles = storedRoles[evt.id] || [];
+    var allRoles = evt.roles.concat(extraRoles.filter(function(r) { return evt.roles.indexOf(r) === -1; }));
+    var totalSignups = 0;
+    allRoles.forEach(function(r) { totalSignups += (roleToVols[r] || []).length; });
+
+    html += '<div class="ev-admin-card" id="evcard-' + evt.id + '">'
+      + '<div class="ev-admin-header" onclick="toggleEvCard(\'' + evt.id + '\')">'
+      + '<span class="ev-admin-toggle">&#9658;</span>'
+      + '<span class="ev-admin-title">' + escHtml(evt.name) + '</span>'
+      + '<span class="ev-admin-date">' + escHtml(evt.date) + '</span>'
+      + '<span class="ev-admin-count">' + totalSignups + ' signed up</span>'
+      + '</div>'
+      + '<div class="ev-admin-body" id="evbody-' + evt.id + '">';
+
+    allRoles.forEach(function(role) {
+      var vols = roleToVols[role] || [];
+      html += '<div class="ev-role-row">'
+        + '<div class="ev-role-label">' + escHtml(role) + '</div>'
+        + '<div class="ev-role-signups">';
+      if (vols.length === 0) {
+        html += '<span class="ev-role-empty">No sign-ups yet</span>';
+      } else {
+        vols.forEach(function(v) {
+          var ago = v.submittedAt ? timeAgo(v.submittedAt) : '';
+          html += '<div class="ev-signup-row">'
+            + '<span class="ev-signup-name">' + escHtml(v.name || '') + '</span>'
+            + '<span class="ev-signup-email">' + escHtml(v.email || '') + '</span>'
+            + (v.phone ? '<span class="ev-signup-email">' + escHtml(v.phone) + '</span>' : '')
+            + (ago ? '<span class="ev-signup-email">' + ago + '</span>' : '')
+            + (v.id ? '<button class="ev-signup-dismiss" onclick="dismissEvent(\'' + escHtml(v.id) + '\')">Dismiss</button>' : '')
+            + '</div>';
+        });
+      }
+      html += '</div></div>';
+    });
+
+    html += '<div class="ev-admin-add-role">'
+      + '<button class="ev-add-role-btn" onclick="addEvRole(\'' + evt.id + '\')">&#65291; Add Role</button>'
+      + '</div>'
+      + '</div></div>';
+  });
+
+  container.innerHTML = html;
+}
+
+function toggleEvCard(eventId) {
+  var header = document.querySelector('#evcard-' + eventId + ' .ev-admin-header');
+  var body   = document.getElementById('evbody-' + eventId);
+  if (!header || !body) return;
+  var isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  header.classList.toggle('open', !isOpen);
+}
+window.toggleEvCard = toggleEvCard;
+
+function addEvRole(eventId) {
+  var roleName = prompt('Enter new role name:');
+  if (!roleName || !roleName.trim()) return;
+  var stored = getEventRoles();
+  if (!stored[eventId]) stored[eventId] = [];
+  if (stored[eventId].indexOf(roleName.trim()) === -1) {
+    stored[eventId].push(roleName.trim());
+    saveEventRoles(stored);
+  }
+  renderCards(filteredList());
+  // Re-open the card
+  var body   = document.getElementById('evbody-' + eventId);
+  var header = document.querySelector('#evcard-' + eventId + ' .ev-admin-header');
+  if (body)   body.classList.add('open');
+  if (header) header.classList.add('open');
+}
+window.addEvRole = addEvRole;
+
+function dismissEvent(id) {
+  var s = getSettings();
+  if (s.workerUrl) {
+    var headers = { 'Content-Type': 'application/json' };
+    if (s.workerSecret) headers['X-Worker-Secret'] = s.workerSecret;
+    fetch(s.workerUrl + '/volunteer/event-claim', {
+      method: 'POST', headers: headers, body: JSON.stringify({ id: id })
+    }).catch(function() {});
+  }
+  _allVolunteers = _allVolunteers.filter(function(v) { return v.id !== id; });
+  updateCounts();
+  renderCards(filteredList());
+}
+window.dismissEvent = dismissEvent;
 
 function showSkeleton() {
   var container = document.getElementById('volunteers-container');
