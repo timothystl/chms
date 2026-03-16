@@ -15,8 +15,14 @@
  *
  * KV namespace binding (Cloudflare Dashboard → Worker → KV Namespace Bindings):
  *   RSVP_KV         — KV namespace for storing RSVP tokens and responses
- *                     (also stores pending worship volunteer signups under wv:pending:* keys)
+ *                     stores volunteer signups by type:
+ *                       wv:pending:* — scheduler-eligible (Lector, PowerPoint Operator, Acolyte)
+ *                       wv:event:*   — community event volunteers
+ *                       wv:general:* — all other ministry/worship signups
  */
+
+// Worship roles that feed directly into the Sunday scheduler
+const SCHEDULER_ROLES = new Set(['Acolyte', 'PowerPoint Operator', 'Lector']);
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin':  '*',
@@ -52,6 +58,18 @@ export default {
     }
     if (path === '/volunteer/claim' && request.method === 'POST') {
       return handleVolunteerClaim(request, env);
+    }
+    if (path === '/volunteer/general-pending' && request.method === 'GET') {
+      return handleVolunteerListPending(request, env, 'wv:general:');
+    }
+    if (path === '/volunteer/general-claim' && request.method === 'POST') {
+      return handleVolunteerListClaim(request, env, 'wv:general:');
+    }
+    if (path === '/volunteer/event-pending' && request.method === 'GET') {
+      return handleVolunteerListPending(request, env, 'wv:event:');
+    }
+    if (path === '/volunteer/event-claim' && request.method === 'POST') {
+      return handleVolunteerListClaim(request, env, 'wv:event:');
     }
     if (path === '/email/send' && request.method === 'POST') {
       return handleEmailSend(request, env);
@@ -308,9 +326,16 @@ async function handleVolunteerSignup(request, env) {
     roles: roles || [], service: service || '', sundays: sundays || [],
     notes: notes || '', submittedAt };
 
-  // Store worship signups in KV so the scheduler can import them
-  if (ministry === 'worship' && env.RSVP_KV) {
-    await env.RSVP_KV.put('wv:pending:' + id, JSON.stringify(record), { expirationTtl: 60 * 60 * 24 * 365 });
+  // Route signups by type: scheduler roles → wv:pending, events → wv:event, everything else → wv:general
+  const schedulerRoles = (roles || []).filter(r => SCHEDULER_ROLES.has(r));
+  if (env.RSVP_KV) {
+    if (ministry === 'worship' && schedulerRoles.length > 0) {
+      await env.RSVP_KV.put('wv:pending:' + id, JSON.stringify(record), { expirationTtl: 60 * 60 * 24 * 365 });
+    } else if (ministry === 'events') {
+      await env.RSVP_KV.put('wv:event:' + id, JSON.stringify(record), { expirationTtl: 60 * 60 * 24 * 365 });
+    } else {
+      await env.RSVP_KV.put('wv:general:' + id, JSON.stringify(record), { expirationTtl: 60 * 60 * 24 * 365 });
+    }
   }
 
   // Send admin notification email
@@ -335,7 +360,7 @@ async function handleVolunteerSignup(request, env) {
       + 'Email: ' + email + '\n'
       + details
       + 'Roles: ' + rolesList + '\n'
-      + (ministry === 'worship' ? '\nThis person is in the pending worship queue — open the scheduler to import them.\n' : '');
+      + (schedulerRoles.length > 0 && ministry === 'worship' ? '\nThis person is in the pending worship scheduler queue — open the scheduler to import them.\n' : '');
 
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -370,6 +395,28 @@ async function handleVolunteerClaim(request, env) {
   const { id } = body;
   if (!id) return json({ error: 'Missing id' }, 400);
   if (env.RSVP_KV) await env.RSVP_KV.delete('wv:pending:' + id);
+  return json({ ok: true });
+}
+
+// ── Shared handlers for volunteer list queues ─────────────────────────────────
+async function handleVolunteerListPending(request, env, prefix) {
+  if (!env.RSVP_KV) return json({ volunteers: [] });
+  const list = await env.RSVP_KV.list({ prefix });
+  const volunteers = await Promise.all(
+    list.keys.map(async function(k) {
+      const raw = await env.RSVP_KV.get(k.name);
+      return raw ? JSON.parse(raw) : null;
+    })
+  );
+  return json({ volunteers: volunteers.filter(Boolean) });
+}
+
+async function handleVolunteerListClaim(request, env, prefix) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const { id } = body;
+  if (!id) return json({ error: 'Missing id' }, 400);
+  if (env.RSVP_KV) await env.RSVP_KV.delete(prefix + id);
   return json({ ok: true });
 }
 
