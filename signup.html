@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Volunteer Sign-Up – Timothy Lutheran Church</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,700;1,400&family=Source+Sans+3:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --steel-anchor: #0A3C5C;
+  --deep-steel:   #2A5470;
+  --mid-steel:    #3D627C;
+  --sky-steel:    #5C8FA8;
+  --ice-blue:     #C4DDE8;
+  --blue-mist:    #EDF5F8;
+  --amber:        #D4922A;
+  --deep-amber:   #C07D1E;
+  --honey:        #E8B86D;
+  --pale-gold:    #F5E0B0;
+  --sage:         #6B8F71;
+  --soft-sage:    #9AB89E;
+  --pale-sage:    #CDE0CF;
+  --warm-white:   #FAF7F0;
+  --linen:        #F2EDE2;
+  --white:        #FFFFFF;
+  --border:       #E8E0D0;
+  --charcoal:     #3D3530;
+  --warm-gray:    #7A6E60;
+  --font-head: 'Lora', Georgia, serif;
+  --font-body: 'Source Sans 3', Arial, sans-serif;
+  --on-pale-gold:  #5a3a00;
+  --on-pale-sage:  #1a3d1f;
+  --on-error-bg:   #7a1f1f;
+  --error-bg:      #FAEAEA;
+  --error-border:  #D4726A;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-body); background: var(--warm-white); color: var(--charcoal); min-height: 100vh; }
+
+/* ── Header ── */
+header {
+  background: var(--white); color: var(--steel-anchor);
+  padding: 14px 24px; display: flex; align-items: center; gap: 16px;
+  border-bottom: 3px solid var(--amber); box-shadow: 0 2px 12px rgba(10,60,92,0.07);
+}
+header .header-text h1 { font-size: 1.1rem; font-weight: 700; line-height: 1.2; color: var(--steel-anchor); font-family: var(--font-head); }
+header .header-text .church-name { font-size: 0.75rem; color: var(--amber); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; font-weight: 700; }
+header .header-text p { font-size: 0.82rem; color: var(--warm-gray); margin-top: 2px; }
+.header-logo-placeholder {
+  width: 52px; height: 52px; border-radius: 50%;
+  background: var(--blue-mist); border: 2px solid var(--ice-blue);
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem;
+}
+
+/* ── Page layout ── */
+.page-wrap { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+
+.page-title { font-family: var(--font-head); font-size: 1.7rem; color: var(--steel-anchor); margin-bottom: 8px; }
+.page-subtitle { color: var(--warm-gray); font-size: 1rem; margin-bottom: 28px; line-height: 1.5; }
+
+/* ── Section ── */
+.section { margin-bottom: 32px; }
+.section-title {
+  font-family: var(--font-head); font-size: 1.1rem; color: var(--steel-anchor);
+  margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid var(--border);
+}
+
+/* ── Role cards ── */
+.role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 580px) { .role-grid { grid-template-columns: 1fr; } }
+
+.role-card {
+  border: 1.5px solid var(--border); border-radius: 12px;
+  padding: 14px 16px; background: var(--white); cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s; position: relative;
+}
+.role-card:hover { border-color: var(--sky-steel); box-shadow: 0 2px 12px rgba(10,60,92,0.1); }
+.role-card.selected { border-color: var(--steel-anchor); background: var(--blue-mist); box-shadow: 0 0 0 2px var(--ice-blue); }
+.role-card input[type="checkbox"] { position: absolute; opacity: 0; pointer-events: none; }
+.role-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.role-check {
+  width: 20px; height: 20px; border: 2px solid var(--border); border-radius: 5px;
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--white); transition: all 0.15s;
+}
+.role-card.selected .role-check { background: var(--steel-anchor); border-color: var(--steel-anchor); color: white; font-size: 13px; }
+.role-name { font-weight: 700; font-size: 1rem; color: var(--steel-anchor); font-family: var(--font-head); }
+.role-desc { font-size: 0.85rem; color: var(--charcoal); line-height: 1.45; margin-bottom: 8px; }
+.role-meta { display: flex; flex-direction: column; gap: 3px; }
+.role-meta-item { font-size: 0.78rem; color: var(--warm-gray); }
+.role-meta-item strong { color: var(--charcoal); font-weight: 700; }
+
+/* ── Form fields ── */
+.form-field { margin-bottom: 20px; }
+.form-label { display: block; font-size: 0.82rem; font-weight: 700; color: var(--warm-gray); margin-bottom: 6px; letter-spacing: 0.04em; text-transform: uppercase; }
+.form-input {
+  width: 100%; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: 8px;
+  font-size: 0.95rem; font-family: var(--font-body); color: var(--charcoal); background: var(--white); outline: none;
+}
+.form-input:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(212,146,42,0.15); }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 500px) { .form-row { grid-template-columns: 1fr; } }
+
+/* ── Chip groups ── */
+.chip-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip-label {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--linen); border: 1.5px solid var(--border); border-radius: 8px;
+  padding: 6px 12px; cursor: pointer; transition: all 0.1s; user-select: none;
+  font-size: 0.88rem; font-weight: 600; color: var(--charcoal);
+}
+.chip-label:hover { background: var(--blue-mist); }
+.chip-label.checked { background: var(--steel-anchor); color: white; border-color: var(--steel-anchor); }
+.chip-label input { position: absolute; opacity: 0; pointer-events: none; }
+.chip-label-radio.checked { background: var(--steel-anchor); color: white; border-color: var(--steel-anchor); }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 12px 28px;
+  border-radius: 8px; border: none; font-size: 1rem; font-weight: 700;
+  font-family: var(--font-body); cursor: pointer; transition: all 0.15s;
+}
+.btn-primary { background: var(--steel-anchor); color: white; }
+.btn-primary:hover { background: var(--deep-steel); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-outline { background: transparent; border: 1.5px solid var(--steel-anchor); color: var(--steel-anchor); }
+.btn-outline:hover { background: var(--blue-mist); }
+.btn-sm { padding: 8px 16px; font-size: 0.88rem; }
+
+/* ── Alert / status messages ── */
+.alert { padding: 12px 16px; border-radius: 0 8px 8px 0; margin-bottom: 16px; font-size: 0.9rem; }
+.alert-error   { background: var(--error-bg); border-left: 3px solid var(--error-border); color: var(--on-error-bg); }
+.alert-success { background: var(--pale-sage); border-left: 3px solid var(--sage); color: var(--on-pale-sage); }
+.alert-info    { background: var(--blue-mist); border-left: 3px solid var(--mid-steel); color: var(--steel-anchor); }
+
+/* ── Thank-you screen ── */
+#thank-you { display: none; text-align: center; padding: 48px 24px; }
+.ty-icon { font-size: 3.5rem; margin-bottom: 16px; }
+.ty-title { font-family: var(--font-head); font-size: 1.8rem; color: var(--steel-anchor); margin-bottom: 12px; }
+.ty-body { color: var(--warm-gray); font-size: 1rem; line-height: 1.6; max-width: 480px; margin: 0 auto 28px; }
+
+/* ── Fallback JSON block ── */
+#fallback-block { display: none; }
+.json-pre {
+  background: #1a1a2e; color: #e0e0e0; border-radius: 10px; padding: 14px;
+  font-family: monospace; font-size: 0.8rem; max-height: 240px; overflow-y: auto;
+  white-space: pre-wrap; word-break: break-all; margin-bottom: 10px;
+}
+.copy-btn {
+  background: var(--mid-steel); color: white; border: none; border-radius: 6px;
+  padding: 7px 16px; font-size: 0.85rem; font-family: var(--font-body); cursor: pointer;
+}
+.copy-btn:hover { background: var(--deep-steel); }
+
+/* ── Divider ── */
+.divider { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-logo-placeholder">&#9827;</div>
+  <div class="header-text">
+    <div class="church-name">Timothy Lutheran Church</div>
+    <h1>Volunteer Sign-Up</h1>
+    <p>Join our worship team — we'd love your help!</p>
+  </div>
+</header>
+
+<div class="page-wrap">
+
+  <!-- ══ SIGN-UP FORM ══════════════════════════════════════════════ -->
+  <div id="signup-form-wrap">
+    <p class="page-title">Serve in Worship</p>
+    <p class="page-subtitle">
+      Thank you for your interest in serving! Browse the roles below, choose what fits you,
+      and let us know your preferences. We'll reach out to get you on the schedule.
+    </p>
+
+    <div id="form-alert"></div>
+
+    <!-- ── 1. Your info ── -->
+    <div class="section">
+      <div class="section-title">1. Your Information</div>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label" for="sig-name">Full Name *</label>
+          <input type="text" id="sig-name" class="form-input" placeholder="Jane Smith" autocomplete="name" required>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="sig-email">Email Address *</label>
+          <input type="email" id="sig-email" class="form-input" placeholder="jane@example.com" autocomplete="email" required>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 2. Role interest ── -->
+    <div class="section">
+      <div class="section-title">2. Roles I'm Interested In *</div>
+      <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:14px;">
+        Click a role to learn more and select it. You can choose more than one!
+      </p>
+
+      <div class="role-grid" id="role-cards">
+
+        <!-- Elder -->
+        <label class="role-card" for="role-Elder">
+          <input type="checkbox" id="role-Elder" name="roles" value="Elder">
+          <div class="role-card-header">
+            <div class="role-check" aria-hidden="true"></div>
+            <span class="role-name">Elder</span>
+          </div>
+          <p class="role-desc">Assist at the altar during worship and provide lay leadership for the service, including distributing communion alongside the pastor.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> 1–2 Sundays per month</div>
+            <div class="role-meta-item"><strong>Training:</strong> 1-hour orientation with the pastor</div>
+          </div>
+        </label>
+
+        <!-- Acolyte -->
+        <label class="role-card" for="role-Acolyte">
+          <input type="checkbox" id="role-Acolyte" name="roles" value="Acolyte">
+          <div class="role-card-header">
+            <div class="role-check" aria-hidden="true"></div>
+            <span class="role-name">Acolyte</span>
+          </div>
+          <p class="role-desc">Light the altar candles before the service begins and extinguish them at the close. A simple, meaningful act of service for all ages.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
+            <div class="role-meta-item"><strong>Training:</strong> 15-minute walk-through before your first service</div>
+          </div>
+        </label>
+
+        <!-- PowerPoint -->
+        <label class="role-card" for="role-PowerPoint">
+          <input type="checkbox" id="role-PowerPoint" name="roles" value="PowerPoint">
+          <div class="role-card-header">
+            <div class="role-check" aria-hidden="true"></div>
+            <span class="role-name">PowerPoint Operator</span>
+          </div>
+          <p class="role-desc">Advance the worship slides during the service so the congregation can follow along with hymns, liturgy, and announcements. No tech expertise required!</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
+            <div class="role-meta-item"><strong>Training:</strong> 30-minute practice session with the worship team</div>
+          </div>
+        </label>
+
+        <!-- Lector -->
+        <label class="role-card" for="role-Lector">
+          <input type="checkbox" id="role-Lector" name="roles" value="Lector">
+          <div class="role-card-header">
+            <div class="role-check" aria-hidden="true"></div>
+            <span class="role-name">Lector</span>
+          </div>
+          <p class="role-desc">Read the appointed Scripture lessons (Old Testament and Epistle) aloud from the lectern. Readings are emailed to you in advance so you can prepare.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
+            <div class="role-meta-item"><strong>Training:</strong> Self-guided; readings sent by email in advance</div>
+          </div>
+        </label>
+
+        <!-- Liturgist -->
+        <label class="role-card" for="role-Liturgist">
+          <input type="checkbox" id="role-Liturgist" name="roles" value="Liturgist">
+          <div class="role-card-header">
+            <div class="role-check" aria-hidden="true"></div>
+            <span class="role-name">Liturgist</span>
+          </div>
+          <p class="role-desc">Lead the congregation in the spoken parts of the liturgy — the Kyrie, Creed, prayers of the church, and other responsive elements. Script is provided.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
+            <div class="role-meta-item"><strong>Training:</strong> Self-guided; liturgy script sent by email in advance</div>
+          </div>
+        </label>
+
+        <!-- Preacher -->
+        <label class="role-card" for="role-Preacher">
+          <input type="checkbox" id="role-Preacher" name="roles" value="Preacher">
+          <div class="role-card-header">
+            <div class="role-check" aria-hidden="true"></div>
+            <span class="role-name">Preacher</span>
+          </div>
+          <p class="role-desc">Deliver the sermon during worship. Typically filled by ordained clergy or licensed lay ministers. If you are interested, please reach out to the pastor.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> Varies by assignment</div>
+            <div class="role-meta-item"><strong>Training:</strong> Coordinated directly with the senior pastor</div>
+          </div>
+        </label>
+
+        <!-- Children's Message -->
+        <label class="role-card" for="role-Childrens-Message">
+          <input type="checkbox" id="role-Childrens-Message" name="roles" value="Childrens Message">
+          <div class="role-card-header">
+            <div class="role-check" aria-hidden="true"></div>
+            <span class="role-name">Children's Message</span>
+          </div>
+          <p class="role-desc">Share a brief, age-appropriate message or activity with the children before they head to Sunday school. A wonderful way to connect with our youngest members.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
+            <div class="role-meta-item"><strong>Training:</strong> Informal — talk with the Director of Children's Ministry</div>
+          </div>
+        </label>
+
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- ── 3. Service preference ── -->
+    <div class="section">
+      <div class="section-title">3. Which Service Do You Prefer?</div>
+      <div class="chip-group" id="svc-chips" role="radiogroup" aria-label="Service preference">
+        <label class="chip-label chip-label-radio checked" for="svc-both">
+          <input type="radio" id="svc-both" name="servicePreference" value="both" checked>
+          Both Services
+        </label>
+        <label class="chip-label chip-label-radio" for="svc-8am">
+          <input type="radio" id="svc-8am" name="servicePreference" value="8am">
+          8:00 AM only
+        </label>
+        <label class="chip-label chip-label-radio" for="svc-1045">
+          <input type="radio" id="svc-1045" name="servicePreference" value="10:45am">
+          10:45 AM only
+        </label>
+      </div>
+    </div>
+
+    <!-- ── 4. Sunday preferences ── -->
+    <div class="section">
+      <div class="section-title">4. Which Sunday(s) of the Month Work Best for You?</div>
+      <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:12px;">
+        Leave all unchecked if you're flexible — we'll place you wherever we need you most.
+      </p>
+      <div class="chip-group" id="sun-chips">
+        <label class="chip-label" for="sun-1">
+          <input type="checkbox" id="sun-1" name="preferredSundays" value="1"> 1st Sunday
+        </label>
+        <label class="chip-label" for="sun-2">
+          <input type="checkbox" id="sun-2" name="preferredSundays" value="2"> 2nd Sunday
+        </label>
+        <label class="chip-label" for="sun-3">
+          <input type="checkbox" id="sun-3" name="preferredSundays" value="3"> 3rd Sunday
+        </label>
+        <label class="chip-label" for="sun-4">
+          <input type="checkbox" id="sun-4" name="preferredSundays" value="4"> 4th Sunday
+        </label>
+        <label class="chip-label" for="sun-5">
+          <input type="checkbox" id="sun-5" name="preferredSundays" value="5"> 5th Sunday
+        </label>
+      </div>
+    </div>
+
+    <!-- ── Submit ── -->
+    <div style="margin-top:8px;">
+      <button class="btn btn-primary" id="btn-submit" onclick="submitSignup()">
+        Submit My Interest &#10132;
+      </button>
+      <p style="font-size:.8rem;color:var(--warm-gray);margin-top:10px;">
+        We'll follow up by email to confirm your schedule and answer any questions.
+      </p>
+    </div>
+
+    <!-- ── Fallback JSON display ── -->
+    <div id="fallback-block" style="margin-top:24px;">
+      <div class="alert alert-info" style="margin-bottom:16px;">
+        <strong>One more step:</strong> Please copy the text below and email it to
+        <strong>dinger@timothystl.org</strong> — we'll get you added to the schedule!
+      </div>
+      <pre class="json-pre" id="fallback-json"></pre>
+      <button class="copy-btn" onclick="copyFallback()">&#128203; Copy to Clipboard</button>
+      <span id="copy-confirm" style="font-size:.82rem;color:var(--sage);margin-left:10px;display:none;">Copied!</span>
+    </div>
+  </div>
+
+  <!-- ══ THANK YOU SCREEN ══════════════════════════════════════════ -->
+  <div id="thank-you">
+    <div class="ty-icon">&#10003;</div>
+    <h2 class="ty-title">Thank You!</h2>
+    <p class="ty-body">
+      Your interest in volunteering has been received. Someone from the worship team
+      will be in touch soon to confirm your first assignment and answer any questions.
+    </p>
+    <button class="btn btn-outline" onclick="resetForm()">Submit Another Response</button>
+  </div>
+
+</div><!-- /page-wrap -->
+
+<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-database-compat.js"></script>
+<script>
+// ── Firebase config (same project as the scheduler) ──────────────
+var FIREBASE_ENABLED = false;
+try {
+  var firebaseConfig = {
+    apiKey: "AIzaSyDYHJoLHArmcMDFZrXaMJ62RGUMgusJhD8",
+    authDomain: "tlc-worship-scheduler.firebaseapp.com",
+    databaseURL: "https://tlc-worship-scheduler-default-rtdb.firebaseio.com",
+    projectId: "tlc-worship-scheduler",
+    storageBucket: "tlc-worship-scheduler.firebasestorage.app",
+    messagingSenderId: "645397350092",
+    appId: "1:645397350092:web:d6c828f36f721ede3d2469"
+  };
+  firebase.initializeApp(firebaseConfig);
+  FIREBASE_ENABLED = true;
+} catch(e) {
+  console.warn('Firebase init failed', e);
+}
+
+// ── Chip / card toggle helpers ────────────────────────────────────
+document.getElementById('role-cards').addEventListener('change', function(e) {
+  if (e.target.type === 'checkbox') {
+    var card = e.target.closest('.role-card');
+    if (card) {
+      card.classList.toggle('selected', e.target.checked);
+      var check = card.querySelector('.role-check');
+      if (check) check.textContent = e.target.checked ? '✓' : '';
+    }
+  }
+});
+
+document.getElementById('sun-chips').addEventListener('change', function(e) {
+  if (e.target.type === 'checkbox') {
+    var lbl = e.target.closest('.chip-label');
+    if (lbl) lbl.classList.toggle('checked', e.target.checked);
+  }
+});
+
+document.getElementById('svc-chips').addEventListener('change', function(e) {
+  if (e.target.type === 'radio') {
+    document.querySelectorAll('#svc-chips .chip-label-radio').forEach(function(l) {
+      var inp = l.querySelector('input[type="radio"]');
+      l.classList.toggle('checked', inp && inp.checked);
+    });
+  }
+});
+
+// ── Validation & submission ───────────────────────────────────────
+function showAlert(msg, type) {
+  var el = document.getElementById('form-alert');
+  el.innerHTML = '<div class="alert alert-' + (type||'error') + '">' + msg + '</div>';
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function clearAlert() {
+  document.getElementById('form-alert').innerHTML = '';
+}
+
+function submitSignup() {
+  clearAlert();
+  var name  = document.getElementById('sig-name').value.trim();
+  var email = document.getElementById('sig-email').value.trim();
+  var roles = Array.from(document.querySelectorAll('#role-cards input[type="checkbox"]:checked'))
+                   .map(function(cb) { return cb.value; });
+  var svcEl = document.querySelector('#svc-chips input[type="radio"]:checked');
+  var servicePreference = svcEl ? svcEl.value : 'both';
+  var preferredSundays  = Array.from(document.querySelectorAll('#sun-chips input[type="checkbox"]:checked'))
+                               .map(function(cb) { return parseInt(cb.value, 10); });
+
+  if (!name) { showAlert('Please enter your full name.'); return; }
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showAlert('Please enter a valid email address.'); return;
+  }
+  if (!roles.length) { showAlert('Please select at least one role you are interested in.'); return; }
+
+  var payload = {
+    name: name,
+    email: email,
+    roles: roles,
+    servicePreference: servicePreference,
+    preferredSundays: preferredSundays,
+    submittedAt: new Date().toISOString(),
+    status: 'pending'
+  };
+
+  var btn = document.getElementById('btn-submit');
+  btn.disabled = true;
+  btn.textContent = 'Submitting…';
+
+  if (FIREBASE_ENABLED) {
+    firebase.database().ref('signups/pending').push(payload)
+      .then(function() {
+        showThankYou();
+      })
+      .catch(function(err) {
+        console.error('Firebase write failed', err);
+        btn.disabled = false;
+        btn.innerHTML = 'Submit My Interest &#10132;';
+        showFallback(payload);
+      });
+  } else {
+    showFallback(payload);
+  }
+}
+
+function showThankYou() {
+  document.getElementById('signup-form-wrap').style.display = 'none';
+  document.getElementById('thank-you').style.display = 'block';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function showFallback(payload) {
+  var btn = document.getElementById('btn-submit');
+  btn.disabled = false;
+  btn.innerHTML = 'Submit My Interest &#10132;';
+  document.getElementById('fallback-json').textContent = JSON.stringify(payload, null, 2);
+  document.getElementById('fallback-block').style.display = 'block';
+  document.getElementById('fallback-block').scrollIntoView({ behavior: 'smooth' });
+}
+
+function copyFallback() {
+  var text = document.getElementById('fallback-json').textContent;
+  navigator.clipboard.writeText(text).then(function() {
+    var c = document.getElementById('copy-confirm');
+    c.style.display = 'inline';
+    setTimeout(function() { c.style.display = 'none'; }, 2500);
+  }).catch(function() {
+    // fallback: select the text
+    var el = document.getElementById('fallback-json');
+    var range = document.createRange();
+    range.selectNode(el);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+  });
+}
+
+function resetForm() {
+  document.getElementById('sig-name').value = '';
+  document.getElementById('sig-email').value = '';
+  document.querySelectorAll('#role-cards input[type="checkbox"]').forEach(function(cb) {
+    cb.checked = false;
+    var card = cb.closest('.role-card');
+    if (card) {
+      card.classList.remove('selected');
+      var check = card.querySelector('.role-check');
+      if (check) check.textContent = '';
+    }
+  });
+  document.getElementById('svc-both').checked = true;
+  document.querySelectorAll('#svc-chips .chip-label-radio').forEach(function(l) {
+    var inp = l.querySelector('input[type="radio"]');
+    l.classList.toggle('checked', inp && inp.value === 'both');
+  });
+  document.querySelectorAll('#sun-chips input[type="checkbox"]').forEach(function(cb) {
+    cb.checked = false;
+    var lbl = cb.closest('.chip-label');
+    if (lbl) lbl.classList.remove('checked');
+  });
+  clearAlert();
+  document.getElementById('fallback-block').style.display = 'none';
+  document.getElementById('thank-you').style.display = 'none';
+  document.getElementById('signup-form-wrap').style.display = 'block';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+</script>
+</body>
+</html>

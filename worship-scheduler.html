@@ -231,6 +231,15 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .dot-err { background: var(--danger-btn); }
 .dot-pending { background: var(--warm-gray); }
 
+/* ── Pending sign-up review cards ─────────────────────────────── */
+.signup-card { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; background: var(--white); }
+.signup-card-name { font-weight: 700; font-size: 1rem; color: var(--steel-anchor); font-family: var(--font-head); }
+.signup-card-email { font-size: .82rem; color: var(--warm-gray); margin-top: 1px; }
+.signup-card-meta { margin-top: 8px; font-size: .83rem; color: var(--charcoal); display: flex; flex-direction: column; gap: 4px; }
+.signup-card-meta .sc-label { font-weight: 700; color: var(--warm-gray); font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; }
+.signup-card-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.signup-card-date { font-size: .75rem; color: var(--warm-gray); margin-top: 4px; }
+
 /* ── Print styles ──────────────────────────────────────── */
 @page { size: landscape; margin: 0.5in; }
 @media print {
@@ -400,7 +409,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 </header>
 
 <div class="tabs">
-  <button class="tab-btn active" id="tab-btn-people">People &amp; Availability</button>
+  <button class="tab-btn active" id="tab-btn-people">People &amp; Availability <span id="signups-badge" style="display:none;background:var(--amber);color:var(--steel-anchor);border-radius:999px;padding:1px 7px;font-size:0.75rem;font-weight:700;margin-left:4px;"></span></button>
   <button class="tab-btn" id="tab-btn-schedule">Schedule</button>
   <button class="tab-btn" id="tab-btn-stats">&#128202; Stats</button>
   <button class="header-gear" id="btn-open-settings" title="Settings">&#9881; Settings</button>
@@ -411,6 +420,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
   <div class="card">
     <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
       <h2 style="margin:0;">Volunteers (<span id="people-count">0</span>)</h2>
+      <button class="btn btn-warning btn-sm" id="review-signups-btn" style="display:none;" onclick="openPanel('signups-panel');renderSignupsPanel();">&#128203; Review Sign-Ups (<span id="review-signups-count">0</span>)</button>
       <button class="btn btn-primary btn-sm" id="btn-open-person-panel" style="margin-left:auto;">+ Add Person</button>
       <input type="search" id="people-search" placeholder="Filter by name, role, or service…"
              style="max-width:240px;font-size:.85rem;" oninput="peopleSearchQuery=this.value;renderPeopleList();">
@@ -716,6 +726,21 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
   </div>
 </div>
 
+<!-- ══ SIGN-UP REVIEW PANEL ════════════════════════════════════════════════ -->
+<div id="signups-panel" class="side-panel">
+  <div class="panel-hdr">
+    <h2>Pending Sign-Ups</h2>
+    <button class="panel-close" id="btn-close-signups-panel">&times;</button>
+  </div>
+  <div class="panel-body">
+    <p style="font-size:.85rem;color:var(--warm-gray);margin-bottom:16px;">
+      Review volunteer interest submitted via the sign-up page. Click <strong>Add as Volunteer</strong> to import them into the People list, or <strong>Dismiss</strong> to remove the entry.
+    </p>
+    <div id="signup-review-alert"></div>
+    <div id="signups-list"></div>
+  </div>
+</div>
+
 </div><!-- /#app-content -->
 
 <script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-app-compat.js"></script>
@@ -799,6 +824,7 @@ var peopleSortBy  = 'name';
 var peopleSortDir = 'asc';
 var peopleSearchQuery = '';
 var isDirty = false;
+var _pendingSignups = [];
 
 // currentMonthKey: 'YYYY-MM' of the month currently viewed/edited
 var currentMonthKey = (function(){
@@ -3190,6 +3216,7 @@ fbAuth.onAuthStateChanged(function(user) {
     if (appContent)  appContent.style.display  = 'block';
     if (userDisplay) userDisplay.textContent   = 'Signed in as ' + user.email;
     fbPull();
+    fetchPendingSignups();
   } else {
     if (loginScreen) loginScreen.style.display = 'flex';
     if (appContent)  appContent.style.display  = 'none';
@@ -3249,6 +3276,8 @@ function importAllData(file) {
 // INIT
 // ══════════════════════════════════════════════════════════════════
 migrateOldSchedule();
+_pendingSignups = getPendingSignups();
+updateSignupsBadge();
 renderPeopleList();
 var _monthLabelEl = document.getElementById('current-month-label');
 if (_monthLabelEl) _monthLabelEl.textContent = monthKeyLabel(currentMonthKey);
@@ -3630,6 +3659,136 @@ fetch('lcms_calendar.json')
   })
   .catch(function() { /* graceful degradation: lectCalendar stays {} */ });
 
+
+// ══════════════════════════════════════════════════════════════════
+// VOLUNTEER SIGN-UP REVIEW
+// ══════════════════════════════════════════════════════════════════
+
+function getPendingSignups() {
+  try { return JSON.parse(localStorage.getItem('ws_pending_signups') || '[]'); } catch(e) { return []; }
+}
+function savePendingSignups(arr) {
+  localStorage.setItem('ws_pending_signups', JSON.stringify(arr));
+}
+
+async function fetchPendingSignups() {
+  if (typeof fbDb === 'undefined') return;
+  try {
+    var snap = await fbDb.ref('signups/pending').get();
+    var result = [];
+    if (snap.exists()) {
+      snap.forEach(function(child) {
+        var val = child.val();
+        val._fbKey = child.key;
+        result.push(val);
+      });
+      // Sort newest first
+      result.sort(function(a, b) {
+        return (b.submittedAt || '').localeCompare(a.submittedAt || '');
+      });
+    }
+    _pendingSignups = result;
+    savePendingSignups(result);
+    updateSignupsBadge();
+  } catch(e) {
+    // graceful degradation — use cached version
+    _pendingSignups = getPendingSignups();
+    updateSignupsBadge();
+  }
+}
+
+function updateSignupsBadge() {
+  var n = _pendingSignups.length;
+  var badge = document.getElementById('signups-badge');
+  var btn   = document.getElementById('review-signups-btn');
+  var count = document.getElementById('review-signups-count');
+  if (badge) { badge.textContent = n > 0 ? n : ''; badge.style.display = n > 0 ? '' : 'none'; }
+  if (btn)   btn.style.display   = n > 0 ? '' : 'none';
+  if (count) count.textContent   = n;
+}
+
+function renderSignupsPanel() {
+  var list = document.getElementById('signups-list');
+  if (!list) return;
+  if (!_pendingSignups.length) {
+    list.innerHTML = '<div class="empty-state"><div class="icon">&#128203;</div><p>No pending sign-ups</p></div>';
+    return;
+  }
+  var svcLabels = { 'both': 'Both Services', '8am': '8:00 AM only', '10:45am': '10:45 AM only' };
+  var html = '';
+  _pendingSignups.forEach(function(s, idx) {
+    var roles = (s.roles || []).map(function(r) {
+      return '<span class="tag tag-role">' + esc(SHARED_LABELS[r] || r) + '</span>';
+    }).join(' ');
+    var sundays = (s.preferredSundays && s.preferredSundays.length)
+      ? s.preferredSundays.map(function(n) { return n + ordSuffix(n); }).join(', ')
+      : 'Flexible';
+    var svc = svcLabels[s.servicePreference] || s.servicePreference || 'Both Services';
+    var submitted = s.submittedAt ? new Date(s.submittedAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '';
+    html += '<div class="signup-card">'
+      + '<div class="signup-card-name">' + esc(s.name || '') + '</div>'
+      + '<div class="signup-card-email">' + esc(s.email || '') + '</div>'
+      + (submitted ? '<div class="signup-card-date">Submitted ' + esc(submitted) + '</div>' : '')
+      + '<div class="signup-card-meta">'
+      +   '<div><span class="sc-label">Roles: </span>' + (roles || '—') + '</div>'
+      +   '<div><span class="sc-label">Service: </span>' + esc(svc) + '</div>'
+      +   '<div><span class="sc-label">Preferred Sundays: </span>' + esc(sundays) + '</div>'
+      + '</div>'
+      + '<div class="signup-card-actions">'
+      +   '<button class="btn btn-success btn-sm" onclick="approveSignup(' + idx + ')">&#10003; Add as Volunteer</button>'
+      +   '<button class="btn btn-outline btn-sm" onclick="dismissSignup(' + idx + ')">Dismiss</button>'
+      + '</div>'
+      + '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function approveSignup(idx) {
+  var s = _pendingSignups[idx];
+  if (!s) return;
+  var people = getPeople();
+  // Check for duplicate email
+  var dup = s.email && people.some(function(p) { return p.email && p.email.toLowerCase() === s.email.toLowerCase(); });
+  if (dup && !confirm('"' + s.name + '" (' + s.email + ') is already in your People list. Add them again?')) return;
+  var person = {
+    id: makeId(),
+    name: s.name || '',
+    email: s.email || '',
+    preferredSundays: s.preferredSundays || [],
+    servicePreference: s.servicePreference || 'both',
+    roles: s.roles || [],
+    primaryFor: [],
+    roleSundayOverrides: {},
+    breezePersonId: null,
+    blackoutDates: []
+  };
+  people.push(person);
+  savePeople(people);
+  queueFbPush();
+  _removeSignup(idx);
+  renderPeopleList();
+  showAlert('signup-review-alert', esc(person.name) + ' has been added to your volunteer list.', 'success');
+}
+
+function dismissSignup(idx) {
+  _removeSignup(idx);
+  showAlert('signup-review-alert', 'Sign-up dismissed.', 'info');
+}
+
+function _removeSignup(idx) {
+  var s = _pendingSignups[idx];
+  if (s && s._fbKey && typeof fbDb !== 'undefined') {
+    fbDb.ref('signups/pending/' + s._fbKey).remove().catch(function(e) {
+      console.warn('Could not remove signup from Firebase', e);
+    });
+  }
+  _pendingSignups.splice(idx, 1);
+  savePendingSignups(_pendingSignups);
+  updateSignupsBadge();
+  renderSignupsPanel();
+}
+
+document.getElementById('btn-close-signups-panel').addEventListener('click', closeAllPanels);
 
 </script>
 
