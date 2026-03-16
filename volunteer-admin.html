@@ -319,6 +319,9 @@ header {
 }
 
 /* ── EVENT ACCORDION ── */
+.ev-top-bar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.ev-new-event-btn { background: var(--steel-anchor); color: var(--white); border: none; border-radius: 8px; padding: 7px 16px; font-family: var(--font-body); font-size: .85rem; font-weight: 700; cursor: pointer; }
+.ev-new-event-btn:hover { background: var(--deep-steel); }
 .ev-admin-card { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; background: var(--white); overflow: hidden; }
 .ev-admin-header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; user-select: none; background: var(--blue-mist); }
 .ev-admin-header:hover { background: var(--ice-blue); }
@@ -327,8 +330,11 @@ header {
 .ev-admin-title { font-weight: 700; font-size: .95rem; color: var(--steel-anchor); font-family: var(--font-head); flex: 1; }
 .ev-admin-date { font-size: .78rem; color: var(--warm-gray); }
 .ev-admin-count { font-size: .78rem; background: var(--pale-sage); color: #2E5E35; border: 1px solid var(--soft-sage); border-radius: 999px; padding: 1px 9px; font-weight: 700; }
-.ev-admin-body { display: none; padding: 12px 16px; border-top: 1px solid var(--border); }
+.ev-admin-edit-btn { font-size: .75rem; background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; cursor: pointer; color: var(--warm-gray); margin-left: 4px; }
+.ev-admin-edit-btn:hover { background: var(--white); color: var(--steel-anchor); }
+.ev-admin-body { display: none; padding: 14px 16px; border-top: 1px solid var(--border); }
 .ev-admin-body.open { display: block; }
+/* view mode */
 .ev-role-row { margin-bottom: 10px; }
 .ev-role-label { font-size: .82rem; font-weight: 700; color: var(--charcoal); margin-bottom: 4px; }
 .ev-role-signups { display: flex; flex-direction: column; gap: 4px; padding-left: 8px; }
@@ -338,9 +344,27 @@ header {
 .ev-signup-email { color: var(--warm-gray); }
 .ev-signup-dismiss { background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 1px 8px; font-size: .72rem; cursor: pointer; color: var(--warm-gray); }
 .ev-signup-dismiss:hover { background: var(--linen); }
-.ev-admin-add-role { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 8px; }
-.ev-add-role-btn { background: transparent; border: 1.5px solid var(--steel-anchor); color: var(--steel-anchor); border-radius: 8px; padding: 4px 12px; font-size: .78rem; font-family: var(--font-body); font-weight: 600; cursor: pointer; }
-.ev-add-role-btn:hover { background: var(--blue-mist); }
+/* edit mode */
+.ev-edit-form { background: var(--warm-white); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 10px; }
+.ev-edit-field { margin-bottom: 12px; }
+.ev-edit-field label { display: block; font-size: .75rem; font-weight: 700; color: var(--warm-gray); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+.ev-edit-field input[type=text] { width: 100%; padding: 7px 10px; border: 1.5px solid var(--border); border-radius: 7px; font-family: var(--font-body); font-size: .9rem; color: var(--charcoal); background: var(--white); outline: none; }
+.ev-edit-field input[type=text]:focus { border-color: var(--steel-anchor); }
+.ev-edit-roles-list { display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; }
+.ev-edit-role-item { display: flex; align-items: center; gap: 6px; background: var(--white); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: .85rem; }
+.ev-edit-role-remove { background: none; border: none; cursor: pointer; color: #B85C3A; font-size: 1rem; line-height: 1; padding: 0 2px; flex-shrink: 0; }
+.ev-edit-role-remove:hover { color: #8B3A1E; }
+.ev-edit-role-name { flex: 1; color: var(--charcoal); }
+.ev-edit-add-row { display: flex; gap: 6px; }
+.ev-edit-add-row input { flex: 1; padding: 6px 10px; border: 1.5px solid var(--border); border-radius: 7px; font-family: var(--font-body); font-size: .85rem; color: var(--charcoal); background: var(--white); outline: none; }
+.ev-edit-add-row input:focus { border-color: var(--steel-anchor); }
+.ev-edit-add-row button { background: var(--steel-anchor); color: var(--white); border: none; border-radius: 7px; padding: 6px 12px; font-size: .82rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.ev-edit-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.ev-btn-save { background: var(--steel-anchor); color: var(--white); border: none; border-radius: 7px; padding: 7px 16px; font-family: var(--font-body); font-size: .85rem; font-weight: 700; cursor: pointer; }
+.ev-btn-save:hover { background: var(--deep-steel); }
+.ev-btn-cancel { background: var(--linen); border: 1.5px solid var(--border); color: var(--charcoal); border-radius: 7px; padding: 7px 14px; font-family: var(--font-body); font-size: .85rem; font-weight: 600; cursor: pointer; }
+.ev-btn-delete { background: none; border: 1.5px solid #B85C3A; color: #B85C3A; border-radius: 7px; padding: 7px 14px; font-family: var(--font-body); font-size: .85rem; font-weight: 600; cursor: pointer; margin-left: auto; }
+.ev-btn-delete:hover { background: #fdf0ec; }
 
 /* ── MINISTRY COLOR MAP ── */
 .ministry-worship    { background: var(--min-worship); }
@@ -596,24 +620,39 @@ onAuthStateChanged(fbAuth, function(user) {
 });
 
 // ── COMMUNITY EVENTS ─────────────────────────────────────────────
-var COMMUNITY_EVENTS = [
+var DEFAULT_EVENTS = [
   { id: 'egg-hunt', name: 'Easter Egg Hunt', date: 'Apr 4',
-    roles: ['Easter Egg Hunt \u2013 Egg Filling', 'Easter Egg Hunt \u2013 Setup & Cleanup',
-            'Easter Egg Hunt \u2013 Registration', 'Easter Egg Hunt \u2013 Activity Stations'] },
+    roles: ['Egg Filling', 'Setup & Cleanup', 'Registration', 'Activity Stations'] },
   { id: 'vbs', name: 'VBS', date: 'Jun TBD',
-    roles: ['VBS \u2013 Group Leader', 'VBS \u2013 Station Helper',
-            'VBS \u2013 Crafts Coordinator', 'VBS \u2013 Snacks'] },
+    roles: ['Group Leader', 'Station Helper', 'Crafts Coordinator', 'Snacks'] },
   { id: 'christmas-market', name: 'Christmas Market', date: 'Dec 5',
-    roles: ['Christmas Market \u2013 Setup & Teardown', 'Christmas Market \u2013 Baked Goods & Food',
-            'Christmas Market \u2013 Kids\u2019 Activities', 'Christmas Market \u2013 Welcome Table'] }
+    roles: ['Setup & Teardown', 'Baked Goods & Food', 'Kids\u2019 Activities', 'Welcome Table'] }
 ];
 
-function getEventRoles() {
-  try { return JSON.parse(localStorage.getItem('va_event_roles') || '{}'); } catch(e) { return {}; }
+// Full event config: { [id]: { name, date, roles[] } }
+function getEventConfig() {
+  try {
+    var stored = JSON.parse(localStorage.getItem('va_event_config') || 'null');
+    if (stored) return stored;
+  } catch(e) {}
+  // Build default from DEFAULT_EVENTS
+  var cfg = {};
+  DEFAULT_EVENTS.forEach(function(e) { cfg[e.id] = { name: e.name, date: e.date, roles: e.roles.slice(), order: DEFAULT_EVENTS.indexOf(e) }; });
+  return cfg;
 }
-function saveEventRoles(obj) {
-  localStorage.setItem('va_event_roles', JSON.stringify(obj));
+function saveEventConfig(cfg) {
+  localStorage.setItem('va_event_config', JSON.stringify(cfg));
 }
+// Sorted list of event entries from config
+function getEventList() {
+  var cfg = getEventConfig();
+  return Object.keys(cfg).map(function(id) { return Object.assign({ id: id }, cfg[id]); })
+    .sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
+}
+
+// Track which cards are open and which are in edit mode
+var _openCards   = new Set();
+var _editState   = {}; // id → { name, date, roles[], newRole }
 
 // ── DATA FETCHING ────────────────────────────────────────────────
 var _allVolunteers = [];
@@ -855,82 +894,173 @@ function renderEventsAccordion(eventVols) {
     });
   });
 
-  var storedRoles = getEventRoles();
-  var html = '';
+  var events = getEventList();
+  var html = '<div class="ev-top-bar">'
+    + '<button class="ev-new-event-btn" onclick="addNewEvent()">&#65291; New Event</button>'
+    + '</div>';
 
-  COMMUNITY_EVENTS.forEach(function(evt) {
-    var extraRoles = storedRoles[evt.id] || [];
-    var allRoles = evt.roles.concat(extraRoles.filter(function(r) { return evt.roles.indexOf(r) === -1; }));
+  events.forEach(function(evt) {
+    var isOpen   = _openCards.has(evt.id);
+    var isEditing = !!_editState[evt.id];
+    var ed = isEditing ? _editState[evt.id] : null;
+    var roles = isEditing ? ed.roles : (evt.roles || []);
+
     var totalSignups = 0;
-    allRoles.forEach(function(r) { totalSignups += (roleToVols[r] || []).length; });
+    roles.forEach(function(r) { totalSignups += (roleToVols[r] || []).length; });
 
     html += '<div class="ev-admin-card" id="evcard-' + evt.id + '">'
-      + '<div class="ev-admin-header" onclick="toggleEvCard(\'' + evt.id + '\')">'
+      + '<div class="ev-admin-header' + (isOpen ? ' open' : '') + '" onclick="toggleEvCard(\'' + evt.id + '\')">'
       + '<span class="ev-admin-toggle">&#9658;</span>'
-      + '<span class="ev-admin-title">' + escHtml(evt.name) + '</span>'
-      + '<span class="ev-admin-date">' + escHtml(evt.date) + '</span>'
+      + '<span class="ev-admin-title">' + escHtml(isEditing ? ed.name : evt.name) + '</span>'
+      + '<span class="ev-admin-date">' + escHtml(isEditing ? ed.date : (evt.date || '')) + '</span>'
       + '<span class="ev-admin-count">' + totalSignups + ' signed up</span>'
+      + (isOpen && !isEditing ? '<button class="ev-admin-edit-btn" onclick="event.stopPropagation();editEvCard(\'' + evt.id + '\')">&#9998; Edit</button>' : '')
       + '</div>'
-      + '<div class="ev-admin-body" id="evbody-' + evt.id + '">';
+      + '<div class="ev-admin-body' + (isOpen ? ' open' : '') + '" id="evbody-' + evt.id + '">';
 
-    allRoles.forEach(function(role) {
-      var vols = roleToVols[role] || [];
-      html += '<div class="ev-role-row">'
-        + '<div class="ev-role-label">' + escHtml(role) + '</div>'
-        + '<div class="ev-role-signups">';
-      if (vols.length === 0) {
-        html += '<span class="ev-role-empty">No sign-ups yet</span>';
-      } else {
-        vols.forEach(function(v) {
-          var ago = v.submittedAt ? timeAgo(v.submittedAt) : '';
-          html += '<div class="ev-signup-row">'
-            + '<span class="ev-signup-name">' + escHtml(v.name || '') + '</span>'
-            + '<span class="ev-signup-email">' + escHtml(v.email || '') + '</span>'
-            + (v.phone ? '<span class="ev-signup-email">' + escHtml(v.phone) + '</span>' : '')
-            + (ago ? '<span class="ev-signup-email">' + ago + '</span>' : '')
-            + (v.id ? '<button class="ev-signup-dismiss" onclick="dismissEvent(\'' + escHtml(v.id) + '\')">Dismiss</button>' : '')
-            + '</div>';
-        });
+    if (isEditing) {
+      // ── Edit form ──
+      html += '<div class="ev-edit-form">'
+        + '<div class="ev-edit-field"><label>Event Name</label>'
+        + '<input type="text" id="ev-name-' + evt.id + '" value="' + escHtml(ed.name) + '" placeholder="Event name"></div>'
+        + '<div class="ev-edit-field"><label>Date</label>'
+        + '<input type="text" id="ev-date-' + evt.id + '" value="' + escHtml(ed.date) + '" placeholder="e.g. Apr 4 or Jun TBD"></div>'
+        + '<div class="ev-edit-field"><label>Roles</label>'
+        + '<div class="ev-edit-roles-list" id="ev-roles-list-' + evt.id + '">';
+      ed.roles.forEach(function(role, idx) {
+        html += '<div class="ev-edit-role-item">'
+          + '<button class="ev-edit-role-remove" onclick="removeEvRole(\'' + evt.id + '\',' + idx + ')" title="Remove role">&times;</button>'
+          + '<span class="ev-edit-role-name">' + escHtml(role) + '</span>'
+          + '</div>';
+      });
+      html += '</div>'
+        + '<div class="ev-edit-add-row">'
+        + '<input type="text" id="ev-new-role-' + evt.id + '" placeholder="New role name" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addEvRole(\'' + evt.id + '\');}">'
+        + '<button onclick="addEvRole(\'' + evt.id + '\')">+ Add</button>'
+        + '</div></div>'
+        + '<div class="ev-edit-actions">'
+        + '<button class="ev-btn-save" onclick="saveEvCard(\'' + evt.id + '\')">Save</button>'
+        + '<button class="ev-btn-cancel" onclick="cancelEvEdit(\'' + evt.id + '\')">Cancel</button>'
+        + '<button class="ev-btn-delete" onclick="deleteEvent(\'' + evt.id + '\')">&#128465; Delete Event</button>'
+        + '</div></div>';
+    } else {
+      // ── View mode ──
+      roles.forEach(function(role) {
+        var vols = roleToVols[role] || [];
+        html += '<div class="ev-role-row">'
+          + '<div class="ev-role-label">' + escHtml(role) + '</div>'
+          + '<div class="ev-role-signups">';
+        if (vols.length === 0) {
+          html += '<span class="ev-role-empty">No sign-ups yet</span>';
+        } else {
+          vols.forEach(function(v) {
+            var ago = v.submittedAt ? timeAgo(v.submittedAt) : '';
+            html += '<div class="ev-signup-row">'
+              + '<span class="ev-signup-name">' + escHtml(v.name || '') + '</span>'
+              + '<span class="ev-signup-email">' + escHtml(v.email || '') + '</span>'
+              + (v.phone ? '<span class="ev-signup-email">' + escHtml(v.phone) + '</span>' : '')
+              + (ago ? '<span class="ev-signup-email">' + ago + '</span>' : '')
+              + (v.id ? '<button class="ev-signup-dismiss" onclick="dismissEvent(\'' + escHtml(v.id) + '\')">Dismiss</button>' : '')
+              + '</div>';
+          });
+        }
+        html += '</div></div>';
+      });
+      if (!roles.length) {
+        html += '<p style="font-size:.82rem;color:var(--warm-gray);font-style:italic;">No roles defined yet. Click ✏ Edit to add roles.</p>';
       }
-      html += '</div></div>';
-    });
+    }
 
-    html += '<div class="ev-admin-add-role">'
-      + '<button class="ev-add-role-btn" onclick="addEvRole(\'' + evt.id + '\')">&#65291; Add Role</button>'
-      + '</div>'
-      + '</div></div>';
+    html += '</div></div>'; // close body + card
   });
 
   container.innerHTML = html;
 }
 
 function toggleEvCard(eventId) {
-  var header = document.querySelector('#evcard-' + eventId + ' .ev-admin-header');
-  var body   = document.getElementById('evbody-' + eventId);
-  if (!header || !body) return;
-  var isOpen = body.classList.contains('open');
-  body.classList.toggle('open', !isOpen);
-  header.classList.toggle('open', !isOpen);
+  if (_openCards.has(eventId)) { _openCards.delete(eventId); } else { _openCards.add(eventId); }
+  renderEventsAccordion(filteredList());
 }
 window.toggleEvCard = toggleEvCard;
 
+function editEvCard(eventId) {
+  var cfg = getEventConfig();
+  var evt = cfg[eventId];
+  if (!evt) return;
+  _editState[eventId] = { name: evt.name, date: evt.date || '', roles: evt.roles.slice() };
+  _openCards.add(eventId);
+  renderEventsAccordion(filteredList());
+}
+window.editEvCard = editEvCard;
+
+function cancelEvEdit(eventId) {
+  delete _editState[eventId];
+  renderEventsAccordion(filteredList());
+}
+window.cancelEvEdit = cancelEvEdit;
+
+function saveEvCard(eventId) {
+  var ed = _editState[eventId];
+  if (!ed) return;
+  // Read live values from inputs
+  var nameEl = document.getElementById('ev-name-' + eventId);
+  var dateEl = document.getElementById('ev-date-' + eventId);
+  if (nameEl) ed.name = nameEl.value.trim();
+  if (dateEl) ed.date = dateEl.value.trim();
+  if (!ed.name) { alert('Event name cannot be empty.'); return; }
+  var cfg = getEventConfig();
+  cfg[eventId] = { name: ed.name, date: ed.date, roles: ed.roles.slice(), order: cfg[eventId] ? cfg[eventId].order : Date.now() };
+  saveEventConfig(cfg);
+  delete _editState[eventId];
+  renderEventsAccordion(filteredList());
+}
+window.saveEvCard = saveEvCard;
+
 function addEvRole(eventId) {
-  var roleName = prompt('Enter new role name:');
-  if (!roleName || !roleName.trim()) return;
-  var stored = getEventRoles();
-  if (!stored[eventId]) stored[eventId] = [];
-  if (stored[eventId].indexOf(roleName.trim()) === -1) {
-    stored[eventId].push(roleName.trim());
-    saveEventRoles(stored);
-  }
-  renderCards(filteredList());
-  // Re-open the card
-  var body   = document.getElementById('evbody-' + eventId);
-  var header = document.querySelector('#evcard-' + eventId + ' .ev-admin-header');
-  if (body)   body.classList.add('open');
-  if (header) header.classList.add('open');
+  var ed = _editState[eventId];
+  if (!ed) return;
+  var input = document.getElementById('ev-new-role-' + eventId);
+  var roleName = input ? input.value.trim() : '';
+  if (!roleName) return;
+  if (ed.roles.indexOf(roleName) === -1) ed.roles.push(roleName);
+  if (input) input.value = '';
+  renderEventsAccordion(filteredList());
+  // Re-focus the input
+  var newInput = document.getElementById('ev-new-role-' + eventId);
+  if (newInput) newInput.focus();
 }
 window.addEvRole = addEvRole;
+
+function removeEvRole(eventId, idx) {
+  var ed = _editState[eventId];
+  if (!ed) return;
+  ed.roles.splice(idx, 1);
+  renderEventsAccordion(filteredList());
+}
+window.removeEvRole = removeEvRole;
+
+function addNewEvent() {
+  var id = 'event-' + Date.now().toString(36);
+  var cfg = getEventConfig();
+  var order = Object.keys(cfg).length;
+  cfg[id] = { name: 'New Event', date: '', roles: [], order: order };
+  saveEventConfig(cfg);
+  _openCards.add(id);
+  _editState[id] = { name: 'New Event', date: '', roles: [] };
+  renderEventsAccordion(filteredList());
+}
+window.addNewEvent = addNewEvent;
+
+function deleteEvent(eventId) {
+  if (!confirm('Delete this event and all its role settings?')) return;
+  var cfg = getEventConfig();
+  delete cfg[eventId];
+  saveEventConfig(cfg);
+  delete _editState[eventId];
+  _openCards.delete(eventId);
+  renderEventsAccordion(filteredList());
+}
+window.deleteEvent = deleteEvent;
 
 function dismissEvent(id) {
   var s = getSettings();
