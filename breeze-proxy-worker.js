@@ -264,8 +264,8 @@ async function handleRsvpPortal(request, env) {
 
 // ── Breeze API proxy ──────────────────────────────────────────────────────────
 async function handleBreezeProxy(request, env, url) {
-  const breezeSubdomain = env.BREEZE_SUBDOMAIN || '';
-  const breezeApiKey    = env.BREEZE_API_KEY    || '';
+  const breezeSubdomain = env.BREEZE_SUBDOMAIN || request.headers.get('X-Breeze-Subdomain') || '';
+  const breezeApiKey    = env.BREEZE_API_KEY    || request.headers.get('X-Breeze-Api-Key')    || '';
   if (!breezeSubdomain || !breezeApiKey) return json({ error: 'Breeze not configured' }, 500);
 
   const breezePath = url.pathname.replace(/^\/breeze/, '');
