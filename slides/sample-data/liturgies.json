@@ -1,0 +1,347 @@
+[
+  {
+    "id": "ds1",
+    "name": "Divine Service, Setting One",
+    "abbreviation": "DS1",
+    "source": "LSB",
+    "parts": [
+      {"id":"confession","name":"Confession and Absolution","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"In the name of the Father and of the T Son and of the Holy Spirit."},
+        {"speaker":"C","text":"Amen."},
+        {"speaker":"P","text":"If we say we have no sin, we deceive ourselves, and the truth is not in us."},
+        {"speaker":"C","text":"But if we confess our sins, God, who is faithful and just, will forgive our sins and cleanse us from all unrighteousness."},
+        {"speaker":"P","text":"Let us then confess our sins to God our Father."},
+        {"speaker":"C","text":"Most merciful God, we confess that we are by nature sinful and unclean. We have sinned against You in thought, word, and deed, by what we have done and by what we have left undone. We have not loved You with our whole heart; we have not loved our neighbors as ourselves. We justly deserve Your present and eternal punishment. For the sake of Your Son, Jesus Christ, have mercy on us. Forgive us, renew us, and lead us, so that we may delight in Your will and walk in Your ways to the glory of Your holy name. Amen."},
+        {"speaker":"P","text":"[Enter absolution text from LSB p. 151]"}
+      ]},
+      {"id":"introit","name":"Introit","type":"proper","fixed":false,"lines":[]},
+      {"id":"kyrie","name":"Kyrie","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"In peace let us pray to the Lord."},
+        {"speaker":"C","text":"Lord, have mercy."},
+        {"speaker":"P","text":"For the peace from above and for our salvation let us pray to the Lord."},
+        {"speaker":"C","text":"Lord, have mercy."},
+        {"speaker":"P","text":"For the peace of the whole world, for the well-being of the Church of God, and for the unity of all let us pray to the Lord."},
+        {"speaker":"C","text":"Lord, have mercy."},
+        {"speaker":"P","text":"For this holy house and for all who offer here their worship and praise let us pray to the Lord."},
+        {"speaker":"C","text":"Lord, have mercy."},
+        {"speaker":"P","text":"Help, save, comfort, and defend us, gracious Lord."},
+        {"speaker":"C","text":"Amen."}
+      ]},
+      {"id":"gloria","name":"Gloria in Excelsis","type":"liturgy","fixed":true,"canOmit":true,"omitDuring":["Advent","Lent"],"lines":[
+        {"speaker":"P","text":"Glory to God in the highest, and peace to His people on earth."},
+        {"speaker":"C","text":"[Enter Gloria text from LSB p. 154]"}
+      ]},
+      {"id":"collect","name":"Salutation and Collect of the Day","type":"proper","fixed":false,"lines":[
+        {"speaker":"P","text":"The Lord be with you."},
+        {"speaker":"C","text":"And also with you."},
+        {"speaker":"P","text":"Let us pray."},
+        {"speaker":"P","text":"[Collect of the Day]"},
+        {"speaker":"C","text":"Amen."}
+      ]},
+      {"id":"otReading","name":"Old Testament Reading","type":"reading","fixed":false,"lines":[]},
+      {"id":"gradual","name":"Gradual","type":"proper","fixed":false,"lines":[]},
+      {"id":"epistle","name":"Epistle","type":"reading","fixed":false,"lines":[]},
+      {"id":"alleluia","name":"Alleluia and Verse","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"C","text":"[Enter Alleluia text from LSB p. 156]"}
+      ]},
+      {"id":"gospel","name":"Holy Gospel","type":"reading","fixed":false,"lines":[]},
+      {"id":"creed","name":"Nicene Creed","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"C","text":"I believe in one God, the Father Almighty, maker of heaven and earth and of all things visible and invisible. And in one Lord Jesus Christ, the only-begotten Son of God, begotten of His Father before all worlds, God of God, Light of Light, very God of very God, begotten, not made, being of one substance with the Father, by whom all things were made; who for us men and for our salvation came down from heaven and was incarnate by the Holy Spirit of the virgin Mary and was made man; and was crucified also for us under Pontius Pilate. He suffered and was buried. And the third day He rose again according to the Scriptures and ascended into heaven and sits at the right hand of the Father. And He will come again with glory to judge both the living and the dead, whose kingdom will have no end. And I believe in the Holy Spirit, the Lord and giver of life, who proceeds from the Father and the Son, who with the Father and the Son together is worshiped and glorified, who spoke by the prophets. And I believe in one holy Christian and apostolic Church, I acknowledge one Baptism for the remission of sins, and I look for the resurrection of the dead and the life T of the world to come. Amen."}
+      ]},
+      {"id":"sermon","name":"Sermon","type":"sermon","fixed":false,"lines":[]},
+      {"id":"offertory","name":"Offertory","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"C","text":"[Enter Offertory text from LSB p. 159]"}
+      ]},
+      {"id":"prayer","name":"Prayer of the Church","type":"proper","fixed":false,"lines":[]},
+      {"id":"preface","name":"Preface","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"The Lord be with you."},
+        {"speaker":"C","text":"And also with you."},
+        {"speaker":"P","text":"Lift up your hearts."},
+        {"speaker":"C","text":"We lift them to the Lord."},
+        {"speaker":"P","text":"Let us give thanks to the Lord our God."},
+        {"speaker":"C","text":"It is right to give Him thanks and praise."}
+      ]},
+      {"id":"sanctus","name":"Sanctus","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"C","text":"[Enter Sanctus text from LSB p. 161]"}
+      ]},
+      {"id":"lordsWords","name":"The Words of Our Lord","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"[Enter Words of Institution from LSB p. 162]"}
+      ]},
+      {"id":"lordsPrayer","name":"Lord's Prayer","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"C","text":"Our Father who art in heaven, hallowed be Thy name, Thy kingdom come, Thy will be done on earth as it is in heaven; give us this day our daily bread; and forgive us our trespasses as we forgive those who trespass against us; and lead us not into temptation, but deliver us from evil. For Thine is the kingdom and the power and the glory forever and ever. Amen."}
+      ]},
+      {"id":"paxDomini","name":"Pax Domini","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"The peace of the Lord be with you always."},
+        {"speaker":"C","text":"Amen."}
+      ]},
+      {"id":"agnusDei","name":"Agnus Dei","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"C","text":"[Enter Agnus Dei text from LSB p. 163]"}
+      ]},
+      {"id":"distribution","name":"Distribution","type":"placeholder","fixed":false,"lines":[]},
+      {"id":"nuncDimittis","name":"Nunc Dimittis","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"C","text":"[Enter Nunc Dimittis text from LSB p. 165]"}
+      ]},
+      {"id":"postcommunion","name":"Post-Communion Collect","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"[Enter Post-Communion Collect from LSB p. 166]"},
+        {"speaker":"C","text":"Amen."}
+      ]},
+      {"id":"benediction","name":"Benedicamus and Benediction","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"Let us bless the Lord."},
+        {"speaker":"C","text":"Thanks be to God."},
+        {"speaker":"P","text":"The Lord bless you and keep you. The Lord make His face shine on you and be gracious to you. The Lord look upon you with favor and T give you peace."},
+        {"speaker":"C","text":"Amen."}
+      ]}
+    ]
+  },
+  {
+    "id": "ds2",
+    "name": "Divine Service, Setting Two",
+    "abbreviation": "DS2",
+    "source": "LSB",
+    "parts": [
+      {"id":"confession","name":"Confession and Absolution","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"In the name of the Father and of the T Son and of the Holy Spirit."},
+        {"speaker":"C","text":"Amen."},
+        {"speaker":"P","text":"[Enter confession text from LSB p. 167]"},
+        {"speaker":"C","text":"[Enter congregation's confession from LSB p. 167]"}
+      ]},
+      {"id":"introit","name":"Introit","type":"proper","fixed":false,"lines":[]},
+      {"id":"kyrie","name":"Kyrie","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"C","text":"[Enter Kyrie text from LSB p. 168]"}
+      ]},
+      {"id":"gloria","name":"Gloria in Excelsis","type":"liturgy","fixed":true,"canOmit":true,"omitDuring":["Advent","Lent"],"lines":[
+        {"speaker":"C","text":"[Enter Gloria text from LSB p. 170]"}
+      ]},
+      {"id":"collect","name":"Salutation and Collect","type":"proper","fixed":false,"lines":[]},
+      {"id":"otReading","name":"Old Testament Reading","type":"reading","fixed":false,"lines":[]},
+      {"id":"epistle","name":"Epistle","type":"reading","fixed":false,"lines":[]},
+      {"id":"alleluia","name":"Alleluia and Verse","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"gospel","name":"Holy Gospel","type":"reading","fixed":false,"lines":[]},
+      {"id":"creed","name":"Nicene Creed","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"C","text":"[Same as DS1 - Nicene Creed]"}
+      ]},
+      {"id":"sermon","name":"Sermon","type":"sermon","fixed":false,"lines":[]},
+      {"id":"prayer","name":"Prayer of the Church","type":"proper","fixed":false,"lines":[]},
+      {"id":"preface","name":"Preface","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"sanctus","name":"Sanctus","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"lordsWords","name":"The Words of Our Lord","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"lordsPrayer","name":"Lord's Prayer","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"paxDomini","name":"Pax Domini","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"agnusDei","name":"Agnus Dei","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"distribution","name":"Distribution","type":"placeholder","fixed":false,"lines":[]},
+      {"id":"postcommunion","name":"Post-Communion Canticle and Collect","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"benediction","name":"Benedicamus and Benediction","type":"liturgy","fixed":true,"canOmit":false,"lines":[]}
+    ]
+  },
+  {
+    "id": "ds3",
+    "name": "Divine Service, Setting Three",
+    "abbreviation": "DS3",
+    "source": "LSB",
+    "parts": [
+      {"id":"confession","name":"Confession and Absolution","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"[Enter confession text from LSB p. 184]"},
+        {"speaker":"C","text":"[Enter congregation's confession from LSB p. 184]"}
+      ]},
+      {"id":"introit","name":"Introit","type":"proper","fixed":false,"lines":[]},
+      {"id":"kyrie","name":"Kyrie","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"C","text":"Lord, have mercy; Christ, have mercy; Lord, have mercy."}
+      ]},
+      {"id":"gloria","name":"Gloria in Excelsis","type":"liturgy","fixed":true,"canOmit":true,"omitDuring":["Advent","Lent"],"lines":[
+        {"speaker":"C","text":"[Enter Gloria text from LSB p. 187]"}
+      ]},
+      {"id":"collect","name":"Salutation and Collect","type":"proper","fixed":false,"lines":[]},
+      {"id":"otReading","name":"Old Testament Reading","type":"reading","fixed":false,"lines":[]},
+      {"id":"epistle","name":"Epistle","type":"reading","fixed":false,"lines":[]},
+      {"id":"alleluia","name":"Alleluia and Verse","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"gospel","name":"Holy Gospel","type":"reading","fixed":false,"lines":[]},
+      {"id":"creed","name":"Apostles' Creed","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"C","text":"I believe in God, the Father Almighty, maker of heaven and earth. And in Jesus Christ, His only Son, our Lord, who was conceived by the Holy Spirit, born of the virgin Mary, suffered under Pontius Pilate, was crucified, died and was buried. He descended into hell. The third day He rose again from the dead. He ascended into heaven and sits at the right hand of God the Father Almighty. From thence He will come to judge the living and the dead. I believe in the Holy Spirit, the holy Christian Church, the communion of saints, the forgiveness of sins, the resurrection of the body, and the life everlasting. Amen."}
+      ]},
+      {"id":"sermon","name":"Sermon","type":"sermon","fixed":false,"lines":[]},
+      {"id":"prayer","name":"Prayer of the Church","type":"proper","fixed":false,"lines":[]},
+      {"id":"preface","name":"Preface","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"sanctus","name":"Sanctus","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"lordsWords","name":"The Words of Our Lord","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"lordsPrayer","name":"Lord's Prayer","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"paxDomini","name":"Pax Domini","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"agnusDei","name":"Agnus Dei","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"distribution","name":"Distribution","type":"placeholder","fixed":false,"lines":[]},
+      {"id":"postcommunion","name":"Post-Communion Canticle and Collect","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"benediction","name":"Benedicamus and Benediction","type":"liturgy","fixed":true,"canOmit":false,"lines":[]}
+    ]
+  },
+  {
+    "id": "ds4",
+    "name": "Divine Service, Setting Four",
+    "abbreviation": "DS4",
+    "source": "LSB",
+    "parts": [
+      {"id":"confession","name":"Confession and Absolution","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"introit","name":"Entrance Hymn / Introit","type":"proper","fixed":false,"lines":[]},
+      {"id":"kyrie","name":"Kyrie","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"gloria","name":"Gloria in Excelsis","type":"liturgy","fixed":true,"canOmit":true,"omitDuring":["Advent","Lent"],"lines":[]},
+      {"id":"collect","name":"Salutation and Collect","type":"proper","fixed":false,"lines":[]},
+      {"id":"otReading","name":"Old Testament Reading","type":"reading","fixed":false,"lines":[]},
+      {"id":"epistle","name":"Epistle","type":"reading","fixed":false,"lines":[]},
+      {"id":"alleluia","name":"Alleluia and Verse","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"gospel","name":"Holy Gospel","type":"reading","fixed":false,"lines":[]},
+      {"id":"creed","name":"Creed","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"sermon","name":"Sermon","type":"sermon","fixed":false,"lines":[]},
+      {"id":"prayer","name":"Prayer of the Church","type":"proper","fixed":false,"lines":[]},
+      {"id":"preface","name":"Preface","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"sanctus","name":"Sanctus","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"lordsWords","name":"The Words of Our Lord","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"lordsPrayer","name":"Lord's Prayer","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"paxDomini","name":"Pax Domini","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"agnusDei","name":"Agnus Dei","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"distribution","name":"Distribution","type":"placeholder","fixed":false,"lines":[]},
+      {"id":"postcommunion","name":"Post-Communion Collect","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"benediction","name":"Benedicamus and Benediction","type":"liturgy","fixed":true,"canOmit":false,"lines":[]}
+    ]
+  },
+  {
+    "id": "ds5",
+    "name": "Divine Service, Setting Five",
+    "abbreviation": "DS5",
+    "source": "LSB",
+    "parts": [
+      {"id":"confession","name":"Confession and Absolution","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"introit","name":"Introit","type":"proper","fixed":false,"lines":[]},
+      {"id":"kyrie","name":"Kyrie","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"gloria","name":"Gloria in Excelsis","type":"liturgy","fixed":true,"canOmit":true,"omitDuring":["Advent","Lent"],"lines":[]},
+      {"id":"collect","name":"Salutation and Collect","type":"proper","fixed":false,"lines":[]},
+      {"id":"otReading","name":"Old Testament Reading","type":"reading","fixed":false,"lines":[]},
+      {"id":"epistle","name":"Epistle","type":"reading","fixed":false,"lines":[]},
+      {"id":"alleluia","name":"Alleluia and Verse","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"gospel","name":"Holy Gospel","type":"reading","fixed":false,"lines":[]},
+      {"id":"creed","name":"Creed","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"sermon","name":"Sermon","type":"sermon","fixed":false,"lines":[]},
+      {"id":"prayer","name":"Prayer of the Church","type":"proper","fixed":false,"lines":[]},
+      {"id":"preface","name":"Preface","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"sanctus","name":"Sanctus","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"lordsWords","name":"The Words of Our Lord","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"lordsPrayer","name":"Lord's Prayer","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"paxDomini","name":"Pax Domini","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"agnusDei","name":"Agnus Dei","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"distribution","name":"Distribution","type":"placeholder","fixed":false,"lines":[]},
+      {"id":"postcommunion","name":"Post-Communion Collect","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"benediction","name":"Benedicamus and Benediction","type":"liturgy","fixed":true,"canOmit":false,"lines":[]}
+    ]
+  },
+  {
+    "id": "matins",
+    "name": "Matins",
+    "abbreviation": "MAT",
+    "source": "LSB",
+    "parts": [
+      {"id":"versicles","name":"Opening Versicles","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"O Lord, open my lips,"},
+        {"speaker":"C","text":"and my mouth will declare Your praise."},
+        {"speaker":"P","text":"Make haste, O God, to deliver me;"},
+        {"speaker":"C","text":"make haste to help me, O Lord. Glory be to the Father and to the Son and to the Holy Spirit; as it was in the beginning, is now, and will be forever. Amen."}
+      ]},
+      {"id":"invitatory","name":"Invitatory and Venite","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"[Enter Invitatory from LSB p. 220]"},
+        {"speaker":"C","text":"[Enter Venite from LSB p. 220]"}
+      ]},
+      {"id":"psalm","name":"Psalmody","type":"proper","fixed":false,"lines":[]},
+      {"id":"otReading","name":"Old Testament Reading","type":"reading","fixed":false,"lines":[]},
+      {"id":"responsory","name":"Responsory","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"epistle","name":"Epistle","type":"reading","fixed":false,"lines":[]},
+      {"id":"gospel","name":"Holy Gospel","type":"reading","fixed":false,"lines":[]},
+      {"id":"sermon","name":"Sermon","type":"sermon","fixed":false,"lines":[]},
+      {"id":"canticle","name":"Te Deum","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"prayer","name":"Prayer","type":"proper","fixed":false,"lines":[]},
+      {"id":"lordsPrayer","name":"Lord's Prayer","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"collect","name":"Collect of the Day","type":"proper","fixed":false,"lines":[]},
+      {"id":"collectGrace","name":"Collect for Grace","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"[Enter Collect for Grace from LSB p. 228]"},
+        {"speaker":"C","text":"Amen."}
+      ]},
+      {"id":"benedicamus","name":"Benedicamus","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"Let us bless the Lord."},
+        {"speaker":"C","text":"Thanks be to God."}
+      ]},
+      {"id":"benediction","name":"Benediction","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"The grace of our Lord T Jesus Christ and the love of God and the communion of the Holy Spirit be with you all."},
+        {"speaker":"C","text":"Amen."}
+      ]}
+    ]
+  },
+  {
+    "id": "vespers",
+    "name": "Vespers",
+    "abbreviation": "VSP",
+    "source": "LSB",
+    "parts": [
+      {"id":"versicles","name":"Opening Versicles","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"O Lord, open my lips,"},
+        {"speaker":"C","text":"and my mouth will declare Your praise."},
+        {"speaker":"P","text":"Make haste, O God, to deliver me;"},
+        {"speaker":"C","text":"make haste to help me, O Lord. Glory be to the Father and to the Son and to the Holy Spirit; as it was in the beginning, is now, and will be forever. Amen."}
+      ]},
+      {"id":"psalm","name":"Psalmody","type":"proper","fixed":false,"lines":[]},
+      {"id":"otReading","name":"Old Testament Reading","type":"reading","fixed":false,"lines":[]},
+      {"id":"epistle","name":"Epistle","type":"reading","fixed":false,"lines":[]},
+      {"id":"responsory","name":"Responsory","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"gospel","name":"Holy Gospel","type":"reading","fixed":false,"lines":[]},
+      {"id":"sermon","name":"Sermon","type":"sermon","fixed":false,"lines":[]},
+      {"id":"magnificat","name":"Magnificat","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"C","text":"[Enter Magnificat from LSB p. 231]"}
+      ]},
+      {"id":"prayer","name":"Prayer","type":"proper","fixed":false,"lines":[]},
+      {"id":"lordsPrayer","name":"Lord's Prayer","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"collect","name":"Collect of the Day","type":"proper","fixed":false,"lines":[]},
+      {"id":"collectPeace","name":"Collect for Peace","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"[Enter Collect for Peace from LSB p. 233]"},
+        {"speaker":"C","text":"Amen."}
+      ]},
+      {"id":"benedicamus","name":"Benedicamus","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"Let us bless the Lord."},
+        {"speaker":"C","text":"Thanks be to God."}
+      ]},
+      {"id":"benediction","name":"Benediction","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"The grace of our Lord T Jesus Christ and the love of God and the communion of the Holy Spirit be with you all."},
+        {"speaker":"C","text":"Amen."}
+      ]}
+    ]
+  },
+  {
+    "id": "compline",
+    "name": "Compline",
+    "abbreviation": "CMP",
+    "source": "LSB",
+    "parts": [
+      {"id":"versicles","name":"Opening Versicles","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"The Lord Almighty grant us a quiet night and peace at the last."},
+        {"speaker":"C","text":"Amen."},
+        {"speaker":"P","text":"It is good to give thanks to the Lord,"},
+        {"speaker":"C","text":"to sing praise to Your name, O Most High;"},
+        {"speaker":"P","text":"to herald Your love in the morning,"},
+        {"speaker":"C","text":"Your truth at the close of the day."}
+      ]},
+      {"id":"confession","name":"Confession","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"[Enter confession from LSB p. 253]"},
+        {"speaker":"C","text":"[Enter congregation's confession from LSB p. 253]"}
+      ]},
+      {"id":"psalm","name":"Psalmody","type":"proper","fixed":false,"lines":[]},
+      {"id":"reading","name":"Reading","type":"reading","fixed":false,"lines":[]},
+      {"id":"responsory","name":"Responsory","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"sermon","name":"Sermon / Meditation","type":"sermon","fixed":false,"lines":[]},
+      {"id":"nuncDimittis","name":"Nunc Dimittis","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"C","text":"[Enter Nunc Dimittis from LSB p. 258]"}
+      ]},
+      {"id":"prayer","name":"Prayer","type":"proper","fixed":false,"lines":[]},
+      {"id":"lordsPrayer","name":"Lord's Prayer","type":"liturgy","fixed":true,"canOmit":false,"lines":[]},
+      {"id":"collect","name":"Collect","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"[Enter Collect from LSB p. 259]"},
+        {"speaker":"C","text":"Amen."}
+      ]},
+      {"id":"benediction","name":"Benediction","type":"liturgy","fixed":true,"canOmit":false,"lines":[
+        {"speaker":"P","text":"The almighty and merciful Lord, the Father, the T Son, and the Holy Spirit, bless us and keep us."},
+        {"speaker":"C","text":"Amen."}
+      ]}
+    ]
+  }
+]
