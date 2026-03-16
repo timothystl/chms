@@ -5,6 +5,10 @@
  * Environment variables (set in Cloudflare Dashboard → Worker → Settings → Variables):
  *   WORKER_SECRET   — optional shared secret; if set, all requests must include
  *                     X-Worker-Secret header matching this value
+ *   BREEZE_SUBDOMAIN — your Breeze subdomain (e.g. "mychurch" for mychurch.breezechms.com)
+ *                      Can also be passed per-request via X-Breeze-Subdomain header
+ *   BREEZE_API_KEY  — your Breeze API key
+ *                      Can also be passed per-request via X-Breeze-Api-Key header
  *   RESEND_API_KEY  — Resend API key (re_xxxxxxxx) for sending notification emails
  *   EMAIL_FROM      — verified sender address (e.g. dinger@reminder.timothystl.org)
  *   NOTIFY_EMAIL    — admin email address to receive volunteer signup notifications
@@ -64,7 +68,7 @@ export default {
     if (path === '/rsvp') {
       return handleRsvp(request, env);
     }
-    // Breeze API proxy — accepts both /api/* and /breeze/* request paths
+    // Breeze API proxy — accepts both /breeze/* and /api/* prefixes
     if (path.startsWith('/breeze/') || path.startsWith('/api/')) {
       return handleBreezeProxy(request, env, url);
     }
@@ -263,12 +267,17 @@ async function handleRsvpPortal(request, env) {
 }
 
 // ── Breeze API proxy ──────────────────────────────────────────────────────────
+// Accepts both /breeze/* and /api/* prefixes from the frontend.
+// Credentials are read from Cloudflare env vars with per-request header fallback.
 async function handleBreezeProxy(request, env, url) {
-  const breezeSubdomain = env.BREEZE_SUBDOMAIN || request.headers.get('X-Breeze-Subdomain') || '';
-  const breezeApiKey    = env.BREEZE_API_KEY    || request.headers.get('X-Breeze-Api-Key')    || '';
+  const breezeSubdomain = env.BREEZE_SUBDOMAIN
+    || request.headers.get('X-Breeze-Subdomain') || '';
+  const breezeApiKey = env.BREEZE_API_KEY
+    || request.headers.get('X-Breeze-Api-Key') || '';
   if (!breezeSubdomain || !breezeApiKey) return json({ error: 'Breeze not configured' }, 500);
 
-  const breezePath = url.pathname.replace(/^\/breeze/, '').replace(/^\/api/, '');
+  // Strip /breeze or /api prefix — both map to Breeze's /api endpoint
+  const breezePath = url.pathname.replace(/^\/(breeze|api)/, '');
   const breezeUrl  = 'https://' + breezeSubdomain + '.breezechms.com/api' + breezePath + url.search;
 
   const res = await fetch(breezeUrl, {
