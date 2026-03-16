@@ -240,6 +240,26 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .signup-card-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .signup-card-date { font-size: .75rem; color: var(--warm-gray); margin-top: 4px; }
 
+/* ── Event admin accordion cards ─────────────────────── */
+.ev-admin-card { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; background: var(--white); overflow: hidden; }
+.ev-admin-header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; user-select: none; background: var(--blue-mist); }
+.ev-admin-header:hover { background: var(--ice-blue); }
+.ev-admin-toggle { font-size: .9rem; color: var(--steel-anchor); transition: transform .2s; display: inline-block; }
+.ev-admin-header.open .ev-admin-toggle { transform: rotate(90deg); }
+.ev-admin-title { font-weight: 700; font-size: .95rem; color: var(--steel-anchor); font-family: var(--font-head); flex: 1; }
+.ev-admin-date { font-size: .78rem; color: var(--warm-gray); }
+.ev-admin-count { font-size: .78rem; background: var(--pale-sage); color: var(--on-pale-sage); border: 1px solid var(--soft-sage); border-radius: 999px; padding: 1px 9px; font-weight: 700; }
+.ev-admin-body { display: none; padding: 12px 16px; border-top: 1px solid var(--border); }
+.ev-admin-body.open { display: block; }
+.ev-role-row { margin-bottom: 10px; }
+.ev-role-label { font-size: .82rem; font-weight: 700; color: var(--charcoal); margin-bottom: 4px; }
+.ev-role-signups { display: flex; flex-direction: column; gap: 3px; padding-left: 8px; }
+.ev-role-empty { font-size: .78rem; color: var(--warm-gray); font-style: italic; }
+.ev-signup-row { display: flex; align-items: center; gap: 8px; font-size: .82rem; }
+.ev-signup-name { font-weight: 600; color: var(--steel-anchor); }
+.ev-signup-email { color: var(--warm-gray); }
+.ev-admin-add-role { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 8px; }
+
 /* ── Print styles ──────────────────────────────────────── */
 @page { size: landscape; margin: 0.5in; }
 @media print {
@@ -806,6 +826,17 @@ function showAlert(elId, msg, type) {
 var PER_ROLES    = ['Elder', 'Acolyte', 'PowerPoint', 'Lector', 'Liturgist', 'Altar Guild'];
 var SHARED_ROLES = ['Preacher', 'Childrens Message'];
 var SHARED_LABELS = { 'Childrens Message': "Children's Message" };
+var COMMUNITY_EVENTS = [
+  { id: 'egg-hunt', name: 'Easter Egg Hunt', date: 'Apr 4',
+    roles: ['Easter Egg Hunt \u2013 Egg Filling', 'Easter Egg Hunt \u2013 Setup & Cleanup',
+            'Easter Egg Hunt \u2013 Registration', 'Easter Egg Hunt \u2013 Activity Stations'] },
+  { id: 'vbs', name: 'VBS', date: 'Jun TBD',
+    roles: ['VBS \u2013 Group Leader', 'VBS \u2013 Station Helper',
+            'VBS \u2013 Crafts Coordinator', 'VBS \u2013 Snacks'] },
+  { id: 'christmas-market', name: 'Christmas Market', date: 'Dec 5',
+    roles: ['Christmas Market \u2013 Setup & Teardown', 'Christmas Market \u2013 Baked Goods & Food',
+            'Christmas Market \u2013 Kids\u2019 Activities', 'Christmas Market \u2013 Welcome Table'] }
+];
 function roleLabel(r) { return SHARED_LABELS[r] || r; }
 var ROLE_ABBREVS = { 'Elder':'ELD', 'Acolyte':'ACO', 'PowerPoint':'PPT', 'Lector':'LCT', 'Liturgist':'LTG', 'Preacher':'PRCHR', 'Childrens Message':'CM', 'Altar Guild':'AG' };
 function roleAbbrev(r) { return ROLE_ABBREVS[r] || roleLabel(r); }
@@ -3730,6 +3761,12 @@ function getEventVolunteers() {
 function saveEventVolunteers(arr) {
   localStorage.setItem('ws_event_volunteers', JSON.stringify(arr));
 }
+function getEventRoles() {
+  try { return JSON.parse(localStorage.getItem('ws_event_roles') || '{}'); } catch(e) { return {}; }
+}
+function saveEventRoles(obj) {
+  localStorage.setItem('ws_event_roles', JSON.stringify(obj));
+}
 
 function _workerHeaders() {
   var s = getBreezeSettings();
@@ -3994,31 +4031,96 @@ function updateEventBadge() {
 function renderEventsPanel() {
   var list = document.getElementById('events-list');
   if (!list) return;
-  if (!_eventVolunteers.length) {
-    list.innerHTML = '<div class="empty-state"><div class="icon">&#127881;</div><p>No pending event volunteer sign-ups</p></div>';
-    return;
-  }
-  var html = '';
+
+  // Build a map: role name → array of volunteer records
+  var roleToVols = {};
   _eventVolunteers.forEach(function(v, idx) {
-    var roles = (v.roles || []).map(function(r) {
-      return '<span class="tag tag-role">' + esc(r) + '</span>';
-    }).join(' ');
-    var submitted = v.submittedAt ? new Date(v.submittedAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '';
-    html += '<div class="signup-card">'
-      + '<div class="signup-card-name">' + esc(v.name || '') + '</div>'
-      + '<div class="signup-card-email">' + esc(v.email || '') + '</div>'
-      + (submitted ? '<div class="signup-card-date">Submitted ' + esc(submitted) + '</div>' : '')
-      + '<div class="signup-card-meta">'
-      +   (roles ? '<div><span class="sc-label">Roles: </span>' + roles + '</div>' : '')
-      +   (v.phone ? '<div><span class="sc-label">Phone: </span>' + esc(v.phone) + '</div>' : '')
-      +   (v.notes ? '<div><span class="sc-label">Notes: </span>' + esc(v.notes) + '</div>' : '')
-      + '</div>'
-      + '<div class="signup-card-actions">'
-      +   '<button class="btn btn-outline btn-sm" onclick="dismissEventVolunteer(' + idx + ')">Dismiss</button>'
-      + '</div>'
-      + '</div>';
+    (v.roles || []).forEach(function(r) {
+      if (!roleToVols[r]) roleToVols[r] = [];
+      roleToVols[r].push({ vol: v, idx: idx });
+    });
   });
+
+  // Extra roles added by admin (stored in localStorage)
+  var storedRoles = getEventRoles();
+
+  var html = '';
+  COMMUNITY_EVENTS.forEach(function(evt) {
+    // Merge base roles with any admin-added roles for this event
+    var extraRoles = storedRoles[evt.id] || [];
+    var allRoles = evt.roles.concat(extraRoles.filter(function(r) { return evt.roles.indexOf(r) === -1; }));
+
+    // Count total sign-ups for this event
+    var totalSignups = 0;
+    allRoles.forEach(function(r) { totalSignups += (roleToVols[r] || []).length; });
+
+    html += '<div class="ev-admin-card" id="evcard-' + evt.id + '">';
+    html += '<div class="ev-admin-header" onclick="toggleEvAdminCard(\'' + evt.id + '\')">'
+      + '<span class="ev-admin-toggle">&#9658;</span>'
+      + '<span class="ev-admin-title">' + esc(evt.name) + '</span>'
+      + '<span class="ev-admin-date">' + esc(evt.date) + '</span>'
+      + '<span class="ev-admin-count">' + totalSignups + ' signed up</span>'
+      + '</div>';
+
+    html += '<div class="ev-admin-body" id="evbody-' + evt.id + '">';
+
+    allRoles.forEach(function(role) {
+      var vols = roleToVols[role] || [];
+      html += '<div class="ev-role-row">'
+        + '<div class="ev-role-label">' + esc(role) + '</div>'
+        + '<div class="ev-role-signups">';
+      if (vols.length === 0) {
+        html += '<span class="ev-role-empty">No sign-ups yet</span>';
+      } else {
+        vols.forEach(function(entry) {
+          var v = entry.vol;
+          var submitted = v.submittedAt ? new Date(v.submittedAt).toLocaleDateString('en-US', { month:'short', day:'numeric' }) : '';
+          html += '<div class="ev-signup-row">'
+            + '<span class="ev-signup-name">' + esc(v.name || '') + '</span>'
+            + '<span class="ev-signup-email">' + esc(v.email || '') + '</span>'
+            + (v.phone ? '<span class="ev-signup-email">' + esc(v.phone) + '</span>' : '')
+            + (submitted ? '<span class="ev-signup-email">' + esc(submitted) + '</span>' : '')
+            + '<button class="btn btn-outline btn-sm" onclick="dismissEventVolunteer(' + entry.idx + ')" style="padding:1px 8px;font-size:.72rem;">Dismiss</button>'
+            + '</div>';
+        });
+      }
+      html += '</div></div>';
+    });
+
+    html += '<div class="ev-admin-add-role">'
+      + '<button class="btn btn-outline btn-sm" onclick="addEventRole(\'' + evt.id + '\')" style="font-size:.78rem;">&#65291; Add Role</button>'
+      + '</div>';
+
+    html += '</div></div>'; // close body + card
+  });
+
   list.innerHTML = html;
+}
+
+function toggleEvAdminCard(eventId) {
+  var header = document.querySelector('#evcard-' + eventId + ' .ev-admin-header');
+  var body   = document.getElementById('evbody-' + eventId);
+  if (!header || !body) return;
+  var isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  header.classList.toggle('open', !isOpen);
+}
+
+function addEventRole(eventId) {
+  var roleName = prompt('Enter new role name:');
+  if (!roleName || !roleName.trim()) return;
+  var stored = getEventRoles();
+  if (!stored[eventId]) stored[eventId] = [];
+  if (stored[eventId].indexOf(roleName.trim()) === -1) {
+    stored[eventId].push(roleName.trim());
+    saveEventRoles(stored);
+  }
+  renderEventsPanel();
+  // Re-open the card so the user sees the new role
+  var body = document.getElementById('evbody-' + eventId);
+  var header = document.querySelector('#evcard-' + eventId + ' .ev-admin-header');
+  if (body) body.classList.add('open');
+  if (header) header.classList.add('open');
 }
 
 function dismissEventVolunteer(idx) {
