@@ -2547,7 +2547,8 @@ function breezeGet(path, params) {
 
   params = params || {};
   var qs = Object.keys(params).map(function(k){ return encodeURIComponent(k)+'='+encodeURIComponent(params[k]); }).join('&');
-  var url = s.workerUrl + path + (qs ? '?'+qs : '');
+  var workerPath = path.replace(/^\/api/, '/breeze');
+  var url = s.workerUrl + workerPath + (qs ? '?'+qs : '');
   return fetch(url, {
     method: 'GET',
     headers: Object.assign({
@@ -2572,7 +2573,7 @@ function breezePost(path, fields) {
     return encodeURIComponent(k) + '=' + encodeURIComponent(fields[k]);
   }).join('&');
 
-  var url = s.workerUrl + path;
+  var url = s.workerUrl + path.replace(/^\/api/, '/breeze');
   return fetch(url, {
     method: 'POST',
     headers: Object.assign({
