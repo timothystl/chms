@@ -1610,6 +1610,133 @@ function updatePreviews() {
     'rgba(58,78,92,0.08)', 'rgba(58,78,92,0.2)', 'No roles selected yet &mdash; click any card above.', true
   );
 }
+
+// ── Volunteer form submission ───────────────────────────────────────────────
+
+function getWorkerUrl() {
+  var params = new URLSearchParams(window.location.search);
+  if (params.get('worker')) return params.get('worker').replace(/\/$/, '');
+  try {
+    var s = JSON.parse(localStorage.getItem('ws_breeze_settings') || '{}');
+    return (s.workerUrl || '').replace(/\/$/, '') || null;
+  } catch(e) { return null; }
+}
+
+function showThankYou(formEl) {
+  formEl.innerHTML = '<div style="text-align:center;padding:2.5rem 1rem;">'
+    + '<div style="font-size:2.5rem;margin-bottom:0.75rem;color:var(--gold);">✓</div>'
+    + '<h3 style="margin-bottom:0.5rem;">Thank you!</h3>'
+    + '<p style="color:var(--text-muted);">We\'ve received your interest and will be in touch soon.</p>'
+    + '</div>';
+}
+
+function submitVolunteer(data, formEl, btnEl) {
+  if (!data.name || !data.name.trim()) { alert('Please enter your name.'); return; }
+  if (!data.email || !data.email.trim()) { alert('Please enter your email address.'); return; }
+
+  var workerUrl = getWorkerUrl();
+  if (!workerUrl) {
+    // No worker configured — still show thank-you (admin will handle manually)
+    showThankYou(formEl);
+    return;
+  }
+
+  var origHtml = btnEl.innerHTML;
+  btnEl.disabled = true;
+  btnEl.textContent = 'Sending\u2026';
+
+  fetch(workerUrl + '/volunteer/signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    if (res.ok) {
+      showThankYou(formEl);
+    } else {
+      btnEl.disabled = false;
+      btnEl.innerHTML = origHtml;
+      alert('Something went wrong. Please try again.');
+    }
+  })
+  .catch(function() {
+    btnEl.disabled = false;
+    btnEl.innerHTML = origHtml;
+    alert('Could not send. Please try again or contact the church office.');
+  });
+}
+
+// Worship
+document.querySelector('#volunteer-form .btn-submit').addEventListener('click', function() {
+  var svcEl = document.querySelector('[name=svc]:checked');
+  submitVolunteer({
+    ministry: 'worship',
+    name:     document.getElementById('f-name').value,
+    email:    document.getElementById('f-email').value,
+    phone:    document.getElementById('f-phone').value,
+    service:  svcEl ? svcEl.value : 'both',
+    sundays:  Array.from(document.querySelectorAll('[name=sun]:checked')).map(function(c) { return c.value; }),
+    roles:    Array.from(document.querySelectorAll('#page-worship [name=roles]:checked')).map(function(c) { return c.value; }),
+    notes:    document.getElementById('f-notes').value
+  }, document.getElementById('volunteer-form'), this);
+});
+
+// Community Events
+document.querySelector('#event-volunteer-form .btn-submit').addEventListener('click', function() {
+  submitVolunteer({
+    ministry: 'events',
+    name:     document.getElementById('ev-name').value,
+    email:    document.getElementById('ev-email').value,
+    phone:    document.getElementById('ev-phone').value,
+    roles:    Array.from(document.querySelectorAll('#page-events [name=roles]:checked')).map(function(c) { return c.value; }),
+    notes:    document.getElementById('ev-notes').value
+  }, document.getElementById('event-volunteer-form'), this);
+});
+
+// Christian Education
+document.querySelector('#edu-volunteer-form .btn-submit').addEventListener('click', function() {
+  submitVolunteer({
+    ministry: 'education',
+    name:     document.getElementById('edu-name').value,
+    email:    document.getElementById('edu-email').value,
+    roles:    Array.from(document.querySelectorAll('#page-education [name=roles]:checked')).map(function(c) { return c.value; }),
+    notes:    document.getElementById('edu-notes').value
+  }, document.getElementById('edu-volunteer-form'), this);
+});
+
+// Acceptance Ministry
+document.querySelector('#acc-volunteer-form .btn-submit').addEventListener('click', function() {
+  submitVolunteer({
+    ministry: 'acceptance',
+    name:     document.getElementById('acc-name').value,
+    email:    document.getElementById('acc-email').value,
+    roles:    Array.from(document.querySelectorAll('#page-acceptance [name=roles]:checked')).map(function(c) { return c.value; }),
+    notes:    document.getElementById('acc-notes').value
+  }, document.getElementById('acc-volunteer-form'), this);
+});
+
+// Outreach
+document.querySelector('#out-volunteer-form .btn-submit').addEventListener('click', function() {
+  submitVolunteer({
+    ministry: 'outreach',
+    name:     document.getElementById('out-name').value,
+    email:    document.getElementById('out-email').value,
+    roles:    Array.from(document.querySelectorAll('#page-outreach [name=roles]:checked')).map(function(c) { return c.value; }),
+    notes:    document.getElementById('out-notes').value
+  }, document.getElementById('out-volunteer-form'), this);
+});
+
+// General Interest
+document.querySelector('#page-general .btn-submit').addEventListener('click', function() {
+  submitVolunteer({
+    ministry: 'general',
+    name:     document.getElementById('gen-name').value,
+    email:    document.getElementById('gen-email').value,
+    phone:    document.getElementById('gen-phone').value,
+    notes:    document.getElementById('gen-notes').value
+  }, document.querySelector('#page-general .signup-section'), this);
+});
 </script>
 </body>
 </html>
