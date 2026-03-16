@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup – Serve at Timothy Lutheran</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400;1,600&family=Source+Sans+3:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+/* ── DESIGN TOKENS (unified from both pages) ── */
+:root {
+  --navy:         #1E2D4A;
+  --navy-mid:     #2A3F60;
+  --navy-pale:    #C4CEDF;
+  --teal:         #2E7EA6;
+  --teal-light:   #5BA3C4;
+  --teal-pale:    #C0D8E4;
+  --gold:         #C9973A;
+  --gold-light:   #E8C070;
+  --gold-pale:    #F5E4C0;
+  --cream:        #F7F3EC;
+  --warm-white:   #FBF8F3;
+  --moss:         #4A5E3A;
+  --moss-light:   #7A8F6A;
+  --moss-pale:    #C2CEBC;
+  --stone:        #8C8880;
+  --slate:        #3A4E5C;
+  --slate-light:  #6A8090;
+  --slate-pale:   #C0CED4;
+  --plum-light:   #8A6A8A;
+  --text-primary:   #1A1A2A;
+  --text-secondary: #4A4860;
+  --text-muted:     #8A8898;
+  --border:       rgba(30,45,74,0.12);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Source Sans 3', sans-serif;
+  background-color: var(--cream);
+  color: var(--text-primary);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 1000; opacity: 0.5;
+}
+
+/* ── MOCKUP ANNOTATION BAR ── */
+.annotation-bar {
+  background: #2d1f5e;
+  color: #c9b8ff;
+  font-size: 0.78rem;
+  padding: 0.5rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.annotation-bar strong { color: #e8d8ff; }
+.annotation-pill {
+  display: inline-block;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 100px;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.72rem;
+}
+.page-divider {
+  background: #2d1f5e;
+  color: #c9b8ff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.5rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.page-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255,255,255,0.2);
+}
+
+/* ── HEADER ── */
+header {
+  background-color: var(--navy);
+  padding: 0.75rem 2rem;
+  display: flex; align-items: center;
+  justify-content: space-between; gap: 1rem;
+}
+.header-logo { display: flex; align-items: center; gap: 0.9rem; text-decoration: none; }
+.header-logo img { width: 52px; height: 52px; border-radius: 50%; flex-shrink: 0; }
+.header-logo-placeholder {
+  width: 52px; height: 52px; border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  border: 2px solid rgba(255,255,255,0.2);
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 1.5rem;
+}
+.header-logo-text { display: flex; flex-direction: column; }
+.header-logo-name {
+  font-family: 'Lora', serif; font-size: 1rem; font-weight: 600;
+  color: var(--warm-white); line-height: 1.2; letter-spacing: 0.01em;
+}
+.header-logo-tag { font-size: 0.72rem; color: var(--navy-pale); letter-spacing: 0.04em; font-style: italic; }
+.header-address { font-size: 0.75rem; color: var(--navy-pale); text-align: right; line-height: 1.6; }
+
+/* ── HERO ── */
+.hero {
+  position: relative; background-color: var(--navy);
+  padding: 5rem 2rem 6rem; overflow: hidden; text-align: center;
+}
+.hero::after {
+  content: '';
+  position: absolute; bottom: 0; left: 0; right: 0; height: 60px;
+  background: var(--cream); clip-path: ellipse(55% 100% at 50% 100%);
+}
+.hero-eyebrow {
+  font-size: 0.78rem; font-weight: 600; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--gold-light); margin-bottom: 1rem;
+}
+.hero h1 {
+  font-family: 'Lora', serif;
+  font-size: clamp(2.4rem, 6vw, 3.8rem);
+  font-weight: 400; color: var(--warm-white); line-height: 1.15; margin-bottom: 1.5rem;
+}
+.hero h1 em { font-style: italic; color: var(--gold-light); }
+.hero-sub {
+  font-size: 1.1rem; color: var(--navy-pale); max-width: 520px;
+  margin: 0 auto 2.5rem; font-weight: 300; line-height: 1.7;
+}
+.hero-scroll {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  font-size: 0.85rem; color: var(--navy-pale); text-decoration: none;
+  border: 1px solid rgba(196,168,152,0.3); padding: 0.6rem 1.4rem;
+  border-radius: 100px; transition: all 0.2s;
+}
+.hero-scroll:hover { background: rgba(255,255,255,0.08); border-color: var(--gold-light); color: var(--warm-white); }
+.hero-scroll svg { width: 14px; height: 14px; }
+
+/* ── MAIN ── */
+main { max-width: 1060px; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
+
+.section-intro { text-align: center; margin-bottom: 3.5rem; }
+.section-intro p {
+  font-family: 'Lora', serif; font-size: 1.2rem; color: var(--text-secondary);
+  max-width: 600px; margin: 0 auto; font-style: italic; line-height: 1.8;
+}
+.section-label {
+  font-size: 0.72rem; font-weight: 600; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--text-muted);
+  margin-bottom: 1rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--border);
+}
+.spacer { height: 2.5rem; }
+
+/* ── CORE VALUES STRIP ── */
+.values-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 3rem;
+}
+.value-tile {
+  background: var(--warm-white);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  position: relative;
+  overflow: hidden;
+}
+.value-tile::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  border-radius: 12px 12px 0 0;
+}
+.value-tile.v-worship::before    { background: var(--navy); }
+.value-tile.v-education::before  { background: var(--gold); }
+.value-tile.v-acceptance::before { background: var(--moss); }
+.value-tile.v-outreach::before   { background: var(--slate); }
+.value-tile-name {
+  font-family: 'Lora', serif;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.value-tile.v-worship .value-tile-name    { color: var(--navy); }
+.value-tile.v-education .value-tile-name  { color: #7a5800; }
+.value-tile.v-acceptance .value-tile-name { color: var(--moss); }
+.value-tile.v-outreach .value-tile-name   { color: var(--slate); }
+.value-tile-desc {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+@media (max-width: 640px) {
+  .values-strip { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 380px) {
+  .values-strip { grid-template-columns: 1fr; }
+}
+
+/* ── CARD VALUE TAG ── */
+.card-value-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 0.6rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 100px;
+}
+.card.worship  .card-value-tag { background: rgba(30,45,74,0.07);  color: var(--navy-mid); }
+.card.events   .card-value-tag { background: rgba(58,78,92,0.07);  color: var(--slate); }
+.card.mdo      .card-value-tag { background: rgba(74,94,58,0.08);  color: var(--moss); }
+.card.property .card-value-tag { background: rgba(140,136,128,0.1);color: var(--stone); }
+.card.wol      .card-value-tag { background: rgba(201,151,58,0.1); color: #7a5800; }
+.card.lasm     .card-value-tag { background: rgba(58,78,92,0.07);  color: var(--slate); }
+.card-value-tag svg { width: 9px; height: 9px; }
+
+/* ── OVERVIEW CARDS (landing page cards) ── */
+.cards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem;
+}
+.card {
+  background: var(--warm-white); border: 1px solid var(--border);
+  border-radius: 16px; padding: 1.75rem; text-decoration: none; color: inherit;
+  display: flex; flex-direction: column; position: relative; overflow: hidden;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.card:hover { transform: translateY(-4px); border-color: transparent; }
+.card.worship:hover  { box-shadow: 0 12px 40px rgba(30,45,74,0.16); }
+.card.events:hover   { box-shadow: 0 12px 40px rgba(201,151,58,0.16); }
+.card.mdo:hover      { box-shadow: 0 12px 40px rgba(74,94,58,0.16); }
+.card.property:hover { box-shadow: 0 12px 40px rgba(140,136,128,0.16); }
+.card.wol:hover      { box-shadow: 0 12px 40px rgba(122,143,106,0.14); }
+.card.lasm:hover     { box-shadow: 0 12px 40px rgba(58,78,92,0.16); }
+.card.interest:hover { box-shadow: 0 12px 40px rgba(138,106,138,0.12); }
+.card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0;
+  height: 4px; border-radius: 16px 16px 0 0;
+}
+.card.worship::before  { background: var(--navy); }
+.card.events::before   { background: var(--gold); }
+.card.mdo::before      { background: var(--moss); }
+.card.property::before { background: var(--stone); }
+.card.wol::before      { background: var(--teal); }
+.card.lasm::before     { background: var(--slate); }
+.card.interest::before { background: var(--plum-light); }
+.card-icon {
+  width: 44px; height: 44px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; margin-bottom: 1.1rem;
+}
+.card.worship .card-icon  { background: rgba(30,45,74,0.09); }
+.card.events .card-icon   { background: rgba(201,151,58,0.11); }
+.card.mdo .card-icon      { background: rgba(74,94,58,0.09); }
+.card.property .card-icon { background: rgba(140,136,128,0.1); }
+.card.wol .card-icon      { background: rgba(46,126,166,0.1); }
+.card.lasm .card-icon     { background: rgba(58,78,92,0.09); }
+.card.interest .card-icon { background: rgba(138,106,138,0.08); }
+.card-icon svg { width: 22px; height: 22px; }
+.card.worship .card-icon svg  { color: var(--navy); }
+.card.events .card-icon svg   { color: var(--gold); }
+.card.mdo .card-icon svg      { color: var(--moss); }
+.card.property .card-icon svg { color: var(--stone); }
+.card.wol .card-icon svg      { color: var(--teal); }
+.card.lasm .card-icon svg     { color: var(--slate); }
+.card.interest .card-icon svg { color: var(--plum-light); }
+.card-label { font-size: 0.68rem; font-weight: 600; letter-spacing: 0.11em; text-transform: uppercase; margin-bottom: 0.35rem; }
+.card.worship .card-label  { color: var(--navy-mid); }
+.card.events .card-label   { color: var(--gold); }
+.card.mdo .card-label      { color: var(--moss-light); }
+.card.property .card-label { color: var(--stone); }
+.card.wol .card-label      { color: var(--teal); }
+.card.lasm .card-label     { color: var(--slate-light); }
+.card.interest .card-label { color: var(--plum-light); }
+.card h2 {
+  font-family: 'Lora', serif; font-size: 1.25rem; font-weight: 600;
+  color: var(--text-primary); margin-bottom: 0.65rem; line-height: 1.3;
+}
+.card p { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.65; flex: 1; margin-bottom: 1.25rem; }
+.card-cta { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; font-weight: 600; transition: gap 0.2s; }
+.card.worship .card-cta  { color: var(--navy); }
+.card.events .card-cta   { color: var(--gold); }
+.card.mdo .card-cta      { color: var(--moss); }
+.card.property .card-cta { color: var(--stone); }
+.card.wol .card-cta      { color: var(--teal); }
+.card.lasm .card-cta     { color: var(--slate); }
+.card.interest .card-cta { color: var(--plum-light); }
+.card:hover .card-cta    { gap: 0.7rem; }
+.card-cta svg { width: 15px; height: 15px; flex-shrink: 0; }
+.card-external {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font-size: 0.7rem; color: var(--text-muted); margin-top: 0.5rem;
+}
+.card-external svg { width: 11px; height: 11px; }
+
+/* ── UPCOMING EVENTS ── */
+.upcoming {
+  background: var(--gold-pale); border: 1px solid rgba(201,151,58,0.25);
+  border-radius: 16px; padding: 2rem 2.5rem; margin-top: 3rem;
+}
+.upcoming-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;
+}
+.upcoming-header h3 { font-family: 'Lora', serif; font-size: 1.1rem; font-weight: 600; color: var(--navy); }
+.upcoming-header span { font-size: 0.78rem; color: var(--text-muted); }
+.event-list { list-style: none; display: flex; flex-direction: column; gap: 0.75rem; }
+.event-item {
+  display: flex; align-items: center; gap: 1rem; padding: 0.9rem 1.1rem;
+  background: var(--warm-white); border-radius: 10px; border: 1px solid rgba(201,151,58,0.2);
+  text-decoration: none; color: inherit; transition: border-color 0.2s, transform 0.2s;
+}
+.event-item:hover { border-color: var(--gold); transform: translateX(3px); }
+.event-date { text-align: center; min-width: 44px; flex-shrink: 0; }
+.event-date .month { display: block; font-size: 0.63rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); }
+.event-date .day { display: block; font-family: 'Lora', serif; font-size: 1.5rem; font-weight: 600; color: var(--navy); line-height: 1; }
+.event-divider { width: 1px; height: 36px; background: var(--border); flex-shrink: 0; }
+.event-info { flex: 1; }
+.event-info strong { display: block; font-size: 0.9rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.15rem; }
+.event-info span { font-size: 0.78rem; color: var(--text-muted); }
+.event-slots { font-size: 0.73rem; font-weight: 600; padding: 0.25rem 0.6rem; border-radius: 100px; white-space: nowrap; flex-shrink: 0; }
+.event-slots.open { color: var(--moss); background: var(--moss-pale); }
+.event-slots.few  { color: #8B5E1A; background: var(--gold-pale); border: 1px solid rgba(201,151,58,0.3); }
+.event-slots.soon { color: var(--slate-light); background: var(--slate-pale); }
+
+/* ══════════════════════════════════════════════
+   WORSHIP ROLES SECTION
+   This is what would live at /scheduler or
+   expand inline when clicking the worship card
+══════════════════════════════════════════════ */
+
+.roles-page { background: var(--cream); }
+
+.roles-hero {
+  background: var(--navy); padding: 3rem 2rem 4rem; text-align: center; position: relative;
+}
+.roles-hero::after {
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 48px;
+  background: var(--cream); clip-path: ellipse(55% 100% at 50% 100%);
+}
+.roles-hero-eyebrow {
+  font-size: 0.72rem; font-weight: 600; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--gold-light); margin-bottom: 0.75rem;
+}
+.roles-hero h2 {
+  font-family: 'Lora', serif; font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-weight: 400; color: var(--warm-white); line-height: 1.2; margin-bottom: 1rem;
+}
+.roles-hero h2 em { font-style: italic; color: var(--gold-light); }
+.roles-hero-sub {
+  font-size: 1rem; color: var(--navy-pale); max-width: 500px;
+  margin: 0 auto; font-weight: 300; line-height: 1.7;
+}
+.back-link {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  color: var(--navy-pale); font-size: 0.82rem; text-decoration: none;
+  margin-bottom: 1.5rem; transition: color 0.2s;
+}
+.back-link:hover { color: var(--gold-light); }
+.back-link svg { width: 14px; height: 14px; }
+
+/* ── Ministry area headers ── */
+.ministry-section { margin-bottom: 3rem; }
+.ministry-header {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 1.1rem 1.5rem; border-radius: 12px 12px 0 0; margin-bottom: 0;
+}
+.ministry-header.worship  { background: rgba(30,45,74,0.07);  border: 1px solid rgba(30,45,74,0.14);  border-bottom: none; }
+.ministry-header.education{ background: rgba(201,151,58,0.08); border: 1px solid rgba(201,151,58,0.2); border-bottom: none; }
+.ministry-header.acceptance{ background: rgba(74,94,58,0.07); border: 1px solid rgba(74,94,58,0.18);  border-bottom: none; }
+.ministry-header.outreach  { background: rgba(58,78,92,0.07);  border: 1px solid rgba(58,78,92,0.15);  border-bottom: none; }
+.ministry-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.ministry-header.worship  .ministry-icon { background: rgba(30,45,74,0.12); }
+.ministry-header.education .ministry-icon { background: rgba(201,151,58,0.15); }
+.ministry-header.acceptance .ministry-icon { background: rgba(74,94,58,0.12); }
+.ministry-header.outreach .ministry-icon { background: rgba(58,78,92,0.12); }
+.ministry-icon svg { width: 20px; height: 20px; }
+.ministry-header.worship  .ministry-icon svg { color: var(--navy); }
+.ministry-header.education .ministry-icon svg { color: var(--gold); }
+.ministry-header.acceptance .ministry-icon svg { color: var(--moss); }
+.ministry-header.outreach .ministry-icon svg { color: var(--slate); }
+.ministry-name { font-family: 'Lora', serif; font-size: 1.1rem; font-weight: 600; }
+.ministry-header.worship  .ministry-name { color: var(--navy); }
+.ministry-header.education .ministry-name { color: #7a5800; }
+.ministry-header.acceptance .ministry-name { color: var(--moss); }
+.ministry-header.outreach .ministry-name { color: var(--slate); }
+.ministry-tagline { font-size: 0.83rem; color: var(--text-muted); margin-top: 0.1rem; }
+.ministry-roles {
+  border: 1px solid rgba(30,45,74,0.1); border-top: none;
+  border-radius: 0 0 12px 12px; padding: 1.25rem; background: var(--warm-white);
+}
+.ministry-header.education ~ .ministry-roles,
+.ministry-section:nth-child(2) .ministry-roles { border-color: rgba(201,151,58,0.18); }
+.ministry-section:nth-child(3) .ministry-roles { border-color: rgba(74,94,58,0.15); }
+.ministry-section:nth-child(4) .ministry-roles { border-color: rgba(58,78,92,0.13); }
+
+/* ── Role cards ── */
+.role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.role-card {
+  background: var(--cream); border: 1px solid var(--border);
+  border-radius: 12px; padding: 1.25rem; cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s; position: relative;
+}
+.role-card:hover { border-color: rgba(30,45,74,0.3); box-shadow: 0 4px 20px rgba(30,45,74,0.1); }
+.role-card.selected {
+  background: rgba(30,45,74,0.05);
+  border-color: var(--navy);
+  box-shadow: 0 0 0 2px rgba(30,45,74,0.15);
+}
+.role-card input[type="checkbox"] { position: absolute; opacity: 0; pointer-events: none; }
+.role-card-top { display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.6rem; }
+.role-check {
+  width: 20px; height: 20px; border: 2px solid var(--border); border-radius: 5px;
+  flex-shrink: 0; margin-top: 2px; display: flex; align-items: center; justify-content: center;
+  background: white; transition: all 0.15s;
+}
+.role-card.selected .role-check {
+  background: var(--navy); border-color: var(--navy); color: white; font-size: 12px;
+}
+.role-name {
+  font-family: 'Lora', serif; font-weight: 600; font-size: 0.95rem;
+  color: var(--text-primary); line-height: 1.3;
+}
+.role-desc { font-size: 0.84rem; color: var(--text-secondary); line-height: 1.55; margin-bottom: 0.75rem; }
+.role-meta { display: flex; flex-direction: column; gap: 0.2rem; }
+.role-meta-item { font-size: 0.76rem; color: var(--text-muted); }
+.role-meta-item strong { color: var(--text-secondary); font-weight: 600; }
+
+/* ── Scheduler CTA ── */
+.scheduler-cta {
+  background: var(--navy); border-radius: 16px; padding: 2rem 2.5rem;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1.5rem; flex-wrap: wrap; margin-top: 2rem;
+}
+.scheduler-cta-text h3 {
+  font-family: 'Lora', serif; font-size: 1.2rem; color: var(--warm-white);
+  margin-bottom: 0.35rem;
+}
+.scheduler-cta-text p { font-size: 0.88rem; color: var(--navy-pale); line-height: 1.5; }
+.btn-cta {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  background: var(--gold); color: var(--navy); font-family: 'Lora', serif;
+  font-size: 0.95rem; font-weight: 600; padding: 0.75rem 1.75rem;
+  border-radius: 100px; text-decoration: none; white-space: nowrap;
+  transition: background 0.2s, transform 0.2s;
+}
+.btn-cta:hover { background: var(--gold-light); transform: translateY(-1px); }
+.btn-cta svg { width: 16px; height: 16px; }
+
+/* ── Sign-up form section ── */
+.signup-section {
+  background: var(--warm-white); border: 1px solid var(--border);
+  border-radius: 16px; padding: 2rem 2.5rem; margin-top: 3rem;
+}
+.signup-section-header {
+  display: flex; align-items: center; gap: 1rem; margin-bottom: 1.75rem;
+  padding-bottom: 1.25rem; border-bottom: 1px solid var(--border);
+}
+.signup-icon {
+  width: 48px; height: 48px; border-radius: 12px;
+  background: rgba(138,106,138,0.1); display: flex; align-items: center;
+  justify-content: center; flex-shrink: 0;
+}
+.signup-icon svg { width: 24px; height: 24px; color: var(--plum-light); }
+.signup-section-header h3 {
+  font-family: 'Lora', serif; font-size: 1.2rem; color: var(--text-primary);
+}
+.signup-section-header p { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem; }
+
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.form-field { margin-bottom: 1.25rem; }
+.form-label {
+  display: block; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.45rem;
+}
+.form-input {
+  width: 100%; padding: 0.65rem 0.9rem; border: 1.5px solid rgba(30,45,74,0.15);
+  border-radius: 8px; font-size: 0.95rem; font-family: 'Source Sans 3', sans-serif;
+  color: var(--text-primary); background: white; outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+}
+.form-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201,151,58,0.12); }
+.form-textarea {
+  width: 100%; padding: 0.65rem 0.9rem; border: 1.5px solid rgba(30,45,74,0.15);
+  border-radius: 8px; font-size: 0.95rem; font-family: 'Source Sans 3', sans-serif;
+  color: var(--text-primary); background: white; outline: none;
+  resize: vertical; min-height: 90px; transition: border-color 0.2s, box-shadow 0.2s;
+}
+.form-textarea:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201,151,58,0.12); }
+
+.chip-group { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.chip-label {
+  display: flex; align-items: center; gap: 0.4rem;
+  background: var(--cream); border: 1.5px solid var(--border);
+  border-radius: 8px; padding: 0.45rem 0.9rem; cursor: pointer;
+  font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);
+  transition: all 0.15s; user-select: none;
+}
+.chip-label:hover { background: rgba(30,45,74,0.05); border-color: rgba(30,45,74,0.25); }
+.chip-label.checked { background: var(--navy); color: white; border-color: var(--navy); }
+.chip-label input { position: absolute; opacity: 0; pointer-events: none; }
+
+.form-section-label {
+  font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 0.65rem; display: block;
+}
+.selected-roles-preview {
+  background: rgba(30,45,74,0.04); border: 1px solid rgba(30,45,74,0.1);
+  border-radius: 10px; padding: 0.9rem 1.1rem; margin-bottom: 1.25rem;
+  font-size: 0.85rem; color: var(--text-secondary);
+}
+.selected-roles-preview em { color: var(--text-muted); font-style: italic; }
+
+.btn-submit {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  background: var(--navy); color: white; font-family: 'Source Sans 3', sans-serif;
+  font-size: 1rem; font-weight: 600; padding: 0.85rem 2rem;
+  border-radius: 10px; border: none; cursor: pointer; transition: background 0.2s;
+}
+.btn-submit:hover { background: var(--navy-mid); }
+
+/* ── FOOTER ── */
+footer { background: var(--navy); padding: 2.5rem 2rem; text-align: center; }
+.footer-logo { display: flex; justify-content: center; margin-bottom: 1rem; }
+.footer-logo-placeholder {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.15);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.6rem; opacity: 0.7;
+}
+footer p { font-size: 0.82rem; color: var(--navy-pale); line-height: 1.9; }
+footer a { color: var(--gold-light); text-decoration: none; }
+footer a:hover { text-decoration: underline; }
+
+@media (max-width: 640px) {
+  .hero { padding: 3.5rem 1.5rem 5rem; }
+  .cards { grid-template-columns: 1fr; }
+  .role-grid { grid-template-columns: 1fr; }
+  .form-row { grid-template-columns: 1fr; }
+  .upcoming { padding: 1.5rem; }
+  header { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+  .header-address { text-align: left; }
+  .scheduler-cta { flex-direction: column; }
+  .signup-section { padding: 1.5rem; }
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+</style>
+</head>
+<body>
+
+<!-- ══ MOCKUP ANNOTATION ══════════════════════════════════════════ -->
+<div class="annotation-bar">
+  <strong>Mockup</strong> — scroll down to see both pages in sequence
+  <span class="annotation-pill">Page 1: serve.html — the landing hub</span>
+  <span class="annotation-pill">Page 2: volunteer.html — restyled to match</span>
+  <span class="annotation-pill" style="color:#ffcf6e; border-color:rgba(255,207,110,0.4);">No real links yet — for layout review only</span>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     PAGE 1 — serve.html (the landing hub, from your pasted HTML)
+══════════════════════════════════════════════════════════════════ -->
+<div class="page-divider">Page 1 &nbsp;·&nbsp; serve.html — "Every hand makes a difference"</div>
+
+<header>
+  <a href="#" class="header-logo">
+    <div class="header-logo-placeholder">✝</div>
+    <div class="header-logo-text">
+      <span class="header-logo-name">Timothy Lutheran Church</span>
+      <span class="header-logo-tag">From our Neighborhood to the Nations</span>
+    </div>
+  </a>
+  <div class="header-address">
+    6704 Fyler Ave &mdash; St. Louis, MO 63139
+  </div>
+</header>
+
+<section class="hero">
+  <p class="hero-eyebrow">Timothy Lutheran &mdash; Serving Together</p>
+  <h1>Every hand<br><em>makes a difference.</em></h1>
+  <p class="hero-sub">From Sunday morning to the neighborhood around us — there are many ways to get involved. See where you might fit in.</p>
+  <a href="#ways-to-serve" class="hero-scroll">
+    See where you can help
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+  </a>
+</section>
+
+<main id="ways-to-serve">
+  <div class="section-intro">
+    <p>"Each of you should use whatever gift you have received to serve others." &mdash; 1 Peter 4:10</p>
+  </div>
+
+  <!-- Core values strip -->
+  <div class="values-strip">
+    <div class="value-tile v-worship">
+      <span class="value-tile-name">Worship</span>
+      <span class="value-tile-desc">Lead and support the congregation in praise, prayer, and the sacraments</span>
+    </div>
+    <div class="value-tile v-education">
+      <span class="value-tile-name">Christian Education</span>
+      <span class="value-tile-desc">Nurture faith and discipleship across every age and stage of life</span>
+    </div>
+    <div class="value-tile v-acceptance">
+      <span class="value-tile-name">Acceptance</span>
+      <span class="value-tile-desc">Welcome every person and build a community where all belong</span>
+    </div>
+    <div class="value-tile v-outreach">
+      <span class="value-tile-name">Outreach</span>
+      <span class="value-tile-desc">Serve our neighbors and share God's love beyond our walls</span>
+    </div>
+  </div>
+
+  <p class="section-label">Timothy Lutheran Church</p>
+  <div class="cards">
+
+    <!-- Worship card → links to the volunteer/roles page (Page 2) -->
+    <a href="#worship-roles-page" class="card worship">
+      <div class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      </div>
+      <span class="card-label">Every Sunday</span>
+      <h2>Sunday Worship Roles</h2>
+      <p>Lectors, liturgists, greeters, ushers, altar guild, musicians, and more. See what's open and sign up for upcoming Sundays.</p>
+      <span class="card-cta">View open slots
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </span>
+      <span class="card-value-tag">Worship</span>
+    </a>
+
+    <a href="#upcoming-events" class="card events">
+      <div class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      </div>
+      <span class="card-label">Special Events</span>
+      <h2>Community Events</h2>
+      <p>Easter Egg Hunt, Neighborhood Recycle Day, Christmas Market, and other gatherings that bring our corner of St. Louis together.</p>
+      <span class="card-cta">See upcoming events
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </span>
+      <span class="card-value-tag">Outreach</span>
+    </a>
+
+    <a href="#" class="card mdo">
+      <div class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
+      <span class="card-label">Occasional &amp; seasonal</span>
+      <h2>Mother's Day Out</h2>
+      <p>Our church-run childcare program serves families in Lindenwood Park. Help with activities, seasonal events, and day-to-day support.</p>
+      <span class="card-cta">Get involved
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </span>
+      <span class="card-value-tag">Acceptance</span>
+    </a>
+
+    <a href="#" class="card property">
+      <div class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      </div>
+      <span class="card-label">Facilities</span>
+      <h2>Property Team</h2>
+      <p>Repairs, maintenance, groundskeeping, and seasonal projects. If you're handy or just willing to show up with a rake, we need you.</p>
+      <span class="card-cta">Join the team
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </span>
+      <span class="card-value-tag">Outreach</span>
+    </a>
+
+  </div>
+
+  <div class="spacer"></div>
+  <p class="section-label">Partner Ministries</p>
+  <div class="cards">
+
+    <a href="#" class="card wol" target="_blank" rel="noopener">
+      <div class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+      </div>
+      <span class="card-label">Associated school &middot; South City</span>
+      <h2>Word of Life Lutheran School</h2>
+      <p>Timothy proudly supports Christian education at Word of Life, a pre-K through 8th grade Lutheran school. Alongside Ascension and St. Lucas Lutheran Churches, we help provide students an environment to grow academically and in faith.</p>
+      <span class="card-cta">Learn more about Word of Life
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </span>
+      <span class="card-value-tag">Christian Education</span>
+      <span class="card-external">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        Opens separate site
+      </span>
+    </a>
+
+    <a href="#" class="card lasm" target="_blank" rel="noopener">
+      <div class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
+      <span class="card-label">Neighborhood partner &middot; Founded 2008</span>
+      <h2>Lindenwood Area Senior Ministry</h2>
+      <p>Founded in 2008 by five neighborhood churches including Timothy, LASM serves aging neighbors through companionship, transportation, meals, and community programs.</p>
+      <span class="card-cta">Volunteer with LASM
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </span>
+      <span class="card-value-tag">Outreach</span>
+      <span class="card-external">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        lasministry.org
+      </span>
+    </a>
+
+  </div>
+
+  <div class="spacer"></div>
+  <div class="cards" style="grid-template-columns: minmax(260px, 480px);">
+    <a href="#volunteer-form" class="card interest">
+      <div class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      </div>
+      <span class="card-label">Not sure where to start?</span>
+      <h2>I Just Want to Help</h2>
+      <p>Tell us a little about yourself and what you enjoy. We'll reach out about opportunities that might be a good fit — no pressure, no commitment yet.</p>
+      <span class="card-cta">Let us know
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </span>
+    </a>
+  </div>
+
+  <!-- Upcoming events -->
+  <div class="upcoming" id="upcoming-events">
+    <div class="upcoming-header">
+      <h3>Upcoming events needing volunteers</h3>
+      <span>Sign-ups open now</span>
+    </div>
+    <ul class="event-list">
+      <li>
+        <a href="#" class="event-item">
+          <div class="event-date"><span class="month">Apr</span><span class="day">4</span></div>
+          <div class="event-divider"></div>
+          <div class="event-info"><strong>Easter Egg Hunt</strong><span>Egg hiding, activities, check-in &amp; more &mdash; families welcome</span></div>
+          <span class="event-slots few">8 spots left</span>
+        </a>
+      </li>
+      <li>
+        <a href="#" class="event-item">
+          <div class="event-date"><span class="month">May</span><span class="day">16</span></div>
+          <div class="event-divider"></div>
+          <div class="event-info"><strong>Neighborhood Recycle Day</strong><span>Help us serve Lindenwood Park &mdash; no experience needed</span></div>
+          <span class="event-slots open">12 spots open</span>
+        </a>
+      </li>
+      <li>
+        <a href="#" class="event-item">
+          <div class="event-date"><span class="month">Dec</span><span class="day">5</span></div>
+          <div class="event-divider"></div>
+          <div class="event-info"><strong>Christmas Market</strong><span>Two-day community market &mdash; many roles, all skill levels</span></div>
+          <span class="event-slots soon">Sign-ups open soon</span>
+        </a>
+      </li>
+    </ul>
+  </div>
+</main>
+
+<!-- ══════════════════════════════════════════════════════════════
+     PAGE 2 — volunteer.html restyled
+     This is what "Sunday Worship Roles" (and eventually other
+     cards) links to.  The same page works for all 4 ministry
+     areas — the URL would be something like /volunteer or /interest
+══════════════════════════════════════════════════════════════════ -->
+<div class="page-divider" id="worship-roles-page" style="margin-top: 0;">Page 2 &nbsp;·&nbsp; volunteer.html — restyled to match the Serve page</div>
+
+<!-- Shared header (same as serve.html) -->
+<header>
+  <a href="#" class="header-logo">
+    <div class="header-logo-placeholder">✝</div>
+    <div class="header-logo-text">
+      <span class="header-logo-name">Timothy Lutheran Church</span>
+      <span class="header-logo-tag">From our Neighborhood to the Nations</span>
+    </div>
+  </a>
+  <div class="header-address">
+    6704 Fyler Ave &mdash; St. Louis, MO 63139
+  </div>
+</header>
+
+<!-- Sub-hero -->
+<div class="roles-hero">
+  <a href="#ways-to-serve" class="back-link">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+    Back to all ways to serve
+  </a>
+  <p class="roles-hero-eyebrow">Timothy Lutheran &mdash; Volunteer Sign-Up</p>
+  <h2>Find your place <em>to serve.</em></h2>
+  <p class="roles-hero-sub">Our ministry is rooted in four core values. However God has gifted you, there's a place for you here. Browse the roles below and select the ones that interest you.</p>
+</div>
+
+<main style="max-width: 860px;">
+
+  <!-- ── WORSHIP ── -->
+  <div class="ministry-section">
+    <div class="ministry-header worship">
+      <div class="ministry-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      </div>
+      <div>
+        <div class="ministry-name">Worship</div>
+        <div class="ministry-tagline">Lead and support the congregation in praise, prayer, and the sacraments</div>
+      </div>
+    </div>
+    <div class="ministry-roles">
+      <div class="role-grid">
+
+        <label class="role-card" for="r-acolyte">
+          <input type="checkbox" id="r-acolyte" name="roles" value="Acolyte">
+          <div class="role-card-top">
+            <div class="role-check" aria-hidden="true"></div>
+            <span class="role-name">Acolyte</span>
+          </div>
+          <p class="role-desc">Light the altar candles before the service begins and extinguish them at the close. A simple, meaningful act of service for all ages.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
+            <div class="role-meta-item"><strong>Training:</strong> 15-minute walk-through</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-powerpoint">
+          <input type="checkbox" id="r-powerpoint" name="roles" value="PowerPoint">
+          <div class="role-card-top">
+            <div class="role-check" aria-hidden="true"></div>
+            <span class="role-name">PowerPoint Operator</span>
+          </div>
+          <p class="role-desc">Advance worship slides so the congregation can follow along with hymns, liturgy, and announcements. No tech expertise required.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
+            <div class="role-meta-item"><strong>Training:</strong> 30-min practice with worship team</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-lector">
+          <input type="checkbox" id="r-lector" name="roles" value="Lector">
+          <div class="role-card-top">
+            <div class="role-check" aria-hidden="true"></div>
+            <span class="role-name">Lector</span>
+          </div>
+          <p class="role-desc">Read the appointed Scripture lessons aloud from the lectern. Readings are emailed to you in advance so you can prepare.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
+            <div class="role-meta-item"><strong>Training:</strong> Self-guided; readings sent by email</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-altar">
+          <input type="checkbox" id="r-altar" name="roles" value="Altar Guild">
+          <div class="role-card-top">
+            <div class="role-check" aria-hidden="true"></div>
+            <span class="role-name">Altar Guild</span>
+          </div>
+          <p class="role-desc">Prepare the sanctuary — flowers, altar linens, paraments, and banners for each liturgical season. A quiet ministry of beauty and care.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> 1–2 Sundays per month</div>
+            <div class="role-meta-item"><strong>Training:</strong> Walk-through with coordinator</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-choir">
+          <input type="checkbox" id="r-choir" name="roles" value="Adult Choir">
+          <div class="role-card-top">
+            <div class="role-check" aria-hidden="true"></div>
+            <span class="role-name">Adult Choir</span>
+          </div>
+          <p class="role-desc">Enhance worship through choral music. Sing anthems and lead the congregation in song throughout the church year.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> Weekly rehearsals + Sundays</div>
+            <div class="role-meta-item"><strong>Open to:</strong> Adults; all voice parts welcome</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-handbells">
+          <input type="checkbox" id="r-handbells" name="roles" value="Handbells">
+          <div class="role-card-top">
+            <div class="role-check" aria-hidden="true"></div>
+            <span class="role-name">Handbells</span>
+          </div>
+          <p class="role-desc">Ring with the handbell choir to add joyful, resonant music to worship. No prior handbell experience needed.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> Weekly rehearsals (seasonal)</div>
+            <div class="role-meta-item"><strong>Open to:</strong> Adults and older youth</div>
+          </div>
+        </label>
+
+      </div><!-- /role-grid worship -->
+
+      <!-- Scheduler shortcut — lives inside the Worship section -->
+      <div class="scheduler-cta" style="margin-top: 1.5rem;">
+        <div class="scheduler-cta-text">
+          <h3>Ready to sign up for a specific Sunday?</h3>
+          <p>The worship scheduler shows open slots for upcoming services — pick a date and confirm your spot directly.</p>
+        </div>
+        <a href="/scheduler" class="btn-cta">
+          Open the scheduler
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CHRISTIAN EDUCATION ── -->
+  <div class="ministry-section">
+    <div class="ministry-header education">
+      <div class="ministry-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+      </div>
+      <div>
+        <div class="ministry-name">Christian Education</div>
+        <div class="ministry-tagline">Nurture faith and discipleship across every age and stage of life</div>
+      </div>
+    </div>
+    <div class="ministry-roles" style="border-color: rgba(201,151,58,0.18);">
+      <div class="role-grid">
+
+        <label class="role-card" for="r-sundayschool">
+          <input type="checkbox" id="r-sundayschool" name="roles" value="Sunday School">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Sunday School</span></div>
+          <p class="role-desc">Teach or assist in Sunday School, helping children explore the Bible and grow in faith through age-appropriate lessons and activities.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> Weekly during program year</div>
+            <div class="role-meta-item"><strong>Open to:</strong> Adults; curriculum provided</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-youthgroup">
+          <input type="checkbox" id="r-youthgroup" name="roles" value="Youth Group">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Youth Group</span></div>
+          <p class="role-desc">Help lead, mentor, or chaperone youth group gatherings for middle and high school students — faith and community in a fun environment.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> Regular meetings + events</div>
+            <div class="role-meta-item"><strong>Open to:</strong> Adults who enjoy teens</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-mentor">
+          <input type="checkbox" id="r-mentor" name="roles" value="Confirmation Mentor">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Confirmation Mentor</span></div>
+          <p class="role-desc">Walk alongside a confirmation student as they explore and affirm their faith. Meet periodically to discuss faith, life, and what it means to be Lutheran.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> Periodic meetings, program year</div>
+            <div class="role-meta-item"><strong>Open to:</strong> Confirmed adults</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-vbs">
+          <input type="checkbox" id="r-vbs" name="roles" value="VBS">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">VBS (Vacation Bible School)</span></div>
+          <p class="role-desc">Help bring VBS to life each summer — lead a station, shepherd a small group of kids, assist with crafts or music, or help behind the scenes.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> One week in summer</div>
+            <div class="role-meta-item"><strong>Open to:</strong> Adults and older youth</div>
+          </div>
+        </label>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── ACCEPTANCE ── -->
+  <div class="ministry-section">
+    <div class="ministry-header acceptance">
+      <div class="ministry-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      </div>
+      <div>
+        <div class="ministry-name">Acceptance</div>
+        <div class="ministry-tagline">Welcome every person and build a community where all belong</div>
+      </div>
+    </div>
+    <div class="ministry-roles" style="border-color: rgba(74,94,58,0.15);">
+      <div class="role-grid">
+
+        <label class="role-card" for="r-greeter">
+          <input type="checkbox" id="r-greeter" name="roles" value="Greeter">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Greeter</span></div>
+          <p class="role-desc">Be a welcoming face at the door before Sunday services — hand out bulletins, greet newcomers and regulars alike, and help everyone feel at home.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday/month (arrive 20 min early)</div>
+            <div class="role-meta-item"><strong>Training:</strong> Brief orientation</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-usher">
+          <input type="checkbox" id="r-usher" name="roles" value="Usher">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Usher</span></div>
+          <p class="role-desc">Help seat congregation members, direct communion flow, collect the offering, and assist with any needs during the service.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
+            <div class="role-meta-item"><strong>Training:</strong> Walk-through with head usher</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-hospitality">
+          <input type="checkbox" id="r-hospitality" name="roles" value="Hospitality">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Hospitality / Coffee Hour</span></div>
+          <p class="role-desc">Set up and serve refreshments after Sunday worship — a warm space for conversation and connection. Individuals, families, or small groups welcome.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> Occasional Sundays</div>
+            <div class="role-meta-item"><strong>Open to:</strong> Individuals, families, groups</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-caring">
+          <input type="checkbox" id="r-caring" name="roles" value="Caring Ministry">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Caring Ministry</span></div>
+          <p class="role-desc">Reach out to members who are homebound, recovering, or grieving. A friendly visit, a card, or a phone call can make a profound difference.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> As available; flexible</div>
+            <div class="role-meta-item"><strong>Open to:</strong> Compassionate listeners</div>
+          </div>
+        </label>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── OUTREACH ── -->
+  <div class="ministry-section">
+    <div class="ministry-header outreach">
+      <div class="ministry-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      </div>
+      <div>
+        <div class="ministry-name">Outreach</div>
+        <div class="ministry-tagline">Serve our neighbors and share God's love beyond our walls</div>
+      </div>
+    </div>
+    <div class="ministry-roles" style="border-color: rgba(58,78,92,0.13);">
+      <div class="role-grid">
+
+        <label class="role-card" for="r-pantry">
+          <input type="checkbox" id="r-pantry" name="roles" value="Community Pantry">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Community Pantry</span></div>
+          <p class="role-desc">Help sort, stock, and distribute food and essentials to neighbors in need. A hands-on way to live out our faith in the community around us.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> Flexible volunteer shifts</div>
+            <div class="role-meta-item"><strong>Open to:</strong> All ages (youth with adult)</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-service">
+          <input type="checkbox" id="r-service" name="roles" value="Service Projects">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Service Projects</span></div>
+          <p class="role-desc">Participate in organized community service days, mission trips, and collaborative events with partner organizations.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> Occasional events</div>
+            <div class="role-meta-item"><strong>Open to:</strong> Individuals, families, youth</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-prayer">
+          <input type="checkbox" id="r-prayer" name="roles" value="Prayer Ministry">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Prayer Ministry</span></div>
+          <p class="role-desc">Commit to praying regularly for congregation members, our community, and the world. Receive prayer requests and lift them up from anywhere.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> Daily or weekly (self-directed)</div>
+            <div class="role-meta-item"><strong>Open to:</strong> All who feel called to pray</div>
+          </div>
+        </label>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SIGN-UP FORM ── -->
+  <div class="signup-section" id="volunteer-form">
+    <div class="signup-section-header">
+      <div class="signup-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      </div>
+      <div>
+        <h3>Tell us you're interested</h3>
+        <p>Select roles above, fill this out, and we'll be in touch — no commitment yet.</p>
+      </div>
+    </div>
+
+    <!-- Selected roles preview -->
+    <span class="form-section-label">Selected areas of interest</span>
+    <div class="selected-roles-preview" id="roles-preview">
+      <em>No roles selected yet — click any card above to add one.</em>
+    </div>
+
+    <div class="form-row">
+      <div class="form-field">
+        <label class="form-label" for="f-name">Full Name *</label>
+        <input type="text" id="f-name" class="form-input" placeholder="Jane Smith" autocomplete="name">
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="f-email">Email Address *</label>
+        <input type="email" id="f-email" class="form-input" placeholder="jane@example.com" autocomplete="email">
+      </div>
+    </div>
+
+    <div class="form-field">
+      <label class="form-label" for="f-phone">Phone <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
+      <input type="tel" id="f-phone" class="form-input" placeholder="(314) 555-0123" autocomplete="tel">
+    </div>
+
+    <div class="form-field">
+      <label class="form-label">Which service do you typically attend?</label>
+      <div class="chip-group" id="svc-chips">
+        <label class="chip-label checked" for="svc-both"><input type="radio" id="svc-both" name="svc" value="both" checked>Both services</label>
+        <label class="chip-label" for="svc-8am"><input type="radio" id="svc-8am" name="svc" value="8am">8:00 AM only</label>
+        <label class="chip-label" for="svc-1045"><input type="radio" id="svc-1045" name="svc" value="10:45am">10:45 AM only</label>
+      </div>
+    </div>
+
+    <div class="form-field">
+      <label class="form-label">Which Sundays work best? <span style="font-weight:400;text-transform:none;letter-spacing:0;">(leave blank if flexible)</span></label>
+      <div class="chip-group" id="sun-chips">
+        <label class="chip-label" for="sun-1"><input type="checkbox" id="sun-1" name="sun" value="1">1st Sunday</label>
+        <label class="chip-label" for="sun-2"><input type="checkbox" id="sun-2" name="sun" value="2">2nd Sunday</label>
+        <label class="chip-label" for="sun-3"><input type="checkbox" id="sun-3" name="sun" value="3">3rd Sunday</label>
+        <label class="chip-label" for="sun-4"><input type="checkbox" id="sun-4" name="sun" value="4">4th Sunday</label>
+        <label class="chip-label" for="sun-5"><input type="checkbox" id="sun-5" name="sun" value="5">5th Sunday</label>
+      </div>
+    </div>
+
+    <div class="form-field">
+      <label class="form-label" for="f-notes">Anything else? <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
+      <textarea id="f-notes" class="form-textarea" placeholder="Schedule constraints, prior experience, questions…"></textarea>
+    </div>
+
+    <button class="btn-submit" type="button">
+      Submit My Interest
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+    </button>
+    <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.75rem;">
+      We'll follow up by email to confirm your schedule and answer any questions.
+    </p>
+  </div>
+
+</main>
+
+<footer>
+  <div class="footer-logo"><div class="footer-logo-placeholder">✝</div></div>
+  <p>
+    Timothy Lutheran Church &mdash; LCMS &mdash; St. Louis, Missouri<br>
+    6704 Fyler Ave, St. Louis, MO 63139<br>
+    <a href="https://timothystl.org">timothystl.org</a>
+  </p>
+</footer>
+
+<script>
+// Role card toggle + preview sync
+document.addEventListener('change', function(e) {
+  var t = e.target;
+  if (t.type === 'checkbox' && t.name === 'roles') {
+    var card = t.closest('.role-card');
+    if (card) {
+      card.classList.toggle('selected', t.checked);
+      var chk = card.querySelector('.role-check');
+      if (chk) chk.textContent = t.checked ? '✓' : '';
+    }
+    updateRolesPreview();
+  }
+  if (t.type === 'radio' && t.name === 'svc') {
+    document.querySelectorAll('#svc-chips .chip-label').forEach(function(l) {
+      var i = l.querySelector('input');
+      l.classList.toggle('checked', i && i.checked);
+    });
+  }
+  if (t.type === 'checkbox' && t.name === 'sun') {
+    var lbl = t.closest('.chip-label');
+    if (lbl) lbl.classList.toggle('checked', t.checked);
+  }
+});
+
+function updateRolesPreview() {
+  var selected = Array.from(document.querySelectorAll('input[name="roles"]:checked')).map(function(cb){ return cb.value; });
+  var el = document.getElementById('roles-preview');
+  if (!selected.length) {
+    el.innerHTML = '<em>No roles selected yet — click any card above to add one.</em>';
+  } else {
+    el.innerHTML = selected.map(function(r){
+      return '<span style="display:inline-flex;align-items:center;gap:.3rem;background:rgba(30,45,74,0.08);border:1px solid rgba(30,45,74,0.15);border-radius:6px;padding:.2rem .65rem;font-size:.82rem;margin:.2rem .2rem 0 0;">' + r + '</span>';
+    }).join('');
+  }
+}
+</script>
+</body>
+</html>

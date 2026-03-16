@@ -56,16 +56,54 @@ header .header-text p { font-size: 0.82rem; color: var(--warm-gray); margin-top:
 }
 
 /* ── Page layout ── */
-.page-wrap { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+.page-wrap { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
 
 .page-title { font-family: var(--font-head); font-size: 1.7rem; color: var(--steel-anchor); margin-bottom: 8px; }
 .page-subtitle { color: var(--warm-gray); font-size: 1rem; margin-bottom: 28px; line-height: 1.5; }
+
+/* ── Core values banner ── */
+.values-banner {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 28px;
+}
+.value-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 20px; font-size: 0.82rem; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.value-chip-worship    { background: var(--blue-mist); color: var(--steel-anchor); border: 1.5px solid var(--ice-blue); }
+.value-chip-education  { background: var(--pale-gold);  color: var(--on-pale-gold); border: 1.5px solid var(--honey); }
+.value-chip-acceptance { background: var(--pale-sage);  color: var(--on-pale-sage); border: 1.5px solid var(--soft-sage); }
+.value-chip-outreach   { background: var(--linen);      color: var(--charcoal);     border: 1.5px solid var(--border); }
 
 /* ── Section ── */
 .section { margin-bottom: 32px; }
 .section-title {
   font-family: var(--font-head); font-size: 1.1rem; color: var(--steel-anchor);
   margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid var(--border);
+}
+
+/* ── Value sections ── */
+.value-section { margin-bottom: 28px; }
+.value-header {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px; border-radius: 10px 10px 0 0; margin-bottom: 0;
+}
+.value-header-worship    { background: var(--blue-mist); border: 1.5px solid var(--ice-blue); border-bottom: none; }
+.value-header-education  { background: var(--pale-gold);  border: 1.5px solid var(--honey);    border-bottom: none; }
+.value-header-acceptance { background: var(--pale-sage);  border: 1.5px solid var(--soft-sage); border-bottom: none; }
+.value-header-outreach   { background: var(--linen);      border: 1.5px solid var(--border);   border-bottom: none; }
+.value-icon { font-size: 1.6rem; flex-shrink: 0; }
+.value-name { font-family: var(--font-head); font-weight: 700; font-size: 1.05rem; }
+.value-name-worship    { color: var(--steel-anchor); }
+.value-name-education  { color: var(--on-pale-gold); }
+.value-name-acceptance { color: var(--on-pale-sage); }
+.value-name-outreach   { color: var(--charcoal); }
+.value-tagline { font-size: 0.82rem; color: var(--warm-gray); margin-top: 2px; }
+
+.value-roles {
+  border: 1.5px solid var(--border); border-top: none;
+  border-radius: 0 0 10px 10px; padding: 16px;
+  background: var(--white);
 }
 
 /* ── Role cards ── */
@@ -101,6 +139,12 @@ header .header-text p { font-size: 0.82rem; color: var(--warm-gray); margin-top:
   font-size: 0.95rem; font-family: var(--font-body); color: var(--charcoal); background: var(--white); outline: none;
 }
 .form-input:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(212,146,42,0.15); }
+.form-textarea {
+  width: 100%; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: 8px;
+  font-size: 0.95rem; font-family: var(--font-body); color: var(--charcoal); background: var(--white); outline: none;
+  resize: vertical; min-height: 90px;
+}
+.form-textarea:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(212,146,42,0.15); }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 500px) { .form-row { grid-template-columns: 1fr; } }
 
@@ -166,7 +210,7 @@ header .header-text p { font-size: 0.82rem; color: var(--warm-gray); margin-top:
   <div class="header-text">
     <div class="church-name">Timothy Lutheran Church</div>
     <h1>Volunteer Sign-Up</h1>
-    <p>Join our worship team — we'd love your help!</p>
+    <p>Find your place to serve — we'd love your help!</p>
   </div>
 </header>
 
@@ -174,11 +218,19 @@ header .header-text p { font-size: 0.82rem; color: var(--warm-gray); margin-top:
 
   <!-- ══ SIGN-UP FORM ══════════════════════════════════════════════ -->
   <div id="signup-form-wrap">
-    <p class="page-title">Serve in Worship</p>
+    <p class="page-title">Serve at Timothy Lutheran</p>
     <p class="page-subtitle">
-      Thank you for your interest in serving! Browse the roles below, choose what fits you,
-      and let us know your preferences. We'll reach out to get you on the schedule.
+      Our ministry is rooted in four core values. However God has gifted you, there's a place for you here.
+      Browse the opportunities below, choose what resonates, and we'll be in touch to get you started.
     </p>
+
+    <!-- Core values summary chips -->
+    <div class="values-banner" aria-label="Our four core values">
+      <span class="value-chip value-chip-worship">&#9827; Worship</span>
+      <span class="value-chip value-chip-education">&#128218; Christian Education</span>
+      <span class="value-chip value-chip-acceptance">&#10084;&#65039; Acceptance</span>
+      <span class="value-chip value-chip-outreach">&#127758; Outreach</span>
+    </div>
 
     <div id="form-alert"></div>
 
@@ -195,81 +247,342 @@ header .header-text p { font-size: 0.82rem; color: var(--warm-gray); margin-top:
           <input type="email" id="sig-email" class="form-input" placeholder="jane@example.com" autocomplete="email" required>
         </div>
       </div>
+      <div class="form-field">
+        <label class="form-label" for="sig-phone">Phone Number <span style="font-weight:400;text-transform:none;">(optional)</span></label>
+        <input type="tel" id="sig-phone" class="form-input" placeholder="(314) 555-0123" autocomplete="tel">
+      </div>
     </div>
 
     <!-- ── 2. Role interest ── -->
     <div class="section">
-      <div class="section-title">2. Roles I'm Interested In *</div>
-      <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:14px;">
-        Click a role to learn more and select it. You can choose more than one!
+      <div class="section-title">2. Where Would You Like to Serve? *</div>
+      <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:18px;">
+        Click any role to select it — you can choose as many as you like across all four ministry areas.
       </p>
 
-      <div class="role-grid" id="role-cards">
+      <!-- ═══ WORSHIP ═══════════════════════════════════════════════ -->
+      <div class="value-section">
+        <div class="value-header value-header-worship">
+          <div class="value-icon">&#9827;</div>
+          <div>
+            <div class="value-name value-name-worship">Worship</div>
+            <div class="value-tagline">Lead and support the congregation in praise, prayer, and the sacraments</div>
+          </div>
+        </div>
+        <div class="value-roles">
+          <div class="role-grid" id="role-cards">
 
-        <!-- Acolyte -->
-        <label class="role-card" for="role-Acolyte">
-          <input type="checkbox" id="role-Acolyte" name="roles" value="Acolyte">
-          <div class="role-card-header">
-            <div class="role-check" aria-hidden="true"></div>
-            <span class="role-name">Acolyte</span>
-          </div>
-          <p class="role-desc">Light the altar candles before the service begins and extinguish them at the close. A simple, meaningful act of service for all ages.</p>
-          <div class="role-meta">
-            <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
-            <div class="role-meta-item"><strong>Training:</strong> 15-minute walk-through before your first service</div>
-          </div>
-        </label>
+            <!-- Acolyte -->
+            <label class="role-card" for="role-Acolyte">
+              <input type="checkbox" id="role-Acolyte" name="roles" value="Acolyte">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Acolyte</span>
+              </div>
+              <p class="role-desc">Light the altar candles before the service begins and extinguish them at the close. A simple, meaningful act of service for all ages.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
+                <div class="role-meta-item"><strong>Training:</strong> 15-minute walk-through before your first service</div>
+              </div>
+            </label>
 
-        <!-- PowerPoint -->
-        <label class="role-card" for="role-PowerPoint">
-          <input type="checkbox" id="role-PowerPoint" name="roles" value="PowerPoint">
-          <div class="role-card-header">
-            <div class="role-check" aria-hidden="true"></div>
-            <span class="role-name">PowerPoint Operator</span>
-          </div>
-          <p class="role-desc">Advance the worship slides during the service so the congregation can follow along with hymns, liturgy, and announcements. No tech expertise required!</p>
-          <div class="role-meta">
-            <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
-            <div class="role-meta-item"><strong>Training:</strong> 30-minute practice session with the worship team</div>
-          </div>
-        </label>
+            <!-- PowerPoint -->
+            <label class="role-card" for="role-PowerPoint">
+              <input type="checkbox" id="role-PowerPoint" name="roles" value="PowerPoint">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">PowerPoint Operator</span>
+              </div>
+              <p class="role-desc">Advance the worship slides during the service so the congregation can follow along with hymns, liturgy, and announcements. No tech expertise required!</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
+                <div class="role-meta-item"><strong>Training:</strong> 30-minute practice session with the worship team</div>
+              </div>
+            </label>
 
-        <!-- Lector -->
-        <label class="role-card" for="role-Lector">
-          <input type="checkbox" id="role-Lector" name="roles" value="Lector">
-          <div class="role-card-header">
-            <div class="role-check" aria-hidden="true"></div>
-            <span class="role-name">Lector</span>
-          </div>
-          <p class="role-desc">Read the appointed Scripture lessons (Old Testament and Epistle) aloud from the lectern. Readings are emailed to you in advance so you can prepare.</p>
-          <div class="role-meta">
-            <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
-            <div class="role-meta-item"><strong>Training:</strong> Self-guided; readings sent by email in advance</div>
-          </div>
-        </label>
+            <!-- Lector -->
+            <label class="role-card" for="role-Lector">
+              <input type="checkbox" id="role-Lector" name="roles" value="Lector">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Lector</span>
+              </div>
+              <p class="role-desc">Read the appointed Scripture lessons (Old Testament and Epistle) aloud from the lectern. Readings are emailed to you in advance so you can prepare.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
+                <div class="role-meta-item"><strong>Training:</strong> Self-guided; readings sent by email in advance</div>
+              </div>
+            </label>
 
-        <!-- Altar Guild -->
-        <label class="role-card" for="role-Altar-Guild">
-          <input type="checkbox" id="role-Altar-Guild" name="roles" value="Altar Guild">
-          <div class="role-card-header">
-            <div class="role-check" aria-hidden="true"></div>
-            <span class="role-name">Altar Guild</span>
-          </div>
-          <p class="role-desc">Prepare the sanctuary for worship by arranging flowers, setting the altar, and changing paraments and banners to reflect the liturgical season. A quiet ministry of beauty and care.</p>
-          <div class="role-meta">
-            <div class="role-meta-item"><strong>Commitment:</strong> 1–2 Sundays per month</div>
-            <div class="role-meta-item"><strong>Training:</strong> Walk-through with the Altar Guild coordinator</div>
-          </div>
-        </label>
+            <!-- Altar Guild -->
+            <label class="role-card" for="role-Altar-Guild">
+              <input type="checkbox" id="role-Altar-Guild" name="roles" value="Altar Guild">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Altar Guild</span>
+              </div>
+              <p class="role-desc">Prepare the sanctuary for worship by arranging flowers, setting the altar, and changing paraments and banners to reflect the liturgical season. A quiet ministry of beauty and care.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> 1–2 Sundays per month</div>
+                <div class="role-meta-item"><strong>Training:</strong> Walk-through with the Altar Guild coordinator</div>
+              </div>
+            </label>
 
-      </div>
-    </div>
+            <!-- Adult Choir -->
+            <label class="role-card" for="role-Adult-Choir">
+              <input type="checkbox" id="role-Adult-Choir" name="roles" value="Adult Choir">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Adult Choir</span>
+              </div>
+              <p class="role-desc">Enhance worship through choral music as part of the adult choir. Sing anthems and lead the congregation in song throughout the church year.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> Weekly rehearsals + Sunday services</div>
+                <div class="role-meta-item"><strong>Open to:</strong> Adults who enjoy singing; all voice parts welcome</div>
+              </div>
+            </label>
+
+            <!-- Youth Choir -->
+            <label class="role-card" for="role-Youth-Choir">
+              <input type="checkbox" id="role-Youth-Choir" name="roles" value="Youth Choir">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Youth Choir</span>
+              </div>
+              <p class="role-desc">For children and youth who love to sing and serve through music. The youth choir sings at services and special events throughout the year.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> Regular rehearsals + occasional Sunday services</div>
+                <div class="role-meta-item"><strong>Open to:</strong> Children and youth (elementary through high school)</div>
+              </div>
+            </label>
+
+            <!-- Handbells -->
+            <label class="role-card" for="role-Handbells">
+              <input type="checkbox" id="role-Handbells" name="roles" value="Handbells">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Handbells</span>
+              </div>
+              <p class="role-desc">Ring with the handbell choir to add joyful, resonant music to worship. No prior handbell experience needed — a love of music and willingness to learn is all it takes.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> Weekly rehearsals + services (seasonal)</div>
+                <div class="role-meta-item"><strong>Open to:</strong> Adults and older youth; no prior experience required</div>
+              </div>
+            </label>
+
+          </div><!-- /role-grid worship -->
+        </div><!-- /value-roles -->
+      </div><!-- /value-section worship -->
+
+      <!-- ═══ CHRISTIAN EDUCATION ═══════════════════════════════════ -->
+      <div class="value-section">
+        <div class="value-header value-header-education">
+          <div class="value-icon">&#128218;</div>
+          <div>
+            <div class="value-name value-name-education">Christian Education</div>
+            <div class="value-tagline">Nurture faith and discipleship across every age and stage of life</div>
+          </div>
+        </div>
+        <div class="value-roles">
+          <div class="role-grid">
+
+            <!-- Sunday School -->
+            <label class="role-card" for="role-Sunday-School">
+              <input type="checkbox" id="role-Sunday-School" name="roles" value="Sunday School">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Sunday School</span>
+              </div>
+              <p class="role-desc">Teach or assist in Sunday School, helping children explore the Bible and grow in faith through age-appropriate lessons and activities.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> Weekly during the program year</div>
+                <div class="role-meta-item"><strong>Open to:</strong> Adults; curriculum and support provided</div>
+              </div>
+            </label>
+
+            <!-- Youth Group -->
+            <label class="role-card" for="role-Youth-Group">
+              <input type="checkbox" id="role-Youth-Group" name="roles" value="Youth Group">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Youth Group</span>
+              </div>
+              <p class="role-desc">Help lead, mentor, or chaperone youth group gatherings for middle and high school students — building community and faith in a fun, welcoming environment.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> Regular meetings + occasional events</div>
+                <div class="role-meta-item"><strong>Open to:</strong> Adults who enjoy connecting with teenagers</div>
+              </div>
+            </label>
+
+            <!-- Confirmation Mentor -->
+            <label class="role-card" for="role-Confirmation-Mentor">
+              <input type="checkbox" id="role-Confirmation-Mentor" name="roles" value="Confirmation Mentor">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Confirmation Mentor</span>
+              </div>
+              <p class="role-desc">Walk alongside a confirmation student as they explore and affirm their faith. Meet periodically during the year to discuss faith, life, and what it means to be Lutheran.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> Periodic meetings over the program year</div>
+                <div class="role-meta-item"><strong>Open to:</strong> Confirmed adults of all backgrounds</div>
+              </div>
+            </label>
+
+            <!-- VBS -->
+            <label class="role-card" for="role-VBS">
+              <input type="checkbox" id="role-VBS" name="roles" value="VBS">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">VBS (Vacation Bible School)</span>
+              </div>
+              <p class="role-desc">Help bring VBS to life each summer! Lead a station, shepherd a small group of kids, assist with crafts or music, or help behind the scenes.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> One week in summer (setup + daily sessions)</div>
+                <div class="role-meta-item"><strong>Open to:</strong> Adults and older youth (high school+)</div>
+              </div>
+            </label>
+
+          </div><!-- /role-grid education -->
+        </div>
+      </div><!-- /value-section education -->
+
+      <!-- ═══ ACCEPTANCE ═════════════════════════════════════════════ -->
+      <div class="value-section">
+        <div class="value-header value-header-acceptance">
+          <div class="value-icon">&#10084;&#65039;</div>
+          <div>
+            <div class="value-name value-name-acceptance">Acceptance</div>
+            <div class="value-tagline">Welcome every person and build a community where all belong</div>
+          </div>
+        </div>
+        <div class="value-roles">
+          <div class="role-grid">
+
+            <!-- Greeter -->
+            <label class="role-card" for="role-Greeter">
+              <input type="checkbox" id="role-Greeter" name="roles" value="Greeter">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Greeter</span>
+              </div>
+              <p class="role-desc">Be a welcoming face at the door before Sunday services — hand out bulletins, greet newcomers and regulars alike, and help everyone feel at home.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month (arrive 20 min early)</div>
+                <div class="role-meta-item"><strong>Training:</strong> Brief orientation with the hospitality team</div>
+              </div>
+            </label>
+
+            <!-- Usher -->
+            <label class="role-card" for="role-Usher">
+              <input type="checkbox" id="role-Usher" name="roles" value="Usher">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Usher</span>
+              </div>
+              <p class="role-desc">Help seat congregation members, direct communion flow, collect the offering, and assist with any needs during the service. A key role in creating an orderly, welcoming worship experience.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> 1 Sunday per month</div>
+                <div class="role-meta-item"><strong>Training:</strong> Walk-through with head usher</div>
+              </div>
+            </label>
+
+            <!-- Hospitality / Coffee Hour -->
+            <label class="role-card" for="role-Hospitality">
+              <input type="checkbox" id="role-Hospitality" name="roles" value="Hospitality">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Hospitality / Coffee Hour</span>
+              </div>
+              <p class="role-desc">Help set up and serve refreshments after Sunday worship, creating a warm space for conversation and connection. This ministry is the heartbeat of our fellowship time.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> Occasional Sundays (sign up as available)</div>
+                <div class="role-meta-item"><strong>Open to:</strong> Individuals, families, or small groups</div>
+              </div>
+            </label>
+
+            <!-- Caring Ministry -->
+            <label class="role-card" for="role-Caring-Ministry">
+              <input type="checkbox" id="role-Caring-Ministry" name="roles" value="Caring Ministry">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Caring Ministry</span>
+              </div>
+              <p class="role-desc">Reach out to members who are homebound, recovering, grieving, or in need of community. A friendly visit, a card, or a phone call can make a profound difference.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> As available; flexible schedule</div>
+                <div class="role-meta-item"><strong>Open to:</strong> Compassionate listeners of all ages</div>
+              </div>
+            </label>
+
+          </div><!-- /role-grid acceptance -->
+        </div>
+      </div><!-- /value-section acceptance -->
+
+      <!-- ═══ OUTREACH ════════════════════════════════════════════════ -->
+      <div class="value-section">
+        <div class="value-header value-header-outreach">
+          <div class="value-icon">&#127758;</div>
+          <div>
+            <div class="value-name value-name-outreach">Outreach</div>
+            <div class="value-tagline">Serve our neighbors and share God's love beyond our walls</div>
+          </div>
+        </div>
+        <div class="value-roles">
+          <div class="role-grid">
+
+            <!-- Community Pantry -->
+            <label class="role-card" for="role-Community-Pantry">
+              <input type="checkbox" id="role-Community-Pantry" name="roles" value="Community Pantry">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Community Pantry</span>
+              </div>
+              <p class="role-desc">Help sort, stock, and distribute food and essentials to neighbors in need. A hands-on way to live out our faith in the community around us.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> Regular volunteer shifts (flexible scheduling)</div>
+                <div class="role-meta-item"><strong>Open to:</strong> All ages (youth with adult accompaniment)</div>
+              </div>
+            </label>
+
+            <!-- Service Projects -->
+            <label class="role-card" for="role-Service-Projects">
+              <input type="checkbox" id="role-Service-Projects" name="roles" value="Service Projects">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Service Projects</span>
+              </div>
+              <p class="role-desc">Participate in organized community service days, mission trips, and collaborative events with partner organizations. Make an impact locally and beyond.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> Occasional events throughout the year</div>
+                <div class="role-meta-item"><strong>Open to:</strong> Individuals, families, and youth groups</div>
+              </div>
+            </label>
+
+            <!-- Prayer Ministry -->
+            <label class="role-card" for="role-Prayer-Ministry">
+              <input type="checkbox" id="role-Prayer-Ministry" name="roles" value="Prayer Ministry">
+              <div class="role-card-header">
+                <div class="role-check" aria-hidden="true"></div>
+                <span class="role-name">Prayer Ministry</span>
+              </div>
+              <p class="role-desc">Commit to praying regularly for congregation members, our community, and the world. Receive prayer requests and lift them up — a powerful ministry done from anywhere.</p>
+              <div class="role-meta">
+                <div class="role-meta-item"><strong>Commitment:</strong> Daily or weekly prayer time (self-directed)</div>
+                <div class="role-meta-item"><strong>Open to:</strong> All who feel called to intercede in prayer</div>
+              </div>
+            </label>
+
+          </div><!-- /role-grid outreach -->
+        </div>
+      </div><!-- /value-section outreach -->
+
+    </div><!-- /section roles -->
 
     <hr class="divider">
 
     <!-- ── 3. Service preference ── -->
     <div class="section">
-      <div class="section-title">3. Which Service Do You Prefer?</div>
+      <div class="section-title">3. Which Service Do You Typically Attend?</div>
       <div class="chip-group" id="svc-chips" role="radiogroup" aria-label="Service preference">
         <label class="chip-label chip-label-radio checked" for="svc-both">
           <input type="radio" id="svc-both" name="servicePreference" value="both" checked>
@@ -311,6 +624,18 @@ header .header-text p { font-size: 0.82rem; color: var(--warm-gray); margin-top:
       </div>
     </div>
 
+    <!-- ── 5. Notes ── -->
+    <div class="section">
+      <div class="section-title">5. Anything Else You'd Like Us to Know?</div>
+      <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:12px;">
+        Questions, schedule constraints, prior experience, or anything else — feel free to share.
+      </p>
+      <div class="form-field">
+        <label class="form-label" for="sig-notes">Notes <span style="font-weight:400;text-transform:none;">(optional)</span></label>
+        <textarea id="sig-notes" class="form-textarea" placeholder="e.g. I'm available starting in April, or I have handbell experience…"></textarea>
+      </div>
+    </div>
+
     <!-- ── Submit ── -->
     <div style="margin-top:8px;">
       <button class="btn btn-primary" id="btn-submit" onclick="submitSignup()">
@@ -338,8 +663,8 @@ header .header-text p { font-size: 0.82rem; color: var(--warm-gray); margin-top:
     <div class="ty-icon">&#10003;</div>
     <h2 class="ty-title">Thank You!</h2>
     <p class="ty-body">
-      Your interest in volunteering has been received. Someone from the worship team
-      will be in touch soon to confirm your first assignment and answer any questions.
+      Your interest in volunteering has been received. Someone from the ministry team
+      will be in touch soon to connect you with next steps and answer any questions.
     </p>
     <button class="btn btn-outline" onclick="resetForm()">Submit Another Response</button>
   </div>
@@ -368,8 +693,9 @@ try {
 }
 
 // ── Chip / card toggle helpers ────────────────────────────────────
-document.getElementById('role-cards').addEventListener('change', function(e) {
-  if (e.target.type === 'checkbox') {
+// Handle all role-card checkboxes (across all value sections)
+document.addEventListener('change', function(e) {
+  if (e.target.type === 'checkbox' && e.target.name === 'roles') {
     var card = e.target.closest('.role-card');
     if (card) {
       card.classList.toggle('selected', e.target.checked);
@@ -409,7 +735,9 @@ function submitSignup() {
   clearAlert();
   var name  = document.getElementById('sig-name').value.trim();
   var email = document.getElementById('sig-email').value.trim();
-  var roles = Array.from(document.querySelectorAll('#role-cards input[type="checkbox"]:checked'))
+  var phone = document.getElementById('sig-phone').value.trim();
+  var notes = document.getElementById('sig-notes').value.trim();
+  var roles = Array.from(document.querySelectorAll('input[name="roles"]:checked'))
                    .map(function(cb) { return cb.value; });
   var svcEl = document.querySelector('#svc-chips input[type="radio"]:checked');
   var servicePreference = svcEl ? svcEl.value : 'both';
@@ -420,7 +748,7 @@ function submitSignup() {
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     showAlert('Please enter a valid email address.'); return;
   }
-  if (!roles.length) { showAlert('Please select at least one role you are interested in.'); return; }
+  if (!roles.length) { showAlert('Please select at least one area where you\'d like to serve.'); return; }
 
   var payload = {
     name: name,
@@ -431,6 +759,8 @@ function submitSignup() {
     submittedAt: new Date().toISOString(),
     status: 'pending'
   };
+  if (phone) payload.phone = phone;
+  if (notes) payload.notes = notes;
 
   var btn = document.getElementById('btn-submit');
   btn.disabled = true;
@@ -474,7 +804,6 @@ function copyFallback() {
     c.style.display = 'inline';
     setTimeout(function() { c.style.display = 'none'; }, 2500);
   }).catch(function() {
-    // fallback: select the text
     var el = document.getElementById('fallback-json');
     var range = document.createRange();
     range.selectNode(el);
@@ -486,7 +815,9 @@ function copyFallback() {
 function resetForm() {
   document.getElementById('sig-name').value = '';
   document.getElementById('sig-email').value = '';
-  document.querySelectorAll('#role-cards input[type="checkbox"]').forEach(function(cb) {
+  document.getElementById('sig-phone').value = '';
+  document.getElementById('sig-notes').value = '';
+  document.querySelectorAll('input[name="roles"]').forEach(function(cb) {
     cb.checked = false;
     var card = cb.closest('.role-card');
     if (card) {
