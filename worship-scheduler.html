@@ -3234,7 +3234,13 @@ function fbRegister() {
     .catch(function(e) { updateLoginStatus('Account creation failed: ' + e.message, true); });
 }
 
-function fbSignOut() { fbAuth.signOut(); }
+function fbSignOut() {
+  if (_fbSyncTimer) {
+    clearTimeout(_fbSyncTimer);
+    _fbSyncTimer = null;
+  }
+  fbPush().finally(function() { fbAuth.signOut(); });
+}
 
 function fbSignInGoogle() {
   updateLoginStatus('Opening Google sign-in…');
