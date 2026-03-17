@@ -274,6 +274,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
   td, th { padding: 4px 6px; }
   .cell-select { display: none !important; }
   .conf-pill { display: none !important; }
+  .cell-badge { display: none !important; }
   .print-name { display: inline !important; font-size: 0.78rem; }
   .label-input { border: none !important; font-size: 0.7rem; color: var(--charcoal) !important; padding: 0; }
   td.empty-cell { background: #fff !important; }
@@ -559,7 +560,6 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
       <label><input type="checkbox" value="Liturgist"> Liturgist</label>
       <label><input type="checkbox" value="Preacher"> Preacher</label>
       <label><input type="checkbox" value="Childrens Message"> Children's Message</label>
-      <label><input type="checkbox" value="Altar Guild"> Altar Guild</label>
     </div>
 
     <span class="role-override-toggle" id="toggle-role-overrides">&#9658; Customize Sundays per role (optional)</span>
@@ -583,7 +583,6 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
         <label><input type="checkbox" value="Liturgist"> Liturgist</label>
         <label><input type="checkbox" value="Preacher"> Preacher</label>
         <label><input type="checkbox" value="Childrens Message"> Children's Message</label>
-        <label><input type="checkbox" value="Altar Guild"> Altar Guild</label>
       </div>
       <small style="color:#666;font-size:0.78rem;display:block;margin-top:6px;">This person is always assigned these roles first, bypassing Sunday rotation. If they have a blackout date, the slot is left empty for manual assignment. Set Preferred Sundays to "Any Sunday" for primary roles.</small>
     </div>
@@ -772,7 +771,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
   </div>
   <div class="panel-body">
     <p style="font-size:.85rem;color:var(--warm-gray);margin-bottom:16px;">
-      Volunteer interest from other ministries and worship roles not in the scheduler (Altar Guild, Choir, etc.). <strong>Dismiss</strong> after following up.
+      Volunteer interest from other ministries and worship roles not in the scheduler (Choir, Altar Guild, etc.). <strong>Dismiss</strong> after following up.
     </p>
     <div id="general-review-alert"></div>
     <div id="general-list"></div>
@@ -823,7 +822,7 @@ function showAlert(elId, msg, type) {
 // ══════════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════════
-var PER_ROLES    = ['Elder', 'Acolyte', 'PowerPoint', 'Lector', 'Liturgist', 'Altar Guild'];
+var PER_ROLES    = ['Elder', 'Acolyte', 'PowerPoint', 'Lector', 'Liturgist'];
 var SHARED_ROLES = ['Preacher', 'Childrens Message'];
 var SHARED_LABELS = { 'Childrens Message': "Children's Message" };
 var COMMUNITY_EVENTS = [
@@ -838,7 +837,7 @@ var COMMUNITY_EVENTS = [
             'Christmas Market \u2013 Kids\u2019 Activities', 'Christmas Market \u2013 Welcome Table'] }
 ];
 function roleLabel(r) { return SHARED_LABELS[r] || r; }
-var ROLE_ABBREVS = { 'Elder':'ELD', 'Acolyte':'ACO', 'PowerPoint':'PPT', 'Lector':'LCT', 'Liturgist':'LTG', 'Preacher':'PRCHR', 'Childrens Message':'CM', 'Altar Guild':'AG' };
+var ROLE_ABBREVS = { 'Elder':'ELD', 'Acolyte':'ACO', 'PowerPoint':'PPT', 'Lector':'LCT', 'Liturgist':'LTG', 'Preacher':'PRCHR', 'Childrens Message':'CM' };
 function roleAbbrev(r) { return ROLE_ABBREVS[r] || roleLabel(r); }
 var ALL_TABS = ['people','schedule','stats'];
 

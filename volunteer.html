@@ -164,9 +164,12 @@ main { max-width: 1060px; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
 /* ── CORE VALUES STRIP ── */
 .values-strip {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 0.75rem;
   margin-bottom: 3rem;
+  max-width: 860px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .value-tile {
   background: var(--warm-white);
@@ -1313,6 +1316,16 @@ footer a:hover { text-decoration: underline; }
           </div>
         </label>
 
+        <label class="role-card" for="r-midweek-dinner">
+          <input type="checkbox" id="r-midweek-dinner" name="roles" value="Advent &amp; Lent Midweek Dinner" data-ministry="acceptance">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Advent &amp; Lent Midweek Dinner</span></div>
+          <p class="role-desc">Help prepare and serve dinner before midweek worship services during Advent and Lent. A meaningful way to nourish both body and spirit in these seasons of reflection and preparation.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> Selected Wednesday evenings in Advent &amp; Lent</div>
+            <div class="role-meta-item"><strong>Open to:</strong> Anyone who loves to cook or serve</div>
+          </div>
+        </label>
+
       </div>
     </div>
   </div>
@@ -1416,6 +1429,26 @@ footer a:hover { text-decoration: underline; }
           <div class="role-meta">
             <div class="role-meta-item"><strong>Commitment:</strong> Regular meeting times (flexible)</div>
             <div class="role-meta-item"><strong>Open to:</strong> All skill levels welcome</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-concerts">
+          <input type="checkbox" id="r-concerts" name="roles" value="Community Concerts" data-ministry="outreach">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Community Concerts</span></div>
+          <p class="role-desc">Help bring our three annual community concerts to life. Opportunities include spreading the word through promotion, setting up and cleaning up the venue, and preparing h&ocirc;rs d&rsquo;oeuvres and refreshments for guests.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> Three concerts per year</div>
+            <div class="role-meta-item"><strong>Areas:</strong> Promotion, Setup/Cleanup, Hospitality &amp; Refreshments</div>
+          </div>
+        </label>
+
+        <label class="role-card" for="r-neighboring">
+          <input type="checkbox" id="r-neighboring" name="roles" value="Neighboring Life Events" data-ministry="outreach">
+          <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Neighboring Life Events</span></div>
+          <p class="role-desc">Help plan and host fellowship gatherings that connect our congregation with neighbors and build community beyond our walls. Part of our Neighboring Life Ministry, these events are rooted in hospitality and a spirit of welcome.</p>
+          <div class="role-meta">
+            <div class="role-meta-item"><strong>Commitment:</strong> Occasional events throughout the year</div>
+            <div class="role-meta-item"><strong>Open to:</strong> All who love building community</div>
           </div>
         </label>
 
