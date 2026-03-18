@@ -282,6 +282,11 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
   /* Hide fixed-position side panels and overlay (they ignore translateX in print) */
   .side-panel, .panel-overlay { display: none !important; }
   .btn-edit-readings { display: none !important; }
+  /* Remove dark band on right: lighten table headers and release overflow */
+  .table-wrapper { overflow: visible !important; }
+  thead th { background: var(--linen) !important; color: var(--charcoal) !important; border-color: var(--border) !important; }
+  thead th.date-col, thead th.svc-col { position: static !important; }
+  td.date-cell { position: static !important; background: var(--linen) !important; }
 }
 
 /* ── Confirmation tracking ─────────────────── */
@@ -352,9 +357,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .sunday-summary.expanded .ss-date,
 .sunday-summary.expanded .ss-label-area,
 .sunday-summary.expanded .ss-stats-area,
-.sunday-summary.expanded .ss-conf-area,
-.sunday-summary.expanded .btn-edit-readings,
-.sunday-summary.expanded .btn-bulletin-slide { display:none; }
+.sunday-summary.expanded .ss-conf-area { display:none; }
 .sunday-detail   { display:none; }
 .sunday-detail.visible { display:table-row; }
 .btn-bulletin-slide { display:inline-flex; align-items:center; gap:4px; }
@@ -452,6 +455,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
   <button class="tab-btn" id="tab-btn-people">People &amp; Availability <span id="signups-badge" style="display:none;background:var(--amber);color:var(--steel-anchor);border-radius:999px;padding:1px 7px;font-size:0.75rem;font-weight:700;margin-left:4px;"></span></button>
   <button class="tab-btn" id="tab-btn-stats">&#128202; Stats</button>
   <button class="header-gear" id="btn-open-settings" title="Settings">&#9881; Settings</button>
+  <button class="header-gear" id="btn-header-signout" title="Sign Out" style="margin-left:0;">&#x2192; Sign Out</button>
 </div>
 
 <!-- ══ PEOPLE TAB ══════════════════════════════════════════════════════════ -->
@@ -461,7 +465,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
       <h2 style="margin:0;">Volunteers (<span id="people-count">0</span>)</h2>
       <button class="btn btn-warning btn-sm" id="review-signups-btn" style="display:none;" onclick="openPanel('signups-panel');renderSignupsPanel();">&#128203; Scheduler Sign-Ups (<span id="review-signups-count">0</span>)</button>
       <button class="btn btn-success btn-sm" id="review-general-btn" style="display:none;" onclick="openPanel('general-panel');renderGeneralPanel();">&#128101; General Volunteers (<span id="review-general-count">0</span>)</button>
-      <button class="btn btn-outline btn-sm" id="review-events-btn" onclick="openPanel('events-panel');renderEventsPanel();">&#127881; Events (<span id="review-events-count">0</span>)</button>
+      <a href="/volunteer.html" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none;">&#128203; Volunteer Sign-Up Page</a>
       <button class="btn btn-primary btn-sm" id="btn-open-person-panel" style="margin-left:auto;">+ Add Person</button>
       <input type="search" id="people-search" placeholder="Filter by name, role, or service…"
              style="max-width:240px;font-size:.85rem;" oninput="peopleSearchQuery=this.value;renderPeopleList();">
@@ -628,73 +632,82 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
     <button class="panel-close" id="btn-close-settings-panel">&times;</button>
   </div>
   <div class="panel-body">
-    <h3 style="margin:0 0 12px;font-size:1rem;color:var(--steel-anchor);font-family:var(--font-head);">Breeze CHMS Connection</h3>
-    <p style="font-size:0.88rem;color:var(--warm-gray);margin-bottom:14px;">
-      Enter your Breeze subdomain and API key to enable syncing volunteers to Breeze.
-      Your credentials are stored only in this browser's localStorage.
-    </p>
+    <details id="integrations-details" style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
+      <summary style="cursor:pointer;font-weight:700;color:var(--steel-anchor);font-size:.95rem;font-family:var(--font-head);display:flex;align-items:center;gap:8px;list-style:none;-webkit-appearance:none;">
+        &#9881; Integrations
+        <span style="font-weight:400;font-size:.82rem;color:var(--warm-gray);">(Breeze CHMS, Reminder Emails — expand to configure)</span>
+      </summary>
 
-    <label for="breeze-subdomain">Breeze Subdomain</label>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <span style="color:#666;font-size:0.9rem;white-space:nowrap;">https://</span>
-      <input type="text" id="breeze-subdomain" placeholder="mychurch" style="max-width:200px;">
-      <span style="color:#666;font-size:0.9rem;white-space:nowrap;">.breezechms.com</span>
-    </div>
+      <div style="margin-top:16px;">
+        <h3 style="margin:0 0 8px;font-size:.95rem;color:var(--steel-anchor);font-family:var(--font-head);">Breeze CHMS Connection</h3>
+        <p style="font-size:0.88rem;color:var(--warm-gray);margin-bottom:14px;">
+          Enter your Breeze subdomain and API key to enable syncing volunteers to Breeze.
+          Your credentials are stored only in this browser's localStorage.
+        </p>
 
-    <label for="breeze-apikey" style="margin-top:12px;">API Key</label>
-    <input type="password" id="breeze-apikey" placeholder="Paste your Breeze API key here" style="max-width:360px;">
-    <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
-      Find this in Breeze: Settings &rarr; Advanced &rarr; API
-    </small>
+        <label for="breeze-subdomain">Breeze Subdomain</label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:#666;font-size:0.9rem;white-space:nowrap;">https://</span>
+          <input type="text" id="breeze-subdomain" placeholder="mychurch" style="max-width:200px;">
+          <span style="color:#666;font-size:0.9rem;white-space:nowrap;">.breezechms.com</span>
+        </div>
 
-    <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
-      <label for="breeze-worker-url">Cloudflare Worker Proxy URL</label>
-      <input type="text" id="breeze-worker-url" placeholder="https://your-worker.workers.dev" style="max-width:380px;">
-      <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
-        Required for browser access. Paste the Worker URL after deploying <strong>breeze-proxy-worker.js</strong> to Cloudflare.
-      </small>
-    </div>
+        <label for="breeze-apikey" style="margin-top:12px;">API Key</label>
+        <input type="password" id="breeze-apikey" placeholder="Paste your Breeze API key here" style="max-width:360px;">
+        <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
+          Find this in Breeze: Settings &rarr; Advanced &rarr; API
+        </small>
 
-    <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
-      <label for="breeze-worker-secret">Worker Secret <span style="font-weight:normal;color:var(--warm-gray);">(recommended)</span></label>
-      <input type="password" id="breeze-worker-secret" placeholder="Paste your WORKER_SECRET value" style="max-width:380px;">
-      <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
-        In Cloudflare Dashboard: Worker Settings &rarr; Variables &rarr; add <code>WORKER_SECRET</code> = any long random string.
-      </small>
-    </div>
+        <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
+          <label for="breeze-worker-url">Cloudflare Worker Proxy URL</label>
+          <input type="text" id="breeze-worker-url" placeholder="https://your-worker.workers.dev" style="max-width:380px;">
+          <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
+            Required for browser access. Paste the Worker URL after deploying <strong>breeze-proxy-worker.js</strong> to Cloudflare.
+          </small>
+        </div>
 
-    <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
-      <label for="breeze-tag-ids">Breeze Tag IDs <span style="font-weight:normal;color:var(--warm-gray);">(optional)</span></label>
-      <input type="text" id="breeze-tag-ids" placeholder="e.g. 4884325, 5123456" style="max-width:280px;">
-      <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
-        Comma-separated tag IDs to include in people search. Leave blank to search all.
-        Find tag IDs in the Breeze URL: <code>people/filter#/tag_contains=y_XXXXXXX</code>
-      </small>
-    </div>
+        <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
+          <label for="breeze-worker-secret">Worker Secret <span style="font-weight:normal;color:var(--warm-gray);">(recommended)</span></label>
+          <input type="password" id="breeze-worker-secret" placeholder="Paste your WORKER_SECRET value" style="max-width:380px;">
+          <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
+            In Cloudflare Dashboard: Worker Settings &rarr; Variables &rarr; add <code>WORKER_SECRET</code> = any long random string.
+          </small>
+        </div>
 
-    <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
-      <label style="font-weight:600;">Volunteer Reminder Emails</label>
-      <p style="font-size:0.82rem;color:var(--warm-gray);margin:4px 0 10px;">
-        Send personalized reminder emails via <a href="https://resend.com" target="_blank" style="color:var(--mid-steel);">Resend</a> (free up to 3,000/month).
-      </p>
-      <label for="email-resend-key">Resend API Key</label>
-      <input type="password" id="email-resend-key" placeholder="re_xxxxxxxxxxxxxxxx" style="max-width:320px;">
-      <label for="email-from" style="margin-top:12px;">From Address</label>
-      <input type="email" id="email-from" placeholder="dinger@reminder.timothystl.org" style="max-width:320px;">
-      <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">Must be on a domain verified in Resend.</small>
-      <label for="email-reply-to" style="margin-top:12px;">Reply-To Address</label>
-      <input type="email" id="email-reply-to" placeholder="dinger@timothystl.org" style="max-width:320px;">
-      <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">Where volunteer replies are sent.</small>
-    </div>
+        <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
+          <label for="breeze-tag-ids">Breeze Tag IDs <span style="font-weight:normal;color:var(--warm-gray);">(optional)</span></label>
+          <input type="text" id="breeze-tag-ids" placeholder="e.g. 4884325, 5123456" style="max-width:280px;">
+          <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
+            Comma-separated tag IDs to include in people search. Leave blank to search all.
+            Find tag IDs in the Breeze URL: <code>people/filter#/tag_contains=y_XXXXXXX</code>
+          </small>
+        </div>
 
-    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);padding-top:16px;">
-      <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>
-      <button class="btn btn-outline" id="btn-test-breeze">Test Connection</button>
-      <span id="settings-status" style="font-size:0.88rem;"></span>
-    </div>
-    <div id="settings-alert" style="margin-top:12px;"></div>
+        <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
+          <h3 style="margin:0 0 8px;font-size:.95rem;color:var(--steel-anchor);font-family:var(--font-head);">Volunteer Reminder Emails</h3>
+          <p style="font-size:0.82rem;color:var(--warm-gray);margin:4px 0 10px;">
+            Send personalized reminder emails via <a href="https://resend.com" target="_blank" style="color:var(--mid-steel);">Resend</a> (free up to 3,000/month).
+          </p>
+          <label for="email-resend-key">Resend API Key</label>
+          <input type="password" id="email-resend-key" placeholder="re_xxxxxxxxxxxxxxxx" style="max-width:320px;">
+          <label for="email-from" style="margin-top:12px;">From Address</label>
+          <input type="email" id="email-from" placeholder="dinger@reminder.timothystl.org" style="max-width:320px;">
+          <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">Must be on a domain verified in Resend.</small>
+          <label for="email-reply-to" style="margin-top:12px;">Reply-To Address</label>
+          <input type="email" id="email-reply-to" placeholder="dinger@timothystl.org" style="max-width:320px;">
+          <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">Where volunteer replies are sent.</small>
+        </div>
 
-    <hr style="margin:24px 0 20px;border:none;border-top:1px solid var(--border);">
+        <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);padding-top:16px;">
+          <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>
+          <button class="btn btn-outline" id="btn-test-breeze">Test Connection</button>
+          <span id="settings-status" style="font-size:0.88rem;"></span>
+        </div>
+        <div id="settings-alert" style="margin-top:12px;"></div>
+      </div>
+    </details>
+
+    <hr style="margin:0 0 20px;border:none;border-top:1px solid var(--border);">
 
     <div>
       <label style="font-weight:600;">Cloud Sync</label>
@@ -4268,6 +4281,7 @@ document.getElementById('btn-fb-forgot').addEventListener('click', fbForgotPassw
 document.getElementById('btn-fb-push').addEventListener('click', fbPush);
 document.getElementById('btn-fb-pull').addEventListener('click', fbPull);
 document.getElementById('btn-fb-signout').addEventListener('click', fbSignOut);
+document.getElementById('btn-header-signout').addEventListener('click', fbSignOut);
 document.getElementById('btn-export-data').addEventListener('click', exportAllData);
 document.getElementById('import-data-file').addEventListener('change', function(e) {
   if (e.target.files && e.target.files[0]) {
