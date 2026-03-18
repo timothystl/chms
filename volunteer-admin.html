@@ -622,7 +622,7 @@ onAuthStateChanged(fbAuth, function(user) {
 // ── COMMUNITY EVENTS ─────────────────────────────────────────────
 var DEFAULT_EVENTS = [
   { id: 'egg-hunt', name: 'Easter Egg Hunt', date: 'Apr 4',
-    roles: ['Egg Filling', 'Setup & Cleanup', 'Registration', 'Activity Stations'] },
+    roles: ['Set-Up', 'Games', 'Check-In', 'Crafts', 'Easter Photo Op', 'Face Painting', 'Bubble Boss', 'Egg Zone', 'Clean-Up', 'Planning/Leadership', 'Easter Bunny/Carrot', 'Other'] },
   { id: 'vbs', name: 'VBS', date: 'Jun TBD',
     roles: ['Group Leader', 'Station Helper', 'Crafts Coordinator', 'Snacks'] },
   { id: 'christmas-market', name: 'Christmas Market', date: 'Dec 5',
@@ -829,6 +829,12 @@ function renderVolCard(v) {
       + '<a href="tel:' + escHtml(v.phone) + '">' + escHtml(v.phone) + '</a></div>'
     : '';
 
+  var shirtHtml = '';
+  if (v.shirtWanted) {
+    shirtHtml = '<div class="vol-row"><span class="vol-icon">👕</span>'
+      + '<span>Thrivent T-shirt' + (v.shirtSize ? ' &ndash; ' + escHtml(v.shirtSize) : '') + '</span></div>';
+  }
+
   var notesHtml = v.notes
     ? '<div class="vol-notes">"' + escHtml(v.notes) + '"</div>'
     : '';
@@ -853,6 +859,7 @@ function renderVolCard(v) {
     + rolesHtml
     + serviceHtml
     + sundaysHtml
+    + shirtHtml
     + notesHtml
     + '</div>'
     + '<div class="vol-card-footer">' + submitted + '</div>'
