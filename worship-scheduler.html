@@ -279,6 +279,9 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
   .label-input { border: none !important; font-size: 0.7rem; color: var(--charcoal) !important; padding: 0; }
   td.empty-cell { background: #fff !important; }
   #tab-stats { display: none !important; }
+  /* Hide fixed-position side panels and overlay (they ignore translateX in print) */
+  .side-panel, .panel-overlay { display: none !important; }
+  .btn-edit-readings { display: none !important; }
 }
 
 /* ── Confirmation tracking ─────────────────── */
@@ -326,21 +329,36 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .ss-inner { display:flex; align-items:center; gap:12px; padding:9px 14px; flex-wrap:wrap; }
 .ss-toggle { font-size:.75rem; color: var(--warm-gray); width:14px; display:inline-block; transition:transform .2s; flex-shrink:0; }
 .sunday-summary.expanded .ss-toggle { transform:rotate(90deg); }
-.ss-date { font-weight:700; color: var(--steel-anchor); font-size:.9rem; white-space:nowrap; font-family: var(--font-head); }
-.ss-label { font-size:.8rem; color: var(--amber); font-weight:600; font-family: var(--font-body); }
-.ss-ordinal { font-size:.78rem; color: var(--warm-gray); font-family: var(--font-body); }
-.ss-lect-name { font-size:.78rem; color: var(--mid-steel); font-weight:500; font-family: var(--font-body); }
-.ss-series-badge { display:inline-block; font-size:.7rem; font-weight:700; background: var(--ice-blue); color: var(--steel-anchor); border-radius:6px; padding:0 5px; margin-left:2px; vertical-align:middle; font-family: var(--font-body); }
+.ss-date { font-weight:700; color: var(--steel-anchor); font-size:.9rem; white-space:nowrap; font-family: var(--font-head); width:118px; flex-shrink:0; }
+/* Fixed-width label column: Sunday name / ordinal / custom label */
+.ss-label-area { width:220px; flex-shrink:0; display:flex; align-items:center; gap:6px; overflow:hidden; padding-right:10px; }
+.ss-label { font-size:.8rem; color: var(--amber); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family: var(--font-body); }
+.ss-ordinal { font-size:.78rem; color: var(--warm-gray); white-space:nowrap; font-family: var(--font-body); }
+.ss-lect-name { font-size:.78rem; color: var(--mid-steel); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family: var(--font-body); }
+.ss-series-badge { display:inline-block; font-size:.7rem; font-weight:700; background: var(--ice-blue); color: var(--steel-anchor); border-radius:7px; padding:0 5px; flex-shrink:0; font-family: var(--font-body); }
+/* Fixed-width stats column: "N filled / M open" */
+.ss-stats-area { width:175px; flex-shrink:0; display:flex; align-items:center; gap:8px; }
 .ss-fill { font-size:.8rem; font-weight:700; font-family: var(--font-body); color: var(--charcoal); }
 .ss-open { font-size:.8rem; font-weight:700; color: var(--danger-btn); font-family: var(--font-body); }
 .ss-complete { font-size:.8rem; font-weight:700; color: var(--sage); font-family: var(--font-body); }
+/* Confirmation badges fill remaining space before buttons */
+.ss-conf-area { flex:1; display:flex; align-items:center; gap:5px; }
 .sconf-badge { display:inline-flex; align-items:center; font-size:.72rem; font-weight:700;
   padding:2px 7px; border-radius:999px; white-space:nowrap; font-family: var(--font-body); border:1px solid transparent; }
 .sconf-confirmed { background: var(--pale-sage); color:var(--on-pale-sage); border-color: var(--soft-sage); }
 .sconf-pending   { background: var(--pale-gold); color:var(--on-pale-gold); border-color: var(--honey); }
 .sconf-declined  { background:var(--error-bg); color:var(--on-error-bg); border-color:var(--error-border); }
+/* When expanded, hide all summary info — detail rows below show everything */
+.sunday-summary.expanded .ss-date,
+.sunday-summary.expanded .ss-label-area,
+.sunday-summary.expanded .ss-stats-area,
+.sunday-summary.expanded .ss-conf-area,
+.sunday-summary.expanded .btn-edit-readings,
+.sunday-summary.expanded .btn-bulletin-slide { display:none; }
 .sunday-detail   { display:none; }
 .sunday-detail.visible { display:table-row; }
+.btn-bulletin-slide { display:inline-flex; align-items:center; gap:4px; }
+.btn-bulletin-slide:hover { background: var(--blue-mist) !important; border-color: var(--steel-anchor) !important; }
 
 /* ── Month navigation ──────────────────────────────────── */
 .month-nav-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:4px 0; }
@@ -430,14 +448,14 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 </header>
 
 <div class="tabs">
-  <button class="tab-btn active" id="tab-btn-people">People &amp; Availability <span id="signups-badge" style="display:none;background:var(--amber);color:var(--steel-anchor);border-radius:999px;padding:1px 7px;font-size:0.75rem;font-weight:700;margin-left:4px;"></span></button>
-  <button class="tab-btn" id="tab-btn-schedule">Schedule</button>
+  <button class="tab-btn active" id="tab-btn-schedule">Schedule</button>
+  <button class="tab-btn" id="tab-btn-people">People &amp; Availability <span id="signups-badge" style="display:none;background:var(--amber);color:var(--steel-anchor);border-radius:999px;padding:1px 7px;font-size:0.75rem;font-weight:700;margin-left:4px;"></span></button>
   <button class="tab-btn" id="tab-btn-stats">&#128202; Stats</button>
   <button class="header-gear" id="btn-open-settings" title="Settings">&#9881; Settings</button>
 </div>
 
 <!-- ══ PEOPLE TAB ══════════════════════════════════════════════════════════ -->
-<div id="tab-people" class="tab-content active">
+<div id="tab-people" class="tab-content">
   <div class="card">
     <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
       <h2 style="margin:0;">Volunteers (<span id="people-count">0</span>)</h2>
@@ -453,7 +471,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 </div>
 
 <!-- ══ SCHEDULE TAB ════════════════════════════════════════════════════════ -->
-<div id="tab-schedule" class="tab-content">
+<div id="tab-schedule" class="tab-content active">
   <div class="card">
     <div class="month-nav-bar">
       <button class="btn btn-outline btn-sm" id="btn-prev-month">&#8592;</button>
@@ -819,6 +837,38 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
   </div>
 </div>
 
+<!-- ══ READINGS PANEL ════════════════════════════════════════════════════════ -->
+<div id="readings-panel" class="side-panel">
+  <div class="panel-hdr">
+    <h2 id="readings-panel-title">Edit Readings</h2>
+    <button class="panel-close" id="btn-close-readings-panel">&times;</button>
+  </div>
+  <div class="panel-body">
+    <p id="readings-panel-subtitle" style="font-size:.85rem;color:var(--warm-gray);margin:0 0 16px;"></p>
+    <div class="field">
+      <label>Old Testament</label>
+      <input type="text" id="readings-ot" placeholder="e.g. Isaiah 40:1-11" style="width:100%;">
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Epistle</label>
+      <input type="text" id="readings-epistle" placeholder="e.g. Romans 8:14-17" style="width:100%;">
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Gospel</label>
+      <input type="text" id="readings-gospel" placeholder="e.g. John 3:1-17" style="width:100%;">
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Psalm</label>
+      <input type="text" id="readings-psalm" placeholder="e.g. Psalm 29" style="width:100%;">
+    </div>
+    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-primary" id="btn-save-readings">Save Readings</button>
+      <button class="btn btn-outline" id="btn-reset-readings">Reset to Lectionary</button>
+    </div>
+    <div id="readings-alert" style="margin-top:8px;"></div>
+  </div>
+</div>
+
 </div><!-- /#app-content -->
 
 <script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-app-compat.js"></script>
@@ -901,9 +951,25 @@ function loadSchedule() { return loadMonthSchedule(currentMonthKey); }
 // ── LECTIONARY CALENDAR ────────────────────────────────────────────
 // Populated by fetch('lcms_calendar.json') on load; keyed by ISO date
 var lectCalendar = {};
+function fmtSundayName(name) { return (name||'').replace(/\s*\(prop\d+\)/i,'').trim(); }
 function getLectEntry(date) {
   if (!date || !Object.keys(lectCalendar).length) return null;
   return lectCalendar[date.toISOString().slice(0, 10)] || null;
+}
+function getReadingsOverrides() { try { return JSON.parse(localStorage.getItem('ws_readings') || '{}'); } catch(e) { return {}; } }
+function saveReadingsOverrides(o) { localStorage.setItem('ws_readings', JSON.stringify(o)); }
+function getReadingsForDate(dateISO) {
+  var ov = getReadingsOverrides()[dateISO];
+  if (ov) return ov;
+  var e = lectCalendar[dateISO];
+  return e ? { ot: e.ot||'', epistle: e.epistle||'', gospel: e.gospel||'', psalm: e.psalm||'' } : null;
+}
+// Strip LCMS parenthetical verse numbers (e.g. "Romans 13:( 8-10 ) 11-14" → "Romans 13:11-14")
+function cleanReading(r) { return (r||'').replace(/\s*\(.*?\)\s*/g,' ').replace(/\s+/g,' ').trim(); }
+function bibleLink(ref) {
+  var clean = cleanReading(ref);
+  if (!clean) return '';
+  return 'https://www.biblegateway.com/passage/?search=' + encodeURIComponent(clean) + '&version=ESV';
 }
 // ──────────────────────────────────────────────────────────────────
 
@@ -1030,7 +1096,7 @@ function switchMonth(key) {
 // ══════════════════════════════════════════════════════════════════
 // TABS
 // ══════════════════════════════════════════════════════════════════
-var currentTabName = 'people';
+var currentTabName = 'schedule';
 function showTab(name) {
   // Warn if leaving schedule tab with unsaved changes
   if (currentTabName === 'schedule' && name !== 'schedule' && isDirty) {
@@ -1068,6 +1134,51 @@ function closeAllPanels() {
   document.querySelectorAll('.side-panel').forEach(function(p){ p.classList.remove('open'); });
   document.body.style.overflow = '';
 }
+
+// ── Readings panel ────────────────────────────────────────────────────────────
+var _readingsDateISO = '';
+
+function openReadingsPanel(dateISO) {
+  _readingsDateISO = dateISO;
+  var d = new Date(dateISO + 'T12:00:00');
+  var lectEntry = getLectEntry(d);
+  var subtitle  = lectEntry ? fmtSundayName(lectEntry.sundayName) + ' \u2014 Series ' + lectEntry.series : fmtDate(d);
+  document.getElementById('readings-panel-title').textContent = 'Readings for ' + fmtDate(d);
+  document.getElementById('readings-panel-subtitle').textContent = subtitle;
+  var r = getReadingsForDate(dateISO) || {};
+  document.getElementById('readings-ot').value      = r.ot      || '';
+  document.getElementById('readings-epistle').value = r.epistle || '';
+  document.getElementById('readings-gospel').value  = r.gospel  || '';
+  document.getElementById('readings-psalm').value   = r.psalm   || '';
+  showAlert('readings-alert', '', '');
+  openPanel('readings-panel');
+}
+
+document.getElementById('btn-save-readings').addEventListener('click', function() {
+  var overrides = getReadingsOverrides();
+  overrides[_readingsDateISO] = {
+    ot:      document.getElementById('readings-ot').value.trim(),
+    epistle: document.getElementById('readings-epistle').value.trim(),
+    gospel:  document.getElementById('readings-gospel').value.trim(),
+    psalm:   document.getElementById('readings-psalm').value.trim(),
+  };
+  saveReadingsOverrides(overrides);
+  showAlert('readings-alert', 'Readings saved.', 'success');
+  setTimeout(closeAllPanels, 800);
+});
+
+document.getElementById('btn-reset-readings').addEventListener('click', function() {
+  var e = lectCalendar[_readingsDateISO];
+  if (!e) { showAlert('readings-alert', 'No lectionary entry found for this date.', 'warning'); return; }
+  document.getElementById('readings-ot').value      = e.ot      || '';
+  document.getElementById('readings-epistle').value = e.epistle || '';
+  document.getElementById('readings-gospel').value  = e.gospel  || '';
+  document.getElementById('readings-psalm').value   = e.psalm   || '';
+  showAlert('readings-alert', 'Reset to lectionary. Click Save to keep.', 'info');
+});
+
+document.getElementById('btn-close-readings-panel').addEventListener('click', closeAllPanels);
+
 function openPersonPanel(title) {
   document.getElementById('person-panel-title').textContent = title || 'Add Person';
   openPanel('person-panel');
@@ -1698,9 +1809,11 @@ function buildSummaryInner(rowIdx, pMap, confs) {
   }
   return '<span class="ss-toggle">&#9658;</span>'
     +'<span class="ss-date">'+esc(fmtDate(row.date))+'</span>'
-    +labelPart
-    +'<span class="ss-fill" style="color:'+fillColor+'">'+st.filled+' filled</span>'
-    +openPart+confBadges;
+    +'<span class="ss-label-area">'+labelPart+'</span>'
+    +'<span class="ss-stats-area"><span class="ss-fill" style="color:'+fillColor+'">'+st.filled+' filled</span>'+openPart+'</span>'
+    +'<span class="ss-conf-area">'+confBadges+'</span>'
+    +'<button class="btn-edit-readings" data-date="'+esc(dateISO)+'" title="View or edit readings" style="margin-left:auto;background:none;border:1px solid var(--ice-blue);border-radius:6px;padding:2px 8px;cursor:pointer;font-size:.72rem;color:var(--steel-anchor);white-space:nowrap;font-family:var(--font-body);">&#128214; Readings</button>'
+    +'<button class="btn-bulletin-slide" data-idx="'+rowIdx+'" title="Open 16:9 bulletin slide for this Sunday" style="background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer;font-size:.72rem;color:var(--steel-anchor);white-space:nowrap;font-family:var(--font-body);">&#128250; Slide</button>';
 }
 
 function renderTable(people, counts) {
@@ -1973,6 +2086,18 @@ document.getElementById('schedule-table').addEventListener('click', function(e) 
     }
     return;
   }
+  // Bulletin slide
+  if (e.target.closest('.btn-bulletin-slide')) {
+    var bsBtn = e.target.closest('.btn-bulletin-slide');
+    openBulletinSlide(parseInt(bsBtn.getAttribute('data-idx'), 10));
+    return;
+  }
+  // Edit readings for a Sunday
+  if (e.target.closest('.btn-edit-readings')) {
+    var rdBtn = e.target.closest('.btn-edit-readings');
+    openReadingsPanel(rdBtn.getAttribute('data-date'));
+    return;
+  }
   // Edit special service — open panel pre-filled
   if (e.target.closest('.btn-edit-special')) {
     var editBtn = e.target.closest('.btn-edit-special');
@@ -2092,6 +2217,113 @@ window.addEventListener('afterprint', function() {
 });
 
 // ══════════════════════════════════════════════════════════════════
+// BULLETIN SLIDE (16×9)
+// ══════════════════════════════════════════════════════════════════
+function openBulletinSlide(rowIdx) {
+  var row = currentSchedule[rowIdx];
+  if (!row || row.type !== 'sunday') return;
+  var pMap = {};
+  getPeople().forEach(function(p){ pMap[p.id] = p; });
+
+  function getName(pid) { return (pid && pMap[pid]) ? pMap[pid].name : ''; }
+
+  // Build role cards for one service column
+  function buildServiceCards(svcKey) {
+    return PER_ROLES.map(function(role) {
+      var pid = (row.assignments[role] || {})[svcKey] || '';
+      var name = getName(pid);
+      return '<div class="role-card">'
+        + '<div class="role-badge">' + esc(role) + '</div>'
+        + (name
+            ? '<div class="role-name">' + esc(name) + '</div>'
+            : '<div class="role-empty">—</div>')
+        + '</div>';
+    }).join('');
+  }
+
+  var dateStr = row.date.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8">'
+    + '<title>Serving Slide \u2014 ' + esc(dateStr) + '</title>'
+    + '<link href="https://fonts.googleapis.com/css2?family=Lora:wght@700&family=Source+Sans+3:wght@400;700&display=swap" rel="stylesheet">'
+    + '<style>'
+    + '*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}'
+    + 'html,body{width:1920px;height:1080px;overflow:hidden;background:#FAF7F0;'
+    +   'font-family:"Source Sans 3",Arial,sans-serif;}'
+    + '.slide{width:1920px;height:1080px;display:flex;flex-direction:column;}'
+
+    // Header bar — steel-anchor bg, amber bottom accent (matches app header)
+    + '.slide-header{background:#0A3C5C;border-bottom:6px solid #D4922A;'
+    +   'padding:38px 80px 32px;display:flex;flex-direction:column;}'
+    + '.slide-title{font-family:"Lora",Georgia,serif;font-size:4rem;font-weight:700;'
+    +   'color:#fff;letter-spacing:.02em;line-height:1.1;}'
+    + '.slide-date{font-size:1.75rem;font-weight:700;color:#D4922A;'
+    +   'text-transform:uppercase;letter-spacing:.07em;margin-top:8px;}'
+
+    // Services area — warm-white background
+    + '.services{display:flex;gap:40px;flex:1;padding:36px 80px;background:#FAF7F0;}'
+    + '.svc-col{flex:1;display:flex;flex-direction:column;gap:10px;}'
+
+    // Service column headers — ice-blue for 8am, pale-gold for 10:45 (matches schedule table)
+    + '.svc-header-8am{background:#C4DDE8;color:#0A3C5C;border-bottom:3px solid #5C8FA8;'
+    +   'font-size:1.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;'
+    +   'padding:14px 22px;border-radius:10px 10px 0 0;}'
+    + '.svc-header-1045{background:#F5E0B0;color:#5a3a00;border-bottom:3px solid #E8B86D;'
+    +   'font-size:1.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;'
+    +   'padding:14px 22px;border-radius:10px 10px 0 0;}'
+
+    // Role cards — white with subtle border + shadow (matches app cards)
+    + '.role-card{flex:1;background:#fff;border:1px solid #E8E0D0;border-top:none;'
+    +   'box-shadow:0 2px 10px rgba(10,60,92,.07);position:relative;'
+    +   'display:flex;flex-direction:column;justify-content:flex-end;padding:14px 22px 18px;}'
+    + '.role-card:last-child{border-radius:0 0 10px 10px;}'
+
+    // Role badge — steel-anchor (matches thead th)
+    + '.role-badge{position:absolute;top:0;left:0;background:#0A3C5C;color:#fff;'
+    +   'font-size:.95rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;'
+    +   'padding:6px 16px;border-radius:0 0 8px 0;}'
+
+    // Person name — Lora serif, charcoal
+    + '.role-name{font-family:"Lora",Georgia,serif;font-size:2.4rem;font-weight:700;'
+    +   'color:#3D3530;line-height:1.1;margin-top:34px;}'
+    + '.role-empty{font-size:1.3rem;color:#7A6E60;font-style:italic;margin-top:34px;}'
+
+    // Footer bar — steel-anchor with amber top accent
+    + '.slide-footer{background:#0A3C5C;border-top:4px solid #D4922A;'
+    +   'padding:20px 80px;display:flex;justify-content:space-between;align-items:center;}'
+    + '.footer-cta{font-size:1.6rem;font-weight:700;color:#D4922A;'
+    +   'text-transform:uppercase;letter-spacing:.06em;}'
+    + '.print-note{font-size:.8rem;color:rgba(255,255,255,.4);}'
+
+    + '</style></head><body>'
+    + '<div class="slide">'
+    + '<div class="slide-header">'
+    +   '<div class="slide-title">Serving the Lord Today</div>'
+    +   '<div class="slide-date">' + esc(dateStr) + '</div>'
+    + '</div>'
+    + '<div class="services">'
+    + '<div class="svc-col"><div class="svc-header-8am">8:00 AM Service</div>'
+    + buildServiceCards('8am')
+    + '</div>'
+    + '<div class="svc-col"><div class="svc-header-1045">10:45 AM Service</div>'
+    + buildServiceCards('10:45am')
+    + '</div>'
+    + '</div>'
+    + '<div class="slide-footer">'
+    +   '<div class="footer-cta">Talk with our Pastors to Volunteer</div>'
+    +   '<div class="print-note">Screenshot to use in your announcement slide deck \u00b7 1920 \u00d7 1080</div>'
+    + '</div>'
+    + '</div>'
+    + '</body></html>';
+
+  var win = window.open('', '_blank', 'width=1280,height=720');
+  if (!win) { alert('Pop-up blocked — please allow pop-ups for this page.'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
+
+// ══════════════════════════════════════════════════════════════════
 // REMINDER EMAILS
 // ══════════════════════════════════════════════════════════════════
 function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
@@ -2110,6 +2342,48 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
   var replyLink = replyTo
     ? '<a href="mailto:' + esc(replyTo) + '" style="color:#3D627C;">' + esc(replyTo) + '</a>'
     : '';
+
+  // Readings section — Lectors get OT+Epistle, Liturgists get Gospel+Psalm
+  var readingsItems = [];
+  assignments.forEach(function(a) {
+    var role = (a.role || '').toLowerCase();
+    var isLector = role === 'lector';
+    var isLiturgist = role === 'liturgist';
+    if (!isLector && !isLiturgist) return;
+    var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
+    if (!rd) return;
+    var rdLines = [];
+    if (isLector) {
+      if (rd.ot)      rdLines.push({ label: 'OT',      ref: rd.ot });
+      if (rd.epistle) rdLines.push({ label: 'Epistle',  ref: rd.epistle });
+    } else {
+      if (rd.gospel)  rdLines.push({ label: 'Gospel',  ref: rd.gospel });
+      if (rd.psalm)   rdLines.push({ label: 'Psalm',   ref: rd.psalm });
+    }
+    if (!rdLines.length) return;
+    var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
+    readingsItems.push({ header: a.date + ' \u2014 ' + svcLabel + ' (' + roleLabel(a.role) + ')', lines: rdLines });
+  });
+  var readingsSection = '';
+  if (readingsItems.length) {
+    var itemsHtml = readingsItems.map(function(item) {
+      var lineHtml = item.lines.map(function(l) {
+        var link = bibleLink(l.ref);
+        var refDisplay = link
+          ? '<a href="' + esc(link) + '" style="color:#3D627C;">' + esc(l.ref) + '</a>'
+          : esc(l.ref);
+        return '<div style="margin-top:4px;"><span style="color:#7A6E60;font-size:.85rem;font-weight:600;">' + esc(l.label) + ':</span> ' + refDisplay + '</div>';
+      }).join('');
+      return '<div style="margin-bottom:14px;">'
+        + '<div style="font-size:.75rem;font-weight:700;color:#7A6E60;text-transform:uppercase;letter-spacing:.04em;">' + esc(item.header) + '</div>'
+        + lineHtml
+        + '</div>';
+    }).join('');
+    readingsSection = '<div style="background:#FAF7F0;border:1px solid #E8E0D0;border-radius:6px;padding:16px;margin-bottom:20px;">'
+      + '<div style="font-weight:700;color:#0A3C5C;margin-bottom:12px;font-size:.9rem;">&#128214; Your Readings</div>'
+      + itemsHtml
+      + '</div>';
+  }
 
   // RSVP section — separate block below the schedule table, mobile-safe 2-col layout
   var rsvpSection = '';
@@ -2172,6 +2446,7 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
     + '</tr></thead>'
     + '<tbody>' + rows + '</tbody>'
     + '</table>'
+    + readingsSection
     + rsvpSection
     + (rsvpToken ? '' :
         '<div style="background:#F5E0B0;border-left:4px solid #D4922A;padding:14px 16px;border-radius:0 6px 6px 0;margin-bottom:20px;">'
