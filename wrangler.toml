@@ -3,26 +3,6 @@ main = "breeze-proxy-worker.js"
 compatibility_date = "2024-01-01"
 
 [[routes]]
-pattern = "volunteer.timothystl.org/rsvp*"
-zone_name = "timothystl.org"
-custom_domain = false
-
-[[routes]]
-pattern = "volunteer.timothystl.org/volunteer/*"
-zone_name = "timothystl.org"
-custom_domain = false
-
-[[routes]]
-pattern = "volunteer.timothystl.org/email/*"
-zone_name = "timothystl.org"
-custom_domain = false
-
-[[routes]]
-pattern = "volunteer.timothystl.org/breeze/*"
-zone_name = "timothystl.org"
-custom_domain = false
-
-[[routes]]
-pattern = "volunteer.timothystl.org/api/*"
+pattern = "volunteer.timothystl.org/*"
 zone_name = "timothystl.org"
 custom_domain = false
