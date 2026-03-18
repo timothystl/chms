@@ -317,14 +317,14 @@ async function handleVolunteerSignup(request, env) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
 
-  const { name, email, phone, ministry, roles, service, sundays, notes } = body;
+  const { name, email, phone, ministry, roles, service, sundays, notes, shirtWanted, shirtSize } = body;
   if (!name || !email) return json({ error: 'Missing name or email' }, 400);
 
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const submittedAt = new Date().toISOString();
   const record = { id, name, email, phone: phone || '', ministry: ministry || 'general',
     roles: roles || [], service: service || '', sundays: sundays || [],
-    notes: notes || '', submittedAt };
+    notes: notes || '', shirtWanted: !!shirtWanted, shirtSize: shirtSize || '', submittedAt };
 
   // Route signups by type: scheduler roles → wv:pending, events → wv:event, everything else → wv:general
   const schedulerRoles = (roles || []).filter(r => SCHEDULER_ROLES.has(r));
@@ -354,6 +354,9 @@ async function handleVolunteerSignup(request, env) {
     }).join(', ') + '\n';
     if (phone)                details += 'Phone: ' + phone + '\n';
     if (notes)                details += 'Notes: ' + notes + '\n';
+    if (shirtWanted)          details += 'Thrivent T-shirt: Yes' + (shirtSize ? ' — Size ' + shirtSize : '') + '\n';
+    else if (shirtWanted === false && (roles || []).some(r => r.startsWith('Easter Egg Hunt')))
+                              details += 'Thrivent T-shirt: No\n';
 
     const text = 'New volunteer signup — ' + ministryLabel + '\n\n'
       + 'Name:  ' + name + '\n'

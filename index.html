@@ -1001,29 +1001,77 @@ footer a:hover { text-decoration: underline; }
       </button>
       <div class="ev-card-roles" id="ev-roles-easter" hidden>
         <div class="role-grid">
-          <label class="role-card" for="r-easter-eggs">
-            <input type="checkbox" id="r-easter-eggs" name="roles" value="Easter Egg Hunt &ndash; Egg Filling" data-ministry="events">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Egg Filling Party</span></div>
-            <p class="role-desc">Fill hundreds of eggs with candy the week before. A fun evening for all ages.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>When:</strong> Weeknight before the hunt</div></div>
-          </label>
           <label class="role-card" for="r-easter-setup">
-            <input type="checkbox" id="r-easter-setup" name="roles" value="Easter Egg Hunt &ndash; Setup &amp; Cleanup" data-ministry="events">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Setup &amp; Cleanup</span></div>
-            <p class="role-desc">Hide eggs and set up activity stations in the morning, then clean up the grounds after.</p>
+            <input type="checkbox" id="r-easter-setup" name="roles" value="Easter Egg Hunt &ndash; Set-Up" data-ministry="events" data-event="easter">
+            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Set-Up</span></div>
+            <p class="role-desc">Arrange the grounds, tables, and stations before families arrive. Early morning crew.</p>
             <div class="role-meta"><div class="role-meta-item"><strong>When:</strong> Morning of the event</div></div>
           </label>
-          <label class="role-card" for="r-easter-reg">
-            <input type="checkbox" id="r-easter-reg" name="roles" value="Easter Egg Hunt &ndash; Registration" data-ministry="events">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Registration Table</span></div>
-            <p class="role-desc">Check in families and hand out baskets as people arrive. The first smile they see is yours.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>When:</strong> Morning shift</div></div>
+          <label class="role-card" for="r-easter-games">
+            <input type="checkbox" id="r-easter-games" name="roles" value="Easter Egg Hunt &ndash; Games" data-ministry="events" data-event="easter">
+            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Games</span></div>
+            <p class="role-desc">Run activity games for kids while the hunt is in progress. High energy, high fun.</p>
+            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> Individuals, families, youth</div></div>
           </label>
-          <label class="role-card" for="r-easter-stations">
-            <input type="checkbox" id="r-easter-stations" name="roles" value="Easter Egg Hunt &ndash; Activity Stations" data-ministry="events">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Activity Stations</span></div>
-            <p class="role-desc">Run a craft, game, or snack station. Help make it a morning kids talk about all week.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> Families, couples, individuals</div></div>
+          <label class="role-card" for="r-easter-checkin">
+            <input type="checkbox" id="r-easter-checkin" name="roles" value="Easter Egg Hunt &ndash; Check-In" data-ministry="events" data-event="easter">
+            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Check-In</span></div>
+            <p class="role-desc">Register families and hand out baskets as they arrive. The first friendly face of the morning.</p>
+            <div class="role-meta"><div class="role-meta-item"><strong>When:</strong> Morning arrival shift</div></div>
+          </label>
+          <label class="role-card" for="r-easter-crafts">
+            <input type="checkbox" id="r-easter-crafts" name="roles" value="Easter Egg Hunt &ndash; Crafts" data-ministry="events" data-event="easter">
+            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Crafts</span></div>
+            <p class="role-desc">Lead or assist with craft activities for kids. Supplies provided; creativity welcome.</p>
+            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> Families, individuals, all skill levels</div></div>
+          </label>
+          <label class="role-card" for="r-easter-photoop">
+            <input type="checkbox" id="r-easter-photoop" name="roles" value="Easter Egg Hunt &ndash; Easter Photo Op" data-ministry="events" data-event="easter">
+            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Easter Photo Op</span></div>
+            <p class="role-desc">Help set up and run the photo station so families can capture a fun Easter memory.</p>
+            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> Anyone who loves a good photo</div></div>
+          </label>
+          <label class="role-card" for="r-easter-facepainting">
+            <input type="checkbox" id="r-easter-facepainting" name="roles" value="Easter Egg Hunt &ndash; Face Painting" data-ministry="events" data-event="easter">
+            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Face Painting</span></div>
+            <p class="role-desc">Bring joy to kids' faces — literally. Experience helpful but not required.</p>
+            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> Anyone comfortable with kids</div></div>
+          </label>
+          <label class="role-card" for="r-easter-bubbleboss">
+            <input type="checkbox" id="r-easter-bubbleboss" name="roles" value="Easter Egg Hunt &ndash; Bubble Boss" data-ministry="events" data-event="easter">
+            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Bubble Boss</span></div>
+            <p class="role-desc">Run the bubble station and keep the fun floating. Kids of all ages love this one.</p>
+            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> All ages</div></div>
+          </label>
+          <label class="role-card" for="r-easter-eggzone">
+            <input type="checkbox" id="r-easter-eggzone" name="roles" value="Easter Egg Hunt &ndash; Egg Zone" data-ministry="events" data-event="easter">
+            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Egg Zone</span></div>
+            <p class="role-desc">Help manage and monitor the egg hunting area — keep it fair, fun, and safe for all age groups.</p>
+            <div class="role-meta"><div class="role-meta-item"><strong>When:</strong> During the hunt</div></div>
+          </label>
+          <label class="role-card" for="r-easter-cleanup">
+            <input type="checkbox" id="r-easter-cleanup" name="roles" value="Easter Egg Hunt &ndash; Clean-Up" data-ministry="events" data-event="easter">
+            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Clean-Up</span></div>
+            <p class="role-desc">Help restore the grounds after the event wraps. Shouldn't take long with many hands.</p>
+            <div class="role-meta"><div class="role-meta-item"><strong>When:</strong> After the event ends</div></div>
+          </label>
+          <label class="role-card" for="r-easter-leadership">
+            <input type="checkbox" id="r-easter-leadership" name="roles" value="Easter Egg Hunt &ndash; Planning/Leadership" data-ministry="events" data-event="easter">
+            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Planning &amp; Leadership</span></div>
+            <p class="role-desc">Help plan and coordinate the event in the weeks leading up to it. Great if you love organizing.</p>
+            <div class="role-meta"><div class="role-meta-item"><strong>Commitment:</strong> Planning meetings + event day</div></div>
+          </label>
+          <label class="role-card" for="r-easter-bunny">
+            <input type="checkbox" id="r-easter-bunny" name="roles" value="Easter Egg Hunt &ndash; Easter Bunny/Carrot" data-ministry="events" data-event="easter">
+            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Easter Bunny / Carrot</span></div>
+            <p class="role-desc">Put on a costume and make the day magical for the kids. Details shared by the coordinator.</p>
+            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> Good sports only 🐰</div></div>
+          </label>
+          <label class="role-card" for="r-easter-other">
+            <input type="checkbox" id="r-easter-other" name="roles" value="Easter Egg Hunt &ndash; Other" data-ministry="events" data-event="easter">
+            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Other</span></div>
+            <p class="role-desc">Not sure where you fit? Sign up and the event coordinator will find the perfect spot for you.</p>
+            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> Everyone</div></div>
           </label>
         </div>
       </div>
@@ -1150,6 +1198,31 @@ footer a:hover { text-decoration: underline; }
       <label class="form-label" for="ev-notes">Anything else? <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
       <textarea id="ev-notes" class="form-textarea" placeholder="Questions, schedule constraints, or anything that would help the coordinator&hellip;"></textarea>
     </div>
+
+    <!-- Egg Hunt only: Thrivent T-shirt -->
+    <div id="ev-shirt-section" style="display:none;border-top:1px solid var(--border, #e5e7eb);padding-top:1.25rem;margin-top:0.5rem;">
+      <div class="form-field">
+        <span class="form-section-label" style="display:block;margin-bottom:0.75rem;">Thrivent Volunteer T-shirt</span>
+        <label style="display:flex;align-items:center;gap:0.6rem;cursor:pointer;font-size:0.9rem;">
+          <input type="checkbox" id="ev-shirt-wanted" style="width:16px;height:16px;accent-color:var(--teal);cursor:pointer;">
+          I'd like a Thrivent volunteer T-shirt
+        </label>
+      </div>
+      <div class="form-field" id="ev-shirt-size-field" style="display:none;">
+        <label class="form-label" for="ev-shirt-size">T-shirt Size</label>
+        <select id="ev-shirt-size" class="form-input">
+          <option value="">Select a size&hellip;</option>
+          <option>XS</option>
+          <option>S</option>
+          <option>M</option>
+          <option>L</option>
+          <option>XL</option>
+          <option>2XL</option>
+          <option>3XL</option>
+        </select>
+      </div>
+    </div>
+
     <button class="btn-submit" type="button" style="background:var(--teal);">
       Submit My Interest
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
@@ -1630,6 +1703,16 @@ function updatePreviews() {
     'input[name="roles"][data-ministry="events"]', 'event-roles-preview', 'event-volunteer-form',
     'rgba(46,126,166,0.08)', 'rgba(46,126,166,0.2)', 'No roles selected yet &mdash; click an event above to see its roles.', false
   );
+  // Show Thrivent T-shirt section only when egg hunt roles are selected
+  var easterChecked = document.querySelectorAll('input[data-event="easter"]:checked').length > 0;
+  var shirtSection = document.getElementById('ev-shirt-section');
+  if (shirtSection) shirtSection.style.display = easterChecked ? '' : 'none';
+  if (!easterChecked) {
+    var shirtWanted = document.getElementById('ev-shirt-wanted');
+    if (shirtWanted) shirtWanted.checked = false;
+    var shirtSizeField = document.getElementById('ev-shirt-size-field');
+    if (shirtSizeField) shirtSizeField.style.display = 'none';
+  }
   // Education page (form always visible)
   syncPreview(
     'input[name="roles"][data-ministry="education"]', 'edu-roles-preview', null,
@@ -1718,15 +1801,33 @@ document.querySelector('#volunteer-form .btn-submit').addEventListener('click', 
   }, document.getElementById('volunteer-form'), this);
 });
 
+// Shirt checkbox — toggle size field
+document.addEventListener('change', function(e) {
+  if (e.target && e.target.id === 'ev-shirt-wanted') {
+    var sizeField = document.getElementById('ev-shirt-size-field');
+    if (sizeField) sizeField.style.display = e.target.checked ? '' : 'none';
+    if (!e.target.checked) {
+      var sizeEl = document.getElementById('ev-shirt-size');
+      if (sizeEl) sizeEl.value = '';
+    }
+  }
+});
+
 // Community Events
 document.querySelector('#event-volunteer-form .btn-submit').addEventListener('click', function() {
+  var shirtWantedEl = document.getElementById('ev-shirt-wanted');
+  var shirtSizeEl   = document.getElementById('ev-shirt-size');
+  var shirtWanted   = shirtWantedEl ? shirtWantedEl.checked : false;
+  var shirtSize     = (shirtWanted && shirtSizeEl) ? shirtSizeEl.value : '';
   submitVolunteer({
-    ministry: 'events',
-    name:     document.getElementById('ev-name').value,
-    email:    document.getElementById('ev-email').value,
-    phone:    document.getElementById('ev-phone').value,
-    roles:    Array.from(document.querySelectorAll('#page-events [name=roles]:checked')).map(function(c) { return c.value; }),
-    notes:    document.getElementById('ev-notes').value
+    ministry:     'events',
+    name:         document.getElementById('ev-name').value,
+    email:        document.getElementById('ev-email').value,
+    phone:        document.getElementById('ev-phone').value,
+    roles:        Array.from(document.querySelectorAll('#page-events [name=roles]:checked')).map(function(c) { return c.value; }),
+    notes:        document.getElementById('ev-notes').value,
+    shirtWanted:  shirtWanted,
+    shirtSize:    shirtSize
   }, document.getElementById('event-volunteer-form'), this);
 });
 
