@@ -92,7 +92,7 @@ export default {
     }
 
     // Fallback: proxy to GitHub Pages for HTML page requests
-    const ghUrl = 'https://timothystl.github.io/worship-scheduler' + url.pathname + url.search;
+    const ghUrl = 'https://timothystl.github.io/volunteer' + url.pathname + url.search;
     return fetch(ghUrl, { headers: { 'Host': 'timothystl.github.io' } });
   },
 };
