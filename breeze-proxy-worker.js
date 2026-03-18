@@ -91,7 +91,9 @@ export default {
       return handleBreezeProxy(request, env, url);
     }
 
-    return json({ error: 'Not found' }, 404);
+    // Fallback: proxy to GitHub Pages for HTML page requests
+    const ghUrl = 'https://timothystl.github.io/volunteer' + url.pathname + url.search;
+    return fetch(ghUrl, { headers: { 'Host': 'timothystl.github.io' } });
   },
 };
 
