@@ -30,6 +30,51 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type, X-Worker-Secret, X-Resend-Key, X-Email-From, X-Breeze-Subdomain, X-Breeze-Api-Key',
 };
 
+// GitHub raw content base for static file fallback
+const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/timothystl/volunteer/main';
+
+// API path prefixes handled by this Worker (not static files)
+function isApiPath(path) {
+  return path.startsWith('/rsvp') || path.startsWith('/volunteer/')
+    || path.startsWith('/email/') || path.startsWith('/breeze/')
+    || path.startsWith('/api/');
+}
+
+// Serve static files from the GitHub repo via raw.githubusercontent.com.
+// This lets the Worker act as a full host for the site even when bound to
+// the entire custom domain (instead of only specific Cloudflare routes).
+async function proxyToGitHub(path) {
+  let ghPath = path;
+  if (ghPath === '/' || ghPath === '') {
+    ghPath = '/index.html';
+  } else if (!ghPath.match(/\.\w+$/)) {
+    // No file extension — treat as a directory and serve its index.html
+    ghPath = ghPath.replace(/\/$/, '') + '/index.html';
+  }
+
+  const rawUrl = GITHUB_RAW_BASE + ghPath;
+  const ghRes = await fetch(rawUrl);
+  if (!ghRes.ok) return json({ error: 'Not found' }, 404);
+
+  const content = await ghRes.arrayBuffer();
+  return new Response(content, {
+    status: 200,
+    headers: { ...CORS_HEADERS, 'Content-Type': mimeForPath(ghPath) },
+  });
+}
+
+function mimeForPath(p) {
+  if (p.endsWith('.html'))        return 'text/html; charset=utf-8';
+  if (p.endsWith('.json'))        return 'application/json';
+  if (p.endsWith('.js'))          return 'application/javascript';
+  if (p.endsWith('.css'))         return 'text/css';
+  if (p.endsWith('.svg'))         return 'image/svg+xml';
+  if (p.endsWith('.png'))         return 'image/png';
+  if (p.endsWith('.ico'))         return 'image/x-icon';
+  if (p.endsWith('.webmanifest')) return 'application/manifest+json';
+  return 'text/plain';
+}
+
 export default {
   async fetch(request, env) {
     // Handle CORS preflight
@@ -39,6 +84,13 @@ export default {
 
     const url = new URL(request.url);
     const path = url.pathname;
+
+    // ── Static file proxy (public, no secret required) ───────────────────────
+    // Non-API GET requests are served directly from the GitHub repo so that
+    // pages like /scheduler work even when the Worker handles the whole domain.
+    if (!isApiPath(path) && request.method === 'GET') {
+      return proxyToGitHub(path);
+    }
 
     // ── Secret check (skip for volunteer-facing endpoints) ───────────────────
     const isPublic = path === '/rsvp' || path.startsWith('/rsvp/portal') || path === '/volunteer/signup';
