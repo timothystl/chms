@@ -336,8 +336,11 @@ header {
 .ev-admin-body.open { display: block; }
 /* view mode */
 .ev-role-row { margin-bottom: 10px; }
+.ev-role-row.slot-row { display: flex; align-items: flex-start; gap: 8px; }
 .ev-role-label { font-size: .82rem; font-weight: 700; color: var(--charcoal); margin-bottom: 4px; }
+.ev-role-row.slot-row .ev-role-label { flex-shrink: 0; margin-bottom: 0; }
 .ev-role-signups { display: flex; flex-direction: column; gap: 4px; padding-left: 8px; }
+.ev-role-row.slot-row .ev-role-signups { flex: 1; min-width: 0; }
 .ev-role-empty { font-size: .78rem; color: var(--warm-gray); font-style: italic; }
 .ev-signup-row { display: flex; align-items: center; gap: 8px; font-size: .82rem; flex-wrap: wrap; }
 .ev-signup-name { font-weight: 600; color: var(--steel-anchor); }
@@ -625,8 +628,81 @@ var DEFAULT_EVENTS = [
     roles: ['Set-Up', 'Games', 'Check-In', 'Crafts', 'Easter Photo Op', 'Face Painting', 'Bubble Boss', 'Egg Zone', 'Clean-Up', 'Planning/Leadership', 'Easter Bunny/Carrot', 'Other'] },
   { id: 'vbs', name: 'VBS', date: 'Jun TBD',
     roles: ['Group Leader', 'Station Helper', 'Crafts Coordinator', 'Snacks'] },
-  { id: 'christmas-market', name: 'Christmas Market', date: 'Dec 5',
-    roles: ['Setup & Teardown', 'Baked Goods & Food', 'Kids\u2019 Activities', 'Welcome Table', 'Booth Vendor Support', 'Santa Station', 'Live Music & Entertainment', 'Photography', 'Cashier & Sales', 'Decorating', 'Planning & Leadership', 'Other'] }
+  { id: 'christmas-market', name: 'Christmas Market', date: 'Dec 5\u20136', type: 'timed',
+    roles: [] }
+];
+
+// Christmas Market timed slots (shared with frontend via localStorage 'va_market_slots')
+var MARKET_SLOTS_DEFAULT = [
+  // Dec 5 – Setup Day
+  {id:'m-d5-01',date:'2025-12-05',role:'Move stuff out of storage room',start:'9:00 AM',end:'11:00 AM',qty:4,desc:'Bring items from basement storage room up to kitchen or over to parking lot as instructed.'},
+  {id:'m-d5-02',date:'2025-12-05',role:'Set up tents',start:'9:00 AM',end:'11:00 AM',qty:18,desc:'Teams of 6 unload tents, spread and raise them, then attach sides and weigh down with sandbags.'},
+  {id:'m-d5-03',date:'2025-12-05',role:'Help Rick run power cords',start:'11:00 AM',end:'12:00 PM',qty:1,desc:'Run power cords down rows of tents or as otherwise directed by Rick.'},
+  {id:'m-d5-04',date:'2025-12-05',role:'Move Glasses',start:'11:00 AM',end:'12:00 PM',qty:2,desc:'Bring glassware up from basement and over to parking lot using little wagons.'},
+  {id:'m-d5-05',date:'2025-12-05',role:'Set up Tables and Chairs',start:'11:00 AM',end:'12:00 PM',qty:6,desc:'Put tables in front of all tents, stage biergarten tables and chairs out of way. Actual time depends on delivery \u2014 may not occur until after lunch.'},
+  {id:'m-d5-06',date:'2025-12-05',role:'Want free lunch?',start:'12:00 PM',end:'1:00 PM',qty:30,desc:'Please let us know if you\'ll be joining us for lunch during setup day. It will include fried chicken and misc sides.'},
+  {id:'m-d5-07',date:'2025-12-05',role:'Help Rick install lights',start:'1:00 PM',end:'3:00 PM',qty:1,desc:'Attach strings of lights to tents.'},
+  {id:'m-d5-08',date:'2025-12-05',role:'Pick up Meat',start:'1:00 PM',end:'2:00 PM',qty:1,desc:'Go with Marla to G&W to pick up the meats.'},
+  {id:'m-d5-09',date:'2025-12-05',role:'Potato Salad Prep',start:'1:00 PM',end:'3:00 PM',qty:2,desc:''},
+  {id:'m-d5-10',date:'2025-12-05',role:'Set up Payment System',start:'1:00 PM',end:'2:00 PM',qty:2,desc:''},
+  {id:'m-d5-11',date:'2025-12-05',role:'Signs',start:'1:00 PM',end:'2:00 PM',qty:2,desc:'Post booth numbers and general signage.'},
+  {id:'m-d5-12',date:'2025-12-05',role:'Propane Heaters',start:'3:00 PM',end:'4:00 PM',qty:1,desc:''},
+  // Dec 6 – Market Day
+  {id:'m-d6-01',date:'2025-12-06',role:'Load-In Traffic Control',start:'7:30 AM',end:'11:00 AM',qty:2,desc:''},
+  {id:'m-d6-02',date:'2025-12-06',role:'Vendor Directions',start:'7:30 AM',end:'11:00 AM',qty:2,desc:''},
+  {id:'m-d6-03',date:'2025-12-06',role:'German Potato Salad Makers',start:'9:00 AM',end:'11:00 AM',qty:2,desc:'Sauce will be made in advance. Your job will be heating up the ingredients, mixing them together, and scooping into dishes for sale. Then transport over to the parking lot.'},
+  {id:'m-d6-04',date:'2025-12-06',role:'Kitchen',start:'9:00 AM',end:'11:00 AM',qty:3,desc:'Prepare gluhwein base, other food prep and cleaning.'},
+  {id:'m-d6-05',date:'2025-12-06',role:'Grill Setup',start:'10:00 AM',end:'11:00 AM',qty:3,desc:''},
+  {id:'m-d6-06',date:'2025-12-06',role:'Hot Drinks Setup',start:'10:00 AM',end:'11:00 AM',qty:3,desc:'At least one person per shift must be 21+. Monitor & refill; transport 5-gal water jugs from kitchen to tent with wagon; heat water for hot chocolate; mix hot chocolate and cider using printed instructions; transport Gl\u00fchwein starter from kitchen to tent; add wine and heat.',age21:true},
+  {id:'m-d6-07',date:'2025-12-06',role:'Go-Fer',start:'10:00 AM',end:'12:00 PM',qty:1,desc:'Have a vehicle and be available on-call.',age21:true},
+  {id:'m-d6-08',date:'2025-12-06',role:'Cashiers',start:'10:30 AM',end:'12:30 PM',qty:2,desc:'Cashiers handle the sales of food and beverage. Due to the responsibility of this job in handling money, volunteers must be approved by the committee. Please do not sign up without talking to a committee member first.'},
+  {id:'m-d6-09',date:'2025-12-06',role:'German Potato Salad Makers',start:'11:00 AM',end:'1:00 PM',qty:2,desc:'Sauce will be made in advance. Heat ingredients, mix together, scoop into dishes for sale. Transport over to parking lot.'},
+  {id:'m-d6-10',date:'2025-12-06',role:'Greeters',start:'11:00 AM',end:'1:00 PM',qty:2,desc:'Welcome people to Timothy and the Markt. Explain how to buy food and beverage. Tell them about the congregation and answer questions.'},
+  {id:'m-d6-11',date:'2025-12-06',role:'Grill Brats and Franks',start:'11:00 AM',end:'1:00 PM',qty:3,desc:''},
+  {id:'m-d6-12',date:'2025-12-06',role:'Hot Drinks',start:'11:00 AM',end:'1:00 PM',qty:4,desc:'At least one person per shift must be 21+. Monitor & refill; transport jugs from kitchen to tent; heat water for hot chocolate; mix beverages using printed instructions; transport Gl\u00fchwein starter; add wine and heat; end of day return everything to kitchen for cleaning.',age21:true},
+  {id:'m-d6-13',date:'2025-12-06',role:'Kitchen',start:'11:00 AM',end:'1:00 PM',qty:3,desc:'Prepare gluhwein base, other food prep and cleaning.'},
+  {id:'m-d6-14',date:'2025-12-06',role:'Sales Assistant',start:'11:00 AM',end:'1:00 PM',qty:2,desc:'Replenish glassware and assist cashiers. Breakdown boxes and take to dumpster at end of shift.'},
+  {id:'m-d6-15',date:'2025-12-06',role:'Trash',start:'11:00 AM',end:'1:00 PM',qty:1,desc:'Monitor trash cans; when full take trash to dumpster and replace bag.'},
+  {id:'m-d6-16',date:'2025-12-06',role:'Music',start:'12:00 PM',end:'12:15 PM',qty:1,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-17',date:'2025-12-06',role:'Music',start:'12:15 PM',end:'12:45 PM',qty:3,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-18',date:'2025-12-06',role:'Go-Fer',start:'12:00 PM',end:'2:00 PM',qty:1,desc:'Have a vehicle and be available on-call.',age21:true},
+  {id:'m-d6-19',date:'2025-12-06',role:'Cashiers',start:'12:30 PM',end:'2:30 PM',qty:2,desc:'Cashiers handle the sales of food and beverage. Volunteers must be approved by the committee \u2014 please talk to a committee member first.'},
+  {id:'m-d6-20',date:'2025-12-06',role:'Music',start:'1:00 PM',end:'2:00 PM',qty:1,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-21',date:'2025-12-06',role:'Music Ensemble',start:'1:30 PM',end:'2:00 PM',qty:1,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-22',date:'2025-12-06',role:'German Potato Salad Makers',start:'1:00 PM',end:'3:00 PM',qty:2,desc:'Sauce will be made in advance. Heat ingredients, mix together, scoop into dishes for sale. Transport over to parking lot.'},
+  {id:'m-d6-23',date:'2025-12-06',role:'Greeters',start:'1:00 PM',end:'3:00 PM',qty:2,desc:'Welcome people to Timothy and the Markt. Explain how to buy food and beverage. Tell them about the congregation and answer questions.'},
+  {id:'m-d6-24',date:'2025-12-06',role:'Grill Brats and Franks',start:'1:00 PM',end:'3:00 PM',qty:3,desc:''},
+  {id:'m-d6-25',date:'2025-12-06',role:'Hot Drinks',start:'1:00 PM',end:'3:00 PM',qty:3,desc:'At least one person per shift must be 21+.',age21:true},
+  {id:'m-d6-26',date:'2025-12-06',role:'Kitchen',start:'1:00 PM',end:'3:00 PM',qty:3,desc:'Prepare gluhwein base, other food prep and cleaning.'},
+  {id:'m-d6-27',date:'2025-12-06',role:'Sales Assistant',start:'1:00 PM',end:'3:00 PM',qty:2,desc:'Replenish glassware and assist cashiers. Breakdown boxes and take to dumpster at end of shift.'},
+  {id:'m-d6-28',date:'2025-12-06',role:'Trash',start:'1:00 PM',end:'3:00 PM',qty:1,desc:'Monitor trash cans; when full take trash to dumpster and replace bag.'},
+  {id:'m-d6-29',date:'2025-12-06',role:'Go-Fer',start:'2:00 PM',end:'4:00 PM',qty:1,desc:'Have a vehicle and be available on-call.',age21:true},
+  {id:'m-d6-30',date:'2025-12-06',role:'Music Ensembles',start:'2:00 PM',end:'3:00 PM',qty:1,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-31',date:'2025-12-06',role:'Cashiers',start:'2:30 PM',end:'4:30 PM',qty:2,desc:'Cashiers handle the sales of food and beverage. Volunteers must be approved by the committee \u2014 please talk to a committee member first.'},
+  {id:'m-d6-32',date:'2025-12-06',role:'German Potato Salad Makers',start:'3:00 PM',end:'5:00 PM',qty:2,desc:''},
+  {id:'m-d6-33',date:'2025-12-06',role:'Greeters',start:'3:00 PM',end:'5:00 PM',qty:2,desc:'Welcome people to Timothy and the Markt.'},
+  {id:'m-d6-34',date:'2025-12-06',role:'Grill Brats and Franks',start:'3:00 PM',end:'5:00 PM',qty:3,desc:''},
+  {id:'m-d6-35',date:'2025-12-06',role:'Hot Drinks',start:'3:00 PM',end:'5:00 PM',qty:3,desc:'At least one person per shift must be 21+.',age21:true},
+  {id:'m-d6-36',date:'2025-12-06',role:'Kitchen',start:'3:00 PM',end:'5:00 PM',qty:3,desc:'Prepare gluhwein base, other food prep and cleaning.'},
+  {id:'m-d6-37',date:'2025-12-06',role:'Knockdown Boxes',start:'3:00 PM',end:'5:00 PM',qty:2,desc:'Knockdown boxes and put in recycling dumpster.'},
+  {id:'m-d6-38',date:'2025-12-06',role:'Music \u2013 Children\'s Choir & Chimers',start:'3:00 PM',end:'4:00 PM',qty:8,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-39',date:'2025-12-06',role:'Sales Assistant',start:'3:00 PM',end:'5:00 PM',qty:2,desc:'Replenish glassware and assist cashiers. Breakdown boxes and take to dumpster at end of shift.'},
+  {id:'m-d6-40',date:'2025-12-06',role:'Trash',start:'3:00 PM',end:'5:00 PM',qty:1,desc:'Monitor trash cans; when full take trash to dumpster and replace bag.'},
+  {id:'m-d6-41',date:'2025-12-06',role:'Go-Fer',start:'4:00 PM',end:'6:00 PM',qty:1,desc:'Have a vehicle and be available on-call.',age21:true},
+  {id:'m-d6-42',date:'2025-12-06',role:'Music Ensembles',start:'4:00 PM',end:'5:00 PM',qty:1,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-43',date:'2025-12-06',role:'Cashiers',start:'4:30 PM',end:'6:30 PM',qty:2,desc:'Cashiers handle the sales of food and beverage. Volunteers must be approved by the committee \u2014 please talk to a committee member first.'},
+  {id:'m-d6-44',date:'2025-12-06',role:'Greeters',start:'5:00 PM',end:'6:00 PM',qty:2,desc:'Welcome people to Timothy and the Markt.'},
+  {id:'m-d6-45',date:'2025-12-06',role:'Grill Brats and Franks',start:'5:00 PM',end:'7:00 PM',qty:3,desc:'Grilling likely wraps up soon after 5 \u2014 this is more of a cleanup shift.'},
+  {id:'m-d6-46',date:'2025-12-06',role:'Hot Drinks',start:'5:00 PM',end:'6:30 PM',qty:3,desc:'Serving ends at 6, so after that is cleanup \u2014 taking items to the kitchen. Must be 21+.',age21:true},
+  {id:'m-d6-47',date:'2025-12-06',role:'Kitchen Cleanup',start:'5:00 PM',end:'7:00 PM',qty:3,desc:''},
+  {id:'m-d6-48',date:'2025-12-06',role:'Knockdown Boxes',start:'5:00 PM',end:'7:00 PM',qty:2,desc:'Knockdown boxes and put in recycling dumpster.'},
+  {id:'m-d6-49',date:'2025-12-06',role:'Music',start:'5:00 PM',end:'6:00 PM',qty:2,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-50',date:'2025-12-06',role:'Trash',start:'5:00 PM',end:'6:00 PM',qty:1,desc:'Monitor trash cans; when full take trash to dumpster and replace bag.'},
+  {id:'m-d6-51',date:'2025-12-06',role:'Debris Pickup',start:'6:00 PM',end:'7:00 PM',qty:2,desc:'Collect trash cans and pick up debris.'},
+  {id:'m-d6-52',date:'2025-12-06',role:'Misc Labor',start:'6:00 PM',end:'7:00 PM',qty:4,desc:'Carry stuff, do as instructed.'},
+  {id:'m-d6-53',date:'2025-12-06',role:'Power and Light Teardown',start:'6:00 PM',end:'7:00 PM',qty:2,desc:'Remove zip ties and wind up lights and cords.'},
+  {id:'m-d6-54',date:'2025-12-06',role:'Tear Down Tables and Chairs',start:'6:00 PM',end:'7:00 PM',qty:6,desc:'Stack on rental carts and cover with tarps.'},
+  {id:'m-d6-55',date:'2025-12-06',role:'Tent Teardown',start:'6:30 PM',end:'7:30 PM',qty:12,desc:'Collapse tents in teams of 6 and put in shipping container.'}
 ];
 
 // Full event config: { [id]: { name, date, roles[] } }
@@ -637,11 +713,21 @@ function getEventConfig() {
   } catch(e) {}
   // Build default from DEFAULT_EVENTS
   var cfg = {};
-  DEFAULT_EVENTS.forEach(function(e) { cfg[e.id] = { name: e.name, date: e.date, roles: e.roles.slice(), order: DEFAULT_EVENTS.indexOf(e) }; });
+  DEFAULT_EVENTS.forEach(function(e) { cfg[e.id] = { name: e.name, date: e.date, roles: e.roles.slice(), order: DEFAULT_EVENTS.indexOf(e), type: e.type || 'standard' }; });
   return cfg;
 }
 function saveEventConfig(cfg) {
   localStorage.setItem('va_event_config', JSON.stringify(cfg));
+}
+function getAdminMarketSlots() {
+  try {
+    var s = JSON.parse(localStorage.getItem('va_market_slots') || 'null');
+    if (s && Array.isArray(s) && s.length) return s;
+  } catch(e) {}
+  return MARKET_SLOTS_DEFAULT.slice();
+}
+function saveAdminMarketSlots(slots) {
+  localStorage.setItem('va_market_slots', JSON.stringify(slots));
 }
 // Sorted list of event entries from config
 function getEventList() {
@@ -910,10 +996,20 @@ function renderEventsAccordion(eventVols) {
     var isOpen   = _openCards.has(evt.id);
     var isEditing = !!_editState[evt.id];
     var ed = isEditing ? _editState[evt.id] : null;
+    var isTimed = (evt.type === 'timed');
     var roles = isEditing ? ed.roles : (evt.roles || []);
 
+    // For timed events, count signups from market slot role labels in volunteer data
     var totalSignups = 0;
-    roles.forEach(function(r) { totalSignups += (roleToVols[r] || []).length; });
+    if (isTimed) {
+      eventVols.forEach(function(v) {
+        (v.roles || []).forEach(function(r) {
+          if (r.indexOf('Christmas Market') === 0) totalSignups++;
+        });
+      });
+    } else {
+      roles.forEach(function(r) { totalSignups += (roleToVols[r] || []).length; });
+    }
 
     html += '<div class="ev-admin-card" id="evcard-' + evt.id + '">'
       + '<div class="ev-admin-header' + (isOpen ? ' open' : '') + '" onclick="toggleEvCard(\'' + evt.id + '\')">'
@@ -931,27 +1027,136 @@ function renderEventsAccordion(eventVols) {
         + '<div class="ev-edit-field"><label>Event Name</label>'
         + '<input type="text" id="ev-name-' + evt.id + '" value="' + escHtml(ed.name) + '" placeholder="Event name"></div>'
         + '<div class="ev-edit-field"><label>Date</label>'
-        + '<input type="text" id="ev-date-' + evt.id + '" value="' + escHtml(ed.date) + '" placeholder="e.g. Apr 4 or Jun TBD"></div>'
-        + '<div class="ev-edit-field"><label>Roles</label>'
-        + '<div class="ev-edit-roles-list" id="ev-roles-list-' + evt.id + '">';
-      ed.roles.forEach(function(role, idx) {
-        html += '<div class="ev-edit-role-item">'
-          + '<button class="ev-edit-role-remove" onclick="removeEvRole(\'' + evt.id + '\',' + idx + ')" title="Remove role">&times;</button>'
-          + '<span class="ev-edit-role-name">' + escHtml(role) + '</span>'
-          + '</div>';
-      });
-      html += '</div>'
-        + '<div class="ev-edit-add-row">'
-        + '<input type="text" id="ev-new-role-' + evt.id + '" placeholder="New role name" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addEvRole(\'' + evt.id + '\');}">'
-        + '<button onclick="addEvRole(\'' + evt.id + '\')">+ Add</button>'
-        + '</div></div>'
-        + '<div class="ev-edit-actions">'
+        + '<input type="text" id="ev-date-' + evt.id + '" value="' + escHtml(ed.date) + '" placeholder="e.g. Apr 4 or Jun TBD"></div>';
+      if (!isTimed) {
+        html += '<div class="ev-edit-field"><label>Roles</label>'
+          + '<div class="ev-edit-roles-list" id="ev-roles-list-' + evt.id + '">';
+        ed.roles.forEach(function(role, idx) {
+          html += '<div class="ev-edit-role-item">'
+            + '<button class="ev-edit-role-remove" onclick="removeEvRole(\'' + evt.id + '\',' + idx + ')" title="Remove role">&times;</button>'
+            + '<span class="ev-edit-role-name">' + escHtml(role) + '</span>'
+            + '</div>';
+        });
+        html += '</div>'
+          + '<div class="ev-edit-add-row">'
+          + '<input type="text" id="ev-new-role-' + evt.id + '" placeholder="New role name" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addEvRole(\'' + evt.id + '\');}">'
+          + '<button onclick="addEvRole(\'' + evt.id + '\')">+ Add</button>'
+          + '</div></div>';
+      } else {
+        html += '<p style="font-size:.82rem;color:var(--warm-gray);font-style:italic;margin-bottom:0.75rem;">Roles are managed as timed slots below.</p>';
+      }
+      html += '<div class="ev-edit-actions">'
         + '<button class="ev-btn-save" onclick="saveEvCard(\'' + evt.id + '\')">Save</button>'
         + '<button class="ev-btn-cancel" onclick="cancelEvEdit(\'' + evt.id + '\')">Cancel</button>'
         + '<button class="ev-btn-delete" onclick="deleteEvent(\'' + evt.id + '\')">&#128465; Delete Event</button>'
         + '</div></div>';
+    } else if (isTimed) {
+      // ── Timed-slot view mode (Christmas Market) ──
+      var allSlots = getAdminMarketSlots();
+      var days = [
+        { date: '2025-12-05', label: 'Fri Dec 5 \u2013 Setup Day' },
+        { date: '2025-12-06', label: 'Sat Dec 6 \u2013 Market Day' }
+      ];
+      html += '<div style="margin-bottom:0.75rem;">'
+        + '<button class="ev-admin-edit-btn" onclick="showAddMarketSlot()" style="margin-right:0.5rem;">&#65291; Add Slot</button>'
+        + '</div>'
+        + '<div id="add-market-slot-form" style="display:none;background:var(--blue-mist);border:1px solid var(--ice-blue);border-radius:8px;padding:1rem;margin-bottom:1rem;">'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:0.5rem;">'
+        + '<div><label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:3px;">Day</label>'
+        + '<select id="ms-new-date" style="width:100%;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.85rem;">'
+        + '<option value="2025-12-05">Dec 5 \u2013 Setup</option>'
+        + '<option value="2025-12-06">Dec 6 \u2013 Market Day</option>'
+        + '</select></div>'
+        + '<div><label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:3px;">Role Name</label>'
+        + '<input type="text" id="ms-new-role" placeholder="e.g. Grill Brats" style="width:100%;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.85rem;"></div>'
+        + '<div><label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:3px;">Start Time</label>'
+        + '<input type="text" id="ms-new-start" placeholder="e.g. 10:00 AM" style="width:100%;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.85rem;"></div>'
+        + '<div><label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:3px;">End Time</label>'
+        + '<input type="text" id="ms-new-end" placeholder="e.g. 12:00 PM" style="width:100%;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.85rem;"></div>'
+        + '<div><label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:3px;">Spots (qty)</label>'
+        + '<input type="number" id="ms-new-qty" min="1" value="1" style="width:100%;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.85rem;"></div>'
+        + '</div>'
+        + '<div style="margin-bottom:0.5rem;"><label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:3px;">Description</label>'
+        + '<textarea id="ms-new-desc" rows="2" style="width:100%;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.85rem;resize:vertical;"></textarea></div>'
+        + '<div style="display:flex;gap:0.5rem;">'
+        + '<button class="ev-btn-save" onclick="saveNewMarketSlot()">Add Slot</button>'
+        + '<button class="ev-btn-cancel" onclick="document.getElementById(\'add-market-slot-form\').style.display=\'none\'">Cancel</button>'
+        + '</div></div>';
+
+      days.forEach(function(day) {
+        var daySlots = allSlots.filter(function(s) { return s.date === day.date; })
+          .sort(function(a, b) {
+            var toMins = function(t) { var m=t.match(/(\d+):(\d+)\s*(AM|PM)/i); if(!m)return 0; var h=parseInt(m[1]),mn=parseInt(m[2]),ap=m[3].toUpperCase(); if(ap==='PM'&&h!==12)h+=12; if(ap==='AM'&&h===12)h=0; return h*60+mn; };
+            return toMins(a.start) - toMins(b.start) || a.role.localeCompare(b.role);
+          });
+        html += '<div style="margin-bottom:1.25rem;">'
+          + '<div style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mid-steel);margin-bottom:.5rem;padding-bottom:.3rem;border-bottom:1px solid var(--border);">' + day.label + '</div>';
+        if (!daySlots.length) {
+          html += '<p style="font-size:.82rem;color:var(--warm-gray);font-style:italic;">No slots for this day.</p>';
+        }
+        daySlots.forEach(function(slot) {
+          var slotVols = [];
+          eventVols.forEach(function(v) {
+            var dl = slot.date === '2025-12-05' ? 'Dec 5' : 'Dec 6';
+            var label = 'Christmas Market \u2013 ' + slot.role + ' (' + dl + ', ' + slot.start + '\u2013' + slot.end + ')';
+            if ((v.roles || []).indexOf(label) !== -1) slotVols.push(v);
+          });
+          var editId = 'ms-edit-' + slot.id;
+          html += '<div class="ev-role-row slot-row" id="msrow-' + slot.id + '">'
+            + '<div class="ev-role-label" style="min-width:8rem;font-size:.78rem;">'
+            + '<span style="color:var(--sky-steel);font-weight:700;">' + escHtml(slot.start) + '\u2013' + escHtml(slot.end) + '</span><br>'
+            + escHtml(slot.role)
+            + (slot.age21 ? '<br><span style="color:var(--amber);font-size:.72rem;">21+</span>' : '')
+            + '<br><span style="color:var(--warm-gray);font-size:.72rem;">' + slot.qty + (slot.qty===1?' spot':' spots') + '</span>'
+            + '</div>'
+            + '<div class="ev-role-signups">';
+          if (!slotVols.length) {
+            html += '<span class="ev-role-empty">No sign-ups yet</span>';
+          } else {
+            slotVols.forEach(function(v) {
+              var ago = v.submittedAt ? timeAgo(v.submittedAt) : '';
+              html += '<div class="ev-signup-row">'
+                + '<span class="ev-signup-name">' + escHtml(v.name || '') + '</span>'
+                + '<span class="ev-signup-email">' + escHtml(v.email || '') + '</span>'
+                + (v.phone ? '<span class="ev-signup-email">' + escHtml(v.phone) + '</span>' : '')
+                + (ago ? '<span class="ev-signup-email">' + ago + '</span>' : '')
+                + (v.id ? '<button class="ev-signup-dismiss" onclick="dismissEvent(\'' + escHtml(v.id) + '\')">Dismiss</button>' : '')
+                + '</div>';
+            });
+          }
+          html += '</div>'
+            + '<div style="display:flex;flex-direction:column;gap:0.3rem;padding-left:0.5rem;flex-shrink:0;">'
+            + '<button class="ev-admin-edit-btn" onclick="editMarketSlot(\'' + slot.id + '\')" title="Edit slot" style="font-size:.75rem;padding:3px 7px;">&#9998;</button>'
+            + '<button class="ev-admin-edit-btn" onclick="deleteMarketSlot(\'' + slot.id + '\')" title="Delete slot" style="font-size:.75rem;padding:3px 7px;background:rgba(180,50,50,0.08);border-color:rgba(180,50,50,0.2);color:#b43232;">&times;</button>'
+            + '</div>'
+            + '</div>'
+            + '<div id="' + editId + '" style="display:none;background:var(--blue-mist);border:1px solid var(--ice-blue);border-radius:8px;padding:0.9rem;margin-bottom:0.5rem;">'
+            + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:0.5rem;">'
+            + '<div><label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:3px;">Day</label>'
+            + '<select id="' + editId + '-date" style="width:100%;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.85rem;">'
+            + '<option value="2025-12-05"' + (slot.date==='2025-12-05'?' selected':'') + '>Dec 5 \u2013 Setup</option>'
+            + '<option value="2025-12-06"' + (slot.date==='2025-12-06'?' selected':'') + '>Dec 6 \u2013 Market Day</option>'
+            + '</select></div>'
+            + '<div><label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:3px;">Role Name</label>'
+            + '<input type="text" id="' + editId + '-role" value="' + escHtml(slot.role) + '" style="width:100%;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.85rem;"></div>'
+            + '<div><label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:3px;">Start Time</label>'
+            + '<input type="text" id="' + editId + '-start" value="' + escHtml(slot.start) + '" style="width:100%;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.85rem;"></div>'
+            + '<div><label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:3px;">End Time</label>'
+            + '<input type="text" id="' + editId + '-end" value="' + escHtml(slot.end) + '" style="width:100%;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.85rem;"></div>'
+            + '<div><label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:3px;">Spots</label>'
+            + '<input type="number" id="' + editId + '-qty" value="' + slot.qty + '" min="1" style="width:100%;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.85rem;"></div>'
+            + '</div>'
+            + '<div style="margin-bottom:0.5rem;"><label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:3px;">Description</label>'
+            + '<textarea id="' + editId + '-desc" rows="2" style="width:100%;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.85rem;resize:vertical;">' + escHtml(slot.desc || '') + '</textarea></div>'
+            + '<div style="display:flex;gap:0.5rem;">'
+            + '<button class="ev-btn-save" onclick="updateMarketSlot(\'' + slot.id + '\')">Save</button>'
+            + '<button class="ev-btn-cancel" onclick="document.getElementById(\'' + editId + '\').style.display=\'none\'">Cancel</button>'
+            + '</div></div>';
+        });
+        html += '</div>';
+      });
     } else {
-      // ── View mode ──
+      // ── Standard view mode ──
       roles.forEach(function(role) {
         var vols = roleToVols[role] || [];
         html += '<div class="ev-role-row">'
@@ -1016,7 +1221,7 @@ function saveEvCard(eventId) {
   if (dateEl) ed.date = dateEl.value.trim();
   if (!ed.name) { alert('Event name cannot be empty.'); return; }
   var cfg = getEventConfig();
-  cfg[eventId] = { name: ed.name, date: ed.date, roles: ed.roles.slice(), order: cfg[eventId] ? cfg[eventId].order : Date.now() };
+  cfg[eventId] = { name: ed.name, date: ed.date, roles: ed.roles.slice(), order: cfg[eventId] ? cfg[eventId].order : Date.now(), type: cfg[eventId] ? (cfg[eventId].type || 'standard') : 'standard' };
   saveEventConfig(cfg);
   delete _editState[eventId];
   renderEventsAccordion(filteredList());
@@ -1068,6 +1273,62 @@ function deleteEvent(eventId) {
   renderEventsAccordion(filteredList());
 }
 window.deleteEvent = deleteEvent;
+
+// ── Christmas Market slot management ─────────────────────────────────────────
+function showAddMarketSlot() {
+  var form = document.getElementById('add-market-slot-form');
+  if (form) form.style.display = form.style.display === 'none' ? '' : 'none';
+}
+window.showAddMarketSlot = showAddMarketSlot;
+
+function saveNewMarketSlot() {
+  var date  = (document.getElementById('ms-new-date')  || {}).value || '';
+  var role  = ((document.getElementById('ms-new-role')  || {}).value || '').trim();
+  var start = ((document.getElementById('ms-new-start') || {}).value || '').trim();
+  var end   = ((document.getElementById('ms-new-end')   || {}).value || '').trim();
+  var qty   = parseInt((document.getElementById('ms-new-qty') || {}).value || '1', 10) || 1;
+  var desc  = ((document.getElementById('ms-new-desc')  || {}).value || '').trim();
+  if (!role || !start || !end) { alert('Role, start time, and end time are required.'); return; }
+  var slots = getAdminMarketSlots();
+  var id = 'ms-' + Date.now().toString(36);
+  slots.push({ id: id, date: date, role: role, start: start, end: end, qty: qty, desc: desc });
+  saveAdminMarketSlots(slots);
+  renderEventsAccordion(filteredList());
+}
+window.saveNewMarketSlot = saveNewMarketSlot;
+
+function editMarketSlot(slotId) {
+  var el = document.getElementById('ms-edit-' + slotId);
+  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+window.editMarketSlot = editMarketSlot;
+
+function updateMarketSlot(slotId) {
+  var prefix = 'ms-edit-' + slotId;
+  var date  = (document.getElementById(prefix + '-date')  || {}).value || '';
+  var role  = ((document.getElementById(prefix + '-role')  || {}).value || '').trim();
+  var start = ((document.getElementById(prefix + '-start') || {}).value || '').trim();
+  var end   = ((document.getElementById(prefix + '-end')   || {}).value || '').trim();
+  var qty   = parseInt((document.getElementById(prefix + '-qty') || {}).value || '1', 10) || 1;
+  var desc  = ((document.getElementById(prefix + '-desc')  || {}).value || '').trim();
+  if (!role || !start || !end) { alert('Role, start time, and end time are required.'); return; }
+  var slots = getAdminMarketSlots();
+  var idx = -1;
+  for (var i = 0; i < slots.length; i++) { if (slots[i].id === slotId) { idx = i; break; } }
+  if (idx === -1) { alert('Slot not found.'); return; }
+  slots[idx] = Object.assign({}, slots[idx], { date: date, role: role, start: start, end: end, qty: qty, desc: desc });
+  saveAdminMarketSlots(slots);
+  renderEventsAccordion(filteredList());
+}
+window.updateMarketSlot = updateMarketSlot;
+
+function deleteMarketSlot(slotId) {
+  if (!confirm('Delete this slot?')) return;
+  var slots = getAdminMarketSlots().filter(function(s) { return s.id !== slotId; });
+  saveAdminMarketSlots(slots);
+  renderEventsAccordion(filteredList());
+}
+window.deleteMarketSlot = deleteMarketSlot;
 
 function dismissEvent(id) {
   var s = getSettings();

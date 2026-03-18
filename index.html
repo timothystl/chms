@@ -631,6 +631,29 @@ footer a:hover { text-decoration: underline; }
 .ev-chevron { width: 20px; height: 20px; color: var(--teal); transition: transform 0.2s; }
 .ev-card-header[aria-expanded="true"] .ev-chevron { transform: rotate(180deg); }
 .ev-card-roles { padding: 1.25rem 1.5rem 1.5rem; border-top: 1px solid var(--border); }
+
+/* ── Christmas Market timed-slot UI ── */
+.market-day-tabs { display:flex; gap:0.5rem; margin-bottom:1rem; }
+.mday-btn { flex:1; padding:0.55rem 0.75rem; border-radius:10px; border:1.5px solid var(--border); background:var(--warm-white); color:var(--text-secondary); font-family:var(--font-body); font-size:0.82rem; font-weight:600; cursor:pointer; transition:all 0.15s; text-align:center; }
+.mday-btn.active { background:var(--teal); border-color:var(--teal); color:#fff; }
+.market-controls { display:flex; align-items:center; gap:0.5rem; margin-bottom:0.9rem; flex-wrap:wrap; }
+.market-sort-label { font-size:0.75rem; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.06em; margin-right:0.25rem; }
+.msort-btn { padding:0.22rem 0.7rem; border-radius:20px; border:1.5px solid var(--border); background:transparent; color:var(--text-secondary); font-family:var(--font-body); font-size:0.78rem; font-weight:600; cursor:pointer; transition:all 0.15s; }
+.msort-btn.active { background:var(--navy); border-color:var(--navy); color:#fff; }
+.market-slot-list { display:flex; flex-direction:column; gap:0.45rem; }
+.mslot { display:flex; align-items:flex-start; gap:0.9rem; padding:0.75rem 0.9rem; border:1.5px solid var(--border); border-radius:10px; background:var(--white); cursor:pointer; transition:all 0.15s; user-select:none; }
+.mslot:hover { border-color:rgba(46,126,166,0.35); background:rgba(46,126,166,0.02); }
+.mslot.selected { border-color:var(--teal); background:rgba(46,126,166,0.07); }
+.mslot-time { min-width:5.5rem; font-size:0.74rem; font-weight:700; color:var(--teal); line-height:1.35; padding-top:0.1rem; flex-shrink:0; }
+.mslot-body { flex:1; min-width:0; }
+.mslot-role { font-size:0.9rem; font-weight:600; color:var(--text-primary); margin-bottom:0.2rem; }
+.mslot-desc { font-size:0.8rem; color:var(--text-secondary); line-height:1.4; margin-bottom:0.3rem; }
+.mslot-meta { display:flex; gap:0.6rem; flex-wrap:wrap; align-items:center; }
+.mslot-qty { font-size:0.74rem; background:rgba(46,126,166,0.1); color:var(--teal); border-radius:4px; padding:0.1rem 0.4rem; font-weight:700; }
+.mslot-age { font-size:0.74rem; color:var(--gold, #C9973A); font-weight:600; }
+.mslot-check { width:20px; height:20px; border-radius:50%; border:2px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:0.7rem; color:#fff; flex-shrink:0; transition:all 0.15s; margin-top:0.1rem; }
+.mslot.selected .mslot-check { background:var(--teal); border-color:var(--teal); }
+
 @media (max-width: 560px) {
   .ev-card-header { flex-wrap: wrap; }
   .ev-card-cta { flex-direction: row; width: 100%; justify-content: flex-end; }
@@ -1136,80 +1159,13 @@ footer a:hover { text-decoration: underline; }
         </div>
       </button>
       <div class="ev-card-roles" id="ev-roles-market" hidden>
-        <div class="role-grid">
-          <label class="role-card" for="r-market-setup">
-            <input type="checkbox" id="r-market-setup" name="roles" value="Christmas Market &ndash; Setup &amp; Teardown" data-ministry="events" data-event="market">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Setup &amp; Teardown</span></div>
-            <p class="role-desc">Arrange booths, tables, signage, and lighting before opening, and break everything down after closing.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>When:</strong> Setup day before; teardown evening of Day 2</div></div>
-          </label>
-          <label class="role-card" for="r-market-food">
-            <input type="checkbox" id="r-market-food" name="roles" value="Christmas Market &ndash; Baked Goods &amp; Food" data-ministry="events" data-event="market">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Baked Goods &amp; Food</span></div>
-            <p class="role-desc">Donate or staff the food table &mdash; cookies, breads, and holiday treats that bring people in and fund church programs.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> Bakers and table helpers</div></div>
-          </label>
-          <label class="role-card" for="r-market-kids">
-            <input type="checkbox" id="r-market-kids" name="roles" value="Christmas Market &ndash; Kids' Activities" data-ministry="events" data-event="market">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Kids&rsquo; Activities</span></div>
-            <p class="role-desc">Run crafts, games, or a visit with Santa so families can enjoy the whole market.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> Families, youth group, anyone who loves kids</div></div>
-          </label>
-          <label class="role-card" for="r-market-welcome">
-            <input type="checkbox" id="r-market-welcome" name="roles" value="Christmas Market &ndash; Welcome Table" data-ministry="events" data-event="market">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Welcome Table</span></div>
-            <p class="role-desc">Greet visitors, hand out programs, answer questions, and point people to what&rsquo;s happening where.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>Commitment:</strong> 2&ndash;3 hour shift(s)</div></div>
-          </label>
-          <label class="role-card" for="r-market-vendors">
-            <input type="checkbox" id="r-market-vendors" name="roles" value="Christmas Market &ndash; Booth Vendor Support" data-ministry="events" data-event="market">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Booth Vendor Support</span></div>
-            <p class="role-desc">Help vendors load in, arrange their booths, and navigate the space. Friendly, physical work that keeps everything running smoothly.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>When:</strong> Setup morning and throughout market hours</div></div>
-          </label>
-          <label class="role-card" for="r-market-santa">
-            <input type="checkbox" id="r-market-santa" name="roles" value="Christmas Market &ndash; Santa Station" data-ministry="events" data-event="market">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Santa Station</span></div>
-            <p class="role-desc">Play Santa or serve as an elf at the Santa photo area. Make the magic real for kids and families. Details coordinated in advance.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> Good sports and holiday enthusiasts</div></div>
-          </label>
-          <label class="role-card" for="r-market-music">
-            <input type="checkbox" id="r-market-music" name="roles" value="Christmas Market &ndash; Live Music &amp; Entertainment" data-ministry="events" data-event="market">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Live Music &amp; Entertainment</span></div>
-            <p class="role-desc">Perform holiday music, coordinate carolers, or assist with sound. Elevates the whole atmosphere of the market.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> Musicians, singers, and music lovers</div></div>
-          </label>
-          <label class="role-card" for="r-market-photo">
-            <input type="checkbox" id="r-market-photo" name="roles" value="Christmas Market &ndash; Photography" data-ministry="events" data-event="market">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Photography</span></div>
-            <p class="role-desc">Capture candid moments, booth highlights, and family memories throughout the market. Photos used for social media and church records.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> Anyone with a camera or smartphone</div></div>
-          </label>
-          <label class="role-card" for="r-market-sales">
-            <input type="checkbox" id="r-market-sales" name="roles" value="Christmas Market &ndash; Cashier &amp; Sales" data-ministry="events" data-event="market">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Cashier &amp; Sales</span></div>
-            <p class="role-desc">Staff the church&rsquo;s own booth and handle sales or donations. Friendly and organized help welcome.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>Commitment:</strong> 2&ndash;3 hour shift(s)</div></div>
-          </label>
-          <label class="role-card" for="r-market-decorating">
-            <input type="checkbox" id="r-market-decorating" name="roles" value="Christmas Market &ndash; Decorating" data-ministry="events" data-event="market">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Decorating</span></div>
-            <p class="role-desc">Deck the halls &mdash; hang lights, arrange wreaths, and transform the space into a festive market before doors open.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>When:</strong> Day before the event</div></div>
-          </label>
-          <label class="role-card" for="r-market-leadership">
-            <input type="checkbox" id="r-market-leadership" name="roles" value="Christmas Market &ndash; Planning &amp; Leadership" data-ministry="events" data-event="market">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Planning &amp; Leadership</span></div>
-            <p class="role-desc">Help coordinate vendors, logistics, and volunteers in the weeks leading up to the market. Great if you love organizing.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>Commitment:</strong> Planning meetings + both event days</div></div>
-          </label>
-          <label class="role-card" for="r-market-other">
-            <input type="checkbox" id="r-market-other" name="roles" value="Christmas Market &ndash; Other" data-ministry="events" data-event="market">
-            <div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">Other</span></div>
-            <p class="role-desc">Not sure where you fit? Sign up and the event coordinator will find the perfect spot for you.</p>
-            <div class="role-meta"><div class="role-meta-item"><strong>Open to:</strong> Everyone</div></div>
-          </label>
+        <div class="market-day-tabs" id="market-day-tabs"></div>
+        <div class="market-controls">
+          <span class="market-sort-label">Sort by:</span>
+          <button class="msort-btn active" id="msort-time" onclick="marketSort('time')">Time</button>
+          <button class="msort-btn" id="msort-role" onclick="marketSort('role')">Role</button>
         </div>
+        <div id="market-slot-list"></div>
       </div>
     </div>
 
@@ -1682,6 +1638,161 @@ function navigate(pageId) {
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
+// ── Christmas Market timed slots ──────────────────────────────────
+var MARKET_SLOTS_DEFAULT = [
+  // Dec 5 – Setup Day
+  {id:'m-d5-01',date:'2025-12-05',role:'Move stuff out of storage room',start:'9:00 AM',end:'11:00 AM',qty:4,desc:'Bring items from basement storage room up to kitchen or over to parking lot as instructed.'},
+  {id:'m-d5-02',date:'2025-12-05',role:'Set up tents',start:'9:00 AM',end:'11:00 AM',qty:18,desc:'Teams of 6 unload tents, spread and raise them, then attach sides and weigh down with sandbags.'},
+  {id:'m-d5-03',date:'2025-12-05',role:'Help Rick run power cords',start:'11:00 AM',end:'12:00 PM',qty:1,desc:'Run power cords down rows of tents or as otherwise directed by Rick.'},
+  {id:'m-d5-04',date:'2025-12-05',role:'Move Glasses',start:'11:00 AM',end:'12:00 PM',qty:2,desc:'Bring glassware up from basement and over to parking lot using little wagons.'},
+  {id:'m-d5-05',date:'2025-12-05',role:'Set up Tables and Chairs',start:'11:00 AM',end:'12:00 PM',qty:6,desc:'Put tables in front of all tents, stage biergarten tables and chairs out of way. Actual time depends on delivery \u2014 may not occur until after lunch.'},
+  {id:'m-d5-06',date:'2025-12-05',role:'Want free lunch?',start:'12:00 PM',end:'1:00 PM',qty:30,desc:'Please let us know if you\'ll be joining us for lunch during setup day. It will include fried chicken and misc sides.'},
+  {id:'m-d5-07',date:'2025-12-05',role:'Help Rick install lights',start:'1:00 PM',end:'3:00 PM',qty:1,desc:'Attach strings of lights to tents.'},
+  {id:'m-d5-08',date:'2025-12-05',role:'Pick up Meat',start:'1:00 PM',end:'2:00 PM',qty:1,desc:'Go with Marla to G&W to pick up the meats.'},
+  {id:'m-d5-09',date:'2025-12-05',role:'Potato Salad Prep',start:'1:00 PM',end:'3:00 PM',qty:2,desc:''},
+  {id:'m-d5-10',date:'2025-12-05',role:'Set up Payment System',start:'1:00 PM',end:'2:00 PM',qty:2,desc:''},
+  {id:'m-d5-11',date:'2025-12-05',role:'Signs',start:'1:00 PM',end:'2:00 PM',qty:2,desc:'Post booth numbers and general signage.'},
+  {id:'m-d5-12',date:'2025-12-05',role:'Propane Heaters',start:'3:00 PM',end:'4:00 PM',qty:1,desc:''},
+  // Dec 6 – Market Day
+  {id:'m-d6-01',date:'2025-12-06',role:'Load-In Traffic Control',start:'7:30 AM',end:'11:00 AM',qty:2,desc:''},
+  {id:'m-d6-02',date:'2025-12-06',role:'Vendor Directions',start:'7:30 AM',end:'11:00 AM',qty:2,desc:''},
+  {id:'m-d6-03',date:'2025-12-06',role:'German Potato Salad Makers',start:'9:00 AM',end:'11:00 AM',qty:2,desc:'Sauce will be made in advance. Your job will be heating up the ingredients, mixing them together, and scooping into dishes for sale. Then transport over to the parking lot.'},
+  {id:'m-d6-04',date:'2025-12-06',role:'Kitchen',start:'9:00 AM',end:'11:00 AM',qty:3,desc:'Prepare gluhwein base, other food prep and cleaning.'},
+  {id:'m-d6-05',date:'2025-12-06',role:'Grill Setup',start:'10:00 AM',end:'11:00 AM',qty:3,desc:''},
+  {id:'m-d6-06',date:'2025-12-06',role:'Hot Drinks Setup',start:'10:00 AM',end:'11:00 AM',qty:3,desc:'At least one person per shift must be 21+. Monitor & refill; transport 5-gal water jugs from kitchen to tent with wagon; heat water for hot chocolate; mix hot chocolate and cider using printed instructions; transport Gl\u00fchwein starter from kitchen to tent; add wine and heat.',age21:true},
+  {id:'m-d6-07',date:'2025-12-06',role:'Go-Fer',start:'10:00 AM',end:'12:00 PM',qty:1,desc:'Have a vehicle and be available on-call.',age21:true},
+  {id:'m-d6-08',date:'2025-12-06',role:'Cashiers',start:'10:30 AM',end:'12:30 PM',qty:2,desc:'Cashiers handle the sales of food and beverage. Due to the responsibility of this job in handling money, volunteers must be approved by the committee. Please do not sign up without talking to a committee member first.'},
+  {id:'m-d6-09',date:'2025-12-06',role:'German Potato Salad Makers',start:'11:00 AM',end:'1:00 PM',qty:2,desc:'Sauce will be made in advance. Heat ingredients, mix together, scoop into dishes for sale. Transport over to parking lot.'},
+  {id:'m-d6-10',date:'2025-12-06',role:'Greeters',start:'11:00 AM',end:'1:00 PM',qty:2,desc:'Welcome people to Timothy and the Markt. Explain how to buy food and beverage. Tell them about the congregation and answer questions.'},
+  {id:'m-d6-11',date:'2025-12-06',role:'Grill Brats and Franks',start:'11:00 AM',end:'1:00 PM',qty:3,desc:''},
+  {id:'m-d6-12',date:'2025-12-06',role:'Hot Drinks',start:'11:00 AM',end:'1:00 PM',qty:4,desc:'At least one person per shift must be 21+. Monitor & refill; transport jugs; heat water for hot chocolate; mix beverages using printed instructions; transport Gl\u00fchwein starter; add wine and heat; end of day return everything to kitchen for cleaning.',age21:true},
+  {id:'m-d6-13',date:'2025-12-06',role:'Kitchen',start:'11:00 AM',end:'1:00 PM',qty:3,desc:'Prepare gluhwein base, other food prep and cleaning.'},
+  {id:'m-d6-14',date:'2025-12-06',role:'Sales Assistant',start:'11:00 AM',end:'1:00 PM',qty:2,desc:'Replenish glassware and assist cashiers. Breakdown boxes and take to dumpster at end of shift.'},
+  {id:'m-d6-15',date:'2025-12-06',role:'Trash',start:'11:00 AM',end:'1:00 PM',qty:1,desc:'Monitor trash cans; when full take trash to dumpster and replace bag.'},
+  {id:'m-d6-16',date:'2025-12-06',role:'Music',start:'12:00 PM',end:'12:15 PM',qty:1,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-17',date:'2025-12-06',role:'Music',start:'12:15 PM',end:'12:45 PM',qty:3,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-18',date:'2025-12-06',role:'Go-Fer',start:'12:00 PM',end:'2:00 PM',qty:1,desc:'Have a vehicle and be available on-call.',age21:true},
+  {id:'m-d6-19',date:'2025-12-06',role:'Cashiers',start:'12:30 PM',end:'2:30 PM',qty:2,desc:'Cashiers handle the sales of food and beverage. Volunteers must be approved by the committee \u2014 please talk to a committee member first.'},
+  {id:'m-d6-20',date:'2025-12-06',role:'Music',start:'1:00 PM',end:'2:00 PM',qty:1,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-21',date:'2025-12-06',role:'Music Ensemble',start:'1:30 PM',end:'2:00 PM',qty:1,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-22',date:'2025-12-06',role:'German Potato Salad Makers',start:'1:00 PM',end:'3:00 PM',qty:2,desc:'Sauce will be made in advance. Heat ingredients, mix together, scoop into dishes for sale. Transport over to parking lot.'},
+  {id:'m-d6-23',date:'2025-12-06',role:'Greeters',start:'1:00 PM',end:'3:00 PM',qty:2,desc:'Welcome people to Timothy and the Markt. Explain how to buy food and beverage. Tell them about the congregation and answer questions.'},
+  {id:'m-d6-24',date:'2025-12-06',role:'Grill Brats and Franks',start:'1:00 PM',end:'3:00 PM',qty:3,desc:''},
+  {id:'m-d6-25',date:'2025-12-06',role:'Hot Drinks',start:'1:00 PM',end:'3:00 PM',qty:3,desc:'At least one person per shift must be 21+.',age21:true},
+  {id:'m-d6-26',date:'2025-12-06',role:'Kitchen',start:'1:00 PM',end:'3:00 PM',qty:3,desc:'Prepare gluhwein base, other food prep and cleaning.'},
+  {id:'m-d6-27',date:'2025-12-06',role:'Sales Assistant',start:'1:00 PM',end:'3:00 PM',qty:2,desc:'Replenish glassware and assist cashiers. Breakdown boxes and take to dumpster at end of shift.'},
+  {id:'m-d6-28',date:'2025-12-06',role:'Trash',start:'1:00 PM',end:'3:00 PM',qty:1,desc:'Monitor trash cans; when full take trash to dumpster and replace bag.'},
+  {id:'m-d6-29',date:'2025-12-06',role:'Go-Fer',start:'2:00 PM',end:'4:00 PM',qty:1,desc:'Have a vehicle and be available on-call.',age21:true},
+  {id:'m-d6-30',date:'2025-12-06',role:'Music Ensembles',start:'2:00 PM',end:'3:00 PM',qty:1,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-31',date:'2025-12-06',role:'Cashiers',start:'2:30 PM',end:'4:30 PM',qty:2,desc:'Cashiers handle the sales of food and beverage. Volunteers must be approved by the committee \u2014 please talk to a committee member first.'},
+  {id:'m-d6-32',date:'2025-12-06',role:'German Potato Salad Makers',start:'3:00 PM',end:'5:00 PM',qty:2,desc:'Sauce will be made in advance. Heat ingredients, mix together, scoop into dishes for sale.'},
+  {id:'m-d6-33',date:'2025-12-06',role:'Greeters',start:'3:00 PM',end:'5:00 PM',qty:2,desc:'Welcome people to Timothy and the Markt.'},
+  {id:'m-d6-34',date:'2025-12-06',role:'Grill Brats and Franks',start:'3:00 PM',end:'5:00 PM',qty:3,desc:''},
+  {id:'m-d6-35',date:'2025-12-06',role:'Hot Drinks',start:'3:00 PM',end:'5:00 PM',qty:3,desc:'At least one person per shift must be 21+.',age21:true},
+  {id:'m-d6-36',date:'2025-12-06',role:'Kitchen',start:'3:00 PM',end:'5:00 PM',qty:3,desc:'Prepare gluhwein base, other food prep and cleaning.'},
+  {id:'m-d6-37',date:'2025-12-06',role:'Knockdown Boxes',start:'3:00 PM',end:'5:00 PM',qty:2,desc:'Knockdown boxes and put in recycling dumpster.'},
+  {id:'m-d6-38',date:'2025-12-06',role:'Music \u2013 Children\'s Choir & Chimers',start:'3:00 PM',end:'4:00 PM',qty:8,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-39',date:'2025-12-06',role:'Sales Assistant',start:'3:00 PM',end:'5:00 PM',qty:2,desc:'Replenish glassware and assist cashiers. Breakdown boxes and take to dumpster at end of shift.'},
+  {id:'m-d6-40',date:'2025-12-06',role:'Trash',start:'3:00 PM',end:'5:00 PM',qty:1,desc:'Monitor trash cans; when full take trash to dumpster and replace bag.'},
+  {id:'m-d6-41',date:'2025-12-06',role:'Go-Fer',start:'4:00 PM',end:'6:00 PM',qty:1,desc:'Have a vehicle and be available on-call.',age21:true},
+  {id:'m-d6-42',date:'2025-12-06',role:'Music Ensembles',start:'4:00 PM',end:'5:00 PM',qty:1,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-43',date:'2025-12-06',role:'Cashiers',start:'4:30 PM',end:'6:30 PM',qty:2,desc:'Cashiers handle the sales of food and beverage. Volunteers must be approved by the committee \u2014 please talk to a committee member first.'},
+  {id:'m-d6-44',date:'2025-12-06',role:'Greeters',start:'5:00 PM',end:'6:00 PM',qty:2,desc:'Welcome people to Timothy and the Markt.'},
+  {id:'m-d6-45',date:'2025-12-06',role:'Grill Brats and Franks',start:'5:00 PM',end:'7:00 PM',qty:3,desc:'Grilling likely wraps up soon after 5 \u2014 this is more of a cleanup shift.'},
+  {id:'m-d6-46',date:'2025-12-06',role:'Hot Drinks',start:'5:00 PM',end:'6:30 PM',qty:3,desc:'Serving ends at 6, so after that is cleanup \u2014 taking items to the kitchen. Must be 21+.',age21:true},
+  {id:'m-d6-47',date:'2025-12-06',role:'Kitchen Cleanup',start:'5:00 PM',end:'7:00 PM',qty:3,desc:''},
+  {id:'m-d6-48',date:'2025-12-06',role:'Knockdown Boxes',start:'5:00 PM',end:'7:00 PM',qty:2,desc:'Knockdown boxes and put in recycling dumpster.'},
+  {id:'m-d6-49',date:'2025-12-06',role:'Music',start:'5:00 PM',end:'6:00 PM',qty:2,desc:'Ensembles, vocal or instrumental. Contact jinah@timothystl.org'},
+  {id:'m-d6-50',date:'2025-12-06',role:'Trash',start:'5:00 PM',end:'6:00 PM',qty:1,desc:'Monitor trash cans; when full take trash to dumpster and replace bag.'},
+  {id:'m-d6-51',date:'2025-12-06',role:'Debris Pickup',start:'6:00 PM',end:'7:00 PM',qty:2,desc:'Collect trash cans and pick up debris.'},
+  {id:'m-d6-52',date:'2025-12-06',role:'Misc Labor',start:'6:00 PM',end:'7:00 PM',qty:4,desc:'Carry stuff, do as instructed.'},
+  {id:'m-d6-53',date:'2025-12-06',role:'Power and Light Teardown',start:'6:00 PM',end:'7:00 PM',qty:2,desc:'Remove zip ties and wind up lights and cords.'},
+  {id:'m-d6-54',date:'2025-12-06',role:'Tear Down Tables and Chairs',start:'6:00 PM',end:'7:00 PM',qty:6,desc:'Stack on rental carts and cover with tarps.'},
+  {id:'m-d6-55',date:'2025-12-06',role:'Tent Teardown',start:'6:30 PM',end:'7:30 PM',qty:12,desc:'Collapse tents in teams of 6 and put in shipping container.'}
+];
+
+var _marketDay = '2025-12-05';
+var _marketSortMode = 'time';
+var _marketSelected = {};
+
+function getMarketSlots() {
+  try {
+    var s = JSON.parse(localStorage.getItem('va_market_slots') || 'null');
+    if (s && Array.isArray(s) && s.length) return s;
+  } catch(e) {}
+  return MARKET_SLOTS_DEFAULT;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function timeToMinutes(t) {
+  var m = t.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!m) return 0;
+  var h = parseInt(m[1]), min = parseInt(m[2]), ampm = m[3].toUpperCase();
+  if (ampm === 'PM' && h !== 12) h += 12;
+  if (ampm === 'AM' && h === 12) h = 0;
+  return h * 60 + min;
+}
+
+function marketSort(mode) {
+  _marketSortMode = mode;
+  document.querySelectorAll('.msort-btn').forEach(function(b) { b.classList.toggle('active', b.id === 'msort-' + mode); });
+  renderMarketSlots();
+}
+
+function marketSetDay(d) {
+  _marketDay = d;
+  document.querySelectorAll('.mday-btn').forEach(function(b) { b.classList.toggle('active', b.dataset.date === d); });
+  renderMarketSlots();
+}
+
+function toggleMarketSlot(id) {
+  _marketSelected[id] = !_marketSelected[id];
+  renderMarketSlots();
+  updatePreviews();
+}
+
+function renderMarketSlots() {
+  var slots = getMarketSlots().filter(function(s) { return s.date === _marketDay; });
+  if (_marketSortMode === 'time') {
+    slots.sort(function(a, b) { return timeToMinutes(a.start) - timeToMinutes(b.start) || a.role.localeCompare(b.role); });
+  } else {
+    slots.sort(function(a, b) { return a.role.localeCompare(b.role) || timeToMinutes(a.start) - timeToMinutes(b.start); });
+  }
+  var listEl = document.getElementById('market-slot-list');
+  if (!listEl) return;
+  if (!slots.length) { listEl.innerHTML = '<p style="color:var(--text-muted);font-size:0.88rem;padding:0.5rem 0;">No slots found for this day.</p>'; return; }
+  listEl.innerHTML = slots.map(function(s) {
+    var sel = !!_marketSelected[s.id];
+    return '<div class="mslot' + (sel ? ' selected' : '') + '" onclick="toggleMarketSlot(\'' + s.id + '\')">'
+      + '<div class="mslot-time">' + escHtml(s.start) + '\u2013' + escHtml(s.end) + '</div>'
+      + '<div class="mslot-body">'
+      + '<div class="mslot-role">' + escHtml(s.role) + '</div>'
+      + (s.desc ? '<div class="mslot-desc">' + escHtml(s.desc) + '</div>' : '')
+      + '<div class="mslot-meta">'
+      + '<span class="mslot-qty">' + s.qty + (s.qty === 1 ? ' spot' : ' spots') + '</span>'
+      + (s.age21 ? '<span class="mslot-age">Must be 21+</span>' : '')
+      + '</div>'
+      + '</div>'
+      + '<div class="mslot-check">' + (sel ? '\u2713' : '') + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function initMarketDayTabs() {
+  var tabsEl = document.getElementById('market-day-tabs');
+  if (!tabsEl) return;
+  var days = [
+    { date: '2025-12-05', label: 'Fri Dec 5 \u2013 Setup Day' },
+    { date: '2025-12-06', label: 'Sat Dec 6 \u2013 Market Day' }
+  ];
+  tabsEl.innerHTML = days.map(function(d) {
+    return '<button class="mday-btn' + (d.date === _marketDay ? ' active' : '') + '" data-date="' + d.date + '" onclick="marketSetDay(\'' + d.date + '\')">' + d.label + '</button>';
+  }).join('');
+}
+
 // ── Events page: expand/collapse event roles ───────────────────────
 function toggleEvent(eventId) {
   var rolesEl = document.getElementById('ev-roles-' + eventId);
@@ -1695,6 +1806,10 @@ function toggleEvent(eventId) {
   if (!isOpen) {
     rolesEl.hidden = false;
     btn.setAttribute('aria-expanded', 'true');
+    if (eventId === 'market') {
+      initMarketDayTabs();
+      renderMarketSlots();
+    }
     setTimeout(function() {
       rolesEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }, 50);
@@ -1746,11 +1861,22 @@ function updatePreviews() {
     'input[name="roles"][data-ministry="worship"]', 'roles-preview', 'volunteer-form',
     'rgba(30,45,74,0.08)', 'rgba(30,45,74,0.18)', 'No worship roles selected yet &mdash; click a card above.', false
   );
-  // Events page
-  syncPreview(
-    'input[name="roles"][data-ministry="events"]', 'event-roles-preview', 'event-volunteer-form',
-    'rgba(46,126,166,0.08)', 'rgba(46,126,166,0.2)', 'No roles selected yet &mdash; click an event above to see its roles.', false
-  );
+  // Events page — combine checkbox roles + market slots
+  var evChecked = Array.from(document.querySelectorAll('input[name="roles"][data-ministry="events"]:checked'));
+  var marketSlots = getMarketSlots();
+  var marketSelVals = Object.keys(_marketSelected).filter(function(id) { return _marketSelected[id]; }).map(function(id) {
+    var s = marketSlots.find(function(ms) { return ms.id === id; });
+    if (!s) return null;
+    var dayLabel = s.date === '2025-12-05' ? 'Dec 5' : 'Dec 6';
+    return 'Christmas Market \u2013 ' + s.role + ' (' + dayLabel + ', ' + s.start + '\u2013' + s.end + ')';
+  }).filter(Boolean);
+  var evPreview = document.getElementById('event-roles-preview');
+  var evForm = document.getElementById('event-volunteer-form');
+  var allEvVals = evChecked.map(function(cb){return cb.value;}).concat(marketSelVals);
+  if (evPreview) evPreview.innerHTML = allEvVals.length
+    ? allEvVals.map(function(v){ return roleTag(v,'rgba(46,126,166,0.08)','rgba(46,126,166,0.2)'); }).join('')
+    : '<em>No roles selected yet &mdash; click an event above to see its roles.</em>';
+  if (evForm) evForm.classList.toggle('visible', allEvVals.length > 0);
   // Show Thrivent T-shirt section only when egg hunt roles are selected
   var easterChecked = document.querySelectorAll('input[data-event="easter"]:checked').length > 0;
   var shirtSection = document.getElementById('ev-shirt-section');
@@ -1872,7 +1998,16 @@ document.querySelector('#event-volunteer-form .btn-submit').addEventListener('cl
     name:         document.getElementById('ev-name').value,
     email:        document.getElementById('ev-email').value,
     phone:        document.getElementById('ev-phone').value,
-    roles:        Array.from(document.querySelectorAll('#page-events [name=roles]:checked')).map(function(c) { return c.value; }),
+    roles:        (function() {
+      var r = Array.from(document.querySelectorAll('#page-events [name=roles]:checked')).map(function(c) { return c.value; });
+      var marketSlots = getMarketSlots();
+      Object.keys(_marketSelected).forEach(function(id) {
+        if (!_marketSelected[id]) return;
+        var s = marketSlots.find(function(ms) { return ms.id === id; });
+        if (s) { var dl = s.date==='2025-12-05'?'Dec 5':'Dec 6'; r.push('Christmas Market \u2013 ' + s.role + ' (' + dl + ', ' + s.start + '\u2013' + s.end + ')'); }
+      });
+      return r;
+    })(),
     notes:        document.getElementById('ev-notes').value,
     shirtWanted:  shirtWanted,
     shirtSize:    shirtSize
