@@ -1360,7 +1360,7 @@ function printSignups() {
 }
 
 // ── Events management ────────────────────────────────────────────────
-function loadEvents() {
+function loadEvents(expandEvId) {
   fetch('/admin/api/events')
     .then(function(r) { return r.json(); })
     .then(function(data) {
@@ -1390,6 +1390,8 @@ function loadEvents() {
           + '</div>'
           + '<div class="form-field"><label class="form-label">Description</label>'
           + '<textarea id="ev-desc-' + ev.id + '" class="form-textarea">' + escHtml(ev.description||'') + '</textarea></div>'
+          + '<input type="hidden" id="ev-hidden-' + ev.id + '" value="' + (ev.hidden?1:0) + '">'
+          + '<input type="hidden" id="ev-sort-' + ev.id + '" value="' + (ev.sort_order||0) + '">'
           + '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem;">'
           + '<button class="btn-primary btn-sm" onclick="saveEvent(' + ev.id + ')">Save Changes</button>'
           + '<button class="btn-secondary btn-sm" onclick="toggleEventVisibility(' + ev.id + ',' + (ev.hidden?0:1) + ')">'
@@ -1406,6 +1408,7 @@ function loadEvents() {
                 + '<input type="time" class="form-input" style="flex:0 0 90px;" id="role-start-' + r.id + '" value="' + escHtml(toTimeInput(r.start_time||'')) + '" placeholder="9:00 AM" title="Start time">'
                 + '<input type="time" class="form-input" style="flex:0 0 90px;" id="role-end-' + r.id + '" value="' + escHtml(toTimeInput(r.end_time||'')) + '" placeholder="11:00 AM" title="End time">'
                 + '<input type="number" class="form-input" style="flex:0 0 60px;" id="role-slots-' + r.id + '" value="' + (r.slots||0) + '" min="0" title="Slots">'
+                + '<input type="hidden" id="role-sort-' + r.id + '" value="' + (r.sort_order||0) + '">'
                 + '<button class="btn-secondary btn-sm" onclick="saveRole(' + ev.id + ',' + r.id + ')">Save</button>'
                 + '<button class="btn-delete btn-sm" onclick="deleteRole(' + ev.id + ',' + r.id + ')">Del</button>'
                 + '</div>';
@@ -1423,6 +1426,12 @@ function loadEvents() {
           + '</div></div>'
           + '</div>';
       }).join('');
+      if (expandEvId) {
+        var body = document.getElementById('ev-admin-body-' + expandEvId);
+        var btn = document.querySelector('#ev-admin-' + expandEvId + ' .ev-admin-header');
+        if (body) body.style.display = '';
+        if (btn) btn.setAttribute('aria-expanded', 'true');
+      }
     })
     .catch(function() {
       document.getElementById('events-list').innerHTML = '<p class="empty-msg">Error loading events.</p>';
@@ -1448,22 +1457,28 @@ function saveEvent(evId) {
   var name = document.getElementById('ev-name-' + evId).value;
   var date = document.getElementById('ev-date-' + evId).value;
   var desc = document.getElementById('ev-desc-' + evId).value;
+  var hidden = parseInt((document.getElementById('ev-hidden-' + evId)||{}).value||'0',10);
+  var sortOrder = parseInt((document.getElementById('ev-sort-' + evId)||{}).value||'0',10);
   fetch('/admin/api/events/' + evId, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:0, sort_order:0 })
-  }).then(function() { alert('Saved!'); loadEvents(); });
+    body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:hidden, sort_order:sortOrder })
+  }).then(function(resp) {
+    if (!resp.ok) { alert('Error saving event. Please try again.'); return; }
+    loadEvents(evId);
+  });
 }
 
 function toggleEventVisibility(evId, hidden) {
   var name = document.getElementById('ev-name-' + evId).value;
   var date = document.getElementById('ev-date-' + evId).value;
   var desc = document.getElementById('ev-desc-' + evId).value;
+  var sortOrder = parseInt((document.getElementById('ev-sort-' + evId)||{}).value||'0',10);
   fetch('/admin/api/events/' + evId, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:hidden, sort_order:0 })
-  }).then(function() { loadEvents(); });
+    body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:hidden, sort_order:sortOrder })
+  }).then(function() { loadEvents(evId); });
 }
 
 function deleteEvent(evId) {
@@ -1502,17 +1517,21 @@ function saveRole(evId, roleId) {
   var start = fromTimeInput((document.getElementById('role-start-' + roleId)||{}).value||'');
   var end   = fromTimeInput((document.getElementById('role-end-'   + roleId)||{}).value||'');
   var slots = parseInt((document.getElementById('role-slots-' + roleId)||{}).value||'0',10);
+  var sortOrder = parseInt((document.getElementById('role-sort-' + roleId)||{}).value||'0',10);
   fetch('/admin/api/events/' + evId + '/roles/' + roleId, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name:name, description:desc, slots:slots, role_date:date, start_time:start, end_time:end, sort_order:0 })
-  }).then(function() { alert('Role saved!'); loadEvents(); });
+    body: JSON.stringify({ name:name, description:desc, slots:slots, role_date:date, start_time:start, end_time:end, sort_order:sortOrder })
+  }).then(function(resp) {
+    if (!resp.ok) { alert('Error saving role. Please try again.'); return; }
+    loadEvents(evId);
+  });
 }
 
 function deleteRole(evId, roleId) {
   if (!confirm('Delete this role?')) return;
   fetch('/admin/api/events/' + evId + '/roles/' + roleId, { method: 'DELETE' })
-    .then(function() { loadEvents(); });
+    .then(function() { loadEvents(evId); });
 }
 
 function addRole(evId) {
@@ -1530,7 +1549,7 @@ function addRole(evId) {
     ['new-role-name-','new-role-desc-','new-role-date-','new-role-start-','new-role-end-','new-role-slots-'].forEach(function(pfx){
       var el = document.getElementById(pfx+evId); if (el) el.value = '';
     });
-    loadEvents();
+    loadEvents(evId);
   });
 }
 
