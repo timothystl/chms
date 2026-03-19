@@ -74,6 +74,25 @@ function json(data, status = 200) {
 function redirect(url) {
   return new Response('', { status: 302, headers: { Location: url } });
 }
+function toTimeInput(str) {
+  if (!str) return '';
+  var m = str.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return '';
+  var h = parseInt(m[1], 10), min = m[2], ampm = m[3].toUpperCase();
+  if (ampm === 'AM') { if (h === 12) h = 0; }
+  else { if (h !== 12) h += 12; }
+  return (h < 10 ? '0' : '') + h + ':' + min;
+}
+function fromTimeInput(str) {
+  if (!str) return '';
+  var parts = str.split(':');
+  if (parts.length < 2) return str;
+  var h = parseInt(parts[0], 10), min = parts[1];
+  var ampm = h >= 12 ? 'PM' : 'AM';
+  if (h > 12) h -= 12;
+  if (h === 0) h = 12;
+  return h + ':' + min + ' ' + ampm;
+}
 function escHtml(str) {
   return String(str || '')
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
@@ -1365,8 +1384,8 @@ function loadEvents() {
                 + '<input type="text" class="form-input" style="flex:1;" id="role-name-' + r.id + '" value="' + escHtml(r.name) + '">'
                 + '<input type="text" class="form-input" style="flex:2;" id="role-desc-' + r.id + '" value="' + escHtml(r.description||'') + '" placeholder="Description...">'
                 + '<input type="date" class="form-input" style="flex:1;min-width:120px;" id="role-date-' + r.id + '" value="' + escHtml(r.role_date||'') + '" title="Date">'
-                + '<input type="text" class="form-input" style="flex:0 0 90px;" id="role-start-' + r.id + '" value="' + escHtml(r.start_time||'') + '" placeholder="9:00 AM" title="Start time">'
-                + '<input type="text" class="form-input" style="flex:0 0 90px;" id="role-end-' + r.id + '" value="' + escHtml(r.end_time||'') + '" placeholder="11:00 AM" title="End time">'
+                + '<input type="time" class="form-input" style="flex:0 0 90px;" id="role-start-' + r.id + '" value="' + escHtml(r.start_time||'') + '" placeholder="9:00 AM" title="Start time">'
+                + '<input type="time" class="form-input" style="flex:0 0 90px;" id="role-end-' + r.id + '" value="' + escHtml(r.end_time||'') + '" placeholder="11:00 AM" title="End time">'
                 + '<input type="number" class="form-input" style="flex:0 0 60px;" id="role-slots-' + r.id + '" value="' + (r.slots||0) + '" min="0" title="Slots">'
                 + '<button class="btn-secondary btn-sm" onclick="saveRole(' + ev.id + ',' + r.id + ')">Save</button>'
                 + '<button class="btn-delete btn-sm" onclick="deleteRole(' + ev.id + ',' + r.id + ')">Del</button>'
@@ -1377,8 +1396,8 @@ function loadEvents() {
           + '<input type="text" id="new-role-name-' + ev.id + '" class="form-input" placeholder="Role name...">'
           + '<input type="text" id="new-role-desc-' + ev.id + '" class="form-input" placeholder="Description...">'
           + '<input type="date" id="new-role-date-' + ev.id + '" class="form-input" style="flex:1;min-width:120px;" title="Date">'
-          + '<input type="text" id="new-role-start-' + ev.id + '" class="form-input" style="flex:0 0 90px;" placeholder="9:00 AM" title="Start time">'
-          + '<input type="text" id="new-role-end-' + ev.id + '" class="form-input" style="flex:0 0 90px;" placeholder="11:00 AM" title="End time">'
+          + '<input type="time" id="new-role-start-' + ev.id + '" class="form-input" style="flex:0 0 90px;" placeholder="9:00 AM" title="Start time">'
+          + '<input type="time" id="new-role-end-' + ev.id + '" class="form-input" style="flex:0 0 90px;" placeholder="11:00 AM" title="End time">'
           + '<input type="number" id="new-role-slots-' + ev.id + '" class="form-input" style="flex:0 0 60px;" value="0" min="0" title="Slots">'
           + '<button class="btn-primary btn-sm" onclick="addRole(' + ev.id + ')">+ Role</button>'
           + '</div>'
@@ -1461,8 +1480,8 @@ function saveRole(evId, roleId) {
   var name  = document.getElementById('role-name-'  + roleId).value;
   var desc  = document.getElementById('role-desc-'  + roleId).value;
   var date  = (document.getElementById('role-date-'  + roleId)||{}).value||'';
-  var start = (document.getElementById('role-start-' + roleId)||{}).value||'';
-  var end   = (document.getElementById('role-end-'   + roleId)||{}).value||'';
+  var start = fromTimeInput((document.getElementById('role-start-' + roleId)||{}).value||'');
+  var end   = fromTimeInput((document.getElementById('role-end-'   + roleId)||{}).value||'');
   var slots = parseInt((document.getElementById('role-slots-' + roleId)||{}).value||'0',10);
   fetch('/admin/api/events/' + evId + '/roles/' + roleId, {
     method: 'PUT',
@@ -1481,8 +1500,8 @@ function addRole(evId) {
   var name  = (document.getElementById('new-role-name-'+evId)||{}).value||'';
   var desc  = (document.getElementById('new-role-desc-'+evId)||{}).value||'';
   var date  = (document.getElementById('new-role-date-'+evId)||{}).value||'';
-  var start = (document.getElementById('new-role-start-'+evId)||{}).value||'';
-  var end   = (document.getElementById('new-role-end-'+evId)||{}).value||'';
+  var start = fromTimeInput((document.getElementById('new-role-start-'+evId)||{}).value||'');
+  var end   = fromTimeInput((document.getElementById('new-role-end-'+evId)||{}).value||'');
   var slots = parseInt((document.getElementById('new-role-slots-'+evId)||{}).value||'0',10);
   if (!name.trim()) { alert('Please enter a role name.'); return; }
   fetch('/admin/api/events/' + evId + '/roles', {
