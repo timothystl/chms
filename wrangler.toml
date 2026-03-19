@@ -1,0 +1,17 @@
+name = "breeze-proxy-worker"
+main = "tlc-volunteer-worker.js"
+compatibility_date = "2024-01-01"
+
+[[routes]]
+pattern = "volunteer.timothystl.org/*"
+zone_name = "timothystl.org"
+custom_domain = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tlc-volunteer-db"
+database_id = "9399ee53-3386-4084-9b6b-def46b88f96a"
+
+[[kv_namespaces]]
+binding = "RSVP_STORE"
+id = "3db4fdc395084ae0a9e8295c460ba08e"
