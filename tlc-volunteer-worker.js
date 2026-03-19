@@ -90,6 +90,9 @@ async function initDb(db) {
     'ALTER TABLE serve_roles ADD COLUMN role_date TEXT NOT NULL DEFAULT ""',
     'ALTER TABLE serve_roles ADD COLUMN start_time TEXT NOT NULL DEFAULT ""',
     'ALTER TABLE serve_roles ADD COLUMN end_time TEXT NOT NULL DEFAULT ""',
+    'ALTER TABLE serve_roles ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE serve_events ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE serve_events ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
@@ -1335,7 +1338,7 @@ function loadEvents() {
       document.getElementById('events-list').innerHTML = events.map(function(ev) {
         var statusClass = ev.hidden ? 'hidden' : 'visible';
         var statusLabel = ev.hidden ? 'Hidden' : 'Visible';
-        return '<div class="ev-admin-card" id="ev-admin-' + ev.id + '">'
+        return '<div class="ev-admin-card" id="ev-admin-' + ev.id + '" data-hidden="' + (ev.hidden?1:0) + '" data-sort-order="' + (ev.sort_order||0) + '">'
           + '<button class="ev-admin-header" onclick="toggleEvAdmin(' + ev.id + ')" aria-expanded="false">'
           + '<span class="ev-admin-name">' + escHtml(ev.name) + '</span>'
           + '<span class="ev-admin-date">' + (ev.event_date ? escHtml(ev.event_date) : 'No date') + '</span>'
@@ -1410,22 +1413,33 @@ function saveEvent(evId) {
   var name = document.getElementById('ev-name-' + evId).value;
   var date = document.getElementById('ev-date-' + evId).value;
   var desc = document.getElementById('ev-desc-' + evId).value;
+  var card = document.getElementById('ev-admin-' + evId);
+  var hidden = card ? parseInt(card.dataset.hidden || '0', 10) : 0;
+  var sortOrder = card ? parseInt(card.dataset.sortOrder || '0', 10) : 0;
   fetch('/admin/api/events/' + evId, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:0, sort_order:0 })
-  }).then(function() { alert('Saved!'); loadEvents(); });
+    body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:hidden, sort_order:sortOrder })
+  }).then(function(r) {
+    if (!r.ok) { r.text().then(function(t) { alert('Save failed: ' + t); }); return; }
+    alert('Saved!'); loadEvents();
+  }).catch(function(e) { alert('Save error: ' + e); });
 }
 
 function toggleEventVisibility(evId, hidden) {
   var name = document.getElementById('ev-name-' + evId).value;
   var date = document.getElementById('ev-date-' + evId).value;
   var desc = document.getElementById('ev-desc-' + evId).value;
+  var card = document.getElementById('ev-admin-' + evId);
+  var sortOrder = card ? parseInt(card.dataset.sortOrder || '0', 10) : 0;
   fetch('/admin/api/events/' + evId, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:hidden, sort_order:0 })
-  }).then(function() { loadEvents(); });
+    body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:hidden, sort_order:sortOrder })
+  }).then(function(r) {
+    if (!r.ok) { r.text().then(function(t) { alert('Error: ' + t); }); return; }
+    loadEvents();
+  }).catch(function(e) { alert('Error: ' + e); });
 }
 
 function deleteEvent(evId) {
@@ -1472,7 +1486,10 @@ function saveRole(evId, roleId) {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ name:name, description:desc, slots:slots, role_date:date, start_time:start, end_time:end, sort_order:sortOrder })
-  }).then(function() { alert('Role saved!'); loadEvents(); });
+  }).then(function(r) {
+    if (!r.ok) { r.text().then(function(t) { alert('Save failed: ' + t); }); return; }
+    alert('Role saved!'); loadEvents();
+  }).catch(function(e) { alert('Save error: ' + e); });
 }
 
 function deleteRole(evId, roleId) {
@@ -1492,12 +1509,13 @@ function addRole(evId) {
   fetch('/admin/api/events/' + evId + '/roles', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ name:name, description:desc, slots:slots, role_date:date, start_time:start, end_time:end })
-  }).then(function() {
+  }).then(function(r) {
+    if (!r.ok) { r.text().then(function(t) { alert('Add role failed: ' + t); }); return; }
     ['new-role-name-','new-role-desc-','new-role-date-','new-role-start-','new-role-end-','new-role-slots-'].forEach(function(pfx){
       var el = document.getElementById(pfx+evId); if (el) el.value = '';
     });
     loadEvents();
-  });
+  }).catch(function(e) { alert('Error: ' + e); });
 }
 
 function toTimeInput(str) {
