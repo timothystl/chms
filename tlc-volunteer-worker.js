@@ -1459,13 +1459,18 @@ function saveEvent(evId) {
   var desc = document.getElementById('ev-desc-' + evId).value;
   var hidden = parseInt((document.getElementById('ev-hidden-' + evId)||{}).value||'0',10);
   var sortOrder = parseInt((document.getElementById('ev-sort-' + evId)||{}).value||'0',10);
+  var saveBtn = document.querySelector('#ev-admin-' + evId + ' .btn-primary');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
   fetch('/admin/api/events/' + evId, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:hidden, sort_order:sortOrder })
   }).then(function(resp) {
-    if (!resp.ok) { alert('Error saving event. Please try again.'); return; }
-    loadEvents(evId);
+    if (!resp.ok) { alert('Error saving event. Please try again.'); if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Changes'; } return; }
+    if (saveBtn) { saveBtn.textContent = 'Saved!'; saveBtn.style.background = 'var(--teal)'; saveBtn.style.color = '#fff'; setTimeout(function() { saveBtn.disabled = false; saveBtn.textContent = 'Save Changes'; saveBtn.style.background = ''; saveBtn.style.color = ''; }, 1500); }
+  }).catch(function() {
+    alert('Network error saving event. Please try again.');
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Changes'; }
   });
 }
 
@@ -1518,13 +1523,18 @@ function saveRole(evId, roleId) {
   var end   = fromTimeInput((document.getElementById('role-end-'   + roleId)||{}).value||'');
   var slots = parseInt((document.getElementById('role-slots-' + roleId)||{}).value||'0',10);
   var sortOrder = parseInt((document.getElementById('role-sort-' + roleId)||{}).value||'0',10);
+  var saveBtn = document.querySelector('#role-row-' + roleId + ' .btn-secondary');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
   fetch('/admin/api/events/' + evId + '/roles/' + roleId, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ name:name, description:desc, slots:slots, role_date:date, start_time:start, end_time:end, sort_order:sortOrder })
   }).then(function(resp) {
-    if (!resp.ok) { alert('Error saving role. Please try again.'); return; }
-    loadEvents(evId);
+    if (!resp.ok) { alert('Error saving role. Please try again.'); if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; } return; }
+    if (saveBtn) { saveBtn.textContent = 'Saved!'; saveBtn.style.background = 'var(--teal)'; saveBtn.style.color = '#fff'; setTimeout(function() { saveBtn.disabled = false; saveBtn.textContent = 'Save'; saveBtn.style.background = ''; saveBtn.style.color = ''; }, 1500); }
+  }).catch(function() {
+    alert('Network error saving role. Please try again.');
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
   });
 }
 
