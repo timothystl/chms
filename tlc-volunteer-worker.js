@@ -1263,6 +1263,25 @@ header{background:var(--navy);color:#fff;padding:.75rem 1.5rem;display:flex;alig
 </div>
 
 <script>
+function toTimeInput(str) {
+  if (!str) return '';
+  var m = str.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return str;
+  var h = parseInt(m[1], 10), min = m[2], ampm = m[3].toUpperCase();
+  if (ampm === 'AM') { if (h === 12) h = 0; }
+  else { if (h !== 12) h += 12; }
+  return (h < 10 ? '0' : '') + h + ':' + min;
+}
+function fromTimeInput(str) {
+  if (!str) return '';
+  var parts = str.split(':');
+  if (parts.length < 2) return str;
+  var h = parseInt(parts[0], 10), min = parts[1];
+  var ampm = h >= 12 ? 'PM' : 'AM';
+  if (h > 12) h -= 12;
+  if (h === 0) h = 12;
+  return h + ':' + min + ' ' + ampm;
+}
 var currentTab = 'all';
 
 function setTab(tab) {
@@ -1384,8 +1403,8 @@ function loadEvents() {
                 + '<input type="text" class="form-input" style="flex:1;" id="role-name-' + r.id + '" value="' + escHtml(r.name) + '">'
                 + '<input type="text" class="form-input" style="flex:2;" id="role-desc-' + r.id + '" value="' + escHtml(r.description||'') + '" placeholder="Description...">'
                 + '<input type="date" class="form-input" style="flex:1;min-width:120px;" id="role-date-' + r.id + '" value="' + escHtml(r.role_date||'') + '" title="Date">'
-                + '<input type="time" class="form-input" style="flex:0 0 90px;" id="role-start-' + r.id + '" value="' + escHtml(r.start_time||'') + '" placeholder="9:00 AM" title="Start time">'
-                + '<input type="time" class="form-input" style="flex:0 0 90px;" id="role-end-' + r.id + '" value="' + escHtml(r.end_time||'') + '" placeholder="11:00 AM" title="End time">'
+                + '<input type="time" class="form-input" style="flex:0 0 90px;" id="role-start-' + r.id + '" value="' + escHtml(toTimeInput(r.start_time||'')) + '" placeholder="9:00 AM" title="Start time">'
+                + '<input type="time" class="form-input" style="flex:0 0 90px;" id="role-end-' + r.id + '" value="' + escHtml(toTimeInput(r.end_time||'')) + '" placeholder="11:00 AM" title="End time">'
                 + '<input type="number" class="form-input" style="flex:0 0 60px;" id="role-slots-' + r.id + '" value="' + (r.slots||0) + '" min="0" title="Slots">'
                 + '<button class="btn-secondary btn-sm" onclick="saveRole(' + ev.id + ',' + r.id + ')">Save</button>'
                 + '<button class="btn-delete btn-sm" onclick="deleteRole(' + ev.id + ',' + r.id + ')">Del</button>'
