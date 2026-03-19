@@ -368,7 +368,7 @@ async function handleApiEvents(env) {
   const result = [];
   for (const ev of (events.results || [])) {
     const roles = await env.DB.prepare(
-      'SELECT * FROM serve_roles WHERE event_id=? ORDER BY role_date,start_time,sort_order,id'
+      'SELECT * FROM serve_roles WHERE event_id=? ORDER BY role_date,sort_order,id'
     ).bind(ev.id).all();
     const rolesWithFill = [];
     for (const role of (roles.results || [])) {
@@ -529,7 +529,7 @@ async function handleAdminApi(req, env, url, method) {
     const result = [];
     for (const ev of (events.results || [])) {
       const roles = await env.DB.prepare(
-        'SELECT * FROM serve_roles WHERE event_id=? ORDER BY role_date,start_time,sort_order,id'
+        'SELECT * FROM serve_roles WHERE event_id=? ORDER BY role_date,sort_order,id'
       ).bind(ev.id).all();
       const rolesWithFill = [];
       for (const role of (roles.results || [])) {
