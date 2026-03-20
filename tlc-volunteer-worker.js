@@ -1247,6 +1247,25 @@ header{background:var(--navy);color:#fff;padding:.75rem 1.5rem;display:flex;alig
 </div>
 
 <script>
+function toTimeInput(str) {
+  if (!str) return '';
+  var m = str.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return str;
+  var h = parseInt(m[1], 10), min = m[2], ampm = m[3].toUpperCase();
+  if (ampm === 'AM') { if (h === 12) h = 0; }
+  else { if (h !== 12) h += 12; }
+  return (h < 10 ? '0' : '') + h + ':' + min;
+}
+function fromTimeInput(str) {
+  if (!str) return '';
+  var parts = str.split(':');
+  if (parts.length < 2) return str;
+  var h = parseInt(parts[0], 10), min = parts[1];
+  var ampm = h >= 12 ? 'PM' : 'AM';
+  if (h > 12) h -= 12;
+  if (h === 0) h = 12;
+  return h + ':' + min + ' ' + ampm;
+}
 var currentTab = 'all';
 
 function setTab(tab) {
@@ -1325,7 +1344,7 @@ function printSignups() {
 }
 
 // ── Events management ────────────────────────────────────────────────
-function loadEvents() {
+function loadEvents(expandEvId) {
   fetch('/admin/api/events')
     .then(function(r) { return r.json(); })
     .then(function(data) {
@@ -1355,6 +1374,8 @@ function loadEvents() {
           + '</div>'
           + '<div class="form-field"><label class="form-label">Description</label>'
           + '<textarea id="ev-desc-' + ev.id + '" class="form-textarea">' + escHtml(ev.description||'') + '</textarea></div>'
+          + '<input type="hidden" id="ev-hidden-' + ev.id + '" value="' + (ev.hidden?1:0) + '">'
+          + '<input type="hidden" id="ev-sort-' + ev.id + '" value="' + (ev.sort_order||0) + '">'
           + '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem;">'
           + '<button class="btn-primary btn-sm" onclick="saveEvent(' + ev.id + ')">Save Changes</button>'
           + '<button class="btn-secondary btn-sm" onclick="toggleEventVisibility(' + ev.id + ',' + (ev.hidden?0:1) + ')">'
@@ -1371,6 +1392,7 @@ function loadEvents() {
                 + '<input type="time" class="form-input" style="flex:0 0 90px;" id="role-start-' + r.id + '" value="' + toTimeInput(r.start_time||'') + '" data-raw="' + escHtml(r.start_time||'') + '" title="Start time">'
                 + '<input type="time" class="form-input" style="flex:0 0 90px;" id="role-end-' + r.id + '" value="' + toTimeInput(r.end_time||'') + '" data-raw="' + escHtml(r.end_time||'') + '" title="End time">'
                 + '<input type="number" class="form-input" style="flex:0 0 60px;" id="role-slots-' + r.id + '" value="' + (r.slots||0) + '" min="0" title="Slots">'
+                + '<input type="hidden" id="role-sort-' + r.id + '" value="' + (r.sort_order||0) + '">'
                 + '<button class="btn-secondary btn-sm" onclick="saveRole(' + ev.id + ',' + r.id + ')">Save</button>'
                 + '<button class="btn-delete btn-sm" onclick="deleteRole(' + ev.id + ',' + r.id + ')">Del</button>'
                 + '</div>';
@@ -1388,6 +1410,12 @@ function loadEvents() {
           + '</div></div>'
           + '</div>';
       }).join('');
+      if (expandEvId) {
+        var body = document.getElementById('ev-admin-body-' + expandEvId);
+        var btn = document.querySelector('#ev-admin-' + expandEvId + ' .ev-admin-header');
+        if (body) body.style.display = '';
+        if (btn) btn.setAttribute('aria-expanded', 'true');
+      }
     })
     .catch(function() {
       document.getElementById('events-list').innerHTML = '<p class="empty-msg">Error loading events.</p>';
@@ -1495,7 +1523,7 @@ function saveRole(evId, roleId) {
 function deleteRole(evId, roleId) {
   if (!confirm('Delete this role?')) return;
   fetch('/admin/api/events/' + evId + '/roles/' + roleId, { method: 'DELETE' })
-    .then(function() { loadEvents(); });
+    .then(function() { loadEvents(evId); });
 }
 
 function addRole(evId) {
