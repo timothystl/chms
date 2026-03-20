@@ -296,7 +296,7 @@ export default {
     if (path === '/admin/login' && method === 'POST') return handleAdminLogin(req);
     if (path === '/admin' && method === 'GET') {
       if (!isAuthed(req)) return html(LOGIN_HTML);
-      return html(ADMIN_HTML);
+      return html(ADMIN_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
     }
     if (path.startsWith('/admin/api/')) {
       if (!isAuthed(req)) return json({ error: 'Unauthorized' }, 401);
@@ -1316,6 +1316,11 @@ function loadEvents(expandEvId) {
         document.getElementById('events-list').innerHTML = '<p class="empty-msg">No events yet. Add one above.</p>';
         return;
       }
+      // Preserve any time/date values the user has already entered before re-rendering
+      var preserved = {};
+      document.querySelectorAll('[id^="role-start-"],[id^="role-end-"],[id^="role-date-"]').forEach(function(el) {
+        if (el.value) preserved[el.id] = el.value;
+      });
       document.getElementById('events-list').innerHTML = events.map(function(ev) {
         var statusClass = ev.hidden ? 'hidden' : 'visible';
         var statusLabel = ev.hidden ? 'Hidden' : 'Visible';
@@ -1372,6 +1377,11 @@ function loadEvents(expandEvId) {
           + '</div></div>'
           + '</div>';
       }).join('');
+      // Restore any time/date values the user had entered before the re-render
+      Object.keys(preserved).forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el && preserved[id] && !el.value) el.value = preserved[id];
+      });
       if (expandEvId) {
         var body = document.getElementById('ev-admin-body-' + expandEvId);
         var btn = document.querySelector('#ev-admin-' + expandEvId + ' .ev-admin-header');
