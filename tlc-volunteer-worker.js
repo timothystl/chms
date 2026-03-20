@@ -1441,35 +1441,32 @@ function saveEvent(evId) {
   var name = document.getElementById('ev-name-' + evId).value;
   var date = document.getElementById('ev-date-' + evId).value;
   var desc = document.getElementById('ev-desc-' + evId).value;
-  var hidden = parseInt((document.getElementById('ev-hidden-' + evId)||{}).value||'0',10);
-  var sortOrder = parseInt((document.getElementById('ev-sort-' + evId)||{}).value||'0',10);
-  var saveBtn = document.querySelector('#ev-admin-' + evId + ' .btn-primary');
-  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+  var card = document.getElementById('ev-admin-' + evId);
+  var hidden = card ? parseInt(card.dataset.hidden || '0', 10) : 0;
+  var sortOrder = card ? parseInt(card.dataset.sortOrder || '0', 10) : 0;
   fetch('/admin/api/events/' + evId, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:hidden, sort_order:sortOrder })
-  }).then(function(resp) {
-    if (!resp.ok) { alert('Error saving event. Please try again.'); if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Changes'; } return; }
-    if (saveBtn) { saveBtn.textContent = 'Saved!'; saveBtn.style.background = 'var(--teal)'; saveBtn.style.color = '#fff'; setTimeout(function() { saveBtn.disabled = false; saveBtn.textContent = 'Save Changes'; saveBtn.style.background = ''; saveBtn.style.color = ''; }, 1500); }
-  }).catch(function() {
-    alert('Network error saving event. Please try again.');
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Changes'; }
-  });
+  }).then(function(r) {
+    if (!r.ok) { r.text().then(function(t) { alert('Save failed: ' + t); }); return; }
+    alert('Saved!'); loadEvents();
+  }).catch(function(e) { alert('Save error: ' + e); });
 }
 
 function toggleEventVisibility(evId, hidden) {
   var name = document.getElementById('ev-name-' + evId).value;
   var date = document.getElementById('ev-date-' + evId).value;
   var desc = document.getElementById('ev-desc-' + evId).value;
-  var sortOrder = parseInt((document.getElementById('ev-sort-' + evId)||{}).value||'0',10);
+  var card = document.getElementById('ev-admin-' + evId);
+  var sortOrder = card ? parseInt(card.dataset.sortOrder || '0', 10) : 0;
   fetch('/admin/api/events/' + evId, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:hidden, sort_order:sortOrder })
   }).then(function(r) {
     if (!r.ok) { r.text().then(function(t) { alert('Error: ' + t); }); return; }
-    loadEvents(evId);
+    loadEvents();
   }).catch(function(e) { alert('Error: ' + e); });
 }
 
@@ -1511,20 +1508,16 @@ function saveRole(evId, roleId) {
   var start = startEl ? (startEl.value ? fromTimeInput(startEl.value) : (startEl.dataset.raw || '')) : '';
   var end   = endEl   ? (endEl.value   ? fromTimeInput(endEl.value)   : (endEl.dataset.raw   || '')) : '';
   var slots = parseInt((document.getElementById('role-slots-' + roleId)||{}).value||'0',10);
-  var sortOrder = parseInt((document.getElementById('role-sort-' + roleId)||{}).value||'0',10);
-  var saveBtn = document.querySelector('#role-row-' + roleId + ' .btn-secondary');
-  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+  var row = document.getElementById('role-row-' + roleId);
+  var sortOrder = row ? parseInt(row.dataset.sortOrder || '0', 10) : 0;
   fetch('/admin/api/events/' + evId + '/roles/' + roleId, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ name:name, description:desc, slots:slots, role_date:date, start_time:start, end_time:end, sort_order:sortOrder })
-  }).then(function(resp) {
-    if (!resp.ok) { alert('Error saving role. Please try again.'); if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; } return; }
-    if (saveBtn) { saveBtn.textContent = 'Saved!'; saveBtn.style.background = 'var(--teal)'; saveBtn.style.color = '#fff'; setTimeout(function() { saveBtn.disabled = false; saveBtn.textContent = 'Save'; saveBtn.style.background = ''; saveBtn.style.color = ''; }, 1500); }
-  }).catch(function() {
-    alert('Network error saving role. Please try again.');
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
-  });
+  }).then(function(r) {
+    if (!r.ok) { r.text().then(function(t) { alert('Save failed: ' + t); }); return; }
+    alert('Role saved!'); loadEvents();
+  }).catch(function(e) { alert('Save error: ' + e); });
 }
 
 function deleteRole(evId, roleId) {
@@ -1549,8 +1542,37 @@ function addRole(evId) {
     ['new-role-name-','new-role-desc-','new-role-date-','new-role-start-','new-role-end-','new-role-slots-'].forEach(function(pfx){
       var el = document.getElementById(pfx+evId); if (el) el.value = '';
     });
-    loadEvents(evId);
+    loadEvents();
   }).catch(function(e) { alert('Error: ' + e); });
+}
+
+function toTimeInput(str) {
+  if (!str) return '';
+  // "9:00 AM" / "9:00AM" format
+  var m = str.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (m) {
+    var h = parseInt(m[1], 10), min = m[2], ampm = m[3].toUpperCase();
+    if (ampm === 'AM') { if (h === 12) h = 0; }
+    else { if (h !== 12) h += 12; }
+    return (h < 10 ? '0' : '') + h + ':' + min;
+  }
+  // Already in "HH:MM" or "H:MM" 24-hour format — pass through normalized
+  if (/^\d{1,2}:\d{2}$/.test(str)) {
+    var p = str.split(':'), h2 = parseInt(p[0], 10);
+    return (h2 < 10 ? '0' : '') + h2 + ':' + p[1];
+  }
+  return '';
+}
+
+function fromTimeInput(str) {
+  if (!str) return '';
+  var parts = str.split(':');
+  if (parts.length < 2) return str;
+  var h = parseInt(parts[0], 10), min = parts[1];
+  var ampm = h >= 12 ? 'PM' : 'AM';
+  if (h > 12) h -= 12;
+  if (h === 0) h = 12;
+  return h + ':' + min + ' ' + ampm;
 }
 
 function escHtml(str) {
