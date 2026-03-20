@@ -1457,6 +1457,8 @@ function saveRole(evId, roleId) {
   var slots = parseInt((document.getElementById('role-slots-' + roleId)||{}).value||'0',10);
   var row = document.getElementById('role-row-' + roleId);
   var sortOrder = row ? parseInt(row.dataset.sortOrder || '0', 10) : 0;
+  var saveBtn = document.querySelector('#role-row-' + roleId + ' .btn-secondary');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
   fetch('/admin/api/events/' + evId + '/roles/' + roleId, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
@@ -1493,37 +1495,8 @@ function addRole(evId) {
     ['new-role-name-','new-role-desc-','new-role-date-','new-role-start-','new-role-end-','new-role-slots-'].forEach(function(pfx){
       var el = document.getElementById(pfx+evId); if (el) el.value = '';
     });
-    loadEvents();
+    loadEvents(evId);
   }).catch(function(e) { alert('Error: ' + e); });
-}
-
-function toTimeInput(str) {
-  if (!str) return '';
-  // "9:00 AM" / "9:00AM" format
-  var m = str.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (m) {
-    var h = parseInt(m[1], 10), min = m[2], ampm = m[3].toUpperCase();
-    if (ampm === 'AM') { if (h === 12) h = 0; }
-    else { if (h !== 12) h += 12; }
-    return (h < 10 ? '0' : '') + h + ':' + min;
-  }
-  // Already in "HH:MM" or "H:MM" 24-hour format — pass through normalized
-  if (/^\d{1,2}:\d{2}$/.test(str)) {
-    var p = str.split(':'), h2 = parseInt(p[0], 10);
-    return (h2 < 10 ? '0' : '') + h2 + ':' + p[1];
-  }
-  return '';
-}
-
-function fromTimeInput(str) {
-  if (!str) return '';
-  var parts = str.split(':');
-  if (parts.length < 2) return str;
-  var h = parseInt(parts[0], 10), min = parts[1];
-  var ampm = h >= 12 ? 'PM' : 'AM';
-  if (h > 12) h -= 12;
-  if (h === 0) h = 12;
-  return h + ':' + min + ' ' + ampm;
 }
 
 function escHtml(str) {
