@@ -194,8 +194,8 @@ async function migrateChristmasMarketRoles(db) {
       const rows = dbRoles.results || [];
       for (let i = 0; i < rows.length && i < XMAS_MARKET_ROLES.length; i++) {
         const r = XMAS_MARKET_ROLES[i];
-        await db.prepare('UPDATE serve_roles SET role_date=?, start_time=?, end_time=? WHERE id=? AND (start_time="" OR start_time IS NULL)')
-          .bind(r.role_date||'', r.start_time||'', r.end_time||'', rows[i].id).run();
+        await db.prepare('UPDATE serve_roles SET role_date=?, start_time=?, end_time=?, sort_order=? WHERE id=? AND (start_time="" OR start_time IS NULL)')
+          .bind(r.role_date||'', r.start_time||'', r.end_time||'', i, rows[i].id).run();
       }
     }
     return;
@@ -310,6 +310,21 @@ export default {
   }
 };
 
+// ── XMAS MARKET TIME FALLBACK ─────────────────────────────────────────
+// For roles where D1 has empty start_time, overlay XMAS_MARKET_ROLES data
+// using sort_order as the index. Allows the schedule to show even if the
+// migration hasn't propagated yet in D1's eventual-consistency model.
+function applyXmasMarketDefaults(evName, roles) {
+  if (evName !== 'Christmas Market') return roles;
+  return roles.map(function(role) {
+    if (role.start_time) return role;
+    const xr = (role.sort_order >= 0 && role.sort_order < XMAS_MARKET_ROLES.length)
+      ? XMAS_MARKET_ROLES[role.sort_order] : null;
+    if (!xr) return role;
+    return Object.assign({}, role, { role_date: role.role_date || xr.role_date, start_time: xr.start_time, end_time: xr.end_time });
+  });
+}
+
 // ── PUBLIC API: GET /api/events ───────────────────────────────────────
 async function handleApiEvents(env) {
   const events = await env.DB.prepare(
@@ -327,7 +342,7 @@ async function handleApiEvents(env) {
       ).bind(role.id).first();
       rolesWithFill.push({ ...role, filled_count: filled?.n || 0 });
     }
-    result.push({ ...ev, roles: rolesWithFill });
+    result.push({ ...ev, roles: applyXmasMarketDefaults(ev.name, rolesWithFill) });
   }
   return json({ events: result });
 }
@@ -486,7 +501,7 @@ async function handleAdminApi(req, env, url, method) {
         const filled = await env.DB.prepare('SELECT COUNT(*) as n FROM signup_slots WHERE role_id=?').bind(role.id).first();
         rolesWithFill.push({ ...role, filled_count: filled?.n || 0 });
       }
-      result.push({ ...ev, roles: rolesWithFill });
+      result.push({ ...ev, roles: applyXmasMarketDefaults(ev.name, rolesWithFill) });
     }
     return json({ events: result });
   }
@@ -1465,8 +1480,11 @@ function saveRole(evId, roleId) {
     body: JSON.stringify({ name:name, description:desc, slots:slots, role_date:date, start_time:start, end_time:end, sort_order:sortOrder })
   }).then(function(resp) {
     if (!resp.ok) { alert('Error saving role. Please try again.'); if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; } return; }
+    // Update data-raw on time inputs so subsequent saves use the correct raw format,
+    // without re-fetching from D1 (which can return stale data immediately after write).
+    if (startEl && startEl.value) startEl.dataset.raw = start;
+    if (endEl   && endEl.value)   endEl.dataset.raw   = end;
     if (saveBtn) { saveBtn.textContent = 'Saved!'; saveBtn.style.background = 'var(--teal)'; saveBtn.style.color = '#fff'; setTimeout(function() { saveBtn.disabled = false; saveBtn.textContent = 'Save'; saveBtn.style.background = ''; saveBtn.style.color = ''; }, 1500); }
-    loadEvents(evId);
   }).catch(function() {
     alert('Network error saving role. Please try again.');
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
