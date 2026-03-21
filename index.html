@@ -1636,7 +1636,28 @@ function navigate(pageId) {
   var target = document.getElementById('page-' + pageId);
   if (target) { target.hidden = false; }
   window.scrollTo({ top: 0, behavior: 'instant' });
+  history.pushState({ page: pageId }, '', pageId === 'landing' ? location.pathname : '#' + pageId);
 }
+
+window.addEventListener('popstate', function(e) {
+  var pageId = (e.state && e.state.page) ? e.state.page : 'landing';
+  document.querySelectorAll('.app-page').forEach(function(p) { p.hidden = true; });
+  var target = document.getElementById('page-' + pageId);
+  if (target) { target.hidden = false; }
+  window.scrollTo({ top: 0, behavior: 'instant' });
+});
+
+// Handle direct URL with hash on initial load (e.g. shared link or reload)
+(function() {
+  var hash = location.hash.replace('#', '');
+  if (hash && document.getElementById('page-' + hash)) {
+    document.querySelectorAll('.app-page').forEach(function(p) { p.hidden = true; });
+    document.getElementById('page-' + hash).hidden = false;
+    history.replaceState({ page: hash }, '', '#' + hash);
+  } else {
+    history.replaceState({ page: 'landing' }, '', location.pathname);
+  }
+})();
 
 // ── Christmas Market timed slots ──────────────────────────────────
 var MARKET_SLOTS_DEFAULT = [
@@ -1915,22 +1936,84 @@ function getWorkerUrl() {
   } catch(e) { return null; }
 }
 
-function showThankYou(formEl) {
+// ── iCal generation ────────────────────────────────────────────────
+function _p2(n) { return n < 10 ? '0' + n : '' + n; }
+
+function _slotToDt(dateStr, timeStr) {
+  var m = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!m) return '';
+  var h = parseInt(m[1]), min = parseInt(m[2]), ampm = m[3].toUpperCase();
+  if (ampm === 'PM' && h !== 12) h += 12;
+  if (ampm === 'AM' && h === 12) h = 0;
+  return dateStr.replace(/-/g, '') + 'T' + _p2(h) + _p2(min) + '00';
+}
+
+function generateIcalContent(slots) {
+  var uid = Date.now();
+  var lines = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0',
+    'PRODID:-//Timothy Lutheran Church//Christmas Market 2025//EN',
+    'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'
+  ];
+  slots.forEach(function(s) {
+    var dtstart = _slotToDt(s.date, s.start);
+    var dtend   = _slotToDt(s.date, s.end);
+    if (!dtstart || !dtend) return;
+    var desc = (s.desc || '').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+    lines.push(
+      'BEGIN:VEVENT',
+      'UID:tlc-market-' + s.id + '-' + uid,
+      'DTSTART:' + dtstart,
+      'DTEND:'   + dtend,
+      'SUMMARY:Christmas Market \u2013 ' + s.role,
+      'DESCRIPTION:' + desc,
+      'LOCATION:Timothy Lutheran Church\\, 6704 Fyler Ave\\, St. Louis\\, MO 63139',
+      'END:VEVENT'
+    );
+  });
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+function downloadIcal(slots) {
+  var blob = new Blob([generateIcalContent(slots)], { type: 'text/calendar;charset=utf-8' });
+  var url  = URL.createObjectURL(blob);
+  var a    = document.createElement('a');
+  a.href = url; a.download = 'christmas-market-2025.ics';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+function showThankYou(formEl, icalSlots) {
+  var calBtn = '';
+  if (icalSlots && icalSlots.length) {
+    window._pendingIcalSlots = icalSlots;
+    calBtn = '<button type="button" onclick="downloadIcal(window._pendingIcalSlots)" '
+      + 'style="margin-top:1rem;display:inline-flex;align-items:center;gap:0.5rem;'
+      + 'padding:0.55rem 1.25rem;border-radius:8px;border:1.5px solid var(--teal);'
+      + 'background:transparent;color:var(--teal);font-family:var(--font-body);'
+      + 'font-size:0.88rem;font-weight:600;cursor:pointer;">'
+      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;">'
+      + '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>'
+      + '<line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'
+      + '</svg>Add to Calendar (.ics)</button>';
+  }
   formEl.innerHTML = '<div style="text-align:center;padding:2.5rem 1rem;">'
-    + '<div style="font-size:2.5rem;margin-bottom:0.75rem;color:var(--gold);">✓</div>'
+    + '<div style="font-size:2.5rem;margin-bottom:0.75rem;color:var(--gold);">&#x2713;</div>'
     + '<h3 style="margin-bottom:0.5rem;">Thank you!</h3>'
     + '<p style="color:var(--text-muted);">We\'ve received your interest and will be in touch soon.</p>'
+    + calBtn
     + '</div>';
 }
 
-function submitVolunteer(data, formEl, btnEl) {
+function submitVolunteer(data, formEl, btnEl, icalSlots) {
   if (!data.name || !data.name.trim()) { alert('Please enter your name.'); return; }
   if (!data.email || !data.email.trim()) { alert('Please enter your email address.'); return; }
 
   var workerUrl = getWorkerUrl();
   if (!workerUrl) {
     // No worker configured — still show thank-you (admin will handle manually)
-    showThankYou(formEl);
+    showThankYou(formEl, icalSlots);
     return;
   }
 
@@ -1946,7 +2029,7 @@ function submitVolunteer(data, formEl, btnEl) {
   .then(function(r) { return r.json(); })
   .then(function(res) {
     if (res.ok) {
-      showThankYou(formEl);
+      showThankYou(formEl, icalSlots);
     } else {
       btnEl.disabled = false;
       btnEl.innerHTML = origHtml;
@@ -1993,25 +2076,27 @@ document.querySelector('#event-volunteer-form .btn-submit').addEventListener('cl
   var shirtSizeEl   = document.getElementById('ev-shirt-size');
   var shirtWanted   = shirtWantedEl ? shirtWantedEl.checked : false;
   var shirtSize     = (shirtWanted && shirtSizeEl) ? shirtSizeEl.value : '';
+  var marketSlots   = getMarketSlots();
+  var icalSlots     = [];
+  var roleStrings   = Array.from(document.querySelectorAll('#page-events [name=roles]:checked')).map(function(c) { return c.value; });
+  Object.keys(_marketSelected).forEach(function(id) {
+    if (!_marketSelected[id]) return;
+    var s = marketSlots.find(function(ms) { return ms.id === id; });
+    if (!s) return;
+    icalSlots.push(s);
+    var dl = s.date === '2025-12-05' ? 'Dec 5' : 'Dec 6';
+    roleStrings.push('Christmas Market \u2013 ' + s.role + ' (' + dl + ', ' + s.start + '\u2013' + s.end + ')');
+  });
   submitVolunteer({
-    ministry:     'events',
-    name:         document.getElementById('ev-name').value,
-    email:        document.getElementById('ev-email').value,
-    phone:        document.getElementById('ev-phone').value,
-    roles:        (function() {
-      var r = Array.from(document.querySelectorAll('#page-events [name=roles]:checked')).map(function(c) { return c.value; });
-      var marketSlots = getMarketSlots();
-      Object.keys(_marketSelected).forEach(function(id) {
-        if (!_marketSelected[id]) return;
-        var s = marketSlots.find(function(ms) { return ms.id === id; });
-        if (s) { var dl = s.date==='2025-12-05'?'Dec 5':'Dec 6'; r.push('Christmas Market \u2013 ' + s.role + ' (' + dl + ', ' + s.start + '\u2013' + s.end + ')'); }
-      });
-      return r;
-    })(),
-    notes:        document.getElementById('ev-notes').value,
-    shirtWanted:  shirtWanted,
-    shirtSize:    shirtSize
-  }, document.getElementById('event-volunteer-form'), this);
+    ministry:    'events',
+    name:        document.getElementById('ev-name').value,
+    email:       document.getElementById('ev-email').value,
+    phone:       document.getElementById('ev-phone').value,
+    roles:       roleStrings,
+    notes:       document.getElementById('ev-notes').value,
+    shirtWanted: shirtWanted,
+    shirtSize:   shirtSize
+  }, document.getElementById('event-volunteer-form'), this, icalSlots.length ? icalSlots : null);
 });
 
 // Christian Education
