@@ -50,45 +50,6 @@ body::before {
   pointer-events: none; z-index: 1000; opacity: 0.5;
 }
 
-/* ── MOCKUP ANNOTATION BAR ── */
-.annotation-bar {
-  background: #2d1f5e;
-  color: #c9b8ff;
-  font-size: 0.78rem;
-  padding: 0.5rem 1.5rem;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-.annotation-bar strong { color: #e8d8ff; }
-.annotation-pill {
-  display: inline-block;
-  background: rgba(255,255,255,0.12);
-  border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 100px;
-  padding: 0.2rem 0.7rem;
-  font-size: 0.72rem;
-}
-.page-divider {
-  background: #2d1f5e;
-  color: #c9b8ff;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  padding: 0.5rem 1.5rem;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-.page-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: rgba(255,255,255,0.2);
-}
-
 /* ── HEADER ── */
 header {
   background-color: var(--navy);
@@ -962,7 +923,7 @@ footer a:hover { text-decoration: underline; }
     </div>
     <div class="form-field">
       <label class="form-label">Which service do you typically attend?</label>
-      <div class="chip-group" id="svc-chips">
+      <div class="chip-group" id="svc-chips" role="radiogroup" aria-label="Which service do you typically attend?">
         <label class="chip-label checked" for="svc-both"><input type="radio" id="svc-both" name="svc" value="both" checked>Both services</label>
         <label class="chip-label" for="svc-8am"><input type="radio" id="svc-8am" name="svc" value="8am">8:00 AM only</label>
         <label class="chip-label" for="svc-1045"><input type="radio" id="svc-1045" name="svc" value="10:45am">10:45 AM only</label>
@@ -970,7 +931,7 @@ footer a:hover { text-decoration: underline; }
     </div>
     <div class="form-field">
       <label class="form-label">Which Sundays work best? <span style="font-weight:400;text-transform:none;letter-spacing:0;">(leave blank if flexible)</span></label>
-      <div class="chip-group" id="sun-chips">
+      <div class="chip-group" id="sun-chips" role="group" aria-label="Which Sundays work best?">
         <label class="chip-label" for="sun-1"><input type="checkbox" id="sun-1" name="sun" value="1">1st Sunday</label>
         <label class="chip-label" for="sun-2"><input type="checkbox" id="sun-2" name="sun" value="2">2nd Sunday</label>
         <label class="chip-label" for="sun-3"><input type="checkbox" id="sun-3" name="sun" value="3">3rd Sunday</label>
@@ -2009,6 +1970,7 @@ function showThankYou(formEl, icalSlots) {
 function submitVolunteer(data, formEl, btnEl, icalSlots) {
   if (!data.name || !data.name.trim()) { alert('Please enter your name.'); return; }
   if (!data.email || !data.email.trim()) { alert('Please enter your email address.'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email.trim())) { alert('Please enter a valid email address.'); return; }
 
   var workerUrl = getWorkerUrl();
   if (!workerUrl) {
@@ -2026,20 +1988,20 @@ function submitVolunteer(data, formEl, btnEl, icalSlots) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   })
-  .then(function(r) { return r.json(); })
-  .then(function(res) {
-    if (res.ok) {
+  .then(function(r) { return r.json().then(function(res) { return { ok: r.ok, body: res }; }); })
+  .then(function(r) {
+    if (r.body.ok) {
       showThankYou(formEl, icalSlots);
     } else {
       btnEl.disabled = false;
       btnEl.innerHTML = origHtml;
-      alert('Something went wrong. Please try again.');
+      alert(r.body.error || 'Something went wrong. Please try again.');
     }
   })
   .catch(function() {
     btnEl.disabled = false;
     btnEl.innerHTML = origHtml;
-    alert('Could not send. Please try again or contact the church office.');
+    alert('Could not connect to server. Please check your internet connection and try again.');
   });
 }
 

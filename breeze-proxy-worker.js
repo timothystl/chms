@@ -366,11 +366,23 @@ async function handleBreezeProxy(request, env, url) {
 // Public endpoint — called from index.html (formerly volunteer.html) when someone submits a form.
 // Sends an admin notification email; worship signups are also queued in KV.
 async function handleVolunteerSignup(request, env) {
+  // Rate limit: max 10 signups per IP per hour
+  if (env.RSVP_STORE) {
+    const ip = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown';
+    const key = 'rl:signup:' + ip;
+    const current = await env.RSVP_STORE.get(key);
+    const count = current ? parseInt(current, 10) : 0;
+    if (count >= 10) return json({ error: 'Too many submissions. Please try again later.' }, 429);
+    await env.RSVP_STORE.put(key, String(count + 1), { expirationTtl: 3600 });
+  }
+
   let body;
   try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
 
-  const { name, email, phone, ministry, roles, service, sundays, notes, shirtWanted, shirtSize } = body;
+  const { name, phone, ministry, roles, service, sundays, notes, shirtWanted, shirtSize } = body;
+  const email = (body.email || '').trim().toLowerCase();
   if (!name || !email) return json({ error: 'Missing name or email' }, 400);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'Please enter a valid email address.' }, 400);
 
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const submittedAt = new Date().toISOString();
@@ -422,6 +434,19 @@ async function handleVolunteerSignup(request, env) {
       headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ from: emailFrom, to: notifyEmail,
         subject: 'New volunteer: ' + name + ' (' + ministryLabel + ')', text }),
+    }).catch(function() { /* non-fatal */ });
+
+    // Confirmation email to the volunteer
+    const rolesLine = (roles && roles.length) ? '\nRoles/shifts selected: ' + roles.join(', ') : '';
+    const confirmText = 'Hi ' + name + ',\n\nThank you for signing up to volunteer at Timothy Lutheran Church!\n\n'
+      + 'Ministry: ' + ministryLabel + rolesLine + '\n\n'
+      + 'We\'ll be in touch soon with more details. If you have any questions, reply to this email.\n\n'
+      + 'God\'s blessings,\nTimothy Lutheran Church\n6704 Fyler Ave, St. Louis, MO 63139\noffice@timothystl.org';
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: emailFrom, to: email, reply_to: 'office@timothystl.org',
+        subject: 'Thanks for signing up to serve at Timothy!', text: confirmText }),
     }).catch(function() { /* non-fatal */ });
   }
 
