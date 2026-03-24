@@ -1240,9 +1240,14 @@ header{background:var(--navy);color:#fff;padding:.75rem 1.5rem;display:flex;alig
     <div class="toolbar">
       <h2 class="section-title" id="signups-title">All Volunteers <span class="badge" id="signups-count">…</span></h2>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+        <button class="btn-secondary" onclick="toggleDuplicates()" id="dup-btn">Show Duplicates</button>
         <button class="btn-secondary" onclick="printSignups()">Print List</button>
         <a id="export-link" href="/admin/api/export.csv" class="btn-secondary" download>Export CSV</a>
       </div>
+    </div>
+    <div id="duplicates-panel" style="display:none;background:#fff8f0;border:1px solid #e0b060;border-radius:10px;padding:1rem;margin-bottom:1rem;">
+      <h3 style="font-size:.95rem;font-weight:600;color:#8a5000;margin-bottom:.75rem;">Emails with multiple signups</h3>
+      <div id="duplicates-list"></div>
     </div>
     <div id="signups-list"><p class="empty-msg">Loading...</p></div>
   </div>
@@ -1373,6 +1378,53 @@ function deleteSignup(id) {
 
 function printSignups() {
   window.print();
+}
+
+var _dupVisible = false;
+function toggleDuplicates() {
+  _dupVisible = !_dupVisible;
+  var panel = document.getElementById('duplicates-panel');
+  var btn = document.getElementById('dup-btn');
+  if (!_dupVisible) { panel.style.display = 'none'; btn.textContent = 'Show Duplicates'; return; }
+  btn.textContent = 'Hide Duplicates';
+  // Use the already-loaded signups from current view, or fetch all
+  fetch('/admin/api/signups')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var items = data.signups || [];
+      // Group by email
+      var byEmail = {};
+      items.forEach(function(s) {
+        var key = (s.email || '').toLowerCase().trim();
+        if (!key) return;
+        if (!byEmail[key]) byEmail[key] = [];
+        byEmail[key].push(s);
+      });
+      var dups = Object.entries(byEmail).filter(function(e) { return e[1].length > 1; });
+      if (!dups.length) {
+        document.getElementById('duplicates-list').innerHTML = '<p style="font-size:.9rem;color:#6a6a6a;">No duplicate emails found.</p>';
+      } else {
+        document.getElementById('duplicates-list').innerHTML = dups.map(function(entry) {
+          var emailKey = entry[0], rows = entry[1];
+          return '<div style="margin-bottom:.75rem;padding:.6rem .8rem;background:#fff;border-radius:8px;border:1px solid #e8d0a0;">'
+            + '<div style="font-weight:600;font-size:.88rem;color:#8a5000;margin-bottom:.35rem;">' + escHtml(emailKey) + ' &mdash; ' + rows.length + ' signups</div>'
+            + rows.map(function(s) {
+                var roles = []; try { roles = JSON.parse(s.roles||'[]'); } catch {}
+                return '<div style="font-size:.83rem;color:#444;padding:.2rem 0;">'
+                  + escHtml(s.name) + ' &bull; ' + escHtml(s.ministry) + (roles.length ? ' &bull; ' + roles.map(escHtml).join(', ') : '')
+                  + ' <span style="color:#aaa;">' + escHtml((s.created_at||'').slice(0,10)) + '</span>'
+                  + ' <button class="btn-delete btn-sm" style="margin-left:.5rem;" onclick="deleteSignup(' + s.id + ')">Remove</button>'
+                  + '</div>';
+              }).join('')
+            + '</div>';
+        }).join('');
+      }
+      panel.style.display = '';
+    })
+    .catch(function() {
+      document.getElementById('duplicates-list').innerHTML = '<p style="font-size:.9rem;color:red;">Error loading data.</p>';
+      panel.style.display = '';
+    });
 }
 
 // ── Events management ────────────────────────────────────────────────
