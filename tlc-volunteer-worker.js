@@ -322,7 +322,12 @@ export default {
     }
     if (path.startsWith('/admin/api/')) {
       if (!await isAuthed(req, env)) return json({ error: 'Unauthorized' }, 401);
-      return handleAdminApi(req, env, url, method);
+      try {
+        return await handleAdminApi(req, env, url, method);
+      } catch (e) {
+        console.error('Admin API error:', e);
+        return json({ error: 'Internal server error: ' + (e.message || e) }, 500);
+      }
     }
     if (path.startsWith('/scheduler')) {
       // Serve scheduler directly from raw GitHub content (avoids reliance on GitHub Pages being enabled).
@@ -1339,8 +1344,16 @@ function loadSignups() {
   var url = '/admin/api/signups' + (currentTab !== 'all' ? '?ministry=' + currentTab : '');
   document.getElementById('signups-list').innerHTML = '<p class="empty-msg">Loading...</p>';
   fetch(url)
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    .then(function(r) {
+      return r.json().then(function(data) { return { ok: r.ok, status: r.status, data: data }; });
+    })
+    .then(function(result) {
+      if (!result.ok) {
+        console.error('Signups API error', result.status, result.data);
+        document.getElementById('signups-list').innerHTML = '<p class="empty-msg">Error loading sign-ups (server error ' + result.status + ').</p>';
+        return;
+      }
+      var data = result.data;
       var items = data.signups || [];
       document.getElementById('signups-count').textContent = items.length;
       var labels = {all:'All',worship:'Worship',events:'Events',education:'Education',acceptance:'Acceptance',outreach:'Outreach',general:'General'};
