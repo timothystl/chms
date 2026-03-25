@@ -331,7 +331,7 @@ export default {
         return await handleSignup(req, env);
       } catch (e) {
         console.error('Signup error:', e);
-        return json({ ok: false, error: 'Server error. Please try again or contact the church office.' }, 500);
+        return json({ ok: false, error: 'Server error: ' + (e && e.message ? e.message : String(e)) }, 500);
       }
     }
     if (path.match(/^\/volunteer\/calendar\/\d+$/) && method === 'GET') return handleCalendar(env, path);
