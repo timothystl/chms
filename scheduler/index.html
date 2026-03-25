@@ -2534,6 +2534,7 @@ function sendReminderEmails() {
   // Build person → assignments map from entire schedule (include dateISO for iCal + RSVP)
   var personAssignments = {};  // { personId: [{ date, dateISO, svc, role }, ...] }
   currentSchedule.forEach(function(row) {
+    if (row.type !== 'sunday') return;
     var dateStr = fmtDate(row.date);
     var dateISO = row.date.toISOString().slice(0, 10);
     PER_ROLES.forEach(function(role) {
@@ -2595,6 +2596,26 @@ function sendReminderEmails() {
     assignments.forEach(function(a) {
       var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
       lines.push('  \u2022 ' + a.date + ' \u2014 ' + svcLabel + ': ' + roleLabel(a.role));
+    });
+    // Add readings for Lectors and Liturgists
+    var hasReadings = false;
+    assignments.forEach(function(a) {
+      var role = (a.role || '').toLowerCase();
+      var isLector = role === 'lector';
+      var isLiturgist = role === 'liturgist';
+      if (!isLector && !isLiturgist) return;
+      var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
+      if (!rd) return;
+      if (!hasReadings) { lines.push('', 'Your Readings:'); hasReadings = true; }
+      var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
+      lines.push('', '  ' + a.date + ' \u2014 ' + svcLabel + ' (' + roleLabel(a.role) + ')');
+      if (isLector) {
+        if (rd.ot)      lines.push('    OT: ' + rd.ot);
+        if (rd.epistle) lines.push('    Epistle: ' + rd.epistle);
+      } else {
+        if (rd.gospel) lines.push('    Gospel: ' + rd.gospel);
+        if (rd.psalm)  lines.push('    Psalm: ' + rd.psalm);
+      }
     });
     if (token && s.workerUrl) {
       lines.push(
@@ -2806,6 +2827,7 @@ function restoreRsvpTokens() {
   // Rebuild personAssignments from currentSchedule
   var personAssignments = {};
   currentSchedule.forEach(function(row) {
+    if (row.type !== 'sunday') return;
     var dateStr = fmtDate(row.date);
     var dateISO = row.date.toISOString().slice(0, 10);
     PER_ROLES.forEach(function(role) {
