@@ -313,7 +313,14 @@ export default {
 
     if ((path === '/' || path === '/index.html') && method === 'GET') return html(PUBLIC_HTML);
     if (path === '/api/events' && method === 'GET') return handleApiEvents(env);
-    if (path === '/volunteer/signup' && method === 'POST') return handleSignup(req, env);
+    if (path === '/volunteer/signup' && method === 'POST') {
+      try {
+        return await handleSignup(req, env);
+      } catch (e) {
+        console.error('Signup error:', e);
+        return json({ ok: false, error: 'Server error. Please try again or contact the church office.' }, 500);
+      }
+    }
     if (path.match(/^\/volunteer\/calendar\/\d+$/) && method === 'GET') return handleCalendar(env, path);
     if (path === '/admin/login' && method === 'POST') return handleAdminLogin(req, env);
     if (path === '/admin' && method === 'GET') {
@@ -391,13 +398,18 @@ async function handleApiEvents(env) {
 // Allows max 10 signups per IP per hour using KV as a counter store.
 async function checkSignupRateLimit(env, req) {
   if (!env.RSVP_STORE) return true;
-  const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || 'unknown';
-  const key = 'rl:signup:' + ip;
-  const current = await env.RSVP_STORE.get(key);
-  const count = current ? parseInt(current, 10) : 0;
-  if (count >= 10) return false;
-  await env.RSVP_STORE.put(key, String(count + 1), { expirationTtl: 3600 });
-  return true;
+  try {
+    const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || 'unknown';
+    const key = 'rl:signup:' + ip;
+    const current = await env.RSVP_STORE.get(key);
+    const count = current ? parseInt(current, 10) : 0;
+    if (count >= 10) return false;
+    await env.RSVP_STORE.put(key, String(count + 1), { expirationTtl: 3600 });
+    return true;
+  } catch (e) {
+    console.error('Rate limit check error (allowing request):', e);
+    return true; // fail open — don't block signups due to KV errors
+  }
 }
 
 // ── PUBLIC API: POST /volunteer/signup ────────────────────────────────
