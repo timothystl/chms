@@ -331,7 +331,7 @@ export default {
         return await handleSignup(req, env);
       } catch (e) {
         console.error('Signup error:', e);
-        return json({ ok: false, error: 'Server error: ' + (e && e.message ? e.message : String(e)) }, 500);
+        return json({ ok: false, error: 'Server error. Please try again or contact the church office.' }, 500);
       }
     }
     if (path.match(/^\/volunteer\/calendar\/\d+$/) && method === 'GET') return handleCalendar(env, path);
@@ -459,7 +459,7 @@ async function handleSignup(req, env) {
     `INSERT INTO signups (event_id,role_id,ministry,name,email,phone,roles,service,sundays,shirt_wanted,shirt_size,notes)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
-    data.event_id || null, data.role_id || null,
+    data.event_id || 0, data.role_id || 0,
     data.ministry || '', name, email, data.phone || '',
     JSON.stringify(data.roles || roleIds.map(String)),
     data.service || '', JSON.stringify(data.sundays || []),
