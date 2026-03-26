@@ -122,11 +122,11 @@ select.form-select { width: 100%; padding: 10px 14px; border: 1px solid var(--bo
 .panel-overlay.open { opacity:1; pointer-events:auto; }
 .side-panel {
   position:fixed; top:0; right:0; width:min(520px,100vw); height:100vh;
-  background: var(--white); z-index:301; box-shadow:-4px 0 40px rgba(10,60,92,0.18);
+  background: var(--white); z-index:301;
   display:flex; flex-direction:column;
   transform:translateX(100%); transition:transform .28s cubic-bezier(.4,0,.2,1);
 }
-.side-panel.open { transform:translateX(0); }
+.side-panel.open { transform:translateX(0); box-shadow:-4px 0 40px rgba(10,60,92,0.18); }
 .panel-hdr {
   display:flex; align-items:center; justify-content:space-between;
   padding:14px 20px; background: var(--steel-anchor); color:white; flex-shrink:0;
@@ -494,11 +494,9 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
       <h2 style="margin:0; border:none; padding:0;">Schedule</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-success btn-sm" id="btn-export-csv">Export CSV</button>
-        <button class="btn btn-outline btn-sm" id="btn-export-ical">&#128197; iCal</button>
         <button class="btn btn-outline btn-sm" id="btn-print">Print</button>
         <button class="btn btn-outline btn-sm" id="btn-send-emails" style="background:var(--blue-mist);border-color:var(--sky-steel);color:var(--mid-steel);">&#9993; Send Reminder Emails</button>
         <button class="btn btn-outline btn-sm" id="btn-sync-confirmations" style="background:var(--pale-sage);border-color:var(--sage);color:var(--on-pale-sage);">&#8635; Sync Confirmations</button>
-        <button class="btn btn-outline btn-sm" id="btn-restore-tokens" style="background:#fdf6e8;border-color:#e0a800;color:#7a5500;" title="Re-upload RSVP tokens to Worker KV without re-sending emails">&#128274; Re-store Tokens</button>
         <button class="btn btn-outline btn-sm" id="btn-notify-volunteers" style="background:var(--pale-gold);border-color:var(--amber);color:var(--on-pale-gold);">&#128276; Notify Volunteers</button>
         <span id="email-send-status" style="font-size:0.82rem;color:var(--warm-gray);"></span>
         <button class="btn btn-outline btn-sm saved" id="btn-save-schedule">Saved &#10003;</button>
@@ -1742,8 +1740,6 @@ window.addEventListener('beforeunload', function(e) {
   if (isDirty) { e.preventDefault(); e.returnValue = ''; }
 });
 
-document.getElementById('btn-export-ical').addEventListener('click', exportIcal);
-
 document.getElementById('btn-expand-all').addEventListener('click', function() {
   var allExpanded = document.querySelectorAll('.sunday-summary:not(.expanded)').length === 0;
   document.querySelectorAll('.sunday-summary').forEach(function(row) {
@@ -1757,6 +1753,7 @@ document.getElementById('btn-expand-all').addEventListener('click', function() {
     }
   });
   this.textContent = allExpanded ? '\u25bc Expand All' : '\u25b2 Collapse All';
+  updateScheduleHeaders();
 });
 
 document.getElementById('btn-clear-schedule').addEventListener('click', function() {
@@ -1830,6 +1827,25 @@ function buildSummaryInner(rowIdx, pMap, confs) {
     +'<button class="btn-bulletin-slide" data-idx="'+rowIdx+'" title="Open 16:9 bulletin slide for this Sunday" style="background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer;font-size:.72rem;color:var(--steel-anchor);white-space:nowrap;font-family:var(--font-body);">&#128250; Slide</button>';
 }
 
+var scheduleExpandedHeader = '';
+
+function updateScheduleHeaders() {
+  var thead = document.getElementById('schedule-thead');
+  if (!thead) return;
+  var anyExpanded = document.querySelectorAll('.sunday-summary.expanded').length > 0;
+  if (anyExpanded) {
+    thead.innerHTML = scheduleExpandedHeader;
+  } else {
+    var totalCols = 2 + PER_ROLES.length + SHARED_ROLES.length;
+    thead.innerHTML = '<tr>'
+      +'<th class="date-col">Date</th>'
+      +'<th>Sunday</th>'
+      +'<th>Filled / Open</th>'
+      +'<th>Confirmations</th>'
+      +'</tr>';
+  }
+}
+
 function renderTable(people, counts) {
   var totalCols = 2 + PER_ROLES.length + SHARED_ROLES.length;
   var h1 = '<tr>'
@@ -1842,7 +1858,8 @@ function renderTable(people, counts) {
   PER_ROLES.forEach(function(r){ h2+='<th>'+esc(r)+'</th>'; });
   SHARED_ROLES.forEach(function(r){ h2+='<th class="shared-col">'+esc(roleLabel(r))+'</th>'; });
   h2 += '</tr>';
-  document.getElementById('schedule-thead').innerHTML = h1+h2;
+  scheduleExpandedHeader = h1+h2;
+  document.getElementById('schedule-thead').innerHTML = scheduleExpandedHeader;
 
   var pMap = {};
   people.forEach(function(p){ pMap[p.id]=p; });
@@ -2139,6 +2156,7 @@ document.getElementById('schedule-table').addEventListener('click', function(e) 
   document.querySelectorAll('.sunday-detail[data-idx="'+idx+'"]').forEach(function(tr) {
     tr.classList.toggle('visible', isExpanded);
   });
+  updateScheduleHeaders();
 });
 
 // ══════════════════════════════════════════════════════════════════

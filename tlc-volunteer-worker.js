@@ -7759,24 +7759,13 @@ export default {
         ghPath = ghPath.replace(/\/$/, '') + '/index.html';
       }
       const rawUrl = 'https://raw.githubusercontent.com/timothystl/volunteer/main' + ghPath;
-      const ghRes = await fetch(rawUrl, { headers: { 'User-Agent': req.headers.get('User-Agent') || '' } });
+      const ghRes = await fetch(rawUrl, { cf: { cacheEverything: false }, headers: { 'User-Agent': req.headers.get('User-Agent') || '', 'Cache-Control': 'no-cache' } });
       if (!ghRes.ok) return new Response('Not Found', { status: 404 });
       const extMap = { '.html': 'text/html;charset=UTF-8', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
       const ext = (ghPath.match(/(\.\w+)$/) || ['', ''])[1];
-      return new Response(ghRes.body, { status: 200, headers: { 'Content-Type': extMap[ext] || 'text/plain' } });
+      const cacheHeader = ext === '.html' ? 'no-cache, no-store, must-revalidate' : 'public, max-age=60';
+      return new Response(ghRes.body, { status: 200, headers: { 'Content-Type': extMap[ext] || 'text/plain', 'Cache-Control': cacheHeader } });
     }
-    // ── KV-based short redirects ──────────────────────────────────────────────
-    try {
-      const rawRedirects = await env.RSVP_STORE.get('tlc:redirects');
-      if (rawRedirects) {
-        const redirects = JSON.parse(rawRedirects);
-        if (redirects[path]) {
-          const r = redirects[path];
-          return new Response('', { status: parseInt(r.type || '302'), headers: { Location: r.destination } });
-        }
-      }
-    } catch (e) { /* ignore redirect lookup errors */ }
-
     return new Response('Not Found', { status: 404 });
   }
 };
@@ -8083,36 +8072,6 @@ async function handleAdminApi(req, env, url, method) {
     const parts = seg.split('/'); const rid = parseInt(parts[3]);
     await env.DB.prepare('DELETE FROM signup_slots WHERE role_id=?').bind(rid).run();
     await env.DB.prepare('DELETE FROM serve_roles WHERE id=?').bind(rid).run();
-    return json({ ok: true });
-  }
-
-  // ── Redirects CRUD ───────────────────────────────────────────────
-  if (seg === 'redirects' && method === 'GET') {
-    const raw = await env.RSVP_STORE.get('tlc:redirects');
-    const redirects = raw ? JSON.parse(raw) : {};
-    return json({ redirects });
-  }
-
-  if (seg === 'redirects' && method === 'POST') {
-    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-    const fromPath = (b.from || '').trim();
-    const toUrl = (b.to || '').trim();
-    if (!fromPath || !toUrl) return json({ error: 'from and to are required' }, 400);
-    const normalizedPath = fromPath.startsWith('/') ? fromPath : '/' + fromPath;
-    const raw = await env.RSVP_STORE.get('tlc:redirects');
-    const redirects = raw ? JSON.parse(raw) : {};
-    redirects[normalizedPath] = { destination: toUrl, type: b.type || '302' };
-    await env.RSVP_STORE.put('tlc:redirects', JSON.stringify(redirects));
-    return json({ ok: true });
-  }
-
-  if (seg === 'redirects' && method === 'DELETE') {
-    const fromPath = url.searchParams.get('from') || '';
-    if (!fromPath) return json({ error: 'from param required' }, 400);
-    const raw = await env.RSVP_STORE.get('tlc:redirects');
-    const redirects = raw ? JSON.parse(raw) : {};
-    delete redirects[fromPath];
-    await env.RSVP_STORE.put('tlc:redirects', JSON.stringify(redirects));
     return json({ ok: true });
   }
 
@@ -8843,7 +8802,6 @@ header{background:var(--navy);color:#fff;padding:.75rem 1.5rem;display:flex;alig
     <button class="tab" onclick="setTab('acceptance')">Acceptance</button>
     <button class="tab" onclick="setTab('outreach')">Outreach</button>
     <button class="tab" onclick="setTab('general')">General</button>
-    <button class="tab" onclick="setTab('redirects')" style="margin-left:auto;">↪ Redirects</button>
   </div>
 
   <!-- Signups section -->
@@ -8892,55 +8850,6 @@ header{background:var(--navy);color:#fff;padding:.75rem 1.5rem;display:flex;alig
     </div>
     <div id="events-list"><p class="empty-msg">Loading events...</p></div>
   </div>
-
-  <!-- Redirects section -->
-  <div id="redirects-section" style="display:none;margin-top:2.5rem;">
-    <div class="toolbar">
-      <h2 class="section-title">Short Redirects</h2>
-    </div>
-    <p style="font-size:.88rem;color:#6A6880;margin-bottom:1.25rem;">Create short paths that redirect visitors to any URL. Changes take effect immediately — no deploy needed.</p>
-    <div id="redir-status" style="font-size:.85rem;min-height:20px;margin-bottom:.75rem;color:var(--teal);"></div>
-
-    <!-- Add form -->
-    <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1.25rem;">
-      <h3 style="font-size:.85rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--navy);margin-bottom:1rem;">Add Redirect</h3>
-      <div style="display:grid;grid-template-columns:1fr 2fr auto auto;gap:.75rem;align-items:end;">
-        <div>
-          <label class="form-label">Short Path</label>
-          <input type="text" id="redir-new-from" class="form-input" placeholder="/tap1" autocomplete="off">
-        </div>
-        <div>
-          <label class="form-label">Destination URL</label>
-          <input type="url" id="redir-new-to" class="form-input" placeholder="https://example.com/page">
-        </div>
-        <div>
-          <label class="form-label">Type</label>
-          <select id="redir-new-type" class="form-input" style="height:38px;">
-            <option value="302">302 Temporary</option>
-            <option value="301">301 Permanent</option>
-          </select>
-        </div>
-        <button class="btn-primary" onclick="addRedirect()" style="height:38px;white-space:nowrap;">+ Add</button>
-      </div>
-    </div>
-
-    <!-- Table -->
-    <div style="background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;">
-      <table style="width:100%;border-collapse:collapse;font-size:.88rem;">
-        <thead>
-          <tr style="background:rgba(30,45,74,.05);">
-            <th style="padding:.65rem 1rem;text-align:left;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6A6880;border-bottom:1px solid var(--border);">Short Path</th>
-            <th style="padding:.65rem 1rem;text-align:left;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6A6880;border-bottom:1px solid var(--border);">Destination</th>
-            <th style="padding:.65rem 1rem;text-align:left;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6A6880;border-bottom:1px solid var(--border);">Type</th>
-            <th style="padding:.65rem 1rem;text-align:left;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6A6880;border-bottom:1px solid var(--border);">Actions</th>
-          </tr>
-        </thead>
-        <tbody id="redir-table-body">
-          <tr><td colspan="4" class="empty-msg">Loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
 </div>
 
 <script>
@@ -8969,14 +8878,6 @@ function setTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
   event.target.classList.add('active');
-  var isRedirects = tab === 'redirects';
-  var sigSection   = document.getElementById('signups-section');
-  var evSection    = document.getElementById('events-section');
-  var redirSection = document.getElementById('redirects-section');
-  if (sigSection)   sigSection.style.display   = isRedirects ? 'none' : '';
-  if (evSection)    evSection.style.display     = isRedirects ? 'none' : '';
-  if (redirSection) redirSection.style.display  = isRedirects ? '' : 'none';
-  if (isRedirects) { loadRedirects(); return; }
   var exportLink = document.getElementById('export-link');
   if (exportLink) exportLink.href = '/admin/api/export.csv' + (tab !== 'all' ? '?ministry=' + tab : '');
   loadSignups();
@@ -9327,121 +9228,6 @@ function addRole(evId) {
 
 function escHtml(str) {
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-
-// ── Redirects ────────────────────────────────────────────────────────
-function setRedirStatus(msg, isError) {
-  var el = document.getElementById('redir-status');
-  if (el) { el.textContent = msg; el.style.color = isError ? '#c0392b' : 'var(--teal)'; }
-}
-
-function renderRedirectsTable(redirects) {
-  var tbody = document.getElementById('redir-table-body');
-  if (!tbody) return;
-  var paths = Object.keys(redirects).sort();
-  if (!paths.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty-msg">No redirects yet. Add one above.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = paths.map(function(p) {
-    var r = redirects[p];
-    var typeBadge = r.type === '301'
-      ? '<span style="background:rgba(201,151,58,.15);color:var(--gold);padding:2px 8px;border-radius:6px;font-size:.75rem;font-weight:700;">301</span>'
-      : '<span style="background:rgba(46,126,166,.12);color:var(--teal);padding:2px 8px;border-radius:6px;font-size:.75rem;font-weight:700;">302</span>';
-    return '<tr id="redir-row-' + escHtml(p) + '" style="border-bottom:1px solid var(--border);">'
-      + '<td style="padding:.75rem 1rem;font-family:monospace;font-weight:600;color:var(--navy);">' + escHtml(p) + '</td>'
-      + '<td style="padding:.75rem 1rem;word-break:break-all;"><a href="' + escHtml(r.destination) + '" target="_blank" rel="noopener" style="color:var(--teal);text-decoration:none;">' + escHtml(r.destination) + '</a></td>'
-      + '<td style="padding:.75rem 1rem;">' + typeBadge + '</td>'
-      + '<td style="padding:.75rem 1rem;">'
-      + '<button class="btn-secondary btn-sm" onclick="startEditRedirect(' + JSON.stringify(p) + ',' + JSON.stringify(r.destination) + ',' + JSON.stringify(r.type||'302') + ')" style="margin-right:.4rem;">Edit</button>'
-      + '<button class="btn-delete" onclick="deleteRedirect(' + JSON.stringify(p) + ')">Delete</button>'
-      + '</td>'
-      + '</tr>';
-  }).join('');
-}
-
-function loadRedirects() {
-  setRedirStatus('Loading…');
-  fetch('/admin/api/redirects')
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      renderRedirectsTable(data.redirects || {});
-      setRedirStatus('');
-    })
-    .catch(function(e) {
-      setRedirStatus('Error loading redirects: ' + e.message, true);
-      var tbody = document.getElementById('redir-table-body');
-      if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty-msg">Could not load redirects.</td></tr>';
-    });
-}
-
-function addRedirect() {
-  var from = (document.getElementById('redir-new-from').value || '').trim();
-  var to   = (document.getElementById('redir-new-to').value   || '').trim();
-  var type = document.getElementById('redir-new-type').value || '302';
-  if (!from || !to) { setRedirStatus('Short path and destination URL are required.', true); return; }
-  if (!to.match(/^https?:\/\//)) { setRedirStatus('Destination must start with http:// or https://', true); return; }
-  setRedirStatus('Saving…');
-  fetch('/admin/api/redirects', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: from, to: to, type: type })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function() {
-    document.getElementById('redir-new-from').value = '';
-    document.getElementById('redir-new-to').value = '';
-    document.getElementById('redir-new-type').value = '302';
-    setRedirStatus('Redirect saved.');
-    loadRedirects();
-  })
-  .catch(function(e) { setRedirStatus('Error: ' + e.message, true); });
-}
-
-function startEditRedirect(path, destination, type) {
-  var row = document.getElementById('redir-row-' + path);
-  if (!row) return;
-  row.innerHTML = '<td colspan="4" style="padding:.5rem 1rem;">'
-    + '<div style="display:grid;grid-template-columns:1fr 2fr auto auto auto;gap:.5rem;align-items:center;">'
-    + '<input type="text" id="edit-from-' + escHtml(path) + '" value="' + escHtml(path) + '" class="form-input" style="height:34px;">'
-    + '<input type="url" id="edit-to-' + escHtml(path) + '" value="' + escHtml(destination) + '" class="form-input" style="height:34px;">'
-    + '<select id="edit-type-' + escHtml(path) + '" class="form-input" style="height:34px;">'
-    + '<option value="302"' + (type==='302'?' selected':'') + '>302</option>'
-    + '<option value="301"' + (type==='301'?' selected':'') + '>301</option>'
-    + '</select>'
-    + '<button class="btn-primary btn-sm" onclick="saveEditRedirect(' + JSON.stringify(path) + ')">Save</button>'
-    + '<button class="btn-secondary btn-sm" onclick="loadRedirects()">Cancel</button>'
-    + '</div></td>';
-}
-
-function saveEditRedirect(oldPath) {
-  var newFrom = (document.getElementById('edit-from-' + oldPath)||{}).value || '';
-  var newTo   = (document.getElementById('edit-to-'   + oldPath)||{}).value || '';
-  var newType = (document.getElementById('edit-type-' + oldPath)||{}).value || '302';
-  newFrom = newFrom.trim(); newTo = newTo.trim();
-  if (!newFrom || !newTo) { setRedirStatus('Path and destination are required.', true); return; }
-  setRedirStatus('Saving…');
-  var deleteOld = newFrom !== oldPath
-    ? fetch('/admin/api/redirects?from=' + encodeURIComponent(oldPath), { method: 'DELETE' })
-    : Promise.resolve();
-  deleteOld
-    .then(function() {
-      return fetch('/admin/api/redirects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: newFrom, to: newTo, type: newType })
-      });
-    })
-    .then(function() { setRedirStatus('Redirect updated.'); loadRedirects(); })
-    .catch(function(e) { setRedirStatus('Error: ' + e.message, true); });
-}
-
-function deleteRedirect(path) {
-  if (!confirm('Delete redirect for ' + path + '?')) return;
-  setRedirStatus('Deleting…');
-  fetch('/admin/api/redirects?from=' + encodeURIComponent(path), { method: 'DELETE' })
-    .then(function() { setRedirStatus('Deleted.'); loadRedirects(); })
-    .catch(function(e) { setRedirStatus('Error: ' + e.message, true); });
 }
 
 // Init
