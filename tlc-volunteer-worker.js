@@ -7735,6 +7735,9 @@ export default {
     }
 
     // ── Scheduler backend routes (Breeze proxy, email, RSVP) ──────────────────
+    if (path === '/volunteer/pending'         && method === 'GET') return handleVolunteerPending(env);
+    if (path === '/volunteer/general-pending' && method === 'GET') return handleVolunteerGeneralPending(env);
+    if (path === '/volunteer/event-pending'   && method === 'GET') return handleVolunteerEventPending(env);
     if (path === '/email/send'   && method === 'POST') return handleSchedEmailSend(req, env);
     if (path === '/rsvp/store'   && method === 'POST') return handleSchedRsvpStore(req, env);
     if (path === '/rsvp/sync'    && method === 'POST') return handleSchedRsvpSync(req, env);
@@ -9329,6 +9332,87 @@ async function handleSchedRsvpSync(req, env) {
     };
   }));
   return schedJson(results);
+}
+
+// ── /volunteer/pending ────────────────────────────────────────────────────────
+// Returns worship-role signups (ministry='worship', no specific event)
+async function handleVolunteerPending(env) {
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT id, name, email, phone, roles, service, sundays, notes, created_at
+       FROM signups WHERE ministry='worship' AND (event_id IS NULL OR event_id=0)
+       ORDER BY created_at DESC`
+    ).all();
+    const volunteers = (rows.results || []).map(function(r) {
+      return {
+        id: r.id, name: r.name, email: r.email, phone: r.phone || '',
+        roles: safeJsonParse(r.roles, []),
+        service: r.service || 'both',
+        sundays: safeJsonParse(r.sundays, []),
+        notes: r.notes || '',
+        submittedAt: r.created_at,
+      };
+    });
+    return schedJson({ volunteers });
+  } catch(e) {
+    return schedJson({ error: String(e) }, 500);
+  }
+}
+
+// ── /volunteer/general-pending ────────────────────────────────────────────────
+// Returns general/ministry signups (not worship, no specific event)
+async function handleVolunteerGeneralPending(env) {
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT id, name, email, phone, roles, ministry, notes, created_at
+       FROM signups WHERE ministry!='worship' AND (event_id IS NULL OR event_id=0)
+       ORDER BY created_at DESC`
+    ).all();
+    const volunteers = (rows.results || []).map(function(r) {
+      return {
+        id: r.id, name: r.name, email: r.email, phone: r.phone || '',
+        roles: safeJsonParse(r.roles, []),
+        ministry: r.ministry || '',
+        notes: r.notes || '',
+        submittedAt: r.created_at,
+      };
+    });
+    return schedJson({ volunteers });
+  } catch(e) {
+    return schedJson({ error: String(e) }, 500);
+  }
+}
+
+// ── /volunteer/event-pending ─────────────────────────────────────────────────
+// Returns event-specific signups (event_id > 0)
+async function handleVolunteerEventPending(env) {
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT s.id, s.name, s.email, s.phone, s.roles, s.notes, s.created_at,
+              s.event_id, e.name AS event_name
+       FROM signups s
+       LEFT JOIN serve_events e ON e.id = s.event_id
+       WHERE s.event_id IS NOT NULL AND s.event_id > 0
+       ORDER BY s.created_at DESC`
+    ).all();
+    const volunteers = (rows.results || []).map(function(r) {
+      return {
+        id: r.id, name: r.name, email: r.email, phone: r.phone || '',
+        roles: safeJsonParse(r.roles, []),
+        eventId: r.event_id,
+        eventName: r.event_name || '',
+        notes: r.notes || '',
+        submittedAt: r.created_at,
+      };
+    });
+    return schedJson({ volunteers });
+  } catch(e) {
+    return schedJson({ error: String(e) }, 500);
+  }
+}
+
+function safeJsonParse(str, fallback) {
+  try { return JSON.parse(str); } catch { return fallback; }
 }
 
 // ── /rsvp/portal ─────────────────────────────────────────────────────────────
