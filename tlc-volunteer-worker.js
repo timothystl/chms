@@ -12,6 +12,7 @@ const DB_INIT = [
     event_date TEXT NOT NULL DEFAULT '',
     hidden INTEGER NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0,
+    use_time_slots INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS serve_roles (
@@ -7496,6 +7497,7 @@ async function initDb(db) {
     'ALTER TABLE serve_roles ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE serve_events ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE serve_events ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE serve_events ADD COLUMN use_time_slots INTEGER NOT NULL DEFAULT 1',
     // signups table columns added over time
     'ALTER TABLE signups ADD COLUMN event_id INTEGER',
     'ALTER TABLE signups ADD COLUMN role_id INTEGER',
@@ -7975,10 +7977,13 @@ async function handleAdminLogin(req, env) {
   let body; try { body = await req.text(); } catch { body = ''; }
   const params = new URLSearchParams(body);
   const adminPassword = env.ADMIN_PASSWORD || '';
-  if (adminPassword && params.get('password') === adminPassword) {
+  if (!adminPassword) {
+    return html(LOGIN_HTML.replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">Admin password is not configured. Set the <code>ADMIN_PASSWORD</code> secret in the Cloudflare Dashboard.</p>'));
+  }
+  if (params.get('password') === adminPassword) {
     return new Response('', { status: 302, headers: { Location: '/admin', 'Set-Cookie': await authCookieHeader(env) } });
   }
-  return html(LOGIN_HTML.replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">Incorrect password.</p>'));
+  return html(LOGIN_HTML.replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">Incorrect password. Please try again.</p>'));
 }
 
 // ── ADMIN API ─────────────────────────────────────────────────────────
@@ -8039,18 +8044,20 @@ async function handleAdminApi(req, env, url, method) {
 
   if (seg === 'events' && method === 'POST') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const useTimeSlots = (b.use_time_slots === undefined || b.use_time_slots === null) ? 1 : (b.use_time_slots ? 1 : 0);
     const r = await env.DB.prepare(
-      'INSERT INTO serve_events (name,description,event_date,sort_order) VALUES (?,?,?,?)'
-    ).bind(b.name||'New Event', b.description||'', b.event_date||'', b.sort_order||0).run();
+      'INSERT INTO serve_events (name,description,event_date,sort_order,use_time_slots) VALUES (?,?,?,?,?)'
+    ).bind(b.name||'New Event', b.description||'', b.event_date||'', b.sort_order||0, useTimeSlots).run();
     return json({ ok: true, id: r.meta?.last_row_id });
   }
 
   if (seg.startsWith('events/') && !seg.includes('/roles') && method === 'PUT') {
     const id = parseInt(seg.split('/')[1]);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const useTimeSlots = (b.use_time_slots === undefined || b.use_time_slots === null) ? 1 : (b.use_time_slots ? 1 : 0);
     await env.DB.prepare(
-      'UPDATE serve_events SET name=?,description=?,event_date=?,hidden=?,sort_order=? WHERE id=?'
-    ).bind(b.name, b.description||'', b.event_date||'', b.hidden?1:0, b.sort_order||0, id).run();
+      'UPDATE serve_events SET name=?,description=?,event_date=?,hidden=?,sort_order=?,use_time_slots=? WHERE id=?'
+    ).bind(b.name, b.description||'', b.event_date||'', b.hidden?1:0, b.sort_order||0, useTimeSlots, id).run();
     return json({ ok: true });
   }
 
@@ -8143,7 +8150,7 @@ async function handleAdminApi(req, env, url, method) {
 }
 
 // ── LOGIN HTML ──────────────────────────────────────────────────────
-const LOGIN_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Admin Login</title><link href="https://fonts.googleapis.com/css2?family=Lora:wght@600&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet"><style>:root{--navy:#1E2D4A;--teal:#2E7EA6;}*{box-sizing:border-box;margin:0;padding:0;}body{font-family:'Source Sans 3',sans-serif;background:#C4DDE8;display:flex;align-items:center;justify-content:center;min-height:100vh;}.card{background:#fff;border-radius:16px;padding:2.5rem;max-width:380px;width:100%;box-shadow:0 4px 24px rgba(30,45,74,.12);}.title{font-family:'Lora',serif;font-size:1.5rem;color:var(--navy);}.sub{font-size:.88rem;color:#8A8898;margin:.25rem 0 1.75rem;}label{display:block;font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--navy);margin-bottom:.4rem;}input{width:100%;padding:.7rem 1rem;border:1.5px solid rgba(30,45,74,.2);border-radius:8px;font-size:.95rem;font-family:inherit;outline:none;}input:focus{border-color:var(--teal);}.btn{width:100%;background:var(--navy);color:#fff;border:none;padding:.85rem;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;margin-top:1.25rem;}.btn:hover{background:var(--teal);}</style></head><body><div class="card"><h1 class="title">Volunteer Admin</h1><p class="sub">Timothy Lutheran Church</p><!--ERROR--><form method="POST" action="/admin/login"><label for="pw">Password</label><input type="password" id="pw" name="password" placeholder="Enter password" autofocus><button class="btn" type="submit">Sign In</button></form></div></body></html>`;
+const LOGIN_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Admin Login</title><link href="https://fonts.googleapis.com/css2?family=Lora:wght@600&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet"><style>:root{--navy:#1E2D4A;--teal:#2E7EA6;}*{box-sizing:border-box;margin:0;padding:0;}body{font-family:'Source Sans 3',sans-serif;background:#C4DDE8;display:flex;align-items:center;justify-content:center;min-height:100vh;}.card{background:#fff;border-radius:16px;padding:2.5rem;max-width:380px;width:100%;box-shadow:0 4px 24px rgba(30,45,74,.12);}.title{font-family:'Lora',serif;font-size:1.5rem;color:var(--navy);}.sub{font-size:.88rem;color:#8A8898;margin:.25rem 0 1.75rem;}label{display:block;font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--navy);margin-bottom:.4rem;}input{width:100%;padding:.7rem 1rem;border:1.5px solid rgba(30,45,74,.2);border-radius:8px;font-size:.95rem;font-family:inherit;outline:none;}input:focus{border-color:var(--teal);}.btn{width:100%;background:var(--navy);color:#fff;border:none;padding:.85rem;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;margin-top:1.25rem;transition:background .15s;}.btn:hover{background:var(--teal);}.btn:disabled{opacity:.6;cursor:wait;}code{font-size:.82rem;background:#f0f0f0;padding:1px 4px;border-radius:3px;}</style></head><body><div class="card"><h1 class="title">Volunteer Admin</h1><p class="sub">Timothy Lutheran Church</p><!--ERROR--><form method="POST" action="/admin/login" onsubmit="var b=this.querySelector('.btn');b.disabled=true;b.textContent='Signing in…';"><label for="pw">Password</label><input type="password" id="pw" name="password" placeholder="Enter password" autofocus><button class="btn" type="submit">Sign In</button></form></div></body></html>`;
 
 // ── PUBLIC HTML ─────────────────────────────────────────────────────
 const PUBLIC_HTML = `<!DOCTYPE html> <html lang="en"> <head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <title>Serve at Timothy</title> <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin> <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400;1,600&family=Source+Sans+3:wght@300;400;600&display=swap" rel="stylesheet"> <style> /* ── DESIGN TOKENS (unified from both pages) ── */ :root {   --navy:         #1E2D4A;   --navy-mid:     #2A3F60;   --navy-pale:    #C4CEDF;   --teal:         #2E7EA6;   --teal-light:   #5BA3C4;   --teal-pale:    #C0D8E4;   --gold:         #C9973A;   --gold-light:   #E8C070;   --gold-pale:    #F5E4C0;   --cream:        #F7F3EC;   --warm-white:   #FBF8F3;   --moss:         #4A5E3A;   --moss-light:   #7A8F6A;   --moss-pale:    #C2CEBC;   --stone:        #8C8880;   --slate:        #3A4E5C;   --slate-light:  #6A8090;   --slate-pale:   #C0CED4;   --plum-light:   #8A6A8A;   --text-primary:   #1A1A2A;   --text-secondary: #4A4860;   --text-muted:     #8A8898;   --border:       rgba(30,45,74,0.12); } *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; } html { scroll-behavior: smooth; } body {   font-family: 'Source Sans 3', sans-serif;   background-color: #C4DDE8;   color: var(--text-primary);   line-height: 1.6;   overflow-x: hidden; } body::before {   content: '';   position: fixed; inset: 0;   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");   pointer-events: none; z-index: 1000; opacity: 0.5; }  /* ── MOCKUP ANNOTATION BAR ── */ .annotation-bar {   background: #2d1f5e;   color: #c9b8ff;   font-size: 0.78rem;   padding: 0.5rem 1.5rem;   display: flex;   align-items: center;   gap: 1rem;   flex-wrap: wrap; } .annotation-bar strong { color: #e8d8ff; } .annotation-pill {   display: inline-block;   background: rgba(255,255,255,0.12);   border: 1px solid rgba(255,255,255,0.2);   border-radius: 100px;   padding: 0.2rem 0.7rem;   font-size: 0.72rem; } .page-divider {   background: #2d1f5e;   color: #c9b8ff;   font-size: 0.72rem;   font-weight: 600;   letter-spacing: 0.1em;   text-transform: uppercase;   padding: 0.5rem 1.5rem;   display: flex;   align-items: center;   gap: 0.75rem; } .page-divider::after {   content: '';   flex: 1;   height: 1px;   background: rgba(255,255,255,0.2); }  /* ── HEADER ── */ header {   background-color: #7A8F6A;   padding: 0.75rem 2rem;   display: flex; align-items: center;   justify-content: space-between; gap: 1rem; border-bottom: 1px solid rgba(0,0,0,.1); } .header-logo { display: flex; align-items: center; gap: 0.9rem; text-decoration: none; } .header-logo img { width: 52px; height: 52px; border-radius: 50%; flex-shrink: 0; } .header-logo-placeholder {   width: 52px; height: 52px; border-radius: 50%;   background: transparent;   border: none;   flex-shrink: 0; display: flex; align-items: center; justify-content: center;   font-size: 1.5rem; } .header-logo-text { display: flex; flex-direction: column; } .header-logo-name {   font-family: 'Lora', serif; font-size: 1rem; font-weight: 600;   color: white; line-height: 1.2; letter-spacing: 0.01em; } .header-logo-tag { font-size: 0.72rem; color: rgba(255,255,255,0.8); letter-spacing: 0.04em; font-style: italic; } .header-address { font-size: 0.75rem; color: rgba(255,255,255,0.85); text-align: right; line-height: 1.6; }  /* ── HERO ── */ .hero {   position: relative; background-color: var(--navy);   padding: 5rem 2rem 6rem; overflow: hidden; text-align: center; } .hero::after {   content: '';   position: absolute; bottom: 0; left: 0; right: 0; height: 60px;   background: var(--cream); clip-path: ellipse(55% 100% at 50% 100%); } .hero-eyebrow {   font-size: 0.78rem; font-weight: 600; letter-spacing: 0.14em;   text-transform: uppercase; color: var(--gold-light); margin-bottom: 1rem; } .hero h1 {   font-family: 'Lora', serif;   font-size: clamp(2.4rem, 6vw, 3.8rem);   font-weight: 400; color: var(--warm-white); line-height: 1.15; margin-bottom: 1.5rem; } .hero h1 em { font-style: italic; color: var(--gold-light); } .hero-sub {   font-size: 1.1rem; color: var(--navy-pale); max-width: 520px;   margin: 0 auto 2.5rem; font-weight: 300; line-height: 1.7; } .hero-scroll {   display: inline-flex; align-items: center; gap: 0.5rem;   font-size: 0.85rem; color: var(--navy-pale); text-decoration: none;   border: 1px solid rgba(196,168,152,0.3); padding: 0.6rem 1.4rem;   border-radius: 100px; transition: all 0.2s; } .hero-scroll:hover { background: rgba(255,255,255,0.08); border-color: var(--gold-light); color: var(--warm-white); } .hero-scroll svg { width: 14px; height: 14px; }  /* ── MAIN ── */ main { max-width: 1060px; margin: 0 auto; padding: 4rem 1.5rem 6rem; }  .section-intro { text-align: center; margin-bottom: 3.5rem; } .section-intro p {   font-family: 'Lora', serif; font-size: 1.2rem; color: var(--text-secondary);   max-width: 600px; margin: 0 auto; font-style: italic; line-height: 1.8; } .section-label {   font-size: 0.72rem; font-weight: 600; letter-spacing: 0.14em;   text-transform: uppercase; color: var(--text-muted);   margin-bottom: 1rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--border); } .spacer { height: 2.5rem; }  /* ── CORE VALUES STRIP ── */ .values-strip {   display: grid;   grid-template-columns: repeat(4, 1fr);   gap: 0.75rem;   margin-bottom: 3rem;   max-width: 860px;   margin-left: auto;   margin-right: auto; } .value-tile {   background: var(--warm-white);   border: 1px solid var(--border);   border-radius: 12px;   padding: 1rem 1.1rem;   display: flex;   flex-direction: column;   gap: 0.3rem;   position: relative;   overflow: hidden;   text-decoration: none;   cursor: pointer;   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; } .value-tile:hover, .value-tile:focus-visible {   transform: translateY(-2px);   box-shadow: 0 4px 16px rgba(30,45,74,0.1);   border-color: rgba(30,45,74,0.22);   outline: none; } .value-tile::before {   content: '';   position: absolute;   top: 0; left: 0; right: 0;   height: 3px;   border-radius: 12px 12px 0 0; } .value-tile.v-worship::before    { background: var(--navy); } .value-tile.v-education::before  { background: var(--gold); } .value-tile.v-acceptance::before { background: var(--moss); } .value-tile.v-outreach::before   { background: var(--slate); } .value-tile-name {   font-family: 'Lora', serif;   font-size: 0.9rem;   font-weight: 600;   line-height: 1.2; } .value-tile.v-worship .value-tile-name    { color: var(--navy); } .value-tile.v-education .value-tile-name  { color: #7a5800; } .value-tile.v-acceptance .value-tile-name { color: var(--moss); } .value-tile.v-outreach .value-tile-name   { color: var(--slate); } .value-tile-desc {   font-size: 0.76rem;   color: var(--text-muted);   line-height: 1.4; } @media (max-width: 860px) {   .values-strip { grid-template-columns: repeat(3, 1fr); } } @media (max-width: 580px) {   .values-strip { grid-template-columns: 1fr 1fr; } } @media (max-width: 380px) {   .values-strip { grid-template-columns: 1fr; } } .value-tile.v-events::before { background: var(--teal); } .value-tile.v-events .value-tile-name { color: var(--teal); }  /* ── CARD VALUE TAG ── */ .card-value-tag {   display: inline-flex;   align-items: center;   gap: 0.3rem;   font-size: 0.68rem;   font-weight: 600;   letter-spacing: 0.08em;   text-transform: uppercase;   margin-top: 0.6rem;   padding: 0.2rem 0.55rem;   border-radius: 100px; } .card.worship  .card-value-tag { background: rgba(30,45,74,0.07);  color: var(--navy-mid); } .card.events   .card-value-tag { background: rgba(58,78,92,0.07);  color: var(--slate); } .card.mdo      .card-value-tag { background: rgba(74,94,58,0.08);  color: var(--moss); } .card.property .card-value-tag { background: rgba(140,136,128,0.1);color: var(--stone); } .card.wol      .card-value-tag { background: rgba(201,151,58,0.1); color: #7a5800; } .card.lasm     .card-value-tag { background: rgba(58,78,92,0.07);  color: var(--slate); } .card.cfna     .card-value-tag { background: rgba(46,126,166,0.08); color: var(--teal); } .card-value-tag svg { width: 9px; height: 9px; }  /* ── OVERVIEW CARDS (landing page cards) ── */ .cards {   display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; } .card {   background: var(--warm-white); border: 1px solid var(--border);   border-radius: 16px; padding: 1.75rem; text-decoration: none; color: inherit;   display: flex; flex-direction: column; position: relative; overflow: hidden;   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease; } .card:hover { transform: translateY(-4px); border-color: transparent; } .card.worship:hover  { box-shadow: 0 12px 40px rgba(30,45,74,0.16); } .card.events:hover   { box-shadow: 0 12px 40px rgba(201,151,58,0.16); } .card.mdo:hover      { box-shadow: 0 12px 40px rgba(74,94,58,0.16); } .card.property:hover { box-shadow: 0 12px 40px rgba(140,136,128,0.16); } .card.wol:hover      { box-shadow: 0 12px 40px rgba(122,143,106,0.14); } .card.lasm:hover     { box-shadow: 0 12px 40px rgba(58,78,92,0.16); } .card.interest:hover { box-shadow: 0 12px 40px rgba(138,106,138,0.12); } .card::before {   content: ''; position: absolute; top: 0; left: 0; right: 0;   height: 4px; border-radius: 16px 16px 0 0; } .card.worship::before  { background: var(--navy); } .card.events::before   { background: var(--gold); } .card.mdo::before      { background: var(--moss); } .card.property::before { background: var(--stone); } .card.wol::before      { background: var(--teal); } .card.lasm::before     { background: var(--slate); } .card.interest::before { background: var(--plum-light); } .card-icon {   width: 44px; height: 44px; border-radius: 10px;   display: flex; align-items: center; justify-content: center; margin-bottom: 1.1rem; } .card.worship .card-icon  { background: rgba(30,45,74,0.09); } .card.events .card-icon   { background: rgba(201,151,58,0.11); } .card.mdo .card-icon      { background: rgba(74,94,58,0.09); } .card.property .card-icon { background: rgba(140,136,128,0.1); } .card.wol .card-icon      { background: rgba(46,126,166,0.1); } .card.lasm .card-icon     { background: rgba(58,78,92,0.09); } .card.interest .card-icon { background: rgba(138,106,138,0.08); } .card-icon svg { width: 22px; height: 22px; } .card.worship .card-icon svg  { color: var(--navy); } .card.events .card-icon svg   { color: var(--gold); } .card.mdo .card-icon svg      { color: var(--moss); } .card.property .card-icon svg { color: var(--stone); } .card.wol .card-icon svg      { color: var(--teal); } .card.lasm .card-icon svg     { color: var(--slate); } .card.interest .card-icon svg { color: var(--plum-light); } .card-label { font-size: 0.68rem; font-weight: 600; letter-spacing: 0.11em; text-transform: uppercase; margin-bottom: 0.35rem; } .card.worship .card-label  { color: var(--navy-mid); } .card.events .card-label   { color: var(--gold); } .card.mdo .card-label      { color: var(--moss-light); } .card.property .card-label { color: var(--stone); } .card.wol .card-label      { color: var(--teal); } .card.lasm .card-label     { color: var(--slate-light); } .card.interest .card-label { color: var(--plum-light); } .card h2 {   font-family: 'Lora', serif; font-size: 1.25rem; font-weight: 600;   color: var(--text-primary); margin-bottom: 0.65rem; line-height: 1.3; } .card p { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.65; flex: 1; margin-bottom: 1.25rem; } .card-cta { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; font-weight: 600; transition: gap 0.2s; } .card.worship .card-cta  { color: var(--navy); } .card.events .card-cta   { color: var(--gold); } .card.mdo .card-cta      { color: var(--moss); } .card.property .card-cta { color: var(--stone); } .card.wol .card-cta      { color: var(--teal); } .card.lasm .card-cta     { color: var(--slate); } .card.interest .card-cta { color: var(--plum-light); } .card:hover .card-cta    { gap: 0.7rem; } .card-cta svg { width: 15px; height: 15px; flex-shrink: 0; } .card-external {   display: inline-flex; align-items: center; gap: 0.3rem;   font-size: 0.7rem; color: var(--text-muted); margin-top: 0.5rem; } .card-external svg { width: 11px; height: 11px; }  /* ── UPCOMING EVENTS ── */ .upcoming {   background: var(--gold-pale); border: 1px solid rgba(201,151,58,0.25);   border-radius: 16px; padding: 2rem 2.5rem; margin-top: 3rem; } .upcoming-header {   display: flex; align-items: baseline; justify-content: space-between;   margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem; } .upcoming-header h3 { font-family: 'Lora', serif; font-size: 1.1rem; font-weight: 600; color: var(--navy); } .upcoming-header span { font-size: 0.78rem; color: var(--text-muted); } .event-list { list-style: none; display: flex; flex-direction: column; gap: 0.75rem; } .event-item {   display: flex; align-items: center; gap: 1rem; padding: 0.9rem 1.1rem;   background: var(--warm-white); border-radius: 10px; border: 1px solid rgba(201,151,58,0.2);   text-decoration: none; color: inherit; transition: border-color 0.2s, transform 0.2s; } .event-item:hover { border-color: var(--gold); transform: translateX(3px); } .event-date { text-align: center; min-width: 44px; flex-shrink: 0; } .event-date .month { display: block; font-size: 0.63rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); } .event-date .day { display: block; font-family: 'Lora', serif; font-size: 1.5rem; font-weight: 600; color: var(--navy); line-height: 1; } .event-divider { width: 1px; height: 36px; background: var(--border); flex-shrink: 0; } .event-info { flex: 1; } .event-info strong { display: block; font-size: 0.9rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.15rem; } .event-info span { font-size: 0.78rem; color: var(--text-muted); } .event-slots { font-size: 0.73rem; font-weight: 600; padding: 0.25rem 0.6rem; border-radius: 100px; white-space: nowrap; flex-shrink: 0; } .event-slots.open { color: var(--moss); background: var(--moss-pale); } .event-slots.few  { color: #8B5E1A; background: var(--gold-pale); border: 1px solid rgba(201,151,58,0.3); } .event-slots.soon { color: var(--slate-light); background: var(--slate-pale); }  /* ══════════════════════════════════════════════    WORSHIP ROLES SECTION    This is what would live at /scheduler or    expand inline when clicking the worship card ══════════════════════════════════════════════ */  .roles-page { background: var(--cream); }  .roles-hero {   background: var(--navy); padding: 3rem 2rem 4rem; text-align: center; position: relative; } .roles-hero::after {   content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 48px;   background: var(--cream); clip-path: ellipse(55% 100% at 50% 100%); } .roles-hero-eyebrow {   font-size: 0.72rem; font-weight: 600; letter-spacing: 0.16em;   text-transform: uppercase; color: var(--gold-light); margin-bottom: 0.75rem; } .roles-hero h2 {   font-family: 'Lora', serif; font-size: clamp(1.8rem, 4vw, 2.8rem);   font-weight: 400; color: var(--warm-white); line-height: 1.2; margin-bottom: 1rem; } .roles-hero h2 em { font-style: italic; color: var(--gold-light); } .roles-hero-sub {   font-size: 1rem; color: var(--navy-pale); max-width: 500px;   margin: 0 auto; font-weight: 300; line-height: 1.7; } .back-link { display:inline-flex;align-items:center;gap:.5rem;background:#6B8F71;color:#fff;font-size:.9rem;font-weight:600;text-decoration:none;margin-bottom:1.5rem;padding:.65rem 1.25rem;border-radius:8px;border:none;transition:background .2s;cursor:pointer; } .back-link:hover{background:#567260;color:#fff;} .back-link svg{width:16px;height:16px;} .back-btn-bottom{display:inline-flex;align-items:center;gap:.5rem;background:#6B8F71;color:#fff;font-size:.9rem;font-weight:600;text-decoration:none;padding:.7rem 1.4rem;border-radius:8px;border:none;cursor:pointer;transition:background .2s;} .back-btn-bottom:hover{background:#567260;} .back-btn-bottom svg{width:16px;height:16px;}  /* ── Ministry area headers ── */ .ministry-section { margin-bottom: 3rem; } .ministry-header {   display: flex; align-items: center; gap: 1rem;   padding: 1.1rem 1.5rem; border-radius: 12px 12px 0 0; margin-bottom: 0; } .ministry-header.worship  { background: rgba(30,45,74,0.07);  border: 1px solid rgba(30,45,74,0.14);  border-bottom: none; } .ministry-header.education{ background: rgba(201,151,58,0.08); border: 1px solid rgba(201,151,58,0.2); border-bottom: none; } .ministry-header.acceptance{ background: rgba(74,94,58,0.07); border: 1px solid rgba(74,94,58,0.18);  border-bottom: none; } .ministry-header.outreach  { background: rgba(58,78,92,0.07);  border: 1px solid rgba(58,78,92,0.15);  border-bottom: none; } .ministry-icon {   width: 40px; height: 40px; border-radius: 10px;   display: flex; align-items: center; justify-content: center; flex-shrink: 0; } .ministry-header.worship  .ministry-icon { background: rgba(30,45,74,0.12); } .ministry-header.education .ministry-icon { background: rgba(201,151,58,0.15); } .ministry-header.acceptance .ministry-icon { background: rgba(74,94,58,0.12); } .ministry-header.outreach .ministry-icon { background: rgba(58,78,92,0.12); } .ministry-icon svg { width: 20px; height: 20px; } .ministry-header.worship  .ministry-icon svg { color: var(--navy); } .ministry-header.education .ministry-icon svg { color: var(--gold); } .ministry-header.acceptance .ministry-icon svg { color: var(--moss); } .ministry-header.outreach .ministry-icon svg { color: var(--slate); } .ministry-name { font-family: 'Lora', serif; font-size: 1.1rem; font-weight: 600; } .ministry-header.worship  .ministry-name { color: var(--navy); } .ministry-header.education .ministry-name { color: #7a5800; } .ministry-header.acceptance .ministry-name { color: var(--moss); } .ministry-header.outreach .ministry-name { color: var(--slate); } .ministry-header.events { background: rgba(46,126,166,0.07); border: 1px solid rgba(46,126,166,0.2); border-bottom: none; } .ministry-header.events .ministry-icon { background: rgba(46,126,166,0.12); } .ministry-header.events .ministry-icon svg { color: var(--teal); } .ministry-header.events .ministry-name { color: var(--teal); }  .event-group { margin-bottom: 1.75rem; } .event-group:last-child { margin-bottom: 0; } .event-group-header {   display: flex; align-items: center; gap: 0.6rem;   margin-bottom: 0.85rem; padding-bottom: 0.5rem;   border-bottom: 1px solid rgba(46,126,166,0.18); } .event-group-name { font-family: 'Lora', serif; font-weight: 600; font-size: 0.95rem; color: var(--teal); } .event-group-when { font-size: 0.75rem; color: var(--text-muted); margin-left: auto; padding-left: 0.75rem; white-space: nowrap; } .event-group-icon { font-size: 1.15rem; line-height: 1; }  .ministry-tagline { font-size: 0.83rem; color: var(--text-muted); margin-top: 0.1rem; } .ministry-roles {   border: 1px solid rgba(30,45,74,0.1); border-top: none;   border-radius: 0 0 12px 12px; padding: 1.25rem; background: var(--warm-white); } .ministry-header.education ~ .ministry-roles, .ministry-section:nth-child(2) .ministry-roles { border-color: rgba(201,151,58,0.18); } .ministry-section:nth-child(3) .ministry-roles { border-color: rgba(74,94,58,0.15); } .ministry-section:nth-child(4) .ministry-roles { border-color: rgba(58,78,92,0.13); }  /* ── Role cards ── */ .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; } .role-card {   background: var(--cream); border: 1px solid var(--border);   border-radius: 12px; padding: 1.25rem; cursor: pointer;   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s; position: relative; } .role-card:hover { border-color: rgba(30,45,74,0.3); box-shadow: 0 4px 20px rgba(30,45,74,0.1); } .role-card.selected {   background: rgba(30,45,74,0.05);   border-color: var(--navy);   box-shadow: 0 0 0 2px rgba(30,45,74,0.15); } .role-card input[type="checkbox"] { position: absolute; opacity: 0; pointer-events: none; } .role-card-top { display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.6rem; } .role-check {   width: 20px; height: 20px; border: 2px solid var(--border); border-radius: 5px;   flex-shrink: 0; margin-top: 2px; display: flex; align-items: center; justify-content: center;   background: white; transition: all 0.15s; } .role-card.selected .role-check {   background: var(--navy); border-color: var(--navy); color: white; font-size: 12px; } .role-name {   font-family: 'Lora', serif; font-weight: 600; font-size: 0.95rem;   color: var(--text-primary); line-height: 1.3; } .role-desc { font-size: 0.84rem; color: var(--text-secondary); line-height: 1.55; margin-bottom: 0.75rem; } .role-meta { display: flex; flex-direction: column; gap: 0.2rem; } .role-meta-item { font-size: 0.76rem; color: var(--text-muted); } .role-meta-item strong { color: var(--text-secondary); font-weight: 600; }  /* ── Scheduler CTA ── */ .scheduler-cta {   background: var(--navy); border-radius: 16px; padding: 2rem 2.5rem;   display: flex; align-items: center; justify-content: space-between;   gap: 1.5rem; flex-wrap: wrap; margin-top: 2rem; } .scheduler-cta-text h3 {   font-family: 'Lora', serif; font-size: 1.2rem; color: var(--warm-white);   margin-bottom: 0.35rem; } .scheduler-cta-text p { font-size: 0.88rem; color: var(--navy-pale); line-height: 1.5; } .btn-cta {   display: inline-flex; align-items: center; gap: 0.5rem;   background: var(--gold); color: var(--navy); font-family: 'Lora', serif;   font-size: 0.95rem; font-weight: 600; padding: 0.75rem 1.75rem;   border-radius: 100px; text-decoration: none; white-space: nowrap;   transition: background 0.2s, transform 0.2s; } .btn-cta:hover { background: var(--gold-light); transform: translateY(-1px); } .btn-cta svg { width: 16px; height: 16px; }  /* ── Sign-up form section ── */ .signup-section {   background: var(--warm-white); border: 1px solid var(--border);   border-radius: 16px; padding: 2rem 2.5rem; margin-top: 3rem;   display: none; } .signup-section.visible { display: block; } .signup-section-header {   display: flex; align-items: center; gap: 1rem; margin-bottom: 1.75rem;   padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); } .signup-icon {   width: 48px; height: 48px; border-radius: 12px;   background: rgba(138,106,138,0.1); display: flex; align-items: center;   justify-content: center; flex-shrink: 0; } .signup-icon svg { width: 24px; height: 24px; color: var(--plum-light); } .signup-section-header h3 {   font-family: 'Lora', serif; font-size: 1.2rem; color: var(--text-primary); } .signup-section-header p { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem; }  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; } .form-field { margin-bottom: 1.25rem; } .form-label {   display: block; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em;   text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.45rem; } .form-input {   width: 100%; padding: 0.65rem 0.9rem; border: 1.5px solid rgba(30,45,74,0.15);   border-radius: 8px; font-size: 0.95rem; font-family: 'Source Sans 3', sans-serif;   color: var(--text-primary); background: white; outline: none; transition: border-color 0.2s, box-shadow 0.2s; } .form-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201,151,58,0.12); } .form-textarea {   width: 100%; padding: 0.65rem 0.9rem; border: 1.5px solid rgba(30,45,74,0.15);   border-radius: 8px; font-size: 0.95rem; font-family: 'Source Sans 3', sans-serif;   color: var(--text-primary); background: white; outline: none;   resize: vertical; min-height: 90px; transition: border-color 0.2s, box-shadow 0.2s; } .form-textarea:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201,151,58,0.12); }  .chip-group { display: flex; flex-wrap: wrap; gap: 0.5rem; } .chip-label {   display: flex; align-items: center; gap: 0.4rem;   background: var(--cream); border: 1.5px solid var(--border);   border-radius: 8px; padding: 0.45rem 0.9rem; cursor: pointer;   font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);   transition: all 0.15s; user-select: none; } .chip-label:hover { background: rgba(30,45,74,0.05); border-color: rgba(30,45,74,0.25); } .chip-label.checked { background: var(--navy); color: white; border-color: var(--navy); } .chip-label input { position: absolute; opacity: 0; pointer-events: none; }  .form-section-label {   font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;   color: var(--text-muted); margin-bottom: 0.65rem; display: block; } .selected-roles-preview {   background: rgba(30,45,74,0.04); border: 1px solid rgba(30,45,74,0.1);   border-radius: 10px; padding: 0.9rem 1.1rem; margin-bottom: 1.25rem;   font-size: 0.85rem; color: var(--text-secondary); } .selected-roles-preview em { color: var(--text-muted); font-style: italic; }  .btn-submit {   display: inline-flex; align-items: center; gap: 0.5rem;   background: var(--navy); color: white; font-family: 'Source Sans 3', sans-serif;   font-size: 1rem; font-weight: 600; padding: 0.85rem 2rem;   border-radius: 10px; border: none; cursor: pointer; transition: background 0.2s; } .btn-submit:hover { background: var(--navy-mid); }  /* ── FOOTER ── */ footer { background: var(--navy); padding: 2.5rem 2rem; text-align: center; } .footer-logo { display: flex; justify-content: center; margin-bottom: 1rem; } .footer-logo-placeholder {   width: 56px; height: 56px; border-radius: 50%;   background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.15);   display: flex; align-items: center; justify-content: center;   font-size: 1.6rem; opacity: 0.7; } footer p { font-size: 0.82rem; color: var(--navy-pale); line-height: 1.9; } footer a { color: var(--gold-light); text-decoration: none; } footer a:hover { text-decoration: underline; }  @media (max-width: 640px) {   .hero { padding: 3.5rem 1.5rem 5rem; }   .cards { grid-template-columns: 1fr; }   .role-grid { grid-template-columns: 1fr; }   .form-row { grid-template-columns: 1fr; }   .upcoming { padding: 1.5rem; }   header { flex-direction: column; align-items: flex-start; gap: 0.5rem; }   .header-address { text-align: left; }   .scheduler-cta { flex-direction: column; }   .signup-section { padding: 1.5rem; } }  @keyframes fadeUp {   from { opacity: 0; transform: translateY(16px); }   to   { opacity: 1; transform: translateY(0); } }  /* ── App page routing ── */ .app-page[hidden] { display: none !important; }  /* ── Event volunteer cards (events page) ── */ .event-volunteer-list { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 2rem; } .ev-card { background: var(--warm-white); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; } .ev-card-header {   width: 100%; display: flex; align-items: center; gap: 1.25rem;   padding: 1.25rem 1.5rem; background: none; border: none; cursor: pointer;   text-align: left; transition: background 0.15s; } .ev-card-header:hover { background: rgba(30,45,74,0.03); } .ev-card-date {   display: flex; flex-direction: column; align-items: center;   min-width: 52px; background: var(--navy); color: white;   border-radius: 10px; padding: 0.4rem 0.6rem; flex-shrink: 0; } .ev-card-date .month { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.8; } .ev-card-date .day { font-family: 'Lora', serif; font-size: 1.3rem; font-weight: 600; line-height: 1.1; } .ev-card-info { flex: 1; } .ev-card-tag { font-size: 0.74rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; } .ev-card-info h3 { font-family: 'Lora', serif; font-size: 1.05rem; font-weight: 600; color: var(--text-primary); margin: 0.2rem 0 0.25rem; } .ev-card-info p { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45; margin: 0; } .ev-card-cta { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; flex-shrink: 0; padding-left: 0.5rem; } .ev-volunteer-label { font-size: 0.8rem; font-weight: 600; color: var(--teal); white-space: nowrap; } .ev-chevron { width: 20px; height: 20px; color: var(--teal); transition: transform 0.2s; } .ev-card-header[aria-expanded="true"] .ev-chevron { transform: rotate(180deg); } .ev-card-roles { padding: 1.25rem 1.5rem 1.5rem; border-top: 1px solid var(--border); } @media (max-width: 560px) {   .ev-card-header { flex-wrap: wrap; }   .ev-card-cta { flex-direction: row; width: 100%; justify-content: flex-end; } }  .sticky-back { position:fixed; top:4.5rem; left:.85rem; z-index:900; display:none; align-items:center; gap:.4rem; background:var(--gold); color:var(--navy); border:none; border-radius:8px; padding:.5rem 1rem; font-size:.85rem; font-weight:600; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.25); font-family:'Source Sans 3',sans-serif; transition:background .2s; } .sticky-back:hover { background:var(--gold-light); } .sticky-back svg { width:14px; height:14px; }  #page-worship main, #page-education main, #page-acceptance main, #page-outreach main { display:flex !important; flex-direction:column !important; } #volunteer-form { order:-1 !important; display:block !important; margin-top:0 !important; margin-bottom:2rem; } #edu-volunteer-form { order:-1 !important; display:block !important; margin-top:0 !important; margin-bottom:2rem; } #acc-volunteer-form { order:-1 !important; display:block !important; margin-top:0 !important; margin-bottom:2rem; } #out-volunteer-form { order:-1 !important; display:block !important; margin-top:0 !important; margin-bottom:2rem; } #page-worship #volunteer-form.signup-section, #page-education #edu-volunteer-form.signup-section, #page-acceptance #acc-volunteer-form.signup-section, #page-outreach #out-volunteer-form.signup-section { display:block !important; } 
@@ -8916,7 +8923,11 @@ header{background:var(--navy);color:#fff;padding:.75rem 1.5rem;display:flex;alig
         <label class="form-label">Description</label>
         <textarea id="new-ev-desc" class="form-textarea" placeholder="Brief description for volunteers..."></textarea>
       </div>
-      <div style="display:flex;gap:.5rem;margin-top:.5rem;">
+      <div style="display:flex;align-items:center;gap:.5rem;margin-top:.75rem;">
+        <input type="checkbox" id="new-ev-time-slots" checked style="width:auto;margin:0;">
+        <label for="new-ev-time-slots" style="font-size:.85rem;color:var(--navy);cursor:pointer;">Roles have scheduled time slots (date &amp; time)</label>
+      </div>
+      <div style="display:flex;gap:.5rem;margin-top:.75rem;">
         <button class="btn-primary" onclick="saveNewEvent()">Save Event</button>
         <button class="btn-secondary" onclick="document.getElementById('add-event-form').style.display='none'">Cancel</button>
       </div>
@@ -9049,66 +9060,70 @@ function printEventRoster(evId) {
       var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
         + '<title>' + escHtml(ev.name || 'Event Roster') + '</title>'
         + '<style>'
-        + 'body{font-family:Georgia,serif;color:#1a1a2a;padding:32px;max-width:900px;margin:0 auto;}'
-        + 'h1{font-size:1.6rem;margin:0 0 4px;}h2{font-size:1.1rem;font-weight:400;color:#555;margin:0 0 24px;border-bottom:2px solid #1E2D4A;padding-bottom:8px;}'
-        + '.day-section{margin-bottom:28px;}'
-        + '.day-heading{font-size:1rem;font-weight:700;color:#1E2D4A;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:12px;}'
-        + '.role-block{margin-bottom:16px;page-break-inside:avoid;}'
-        + '.role-header{display:flex;justify-content:space-between;align-items:baseline;}'
-        + '.role-name{font-weight:700;font-size:.95rem;}'
-        + '.role-time{font-size:.82rem;color:#555;}'
-        + '.role-desc{font-size:.8rem;color:#666;margin-bottom:6px;}'
-        + '.vol-table{width:100%;border-collapse:collapse;margin-top:4px;}'
-        + '.vol-table th{text-align:left;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:#888;border-bottom:1px solid #eee;padding:2px 6px;}'
-        + '.vol-table td{font-size:.85rem;padding:4px 6px;border-bottom:1px solid #f2f2f2;}'
-        + '.empty-slot{font-size:.82rem;color:#B85C3A;font-style:italic;padding:4px 6px;}'
-        + '.slots-badge{font-size:.75rem;color:#888;margin-left:8px;}'
-        + '@media print{body{padding:16px;}}'
+        + '@page{size:landscape;margin:.65in .75in;}'
+        + '*{box-sizing:border-box;margin:0;padding:0;}'
+        + 'body{font-family:Georgia,serif;color:#1a1a2a;font-size:10pt;}'
+        + '.header{border-bottom:2.5pt solid #1E2D4A;padding-bottom:6pt;margin-bottom:14pt;display:flex;justify-content:space-between;align-items:flex-end;}'
+        + '.header-title{font-size:16pt;font-weight:700;color:#1E2D4A;line-height:1.1;}'
+        + '.header-date{font-size:9.5pt;color:#555;}'
+        + '.day-section{margin-bottom:18pt;page-break-inside:avoid;}'
+        + '.day-heading{font-size:10pt;font-weight:700;color:#1E2D4A;background:#e8eef5;padding:3pt 6pt;border-left:3pt solid #1E2D4A;margin-bottom:4pt;}'
+        + 'table{width:100%;border-collapse:collapse;}'
+        + 'thead tr{background:#1E2D4A;color:#fff;}'
+        + 'thead th{text-align:left;font-size:8pt;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:4pt 6pt;border:1pt solid #1E2D4A;}'
+        + 'tbody tr:nth-child(even){background:#f5f7fa;}'
+        + 'tbody tr:nth-child(odd){background:#fff;}'
+        + 'tbody td{font-size:9pt;padding:4pt 6pt;border:0.5pt solid #d0d8e4;vertical-align:top;}'
+        + '.role-cell{font-weight:700;}'
+        + '.time-cell{white-space:nowrap;color:#2E7EA6;}'
+        + '.vol-cell{color:#222;}'
+        + '.empty-cell{color:#B85C3A;font-style:italic;}'
+        + '.fill-cell{font-size:8pt;color:#666;white-space:nowrap;}'
+        + '.footer{margin-top:14pt;font-size:7.5pt;color:#aaa;border-top:0.5pt solid #ddd;padding-top:4pt;display:flex;justify-content:space-between;}'
         + '</style></head><body>'
-        + '<h1>' + escHtml(ev.name || 'Event Roster') + '</h1>'
-        + '<h2>' + escHtml(dateStr) + '</h2>';
+        + '<div class="header">'
+        + '<div class="header-title">' + escHtml(ev.name || 'Event Roster') + '</div>'
+        + '<div class="header-date">' + escHtml(dateStr) + '</div>'
+        + '</div>';
       if (!roster.length) {
         html += '<p style="color:#888;">No roles defined for this event.</p>';
       } else {
         dateOrder.forEach(function(d) {
           var roles = byDate[d];
           var dayLabel = d ? new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' }) : 'General';
-          html += '<div class="day-section"><div class="day-heading">' + escHtml(dayLabel) + '</div>';
+          html += '<div class="day-section"><div class="day-heading">' + escHtml(dayLabel) + '</div>'
+            + '<table><thead><tr>'
+            + '<th style="width:18%;">Role</th>'
+            + '<th style="width:11%;">Time</th>'
+            + '<th style="width:8%;">Filled</th>'
+            + '<th>Volunteers</th>'
+            + '</tr></thead><tbody>';
           roles.forEach(function(role) {
             var timeStr = '';
             if (role.start_time) timeStr = role.start_time + (role.end_time ? ' – ' + role.end_time : '');
-            var slotsLabel = role.slots > 0 ? role.volunteers.length + ' / ' + role.slots + ' filled' : role.volunteers.length + ' signed up';
-            html += '<div class="role-block">'
-              + '<div class="role-header">'
-              + '<span class="role-name">' + escHtml(role.name) + '</span>'
-              + '<span class="role-time">' + (timeStr ? escHtml(timeStr) + '&ensp;&bull;&ensp;' : '') + '<span class="slots-badge">' + escHtml(slotsLabel) + '</span></span>'
-              + '</div>'
-              + (role.description ? '<div class="role-desc">' + escHtml(role.description) + '</div>' : '');
-            if (role.volunteers.length) {
-              html += '<table class="vol-table"><thead><tr><th>Name</th><th>Email</th><th>Phone</th></tr></thead><tbody>';
-              role.volunteers.forEach(function(v) {
-                html += '<tr><td>' + escHtml(v.name) + '</td><td>' + escHtml(v.email || '—') + '</td><td>' + escHtml(v.phone || '—') + '</td></tr>';
-              });
-              // Empty slots
-              var empty = role.slots > 0 ? Math.max(0, role.slots - role.volunteers.length) : 0;
-              for (var i = 0; i < empty; i++) {
-                html += '<tr><td class="empty-slot" colspan="3">— open slot —</td></tr>';
+            var filledCount = role.volunteers.length;
+            var slotsLabel = role.slots > 0 ? filledCount + ' / ' + role.slots : filledCount + ' / ∞';
+            var volNames = role.volunteers.length
+              ? role.volunteers.map(function(v) { return escHtml(v.name); }).join(',&ensp;')
+              : '<span class="empty-cell">— open —</span>';
+            // Add open slot indicators if capacity not met
+            if (role.slots > 0 && role.volunteers.length < role.slots) {
+              var opens = role.slots - role.volunteers.length;
+              for (var i = 0; i < opens; i++) {
+                volNames += (role.volunteers.length || i > 0 ? ',&ensp;' : '') + '<span class="empty-cell">open</span>';
               }
-              html += '</tbody></table>';
-            } else {
-              var totalEmpty = role.slots > 0 ? role.slots : 1;
-              html += '<table class="vol-table"><tbody>';
-              for (var i = 0; i < totalEmpty; i++) {
-                html += '<tr><td class="empty-slot" colspan="3">— open slot —</td></tr>';
-              }
-              html += '</tbody></table>';
             }
-            html += '</div>';
+            html += '<tr>'
+              + '<td class="role-cell">' + escHtml(role.name) + (role.description ? '<br><span style="font-weight:400;font-size:8pt;color:#666;">' + escHtml(role.description) + '</span>' : '') + '</td>'
+              + '<td class="time-cell">' + escHtml(timeStr || '—') + '</td>'
+              + '<td class="fill-cell">' + escHtml(slotsLabel) + '</td>'
+              + '<td class="vol-cell">' + volNames + '</td>'
+              + '</tr>';
           });
-          html += '</div>';
+          html += '</tbody></table></div>';
         });
       }
-      html += '<p style="font-size:.72rem;color:#aaa;margin-top:32px;">Printed ' + new Date().toLocaleString() + '</p>'
+      html += '<div class="footer"><span>Timothy Lutheran Church — Volunteer Roster</span><span>Printed ' + new Date().toLocaleString() + '</span></div>'
         + '</body></html>';
       var w = window.open('', '_blank');
       w.document.write(html);
@@ -9185,7 +9200,9 @@ function loadEvents(expandEvId) {
       document.getElementById('events-list').innerHTML = events.map(function(ev) {
         var statusClass = ev.hidden ? 'hidden' : 'visible';
         var statusLabel = ev.hidden ? 'Hidden' : 'Visible';
-        return '<div class="ev-admin-card" id="ev-admin-' + ev.id + '" data-hidden="' + (ev.hidden?1:0) + '" data-sort-order="' + (ev.sort_order||0) + '">'
+        var useTs = (ev.use_time_slots === undefined || ev.use_time_slots === null) ? 1 : ev.use_time_slots;
+        var tsHide = useTs ? '' : 'display:none;';
+        return '<div class="ev-admin-card" id="ev-admin-' + ev.id + '" data-hidden="' + (ev.hidden?1:0) + '" data-sort-order="' + (ev.sort_order||0) + '" data-use-time-slots="' + useTs + '">'
           + '<button class="ev-admin-header" onclick="toggleEvAdmin(' + ev.id + ')" aria-expanded="false">'
           + '<span class="ev-admin-name">' + escHtml(ev.name) + '</span>'
           + '<span class="ev-admin-date">' + (ev.event_date ? escHtml(ev.event_date) : 'No date') + '</span>'
@@ -9204,6 +9221,10 @@ function loadEvents(expandEvId) {
           + '<textarea id="ev-desc-' + ev.id + '" class="form-textarea">' + escHtml(ev.description||'') + '</textarea></div>'
           + '<input type="hidden" id="ev-hidden-' + ev.id + '" value="' + (ev.hidden?1:0) + '">'
           + '<input type="hidden" id="ev-sort-' + ev.id + '" value="' + (ev.sort_order||0) + '">'
+          + '<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem;">'
+          + '<input type="checkbox" id="ev-time-slots-' + ev.id + '"' + (useTs ? ' checked' : '') + ' style="width:auto;margin:0;" onchange="toggleTimeSlotFields(' + ev.id + ',this.checked)">'
+          + '<label for="ev-time-slots-' + ev.id + '" style="font-size:.85rem;color:var(--navy);cursor:pointer;">Roles have scheduled time slots (date &amp; time)</label>'
+          + '</div>'
           + '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem;">'
           + '<button class="btn-primary btn-sm" onclick="saveEvent(' + ev.id + ')">Save Changes</button>'
           + '<button class="btn-secondary btn-sm" onclick="printEventRoster(' + ev.id + ')">&#128438; Print Roster</button>'
@@ -9217,9 +9238,9 @@ function loadEvents(expandEvId) {
               return '<div class="role-admin-row" id="role-row-' + r.id + '" data-sort-order="' + (r.sort_order||0) + '"><span style="font-size:.75rem;font-weight:600;color:var(--teal);white-space:nowrap;min-width:40px;text-align:center;">' + (r.filled_count||0) + '/' + (r.slots||'∞') + '</span>'
                 + '<input type="text" class="form-input" style="flex:1;" id="role-name-' + r.id + '" value="' + escHtml(r.name) + '">'
                 + '<input type="text" class="form-input" style="flex:2;" id="role-desc-' + r.id + '" value="' + escHtml(r.description||'') + '" placeholder="Description...">'
-                + '<input type="date" class="form-input" style="flex:1;min-width:120px;" id="role-date-' + r.id + '" value="' + escHtml(r.role_date||'') + '" title="Date">'
-                + '<input type="time" class="form-input" style="flex:0 0 90px;" id="role-start-' + r.id + '" value="' + toTimeInput(r.start_time||'') + '" data-raw="' + escHtml(r.start_time||'') + '" title="Start time">'
-                + '<input type="time" class="form-input" style="flex:0 0 90px;" id="role-end-' + r.id + '" value="' + toTimeInput(r.end_time||'') + '" data-raw="' + escHtml(r.end_time||'') + '" title="End time">'
+                + '<input type="date" class="form-input role-time-field" style="flex:1;min-width:120px;' + tsHide + '" id="role-date-' + r.id + '" value="' + escHtml(r.role_date||'') + '" title="Date">'
+                + '<input type="time" class="form-input role-time-field" style="flex:0 0 90px;' + tsHide + '" id="role-start-' + r.id + '" value="' + toTimeInput(r.start_time||'') + '" data-raw="' + escHtml(r.start_time||'') + '" title="Start time">'
+                + '<input type="time" class="form-input role-time-field" style="flex:0 0 90px;' + tsHide + '" id="role-end-' + r.id + '" value="' + toTimeInput(r.end_time||'') + '" data-raw="' + escHtml(r.end_time||'') + '" title="End time">'
                 + '<input type="number" class="form-input" style="flex:0 0 60px;" id="role-slots-' + r.id + '" value="' + (r.slots||0) + '" min="0" title="Slots">'
                 + '<input type="hidden" id="role-sort-' + r.id + '" value="' + (r.sort_order||0) + '">'
                 + '<button class="btn-secondary btn-sm" onclick="saveRole(' + ev.id + ',' + r.id + ')">Save</button>'
@@ -9230,9 +9251,9 @@ function loadEvents(expandEvId) {
           + '<div class="add-role-form">'
           + '<input type="text" id="new-role-name-' + ev.id + '" class="form-input" placeholder="Role name...">'
           + '<input type="text" id="new-role-desc-' + ev.id + '" class="form-input" placeholder="Description...">'
-          + '<input type="date" id="new-role-date-' + ev.id + '" class="form-input" style="flex:1;min-width:120px;" title="Date">'
-          + '<input type="time" id="new-role-start-' + ev.id + '" class="form-input" style="flex:0 0 90px;" title="Start time">'
-          + '<input type="time" id="new-role-end-' + ev.id + '" class="form-input" style="flex:0 0 90px;" title="End time">'
+          + '<input type="date" id="new-role-date-' + ev.id + '" class="form-input role-time-field" style="flex:1;min-width:120px;' + tsHide + '" title="Date">'
+          + '<input type="time" id="new-role-start-' + ev.id + '" class="form-input role-time-field" style="flex:0 0 90px;' + tsHide + '" title="Start time">'
+          + '<input type="time" id="new-role-end-' + ev.id + '" class="form-input role-time-field" style="flex:0 0 90px;' + tsHide + '" title="End time">'
           + '<input type="number" id="new-role-slots-' + ev.id + '" class="form-input" style="flex:0 0 60px;" value="0" min="0" title="Slots">'
           + '<button class="btn-primary btn-sm" onclick="addRole(' + ev.id + ')">+ Role</button>'
           + '</div>'
@@ -9281,6 +9302,14 @@ function toggleEvAdmin(evId) {
   }
 }
 
+function toggleTimeSlotFields(evId, show) {
+  var card = document.getElementById('ev-admin-' + evId);
+  if (!card) return;
+  card.querySelectorAll('.role-time-field').forEach(function(el) {
+    el.style.display = show ? '' : 'none';
+  });
+}
+
 function saveEvent(evId) {
   var name = document.getElementById('ev-name-' + evId).value;
   var date = document.getElementById('ev-date-' + evId).value;
@@ -9288,10 +9317,12 @@ function saveEvent(evId) {
   var card = document.getElementById('ev-admin-' + evId);
   var hidden = card ? parseInt(card.dataset.hidden || '0', 10) : 0;
   var sortOrder = card ? parseInt(card.dataset.sortOrder || '0', 10) : 0;
+  var tsEl = document.getElementById('ev-time-slots-' + evId);
+  var useTimeSlots = tsEl ? (tsEl.checked ? 1 : 0) : 1;
   fetch('/admin/api/events/' + evId, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:hidden, sort_order:sortOrder })
+    body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:hidden, sort_order:sortOrder, use_time_slots:useTimeSlots })
   }).then(function(r) {
     if (!r.ok) { r.text().then(function(t) { alert('Save failed: ' + t); }); return; }
     loadEvents(evId);
@@ -9304,10 +9335,12 @@ function toggleEventVisibility(evId, hidden) {
   var desc = document.getElementById('ev-desc-' + evId).value;
   var card = document.getElementById('ev-admin-' + evId);
   var sortOrder = card ? parseInt(card.dataset.sortOrder || '0', 10) : 0;
+  var tsEl = document.getElementById('ev-time-slots-' + evId);
+  var useTimeSlots = tsEl ? (tsEl.checked ? 1 : 0) : 1;
   fetch('/admin/api/events/' + evId, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:hidden, sort_order:sortOrder })
+    body: JSON.stringify({ name:name, event_date:date, description:desc, hidden:hidden, sort_order:sortOrder, use_time_slots:useTimeSlots })
   }).then(function(r) {
     if (!r.ok) { r.text().then(function(t) { alert('Error: ' + t); }); return; }
     loadEvents();
@@ -9330,16 +9363,18 @@ function saveNewEvent() {
   if (!name) { alert('Please enter an event name.'); return; }
   var date = document.getElementById('new-ev-date').value;
   var desc = document.getElementById('new-ev-desc').value;
+  var useTimeSlots = document.getElementById('new-ev-time-slots').checked ? 1 : 0;
   fetch('/admin/api/events', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name:name, event_date:date, description:desc })
-  }).then(function() {
+    body: JSON.stringify({ name:name, event_date:date, description:desc, use_time_slots:useTimeSlots })
+  }).then(function(r) { return r.json(); }).then(function(data) {
     document.getElementById('new-ev-name').value = '';
     document.getElementById('new-ev-date').value = '';
     document.getElementById('new-ev-desc').value = '';
+    document.getElementById('new-ev-time-slots').checked = true;
     document.getElementById('add-event-form').style.display = 'none';
-    loadEvents();
+    loadEvents(data.id);
   });
 }
 
