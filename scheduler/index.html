@@ -852,9 +852,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 
 </div><!-- /#app-content -->
 
-<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-database-compat.js"></script>
+
 <script>
 // ══════════════════════════════════════════════════════════════════
 // HELPERS
@@ -3692,27 +3690,6 @@ function syncToBreeze() {
 // ══════════════════════════════════════════════════════════════════
 // FIREBASE CLOUD SYNC
 // ══════════════════════════════════════════════════════════════════
-var firebaseConfig = {
-  apiKey: "AIzaSyDYHJoLHArmcMDFZrXaMJ62RGUMgusJhD8",
-  authDomain: "tlc-worship-scheduler.firebaseapp.com",
-  databaseURL: "https://tlc-worship-scheduler-default-rtdb.firebaseio.com",
-  projectId: "tlc-worship-scheduler",
-  storageBucket: "tlc-worship-scheduler.firebasestorage.app",
-  messagingSenderId: "645397350092",
-  appId: "1:645397350092:web:d6c828f36f721ede3d2469"
-};
-firebase.initializeApp(firebaseConfig);
-var fbAuth = firebase.auth();
-var fbDb   = firebase.database();
-
-// ── ACCESS CONTROL ────────────────────────────────────────────────
-// To authorize a new user: add their email here, save, and re-deploy.
-// Capitalization does not matter — comparison is case-insensitive.
-var ALLOWED_EMAILS = [
-  'dinger@timothystl.org'
-  // add more as needed
-];
-// ─────────────────────────────────────────────────────────────────
 
 function updateSyncStatus(msg, isError) {
   var el = document.getElementById('sync-status');
@@ -3784,24 +3761,6 @@ function queueD1Push() {
   _d1SyncTimer = setTimeout(d1Push, 1500);
 }
 
-function fbSignIn() {
-  var email = document.getElementById('fb-email').value.trim();
-  var pass  = document.getElementById('fb-password').value;
-  if (!email || !pass) { updateLoginStatus('Enter email and password.', true); return; }
-  updateLoginStatus('Signing in\u2026');
-  fbAuth.signInWithEmailAndPassword(email, pass)
-    .catch(function(e) { updateLoginStatus('Sign-in failed: ' + e.message, true); });
-}
-
-function fbRegister() {
-  var email = document.getElementById('fb-email').value.trim();
-  var pass  = document.getElementById('fb-password').value;
-  if (!email || !pass) { updateLoginStatus('Enter email and password.', true); return; }
-  updateLoginStatus('Creating account\u2026');
-  fbAuth.createUserWithEmailAndPassword(email, pass)
-    .catch(function(e) { updateLoginStatus('Account creation failed: ' + e.message, true); });
-}
-
 function fbSignOut() {
   if (_d1SyncTimer) {
     clearTimeout(_d1SyncTimer);
@@ -3810,38 +3769,6 @@ function fbSignOut() {
   d1Push().finally(function() { window.location.href = '/admin/logout'; });
 }
 
-function fbSignInGoogle() {
-  updateLoginStatus('Opening Google sign-in…');
-  var provider = new firebase.auth.GoogleAuthProvider();
-  fbAuth.signInWithPopup(provider)
-    .catch(function(e) {
-      if (e.code === 'auth/popup-blocked') {
-        updateLoginStatus('Popup was blocked. Use Email/Password below instead.', true);
-      } else if (e.code === 'auth/popup-closed-by-user' ||
-                 e.code === 'auth/cancelled-popup-request') {
-        updateLoginStatus('');
-      } else {
-        // COOP / storage-partitioning issues on GitHub Pages
-        updateLoginStatus('Google sign-in unavailable in this browser. Use Email/Password below.', true);
-      }
-    });
-}
-
-function fbForgotPassword() {
-  var email = document.getElementById('fb-email').value.trim();
-  if (!email) {
-    updateLoginStatus('Enter your email address above first.', true);
-    return;
-  }
-  updateLoginStatus('Sending password reset email…');
-  fbAuth.sendPasswordResetEmail(email)
-    .then(function() {
-      updateLoginStatus('Password reset email sent to ' + email + '. Check your inbox, then sign in with your new password.');
-    })
-    .catch(function(e) {
-      updateLoginStatus('Error: ' + e.message, true);
-    });
-}
 
 async function checkAuth() {
   try {
@@ -4362,24 +4289,8 @@ async function fetchPendingSignups() {
       return;
     } catch(e) { /* fall through to Firebase */ }
   }
-  // Fallback: Firebase (legacy path)
-  if (typeof fbDb === 'undefined') { _pendingSignups = getPendingSignups(); updateSignupsBadge(); return; }
-  try {
-    var snap = await fbDb.ref('signups/pending').get();
-    var result = [];
-    if (snap.exists()) {
-      snap.forEach(function(child) {
-        var val = child.val(); val._fbKey = child.key; result.push(val);
-      });
-      result.sort(function(a, b) { return (b.submittedAt || '').localeCompare(a.submittedAt || ''); });
-    }
-    _pendingSignups = result;
-    savePendingSignups(result);
-    updateSignupsBadge();
-  } catch(e) {
-    _pendingSignups = getPendingSignups();
-    updateSignupsBadge();
-  }
+  _pendingSignups = getPendingSignups();
+  updateSignupsBadge();
 }
 
 function updateSignupsBadge() {
@@ -4468,10 +4379,6 @@ function _removeSignup(idx) {
       fetch(settings.workerUrl + '/volunteer/claim', {
         method: 'POST', headers: _workerHeaders(), body: JSON.stringify({ id: s.id })
       }).catch(function() {});
-    } else if (s._fbKey && typeof fbDb !== 'undefined') {
-      fbDb.ref('signups/pending/' + s._fbKey).remove().catch(function(e) {
-        console.warn('Could not remove signup from Firebase', e);
-      });
     }
   }
   _pendingSignups.splice(idx, 1);
