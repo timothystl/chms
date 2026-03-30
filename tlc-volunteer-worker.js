@@ -8398,14 +8398,14 @@ var SHARED_ROLES = ['Preacher', 'Childrens Message'];
 var SHARED_LABELS = { 'Childrens Message': "Children's Message" };
 var COMMUNITY_EVENTS = [
   { id: 'egg-hunt', name: 'Easter Egg Hunt', date: 'Apr 4',
-    roles: ['Easter Egg Hunt \u2013 Egg Filling', 'Easter Egg Hunt \u2013 Setup & Cleanup',
-            'Easter Egg Hunt \u2013 Registration', 'Easter Egg Hunt \u2013 Activity Stations'] },
+    roles: ['Easter Egg Hunt \\u2013 Egg Filling', 'Easter Egg Hunt \\u2013 Setup & Cleanup',
+            'Easter Egg Hunt \\u2013 Registration', 'Easter Egg Hunt \\u2013 Activity Stations'] },
   { id: 'vbs', name: 'VBS', date: 'Jun TBD',
-    roles: ['VBS \u2013 Group Leader', 'VBS \u2013 Station Helper',
-            'VBS \u2013 Crafts Coordinator', 'VBS \u2013 Snacks'] },
+    roles: ['VBS \\u2013 Group Leader', 'VBS \\u2013 Station Helper',
+            'VBS \\u2013 Crafts Coordinator', 'VBS \\u2013 Snacks'] },
   { id: 'christmas-market', name: 'Christmas Market', date: 'Dec 5',
-    roles: ['Christmas Market \u2013 Setup & Teardown', 'Christmas Market \u2013 Baked Goods & Food',
-            'Christmas Market \u2013 Kids\u2019 Activities', 'Christmas Market \u2013 Welcome Table'] }
+    roles: ['Christmas Market \\u2013 Setup & Teardown', 'Christmas Market \\u2013 Baked Goods & Food',
+            'Christmas Market \\u2013 Kids\\u2019 Activities', 'Christmas Market \\u2013 Welcome Table'] }
 ];
 function roleLabel(r) { return SHARED_LABELS[r] || r; }
 var ROLE_ABBREVS = { 'Elder':'ELD', 'Acolyte':'ACO', 'PowerPoint':'PPT', 'Lector':'LCT', 'Liturgist':'LTG', 'Preacher':'PRCHR', 'Childrens Message':'CM' };
@@ -8445,7 +8445,7 @@ function loadSchedule() { return loadMonthSchedule(currentMonthKey); }
 // ── LECTIONARY CALENDAR ────────────────────────────────────────────
 // Populated by fetch('lcms_calendar.json') on load; keyed by ISO date
 var lectCalendar = {};
-function fmtSundayName(name) { return (name||'').replace(/\s*\(prop\d+\)/i,'').trim(); }
+function fmtSundayName(name) { return (name||'').replace(/\\s*\\(prop\\d+\\)/i,'').trim(); }
 function getLectEntry(date) {
   if (!date || !Object.keys(lectCalendar).length) return null;
   return lectCalendar[date.toISOString().slice(0, 10)] || null;
@@ -8459,7 +8459,7 @@ function getReadingsForDate(dateISO) {
   return e ? { ot: e.ot||'', epistle: e.epistle||'', gospel: e.gospel||'', psalm: e.psalm||'' } : null;
 }
 // Strip LCMS parenthetical verse numbers (e.g. "Romans 13:( 8-10 ) 11-14" → "Romans 13:11-14")
-function cleanReading(r) { return (r||'').replace(/\s*\(.*?\)\s*/g,' ').replace(/\s+/g,' ').trim(); }
+function cleanReading(r) { return (r||'').replace(/\\s*\\(.*?\\)\\s*/g,' ').replace(/\\s+/g,' ').trim(); }
 function bibleLink(ref) {
   var clean = cleanReading(ref);
   if (!clean) return '';
@@ -8636,7 +8636,7 @@ function openReadingsPanel(dateISO) {
   _readingsDateISO = dateISO;
   var d = new Date(dateISO + 'T12:00:00');
   var lectEntry = getLectEntry(d);
-  var subtitle  = lectEntry ? fmtSundayName(lectEntry.sundayName) + ' \u2014 Series ' + lectEntry.series : fmtDate(d);
+  var subtitle  = lectEntry ? fmtSundayName(lectEntry.sundayName) + ' \\u2014 Series ' + lectEntry.series : fmtDate(d);
   document.getElementById('readings-panel-title').textContent = 'Readings for ' + fmtDate(d);
   document.getElementById('readings-panel-subtitle').textContent = subtitle;
   var r = getReadingsForDate(dateISO) || {};
@@ -8901,7 +8901,7 @@ function renderPeopleList() {
       p.roles.map(roleLabel).join(' '),
       svcLabels[p.servicePreference] || p.servicePreference
     ].join(' ').toLowerCase();
-    return q.split(/\s+/).every(function(word) { return haystack.indexOf(word) !== -1; });
+    return q.split(/\\s+/).every(function(word) { return haystack.indexOf(word) !== -1; });
   }) : allPeople;
 
   // Sort
@@ -8942,9 +8942,9 @@ function renderPeopleList() {
   var svcMap = { 'both':'Both','8am':'8:00 AM','10:45am':'10:45 AM' };
   var html = '<table class="people-table">'
     +'<thead><tr>'
-    +'<th onclick="setPeopleSort(\'name\')">Name'+arrow('name')+'</th>'
-    +'<th onclick="setPeopleSort(\'role\')">Roles'+arrow('role')+'</th>'
-    +'<th onclick="setPeopleSort(\'service\')">Service'+arrow('service')+'</th>'
+    +'<th onclick="setPeopleSort(\\'name\\')">Name'+arrow('name')+'</th>'
+    +'<th onclick="setPeopleSort(\\'role\\')">Roles'+arrow('role')+'</th>'
+    +'<th onclick="setPeopleSort(\\'service\\')">Service'+arrow('service')+'</th>'
     +'<th></th>'
     +'</tr></thead><tbody>';
 
@@ -9087,9 +9087,9 @@ function generateSchedule() {
   var preserveOverrides = false;
   if (overrideCount > 0) {
     preserveOverrides = confirm(
-      'You have ' + overrideCount + ' manual slot assignment(s) in ' + monthKeyLabel(currentMonthKey) + '.\n\n' +
-      'OK \u2192 Preserve your manual assignments\n' +
-      'Cancel \u2192 Discard and regenerate fresh'
+      'You have ' + overrideCount + ' manual slot assignment(s) in ' + monthKeyLabel(currentMonthKey) + '.\\n\\n' +
+      'OK \\u2192 Preserve your manual assignments\\n' +
+      'Cancel \\u2192 Discard and regenerate fresh'
     );
     if (!preserveOverrides) {
       var allOverrides = getScheduleOverrides();
@@ -9234,7 +9234,7 @@ document.getElementById('btn-expand-all').addEventListener('click', function() {
       document.querySelectorAll('.sunday-detail[data-idx="'+idx+'"]').forEach(function(tr){ tr.classList.add('visible'); });
     }
   });
-  this.textContent = allExpanded ? '\u25bc Expand All' : '\u25b2 Collapse All';
+  this.textContent = allExpanded ? '\\u25bc Expand All' : '\\u25b2 Collapse All';
   updateScheduleHeaders();
 });
 
@@ -9513,7 +9513,7 @@ function buildCell(pid, pMap, rowIdx, role, svc, rowspan) {
 
   var confKey = dateISO + '|' + role + '|' + svc;
   var confStatus = pid ? (getConfirmations()[confKey] || 'pending') : '';
-  var confLabels = { pending: '? Pending', confirmed: '\u2713 Confirmed', declined: '\u00d7 Declined', needs_changes: '\u26a0 Needs Change' };
+  var confLabels = { pending: '? Pending', confirmed: '\\u2713 Confirmed', declined: '\\u00d7 Declined', needs_changes: '\\u26a0 Needs Change' };
   var confPill = pid ? '<button class="conf-pill conf-'+confStatus+'" data-conf-key="'+esc(confKey)+'">'+(confLabels[confStatus]||confLabels.pending)+'</button>' : '';
 
   var badge = isOverride ? '<span class="cell-badge cell-badge-override" title="Manually assigned">&#9998;</span>'
@@ -9660,7 +9660,7 @@ document.getElementById('schedule-table').addEventListener('click', function(e) 
   var current = confs[key] || 'pending';
   confs[key] = cycle[current];
   saveConfirmations(confs);
-  var labels = { pending: '? Pending', confirmed: '\u2713 Confirmed', declined: '\u00d7 Declined', needs_changes: '\u26a0 Needs Change' };
+  var labels = { pending: '? Pending', confirmed: '\\u2713 Confirmed', declined: '\\u00d7 Declined', needs_changes: '\\u26a0 Needs Change' };
   pill.textContent = labels[confs[key]] || '? Pending';
   pill.className = 'conf-pill conf-' + confs[key];
   // Refresh the sunday summary row
@@ -9708,7 +9708,7 @@ document.getElementById('btn-export-csv').addEventListener('click', function() {
     SHARED_ROLES.forEach(function(role){ var pid=row.assignments[role].shared; cells.push(pid&&pMap[pid]?pMap[pid].name:''); });
     lines.push(cells.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(','));
   });
-  var blob = new Blob([lines.join('\n')],{type:'text/csv'});
+  var blob = new Blob([lines.join('\\n')],{type:'text/csv'});
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a'); a.href=url; a.download='worship-schedule.csv';
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
@@ -9763,7 +9763,7 @@ function openBulletinSlide(rowIdx) {
   var dateStr = row.date.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
 
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8">'
-    + '<title>Serving Slide \u2014 ' + esc(dateStr) + '</title>'
+    + '<title>Serving Slide \\u2014 ' + esc(dateStr) + '</title>'
     + '<link href="https://fonts.googleapis.com/css2?family=Lora:wght@700&family=Source+Sans+3:wght@400;700&display=swap" rel="stylesheet">'
     + '<style>'
     + '*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}'
@@ -9830,7 +9830,7 @@ function openBulletinSlide(rowIdx) {
     + '</div>'
     + '<div class="slide-footer">'
     +   '<div class="footer-cta">Talk with our Pastors to Volunteer</div>'
-    +   '<div class="print-note">Screenshot to use in your announcement slide deck \u00b7 1920 \u00d7 1080</div>'
+    +   '<div class="print-note">Screenshot to use in your announcement slide deck \\u00b7 1920 \\u00d7 1080</div>'
     + '</div>'
     + '</div>'
     + '</body></html>';
@@ -9881,7 +9881,7 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
     }
     if (!rdLines.length) return;
     var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
-    readingsItems.push({ header: a.date + ' \u2014 ' + svcLabel + ' (' + roleLabel(a.role) + ')', lines: rdLines });
+    readingsItems.push({ header: a.date + ' \\u2014 ' + svcLabel + ' (' + roleLabel(a.role) + ')', lines: rdLines });
   });
   var readingsSection = '';
   if (readingsItems.length) {
@@ -9924,8 +9924,8 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
         + '<br><span style="font-size:0.78rem;color:#7A6E60;">' + esc(svcLabel) + '</span>'
         + '</td>'
         + '<td style="padding:10px 12px;border-bottom:1px solid #eef;vertical-align:middle;text-align:right;width:1%;white-space:nowrap;">'
-        + '<a href="' + esc(cfUrl) + '" style="display:inline-block;background:#6B8F71;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;margin-right:5px;">\u2713 Yes</a>'
-        + '<a href="' + esc(ncUrl) + '" style="display:inline-block;background:#D4922A;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;">\u26a0 Change</a>'
+        + '<a href="' + esc(cfUrl) + '" style="display:inline-block;background:#6B8F71;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;margin-right:5px;">\\u2713 Yes</a>'
+        + '<a href="' + esc(ncUrl) + '" style="display:inline-block;background:#D4922A;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;">\\u26a0 Change</a>'
         + '</td>'
         + '</tr>';
     }).join('');
@@ -9940,9 +9940,9 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
       + '</table>'
       + '<div style="padding:12px 14px;background:#eef2fb;border-top:1px solid #c8d8f0;">'
       + '<p style="margin:0 0 8px;font-size:0.78rem;color:#7A6E60;">Or respond to all at once:</p>'
-      + '<a href="' + esc(confirmAllUrl) + '" style="display:inline-block;background:#6B8F71;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\u2713 Confirm All</a>'
-      + '<a href="' + esc(changesAllUrl) + '" style="display:inline-block;background:#D4922A;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\u26a0 Change All</a>'
-      + '<a href="' + esc(portalUrl) + '" style="display:inline-block;background:white;color:#0A3C5C;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:600;font-size:0.82rem;border:1px solid #C4DDE8;margin:0 0 4px 0;">\uD83D\uDCC5 My Full Schedule</a>'
+      + '<a href="' + esc(confirmAllUrl) + '" style="display:inline-block;background:#6B8F71;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\\u2713 Confirm All</a>'
+      + '<a href="' + esc(changesAllUrl) + '" style="display:inline-block;background:#D4922A;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\\u26a0 Change All</a>'
+      + '<a href="' + esc(portalUrl) + '" style="display:inline-block;background:white;color:#0A3C5C;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:600;font-size:0.82rem;border:1px solid #C4DDE8;margin:0 0 4px 0;">\\uD83D\\uDCC5 My Full Schedule</a>'
       + '</div>'
       + '</div>';
   }
@@ -9973,7 +9973,7 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
       + '<p style="margin:6px 0 0;font-size:0.88rem;color:#5a3a00;">Simply <strong>reply to this email</strong> and we will work to find a substitute.</p>'
       + '</div>')
     + '<p style="font-size:0.9rem;margin:0 0 6px;">Thank you for your faithful service to our congregation!</p>'
-    + '<p style="font-size:0.78rem;color:#7A6E60;margin:4px 0 0;">A calendar attachment (.ics) is included \u2014 add it to your calendar to be reminded on each Sunday you serve.</p>'
+    + '<p style="font-size:0.78rem;color:#7A6E60;margin:4px 0 0;">A calendar attachment (.ics) is included \\u2014 add it to your calendar to be reminded on each Sunday you serve.</p>'
     + '<p style="font-size:0.8rem;color:#7A6E60;margin:20px 0 0;padding-top:14px;border-top:1px solid #E8E0D0;">'
     + 'Timothy Lutheran Church'
     + (replyLink ? ' &mdash; Questions? Contact us at ' + replyLink : '')
@@ -10006,7 +10006,7 @@ function buildPersonIcal(person, assignments) {
     var dtStart = dtStr + 'T' + pad(startH) + pad(startM) + '00';
     var dtEnd   = dtStr + 'T' + pad(endH)   + pad(endM)   + '00';
     var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
-    var uid = 'tlc-worship-' + dISO + '-' + a.role.replace(/\s+/g,'-') + '-' + i + '@tlc';
+    var uid = 'tlc-worship-' + dISO + '-' + a.role.replace(/\\s+/g,'-') + '-' + i + '@tlc';
     lines.push('BEGIN:VEVENT');
     lines.push('UID:' + uid);
     lines.push('DTSTAMP:' + stamp);
@@ -10019,7 +10019,7 @@ function buildPersonIcal(person, assignments) {
     lines.push('END:VEVENT');
   });
   lines.push('END:VCALENDAR');
-  return lines.join('\r\n');
+  return lines.join('\\r\\n');
 }
 
 function sendReminderEmails() {
@@ -10101,7 +10101,7 @@ function sendReminderEmails() {
     ];
     assignments.forEach(function(a) {
       var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
-      lines.push('  \u2022 ' + a.date + ' \u2014 ' + svcLabel + ': ' + roleLabel(a.role));
+      lines.push('  \\u2022 ' + a.date + ' \\u2014 ' + svcLabel + ': ' + roleLabel(a.role));
     });
     // Add readings for Lectors and Liturgists
     var hasReadings = false;
@@ -10114,7 +10114,7 @@ function sendReminderEmails() {
       if (!rd) return;
       if (!hasReadings) { lines.push('', 'Your Readings:'); hasReadings = true; }
       var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
-      lines.push('', '  ' + a.date + ' \u2014 ' + svcLabel + ' (' + roleLabel(a.role) + ')');
+      lines.push('', '  ' + a.date + ' \\u2014 ' + svcLabel + ' (' + roleLabel(a.role) + ')');
       if (isLector) {
         if (rd.ot)      lines.push('    OT: ' + rd.ot);
         if (rd.epistle) lines.push('    Epistle: ' + rd.epistle);
@@ -10127,13 +10127,13 @@ function sendReminderEmails() {
       lines.push(
         '',
         'Please confirm your availability by clicking one of the links below:',
-        '  \u2713 Yes, I\'ll be there: ' + s.workerUrl + '/rsvp?token=' + encodeURIComponent(token) + '&status=confirmed',
-        '  \u26a0 I need a change:  ' + s.workerUrl + '/rsvp?token=' + encodeURIComponent(token) + '&status=needs_changes'
+        '  \\u2713 Yes, I\\'ll be there: ' + s.workerUrl + '/rsvp?token=' + encodeURIComponent(token) + '&status=confirmed',
+        '  \\u26a0 I need a change:  ' + s.workerUrl + '/rsvp?token=' + encodeURIComponent(token) + '&status=needs_changes'
       );
     }
     lines.push(
       '',
-      'A calendar attachment (.ics) is included \u2014 add it to your calendar to be reminded on each Sunday you serve.',
+      'A calendar attachment (.ics) is included \\u2014 add it to your calendar to be reminded on each Sunday you serve.',
       '',
       'Thank you for serving!',
       '',
@@ -10171,8 +10171,8 @@ function sendReminderEmails() {
           }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
           body: JSON.stringify({
             to:       person.email,
-            subject:  'Your Upcoming Worship Service Assignments \u2014 Timothy Lutheran',
-            text:     lines.join('\n'),
+            subject:  'Your Upcoming Worship Service Assignments \\u2014 Timothy Lutheran',
+            text:     lines.join('\\n'),
             html:     buildHtmlEmail(person, assignments, s.replyTo || '', token, s.workerUrl || ''),
             reply_to: s.replyTo || '',
             attachments: [{
@@ -10188,18 +10188,18 @@ function sendReminderEmails() {
           .then(function(res) {
             if (res.ok) {
               sent++;
-              statusEl.textContent = 'Sent ' + sent + ' of ' + total + '\u2026';
+              statusEl.textContent = 'Sent ' + sent + ' of ' + total + '\\u2026';
             } else {
               errors++;
               var msg = (res.body && (res.body.message || res.body.error || res.body.name))
                 ? (res.body.message || res.body.error || res.body.name)
                 : JSON.stringify(res.body);
-              statusEl.textContent = '\u00d7 ' + esc(person.name) + ' (error ' + res.status + '): ' + esc(msg);
+              statusEl.textContent = '\\u00d7 ' + esc(person.name) + ' (error ' + res.status + '): ' + esc(msg);
             }
           })
           .catch(function(e) {
             errors++;
-            statusEl.textContent = '\u00d7 Network error sending to ' + esc(person.name) + ': ' + esc(String(e));
+            statusEl.textContent = '\\u00d7 Network error sending to ' + esc(person.name) + ': ' + esc(String(e));
           });
       });
     });
@@ -10209,7 +10209,7 @@ function sendReminderEmails() {
     if (errors > 0) {
       statusEl.textContent += ' (' + sent + ' sent, ' + errors + ' failed)';
     } else {
-      statusEl.textContent = '\u2713 Done \u2014 ' + sent + ' email' + (sent !== 1 ? 's' : '') + ' sent'
+      statusEl.textContent = '\\u2713 Done \\u2014 ' + sent + ' email' + (sent !== 1 ? 's' : '') + ' sent'
         + (skipped ? ', ' + skipped + ' skipped (no email address)' : '') + '.';
     }
   });
@@ -10230,10 +10230,10 @@ function syncConfirmations() {
   var tokenList  = Object.keys(rsvpTokens).map(function(pid) { return rsvpTokens[pid]; }).filter(Boolean);
   var statusEl   = document.getElementById('email-send-status');
   if (!tokenList.length) {
-    statusEl.textContent = 'No RSVP tokens found \u2014 send reminder emails first.';
+    statusEl.textContent = 'No RSVP tokens found \\u2014 send reminder emails first.';
     return;
   }
-  statusEl.textContent = 'Syncing confirmations\u2026';
+  statusEl.textContent = 'Syncing confirmations\\u2026';
 
   fetch(s.workerUrl + '/rsvp/sync', {
     method:  'POST',
@@ -10308,11 +10308,11 @@ function syncConfirmations() {
         renderTable(people, counts);
       }
 
-      statusEl.textContent = '\u2713 Synced \u2014 '
+      statusEl.textContent = '\\u2713 Synced \\u2014 '
         + updated + ' assignment' + (updated !== 1 ? 's' : '') + ' updated.';
     })
     .catch(function(e) {
-      statusEl.textContent = '\u00d7 Sync failed: ' + esc(String(e));
+      statusEl.textContent = '\\u00d7 Sync failed: ' + esc(String(e));
     });
 }
 
@@ -10354,12 +10354,12 @@ function restoreRsvpTokens() {
 
   var pids = Object.keys(rsvpTokens);
   if (!pids.length) {
-    document.getElementById('email-send-status').textContent = 'No tokens found \u2014 send reminder emails first.';
+    document.getElementById('email-send-status').textContent = 'No tokens found \\u2014 send reminder emails first.';
     return;
   }
 
   var statusEl = document.getElementById('email-send-status');
-  statusEl.textContent = 'Re-storing tokens\u2026';
+  statusEl.textContent = 'Re-storing tokens\\u2026';
   var done = 0, errors = 0;
 
   var chain = Promise.resolve();
@@ -10387,8 +10387,8 @@ function restoreRsvpTokens() {
 
   chain.then(function() {
     statusEl.textContent = errors
-      ? '\u00d7 Re-stored ' + done + ', failed ' + errors + '. Check Worker KV binding in Cloudflare.'
-      : '\u2713 Re-stored ' + done + ' token' + (done !== 1 ? 's' : '') + ' \u2014 existing email links will now work.';
+      ? '\\u00d7 Re-stored ' + done + ', failed ' + errors + '. Check Worker KV binding in Cloudflare.'
+      : '\\u2713 Re-stored ' + done + ' token' + (done !== 1 ? 's' : '') + ' \\u2014 existing email links will now work.';
   });
 }
 
@@ -10509,8 +10509,8 @@ function buildVolunteerRequestHtml(person, slot, replyTo) {
     + '<div style="font-size:1rem;font-weight:700;color:#0A3C5C;">' + esc(roleLabel(slot.role)) + '</div>'
     + '<div style="font-size:0.9rem;color:#3D3530;margin-top:4px;">' + esc(slot.date) + ' &mdash; ' + esc(svcLabel) + '</div>'
     + '</div>'
-    + '<p style="margin:0 0 10px;font-size:0.9rem;">If you\'re available and willing to serve, please reply to this email to let us know.</p>'
-    + '<p style="margin:0 0 20px;font-size:0.9rem;">If this date doesn\'t work, no worries \u2014 we appreciate everything you do for our congregation!</p>'
+    + '<p style="margin:0 0 10px;font-size:0.9rem;">If you\\'re available and willing to serve, please reply to this email to let us know.</p>'
+    + '<p style="margin:0 0 20px;font-size:0.9rem;">If this date doesn\\'t work, no worries \\u2014 we appreciate everything you do for our congregation!</p>'
     + '<p style="font-size:0.9rem;margin:0 0 6px;">Thank you for your faithful service!</p>'
     + '<p style="font-size:0.78rem;color:#7A6E60;margin:20px 0 0;padding-top:14px;border-top:1px solid #E8E0D0;">'
     + 'Timothy Lutheran Church'
@@ -10553,7 +10553,7 @@ function sendVolunteerNotifications() {
   }
 
   var total = tasks.length, sent = 0, errors = 0;
-  statusEl.textContent = 'Sending 0 of ' + total + '\u2026';
+  statusEl.textContent = 'Sending 0 of ' + total + '\\u2026';
   document.getElementById('btn-notify-send').disabled = true;
 
   var chain = Promise.resolve();
@@ -10561,18 +10561,18 @@ function sendVolunteerNotifications() {
     chain = chain.then(function() {
       var p = task.person, slot = task.slot;
       var svcLabel = slot.svc === 'both services' ? 'Both Services' : slot.svc;
-      var subject = 'Volunteer needed: ' + roleLabel(slot.role) + ' on ' + slot.date + ' \u2014 Timothy Lutheran';
+      var subject = 'Volunteer needed: ' + roleLabel(slot.role) + ' on ' + slot.date + ' \\u2014 Timothy Lutheran';
       var textBody = [
         'Hello ' + p.name + ',',
         '',
         'We still need a volunteer for:',
-        '  ' + roleLabel(slot.role) + ' \u2014 ' + slot.date + ' (' + svcLabel + ')',
+        '  ' + roleLabel(slot.role) + ' \\u2014 ' + slot.date + ' (' + svcLabel + ')',
         '',
-        'If you\'re available, please reply to this email to let us know.',
-        'If this date doesn\'t work, no worries \u2014 thank you for all you do!',
+        'If you\\'re available, please reply to this email to let us know.',
+        'If this date doesn\\'t work, no worries \\u2014 thank you for all you do!',
         '',
         'Timothy Lutheran Church',
-      ].join('\n');
+      ].join('\\n');
 
       return fetch(s.workerUrl + '/email/send', {
         method: 'POST',
@@ -10596,18 +10596,18 @@ function sendVolunteerNotifications() {
         .then(function(res) {
           if (res.ok) {
             sent++;
-            statusEl.textContent = 'Sent ' + sent + ' of ' + total + '\u2026';
+            statusEl.textContent = 'Sent ' + sent + ' of ' + total + '\\u2026';
           } else {
             errors++;
             var msg = (res.body && (res.body.message || res.body.error || res.body.name))
               ? (res.body.message || res.body.error || res.body.name)
               : JSON.stringify(res.body);
-            statusEl.textContent = '\u00d7 ' + esc(p.name) + ' (error ' + res.status + '): ' + esc(msg);
+            statusEl.textContent = '\\u00d7 ' + esc(p.name) + ' (error ' + res.status + '): ' + esc(msg);
           }
         })
         .catch(function(e) {
           errors++;
-          statusEl.textContent = '\u00d7 Network error sending to ' + esc(p.name) + ': ' + esc(String(e));
+          statusEl.textContent = '\\u00d7 Network error sending to ' + esc(p.name) + ': ' + esc(String(e));
         });
     });
   });
@@ -10617,7 +10617,7 @@ function sendVolunteerNotifications() {
     if (errors > 0) {
       statusEl.textContent += ' (' + sent + ' sent, ' + errors + ' failed)';
     } else {
-      statusEl.textContent = '\u2713 Done \u2014 ' + sent + ' notification' + (sent !== 1 ? 's' : '') + ' sent.';
+      statusEl.textContent = '\\u2713 Done \\u2014 ' + sent + ' notification' + (sent !== 1 ? 's' : '') + ' sent.';
     }
   });
 }
@@ -10649,12 +10649,12 @@ function loadSettingsForm() {
 }
 
 document.getElementById('btn-save-settings').addEventListener('click', function() {
-  var subdomain     = document.getElementById('breeze-subdomain').value.trim().replace(/\//g,'');
+  var subdomain     = document.getElementById('breeze-subdomain').value.trim().replace(/\\//g,'');
   var apiKey        = document.getElementById('breeze-apikey').value.trim();
-  var workerUrl     = document.getElementById('breeze-worker-url').value.trim().replace(/\/$/, '');
+  var workerUrl     = document.getElementById('breeze-worker-url').value.trim().replace(/\\/$/, '');
   var workerSecret  = document.getElementById('breeze-worker-secret').value.trim();
   var tagIds    = document.getElementById('breeze-tag-ids').value
-                    .split(',').map(function(t){ return t.trim().replace(/\D/g,''); }).filter(Boolean);
+                    .split(',').map(function(t){ return t.trim().replace(/\\D/g,''); }).filter(Boolean);
   var resendKey = document.getElementById('email-resend-key').value.trim();
   var emailFrom = document.getElementById('email-from').value.trim();
   var replyTo   = document.getElementById('email-reply-to').value.trim();
@@ -10810,7 +10810,7 @@ function deepFindEmail(obj) {
 
 function importBreezePersonToForm(breezeId) {
   var resultsEl = document.getElementById('breeze-import-results');
-  resultsEl.innerHTML = '<span style="color:#888;">Loading\u2026</span>';
+  resultsEl.innerHTML = '<span style="color:#888;">Loading\\u2026</span>';
   breezeGet('/api/people/' + breezeId, { details: 1 })
     .then(function(p) {
       // Name
@@ -10830,9 +10830,9 @@ function importBreezePersonToForm(breezeId) {
       // Store Breeze ID so savePerson() links it automatically
       document.getElementById('breeze-import-id').value = breezeId;
 
-      var roleNote = roles.length ? ' Roles pre-checked: ' + roles.join(', ') + '.' : ' No matching role tags \u2014 check roles manually.';
-      var emailNote = email ? '' : ' <strong>No email found in Breeze \u2014 enter manually.</strong>';
-      resultsEl.innerHTML = '<span style="color:#6B8F71;">\u2713 Filled in from Breeze.' + esc(roleNote) + '</span>' + emailNote + ' <span style="color:#7A6E60;">Set Sunday preferences &amp; service preference, then Save.</span>';
+      var roleNote = roles.length ? ' Roles pre-checked: ' + roles.join(', ') + '.' : ' No matching role tags \\u2014 check roles manually.';
+      var emailNote = email ? '' : ' <strong>No email found in Breeze \\u2014 enter manually.</strong>';
+      resultsEl.innerHTML = '<span style="color:#6B8F71;">\\u2713 Filled in from Breeze.' + esc(roleNote) + '</span>' + emailNote + ' <span style="color:#7A6E60;">Set Sunday preferences &amp; service preference, then Save.</span>';
     })
     .catch(function(e) {
       resultsEl.innerHTML = '<span style="color:#B85C3A;">Error: ' + esc(String(e)) + '</span>';
@@ -10843,7 +10843,7 @@ document.getElementById('btn-breeze-import-search').addEventListener('click', fu
   var query = document.getElementById('breeze-import-query').value.trim();
   if (!query) { alert('Enter a name to search.'); return; }
   var resultsEl = document.getElementById('breeze-import-results');
-  resultsEl.innerHTML = '<span style="color:#888;">Searching\u2026</span>';
+  resultsEl.innerHTML = '<span style="color:#888;">Searching\\u2026</span>';
 
   var s = getBreezeSettings();
 
@@ -10867,7 +10867,7 @@ document.getElementById('btn-breeze-import-search').addEventListener('click', fu
           if (!seen[bp.id]) { seen[bp.id] = true; merged.push(bp); }
         });
       });
-      var parts = query.toLowerCase().split(/\s+/).filter(Boolean);
+      var parts = query.toLowerCase().split(/\\s+/).filter(Boolean);
       var filtered = merged.filter(function(bp) {
         var first = (bp.first_name||'').toLowerCase();
         var last  = (bp.last_name||'').toLowerCase();
@@ -11258,17 +11258,17 @@ function buildDataSnapshot() {
 async function fbPush() {
   var user = fbAuth.currentUser;
   if (!user) return;
-  updateSyncStatus('Saving\u2026');
+  updateSyncStatus('Saving\\u2026');
   try {
     await fbDb.ref('ws_data/' + user.uid).set(buildDataSnapshot());
-    updateSyncStatus('Saved \u2713 ' + new Date().toLocaleTimeString());
+    updateSyncStatus('Saved \\u2713 ' + new Date().toLocaleTimeString());
   } catch(e) { updateSyncStatus('Save error: ' + e.message, true); }
 }
 
 async function fbPull() {
   var user = fbAuth.currentUser;
   if (!user) return;
-  updateSyncStatus('Loading\u2026');
+  updateSyncStatus('Loading\\u2026');
   try {
     var snap = await fbDb.ref('ws_data/' + user.uid).get();
     if (!snap.exists()) { updateSyncStatus('No cloud data found.'); return; }
@@ -11279,7 +11279,7 @@ async function fbPull() {
     keys.forEach(function(k) {
       if (data[k] !== undefined) localStorage.setItem(k, JSON.stringify(data[k]));
     });
-    updateSyncStatus('Loaded \u2713 ' + new Date().toLocaleTimeString());
+    updateSyncStatus('Loaded \\u2713 ' + new Date().toLocaleTimeString());
     loadSettingsForm();
     renderPeopleList();
     if (loadSchedule()) {
@@ -11300,7 +11300,7 @@ function fbSignIn() {
   var email = document.getElementById('fb-email').value.trim();
   var pass  = document.getElementById('fb-password').value;
   if (!email || !pass) { updateLoginStatus('Enter email and password.', true); return; }
-  updateLoginStatus('Signing in\u2026');
+  updateLoginStatus('Signing in\\u2026');
   fbAuth.signInWithEmailAndPassword(email, pass)
     .catch(function(e) { updateLoginStatus('Sign-in failed: ' + e.message, true); });
 }
@@ -11309,7 +11309,7 @@ function fbRegister() {
   var email = document.getElementById('fb-email').value.trim();
   var pass  = document.getElementById('fb-password').value;
   if (!email || !pass) { updateLoginStatus('Enter email and password.', true); return; }
-  updateLoginStatus('Creating account\u2026');
+  updateLoginStatus('Creating account\\u2026');
   fbAuth.createUserWithEmailAndPassword(email, pass)
     .catch(function(e) { updateLoginStatus('Account creation failed: ' + e.message, true); });
 }
@@ -11593,19 +11593,19 @@ function exportIcal() {
       var svcLabel = item.svc==='8am' ? '8:00 AM' : (item.svc==='10:45am' ? '10:45 AM' : 'Both Services');
       var summary = 'Worship: ' + roleLabel(item.role) + ' (' + svcLabel + ')' + (dayLabel ? ' — '+dayLabel : '');
       lines.push('BEGIN:VEVENT');
-      lines.push('UID:' + item.pid + '-' + item.role.replace(/\s/g,'-') + '-' + item.svc + '-' + ymd + '@tlc-scheduler');
+      lines.push('UID:' + item.pid + '-' + item.role.replace(/\\s/g,'-') + '-' + item.svc + '-' + ymd + '@tlc-scheduler');
       lines.push('DTSTAMP:' + stamp());
       lines.push('DTSTART:' + ymd + 'T' + serviceUTC[item.svc]);
       lines.push('DURATION:PT' + serviceDur[item.svc]);
       lines.push('SUMMARY:' + summary);
-      lines.push('DESCRIPTION:Volunteer: ' + p.name + '\nRole: ' + roleLabel(item.role) + '\nService: ' + svcLabel);
+      lines.push('DESCRIPTION:Volunteer: ' + p.name + '\\nRole: ' + roleLabel(item.role) + '\\nService: ' + svcLabel);
       lines.push('LOCATION:Timothy Lutheran Church');
       if (p.email) lines.push('ATTENDEE;CN="' + p.name + '":mailto:' + p.email);
       lines.push('END:VEVENT');
     });
   });
   lines.push('END:VCALENDAR');
-  var blob = new Blob([lines.join('\r\n')], {type:'text/calendar'});
+  var blob = new Blob([lines.join('\\r\\n')], {type:'text/calendar'});
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a'); a.href=url; a.download='worship-schedule.ics';
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
@@ -11687,14 +11687,14 @@ function renderStatsTab() {
     var count = totals[p.id] || 0;
     var roleParts = Object.keys(byRole[p.id]).sort().map(function(r) {
       var n = byRole[p.id][r];
-      return roleLabel(r) + (n > 1 ? ' \xd7' + n : '');
+      return roleLabel(r) + (n > 1 ? ' \\xd7' + n : '');
     });
     var lastStr = lastServed[p.id]
       ? new Date(lastServed[p.id] + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : '<span style="color:#bbb">&mdash;</span>';
     html += '<tr>'
       + '<td class="sv-name">' + esc(p.name) + '</td>'
-      + '<td class="sv-roles">' + (roleParts.length ? esc(roleParts.join(' \u2022 ')) : '<span style="color:#bbb">&mdash;</span>') + '</td>'
+      + '<td class="sv-roles">' + (roleParts.length ? esc(roleParts.join(' \\u2022 ')) : '<span style="color:#bbb">&mdash;</span>') + '</td>'
       + '<td class="sv-count">' + (count > 0 ? count : '<span style="color:#bbb">0</span>') + '</td>'
       + '<td class="sv-last">' + lastStr + '</td>'
       + '</tr>';
@@ -12143,7 +12143,7 @@ function renderEventsPanel() {
     allRoles.forEach(function(r) { totalSignups += (roleToVols[r] || []).length; });
 
     html += '<div class="ev-admin-card" id="evcard-' + evt.id + '">';
-    html += '<div class="ev-admin-header" onclick="toggleEvAdminCard(\'' + evt.id + '\')">'
+    html += '<div class="ev-admin-header" onclick="toggleEvAdminCard(\\'' + evt.id + '\\')">'
       + '<span class="ev-admin-toggle">&#9658;</span>'
       + '<span class="ev-admin-title">' + esc(evt.name) + '</span>'
       + '<span class="ev-admin-date">' + esc(evt.date) + '</span>'
@@ -12176,7 +12176,7 @@ function renderEventsPanel() {
     });
 
     html += '<div class="ev-admin-add-role">'
-      + '<button class="btn btn-outline btn-sm" onclick="addEventRole(\'' + evt.id + '\')" style="font-size:.78rem;">&#65291; Add Role</button>'
+      + '<button class="btn btn-outline btn-sm" onclick="addEventRole(\\'' + evt.id + '\\')" style="font-size:.78rem;">&#65291; Add Role</button>'
       + '</div>';
 
     html += '</div></div>'; // close body + card
