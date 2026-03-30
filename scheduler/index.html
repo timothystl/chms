@@ -1072,7 +1072,7 @@ function saveCurrentMonth() {
   saveMonthSchedules(months);
   updateLastServedFromRows(months[currentMonthKey].rows.filter(function(r){ return r.type !== 'special'; }));
   setDirty(false);
-  queueFbPush();
+  queueD1Push();
 }
 
 function setDirty(dirty) {
@@ -1387,7 +1387,7 @@ function savePerson() {
   clearForm();
   closeAllPanels();
   renderPeopleList();
-  queueFbPush();
+  queueD1Push();
 }
 
 document.getElementById('btn-save-person').addEventListener('click', savePerson);
@@ -3180,7 +3180,7 @@ document.getElementById('btn-save-settings').addEventListener('click', function(
   if (!subdomain||!apiKey) { showAlert('settings-alert','Please enter both subdomain and API key.','warning'); return; }
   if (!workerUrl) { showAlert('settings-alert','Please enter your Cloudflare Worker URL.','warning'); return; }
   saveBreezeSettings({ subdomain:subdomain, apiKey:apiKey, workerUrl:workerUrl, workerSecret:workerSecret, tagIds:tagIds, resendKey:resendKey, emailFrom:emailFrom, replyTo:replyTo });
-  queueFbPush();
+  queueD1Push();
   showAlert('settings-alert','Settings saved!','success');
   document.getElementById('settings-status').textContent = '';
 });
@@ -3774,24 +3774,26 @@ function buildDataSnapshot() {
   };
 }
 
-async function fbPush() {
-  var user = fbAuth.currentUser;
-  if (!user) return;
+async function d1Push() {
   updateSyncStatus('Saving\u2026');
   try {
-    await fbDb.ref('ws_data/' + user.uid).set(buildDataSnapshot());
+    var resp = await fetch('/admin/api/scheduler/data', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(buildDataSnapshot())
+    });
+    if (!resp.ok) { updateSyncStatus('Save error: ' + resp.status, true); return; }
     updateSyncStatus('Saved \u2713 ' + new Date().toLocaleTimeString());
   } catch(e) { updateSyncStatus('Save error: ' + e.message, true); }
 }
 
-async function fbPull() {
-  var user = fbAuth.currentUser;
-  if (!user) return;
+async function d1Pull() {
   updateSyncStatus('Loading\u2026');
   try {
-    var snap = await fbDb.ref('ws_data/' + user.uid).get();
-    if (!snap.exists()) { updateSyncStatus('No cloud data found.'); return; }
-    var data = snap.val();
+    var resp = await fetch('/admin/api/scheduler/data', {credentials: 'include'});
+    if (!resp.ok) { updateSyncStatus('Load error: ' + resp.status, true); return; }
+    var data = await resp.json();
     var keys = ['ws_people','ws_schedule_v2','ws_history','ws_last_served',
                 'ws_schedule_overrides','ws_confirmations','ws_rsvp_tokens','ws_sun_labels',
                 'ws_breeze_settings'];
@@ -3808,11 +3810,10 @@ async function fbPull() {
   } catch(e) { updateSyncStatus('Load error: ' + e.message, true); }
 }
 
-var _fbSyncTimer = null;
-function queueFbPush() {
-  if (!fbAuth.currentUser) return;
-  clearTimeout(_fbSyncTimer);
-  _fbSyncTimer = setTimeout(fbPush, 1500);
+var _d1SyncTimer = null;
+function queueD1Push() {
+  clearTimeout(_d1SyncTimer);
+  _d1SyncTimer = setTimeout(d1Push, 1500);
 }
 
 function fbSignIn() {
@@ -3834,11 +3835,11 @@ function fbRegister() {
 }
 
 function fbSignOut() {
-  if (_fbSyncTimer) {
-    clearTimeout(_fbSyncTimer);
-    _fbSyncTimer = null;
+  if (_d1SyncTimer) {
+    clearTimeout(_d1SyncTimer);
+    _d1SyncTimer = null;
   }
-  fbPush().finally(function() { fbAuth.signOut(); });
+  d1Push().finally(function() { fbAuth.signOut(); });
 }
 
 function fbSignInGoogle() {
@@ -3892,7 +3893,7 @@ fbAuth.onAuthStateChanged(function(user) {
     if (loginScreen) loginScreen.style.display = 'none';
     if (appContent)  appContent.style.display  = 'block';
     if (userDisplay) userDisplay.textContent   = 'Signed in as ' + user.email;
-    fbPull();
+    d1Pull();
     fetchPendingSignups();
     fetchGeneralVolunteers();
     fetchEventVolunteers();
@@ -3946,7 +3947,7 @@ function importAllData(file) {
         document.getElementById('schedule-output').style.display = 'block';
       }
       showAlert('settings-alert', 'Imported ' + count + ' data sets successfully. Push to Cloud to sync.', 'success');
-      queueFbPush();
+      queueD1Push();
     } catch(err) {
       showAlert('settings-alert', 'Import failed: ' + err.message, 'warning');
     }
@@ -3990,7 +3991,7 @@ function archiveCurrentSchedule() {
   if (history.length > 24) history = history.slice(0, 24);
   saveHistory(history);
   updateLastServedFromRows(rows);
-  queueFbPush();
+  queueD1Push();
 }
 
 function updateLastServedFromRows(rows) {
@@ -4323,8 +4324,8 @@ document.getElementById('btn-save-special').addEventListener('click', function()
 // ══════════════════════════════════════════════════════════════════
 document.getElementById('btn-fb-signin').addEventListener('click', fbSignIn);
 document.getElementById('btn-fb-forgot').addEventListener('click', fbForgotPassword);
-document.getElementById('btn-fb-push').addEventListener('click', fbPush);
-document.getElementById('btn-fb-pull').addEventListener('click', fbPull);
+document.getElementById('btn-fb-push').addEventListener('click', d1Push);
+document.getElementById('btn-fb-pull').addEventListener('click', d1Pull);
 document.getElementById('btn-fb-signout').addEventListener('click', fbSignOut);
 document.getElementById('btn-header-signout').addEventListener('click', fbSignOut);
 document.getElementById('btn-export-data').addEventListener('click', exportAllData);
@@ -4495,7 +4496,7 @@ function approveSignup(idx) {
   };
   people.push(person);
   savePeople(people);
-  queueFbPush();
+  queueD1Push();
   _removeSignup(idx);
   renderPeopleList();
   showAlert('signup-review-alert', esc(person.name) + ' has been added to your volunteer list.', 'success');
