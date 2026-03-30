@@ -46,6 +46,11 @@ const DB_INIT = [
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     signup_id INTEGER NOT NULL,
     role_id INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS scheduler_data (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`
 ];
 
@@ -12725,6 +12730,83 @@ function generateIcal(signup, slots) {
   return lines.join('\r\n');
 }
 
+// ── SCHEDULER DATA API ────────────────────────────────────────────────
+// All endpoints require vol_auth cookie (same auth as /admin).
+// GET  /admin/api/scheduler/data          → full snapshot as JSON object
+// POST /admin/api/scheduler/data          → bulk upsert (import / full save)
+// GET  /admin/api/scheduler/data/:key     → single key value
+// POST /admin/api/scheduler/data/:key     → save single key { value: ... }
+// GET  /admin/api/scheduler/export        → download full snapshot as file
+const SCHEDULER_KEYS = [
+  'ws_people','ws_schedule_v2','ws_history','ws_last_served',
+  'ws_schedule_overrides','ws_confirmations','ws_rsvp_tokens',
+  'ws_sun_labels','ws_breeze_settings','ws_readings','ws_breeze_event_map'
+];
+async function handleSchedulerDataApi(req, env, url, method) {
+  const seg = url.pathname.replace('/admin/api/scheduler/', '').replace(/\/$/, '');
+
+  // GET /admin/api/scheduler/export
+  if (seg === 'export' && method === 'GET') {
+    const rows = await env.DB.prepare('SELECT key, value FROM scheduler_data').all();
+    const out = {};
+    for (const r of (rows.results || [])) {
+      try { out[r.key] = JSON.parse(r.value); } catch { out[r.key] = r.value; }
+    }
+    return new Response(JSON.stringify(out, null, 2), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Disposition': 'attachment; filename="scheduler_export.json"'
+      }
+    });
+  }
+
+  // GET /admin/api/scheduler/data
+  if (seg === 'data' && method === 'GET') {
+    const rows = await env.DB.prepare('SELECT key, value FROM scheduler_data').all();
+    const out = {};
+    for (const r of (rows.results || [])) {
+      try { out[r.key] = JSON.parse(r.value); } catch { out[r.key] = r.value; }
+    }
+    return json(out);
+  }
+
+  // POST /admin/api/scheduler/data  (bulk upsert — accepts full snapshot)
+  if (seg === 'data' && method === 'POST') {
+    let body; try { body = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const stmt = env.DB.prepare(
+      "INSERT OR REPLACE INTO scheduler_data (key, value, updated_at) VALUES (?, ?, datetime('now'))"
+    );
+    const ops = [];
+    for (const k of SCHEDULER_KEYS) {
+      if (body[k] !== undefined) ops.push(stmt.bind(k, JSON.stringify(body[k])));
+    }
+    if (ops.length) await env.DB.batch(ops);
+    return json({ ok: true, saved: ops.length });
+  }
+
+  // GET /admin/api/scheduler/data/:key
+  if (seg.startsWith('data/') && method === 'GET') {
+    const key = seg.slice(5);
+    const row = await env.DB.prepare('SELECT value FROM scheduler_data WHERE key=?').bind(key).first();
+    if (!row) return json({ error: 'Not found' }, 404);
+    try { return json(JSON.parse(row.value)); } catch { return json(row.value); }
+  }
+
+  // POST /admin/api/scheduler/data/:key
+  if (seg.startsWith('data/') && method === 'POST') {
+    const key = seg.slice(5);
+    if (!SCHEDULER_KEYS.includes(key)) return json({ error: 'Unknown key' }, 400);
+    let body; try { body = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const value = body.value !== undefined ? body.value : body;
+    await env.DB.prepare(
+      "INSERT OR REPLACE INTO scheduler_data (key, value, updated_at) VALUES (?, ?, datetime('now'))"
+    ).bind(key, JSON.stringify(value)).run();
+    return json({ ok: true });
+  }
+
+  return json({ error: 'Not found' }, 404);
+}
+
 // ── ADMIN LOGIN ───────────────────────────────────────────────────────
 async function handleAdminLogin(req, env) {
   let body; try { body = await req.text(); } catch { body = ''; }
@@ -12742,6 +12824,8 @@ async function handleAdminLogin(req, env) {
 // ── ADMIN API ─────────────────────────────────────────────────────────
 async function handleAdminApi(req, env, url, method) {
   const seg = url.pathname.replace('/admin/api/', '');
+
+  if (seg.startsWith('scheduler/')) return handleSchedulerDataApi(req, env, url, method);
 
   if (seg === 'signups' && method === 'GET') {
     const ministry = url.searchParams.get('ministry') || '';
