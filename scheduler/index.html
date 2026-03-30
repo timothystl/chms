@@ -404,40 +404,8 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 <body>
 
 <!-- ══════════════════ LOGIN SCREEN ══════════════════ -->
-<div id="login-screen" style="position:fixed;inset:0;z-index:9999;display:flex;
-  align-items:center;justify-content:center;background:var(--blue-mist);">
-  <div style="background:var(--white);border-radius:14px;padding:40px 36px;
-    box-shadow:0 6px 32px rgba(0,0,0,.12);width:100%;max-width:360px;text-align:center;">
-    <div style="width:52px;height:52px;border-radius:50%;background:var(--steel-anchor);
-      display:flex;align-items:center;justify-content:center;margin:0 auto 14px;
-      font-size:24px;color:var(--white);">✝</div>
-    <h2 style="margin:0 0 4px;font-size:1.25rem;font-weight:700;color:var(--steel-anchor);font-family:var(--font-head);">Timothy Lutheran Church</h2>
-    <p style="margin:0 0 28px;font-size:.82rem;color:var(--warm-gray);font-family:var(--font-body);">Worship Schedule Builder</p>
-
-    <!-- Google Sign-In removed: GitHub Pages sets Cross-Origin-Opener-Policy: same-origin
-         which breaks signInWithPopup (popup cleanup calls signOut() via COOP workaround),
-         and signInWithRedirect is broken by Chrome's bounce-tracker storage partitioning.
-         Use email + password below instead. -->
-
-    <input type="email" id="fb-email" placeholder="Email" autocomplete="username"
-      style="display:block;width:100%;box-sizing:border-box;padding:9px 12px;
-        border:1.5px solid var(--border);border-radius:8px;font-size:.9rem;
-        font-family:inherit;margin-bottom:10px;outline:none;">
-    <input type="password" id="fb-password" placeholder="Password" autocomplete="current-password"
-      style="display:block;width:100%;box-sizing:border-box;padding:9px 12px;
-        border:1.5px solid var(--border);border-radius:8px;font-size:.9rem;
-        font-family:inherit;margin-bottom:14px;outline:none;">
-    <button id="btn-fb-signin" style="width:100%;padding:9px;border:none;border-radius:8px;
-      background:var(--steel-anchor);color:var(--white);font-size:.9rem;font-family:inherit;cursor:pointer;">
-      Sign In
-    </button>
-    <button id="btn-fb-forgot" style="background:none;border:none;font-size:.78rem;
-      color:var(--mid-steel);cursor:pointer;font-family:inherit;margin-top:6px;
-      text-decoration:underline;display:block;width:100%;text-align:center;">
-      Forgot password / set new password?
-    </button>
-    <div id="login-status" style="font-size:.8rem;min-height:20px;margin-top:10px;color:var(--danger-btn);"></div>
-  </div>
+<div id="login-screen" style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:var(--blue-mist);">
+  <p style="color:var(--steel-anchor);font-family:var(--font-body);">Checking authentication…</p>
 </div>
 
 <!-- ══════════════════ APP CONTENT ══════════════════ -->
@@ -3839,7 +3807,7 @@ function fbSignOut() {
     clearTimeout(_d1SyncTimer);
     _d1SyncTimer = null;
   }
-  d1Push().finally(function() { fbAuth.signOut(); });
+  d1Push().finally(function() { window.location.href = '/admin/logout'; });
 }
 
 function fbSignInGoogle() {
@@ -3875,35 +3843,21 @@ function fbForgotPassword() {
     });
 }
 
-fbAuth.onAuthStateChanged(function(user) {
-  var loginScreen = document.getElementById('login-screen');
-  var appContent  = document.getElementById('app-content');
-  var userDisplay = document.getElementById('fb-user-display');
-  if (user) {
-    // Enforce allowlist — applies to email/password and Google SSO alike
-    var email   = (user.email || '').toLowerCase().trim();
-    var allowed = ALLOWED_EMAILS.map(function(e) { return e.toLowerCase().trim(); });
-    if (allowed.indexOf(email) === -1) {
-      fbAuth.signOut().then(function() {
-        updateLoginStatus('Access not authorized. Contact your administrator.', true);
-      });
-      return; // signOut re-triggers this callback with user=null, which restores login screen
-    }
-    // Authorized — show the app
+async function checkAuth() {
+  try {
+    var resp = await fetch('/admin/api/scheduler/data', {credentials: 'include'});
+    if (resp.status === 401) { window.location.href = '/admin'; return; }
+    var loginScreen = document.getElementById('login-screen');
+    var appContent  = document.getElementById('app-content');
     if (loginScreen) loginScreen.style.display = 'none';
     if (appContent)  appContent.style.display  = 'block';
-    if (userDisplay) userDisplay.textContent   = 'Signed in as ' + user.email;
     d1Pull();
     fetchPendingSignups();
     fetchGeneralVolunteers();
     fetchEventVolunteers();
-  } else {
-    if (loginScreen) loginScreen.style.display = 'flex';
-    if (appContent)  appContent.style.display  = 'none';
-    if (userDisplay) userDisplay.textContent   = '';
-    updateSyncStatus('');
-  }
-});
+  } catch(e) { window.location.href = '/admin'; }
+}
+checkAuth();
 
 // ══════════════════════════════════════════════════════════════════
 // DATA EXPORT / IMPORT
@@ -4322,8 +4276,7 @@ document.getElementById('btn-save-special').addEventListener('click', function()
 // ══════════════════════════════════════════════════════════════════
 // CLOUD SYNC & DATA EXPORT/IMPORT BUTTON HANDLERS
 // ══════════════════════════════════════════════════════════════════
-document.getElementById('btn-fb-signin').addEventListener('click', fbSignIn);
-document.getElementById('btn-fb-forgot').addEventListener('click', fbForgotPassword);
+
 document.getElementById('btn-fb-push').addEventListener('click', d1Push);
 document.getElementById('btn-fb-pull').addEventListener('click', d1Pull);
 document.getElementById('btn-fb-signout').addEventListener('click', fbSignOut);
