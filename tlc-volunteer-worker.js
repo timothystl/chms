@@ -9882,12 +9882,13 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
     var changesAllUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&status=needs_changes';
     var portalUrl     = workerUrl + '/rsvp/portal?token=' + encodeURIComponent(rsvpToken);
 
-    // Per-assignment rows in a 2-column table: "Date — Role (svc)" | [✓ Yes] [⚠ Change]
+    // Per-assignment rows in a 2-column table: "Date — Role (svc)" | [✓ Yes] [⚠ Change] [✗ Decline]
     // Two columns is easy on any phone; no 4-col overflow
     var confirmRows = assignments.map(function(a, idx) {
       var svcLabel = a.svc === 'both services' ? 'Both Svcs' : a.svc;
       var cfUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&idx=' + idx + '&status=confirmed';
       var ncUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&idx=' + idx + '&status=needs_changes';
+      var dcUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&idx=' + idx + '&status=declined';
       return '<tr>'
         + '<td style="padding:10px 12px;border-bottom:1px solid #eef;font-size:0.86rem;vertical-align:middle;">'
         + '<strong>' + esc(a.date) + '</strong>'
@@ -9896,10 +9897,13 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
         + '</td>'
         + '<td style="padding:10px 12px;border-bottom:1px solid #eef;vertical-align:middle;text-align:right;width:1%;white-space:nowrap;">'
         + '<a href="' + esc(cfUrl) + '" style="display:inline-block;background:#6B8F71;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;margin-right:5px;">\\u2713 Yes</a>'
-        + '<a href="' + esc(ncUrl) + '" style="display:inline-block;background:#D4922A;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;">\\u26a0 Change</a>'
+        + '<a href="' + esc(ncUrl) + '" style="display:inline-block;background:#D4922A;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;margin-right:5px;">\\u26a0 Change</a>'
+        + '<a href="' + esc(dcUrl) + '" style="display:inline-block;background:#A93226;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;">\\u2717 Decline</a>'
         + '</td>'
         + '</tr>';
     }).join('');
+
+    var declineAllUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&status=declined';
 
     rsvpSection = ''
       + '<div style="background:#f6f9ff;border:1px solid #c8d8f0;border-radius:8px;margin-bottom:20px;overflow:hidden;">'
@@ -9913,6 +9917,7 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
       + '<p style="margin:0 0 8px;font-size:0.78rem;color:#7A6E60;">Or respond to all at once:</p>'
       + '<a href="' + esc(confirmAllUrl) + '" style="display:inline-block;background:#6B8F71;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\\u2713 Confirm All</a>'
       + '<a href="' + esc(changesAllUrl) + '" style="display:inline-block;background:#D4922A;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\\u26a0 Change All</a>'
+      + '<a href="' + esc(declineAllUrl) + '" style="display:inline-block;background:#A93226;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\\u2717 Decline All</a>'
       + '<a href="' + esc(portalUrl) + '" style="display:inline-block;background:white;color:#0A3C5C;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:600;font-size:0.82rem;border:1px solid #C4DDE8;margin:0 0 4px 0;">\\uD83D\\uDCC5 My Full Schedule</a>'
       + '</div>'
       + '</div>';
@@ -14339,8 +14344,9 @@ async function handleSchedRsvpPortal(req, env, url) {
     const svcLabel = a.svc==='8am'?'8:00 AM':a.svc==='10:45am'?'10:45 AM':a.svc;
     const cfUrl = url.origin+'/rsvp?token='+encodeURIComponent(token)+'&idx='+i+'&status=confirmed';
     const ncUrl = url.origin+'/rsvp?token='+encodeURIComponent(token)+'&idx='+i+'&status=needs_changes';
+    const dcUrl = url.origin+'/rsvp?token='+encodeURIComponent(token)+'&idx='+i+'&status=declined';
     const st = a.status||'pending';
-    const stLabel = st==='confirmed'?'✓ Confirmed':st==='needs_changes'?'⚠ Needs Changes':'';
+    const stLabel = st==='confirmed'?'✓ Confirmed':st==='needs_changes'?'⚠ Needs Changes':st==='declined'?'✗ Declined':'';
     return '<tr>'
       +'<td style="padding:8px 12px;border-bottom:1px solid #eee;">'+e(a.date)+'</td>'
       +'<td style="padding:8px 12px;border-bottom:1px solid #eee;">'+e(svcLabel)+'</td>'
@@ -14348,7 +14354,8 @@ async function handleSchedRsvpPortal(req, env, url) {
       +'<td style="padding:8px 12px;border-bottom:1px solid #eee;color:#555;">'+e(stLabel)+'</td>'
       +'<td style="padding:8px 12px;border-bottom:1px solid #eee;">'
       +'<a href="'+e(cfUrl)+'" style="margin-right:8px;color:#27ae60;">✓ Confirm</a>'
-      +'<a href="'+e(ncUrl)+'" style="color:#e67e22;">⚠ Change</a>'
+      +'<a href="'+e(ncUrl)+'" style="margin-right:8px;color:#e67e22;">⚠ Change</a>'
+      +'<a href="'+e(dcUrl)+'" style="color:#c0392b;">✗ Decline</a>'
       +'</td></tr>';
   }).join('');
   const body = '<h2 style="margin-bottom:4px;">Hello, '+e(record.name)+'</h2>'
