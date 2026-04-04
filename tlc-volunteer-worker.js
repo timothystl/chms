@@ -51,7 +51,87 @@ const DB_INIT = [
     key        TEXT PRIMARY KEY,
     value      TEXT NOT NULL DEFAULT '{}',
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )`
+  )`,
+  // ── ChMS tables ──────────────────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS households (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL DEFAULT '',
+    address1   TEXT    NOT NULL DEFAULT '',
+    address2   TEXT    NOT NULL DEFAULT '',
+    city       TEXT    NOT NULL DEFAULT '',
+    state      TEXT    NOT NULL DEFAULT 'MO',
+    zip        TEXT    NOT NULL DEFAULT '',
+    notes      TEXT    NOT NULL DEFAULT '',
+    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS people (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    first_name        TEXT    NOT NULL DEFAULT '',
+    last_name         TEXT    NOT NULL DEFAULT '',
+    email             TEXT    NOT NULL DEFAULT '',
+    phone             TEXT    NOT NULL DEFAULT '',
+    address1          TEXT    NOT NULL DEFAULT '',
+    address2          TEXT    NOT NULL DEFAULT '',
+    city              TEXT    NOT NULL DEFAULT '',
+    state             TEXT    NOT NULL DEFAULT 'MO',
+    zip               TEXT    NOT NULL DEFAULT '',
+    member_type       TEXT    NOT NULL DEFAULT 'visitor',
+    dob               TEXT    NOT NULL DEFAULT '',
+    baptism_date      TEXT    NOT NULL DEFAULT '',
+    confirmation_date TEXT    NOT NULL DEFAULT '',
+    anniversary_date  TEXT    NOT NULL DEFAULT '',
+    household_id      INTEGER,
+    family_role       TEXT    NOT NULL DEFAULT '',
+    photo_url         TEXT    NOT NULL DEFAULT '',
+    notes             TEXT    NOT NULL DEFAULT '',
+    breeze_id         TEXT    NOT NULL DEFAULT '',
+    active            INTEGER NOT NULL DEFAULT 1,
+    created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS tags (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    color       TEXT    NOT NULL DEFAULT '#5C8FA8',
+    description TEXT    NOT NULL DEFAULT '',
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS person_tags (
+    person_id INTEGER NOT NULL,
+    tag_id    INTEGER NOT NULL,
+    PRIMARY KEY (person_id, tag_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS funds (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    description TEXT    NOT NULL DEFAULT '',
+    active      INTEGER NOT NULL DEFAULT 1,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS giving_batches (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_date  TEXT    NOT NULL DEFAULT '',
+    description TEXT    NOT NULL DEFAULT '',
+    closed      INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS giving_entries (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id     INTEGER NOT NULL,
+    person_id    INTEGER,
+    fund_id      INTEGER NOT NULL,
+    amount       INTEGER NOT NULL DEFAULT 0,
+    method       TEXT    NOT NULL DEFAULT 'cash',
+    check_number TEXT    NOT NULL DEFAULT '',
+    notes        TEXT    NOT NULL DEFAULT '',
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_people_household ON people(household_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_people_breeze ON people(breeze_id) WHERE breeze_id != ''`,
+  `CREATE INDEX IF NOT EXISTS idx_people_name ON people(last_name, first_name)`,
+  `CREATE INDEX IF NOT EXISTS idx_person_tags_person ON person_tags(person_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_giving_batch ON giving_entries(batch_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_giving_person ON giving_entries(person_id)`
 ];
 
 // ── AUTH ─────────────────────────────────────────────────────────────
@@ -12149,6 +12229,7 @@ async function initDb(db) {
   }
   await seedEvents(db);
   await migrateChristmasMarketRoles(db);
+  await seedChmsDefaults(db);
 }
 
 // ── CHRISTMAS MARKET ROLES (shared by seed + migration) ──────────────
@@ -12376,6 +12457,21 @@ export default {
         console.error('Admin API error:', e);
         return json({ error: 'Internal server error: ' + (e.message || e) }, 500);
       }
+    }
+    // ── ChMS (People & Giving) ─────────────────────────────────────────
+    if (path === '/chms' && method === 'GET') {
+      if (!await isAuthed(req, env)) return html(LOGIN_HTML);
+      return html(CHMS_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+    }
+    if (path === '/chms.webmanifest') {
+      return new Response(CHMS_MANIFEST_JSON, {
+        headers: { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=86400' }
+      });
+    }
+    if (path === '/sw.js') {
+      return new Response(SW_JS, {
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache, no-store' }
+      });
     }
 
     // ── Scheduler backend routes (Breeze proxy, email, RSVP) ──────────────────
@@ -12851,7 +12947,431 @@ async function handleAdminApi(req, env, url, method) {
     });
   }
 
+  // ── ChMS API dispatch ─────────────────────────────────────────────
+  if (seg.startsWith('people') || seg.startsWith('households') ||
+      seg.startsWith('tags')   || seg.startsWith('funds')      ||
+      seg.startsWith('giving/') || seg.startsWith('reports/')  ||
+      seg.startsWith('import/')) {
+    return handleChmsApi(req, env, url, method, seg);
+  }
+
   return json({ error: 'Not found' }, 404);
+}
+
+// ── ChMS API HANDLER ────────────────────────────────────────────────
+async function handleChmsApi(req, env, url, method, seg) {
+  const db = env.DB;
+
+  // ── People ──────────────────────────────────────────────────────
+  if (seg === 'people' && method === 'GET') {
+    const q = url.searchParams.get('q') || '';
+    const mt = url.searchParams.get('member_type') || '';
+    const tagId = url.searchParams.get('tag_id') || '';
+    const like = '%' + q + '%';
+    let sql = `SELECT p.*, h.name as household_name FROM people p
+               LEFT JOIN households h ON p.household_id=h.id
+               WHERE p.active=1
+               AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)`;
+    const binds = [like, like, like, like];
+    if (mt) { sql += ' AND p.member_type=?'; binds.push(mt); }
+    sql += ' ORDER BY p.last_name, p.first_name LIMIT 200';
+    const rows = (await db.prepare(sql).bind(...binds).all()).results || [];
+    // Attach tags
+    const people = [];
+    for (const p of rows) {
+      const tagRows = (await db.prepare(
+        `SELECT t.id, t.name, t.color FROM tags t
+         JOIN person_tags pt ON pt.tag_id=t.id WHERE pt.person_id=?`
+      ).bind(p.id).all()).results || [];
+      if (tagId && !tagRows.find(t => String(t.id) === tagId)) continue;
+      people.push({ ...p, tags: tagRows });
+    }
+    return json({ people });
+  }
+
+  if (seg === 'people' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const r = await db.prepare(
+      `INSERT INTO people (first_name,last_name,email,phone,address1,address2,city,state,zip,
+       member_type,dob,baptism_date,confirmation_date,anniversary_date,household_id,
+       family_role,photo_url,notes,breeze_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
+           b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
+           b.member_type||'visitor',b.dob||'',b.baptism_date||'',
+           b.confirmation_date||'',b.anniversary_date||'',
+           b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',b.breeze_id||''
+    ).run();
+    const personId = r.meta?.last_row_id;
+    if (Array.isArray(b.tag_ids)) {
+      for (const tid of b.tag_ids) {
+        try { await db.prepare('INSERT OR IGNORE INTO person_tags(person_id,tag_id) VALUES(?,?)').bind(personId,tid).run(); } catch {}
+      }
+    }
+    return json({ ok: true, id: personId });
+  }
+
+  const pmatch = seg.match(/^people\/(\d+)$/);
+  if (pmatch) {
+    const pid = parseInt(pmatch[1]);
+    if (method === 'GET') {
+      const p = await db.prepare(
+        `SELECT p.*, h.name as household_name FROM people p
+         LEFT JOIN households h ON p.household_id=h.id WHERE p.id=?`
+      ).bind(pid).first();
+      if (!p) return json({ error: 'Not found' }, 404);
+      const tags = (await db.prepare(
+        `SELECT t.id,t.name,t.color FROM tags t JOIN person_tags pt ON pt.tag_id=t.id WHERE pt.person_id=?`
+      ).bind(pid).all()).results || [];
+      const giving12 = await db.prepare(
+        `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
+         JOIN giving_batches gb ON ge.batch_id=gb.id
+         WHERE ge.person_id=? AND gb.batch_date >= date('now','-12 months')`
+      ).bind(pid).first();
+      return json({ ...p, tags, giving_12mo: giving12?.total || 0 });
+    }
+    if (method === 'PUT') {
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      await db.prepare(
+        `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,address1=?,address2=?,
+         city=?,state=?,zip=?,member_type=?,dob=?,baptism_date=?,confirmation_date=?,
+         anniversary_date=?,household_id=?,family_role=?,photo_url=?,notes=? WHERE id=?`
+      ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
+             b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
+             b.member_type||'visitor',b.dob||'',b.baptism_date||'',
+             b.confirmation_date||'',b.anniversary_date||'',
+             b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',pid
+      ).run();
+      if (Array.isArray(b.tag_ids)) {
+        await db.prepare('DELETE FROM person_tags WHERE person_id=?').bind(pid).run();
+        for (const tid of b.tag_ids) {
+          try { await db.prepare('INSERT OR IGNORE INTO person_tags(person_id,tag_id) VALUES(?,?)').bind(pid,tid).run(); } catch {}
+        }
+      }
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      const hard = url.searchParams.get('hard') === 'true';
+      if (hard) {
+        await db.prepare('DELETE FROM person_tags WHERE person_id=?').bind(pid).run();
+        await db.prepare('DELETE FROM people WHERE id=?').bind(pid).run();
+      } else {
+        await db.prepare('UPDATE people SET active=0 WHERE id=?').bind(pid).run();
+      }
+      return json({ ok: true });
+    }
+  }
+
+  // ── Households ──────────────────────────────────────────────────
+  if (seg === 'households' && method === 'GET') {
+    const q = '%' + (url.searchParams.get('q') || '') + '%';
+    const rows = (await db.prepare(
+      `SELECT h.*, COUNT(p.id) as member_count FROM households h
+       LEFT JOIN people p ON p.household_id=h.id AND p.active=1
+       WHERE h.name LIKE ? OR h.address1 LIKE ? OR h.city LIKE ?
+       GROUP BY h.id ORDER BY h.name LIMIT 100`
+    ).bind(q,q,q).all()).results || [];
+    return json({ households: rows });
+  }
+
+  if (seg === 'households' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const r = await db.prepare(
+      `INSERT INTO households (name,address1,address2,city,state,zip,notes) VALUES (?,?,?,?,?,?,?)`
+    ).bind(b.name||'',b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',b.notes||'').run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+
+  const hmatch = seg.match(/^households\/(\d+)$/);
+  if (hmatch) {
+    const hid = parseInt(hmatch[1]);
+    if (method === 'GET') {
+      const h = await db.prepare('SELECT * FROM households WHERE id=?').bind(hid).first();
+      if (!h) return json({ error: 'Not found' }, 404);
+      const members = (await db.prepare(
+        `SELECT id,first_name,last_name,member_type,family_role,phone,email FROM people WHERE household_id=? AND active=1 ORDER BY family_role,last_name`
+      ).bind(hid).all()).results || [];
+      return json({ ...h, members });
+    }
+    if (method === 'PUT') {
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      await db.prepare(
+        `UPDATE households SET name=?,address1=?,address2=?,city=?,state=?,zip=?,notes=? WHERE id=?`
+      ).bind(b.name||'',b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',b.notes||'',hid).run();
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      const count = await db.prepare('SELECT COUNT(*) as n FROM people WHERE household_id=? AND active=1').bind(hid).first();
+      if (count?.n > 0) return json({ error: 'Household has active members; reassign them first.' }, 409);
+      await db.prepare('DELETE FROM households WHERE id=?').bind(hid).run();
+      return json({ ok: true });
+    }
+  }
+
+  // ── Tags ────────────────────────────────────────────────────────
+  if (seg === 'tags' && method === 'GET') {
+    const rows = (await db.prepare(
+      `SELECT t.*, COUNT(pt.person_id) as person_count FROM tags t
+       LEFT JOIN person_tags pt ON pt.tag_id=t.id
+       GROUP BY t.id ORDER BY t.name`
+    ).all()).results || [];
+    return json({ tags: rows });
+  }
+  if (seg === 'tags' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const r = await db.prepare(
+      `INSERT INTO tags (name,color,description) VALUES (?,?,?)`
+    ).bind(b.name||'New Tag',b.color||'#5C8FA8',b.description||'').run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+  const tmatch = seg.match(/^tags\/(\d+)$/);
+  if (tmatch) {
+    const tid = parseInt(tmatch[1]);
+    if (method === 'PUT') {
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      await db.prepare(`UPDATE tags SET name=?,color=?,description=? WHERE id=?`)
+        .bind(b.name||'',b.color||'#5C8FA8',b.description||'',tid).run();
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      await db.prepare('DELETE FROM person_tags WHERE tag_id=?').bind(tid).run();
+      await db.prepare('DELETE FROM tags WHERE id=?').bind(tid).run();
+      return json({ ok: true });
+    }
+  }
+
+  // ── Funds ────────────────────────────────────────────────────────
+  if (seg === 'funds' && method === 'GET') {
+    const rows = (await db.prepare('SELECT * FROM funds ORDER BY sort_order,name').all()).results || [];
+    return json({ funds: rows });
+  }
+  if (seg === 'funds' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const r = await db.prepare(
+      `INSERT INTO funds (name,description,active,sort_order) VALUES (?,?,?,?)`
+    ).bind(b.name||'New Fund',b.description||'',b.active?1:1,b.sort_order||0).run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+  const fmatch = seg.match(/^funds\/(\d+)$/);
+  if (fmatch) {
+    if (method === 'PUT') {
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      await db.prepare(`UPDATE funds SET name=?,description=?,active=?,sort_order=? WHERE id=?`)
+        .bind(b.name||'',b.description||'',b.active?1:0,b.sort_order||0,parseInt(fmatch[1])).run();
+      return json({ ok: true });
+    }
+  }
+
+  // ── Giving Batches ───────────────────────────────────────────────
+  if (seg === 'giving/batches' && method === 'GET') {
+    const status = url.searchParams.get('status') || 'all';
+    let sql = `SELECT gb.*, COUNT(ge.id) as entry_count, COALESCE(SUM(ge.amount),0) as total_cents
+               FROM giving_batches gb LEFT JOIN giving_entries ge ON ge.batch_id=gb.id`;
+    const binds = [];
+    if (status === 'open') { sql += ' WHERE gb.closed=0'; }
+    else if (status === 'closed') { sql += ' WHERE gb.closed=1'; }
+    sql += ' GROUP BY gb.id ORDER BY gb.batch_date DESC, gb.id DESC LIMIT 100';
+    const rows = (await db.prepare(sql).bind(...binds).all()).results || [];
+    return json({ batches: rows });
+  }
+
+  if (seg === 'giving/batches' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const r = await db.prepare(
+      `INSERT INTO giving_batches (batch_date,description) VALUES (?,?)`
+    ).bind(b.batch_date||'',b.description||'').run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+
+  const batchMatch = seg.match(/^giving\/batches\/(\d+)$/);
+  if (batchMatch) {
+    const bid = parseInt(batchMatch[1]);
+    if (method === 'GET') {
+      const batch = await db.prepare('SELECT * FROM giving_batches WHERE id=?').bind(bid).first();
+      if (!batch) return json({ error: 'Not found' }, 404);
+      const entries = (await db.prepare(
+        `SELECT ge.*, f.name as fund_name,
+         COALESCE(p.first_name||' '||p.last_name,'(anonymous)') as person_name
+         FROM giving_entries ge
+         JOIN funds f ON ge.fund_id=f.id
+         LEFT JOIN people p ON ge.person_id=p.id
+         WHERE ge.batch_id=? ORDER BY ge.id`
+      ).bind(bid).all()).results || [];
+      return json({ ...batch, entries });
+    }
+    if (method === 'PUT') {
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      await db.prepare(`UPDATE giving_batches SET batch_date=?,description=?,closed=? WHERE id=?`)
+        .bind(b.batch_date||'',b.description||'',b.closed?1:0,bid).run();
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      const batch = await db.prepare('SELECT closed FROM giving_batches WHERE id=?').bind(bid).first();
+      if (!batch) return json({ error: 'Not found' }, 404);
+      if (batch.closed) return json({ error: 'Cannot delete a closed batch.' }, 409);
+      await db.prepare('DELETE FROM giving_entries WHERE batch_id=?').bind(bid).run();
+      await db.prepare('DELETE FROM giving_batches WHERE id=?').bind(bid).run();
+      return json({ ok: true });
+    }
+  }
+
+  const entriesMatch = seg.match(/^giving\/batches\/(\d+)\/entries$/);
+  if (entriesMatch) {
+    const bid = parseInt(entriesMatch[1]);
+    if (method === 'GET') {
+      const entries = (await db.prepare(
+        `SELECT ge.*, f.name as fund_name,
+         COALESCE(p.first_name||' '||p.last_name,'(anonymous)') as person_name
+         FROM giving_entries ge
+         JOIN funds f ON ge.fund_id=f.id
+         LEFT JOIN people p ON ge.person_id=p.id
+         WHERE ge.batch_id=? ORDER BY ge.id`
+      ).bind(bid).all()).results || [];
+      return json({ entries });
+    }
+    if (method === 'POST') {
+      const batch = await db.prepare('SELECT closed FROM giving_batches WHERE id=?').bind(bid).first();
+      if (!batch) return json({ error: 'Batch not found' }, 404);
+      if (batch.closed) return json({ error: 'Batch is closed.' }, 409);
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      const amtCents = Math.round(parseFloat(b.amount || 0) * 100);
+      const r = await db.prepare(
+        `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes)
+         VALUES (?,?,?,?,?,?,?)`
+      ).bind(bid,b.person_id||null,b.fund_id,amtCents,b.method||'cash',b.check_number||'',b.notes||'').run();
+      return json({ ok: true, id: r.meta?.last_row_id });
+    }
+  }
+
+  const entryDelMatch = seg.match(/^giving\/entries\/(\d+)$/);
+  if (entryDelMatch && method === 'DELETE') {
+    const eid = parseInt(entryDelMatch[1]);
+    const entry = await db.prepare(
+      `SELECT ge.id, gb.closed FROM giving_entries ge JOIN giving_batches gb ON ge.batch_id=gb.id WHERE ge.id=?`
+    ).bind(eid).first();
+    if (!entry) return json({ error: 'Not found' }, 404);
+    if (entry.closed) return json({ error: 'Batch is closed.' }, 409);
+    await db.prepare('DELETE FROM giving_entries WHERE id=?').bind(eid).run();
+    return json({ ok: true });
+  }
+
+  // ── Reports ──────────────────────────────────────────────────────
+  if (seg === 'reports/membership' && method === 'GET') {
+    const counts = (await db.prepare(
+      `SELECT member_type, COUNT(*) as n FROM people WHERE active=1 GROUP BY member_type ORDER BY n DESC`
+    ).all()).results || [];
+    const total = counts.reduce((s,r) => s + r.n, 0);
+    const tagCounts = (await db.prepare(
+      `SELECT t.name, COUNT(DISTINCT pt.person_id) as n FROM tags t
+       LEFT JOIN person_tags pt ON pt.tag_id=t.id GROUP BY t.id ORDER BY t.name`
+    ).all()).results || [];
+    return json({ counts, total, tag_counts: tagCounts });
+  }
+
+  if (seg === 'reports/giving-summary' && method === 'GET') {
+    const from = url.searchParams.get('from') || new Date().getFullYear() + '-01-01';
+    const to   = url.searchParams.get('to')   || new Date().getFullYear() + '-12-31';
+    const rows = (await db.prepare(
+      `SELECT f.name as fund_name, COUNT(ge.id) as contributions, COALESCE(SUM(ge.amount),0) as total_cents
+       FROM funds f LEFT JOIN giving_entries ge ON ge.fund_id=f.id
+       LEFT JOIN giving_batches gb ON ge.batch_id=gb.id AND gb.batch_date BETWEEN ? AND ?
+       WHERE f.active=1 GROUP BY f.id ORDER BY f.sort_order, f.name`
+    ).bind(from,to).all()).results || [];
+    const grand = rows.reduce((s,r) => s + r.total_cents, 0);
+    return json({ from, to, rows, grand_total_cents: grand });
+  }
+
+  if (seg === 'reports/giving-statement' && method === 'GET') {
+    const personId = url.searchParams.get('person_id');
+    const year = url.searchParams.get('year') || new Date().getFullYear();
+    if (!personId) return json({ error: 'person_id required' }, 400);
+    const person = await db.prepare('SELECT * FROM people WHERE id=?').bind(personId).first();
+    if (!person) return json({ error: 'Person not found' }, 404);
+    const entries = (await db.prepare(
+      `SELECT ge.amount, ge.method, ge.notes, f.name as fund_name, gb.batch_date
+       FROM giving_entries ge
+       JOIN funds f ON ge.fund_id=f.id
+       JOIN giving_batches gb ON ge.batch_id=gb.id
+       WHERE ge.person_id=? AND substr(gb.batch_date,1,4)=?
+       ORDER BY gb.batch_date, ge.id`
+    ).bind(personId, String(year)).all()).results || [];
+    const total = entries.reduce((s,e) => s + e.amount, 0);
+    if (url.searchParams.get('format') === 'csv') {
+      let csv = 'Date,Fund,Amount,Method\n';
+      for (const e of entries) {
+        csv += `${e.batch_date},${e.fund_name},$${(e.amount/100).toFixed(2)},${e.method}\n`;
+      }
+      return new Response(csv, {
+        headers: {
+          'Content-Type': 'text/csv',
+          'Content-Disposition': `attachment; filename="giving-statement-${person.last_name}-${year}.csv"`
+        }
+      });
+    }
+    return json({ person, year, entries, total_cents: total });
+  }
+
+  // ── Breeze Import ────────────────────────────────────────────────
+  if (seg === 'import/breeze' && method === 'POST') {
+    const subdomain = env.BREEZE_SUBDOMAIN;
+    const apiKey    = env.BREEZE_API_KEY;
+    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured (BREEZE_SUBDOMAIN / BREEZE_API_KEY missing)' }, 503);
+    let b = {}; try { b = await req.json(); } catch {}
+    const offset = parseInt(b.offset || 0);
+    const limit  = 100;
+    const res = await fetch(
+      `https://${subdomain}.breezechms.com/api/people?details=1&limit=${limit}&offset=${offset}`,
+      { headers: { 'Api-key': apiKey } }
+    );
+    if (!res.ok) return json({ error: `Breeze API error: ${res.status}` }, 502);
+    let people; try { people = await res.json(); } catch { return json({ error: 'Breeze returned invalid JSON' }, 502); }
+    if (!Array.isArray(people)) return json({ done: true, imported: 0, updated: 0, errors: [] });
+    let imported = 0, updated = 0;
+    const errors = [];
+    for (const p of people) {
+      try {
+        const fn = p.first_name || '';
+        const ln = p.last_name || '';
+        const email = (p.details?.email_primary?.address || '').trim();
+        const phone = (p.details?.phone_primary?.phone_number || '').trim();
+        const addr = p.details?.address || {};
+        const existing = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(String(p.id)).first();
+        if (existing) {
+          await db.prepare(
+            `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,
+             address1=?,city=?,state=?,zip=? WHERE breeze_id=?`
+          ).bind(fn,ln,email,phone,addr.street||'',addr.city||'',addr.state||'',addr.zip||'',String(p.id)).run();
+          updated++;
+        } else {
+          await db.prepare(
+            `INSERT INTO people (first_name,last_name,email,phone,address1,city,state,zip,breeze_id)
+             VALUES (?,?,?,?,?,?,?,?,?)`
+          ).bind(fn,ln,email,phone,addr.street||'',addr.city||'',addr.state||'',addr.zip||'',String(p.id)).run();
+          imported++;
+        }
+      } catch (e) { errors.push({ breeze_id: p.id, error: e.message }); }
+    }
+    const done = people.length < limit;
+    return json({ ok: true, imported, updated, errors, done, next_offset: offset + people.length });
+  }
+
+  return json({ error: 'Not found' }, 404);
+}
+
+// ── ChMS SEED DEFAULTS ──────────────────────────────────────────────
+async function seedChmsDefaults(db) {
+  try {
+    const existing = await db.prepare('SELECT COUNT(*) as n FROM funds').first();
+    if (existing?.n > 0) return;
+    const defaults = [
+      ['General Fund', 'Weekly offering and general church operations', 1, 10],
+      ['Building Fund', 'Capital improvements and building maintenance', 1, 20],
+      ['Missions',      'Local and international mission support', 1, 30],
+    ];
+    for (const [name, desc, active, sort] of defaults) {
+      await db.prepare('INSERT INTO funds (name,description,active,sort_order) VALUES (?,?,?,?)').bind(name,desc,active,sort).run();
+    }
+  } catch {}
 }
 
 // ── LOGIN HTML ──────────────────────────────────────────────────────
@@ -14429,3 +14949,1227 @@ async function handleSchedBreezeProxy(req, env, url) {
     headers: { ...SCHED_CORS, 'Content-Type': res.headers.get('Content-Type') || 'application/json' },
   });
 }
+
+// ── ChMS MANIFEST ───────────────────────────────────────────────────
+const CHMS_MANIFEST_JSON = '{"name":"TLC Church Directory","short_name":"TLC Directory","description":"People directory and giving records for Timothy Lutheran Church","start_url":"/chms","display":"standalone","theme_color":"#0A3C5C","background_color":"#EDF5F8","scope":"/","icons":[{"src":"tlc-logo.png","sizes":"500x500","type":"image/png","purpose":"any maskable"}]}';
+
+// ── SERVICE WORKER ──────────────────────────────────────────────────
+const SW_JS = `
+const STATIC_CACHE = 'chms-static-v1';
+const API_CACHE    = 'chms-api-v1';
+const STATIC_ASSETS = ['/chms.webmanifest'];
+self.addEventListener('install', function(event) {
+  event.waitUntil(
+    caches.open(STATIC_CACHE).then(function(cache) {
+      return cache.addAll(STATIC_ASSETS).catch(function(){});
+    })
+  );
+  self.skipWaiting();
+});
+self.addEventListener('activate', function(event) {
+  event.waitUntil(
+    caches.keys().then(function(keys) {
+      return Promise.all(keys.filter(function(k){return k!==STATIC_CACHE&&k!==API_CACHE;}).map(function(k){return caches.delete(k);}));
+    }).then(function(){ return self.clients.claim(); })
+  );
+});
+self.addEventListener('fetch', function(event) {
+  var url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname === '/chms') {
+    event.respondWith(fetch(event.request).catch(function(){ return caches.match('/chms'); }));
+    return;
+  }
+  if (url.pathname === '/admin/api/people' && event.request.method === 'GET') {
+    event.respondWith(
+      fetch(event.request.clone()).then(function(resp) {
+        if (resp.ok) {
+          caches.open(API_CACHE).then(function(cache){ cache.put(event.request, resp.clone()); });
+          return resp;
+        }
+        return resp;
+      }).catch(function() {
+        return caches.match(event.request).then(function(cached) {
+          if (cached) {
+            var h = new Headers(cached.headers);
+            h.set('X-From-Cache','true');
+            return new Response(cached.body,{status:cached.status,headers:h});
+          }
+          return new Response(JSON.stringify({error:'Offline',offline:true}),{status:503,headers:{'Content-Type':'application/json'}});
+        });
+      })
+    );
+    return;
+  }
+  if (url.pathname === '/chms.webmanifest' || url.pathname === '/tlc-logo.png') {
+    event.respondWith(caches.match(event.request).then(function(c){ return c || fetch(event.request); }));
+  }
+});
+`;
+
+// ── ChMS ADMIN HTML ────────────────────────────────────────────────
+const CHMS_HTML = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>People &amp; Giving — Timothy Lutheran</title>
+<link rel="manifest" href="/chms.webmanifest">
+<meta name="theme-color" content="#0A3C5C">
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --steel-anchor:#0A3C5C;--deep-steel:#2A5470;--mid-steel:#3D627C;--sky-steel:#5C8FA8;
+  --ice-blue:#C4DDE8;--blue-mist:#EDF5F8;--amber:#D4922A;--deep-amber:#C07D1E;
+  --pale-gold:#F5E0B0;--sage:#6B8F71;--pale-sage:#CDE0CF;--warm-white:#FAF7F0;
+  --linen:#F2EDE2;--white:#FFFFFF;--border:#E8E0D0;--charcoal:#3D3530;--warm-gray:#7A6E60;
+  --font-head:'Lora',Georgia,serif;--font-body:'Source Sans 3',Arial,sans-serif;
+  --danger:#B85C3A;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--font-body);background:var(--warm-white);color:var(--charcoal);min-height:100vh;}
+a{color:var(--sky-steel);}
+/* ── HEADER ── */
+header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px 24px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 12px rgba(10,60,92,.07);position:sticky;top:0;z-index:100;}
+.hdr-logo{font-size:1.6rem;color:var(--amber);flex-shrink:0;}
+.hdr-text{flex:1;}
+.hdr-church{font-size:.7rem;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.09em;}
+.hdr-title{font-family:var(--font-head);font-size:1.05rem;color:var(--steel-anchor);font-weight:700;line-height:1.2;}
+.hdr-sub{font-size:.78rem;color:var(--warm-gray);}
+.hdr-actions{display:flex;gap:8px;flex-shrink:0;}
+.btn-sm{padding:6px 14px;border-radius:8px;font-family:var(--font-body);font-size:.82rem;font-weight:600;cursor:pointer;border:1.5px solid var(--border);background:var(--linen);color:var(--charcoal);text-decoration:none;display:inline-flex;align-items:center;gap:4px;transition:background .15s;}
+.btn-sm:hover{background:var(--blue-mist);}
+/* ── OFFLINE BANNER ── */
+#offline-banner{display:none;background:var(--pale-gold);border-bottom:1px solid var(--amber);padding:8px 24px;font-size:.82rem;color:var(--charcoal);text-align:center;}
+/* ── TABS ── */
+.tab-bar{background:var(--white);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.tab-btn{padding:6px 18px;border-radius:20px;border:1.5px solid var(--steel-anchor);font-size:.82rem;font-weight:600;cursor:pointer;background:transparent;color:var(--steel-anchor);transition:all .15s;}
+.tab-btn.active{background:var(--steel-anchor);color:var(--white);}
+.tab-btn:hover:not(.active){background:var(--blue-mist);}
+/* ── PANELS ── */
+.tab-panel{display:none;padding:20px 24px;}
+.tab-panel.active{display:block;}
+/* ── TOOLBAR ── */
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+.search-wrap{position:relative;flex:1;min-width:180px;max-width:360px;}
+.search-wrap input{width:100%;padding:8px 12px 8px 34px;border:1.5px solid var(--border);border-radius:8px;font-family:var(--font-body);font-size:.9rem;background:var(--white);}
+.search-wrap input:focus{outline:none;border-color:var(--steel-anchor);}
+.search-wrap::before{content:'⌕';position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--warm-gray);font-size:1rem;pointer-events:none;}
+.filter-pills{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+.pill{padding:4px 14px;border-radius:20px;border:1.5px solid var(--steel-anchor);font-size:.78rem;font-weight:600;cursor:pointer;background:transparent;color:var(--steel-anchor);transition:all .15s;white-space:nowrap;}
+.pill.active{background:var(--steel-anchor);color:var(--white);}
+.pill:hover:not(.active){background:var(--blue-mist);}
+.pill-tag{border-color:var(--sky-steel);color:var(--sky-steel);}
+.pill-tag.active{background:var(--sky-steel);color:var(--white);}
+.tag-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;}
+/* ── BUTTONS ── */
+.btn-primary{padding:8px 18px;background:var(--steel-anchor);color:var(--white);border:none;border-radius:8px;font-family:var(--font-body);font-size:.9rem;font-weight:700;cursor:pointer;transition:background .15s;}
+.btn-primary:hover{background:var(--deep-steel);}
+.btn-secondary{padding:8px 16px;background:var(--linen);color:var(--charcoal);border:1.5px solid var(--border);border-radius:8px;font-family:var(--font-body);font-size:.9rem;font-weight:600;cursor:pointer;transition:background .15s;}
+.btn-secondary:hover{background:var(--blue-mist);}
+.btn-danger{padding:7px 14px;background:none;color:var(--danger);border:1.5px solid var(--danger);border-radius:7px;font-family:var(--font-body);font-size:.85rem;font-weight:600;cursor:pointer;}
+.btn-danger:hover{background:#fdf0ec;}
+/* ── PERSON CARDS ── */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;}
+.p-card{background:var(--white);border:1px solid var(--border);border-radius:12px;box-shadow:0 2px 10px rgba(10,60,92,.05);cursor:pointer;overflow:hidden;transition:box-shadow .15s;}
+.p-card:hover{box-shadow:0 4px 16px rgba(10,60,92,.1);}
+.p-card.member{border-left:3px solid var(--amber);}
+.p-card-top{padding:14px 16px 10px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--linen);}
+.avatar{width:44px;height:44px;border-radius:50%;background:var(--ice-blue);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-head);font-size:.95rem;font-weight:700;color:var(--steel-anchor);overflow:hidden;}
+.avatar img{width:100%;height:100%;object-fit:cover;}
+.p-name{font-family:var(--font-head);font-size:1rem;font-weight:700;color:var(--steel-anchor);}
+.p-type{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:10px;display:inline-block;margin-top:2px;}
+.type-member{background:var(--pale-gold);color:var(--deep-amber);}
+.type-visitor{background:var(--ice-blue);color:var(--mid-steel);}
+.type-inactive{background:var(--linen);color:var(--warm-gray);}
+.type-associate{background:var(--pale-sage);color:var(--sage);}
+.type-friend{background:var(--linen);color:var(--warm-gray);}
+.p-card-body{padding:10px 16px;}
+.p-row{display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--charcoal);margin-bottom:5px;}
+.p-icon{width:16px;text-align:center;color:var(--warm-gray);font-size:.8rem;flex-shrink:0;}
+.p-tags{display:flex;flex-wrap:wrap;gap:4px;padding:0 16px 10px;}
+.tag-chip{font-size:.7rem;font-weight:600;padding:2px 8px;border-radius:10px;border-width:1px;border-style:solid;}
+/* ── HOUSEHOLDS ── */
+.h-card{background:var(--white);border:1px solid var(--border);border-radius:12px;box-shadow:0 2px 10px rgba(10,60,92,.05);cursor:pointer;padding:16px 18px;transition:box-shadow .15s;}
+.h-card:hover{box-shadow:0 4px 16px rgba(10,60,92,.1);}
+.h-name{font-family:var(--font-head);font-size:1rem;font-weight:700;color:var(--steel-anchor);margin-bottom:4px;}
+.h-addr{font-size:.85rem;color:var(--warm-gray);margin-bottom:8px;}
+.h-members{display:flex;flex-wrap:wrap;gap:6px;}
+.h-member-pill{font-size:.75rem;background:var(--blue-mist);border:1px solid var(--ice-blue);color:var(--steel-anchor);padding:2px 8px;border-radius:10px;}
+/* ── GIVING ── */
+.giving-layout{display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start;}
+@media(max-width:900px){.giving-layout{grid-template-columns:1fr;}}
+.batch-list-panel{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.batch-list-hdr{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.batch-list-hdr h3{font-family:var(--font-head);font-size:.95rem;color:var(--steel-anchor);}
+.batch-row{padding:12px 16px;border-bottom:1px solid var(--linen);cursor:pointer;transition:background .1s;}
+.batch-row:hover{background:var(--blue-mist);}
+.batch-row.selected{background:var(--blue-mist);border-left:3px solid var(--steel-anchor);}
+.batch-row.open-batch{border-left:3px solid var(--amber);}
+.batch-date{font-size:.8rem;color:var(--warm-gray);}
+.batch-desc{font-weight:600;font-size:.9rem;color:var(--charcoal);}
+.batch-meta{display:flex;gap:8px;align-items:center;margin-top:2px;font-size:.78rem;color:var(--warm-gray);}
+.badge-open{background:var(--pale-gold);color:var(--deep-amber);padding:1px 6px;border-radius:6px;font-size:.7rem;font-weight:700;text-transform:uppercase;}
+.badge-closed{background:var(--linen);color:var(--warm-gray);padding:1px 6px;border-radius:6px;font-size:.7rem;font-weight:700;text-transform:uppercase;}
+.batch-detail-panel{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.batch-detail-hdr{padding:14px 18px;border-bottom:1px solid var(--border);}
+.total-bar{padding:12px 18px;background:var(--blue-mist);border-bottom:1px solid var(--ice-blue);display:flex;align-items:center;gap:10px;}
+.total-amount{font-family:var(--font-head);font-size:1.3rem;color:var(--steel-anchor);font-weight:700;}
+.total-count{font-size:.82rem;color:var(--warm-gray);}
+.entry-form{padding:14px 18px;border-bottom:1px solid var(--border);}
+.form-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;}
+.field{display:flex;flex-direction:column;gap:4px;}
+.field label{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);}
+.field input,.field select,.field textarea{padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-family:var(--font-body);font-size:.9rem;color:var(--charcoal);background:var(--warm-white);}
+.field input:focus,.field select:focus{outline:none;border-color:var(--steel-anchor);}
+.field-person{flex:1;min-width:180px;}
+.field-fund{flex:1;min-width:140px;}
+.field-amount{width:110px;}
+.field-check{width:100px;}
+.method-row{display:flex;gap:14px;align-items:center;}
+.method-row label{display:flex;align-items:center;gap:5px;font-size:.87rem;cursor:pointer;}
+.entries-table{width:100%;border-collapse:collapse;font-size:.87rem;}
+.entries-table th{padding:8px 10px;text-align:left;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);border-bottom:1px solid var(--border);}
+.entries-table td{padding:8px 10px;border-bottom:1px solid var(--linen);}
+.entries-table tr:hover td{background:var(--blue-mist);}
+.del-entry{background:none;border:none;color:var(--danger);cursor:pointer;font-size:1rem;padding:0 4px;opacity:.7;}
+.del-entry:hover{opacity:1;}
+/* ── REPORTS ── */
+.report-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-bottom:20px;}
+.report-tile{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:20px;cursor:pointer;transition:box-shadow .15s;}
+.report-tile:hover{box-shadow:0 4px 16px rgba(10,60,92,.1);}
+.tile-icon{font-size:1.6rem;margin-bottom:8px;}
+.tile-title{font-family:var(--font-head);font-size:.95rem;color:var(--steel-anchor);font-weight:700;margin-bottom:4px;}
+.tile-desc{font-size:.8rem;color:var(--warm-gray);}
+.report-output{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:20px;display:none;}
+.report-output.visible{display:block;}
+.rpt-table{width:100%;border-collapse:collapse;font-size:.87rem;margin-top:12px;}
+.rpt-table th{text-align:left;padding:6px 10px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);border-bottom:2px solid var(--border);}
+.rpt-table td{padding:7px 10px;border-bottom:1px solid var(--linen);}
+.rpt-total{font-weight:700;border-top:2px solid var(--border) !important;}
+/* ── IMPORT ── */
+.import-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:14px;}
+.import-card h3{font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin-bottom:6px;}
+.import-card p{font-size:.85rem;color:var(--warm-gray);margin-bottom:12px;}
+.import-status{font-size:.82rem;margin-top:10px;min-height:20px;}
+.import-status.ok{color:var(--sage);}
+.import-status.err{color:var(--danger);}
+.progress-bar{height:6px;background:var(--ice-blue);border-radius:3px;margin-top:8px;display:none;}
+.progress-fill{height:100%;background:var(--steel-anchor);border-radius:3px;transition:width .3s;}
+/* ── MODAL ── */
+.modal-overlay{position:fixed;inset:0;z-index:8000;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;padding:16px;}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--white);border-radius:14px;padding:28px 26px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 6px 32px rgba(0,0,0,.15);}
+.modal h2{font-family:var(--font-head);font-size:1.1rem;color:var(--steel-anchor);margin-bottom:18px;}
+.modal-2col{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+@media(max-width:480px){.modal-2col{grid-template-columns:1fr;}}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--border);}
+.modal-section{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--warm-gray);margin:16px 0 8px;border-bottom:1px solid var(--linen);padding-bottom:4px;}
+.tag-picker{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0;}
+/* ── AUTOCOMPLETE ── */
+.ac-wrap{position:relative;}
+.ac-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--white);border:1.5px solid var(--steel-anchor);border-radius:8px;z-index:500;max-height:200px;overflow-y:auto;display:none;box-shadow:0 4px 16px rgba(0,0,0,.12);}
+.ac-dropdown.open{display:block;}
+.ac-item{padding:8px 12px;cursor:pointer;font-size:.88rem;}
+.ac-item:hover,.ac-item.selected{background:var(--blue-mist);}
+/* ── EMPTY STATE ── */
+.empty{text-align:center;padding:48px 24px;color:var(--warm-gray);grid-column:1/-1;}
+.empty-icon{font-size:2.2rem;margin-bottom:10px;}
+/* ── STATUS ── */
+.status-msg{font-size:.85rem;padding:8px 0;min-height:24px;}
+.status-msg.ok{color:var(--sage);}
+.status-msg.err{color:var(--danger);}
+/* ── MOBILE CONTACT CARDS ── */
+.contact-list{display:none;}
+@media(max-width:767px){
+  .tab-btn:not([data-tab="people"]){display:none;}
+  .card-grid{display:none;}
+  .contact-list{display:flex;flex-direction:column;}
+  .toolbar .filter-pills{display:none;}
+  .c-card{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--white);}
+  .c-avatar{width:42px;height:42px;border-radius:50%;background:var(--ice-blue);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-head);font-size:.9rem;font-weight:700;color:var(--steel-anchor);overflow:hidden;}
+  .c-avatar img{width:100%;height:100%;object-fit:cover;}
+  .c-info{flex:1;min-width:0;}
+  .c-name{font-weight:700;font-size:.95rem;color:var(--charcoal);}
+  .c-type{font-size:.7rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;}
+  .c-link{display:flex;align-items:center;gap:5px;font-size:.88rem;color:var(--steel-anchor);text-decoration:none;min-height:34px;}
+  .c-link svg{width:14px;height:14px;flex-shrink:0;}
+  header .hdr-sub{display:none;}
+}
+/* ── PRINT ── */
+@media print{
+  header,.tab-bar,.toolbar,.modal-overlay,.hdr-actions,#offline-banner{display:none!important;}
+  .tab-panel{display:block!important;padding:0;}
+  .tab-panel:not(#tab-reports){display:none!important;}
+  body{background:white;}
+  .report-output{border:none;padding:0;}
+  .report-tiles{display:none;}
+  button{display:none!important;}
+}
+</style>
+</head>
+<body>
+<div id="offline-banner">You are offline — showing cached contacts</div>
+<header>
+  <div class="hdr-logo">&#10013;</div>
+  <div class="hdr-text">
+    <div class="hdr-church">Timothy Lutheran Church</div>
+    <div class="hdr-title">People &amp; Giving</div>
+    <div class="hdr-sub">Member directory, households, and giving records</div>
+  </div>
+  <div class="hdr-actions">
+    <a href="/admin" class="btn-sm">&#8592; Volunteers</a>
+    <a href="/admin/logout" class="btn-sm">Sign Out</a>
+  </div>
+</header>
+<nav class="tab-bar">
+  <button class="tab-btn active" data-tab="people" onclick="showTab('people')">People</button>
+  <button class="tab-btn" data-tab="households" onclick="showTab('households')">Households</button>
+  <button class="tab-btn" data-tab="giving" onclick="showTab('giving')">Giving</button>
+  <button class="tab-btn" data-tab="reports" onclick="showTab('reports')">Reports</button>
+  <button class="tab-btn" data-tab="import" onclick="showTab('import')">Import</button>
+</nav>
+
+<!-- ═══ PEOPLE TAB ═══ -->
+<div id="tab-people" class="tab-panel active">
+  <div class="toolbar">
+    <div class="search-wrap"><input type="search" id="p-search" placeholder="Search name, email, phone…" oninput="debouncePeople()"></div>
+    <div class="filter-pills" id="p-type-pills">
+      <button class="pill active" data-mt="" onclick="setPeopleFilter(this,'')">All</button>
+      <button class="pill" data-mt="member" onclick="setPeopleFilter(this,'member')">Members</button>
+      <button class="pill" data-mt="associate" onclick="setPeopleFilter(this,'associate')">Associates</button>
+      <button class="pill" data-mt="friend" onclick="setPeopleFilter(this,'friend')">Friends</button>
+      <button class="pill" data-mt="visitor" onclick="setPeopleFilter(this,'visitor')">Visitors</button>
+      <button class="pill" data-mt="inactive" onclick="setPeopleFilter(this,'inactive')">Inactive</button>
+    </div>
+    <div class="filter-pills" id="p-tag-pills" style="gap:4px;"></div>
+    <button class="btn-primary" onclick="openPersonEdit(null)" style="margin-left:auto;">+ Add Person</button>
+  </div>
+  <div id="p-status" class="status-msg"></div>
+  <!-- Desktop grid -->
+  <div class="card-grid" id="p-grid"></div>
+  <!-- Mobile contact list -->
+  <div class="contact-list" id="p-contact-list"></div>
+</div>
+
+<!-- ═══ HOUSEHOLDS TAB ═══ -->
+<div id="tab-households" class="tab-panel">
+  <div class="toolbar">
+    <div class="search-wrap"><input type="search" id="h-search" placeholder="Search households…" oninput="debounceHouseholds()"></div>
+    <button class="btn-primary" onclick="openHouseholdEdit(null)" style="margin-left:auto;">+ New Household</button>
+  </div>
+  <div id="h-status" class="status-msg"></div>
+  <div class="card-grid" id="h-grid"></div>
+</div>
+
+<!-- ═══ GIVING TAB ═══ -->
+<div id="tab-giving" class="tab-panel">
+  <div class="giving-layout">
+    <!-- Batch list -->
+    <div class="batch-list-panel">
+      <div class="batch-list-hdr">
+        <h3>Batches</h3>
+        <button class="btn-primary" style="padding:5px 12px;font-size:.8rem;" onclick="openNewBatch()">+ New</button>
+      </div>
+      <div class="filter-pills" style="padding:10px 14px;border-bottom:1px solid var(--border);">
+        <button class="pill active" data-bs="all" onclick="setBatchFilter(this,'all')">All</button>
+        <button class="pill" data-bs="open" onclick="setBatchFilter(this,'open')">Open</button>
+        <button class="pill" data-bs="closed" onclick="setBatchFilter(this,'closed')">Closed</button>
+      </div>
+      <div id="batch-list"></div>
+    </div>
+    <!-- Batch detail -->
+    <div class="batch-detail-panel" id="batch-detail">
+      <div style="padding:40px;text-align:center;color:var(--warm-gray);">
+        <div style="font-size:2rem;margin-bottom:8px;">&#128176;</div>
+        Select a batch to view entries
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ REPORTS TAB ═══ -->
+<div id="tab-reports" class="tab-panel">
+  <div class="report-tiles">
+    <div class="report-tile" onclick="runMembership()">
+      <div class="tile-icon">&#128100;</div>
+      <div class="tile-title">Membership Summary</div>
+      <div class="tile-desc">Counts by member type</div>
+    </div>
+    <div class="report-tile">
+      <div class="tile-icon">&#128200;</div>
+      <div class="tile-title">Giving by Fund</div>
+      <div class="tile-desc">
+        <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-from" style="font-size:.82rem;padding:4px 8px;"></div>
+        <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-to" style="font-size:.82rem;padding:4px 8px;"></div>
+        <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingSummary()">Run Report</button>
+      </div>
+    </div>
+    <div class="report-tile">
+      <div class="tile-icon">&#128196;</div>
+      <div class="tile-title">Giving Statement</div>
+      <div class="tile-desc">
+        <div class="field" style="margin:8px 0 4px;"><label>Person</label>
+          <div class="ac-wrap"><input type="text" id="rpt-person-search" placeholder="Search…" style="font-size:.82rem;padding:4px 8px;" oninput="acSearch(this,'rpt-person-ac','rpt-person-id')"><div class="ac-dropdown" id="rpt-person-ac"></div></div>
+          <input type="hidden" id="rpt-person-id">
+        </div>
+        <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatement()">View</button>
+          <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="downloadStatement()">CSV</button>
+          <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="window.print()">Print</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="report-output" id="rpt-output"></div>
+</div>
+
+<!-- ═══ IMPORT TAB ═══ -->
+<div id="tab-import" class="tab-panel">
+  <div class="import-card">
+    <h3>&#9729; Sync from Breeze</h3>
+    <p>Pull people records directly from the Breeze API. Existing records (matched by Breeze ID) are updated; new people are added.</p>
+    <button class="btn-primary" onclick="runBreezeImport()">Sync People from Breeze</button>
+    <div class="progress-bar" id="breeze-bar"><div class="progress-fill" id="breeze-fill" style="width:0%"></div></div>
+    <div class="import-status" id="breeze-status"></div>
+  </div>
+  <div class="import-card">
+    <h3>&#128194; Import People (CSV)</h3>
+    <p>Upload a CSV file exported from Breeze. Columns expected: first_name, last_name, email, phone, street_address, city, state, zip</p>
+    <input type="file" id="csv-people-file" accept=".csv" style="display:block;margin-bottom:8px;">
+    <button class="btn-primary" onclick="importPeopleCSV()">Import People</button>
+    <div class="import-status" id="csv-people-status"></div>
+  </div>
+</div>
+
+<!-- ═══ MODALS ═══ -->
+<!-- Person edit modal -->
+<div class="modal-overlay" id="person-modal">
+  <div class="modal">
+    <h2 id="person-modal-title">Add Person</h2>
+    <input type="hidden" id="pm-id">
+    <div class="modal-section">Name</div>
+    <div class="modal-2col">
+      <div class="field"><label>First Name</label><input type="text" id="pm-first"></div>
+      <div class="field"><label>Last Name</label><input type="text" id="pm-last"></div>
+    </div>
+    <div class="modal-section">Contact</div>
+    <div class="modal-2col">
+      <div class="field"><label>Email</label><input type="email" id="pm-email"></div>
+      <div class="field"><label>Phone</label><input type="tel" id="pm-phone"></div>
+    </div>
+    <div class="modal-section">Address <span style="font-weight:400;text-transform:none;">(leave blank to use household address)</span></div>
+    <div class="field" style="margin-bottom:8px;"><label>Street</label><input type="text" id="pm-addr1"></div>
+    <div class="modal-2col">
+      <div class="field"><label>City</label><input type="text" id="pm-city"></div>
+      <div class="field"><label>State / ZIP</label><div style="display:flex;gap:6px;"><input type="text" id="pm-state" style="width:60px;" maxlength="2" placeholder="MO"><input type="text" id="pm-zip" placeholder="63000"></div></div>
+    </div>
+    <div class="modal-section">Church Info</div>
+    <div class="modal-2col">
+      <div class="field"><label>Member Type</label>
+        <select id="pm-type"><option value="member">Member</option><option value="associate">Associate</option><option value="friend">Friend</option><option value="visitor" selected>Visitor</option><option value="inactive">Inactive</option></select>
+      </div>
+      <div class="field"><label>Family Role</label>
+        <select id="pm-role"><option value="">—</option><option value="head">Head</option><option value="spouse">Spouse</option><option value="child">Child</option><option value="other">Other</option></select>
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:8px;"><label>Household</label>
+      <div class="ac-wrap"><input type="text" id="pm-hh-search" placeholder="Search household…" oninput="acHouseholdSearch()"><div class="ac-dropdown" id="pm-hh-ac"></div></div>
+      <input type="hidden" id="pm-hh-id">
+    </div>
+    <div class="modal-section">Dates</div>
+    <div class="modal-2col">
+      <div class="field"><label>Date of Birth</label><input type="date" id="pm-dob"></div>
+      <div class="field"><label>Baptism</label><input type="date" id="pm-baptism"></div>
+      <div class="field"><label>Confirmation</label><input type="date" id="pm-confirm"></div>
+      <div class="field"><label>Anniversary</label><input type="date" id="pm-anniv"></div>
+    </div>
+    <div class="modal-section">Tags</div>
+    <div class="tag-picker" id="pm-tag-picker"></div>
+    <div class="modal-section">Notes</div>
+    <div class="field"><textarea id="pm-notes" rows="2" style="resize:vertical;"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn-danger" id="pm-del-btn" onclick="deletePerson()" style="margin-right:auto;display:none;">Delete</button>
+      <button class="btn-secondary" onclick="closeModal('person-modal')">Cancel</button>
+      <button class="btn-primary" onclick="savePerson()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Household edit modal -->
+<div class="modal-overlay" id="hh-modal">
+  <div class="modal">
+    <h2 id="hh-modal-title">New Household</h2>
+    <input type="hidden" id="hm-id">
+    <div class="field" style="margin-bottom:10px;"><label>Family Name</label><input type="text" id="hm-name" placeholder="e.g. Smith Family"></div>
+    <div class="field" style="margin-bottom:8px;"><label>Street Address</label><input type="text" id="hm-addr1"></div>
+    <div class="field" style="margin-bottom:8px;"><label>Address Line 2</label><input type="text" id="hm-addr2"></div>
+    <div class="modal-2col">
+      <div class="field"><label>City</label><input type="text" id="hm-city"></div>
+      <div class="field"><label>State / ZIP</label><div style="display:flex;gap:6px;"><input type="text" id="hm-state" style="width:60px;" maxlength="2" value="MO"><input type="text" id="hm-zip" placeholder="63000"></div></div>
+    </div>
+    <div class="field" style="margin-top:10px;"><label>Notes</label><textarea id="hm-notes" rows="2" style="resize:vertical;"></textarea></div>
+    <div id="hm-members" style="margin-top:14px;"></div>
+    <div class="modal-actions">
+      <button class="btn-danger" id="hm-del-btn" onclick="deleteHousehold()" style="margin-right:auto;display:none;">Delete</button>
+      <button class="btn-secondary" onclick="closeModal('hh-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveHousehold()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- New batch modal -->
+<div class="modal-overlay" id="batch-modal">
+  <div class="modal" style="max-width:380px;">
+    <h2>New Batch</h2>
+    <div class="field" style="margin-bottom:10px;"><label>Date</label><input type="date" id="bm-date"></div>
+    <div class="field"><label>Description</label><input type="text" id="bm-desc" placeholder="e.g. Sunday AM Offering"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('batch-modal')">Cancel</button>
+      <button class="btn-primary" onclick="createBatch()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tags manager modal -->
+<div class="modal-overlay" id="tags-modal">
+  <div class="modal">
+    <h2>Manage Tags</h2>
+    <div id="tags-list" style="margin-bottom:14px;"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+      <div class="field"><label>Name</label><input type="text" id="new-tag-name" placeholder="e.g. Council"></div>
+      <div class="field"><label>Color</label><input type="color" id="new-tag-color" value="#5C8FA8" style="width:44px;height:36px;padding:2px;border-radius:6px;cursor:pointer;"></div>
+      <button class="btn-primary" onclick="createTag()">Add Tag</button>
+    </div>
+    <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('tags-modal')">Close</button></div>
+  </div>
+</div>
+<script>
+// ── STATE ────────────────────────────────────────────────────────────
+var allTags = [], allFunds = [], currentBatchId = null, peopleFilter = {q:'',mt:'',tagId:''};
+var _pDebounce, _hDebounce;
+
+// ── HELPERS ──────────────────────────────────────────────────────────
+function api(path, opts) {
+  return fetch(path, opts || {}).then(function(r) {
+    if (r.status === 401) { location.href = '/chms'; }
+    return r.json();
+  });
+}
+function fmtMoney(cents) {
+  return '$' + (cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+function fmtDate(iso) {
+  if (!iso) return '';
+  var p = iso.split('-'); if (p.length < 3) return iso;
+  return parseInt(p[1]) + '/' + parseInt(p[2]) + '/' + p[0];
+}
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function setStatus(id, msg, type) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'status-msg' + (type ? ' ' + type : '');
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+}
+// Close modal on overlay click
+document.querySelectorAll('.modal-overlay').forEach(function(el) {
+  el.addEventListener('click', function(e) { if (e.target === el) el.classList.remove('open'); });
+});
+function typeClass(t) {
+  return 'p-type type-' + (t||'visitor');
+}
+function initials(first, last) {
+  return ((first||'').charAt(0) + (last||'').charAt(0)).toUpperCase();
+}
+
+// ── TAB SWITCHING ─────────────────────────────────────────────────────
+function showTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.tab === name);
+  });
+  document.querySelectorAll('.tab-panel').forEach(function(p) {
+    p.classList.toggle('active', p.id === 'tab-' + name);
+  });
+  if (name === 'people') loadPeople();
+  if (name === 'households') loadHouseholds();
+  if (name === 'giving') loadBatches();
+  if (name === 'reports') initReports();
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────
+window.addEventListener('load', function() {
+  // Set default report year and dates
+  var now = new Date();
+  var y = now.getFullYear();
+  document.getElementById('rpt-year').value = y;
+  document.getElementById('rpt-from').value = y + '-01-01';
+  document.getElementById('rpt-to').value = y + '-12-31';
+  // Register SW
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js', {scope: '/'}).catch(function(){});
+  }
+  loadTags();
+  loadFunds();
+  loadPeople();
+});
+
+// ── TAGS ──────────────────────────────────────────────────────────────
+function loadTags() {
+  api('/admin/api/tags').then(function(d) {
+    allTags = d.tags || [];
+    renderTagPills();
+  });
+}
+function renderTagPills() {
+  var c = document.getElementById('p-tag-pills');
+  c.innerHTML = '<button class="pill pill-tag active" data-tid="" onclick="setPeopleTag(this,\'\')">All Tags</button>'
+    + allTags.map(function(t) {
+      return '<button class="pill pill-tag" data-tid="' + t.id + '" onclick="setPeopleTag(this,\'' + t.id + '\')">'
+        + '<span class="tag-dot" style="background:' + esc(t.color) + '"></span>' + esc(t.name) + '</button>';
+    }).join('');
+  // Add manage link
+  c.innerHTML += '<button class="btn-sm" style="font-size:.75rem;padding:4px 10px;" onclick="openTagsManager()">&#9881; Tags</button>';
+}
+function setPeopleTag(btn, tid) {
+  document.querySelectorAll('#p-tag-pills .pill').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  peopleFilter.tagId = tid;
+  loadPeople();
+}
+function openTagsManager() {
+  renderTagsList();
+  openModal('tags-modal');
+}
+function renderTagsList() {
+  var c = document.getElementById('tags-list');
+  if (!allTags.length) { c.innerHTML = '<p style="color:var(--warm-gray);font-size:.85rem;">No tags yet.</p>'; return; }
+  c.innerHTML = allTags.map(function(t) {
+    return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--linen);">'
+      + '<span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:' + esc(t.color) + ';flex-shrink:0;"></span>'
+      + '<span style="flex:1;font-size:.9rem;">' + esc(t.name) + ' <span style="color:var(--warm-gray);font-size:.78rem;">(' + (t.person_count||0) + ')</span></span>'
+      + '<button onclick="deleteTag(' + t.id + ')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:.85rem;">&#10005;</button>'
+      + '</div>';
+  }).join('');
+}
+function createTag() {
+  var name = document.getElementById('new-tag-name').value.trim();
+  var color = document.getElementById('new-tag-color').value;
+  if (!name) return;
+  api('/admin/api/tags', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,color:color})}).then(function() {
+    document.getElementById('new-tag-name').value = '';
+    loadTags();
+  });
+}
+function deleteTag(id) {
+  if (!confirm('Delete this tag? It will be removed from all people.')) return;
+  api('/admin/api/tags/' + id, {method:'DELETE'}).then(function() { loadTags(); });
+}
+
+// ── FUNDS ──────────────────────────────────────────────────────────────
+function loadFunds() {
+  api('/admin/api/funds').then(function(d) { allFunds = d.funds || []; });
+}
+
+// ── PEOPLE ────────────────────────────────────────────────────────────
+function setPeopleFilter(btn, mt) {
+  document.querySelectorAll('#p-type-pills .pill').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  peopleFilter.mt = mt;
+  loadPeople();
+}
+function debouncePeople() {
+  clearTimeout(_pDebounce);
+  _pDebounce = setTimeout(function() {
+    peopleFilter.q = document.getElementById('p-search').value;
+    loadPeople();
+  }, 300);
+}
+function loadPeople() {
+  var params = new URLSearchParams();
+  if (peopleFilter.q) params.set('q', peopleFilter.q);
+  if (peopleFilter.mt) params.set('member_type', peopleFilter.mt);
+  if (peopleFilter.tagId) params.set('tag_id', peopleFilter.tagId);
+  setStatus('p-status', 'Loading…');
+  api('/admin/api/people?' + params).then(function(d) {
+    setStatus('p-status', '');
+    if (d.offline) {
+      document.getElementById('offline-banner').style.display = 'block';
+    }
+    var people = d.people || [];
+    renderPeopleDesktop(people);
+    renderPeopleMobile(people);
+  }).catch(function() { setStatus('p-status','Error loading people.','err'); });
+}
+function renderPeopleDesktop(people) {
+  var c = document.getElementById('p-grid');
+  if (!people.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">&#128100;</div>No people found</div>'; return; }
+  c.innerHTML = people.map(function(p) {
+    var cls = 'p-card' + (p.member_type === 'member' ? ' member' : '');
+    var tags = (p.tags||[]).map(function(t) {
+      return '<span class="tag-chip" style="background:' + esc(t.color) + '20;border-color:' + esc(t.color) + ';color:' + esc(t.color) + '">' + esc(t.name) + '</span>';
+    }).join('');
+    return '<div class="' + cls + '" onclick="openPersonDetail(' + p.id + ')">'
+      + '<div class="p-card-top">'
+      + '<div class="avatar">' + (p.photo_url ? '<img src="' + esc(p.photo_url) + '" alt="">' : initials(p.first_name, p.last_name)) + '</div>'
+      + '<div><div class="p-name">' + esc(p.last_name) + ', ' + esc(p.first_name) + '</div>'
+      + '<span class="' + typeClass(p.member_type) + '">' + esc(p.member_type||'visitor') + '</span></div></div>'
+      + '<div class="p-card-body">'
+      + (p.email ? '<div class="p-row"><span class="p-icon">&#9993;</span><a href="mailto:' + esc(p.email) + '" onclick="event.stopPropagation()">' + esc(p.email) + '</a></div>' : '')
+      + (p.phone ? '<div class="p-row"><span class="p-icon">&#128222;</span>' + esc(p.phone) + '</div>' : '')
+      + (p.household_name ? '<div class="p-row"><span class="p-icon">&#127968;</span>' + esc(p.household_name) + '</div>' : '')
+      + '</div>'
+      + (tags ? '<div class="p-tags">' + tags + '</div>' : '')
+      + '</div>';
+  }).join('');
+}
+function renderPeopleMobile(people) {
+  var c = document.getElementById('p-contact-list');
+  if (!people.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">&#128100;</div>No people found</div>'; return; }
+  c.innerHTML = people.map(function(p) {
+    var addr = [p.address1, p.city, p.state].filter(Boolean).join(', ');
+    if (!addr && p.household_address) addr = p.household_address;
+    var mapUrl = addr ? 'https://maps.apple.com/?q=' + encodeURIComponent(addr) : '';
+    return '<div class="c-card">'
+      + '<div class="c-avatar">' + (p.photo_url ? '<img src="' + esc(p.photo_url) + '" alt="">' : initials(p.first_name, p.last_name)) + '</div>'
+      + '<div class="c-info"><div class="c-name">' + esc(p.first_name) + ' ' + esc(p.last_name) + '</div>'
+      + '<div class="c-type">' + esc(p.member_type||'visitor') + '</div>'
+      + (p.phone ? '<a href="tel:' + esc(p.phone.replace(/\D/g,'')) + '" class="c-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.37 1.18 2 2 0 012.34 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.72 6.72l1.28-.78a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>' + esc(p.phone) + '</a>' : '')
+      + (addr && mapUrl ? '<a href="' + esc(mapUrl) + '" class="c-link" target="_blank"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>' + esc(addr) + '</a>' : '')
+      + '</div></div>';
+  }).join('');
+}
+
+// ── PERSON DETAIL ─────────────────────────────────────────────────────
+function openPersonDetail(id) {
+  api('/admin/api/people/' + id).then(function(p) {
+    openPersonEdit(p);
+  });
+}
+function openPersonEdit(p) {
+  var isNew = !p || !p.id;
+  document.getElementById('person-modal-title').textContent = isNew ? 'Add Person' : p.first_name + ' ' + p.last_name;
+  document.getElementById('pm-id').value = isNew ? '' : p.id;
+  document.getElementById('pm-first').value = isNew ? '' : (p.first_name||'');
+  document.getElementById('pm-last').value = isNew ? '' : (p.last_name||'');
+  document.getElementById('pm-email').value = isNew ? '' : (p.email||'');
+  document.getElementById('pm-phone').value = isNew ? '' : (p.phone||'');
+  document.getElementById('pm-addr1').value = isNew ? '' : (p.address1||'');
+  document.getElementById('pm-city').value = isNew ? '' : (p.city||'');
+  document.getElementById('pm-state').value = isNew ? 'MO' : (p.state||'MO');
+  document.getElementById('pm-zip').value = isNew ? '' : (p.zip||'');
+  document.getElementById('pm-type').value = isNew ? 'visitor' : (p.member_type||'visitor');
+  document.getElementById('pm-role').value = isNew ? '' : (p.family_role||'');
+  document.getElementById('pm-dob').value = isNew ? '' : (p.dob||'');
+  document.getElementById('pm-baptism').value = isNew ? '' : (p.baptism_date||'');
+  document.getElementById('pm-confirm').value = isNew ? '' : (p.confirmation_date||'');
+  document.getElementById('pm-anniv').value = isNew ? '' : (p.anniversary_date||'');
+  document.getElementById('pm-notes').value = isNew ? '' : (p.notes||'');
+  document.getElementById('pm-hh-search').value = isNew ? '' : (p.household_name||'');
+  document.getElementById('pm-hh-id').value = isNew ? '' : (p.household_id||'');
+  // Tag picker
+  var sel = (p && p.tags) ? p.tags.map(function(t){return t.id;}) : [];
+  document.getElementById('pm-tag-picker').innerHTML = allTags.map(function(t) {
+    var on = sel.indexOf(t.id) >= 0;
+    return '<span class="tag-chip" data-tid="' + t.id + '" onclick="toggleTagPick(this)" style="cursor:pointer;padding:4px 10px;'
+      + (on ? 'background:' + t.color + '30;border-color:' + t.color + ';color:' + t.color + ';' : 'background:var(--linen);border-color:var(--border);color:var(--warm-gray);') + '">'
+      + '<span class="tag-dot" style="background:' + esc(t.color) + '"></span>' + esc(t.name) + '</span>';
+  }).join('');
+  document.getElementById('pm-del-btn').style.display = isNew ? 'none' : 'inline-flex';
+  openModal('person-modal');
+}
+function toggleTagPick(el) {
+  var t = allTags.find(function(x){return x.id == el.dataset.tid;});
+  if (!t) return;
+  var on = el.style.background.indexOf('#') !== -1 || el.style.background.indexOf('rgb') !== -1;
+  // Check by data attribute
+  if (el.dataset.picked === '1') {
+    el.dataset.picked = '';
+    el.style.background = 'var(--linen)'; el.style.borderColor = 'var(--border)'; el.style.color = 'var(--warm-gray)';
+  } else {
+    el.dataset.picked = '1';
+    el.style.background = t.color + '30'; el.style.borderColor = t.color; el.style.color = t.color;
+  }
+}
+function getSelectedTagIds() {
+  var ids = [];
+  document.querySelectorAll('#pm-tag-picker .tag-chip').forEach(function(el) {
+    // A chip is "selected" if it has a color border (not the default warm-gray)
+    if (el.style.borderColor !== 'var(--border)' && el.style.borderColor !== 'rgb(232, 224, 208)' && el.style.borderColor) {
+      ids.push(parseInt(el.dataset.tid));
+    }
+  });
+  return ids;
+}
+function savePerson() {
+  var id = document.getElementById('pm-id').value;
+  var data = {
+    first_name: document.getElementById('pm-first').value.trim(),
+    last_name: document.getElementById('pm-last').value.trim(),
+    email: document.getElementById('pm-email').value.trim(),
+    phone: document.getElementById('pm-phone').value.trim(),
+    address1: document.getElementById('pm-addr1').value.trim(),
+    city: document.getElementById('pm-city').value.trim(),
+    state: document.getElementById('pm-state').value.trim(),
+    zip: document.getElementById('pm-zip').value.trim(),
+    member_type: document.getElementById('pm-type').value,
+    family_role: document.getElementById('pm-role').value,
+    household_id: document.getElementById('pm-hh-id').value || null,
+    dob: document.getElementById('pm-dob').value,
+    baptism_date: document.getElementById('pm-baptism').value,
+    confirmation_date: document.getElementById('pm-confirm').value,
+    anniversary_date: document.getElementById('pm-anniv').value,
+    notes: document.getElementById('pm-notes').value,
+    tag_ids: getSelectedTagIds()
+  };
+  if (!data.first_name || !data.last_name) { alert('First and last name are required.'); return; }
+  var url = id ? '/admin/api/people/' + id : '/admin/api/people';
+  var meth = id ? 'PUT' : 'POST';
+  api(url, {method:meth, headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(r) {
+    if (r.ok) { closeModal('person-modal'); loadPeople(); }
+    else alert('Error saving: ' + (r.error||'unknown'));
+  });
+}
+function deletePerson() {
+  var id = document.getElementById('pm-id').value;
+  if (!id) return;
+  if (!confirm('Mark this person as inactive?')) return;
+  api('/admin/api/people/' + id, {method:'DELETE'}).then(function() { closeModal('person-modal'); loadPeople(); });
+}
+
+// ── HOUSEHOLDS ────────────────────────────────────────────────────────
+function debounceHouseholds() {
+  clearTimeout(_hDebounce);
+  _hDebounce = setTimeout(function() { loadHouseholds(); }, 300);
+}
+function loadHouseholds() {
+  var q = document.getElementById('h-search').value;
+  setStatus('h-status', 'Loading…');
+  api('/admin/api/households?q=' + encodeURIComponent(q)).then(function(d) {
+    setStatus('h-status', '');
+    renderHouseholds(d.households || []);
+  });
+}
+function renderHouseholds(rows) {
+  var c = document.getElementById('h-grid');
+  if (!rows.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">&#127968;</div>No households found</div>'; return; }
+  c.innerHTML = rows.map(function(h) {
+    var addr = [h.address1, h.city, h.state].filter(Boolean).join(', ');
+    return '<div class="h-card" onclick="openHouseholdDetail(' + h.id + ')">'
+      + '<div class="h-name">' + esc(h.name) + '</div>'
+      + (addr ? '<div class="h-addr">' + esc(addr) + '</div>' : '')
+      + '<div style="font-size:.78rem;color:var(--warm-gray);">' + (h.member_count||0) + ' member' + (h.member_count !== 1 ? 's' : '') + '</div>'
+      + '</div>';
+  }).join('');
+}
+function openHouseholdDetail(id) {
+  api('/admin/api/households/' + id).then(function(h) { openHouseholdEdit(h); });
+}
+function openHouseholdEdit(h) {
+  var isNew = !h || !h.id;
+  document.getElementById('hh-modal-title').textContent = isNew ? 'New Household' : h.name;
+  document.getElementById('hm-id').value = isNew ? '' : h.id;
+  document.getElementById('hm-name').value = isNew ? '' : (h.name||'');
+  document.getElementById('hm-addr1').value = isNew ? '' : (h.address1||'');
+  document.getElementById('hm-addr2').value = isNew ? '' : (h.address2||'');
+  document.getElementById('hm-city').value = isNew ? '' : (h.city||'');
+  document.getElementById('hm-state').value = isNew ? 'MO' : (h.state||'MO');
+  document.getElementById('hm-zip').value = isNew ? '' : (h.zip||'');
+  document.getElementById('hm-notes').value = isNew ? '' : (h.notes||'');
+  document.getElementById('hm-del-btn').style.display = isNew ? 'none' : 'inline-flex';
+  var mc = document.getElementById('hm-members');
+  if (h && h.members && h.members.length) {
+    mc.innerHTML = '<div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);margin-bottom:6px;">Members</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:6px;">'
+      + h.members.map(function(m) {
+        return '<span class="h-member-pill" style="cursor:pointer;" onclick="closeModal(\'hh-modal\');openPersonDetail(' + m.id + ')">'
+          + esc(m.first_name) + ' ' + esc(m.last_name) + ' (' + esc(m.family_role||'—') + ')</span>';
+      }).join('') + '</div>';
+  } else { mc.innerHTML = ''; }
+  openModal('hh-modal');
+}
+function saveHousehold() {
+  var id = document.getElementById('hm-id').value;
+  var data = {
+    name: document.getElementById('hm-name').value.trim(),
+    address1: document.getElementById('hm-addr1').value.trim(),
+    address2: document.getElementById('hm-addr2').value.trim(),
+    city: document.getElementById('hm-city').value.trim(),
+    state: document.getElementById('hm-state').value.trim(),
+    zip: document.getElementById('hm-zip').value.trim(),
+    notes: document.getElementById('hm-notes').value
+  };
+  if (!data.name) { alert('Family name is required.'); return; }
+  var url = id ? '/admin/api/households/' + id : '/admin/api/households';
+  var meth = id ? 'PUT' : 'POST';
+  api(url, {method:meth, headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(r) {
+    if (r.ok) { closeModal('hh-modal'); loadHouseholds(); }
+    else alert('Error: ' + (r.error||'unknown'));
+  });
+}
+function deleteHousehold() {
+  var id = document.getElementById('hm-id').value;
+  if (!confirm('Delete this household?')) return;
+  api('/admin/api/households/' + id, {method:'DELETE'}).then(function(r) {
+    if (r.ok) { closeModal('hh-modal'); loadHouseholds(); }
+    else alert(r.error || 'Cannot delete.');
+  });
+}
+
+// ── HOUSEHOLD AUTOCOMPLETE (in person modal) ──────────────────────────
+function acHouseholdSearch() {
+  var q = document.getElementById('pm-hh-search').value;
+  var ac = document.getElementById('pm-hh-ac');
+  if (q.length < 1) { ac.classList.remove('open'); return; }
+  api('/admin/api/households?q=' + encodeURIComponent(q)).then(function(d) {
+    var rows = d.households || [];
+    ac.innerHTML = rows.slice(0,8).map(function(h) {
+      return '<div class="ac-item" onclick="selectHousehold(' + h.id + ',\'' + esc(h.name) + '\')">' + esc(h.name) + '</div>';
+    }).join('') + '<div class="ac-item" style="color:var(--sage);" onclick="createHouseholdFromPerson()">+ Create new household…</div>';
+    ac.classList.toggle('open', rows.length > 0 || true);
+  });
+}
+function selectHousehold(id, name) {
+  document.getElementById('pm-hh-id').value = id;
+  document.getElementById('pm-hh-search').value = name;
+  document.getElementById('pm-hh-ac').classList.remove('open');
+}
+function createHouseholdFromPerson() {
+  var last = document.getElementById('pm-last').value.trim();
+  var name = last ? last + ' Family' : '';
+  document.getElementById('pm-hh-search').value = name;
+  document.getElementById('pm-hh-ac').classList.remove('open');
+  // Will be created on save if needed — for now just note it
+  alert('Enter this household name then save the person. You can create the household record separately in the Households tab.');
+}
+
+// ── PERSON AUTOCOMPLETE (for reports/giving) ──────────────────────────
+function acSearch(input, dropId, hidId) {
+  var q = input.value;
+  var ac = document.getElementById(dropId);
+  if (q.length < 2) { ac.classList.remove('open'); return; }
+  api('/admin/api/people?q=' + encodeURIComponent(q)).then(function(d) {
+    var rows = (d.people||[]).slice(0,10);
+    ac.innerHTML = rows.map(function(p) {
+      var n = esc(p.last_name) + ', ' + esc(p.first_name);
+      return '<div class="ac-item" onclick="selectPerson(this,\'' + hidId + '\',\'' + dropId + '\',' + p.id + ',\'' + n.replace(/'/g,"\\'") + '\')">' + n + '</div>';
+    }).join('');
+    ac.classList.toggle('open', rows.length > 0);
+  });
+}
+function selectPerson(el, hidId, dropId, id, name) {
+  document.getElementById(hidId).value = id;
+  el.closest('.ac-wrap').querySelector('input[type=text]').value = name;
+  document.getElementById(dropId).classList.remove('open');
+}
+</script>
+<script>
+// ── GIVING ────────────────────────────────────────────────────────────
+var _batchFilter = 'all';
+function setBatchFilter(btn, val) {
+  document.querySelectorAll('[data-bs]').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  _batchFilter = val;
+  loadBatches();
+}
+function loadBatches() {
+  api('/admin/api/giving/batches?status=' + _batchFilter).then(function(d) {
+    renderBatchList(d.batches || []);
+  });
+}
+function renderBatchList(batches) {
+  var c = document.getElementById('batch-list');
+  if (!batches.length) { c.innerHTML = '<div style="padding:20px;text-align:center;color:var(--warm-gray);font-size:.85rem;">No batches</div>'; return; }
+  c.innerHTML = batches.map(function(b) {
+    var cls = 'batch-row' + (b.id === currentBatchId ? ' selected' : '') + (!b.closed ? ' open-batch' : '');
+    return '<div class="' + cls + '" onclick="openBatch(' + b.id + ')">'
+      + '<div class="batch-date">' + fmtDate(b.batch_date) + '</div>'
+      + '<div class="batch-desc">' + esc(b.description) + '</div>'
+      + '<div class="batch-meta">'
+      + '<span>' + (b.entry_count||0) + ' entries &bull; ' + fmtMoney(b.total_cents||0) + '</span>'
+      + '<span class="' + (b.closed ? 'badge-closed' : 'badge-open') + '">' + (b.closed ? 'Closed' : 'Open') + '</span>'
+      + '</div></div>';
+  }).join('');
+}
+function openBatch(id) {
+  currentBatchId = id;
+  // Highlight selected row
+  document.querySelectorAll('.batch-row').forEach(function(r) { r.classList.remove('selected'); });
+  document.querySelectorAll('.batch-row').forEach(function(r) {
+    if (r.getAttribute('onclick') && r.getAttribute('onclick').indexOf('(' + id + ')') >= 0) r.classList.add('selected');
+  });
+  api('/admin/api/giving/batches/' + id).then(function(b) { renderBatchDetail(b); });
+}
+function renderBatchDetail(b) {
+  var c = document.getElementById('batch-detail');
+  var isOpen = !b.closed;
+  var total = (b.entries||[]).reduce(function(s,e){return s+(e.amount||0);},0);
+  var fundOpts = allFunds.map(function(f) {
+    return '<option value="' + f.id + '">' + esc(f.name) + '</option>';
+  }).join('');
+
+  var entryRows = (b.entries||[]).map(function(e) {
+    return '<tr><td>' + esc(e.person_name||'(anonymous)') + '</td>'
+      + '<td>' + esc(e.fund_name) + '</td>'
+      + '<td>' + fmtMoney(e.amount) + '</td>'
+      + '<td>' + esc(e.method) + (e.check_number ? ' #'+esc(e.check_number) : '') + '</td>'
+      + '<td>' + (isOpen ? '<button class="del-entry" onclick="deleteEntry(' + e.id + ')" title="Remove">&#215;</button>' : '') + '</td>'
+      + '</tr>';
+  }).join('');
+
+  var entryForm = isOpen ? (
+    '<div class="entry-form">'
+    + '<div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);margin-bottom:8px;">Add Entry</div>'
+    + '<div class="form-row">'
+    + '<div class="field field-person"><label>Person</label>'
+    + '<div class="ac-wrap"><input type="text" id="e-person-search" placeholder="Search or leave blank for anonymous…" oninput="acSearch(this,\'e-person-ac\',\'e-person-id\')" style="width:100%;"><div class="ac-dropdown" id="e-person-ac"></div></div>'
+    + '<input type="hidden" id="e-person-id"></div>'
+    + '<div class="field field-fund"><label>Fund</label><select id="e-fund"><option value="">—Select—</option>' + fundOpts + '</select></div>'
+    + '<div class="field field-amount"><label>Amount ($)</label><input type="number" id="e-amount" step="0.01" min="0" placeholder="0.00"></div>'
+    + '</div>'
+    + '<div class="form-row" style="align-items:center;">'
+    + '<div class="field"><label>Method</label><div class="method-row">'
+    + '<label><input type="radio" name="e-method" value="cash" checked> Cash</label>'
+    + '<label><input type="radio" name="e-method" value="check"> Check</label>'
+    + '<label><input type="radio" name="e-method" value="other"> Other</label>'
+    + '</div></div>'
+    + '<div class="field field-check" id="e-check-wrap" style="display:none;"><label>Check #</label><input type="text" id="e-check-num"></div>'
+    + '<button class="btn-primary" onclick="addEntry(' + b.id + ')" style="margin-left:auto;align-self:flex-end;">+ Add Entry</button>'
+    + '</div>'
+    + '</div>'
+  ) : '';
+
+  var actionBtns = isOpen
+    ? '<button class="btn-danger" onclick="closeBatch(' + b.id + ')" style="margin-left:auto;">Close Batch</button>'
+    : '<button class="btn-secondary" onclick="reopenBatch(' + b.id + ')" style="margin-left:auto;font-size:.82rem;">Reopen Batch</button>';
+
+  c.innerHTML = '<div class="batch-detail-hdr">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+    + '<div><div style="font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);">' + esc(b.description) + '</div>'
+    + '<div style="font-size:.8rem;color:var(--warm-gray);">' + fmtDate(b.batch_date) + '</div></div>'
+    + '<span class="' + (b.closed ? 'badge-closed' : 'badge-open') + '">' + (b.closed ? 'Closed' : 'Open') + '</span>'
+    + actionBtns + '</div></div>'
+    + '<div class="total-bar"><span class="total-amount">' + fmtMoney(total) + '</span><span class="total-count">' + (b.entries||[]).length + ' entries</span></div>'
+    + entryForm
+    + '<div style="overflow-x:auto;"><table class="entries-table"><thead><tr><th>Person</th><th>Fund</th><th>Amount</th><th>Method</th><th></th></tr></thead><tbody id="entry-tbody">' + entryRows + '</tbody></table></div>';
+
+  // Wire up check# toggle
+  c.querySelectorAll('input[name="e-method"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      document.getElementById('e-check-wrap').style.display = this.value === 'check' ? 'flex' : 'none';
+    });
+  });
+}
+function addEntry(batchId) {
+  var personId = document.getElementById('e-person-id').value || null;
+  var fundId = document.getElementById('e-fund').value;
+  var amt = parseFloat(document.getElementById('e-amount').value);
+  var method = document.querySelector('input[name="e-method"]:checked').value;
+  var checkNum = document.getElementById('e-check-num') ? document.getElementById('e-check-num').value : '';
+  if (!fundId) { alert('Please select a fund.'); return; }
+  if (!amt || amt <= 0) { alert('Please enter an amount.'); return; }
+  api('/admin/api/giving/batches/' + batchId + '/entries', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({person_id:personId, fund_id:parseInt(fundId), amount:amt, method:method, check_number:checkNum})
+  }).then(function(r) {
+    if (r.ok) {
+      // Reset form fields
+      document.getElementById('e-person-search').value = '';
+      document.getElementById('e-person-id').value = '';
+      document.getElementById('e-amount').value = '';
+      document.querySelector('input[name="e-method"][value="cash"]').checked = true;
+      document.getElementById('e-check-wrap').style.display = 'none';
+      if (document.getElementById('e-check-num')) document.getElementById('e-check-num').value = '';
+      openBatch(batchId);
+      loadBatches();
+      document.getElementById('e-person-search').focus();
+    } else alert('Error: ' + (r.error||'unknown'));
+  });
+}
+function deleteEntry(id) {
+  if (!confirm('Remove this entry?')) return;
+  api('/admin/api/giving/entries/' + id, {method:'DELETE'}).then(function(r) {
+    if (r.ok) { openBatch(currentBatchId); loadBatches(); }
+    else alert(r.error || 'Cannot delete.');
+  });
+}
+function closeBatch(id) {
+  if (!confirm('Close this batch? Entries cannot be added or removed after closing.')) return;
+  api('/admin/api/giving/batches/' + id).then(function(b) {
+    api('/admin/api/giving/batches/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({closed:1,batch_date:b.batch_date,description:b.description})}).then(function() {
+      openBatch(id); loadBatches();
+    });
+  });
+}
+function reopenBatch(id) {
+  if (!confirm('Reopen this batch?')) return;
+  api('/admin/api/giving/batches/' + id).then(function(b) {
+    api('/admin/api/giving/batches/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({closed:0,batch_date:b.batch_date,description:b.description})}).then(function() {
+      openBatch(id); loadBatches();
+    });
+  });
+}
+function openNewBatch() {
+  var today = new Date().toISOString().slice(0,10);
+  document.getElementById('bm-date').value = today;
+  document.getElementById('bm-desc').value = 'Sunday AM Offering';
+  openModal('batch-modal');
+}
+function createBatch() {
+  var date = document.getElementById('bm-date').value;
+  var desc = document.getElementById('bm-desc').value.trim();
+  if (!date || !desc) { alert('Date and description are required.'); return; }
+  api('/admin/api/giving/batches', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({batch_date:date, description:desc})}).then(function(r) {
+    if (r.ok) { closeModal('batch-modal'); loadBatches(); openBatch(r.id); }
+    else alert('Error: ' + (r.error||'unknown'));
+  });
+}
+
+// ── REPORTS ────────────────────────────────────────────────────────────
+function initReports() {
+  // Nothing to auto-load
+}
+function showRptOutput(html) {
+  var o = document.getElementById('rpt-output');
+  o.innerHTML = html;
+  o.classList.add('visible');
+  o.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function runMembership() {
+  api('/admin/api/reports/membership').then(function(d) {
+    var rows = (d.counts||[]).map(function(r) {
+      return '<tr><td>' + esc(r.member_type||'—') + '</td><td style="text-align:right;">' + r.n + '</td></tr>';
+    }).join('');
+    var tagRows = (d.tag_counts||[]).map(function(r) {
+      return '<tr><td>' + esc(r.name) + '</td><td style="text-align:right;">' + r.n + '</td></tr>';
+    }).join('');
+    showRptOutput(
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+      + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Membership Summary</h3>'
+      + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
+      + '<table class="rpt-table"><thead><tr><th>Member Type</th><th style="text-align:right;">Count</th></tr></thead><tbody>'
+      + rows
+      + '<tr class="rpt-total"><td>Total</td><td style="text-align:right;">' + (d.total||0) + '</td></tr>'
+      + '</tbody></table>'
+      + (tagRows ? '<h4 style="margin:20px 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.95rem;">By Tag</h4>'
+        + '<table class="rpt-table"><thead><tr><th>Tag</th><th style="text-align:right;">People</th></tr></thead><tbody>' + tagRows + '</tbody></table>' : '')
+    );
+  });
+}
+function runGivingSummary() {
+  var from = document.getElementById('rpt-from').value;
+  var to = document.getElementById('rpt-to').value;
+  if (!from || !to) { alert('Please select a date range.'); return; }
+  api('/admin/api/reports/giving-summary?from=' + from + '&to=' + to).then(function(d) {
+    var rows = (d.rows||[]).map(function(r) {
+      return '<tr><td>' + esc(r.fund_name) + '</td><td style="text-align:right;">' + (r.contributions||0) + '</td><td style="text-align:right;">' + fmtMoney(r.total_cents||0) + '</td></tr>';
+    }).join('');
+    showRptOutput(
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+      + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving by Fund: ' + esc(fmtDate(from)) + ' – ' + esc(fmtDate(to)) + '</h3>'
+      + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
+      + '<table class="rpt-table"><thead><tr><th>Fund</th><th style="text-align:right;">Gifts</th><th style="text-align:right;">Total</th></tr></thead><tbody>'
+      + rows
+      + '<tr class="rpt-total"><td>Total</td><td></td><td style="text-align:right;">' + fmtMoney(d.grand_total_cents||0) + '</td></tr>'
+      + '</tbody></table>'
+    );
+  });
+}
+function runGivingStatement() {
+  var pid = document.getElementById('rpt-person-id').value;
+  var yr = document.getElementById('rpt-year').value;
+  if (!pid) { alert('Please select a person.'); return; }
+  if (!yr) { alert('Please enter a year.'); return; }
+  api('/admin/api/reports/giving-statement?person_id=' + pid + '&year=' + yr).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    var p = d.person || {};
+    var addr = [p.address1, p.city, p.state, p.zip].filter(Boolean).join(', ');
+    var rows = (d.entries||[]).map(function(e) {
+      return '<tr><td>' + esc(fmtDate(e.batch_date)) + '</td><td>' + esc(e.fund_name) + '</td><td style="text-align:right;">' + fmtMoney(e.amount) + '</td><td>' + esc(e.method) + '</td></tr>';
+    }).join('');
+    showRptOutput(
+      '<div style="max-width:600px;margin:0 auto;">'
+      + '<div style="text-align:center;margin-bottom:20px;">'
+      + '<div style="font-family:var(--font-head);font-size:1.2rem;color:var(--steel-anchor);">Timothy Lutheran Church</div>'
+      + '<div style="font-size:.9rem;color:var(--warm-gray);">Charitable Contribution Statement — ' + esc(yr) + '</div>'
+      + '</div>'
+      + '<div style="margin-bottom:16px;font-size:.9rem;">'
+      + '<div><strong>Prepared for:</strong> ' + esc(p.first_name) + ' ' + esc(p.last_name) + '</div>'
+      + (addr ? '<div><strong>Address:</strong> ' + esc(addr) + '</div>' : '')
+      + '</div>'
+      + '<table class="rpt-table"><thead><tr><th>Date</th><th>Fund</th><th style="text-align:right;">Amount</th><th>Method</th></tr></thead><tbody>'
+      + rows
+      + '<tr class="rpt-total"><td colspan="2">Total ' + esc(yr) + '</td><td style="text-align:right;">' + fmtMoney(d.total_cents||0) + '</td><td></td></tr>'
+      + '</tbody></table>'
+      + '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:16px;font-style:italic;">No goods or services were provided in exchange for these contributions. Please retain for your tax records.</div>'
+      + '<div style="margin-top:8px;display:flex;gap:8px;"><button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print</button>'
+      + '<button class="btn-secondary" style="font-size:.8rem;" onclick="downloadStatement()">Download CSV</button></div>'
+      + '</div>'
+    );
+  });
+}
+function downloadStatement() {
+  var pid = document.getElementById('rpt-person-id').value;
+  var yr = document.getElementById('rpt-year').value;
+  if (!pid || !yr) { alert('Select a person and year first.'); return; }
+  window.location = '/admin/api/reports/giving-statement?person_id=' + pid + '&year=' + yr + '&format=csv';
+}
+
+// ── IMPORT ──────────────────────────────────────────────────────────────
+function runBreezeImport() {
+  var bar = document.getElementById('breeze-bar');
+  var fill = document.getElementById('breeze-fill');
+  var status = document.getElementById('breeze-status');
+  bar.style.display = 'block'; fill.style.width = '0%';
+  status.textContent = 'Starting import…'; status.className = 'import-status';
+  var totalImported = 0, totalUpdated = 0;
+  function doPage(offset) {
+    api('/admin/api/import/breeze', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({offset:offset, limit:100})}).then(function(d) {
+      if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; bar.style.display = 'none'; return; }
+      totalImported += d.imported || 0;
+      totalUpdated += d.updated || 0;
+      fill.style.width = d.done ? '100%' : Math.min(95, (d.next_offset / Math.max(d.next_offset + 100, 200)) * 100) + '%';
+      status.textContent = 'Imported ' + totalImported + ', updated ' + totalUpdated + '…';
+      if (d.done) {
+        status.textContent = 'Done. ' + totalImported + ' new, ' + totalUpdated + ' updated.';
+        status.className = 'import-status ok';
+        fill.style.width = '100%';
+        loadPeople();
+        return;
+      }
+      doPage(d.next_offset);
+    }).catch(function(e) { status.textContent = 'Network error: ' + e.message; status.className = 'import-status err'; });
+  }
+  doPage(0);
+}
+function importPeopleCSV() {
+  var file = document.getElementById('csv-people-file').files[0];
+  var status = document.getElementById('csv-people-status');
+  if (!file) { status.textContent = 'Please choose a CSV file.'; status.className = 'import-status err'; return; }
+  status.textContent = 'Uploading…'; status.className = 'import-status';
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    fetch('/admin/api/import/people-csv', {method:'POST', headers:{'Content-Type':'text/csv'}, body:e.target.result}).then(function(r) {
+      return r.json();
+    }).then(function(d) {
+      if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+      status.textContent = 'Done. ' + (d.imported||0) + ' imported, ' + (d.updated||0) + ' updated.';
+      status.className = 'import-status ok';
+      loadPeople();
+    }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+  };
+  reader.readAsText(file);
+}
+</script>
+</body>
+</html>
+`;
