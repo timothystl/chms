@@ -51,7 +51,87 @@ const DB_INIT = [
     key        TEXT PRIMARY KEY,
     value      TEXT NOT NULL DEFAULT '{}',
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )`
+  )`,
+  // ── ChMS tables ──────────────────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS households (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL DEFAULT '',
+    address1   TEXT    NOT NULL DEFAULT '',
+    address2   TEXT    NOT NULL DEFAULT '',
+    city       TEXT    NOT NULL DEFAULT '',
+    state      TEXT    NOT NULL DEFAULT 'MO',
+    zip        TEXT    NOT NULL DEFAULT '',
+    notes      TEXT    NOT NULL DEFAULT '',
+    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS people (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    first_name        TEXT    NOT NULL DEFAULT '',
+    last_name         TEXT    NOT NULL DEFAULT '',
+    email             TEXT    NOT NULL DEFAULT '',
+    phone             TEXT    NOT NULL DEFAULT '',
+    address1          TEXT    NOT NULL DEFAULT '',
+    address2          TEXT    NOT NULL DEFAULT '',
+    city              TEXT    NOT NULL DEFAULT '',
+    state             TEXT    NOT NULL DEFAULT 'MO',
+    zip               TEXT    NOT NULL DEFAULT '',
+    member_type       TEXT    NOT NULL DEFAULT 'visitor',
+    dob               TEXT    NOT NULL DEFAULT '',
+    baptism_date      TEXT    NOT NULL DEFAULT '',
+    confirmation_date TEXT    NOT NULL DEFAULT '',
+    anniversary_date  TEXT    NOT NULL DEFAULT '',
+    household_id      INTEGER,
+    family_role       TEXT    NOT NULL DEFAULT '',
+    photo_url         TEXT    NOT NULL DEFAULT '',
+    notes             TEXT    NOT NULL DEFAULT '',
+    breeze_id         TEXT    NOT NULL DEFAULT '',
+    active            INTEGER NOT NULL DEFAULT 1,
+    created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS tags (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    color       TEXT    NOT NULL DEFAULT '#5C8FA8',
+    description TEXT    NOT NULL DEFAULT '',
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS person_tags (
+    person_id INTEGER NOT NULL,
+    tag_id    INTEGER NOT NULL,
+    PRIMARY KEY (person_id, tag_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS funds (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    description TEXT    NOT NULL DEFAULT '',
+    active      INTEGER NOT NULL DEFAULT 1,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS giving_batches (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_date  TEXT    NOT NULL DEFAULT '',
+    description TEXT    NOT NULL DEFAULT '',
+    closed      INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS giving_entries (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id     INTEGER NOT NULL,
+    person_id    INTEGER,
+    fund_id      INTEGER NOT NULL,
+    amount       INTEGER NOT NULL DEFAULT 0,
+    method       TEXT    NOT NULL DEFAULT 'cash',
+    check_number TEXT    NOT NULL DEFAULT '',
+    notes        TEXT    NOT NULL DEFAULT '',
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_people_household ON people(household_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_people_breeze ON people(breeze_id) WHERE breeze_id != ''`,
+  `CREATE INDEX IF NOT EXISTS idx_people_name ON people(last_name, first_name)`,
+  `CREATE INDEX IF NOT EXISTS idx_person_tags_person ON person_tags(person_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_giving_batch ON giving_entries(batch_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_giving_person ON giving_entries(person_id)`
 ];
 
 // ── AUTH ─────────────────────────────────────────────────────────────
@@ -12149,6 +12229,7 @@ async function initDb(db) {
   }
   await seedEvents(db);
   await migrateChristmasMarketRoles(db);
+  await seedChmsDefaults(db);
 }
 
 // ── CHRISTMAS MARKET ROLES (shared by seed + migration) ──────────────
@@ -12376,6 +12457,21 @@ export default {
         console.error('Admin API error:', e);
         return json({ error: 'Internal server error: ' + (e.message || e) }, 500);
       }
+    }
+    // ── ChMS (People & Giving) ─────────────────────────────────────────
+    if (path === '/chms' && method === 'GET') {
+      if (!await isAuthed(req, env)) return html(LOGIN_HTML);
+      return html(CHMS_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+    }
+    if (path === '/chms.webmanifest') {
+      return new Response(CHMS_MANIFEST_JSON, {
+        headers: { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=86400' }
+      });
+    }
+    if (path === '/sw.js') {
+      return new Response(SW_JS, {
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache, no-store' }
+      });
     }
 
     // ── Scheduler backend routes (Breeze proxy, email, RSVP) ──────────────────
@@ -12851,7 +12947,431 @@ async function handleAdminApi(req, env, url, method) {
     });
   }
 
+  // ── ChMS API dispatch ─────────────────────────────────────────────
+  if (seg.startsWith('people') || seg.startsWith('households') ||
+      seg.startsWith('tags')   || seg.startsWith('funds')      ||
+      seg.startsWith('giving/') || seg.startsWith('reports/')  ||
+      seg.startsWith('import/')) {
+    return handleChmsApi(req, env, url, method, seg);
+  }
+
   return json({ error: 'Not found' }, 404);
+}
+
+// ── ChMS API HANDLER ────────────────────────────────────────────────
+async function handleChmsApi(req, env, url, method, seg) {
+  const db = env.DB;
+
+  // ── People ──────────────────────────────────────────────────────
+  if (seg === 'people' && method === 'GET') {
+    const q = url.searchParams.get('q') || '';
+    const mt = url.searchParams.get('member_type') || '';
+    const tagId = url.searchParams.get('tag_id') || '';
+    const like = '%' + q + '%';
+    let sql = `SELECT p.*, h.name as household_name FROM people p
+               LEFT JOIN households h ON p.household_id=h.id
+               WHERE p.active=1
+               AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)`;
+    const binds = [like, like, like, like];
+    if (mt) { sql += ' AND p.member_type=?'; binds.push(mt); }
+    sql += ' ORDER BY p.last_name, p.first_name LIMIT 200';
+    const rows = (await db.prepare(sql).bind(...binds).all()).results || [];
+    // Attach tags
+    const people = [];
+    for (const p of rows) {
+      const tagRows = (await db.prepare(
+        `SELECT t.id, t.name, t.color FROM tags t
+         JOIN person_tags pt ON pt.tag_id=t.id WHERE pt.person_id=?`
+      ).bind(p.id).all()).results || [];
+      if (tagId && !tagRows.find(t => String(t.id) === tagId)) continue;
+      people.push({ ...p, tags: tagRows });
+    }
+    return json({ people });
+  }
+
+  if (seg === 'people' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const r = await db.prepare(
+      `INSERT INTO people (first_name,last_name,email,phone,address1,address2,city,state,zip,
+       member_type,dob,baptism_date,confirmation_date,anniversary_date,household_id,
+       family_role,photo_url,notes,breeze_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
+           b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
+           b.member_type||'visitor',b.dob||'',b.baptism_date||'',
+           b.confirmation_date||'',b.anniversary_date||'',
+           b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',b.breeze_id||''
+    ).run();
+    const personId = r.meta?.last_row_id;
+    if (Array.isArray(b.tag_ids)) {
+      for (const tid of b.tag_ids) {
+        try { await db.prepare('INSERT OR IGNORE INTO person_tags(person_id,tag_id) VALUES(?,?)').bind(personId,tid).run(); } catch {}
+      }
+    }
+    return json({ ok: true, id: personId });
+  }
+
+  const pmatch = seg.match(/^people\/(\d+)$/);
+  if (pmatch) {
+    const pid = parseInt(pmatch[1]);
+    if (method === 'GET') {
+      const p = await db.prepare(
+        `SELECT p.*, h.name as household_name FROM people p
+         LEFT JOIN households h ON p.household_id=h.id WHERE p.id=?`
+      ).bind(pid).first();
+      if (!p) return json({ error: 'Not found' }, 404);
+      const tags = (await db.prepare(
+        `SELECT t.id,t.name,t.color FROM tags t JOIN person_tags pt ON pt.tag_id=t.id WHERE pt.person_id=?`
+      ).bind(pid).all()).results || [];
+      const giving12 = await db.prepare(
+        `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
+         JOIN giving_batches gb ON ge.batch_id=gb.id
+         WHERE ge.person_id=? AND gb.batch_date >= date('now','-12 months')`
+      ).bind(pid).first();
+      return json({ ...p, tags, giving_12mo: giving12?.total || 0 });
+    }
+    if (method === 'PUT') {
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      await db.prepare(
+        `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,address1=?,address2=?,
+         city=?,state=?,zip=?,member_type=?,dob=?,baptism_date=?,confirmation_date=?,
+         anniversary_date=?,household_id=?,family_role=?,photo_url=?,notes=? WHERE id=?`
+      ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
+             b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
+             b.member_type||'visitor',b.dob||'',b.baptism_date||'',
+             b.confirmation_date||'',b.anniversary_date||'',
+             b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',pid
+      ).run();
+      if (Array.isArray(b.tag_ids)) {
+        await db.prepare('DELETE FROM person_tags WHERE person_id=?').bind(pid).run();
+        for (const tid of b.tag_ids) {
+          try { await db.prepare('INSERT OR IGNORE INTO person_tags(person_id,tag_id) VALUES(?,?)').bind(pid,tid).run(); } catch {}
+        }
+      }
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      const hard = url.searchParams.get('hard') === 'true';
+      if (hard) {
+        await db.prepare('DELETE FROM person_tags WHERE person_id=?').bind(pid).run();
+        await db.prepare('DELETE FROM people WHERE id=?').bind(pid).run();
+      } else {
+        await db.prepare('UPDATE people SET active=0 WHERE id=?').bind(pid).run();
+      }
+      return json({ ok: true });
+    }
+  }
+
+  // ── Households ──────────────────────────────────────────────────
+  if (seg === 'households' && method === 'GET') {
+    const q = '%' + (url.searchParams.get('q') || '') + '%';
+    const rows = (await db.prepare(
+      `SELECT h.*, COUNT(p.id) as member_count FROM households h
+       LEFT JOIN people p ON p.household_id=h.id AND p.active=1
+       WHERE h.name LIKE ? OR h.address1 LIKE ? OR h.city LIKE ?
+       GROUP BY h.id ORDER BY h.name LIMIT 100`
+    ).bind(q,q,q).all()).results || [];
+    return json({ households: rows });
+  }
+
+  if (seg === 'households' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const r = await db.prepare(
+      `INSERT INTO households (name,address1,address2,city,state,zip,notes) VALUES (?,?,?,?,?,?,?)`
+    ).bind(b.name||'',b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',b.notes||'').run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+
+  const hmatch = seg.match(/^households\/(\d+)$/);
+  if (hmatch) {
+    const hid = parseInt(hmatch[1]);
+    if (method === 'GET') {
+      const h = await db.prepare('SELECT * FROM households WHERE id=?').bind(hid).first();
+      if (!h) return json({ error: 'Not found' }, 404);
+      const members = (await db.prepare(
+        `SELECT id,first_name,last_name,member_type,family_role,phone,email FROM people WHERE household_id=? AND active=1 ORDER BY family_role,last_name`
+      ).bind(hid).all()).results || [];
+      return json({ ...h, members });
+    }
+    if (method === 'PUT') {
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      await db.prepare(
+        `UPDATE households SET name=?,address1=?,address2=?,city=?,state=?,zip=?,notes=? WHERE id=?`
+      ).bind(b.name||'',b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',b.notes||'',hid).run();
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      const count = await db.prepare('SELECT COUNT(*) as n FROM people WHERE household_id=? AND active=1').bind(hid).first();
+      if (count?.n > 0) return json({ error: 'Household has active members; reassign them first.' }, 409);
+      await db.prepare('DELETE FROM households WHERE id=?').bind(hid).run();
+      return json({ ok: true });
+    }
+  }
+
+  // ── Tags ────────────────────────────────────────────────────────
+  if (seg === 'tags' && method === 'GET') {
+    const rows = (await db.prepare(
+      `SELECT t.*, COUNT(pt.person_id) as person_count FROM tags t
+       LEFT JOIN person_tags pt ON pt.tag_id=t.id
+       GROUP BY t.id ORDER BY t.name`
+    ).all()).results || [];
+    return json({ tags: rows });
+  }
+  if (seg === 'tags' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const r = await db.prepare(
+      `INSERT INTO tags (name,color,description) VALUES (?,?,?)`
+    ).bind(b.name||'New Tag',b.color||'#5C8FA8',b.description||'').run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+  const tmatch = seg.match(/^tags\/(\d+)$/);
+  if (tmatch) {
+    const tid = parseInt(tmatch[1]);
+    if (method === 'PUT') {
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      await db.prepare(`UPDATE tags SET name=?,color=?,description=? WHERE id=?`)
+        .bind(b.name||'',b.color||'#5C8FA8',b.description||'',tid).run();
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      await db.prepare('DELETE FROM person_tags WHERE tag_id=?').bind(tid).run();
+      await db.prepare('DELETE FROM tags WHERE id=?').bind(tid).run();
+      return json({ ok: true });
+    }
+  }
+
+  // ── Funds ────────────────────────────────────────────────────────
+  if (seg === 'funds' && method === 'GET') {
+    const rows = (await db.prepare('SELECT * FROM funds ORDER BY sort_order,name').all()).results || [];
+    return json({ funds: rows });
+  }
+  if (seg === 'funds' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const r = await db.prepare(
+      `INSERT INTO funds (name,description,active,sort_order) VALUES (?,?,?,?)`
+    ).bind(b.name||'New Fund',b.description||'',b.active?1:1,b.sort_order||0).run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+  const fmatch = seg.match(/^funds\/(\d+)$/);
+  if (fmatch) {
+    if (method === 'PUT') {
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      await db.prepare(`UPDATE funds SET name=?,description=?,active=?,sort_order=? WHERE id=?`)
+        .bind(b.name||'',b.description||'',b.active?1:0,b.sort_order||0,parseInt(fmatch[1])).run();
+      return json({ ok: true });
+    }
+  }
+
+  // ── Giving Batches ───────────────────────────────────────────────
+  if (seg === 'giving/batches' && method === 'GET') {
+    const status = url.searchParams.get('status') || 'all';
+    let sql = `SELECT gb.*, COUNT(ge.id) as entry_count, COALESCE(SUM(ge.amount),0) as total_cents
+               FROM giving_batches gb LEFT JOIN giving_entries ge ON ge.batch_id=gb.id`;
+    const binds = [];
+    if (status === 'open') { sql += ' WHERE gb.closed=0'; }
+    else if (status === 'closed') { sql += ' WHERE gb.closed=1'; }
+    sql += ' GROUP BY gb.id ORDER BY gb.batch_date DESC, gb.id DESC LIMIT 100';
+    const rows = (await db.prepare(sql).bind(...binds).all()).results || [];
+    return json({ batches: rows });
+  }
+
+  if (seg === 'giving/batches' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const r = await db.prepare(
+      `INSERT INTO giving_batches (batch_date,description) VALUES (?,?)`
+    ).bind(b.batch_date||'',b.description||'').run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+
+  const batchMatch = seg.match(/^giving\/batches\/(\d+)$/);
+  if (batchMatch) {
+    const bid = parseInt(batchMatch[1]);
+    if (method === 'GET') {
+      const batch = await db.prepare('SELECT * FROM giving_batches WHERE id=?').bind(bid).first();
+      if (!batch) return json({ error: 'Not found' }, 404);
+      const entries = (await db.prepare(
+        `SELECT ge.*, f.name as fund_name,
+         COALESCE(p.first_name||' '||p.last_name,'(anonymous)') as person_name
+         FROM giving_entries ge
+         JOIN funds f ON ge.fund_id=f.id
+         LEFT JOIN people p ON ge.person_id=p.id
+         WHERE ge.batch_id=? ORDER BY ge.id`
+      ).bind(bid).all()).results || [];
+      return json({ ...batch, entries });
+    }
+    if (method === 'PUT') {
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      await db.prepare(`UPDATE giving_batches SET batch_date=?,description=?,closed=? WHERE id=?`)
+        .bind(b.batch_date||'',b.description||'',b.closed?1:0,bid).run();
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      const batch = await db.prepare('SELECT closed FROM giving_batches WHERE id=?').bind(bid).first();
+      if (!batch) return json({ error: 'Not found' }, 404);
+      if (batch.closed) return json({ error: 'Cannot delete a closed batch.' }, 409);
+      await db.prepare('DELETE FROM giving_entries WHERE batch_id=?').bind(bid).run();
+      await db.prepare('DELETE FROM giving_batches WHERE id=?').bind(bid).run();
+      return json({ ok: true });
+    }
+  }
+
+  const entriesMatch = seg.match(/^giving\/batches\/(\d+)\/entries$/);
+  if (entriesMatch) {
+    const bid = parseInt(entriesMatch[1]);
+    if (method === 'GET') {
+      const entries = (await db.prepare(
+        `SELECT ge.*, f.name as fund_name,
+         COALESCE(p.first_name||' '||p.last_name,'(anonymous)') as person_name
+         FROM giving_entries ge
+         JOIN funds f ON ge.fund_id=f.id
+         LEFT JOIN people p ON ge.person_id=p.id
+         WHERE ge.batch_id=? ORDER BY ge.id`
+      ).bind(bid).all()).results || [];
+      return json({ entries });
+    }
+    if (method === 'POST') {
+      const batch = await db.prepare('SELECT closed FROM giving_batches WHERE id=?').bind(bid).first();
+      if (!batch) return json({ error: 'Batch not found' }, 404);
+      if (batch.closed) return json({ error: 'Batch is closed.' }, 409);
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      const amtCents = Math.round(parseFloat(b.amount || 0) * 100);
+      const r = await db.prepare(
+        `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes)
+         VALUES (?,?,?,?,?,?,?)`
+      ).bind(bid,b.person_id||null,b.fund_id,amtCents,b.method||'cash',b.check_number||'',b.notes||'').run();
+      return json({ ok: true, id: r.meta?.last_row_id });
+    }
+  }
+
+  const entryDelMatch = seg.match(/^giving\/entries\/(\d+)$/);
+  if (entryDelMatch && method === 'DELETE') {
+    const eid = parseInt(entryDelMatch[1]);
+    const entry = await db.prepare(
+      `SELECT ge.id, gb.closed FROM giving_entries ge JOIN giving_batches gb ON ge.batch_id=gb.id WHERE ge.id=?`
+    ).bind(eid).first();
+    if (!entry) return json({ error: 'Not found' }, 404);
+    if (entry.closed) return json({ error: 'Batch is closed.' }, 409);
+    await db.prepare('DELETE FROM giving_entries WHERE id=?').bind(eid).run();
+    return json({ ok: true });
+  }
+
+  // ── Reports ──────────────────────────────────────────────────────
+  if (seg === 'reports/membership' && method === 'GET') {
+    const counts = (await db.prepare(
+      `SELECT member_type, COUNT(*) as n FROM people WHERE active=1 GROUP BY member_type ORDER BY n DESC`
+    ).all()).results || [];
+    const total = counts.reduce((s,r) => s + r.n, 0);
+    const tagCounts = (await db.prepare(
+      `SELECT t.name, COUNT(DISTINCT pt.person_id) as n FROM tags t
+       LEFT JOIN person_tags pt ON pt.tag_id=t.id GROUP BY t.id ORDER BY t.name`
+    ).all()).results || [];
+    return json({ counts, total, tag_counts: tagCounts });
+  }
+
+  if (seg === 'reports/giving-summary' && method === 'GET') {
+    const from = url.searchParams.get('from') || new Date().getFullYear() + '-01-01';
+    const to   = url.searchParams.get('to')   || new Date().getFullYear() + '-12-31';
+    const rows = (await db.prepare(
+      `SELECT f.name as fund_name, COUNT(ge.id) as contributions, COALESCE(SUM(ge.amount),0) as total_cents
+       FROM funds f LEFT JOIN giving_entries ge ON ge.fund_id=f.id
+       LEFT JOIN giving_batches gb ON ge.batch_id=gb.id AND gb.batch_date BETWEEN ? AND ?
+       WHERE f.active=1 GROUP BY f.id ORDER BY f.sort_order, f.name`
+    ).bind(from,to).all()).results || [];
+    const grand = rows.reduce((s,r) => s + r.total_cents, 0);
+    return json({ from, to, rows, grand_total_cents: grand });
+  }
+
+  if (seg === 'reports/giving-statement' && method === 'GET') {
+    const personId = url.searchParams.get('person_id');
+    const year = url.searchParams.get('year') || new Date().getFullYear();
+    if (!personId) return json({ error: 'person_id required' }, 400);
+    const person = await db.prepare('SELECT * FROM people WHERE id=?').bind(personId).first();
+    if (!person) return json({ error: 'Person not found' }, 404);
+    const entries = (await db.prepare(
+      `SELECT ge.amount, ge.method, ge.notes, f.name as fund_name, gb.batch_date
+       FROM giving_entries ge
+       JOIN funds f ON ge.fund_id=f.id
+       JOIN giving_batches gb ON ge.batch_id=gb.id
+       WHERE ge.person_id=? AND substr(gb.batch_date,1,4)=?
+       ORDER BY gb.batch_date, ge.id`
+    ).bind(personId, String(year)).all()).results || [];
+    const total = entries.reduce((s,e) => s + e.amount, 0);
+    if (url.searchParams.get('format') === 'csv') {
+      let csv = 'Date,Fund,Amount,Method\n';
+      for (const e of entries) {
+        csv += `${e.batch_date},${e.fund_name},$${(e.amount/100).toFixed(2)},${e.method}\n`;
+      }
+      return new Response(csv, {
+        headers: {
+          'Content-Type': 'text/csv',
+          'Content-Disposition': `attachment; filename="giving-statement-${person.last_name}-${year}.csv"`
+        }
+      });
+    }
+    return json({ person, year, entries, total_cents: total });
+  }
+
+  // ── Breeze Import ────────────────────────────────────────────────
+  if (seg === 'import/breeze' && method === 'POST') {
+    const subdomain = env.BREEZE_SUBDOMAIN;
+    const apiKey    = env.BREEZE_API_KEY;
+    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured (BREEZE_SUBDOMAIN / BREEZE_API_KEY missing)' }, 503);
+    let b = {}; try { b = await req.json(); } catch {}
+    const offset = parseInt(b.offset || 0);
+    const limit  = 100;
+    const res = await fetch(
+      `https://${subdomain}.breezechms.com/api/people?details=1&limit=${limit}&offset=${offset}`,
+      { headers: { 'Api-key': apiKey } }
+    );
+    if (!res.ok) return json({ error: `Breeze API error: ${res.status}` }, 502);
+    let people; try { people = await res.json(); } catch { return json({ error: 'Breeze returned invalid JSON' }, 502); }
+    if (!Array.isArray(people)) return json({ done: true, imported: 0, updated: 0, errors: [] });
+    let imported = 0, updated = 0;
+    const errors = [];
+    for (const p of people) {
+      try {
+        const fn = p.first_name || '';
+        const ln = p.last_name || '';
+        const email = (p.details?.email_primary?.address || '').trim();
+        const phone = (p.details?.phone_primary?.phone_number || '').trim();
+        const addr = p.details?.address || {};
+        const existing = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(String(p.id)).first();
+        if (existing) {
+          await db.prepare(
+            `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,
+             address1=?,city=?,state=?,zip=? WHERE breeze_id=?`
+          ).bind(fn,ln,email,phone,addr.street||'',addr.city||'',addr.state||'',addr.zip||'',String(p.id)).run();
+          updated++;
+        } else {
+          await db.prepare(
+            `INSERT INTO people (first_name,last_name,email,phone,address1,city,state,zip,breeze_id)
+             VALUES (?,?,?,?,?,?,?,?,?)`
+          ).bind(fn,ln,email,phone,addr.street||'',addr.city||'',addr.state||'',addr.zip||'',String(p.id)).run();
+          imported++;
+        }
+      } catch (e) { errors.push({ breeze_id: p.id, error: e.message }); }
+    }
+    const done = people.length < limit;
+    return json({ ok: true, imported, updated, errors, done, next_offset: offset + people.length });
+  }
+
+  return json({ error: 'Not found' }, 404);
+}
+
+// ── ChMS SEED DEFAULTS ──────────────────────────────────────────────
+async function seedChmsDefaults(db) {
+  try {
+    const existing = await db.prepare('SELECT COUNT(*) as n FROM funds').first();
+    if (existing?.n > 0) return;
+    const defaults = [
+      ['General Fund', 'Weekly offering and general church operations', 1, 10],
+      ['Building Fund', 'Capital improvements and building maintenance', 1, 20],
+      ['Missions',      'Local and international mission support', 1, 30],
+    ];
+    for (const [name, desc, active, sort] of defaults) {
+      await db.prepare('INSERT INTO funds (name,description,active,sort_order) VALUES (?,?,?,?)').bind(name,desc,active,sort).run();
+    }
+  } catch {}
 }
 
 // ── LOGIN HTML ──────────────────────────────────────────────────────
