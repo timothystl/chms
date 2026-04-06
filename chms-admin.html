@@ -359,8 +359,9 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
           <button class="btn-sm" onclick="loadAttendance()" style="padding:4px 8px;font-size:.75rem;">Filter</button>
         </div>
       </div>
-      <div style="padding:8px 12px;">
+      <div style="padding:8px 12px;display:flex;flex-direction:column;gap:6px;">
         <button class="btn-primary" style="width:100%;font-size:.85rem;" onclick="openNewSundayEntry()">+ Add Sunday Services</button>
+        <button class="btn-secondary" style="width:100%;font-size:.8rem;" onclick="seedYearSundays()">&#128197; Seed All Sundays for Year</button>
       </div>
       <div id="att-list" style="padding:0 0 12px;"></div>
     </div>
@@ -1345,6 +1346,24 @@ function openServiceEntry(id) {
     if (!s) return;
     currentServiceId = id;
     showAttendanceForm(s);
+  });
+}
+
+function seedYearSundays() {
+  var year = new Date().getFullYear();
+  var yn = prompt('Seed all Sundays for which year?', year);
+  if (!yn) return;
+  year = parseInt(yn);
+  if (isNaN(year)) return;
+  api('/admin/api/attendance/seed-year', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({year: year})
+  }).then(function(d) {
+    if (d.ok) {
+      alert('Done! Added ' + (d.inserted/2) + ' Sundays for ' + d.year + ' (' + (d.skipped/2) + ' already existed).');
+      loadAttendance();
+    }
   });
 }
 

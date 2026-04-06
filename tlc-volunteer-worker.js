@@ -13375,6 +13375,41 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json({ ok: true });
   }
 
+  // Seed all Sundays for a year with 8:00 and 10:45 services (skips existing)
+  if (seg === 'attendance/seed-year' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { b = {}; }
+    const year = parseInt(b.year) || new Date().getFullYear();
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    // Find all Sundays in the year
+    const sundays = [];
+    const d = new Date(year, 0, 1);
+    // Advance to first Sunday
+    d.setDate(d.getDate() + ((7 - d.getDay()) % 7));
+    while (d.getFullYear() === year) {
+      const mm = String(d.getMonth()+1).padStart(2,'0');
+      const dd = String(d.getDate()).padStart(2,'0');
+      const dateStr = `${year}-${mm}-${dd}`;
+      const name = `${months[d.getMonth()]} ${d.getDate()}`;
+      sundays.push({ dateStr, name });
+      d.setDate(d.getDate() + 7);
+    }
+    let inserted = 0, skipped = 0;
+    for (const { dateStr, name } of sundays) {
+      for (const time of ['08:00', '10:45']) {
+        const exists = await db.prepare(
+          'SELECT id FROM worship_services WHERE service_date=? AND service_time=?'
+        ).bind(dateStr, time).first();
+        if (exists) { skipped++; continue; }
+        await db.prepare(
+          `INSERT INTO worship_services (service_date,service_time,service_name,service_type,attendance,communion,notes)
+           VALUES (?,?,?,?,0,0,?)`
+        ).bind(dateStr, time, name, 'sunday', '').run();
+        inserted++;
+      }
+    }
+    return json({ ok: true, year, sundays: sundays.length, inserted, skipped });
+  }
+
   if (seg === 'attendance/bulk-sunday' && method === 'POST') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const date = b.service_date || '';
@@ -15838,8 +15873,9 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
           <button class="btn-sm" onclick="loadAttendance()" style="padding:4px 8px;font-size:.75rem;">Filter</button>
         </div>
       </div>
-      <div style="padding:8px 12px;">
+      <div style="padding:8px 12px;display:flex;flex-direction:column;gap:6px;">
         <button class="btn-primary" style="width:100%;font-size:.85rem;" onclick="openNewSundayEntry()">+ Add Sunday Services</button>
+        <button class="btn-secondary" style="width:100%;font-size:.8rem;" onclick="seedYearSundays()">&#128197; Seed All Sundays for Year</button>
       </div>
       <div id="att-list" style="padding:0 0 12px;"></div>
     </div>
@@ -16824,6 +16860,24 @@ function openServiceEntry(id) {
     if (!s) return;
     currentServiceId = id;
     showAttendanceForm(s);
+  });
+}
+
+function seedYearSundays() {
+  var year = new Date().getFullYear();
+  var yn = prompt('Seed all Sundays for which year?', year);
+  if (!yn) return;
+  year = parseInt(yn);
+  if (isNaN(year)) return;
+  api('/admin/api/attendance/seed-year', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({year: year})
+  }).then(function(d) {
+    if (d.ok) {
+      alert('Done! Added ' + (d.inserted/2) + ' Sundays for ' + d.year + ' (' + (d.skipped/2) + ' already existed).');
+      loadAttendance();
+    }
   });
 }
 
