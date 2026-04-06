@@ -12985,15 +12985,23 @@ async function handleChmsApi(req, env, url, method, seg) {
     const q = url.searchParams.get('q') || '';
     const mt = url.searchParams.get('member_type') || '';
     const tagId = url.searchParams.get('tag_id') || '';
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '100'), 200);
+    const offset = parseInt(url.searchParams.get('offset') || '0');
     const like = '%' + q + '%';
-    let sql = `SELECT p.*, h.name as household_name FROM people p
-               LEFT JOIN households h ON p.household_id=h.id
-               WHERE p.active=1
-               AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)`;
+    let where = `p.active=1
+      AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)`;
     const binds = [like, like, like, like];
-    if (mt) { sql += ' AND p.member_type=?'; binds.push(mt); }
-    sql += ' ORDER BY p.last_name, p.first_name LIMIT 200';
-    const rows = (await db.prepare(sql).bind(...binds).all()).results || [];
+    if (mt) { where += ' AND p.member_type=?'; binds.push(mt); }
+    if (tagId) { where += ' AND p.id IN (SELECT person_id FROM person_tags WHERE tag_id=?)'; binds.push(tagId); }
+    // Total count
+    const countRow = await db.prepare(`SELECT COUNT(*) as n FROM people p WHERE ${where}`).bind(...binds).first();
+    const total = countRow?.n || 0;
+    // Paged results
+    const rows = (await db.prepare(
+      `SELECT p.*, h.name as household_name FROM people p
+       LEFT JOIN households h ON p.household_id=h.id
+       WHERE ${where} ORDER BY p.last_name, p.first_name LIMIT ? OFFSET ?`
+    ).bind(...binds, limit, offset).all()).results || [];
     // Attach tags
     const people = [];
     for (const p of rows) {
@@ -13001,10 +13009,9 @@ async function handleChmsApi(req, env, url, method, seg) {
         `SELECT t.id, t.name, t.color FROM tags t
          JOIN person_tags pt ON pt.tag_id=t.id WHERE pt.person_id=?`
       ).bind(p.id).all()).results || [];
-      if (tagId && !tagRows.find(t => String(t.id) === tagId)) continue;
       people.push({ ...p, tags: tagRows });
     }
-    return json({ people });
+    return json({ people, total, offset, limit });
   }
 
   if (seg === 'people' && method === 'POST') {
@@ -13454,12 +13461,18 @@ async function handleChmsApi(req, env, url, method, seg) {
     const apiKey    = env.BREEZE_API_KEY;
     if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
     const hdrs = { 'Api-key': apiKey };
-    // Try different parameter names and date formats
+    // Try many endpoint variants — no date filter first to see if endpoint works at all
     const endpoints = [
-      '/api/giving?start=01/01/2026&end=03/31/2026&details=1',
-      '/api/giving?start=2026-01-01&end=2026-03-31&details=1',
-      '/api/giving?start_date=01/01/2026&end_date=03/31/2026&details=1',
-      '/api/giving?start=01/01/2026&end=03/31/2026',
+      '/api/giving',                                                          // no params at all
+      '/api/giving?limit=5',                                                  // just limit
+      '/api/giving?start=01/01/2026&end=04/06/2026&details=1',               // MM/DD/YYYY
+      '/api/giving?start=01/01/2026&end=04/06/2026',                         // no details
+      '/api/giving?start=2026-01-01&end=2026-04-06',                         // ISO dates
+      '/api/giving?start_date=01/01/2026&end_date=04/06/2026',               // start_date/end_date
+      '/api/giving?date_start=01/01/2026&date_end=04/06/2026',               // date_start/date_end
+      '/api/giving?from=01/01/2026&to=04/06/2026',                           // from/to
+      '/api/giving?start=01/01/2020&end=04/06/2026',                         // wide range
+      '/api/contributions?start=01/01/2026&end=04/06/2026',                  // /contributions path
     ];
     const results = {};
     for (const ep of endpoints) {
@@ -13470,7 +13483,7 @@ async function handleChmsApi(req, env, url, method, seg) {
       results[ep] = {
         status: r.status,
         body_length: text.length,
-        first400chars: text.slice(0, 400),
+        first300: text.slice(0, 300),
         parsed_type: parsed == null ? 'parse_error' : (Array.isArray(parsed) ? 'array:' + parsed.length : typeof parsed),
         first_item: Array.isArray(parsed) && parsed.length ? parsed[0] : undefined
       };
@@ -15716,6 +15729,8 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
   <div class="card-grid" id="p-grid"></div>
   <!-- Mobile contact list -->
   <div class="contact-list" id="p-contact-list"></div>
+  <!-- Pagination -->
+  <div id="p-pager" style="display:flex;align-items:center;justify-content:center;padding:16px 0;gap:8px;"></div>
 </div>
 
 <!-- ═══ HOUSEHOLDS TAB ═══ -->
@@ -15969,7 +15984,8 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 </div>
 <script>
 // ── STATE ────────────────────────────────────────────────────────────
-var allTags = [], allFunds = [], currentBatchId = null, peopleFilter = {q:'',mt:'',tagId:''};
+var allTags = [], allFunds = [], currentBatchId = null, peopleFilter = {q:'',mt:'',tagId:'',offset:0,limit:100};
+var _peopleTotal = 0;
 var _pDebounce, _hDebounce;
 
 // ── HELPERS ──────────────────────────────────────────────────────────
@@ -16083,7 +16099,7 @@ function setPeopleTag(btn, tid) {
   document.querySelectorAll('#p-tag-pills .pill').forEach(function(b) { b.classList.remove('active'); });
   btn.classList.add('active');
   peopleFilter.tagId = tid;
-  loadPeople();
+  loadPeople(true);
 }
 function openTagsManager() {
   openModal('tags-modal');
@@ -16128,30 +16144,49 @@ function setPeopleFilter(btn, mt) {
   document.querySelectorAll('#p-type-pills .pill').forEach(function(b) { b.classList.remove('active'); });
   btn.classList.add('active');
   peopleFilter.mt = mt;
-  loadPeople();
+  loadPeople(true);
 }
 function debouncePeople() {
   clearTimeout(_pDebounce);
   _pDebounce = setTimeout(function() {
     peopleFilter.q = document.getElementById('p-search').value;
-    loadPeople();
+    loadPeople(true);
   }, 300);
 }
-function loadPeople() {
+function loadPeople(resetPage) {
+  if (resetPage) peopleFilter.offset = 0;
   var params = new URLSearchParams();
   if (peopleFilter.q) params.set('q', peopleFilter.q);
   if (peopleFilter.mt) params.set('member_type', peopleFilter.mt);
   if (peopleFilter.tagId) params.set('tag_id', peopleFilter.tagId);
+  params.set('limit', peopleFilter.limit);
+  params.set('offset', peopleFilter.offset);
   setStatus('p-status', 'Loading…');
   api('/admin/api/people?' + params).then(function(d) {
     setStatus('p-status', '');
-    if (d.offline) {
-      document.getElementById('offline-banner').style.display = 'block';
-    }
+    if (d.offline) document.getElementById('offline-banner').style.display = 'block';
+    _peopleTotal = d.total || 0;
     var people = d.people || [];
     renderPeopleDesktop(people);
     renderPeopleMobile(people);
+    renderPeoplePager();
   }).catch(function() { setStatus('p-status','Error loading people.','err'); });
+}
+function renderPeoplePager() {
+  var el = document.getElementById('p-pager');
+  if (!el) return;
+  var total = _peopleTotal, limit = peopleFilter.limit, offset = peopleFilter.offset;
+  if (total <= limit) { el.innerHTML = '<span style="color:var(--warm-gray);font-size:.82rem;">' + total + ' people</span>'; return; }
+  var page = Math.floor(offset / limit) + 1;
+  var pages = Math.ceil(total / limit);
+  var from = offset + 1, to = Math.min(offset + limit, total);
+  el.innerHTML = '<button class="btn-secondary" style="padding:4px 10px;font-size:.8rem;" onclick="peoplePage(-1)" ' + (offset === 0 ? 'disabled' : '') + '>&#8592; Prev</button>'
+    + '<span style="font-size:.82rem;color:var(--warm-gray);margin:0 10px;">' + from + '–' + to + ' of ' + total + '</span>'
+    + '<button class="btn-secondary" style="padding:4px 10px;font-size:.8rem;" onclick="peoplePage(1)" ' + (to >= total ? 'disabled' : '') + '>Next &#8594;</button>';
+}
+function peoplePage(dir) {
+  peopleFilter.offset = Math.max(0, peopleFilter.offset + dir * peopleFilter.limit);
+  loadPeople();
 }
 function renderPeopleDesktop(people) {
   var c = document.getElementById('p-grid');
