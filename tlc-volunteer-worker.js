@@ -13461,12 +13461,18 @@ async function handleChmsApi(req, env, url, method, seg) {
     const apiKey    = env.BREEZE_API_KEY;
     if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
     const hdrs = { 'Api-key': apiKey };
-    // Try different parameter names and date formats
+    // Try many endpoint variants — no date filter first to see if endpoint works at all
     const endpoints = [
-      '/api/giving?start=01/01/2026&end=03/31/2026&details=1',
-      '/api/giving?start=2026-01-01&end=2026-03-31&details=1',
-      '/api/giving?start_date=01/01/2026&end_date=03/31/2026&details=1',
-      '/api/giving?start=01/01/2026&end=03/31/2026',
+      '/api/giving',                                                          // no params at all
+      '/api/giving?limit=5',                                                  // just limit
+      '/api/giving?start=01/01/2026&end=04/06/2026&details=1',               // MM/DD/YYYY
+      '/api/giving?start=01/01/2026&end=04/06/2026',                         // no details
+      '/api/giving?start=2026-01-01&end=2026-04-06',                         // ISO dates
+      '/api/giving?start_date=01/01/2026&end_date=04/06/2026',               // start_date/end_date
+      '/api/giving?date_start=01/01/2026&date_end=04/06/2026',               // date_start/date_end
+      '/api/giving?from=01/01/2026&to=04/06/2026',                           // from/to
+      '/api/giving?start=01/01/2020&end=04/06/2026',                         // wide range
+      '/api/contributions?start=01/01/2026&end=04/06/2026',                  // /contributions path
     ];
     const results = {};
     for (const ep of endpoints) {
@@ -13477,7 +13483,7 @@ async function handleChmsApi(req, env, url, method, seg) {
       results[ep] = {
         status: r.status,
         body_length: text.length,
-        first400chars: text.slice(0, 400),
+        first300: text.slice(0, 300),
         parsed_type: parsed == null ? 'parse_error' : (Array.isArray(parsed) ? 'array:' + parsed.length : typeof parsed),
         first_item: Array.isArray(parsed) && parsed.length ? parsed[0] : undefined
       };
