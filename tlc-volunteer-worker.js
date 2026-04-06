@@ -13442,6 +13442,20 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json({ from, to, by_time: rows, sundays });
   }
 
+  // ── Breeze Debug (returns raw first person from API) ─────────────
+  if (seg === 'import/breeze-debug' && method === 'GET') {
+    const subdomain = env.BREEZE_SUBDOMAIN;
+    const apiKey    = env.BREEZE_API_KEY;
+    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
+    const res = await fetch(
+      `https://${subdomain}.breezechms.com/api/people?details=1&limit=1&offset=0`,
+      { headers: { 'Api-key': apiKey } }
+    );
+    if (!res.ok) return json({ error: `Breeze API error: ${res.status}` }, 502);
+    let raw; try { raw = await res.json(); } catch { return json({ error: 'Invalid JSON from Breeze' }, 502); }
+    return json({ raw });
+  }
+
   // ── Breeze Import ────────────────────────────────────────────────
   if (seg === 'import/breeze' && method === 'POST') {
     const subdomain = env.BREEZE_SUBDOMAIN;
