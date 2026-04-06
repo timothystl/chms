@@ -604,9 +604,9 @@ function loadTags() {
 }
 function renderTagPills() {
   var c = document.getElementById('p-tag-pills');
-  c.innerHTML = '<button class="pill pill-tag active" data-tid="" onclick="setPeopleTag(this,\\\'\\\')" >All Tags</button>'
+  c.innerHTML = '<button class="pill pill-tag active" data-tid="" onclick="setPeopleTag(this,&#39;&#39;)" >All Tags</button>'
     + allTags.map(function(t) {
-      return '<button class="pill pill-tag" data-tid="' + t.id + '" onclick="setPeopleTag(this,\\\'' + t.id + '\\\')">'
+      return '<button class="pill pill-tag" data-tid="' + t.id + '" onclick="setPeopleTag(this,&#39;' + t.id + '&#39;)">'
         + '<span class="tag-dot" style="background:' + esc(t.color) + '"></span>' + esc(t.name) + '</button>';
     }).join('');
   // Add manage link
@@ -863,7 +863,7 @@ function openHouseholdEdit(h) {
     mc.innerHTML = '<div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);margin-bottom:6px;">Members</div>'
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;">'
       + h.members.map(function(m) {
-        return '<span class="h-member-pill" style="cursor:pointer;" onclick="closeModal(\\'hh-modal\\');openPersonDetail(' + m.id + ')">'
+        return '<span class="h-member-pill" style="cursor:pointer;" onclick="closeModal(&#39;hh-modal&#39;);openPersonDetail(' + m.id + ')">'
           + esc(m.first_name) + ' ' + esc(m.last_name) + ' (' + esc(m.family_role||'—') + ')</span>';
       }).join('') + '</div>';
   } else { mc.innerHTML = ''; }
@@ -905,7 +905,7 @@ function acHouseholdSearch() {
   api('/admin/api/households?q=' + encodeURIComponent(q)).then(function(d) {
     var rows = d.households || [];
     ac.innerHTML = rows.slice(0,8).map(function(h) {
-      return '<div class="ac-item" onclick="selectHousehold(' + h.id + ',\\'' + esc(h.name) + '\\')">' + esc(h.name) + '</div>';
+      return '<div class="ac-item" onclick="selectHousehold(' + h.id + ',&#39;' + esc(h.name) + '&#39;)">' + esc(h.name) + '</div>';
     }).join('') + '<div class="ac-item" style="color:var(--sage);" onclick="createHouseholdFromPerson()">+ Create new household…</div>';
     ac.classList.toggle('open', rows.length > 0 || true);
   });
@@ -933,7 +933,7 @@ function acSearch(input, dropId, hidId) {
     var rows = (d.people||[]).slice(0,10);
     ac.innerHTML = rows.map(function(p) {
       var n = esc(p.last_name) + ', ' + esc(p.first_name);
-      return '<div class="ac-item" onclick="selectPerson(this,\\'' + hidId + '\\',\\'' + dropId + '\\',' + p.id + ',\\'' + n.replace(/'/g,"\\\\'") + '\\')">' + n + '</div>';
+      return '<div class="ac-item" onclick="selectPerson(this,&#39;' + hidId + '&#39;,&#39;' + dropId + '&#39;,' + p.id + ',&#39;' + n.replace(/'/g,'&#39;') + '&#39;)">' + n + '</div>';
     }).join('');
     ac.classList.toggle('open', rows.length > 0);
   });
@@ -1003,7 +1003,7 @@ function renderBatchDetail(b) {
     + '<div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);margin-bottom:8px;">Add Entry</div>'
     + '<div class="form-row">'
     + '<div class="field field-person"><label>Person</label>'
-    + '<div class="ac-wrap"><input type="text" id="e-person-search" placeholder="Search or leave blank for anonymous…" oninput="acSearch(this,\\'e-person-ac\\',\\'e-person-id\\')" style="width:100%;"><div class="ac-dropdown" id="e-person-ac"></div></div>'
+    + '<div class="ac-wrap"><input type="text" id="e-person-search" placeholder="Search or leave blank for anonymous…" oninput="acSearch(this,&#39;e-person-ac&#39;,&#39;e-person-id&#39;)" style="width:100%;"><div class="ac-dropdown" id="e-person-ac"></div></div>'
     + '<input type="hidden" id="e-person-id"></div>'
     + '<div class="field field-fund"><label>Fund</label><select id="e-fund"><option value="">—Select—</option>' + fundOpts + '</select></div>'
     + '<div class="field field-amount"><label>Amount ($)</label><input type="number" id="e-amount" step="0.01" min="0" placeholder="0.00"></div>'
@@ -1382,7 +1382,7 @@ function showSingleServiceForm(s) {
     + '<div class="field" style="margin-bottom:14px;"><label>Notes</label><input type="text" id="sf-notes" value="' + esc(s.notes||'') + '" placeholder="Optional notes" style="width:100%;"></div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
     + '<button class="btn-primary" onclick="saveService(' + (s.id||'null') + ')">Save</button>'
-    + '<button class="btn-secondary" onclick="document.getElementById(\\'att-detail\\').innerHTML=\\'\\'"  >Cancel</button>'
+    + '<button class="btn-secondary" onclick="document.getElementById(&#39;att-detail&#39;).innerHTML=&#39;&#39;"  >Cancel</button>'
     + (isEdit ? '<button class="btn-danger" onclick="deleteService(' + s.id + ')">Delete</button>' : '')
     + '</div></div>';
 }
