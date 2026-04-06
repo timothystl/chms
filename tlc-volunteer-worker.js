@@ -13653,6 +13653,25 @@ async function handleChmsApi(req, env, url, method, seg) {
         results['fund_endpoint_' + path.replace('/','_')] = { status: r.status, body: t.slice(0, 300), parsed_count: Array.isArray(p) ? p.length : (p ? 'object' : null) };
       } catch(e) { results['fund_endpoint_' + path.replace('/','_')] = { error: e.message }; }
     }
+
+    // Check oldest contribution_added log entry (how far back does log go?)
+    const oldestR = await fetch(
+      `https://${subdomain}.breezechms.com/api/account/list_log?action=contribution_added&limit=1&start=2010-01-01&end=2021-01-01`,
+      { headers: hdrs }
+    );
+    const oldestText = await oldestR.text();
+    let oldestParsed = null; try { oldestParsed = JSON.parse(oldestText); } catch {}
+    results.oldest_contribution_log = { status: oldestR.status, count: Array.isArray(oldestParsed) ? oldestParsed.length : null, sample: Array.isArray(oldestParsed) ? oldestParsed.slice(0,2) : oldestText.slice(0,300) };
+
+    // Check bulk_import_contributions — historical data may have been bulk-imported
+    const bulkR = await fetch(
+      `https://${subdomain}.breezechms.com/api/account/list_log?action=bulk_import_contributions&details=1&limit=5`,
+      { headers: hdrs }
+    );
+    const bulkText = await bulkR.text();
+    let bulkParsed = null; try { bulkParsed = JSON.parse(bulkText); } catch {}
+    results.bulk_imports = { status: bulkR.status, count: Array.isArray(bulkParsed) ? bulkParsed.length : null, sample: Array.isArray(bulkParsed) ? bulkParsed.slice(0,3) : bulkText.slice(0,300) };
+
     return json(results);
   }
 
