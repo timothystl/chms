@@ -385,13 +385,20 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
   </div>
   <div class="import-card">
     <h3>&#128181; Sync Giving from Breeze</h3>
-    <p>Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed in Giving → Funds after import.</p>
+    <p>Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed in Giving &#8594; Funds after import.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
       <div class="field" style="margin:0;"><label>From</label><input type="date" id="giving-sync-from" style="font-size:.85rem;padding:4px 8px;"></div>
       <div class="field" style="margin:0;"><label>To</label><input type="date" id="giving-sync-to" style="font-size:.85rem;padding:4px 8px;"></div>
     </div>
-    <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Giving from Breeze</button>
+    <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Date Range</button>
     <div class="import-status" id="giving-sync-status"></div>
+    <hr style="margin:14px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
+    <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+      <div class="field" style="margin:0;"><label>Start Year</label><input type="number" id="giving-sync-start-year" value="2020" min="2000" max="2099" style="width:90px;font-size:.85rem;padding:4px 8px;"></div>
+    </div>
+    <button class="btn-primary" id="giving-all-btn" onclick="runBreezeGivingAll()">Sync All History</button>
+    <div class="import-status" id="giving-all-status"></div>
   </div>
   <div class="import-card">
     <h3>&#128194; Import People (CSV)</h3>
@@ -1255,6 +1262,50 @@ function runBreezeGivingSync() {
     if (d.errors && d.errors.length) msg += ' ' + d.errors.length + ' error(s).';
     status.textContent = msg; status.className = 'import-status ok';
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
+function runBreezeGivingAll() {
+  var startYear = parseInt(document.getElementById('giving-sync-start-year').value) || 2020;
+  var currentYear = new Date().getFullYear();
+  var status = document.getElementById('giving-all-status');
+  var btn = document.getElementById('giving-all-btn');
+  btn.disabled = true;
+  var totalImported = 0, totalSkipped = 0;
+  var years = [];
+  for (var y = startYear; y <= currentYear; y++) years.push(y);
+  var idx = 0;
+  function doYear() {
+    if (idx >= years.length) {
+      btn.disabled = false;
+      status.textContent = 'All done! ' + totalImported + ' contributions imported, ' + totalSkipped + ' already existed.';
+      status.className = 'import-status ok';
+      return;
+    }
+    var yr = years[idx++];
+    status.textContent = 'Syncing ' + yr + '… (' + idx + '/' + years.length + ' years)';
+    status.className = 'import-status';
+    fetch('/admin/api/import/breeze-giving', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({start: yr + '-01-01', end: yr + '-12-31'})
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.error) {
+        btn.disabled = false;
+        status.textContent = 'Error on ' + yr + ': ' + d.error;
+        status.className = 'import-status err';
+        return;
+      }
+      totalImported += d.imported || 0;
+      totalSkipped  += d.skipped  || 0;
+      status.textContent = yr + ': ' + (d.imported||0) + ' imported — running total: ' + totalImported + ' imported, ' + totalSkipped + ' skipped';
+      doYear();
+    }).catch(function(e) {
+      btn.disabled = false;
+      status.textContent = 'Error on ' + yr + ': ' + e.message;
+      status.className = 'import-status err';
+    });
+  }
+  doYear();
 }
 
 function runBreezeImport() {
