@@ -12237,6 +12237,8 @@ async function initDb(db) {
     'ALTER TABLE signups ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime(\'now\'))',
     // ChMS giving: breeze_id for deduplication on import
     'ALTER TABLE giving_entries ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
+    // ChMS tags: breeze_id to match Breeze tags on re-sync
+    'ALTER TABLE tags ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
@@ -13621,20 +13623,35 @@ async function handleChmsApi(req, env, url, method, seg) {
     }
     // Try several tag endpoints
     const tagResults = {};
+    let firstTagId = null;
     for (const ep of [
+      '/api/tags/list_tags',
       '/api/tags',
       '/api/tags?details=1',
-      '/api/tags?folder_id=0',
-      '/api/tags/list_tags',
-      '/api/tag_groups',
-      '/api/people?details=1&tags=1&limit=2',  // tags embedded in person response
     ]) {
       try {
         const tr = await fetch(`https://${subdomain}.breezechms.com${ep}`, { headers: hdrs });
         const txt = await tr.text();
         let parsed; try { parsed = JSON.parse(txt); } catch {}
         tagResults[ep] = { status: tr.status, body_length: txt.length, first400: txt.slice(0,400), parsed_type: parsed == null ? 'parse_err' : (Array.isArray(parsed) ? 'array:'+parsed.length : typeof parsed), sample: Array.isArray(parsed) ? parsed.slice(0,2) : (parsed && typeof parsed === 'object' ? parsed : undefined) };
+        if (!firstTagId && Array.isArray(parsed) && parsed.length) firstTagId = parsed[0].id;
       } catch(e) { tagResults[ep] = { error: e.message }; }
+    }
+    // Test tag member endpoints using the first tag we found
+    if (firstTagId) {
+      for (const ep of [
+        `/api/tags/list_members?tag_id=${firstTagId}`,
+        `/api/tags/list_members?id=${firstTagId}`,
+        `/api/people?tag_id=${firstTagId}&limit=5`,
+        `/api/people?tag_id=${firstTagId}&details=0&limit=5`,
+      ]) {
+        try {
+          const tr = await fetch(`https://${subdomain}.breezechms.com${ep}`, { headers: hdrs });
+          const txt = await tr.text();
+          let parsed; try { parsed = JSON.parse(txt); } catch {}
+          tagResults[ep] = { status: tr.status, body_length: txt.length, first400: txt.slice(0,400), parsed_type: parsed == null ? 'parse_err' : (Array.isArray(parsed) ? 'array:'+parsed.length : typeof parsed), sample: Array.isArray(parsed) ? parsed.slice(0,2) : (parsed && typeof parsed === 'object' ? parsed : undefined) };
+        } catch(e) { tagResults[ep] = { error: e.message }; }
+      }
     }
     // Find a member WITH a family (non-empty family array)
     let familyMember = null;
@@ -13758,7 +13775,62 @@ async function handleChmsApi(req, env, url, method, seg) {
       } catch (e) { errors.push({ breeze_id: p.id, error: e.message }); }
     }
     const done = people.length < limit;
-    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length });
+    // On the final batch, sync tags and tag assignments from Breeze
+    let tagsSynced = 0, tagAssignments = 0;
+    if (done) {
+      try {
+        // 1. Fetch all tags
+        const tagRes = await fetch(`https://${subdomain}.breezechms.com/api/tags/list_tags`, { headers: { 'Api-key': apiKey } });
+        const tagText = await tagRes.text();
+        let allTags = [];
+        try { allTags = JSON.parse(tagText); } catch {}
+        if (Array.isArray(allTags)) {
+          for (const t of allTags) {
+            const bId = String(t.id);
+            const tName = (t.name || '').trim();
+            if (!tName) continue;
+            const existing = await db.prepare('SELECT id FROM tags WHERE breeze_id=?').bind(bId).first();
+            if (existing) {
+              await db.prepare('UPDATE tags SET name=? WHERE breeze_id=?').bind(tName, bId).run();
+            } else {
+              // Check by name in case it was created manually
+              const byName = await db.prepare('SELECT id FROM tags WHERE name=? AND (breeze_id="" OR breeze_id IS NULL)').bind(tName).first();
+              if (byName) {
+                await db.prepare('UPDATE tags SET breeze_id=? WHERE id=?').bind(bId, byName.id).run();
+              } else {
+                await db.prepare('INSERT INTO tags (name, breeze_id) VALUES (?,?)').bind(tName, bId).run();
+              }
+            }
+            tagsSynced++;
+          }
+          // 2. For each tag, fetch its members and sync person_tags
+          for (const t of allTags) {
+            const bTagId = String(t.id);
+            const tagRow = await db.prepare('SELECT id FROM tags WHERE breeze_id=?').bind(bTagId).first();
+            if (!tagRow) continue;
+            const localTagId = tagRow.id;
+            // Try list_members endpoint
+            const memRes = await fetch(`https://${subdomain}.breezechms.com/api/tags/list_members?tag_id=${bTagId}`, { headers: { 'Api-key': apiKey } });
+            const memText = await memRes.text();
+            if (!memText || !memText.trim()) continue;
+            let members = [];
+            try { members = JSON.parse(memText); } catch { continue; }
+            if (!Array.isArray(members)) continue;
+            for (const m of members) {
+              const bPersonId = String(m.id || m.person_id || '');
+              if (!bPersonId) continue;
+              const personRow = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(bPersonId).first();
+              if (!personRow) continue;
+              try {
+                await db.prepare('INSERT OR IGNORE INTO person_tags (person_id, tag_id) VALUES (?,?)').bind(personRow.id, localTagId).run();
+                tagAssignments++;
+              } catch {}
+            }
+          }
+        }
+      } catch (e) { errors.push({ tag_sync_error: e.message }); }
+    }
+    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments });
   }
 
   return json({ error: 'Not found' }, 404);
