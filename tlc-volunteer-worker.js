@@ -13362,10 +13362,21 @@ async function handleChmsApi(req, env, url, method, seg) {
   if (seg.match(/^attendance\/\d+$/) && method === 'PUT') {
     const id = parseInt(seg.split('/')[1]);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    // Merge with existing row so partial updates (attendance only) work
+    const existing = await db.prepare('SELECT * FROM worship_services WHERE id=?').bind(id).first();
+    if (!existing) return json({ error: 'Not found' }, 404);
     await db.prepare(
       `UPDATE worship_services SET service_date=?,service_time=?,service_name=?,service_type=?,attendance=?,communion=?,notes=? WHERE id=?`
-    ).bind(b.service_date||'',b.service_time||'',b.service_name||'',b.service_type||'sunday',
-           parseInt(b.attendance)||0,parseInt(b.communion)||0,b.notes||'',id).run();
+    ).bind(
+      b.service_date ?? existing.service_date,
+      b.service_time ?? existing.service_time,
+      b.service_name ?? existing.service_name,
+      b.service_type ?? existing.service_type,
+      b.attendance !== undefined ? parseInt(b.attendance)||0 : existing.attendance,
+      b.communion !== undefined ? parseInt(b.communion)||0 : existing.communion,
+      b.notes !== undefined ? b.notes : existing.notes,
+      id
+    ).run();
     return json({ ok: true });
   }
 
@@ -16052,6 +16063,7 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 var allTags = [], allFunds = [], currentBatchId = null, peopleFilter = {q:'',mt:'',tagId:'',offset:0,limit:100};
 var _peopleTotal = 0;
 var _pDebounce, _hDebounce;
+var _loadedServices = [];
 
 // ── HELPERS ──────────────────────────────────────────────────────────
 function api(path, opts) {
@@ -16845,6 +16857,7 @@ function loadAttendance() {
 }
 
 function renderAttendanceList(services) {
+  _loadedServices = services;
   var el = document.getElementById('att-list');
   if (!services.length) {
     el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--warm-gray);font-size:.88rem;">No services recorded for this period.</div>';
@@ -16884,12 +16897,18 @@ function renderAttendanceList(services) {
 }
 
 function openServiceEntry(id) {
-  api('/admin/api/attendance?from=1900-01-01&to=2999-12-31').then(function(d) {
-    var s = (d.services || []).find(function(x) { return x.id === id; });
-    if (!s) return;
-    currentServiceId = id;
-    showAttendanceForm(s);
-  });
+  var s = _loadedServices.find(function(x) { return x.id === id; });
+  if (!s) return;
+  currentServiceId = id;
+  if (s.service_type === 'sunday') {
+    // Show bulk Sunday form with both services pre-filled
+    var paired = _loadedServices.filter(function(x) { return x.service_date === s.service_date && x.service_type === 'sunday'; });
+    var s8 = paired.find(function(x) { return x.service_time === '08:00'; }) || {};
+    var s1045 = paired.find(function(x) { return x.service_time === '10:45'; }) || {};
+    showAttendanceBulkFormEdit(s.service_date, s8, s1045);
+  } else {
+    showSingleServiceForm(s);
+  }
 }
 
 function seedYearSundays() {
@@ -16914,6 +16933,40 @@ function openNewSundayEntry() {
   currentServiceId = null;
   var today = new Date().toISOString().slice(0, 10);
   showAttendanceBulkForm(today);
+}
+
+function showAttendanceBulkFormEdit(date, s8, s1045) {
+  var detail = document.getElementById('att-detail');
+  detail.innerHTML = '<div style="padding:20px;">'
+    + '<div style="font-family:var(--font-head);font-size:1.1rem;color:var(--steel-anchor);margin-bottom:4px;">Edit Sunday Services</div>'
+    + '<div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:14px;">' + esc(date) + ' &mdash; ' + esc((s8.service_name || s1045.service_name || '')) + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;">'
+    + '<div><div style="font-weight:600;font-size:.82rem;color:var(--steel-anchor);margin-bottom:6px;">8am Service</div>'
+    + '<div class="field"><label>Attendance</label><input type="number" id="sf-att-8" min="0" value="' + (s8.attendance||0) + '" style="width:100%;"></div>'
+    + '<div class="field"><label>Communion</label><input type="number" id="sf-com-8" min="0" value="' + (s8.communion||0) + '" style="width:100%;"></div></div>'
+    + '<div><div style="font-weight:600;font-size:.82rem;color:var(--steel-anchor);margin-bottom:6px;">10:45am Service</div>'
+    + '<div class="field"><label>Attendance</label><input type="number" id="sf-att-1045" min="0" value="' + (s1045.attendance||0) + '" style="width:100%;"></div>'
+    + '<div class="field"><label>Communion</label><input type="number" id="sf-com-1045" min="0" value="' + (s1045.communion||0) + '" style="width:100%;"></div></div>'
+    + '</div>'
+    + '<div class="field" style="margin-bottom:14px;"><label>Notes</label><input type="text" id="sf-notes" value="' + esc(s8.notes||s1045.notes||'') + '" placeholder="Optional notes" style="width:100%;"></div>'
+    + '<div style="display:flex;gap:8px;">'
+    + '<button class="btn-primary" onclick="saveBulkSundayEdit(' + (s8.id||'null') + ',' + (s1045.id||'null') + ')">Save</button>'
+    + '<button class="btn-secondary" onclick="document.getElementById(&#39;att-detail&#39;).innerHTML=&#39;&#39;">Cancel</button>'
+    + '</div></div>';
+}
+function saveBulkSundayEdit(id8, id1045) {
+  var att8 = parseInt(document.getElementById('sf-att-8').value) || 0;
+  var com8 = parseInt(document.getElementById('sf-com-8').value) || 0;
+  var att1045 = parseInt(document.getElementById('sf-att-1045').value) || 0;
+  var com1045 = parseInt(document.getElementById('sf-com-1045').value) || 0;
+  var notes = document.getElementById('sf-notes').value;
+  var saves = [];
+  if (id8) saves.push(api('/admin/api/attendance/' + id8, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({attendance:att8,communion:com8,notes:notes})}));
+  if (id1045) saves.push(api('/admin/api/attendance/' + id1045, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({attendance:att1045,communion:com1045,notes:notes})}));
+  Promise.all(saves).then(function() {
+    document.getElementById('att-detail').innerHTML = '';
+    loadAttendance();
+  });
 }
 
 function showAttendanceBulkForm(date) {
