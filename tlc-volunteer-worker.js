@@ -13643,27 +13643,31 @@ async function handleChmsApi(req, env, url, method, seg) {
         if (!firstTagId && Array.isArray(parsed) && parsed.length) firstTagId = parsed[0].id;
       } catch(e) { tagResults[ep] = { error: e.message }; }
     }
-    // Test tag member filtering — use a KNOWN non-empty tag (pick one with a real member)
-    // We'll try multiple filter approaches using the first tag found
-    if (firstTagId) {
-      // filter_json variants (Breeze uses this for complex people queries)
-      const filterTests = [
-        `/api/people?filter_json=${encodeURIComponent(JSON.stringify({"tag_id":firstTagId}))}&limit=5`,
-        `/api/people?filter_json=${encodeURIComponent(JSON.stringify([{"tag_id":firstTagId}]))}&limit=5`,
-        `/api/people?filter_json=${encodeURIComponent(JSON.stringify({"tag_ids":[firstTagId]}))}&limit=5`,
-        `/api/people?filter_json=${encodeURIComponent(JSON.stringify({"tag_id":parseInt(firstTagId)}))}&limit=5`,
-        `/api/tags/list_members?tag_id=${firstTagId}&details=0`,
-        `/api/tags/list_members?tag_id=${firstTagId}`,
-      ];
-      for (const ep of filterTests) {
-        try {
-          const tr = await fetch(`https://${subdomain}.breezechms.com${ep}`, { headers: hdrs });
-          const txt = await tr.text();
-          let parsed; try { parsed = JSON.parse(txt); } catch {}
-          const pType = parsed == null ? 'parse_err' : (Array.isArray(parsed) ? 'array:'+parsed.length : typeof parsed);
-          tagResults[ep.slice(0,80)] = { status: tr.status, body_length: txt.length, parsed_type: pType, first200: txt.slice(0,200) };
-        } catch(e) { tagResults[ep.slice(0,80)] = { error: e.message }; }
-      }
+    // Test tag member filtering using "Check Signers" (id 4884328) — should have few members
+    // Also test with Mariatu Abreu (breeze id 43826481) to see if her person record has tag data
+    const smallTagId = '4884328'; // Check Signers — known small tag
+    const testPersonId = '43826481'; // Mariatu Abreu
+    const filterTests = [
+      // Different filter_json shapes
+      `/api/people?filter_json=${encodeURIComponent(JSON.stringify([{"tag_id":smallTagId}]))}&limit=10`,
+      `/api/people?filter_json=${encodeURIComponent(JSON.stringify([{"tag_id":parseInt(smallTagId)}]))}&limit=10`,
+      `/api/people?filter_json=${encodeURIComponent(JSON.stringify([{"tag_contains":smallTagId}]))}&limit=10`,
+      `/api/people?filter_json=${encodeURIComponent(JSON.stringify([{"field_type":"tag","response":smallTagId}]))}&limit=10`,
+      `/api/people?filter_json=${encodeURIComponent(JSON.stringify([{"tag":smallTagId}]))}&limit=10`,
+      // list_people variant
+      `/api/tags/list_people?tag_id=${smallTagId}`,
+      // Fetch one person with tags to see if tag data is embedded
+      `/api/people?details=1&person_id=${testPersonId}`,
+      `/api/people/${testPersonId}?details=1`,
+    ];
+    for (const ep of filterTests) {
+      try {
+        const tr = await fetch(`https://${subdomain}.breezechms.com${ep}`, { headers: hdrs });
+        const txt = await tr.text();
+        let parsed; try { parsed = JSON.parse(txt); } catch {}
+        const pType = parsed == null ? 'parse_err' : (Array.isArray(parsed) ? 'array:'+parsed.length : typeof parsed);
+        tagResults[ep.slice(0,90)] = { status: tr.status, body_length: txt.length, parsed_type: pType, first300: txt.slice(0,300) };
+      } catch(e) { tagResults[ep.slice(0,90)] = { error: e.message }; }
     }
     // Find a member WITH a family (non-empty family array)
     let familyMember = null;
