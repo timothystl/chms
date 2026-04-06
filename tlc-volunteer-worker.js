@@ -13843,8 +13843,45 @@ async function handleChmsApi(req, env, url, method, seg) {
             }
             tagsSynced++;
           }
-          // Tag-to-person assignments not available via Breeze REST API.
-          // Tags are synced as a list only; assignments are managed manually in the ChMS.
+          // 2. Tag-to-person assignments using filter_json with y_ prefix (Breeze quirk)
+          for (const t of allTags) {
+            const bTagId = String(t.id);
+            const tagRow = await db.prepare('SELECT id FROM tags WHERE breeze_id=?').bind(bTagId).first();
+            if (!tagRow) continue;
+            const localTagId = tagRow.id;
+            // Breeze requires y_ prefix + space after colon in filter_json
+            const filterJson = encodeURIComponent(`{"tag_contains": "y_${bTagId}"}`);
+            let tagOffset = 0;
+            const tagLimit = 500;
+            while (true) {
+              const memRes = await fetch(
+                `https://${subdomain}.breezechms.com/api/people?filter_json=${filterJson}&limit=${tagLimit}&offset=${tagOffset}`,
+                { headers: { 'Api-key': apiKey } }
+              );
+              const memText = await memRes.text();
+              if (!memText || !memText.trim()) break;
+              let tagMembers = [];
+              try {
+                const parsed = JSON.parse(memText);
+                // Breeze may return array or numbered object
+                tagMembers = Array.isArray(parsed) ? parsed : Object.values(parsed);
+              } catch { break; }
+              if (!tagMembers.length) break;
+              for (const m of tagMembers) {
+                if (!m.last_name || !m.last_name.trim()) continue;
+                const bPersonId = String(m.id || '');
+                if (!bPersonId) continue;
+                const personRow = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(bPersonId).first();
+                if (!personRow) continue;
+                try {
+                  await db.prepare('INSERT OR IGNORE INTO person_tags (person_id, tag_id) VALUES (?,?)').bind(personRow.id, localTagId).run();
+                  tagAssignments++;
+                } catch {}
+              }
+              if (tagMembers.length < tagLimit) break;
+              tagOffset += tagLimit;
+            }
+          }
         }
       } catch (e) { errors.push({ tag_sync_error: e.message }); }
     }
