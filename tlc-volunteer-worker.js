@@ -13718,11 +13718,17 @@ async function handleChmsApi(req, env, url, method, seg) {
               addr = { street: (item.street_address||'').trim(), city: (item.city||'').trim(), state: (item.state||'').trim(), zip: (item.zip||'').trim() };
           }
         }
-        // Family role from p.family array
+        // Family role from p.family array — Breeze uses role_name field
         let familyRole = '';
-        if (Array.isArray(p.family)) {
+        if (Array.isArray(p.family) && p.family.length > 0) {
           const self = p.family.find(m => String(m.person_id) === String(p.id));
-          if (self) familyRole = (self.family_role || self.role || '').toLowerCase();
+          if (self) {
+            const rn = (self.role_name || '').toLowerCase();
+            if (rn.includes('head')) familyRole = 'head';
+            else if (rn.includes('spouse') || rn.includes('wife') || rn.includes('husband')) familyRole = 'spouse';
+            else if (rn.includes('child') || rn.includes('son') || rn.includes('daughter')) familyRole = 'child';
+            else if (rn) familyRole = 'other';
+          }
         }
         const existing = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(String(p.id)).first();
         if (existing) {
