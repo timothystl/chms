@@ -131,7 +131,19 @@ const DB_INIT = [
   `CREATE INDEX IF NOT EXISTS idx_people_name ON people(last_name, first_name)`,
   `CREATE INDEX IF NOT EXISTS idx_person_tags_person ON person_tags(person_id)`,
   `CREATE INDEX IF NOT EXISTS idx_giving_batch ON giving_entries(batch_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_giving_person ON giving_entries(person_id)`
+  `CREATE INDEX IF NOT EXISTS idx_giving_person ON giving_entries(person_id)`,
+  `CREATE TABLE IF NOT EXISTS worship_services (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_date  TEXT    NOT NULL DEFAULT '',
+    service_time  TEXT    NOT NULL DEFAULT '',
+    service_name  TEXT    NOT NULL DEFAULT '',
+    service_type  TEXT    NOT NULL DEFAULT 'sunday',
+    attendance    INTEGER NOT NULL DEFAULT 0,
+    communion     INTEGER NOT NULL DEFAULT 0,
+    notes         TEXT    NOT NULL DEFAULT '',
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ws_date ON worship_services(service_date)`
 ];
 
 // ── AUTH ─────────────────────────────────────────────────────────────
@@ -12951,7 +12963,7 @@ async function handleAdminApi(req, env, url, method) {
   if (seg.startsWith('people') || seg.startsWith('households') ||
       seg.startsWith('tags')   || seg.startsWith('funds')      ||
       seg.startsWith('giving/') || seg.startsWith('reports/')  ||
-      seg.startsWith('import/')) {
+      seg.startsWith('import/') || seg.startsWith('attendance')) {
     return handleChmsApi(req, env, url, method, seg);
   }
 
@@ -13311,6 +13323,125 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json({ person, year, entries, total_cents: total });
   }
 
+  // ── Attendance ───────────────────────────────────────────────────
+  if (seg === 'attendance' && method === 'GET') {
+    const from = url.searchParams.get('from') || (new Date().getFullYear() + '-01-01');
+    const to   = url.searchParams.get('to')   || (new Date().getFullYear() + '-12-31');
+    const type = url.searchParams.get('type') || '';
+    let sql = 'SELECT * FROM worship_services WHERE service_date BETWEEN ? AND ?';
+    const binds = [from, to];
+    if (type) { sql += ' AND service_type=?'; binds.push(type); }
+    sql += ' ORDER BY service_date DESC, service_time ASC';
+    const rows = (await db.prepare(sql).bind(...binds).all()).results || [];
+    return json({ services: rows });
+  }
+
+  if (seg === 'attendance' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const r = await db.prepare(
+      `INSERT INTO worship_services (service_date,service_time,service_name,service_type,attendance,communion,notes)
+       VALUES (?,?,?,?,?,?,?)`
+    ).bind(b.service_date||'',b.service_time||'',b.service_name||'',b.service_type||'sunday',
+           parseInt(b.attendance)||0,parseInt(b.communion)||0,b.notes||'').run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+
+  if (seg.match(/^attendance\/\d+$/) && method === 'PUT') {
+    const id = parseInt(seg.split('/')[1]);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    await db.prepare(
+      `UPDATE worship_services SET service_date=?,service_time=?,service_name=?,service_type=?,attendance=?,communion=?,notes=? WHERE id=?`
+    ).bind(b.service_date||'',b.service_time||'',b.service_name||'',b.service_type||'sunday',
+           parseInt(b.attendance)||0,parseInt(b.communion)||0,b.notes||'',id).run();
+    return json({ ok: true });
+  }
+
+  if (seg.match(/^attendance\/\d+$/) && method === 'DELETE') {
+    const id = parseInt(seg.split('/')[1]);
+    await db.prepare('DELETE FROM worship_services WHERE id=?').bind(id).run();
+    return json({ ok: true });
+  }
+
+  if (seg === 'attendance/bulk-sunday' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const date = b.service_date || '';
+    const name = b.service_name || '';
+    const ids = [];
+    for (const [time, att, com] of [['08:00', parseInt(b.att_8)||0, parseInt(b.com_8)||0], ['10:45', parseInt(b.att_1045)||0, parseInt(b.com_1045)||0]]) {
+      const r = await db.prepare(
+        `INSERT INTO worship_services (service_date,service_time,service_name,service_type,attendance,communion,notes)
+         VALUES (?,?,?,?,?,?,?)`
+      ).bind(date, time, name, 'sunday', att, com, b.notes||'').run();
+      ids.push(r.meta?.last_row_id);
+    }
+    return json({ ok: true, ids });
+  }
+
+  if (seg === 'attendance/sunday-name' && method === 'GET') {
+    const date = url.searchParams.get('date') || '';
+    // Check scheduler_data for custom label
+    try {
+      const row = await db.prepare("SELECT value FROM scheduler_data WHERE key='ws_sun_labels'").first();
+      if (row?.value) {
+        const labels = JSON.parse(row.value);
+        if (labels[date]) return json({ name: labels[date] });
+      }
+    } catch {}
+    return json({ name: '' });
+  }
+
+  if (seg === 'reports/attendance-summary' && method === 'GET') {
+    const yearsParam = url.searchParams.get('years') || String(new Date().getFullYear());
+    const years = yearsParam.split(',').map(y => y.trim()).filter(Boolean).slice(0, 6);
+    // For each year, get monthly Sunday combined totals
+    const result = {};
+    for (const yr of years) {
+      const rows = (await db.prepare(
+        `SELECT strftime('%m', service_date) as month,
+                SUM(attendance) as total,
+                COUNT(DISTINCT service_date) as sundays,
+                SUM(CASE WHEN service_time='08:00' THEN attendance ELSE 0 END) as att_8,
+                SUM(CASE WHEN service_time='10:45' THEN attendance ELSE 0 END) as att_1045
+         FROM worship_services
+         WHERE service_type='sunday' AND substr(service_date,1,4)=?
+         GROUP BY month ORDER BY month`
+      ).bind(yr).all()).results || [];
+      result[yr] = rows;
+    }
+    // Also per-year totals
+    const totals = {};
+    for (const yr of years) {
+      const t = await db.prepare(
+        `SELECT SUM(attendance) as total, COUNT(DISTINCT service_date) as sundays
+         FROM worship_services WHERE service_type='sunday' AND substr(service_date,1,4)=?`
+      ).bind(yr).first();
+      totals[yr] = t || { total: 0, sundays: 0 };
+    }
+    return json({ years, monthly: result, totals });
+  }
+
+  if (seg === 'reports/attendance-by-time' && method === 'GET') {
+    const from = url.searchParams.get('from') || (new Date().getFullYear() + '-01-01');
+    const to   = url.searchParams.get('to')   || (new Date().getFullYear() + '-12-31');
+    const rows = (await db.prepare(
+      `SELECT service_time, COUNT(*) as services, SUM(attendance) as total,
+              ROUND(AVG(attendance)) as avg_attendance
+       FROM worship_services
+       WHERE service_date BETWEEN ? AND ?
+       GROUP BY service_time ORDER BY service_time`
+    ).bind(from, to).all()).results || [];
+    // Sunday combined totals per date
+    const sundays = (await db.prepare(
+      `SELECT service_date, SUM(attendance) as combined,
+              MIN(CASE WHEN service_time='08:00' THEN attendance END) as att_8,
+              MIN(CASE WHEN service_time='10:45' THEN attendance END) as att_1045
+       FROM worship_services
+       WHERE service_type='sunday' AND service_date BETWEEN ? AND ?
+       GROUP BY service_date ORDER BY service_date DESC`
+    ).bind(from, to).all()).results || [];
+    return json({ from, to, by_time: rows, sundays });
+  }
+
   // ── Breeze Import ────────────────────────────────────────────────
   if (seg === 'import/breeze' && method === 'POST') {
     const subdomain = env.BREEZE_SUBDOMAIN;
@@ -13332,21 +13463,33 @@ async function handleChmsApi(req, env, url, method, seg) {
       try {
         const fn = p.first_name || '';
         const ln = p.last_name || '';
-        const email = (p.details?.email_primary?.address || '').trim();
-        const phone = (p.details?.phone_primary?.phone_number || '').trim();
-        const addr = p.details?.address || {};
+        // Breeze returns arrays for email/phone/address; find the primary or use first
+        const emailArr = Array.isArray(p.details?.email) ? p.details.email : [];
+        const email = ((emailArr.find(e => e.is_primary === '1' || e.is_primary === true) || emailArr[0])?.address || '').trim();
+        const phoneArr = Array.isArray(p.details?.phone) ? p.details.phone : [];
+        const rawPhone = (phoneArr.find(ph => ph.is_primary === '1' || ph.is_primary === true) || phoneArr[0]);
+        const phone = (rawPhone?.phone_number || rawPhone?.number || '').trim();
+        const addrArr = Array.isArray(p.details?.address) ? p.details.address : [];
+        const addrObj = addrArr.find(a => a.is_primary === '1' || a.is_primary === true) || addrArr[0] || {};
+        const addr = { street: addrObj.street_address || addrObj.street || '', city: addrObj.city || '', state: addrObj.state || '', zip: addrObj.zip || '' };
+        const memberType = (() => {
+          const s = (p.details?.status || p.status || '').toLowerCase();
+          if (s.includes('member')) return 'member';
+          if (s.includes('inactive') || s.includes('former')) return 'inactive';
+          return 'visitor';
+        })();
         const existing = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(String(p.id)).first();
         if (existing) {
           await db.prepare(
             `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,
-             address1=?,city=?,state=?,zip=? WHERE breeze_id=?`
-          ).bind(fn,ln,email,phone,addr.street||'',addr.city||'',addr.state||'',addr.zip||'',String(p.id)).run();
+             address1=?,city=?,state=?,zip=?,member_type=? WHERE breeze_id=?`
+          ).bind(fn,ln,email,phone,addr.street||'',addr.city||'',addr.state||'',addr.zip||'',memberType,String(p.id)).run();
           updated++;
         } else {
           await db.prepare(
-            `INSERT INTO people (first_name,last_name,email,phone,address1,city,state,zip,breeze_id)
-             VALUES (?,?,?,?,?,?,?,?,?)`
-          ).bind(fn,ln,email,phone,addr.street||'',addr.city||'',addr.state||'',addr.zip||'',String(p.id)).run();
+            `INSERT INTO people (first_name,last_name,email,phone,address1,city,state,zip,breeze_id,member_type)
+             VALUES (?,?,?,?,?,?,?,?,?,?)`
+          ).bind(fn,ln,email,phone,addr.street||'',addr.city||'',addr.state||'',addr.zip||'',String(p.id),memberType).run();
           imported++;
         }
       } catch (e) { errors.push({ breeze_id: p.id, error: e.message }); }
@@ -15147,6 +15290,14 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 .rpt-table th{text-align:left;padding:6px 10px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);border-bottom:2px solid var(--border);}
 .rpt-table td{padding:7px 10px;border-bottom:1px solid var(--linen);}
 .rpt-total{font-weight:700;border-top:2px solid var(--border) !important;}
+/* ── ATTENDANCE ── */
+.att-date-group{border-bottom:1px solid var(--linen);}
+.att-date-hdr{display:flex;align-items:center;gap:4px;padding:10px 14px 4px;background:var(--warm-white);}
+.att-combined{margin-left:auto;font-size:.78rem;font-weight:700;color:var(--steel-anchor);background:var(--ice-blue);padding:2px 8px;border-radius:100px;}
+.att-row{display:flex;align-items:center;padding:7px 20px;cursor:pointer;transition:background .15s;}
+.att-row:hover{background:var(--blue-mist);}
+.att-time{font-size:.82rem;font-weight:600;color:var(--warm-gray);width:60px;flex-shrink:0;}
+.att-count{font-size:1rem;font-weight:700;color:var(--charcoal);}
 /* ── IMPORT ── */
 .import-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:14px;}
 .import-card h3{font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin-bottom:6px;}
@@ -15182,7 +15333,7 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 /* ── MOBILE CONTACT CARDS ── */
 .contact-list{display:none;}
 @media(max-width:767px){
-  .tab-btn:not([data-tab="people"]){display:none;}
+  .tab-btn:not([data-tab="people"]):not([data-tab="attendance"]){display:none;}
   .card-grid{display:none;}
   .contact-list{display:flex;flex-direction:column;}
   .toolbar .filter-pills{display:none;}
@@ -15227,6 +15378,7 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
   <button class="tab-btn" data-tab="households" onclick="showTab('households')">Households</button>
   <button class="tab-btn" data-tab="giving" onclick="showTab('giving')">Giving</button>
   <button class="tab-btn" data-tab="reports" onclick="showTab('reports')">Reports</button>
+  <button class="tab-btn" data-tab="attendance" onclick="showTab('attendance')">Attendance</button>
   <button class="tab-btn" data-tab="import" onclick="showTab('import')">Import</button>
 </nav>
 
@@ -15322,7 +15474,53 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
       </div>
     </div>
   </div>
+  <div class="report-tiles" style="margin-top:0;border-top:1px solid var(--border);padding-top:16px;">
+    <div class="report-tile">
+      <div class="tile-icon">&#128101;</div>
+      <div class="tile-title">Attendance Year-over-Year</div>
+      <div class="tile-desc">
+        <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Select years to compare:</div>
+        <div id="rpt-att-years" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
+        <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runAttendanceSummary()">Run Report</button>
+      </div>
+    </div>
+    <div class="report-tile">
+      <div class="tile-icon">&#128337;</div>
+      <div class="tile-title">Attendance by Service</div>
+      <div class="tile-desc">
+        <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-att-from" style="font-size:.82rem;padding:4px 8px;"></div>
+        <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-att-to" style="font-size:.82rem;padding:4px 8px;"></div>
+        <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runAttendanceByTime()">Run Report</button>
+      </div>
+    </div>
+  </div>
   <div class="report-output" id="rpt-output"></div>
+</div>
+
+<!-- ═══ ATTENDANCE TAB ═══ -->
+<div id="tab-attendance" class="tab-panel">
+  <div class="giving-layout">
+    <div class="batch-list-panel">
+      <div class="batch-list-hdr">
+        <span style="font-weight:700;color:var(--steel-anchor);">Services</span>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input type="date" id="att-from" style="font-size:.78rem;padding:3px 6px;border:1px solid var(--border);border-radius:6px;">
+          <input type="date" id="att-to" style="font-size:.78rem;padding:3px 6px;border:1px solid var(--border);border-radius:6px;">
+          <button class="btn-sm" onclick="loadAttendance()" style="padding:4px 8px;font-size:.75rem;">Filter</button>
+        </div>
+      </div>
+      <div style="padding:8px 12px;">
+        <button class="btn-primary" style="width:100%;font-size:.85rem;" onclick="openNewSundayEntry()">+ Add Sunday Services</button>
+      </div>
+      <div id="att-list" style="padding:0 0 12px;"></div>
+    </div>
+    <div class="batch-detail-panel" id="att-detail">
+      <div style="padding:40px;text-align:center;color:var(--warm-gray);">
+        <div style="font-size:2rem;margin-bottom:8px;">&#9962;</div>
+        Select a service to edit or add new services
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ═══ IMPORT TAB ═══ -->
@@ -15503,6 +15701,7 @@ function showTab(name) {
   if (name === 'households') loadHouseholds();
   if (name === 'giving') loadBatches();
   if (name === 'reports') initReports();
+  if (name === 'attendance') loadAttendance();
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────
@@ -15513,6 +15712,20 @@ window.addEventListener('load', function() {
   document.getElementById('rpt-year').value = y;
   document.getElementById('rpt-from').value = y + '-01-01';
   document.getElementById('rpt-to').value = y + '-12-31';
+  // Attendance date range defaults
+  document.getElementById('att-from').value = y + '-01-01';
+  document.getElementById('att-to').value = y + '-12-31';
+  document.getElementById('rpt-att-from').value = y + '-01-01';
+  document.getElementById('rpt-att-to').value = y + '-12-31';
+  // Year-over-year checkboxes (last 5 years)
+  var yc = document.getElementById('rpt-att-years');
+  for (var i = 0; i < 5; i++) {
+    var yr = y - i;
+    var cb = document.createElement('label');
+    cb.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer;';
+    cb.innerHTML = '<input type="checkbox" value="' + yr + '"' + (i === 0 ? ' checked' : '') + '> ' + yr;
+    yc.appendChild(cb);
+  }
   // Register SW
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js', {scope: '/'}).catch(function(){});
@@ -16167,6 +16380,262 @@ function importPeopleCSV() {
     }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
   };
   reader.readAsText(file);
+}
+
+// ── ATTENDANCE ────────────────────────────────────────────────────────
+var currentServiceId = null;
+var MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function loadAttendance() {
+  var from = document.getElementById('att-from').value;
+  var to = document.getElementById('att-to').value;
+  var q = '/admin/api/attendance?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+  api(q).then(function(d) {
+    renderAttendanceList(d.services || []);
+  });
+}
+
+function renderAttendanceList(services) {
+  var el = document.getElementById('att-list');
+  if (!services.length) {
+    el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--warm-gray);font-size:.88rem;">No services recorded for this period.</div>';
+    return;
+  }
+  // Group by date
+  var byDate = {};
+  var dates = [];
+  services.forEach(function(s) {
+    if (!byDate[s.service_date]) { byDate[s.service_date] = []; dates.push(s.service_date); }
+    byDate[s.service_date].push(s);
+  });
+  var html = '';
+  dates.forEach(function(date) {
+    var rows = byDate[date];
+    var combined = rows.reduce(function(sum, r) { return sum + (r.attendance || 0); }, 0);
+    var parts = date.split('-');
+    var displayDate = (parts[1]|0) + '/' + (parts[2]|0) + '/' + parts[0];
+    var firstName = rows[0] && rows[0].service_name ? rows[0].service_name : '';
+    html += '<div class="att-date-group">'
+      + '<div class="att-date-hdr">'
+      + '<span style="font-weight:700;color:var(--steel-anchor);">' + esc(displayDate) + '</span>'
+      + (firstName ? '<span style="font-size:.75rem;color:var(--warm-gray);margin-left:6px;">' + esc(firstName) + '</span>' : '')
+      + '<span class="att-combined">&#931; ' + combined + '</span>'
+      + '</div>';
+    rows.forEach(function(s) {
+      var timeLabel = s.service_time === '08:00' ? '8am' : s.service_time === '10:45' ? '10:45am' : esc(s.service_time);
+      html += '<div class="att-row" onclick="openServiceEntry(' + s.id + ')">'
+        + '<span class="att-time">' + timeLabel + '</span>'
+        + '<span class="att-count">' + (s.attendance || 0) + '</span>'
+        + (s.communion ? '<span style="font-size:.72rem;color:var(--warm-gray);margin-left:4px;">(' + s.communion + ' comm.)</span>' : '')
+        + '</div>';
+    });
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function openServiceEntry(id) {
+  api('/admin/api/attendance?from=1900-01-01&to=2999-12-31').then(function(d) {
+    var s = (d.services || []).find(function(x) { return x.id === id; });
+    if (!s) return;
+    currentServiceId = id;
+    showAttendanceForm(s);
+  });
+}
+
+function openNewSundayEntry() {
+  currentServiceId = null;
+  var today = new Date().toISOString().slice(0, 10);
+  showAttendanceBulkForm(today);
+}
+
+function showAttendanceBulkForm(date) {
+  var detail = document.getElementById('att-detail');
+  detail.innerHTML = '<div style="padding:20px;">'
+    + '<div style="font-family:var(--font-head);font-size:1.1rem;color:var(--steel-anchor);margin-bottom:16px;">Add Sunday Services</div>'
+    + '<div class="field" style="margin-bottom:10px;"><label>Date</label>'
+    + '<input type="date" id="sf-date" value="' + esc(date) + '" onchange="fetchSundayName(this.value)" style="width:100%;"></div>'
+    + '<div class="field" style="margin-bottom:10px;"><label>Sunday Name</label>'
+    + '<input type="text" id="sf-name" placeholder="e.g. Second Sunday of Easter" style="width:100%;"></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;">'
+    + '<div><div style="font-weight:600;font-size:.82rem;color:var(--steel-anchor);margin-bottom:6px;">8am Service</div>'
+    + '<div class="field"><label>Attendance</label><input type="number" id="sf-att-8" min="0" placeholder="0" style="width:100%;"></div>'
+    + '<div class="field"><label>Communion</label><input type="number" id="sf-com-8" min="0" placeholder="0" style="width:100%;"></div></div>'
+    + '<div><div style="font-weight:600;font-size:.82rem;color:var(--steel-anchor);margin-bottom:6px;">10:45am Service</div>'
+    + '<div class="field"><label>Attendance</label><input type="number" id="sf-att-1045" min="0" placeholder="0" style="width:100%;"></div>'
+    + '<div class="field"><label>Communion</label><input type="number" id="sf-com-1045" min="0" placeholder="0" style="width:100%;"></div></div>'
+    + '</div>'
+    + '<div class="field" style="margin-bottom:14px;"><label>Notes</label><input type="text" id="sf-notes" placeholder="Optional notes" style="width:100%;"></div>'
+    + '<div style="display:flex;gap:8px;">'
+    + '<button class="btn-primary" onclick="saveBulkSunday()">Save Both Services</button>'
+    + '<button class="btn-secondary" onclick="showSingleServiceForm()">Single Service</button>'
+    + '</div></div>';
+  // Auto-fill Sunday name for today's date
+  fetchSundayName(date);
+}
+
+function showSingleServiceForm(s) {
+  s = s || {};
+  var detail = document.getElementById('att-detail');
+  var isEdit = !!s.id;
+  detail.innerHTML = '<div style="padding:20px;">'
+    + '<div style="font-family:var(--font-head);font-size:1.1rem;color:var(--steel-anchor);margin-bottom:16px;">' + (isEdit ? 'Edit Service' : 'Add Service') + '</div>'
+    + '<div class="field" style="margin-bottom:10px;"><label>Date</label>'
+    + '<input type="date" id="sf-date" value="' + esc(s.service_date||new Date().toISOString().slice(0,10)) + '" style="width:100%;"></div>'
+    + '<div style="margin-bottom:10px;"><label style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);">Service Time</label>'
+    + '<div style="display:flex;gap:10px;margin-top:4px;">'
+    + '<label style="display:flex;align-items:center;gap:4px;font-size:.88rem;cursor:pointer;"><input type="radio" name="sf-time" value="08:00"' + (s.service_time==='08:00'?' checked':'') + '> 8am</label>'
+    + '<label style="display:flex;align-items:center;gap:4px;font-size:.88rem;cursor:pointer;"><input type="radio" name="sf-time" value="10:45"' + (s.service_time==='10:45'?' checked':'') + '> 10:45am</label>'
+    + '<label style="display:flex;align-items:center;gap:4px;font-size:.88rem;cursor:pointer;"><input type="radio" name="sf-time" value="other"' + (s.service_time&&s.service_time!=='08:00'&&s.service_time!=='10:45'?' checked':'') + '> Other</label>'
+    + '</div>'
+    + '<input type="text" id="sf-time-other" placeholder="e.g. Midweek 7pm" style="margin-top:6px;width:100%;font-size:.85rem;" value="' + (s.service_time&&s.service_time!=='08:00'&&s.service_time!=='10:45'?esc(s.service_time):'') + '"></div>'
+    + '<div style="margin-bottom:10px;"><label style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);">Service Type</label>'
+    + '<div style="display:flex;gap:10px;margin-top:4px;">'
+    + '<label style="display:flex;align-items:center;gap:4px;font-size:.88rem;cursor:pointer;"><input type="radio" name="sf-type" value="sunday"' + (!s.service_type||s.service_type==='sunday'?' checked':'') + '> Sunday</label>'
+    + '<label style="display:flex;align-items:center;gap:4px;font-size:.88rem;cursor:pointer;"><input type="radio" name="sf-type" value="midweek"' + (s.service_type==='midweek'?' checked':'') + '> Midweek</label>'
+    + '<label style="display:flex;align-items:center;gap:4px;font-size:.88rem;cursor:pointer;"><input type="radio" name="sf-type" value="special"' + (s.service_type==='special'?' checked':'') + '> Special</label>'
+    + '</div></div>'
+    + '<div class="field" style="margin-bottom:10px;"><label>Service Name</label>'
+    + '<input type="text" id="sf-name" value="' + esc(s.service_name||'') + '" placeholder="e.g. Third Sunday of Advent" style="width:100%;"></div>'
+    + '<div class="modal-2col" style="margin-bottom:10px;">'
+    + '<div class="field"><label>Attendance</label><input type="number" id="sf-att" min="0" value="' + (s.attendance||0) + '" style="width:100%;"></div>'
+    + '<div class="field"><label>Communion</label><input type="number" id="sf-com" min="0" value="' + (s.communion||0) + '" style="width:100%;"></div>'
+    + '</div>'
+    + '<div class="field" style="margin-bottom:14px;"><label>Notes</label><input type="text" id="sf-notes" value="' + esc(s.notes||'') + '" placeholder="Optional notes" style="width:100%;"></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+    + '<button class="btn-primary" onclick="saveService(' + (s.id||'null') + ')">Save</button>'
+    + '<button class="btn-secondary" onclick="document.getElementById(\\'att-detail\\').innerHTML=\\'\\'"  >Cancel</button>'
+    + (isEdit ? '<button class="btn-danger" onclick="deleteService(' + s.id + ')">Delete</button>' : '')
+    + '</div></div>';
+}
+
+function fetchSundayName(date) {
+  if (!date) return;
+  api('/admin/api/attendance/sunday-name?date=' + encodeURIComponent(date)).then(function(d) {
+    var el = document.getElementById('sf-name');
+    if (el && d.name) el.value = d.name;
+  });
+}
+
+function saveBulkSunday() {
+  var date = document.getElementById('sf-date').value;
+  var name = document.getElementById('sf-name').value;
+  if (!date) { alert('Please enter a date.'); return; }
+  api('/admin/api/attendance/bulk-sunday', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      service_date: date, service_name: name,
+      att_8: document.getElementById('sf-att-8').value,
+      com_8: document.getElementById('sf-com-8').value,
+      att_1045: document.getElementById('sf-att-1045').value,
+      com_1045: document.getElementById('sf-com-1045').value,
+      notes: document.getElementById('sf-notes').value
+    })
+  }).then(function(d) {
+    if (d.error) { alert('Error: ' + d.error); return; }
+    loadAttendance();
+    document.getElementById('att-detail').innerHTML = '<div style="padding:40px;text-align:center;color:var(--sage);font-size:.95rem;">&#10003; Services saved for ' + esc(date) + '</div>';
+  });
+}
+
+function saveService(id) {
+  var radios = document.querySelectorAll('input[name="sf-time"]');
+  var timeVal = '';
+  radios.forEach(function(r) { if (r.checked) timeVal = r.value; });
+  if (timeVal === 'other') timeVal = document.getElementById('sf-time-other').value;
+  var typeRadios = document.querySelectorAll('input[name="sf-type"]');
+  var typeVal = 'sunday';
+  typeRadios.forEach(function(r) { if (r.checked) typeVal = r.value; });
+  var payload = {
+    service_date: document.getElementById('sf-date').value,
+    service_time: timeVal,
+    service_name: document.getElementById('sf-name').value,
+    service_type: typeVal,
+    attendance: parseInt(document.getElementById('sf-att').value) || 0,
+    communion: parseInt(document.getElementById('sf-com').value) || 0,
+    notes: document.getElementById('sf-notes').value
+  };
+  var isNew = !id || id === null;
+  api('/admin/api/attendance' + (isNew ? '' : '/' + id), {
+    method: isNew ? 'POST' : 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(d) {
+    if (d.error) { alert('Error: ' + d.error); return; }
+    loadAttendance();
+    document.getElementById('att-detail').innerHTML = '<div style="padding:40px;text-align:center;color:var(--sage);font-size:.95rem;">&#10003; Saved</div>';
+  });
+}
+
+function deleteService(id) {
+  if (!confirm('Delete this service record?')) return;
+  api('/admin/api/attendance/' + id, {method: 'DELETE'}).then(function(d) {
+    if (d.error) { alert('Error: ' + d.error); return; }
+    loadAttendance();
+    document.getElementById('att-detail').innerHTML = '';
+  });
+}
+
+function runAttendanceSummary() {
+  var years = [];
+  document.querySelectorAll('#rpt-att-years input[type=checkbox]:checked').forEach(function(cb) {
+    years.push(cb.value);
+  });
+  if (!years.length) { alert('Select at least one year.'); return; }
+  api('/admin/api/reports/attendance-summary?years=' + encodeURIComponent(years.join(','))).then(function(d) {
+    var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    var html = '<div style="font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin-bottom:12px;">Attendance Year-over-Year (Sunday Combined)</div>';
+    html += '<table class="rpt-table"><thead><tr><th>Month</th>';
+    d.years.forEach(function(yr) { html += '<th style="text-align:right;">' + yr + '</th>'; });
+    html += '</tr></thead><tbody>';
+    for (var m = 1; m <= 12; m++) {
+      var mStr = String(m).padStart(2, '0');
+      html += '<tr><td>' + months[m-1] + '</td>';
+      d.years.forEach(function(yr) {
+        var row = (d.monthly[yr] || []).find(function(r) { return r.month === mStr; });
+        html += '<td style="text-align:right;">' + (row ? row.total : '—') + '</td>';
+      });
+      html += '</tr>';
+    }
+    html += '<tr class="rpt-total"><td>Annual Total</td>';
+    d.years.forEach(function(yr) {
+      html += '<td style="text-align:right;">' + ((d.totals[yr] || {}).total || 0) + '</td>';
+    });
+    html += '</tr><tr><td style="color:var(--warm-gray);font-size:.82rem;">Sundays recorded</td>';
+    d.years.forEach(function(yr) {
+      html += '<td style="text-align:right;color:var(--warm-gray);font-size:.82rem;">' + ((d.totals[yr] || {}).sundays || 0) + '</td>';
+    });
+    html += '</tr></tbody></table>'
+      + '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print</button></div>';
+    showRptOutput(html);
+  });
+}
+
+function runAttendanceByTime() {
+  var from = document.getElementById('rpt-att-from').value;
+  var to = document.getElementById('rpt-att-to').value;
+  api('/admin/api/reports/attendance-by-time?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)).then(function(d) {
+    var html = '<div style="font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin-bottom:12px;">Attendance by Service Time</div>';
+    html += '<table class="rpt-table" style="margin-bottom:16px;"><thead><tr><th>Service</th><th style="text-align:right;">Services</th><th style="text-align:right;">Total</th><th style="text-align:right;">Avg/Service</th></tr></thead><tbody>';
+    (d.by_time || []).forEach(function(r) {
+      var lbl = r.service_time === '08:00' ? '8am' : r.service_time === '10:45' ? '10:45am' : esc(r.service_time);
+      html += '<tr><td>' + lbl + '</td><td style="text-align:right;">' + r.services + '</td><td style="text-align:right;">' + r.total + '</td><td style="text-align:right;">' + r.avg_attendance + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    if (d.sundays && d.sundays.length) {
+      html += '<div style="font-weight:700;color:var(--steel-anchor);font-size:.88rem;margin-bottom:8px;">Sunday Combined Totals</div>';
+      html += '<table class="rpt-table"><thead><tr><th>Date</th><th style="text-align:right;">8am</th><th style="text-align:right;">10:45am</th><th style="text-align:right;">Combined</th></tr></thead><tbody>';
+      d.sundays.forEach(function(r) {
+        var parts = r.service_date.split('-');
+        var dsp = (parts[1]|0) + '/' + (parts[2]|0) + '/' + parts[0];
+        html += '<tr><td>' + dsp + '</td><td style="text-align:right;">' + (r.att_8 || '—') + '</td><td style="text-align:right;">' + (r.att_1045 || '—') + '</td><td style="text-align:right;font-weight:600;">' + r.combined + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    html += '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print</button></div>';
+    showRptOutput(html);
+  });
 }
 </script>
 </body>
