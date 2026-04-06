@@ -13627,49 +13627,14 @@ async function handleChmsApi(req, env, url, method, seg) {
         }
       }
     }
-    // Try several tag endpoints
+    // Confirm tag list endpoint
     const tagResults = {};
-    let firstTagId = null;
-    for (const ep of [
-      '/api/tags/list_tags',
-      '/api/tags',
-      '/api/tags?details=1',
-    ]) {
-      try {
-        const tr = await fetch(`https://${subdomain}.breezechms.com${ep}`, { headers: hdrs });
-        const txt = await tr.text();
-        let parsed; try { parsed = JSON.parse(txt); } catch {}
-        tagResults[ep] = { status: tr.status, body_length: txt.length, first400: txt.slice(0,400), parsed_type: parsed == null ? 'parse_err' : (Array.isArray(parsed) ? 'array:'+parsed.length : typeof parsed), sample: Array.isArray(parsed) ? parsed.slice(0,2) : (parsed && typeof parsed === 'object' ? parsed : undefined) };
-        if (!firstTagId && Array.isArray(parsed) && parsed.length) firstTagId = parsed[0].id;
-      } catch(e) { tagResults[ep] = { error: e.message }; }
-    }
-    // Fetch full single-person record to see if tags are embedded
-    const testPersonId = '43826481'; // Mariatu Abreu
     try {
-      const pr = await fetch(`https://${subdomain}.breezechms.com/api/people/${testPersonId}?details=1`, { headers: hdrs });
-      const ptxt = await pr.text();
-      let pp; try { pp = JSON.parse(ptxt); } catch {}
-      tagResults['single_person_full'] = {
-        body_length: ptxt.length,
-        keys: pp ? Object.keys(pp) : [],
-        details_keys: (pp && pp.details) ? Object.keys(pp.details) : [],
-        has_tags: pp ? ('tags' in pp || 'tag' in pp || 'tag_ids' in pp) : false,
-        tags_value: pp ? (pp.tags || pp.tag || pp.tag_ids || null) : null,
-        full: ptxt  // full response — it's only 2510 bytes
-      };
-    } catch(e) { tagResults['single_person_full'] = { error: e.message }; }
-    // Also try with tags=1 parameter
-    try {
-      const pr2 = await fetch(`https://${subdomain}.breezechms.com/api/people/${testPersonId}?details=1&tags=1`, { headers: hdrs });
-      const ptxt2 = await pr2.text();
-      let pp2; try { pp2 = JSON.parse(ptxt2); } catch {}
-      tagResults['single_person_tags1'] = {
-        body_length: ptxt2.length,
-        has_tags: pp2 ? ('tags' in pp2 || 'tag' in pp2) : false,
-        tags_value: pp2 ? (pp2.tags || pp2.tag || null) : null,
-        full: ptxt2
-      };
-    } catch(e) { tagResults['single_person_tags1'] = { error: e.message }; }
+      const tr = await fetch(`https://${subdomain}.breezechms.com/api/tags/list_tags`, { headers: hdrs });
+      const txt = await tr.text();
+      let parsed; try { parsed = JSON.parse(txt); } catch {}
+      tagResults['list_tags'] = { status: tr.status, count: Array.isArray(parsed) ? parsed.length : 0, sample: Array.isArray(parsed) ? parsed.slice(0,3) : null, note: 'tag-to-person assignments not available in Breeze REST API' };
+    } catch(e) { tagResults['list_tags'] = { error: e.message }; }
     // Find a member WITH a family (non-empty family array)
     let familyMember = null;
     for (const m of members) {
@@ -13820,9 +13785,8 @@ async function handleChmsApi(req, env, url, method, seg) {
             }
             tagsSynced++;
           }
-          // 2. Tag-to-person assignment — DISABLED until correct filter API is confirmed
-          // /api/people?tag_id=X does NOT filter; it returns all people. Skipping.
-          tagAssignments = -1; // sentinel: means "not yet implemented"
+          // Tag-to-person assignments not available via Breeze REST API.
+          // Tags are synced as a list only; assignments are managed manually in the ChMS.
         }
       } catch (e) { errors.push({ tag_sync_error: e.message }); }
     }
