@@ -13651,103 +13651,86 @@ async function handleChmsApi(req, env, url, method, seg) {
     const end   = b.end   || new Date().toISOString().slice(0, 10);
     const hdrs = { 'Api-key': apiKey };
 
-    // Fetch up to 3000 contribution_added log entries for the date range
+    // Fetch log entries
     const logUrl = `https://${subdomain}.breezechms.com/api/account/list_log?action=contribution_added&details=1&limit=3000&start=${start}&end=${end}`;
     const logRes = await fetch(logUrl, { headers: hdrs });
     if (!logRes.ok) return json({ error: `Breeze log API error: ${logRes.status}` }, 502);
     let entries; try { entries = await logRes.json(); } catch { return json({ error: 'Invalid JSON from Breeze log' }, 502); }
     if (!Array.isArray(entries)) return json({ error: 'Unexpected response format', raw: String(entries).slice(0,200) }, 502);
+    if (entries.length === 0) return json({ ok: true, imported: 0, skipped: 0, total: 0, date_range: { start, end } });
 
-    // Parse contribution details from a log entry's details string
-    function parseDetails(raw) {
-      if (!raw) return null;
-      try { return JSON.parse(raw); } catch { return null; }
-    }
-    // Extract fund lines from details object: keys like "fund-" or "fund-<uuid>"
-    function extractFunds(d, totalAmount) {
+    // Helpers
+    const parseDetails = raw => { try { return JSON.parse(raw); } catch { return null; } };
+    const extractFunds = (d, total) => {
       const lines = [];
-      for (const [key, breezeFundId] of Object.entries(d)) {
-        if (!key.startsWith('fund-') || !breezeFundId) continue;
-        const uuid = key.slice(5); // part after 'fund-'
+      for (const [key, fid] of Object.entries(d)) {
+        if (!key.startsWith('fund-') || !fid) continue;
+        const uuid = key.slice(5);
         const splitAmt = uuid ? d['amount-' + uuid] : null;
-        const amt = (splitAmt && parseFloat(splitAmt) > 0) ? splitAmt : totalAmount;
-        lines.push({ breezeFundId: String(breezeFundId), amount: amt });
+        lines.push({ breezeFundId: String(fid), amount: (splitAmt && parseFloat(splitAmt) > 0) ? splitAmt : total });
       }
-      return lines.length > 0 ? lines : [{ breezeFundId: 'default', amount: totalAmount }];
-    }
+      return lines.length > 0 ? lines : [{ breezeFundId: 'default', amount: total }];
+    };
     const payMethod = t => {
       const s = (t || '').toLowerCase();
-      if (s === 'cash') return 'cash';
-      if (s === 'check') return 'check';
+      if (s === 'cash') return 'cash'; if (s === 'check') return 'check';
       if (s.includes('credit') || s.includes('card') || s.includes('online')) return 'card';
       if (s === 'ach' || s.includes('bank') || s.includes('eft')) return 'ach';
       return 'other';
     };
-    // MM/DD/YYYY → YYYY-MM-DD
     const parseDate = s => {
-      if (!s) return start;
-      const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (m) return m[3] + '-' + m[1].padStart(2,'0') + '-' + m[2].padStart(2,'0');
-      return s.slice(0, 10);
+      const m = (s || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      return m ? m[3] + '-' + m[1].padStart(2,'0') + '-' + m[2].padStart(2,'0') : (s || start).slice(0,10);
     };
 
-    // Pre-load fund cache keyed by breeze_id
+    // ── Pre-load caches to avoid per-row DB round trips ──────────────
+    // Existing contribution IDs → skip set
+    const existingIds = new Set(
+      ((await db.prepare("SELECT breeze_id FROM giving_entries WHERE breeze_id != ''").all()).results || [])
+        .map(r => r.breeze_id)
+    );
+    // People: breeze_id → local id
+    const personByBreezeId = {};
+    for (const p of (await db.prepare('SELECT id, breeze_id FROM people WHERE breeze_id != ""').all()).results || [])
+      personByBreezeId[p.breeze_id] = p.id;
+    // Batches: description → local id
+    const batchByDesc = {};
+    for (const bt of (await db.prepare('SELECT id, description FROM giving_batches').all()).results || [])
+      batchByDesc[bt.description] = bt.id;
+    // Funds: breeze_id → local id
     const fundByBreezeId = {};
-    for (const f of (await db.prepare('SELECT id, name, breeze_id FROM funds').all()).results || []) {
-      if (f.breeze_id) fundByBreezeId[f.breeze_id] = f.id;
-    }
-    // Batch cache keyed by Breeze batch_num
-    const batchByNum = {};
+    for (const f of (await db.prepare('SELECT id, breeze_id FROM funds WHERE breeze_id != ""').all()).results || [])
+      fundByBreezeId[f.breeze_id] = f.id;
 
+    // ── Process entries, collect inserts ─────────────────────────────
     let imported = 0, skipped = 0;
     const errors = [];
+    const entryInserts = []; // deferred until all lookups done
 
     for (const entry of entries) {
       try {
         const contribId = String(entry.object_json || entry.id);
-        // Dedup by Breeze contribution ID
-        const dup = await db.prepare('SELECT id FROM giving_entries WHERE breeze_id=?').bind(contribId).first();
-        if (dup) { skipped++; continue; }
-
+        if (existingIds.has(contribId)) { skipped++; continue; }
         const d = parseDetails(entry.details);
         if (!d) { skipped++; continue; }
 
-        const personBreezeId = String(d.person_id || '');
-        const totalAmount    = d.amount || '0';
-        const method         = payMethod(d.method);
-        const checkNum       = d.check_number || '';
-        const notes          = d.note || '';
-        const date           = parseDate(d.date);
-        const batchNum       = String(d.batch_num || '');
-        const batchKey       = batchNum || date;
+        const personId   = personByBreezeId[String(d.person_id || '')] ?? null;
+        const method     = payMethod(d.method);
+        const checkNum   = d.check_number || '';
+        const notes      = d.note || '';
+        const date       = parseDate(d.date);
+        const batchKey   = d.batch_num ? `Breeze Batch #${d.batch_num}` : `Breeze Import ${date}`;
 
-        // Resolve person
-        let personId = null;
-        if (personBreezeId) {
-          const per = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(personBreezeId).first();
-          if (per) personId = per.id;
+        // Get or create batch (sequential since we need the ID)
+        if (!batchByDesc[batchKey]) {
+          const r = await db.prepare(
+            'INSERT INTO giving_batches (batch_date, description, closed) VALUES (?,?,1)'
+          ).bind(date, batchKey).run();
+          batchByDesc[batchKey] = r.meta?.last_row_id;
         }
+        const batchId = batchByDesc[batchKey];
 
-        // Get or create batch (grouped by Breeze batch_num)
-        if (!batchByNum[batchKey]) {
-          const desc = batchNum ? `Breeze Batch #${batchNum}` : `Breeze Import ${date}`;
-          const existing = await db.prepare(
-            'SELECT id FROM giving_batches WHERE description=?'
-          ).bind(desc).first();
-          if (existing) {
-            batchByNum[batchKey] = existing.id;
-          } else {
-            const r = await db.prepare(
-              'INSERT INTO giving_batches (batch_date, description, closed) VALUES (?,?,1)'
-            ).bind(date, desc).run();
-            batchByNum[batchKey] = r.meta?.last_row_id;
-          }
-        }
-        const batchId = batchByNum[batchKey];
-
-        // Get fund lines and insert one entry per fund
-        const fundLines = extractFunds(d, totalAmount);
-        for (const fl of fundLines) {
+        for (const fl of extractFunds(d, d.amount || '0')) {
           const cents = Math.round(parseFloat(fl.amount || '0') * 100);
           if (!fundByBreezeId[fl.breezeFundId]) {
             const fname = fl.breezeFundId === 'default' ? 'General Fund' : `Breeze Fund ${fl.breezeFundId}`;
@@ -13756,15 +13739,22 @@ async function handleChmsApi(req, env, url, method, seg) {
             ).bind(fname, fl.breezeFundId).run();
             fundByBreezeId[fl.breezeFundId] = r.meta?.last_row_id;
           }
-          const fundId = fundByBreezeId[fl.breezeFundId];
-          await db.prepare(
-            `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,breeze_id)
-             VALUES (?,?,?,?,?,?,?,?)`
-          ).bind(batchId, personId, fundId, cents, method, checkNum, notes, contribId).run();
+          entryInserts.push(
+            db.prepare(
+              `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,breeze_id)
+               VALUES (?,?,?,?,?,?,?,?)`
+            ).bind(batchId, personId, fundByBreezeId[fl.breezeFundId], cents, method, checkNum, notes, contribId)
+          );
         }
         imported++;
       } catch (e) { errors.push({ id: entry.id, error: e.message }); }
     }
+
+    // ── Flush all entry inserts in batches of 100 ────────────────────
+    for (let i = 0; i < entryInserts.length; i += 100) {
+      await db.batch(entryInserts.slice(i, i + 100));
+    }
+
     return json({ ok: true, imported, skipped, errors: errors.slice(0, 20), total: entries.length, date_range: { start, end } });
   }
 
@@ -16069,13 +16059,20 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
   </div>
   <div class="import-card">
     <h3>&#128181; Sync Giving from Breeze</h3>
-    <p>Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed in Giving → Funds after import.</p>
+    <p>Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed in Giving &#8594; Funds after import.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
       <div class="field" style="margin:0;"><label>From</label><input type="date" id="giving-sync-from" style="font-size:.85rem;padding:4px 8px;"></div>
       <div class="field" style="margin:0;"><label>To</label><input type="date" id="giving-sync-to" style="font-size:.85rem;padding:4px 8px;"></div>
     </div>
-    <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Giving from Breeze</button>
+    <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Date Range</button>
     <div class="import-status" id="giving-sync-status"></div>
+    <hr style="margin:14px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
+    <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+      <div class="field" style="margin:0;"><label>Start Year</label><input type="number" id="giving-sync-start-year" value="2020" min="2000" max="2099" style="width:90px;font-size:.85rem;padding:4px 8px;"></div>
+    </div>
+    <button class="btn-primary" id="giving-all-btn" onclick="runBreezeGivingAll()">Sync All History</button>
+    <div class="import-status" id="giving-all-status"></div>
   </div>
   <div class="import-card">
     <h3>&#128194; Import People (CSV)</h3>
@@ -16939,6 +16936,50 @@ function runBreezeGivingSync() {
     if (d.errors && d.errors.length) msg += ' ' + d.errors.length + ' error(s).';
     status.textContent = msg; status.className = 'import-status ok';
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
+function runBreezeGivingAll() {
+  var startYear = parseInt(document.getElementById('giving-sync-start-year').value) || 2020;
+  var currentYear = new Date().getFullYear();
+  var status = document.getElementById('giving-all-status');
+  var btn = document.getElementById('giving-all-btn');
+  btn.disabled = true;
+  var totalImported = 0, totalSkipped = 0;
+  var years = [];
+  for (var y = startYear; y <= currentYear; y++) years.push(y);
+  var idx = 0;
+  function doYear() {
+    if (idx >= years.length) {
+      btn.disabled = false;
+      status.textContent = 'All done! ' + totalImported + ' contributions imported, ' + totalSkipped + ' already existed.';
+      status.className = 'import-status ok';
+      return;
+    }
+    var yr = years[idx++];
+    status.textContent = 'Syncing ' + yr + '… (' + idx + '/' + years.length + ' years)';
+    status.className = 'import-status';
+    fetch('/admin/api/import/breeze-giving', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({start: yr + '-01-01', end: yr + '-12-31'})
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.error) {
+        btn.disabled = false;
+        status.textContent = 'Error on ' + yr + ': ' + d.error;
+        status.className = 'import-status err';
+        return;
+      }
+      totalImported += d.imported || 0;
+      totalSkipped  += d.skipped  || 0;
+      status.textContent = yr + ': ' + (d.imported||0) + ' imported — running total: ' + totalImported + ' imported, ' + totalSkipped + ' skipped';
+      doYear();
+    }).catch(function(e) {
+      btn.disabled = false;
+      status.textContent = 'Error on ' + yr + ': ' + e.message;
+      status.className = 'import-status err';
+    });
+  }
+  doYear();
 }
 
 function runBreezeImport() {
