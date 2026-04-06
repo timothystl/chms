@@ -13442,18 +13442,41 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json({ from, to, by_time: rows, sundays });
   }
 
-  // ── Breeze Debug (returns raw first person from API) ─────────────
+  // ── Breeze Debug (returns field_type inventory across first 10 people) ──
   if (seg === 'import/breeze-debug' && method === 'GET') {
     const subdomain = env.BREEZE_SUBDOMAIN;
     const apiKey    = env.BREEZE_API_KEY;
     if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
     const res = await fetch(
-      `https://${subdomain}.breezechms.com/api/people?details=1&limit=1&offset=0`,
+      `https://${subdomain}.breezechms.com/api/people?details=1&limit=10&offset=0`,
       { headers: { 'Api-key': apiKey } }
     );
     if (!res.ok) return json({ error: `Breeze API error: ${res.status}` }, 502);
-    let raw; try { raw = await res.json(); } catch { return json({ error: 'Invalid JSON from Breeze' }, 502); }
-    return json({ raw });
+    let people; try { people = await res.json(); } catch { return json({ error: 'Invalid JSON from Breeze' }, 502); }
+    // Collect all field_types and sample values seen across all people
+    const fieldMap = {};
+    for (const p of (people || [])) {
+      for (const [key, val] of Object.entries(p.details || {})) {
+        if (Array.isArray(val)) {
+          for (const item of val) {
+            if (item && item.field_type) {
+              if (!fieldMap[item.field_type]) fieldMap[item.field_type] = { key, samples: [] };
+              if (fieldMap[item.field_type].samples.length < 3)
+                fieldMap[item.field_type].samples.push(item);
+            }
+          }
+        } else if (val && typeof val === 'object' && val.name) {
+          const ft = 'OBJECT:' + key;
+          if (!fieldMap[ft]) fieldMap[ft] = { key, samples: [] };
+          if (fieldMap[ft].samples.length < 3) fieldMap[ft].samples.push(val);
+        } else if (typeof val === 'string' && val) {
+          const ft = 'STRING:' + key;
+          if (!fieldMap[ft]) fieldMap[ft] = { key, samples: [] };
+          if (fieldMap[ft].samples.length < 3) fieldMap[ft].samples.push(val);
+        }
+      }
+    }
+    return json({ field_types: fieldMap, first_person_raw: people?.[0] });
   }
 
   // ── Breeze Import ────────────────────────────────────────────────
