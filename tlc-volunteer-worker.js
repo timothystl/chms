@@ -13616,26 +13616,27 @@ async function handleChmsApi(req, env, url, method, seg) {
     const apiKey    = env.BREEZE_API_KEY;
     if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
     const hdrs = { 'Api-key': apiKey };
-    // First: check response headers on bare /api/giving to detect redirect or encoding issues
-    const baseR = await fetch(`https://${subdomain}.breezechms.com/api/giving`, { headers: hdrs, redirect: 'manual' });
-    const baseText = await baseR.text();
-    const baseHeaders = {};
-    baseR.headers.forEach((v, k) => { baseHeaders[k] = v; });
-    const headerDiag = { status: baseR.status, body_length: baseText.length, headers: baseHeaders, body: baseText.slice(0, 500) };
+    const results = {};
 
-    // Try a couple of focused variants with different Accept headers
-    const focused = {};
-    for (const [label, fetchOpts] of [
-      ['json_accept', { headers: { 'Api-key': apiKey, 'Accept': 'application/json' } }],
-      ['with_content_type', { headers: { 'Api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' } }],
-      ['api_key_lowercase', { headers: { 'api-key': apiKey } }],
-      ['authorization_bearer', { headers: { 'Authorization': 'Bearer ' + apiKey } }],
-    ]) {
-      const r = await fetch(`https://${subdomain}.breezechms.com/api/giving?start=01/01/2026&end=04/06/2026`, fetchOpts);
-      const t = await r.text();
-      focused[label] = { status: r.status, body_length: t.length, first200: t.slice(0, 200) };
-    }
-    return json({ header_diag: headerDiag, focused_tests: focused, subdomain, key_prefix: apiKey.slice(0, 8) + '...' });
+    // Test account/list_log with contribution_added — raw object_json
+    const logR = await fetch(
+      `https://${subdomain}.breezechms.com/api/account/list_log?action=contribution_added&limit=5`,
+      { headers: hdrs }
+    );
+    const logText = await logR.text();
+    let logParsed = null; try { logParsed = JSON.parse(logText); } catch {}
+    results.log_no_details = { status: logR.status, count: Array.isArray(logParsed) ? logParsed.length : null, sample: Array.isArray(logParsed) ? logParsed.slice(0, 3) : logText.slice(0, 500) };
+
+    // Same but with details=1 — may include amount/fund/person
+    const logDR = await fetch(
+      `https://${subdomain}.breezechms.com/api/account/list_log?action=contribution_added&details=1&limit=5`,
+      { headers: hdrs }
+    );
+    const logDText = await logDR.text();
+    let logDParsed = null; try { logDParsed = JSON.parse(logDText); } catch {}
+    results.log_with_details = { status: logDR.status, count: Array.isArray(logDParsed) ? logDParsed.length : null, sample: Array.isArray(logDParsed) ? logDParsed.slice(0, 3) : logDText.slice(0, 500) };
+
+    return json(results);
   }
 
   // ── Breeze Giving Sync ───────────────────────────────────────────
