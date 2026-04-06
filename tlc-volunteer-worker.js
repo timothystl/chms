@@ -13444,6 +13444,29 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json({ from, to, by_time: rows, sundays });
   }
 
+  // ── Breeze Giving Debug ──────────────────────────────────────────
+  if (seg === 'import/breeze-giving-debug' && method === 'GET') {
+    const subdomain = env.BREEZE_SUBDOMAIN;
+    const apiKey    = env.BREEZE_API_KEY;
+    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
+    const start = url.searchParams.get('start') || '2026-01-01';
+    const end   = url.searchParams.get('end')   || '2026-01-31';
+    // Try both common Breeze giving endpoint variants
+    const endpoints = [
+      `/api/giving?start=${start}&end=${end}&details=1`,
+      `/api/contributions?start=${start}&end=${end}&details=1`,
+    ];
+    const results = {};
+    for (const ep of endpoints) {
+      const r = await fetch(`https://${subdomain}.breezechms.com${ep}`, { headers: { 'Api-key': apiKey } });
+      const text = await r.text();
+      let parsed = null;
+      try { parsed = JSON.parse(text); } catch {}
+      results[ep] = { status: r.status, first200chars: text.slice(0, 400), parsed_type: parsed ? (Array.isArray(parsed) ? 'array:' + parsed.length : typeof parsed) : 'parse_error' };
+    }
+    return json(results);
+  }
+
   // ── Breeze Giving Sync ───────────────────────────────────────────
   if (seg === 'import/breeze-giving' && method === 'POST') {
     const subdomain = env.BREEZE_SUBDOMAIN;
@@ -13457,8 +13480,14 @@ async function handleChmsApi(req, env, url, method, seg) {
       { headers: { 'Api-key': apiKey } }
     );
     if (!res.ok) return json({ error: `Breeze giving API error: ${res.status}` }, 502);
-    let contribs; try { contribs = await res.json(); } catch { return json({ error: 'Invalid JSON from Breeze' }, 502); }
-    if (!Array.isArray(contribs)) return json({ ok: true, imported: 0, skipped: 0, errors: [] });
+    const rawText = await res.text();
+    let contribs;
+    try { contribs = JSON.parse(rawText); } catch {
+      return json({ error: 'Invalid JSON from Breeze', preview: rawText.slice(0, 500) }, 502);
+    }
+    // Breeze sometimes wraps results
+    if (contribs && !Array.isArray(contribs) && Array.isArray(contribs.contributions)) contribs = contribs.contributions;
+    if (!Array.isArray(contribs)) return json({ ok: true, imported: 0, skipped: 0, errors: [], note: 'unexpected_format', raw_type: typeof contribs });
 
     // Cache fund IDs by name (lower-case key)
     const fundCache = {};
@@ -13576,7 +13605,21 @@ async function handleChmsApi(req, env, url, method, seg) {
         }
       }
     }
-    return json({ profile_fields: profileFields, field_types_in_members: fieldMap, sample_member: members[0] });
+    // Also fetch a sample person's tags/groups via /api/tags
+    let tagsApi = null;
+    try {
+      const tr = await fetch(`https://${subdomain}.breezechms.com/api/tags`, { headers: hdrs });
+      tagsApi = await tr.json();
+    } catch {}
+    // Fetch family data for sample member if exists
+    let familyApi = null;
+    if (members[0]) {
+      try {
+        const fr = await fetch(`https://${subdomain}.breezechms.com/api/people/${members[0].id}?details=1`, { headers: hdrs });
+        familyApi = await fr.json();
+      } catch {}
+    }
+    return json({ profile_fields: profileFields, field_types_in_members: fieldMap, sample_member: members[0], tags_api_sample: Array.isArray(tagsApi) ? tagsApi.slice(0,5) : tagsApi, family_detail: familyApi?.family });
   }
 
   // ── Breeze Import ────────────────────────────────────────────────
