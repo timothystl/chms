@@ -12243,6 +12243,8 @@ async function initDb(db) {
     'ALTER TABLE households ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
     // worship_services: store Breeze instance_id to enable attendance count sync
     'ALTER TABLE worship_services ADD COLUMN breeze_instance_id TEXT NOT NULL DEFAULT ""',
+    // funds: breeze_id to match Breeze fund IDs during giving sync
+    'ALTER TABLE funds ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
@@ -13639,42 +13641,40 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json(results);
   }
 
-  // ── Breeze Giving Sync ───────────────────────────────────────────
+  // ── Breeze Giving Sync (via account/list_log) ────────────────────
   if (seg === 'import/breeze-giving' && method === 'POST') {
     const subdomain = env.BREEZE_SUBDOMAIN;
     const apiKey    = env.BREEZE_API_KEY;
-    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured (BREEZE_SUBDOMAIN / BREEZE_API_KEY missing)' }, 503);
+    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
     let b = {}; try { b = await req.json(); } catch {}
-    // Breeze giving API expects MM/DD/YYYY; convert from YYYY-MM-DD if needed
-    const toBreeze = d => {
-      if (!d) return '';
-      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) { const [y,m,dy]=d.split('-'); return m+'/'+dy+'/'+y; }
-      return d;
-    };
     const start = b.start || (new Date().getFullYear() + '-01-01');
     const end   = b.end   || new Date().toISOString().slice(0, 10);
-    const bStart = toBreeze(start);
-    const bEnd   = toBreeze(end);
-    const givingUrl = `https://${subdomain}.breezechms.com/api/giving?start=${encodeURIComponent(bStart)}&end=${encodeURIComponent(bEnd)}&details=1`;
-    const res = await fetch(givingUrl, { headers: { 'Api-key': apiKey } });
-    if (!res.ok) return json({ error: `Breeze giving API error: ${res.status}`, url_used: givingUrl }, 502);
-    const rawText = await res.text();
-    if (!rawText || !rawText.trim()) return json({ ok: true, imported: 0, skipped: 0, errors: [], note: 'empty_response', url_used: givingUrl, dates_sent: { bStart, bEnd } });
-    let contribs;
-    try { contribs = JSON.parse(rawText); } catch {
-      return json({ error: 'Invalid JSON from Breeze', preview: rawText.slice(0, 500), url_used: givingUrl }, 502);
-    }
-    // Breeze sometimes wraps results
-    if (contribs && !Array.isArray(contribs) && Array.isArray(contribs.contributions)) contribs = contribs.contributions;
-    if (!Array.isArray(contribs)) return json({ ok: true, imported: 0, skipped: 0, errors: [], note: 'unexpected_format', raw_type: typeof contribs, raw_keys: contribs ? Object.keys(contribs).slice(0,10) : null, url_used: givingUrl });
+    const hdrs = { 'Api-key': apiKey };
 
-    // Cache fund IDs by name (lower-case key)
-    const fundCache = {};
-    for (const f of (await db.prepare('SELECT id, name FROM funds WHERE active=1').all()).results || []) {
-      fundCache[f.name.toLowerCase()] = f.id;
+    // Fetch up to 3000 contribution_added log entries for the date range
+    const logUrl = `https://${subdomain}.breezechms.com/api/account/list_log?action=contribution_added&details=1&limit=3000&start=${start}&end=${end}`;
+    const logRes = await fetch(logUrl, { headers: hdrs });
+    if (!logRes.ok) return json({ error: `Breeze log API error: ${logRes.status}` }, 502);
+    let entries; try { entries = await logRes.json(); } catch { return json({ error: 'Invalid JSON from Breeze log' }, 502); }
+    if (!Array.isArray(entries)) return json({ error: 'Unexpected response format', raw: String(entries).slice(0,200) }, 502);
+
+    // Parse contribution details from a log entry's details string
+    function parseDetails(raw) {
+      if (!raw) return null;
+      try { return JSON.parse(raw); } catch { return null; }
     }
-    // Cache batch IDs by date (one "Breeze Import" batch per date)
-    const batchCache = {};
+    // Extract fund lines from details object: keys like "fund-" or "fund-<uuid>"
+    function extractFunds(d, totalAmount) {
+      const lines = [];
+      for (const [key, breezeFundId] of Object.entries(d)) {
+        if (!key.startsWith('fund-') || !breezeFundId) continue;
+        const uuid = key.slice(5); // part after 'fund-'
+        const splitAmt = uuid ? d['amount-' + uuid] : null;
+        const amt = (splitAmt && parseFloat(splitAmt) > 0) ? splitAmt : totalAmount;
+        lines.push({ breezeFundId: String(breezeFundId), amount: amt });
+      }
+      return lines.length > 0 ? lines : [{ breezeFundId: 'default', amount: totalAmount }];
+    }
     const payMethod = t => {
       const s = (t || '').toLowerCase();
       if (s === 'cash') return 'cash';
@@ -13683,69 +13683,89 @@ async function handleChmsApi(req, env, url, method, seg) {
       if (s === 'ach' || s.includes('bank') || s.includes('eft')) return 'ach';
       return 'other';
     };
+    // MM/DD/YYYY → YYYY-MM-DD
+    const parseDate = s => {
+      if (!s) return start;
+      const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) return m[3] + '-' + m[1].padStart(2,'0') + '-' + m[2].padStart(2,'0');
+      return s.slice(0, 10);
+    };
+
+    // Pre-load fund cache keyed by breeze_id
+    const fundByBreezeId = {};
+    for (const f of (await db.prepare('SELECT id, name, breeze_id FROM funds').all()).results || []) {
+      if (f.breeze_id) fundByBreezeId[f.breeze_id] = f.id;
+    }
+    // Batch cache keyed by Breeze batch_num
+    const batchByNum = {};
 
     let imported = 0, skipped = 0;
     const errors = [];
-    for (const c of contribs) {
+
+    for (const entry of entries) {
       try {
-        const breezeId = String(c.id);
-        // Skip if any entry already exists for this contribution
-        const dup = await db.prepare('SELECT id FROM giving_entries WHERE breeze_id=?').bind(breezeId).first();
+        const contribId = String(entry.object_json || entry.id);
+        // Dedup by Breeze contribution ID
+        const dup = await db.prepare('SELECT id FROM giving_entries WHERE breeze_id=?').bind(contribId).first();
         if (dup) { skipped++; continue; }
+
+        const d = parseDetails(entry.details);
+        if (!d) { skipped++; continue; }
+
+        const personBreezeId = String(d.person_id || '');
+        const totalAmount    = d.amount || '0';
+        const method         = payMethod(d.method);
+        const checkNum       = d.check_number || '';
+        const notes          = d.note || '';
+        const date           = parseDate(d.date);
+        const batchNum       = String(d.batch_num || '');
+        const batchKey       = batchNum || date;
 
         // Resolve person
         let personId = null;
-        if (c.person_id) {
-          const per = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(String(c.person_id)).first();
+        if (personBreezeId) {
+          const per = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(personBreezeId).first();
           if (per) personId = per.id;
         }
 
-        const date   = (c.date || start).slice(0, 10);
-        const method = payMethod(c.payment_type);
-        const checkNum = c.check_number || '';
-        const notes    = c.note || '';
-
-        // Fund breakdown: c.funds array; fall back to single entry with total
-        const fundLines = Array.isArray(c.funds) && c.funds.length > 0
-          ? c.funds
-          : [{ fund_name: 'General Fund', amount: c.amount || '0' }];
-
-        // Get or create batch for this date
-        if (!batchCache[date]) {
+        // Get or create batch (grouped by Breeze batch_num)
+        if (!batchByNum[batchKey]) {
+          const desc = batchNum ? `Breeze Batch #${batchNum}` : `Breeze Import ${date}`;
           const existing = await db.prepare(
-            "SELECT id FROM giving_batches WHERE batch_date=? AND description LIKE 'Breeze Import%'"
-          ).bind(date).first();
+            'SELECT id FROM giving_batches WHERE description=?'
+          ).bind(desc).first();
           if (existing) {
-            batchCache[date] = existing.id;
+            batchByNum[batchKey] = existing.id;
           } else {
             const r = await db.prepare(
               'INSERT INTO giving_batches (batch_date, description, closed) VALUES (?,?,1)'
-            ).bind(date, 'Breeze Import ' + date).run();
-            batchCache[date] = r.meta?.last_row_id;
+            ).bind(date, desc).run();
+            batchByNum[batchKey] = r.meta?.last_row_id;
           }
         }
-        const batchId = batchCache[date];
+        const batchId = batchByNum[batchKey];
 
+        // Get fund lines and insert one entry per fund
+        const fundLines = extractFunds(d, totalAmount);
         for (const fl of fundLines) {
-          const fname = (fl.fund_name || 'General Fund').trim();
           const cents = Math.round(parseFloat(fl.amount || '0') * 100);
-          // Get or create fund
-          if (!fundCache[fname.toLowerCase()]) {
+          if (!fundByBreezeId[fl.breezeFundId]) {
+            const fname = fl.breezeFundId === 'default' ? 'General Fund' : `Breeze Fund ${fl.breezeFundId}`;
             const r = await db.prepare(
-              'INSERT INTO funds (name, active, sort_order) VALUES (?,1,99)'
-            ).bind(fname).run();
-            fundCache[fname.toLowerCase()] = r.meta?.last_row_id;
+              'INSERT INTO funds (name, breeze_id, active, sort_order) VALUES (?,?,1,99)'
+            ).bind(fname, fl.breezeFundId).run();
+            fundByBreezeId[fl.breezeFundId] = r.meta?.last_row_id;
           }
-          const fundId = fundCache[fname.toLowerCase()];
+          const fundId = fundByBreezeId[fl.breezeFundId];
           await db.prepare(
             `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,breeze_id)
              VALUES (?,?,?,?,?,?,?,?)`
-          ).bind(batchId, personId, fundId, cents, method, checkNum, notes, breezeId).run();
+          ).bind(batchId, personId, fundId, cents, method, checkNum, notes, contribId).run();
         }
         imported++;
-      } catch (e) { errors.push({ id: c.id, error: e.message }); }
+      } catch (e) { errors.push({ id: entry.id, error: e.message }); }
     }
-    return json({ ok: true, imported, skipped, errors: errors.slice(0, 20), total: contribs.length, url_used: givingUrl, dates_sent: { bStart, bEnd }, first_item: contribs[0] || null });
+    return json({ ok: true, imported, skipped, errors: errors.slice(0, 20), total: entries.length, date_range: { start, end } });
   }
 
   // ── Clear Bad Tag Assignments ─────────────────────────────────────
@@ -16049,7 +16069,7 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
   </div>
   <div class="import-card">
     <h3>&#128181; Sync Giving from Breeze</h3>
-    <p>Pull contribution records from the Breeze API. Already-imported contributions are skipped (safe to re-sync). Creates one closed batch per day.</p>
+    <p>Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed in Giving → Funds after import.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
       <div class="field" style="margin:0;"><label>From</label><input type="date" id="giving-sync-from" style="font-size:.85rem;padding:4px 8px;"></div>
       <div class="field" style="margin:0;"><label>To</label><input type="date" id="giving-sync-to" style="font-size:.85rem;padding:4px 8px;"></div>
