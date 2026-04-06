@@ -12239,6 +12239,8 @@ async function initDb(db) {
     'ALTER TABLE giving_entries ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
     // ChMS tags: breeze_id to match Breeze tags on re-sync
     'ALTER TABLE tags ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
+    // ChMS households: breeze_id to match Breeze family_id on re-sync
+    'ALTER TABLE households ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
@@ -13722,8 +13724,8 @@ async function handleChmsApi(req, env, url, method, seg) {
               addr = { street: (item.street_address||'').trim(), city: (item.city||'').trim(), state: (item.state||'').trim(), zip: (item.zip||'').trim() };
           }
         }
-        // Family role from p.family array — Breeze uses role_name field
-        let familyRole = '';
+        // Family role + household from p.family array
+        let familyRole = '', householdId = null;
         if (Array.isArray(p.family) && p.family.length > 0) {
           const self = p.family.find(m => String(m.person_id) === String(p.id));
           if (self) {
@@ -13733,25 +13735,41 @@ async function handleChmsApi(req, env, url, method, seg) {
             else if (rn.includes('child') || rn.includes('son') || rn.includes('daughter')) familyRole = 'child';
             else if (rn) familyRole = 'other';
           }
+          // Household: keyed by Breeze family_id
+          const bFamilyId = String(p.family[0].family_id || '');
+          if (bFamilyId) {
+            const hhRow = await db.prepare('SELECT id FROM households WHERE breeze_id=?').bind(bFamilyId).first();
+            if (hhRow) {
+              householdId = hhRow.id;
+            } else {
+              // Name from head of household's last name, fallback to this person's last name
+              const head = p.family.find(m => (m.role_name||'').toLowerCase().includes('head'));
+              const hhName = (head ? (head.details?.last_name || ln) : ln) + ' Family';
+              const r = await db.prepare(
+                'INSERT INTO households (name, address1, city, state, zip, breeze_id) VALUES (?,?,?,?,?,?)'
+              ).bind(hhName, addr.street, addr.city, addr.state, addr.zip, bFamilyId).run();
+              householdId = r.meta?.last_row_id;
+            }
+          }
         }
         const existing = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(String(p.id)).first();
         if (existing) {
           await db.prepare(
             `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,
-             address1=?,city=?,state=?,zip=?,member_type=?,
+             address1=?,city=?,state=?,zip=?,member_type=?,household_id=?,
              dob=?,baptism_date=?,confirmation_date=?,anniversary_date=?,family_role=?
              WHERE breeze_id=?`
-          ).bind(fn,ln,email,phone,addr.street,addr.city,addr.state,addr.zip,memberType,
+          ).bind(fn,ln,email,phone,addr.street,addr.city,addr.state,addr.zip,memberType,householdId,
                  dob,baptismDate,confirmDate,anniversaryDate,familyRole,String(p.id)).run();
           updated++;
         } else {
           await db.prepare(
             `INSERT INTO people
              (first_name,last_name,email,phone,address1,city,state,zip,breeze_id,member_type,
-              dob,baptism_date,confirmation_date,anniversary_date,family_role)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+              household_id,dob,baptism_date,confirmation_date,anniversary_date,family_role)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
           ).bind(fn,ln,email,phone,addr.street,addr.city,addr.state,addr.zip,String(p.id),memberType,
-                 dob,baptismDate,confirmDate,anniversaryDate,familyRole).run();
+                 householdId,dob,baptismDate,confirmDate,anniversaryDate,familyRole).run();
           imported++;
         }
       } catch (e) { errors.push({ breeze_id: p.id, error: e.message }); }
