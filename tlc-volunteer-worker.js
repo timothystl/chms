@@ -13496,34 +13496,26 @@ async function handleChmsApi(req, env, url, method, seg) {
     const apiKey    = env.BREEZE_API_KEY;
     if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
     const hdrs = { 'Api-key': apiKey };
-    // Try many endpoint variants — no date filter first to see if endpoint works at all
-    const endpoints = [
-      '/api/giving',                                                          // no params at all
-      '/api/giving?limit=5',                                                  // just limit
-      '/api/giving?start=01/01/2026&end=04/06/2026&details=1',               // MM/DD/YYYY
-      '/api/giving?start=01/01/2026&end=04/06/2026',                         // no details
-      '/api/giving?start=2026-01-01&end=2026-04-06',                         // ISO dates
-      '/api/giving?start_date=01/01/2026&end_date=04/06/2026',               // start_date/end_date
-      '/api/giving?date_start=01/01/2026&date_end=04/06/2026',               // date_start/date_end
-      '/api/giving?from=01/01/2026&to=04/06/2026',                           // from/to
-      '/api/giving?start=01/01/2020&end=04/06/2026',                         // wide range
-      '/api/contributions?start=01/01/2026&end=04/06/2026',                  // /contributions path
-    ];
-    const results = {};
-    for (const ep of endpoints) {
-      const r = await fetch(`https://${subdomain}.breezechms.com${ep}`, { headers: hdrs });
-      const text = await r.text();
-      let parsed = null;
-      try { parsed = JSON.parse(text); } catch {}
-      results[ep] = {
-        status: r.status,
-        body_length: text.length,
-        first300: text.slice(0, 300),
-        parsed_type: parsed == null ? 'parse_error' : (Array.isArray(parsed) ? 'array:' + parsed.length : typeof parsed),
-        first_item: Array.isArray(parsed) && parsed.length ? parsed[0] : undefined
-      };
+    // First: check response headers on bare /api/giving to detect redirect or encoding issues
+    const baseR = await fetch(`https://${subdomain}.breezechms.com/api/giving`, { headers: hdrs, redirect: 'manual' });
+    const baseText = await baseR.text();
+    const baseHeaders = {};
+    baseR.headers.forEach((v, k) => { baseHeaders[k] = v; });
+    const headerDiag = { status: baseR.status, body_length: baseText.length, headers: baseHeaders, body: baseText.slice(0, 500) };
+
+    // Try a couple of focused variants with different Accept headers
+    const focused = {};
+    for (const [label, fetchOpts] of [
+      ['json_accept', { headers: { 'Api-key': apiKey, 'Accept': 'application/json' } }],
+      ['with_content_type', { headers: { 'Api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' } }],
+      ['api_key_lowercase', { headers: { 'api-key': apiKey } }],
+      ['authorization_bearer', { headers: { 'Authorization': 'Bearer ' + apiKey } }],
+    ]) {
+      const r = await fetch(`https://${subdomain}.breezechms.com/api/giving?start=01/01/2026&end=04/06/2026`, fetchOpts);
+      const t = await r.text();
+      focused[label] = { status: r.status, body_length: t.length, first200: t.slice(0, 200) };
     }
-    return json(results);
+    return json({ header_diag: headerDiag, focused_tests: focused, subdomain, key_prefix: apiKey.slice(0, 8) + '...' });
   }
 
   // ── Breeze Giving Sync ───────────────────────────────────────────
