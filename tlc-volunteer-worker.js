@@ -13501,6 +13501,68 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json({ from, to, by_time: rows, sundays });
   }
 
+  // ── Attendance TSV Import ─────────────────────────────────────────
+  if (seg === 'import/attendance-tsv' && method === 'POST') {
+    let body = ''; try { body = await req.text(); } catch {}
+    if (!body.trim()) return json({ error: 'Empty body' }, 400);
+    const lines = body.split(/\r?\n/);
+    // Skip header row
+    const dataLines = lines.filter((l, i) => i > 0 && l.trim());
+    const today = new Date().toISOString().slice(0, 10);
+    let imported = 0, skipped = 0, skippedFuture = 0;
+    // Name → service_type / service_time mapping
+    function classifyService(name, timeStr) {
+      const n = (name || '').toLowerCase();
+      const h = parseInt((timeStr || '').split(':')[0] || '0');
+      // Vietnamese congregation → skip
+      if (n.includes('vietnamese')) return null;
+      // Sunday services by name patterns
+      if (n.includes('early service') || n.includes('8:00') || n.includes('8am') || (h === 8)) {
+        return { type: 'sunday', time: '08:00' };
+      }
+      if (n.includes('late service') || n.includes('10:45') || n.includes('10am') || (h === 10 && timeStr && timeStr.includes('45'))) {
+        return { type: 'sunday', time: '10:45' };
+      }
+      // Midweek patterns
+      if (n.includes('advent') || n.includes('lent') || n.includes('ash wednesday') ||
+          n.includes('wednesday') || n.includes('midweek') || n.includes('vesper')) {
+        return { type: 'midweek', time: timeStr || '' };
+      }
+      // Special services
+      if (n.includes('funeral') || n.includes('easter vigil') || n.includes('good friday') ||
+          n.includes('christmas eve') || n.includes('thanksgiving') || n.includes('installation') ||
+          n.includes('ordination') || n.includes('wedding') || n.includes('special')) {
+        return { type: 'special', time: timeStr || '' };
+      }
+      // Default: if on Sunday → sunday service; otherwise special
+      return { type: 'special', time: timeStr || '' };
+    }
+    for (const line of dataLines) {
+      const cols = line.split('\t');
+      if (cols.length < 4) continue;
+      const name      = (cols[2] || '').trim();
+      const startRaw  = (cols[3] || '').trim();  // "2021-08-01 10:45:00"
+      if (!startRaw) continue;
+      const datePart = startRaw.slice(0, 10);    // "2021-08-01"
+      const timePart = startRaw.slice(11, 16);   // "10:45"
+      // Skip future dates
+      if (datePart > today) { skippedFuture++; continue; }
+      const cls = classifyService(name, timePart);
+      if (!cls) { skipped++; continue; }  // Vietnamese, etc.
+      // Skip duplicates by date+time
+      const exists = await db.prepare(
+        'SELECT id FROM worship_services WHERE service_date=? AND service_time=?'
+      ).bind(datePart, cls.time).first();
+      if (exists) { skipped++; continue; }
+      await db.prepare(
+        `INSERT INTO worship_services (service_date,service_time,service_name,service_type,attendance,communion,notes)
+         VALUES (?,?,?,?,0,0,?)`
+      ).bind(datePart, cls.time, name, cls.type, '').run();
+      imported++;
+    }
+    return json({ ok: true, imported, skipped, skippedFuture, total: dataLines.length });
+  }
+
   // ── Breeze Giving Debug ──────────────────────────────────────────
   if (seg === 'import/breeze-giving-debug' && method === 'GET') {
     const subdomain = env.BREEZE_SUBDOMAIN;
@@ -15954,6 +16016,13 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
     <button class="btn-primary" onclick="importPeopleCSV()">Import People</button>
     <div class="import-status" id="csv-people-status"></div>
   </div>
+  <div class="import-card">
+    <h3>&#128197; Import Attendance Events (Breeze TSV)</h3>
+    <p>Upload the tab-separated export from Breeze Events (Event ID, Instance ID, Name, Start Date, End Date). Attendance counts are not in this file — service slots will be created with count 0 for you to fill in. Future dates and Vietnamese services are skipped automatically.</p>
+    <input type="file" id="att-tsv-file" accept=".tsv,.txt,.csv" style="display:block;margin-bottom:8px;">
+    <button class="btn-primary" onclick="importAttendanceTSV()">Import Attendance Events</button>
+    <div class="import-status" id="att-tsv-status"></div>
+  </div>
 </div>
 
 <!-- ═══ MODALS ═══ -->
@@ -16838,6 +16907,24 @@ function importPeopleCSV() {
       status.textContent = 'Done. ' + (d.imported||0) + ' imported, ' + (d.updated||0) + ' updated.';
       status.className = 'import-status ok';
       loadPeople();
+    }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+  };
+  reader.readAsText(file);
+}
+
+function importAttendanceTSV() {
+  var file = document.getElementById('att-tsv-file').files[0];
+  var status = document.getElementById('att-tsv-status');
+  if (!file) { status.textContent = 'Please choose a TSV file.'; status.className = 'import-status err'; return; }
+  status.textContent = 'Uploading…'; status.className = 'import-status';
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    fetch('/admin/api/import/attendance-tsv', {method:'POST', headers:{'Content-Type':'text/plain'}, body:e.target.result}).then(function(r) {
+      return r.json();
+    }).then(function(d) {
+      if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+      status.textContent = 'Done. ' + d.imported + ' services imported, ' + d.skipped + ' skipped (duplicates/Vietnamese), ' + d.skippedFuture + ' future dates skipped.';
+      status.className = 'import-status ok';
     }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
   };
   reader.readAsText(file);
