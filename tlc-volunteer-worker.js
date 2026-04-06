@@ -13496,53 +13496,90 @@ async function handleChmsApi(req, env, url, method, seg) {
     if (!res.ok) return json({ error: `Breeze API error: ${res.status}` }, 502);
     let people; try { people = await res.json(); } catch { return json({ error: 'Breeze returned invalid JSON' }, 502); }
     if (!Array.isArray(people)) return json({ done: true, imported: 0, updated: 0, errors: [] });
-    let imported = 0, updated = 0;
+    // Known field IDs for this Breeze account (from /api/profile)
+    const F_STATUS       = '1076274773';  // multiple_choice: Member/Attender/Visitor/etc.
+    const F_DOB          = '423997769';   // birthdate: YYYY-MM-DD
+    const F_BAPTISM      = '156119694';   // date: MM/DD/YYYY
+    const F_CONFIRMATION = '724914824';   // date: MM/DD/YYYY
+    const F_ANNIVERSARY  = '2008692738';  // date: MM/DD/YYYY
+    // Convert MM/DD/YYYY or YYYY-MM-DD to YYYY-MM-DD
+    const toISO = s => {
+      if (!s) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      const parts = s.split('/');
+      if (parts.length === 3) return parts[2] + '-' + parts[0].padStart(2,'0') + '-' + parts[1].padStart(2,'0');
+      return '';
+    };
+    // Skip non-person status types
+    const SKIP_STATUSES = new Set(['organization','christmas market','egg hunt','renter','mdo']);
+    let imported = 0, updated = 0, skipped = 0;
     const errors = [];
     for (const p of people) {
       try {
-        const fn = p.first_name || '';
-        const ln = p.last_name || '';
-        // Breeze details uses numeric field IDs as keys; identify fields by field_type inside each array item
-        let email = '', phone = '', memberType = 'visitor';
+        const fn = (p.first_name || '').trim();
+        const ln = (p.last_name  || '').trim();
+        const details = p.details || {};
+        // Status / member type
+        const statusObj = details[F_STATUS];
+        const statusName = (statusObj && statusObj.name) ? statusObj.name : '';
+        if (SKIP_STATUSES.has(statusName.toLowerCase())) { skipped++; continue; }
+        let memberType = 'visitor';
+        const sn = statusName.toLowerCase();
+        if (sn === 'member') memberType = 'member';
+        else if (sn === 'attender') memberType = 'associate';
+        else if (sn === 'no longer attends') memberType = 'inactive';
+        else if (sn === 'community contact' || sn === 'vietnamese congregation') memberType = 'friend';
+        // Dates (stored as plain strings under their field ID key)
+        const dob          = toISO(details[F_DOB]          || details['birthdate'] || '');
+        const baptismDate  = toISO(details[F_BAPTISM]       || details['date']      || '');
+        const confirmDate  = toISO(details[F_CONFIRMATION]  || '');
+        const anniversaryDate = toISO(details[F_ANNIVERSARY] || '');
+        // Email, phone, address (from typed arrays)
+        let email = '', phone = '';
         let addr = { street: '', city: '', state: '', zip: '' };
-        for (const val of Object.values(p.details || {})) {
-          if (Array.isArray(val)) {
-            for (const item of val) {
-              if (!item || typeof item !== 'object') continue;
-              const ft = item.field_type || '';
-              if ((ft === 'email_primary' || ft === 'email') && !email)
-                email = (item.address || '').trim();
-              else if ((ft === 'phone' || ft.startsWith('phone')) && !phone)
-                phone = (item.phone_number || '').trim();
-              else if ((ft === 'address_primary' || ft === 'address') && !addr.street)
-                addr = { street: item.street_address || '', city: item.city || '', state: item.state || '', zip: item.zip || '' };
-            }
-          } else if (val && typeof val === 'object' && val.name && !Array.isArray(val)) {
-            // Profile type field e.g. {value:'32', name:'Member'}
-            const n = (val.name || '').toLowerCase();
-            if (n === 'member' || n.includes('communicant')) memberType = 'member';
-            else if (n.includes('inactive') || n.includes('former')) memberType = 'inactive';
-            else if (n.includes('friend') || n.includes('associate')) memberType = 'friend';
+        for (const val of Object.values(details)) {
+          if (!Array.isArray(val)) continue;
+          for (const item of val) {
+            if (!item || typeof item !== 'object') continue;
+            const ft = item.field_type || '';
+            if ((ft === 'email_primary' || ft === 'email') && !email)
+              email = (item.address || '').trim();
+            else if ((ft === 'phone' || ft.startsWith('phone')) && !phone)
+              phone = (item.phone_number || '').trim();
+            else if ((ft === 'address_primary' || ft === 'address') && !addr.street)
+              addr = { street: (item.street_address||'').trim(), city: (item.city||'').trim(), state: (item.state||'').trim(), zip: (item.zip||'').trim() };
           }
+        }
+        // Family role from p.family array
+        let familyRole = '';
+        if (Array.isArray(p.family)) {
+          const self = p.family.find(m => String(m.person_id) === String(p.id));
+          if (self) familyRole = (self.family_role || self.role || '').toLowerCase();
         }
         const existing = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(String(p.id)).first();
         if (existing) {
           await db.prepare(
             `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,
-             address1=?,city=?,state=?,zip=?,member_type=? WHERE breeze_id=?`
-          ).bind(fn,ln,email,phone,addr.street||'',addr.city||'',addr.state||'',addr.zip||'',memberType,String(p.id)).run();
+             address1=?,city=?,state=?,zip=?,member_type=?,
+             dob=?,baptism_date=?,confirmation_date=?,anniversary_date=?,family_role=?
+             WHERE breeze_id=?`
+          ).bind(fn,ln,email,phone,addr.street,addr.city,addr.state,addr.zip,memberType,
+                 dob,baptismDate,confirmDate,anniversaryDate,familyRole,String(p.id)).run();
           updated++;
         } else {
           await db.prepare(
-            `INSERT INTO people (first_name,last_name,email,phone,address1,city,state,zip,breeze_id,member_type)
-             VALUES (?,?,?,?,?,?,?,?,?,?)`
-          ).bind(fn,ln,email,phone,addr.street||'',addr.city||'',addr.state||'',addr.zip||'',String(p.id),memberType).run();
+            `INSERT INTO people
+             (first_name,last_name,email,phone,address1,city,state,zip,breeze_id,member_type,
+              dob,baptism_date,confirmation_date,anniversary_date,family_role)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          ).bind(fn,ln,email,phone,addr.street,addr.city,addr.state,addr.zip,String(p.id),memberType,
+                 dob,baptismDate,confirmDate,anniversaryDate,familyRole).run();
           imported++;
         }
       } catch (e) { errors.push({ breeze_id: p.id, error: e.message }); }
     }
     const done = people.length < limit;
-    return json({ ok: true, imported, updated, errors, done, next_offset: offset + people.length });
+    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length });
   }
 
   return json({ error: 'Not found' }, 404);
