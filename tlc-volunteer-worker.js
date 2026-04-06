@@ -13442,41 +13442,43 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json({ from, to, by_time: rows, sundays });
   }
 
-  // ── Breeze Debug (returns field_type inventory across first 10 people) ──
+  // ── Breeze Debug ─────────────────────────────────────────────────
   if (seg === 'import/breeze-debug' && method === 'GET') {
     const subdomain = env.BREEZE_SUBDOMAIN;
     const apiKey    = env.BREEZE_API_KEY;
     if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
-    const res = await fetch(
-      `https://${subdomain}.breezechms.com/api/people?details=1&limit=10&offset=0`,
-      { headers: { 'Api-key': apiKey } }
-    );
-    if (!res.ok) return json({ error: `Breeze API error: ${res.status}` }, 502);
-    let people; try { people = await res.json(); } catch { return json({ error: 'Invalid JSON from Breeze' }, 502); }
-    // Collect all field_types and sample values seen across all people
+    const hdrs = { 'Api-key': apiKey };
+    // Fetch profile field definitions
+    const profileRes = await fetch(`https://${subdomain}.breezechms.com/api/profile`, { headers: hdrs });
+    let profileFields = []; try { profileFields = await profileRes.json(); } catch {}
+    // Fetch 50 people and skip organizations (no last_name)
+    const pRes = await fetch(`https://${subdomain}.breezechms.com/api/people?details=1&limit=50&offset=0`, { headers: hdrs });
+    if (!pRes.ok) return json({ error: `Breeze API error: ${pRes.status}` }, 502);
+    let people; try { people = await pRes.json(); } catch { return json({ error: 'Invalid JSON' }, 502); }
+    const members = (people || []).filter(p => p.last_name && p.last_name.trim());
+    // Collect all field_types and sample values seen across actual member records
     const fieldMap = {};
-    for (const p of (people || [])) {
+    for (const p of members.slice(0, 5)) {
       for (const [key, val] of Object.entries(p.details || {})) {
         if (Array.isArray(val)) {
           for (const item of val) {
             if (item && item.field_type) {
               if (!fieldMap[item.field_type]) fieldMap[item.field_type] = { key, samples: [] };
-              if (fieldMap[item.field_type].samples.length < 3)
-                fieldMap[item.field_type].samples.push(item);
+              if (fieldMap[item.field_type].samples.length < 2) fieldMap[item.field_type].samples.push(item);
             }
           }
         } else if (val && typeof val === 'object' && val.name) {
           const ft = 'OBJECT:' + key;
           if (!fieldMap[ft]) fieldMap[ft] = { key, samples: [] };
-          if (fieldMap[ft].samples.length < 3) fieldMap[ft].samples.push(val);
-        } else if (typeof val === 'string' && val) {
+          if (fieldMap[ft].samples.length < 2) fieldMap[ft].samples.push(val);
+        } else if (typeof val === 'string' && val && val !== 'on') {
           const ft = 'STRING:' + key;
           if (!fieldMap[ft]) fieldMap[ft] = { key, samples: [] };
-          if (fieldMap[ft].samples.length < 3) fieldMap[ft].samples.push(val);
+          if (fieldMap[ft].samples.length < 2) fieldMap[ft].samples.push(val);
         }
       }
     }
-    return json({ field_types: fieldMap, first_person_raw: people?.[0] });
+    return json({ profile_fields: profileFields, field_types_in_members: fieldMap, sample_member: members[0] });
   }
 
   // ── Breeze Import ────────────────────────────────────────────────
