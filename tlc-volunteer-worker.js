@@ -13803,28 +13803,37 @@ async function handleChmsApi(req, env, url, method, seg) {
             }
             tagsSynced++;
           }
-          // 2. For each tag, fetch its members and sync person_tags
+          // 2. For each tag, fetch members via /api/people?tag_id=X and sync person_tags
           for (const t of allTags) {
             const bTagId = String(t.id);
             const tagRow = await db.prepare('SELECT id FROM tags WHERE breeze_id=?').bind(bTagId).first();
             if (!tagRow) continue;
             const localTagId = tagRow.id;
-            // Try list_members endpoint
-            const memRes = await fetch(`https://${subdomain}.breezechms.com/api/tags/list_members?tag_id=${bTagId}`, { headers: { 'Api-key': apiKey } });
-            const memText = await memRes.text();
-            if (!memText || !memText.trim()) continue;
-            let members = [];
-            try { members = JSON.parse(memText); } catch { continue; }
-            if (!Array.isArray(members)) continue;
-            for (const m of members) {
-              const bPersonId = String(m.id || m.person_id || '');
-              if (!bPersonId) continue;
-              const personRow = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(bPersonId).first();
-              if (!personRow) continue;
-              try {
-                await db.prepare('INSERT OR IGNORE INTO person_tags (person_id, tag_id) VALUES (?,?)').bind(personRow.id, localTagId).run();
-                tagAssignments++;
-              } catch {}
+            let tagOffset = 0;
+            const tagLimit = 500;
+            while (true) {
+              const memRes = await fetch(
+                `https://${subdomain}.breezechms.com/api/people?tag_id=${bTagId}&limit=${tagLimit}&offset=${tagOffset}`,
+                { headers: { 'Api-key': apiKey } }
+              );
+              const memText = await memRes.text();
+              if (!memText || !memText.trim()) break;
+              let tagMembers = [];
+              try { tagMembers = JSON.parse(memText); } catch { break; }
+              if (!Array.isArray(tagMembers) || tagMembers.length === 0) break;
+              for (const m of tagMembers) {
+                if (!m.last_name || !m.last_name.trim()) continue; // skip organizations
+                const bPersonId = String(m.id || '');
+                if (!bPersonId) continue;
+                const personRow = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(bPersonId).first();
+                if (!personRow) continue;
+                try {
+                  await db.prepare('INSERT OR IGNORE INTO person_tags (person_id, tag_id) VALUES (?,?)').bind(personRow.id, localTagId).run();
+                  tagAssignments++;
+                } catch {}
+              }
+              if (tagMembers.length < tagLimit) break;
+              tagOffset += tagLimit;
             }
           }
         }
