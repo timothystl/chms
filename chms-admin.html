@@ -401,6 +401,19 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
     <div class="import-status" id="giving-all-status"></div>
   </div>
   <div class="import-card">
+    <h3>&#128260; Map Breeze Funds to Real Fund Names</h3>
+    <p>After the giving sync, imported funds show as "Breeze Fund XXXXXXX". Use this tool to reassign all their contributions to your real fund names, then remove the placeholders.</p>
+    <button class="btn-secondary" onclick="loadFundMapping()" style="margin-bottom:10px;">Load Fund Mapping</button>
+    <div id="fund-map-area" style="display:none;">
+      <table style="width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:10px;" id="fund-map-table">
+        <thead><tr style="text-align:left;border-bottom:1px solid #ccc;"><th style="padding:4px 8px;">Breeze Fund</th><th style="padding:4px 8px;">Gifts</th><th style="padding:4px 8px;">Total</th><th style="padding:4px 8px;">Map to &rarr;</th></tr></thead>
+        <tbody id="fund-map-rows"></tbody>
+      </table>
+      <button class="btn-primary" onclick="applyFundMapping()">Apply Mapping</button>
+    </div>
+    <div class="import-status" id="fund-map-status"></div>
+  </div>
+  <div class="import-card">
     <h3>&#128194; Import People (CSV)</h3>
     <p>Upload a CSV file exported from Breeze. Columns expected: first_name, last_name, email, phone, street_address, city, state, zip</p>
     <input type="file" id="csv-people-file" accept=".csv" style="display:block;margin-bottom:8px;">
@@ -1246,6 +1259,74 @@ function downloadStatement() {
 }
 
 // ── IMPORT ──────────────────────────────────────────────────────────────
+function loadFundMapping() {
+  var status = document.getElementById('fund-map-status');
+  status.textContent = 'Loading…'; status.className = 'import-status';
+  api('/admin/api/import/breeze-fund-list').then(function(d) {
+    var breezeFunds = d.breeze_funds || [];
+    var realFunds   = d.real_funds   || [];
+    if (!breezeFunds.length) {
+      status.textContent = 'No unmapped Breeze funds found — all done!';
+      status.className = 'import-status ok';
+      return;
+    }
+    // Options for merge-into-existing
+    var mergeOpts = realFunds.map(function(f) {
+      return '<option value="merge:' + f.id + '">Merge into: ' + esc(f.name) + '</option>';
+    }).join('');
+    var rows = breezeFunds.map(function(f) {
+      var amt = '$' + (f.total_cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+      return '<tr style="border-bottom:1px solid #eee;">'
+        + '<td style="padding:6px 8px;font-size:.82rem;">' + esc(f.name) + '<br><span style="color:#888;">' + f.gifts + ' gifts &bull; ' + amt + '</span></td>'
+        + '<td style="padding:6px 8px;">'
+        +   '<select data-from="' + f.id + '" style="font-size:.82rem;padding:2px 4px;width:100%;margin-bottom:4px;">'
+        +     '<option value="">— skip —</option>'
+        +     '<option value="rename">Rename to real name below</option>'
+        +     mergeOpts
+        +   '</select>'
+        +   '<input type="text" data-rename="' + f.id + '" placeholder="New fund name (if renaming)" style="font-size:.82rem;padding:2px 6px;width:100%;display:none;">'
+        + '</td></tr>';
+    }).join('');
+    document.getElementById('fund-map-rows').innerHTML = rows;
+    // Show/hide rename input when "Rename" selected
+    document.querySelectorAll('#fund-map-rows select').forEach(function(sel) {
+      sel.addEventListener('change', function() {
+        var inp = document.querySelector('input[data-rename="' + sel.dataset.from + '"]');
+        if (inp) inp.style.display = sel.value === 'rename' ? 'block' : 'none';
+      });
+    });
+    document.getElementById('fund-map-area').style.display = 'block';
+    status.textContent = breezeFunds.length + ' Breeze fund(s) need mapping. For each: rename it OR merge into an existing fund.';
+    status.className = 'import-status';
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
+function applyFundMapping() {
+  var status = document.getElementById('fund-map-status');
+  var selects = document.querySelectorAll('#fund-map-rows select');
+  var mappings = [];
+  selects.forEach(function(sel) {
+    var fromId = parseInt(sel.dataset.from);
+    var val = sel.value;
+    if (!val || val === '') return;
+    if (val === 'rename') {
+      var inp = document.querySelector('input[data-rename="' + sel.dataset.from + '"]');
+      var newName = inp ? inp.value.trim() : '';
+      if (newName) mappings.push({ from_id: fromId, rename: newName });
+    } else if (val.startsWith('merge:')) {
+      mappings.push({ from_id: fromId, to_id: parseInt(val.slice(6)) });
+    }
+  });
+  if (!mappings.length) { status.textContent = 'No mappings selected.'; status.className = 'import-status err'; return; }
+  status.textContent = 'Applying…'; status.className = 'import-status';
+  api('/admin/api/import/map-funds', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mappings:mappings})}).then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    status.textContent = 'Done! ' + (d.entries_moved||0) + ' contributions re-linked, ' + (d.renamed||0) + ' funds renamed. Reload to continue.';
+    status.className = 'import-status ok';
+    document.getElementById('fund-map-area').style.display = 'none';
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
 function runBreezeGivingSync() {
   var from = document.getElementById('giving-sync-from').value;
   var to = document.getElementById('giving-sync-to').value;

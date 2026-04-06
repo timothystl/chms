@@ -12237,6 +12237,8 @@ async function initDb(db) {
     'ALTER TABLE signups ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime(\'now\'))',
     // ChMS giving: breeze_id for deduplication on import
     'ALTER TABLE giving_entries ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
+    // ChMS giving: per-gift date (more accurate than batch_date for Breeze imports)
+    'ALTER TABLE giving_entries ADD COLUMN contribution_date TEXT NOT NULL DEFAULT ""',
     // ChMS tags: breeze_id to match Breeze tags on re-sync
     'ALTER TABLE tags ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
     // ChMS households: breeze_id to match Breeze family_id on re-sync
@@ -13303,8 +13305,10 @@ async function handleChmsApi(req, env, url, method, seg) {
     const rows = (await db.prepare(
       `SELECT f.name as fund_name, COUNT(ge.id) as contributions, COALESCE(SUM(ge.amount),0) as total_cents
        FROM funds f LEFT JOIN giving_entries ge ON ge.fund_id=f.id
-       LEFT JOIN giving_batches gb ON ge.batch_id=gb.id AND gb.batch_date BETWEEN ? AND ?
-       WHERE f.active=1 GROUP BY f.id ORDER BY f.sort_order, f.name`
+       LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+       WHERE f.active=1
+         AND COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) BETWEEN ? AND ?
+       GROUP BY f.id ORDER BY f.sort_order, f.name`
     ).bind(from,to).all()).results || [];
     const grand = rows.reduce((s,r) => s + r.total_cents, 0);
     return json({ from, to, rows, grand_total_cents: grand });
@@ -13317,18 +13321,20 @@ async function handleChmsApi(req, env, url, method, seg) {
     const person = await db.prepare('SELECT * FROM people WHERE id=?').bind(personId).first();
     if (!person) return json({ error: 'Person not found' }, 404);
     const entries = (await db.prepare(
-      `SELECT ge.amount, ge.method, ge.notes, f.name as fund_name, gb.batch_date
+      `SELECT ge.amount, ge.method, ge.notes, f.name as fund_name,
+              COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) as gift_date
        FROM giving_entries ge
        JOIN funds f ON ge.fund_id=f.id
        JOIN giving_batches gb ON ge.batch_id=gb.id
-       WHERE ge.person_id=? AND substr(gb.batch_date,1,4)=?
-       ORDER BY gb.batch_date, ge.id`
+       WHERE ge.person_id=?
+         AND substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),1,4)=?
+       ORDER BY gift_date, ge.id`
     ).bind(personId, String(year)).all()).results || [];
     const total = entries.reduce((s,e) => s + e.amount, 0);
     if (url.searchParams.get('format') === 'csv') {
       let csv = 'Date,Fund,Amount,Method\n';
       for (const e of entries) {
-        csv += `${e.batch_date},${e.fund_name},$${(e.amount/100).toFixed(2)},${e.method}\n`;
+        csv += `${e.gift_date},${e.fund_name},$${(e.amount/100).toFixed(2)},${e.method}\n`;
       }
       return new Response(csv, {
         headers: {
@@ -13638,7 +13644,59 @@ async function handleChmsApi(req, env, url, method, seg) {
     let logDParsed = null; try { logDParsed = JSON.parse(logDText); } catch {}
     results.log_with_details = { status: logDR.status, count: Array.isArray(logDParsed) ? logDParsed.length : null, sample: Array.isArray(logDParsed) ? logDParsed.slice(0, 3) : logDText.slice(0, 500) };
 
+    // Try undocumented Breeze fund endpoints
+    for (const path of ['giving/funds', 'funds', 'giving/list_funds', 'giving/fund']) {
+      try {
+        const r = await fetch(`https://${subdomain}.breezechms.com/api/${path}`, { headers: hdrs });
+        const t = await r.text();
+        let p = null; try { p = JSON.parse(t); } catch {}
+        results['fund_endpoint_' + path.replace('/','_')] = { status: r.status, body: t.slice(0, 300), parsed_count: Array.isArray(p) ? p.length : (p ? 'object' : null) };
+      } catch(e) { results['fund_endpoint_' + path.replace('/','_')] = { error: e.message }; }
+    }
     return json(results);
+  }
+
+  // ── Breeze Fund List (with giving totals for mapping UI) ─────────
+  if (seg === 'import/breeze-fund-list' && method === 'GET') {
+    const rows = (await db.prepare(
+      `SELECT f.id, f.name, f.breeze_id,
+              COUNT(ge.id) as gifts,
+              COALESCE(SUM(ge.amount),0) as total_cents
+       FROM funds f
+       LEFT JOIN giving_entries ge ON ge.fund_id=f.id
+       WHERE f.breeze_id != ''
+       GROUP BY f.id ORDER BY total_cents DESC`
+    ).all()).results || [];
+    const real = (await db.prepare(
+      "SELECT id, name FROM funds WHERE breeze_id='' OR breeze_id IS NULL ORDER BY sort_order, name"
+    ).all()).results || [];
+    return json({ breeze_funds: rows, real_funds: real });
+  }
+
+  // ── Fund Mapping (re-link or rename Breeze fund placeholders) ────
+  if (seg === 'import/map-funds' && method === 'POST') {
+    // Body: { mappings: [ { from_id: 5, to_id: 1, rename: 'General Fund' }, ... ] }
+    // to_id + rename both optional:
+    //   to_id set   → merge entries into existing fund, delete placeholder
+    //   rename set  → just rename the placeholder fund in place
+    let b = {}; try { b = await req.json(); } catch {}
+    const mappings = b.mappings || [];
+    if (!mappings.length) return json({ error: 'No mappings provided' }, 400);
+    let moved = 0, renamed = 0;
+    for (const { from_id, to_id, rename } of mappings) {
+      if (!from_id) continue;
+      if (to_id && to_id !== from_id) {
+        // Merge: move all entries to target fund, delete placeholder
+        const r = await db.prepare('UPDATE giving_entries SET fund_id=? WHERE fund_id=?').bind(to_id, from_id).run();
+        moved += r.meta?.changes ?? 0;
+        await db.prepare('DELETE FROM funds WHERE id=? AND breeze_id != ""').bind(from_id).run();
+      } else if (rename && rename.trim()) {
+        // Rename: update fund name and clear the breeze_id placeholder prefix
+        await db.prepare("UPDATE funds SET name=?, breeze_id='' WHERE id=?").bind(rename.trim(), from_id).run();
+        renamed++;
+      }
+    }
+    return json({ ok: true, entries_moved: moved, renamed });
   }
 
   // ── Breeze Giving Sync (via account/list_log) ────────────────────
@@ -13727,6 +13785,11 @@ async function handleChmsApi(req, env, url, method, seg) {
             'INSERT INTO giving_batches (batch_date, description, closed) VALUES (?,?,1)'
           ).bind(date, batchKey).run();
           batchByDesc[batchKey] = r.meta?.last_row_id;
+        } else {
+          // Update batch_date if it was set to wrong date (e.g. from a prior sync using range start)
+          await db.prepare(
+            "UPDATE giving_batches SET batch_date=? WHERE id=? AND (batch_date='' OR batch_date=?)"
+          ).bind(date, batchByDesc[batchKey], start).run();
         }
         const batchId = batchByDesc[batchKey];
 
@@ -13741,9 +13804,9 @@ async function handleChmsApi(req, env, url, method, seg) {
           }
           entryInserts.push(
             db.prepare(
-              `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,breeze_id)
-               VALUES (?,?,?,?,?,?,?,?)`
-            ).bind(batchId, personId, fundByBreezeId[fl.breezeFundId], cents, method, checkNum, notes, contribId)
+              `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,breeze_id,contribution_date)
+               VALUES (?,?,?,?,?,?,?,?,?)`
+            ).bind(batchId, personId, fundByBreezeId[fl.breezeFundId], cents, method, checkNum, notes, contribId, date)
           );
         }
         imported++;
@@ -16075,6 +16138,19 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
     <div class="import-status" id="giving-all-status"></div>
   </div>
   <div class="import-card">
+    <h3>&#128260; Map Breeze Funds to Real Fund Names</h3>
+    <p>After the giving sync, imported funds show as "Breeze Fund XXXXXXX". Use this tool to reassign all their contributions to your real fund names, then remove the placeholders.</p>
+    <button class="btn-secondary" onclick="loadFundMapping()" style="margin-bottom:10px;">Load Fund Mapping</button>
+    <div id="fund-map-area" style="display:none;">
+      <table style="width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:10px;" id="fund-map-table">
+        <thead><tr style="text-align:left;border-bottom:1px solid #ccc;"><th style="padding:4px 8px;">Breeze Fund</th><th style="padding:4px 8px;">Gifts</th><th style="padding:4px 8px;">Total</th><th style="padding:4px 8px;">Map to &rarr;</th></tr></thead>
+        <tbody id="fund-map-rows"></tbody>
+      </table>
+      <button class="btn-primary" onclick="applyFundMapping()">Apply Mapping</button>
+    </div>
+    <div class="import-status" id="fund-map-status"></div>
+  </div>
+  <div class="import-card">
     <h3>&#128194; Import People (CSV)</h3>
     <p>Upload a CSV file exported from Breeze. Columns expected: first_name, last_name, email, phone, street_address, city, state, zip</p>
     <input type="file" id="csv-people-file" accept=".csv" style="display:block;margin-bottom:8px;">
@@ -16920,6 +16996,74 @@ function downloadStatement() {
 }
 
 // ── IMPORT ──────────────────────────────────────────────────────────────
+function loadFundMapping() {
+  var status = document.getElementById('fund-map-status');
+  status.textContent = 'Loading…'; status.className = 'import-status';
+  api('/admin/api/import/breeze-fund-list').then(function(d) {
+    var breezeFunds = d.breeze_funds || [];
+    var realFunds   = d.real_funds   || [];
+    if (!breezeFunds.length) {
+      status.textContent = 'No unmapped Breeze funds found — all done!';
+      status.className = 'import-status ok';
+      return;
+    }
+    // Options for merge-into-existing
+    var mergeOpts = realFunds.map(function(f) {
+      return '<option value="merge:' + f.id + '">Merge into: ' + esc(f.name) + '</option>';
+    }).join('');
+    var rows = breezeFunds.map(function(f) {
+      var amt = '$' + (f.total_cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+      return '<tr style="border-bottom:1px solid #eee;">'
+        + '<td style="padding:6px 8px;font-size:.82rem;">' + esc(f.name) + '<br><span style="color:#888;">' + f.gifts + ' gifts &bull; ' + amt + '</span></td>'
+        + '<td style="padding:6px 8px;">'
+        +   '<select data-from="' + f.id + '" style="font-size:.82rem;padding:2px 4px;width:100%;margin-bottom:4px;">'
+        +     '<option value="">— skip —</option>'
+        +     '<option value="rename">Rename to real name below</option>'
+        +     mergeOpts
+        +   '</select>'
+        +   '<input type="text" data-rename="' + f.id + '" placeholder="New fund name (if renaming)" style="font-size:.82rem;padding:2px 6px;width:100%;display:none;">'
+        + '</td></tr>';
+    }).join('');
+    document.getElementById('fund-map-rows').innerHTML = rows;
+    // Show/hide rename input when "Rename" selected
+    document.querySelectorAll('#fund-map-rows select').forEach(function(sel) {
+      sel.addEventListener('change', function() {
+        var inp = document.querySelector('input[data-rename="' + sel.dataset.from + '"]');
+        if (inp) inp.style.display = sel.value === 'rename' ? 'block' : 'none';
+      });
+    });
+    document.getElementById('fund-map-area').style.display = 'block';
+    status.textContent = breezeFunds.length + ' Breeze fund(s) need mapping. For each: rename it OR merge into an existing fund.';
+    status.className = 'import-status';
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
+function applyFundMapping() {
+  var status = document.getElementById('fund-map-status');
+  var selects = document.querySelectorAll('#fund-map-rows select');
+  var mappings = [];
+  selects.forEach(function(sel) {
+    var fromId = parseInt(sel.dataset.from);
+    var val = sel.value;
+    if (!val || val === '') return;
+    if (val === 'rename') {
+      var inp = document.querySelector('input[data-rename="' + sel.dataset.from + '"]');
+      var newName = inp ? inp.value.trim() : '';
+      if (newName) mappings.push({ from_id: fromId, rename: newName });
+    } else if (val.startsWith('merge:')) {
+      mappings.push({ from_id: fromId, to_id: parseInt(val.slice(6)) });
+    }
+  });
+  if (!mappings.length) { status.textContent = 'No mappings selected.'; status.className = 'import-status err'; return; }
+  status.textContent = 'Applying…'; status.className = 'import-status';
+  api('/admin/api/import/map-funds', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mappings:mappings})}).then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    status.textContent = 'Done! ' + (d.entries_moved||0) + ' contributions re-linked, ' + (d.renamed||0) + ' funds renamed. Reload to continue.';
+    status.className = 'import-status ok';
+    document.getElementById('fund-map-area').style.display = 'none';
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
 function runBreezeGivingSync() {
   var from = document.getElementById('giving-sync-from').value;
   var to = document.getElementById('giving-sync-to').value;
