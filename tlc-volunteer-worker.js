@@ -16548,7 +16548,7 @@ window.addEventListener('load', function() {
   document.getElementById('rpt-from').value = y + '-01-01';
   document.getElementById('rpt-to').value = y + '-12-31';
   // Attendance date range defaults
-  document.getElementById('att-from').value = (y - 2) + '-01-01';
+  document.getElementById('att-from').value = (y - 5) + '-01-01';
   document.getElementById('att-to').value = y + '-12-31';
   // Giving sync defaults
   document.getElementById('giving-sync-from').value = y + '-01-01';
@@ -17571,7 +17571,10 @@ function renderAttendanceChart(services) {
 function renderAttendanceList(services) {
   var el = document.getElementById('att-list');
   if (!services.length) {
-    el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--warm-gray);font-size:.88rem;">No services recorded for this period.</div>';
+    el.innerHTML = '<div style="padding:32px 24px;text-align:center;background:var(--white);border:1px solid var(--border);border-radius:12px;">'
+      + '<div style="font-size:1rem;font-weight:600;color:var(--steel-anchor);margin-bottom:8px;">No services recorded for this period.</div>'
+      + '<div style="font-size:.85rem;color:var(--warm-gray);margin-bottom:16px;">Click <strong>+ Add Sunday</strong> to enter attendance manually, or <strong>Seed Sundays for Year</strong> to pre-populate the calendar. You can also widen the date filter above if you have older data.</div>'
+      + '</div>';
     return;
   }
   // Group by date
