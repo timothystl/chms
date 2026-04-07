@@ -13842,7 +13842,6 @@ async function handleChmsApi(req, env, url, method, seg) {
 
   // ── Breeze Giving CSV Import ─────────────────────────────────────
   // Accepts the TSV export from Breeze (Contributions > Export)
-  // Columns: Date, Batch, Payment ID, Person ID, First Name, Last Name, Amount, Fund(s)
   // Fund(s) format: "40085 General Fund" or "40085 General Fund (160.00), 49094 Tuition Aid (40.00)"
   if (seg === 'import/breeze-giving-csv' && method === 'POST') {
     let b = {}; try { b = await req.json(); } catch {}
@@ -13856,10 +13855,23 @@ async function handleChmsApi(req, env, url, method, seg) {
     const delim = lines[0].includes('\t') ? '\t' : ',';
     const header = lines[0].split(delim).map(h => h.trim().toLowerCase().replace(/['"]/g, ''));
     const col = name => header.findIndex(h => h === name.toLowerCase());
-    const iDate = col('date'), iBatch = col('batch'), iPaymentId = col('payment id');
+    const iDate = col('date'), iPaymentId = col('payment id');
     const iPersonId = col('person id'), iAmount = col('amount'), iFunds = col('fund(s)');
+    // "Batch Number" in newer exports, "Batch" in older ones
+    const iBatch = col('batch number') >= 0 ? col('batch number') : col('batch');
+    // Optional columns present in newer exports
+    const iMethod = col('method'), iCheckNum = col('check number'), iNote = col('note');
     if ([iDate, iBatch, iPaymentId, iAmount, iFunds].some(i => i < 0))
-      return json({ error: 'Missing columns. Expected: Date, Batch, Payment ID, Amount, Fund(s)' }, 400);
+      return json({ error: 'Missing columns. Expected: Date, Batch/Batch Number, Payment ID, Amount, Fund(s)' }, 400);
+
+    const parseMethod = t => {
+      const s = (t || '').toLowerCase();
+      if (s === 'cash') return 'cash';
+      if (s.startsWith('check')) return 'check';
+      if (s.includes('ach') || s.includes('bank') || s.includes('eft')) return 'ach';
+      if (s.includes('card') || s.includes('credit') || s.includes('online')) return 'card';
+      return 'other';
+    };
 
     // Parse "40085 General Fund" or "40085 General Fund (160.00), 49094 Tuition Aid (40.00)"
     const parseFunds = (fundsStr, totalStr) => {
@@ -13907,8 +13919,12 @@ async function handleChmsApi(req, env, url, method, seg) {
         const personBreezeId = iPersonId >= 0 ? (cols[iPersonId] || '').replace(/['"]/g, '').trim() : '';
         const amountStr = (cols[iAmount] || '').replace(/[$\s'"]/g, '');
         const fundsStr = (cols[iFunds] || '').replace(/^["']|["']$/g, '').trim();
+        const methodRaw = iMethod >= 0 ? (cols[iMethod] || '').replace(/['"]/g, '').trim() : '';
+        const checkNum = iCheckNum >= 0 ? (cols[iCheckNum] || '').replace(/['"]/g, '').trim() : '';
+        const note = iNote >= 0 ? (cols[iNote] || '').replace(/['"]/g, '').trim() : '';
 
         const totalAmount = parseFloat(amountStr) || 0;
+        const method = parseMethod(methodRaw);
         const personId = personBreezeId ? (personByBreezeId[personBreezeId] ?? null) : null;
         const batchKey = batchNum ? `Breeze Batch #${batchNum}` : `Breeze Import ${date}`;
 
@@ -13932,7 +13948,7 @@ async function handleChmsApi(req, env, url, method, seg) {
             db.prepare(
               `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,breeze_id,contribution_date)
                VALUES (?,?,?,?,?,?,?,?,?)`
-            ).bind(batchId, personId, fundByBreezeId[fl.breezeFundId], cents, 'other', '', '', paymentId, date)
+            ).bind(batchId, personId, fundByBreezeId[fl.breezeFundId], cents, method, checkNum, note, paymentId, date)
           );
         }
         imported++;
