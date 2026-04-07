@@ -13844,8 +13844,7 @@ async function handleChmsApi(req, env, url, method, seg) {
   // Accepts the TSV export from Breeze (Contributions > Export)
   // Fund(s) format: "40085 General Fund" or "40085 General Fund (160.00), 49094 Tuition Aid (40.00)"
   if (seg === 'import/breeze-giving-csv' && method === 'POST') {
-    let b = {}; try { b = await req.json(); } catch {}
-    const csvText = (b.csv || '').trim();
+    const csvText = (await req.text()).trim();
     if (!csvText) return json({ error: 'No CSV data provided' }, 400);
 
     const lines = csvText.split('\n').map(l => l.trimEnd()).filter(l => l.trim());
@@ -17306,13 +17305,12 @@ function importGivingCSV() {
   status.textContent = 'Reading file…'; status.className = 'import-status';
   var reader = new FileReader();
   reader.onload = function(e) {
-    var csv = e.target.result;
     status.textContent = 'Uploading…'; status.className = 'import-status';
-    api('/admin/api/import/breeze-giving-csv', {
+    fetch('/admin/api/import/breeze-giving-csv', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({csv: csv})
-    }).then(function(d) {
+      headers: {'Content-Type': 'text/plain'},
+      body: e.target.result
+    }).then(function(r) { return r.json(); }).then(function(d) {
       if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
       var msg = 'Done. ' + (d.imported||0) + ' contributions imported, ' + (d.skipped||0) + ' already existed (out of ' + (d.total||0) + ' rows).';
       if (d.errors && d.errors.length) msg += ' ' + d.errors.length + ' row error(s).';
