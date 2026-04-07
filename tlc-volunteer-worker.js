@@ -143,7 +143,11 @@ const DB_INIT = [
     notes         TEXT    NOT NULL DEFAULT '',
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_ws_date ON worship_services(service_date)`
+  `CREATE INDEX IF NOT EXISTS idx_ws_date ON worship_services(service_date)`,
+  `CREATE TABLE IF NOT EXISTS chms_config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+  )`
 ];
 
 // ── AUTH ─────────────────────────────────────────────────────────────
@@ -13680,6 +13684,22 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json(results);
   }
 
+  // ── ChMS Config ──────────────────────────────────────────────────
+  const DEFAULT_MEMBER_TYPES = ['Member','Associate','Friend','Visitor','Inactive','Organization'];
+  if (seg === 'config/member-types' && method === 'GET') {
+    const row = await db.prepare("SELECT value FROM chms_config WHERE key='member_types'").first();
+    const types = row ? JSON.parse(row.value) : DEFAULT_MEMBER_TYPES;
+    return json({ types });
+  }
+  if (seg === 'config/member-types' && method === 'PUT') {
+    let b = {}; try { b = await req.json(); } catch {}
+    const types = (b.types || []).map(t => String(t).trim()).filter(Boolean);
+    if (!types.length) return json({ error: 'At least one type required' }, 400);
+    await db.prepare("INSERT INTO chms_config(key,value) VALUES('member_types',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+      .bind(JSON.stringify(types)).run();
+    return json({ ok: true, types });
+  }
+
   // ── Breeze Fund List (with giving totals for mapping UI) ─────────
   if (seg === 'import/breeze-fund-list' && method === 'GET') {
     const rows = (await db.prepare(
@@ -16123,7 +16143,8 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
       <button class="pill" data-mt="inactive" onclick="setPeopleFilter(this,'inactive')">Inactive</button>
     </div>
     <div class="filter-pills" id="p-tag-pills" style="gap:4px;"></div>
-    <button class="btn-secondary" onclick="openTagsManager()" style="margin-left:auto;">&#9881; Tags</button>
+    <button class="btn-secondary" onclick="openTagsManager()">&#9881; Tags</button>
+    <button class="btn-secondary" onclick="openMemberTypesManager()" style="margin-left:auto;">&#9965; Member Types</button>
     <button class="btn-primary" onclick="openPersonEdit(null)">+ Add Person</button>
   </div>
   <div id="p-status" class="status-msg"></div>
@@ -16342,7 +16363,7 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
       <div class="field"><label>Email</label><input type="email" id="pm-email"></div>
       <div class="field"><label>Phone</label><input type="tel" id="pm-phone"></div>
     </div>
-    <div class="modal-section">Address <span style="font-weight:400;text-transform:none;">(leave blank to use household address)</span></div>
+    <div class="modal-section" id="pm-addr-section">Address <span id="pm-addr-hint" style="font-weight:400;text-transform:none;">(leave blank to use household address)</span></div>
     <div class="field" style="margin-bottom:8px;"><label>Street</label><input type="text" id="pm-addr1"></div>
     <div class="modal-2col">
       <div class="field"><label>City</label><input type="text" id="pm-city"></div>
@@ -16353,27 +16374,29 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
       <div class="field"><label>Member Type</label>
         <select id="pm-type" onchange="updatePersonNameMode()"><option value="member">Member</option><option value="associate">Associate</option><option value="friend">Friend</option><option value="visitor" selected>Visitor</option><option value="inactive">Inactive</option><option value="organization">Organization</option></select>
       </div>
-      <div class="field"><label>Family Role</label>
+      <div class="field" id="pm-role-field"><label>Family Role</label>
         <select id="pm-role"><option value="">—</option><option value="head">Head</option><option value="spouse">Spouse</option><option value="child">Child</option><option value="other">Other</option></select>
       </div>
     </div>
-    <div class="field" style="margin-bottom:8px;"><label>Household</label>
+    <div class="field" id="pm-hh-field" style="margin-bottom:8px;"><label>Household</label>
       <div class="ac-wrap"><input type="text" id="pm-hh-search" placeholder="Search household…" oninput="acHouseholdSearch()"><div class="ac-dropdown" id="pm-hh-ac"></div></div>
       <input type="hidden" id="pm-hh-id">
     </div>
-    <div class="modal-section">Dates</div>
-    <div class="modal-2col">
-      <div class="field"><label>Date of Birth</label><input type="date" id="pm-dob"></div>
-      <div class="field"><label>Baptism</label><input type="date" id="pm-baptism"></div>
-      <div class="field"><label>Confirmation</label><input type="date" id="pm-confirm"></div>
-      <div class="field"><label>Anniversary</label><input type="date" id="pm-anniv"></div>
-      <div class="field"><label>Death Date</label><input type="date" id="pm-death"></div>
-    </div>
-    <div style="margin-bottom:10px;">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem;">
-        <input type="checkbox" id="pm-deceased" onchange="document.getElementById('pm-death-row').style.display=this.checked?'':'none'">
-        Mark as deceased
-      </label>
+    <div id="pm-dates-section">
+      <div class="modal-section">Dates</div>
+      <div class="modal-2col">
+        <div class="field"><label>Date of Birth</label><input type="date" id="pm-dob"></div>
+        <div class="field"><label>Baptism</label><input type="date" id="pm-baptism"></div>
+        <div class="field"><label>Confirmation</label><input type="date" id="pm-confirm"></div>
+        <div class="field"><label>Anniversary</label><input type="date" id="pm-anniv"></div>
+        <div class="field"><label>Death Date</label><input type="date" id="pm-death"></div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem;">
+          <input type="checkbox" id="pm-deceased">
+          Mark as deceased
+        </label>
+      </div>
     </div>
     <div class="modal-section">Tags</div>
     <div class="tag-picker" id="pm-tag-picker"></div>
@@ -16433,6 +16456,19 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
       <button class="btn-primary" onclick="createTag()">Add Tag</button>
     </div>
     <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('tags-modal')">Close</button></div>
+  </div>
+</div>
+<!-- Member Types manager modal -->
+<div class="modal-overlay" id="member-types-modal">
+  <div class="modal">
+    <h2>Member Types</h2>
+    <p style="font-size:.85rem;color:var(--warm-gray);margin-bottom:12px;">Add or remove the types available in the Member Type dropdown. Removing a type won't change existing people — they'll still have that type until edited.</p>
+    <div id="member-types-list" style="margin-bottom:14px;"></div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input type="text" id="new-type-name" placeholder="New type name…" style="flex:1;font-size:.88rem;">
+      <button class="btn-primary" onclick="addMemberType()">Add</button>
+    </div>
+    <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('member-types-modal')">Close</button></div>
   </div>
 </div>
 <script>
@@ -16529,6 +16565,7 @@ window.addEventListener('load', function() {
   }
   loadTags();
   loadFunds();
+  loadMemberTypes();
   loadPeople();
 });
 
@@ -16586,6 +16623,58 @@ function createTag() {
 function deleteTag(id) {
   if (!confirm('Delete this tag? It will be removed from all people.')) return;
   api('/admin/api/tags/' + id, {method:'DELETE'}).then(function() { openTagsManager(); });
+}
+
+// ── MEMBER TYPES ──────────────────────────────────────────────────────
+var _memberTypes = ['Member','Associate','Friend','Visitor','Inactive','Organization'];
+function loadMemberTypes() {
+  api('/admin/api/config/member-types').then(function(d) {
+    _memberTypes = d.types || _memberTypes;
+    refreshMemberTypeSelect();
+  });
+}
+function refreshMemberTypeSelect() {
+  var sel = document.getElementById('pm-type');
+  if (!sel) return;
+  var cur = sel.value;
+  sel.innerHTML = _memberTypes.map(function(t) {
+    var v = t.toLowerCase().replace(/\s+/g,'-');
+    return '<option value="' + v + '"' + (v===cur?' selected':'') + '>' + esc(t) + '</option>';
+  }).join('');
+  updatePersonNameMode();
+}
+function openMemberTypesManager() {
+  openModal('member-types-modal');
+  renderMemberTypesList();
+}
+function renderMemberTypesList() {
+  document.getElementById('member-types-list').innerHTML = _memberTypes.map(function(t, i) {
+    return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--linen);">'
+      + '<span style="flex:1;font-size:.9rem;">' + esc(t) + '</span>'
+      + '<button onclick="deleteMemberType(' + i + ')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:.85rem;">&#10005;</button>'
+      + '</div>';
+  }).join('');
+}
+function addMemberType() {
+  var name = document.getElementById('new-type-name').value.trim();
+  if (!name) return;
+  if (_memberTypes.some(function(t){return t.toLowerCase()===name.toLowerCase();})) {
+    alert('That type already exists.'); return;
+  }
+  _memberTypes = _memberTypes.concat([name]);
+  document.getElementById('new-type-name').value = '';
+  saveMemberTypes();
+}
+function deleteMemberType(idx) {
+  if (_memberTypes.length <= 1) { alert('Must have at least one member type.'); return; }
+  _memberTypes = _memberTypes.filter(function(_,i){return i!==idx;});
+  saveMemberTypes();
+}
+function saveMemberTypes() {
+  api('/admin/api/config/member-types', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({types:_memberTypes})}).then(function() {
+    refreshMemberTypeSelect();
+    renderMemberTypesList();
+  });
 }
 
 // ── FUNDS ──────────────────────────────────────────────────────────────
@@ -16750,6 +16839,10 @@ function updatePersonNameMode() {
   var isOrg = document.getElementById('pm-type').value === 'organization';
   document.getElementById('pm-name-2col').style.display = isOrg ? 'none' : '';
   document.getElementById('pm-name-1col').style.display = isOrg ? '' : 'none';
+  document.getElementById('pm-role-field').style.display = isOrg ? 'none' : '';
+  document.getElementById('pm-hh-field').style.display = isOrg ? 'none' : '';
+  document.getElementById('pm-dates-section').style.display = isOrg ? 'none' : '';
+  document.getElementById('pm-addr-hint').style.display = isOrg ? 'none' : '';
 }
 function savePerson() {
   var id = document.getElementById('pm-id').value;
