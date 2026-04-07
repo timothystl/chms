@@ -16152,6 +16152,7 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
     <div class="hdr-sub">Member directory, households, and giving records</div>
   </div>
   <div class="hdr-actions">
+    <span style="font-size:.7rem;color:var(--warm-gray);align-self:center;" id="deploy-ver"></span>
     <a href="/admin" class="btn-sm">&#8592; Volunteers</a>
     <a href="/admin/logout" class="btn-sm">Sign Out</a>
   </div>
@@ -16505,6 +16506,16 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
   </div>
 </div>
 <script>
+// ── DEPLOY VERSION ───────────────────────────────────────────────────
+var DEPLOY_VERSION = '2026-04-07-v5';
+window.onerror = function(msg, src, line, col, err) {
+  var b = document.getElementById('js-error-banner');
+  if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
+    b.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#c0392b;color:#fff;padding:10px 16px;font-size:.82rem;z-index:99999;font-family:monospace;';
+    document.body.appendChild(b); }
+  b.textContent = 'JS Error: ' + msg + ' (line ' + line + ')';
+  return false;
+};
 // ── STATE ────────────────────────────────────────────────────────────
 var allTags = [], allFunds = [], currentBatchId = null, peopleFilter = {q:'',mt:'',tagId:'',offset:0,limit:100};
 var _peopleTotal = 0;
@@ -16596,6 +16607,8 @@ window.addEventListener('load', function() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js', {scope: '/'}).catch(function(){});
   }
+  var dv = document.getElementById('deploy-ver');
+  if (dv) dv.textContent = 'v' + DEPLOY_VERSION;
   loadTags();
   loadFunds();
   loadMemberTypes();
