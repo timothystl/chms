@@ -12247,6 +12247,9 @@ async function initDb(db) {
     'ALTER TABLE worship_services ADD COLUMN breeze_instance_id TEXT NOT NULL DEFAULT ""',
     // funds: breeze_id to match Breeze fund IDs during giving sync
     'ALTER TABLE funds ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
+    // people: deceased flag and death date
+    'ALTER TABLE people ADD COLUMN deceased INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE people ADD COLUMN death_date TEXT NOT NULL DEFAULT ""',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
@@ -13024,13 +13027,13 @@ async function handleChmsApi(req, env, url, method, seg) {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const r = await db.prepare(
       `INSERT INTO people (first_name,last_name,email,phone,address1,address2,city,state,zip,
-       member_type,dob,baptism_date,confirmation_date,anniversary_date,household_id,
-       family_role,photo_url,notes,breeze_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       member_type,dob,baptism_date,confirmation_date,anniversary_date,death_date,deceased,
+       household_id,family_role,photo_url,notes,breeze_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
            b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
            b.member_type||'visitor',b.dob||'',b.baptism_date||'',
-           b.confirmation_date||'',b.anniversary_date||'',
+           b.confirmation_date||'',b.anniversary_date||'',b.death_date||'',b.deceased?1:0,
            b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',b.breeze_id||''
     ).run();
     const personId = r.meta?.last_row_id;
@@ -13066,11 +13069,11 @@ async function handleChmsApi(req, env, url, method, seg) {
       await db.prepare(
         `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,address1=?,address2=?,
          city=?,state=?,zip=?,member_type=?,dob=?,baptism_date=?,confirmation_date=?,
-         anniversary_date=?,household_id=?,family_role=?,photo_url=?,notes=? WHERE id=?`
+         anniversary_date=?,death_date=?,deceased=?,household_id=?,family_role=?,photo_url=?,notes=? WHERE id=?`
       ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
              b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
              b.member_type||'visitor',b.dob||'',b.baptism_date||'',
-             b.confirmation_date||'',b.anniversary_date||'',
+             b.confirmation_date||'',b.anniversary_date||'',b.death_date||'',b.deceased?1:0,
              b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',pid
       ).run();
       if (Array.isArray(b.tag_ids)) {
@@ -16326,9 +16329,12 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
     <h2 id="person-modal-title">Add Person</h2>
     <input type="hidden" id="pm-id">
     <div class="modal-section">Name</div>
-    <div class="modal-2col">
+    <div id="pm-name-2col" class="modal-2col">
       <div class="field"><label>First Name</label><input type="text" id="pm-first"></div>
       <div class="field"><label>Last Name</label><input type="text" id="pm-last"></div>
+    </div>
+    <div id="pm-name-1col" style="display:none;">
+      <div class="field"><label>Name</label><input type="text" id="pm-org-name" style="width:100%;"></div>
     </div>
     <div class="modal-section">Contact</div>
     <div class="modal-2col">
@@ -16344,7 +16350,7 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
     <div class="modal-section">Church Info</div>
     <div class="modal-2col">
       <div class="field"><label>Member Type</label>
-        <select id="pm-type"><option value="member">Member</option><option value="associate">Associate</option><option value="friend">Friend</option><option value="visitor" selected>Visitor</option><option value="inactive">Inactive</option></select>
+        <select id="pm-type" onchange="updatePersonNameMode()"><option value="member">Member</option><option value="associate">Associate</option><option value="friend">Friend</option><option value="visitor" selected>Visitor</option><option value="inactive">Inactive</option><option value="organization">Organization</option></select>
       </div>
       <div class="field"><label>Family Role</label>
         <select id="pm-role"><option value="">—</option><option value="head">Head</option><option value="spouse">Spouse</option><option value="child">Child</option><option value="other">Other</option></select>
@@ -16360,6 +16366,13 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
       <div class="field"><label>Baptism</label><input type="date" id="pm-baptism"></div>
       <div class="field"><label>Confirmation</label><input type="date" id="pm-confirm"></div>
       <div class="field"><label>Anniversary</label><input type="date" id="pm-anniv"></div>
+      <div class="field"><label>Death Date</label><input type="date" id="pm-death"></div>
+    </div>
+    <div style="margin-bottom:10px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem;">
+        <input type="checkbox" id="pm-deceased" onchange="document.getElementById('pm-death-row').style.display=this.checked?'':'none'">
+        Mark as deceased
+      </label>
     </div>
     <div class="modal-section">Tags</div>
     <div class="tag-picker" id="pm-tag-picker"></div>
@@ -16659,7 +16672,7 @@ function renderPeopleMobile(people) {
     var mapUrl = addr ? 'https://maps.apple.com/?q=' + encodeURIComponent(addr) : '';
     return '<div class="c-card">'
       + '<div class="c-avatar">' + (p.photo_url ? '<img src="' + esc(p.photo_url) + '" alt="">' : initials(p.first_name, p.last_name)) + '</div>'
-      + '<div class="c-info"><div class="c-name">' + esc(p.first_name) + ' ' + esc(p.last_name) + '</div>'
+      + '<div class="c-info"><div class="c-name">' + esc(p.first_name) + (p.last_name ? ' ' + esc(p.last_name) : '') + (p.deceased ? ' <span style="font-size:.72rem;color:#888;font-weight:400;">&#x271D; d. ' + (p.death_date||'') + '</span>' : '') + '</div>'
       + '<div class="c-type">' + esc(p.member_type||'visitor') + '</div>'
       + (p.phone ? '<a href="tel:' + esc(p.phone.replace(/\\D/g,'')) + '" class="c-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.37 1.18 2 2 0 012.34 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.72 6.72l1.28-.78a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>' + esc(p.phone) + '</a>' : '')
       + (addr && mapUrl ? '<a href="' + esc(mapUrl) + '" class="c-link" target="_blank"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>' + esc(addr) + '</a>' : '')
@@ -16686,11 +16699,15 @@ function openPersonEdit(p) {
   document.getElementById('pm-state').value = isNew ? 'MO' : (p.state||'MO');
   document.getElementById('pm-zip').value = isNew ? '' : (p.zip||'');
   document.getElementById('pm-type').value = isNew ? 'visitor' : (p.member_type||'visitor');
+  updatePersonNameMode();
+  if (!isNew && p.member_type === 'organization') document.getElementById('pm-org-name').value = p.first_name||'';
   document.getElementById('pm-role').value = isNew ? '' : (p.family_role||'');
   document.getElementById('pm-dob').value = isNew ? '' : (p.dob||'');
   document.getElementById('pm-baptism').value = isNew ? '' : (p.baptism_date||'');
   document.getElementById('pm-confirm').value = isNew ? '' : (p.confirmation_date||'');
   document.getElementById('pm-anniv').value = isNew ? '' : (p.anniversary_date||'');
+  document.getElementById('pm-death').value = isNew ? '' : (p.death_date||'');
+  document.getElementById('pm-deceased').checked = !isNew && !!p.deceased;
   document.getElementById('pm-notes').value = isNew ? '' : (p.notes||'');
   document.getElementById('pm-hh-search').value = isNew ? '' : (p.household_name||'');
   document.getElementById('pm-hh-id').value = isNew ? '' : (p.household_id||'');
@@ -16728,11 +16745,20 @@ function getSelectedTagIds() {
   });
   return ids;
 }
+function updatePersonNameMode() {
+  var isOrg = document.getElementById('pm-type').value === 'organization';
+  document.getElementById('pm-name-2col').style.display = isOrg ? 'none' : '';
+  document.getElementById('pm-name-1col').style.display = isOrg ? '' : 'none';
+}
 function savePerson() {
   var id = document.getElementById('pm-id').value;
+  var isOrg = document.getElementById('pm-type').value === 'organization';
+  var first_name = isOrg ? document.getElementById('pm-org-name').value.trim()
+                         : document.getElementById('pm-first').value.trim();
+  var last_name  = isOrg ? '' : document.getElementById('pm-last').value.trim();
   var data = {
-    first_name: document.getElementById('pm-first').value.trim(),
-    last_name: document.getElementById('pm-last').value.trim(),
+    first_name: first_name,
+    last_name: last_name,
     email: document.getElementById('pm-email').value.trim(),
     phone: document.getElementById('pm-phone').value.trim(),
     address1: document.getElementById('pm-addr1').value.trim(),
@@ -16746,10 +16772,12 @@ function savePerson() {
     baptism_date: document.getElementById('pm-baptism').value,
     confirmation_date: document.getElementById('pm-confirm').value,
     anniversary_date: document.getElementById('pm-anniv').value,
+    death_date: document.getElementById('pm-death').value,
+    deceased: document.getElementById('pm-deceased').checked ? 1 : 0,
     notes: document.getElementById('pm-notes').value,
     tag_ids: getSelectedTagIds()
   };
-  if (!data.first_name || !data.last_name) { alert('First and last name are required.'); return; }
+  if (!data.first_name || (!isOrg && !data.last_name)) { alert(isOrg ? 'Name is required.' : 'First and last name are required.'); return; }
   var url = id ? '/admin/api/people/' + id : '/admin/api/people';
   var meth = id ? 'PUT' : 'POST';
   api(url, {method:meth, headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(r) {
