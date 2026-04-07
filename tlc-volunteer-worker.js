@@ -13386,7 +13386,8 @@ async function handleChmsApi(req, env, url, method, seg) {
     if (type) { sql += ' AND service_type=?'; binds.push(type); }
     sql += ' ORDER BY service_date DESC, service_time ASC';
     const rows = (await db.prepare(sql).bind(...binds).all()).results || [];
-    return json({ services: rows });
+    const totalRow = await db.prepare('SELECT COUNT(*) as n FROM worship_services').first();
+    return json({ services: rows, total_in_db: totalRow?.n ?? 0 });
   }
 
   if (seg === 'attendance' && method === 'POST') {
@@ -13577,15 +13578,39 @@ async function handleChmsApi(req, env, url, method, seg) {
     const inserts = [];
     const attDelim = lines[0] && lines[0].includes('\t') ? '\t' : ',';
 
+    // Parse a date string from Breeze export into { date: 'YYYY-MM-DD', time: 'HH:MM' }
+    // Handles: '2023-04-02 08:00:00', '2023-04-02T08:00', '4/2/2023 8:00 AM', '04/02/2023'
+    const parseBreezeDatetime = (raw) => {
+      if (!raw) return null;
+      raw = raw.trim().replace(/^"/, '').replace(/"$/, '');
+      // ISO-style: 2023-04-02 or 2023-04-02T08:00
+      if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+        return { date: raw.slice(0, 10), time: raw.slice(11, 16) || '' };
+      }
+      // US-style: 4/2/2023 8:00 AM or 04/02/2023
+      const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})\s*(AM|PM)?)?/i);
+      if (m) {
+        const yyyy = m[3], mm = m[1].padStart(2,'0'), dd = m[2].padStart(2,'0');
+        let hh = parseInt(m[4] || '0'), min = (m[5] || '00');
+        const ampm = (m[6] || '').toUpperCase();
+        if (ampm === 'PM' && hh < 12) hh += 12;
+        if (ampm === 'AM' && hh === 12) hh = 0;
+        return { date: yyyy+'-'+mm+'-'+dd, time: hh.toString().padStart(2,'0')+':'+min };
+      }
+      return null;
+    };
+
     for (const line of dataLines) {
       const cols = line.split(attDelim);
       if (cols.length < 4) continue;
-      const instanceId = (cols[1] || '').trim();
-      const name       = (cols[2] || '').trim();
-      const startRaw   = (cols[3] || '').trim();
+      const instanceId = (cols[1] || '').trim().replace(/^"|"$/g,'');
+      const name       = (cols[2] || '').trim().replace(/^"|"$/g,'');
+      const startRaw   = (cols[3] || '').trim().replace(/^"|"$/g,'');
       if (!startRaw) continue;
-      const datePart = startRaw.slice(0, 10);
-      const timePart = startRaw.slice(11, 16);
+      const parsed = parseBreezeDatetime(startRaw);
+      if (!parsed) continue;
+      const datePart = parsed.date;
+      const timePart = parsed.time;
       if (datePart > today) { skippedFuture++; continue; }
       const cls = classifyService(name, timePart);
       if (!cls) { skipped++; continue; }
@@ -13603,7 +13628,10 @@ async function handleChmsApi(req, env, url, method, seg) {
     for (let i = 0; i < inserts.length; i += 100) {
       await db.batch(inserts.slice(i, i + 100));
     }
-    return json({ ok: true, imported, skipped, skippedFuture, total: dataLines.length });
+    const sampleLine = dataLines[0] || '';
+    const sampleCols = sampleLine.split(attDelim);
+    return json({ ok: true, imported, skipped, skippedFuture, total: dataLines.length,
+      sample: { raw: sampleLine.slice(0,120), col3: (sampleCols[3]||'').slice(0,40), parsed: parseBreezeDatetime((sampleCols[3]||'')) } });
   }
 
   // ── Breeze Attendance Count Sync ─────────────────────────────────
@@ -17513,8 +17541,10 @@ function importAttendanceTSV() {
       return r.json();
     }).then(function(d) {
       if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
-      status.textContent = 'Done. ' + d.imported + ' services imported, ' + d.skipped + ' skipped (duplicates/Vietnamese), ' + d.skippedFuture + ' future dates skipped.';
-      status.className = 'import-status ok';
+      var msg = 'Done. ' + d.imported + ' services imported, ' + d.skipped + ' skipped (duplicates/Vietnamese), ' + d.skippedFuture + ' future dates skipped. (' + d.total + ' data rows in file)';
+      if (d.sample) msg += ' | First row date parsed: "' + (d.sample.col3||'?') + '" → ' + (d.sample.parsed ? d.sample.parsed.date : 'FAILED');
+      status.textContent = msg;
+      status.className = d.imported > 0 ? 'import-status ok' : 'import-status err';
     }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
   };
   reader.readAsText(file);
@@ -17530,7 +17560,7 @@ function loadAttendance() {
   api(q).then(function(d) {
     _loadedServices = d.services || [];
     renderAttendanceChart(_loadedServices);
-    renderAttendanceList(_loadedServices);
+    renderAttendanceList(_loadedServices, d.total_in_db || 0);
   });
 }
 
@@ -17593,12 +17623,16 @@ function renderAttendanceChart(services) {
     +dots+xlbls+ylbls+'</svg>';
 }
 
-function renderAttendanceList(services) {
+function renderAttendanceList(services, totalInDb) {
   var el = document.getElementById('att-list');
   if (!services.length) {
+    var dbNote = totalInDb > 0
+      ? '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:6px;">&#9432; ' + totalInDb + ' service record(s) exist in the database — try widening the date filter to find them.</div>'
+      : '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:6px;">&#9432; No records in the database yet. Run the attendance import from the Import tab first.</div>';
     el.innerHTML = '<div style="padding:32px 24px;text-align:center;background:var(--white);border:1px solid var(--border);border-radius:12px;">'
       + '<div style="font-size:1rem;font-weight:600;color:var(--steel-anchor);margin-bottom:8px;">No services recorded for this period.</div>'
-      + '<div style="font-size:.85rem;color:var(--warm-gray);margin-bottom:16px;">Click <strong>+ Add Sunday</strong> to enter attendance manually, or <strong>Seed Sundays for Year</strong> to pre-populate the calendar. You can also widen the date filter above if you have older data.</div>'
+      + '<div style="font-size:.85rem;color:var(--warm-gray);margin-bottom:4px;">Click <strong>+ Add Sunday</strong> to enter attendance manually, or <strong>Seed Sundays for Year</strong> to pre-populate the calendar.</div>'
+      + dbNote
       + '</div>';
     return;
   }
