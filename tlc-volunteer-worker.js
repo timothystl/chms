@@ -16750,7 +16750,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-07-v6';
+var DEPLOY_VERSION = '2026-04-07-v7';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -16768,7 +16768,7 @@ var _hhOffset = 0, _hhTotal = 0;
 var _attOrder = 'desc', _attGroupBy = 'none';
 var _selectMode = false, _selectedPeople = new Set();
 var _churchConfig = {};
-var DEFAULT_LETTER_TEMPLATE = 'Dear {{name}},\n\nThank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.\n\nBelow is a summary of your giving for {{year}}:\n\n{{gift_table}}\n\nTotal Contributions: {{total}}\n\n{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}\n\nWith gratitude,\n\nTimothy Lutheran Church\n\nDate: {{date}}';
+var DEFAULT_LETTER_TEMPLATE = 'Dear {{name}},\\n\\nThank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.\\n\\nBelow is a summary of your giving for {{year}}:\\n\\n{{gift_table}}\\n\\nTotal Contributions: {{total}}\\n\\n{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}\\n\\nWith gratitude,\\n\\nTimothy Lutheran Church\\n\\nDate: {{date}}';
 
 // ── HELPERS ──────────────────────────────────────────────────────────
 function api(path, opts) {
@@ -17880,9 +17880,9 @@ function renderLetterHTML(d) {
     .replace(/\{\{ein\}\}/g, ein)
     .replace(/\{\{date\}\}/g, today)
     .replace(/\{\{gift_table\}\}/g, giftTable)
-    .replace(/\{\{#if_ein\}\}[\s\S]*?\{\{\/if_ein\}\}/g, ein ? einLine : '');
-  // Convert newlines to <br> for display
-  return letter.replace(/\n/g, '<br>');
+    .replace(/\{\{#if_ein\}\}[\\s\\S]*?\{\{\\/if_ein\}\}/g, ein ? einLine : '');
+  // Convert newlines to <br> for display (\\n → \n in output, matches actual newlines)
+  return letter.replace(/\\n/g, '<br>');
 }
 function runGivingStatementLetter() {
   if (!_stmtData) { alert('Run a giving statement first.'); return; }
