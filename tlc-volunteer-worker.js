@@ -17668,7 +17668,7 @@ function renderAttendanceList(services, totalInDb) {
     var sundayName = (s8.service_name || s1045.service_name || (rows[0]&&rows[0].service_name) || '');
     var dk = date.replace(/-/g,'_');
     html += '<div class="att-date-group">';
-    html += '<div class="att-date-hdr" onclick="toggleAttEdit(\''+dk+'\')">'
+    html += '<div class="att-date-hdr" onclick="toggleAttEdit(&#39;'+dk+'&#39;)">'
       + '<span style="font-weight:700;color:var(--steel-anchor);min-width:88px;">'+displayDate+'</span>'
       + (sundayName ? '<span style="font-size:.75rem;color:var(--warm-gray);">'+esc(sundayName)+'</span>' : '')
       + '<span style="flex:1;"></span>'
@@ -17697,9 +17697,9 @@ function renderAttendanceList(services, totalInDb) {
         + '</div>'
         + '<div style="margin-bottom:10px;"><input type="text" id="ainotes-'+dk+'" value="'+esc(s8.notes||s1045.notes||'')+'" placeholder="Notes…" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;"></div>'
         + '<div style="display:flex;gap:8px;">'
-        + '<button class="btn-primary" style="font-size:.82rem;padding:5px 14px;" onclick="saveInlineAttEdit(\''+dk+'\','+((s8.id)||'null')+','+((s1045.id)||'null')+')">Save</button>'
-        + '<button class="btn-secondary" style="font-size:.82rem;padding:5px 14px;" onclick="toggleAttEdit(\''+dk+'\')">Cancel</button>'
-        + (s8.id||s1045.id ? '<button class="btn-danger" style="font-size:.82rem;padding:5px 12px;margin-left:auto;" onclick="deleteAttDate(\''+dk+'\',['+[s8.id,s1045.id].filter(Boolean).join(',')+'])">Delete</button>' : '')
+        + '<button class="btn-primary" style="font-size:.82rem;padding:5px 14px;" onclick="saveInlineAttEdit(&#39;'+dk+'&#39;,'+((s8.id)||'null')+','+((s1045.id)||'null')+')">Save</button>'
+        + '<button class="btn-secondary" style="font-size:.82rem;padding:5px 14px;" onclick="toggleAttEdit(&#39;'+dk+'&#39;)">Cancel</button>'
+        + (s8.id||s1045.id ? '<button class="btn-danger" style="font-size:.82rem;padding:5px 12px;margin-left:auto;" onclick="deleteAttDate(&#39;'+dk+'&#39;,['+[s8.id,s1045.id].filter(Boolean).join(',')+'])">Delete</button>' : '')
         + '</div>';
     } else {
       html += rows.map(function(s){
@@ -17707,8 +17707,8 @@ function renderAttendanceList(services, totalInDb) {
           + '<input type="number" id="aisingle-'+s.id+'" min="0" value="'+(s.attendance||0)+'" style="width:120px;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:1rem;font-weight:700;"></div>';
       }).join('')
         + '<div style="display:flex;gap:8px;">'
-        + '<button class="btn-primary" style="font-size:.82rem;padding:5px 14px;" onclick="saveInlineSingle(['+rows.map(function(s){return s.id;}).join(',')+'],\''+dk+'\')">Save</button>'
-        + '<button class="btn-secondary" style="font-size:.82rem;padding:5px 14px;" onclick="toggleAttEdit(\''+dk+'\')">Cancel</button>'
+        + '<button class="btn-primary" style="font-size:.82rem;padding:5px 14px;" onclick="saveInlineSingle(['+rows.map(function(s){return s.id;}).join(',')+'],&#39;'+dk+'&#39;)">Save</button>'
+        + '<button class="btn-secondary" style="font-size:.82rem;padding:5px 14px;" onclick="toggleAttEdit(&#39;'+dk+'&#39;)">Cancel</button>'
         + '</div>';
     }
     html += '</div></div>'; // end form + group
@@ -17774,7 +17774,7 @@ function openNewSundayEntry() {
     + '<div><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--steel-anchor);">10:45am Attendance</label><input type="number" id="sf-att-1045" min="0" placeholder="0" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:1rem;font-weight:700;"></div>'
     + '</div>'
     + '<div style="margin-bottom:12px;"><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--warm-gray);">Notes</label><input type="text" id="sf-notes" placeholder="Optional" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;"></div>'
-    + '<div style="display:flex;gap:8px;"><button class="btn-primary" onclick="saveBulkSunday()">Save</button><button class="btn-secondary" onclick="document.getElementById(\'att-add-form\').style.display=\'none\'">Cancel</button></div>';
+    + '<div style="display:flex;gap:8px;"><button class="btn-primary" onclick="saveBulkSunday()">Save</button><button class="btn-secondary" onclick="document.getElementById(&#39;att-add-form&#39;).style.display=&#39;none&#39;">Cancel</button></div>';
   fetchSundayName(today);
 }
 
