@@ -13700,6 +13700,7 @@ async function handleChmsApi(req, env, url, method, seg) {
       const late = n.includes('(late)') || n.includes('7pm') || n.includes('19:');
       if (n.includes('sunday') && (n.includes('8am') || n.includes('8:00'))) return { type: 'sunday', time: '08:00' };
       if (n.includes('sunday') && (n.includes('10:45') || n.includes('10am'))) return { type: 'sunday', time: '10:45' };
+      if (n.includes('sunday') && (n.includes('combined') || n.includes('canva'))) return { type: 'sunday', time: '09:00', combo: true };
       if (n.includes('5pm') || n.includes('17:00')) return { type: n.includes('sunday') ? 'sunday' : 'midweek', time: '17:00' };
       if (n.includes('7pm') || n.includes('19:00')) return { type: n.includes('sunday') ? 'sunday' : 'midweek', time: '19:00' };
       const specialNames = ['maundy thursday','good friday','easter vigil','christmas day','installation','ordination','wedding','funeral'];
@@ -13716,18 +13717,37 @@ async function handleChmsApi(req, env, url, method, seg) {
     for (const r of (await db.prepare('SELECT id, service_date, service_time FROM worship_services').all()).results || [])
       existingMap[r.service_date + '|' + r.service_time] = r.id;
 
-    let imported = 0, updated = 0, skipped = 0;
-    const ops = [];
-    const seen = new Set();
+    // Pass 1: parse and classify all rows, group by date
+    let skipped = 0;
+    const byDateRows = {};
     for (const line of dataLines) {
       const cols = line.split(delim).map(c => c.trim().replace(/^"|"$/g, ''));
       if (cols.length < 3) continue;
       const date = cols[0], name = cols[1], att = parseInt(cols[2]) || 0;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { skipped++; continue; }
       const cls = classify(name);
+      if (!byDateRows[date]) byDateRows[date] = [];
+      byDateRows[date].push({ cls, name, att, date });
+    }
+
+    // Pass 2: for each date, drop combined-avg rows when split services exist
+    const filteredRows = [];
+    for (const [, rows] of Object.entries(byDateRows)) {
+      const hasSplit = rows.some(r => r.cls.time === '08:00' || r.cls.time === '10:45');
+      for (const r of rows) {
+        if (r.cls.combo && hasSplit) { skipped++; continue; }
+        filteredRows.push(r);
+      }
+    }
+
+    let imported = 0, updated = 0, combinedUsed = 0;
+    const ops = [];
+    const seen = new Set();
+    for (const { cls, name, att, date } of filteredRows) {
       const key = date + '|' + cls.time;
       if (seen.has(key)) { skipped++; continue; }
       seen.add(key);
+      if (cls.combo) combinedUsed++;
       const existingId = existingMap[key];
       if (existingId) {
         ops.push(db.prepare('UPDATE worship_services SET attendance=?,service_name=?,service_type=? WHERE id=?')
@@ -13741,7 +13761,7 @@ async function handleChmsApi(req, env, url, method, seg) {
       }
     }
     for (let i = 0; i < ops.length; i += 100) await db.batch(ops.slice(i, i + 100));
-    return json({ ok: true, imported, updated, skipped, total: dataLines.length });
+    return json({ ok: true, imported, updated, skipped, combinedUsed, total: dataLines.length });
   }
 
   // ── Breeze Attendance Count Sync ─────────────────────────────────
@@ -16899,7 +16919,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-08-v14';
+var DEPLOY_VERSION = '2026-04-08-v15';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -18445,7 +18465,9 @@ function importAttendanceSimple() {
     body: text
   }).then(function(d) {
     if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
-    status.textContent = 'Done — ' + d.imported + ' inserted, ' + d.updated + ' updated, ' + d.skipped + ' skipped.';
+    var msg = 'Done — ' + d.imported + ' inserted, ' + d.updated + ' updated, ' + d.skipped + ' skipped.';
+    if (d.combinedUsed) msg += ' (' + d.combinedUsed + ' combined-only Sundays stored as combined total)';
+    status.textContent = msg;
     status.className = 'import-status ok';
   }).catch(function(e) { status.textContent = 'Error: ' + e; status.className = 'import-status err'; });
 }
