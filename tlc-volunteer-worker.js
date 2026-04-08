@@ -16775,7 +16775,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-07-v7';
+var DEPLOY_VERSION = '2026-04-07-v8';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -17906,7 +17906,6 @@ function renderLetterHTML(d) {
     .replace(/\{\{date\}\}/g, today)
     .replace(/\{\{gift_table\}\}/g, giftTable)
     .replace(/\{\{#if_ein\}\}[\\s\\S]*?\{\{\\/if_ein\}\}/g, ein ? einLine : '');
-  // Convert newlines to <br> for display (\\n → \n in output, matches actual newlines)
   return letter.replace(/\\n/g, '<br>');
 }
 function runGivingStatementLetter() {
