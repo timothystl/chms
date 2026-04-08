@@ -16624,26 +16624,6 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       </div>
     </div>
   </div>
-  <div class="report-tiles" style="margin-top:0;border-top:1px solid var(--border);padding-top:16px;">
-    <div class="report-tile">
-      <div class="tile-icon">&#128101;</div>
-      <div class="tile-title">Attendance Year-over-Year</div>
-      <div class="tile-desc">
-        <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Select years to compare:</div>
-        <div id="rpt-att-years" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
-        <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runAttendanceSummary()">Run Report</button>
-      </div>
-    </div>
-    <div class="report-tile">
-      <div class="tile-icon">&#128337;</div>
-      <div class="tile-title">Attendance by Service</div>
-      <div class="tile-desc">
-        <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-att-from" style="font-size:.82rem;padding:4px 8px;"></div>
-        <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-att-to" style="font-size:.82rem;padding:4px 8px;"></div>
-        <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runAttendanceByTime()">Run Report</button>
-      </div>
-    </div>
-  </div>
   <div class="report-output" id="rpt-output"></div>
 </div>
 
@@ -16655,11 +16635,12 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
         <div class="att-stats-row" id="att-stats" style="flex:1;flex-wrap:wrap;"></div>
         <div style="display:flex;gap:4px;flex-shrink:0;padding-left:8px;">
-          <button class="btn-sm" id="att-mode-line" onclick="setAttChartMode(&#39;line&#39;)" style="padding:3px 8px;font-size:.75rem;" title="Line chart">Line</button>
+          <button class="btn-sm" id="att-mode-line" onclick="setAttChartMode(&#39;line&#39;)" style="padding:3px 8px;font-size:.75rem;" title="Weekly timeline">Line</button>
+          <button class="btn-sm" id="att-mode-yoy" onclick="setAttChartMode(&#39;yoy&#39;)" style="padding:3px 8px;font-size:.75rem;opacity:.55;" title="Year-over-year comparison">YoY</button>
           <button class="btn-sm" id="att-mode-bars" onclick="setAttChartMode(&#39;bars&#39;)" style="padding:3px 8px;font-size:.75rem;opacity:.55;" title="Monthly bars">Bars</button>
         </div>
       </div>
-      <div id="att-chart-wrap"></div>
+      <div id="att-chart-wrap" style="overflow-x:auto;overflow-y:hidden;"></div>
     </div>
     <!-- Controls row -->
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
@@ -16680,6 +16661,25 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     <div id="att-add-form" style="display:none;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:12px;"></div>
     <!-- Service list -->
     <div id="att-list"></div>
+    <!-- ── Inline Attendance Reports ── -->
+    <div style="margin-top:28px;border-top:2px solid var(--border);padding-top:20px;">
+      <div style="font-family:var(--font-head);font-size:1.05rem;font-weight:700;color:var(--steel-anchor);margin-bottom:16px;">Attendance Reports</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-bottom:16px;">
+        <div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;flex:1;min-width:220px;">
+          <div style="font-weight:700;font-size:.88rem;color:var(--steel-anchor);margin-bottom:6px;">&#128101; Year-over-Year</div>
+          <div style="font-size:.8rem;color:var(--warm-gray);margin-bottom:8px;">Select years to compare:</div>
+          <div id="rpt-att-years" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runAttendanceSummary()">Run Report</button>
+        </div>
+        <div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;flex:1;min-width:220px;">
+          <div style="font-weight:700;font-size:.88rem;color:var(--steel-anchor);margin-bottom:6px;">&#128337; Attendance by Service</div>
+          <div class="field" style="margin:6px 0 4px;"><label>From</label><input type="date" id="rpt-att-from" style="font-size:.82rem;padding:4px 8px;"></div>
+          <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-att-to" style="font-size:.82rem;padding:4px 8px;"></div>
+          <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runAttendanceByTime()">Run Report</button>
+        </div>
+      </div>
+      <div id="att-rpt-output" style="display:none;"></div>
+    </div>
   </div>
 </div>
 
@@ -16945,7 +16945,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-08-v16';
+var DEPLOY_VERSION = '2026-04-08-v17';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -17903,6 +17903,13 @@ function showRptOutput(html) {
   o.classList.add('visible');
   o.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
+function showAttRptOutput(html) {
+  var o = document.getElementById('att-rpt-output');
+  if (!o) return;
+  o.innerHTML = html;
+  o.style.display = 'block';
+  o.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
 function runMembership() {
   api('/admin/api/reports/membership').then(function(d) {
     var rows = (d.counts||[]).map(function(r) {
@@ -18544,10 +18551,10 @@ function toggleAttOrder() {
 }
 function setAttChartMode(m) {
   _attChartMode = m;
-  var bl = document.getElementById('att-mode-line');
-  var bb = document.getElementById('att-mode-bars');
-  if (bl) bl.style.opacity = m === 'line' ? '1' : '.55';
-  if (bb) bb.style.opacity = m === 'bars' ? '1' : '.55';
+  ['line','yoy','bars'].forEach(function(k){
+    var b = document.getElementById('att-mode-'+k);
+    if (b) b.style.opacity = m === k ? '1' : '.55';
+  });
   renderAttendanceChart(_loadedServices);
 }
 
@@ -18598,9 +18605,34 @@ function renderAttendanceChart(services) {
     +ytdHtml
     +'<div><div class="att-stat-val">'+dataPts.length+'</div><div class="att-stat-lbl">Sundays w/ Data</div></div>';
 
-  var W=800,H=160,pL=32,pR=10,pT=8,pB=28,cW=W-pL-pR,cH=H-pT-pB;
   var n=dataPts.length;
+  var H=210,pL=32,pR=12,pT=10,pB=30;
   var cw=document.getElementById('att-chart-wrap');
+
+  if (_attChartMode === 'yoy') {
+    // Build YoY data from loaded services
+    var byYM={}, yrsAll=[];
+    services.forEach(function(s){
+      if(s.service_type!=='sunday'||!s.attendance||s.service_date>today) return;
+      var yr2=s.service_date.slice(0,4), mo2=s.service_date.slice(5,7);
+      if(!byYM[yr2]){byYM[yr2]={};yrsAll.push(yr2);}
+      if(!byYM[yr2][mo2]){byYM[yr2][mo2]={sum:0,cnt:{}};}
+      byYM[yr2][mo2].sum+=s.attendance;
+      byYM[yr2][mo2].cnt[s.service_date]=1;
+    });
+    yrsAll=yrsAll.filter(function(v,i,a){return a.indexOf(v)===i;}).sort();
+    var dYoY={years:yrsAll, monthly:{}};
+    yrsAll.forEach(function(yr2){
+      dYoY.monthly[yr2]=[];
+      Object.keys(byYM[yr2]).sort().forEach(function(mo2){
+        var b=byYM[yr2][mo2], nSun=Object.keys(b.cnt).length;
+        dYoY.monthly[yr2].push({month:mo2, total:Math.round(b.sum/nSun)});
+      });
+    });
+    if(statsEl) statsEl.innerHTML='<span style="font-size:.82rem;color:var(--warm-gray);">Year-over-Year — avg Sunday attendance per month. Use date filter to choose years.</span>';
+    if(cw) cw.innerHTML=renderYoYChart(dYoY);
+    return;
+  }
 
   if (_attChartMode === 'bars') {
     var byMonth={}, bMonths=[];
@@ -18612,18 +18644,20 @@ function renderAttendanceChart(services) {
     var bVals=bMonths.map(function(m){return byMonth[m];});
     var maxV2=Math.max.apply(null,bVals)*1.1||1;
     var nb=bMonths.length;
+    var W=Math.max(800, nb*28); // scalable: 28px min per bar
+    var cH2=H-pT-pB;
     var slotW=(W-pL-pR)/nb;
     var barW=Math.max(4,Math.min(32,slotW*0.7));
     var px2=function(i){return pL+(i+0.5)*slotW;};
-    var py2=function(v){return pT+cH-(v/maxV2)*cH;};
-    var baseY=pT+cH;
+    var py2=function(v){return pT+cH2-(v/maxV2)*cH2;};
+    var baseY=pT+cH2;
     var grid2='',ylbls2='',xlbls2='',bars2='';
     [0,Math.round(maxV2*0.5/1.1),Math.round(maxV2/1.1)].forEach(function(v){
       var yy=py2(v);
       grid2+='<line x1="'+pL+'" y1="'+yy.toFixed(1)+'" x2="'+(W-pR)+'" y2="'+yy.toFixed(1)+'" stroke="#f0ece8" stroke-width="1"/>';
       ylbls2+='<text x="'+(pL-3)+'" y="'+(yy+3).toFixed(1)+'" text-anchor="end" fill="#9A8A78" font-size="9">'+Math.round(v)+'</text>';
     });
-    var stepB=Math.max(1,Math.ceil(nb/8));
+    var stepB=Math.max(1,Math.ceil(nb/10));
     for(var bi=0;bi<nb;bi+=stepB){
       var mp=bMonths[bi].split('-');
       xlbls2+='<text x="'+px2(bi).toFixed(1)+'" y="'+(H-5)+'" text-anchor="middle" fill="#9A8A78" font-size="9">'+MONTH_NAMES[parseInt(mp[1])-1]+' '+mp[0].slice(2)+'</text>';
@@ -18632,17 +18666,19 @@ function renderAttendanceChart(services) {
       var bx=px2(bi2),bv=byMonth[m],by=py2(bv),bh=baseY-by;
       return '<rect x="'+(bx-barW/2).toFixed(1)+'" y="'+by.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bh.toFixed(1)+'" fill="#2E7EA6" rx="2" opacity="0.85"><title>'+m+': '+bv+'</title></rect>';
     }).join('');
-    if(cw) cw.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:'+H+'px;">'+grid2+bars2+xlbls2+ylbls2+'</svg>';
+    if(cw) cw.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" style="min-width:'+W+'px;width:100%;height:'+H+'px;">'+grid2+bars2+xlbls2+ylbls2+'</svg>';
     return;
   }
 
+  var W=Math.max(800, n*10); // scalable: at least 10px per Sunday
+  var cW=W-pL-pR, cH=H-pT-pB;
   var maxV=Math.max.apply(null,vals)*1.1||1;
   var px=function(i){return pL+(i/(n>1?n-1:1))*cW;};
   var py=function(v){return pT+cH-(v/maxV)*cH;};
   var pts=dataPts.map(function(d,i){return [px(i),py(byDate[d])];});
   var line=pts.map(function(p,i){return(i?'L ':'M ')+p[0].toFixed(1)+','+p[1].toFixed(1);}).join(' ');
   var area=line+' L '+px(n-1).toFixed(1)+','+(pT+cH)+' L '+pL+','+(pT+cH)+' Z';
-  var step=Math.max(1,Math.ceil(n/7));
+  var step=Math.max(1,Math.ceil(n/10));
   var xlbls='',ylbls='',grid='';
   [0,Math.round(maxV*0.5/1.1),Math.round(maxV/1.1)].forEach(function(v){
     var yy=py(v);
@@ -18693,7 +18729,7 @@ function renderAttendanceChart(services) {
     +'<span style="display:flex;align-items:center;gap:4px;font-size:.75rem;color:var(--warm-gray);"><span style="display:inline-block;width:20px;height:2px;background:#2E7EA6;"></span>Weekly</span>'
     +(avgLine?'<span style="display:flex;align-items:center;gap:4px;font-size:.75rem;color:var(--warm-gray);"><span style="display:inline-block;width:20px;height:2px;background:#C9973A;border-top:2px dashed #C9973A;"></span>4-wk avg</span>':'')
     +'</div>';
-  if(cw) cw.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:'+H+'px;">'+grid
+  if(cw) cw.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" style="min-width:'+W+'px;width:100%;height:'+H+'px;">'+grid
     +'<path d="'+area+'" fill="rgba(46,126,166,0.12)"/>'
     +'<path d="'+line+'" fill="none" stroke="#2E7EA6" stroke-width="2" stroke-linejoin="round"/>'
     +avgLine+markers+dots+xlbls+ylbls+'</svg>'+avgLegend;
@@ -19009,7 +19045,7 @@ function runAttendanceSummary() {
     });
     html += '</tr></tbody></table>'
       + '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print</button></div>';
-    showRptOutput(html);
+    showAttRptOutput(html);
   });
 }
 
@@ -19036,7 +19072,7 @@ function runAttendanceByTime() {
       html += '</tbody></table>';
     }
     html += '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print</button></div>';
-    showRptOutput(html);
+    showAttRptOutput(html);
   });
 }
 </script>
