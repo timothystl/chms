@@ -13353,6 +13353,19 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json({ from, to, rows, grand_total_cents: grand });
   }
 
+  if (seg === 'reports/giving-by-method' && method === 'GET') {
+    const from = url.searchParams.get('from') || new Date().getFullYear() + '-01-01';
+    const to   = url.searchParams.get('to')   || new Date().getFullYear() + '-12-31';
+    const rows = (await db.prepare(
+      `SELECT ge.method, COUNT(ge.id) as contributions, COALESCE(SUM(ge.amount),0) as total_cents
+       FROM giving_entries ge
+       WHERE COALESCE(NULLIF(ge.contribution_date,''), (SELECT batch_date FROM giving_batches WHERE id=ge.batch_id)) BETWEEN ? AND ?
+       GROUP BY ge.method ORDER BY total_cents DESC`
+    ).bind(from,to).all()).results || [];
+    const grand = rows.reduce((s,r) => s + r.total_cents, 0);
+    return json({ from, to, rows, grand_total_cents: grand });
+  }
+
   if (seg === 'reports/giving-statement' && method === 'GET' && url.searchParams.get('list_givers') === '1') {
     const year = url.searchParams.get('year') || new Date().getFullYear();
     const givers = (await db.prepare(
@@ -14000,12 +14013,30 @@ async function handleChmsApi(req, env, url, method, seg) {
     for (const f of (await db.prepare('SELECT id, name FROM funds').all()).results || [])
       fundByName[f.name.toLowerCase().trim()] = f.id;
 
-    let imported = 0, skipped = 0, fundsMade = 0, batchesMade = 0;
+    let imported = 0, skipped = 0, skipBlank = 0, skipDup = 0, skipZero = 0, fundsMade = 0, batchesMade = 0;
     const ops = [];
+
+    // Parse "40085 General Fund: $160.00, 49094 Tuition Aid: $40.00" into per-fund splits
+    const parseFundSplits = (fundStr, totalCents) => {
+      const s = (fundStr || '').trim();
+      if (!s) return [{ name: 'General Fund', cents: totalCents }];
+      if (/:\s*\$?[0-9]/.test(s)) {
+        const parts = s.split(/,\s*(?=\S)/);
+        const splits = [];
+        for (const p of parts) {
+          const m = p.trim().match(/^((?:\d+\s+)?[^:]+?):\s*\$?([0-9.]+)\s*$/);
+          if (m) splits.push({ name: m[1].trim(), cents: Math.round(parseFloat(m[2]) * 100) });
+        }
+        if (splits.length > 1) return splits;
+        if (splits.length === 1) return [{ name: splits[0].name, cents: totalCents }];
+      }
+      return [{ name: s, cents: totalCents }];
+    };
 
     for (const row of dataRows) {
       const pid = String(row[C.paymentId] || '').trim();
-      if (!pid || existingIds.has(pid)) { skipped++; continue; }
+      if (!pid) { skipped++; skipBlank++; continue; }
+      if (existingIds.has(pid) || existingIds.has(pid + '-1')) { skipped++; skipDup++; continue; }
 
       const date      = parseDate(C.date >= 0 ? row[C.date] : '');
       const batchNum  = C.batchNum >= 0  ? (row[C.batchNum]  || '').trim() : '';
@@ -14013,12 +14044,12 @@ async function handleChmsApi(req, env, url, method, seg) {
       const personBId = C.personId >= 0  ? (row[C.personId]  || '').trim() : '';
       const amtStr    = (C.amount >= 0   ? row[C.amount]     : '0').replace(/[$, ]/g, '');
       const cents     = Math.round(parseFloat(amtStr || '0') * 100);
-      const fundName  = ((C.fund >= 0 ? row[C.fund] : '') || 'General Fund').trim() || 'General Fund';
+      const fundStr   = C.fund >= 0 ? (row[C.fund] || '') : '';
       const method    = payMethod(C.method >= 0 ? row[C.method] : '');
       const checkNum  = C.checkNumber >= 0 ? (row[C.checkNumber] || '') : '';
       const note      = C.note >= 0 ? (row[C.note] || '') : '';
 
-      if (cents <= 0) { skipped++; continue; }
+      if (cents <= 0) { skipped++; skipZero++; continue; }
 
       const personId = personByBreezeId[personBId] ?? null;
 
@@ -14036,21 +14067,26 @@ async function handleChmsApi(req, env, url, method, seg) {
         batchesMade++;
       }
 
-      // Get or create fund by name
-      const fundKey = fundName.toLowerCase().trim();
-      if (!fundByName[fundKey]) {
-        const r = await db.prepare(
-          "INSERT INTO funds (name, breeze_id, active, sort_order) VALUES (?,?,1,99)"
-        ).bind(fundName, '').run();
-        fundByName[fundKey] = r.meta?.last_row_id;
-        fundsMade++;
-      }
+      const fundSplits = parseFundSplits(fundStr, cents);
+      const isMulti = fundSplits.length > 1;
 
-      ops.push(db.prepare(
-        `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,breeze_id,contribution_date)
-         VALUES (?,?,?,?,?,?,?,?,?)`
-      ).bind(batchId, personId, fundByName[fundKey], cents, method, checkNum, note, pid, date));
-      existingIds.add(pid);
+      for (let si = 0; si < fundSplits.length; si++) {
+        const { name: fName, cents: fCents } = fundSplits[si];
+        const entryId = isMulti ? pid + '-' + (si + 1) : pid;
+        const fundKey = fName.toLowerCase().trim();
+        if (!fundByName[fundKey]) {
+          const r = await db.prepare(
+            "INSERT INTO funds (name, breeze_id, active, sort_order) VALUES (?,?,1,99)"
+          ).bind(fName, '').run();
+          fundByName[fundKey] = r.meta?.last_row_id;
+          fundsMade++;
+        }
+        ops.push(db.prepare(
+          `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,breeze_id,contribution_date)
+           VALUES (?,?,?,?,?,?,?,?,?)`
+        ).bind(batchId, personId, fundByName[fundKey], fCents, method, checkNum, note, entryId, date));
+        existingIds.add(entryId);
+      }
       imported++;
     }
 
@@ -14059,7 +14095,7 @@ async function handleChmsApi(req, env, url, method, seg) {
       'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
     ).run();
 
-    return json({ ok: true, imported, skipped, fundsMade, batchesMade, total: dataRows.length });
+    return json({ ok: true, imported, skipped, skipBlank, skipDup, skipZero, fundsMade, batchesMade, total: dataRows.length });
   }
 
   // ── Giving Reset ──────────────────────────────────────────────────
@@ -16720,6 +16756,15 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       </div>
     </div>
     <div class="report-tile">
+      <div class="tile-icon">&#128179;</div>
+      <div class="tile-title">Giving by Method</div>
+      <div class="tile-desc">
+        <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-method-from" style="font-size:.82rem;padding:4px 8px;"></div>
+        <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-method-to" style="font-size:.82rem;padding:4px 8px;"></div>
+        <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingByMethod()">Run Report</button>
+      </div>
+    </div>
+    <div class="report-tile">
       <div class="tile-icon">&#128196;</div>
       <div class="tile-title">Giving Statement</div>
       <div class="tile-desc">
@@ -17072,7 +17117,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-08-v22';
+var DEPLOY_VERSION = '2026-04-08-v23';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -18058,6 +18103,26 @@ function runMembership() {
     );
   });
 }
+function runGivingByMethod() {
+  var from = document.getElementById('rpt-method-from').value;
+  var to   = document.getElementById('rpt-method-to').value;
+  if (!from || !to) { alert('Please select a date range.'); return; }
+  api('/admin/api/reports/giving-by-method?from=' + from + '&to=' + to).then(function(d) {
+    var labels = { cash:'Cash', check:'Check', card:'Card / Online', ach:'ACH / Bank', other:'Other' };
+    var rows = (d.rows||[]).map(function(r) {
+      return '<tr><td>' + esc(labels[r.method] || r.method || 'Unknown') + '</td><td style="text-align:right;">' + (r.contributions||0) + '</td><td style="text-align:right;">' + fmtMoney(r.total_cents||0) + '</td></tr>';
+    }).join('');
+    showRptOutput(
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+      + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving by Method: ' + esc(fmtDate(from)) + ' \u2013 ' + esc(fmtDate(to)) + '</h3>'
+      + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
+      + '<table class="rpt-table"><thead><tr><th>Method</th><th style="text-align:right;">Gifts</th><th style="text-align:right;">Total</th></tr></thead><tbody>'
+      + rows
+      + '<tr class="rpt-total"><td>Total</td><td></td><td style="text-align:right;">' + fmtMoney(d.grand_total_cents||0) + '</td></tr>'
+      + '</tbody></table>'
+    );
+  });
+}
 function runGivingSummary() {
   var from = document.getElementById('rpt-from').value;
   var to = document.getElementById('rpt-to').value;
@@ -18590,12 +18655,19 @@ function importGivingCSV(file) {
     var chunks = [];
     for (var i = 0; i < dataLines.length; i += chunkSize)
       chunks.push(dataLines.slice(i, i + chunkSize));
-    var totImported = 0, totSkipped = 0, totBatches = 0, totFunds = 0;
+    var totImported = 0, totSkipped = 0, totBatches = 0, totFunds = 0, totBlank = 0, totDup = 0, totZero = 0;
     function sendChunk(idx) {
       if (idx >= chunks.length) {
         var msg = 'Done \u2014 ' + totImported + ' imported, ' + totSkipped + ' skipped (of ' + total + ' rows).';
         if (totBatches) msg += ' ' + totBatches + ' new batches.';
         if (totFunds)   msg += ' ' + totFunds + ' new funds.';
+        if (totSkipped) {
+          var why = [];
+          if (totDup)   why.push(totDup   + ' already imported');
+          if (totZero)  why.push(totZero  + ' zero-amount');
+          if (totBlank) why.push(totBlank + ' blank ID');
+          if (why.length) msg += ' Skipped: ' + why.join(', ') + '.';
+        }
         status.textContent = msg; status.className = 'import-status ok';
         return;
       }
@@ -18607,10 +18679,13 @@ function importGivingCSV(file) {
         body: header + '\\n' + chunks[idx].join('\\n')
       }).then(function(r) { return r.json(); }).then(function(d) {
         if (d.error) { status.textContent = 'Error on chunk ' + idx + ': ' + d.error; status.className = 'import-status err'; return; }
-        totImported += d.imported || 0;
-        totSkipped  += d.skipped  || 0;
-        totBatches  += d.batchesMade || 0;
-        totFunds    += d.fundsMade   || 0;
+        totImported += d.imported   || 0;
+        totSkipped  += d.skipped    || 0;
+        totBatches  += d.batchesMade|| 0;
+        totFunds    += d.fundsMade  || 0;
+        totBlank    += d.skipBlank  || 0;
+        totDup      += d.skipDup    || 0;
+        totZero     += d.skipZero   || 0;
         sendChunk(idx + 1);
       }).catch(function(err) { status.textContent = 'Error: ' + err.message; status.className = 'import-status err'; });
     }
