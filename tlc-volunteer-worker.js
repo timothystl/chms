@@ -16718,31 +16718,11 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     <div class="import-status" id="fund-map-status"></div>
   </div>
   <div class="import-card">
-    <h3>&#128194; Import People (CSV)</h3>
-    <p>Upload a CSV file exported from Breeze. Columns expected: first_name, last_name, email, phone, street_address, city, state, zip</p>
-    <input type="file" id="csv-people-file" accept=".csv" style="display:block;margin-bottom:8px;">
-    <button class="btn-primary" onclick="importPeopleCSV()">Import People</button>
-    <div class="import-status" id="csv-people-status"></div>
-  </div>
-  <div class="import-card">
     <h3>&#128197; Import Attendance (Simple CSV)</h3>
     <p>Paste or upload a 3-column file: <code>date, service_name, attendance</code>. Date must be YYYY-MM-DD. One row per service. Header row optional. Existing records for the same date+time are updated; new ones are inserted.</p>
     <textarea id="att-simple-text" rows="6" style="width:100%;font-family:monospace;font-size:.8rem;padding:6px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;" placeholder="2024-03-10&#9;Sunday 8am&#9;112&#10;2024-03-10&#9;Sunday 10:45am&#9;187"></textarea>
     <button class="btn-primary" onclick="importAttendanceSimple()">Import</button>
     <div class="import-status" id="att-simple-status"></div>
-  </div>
-  <div class="import-card">
-    <h3>&#128197; Import Attendance Events (Breeze Export)</h3>
-    <p>Upload the export from Breeze Events — tab-separated or CSV (Event ID, Instance ID, Name, Start Date, End Date). Service slots will be created with Breeze instance IDs stored. Then use "Sync Counts" below to pull actual attendance numbers from Breeze. Future dates and Vietnamese services are skipped automatically. "Early Service", "8 am", "Late Service", "10:45 am" and similar names are all recognized.</p>
-    <input type="file" id="att-tsv-file" accept=".tsv,.txt,.csv" style="display:block;margin-bottom:8px;">
-    <button class="btn-primary" onclick="importAttendanceTSV()">Import Attendance Events</button>
-    <div class="import-status" id="att-tsv-status"></div>
-  </div>
-  <div class="import-card">
-    <h3>&#9729; Sync Attendance Counts from Breeze</h3>
-    <p>After importing the TSV, fetch actual headcounts from the Breeze Events API for each imported service. Only services still at 0 are updated (safe to re-run).</p>
-    <button class="btn-primary" onclick="syncBreezeAttendanceCounts()">Sync Counts from Breeze</button>
-    <div class="import-status" id="att-sync-status"></div>
   </div>
   <div class="import-card">
     <h3>&#128465; Prune Empty Batches</h3>
@@ -16939,7 +16919,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-08-v18';
+var DEPLOY_VERSION = '2026-04-08-v19';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
