@@ -13709,6 +13709,64 @@ async function handleChmsApi(req, env, url, method, seg) {
       sample: { raw: sampleLine.slice(0,120), col3: (sampleCols[3]||'').slice(0,40), parsed: parseBreezeDatetime((sampleCols[3]||'')) } });
   }
 
+  // ── Simple Attendance CSV Import ─────────────────────────────────
+  // Accepts 3-column TSV/CSV: date(YYYY-MM-DD), service_name, attendance
+  if (seg === 'import/attendance-simple' && method === 'POST') {
+    let body = ''; try { body = await req.text(); } catch {}
+    if (!body.trim()) return json({ error: 'Empty body' }, 400);
+    const lines = body.split(/\r?\n/).filter(l => l.trim());
+    const delim = lines[0].includes('\t') ? '\t' : ',';
+    const dataLines = lines[0].toLowerCase().includes('date') ? lines.slice(1) : lines;
+
+    const classify = name => {
+      const n = (name || '').toLowerCase();
+      const late = n.includes('(late)') || n.includes('7pm') || n.includes('19:');
+      if (n.includes('sunday') && (n.includes('8am') || n.includes('8:00'))) return { type: 'sunday', time: '08:00' };
+      if (n.includes('sunday') && (n.includes('10:45') || n.includes('10am'))) return { type: 'sunday', time: '10:45' };
+      if (n.includes('5pm') || n.includes('17:00')) return { type: n.includes('sunday') ? 'sunday' : 'midweek', time: '17:00' };
+      if (n.includes('7pm') || n.includes('19:00')) return { type: n.includes('sunday') ? 'sunday' : 'midweek', time: '19:00' };
+      const specialNames = ['maundy thursday','good friday','easter vigil','christmas day','installation','ordination','wedding','funeral'];
+      if (specialNames.some(s => n.includes(s))) return { type: 'special', time: late ? '19:00' : '10:00' };
+      if (n.includes('christmas eve')) return { type: 'special', time: late ? '22:00' : '17:00' };
+      if (n.includes('thanksgiving')) return { type: 'special', time: late ? '19:00' : '17:00' };
+      const midweekNames = ['ash wednesday','midweek','advent','lent','vesper','wednesday'];
+      if (midweekNames.some(s => n.includes(s))) return { type: 'midweek', time: late ? '19:00' : '17:00' };
+      return { type: 'special', time: late ? '19:00' : '10:00' };
+    };
+
+    // Pre-load existing records keyed by date|time → id
+    const existingMap = {};
+    for (const r of (await db.prepare('SELECT id, service_date, service_time FROM worship_services').all()).results || [])
+      existingMap[r.service_date + '|' + r.service_time] = r.id;
+
+    let imported = 0, updated = 0, skipped = 0;
+    const ops = [];
+    const seen = new Set();
+    for (const line of dataLines) {
+      const cols = line.split(delim).map(c => c.trim().replace(/^"|"$/g, ''));
+      if (cols.length < 3) continue;
+      const date = cols[0], name = cols[1], att = parseInt(cols[2]) || 0;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { skipped++; continue; }
+      const cls = classify(name);
+      const key = date + '|' + cls.time;
+      if (seen.has(key)) { skipped++; continue; }
+      seen.add(key);
+      const existingId = existingMap[key];
+      if (existingId) {
+        ops.push(db.prepare('UPDATE worship_services SET attendance=?,service_name=?,service_type=? WHERE id=?')
+          .bind(att, name, cls.type, existingId));
+        updated++;
+      } else {
+        ops.push(db.prepare(
+          'INSERT INTO worship_services (service_date,service_time,service_name,service_type,attendance,communion,notes) VALUES (?,?,?,?,?,0,"")'
+        ).bind(date, cls.time, name, cls.type, att));
+        imported++;
+      }
+    }
+    for (let i = 0; i < ops.length; i += 100) await db.batch(ops.slice(i, i + 100));
+    return json({ ok: true, imported, updated, skipped, total: dataLines.length });
+  }
+
   // ── Breeze Attendance Count Sync ─────────────────────────────────
   // Fetches actual headcounts from Breeze for imported service instances
   if (seg === 'import/breeze-attendance-sync' && method === 'POST') {
@@ -16652,6 +16710,13 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     <div class="import-status" id="csv-people-status"></div>
   </div>
   <div class="import-card">
+    <h3>&#128197; Import Attendance (Simple CSV)</h3>
+    <p>Paste or upload a 3-column file: <code>date, service_name, attendance</code>. Date must be YYYY-MM-DD. One row per service. Header row optional. Existing records for the same date+time are updated; new ones are inserted.</p>
+    <textarea id="att-simple-text" rows="6" style="width:100%;font-family:monospace;font-size:.8rem;padding:6px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;" placeholder="2024-03-10&#9;Sunday 8am&#9;112&#10;2024-03-10&#9;Sunday 10:45am&#9;187"></textarea>
+    <button class="btn-primary" onclick="importAttendanceSimple()">Import</button>
+    <div class="import-status" id="att-simple-status"></div>
+  </div>
+  <div class="import-card">
     <h3>&#128197; Import Attendance Events (Breeze Export)</h3>
     <p>Upload the export from Breeze Events — tab-separated or CSV (Event ID, Instance ID, Name, Start Date, End Date). Service slots will be created with Breeze instance IDs stored. Then use "Sync Counts" below to pull actual attendance numbers from Breeze. Future dates and Vietnamese services are skipped automatically. "Early Service", "8 am", "Late Service", "10:45 am" and similar names are all recognized.</p>
     <input type="file" id="att-tsv-file" accept=".tsv,.txt,.csv" style="display:block;margin-bottom:8px;">
@@ -16853,7 +16918,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-07-v12';
+var DEPLOY_VERSION = '2026-04-07-v13';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -18388,6 +18453,21 @@ function syncBreezeAttendanceCounts() {
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
+function importAttendanceSimple() {
+  var text = document.getElementById('att-simple-text').value.trim();
+  var status = document.getElementById('att-simple-status');
+  if (!text) { status.textContent = 'Paste attendance data first.'; status.className = 'import-status err'; return; }
+  status.textContent = 'Importing…'; status.className = 'import-status';
+  api('/admin/api/import/attendance-simple', {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: text
+  }).then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    status.textContent = 'Done — ' + d.imported + ' inserted, ' + d.updated + ' updated, ' + d.skipped + ' skipped.';
+    status.className = 'import-status ok';
+  }).catch(function(e) { status.textContent = 'Error: ' + e; status.className = 'import-status err'; });
+}
 function importAttendanceTSV() {
   var file = document.getElementById('att-tsv-file').files[0];
   var status = document.getElementById('att-tsv-status');
