@@ -13940,6 +13940,151 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json({ ok: true });
   }
 
+  // ── Giving CSV Import ────────────────────────────────────────────
+  // Accepts a Breeze giving export CSV with columns:
+  // Payment ID, Date, Batch Number, Batch Name, Person ID, First Name,
+  // Last Name, Envelope, Amount, Fund(s), Method, Check Number, Note
+  if (seg === 'import/giving-csv' && method === 'POST') {
+    let body = ''; try { body = await req.text(); } catch {}
+    if (!body.trim()) return json({ error: 'Empty body' }, 400);
+
+    // Full CSV parser (handles quoted fields containing commas/newlines)
+    const parseCSV = text => {
+      const rows = [];
+      let cur = [], field = '', inQ = false;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (c === '"') { inQ = !inQ; continue; }
+        if (inQ) { field += c; continue; }
+        if (c === ',') { cur.push(field.trim()); field = ''; continue; }
+        if (c === '\n' || (c === '\r' && text[i+1] === '\n')) {
+          if (c === '\r') i++;
+          cur.push(field.trim()); rows.push(cur); cur = []; field = '';
+          continue;
+        }
+        if (c === '\r') continue;
+        field += c;
+      }
+      if (field || cur.length) { cur.push(field.trim()); rows.push(cur); }
+      return rows.filter(r => r.some(c => c));
+    };
+
+    const rows = parseCSV(body);
+    if (rows.length < 2) return json({ error: 'No data rows found' }, 400);
+
+    // Map header names to column indices (case-insensitive)
+    const hdr = rows[0].map(h => h.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim());
+    const col = (...names) => { for (const n of names) { const i = hdr.indexOf(n); if (i >= 0) return i; } return -1; };
+    const C = {
+      paymentId:   col('payment id'),
+      date:        col('date'),
+      batchNum:    col('batch number'),
+      batchName:   col('batch name'),
+      personId:    col('person id'),
+      amount:      col('amount'),
+      fund:        col('fund s', 'fund', 'funds'),
+      method:      col('method'),
+      checkNumber: col('check number'),
+      note:        col('note', 'notes'),
+    };
+    if (C.paymentId < 0 || C.date < 0 || C.amount < 0)
+      return json({ error: 'Missing required columns: Payment ID, Date, Amount' }, 400);
+
+    const dataRows = rows.slice(1).filter(r => r[C.paymentId] && r[C.paymentId].trim());
+
+    const parseDate = s => {
+      const m = (s || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      return m ? `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}` : (s||'').slice(0,10);
+    };
+    const payMethod = t => {
+      const s = (t||'').toLowerCase();
+      if (s === 'cash') return 'cash';
+      if (s.includes('check')) return 'check';
+      if (s.includes('credit') || s.includes('card') || s.includes('online') || s.includes('egiving')) return 'card';
+      if (s === 'ach' || s.includes('bank') || s.includes('eft') || s.includes('electronic')) return 'ach';
+      return 'other';
+    };
+
+    // Pre-load caches
+    const existingIds = new Set(
+      ((await db.prepare("SELECT breeze_id FROM giving_entries WHERE breeze_id != ''").all()).results || [])
+        .map(r => String(r.breeze_id))
+    );
+    const personByBreezeId = {};
+    for (const p of (await db.prepare('SELECT id, breeze_id FROM people WHERE breeze_id != ""').all()).results || [])
+      personByBreezeId[String(p.breeze_id)] = p.id;
+    // Batch lookup: extract number from any existing batch description
+    const batchByNum = {};
+    for (const bt of (await db.prepare('SELECT id, description FROM giving_batches').all()).results || []) {
+      const m = (bt.description || '').match(/(\d+)/);
+      if (m) batchByNum[m[1]] = bt.id;
+    }
+    const fundByName = {};
+    for (const f of (await db.prepare('SELECT id, name FROM funds').all()).results || [])
+      fundByName[f.name.toLowerCase().trim()] = f.id;
+
+    let imported = 0, skipped = 0, fundsMade = 0, batchesMade = 0;
+    const ops = [];
+
+    for (const row of dataRows) {
+      const pid = String(row[C.paymentId] || '').trim();
+      if (!pid || existingIds.has(pid)) { skipped++; continue; }
+
+      const date      = parseDate(C.date >= 0 ? row[C.date] : '');
+      const batchNum  = C.batchNum >= 0  ? (row[C.batchNum]  || '').trim() : '';
+      const batchName = C.batchName >= 0 ? (row[C.batchName] || '').trim() : '';
+      const personBId = C.personId >= 0  ? (row[C.personId]  || '').trim() : '';
+      const amtStr    = (C.amount >= 0   ? row[C.amount]     : '0').replace(/[$, ]/g, '');
+      const cents     = Math.round(parseFloat(amtStr || '0') * 100);
+      const fundName  = ((C.fund >= 0 ? row[C.fund] : '') || 'General Fund').trim() || 'General Fund';
+      const method    = payMethod(C.method >= 0 ? row[C.method] : '');
+      const checkNum  = C.checkNumber >= 0 ? (row[C.checkNumber] || '') : '';
+      const note      = C.note >= 0 ? (row[C.note] || '') : '';
+
+      if (cents <= 0) { skipped++; continue; }
+
+      const personId = personByBreezeId[personBId] ?? null;
+
+      // Get or create batch
+      const batchDesc = batchNum
+        ? ('Batch #' + batchNum + (batchName ? ' \u2013 ' + batchName : ''))
+        : ('CSV Import ' + date.slice(0, 7));
+      let batchId = batchByNum[batchNum || batchDesc] ?? null;
+      if (!batchId) {
+        const r = await db.prepare(
+          'INSERT INTO giving_batches (batch_date, description, closed) VALUES (?,?,1)'
+        ).bind(date, batchDesc).run();
+        batchId = r.meta?.last_row_id;
+        batchByNum[batchNum || batchDesc] = batchId;
+        batchesMade++;
+      }
+
+      // Get or create fund by name
+      const fundKey = fundName.toLowerCase().trim();
+      if (!fundByName[fundKey]) {
+        const r = await db.prepare(
+          "INSERT INTO funds (name, breeze_id, active, sort_order) VALUES (?,?,1,99)"
+        ).bind(fundName, '').run();
+        fundByName[fundKey] = r.meta?.last_row_id;
+        fundsMade++;
+      }
+
+      ops.push(db.prepare(
+        `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,breeze_id,contribution_date)
+         VALUES (?,?,?,?,?,?,?,?,?)`
+      ).bind(batchId, personId, fundByName[fundKey], cents, method, checkNum, note, pid, date));
+      existingIds.add(pid);
+      imported++;
+    }
+
+    for (let i = 0; i < ops.length; i += 100) await db.batch(ops.slice(i, i + 100));
+    await db.prepare(
+      'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
+    ).run();
+
+    return json({ ok: true, imported, skipped, fundsMade, batchesMade, total: dataRows.length });
+  }
+
   // ── Giving Reset ──────────────────────────────────────────────────
   if (seg === 'giving/all' && method === 'DELETE') {
     await db.batch([
@@ -16743,31 +16888,11 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     <div class="import-status" id="fund-map-status"></div>
   </div>
   <div class="import-card">
-    <h3>&#128194; Import People (CSV)</h3>
-    <p>Upload a CSV file exported from Breeze. Columns expected: first_name, last_name, email, phone, street_address, city, state, zip</p>
-    <input type="file" id="csv-people-file" accept=".csv" style="display:block;margin-bottom:8px;">
-    <button class="btn-primary" onclick="importPeopleCSV()">Import People</button>
-    <div class="import-status" id="csv-people-status"></div>
-  </div>
-  <div class="import-card">
     <h3>&#128197; Import Attendance (Simple CSV)</h3>
     <p>Paste or upload a 3-column file: <code>date, service_name, attendance</code>. Date must be YYYY-MM-DD. One row per service. Header row optional. Existing records for the same date+time are updated; new ones are inserted.</p>
     <textarea id="att-simple-text" rows="6" style="width:100%;font-family:monospace;font-size:.8rem;padding:6px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;" placeholder="2024-03-10&#9;Sunday 8am&#9;112&#10;2024-03-10&#9;Sunday 10:45am&#9;187"></textarea>
     <button class="btn-primary" onclick="importAttendanceSimple()">Import</button>
     <div class="import-status" id="att-simple-status"></div>
-  </div>
-  <div class="import-card">
-    <h3>&#128197; Import Attendance Events (Breeze Export)</h3>
-    <p>Upload the export from Breeze Events — tab-separated or CSV (Event ID, Instance ID, Name, Start Date, End Date). Service slots will be created with Breeze instance IDs stored. Then use "Sync Counts" below to pull actual attendance numbers from Breeze. Future dates and Vietnamese services are skipped automatically. "Early Service", "8 am", "Late Service", "10:45 am" and similar names are all recognized.</p>
-    <input type="file" id="att-tsv-file" accept=".tsv,.txt,.csv" style="display:block;margin-bottom:8px;">
-    <button class="btn-primary" onclick="importAttendanceTSV()">Import Attendance Events</button>
-    <div class="import-status" id="att-tsv-status"></div>
-  </div>
-  <div class="import-card">
-    <h3>&#9729; Sync Attendance Counts from Breeze</h3>
-    <p>After importing the TSV, fetch actual headcounts from the Breeze Events API for each imported service. Only services still at 0 are updated (safe to re-run).</p>
-    <button class="btn-primary" onclick="syncBreezeAttendanceCounts()">Sync Counts from Breeze</button>
-    <div class="import-status" id="att-sync-status"></div>
   </div>
   <div class="import-card">
     <h3>&#128465; Prune Empty Batches</h3>
@@ -16964,7 +17089,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-08-v18';
+var DEPLOY_VERSION = '2026-04-08-v20';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -18473,14 +18598,15 @@ function importGivingCSV() {
   var reader = new FileReader();
   reader.onload = function(e) {
     status.textContent = 'Uploading…'; status.className = 'import-status';
-    fetch('/admin/api/import/breeze-giving-csv', {
+    fetch('/admin/api/import/giving-csv', {
       method: 'POST',
-      headers: {'Content-Type': 'text/plain'},
+      headers: {'Content-Type': 'text/csv'},
       body: e.target.result
     }).then(function(r) { return r.json(); }).then(function(d) {
       if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
-      var msg = 'Done. ' + (d.imported||0) + ' contributions imported, ' + (d.skipped||0) + ' already existed (out of ' + (d.total||0) + ' rows).';
-      if (d.errors && d.errors.length) msg += ' ' + d.errors.length + ' row error(s).';
+      var msg = 'Done — ' + (d.imported||0) + ' entries imported, ' + (d.skipped||0) + ' skipped (of ' + (d.total||0) + ' rows).';
+      if (d.batchesMade) msg += ' ' + d.batchesMade + ' new batches created.';
+      if (d.fundsMade) msg += ' ' + d.fundsMade + ' new funds created.';
       status.textContent = msg; status.className = 'import-status ok';
     }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
   };
