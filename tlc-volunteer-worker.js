@@ -13815,6 +13815,15 @@ async function handleChmsApi(req, env, url, method, seg) {
     let bulkParsed = null; try { bulkParsed = JSON.parse(bulkText); } catch {}
     results.bulk_imports = { status: bulkR.status, count: Array.isArray(bulkParsed) ? bulkParsed.length : null, sample: Array.isArray(bulkParsed) ? bulkParsed.slice(0,3) : bulkText.slice(0,300) };
 
+    // Try official /api/giving/list endpoint
+    const glR = await fetch(
+      `https://${subdomain}.breezechms.com/api/giving/list?start=2024-01-01&end=2024-12-31&limit=5`,
+      { headers: hdrs }
+    );
+    const glText = await glR.text();
+    let glParsed = null; try { glParsed = JSON.parse(glText); } catch {}
+    results.giving_list = { status: glR.status, count: Array.isArray(glParsed) ? glParsed.length : null, sample: Array.isArray(glParsed) ? glParsed.slice(0,3) : glText.slice(0,500) };
+
     return json(results);
   }
 
@@ -13942,7 +13951,43 @@ async function handleChmsApi(req, env, url, method, seg) {
     if (!logRes.ok) return json({ error: `Breeze log API error: ${logRes.status}` }, 502);
     let entries; try { entries = await logRes.json(); } catch { return json({ error: 'Invalid JSON from Breeze log' }, 502); }
     if (!Array.isArray(entries)) return json({ error: 'Unexpected response format', raw: String(entries).slice(0,200) }, 502);
-    if (entries.length === 0) return json({ ok: true, imported: 0, skipped: 0, total: 0, date_range: { start, end } });
+
+    // Also pull from the official /api/giving/list endpoint to catch
+    // bulk-imported historical contributions that never appear in the audit log.
+    // Normalize to the same shape as audit log entries so the same processing loop handles both.
+    let givingListEntries = [];
+    try {
+      const glUrl = `https://${subdomain}.breezechms.com/api/giving/list?start=${start}&end=${end}&limit=10000`;
+      const glRes = await fetch(glUrl, { headers: hdrs });
+      if (glRes.ok) {
+        const gl = await glRes.json();
+        if (Array.isArray(gl)) {
+          // Giving list returns one row per gift (possibly with fund splits nested).
+          // Normalize to audit-log shape: { id, object_json, details: JSON string }
+          for (const g of gl) {
+            const id = String(g.id || g.payment_id || '');
+            if (!id) continue;
+            // Build a details object matching what the audit log parser expects
+            const funds = Array.isArray(g.funds) ? g.funds : [];
+            const d = { person_id: String(g.person_id || ''), amount: String(g.amount || '0'),
+                        method: g.method_type_name || g.method || '', check_number: g.check_number || '',
+                        note: g.note || g.notes || '', date: g.date || '', batch_num: g.batch_number || g.batch_num || '' };
+            // Embed fund splits as fund-{id}/amount-{id} keys (audit log format)
+            if (funds.length > 0) {
+              for (const f of funds) {
+                const fid = String(f.id || f.fund_id || '');
+                if (fid) { d['fund-' + fid] = fid; d['amount-' + fid] = String(f.amount || g.amount || '0'); }
+              }
+            }
+            givingListEntries.push({ id, object_json: id, details: JSON.stringify(d), _from_giving_list: true });
+          }
+        }
+      }
+    } catch (e) { /* giving/list is best-effort; audit log is primary */ }
+
+    // Merge: giving list entries first so audit log can overwrite with richer data if same ID appears in both
+    const allEntries = [...givingListEntries, ...entries];
+    if (allEntries.length === 0) return json({ ok: true, imported: 0, skipped: 0, total: 0, date_range: { start, end } });
 
     // Helpers
     const parseDetails = raw => { try { return JSON.parse(raw); } catch { return null; } };
@@ -13992,7 +14037,7 @@ async function handleChmsApi(req, env, url, method, seg) {
     const errors = [];
     const entryInserts = []; // deferred until all lookups done
 
-    for (const entry of entries) {
+    for (const entry of allEntries) {
       try {
         const contribId = String(entry.object_json || entry.id);
         if (existingIds.has(contribId)) { skipped++; continue; }
@@ -14045,7 +14090,7 @@ async function handleChmsApi(req, env, url, method, seg) {
       await db.batch(entryInserts.slice(i, i + 100));
     }
 
-    return json({ ok: true, imported, skipped, errors: errors.slice(0, 20), total: entries.length, date_range: { start, end } });
+    return json({ ok: true, imported, skipped, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, from_giving_list: givingListEntries.length, date_range: { start, end } });
   }
 
   // ── Breeze Giving CSV Import ─────────────────────────────────────
@@ -16808,7 +16853,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-07-v11';
+var DEPLOY_VERSION = '2026-04-07-v12';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
