@@ -13934,6 +13934,19 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json({ ok: true });
   }
 
+  // ── Dev Board (Kanban) ───────────────────────────────────────────
+  if (seg === 'board' && method === 'GET') {
+    const row = await db.prepare("SELECT value FROM chms_config WHERE key='dev_board'").first();
+    return json({ data: row ? row.value : null });
+  }
+  if (seg === 'board' && method === 'PUT') {
+    let body = ''; try { body = await req.text(); } catch {}
+    if (!body) return json({ error: 'Empty body' }, 400);
+    await db.prepare("INSERT INTO chms_config(key,value) VALUES('dev_board',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+      .bind(body).run();
+    return json({ ok: true });
+  }
+
   // ── Giving CSV Import ────────────────────────────────────────────
   // Accepts a Breeze giving export CSV with columns:
   // Payment ID, Date, Batch Number, Batch Name, Person ID, First Name,
@@ -17121,7 +17134,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-08-v25';
+var DEPLOY_VERSION = '2026-04-08-v26';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -19423,7 +19436,6 @@ const BACKLOG_HTML = `<!DOCTYPE html>
 </div>
 <footer id="last-saved"></footer>
 <script>
-const STORAGE_KEY = 'chms_board_v1';
 const defaults = [
   { id:1,  text:"Edit and manage current tags", type:"improvement", col:"backlog", note:"" },
   { id:2,  text:"Fix how organization names are displayed", type:"bug", col:"backlog", note:"" },
@@ -19445,17 +19457,35 @@ const defaults = [
 ];
 let items = [], nextId = 18, dragId = null;
 function load() {
-  try {
-    const s = localStorage.getItem(STORAGE_KEY);
-    if (s) { const p = JSON.parse(s); items = p.items; nextId = p.nextId; }
-    else { items = JSON.parse(JSON.stringify(defaults)); nextId = 18; }
-  } catch(e) { items = JSON.parse(JSON.stringify(defaults)); nextId = 18; }
+  document.getElementById('last-saved').textContent = 'Loading\u2026';
+  fetch('/admin/api/board').then(function(r){return r.json();}).then(function(d){
+    try {
+      if (d.data) { var p = JSON.parse(d.data); items = p.items; nextId = p.nextId; }
+      else { items = JSON.parse(JSON.stringify(defaults)); nextId = 18; }
+    } catch(e) { items = JSON.parse(JSON.stringify(defaults)); nextId = 18; }
+    render();
+    document.getElementById('last-saved').textContent = '';
+  }).catch(function(){
+    items = JSON.parse(JSON.stringify(defaults)); nextId = 18;
+    render();
+  });
 }
+var _saveTimer = null;
 function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ items, nextId }));
-  const n = new Date();
-  document.getElementById('last-saved').textContent =
-    'Saved ' + n.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit'});
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(function() {
+    fetch('/admin/api/board', {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ items: items, nextId: nextId })
+    }).then(function(r){return r.json();}).then(function(){
+      var n = new Date();
+      document.getElementById('last-saved').textContent =
+        'Saved ' + n.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit'});
+    }).catch(function(){
+      document.getElementById('last-saved').textContent = 'Save failed \u2014 check connection';
+    });
+  }, 600);
 }
 function addItem() {
   const inp = document.getElementById('new-item');
@@ -19507,7 +19537,7 @@ function render() {
     document.getElementById('count-' + col).textContent = colItems.length;
   });
 }
-load(); render();
+load();
 </script>
 </body>
 </html>
