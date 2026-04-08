@@ -14235,12 +14235,33 @@ async function handleChmsApi(req, env, url, method, seg) {
     if (!res.ok) return json({ error: `Breeze API error: ${res.status}` }, 502);
     let people; try { people = await res.json(); } catch { return json({ error: 'Breeze returned invalid JSON' }, 502); }
     if (!Array.isArray(people)) return json({ done: true, imported: 0, updated: 0, errors: [] });
-    // Known field IDs for this Breeze account (from /api/profile)
-    const F_STATUS       = '1076274773';  // multiple_choice: Member/Attender/Visitor/etc.
-    const F_DOB          = '423997769';   // birthdate: YYYY-MM-DD
-    const F_BAPTISM      = '156119694';   // date: MM/DD/YYYY
-    const F_CONFIRMATION = '724914824';   // date: MM/DD/YYYY
-    const F_ANNIVERSARY  = '2008692738';  // date: MM/DD/YYYY
+    // Dynamically discover field IDs from /api/profile
+    let profileFields = [];
+    try {
+      const pr = await fetch(`https://${subdomain}.breezechms.com/api/profile`, { headers: { 'Api-key': apiKey } });
+      if (pr.ok) profileFields = await pr.json();
+    } catch {}
+    // Flatten all fields from all sections
+    const allFields = [];
+    for (const section of (Array.isArray(profileFields) ? profileFields : [])) {
+      for (const f of (Array.isArray(section.fields) ? section.fields : [])) {
+        allFields.push(f);
+      }
+    }
+    const findField = (names) => {
+      const ns = names.map(n => n.toLowerCase());
+      return allFields.find(f => ns.includes((f.name||'').toLowerCase()));
+    };
+    const F_STATUS_FIELD   = findField(['status','member status','membership status']);
+    const F_DOB_FIELD      = findField(['birthdate','birth date','dob','date of birth']);
+    const F_BAPTISM_FIELD  = findField(['baptism date','baptism','baptism_date']);
+    const F_CONFIRM_FIELD  = findField(['confirmation date','confirmation','confirmation_date']);
+    const F_ANNIV_FIELD    = findField(['anniversary date','anniversary','anniversary_date','wedding anniversary']);
+    const F_STATUS       = F_STATUS_FIELD  ? String(F_STATUS_FIELD.id)  : '1076274773';
+    const F_DOB          = F_DOB_FIELD     ? String(F_DOB_FIELD.id)     : '423997769';
+    const F_BAPTISM      = F_BAPTISM_FIELD ? String(F_BAPTISM_FIELD.id) : '156119694';
+    const F_CONFIRMATION = F_CONFIRM_FIELD ? String(F_CONFIRM_FIELD.id) : '724914824';
+    const F_ANNIVERSARY  = F_ANNIV_FIELD   ? String(F_ANNIV_FIELD.id)   : '2008692738';
     // Convert MM/DD/YYYY or YYYY-MM-DD to YYYY-MM-DD
     const toISO = s => {
       if (!s) return '';
@@ -14258,9 +14279,11 @@ async function handleChmsApi(req, env, url, method, seg) {
         const fn = (p.first_name || '').trim();
         const ln = (p.last_name  || '').trim();
         const details = p.details || {};
-        // Status / member type
-        const statusObj = details[F_STATUS];
-        const statusName = (statusObj && statusObj.name) ? statusObj.name : '';
+        // Status / member type — Breeze returns as object, array, or string
+        const statusRaw = details[F_STATUS];
+        const statusObj = Array.isArray(statusRaw) ? statusRaw[0] : statusRaw;
+        const statusName = (statusObj && statusObj.name) ? statusObj.name
+                         : (typeof statusRaw === 'string' ? statusRaw : '');
         if (SKIP_STATUSES.has(statusName.toLowerCase())) { skipped++; continue; }
         let memberType = 'visitor';
         const sn = statusName.toLowerCase();
@@ -16760,7 +16783,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-07-v9';
+var DEPLOY_VERSION = '2026-04-07-v10';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
