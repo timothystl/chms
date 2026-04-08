@@ -16844,9 +16844,17 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   </div>
   <div class="import-card">
     <h3>&#128181; Import Giving from Breeze CSV Export</h3>
-    <p>Upload the contribution export from Breeze (Contributions &rarr; Export to CSV). Handles split gifts correctly. Already-imported contributions are skipped (safe to re-run). Payment method is not in the export so defaults to "other" — edit batches afterward if needed.</p>
-    <input type="file" id="giving-csv-file" accept=".csv,.tsv,.txt" style="display:block;margin-bottom:8px;">
-    <button class="btn-primary" onclick="importGivingCSV()">Import Giving CSV</button>
+    <p>Export from Breeze: Contributions &rarr; Export to CSV. Drag &amp; drop the file below or click to browse. Already-imported contributions are skipped (safe to re-run).</p>
+    <div id="giving-csv-drop"
+      style="border:2px dashed var(--border);border-radius:8px;padding:28px 16px;text-align:center;cursor:pointer;margin-bottom:8px;transition:background .15s;"
+      onclick="document.getElementById(&#39;giving-csv-file&#39;).click()"
+      ondragover="event.preventDefault();this.style.background=&#39;#f0f4f8&#39;;"
+      ondragleave="this.style.background=&#39;&#39;;"
+      ondrop="event.preventDefault();this.style.background=&#39;&#39;;importGivingCSV(event.dataTransfer.files[0]);">
+      <div style="font-size:2rem;margin-bottom:6px;">&#128228;</div>
+      <div id="giving-csv-name" style="font-size:.88rem;color:var(--warm-gray);">Drop CSV here or click to browse</div>
+    </div>
+    <input type="file" id="giving-csv-file" accept=".csv,.txt" style="display:none;" onchange="importGivingCSV(this.files[0]);">
     <div class="import-status" id="giving-csv-status"></div>
   </div>
   <div class="import-card">
@@ -17064,7 +17072,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-08-v20';
+var DEPLOY_VERSION = '2026-04-08-v21';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -18565,25 +18573,27 @@ function runBreezeImport() {
   }
   doPage(0);
 }
-function importGivingCSV() {
-  var file = document.getElementById('giving-csv-file').files[0];
+function importGivingCSV(file) {
+  if (!file) file = document.getElementById('giving-csv-file').files[0];
   var status = document.getElementById('giving-csv-status');
+  var label  = document.getElementById('giving-csv-name');
   if (!file) { status.textContent = 'Please select a file.'; status.className = 'import-status err'; return; }
-  status.textContent = 'Reading file…'; status.className = 'import-status';
+  if (label) label.textContent = file.name;
+  status.textContent = 'Reading\u2026'; status.className = 'import-status';
   var reader = new FileReader();
   reader.onload = function(e) {
-    status.textContent = 'Uploading…'; status.className = 'import-status';
+    status.textContent = 'Uploading ' + file.name + '\u2026'; status.className = 'import-status';
     fetch('/admin/api/import/giving-csv', {
       method: 'POST',
       headers: {'Content-Type': 'text/csv'},
       body: e.target.result
     }).then(function(r) { return r.json(); }).then(function(d) {
       if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
-      var msg = 'Done — ' + (d.imported||0) + ' entries imported, ' + (d.skipped||0) + ' skipped (of ' + (d.total||0) + ' rows).';
-      if (d.batchesMade) msg += ' ' + d.batchesMade + ' new batches created.';
-      if (d.fundsMade) msg += ' ' + d.fundsMade + ' new funds created.';
+      var msg = 'Done \u2014 ' + (d.imported||0) + ' imported, ' + (d.skipped||0) + ' skipped (of ' + (d.total||0) + ' rows).';
+      if (d.batchesMade) msg += ' ' + d.batchesMade + ' new batches.';
+      if (d.fundsMade) msg += ' ' + d.fundsMade + ' new funds.';
       status.textContent = msg; status.className = 'import-status ok';
-    }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+    }).catch(function(err) { status.textContent = 'Error: ' + err.message; status.className = 'import-status err'; });
   };
   reader.readAsText(file);
 }
