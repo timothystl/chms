@@ -16466,9 +16466,12 @@ const CHMS_HTML = `<!DOCTYPE html>
   --linen:#F2EDE2;--white:#FFFFFF;--border:#E8E0D0;--charcoal:#3D3530;--warm-gray:#7A6E60;
   --font-head:'Lora',Georgia,serif;--font-body:'Source Sans 3',Arial,sans-serif;
   --danger:#B85C3A;
+  --navy:#1E2D4A;--teal:#2E7EA6;--gold-accent:#C9973A;
+  --bg:#F7F6F3;--muted:#6B7280;--faint:#9CA3AF;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:var(--font-body);background:var(--warm-white);color:var(--charcoal);min-height:100vh;}
+html,body{height:100%;overflow:hidden;}
+body{font-family:var(--font-body);background:var(--warm-white);color:var(--charcoal);}
 a{color:var(--sky-steel);}
 /* ── HEADER ── */
 header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px 24px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 12px rgba(10,60,92,.07);position:sticky;top:0;z-index:100;}
@@ -16489,7 +16492,37 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 .tab-btn:hover:not(.active){background:var(--blue-mist);}
 /* ── PANELS ── */
 .tab-panel{display:none;padding:20px 24px;}
-.tab-panel.active{display:block;}
+.tab-panel.active{display:flex;flex-direction:column;flex:1;overflow-y:auto;}
+/* ── APP SHELL ── */
+#offline-banner{position:relative;z-index:200;}
+.app-shell{display:flex;height:100vh;}
+/* ── SIDEBAR ── */
+.sidebar{width:54px;background:var(--navy);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px;flex-shrink:0;z-index:100;}
+.s-logo{width:34px;height:34px;border-radius:8px;background:var(--gold-accent);display:flex;align-items:center;justify-content:center;margin-bottom:10px;flex-shrink:0;}
+.s-logo svg{width:18px;height:18px;fill:white;}
+.s-item{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative;flex-shrink:0;transition:background .12s;}
+.s-item:hover{background:rgba(255,255,255,.1);}
+.s-item.active{background:var(--teal);}
+.s-item svg{width:19px;height:19px;fill:none;stroke:rgba(255,255,255,.55);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;}
+.s-item.active svg{stroke:white;}
+.s-divider{width:28px;height:1px;background:rgba(255,255,255,.15);margin:4px 0;flex-shrink:0;}
+.s-bottom{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:4px;}
+.s-tip{position:absolute;left:48px;top:50%;transform:translateY(-50%);background:var(--navy);color:white;font-size:12px;white-space:nowrap;padding:4px 10px;border-radius:6px;pointer-events:none;opacity:0;transition:opacity .12s;z-index:300;border:1px solid rgba(255,255,255,.15);}
+.s-item:hover .s-tip{opacity:1;}
+/* ── CONTENT AREA ── */
+.content-area{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+/* ── TOPBAR ── */
+.topbar{height:50px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0;background:var(--white);}
+.topbar-title{font-size:15px;font-weight:500;color:var(--charcoal);flex:1;}
+.hamburger{display:none;background:none;border:none;cursor:pointer;padding:0;}
+.hamburger svg{width:22px;height:22px;stroke:var(--charcoal);fill:none;stroke-width:2;}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:90;}
+@media(max-width:700px){
+  .sidebar{position:fixed;left:-54px;height:100vh;top:0;transition:left .2s;}
+  .sidebar.open{left:0;}
+  .sidebar-overlay.open{display:block;}
+  .hamburger{display:flex;}
+}
 /* ── TOOLBAR ── */
 .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
 .search-wrap{position:relative;flex:1;min-width:180px;max-width:360px;}
@@ -16660,9 +16693,39 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 .p-card.selected .p-select-cb{background:var(--steel-anchor);border-color:var(--steel-anchor);color:#fff;}
 /* ── SETTINGS ── */
 code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;font-family:monospace;}
+/* ── PEOPLE DIRECTORY TABLE ── */
+.dir-table{width:100%;border-collapse:collapse;font-size:13px;}
+.dir-table th{text-align:left;padding:9px 14px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);border-bottom:1px solid var(--border);background:var(--linen);white-space:nowrap;position:sticky;top:0;z-index:1;}
+.dir-table td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle;}
+.dir-table tbody tr:hover td{background:#f5f3ee;}
+.dir-table tbody tr.dir-row-selected td{background:var(--blue-mist);}
+.dir-name-cell{display:flex;align-items:center;gap:10px;}
+.dir-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0;}
+.dir-avatar-org{border-radius:7px!important;background:var(--linen);}
+.dir-avatar-0{background:#B5D4F4;color:#0C447C;}
+.dir-avatar-1{background:#9FE1CB;color:#085041;}
+.dir-avatar-2{background:#FAC775;color:#633806;}
+.dir-avatar-3{background:#F5C4B3;color:#712B13;}
+.dir-avatar-4{background:#D8B4FE;color:#5B21B6;}
+.dir-name-link{color:var(--sky-steel);font-weight:500;}
+.dir-badge{font-size:10px;padding:3px 8px;border-radius:99px;white-space:nowrap;display:inline-block;font-weight:500;}
+.dir-badge-member{background:#D8F3DC;color:#1B4332;}
+.dir-badge-associate{background:var(--pale-sage);color:#2D5016;}
+.dir-badge-friend{background:var(--linen);color:var(--charcoal);}
+.dir-badge-visitor{background:#DBEAFE;color:#1E40AF;}
+.dir-badge-inactive{background:#FEF3C7;color:#92600A;}
+.dir-badge-organization{background:var(--linen);color:var(--warm-gray);}
+.dir-contact a{color:var(--sky-steel);font-size:12px;}
+.dir-phone{font-size:12px;color:var(--warm-gray);}
+.dir-hh-link{font-size:13px;color:var(--sky-steel);}
+.dir-tags{display:flex;gap:4px;flex-wrap:wrap;align-items:center;}
+.dir-tag{font-size:10px;padding:2px 7px;border-radius:99px;white-space:nowrap;border:1px solid transparent;}
+.dir-tag-more{font-size:10px;color:var(--warm-gray);}
+#p-grid{flex:1;min-height:0;overflow-y:auto;}
+#p-pager{position:sticky;bottom:0;background:var(--white);border-top:1px solid var(--border);padding:9px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
 /* ── PRINT ── */
 @media print{
-  header,.tab-bar,.toolbar,.modal-overlay,.hdr-actions,#offline-banner{display:none!important;}
+  .sidebar,.topbar,.toolbar,.modal-overlay,#offline-banner{display:none!important;}
   .tab-panel{display:block!important;padding:0;}
   .tab-panel:not(#tab-reports){display:none!important;}
   body{background:white;}
@@ -16674,28 +16737,31 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </head>
 <body>
 <div id="offline-banner">You are offline — showing cached contacts</div>
-<header>
-  <div class="hdr-logo">&#10013;</div>
-  <div class="hdr-text">
-    <div class="hdr-church">Timothy Lutheran Church</div>
-    <div class="hdr-title">People &amp; Giving</div>
-    <div class="hdr-sub">Member directory, households, and giving records</div>
+<div class="app-shell">
+<nav class="sidebar" id="sidebar">
+  <div class="s-logo"><svg viewBox="0 0 20 20"><path d="M10 1L2 7v12h6v-5h4v5h6V7L10 1z"/></svg></div>
+  <div class="s-item active" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
+  <div class="s-item" data-tab="households" onclick="showTab('households')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Households</span></div>
+  <div class="s-divider"></div>
+  <div class="s-item" data-tab="giving" onclick="showTab('giving')"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg><span class="s-tip">Giving</span></div>
+  <div class="s-item" data-tab="attendance" onclick="showTab('attendance')"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg><span class="s-tip">Attendance</span></div>
+  <div class="s-item" data-tab="reports" onclick="showTab('reports')"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span class="s-tip">Reports</span></div>
+  <div class="s-divider"></div>
+  <div class="s-item" data-tab="import" onclick="showTab('import')"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg><span class="s-tip">Import</span></div>
+  <div class="s-bottom">
+    <div class="s-item" data-tab="settings" onclick="showTab('settings')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span class="s-tip">Settings</span></div>
   </div>
-  <div class="hdr-actions">
-    <span style="font-size:.7rem;color:var(--warm-gray);align-self:center;" id="deploy-ver"></span>
+</nav>
+<div class="content-area">
+<div class="topbar">
+  <button class="hamburger" onclick="openSidebar()" aria-label="Menu"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+  <span class="topbar-title" id="topbar-title">People</span>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <span style="font-size:.7rem;color:var(--warm-gray);" id="deploy-ver"></span>
     <a href="/admin" class="btn-sm">&#8592; Volunteers</a>
     <a href="/admin/logout" class="btn-sm">Sign Out</a>
   </div>
-</header>
-<nav class="tab-bar">
-  <button class="tab-btn active" data-tab="people" onclick="showTab('people')">People</button>
-  <button class="tab-btn" data-tab="households" onclick="showTab('households')">Households</button>
-  <button class="tab-btn" data-tab="giving" onclick="showTab('giving')">Giving</button>
-  <button class="tab-btn" data-tab="reports" onclick="showTab('reports')">Reports</button>
-  <button class="tab-btn" data-tab="attendance" onclick="showTab('attendance')">Attendance</button>
-  <button class="tab-btn" data-tab="import" onclick="showTab('import')">Import</button>
-  <button class="tab-btn" data-tab="settings" onclick="showTab('settings')">Settings</button>
-</nav>
+</div>
 
 <!-- ═══ PEOPLE TAB ═══ -->
 <div id="tab-people" class="tab-panel active">
@@ -17029,6 +17095,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     </div>
   </div>
 </div>
+</div><!-- /content-area -->
+</div><!-- /app-shell -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
 
 <!-- ═══ MODALS ═══ -->
 <!-- Person edit modal -->
@@ -17222,18 +17291,30 @@ function initials(first, last) {
 
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
 function showTab(name) {
-  document.querySelectorAll('.tab-btn').forEach(function(b) {
+  var labels = {people:'People',households:'Households',giving:'Giving',reports:'Reports',attendance:'Attendance',import:'Import',settings:'Settings'};
+  document.querySelectorAll('.s-item[data-tab]').forEach(function(b) {
     b.classList.toggle('active', b.dataset.tab === name);
   });
   document.querySelectorAll('.tab-panel').forEach(function(p) {
     p.classList.toggle('active', p.id === 'tab-' + name);
   });
+  var t = document.getElementById('topbar-title');
+  if (t) t.textContent = labels[name] || name;
+  closeSidebar();
   if (name === 'people') loadPeople();
   if (name === 'households') loadHouseholds();
   if (name === 'giving') loadBatches();
   if (name === 'reports') initReports();
   if (name === 'attendance') loadAttendance();
   if (name === 'settings') loadSettings();
+}
+function openSidebar() {
+  var s = document.getElementById('sidebar'); if (s) s.classList.add('open');
+  var o = document.getElementById('sidebar-overlay'); if (o) o.classList.add('open');
+}
+function closeSidebar() {
+  var s = document.getElementById('sidebar'); if (s) s.classList.remove('open');
+  var o = document.getElementById('sidebar-overlay'); if (o) o.classList.remove('open');
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────
@@ -17519,13 +17600,16 @@ function renderPeoplePager() {
   var el = document.getElementById('p-pager');
   if (!el) return;
   var total = _peopleTotal, limit = peopleFilter.limit, offset = peopleFilter.offset;
-  if (total <= limit) { el.innerHTML = '<span style="color:var(--warm-gray);font-size:.82rem;">' + total + ' people</span>'; return; }
-  var page = Math.floor(offset / limit) + 1;
-  var pages = Math.ceil(total / limit);
   var from = offset + 1, to = Math.min(offset + limit, total);
-  el.innerHTML = '<button class="btn-secondary" style="padding:4px 10px;font-size:.8rem;" onclick="peoplePage(-1)" ' + (offset === 0 ? 'disabled' : '') + '>&#8592; Prev</button>'
-    + '<span style="font-size:.82rem;color:var(--warm-gray);margin:0 10px;">' + from + '–' + to + ' of ' + total + '</span>'
-    + '<button class="btn-secondary" style="padding:4px 10px;font-size:.8rem;" onclick="peoplePage(1)" ' + (to >= total ? 'disabled' : '') + '>Next &#8594;</button>';
+  var countHtml = '<span style="font-size:12px;color:var(--warm-gray);">Showing ' + from + '–' + to + ' of ' + total + ' people</span>';
+  var prevDisabled = offset === 0 ? ' disabled' : '';
+  var nextDisabled = to >= total ? ' disabled' : '';
+  var navHtml = total <= limit ? '' :
+    '<div style="display:flex;gap:6px;">'
+    + '<button class="btn-secondary" style="padding:5px 12px;font-size:12px;"' + prevDisabled + ' onclick="peoplePage(-1)">&#8592; Prev</button>'
+    + '<button class="btn-secondary" style="padding:5px 12px;font-size:12px;"' + nextDisabled + ' onclick="peoplePage(1)">Next &#8594;</button>'
+    + '</div>';
+  el.innerHTML = countHtml + navHtml;
 }
 function peoplePage(dir) {
   peopleFilter.offset = Math.max(0, peopleFilter.offset + dir * peopleFilter.limit);
@@ -17534,30 +17618,42 @@ function peoplePage(dir) {
 function renderPeopleDesktop(people) {
   _loadedPeople = people;
   var c = document.getElementById('p-grid');
-  if (!people.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">&#128100;</div>No people found</div>'; return; }
-  c.innerHTML = people.map(function(p) {
-    var isSelected = _selectedPeople.has(p.id);
-    var cls = 'p-card' + (p.member_type === 'member' ? ' member' : '') + (_selectMode ? ' selectable' : '') + (isSelected ? ' selected' : '');
-    var clickHandler = _selectMode
+  if (!people.length) { c.innerHTML = '<div class="empty" style="padding:40px 24px;"><div class="empty-icon">&#128100;</div>No people found</div>'; return; }
+  var isOrg, isSelected, displayName, avInner, avClass, clickHandler, tags, tagHtml, trCls;
+  var rows = people.map(function(p) {
+    isOrg = p.member_type === 'organization';
+    isSelected = _selectedPeople.has(p.id);
+    displayName = isOrg
+      ? esc(p.first_name || p.last_name)
+      : esc(p.last_name) + (p.last_name && p.first_name ? ', ' : '') + esc(p.first_name);
+    avInner = isOrg
+      ? '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#888;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>'
+      : (p.photo_url ? '<img src="' + esc(p.photo_url) + '" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;">' : initials(p.first_name, p.last_name));
+    avClass = 'dir-avatar ' + (isOrg ? 'dir-avatar-org' : 'dir-avatar-' + (p.id % 5));
+    clickHandler = _selectMode
       ? 'onclick="togglePersonSelect(' + p.id + ', this)"'
       : 'onclick="openPersonDetail(' + p.id + ')"';
-    var tags = (p.tags||[]).map(function(t) {
-      return '<span class="tag-chip" style="background:' + esc(t.color) + '20;border-color:' + esc(t.color) + ';color:' + esc(t.color) + '">' + esc(t.name) + '</span>';
+    tags = p.tags || [];
+    tagHtml = tags.slice(0,3).map(function(t) {
+      return '<span class="dir-tag" style="background:' + esc(t.color) + '22;color:' + esc(t.color) + ';border-color:' + esc(t.color) + '44;">' + esc(t.name) + '</span>';
     }).join('');
-    return '<div class="' + cls + '" ' + clickHandler + '>'
-      + (_selectMode ? '<div class="p-select-cb">' + (isSelected ? '&#10003;' : '') + '</div>' : '')
-      + '<div class="p-card-top">'
-      + '<div class="avatar">' + (p.photo_url ? '<img src="' + esc(p.photo_url) + '" alt="">' : initials(p.first_name, p.last_name)) + '</div>'
-      + '<div><div class="p-name">' + esc(p.last_name) + ', ' + esc(p.first_name) + '</div>'
-      + '<span class="' + typeClass(p.member_type) + '">' + esc(p.member_type||'visitor') + '</span></div></div>'
-      + '<div class="p-card-body">'
-      + (p.email ? '<div class="p-row"><span class="p-icon">&#9993;</span><a href="mailto:' + esc(p.email) + '" onclick="event.stopPropagation()">' + esc(p.email) + '</a></div>' : '')
-      + (p.phone ? '<div class="p-row"><span class="p-icon">&#128222;</span>' + esc(p.phone) + '</div>' : '')
-      + (p.household_name ? '<div class="p-row"><span class="p-icon">&#127968;</span>' + esc(p.household_name) + '</div>' : '')
-      + '</div>'
-      + (tags ? '<div class="p-tags">' + tags + '</div>' : '')
-      + '</div>';
+    if (tags.length > 3) tagHtml += '<span class="dir-tag-more">+' + (tags.length - 3) + '</span>';
+    trCls = isSelected ? ' class="dir-row-selected"' : '';
+    var badge = (p.member_type||'visitor').replace(/\s+/g,'-');
+    return '<tr' + trCls + ' style="cursor:pointer;" ' + clickHandler + '>'
+      + '<td style="width:36px;text-align:center;" onclick="event.stopPropagation()"><input type="checkbox"' + (isSelected ? ' checked' : '') + ' style="' + (_selectMode ? '' : 'display:none;') + '" onchange="togglePersonSelect(' + p.id + ',this.closest(\'tr\'))" onclick="event.stopPropagation()"></td>'
+      + '<td><div class="dir-name-cell"><div class="' + avClass + '">' + avInner + '</div><span class="dir-name-link">' + displayName + '</span></div></td>'
+      + '<td><span class="dir-badge dir-badge-' + badge + '">' + esc(p.member_type||'visitor') + '</span></td>'
+      + '<td class="dir-contact">' + (p.email ? '<a href="mailto:' + esc(p.email) + '" onclick="event.stopPropagation()">' + esc(p.email) + '</a>' : '') + (p.phone ? '<div class="dir-phone">' + esc(p.phone) + '</div>' : '') + '</td>'
+      + '<td>' + (p.household_name ? '<span class="dir-hh-link">' + esc(p.household_name) + '</span>' : '<span style="color:var(--faint);">—</span>') + '</td>'
+      + '<td><div class="dir-tags">' + tagHtml + '</div></td>'
+      + '</tr>';
   }).join('');
+  var cbAll = '<input type="checkbox" id="p-check-all" style="' + (_selectMode ? '' : 'display:none;') + '" onchange="selectAllVisible(this.checked)">';
+  c.innerHTML = '<table class="dir-table"><thead><tr>'
+    + '<th>' + cbAll + '</th>'
+    + '<th>Name</th><th>Status</th><th>Contact</th><th>Household</th><th>Tags</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table>';
 }
 // ── MULTI-SELECT ──────────────────────────────────────────────────────
 function toggleSelectMode() {
@@ -17597,15 +17693,23 @@ function clearSelection() {
 function togglePersonSelect(id, el) {
   if (_selectedPeople.has(id)) {
     _selectedPeople.delete(id);
-    el.classList.remove('selected');
+    el.classList.remove('selected', 'dir-row-selected');
   } else {
     _selectedPeople.add(id);
-    el.classList.add('selected');
+    el.classList.add('selected', 'dir-row-selected');
   }
-  var cb = el.querySelector('.p-select-cb');
-  if (cb) cb.innerHTML = _selectedPeople.has(id) ? '&#10003;' : '';
+  var cb = el.querySelector('input[type=checkbox]');
+  if (cb) cb.checked = _selectedPeople.has(id);
   var countEl = document.getElementById('p-bulk-count');
   if (countEl) countEl.textContent = _selectedPeople.size + ' selected';
+}
+function selectAllVisible(checked) {
+  (_loadedPeople || []).forEach(function(p) {
+    if (checked) _selectedPeople.add(p.id); else _selectedPeople.delete(p.id);
+  });
+  var countEl = document.getElementById('p-bulk-count');
+  if (countEl) countEl.textContent = _selectedPeople.size + ' selected';
+  renderPeopleDesktop(_loadedPeople || []);
 }
 function applyBulkMemberType() {
   var mt = document.getElementById('p-bulk-mt').value;
