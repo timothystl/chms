@@ -16546,26 +16546,30 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 .h-members{display:flex;flex-wrap:wrap;gap:6px;}
 .h-member-pill{font-size:.75rem;background:var(--blue-mist);border:1px solid var(--ice-blue);color:var(--steel-anchor);padding:2px 8px;border-radius:10px;}
 /* ── GIVING ── */
-.giving-layout{display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start;}
+.giving-layout{display:grid;grid-template-columns:300px 1fr;gap:0;flex:1;min-height:0;}
 @media(max-width:900px){.giving-layout{grid-template-columns:1fr;}}
-.batch-list-panel{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
-.batch-list-hdr{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
-.batch-list-hdr h3{font-family:var(--font-head);font-size:.95rem;color:var(--steel-anchor);}
-.batch-row{padding:12px 16px;border-bottom:1px solid var(--linen);cursor:pointer;transition:background .1s;}
-.batch-row:hover{background:var(--blue-mist);}
-.batch-row.selected{background:var(--blue-mist);border-left:3px solid var(--steel-anchor);}
-.batch-row.open-batch{border-left:3px solid var(--amber);}
-.batch-date{font-size:.8rem;color:var(--warm-gray);}
-.batch-desc{font-weight:600;font-size:.9rem;color:var(--charcoal);}
-.batch-meta{display:flex;gap:8px;align-items:center;margin-top:2px;font-size:.78rem;color:var(--warm-gray);}
-.badge-open{background:var(--pale-gold);color:var(--deep-amber);padding:1px 6px;border-radius:6px;font-size:.7rem;font-weight:700;text-transform:uppercase;}
-.badge-closed{background:var(--linen);color:var(--warm-gray);padding:1px 6px;border-radius:6px;font-size:.7rem;font-weight:700;text-transform:uppercase;}
-.batch-detail-panel{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
-.batch-detail-hdr{padding:14px 18px;border-bottom:1px solid var(--border);}
-.total-bar{padding:12px 18px;background:var(--blue-mist);border-bottom:1px solid var(--ice-blue);display:flex;align-items:center;gap:10px;}
-.total-amount{font-family:var(--font-head);font-size:1.3rem;color:var(--steel-anchor);font-weight:700;}
+.batch-list-panel{background:var(--white);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.batch-list-hdr{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.batch-list-hdr h3{font-family:var(--font-head);font-size:.92rem;color:var(--steel-anchor);}
+.batch-search-wrap{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.batch-search-wrap input{width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:.84rem;font-family:var(--font-body);background:var(--linen);box-sizing:border-box;color:var(--charcoal);}
+.batch-search-wrap input:focus{outline:none;border-color:var(--steel-anchor);background:var(--white);}
+.batch-filter-pills{padding:7px 10px;border-bottom:1px solid var(--border);display:flex;gap:5px;flex-shrink:0;}
+#batch-list{flex:1;overflow-y:auto;}
+.batch-row{padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s;}
+.batch-row:hover{background:var(--linen);}
+.batch-row.selected{background:var(--blue-mist);box-shadow:inset 3px 0 0 var(--teal);}
+.batch-date{font-size:.75rem;color:var(--warm-gray);}
+.batch-desc{font-weight:600;font-size:.87rem;color:var(--charcoal);margin:1px 0;}
+.batch-meta{display:flex;gap:8px;align-items:center;margin-top:3px;font-size:.74rem;color:var(--warm-gray);}
+.badge-open{background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:99px;font-size:.68rem;font-weight:700;}
+.badge-closed{background:var(--linen);color:var(--warm-gray);padding:2px 8px;border-radius:99px;font-size:.68rem;font-weight:700;}
+.batch-detail-panel{background:var(--white);display:flex;flex-direction:column;overflow-y:auto;}
+.batch-detail-hdr{padding:14px 18px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.total-bar{padding:10px 18px;background:var(--linen);border-bottom:1px solid var(--border);display:flex;align-items:baseline;gap:10px;flex-shrink:0;}
+.total-amount{font-family:var(--font-head);font-size:1.4rem;color:var(--steel-anchor);font-weight:700;}
 .total-count{font-size:.82rem;color:var(--warm-gray);}
-.entry-form{padding:14px 18px;border-bottom:1px solid var(--border);}
+.entry-form{padding:14px 18px;border-bottom:1px solid var(--border);flex-shrink:0;}
 .form-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;}
 .field{display:flex;flex-direction:column;gap:4px;}
 .field label{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);}
@@ -16578,10 +16582,13 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 .method-row{display:flex;gap:14px;align-items:center;}
 .method-row label{display:flex;align-items:center;gap:5px;font-size:.87rem;cursor:pointer;}
 .entries-table{width:100%;border-collapse:collapse;font-size:.87rem;}
-.entries-table th{padding:8px 10px;text-align:left;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);border-bottom:1px solid var(--border);}
-.entries-table td{padding:8px 10px;border-bottom:1px solid var(--linen);}
-.entries-table tr:hover td{background:var(--blue-mist);}
-.del-entry{background:none;border:none;color:var(--danger);cursor:pointer;font-size:1rem;padding:0 4px;opacity:.7;}
+.entries-table th{padding:8px 12px;text-align:left;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);border-bottom:1px solid var(--border);background:var(--linen);}
+.entries-table th.amt-col{text-align:right;}
+.entries-table td{padding:9px 12px;border-bottom:1px solid var(--border);}
+.entries-table td.amt-col{text-align:right;font-variant-numeric:tabular-nums;}
+.entries-table tr:last-child td{border-bottom:none;}
+.entries-table tr:hover td{background:var(--linen);}
+.del-entry{background:none;border:none;color:var(--danger);cursor:pointer;font-size:1rem;padding:0 4px;opacity:.6;}
 .del-entry:hover{opacity:1;}
 /* ── REPORTS ── */
 .report-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-bottom:20px;}
@@ -16845,7 +16852,10 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
         <h3>Batches</h3>
         <button class="btn-primary" style="padding:5px 12px;font-size:.8rem;" onclick="openNewBatch()">+ New</button>
       </div>
-      <div class="filter-pills" style="padding:10px 14px;border-bottom:1px solid var(--border);">
+      <div class="batch-search-wrap">
+        <input type="search" id="batch-search-input" placeholder="Search batches&#8230;" oninput="filterBatchSearch(this.value)">
+      </div>
+      <div class="batch-filter-pills">
         <button class="pill active" data-bs="all" onclick="setBatchFilter(this,'all')">All</button>
         <button class="pill" data-bs="open" onclick="setBatchFilter(this,'open')">Open</button>
         <button class="pill" data-bs="closed" onclick="setBatchFilter(this,'closed')">Closed</button>
@@ -16854,9 +16864,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     </div>
     <!-- Batch detail -->
     <div class="batch-detail-panel" id="batch-detail">
-      <div style="padding:40px;text-align:center;color:var(--warm-gray);">
-        <div style="font-size:2rem;margin-bottom:8px;">&#128176;</div>
-        Select a batch to view entries
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--warm-gray);gap:10px;padding:40px;">
+        <svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg>
+        <div style="font-size:.9rem;">Select a batch to view entries</div>
       </div>
     </div>
   </div>
@@ -17306,6 +17316,7 @@ var _pDebounce, _hDebounce;
 var _loadedServices = [];
 var _hhOffset = 0, _hhTotal = 0;
 var _currentPvPerson = null;
+var _batchSearch = '';
 var _attOrder = 'desc', _attGroupBy = 'none', _attChartMode = 'line';
 var _selectMode = false, _selectedPeople = new Set();
 var _churchConfig = {};
@@ -18265,18 +18276,32 @@ function loadBatches() {
     renderBatchList(d.batches || []);
   });
 }
+function filterBatchSearch(val) {
+  _batchSearch = (val||'').toLowerCase().trim();
+  loadBatches();
+}
 function renderBatchList(batches) {
   var c = document.getElementById('batch-list');
-  if (!batches.length) { c.innerHTML = '<div style="padding:20px;text-align:center;color:var(--warm-gray);font-size:.85rem;">No batches</div>'; return; }
-  c.innerHTML = batches.map(function(b) {
-    var cls = 'batch-row' + (b.id === currentBatchId ? ' selected' : '') + (!b.closed ? ' open-batch' : '');
+  var filtered = _batchSearch
+    ? batches.filter(function(b) {
+        return (b.description||'').toLowerCase().indexOf(_batchSearch) >= 0
+            || (b.batch_date||'').indexOf(_batchSearch) >= 0;
+      })
+    : batches;
+  if (!filtered.length) {
+    c.innerHTML = '<div style="padding:30px 16px;text-align:center;color:var(--warm-gray);font-size:.84rem;">'
+      + (_batchSearch ? 'No batches match &#8220;' + esc(_batchSearch) + '&#8221;' : 'No batches yet') + '</div>';
+    return;
+  }
+  c.innerHTML = filtered.map(function(b) {
+    var cls = 'batch-row' + (b.id === currentBatchId ? ' selected' : '');
+    var badge = b.closed ? '<span class="badge-closed">Closed</span>' : '<span class="badge-open">Open</span>';
     return '<div class="' + cls + '" onclick="openBatch(' + b.id + ')">'
       + '<div class="batch-date">' + fmtDate(b.batch_date) + '</div>'
       + '<div class="batch-desc">' + esc(b.description) + '</div>'
       + '<div class="batch-meta">'
-      + '<span>' + (b.entry_count||0) + ' entries &bull; ' + fmtMoney(b.total_cents||0) + '</span>'
-      + '<span class="' + (b.closed ? 'badge-closed' : 'badge-open') + '">' + (b.closed ? 'Closed' : 'Open') + '</span>'
-      + '</div></div>';
+      + '<span>' + (b.entry_count||0) + ' entries \u00b7 ' + fmtMoney(b.total_cents||0) + '</span>'
+      + badge + '</div></div>';
   }).join('');
 }
 function openBatch(id) {
@@ -18296,14 +18321,16 @@ function renderBatchDetail(b) {
     return '<option value="' + f.id + '">' + esc(f.name) + '</option>';
   }).join('');
 
-  var entryRows = (b.entries||[]).map(function(e) {
-    return '<tr><td>' + esc(e.person_name||'(anonymous)') + '</td>'
-      + '<td>' + esc(e.fund_name) + '</td>'
-      + '<td>' + fmtMoney(e.amount) + '</td>'
-      + '<td>' + esc(e.method) + (e.check_number ? ' #'+esc(e.check_number) : '') + '</td>'
-      + '<td>' + (isOpen ? '<button class="del-entry" onclick="deleteEntry(' + e.id + ')" title="Remove">&#215;</button>' : '') + '</td>'
-      + '</tr>';
-  }).join('');
+  var entryRows = (b.entries||[]).length
+    ? (b.entries||[]).map(function(e) {
+        return '<tr><td>' + esc(e.person_name||'(anonymous)') + '</td>'
+          + '<td>' + esc(e.fund_name) + '</td>'
+          + '<td class="amt-col">' + fmtMoney(e.amount) + '</td>'
+          + '<td>' + esc(e.method) + (e.check_number ? ' #'+esc(e.check_number) : '') + '</td>'
+          + '<td style="width:32px;padding:0 8px;">' + (isOpen ? '<button class="del-entry" onclick="deleteEntry(' + e.id + ')" title="Remove">&#215;</button>' : '') + '</td>'
+          + '</tr>';
+      }).join('')
+    : '<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--warm-gray);">No entries in this batch yet.</td></tr>';
 
   var entryForm = isOpen ? (
     '<div class="entry-form">'
@@ -18339,7 +18366,7 @@ function renderBatchDetail(b) {
     + actionBtns + '</div></div>'
     + '<div class="total-bar"><span class="total-amount">' + fmtMoney(total) + '</span><span class="total-count">' + (b.entries||[]).length + ' entries</span></div>'
     + entryForm
-    + '<div style="overflow-x:auto;"><table class="entries-table"><thead><tr><th>Person</th><th>Fund</th><th>Amount</th><th>Method</th><th></th></tr></thead><tbody id="entry-tbody">' + entryRows + '</tbody></table></div>';
+    + '<div style="overflow-x:auto;"><table class="entries-table"><thead><tr><th>Person</th><th>Fund</th><th class="amt-col">Amount</th><th>Method</th><th></th></tr></thead><tbody id="entry-tbody">' + entryRows + '</tbody></table></div>';
 
   // Wire up check# toggle
   c.querySelectorAll('input[name="e-method"]').forEach(function(r) {
