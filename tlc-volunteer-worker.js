@@ -16769,7 +16769,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .dir-tags{display:flex;gap:4px;flex-wrap:wrap;align-items:center;}
 .dir-tag{font-size:10px;padding:2px 7px;border-radius:99px;white-space:nowrap;border:1px solid transparent;}
 .dir-tag-more{font-size:10px;color:var(--warm-gray);}
-#p-grid{flex:1;min-height:0;overflow-y:auto;}
+#p-grid{flex:1;min-height:0;overflow-y:auto;display:block;}
 #p-pager{position:sticky;bottom:0;background:var(--white);border-top:1px solid var(--border);padding:9px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
 /* ── PROFILE VIEW ── */
 .content-area.pv-mode > .topbar{display:none;}
@@ -16892,7 +16892,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   </div>
   <div id="p-status" class="status-msg"></div>
   <!-- Desktop grid -->
-  <div class="card-grid" id="p-grid"></div>
+  <div id="p-grid"></div>
   <!-- Mobile contact list -->
   <div class="contact-list" id="p-contact-list"></div>
   <!-- Pagination -->
