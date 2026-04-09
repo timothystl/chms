@@ -16605,13 +16605,18 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 .rpt-total{font-weight:700;border-top:2px solid var(--border) !important;}
 /* ── ATTENDANCE ── */
 .att-chart-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px 10px;margin-bottom:14px;}
-.att-stats-row{display:flex;gap:28px;margin-bottom:14px;flex-wrap:wrap;}
-.att-stat-val{font-size:1.9rem;font-weight:700;font-family:var(--font-head);color:var(--steel-anchor);line-height:1;}
-.att-stat-lbl{font-size:.7rem;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-top:2px;}
+.att-stats-row{display:flex;gap:22px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end;}
+.att-stat-val{font-size:1.75rem;font-weight:700;font-family:var(--font-head);color:var(--steel-anchor);line-height:1;}
+.att-stat-lbl{font-size:.7rem;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-top:3px;}
+.att-stat-primary .att-stat-val{font-size:2.6rem;}
+.att-stat-divider{width:1px;height:36px;background:var(--border);flex-shrink:0;}
 .att-list-card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
-.att-date-group{border-bottom:1px solid var(--linen);}
+.att-date-group{border-bottom:1px solid var(--border);}
+.att-date-group:last-child{border-bottom:none;}
 .att-date-hdr{display:flex;align-items:center;gap:6px;padding:10px 14px 4px;cursor:pointer;transition:background .15s;}
-.att-date-hdr:hover{background:var(--blue-mist);}
+.att-date-hdr:hover{background:var(--linen);}
+.att-date-group.future{background:var(--linen);opacity:.5;}
+.att-date-group.future .att-date-hdr:hover{background:var(--linen);}
 .att-combined{margin-left:auto;font-size:.78rem;font-weight:700;color:var(--steel-anchor);background:var(--ice-blue);padding:2px 8px;border-radius:100px;}
 .att-svc-nums{display:flex;gap:20px;padding:2px 14px 8px;font-size:.88rem;}
 .att-svc-lbl{font-size:.7rem;font-weight:700;color:var(--warm-gray);text-transform:uppercase;margin-right:4px;}
@@ -16957,7 +16962,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     <!-- Controls row -->
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
       <button class="btn-primary" style="font-size:.85rem;" onclick="openNewSundayEntry()">+ Add Sunday</button>
-      <button class="btn-secondary" style="font-size:.8rem;" onclick="seedYearSundays()">&#128197; Seed Sundays for Year</button>
+      <button class="btn-secondary" style="font-size:.8rem;" onclick="seedYearSundays()">&#128197; Pre-fill Year Sundays</button>
       <div style="flex:1;"></div>
       <input type="date" id="att-from" style="font-size:.78rem;padding:3px 6px;border:1px solid var(--border);border-radius:6px;">
       <span style="font-size:.8rem;color:var(--warm-gray);">to</span>
@@ -19213,12 +19218,13 @@ function renderAttendanceChart(services) {
     ytdHtml = '<div><div class="att-stat-val" style="color:'+pctColor+';">'+(pct>=0?'+':'')+pct+'%</div><div class="att-stat-lbl">YTD vs '+priorYear+'</div></div>';
   }
   if (statsEl) statsEl.innerHTML =
-    '<div><div class="att-stat-val">'+latest+'</div><div class="att-stat-lbl">Latest ('+latestLbl+')</div></div>'
+    '<div class="att-stat-primary"><div class="att-stat-val">'+latest+'</div><div class="att-stat-lbl">Latest \u00b7 '+latestLbl+'</div></div>'
+    +'<div class="att-stat-divider"></div>'
     +'<div><div class="att-stat-val">'+avg+'</div><div class="att-stat-lbl">Weekly Avg</div></div>'
-    +'<div><div class="att-stat-val">'+peakVal+'</div><div class="att-stat-lbl">Peak ('+peakLbl+')</div></div>'
+    +'<div><div class="att-stat-val">'+peakVal+'</div><div class="att-stat-lbl">Peak \u00b7 '+peakLbl+'</div></div>'
     +(annualTotal?'<div><div class="att-stat-val">'+annualTotal+'</div><div class="att-stat-lbl">'+curYear+' Total</div></div>':'')
     +ytdHtml
-    +'<div><div class="att-stat-val">'+dataPts.length+'</div><div class="att-stat-lbl">Sundays w/ Data</div></div>';
+    +'<div><div class="att-stat-val">'+dataPts.length+'</div><div class="att-stat-lbl">Sundays</div></div>';
 
   var n=dataPts.length;
   var H=210,pL=32,pR=12,pT=10,pB=30;
@@ -19449,7 +19455,7 @@ function renderAttendanceList(services, totalInDb) {
       : '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:6px;">&#9432; No records in the database yet. Run the attendance import from the Import tab first.</div>';
     el.innerHTML = '<div style="padding:32px 24px;text-align:center;background:var(--white);border:1px solid var(--border);border-radius:12px;">'
       + '<div style="font-size:1rem;font-weight:600;color:var(--steel-anchor);margin-bottom:8px;">No services recorded for this period.</div>'
-      + '<div style="font-size:.85rem;color:var(--warm-gray);margin-bottom:4px;">Click <strong>+ Add Sunday</strong> to enter attendance manually, or <strong>Seed Sundays for Year</strong> to pre-populate the calendar.</div>'
+      + '<div style="font-size:.85rem;color:var(--warm-gray);margin-bottom:4px;">Click <strong>+ Add Sunday</strong> to enter attendance manually, or <strong>Pre-fill Year Sundays</strong> to pre-populate the calendar.</div>'
       + dbNote
       + '</div>';
     return;
@@ -19462,6 +19468,7 @@ function renderAttendanceList(services, totalInDb) {
     if (!byDate[s.service_date]) { byDate[s.service_date] = []; dates.push(s.service_date); }
     byDate[s.service_date].push(s);
   });
+  var today2 = new Date().toISOString().slice(0,10);
   var html = '';
   var lastMonth = '';
   var MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -19485,7 +19492,8 @@ function renderAttendanceList(services, totalInDb) {
     var isSunday = rows.some(function(r){return r.service_type==='sunday';});
     var sundayName = (s8.service_name || s1045.service_name || (rows[0]&&rows[0].service_name) || '');
     var dk = date.replace(/-/g,'_');
-    html += '<div class="att-date-group">';
+    var isFuture = date > today2;
+    html += '<div class="att-date-group' + (isFuture ? ' future' : '') + '">';
     html += '<div class="att-date-hdr" onclick="toggleAttEdit(&#39;'+dk+'&#39;)">'
       + '<span style="font-weight:700;color:var(--steel-anchor);min-width:88px;">'+displayDate+'</span>'
       + (sundayName ? '<span style="font-size:.75rem;color:var(--warm-gray);">'+esc(sundayName)+'</span>' : '')
