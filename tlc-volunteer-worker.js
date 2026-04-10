@@ -18842,11 +18842,11 @@ function normalizeRegDate(s) {
     october:'10',oct:'10',november:'11',nov:'11',december:'12',dec:'12'
   };
   var m;
-  // MM/DD/YYYY
-  m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})$/);
+  // MM/DD/YYYY or M-D-YYYY (slash or dash separator, year last)
+  m = s.match(/^(\\d{1,2})[\\/-](\\d{1,2})[\\/-](\\d{4})$/);
   if (m) return m[3]+'-'+pad2(m[1])+'-'+pad2(m[2]);
-  // MM/DD/YY  (2-digit year → 19xx for historical records)
-  m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{2})$/);
+  // MM/DD/YY or M-D-YY (2-digit year → 19xx for historical records)
+  m = s.match(/^(\\d{1,2})[\\/-](\\d{1,2})[\\/-](\\d{2})$/);
   if (m) return '19'+m[3]+'-'+pad2(m[1])+'-'+pad2(m[2]);
   // Month D(st/nd/rd/th)?, YYYY  e.g. "July 1, 1928" or "July 1st, 1928"
   m = s.match(/^([A-Za-z]+)\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(\\d{4})$/);
