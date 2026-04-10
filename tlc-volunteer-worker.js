@@ -13045,6 +13045,61 @@ async function handleAdminApi(req, env, url, method) {
 async function handleChmsApi(req, env, url, method, seg) {
   const db = env.DB;
 
+  // ── Dashboard ────────────────────────────────────────────────────
+  if (seg === 'dashboard' && method === 'GET') {
+    // Membership counts by type
+    const typeCounts = (await db.prepare(
+      `SELECT member_type, COUNT(*) as n FROM people WHERE active=1 GROUP BY member_type ORDER BY n DESC`
+    ).all()).results || [];
+    const totalPeople = typeCounts.reduce(function(s,r){return s+r.n;},0);
+    const totalHouseholds = (await db.prepare(`SELECT COUNT(*) as n FROM households`).first())?.n || 0;
+    // Added this month / this year
+    const addedThisMonth = (await db.prepare(
+      `SELECT COUNT(*) as n FROM people WHERE active=1 AND created_at >= date('now','start of month')`
+    ).first())?.n || 0;
+    const addedThisYear = (await db.prepare(
+      `SELECT COUNT(*) as n FROM people WHERE active=1 AND created_at >= date('now','start of year')`
+    ).first())?.n || 0;
+    // Giving this year vs last year
+    const givingThisYear = (await db.prepare(
+      `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
+       JOIN giving_batches gb ON ge.batch_id=gb.id
+       WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=strftime('%Y','now')`
+    ).first())?.total || 0;
+    const givingLastYear = (await db.prepare(
+      `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
+       JOIN giving_batches gb ON ge.batch_id=gb.id
+       WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=cast(strftime('%Y','now')-1 as text)`
+    ).first())?.total || 0;
+    // Upcoming birthdays — next 60 days
+    const birthdays = (await db.prepare(
+      `SELECT id, first_name, last_name, dob FROM people
+       WHERE active=1 AND dob != ''
+         AND cast(strftime('%j', date(substr(dob,1,4)||'-'||substr(dob,6,2)||'-'||substr(dob,9,2))) as integer)
+           BETWEEN cast(strftime('%j','now') as integer)
+             AND cast(strftime('%j','now') as integer)+60
+       ORDER BY cast(strftime('%m%d', dob) as integer)
+       LIMIT 15`
+    ).all()).results || [];
+    // Recent additions
+    const recentPeople = (await db.prepare(
+      `SELECT p.id, p.first_name, p.last_name, p.member_type, p.created_at, h.name as household_name
+       FROM people p LEFT JOIN households h ON p.household_id=h.id
+       WHERE p.active=1 ORDER BY p.created_at DESC LIMIT 10`
+    ).all()).results || [];
+    // Most recent attendance
+    const recentAttendance = (await db.prepare(
+      `SELECT service_date, service_name, attendance_count
+       FROM worship_services WHERE attendance_count > 0
+       ORDER BY service_date DESC LIMIT 5`
+    ).all()).results || [];
+    return json({
+      totalPeople, totalHouseholds, addedThisMonth, addedThisYear,
+      typeCounts, givingThisYear, givingLastYear,
+      birthdays, recentPeople, recentAttendance
+    });
+  }
+
   // ── People ──────────────────────────────────────────────────────
   if (seg === 'people' && method === 'GET') {
     const q = url.searchParams.get('q') || '';
@@ -16941,6 +16996,37 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .dir-tag-more{font-size:10px;color:var(--warm-gray);}
 #p-grid{flex:1;min-height:0;overflow-y:auto;display:block;}
 #p-pager{position:sticky;bottom:0;background:var(--white);border-top:1px solid var(--border);padding:9px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+/* ── DASHBOARD ── */
+.dash-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px;}
+@media(max-width:900px){.dash-stats{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:480px){.dash-stats{grid-template-columns:1fr 1fr;}}
+.dash-stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:4px;}
+.dash-stat-val{font-size:30px;font-weight:800;color:var(--charcoal);line-height:1;}
+.dash-stat-lbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);}
+.dash-stat-sub{font-size:11px;color:var(--teal);}
+.dash-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;}
+@media(max-width:700px){.dash-row{grid-template-columns:1fr;}}
+.dash-card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.dash-card-hdr{padding:14px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:var(--charcoal);display:flex;align-items:center;gap:8px;}
+.dash-card-body{padding:0;}
+.dash-row-item{display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--linen);cursor:pointer;transition:background .1s;}
+.dash-row-item:last-child{border-bottom:none;}
+.dash-row-item:hover{background:var(--linen);}
+.dash-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white;flex-shrink:0;}
+.dash-item-name{font-size:13px;font-weight:600;color:var(--charcoal);}
+.dash-item-sub{font-size:11px;color:var(--warm-gray);}
+.dash-type-bar{display:flex;flex-direction:column;gap:8px;padding:16px 18px;}
+.dash-bar-row{display:flex;align-items:center;gap:10px;font-size:12px;}
+.dash-bar-lbl{width:130px;flex-shrink:0;color:var(--charcoal);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.dash-bar-track{flex:1;height:8px;background:var(--linen);border-radius:99px;overflow:hidden;}
+.dash-bar-fill{height:100%;border-radius:99px;background:var(--teal);}
+.dash-bar-n{width:32px;text-align:right;color:var(--warm-gray);flex-shrink:0;}
+.dash-bday{display:flex;align-items:center;gap:10px;padding:8px 18px;border-bottom:1px solid var(--linen);}
+.dash-bday:last-child{border-bottom:none;}
+.dash-quick{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px;}
+.dash-quick-btn{display:flex;align-items:center;gap:8px;padding:12px 18px;background:var(--white);border:1px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:var(--charcoal);transition:border-color .15s,box-shadow .15s;}
+.dash-quick-btn:hover{border-color:var(--teal);box-shadow:0 0 0 3px rgba(76,154,143,.1);}
+.dash-quick-btn svg{width:18px;height:18px;flex-shrink:0;stroke:var(--teal);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
 /* ── PROFILE VIEW ── */
 .content-area.pv-mode > .topbar{display:none;}
 .content-area.pv-mode > .tab-panel{display:none!important;}
@@ -17015,7 +17101,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 <div class="app-shell">
 <nav class="sidebar" id="sidebar">
   <div class="s-logo"><svg viewBox="0 0 20 20"><path d="M10 1L2 7v12h6v-5h4v5h6V7L10 1z"/></svg></div>
-  <div class="s-item active" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
+  <div class="s-item active" data-tab="home" onclick="showTab('home')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Home</span></div>
+  <div class="s-divider"></div>
+  <div class="s-item" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
   <div class="s-item" data-tab="households" onclick="showTab('households')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Households</span></div>
   <div class="s-divider"></div>
   <div class="s-item" data-tab="giving" onclick="showTab('giving')"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg><span class="s-tip">Giving</span></div>
@@ -17039,8 +17127,13 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   </div>
 </div>
 
+<!-- ═══ HOME / DASHBOARD TAB ═══ -->
+<div id="tab-home" class="tab-panel active">
+  <div id="dash-body" style="padding:24px;max-width:1100px;"></div>
+</div>
+
 <!-- ═══ PEOPLE TAB ═══ -->
-<div id="tab-people" class="tab-panel active">
+<div id="tab-people" class="tab-panel">
   <div class="toolbar">
     <div class="search-wrap"><input type="search" id="p-search" placeholder="Search name, email, phone…" oninput="debouncePeople()"></div>
     <button class="btn-secondary" id="p-filter-btn" onclick="toggleFilterDrawer()" style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
@@ -17768,7 +17861,7 @@ function initials(first, last) {
 
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
 function showTab(name) {
-  var labels = {people:'People',households:'Households',giving:'Giving',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings'};
+  var labels = {home:'Home',people:'People',households:'Households',giving:'Giving',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings'};
   // Exit person-profile view if active
   var ca = document.querySelector('.content-area');
   if (ca) ca.classList.remove('pv-mode');
@@ -17781,6 +17874,7 @@ function showTab(name) {
   var t = document.getElementById('topbar-title');
   if (t) t.textContent = labels[name] || name;
   closeSidebar();
+  if (name === 'home') loadDashboard();
   if (name === 'people') loadPeople();
   if (name === 'households') loadHouseholds();
   if (name === 'giving') loadBatches();
@@ -17834,7 +17928,7 @@ window.addEventListener('load', function() {
   loadTags();
   loadFunds();
   loadMemberTypes();
-  loadPeople();
+  showTab('home');
 });
 
 // ── TAGS ──────────────────────────────────────────────────────────────
@@ -18237,6 +18331,123 @@ function printDirectory() {
     w.print();
   });
   function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────────────────
+function loadDashboard() {
+  var body = document.getElementById('dash-body');
+  if (!body) return;
+  body.innerHTML = '<div style="color:var(--warm-gray);font-size:13px;padding:20px 0;">Loading\u2026</div>';
+  api('/admin/api/dashboard').then(function(d) {
+    var pvColors = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E87040'];
+    var maxType = d.typeCounts && d.typeCounts.length ? d.typeCounts[0].n : 1;
+    var yr = new Date().getFullYear();
+    var html = '';
+
+    // Quick actions
+    html += '<div class="dash-quick">'
+      + dashQBtn('<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>', 'Add Person', "openPersonEdit(null);showTab('people')")
+      + dashQBtn('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/>', 'Record Giving', "showTab('giving')")
+      + dashQBtn('<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/>', 'Attendance', "showTab('attendance')")
+      + dashQBtn('<path d="M18 20V10M12 20V4M6 20v-6"/>', 'Reports', "showTab('reports')")
+      + '</div>';
+
+    // Stat cards
+    html += '<div class="dash-stats">'
+      + dashStat(d.totalPeople, 'Total People', d.addedThisYear + ' added this year')
+      + dashStat(d.totalHouseholds, 'Households', d.addedThisMonth + ' new this month')
+      + dashStat('$'+fmt$(d.givingThisYear), yr+' Giving', yr-1+': $'+fmt$(d.givingLastYear))
+      + dashStat(d.recentAttendance && d.recentAttendance.length ? d.recentAttendance[0].attendance_count : '—', 'Last Service', d.recentAttendance && d.recentAttendance.length ? d.recentAttendance[0].service_name+' '+d.recentAttendance[0].service_date : '')
+      + '</div>';
+
+    // Middle row: membership breakdown + upcoming birthdays
+    html += '<div class="dash-row">';
+
+    // Membership breakdown
+    html += '<div class="dash-card"><div class="dash-card-hdr">'
+      + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>'
+      + 'Membership by Type</div>'
+      + '<div class="dash-type-bar">'
+      + (d.typeCounts||[]).map(function(r) {
+          var pct = Math.round((r.n / Math.max(maxType,1)) * 100);
+          var lbl = r.member_type ? (r.member_type.charAt(0).toUpperCase()+r.member_type.slice(1)) : 'Unknown';
+          return '<div class="dash-bar-row">'
+            + '<div class="dash-bar-lbl" onclick="setFdMt(\''+r.member_type+'\');showTab(\'people\')" style="cursor:pointer;color:var(--sky-steel);" title="View '+lbl+' people">'+esc(lbl)+'</div>'
+            + '<div class="dash-bar-track"><div class="dash-bar-fill" style="width:'+pct+'%;"></div></div>'
+            + '<div class="dash-bar-n">'+r.n+'</div>'
+            + '</div>';
+        }).join('')
+      + '</div></div>';
+
+    // Upcoming birthdays
+    html += '<div class="dash-card"><div class="dash-card-hdr">'
+      + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>'
+      + 'Upcoming Birthdays <span style="font-weight:400;color:var(--warm-gray);font-size:11px;margin-left:4px;">next 60 days</span></div>'
+      + '<div class="dash-card-body">'
+      + (d.birthdays && d.birthdays.length
+          ? d.birthdays.map(function(p) {
+              var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+              var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
+              var bg = pvColors[p.id % pvColors.length];
+              var dob = p.dob || '';
+              var parts = dob.split('-');
+              var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+              var dateStr = parts.length >= 3 ? months[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : dob;
+              return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
+                + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+                + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
+                + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
+                + '</div>';
+            }).join('')
+          : '<div style="padding:20px 18px;color:var(--faint);font-size:13px;font-style:italic;">No birthdays in the next 60 days.</div>')
+      + '</div></div>';
+
+    html += '</div>'; // /dash-row
+
+    // Recent additions
+    html += '<div class="dash-card" style="margin-bottom:0;"><div class="dash-card-hdr">'
+      + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>'
+      + 'Recently Added</div>'
+      + '<div class="dash-card-body">'
+      + (d.recentPeople && d.recentPeople.length
+          ? d.recentPeople.map(function(p) {
+              var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+              var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
+              var bg = pvColors[p.id % pvColors.length];
+              var mt = p.member_type ? (p.member_type.charAt(0).toUpperCase()+p.member_type.slice(1)) : '';
+              var sub = [mt, p.household_name].filter(Boolean).join(' \u00b7 ');
+              var added = p.created_at ? p.created_at.slice(0,10) : '';
+              return '<div class="dash-row-item" onclick="openPersonDetail('+p.id+')">'
+                + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+                + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div>'
+                + (sub ? '<div class="dash-item-sub">'+esc(sub)+'</div>' : '')+'</div>'
+                + '<div style="font-size:11px;color:var(--warm-gray);">'+esc(added)+'</div>'
+                + '</div>';
+            }).join('')
+          : '<div style="padding:20px 18px;color:var(--faint);font-size:13px;font-style:italic;">No people yet.</div>')
+      + '</div></div>';
+
+    body.innerHTML = html;
+  }).catch(function(e) {
+    var body2 = document.getElementById('dash-body');
+    if (body2) body2.innerHTML = '<div style="color:var(--danger);padding:20px;">Could not load dashboard: '+esc(e.message||'error')+'</div>';
+  });
+}
+function dashStat(val, lbl, sub) {
+  return '<div class="dash-stat">'
+    + '<div class="dash-stat-val">'+esc(String(val))+'</div>'
+    + '<div class="dash-stat-lbl">'+esc(lbl)+'</div>'
+    + (sub ? '<div class="dash-stat-sub">'+esc(sub)+'</div>' : '')
+    + '</div>';
+}
+function dashQBtn(svgPath, label, onclick) {
+  return '<button class="dash-quick-btn" onclick="'+onclick+'">'
+    + '<svg viewBox="0 0 24 24">'+svgPath+'</svg>'
+    + esc(label)+'</button>';
+}
+function fmt$(cents) {
+  if (!cents) return '0';
+  return (cents/100).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
 }
 
 // ── FUNDS ──────────────────────────────────────────────────────────────
