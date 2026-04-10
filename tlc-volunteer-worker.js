@@ -14045,6 +14045,51 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json({ ok: true, deleted: r.meta?.changes ?? 0 });
   }
 
+  if (seg === 'import/register-from-people' && method === 'POST') {
+    let b = {}; try { b = await req.json(); } catch {}
+    const cutoff = b.cutoff || '2020-01-01';
+    const types = Array.isArray(b.types) ? b.types : ['baptism','confirmation'];
+    let imported = 0, skipped = 0;
+
+    if (types.includes('baptism')) {
+      const people = (await db.prepare(
+        `SELECT id, first_name, last_name, dob, baptism_date FROM people
+         WHERE active=1 AND baptism_date >= ? AND baptism_date != ''`
+      ).bind(cutoff).all()).results || [];
+      const stmt = db.prepare(
+        `INSERT INTO church_register (type,event_date,name,dob,person_id) VALUES ('baptism',?,?,?,?)`
+      );
+      for (const p of people) {
+        const existing = await db.prepare(
+          `SELECT id FROM church_register WHERE person_id=? AND type='baptism'`
+        ).bind(p.id).first();
+        if (existing) { skipped++; continue; }
+        await stmt.bind(p.baptism_date, ((p.first_name||'')+' '+(p.last_name||'')).trim(), p.dob||'', p.id).run();
+        imported++;
+      }
+    }
+
+    if (types.includes('confirmation')) {
+      const people = (await db.prepare(
+        `SELECT id, first_name, last_name, dob, confirmation_date FROM people
+         WHERE active=1 AND confirmation_date >= ? AND confirmation_date != ''`
+      ).bind(cutoff).all()).results || [];
+      const stmt = db.prepare(
+        `INSERT INTO church_register (type,event_date,name,dob,person_id) VALUES ('confirmation',?,?,?,?)`
+      );
+      for (const p of people) {
+        const existing = await db.prepare(
+          `SELECT id FROM church_register WHERE person_id=? AND type='confirmation'`
+        ).bind(p.id).first();
+        if (existing) { skipped++; continue; }
+        await stmt.bind(p.confirmation_date, ((p.first_name||'')+' '+(p.last_name||'')).trim(), p.dob||'', p.id).run();
+        imported++;
+      }
+    }
+
+    return json({ ok: true, imported, skipped });
+  }
+
   // ── Dev Board (Kanban) ───────────────────────────────────────────
   if (seg === 'board' && method === 'GET') {
     const row = await db.prepare("SELECT value FROM chms_config WHERE key='dev_board'").first();
@@ -17221,6 +17266,17 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     <button class="btn-secondary" onclick="pruneEmptyBatches()">Delete Empty Batches</button>
     <div class="import-status" id="prune-batches-status"></div>
   </div>
+  <div class="import-card">
+    <h3>&#9997; Generate Register from People Records</h3>
+    <p>Create church register entries from baptism and confirmation dates already stored on people records. People who already have a matching register entry are skipped (safe to re-run).</p>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+      <div class="field" style="margin:0;"><label>Earliest date to include</label><input type="date" id="reg-gen-cutoff" value="2020-01-01" style="font-size:.85rem;padding:4px 8px;"></div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:.88rem;cursor:pointer;"><input type="checkbox" id="reg-gen-baptism" checked> Baptisms</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:.88rem;cursor:pointer;"><input type="checkbox" id="reg-gen-confirm" checked> Confirmations</label>
+    </div>
+    <button class="btn-primary" onclick="generateRegisterFromPeople()">Generate Register Entries</button>
+    <div class="import-status" id="reg-gen-status"></div>
+  </div>
   <div class="import-card" style="border-color:#e74c3c;">
     <h3 style="color:#e74c3c;">&#9888; Clear All Giving Data</h3>
     <p>Permanently deletes all giving entries and batches from the database. Use this to start fresh before re-importing correct data. <strong>This cannot be undone.</strong></p>
@@ -19667,6 +19723,27 @@ function doSendBatch(yr, checks, status) {
     }).catch(function() { failed++; sendNext(); });
   }
   sendNext();
+}
+// ── GENERATE REGISTER FROM PEOPLE ─────────────────────────────────────
+function generateRegisterFromPeople() {
+  var status = document.getElementById('reg-gen-status');
+  var cutoff = document.getElementById('reg-gen-cutoff').value || '2020-01-01';
+  var inclBaptism = document.getElementById('reg-gen-baptism').checked;
+  var inclConfirm = document.getElementById('reg-gen-confirm').checked;
+  if (!inclBaptism && !inclConfirm) { status.textContent = 'Select at least one type.'; status.className = 'import-status err'; return; }
+  status.textContent = 'Generating\u2026'; status.className = 'import-status';
+  var types = [];
+  if (inclBaptism) types.push('baptism');
+  if (inclConfirm) types.push('confirmation');
+  api('/admin/api/import/register-from-people', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({cutoff: cutoff, types: types})
+  }).then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    status.textContent = 'Done. ' + d.imported + ' entries created, ' + d.skipped + ' already existed.';
+    status.className = 'import-status ok';
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 // ── CLEAR GIVING ──────────────────────────────────────────────────────
 function pruneEmptyBatches() {
