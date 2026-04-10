@@ -17403,7 +17403,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <button class="pv-tab" data-rtab="confirmation" onclick="showRegisterTab('confirmation')" style="font-size:13px;padding:12px 18px;">Confirmations</button>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
         <button class="btn-secondary" style="display:none;font-size:.8rem;" id="reg-add-toggle" onclick="toggleRegForm()">+ Add</button>
-        <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegImport()">&#8679; Import</button>
+        <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegFromPeoplePrompt()" title="Generate register entries from people records">&#128100; From People</button>
+        <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegImport()">&#8679; Import File</button>
         <button class="btn-secondary" style="font-size:.8rem;" onclick="printRegister()">Print</button>
       </div>
     </div>
@@ -19947,6 +19948,28 @@ function doSendBatch(yr, checks, status) {
   sendNext();
 }
 // ── GENERATE REGISTER FROM PEOPLE ─────────────────────────────────────
+// Called from the Register tab toolbar — uses the current register type
+function openRegFromPeoplePrompt() {
+  var type = _regType; // 'baptism' or 'confirmation'
+  var label = type === 'baptism' ? 'Baptisms' : 'Confirmations';
+  var cutoff = prompt(
+    'Generate ' + label + ' register entries from people records.\n\n'
+    + 'Enter earliest date to include (YYYY-MM-DD):\n'
+    + '(leave blank to use 2020-01-01)',
+    '2020-01-01'
+  );
+  if (cutoff === null) return; // cancelled
+  cutoff = cutoff.trim() || '2020-01-01';
+  api('/admin/api/import/register-from-people', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ cutoff: cutoff, types: [type] })
+  }).then(function(d) {
+    if (d.error) { alert('Error: ' + d.error); return; }
+    alert('Done. ' + d.imported + ' ' + label.toLowerCase() + ' entries created' + (d.skipped ? ', ' + d.skipped + ' already existed' : '') + '.');
+    loadRegister();
+  }).catch(function(e) { alert('Error: ' + e.message); });
+}
 function generateRegisterFromPeople() {
   var status = document.getElementById('reg-gen-status');
   var cutoff = document.getElementById('reg-gen-cutoff').value || '2020-01-01';
