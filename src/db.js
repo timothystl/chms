@@ -154,7 +154,34 @@ export const DB_INIT = [
     person_id  INTEGER,
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_register_type ON church_register(type, event_date)`
+  `CREATE INDEX IF NOT EXISTS idx_register_type ON church_register(type, event_date)`,
+  // Pastoral follow-up queue
+  `CREATE TABLE IF NOT EXISTS follow_up_items (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id    INTEGER,
+    type         TEXT    NOT NULL DEFAULT 'general',
+    notes        TEXT    NOT NULL DEFAULT '',
+    due_date     TEXT    NOT NULL DEFAULT '',
+    completed    INTEGER NOT NULL DEFAULT 0,
+    completed_at TEXT    NOT NULL DEFAULT '',
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_followup_person ON follow_up_items(person_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_followup_open ON follow_up_items(completed, created_at)`,
+  // Audit log for undo/history
+  `CREATE TABLE IF NOT EXISTS audit_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          TEXT    NOT NULL DEFAULT (datetime('now')),
+    action      TEXT    NOT NULL DEFAULT '',
+    entity_type TEXT    NOT NULL DEFAULT '',
+    entity_id   INTEGER,
+    person_name TEXT    NOT NULL DEFAULT '',
+    field       TEXT    NOT NULL DEFAULT '',
+    old_value   TEXT    NOT NULL DEFAULT '',
+    new_value   TEXT    NOT NULL DEFAULT ''
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts)`
 ];
 
 
@@ -403,6 +430,10 @@ export async function initDb(db) {
     'ALTER TABLE church_register ADD COLUMN mother TEXT NOT NULL DEFAULT ""',
     'ALTER TABLE church_register ADD COLUMN sponsors TEXT NOT NULL DEFAULT ""',
     'ALTER TABLE church_register ADD COLUMN pdf_page TEXT NOT NULL DEFAULT ""',
+    // people: giving envelope number (assigned per-person or per-couple)
+    'ALTER TABLE people ADD COLUMN envelope_number TEXT NOT NULL DEFAULT ""',
+    // people: last-seen date for pastoral tracking
+    'ALTER TABLE people ADD COLUMN last_seen_date TEXT NOT NULL DEFAULT ""',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

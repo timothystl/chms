@@ -274,7 +274,9 @@ export async function handleAdminApi(req, env, url, method) {
       seg.startsWith('giving') || seg.startsWith('reports/')   ||
       seg.startsWith('import/') || seg.startsWith('attendance') ||
       seg.startsWith('register') || seg.startsWith('config')   ||
-      seg === 'dashboard'      || seg === 'board') {
+      seg.startsWith('followup') || seg.startsWith('audit')    ||
+      seg === 'dashboard'      || seg === 'board'              ||
+      seg === 'directory') {
     try {
       return await handleChmsApi(req, env, url, method, seg);
     } catch (e) {

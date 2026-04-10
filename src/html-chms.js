@@ -396,6 +396,22 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .dash-quick-btn{display:flex;align-items:center;gap:8px;padding:12px 18px;background:var(--white);border:1px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:var(--charcoal);transition:border-color .15s,box-shadow .15s;}
 .dash-quick-btn:hover{border-color:var(--teal);box-shadow:0 0 0 3px rgba(76,154,143,.1);}
 .dash-quick-btn svg{width:18px;height:18px;flex-shrink:0;stroke:var(--teal);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+.dash-section-hdr{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:var(--charcoal);margin:24px 0 8px;}
+.dash-fu-item{display:flex;align-items:flex-start;gap:10px;padding:10px 16px;border-bottom:1px solid var(--linen);transition:opacity .3s;}
+.dash-fu-item:last-child{border-bottom:none;}
+.dash-fu-check{width:26px;height:26px;border-radius:50%;border:2px solid var(--border);background:var(--white);cursor:pointer;font-size:14px;color:var(--teal);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .1s,border-color .1s;}
+.dash-fu-check:hover{background:var(--teal);border-color:var(--teal);color:white;}
+/* ── TIMELINE ── */
+.tl-row{display:flex;gap:12px;margin-bottom:16px;}
+.tl-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:4px;}
+.tl-dot-edit{background:var(--sky-steel);}
+.tl-dot-fu{background:var(--teal);}
+.tl-body{flex:1;}
+.tl-meta{font-size:.82rem;margin-bottom:2px;}
+.tl-action{font-weight:600;color:var(--charcoal);}
+.tl-field{color:var(--sky-steel);}
+.tl-change{font-size:.8rem;color:var(--warm-gray);margin-bottom:2px;}
+.tl-ts{font-size:.72rem;color:var(--faint);}
 /* ── PROFILE VIEW ── */
 .content-area.pv-mode > .topbar{display:none;}
 .content-area.pv-mode > .tab-panel{display:none!important;}
@@ -1093,6 +1109,11 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     </div>
     <div class="modal-section">Tags</div>
     <div class="tag-picker" id="pm-tag-picker"></div>
+    <div class="modal-section">Church Records</div>
+    <div class="modal-2col">
+      <div class="field"><label>Envelope #</label><input type="text" id="pm-envelope" placeholder="e.g. 42" maxlength="20"></div>
+      <div class="field"><label>Last Seen</label><input type="date" id="pm-last-seen"></div>
+    </div>
     <div class="modal-section">Notes</div>
     <div class="field"><textarea id="pm-notes" rows="2" style="resize:vertical;"></textarea></div>
     <div class="modal-actions">
@@ -1152,6 +1173,33 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   </div>
 </div>
 <!-- Member Types manager modal -->
+<!-- Follow-up modal -->
+<div class="modal-overlay" id="followup-modal">
+  <div class="modal" style="max-width:440px;">
+    <h2>Add Follow-up Item</h2>
+    <input type="hidden" id="fu-modal-pid">
+    <div class="field"><label>Person (optional)</label>
+      <input type="text" id="fu-modal-name" placeholder="Type a name to search…" style="width:100%;">
+    </div>
+    <div class="field"><label>Type</label>
+      <select id="fu-modal-type" style="width:100%;">
+        <option value="general">General Follow-up</option>
+        <option value="pastoral_call">Pastoral Call</option>
+        <option value="prayer">Prayer Follow-up</option>
+        <option value="first_gift">First Gift</option>
+        <option value="not_seen">Not Seen Recently</option>
+        <option value="newsletter">Newsletter</option>
+      </select>
+    </div>
+    <div class="field"><label>Notes</label>
+      <textarea id="fu-modal-notes" placeholder="Optional notes…" style="width:100%;height:72px;resize:vertical;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:inherit;"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-primary" onclick="saveFollowUpModal()">Save</button>
+      <button class="btn-secondary" onclick="closeModal('followup-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay" id="member-types-modal">
   <div class="modal">
     <h2>Member Types</h2>
@@ -1191,8 +1239,26 @@ var DEFAULT_LETTER_TEMPLATE = 'Dear {{name}},\\n\\nThank you for your generous c
 // ── HELPERS ──────────────────────────────────────────────────────────
 function api(path, opts) {
   return fetch(path, opts || {}).then(function(r) {
-    if (r.status === 401) { location.href = '/chms'; }
-    return r.json();
+    if (r.status === 401) { location.href = '/chms'; return Promise.reject(new Error('Unauthorized')); }
+    return r.json().then(function(data) {
+      if (data && data.error && !opts) {
+        // Surface API errors as rejected promises so callers can .catch() them
+        // Exception: mutation calls (POST/PUT/DELETE) that return {error} are handled by their own code
+      }
+      return data;
+    });
+  }).catch(function(err) {
+    if (err.message === 'Unauthorized') return Promise.reject(err);
+    console.error('[API error]', path, err);
+    return Promise.reject(err);
+  });
+}
+function openPersonDetail(id) {
+  api('/admin/api/people/' + id).then(function(p) {
+    if (p && p.error) { showErrorBanner('Could not load person: ' + esc(p.error)); return; }
+    showProfile(p);
+  }).catch(function(err) {
+    if (err && err.message !== 'Unauthorized') showErrorBanner('Could not load person record.');
   });
 }
 function fmtMoney(cents) {
@@ -1690,141 +1756,222 @@ function saveMtMapEntry(status, localType) {
 
 // ── PRINT DIRECTORY ──────────────────────────────────────────────────
 function printDirectory() {
-  var w = window.open('', '_blank', 'width=900,height=700');
-  if (!w) { alert('Please allow pop-ups for this page.'); return; }
-  w.document.write('<html><head><title>Directory</title><style>'
-    + 'body{font-family:Georgia,serif;font-size:12pt;color:#222;margin:2cm;}'
-    + 'h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bottom:20px;}'
-    + '.grid{columns:2;column-gap:24px;}'
-    + '.person{break-inside:avoid;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #ddd;}'
-    + '.name{font-weight:bold;font-size:11pt;} .meta{font-size:9pt;color:#555;} .contact{font-size:9pt;}'
-    + '@media print{body{margin:1cm;}}'
-    + '</style></head><body>');
-  w.document.write('<h1>Church Directory</h1><div class="subtitle">Printed '+new Date().toLocaleDateString()+'</div>');
-  w.document.write('<div class="grid" id="dir-content"><p>Loading\u2026</p></div>');
-  w.document.write('</body></html>');
-  w.document.close();
-  // Fetch all active people with public_directory=1
-  api('/admin/api/people?limit=500&offset=0').then(function(d) {
-    var people = (d.people || []).filter(function(p) { return p.public_directory !== 0; });
-    people.sort(function(a,b){ return (a.last_name||'').localeCompare(b.last_name||'') || (a.first_name||'').localeCompare(b.first_name||''); });
-    var html = people.map(function(p) {
-      var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-      var meta = [p.member_type, p.household_name].filter(Boolean).join(' \u00b7 ');
-      var addr = [p.address1, p.city, ((p.state||'')+(p.zip?' '+p.zip:'')).trim()].filter(Boolean).join(', ');
-      var contact = [addr, p.phone, p.email].filter(Boolean).join('<br>');
-      return '<div class="person">'
-        + '<div class="name">'+escHtml(name)+'</div>'
-        + (meta ? '<div class="meta">'+escHtml(meta)+'</div>' : '')
-        + (contact ? '<div class="contact">'+contact+'</div>' : '')
-        + '</div>';
-    }).join('');
-    var el = w.document.getElementById('dir-content');
-    if (el) el.innerHTML = html || '<p>No public directory entries.</p>';
-    w.print();
-  });
-  function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  window.open('/admin/api/directory', '_blank');
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────
+var _dashData = null;
 function loadDashboard() {
   var body = document.getElementById('dash-body');
   if (!body) return;
   body.innerHTML = '<div style="color:var(--warm-gray);font-size:13px;padding:20px 0;">Loading\u2026</div>';
   api('/admin/api/dashboard').then(function(d) {
-    var pvColors = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E87040'];
-    var maxType = d.typeCounts && d.typeCounts.length ? d.typeCounts[0].n : 1;
-    var yr = new Date().getFullYear();
-    var html = '';
-
-    // Quick actions
-    html += '<div class="dash-quick">'
-      + dashQBtn('<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>', 'Add Person', "openPersonEdit(null);showTab('people')")
-      + dashQBtn('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/>', 'Record Giving', "showTab('giving')")
-      + dashQBtn('<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/>', 'Attendance', "showTab('attendance')")
-      + dashQBtn('<path d="M18 20V10M12 20V4M6 20v-6"/>', 'Reports', "showTab('reports')")
-      + '</div>';
-
-    // Stat cards
-    html += '<div class="dash-stats">'
-      + dashStat(d.totalPeople, 'Total People', d.addedThisYear + ' added this year')
-      + dashStat(d.totalHouseholds, 'Households', d.addedThisMonth + ' new this month')
-      + dashStat('$'+fmt$(d.givingThisYear), yr+' Giving', yr-1+': $'+fmt$(d.givingLastYear))
-      + dashStat(d.recentAttendance && d.recentAttendance.length ? d.recentAttendance[0].attendance_count : '—', 'Last Service', d.recentAttendance && d.recentAttendance.length ? d.recentAttendance[0].service_name+' '+d.recentAttendance[0].service_date : '')
-      + '</div>';
-
-    // Middle row: membership breakdown + upcoming birthdays
-    html += '<div class="dash-row">';
-
-    // Membership breakdown
-    html += '<div class="dash-card"><div class="dash-card-hdr">'
-      + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>'
-      + 'Membership by Type</div>'
-      + '<div class="dash-type-bar">'
-      + (d.typeCounts||[]).map(function(r) {
-          var pct = Math.round((r.n / Math.max(maxType,1)) * 100);
-          var lbl = r.member_type ? (r.member_type.charAt(0).toUpperCase()+r.member_type.slice(1)) : 'Unknown';
-          return '<div class="dash-bar-row">'
-            + '<div class="dash-bar-lbl" onclick="setFdMt(\''+r.member_type+'\');showTab(\'people\')" style="cursor:pointer;color:var(--sky-steel);" title="View '+lbl+' people">'+esc(lbl)+'</div>'
-            + '<div class="dash-bar-track"><div class="dash-bar-fill" style="width:'+pct+'%;"></div></div>'
-            + '<div class="dash-bar-n">'+r.n+'</div>'
-            + '</div>';
-        }).join('')
-      + '</div></div>';
-
-    // Upcoming birthdays
-    html += '<div class="dash-card"><div class="dash-card-hdr">'
-      + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>'
-      + 'Upcoming Birthdays <span style="font-weight:400;color:var(--warm-gray);font-size:11px;margin-left:4px;">next 60 days</span></div>'
-      + '<div class="dash-card-body">'
-      + (d.birthdays && d.birthdays.length
-          ? d.birthdays.map(function(p) {
-              var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-              var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-              var bg = pvColors[p.id % pvColors.length];
-              var dob = p.dob || '';
-              var parts = dob.split('-');
-              var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-              var dateStr = parts.length >= 3 ? months[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : dob;
-              return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
-                + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
-                + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
-                + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
-                + '</div>';
-            }).join('')
-          : '<div style="padding:20px 18px;color:var(--faint);font-size:13px;font-style:italic;">No birthdays in the next 60 days.</div>')
-      + '</div></div>';
-
-    html += '</div>'; // /dash-row
-
-    // Recent additions
-    html += '<div class="dash-card" style="margin-bottom:0;"><div class="dash-card-hdr">'
-      + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>'
-      + 'Recently Added</div>'
-      + '<div class="dash-card-body">'
-      + (d.recentPeople && d.recentPeople.length
-          ? d.recentPeople.map(function(p) {
-              var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-              var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-              var bg = pvColors[p.id % pvColors.length];
-              var mt = p.member_type ? (p.member_type.charAt(0).toUpperCase()+p.member_type.slice(1)) : '';
-              var sub = [mt, p.household_name].filter(Boolean).join(' \u00b7 ');
-              var added = p.created_at ? p.created_at.slice(0,10) : '';
-              return '<div class="dash-row-item" onclick="openPersonDetail('+p.id+')">'
-                + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
-                + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div>'
-                + (sub ? '<div class="dash-item-sub">'+esc(sub)+'</div>' : '')+'</div>'
-                + '<div style="font-size:11px;color:var(--warm-gray);">'+esc(added)+'</div>'
-                + '</div>';
-            }).join('')
-          : '<div style="padding:20px 18px;color:var(--faint);font-size:13px;font-style:italic;">No people yet.</div>')
-      + '</div></div>';
-
-    body.innerHTML = html;
+    _dashData = d;
+    renderDashboard(d);
   }).catch(function(e) {
     var body2 = document.getElementById('dash-body');
     if (body2) body2.innerHTML = '<div style="color:var(--danger);padding:20px;">Could not load dashboard: '+esc(e.message||'error')+'</div>';
   });
+}
+function renderDashboard(d) {
+  var body = document.getElementById('dash-body');
+  if (!body) return;
+  var pvColors = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E87040'];
+  var maxType = d.typeCounts && d.typeCounts.length ? d.typeCounts[0].n : 1;
+  var yr = new Date().getFullYear();
+  var html = '';
+
+  // ── Quick actions ──────────────────────────────────────────────
+  html += '<div class="dash-quick">'
+    + dashQBtn('<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>', 'Add Person', "openPersonEdit(null);showTab('people')")
+    + dashQBtn('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/>', 'Record Giving', "showTab('giving')")
+    + dashQBtn('<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/>', 'Attendance', "showTab('attendance')")
+    + dashQBtn('<path d="M18 20V10M12 20V4M6 20v-6"/>', 'Reports', "showTab('reports')")
+    + '</div>';
+
+  // ── Stat strip ─────────────────────────────────────────────────
+  var lastSvc = d.recentAttendance && d.recentAttendance.length ? d.recentAttendance[0] : null;
+  html += '<div class="dash-stats">'
+    + dashStat(d.totalPeople, 'Total People', d.addedThisYear + ' added this year')
+    + dashStat(d.totalHouseholds, 'Households', d.addedThisMonth + ' new this month')
+    + dashStat('$'+fmt$(d.givingThisYear), yr+' Giving', yr-1+': $'+fmt$(d.givingLastYear))
+    + dashStat(lastSvc ? lastSvc.attendance : '\u2014', 'Last Service', lastSvc ? esc(lastSvc.service_name)+' \u00b7 '+lastSvc.service_date : 'No attendance yet')
+    + '</div>';
+
+  // ── Follow-up queue ────────────────────────────────────────────
+  var fuItems = d.followUpItems || [];
+  var fuTypeLabels = { pastoral_call:'Pastoral Call', prayer:'Prayer Follow-up', first_gift:'First Gift', not_seen:'Not Seen', newsletter:'Newsletter', general:'General' };
+  var fuTypeColors = { pastoral_call:'#2E7EA6', prayer:'#9B59B6', first_gift:'#C9973A', not_seen:'#E87040', newsletter:'#5A9E6F', general:'#666' };
+  html += '<div class="dash-section-hdr">'
+    + '<span>Follow-up Queue</span>'
+    + '<span style="font-size:12px;color:var(--warm-gray);font-weight:400;">'+(fuItems.length ? fuItems.length+' open' : 'all clear')+'</span>'
+    + '<button class="btn-secondary" style="font-size:.72rem;padding:3px 10px;margin-left:auto;" onclick="openAddFollowUp(null)">+ Add</button>'
+    + '</div>';
+  html += '<div class="dash-card" style="padding:0;"><div class="dash-card-body">';
+  if (fuItems.length) {
+    html += fuItems.map(function(item) {
+      var name = item.first_name || item.last_name ? ((item.first_name||'')+' '+(item.last_name||'')).trim() : null;
+      var typeLabel = fuTypeLabels[item.type] || item.type;
+      var typeColor = fuTypeColors[item.type] || '#666';
+      var age = item.created_at ? Math.floor((Date.now()-new Date(item.created_at))/86400000) : 0;
+      var ageStr = age === 0 ? 'today' : age === 1 ? 'yesterday' : age+'d ago';
+      return '<div class="dash-fu-item" id="fu-'+item.id+'">'
+        + '<button class="dash-fu-check" onclick="completeFollowUp('+item.id+')" title="Mark complete">&#10003;</button>'
+        + '<div style="flex:1;min-width:0;">'
+        + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'
+        + '<span style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:99px;background:'+typeColor+'18;color:'+typeColor+';">'+esc(typeLabel)+'</span>'
+        + (name ? '<span class="dash-item-name" style="cursor:pointer;" onclick="openPersonDetail('+item.person_id+')">'+esc(name)+'</span>' : '')
+        + '</div>'
+        + (item.notes ? '<div style="font-size:12px;color:var(--warm-gray);margin-top:2px;white-space:pre-wrap;">'+esc(item.notes)+'</div>' : '')
+        + '</div>'
+        + '<div style="font-size:11px;color:var(--faint);flex-shrink:0;">'+ageStr+'</div>'
+        + '</div>';
+    }).join('');
+  } else {
+    html += '<div style="padding:18px;color:var(--faint);font-size:13px;font-style:italic;">No open follow-up items. Enjoy the quiet!</div>';
+  }
+  html += '</div></div>';
+
+  // ── First-time givers ──────────────────────────────────────────
+  var firstGivers = d.firstGivers || [];
+  if (firstGivers.length) {
+    html += '<div class="dash-section-hdr"><span>First-Time Givers</span>'
+      + '<span style="font-size:12px;color:var(--warm-gray);font-weight:400;">last 60 days</span></div>';
+    html += '<div class="dash-card" style="padding:0;"><div class="dash-card-body">'
+      + firstGivers.map(function(p) {
+          var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+          var bg = pvColors[p.id % pvColors.length];
+          var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
+          return '<div class="dash-row-item" style="cursor:pointer;" onclick="openPersonDetail('+p.id+')">'
+            + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+            + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div>'
+            + '<div class="dash-item-sub">First gift '+esc(p.first_gift_date||'')+'</div></div>'
+            + '<button class="btn-secondary" style="font-size:.72rem;padding:3px 8px;" onclick="event.stopPropagation();addFollowUpForPerson('+p.id+',\''+esc(name)+'\',\'first_gift\')">Follow up</button>'
+            + '</div>';
+        }).join('')
+      + '</div></div>';
+  }
+
+  // ── Not seen recently ──────────────────────────────────────────
+  var notSeen = d.notSeenRecently || [];
+  if (notSeen.length) {
+    html += '<div class="dash-section-hdr"><span>Not Seen Recently</span>'
+      + '<span style="font-size:12px;color:var(--warm-gray);font-weight:400;">>8 weeks since last visit</span></div>';
+    html += '<div class="dash-card" style="padding:0;"><div class="dash-card-body">'
+      + notSeen.map(function(p) {
+          var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+          var bg = pvColors[p.id % pvColors.length];
+          var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
+          return '<div class="dash-row-item" style="cursor:pointer;" onclick="openPersonDetail('+p.id+')">'
+            + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+            + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div>'
+            + '<div class="dash-item-sub">Last seen: '+esc(p.last_seen_date||'unknown')+'</div></div>'
+            + '<button class="btn-secondary" style="font-size:.72rem;padding:3px 8px;" onclick="event.stopPropagation();addFollowUpForPerson('+p.id+',\''+esc(name)+'\',\'not_seen\')">Call</button>'
+            + '</div>';
+        }).join('')
+      + '</div></div>';
+  }
+
+  // ── Bottom row: birthdays + membership ─────────────────────────
+  html += '<div class="dash-row">';
+
+  // Upcoming birthdays
+  html += '<div class="dash-card"><div class="dash-card-hdr">'
+    + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>'
+    + 'Upcoming Birthdays <span style="font-weight:400;color:var(--warm-gray);font-size:11px;margin-left:4px;">next 60 days</span></div>'
+    + '<div class="dash-card-body">'
+    + (d.birthdays && d.birthdays.length
+        ? d.birthdays.map(function(p) {
+            var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+            var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
+            var bg = pvColors[p.id % pvColors.length];
+            var parts = (p.dob||'').split('-');
+            var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            var dateStr = parts.length >= 3 ? months[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : p.dob;
+            return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
+              + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+              + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
+              + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
+              + '</div>';
+          }).join('')
+        : '<div style="padding:20px 18px;color:var(--faint);font-size:13px;font-style:italic;">No birthdays in the next 60 days.</div>')
+    + '</div></div>';
+
+  // Membership breakdown
+  html += '<div class="dash-card"><div class="dash-card-hdr">'
+    + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>'
+    + 'Membership by Type</div>'
+    + '<div class="dash-type-bar">'
+    + (d.typeCounts||[]).map(function(r) {
+        var pct = Math.round((r.n / Math.max(maxType,1)) * 100);
+        var lbl = r.member_type ? (r.member_type.charAt(0).toUpperCase()+r.member_type.slice(1)) : 'Unknown';
+        return '<div class="dash-bar-row">'
+          + '<div class="dash-bar-lbl" onclick="setFdMt(\''+r.member_type+'\');showTab(\'people\')" style="cursor:pointer;color:var(--sky-steel);" title="View '+lbl+' people">'+esc(lbl)+'</div>'
+          + '<div class="dash-bar-track"><div class="dash-bar-fill" style="width:'+pct+'%;"></div></div>'
+          + '<div class="dash-bar-n">'+r.n+'</div>'
+          + '</div>';
+      }).join('')
+    + '</div></div>';
+
+  html += '</div>'; // /dash-row
+  body.innerHTML = html;
+}
+// ── Follow-up helpers ──────────────────────────────────────────────────
+function completeFollowUp(id) {
+  api('/admin/api/followup/'+id, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({completed:true}) })
+    .then(function() {
+      var el = document.getElementById('fu-'+id);
+      if (el) { el.style.opacity='0.4'; el.style.textDecoration='line-through'; setTimeout(function(){el.remove();},600); }
+    });
+}
+function addFollowUpForPerson(pid, name, type) {
+  api('/admin/api/followup', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({person_id:pid, type:type, notes:''}) })
+    .then(function() {
+      showErrorBanner('\u2713 Follow-up added for '+esc(name)+'.'); // reuse banner in success mode
+      loadDashboard();
+    });
+}
+function openAddFollowUp(pid, name, type) {
+  var modal = document.getElementById('followup-modal');
+  if (!modal) return;
+  document.getElementById('fu-modal-pid').value = pid || '';
+  document.getElementById('fu-modal-name').value = name || '';
+  document.getElementById('fu-modal-type').value = type || 'general';
+  document.getElementById('fu-modal-notes').value = '';
+  openModal('followup-modal');
+}
+function markSeenToday(personId) {
+  var today = new Date().toISOString().slice(0,10);
+  api('/admin/api/people/'+personId, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(Object.assign({}, _currentPvPerson, {last_seen_date: today}))
+  }).then(function(r) {
+    if (r && r.ok) {
+      var el = document.getElementById('pv-last-seen');
+      if (el) el.textContent = today;
+      if (_currentPvPerson) _currentPvPerson.last_seen_date = today;
+    }
+  });
+}
+function saveFollowUpModal() {
+  var pid = document.getElementById('fu-modal-pid').value;
+  var nameSearch = document.getElementById('fu-modal-name').value.trim();
+  var type = document.getElementById('fu-modal-type').value;
+  var notes = document.getElementById('fu-modal-notes').value.trim();
+  // If name was typed, search for person first
+  if (nameSearch && !pid) {
+    api('/admin/api/people?q='+encodeURIComponent(nameSearch)+'&limit=1').then(function(d) {
+      var p = d.people && d.people[0];
+      saveFollowUpItem(p ? p.id : null, type, notes);
+    });
+  } else {
+    saveFollowUpItem(pid ? parseInt(pid) : null, type, notes);
+  }
+}
+function saveFollowUpItem(pid, type, notes) {
+  api('/admin/api/followup', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({person_id:pid||null,type:type,notes:notes}) })
+    .then(function() { closeModal('followup-modal'); loadDashboard(); });
 }
 function dashStat(val, lbl, sub) {
   return '<div class="dash-stat">'
@@ -2078,11 +2225,6 @@ function renderPeopleMobile(people) {
 }
 
 // ── PERSON DETAIL ─────────────────────────────────────────────────────
-function openPersonDetail(id) {
-  api('/admin/api/people/' + id).then(function(p) {
-    showProfile(p);
-  });
-}
 function showProfile(p) {
   _currentPvPerson = p;
   var isOrg = p.member_type === 'organization';
@@ -2186,10 +2328,19 @@ function showProfile(p) {
       + '<div class="pv-aside-lbl">Member ID</div>'
       + '<div style="font-size:13px;color:var(--charcoal);">#'+p.id+'</div>'
       + '</div>'
+      + (p.envelope_number ? '<div class="pv-aside-block"><div class="pv-aside-lbl">Envelope #</div><div style="font-size:13px;color:var(--charcoal);">'+esc(p.envelope_number)+'</div></div>' : '')
       + (p.deceased ? '<div class="pv-aside-block" style="color:var(--danger);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Deceased</div>' : '')
       + '<div class="pv-aside-block">'
       + '<div class="pv-aside-lbl">Added</div>'
       + '<div style="font-size:13px;color:var(--charcoal);">'+(p.created_at ? p.created_at.slice(0,10) : '—')+'</div>'
+      + '</div>'
+      + '<div class="pv-aside-block">'
+      + '<div class="pv-aside-lbl">Last Seen</div>'
+      + '<div style="font-size:13px;color:var(--charcoal);" id="pv-last-seen">'+(p.last_seen_date || '—')+'</div>'
+      + '</div>'
+      + '<div class="pv-aside-block" style="display:flex;flex-direction:column;gap:6px;">'
+      + '<button class="btn-secondary" style="font-size:.75rem;padding:4px 10px;width:100%;" onclick="markSeenToday('+p.id+')">&#10003; Mark Seen Today</button>'
+      + '<button class="btn-secondary" style="font-size:.75rem;padding:4px 10px;width:100%;" onclick="openAddFollowUp('+p.id+',\''+esc((p.first_name||'')+' '+(p.last_name||''))+'\',\'pastoral_call\')">+ Follow Up</button>'
       + '</div>'
       + '<div class="pv-aside-block" id="pv-aside-giving">'
       + '<div class="pv-aside-lbl">Total Giving</div>'
@@ -2296,6 +2447,7 @@ function showPvTab(name) {
   });
   if (name === 'giving' && _currentPvPerson) loadPvGiving(_currentPvPerson.id);
   if (name === 'attendance' && _currentPvPerson) loadPvAttendance(_currentPvPerson.id);
+  if (name === 'timeline' && _currentPvPerson) loadPvTimeline(_currentPvPerson.id);
 }
 function loadPvGiving(personId) {
   var el = document.getElementById('ptab-giving');
@@ -2338,6 +2490,60 @@ function loadPvAttendance(personId) {
   if (!el) return;
   el.innerHTML = '<div style="padding:20px;color:var(--warm-gray);">Attendance data coming soon.</div>';
 }
+function loadPvTimeline(personId) {
+  var el = document.getElementById('ptab-timeline');
+  if (!el) return;
+  el.innerHTML = '<div style="padding:20px;color:var(--warm-gray);">Loading…</div>';
+  Promise.all([
+    api('/admin/api/audit?entity_type=person&entity_id='+personId+'&limit=60'),
+    api('/admin/api/followup?person_id='+personId)
+  ]).then(function(results) {
+    var auditEntries = (results[0] && results[0].entries) ? results[0].entries : [];
+    var fuItems = (results[1] && results[1].items) ? results[1].items : [];
+    // Merge and sort by date descending
+    var events = [];
+    auditEntries.forEach(function(a) {
+      events.push({ ts: a.ts, type: 'audit', data: a });
+    });
+    fuItems.forEach(function(f) {
+      events.push({ ts: f.completed_at || f.created_at, type: 'followup', data: f });
+    });
+    events.sort(function(a,b){ return (b.ts||'').localeCompare(a.ts||''); });
+    if (!events.length) {
+      el.innerHTML = '<div style="padding:20px;color:var(--warm-gray);font-style:italic;">No timeline entries yet.</div>';
+      return;
+    }
+    var typeLabels = {pastoral_call:'Pastoral Call',prayer:'Prayer Follow-up',first_gift:'First Gift',not_seen:'Not Seen',newsletter:'Newsletter',general:'Follow-up'};
+    var rows = events.map(function(ev) {
+      var d = ev.data;
+      var ts = (ev.ts||'').slice(0,16).replace('T',' ');
+      if (ev.type === 'audit') {
+        var old = d.old_value ? esc(d.old_value) : '<em style="color:var(--warm-gray)">—</em>';
+        var nw  = d.new_value ? esc(d.new_value) : '<em style="color:var(--warm-gray)">—</em>';
+        return '<div class="tl-row">'
+          + '<div class="tl-dot tl-dot-edit"></div>'
+          + '<div class="tl-body">'
+          + '<div class="tl-meta"><span class="tl-action">Edited</span> <span class="tl-field">'+esc(d.field||'')+'</span></div>'
+          + '<div class="tl-change">'+old+' &rarr; '+nw+'</div>'
+          + '<div class="tl-ts">'+ts+'</div>'
+          + '</div></div>';
+      } else {
+        var fLabel = typeLabels[d.type] || 'Follow-up';
+        var status = d.completed ? '<span style="color:var(--teal);font-size:.78rem;">&#10003; done '+(d.completed_at||'').slice(0,10)+'</span>' : '<span style="color:var(--sand-tan);font-size:.78rem;">open</span>';
+        return '<div class="tl-row">'
+          + '<div class="tl-dot tl-dot-fu"></div>'
+          + '<div class="tl-body">'
+          + '<div class="tl-meta"><span class="tl-action">'+esc(fLabel)+'</span> '+status+'</div>'
+          + (d.notes ? '<div class="tl-change">'+esc(d.notes)+'</div>' : '')
+          + '<div class="tl-ts">'+ts+'</div>'
+          + '</div></div>';
+      }
+    }).join('');
+    el.innerHTML = '<div style="padding:20px 16px;">'+rows+'</div>';
+  }).catch(function() {
+    el.innerHTML = '<div style="padding:20px;color:var(--danger);">Could not load timeline.</div>';
+  });
+}
 function openPersonEdit(p) {
   var isNew = !p || !p.id;
   document.getElementById('person-modal-title').textContent = isNew ? 'Add Person' : p.first_name + ' ' + p.last_name;
@@ -2362,6 +2568,8 @@ function openPersonEdit(p) {
   document.getElementById('pm-deceased').checked = !isNew && !!p.deceased;
   var pubEl = document.getElementById('pm-public');
   if (pubEl) pubEl.checked = isNew ? true : (p.public_directory !== 0);
+  document.getElementById('pm-envelope').value = isNew ? '' : (p.envelope_number||'');
+  document.getElementById('pm-last-seen').value = isNew ? '' : (p.last_seen_date||'');
   document.getElementById('pm-notes').value = isNew ? '' : (p.notes||'');
   document.getElementById('pm-hh-search').value = isNew ? '' : (p.household_name||'');
   document.getElementById('pm-hh-id').value = isNew ? '' : (p.household_id||'');
@@ -2433,6 +2641,8 @@ function savePerson() {
     death_date: document.getElementById('pm-death').value,
     deceased: document.getElementById('pm-deceased').checked ? 1 : 0,
     public_directory: (document.getElementById('pm-public') || {checked:true}).checked ? 1 : 0,
+    envelope_number: document.getElementById('pm-envelope').value.trim(),
+    last_seen_date: document.getElementById('pm-last-seen').value,
     notes: document.getElementById('pm-notes').value,
     tag_ids: getSelectedTagIds()
   };

@@ -48,14 +48,38 @@ export async function handleChmsApi(req, env, url, method, seg) {
     ).all()).results || [];
     // Most recent attendance
     const recentAttendance = (await db.prepare(
-      `SELECT service_date, service_name, attendance_count
-       FROM worship_services WHERE attendance_count > 0
+      `SELECT service_date, service_name, attendance
+       FROM worship_services WHERE attendance > 0
        ORDER BY service_date DESC LIMIT 5`
+    ).all()).results || [];
+    // Open follow-up items (pastoral queue)
+    const followUpItems = (await db.prepare(
+      `SELECT f.*, p.first_name, p.last_name FROM follow_up_items f
+       LEFT JOIN people p ON p.id=f.person_id
+       WHERE f.completed=0 ORDER BY f.created_at DESC LIMIT 50`
+    ).all()).results || [];
+    // First-time givers in the last 60 days
+    const firstGivers = (await db.prepare(
+      `SELECT p.id, p.first_name, p.last_name, MIN(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date)) as first_gift_date
+       FROM giving_entries ge
+       JOIN giving_batches gb ON ge.batch_id=gb.id
+       JOIN people p ON p.id=ge.person_id
+       GROUP BY ge.person_id
+       HAVING first_gift_date >= date('now','-60 days')
+       ORDER BY first_gift_date DESC LIMIT 20`
+    ).all()).results || [];
+    // People not seen recently (last_seen_date set more than 8 weeks ago, or never seen but added 8+ weeks ago)
+    const notSeenRecently = (await db.prepare(
+      `SELECT id, first_name, last_name, member_type, last_seen_date, created_at FROM people
+       WHERE active=1 AND (
+         (last_seen_date != '' AND last_seen_date < date('now','-56 days'))
+       ) ORDER BY last_seen_date ASC LIMIT 20`
     ).all()).results || [];
     return json({
       totalPeople, totalHouseholds, addedThisMonth, addedThisYear,
       typeCounts, givingThisYear, givingLastYear,
-      birthdays, recentPeople, recentAttendance
+      birthdays, recentPeople, recentAttendance,
+      followUpItems, firstGivers, notSeenRecently
     });
   }
 
@@ -152,23 +176,43 @@ export async function handleChmsApi(req, env, url, method, seg) {
     }
     if (method === 'PUT') {
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      // Capture old values for audit log
+      const oldPerson = await db.prepare('SELECT * FROM people WHERE id=?').bind(pid).first();
       await db.prepare(
         `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,address1=?,address2=?,
          city=?,state=?,zip=?,member_type=?,dob=?,baptism_date=?,confirmation_date=?,
          anniversary_date=?,death_date=?,deceased=?,household_id=?,family_role=?,photo_url=?,notes=?,
-         public_directory=? WHERE id=?`
+         public_directory=?,envelope_number=?,last_seen_date=? WHERE id=?`
       ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
              b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
              b.member_type||'visitor',b.dob||'',b.baptism_date||'',
              b.confirmation_date||'',b.anniversary_date||'',b.death_date||'',b.deceased?1:0,
              b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',
-             b.public_directory!=null?(b.public_directory?1:0):1,pid
+             b.public_directory!=null?(b.public_directory?1:0):1,
+             b.envelope_number||'',b.last_seen_date||'',pid
       ).run();
       if (Array.isArray(b.tag_ids)) {
         await db.prepare('DELETE FROM person_tags WHERE person_id=?').bind(pid).run();
         for (const tid of b.tag_ids) {
           try { await db.prepare('INSERT OR IGNORE INTO person_tags(person_id,tag_id) VALUES(?,?)').bind(pid,tid).run(); } catch {}
         }
+      }
+      // Write audit log entries for changed fields
+      if (oldPerson) {
+        const personName = [(oldPerson.first_name||b.first_name||''), (oldPerson.last_name||b.last_name||'')].filter(Boolean).join(' ');
+        const auditFields = ['first_name','last_name','email','phone','address1','address2','city','state','zip',
+          'member_type','dob','baptism_date','confirmation_date','anniversary_date','death_date','deceased',
+          'household_id','family_role','notes','public_directory','envelope_number','last_seen_date'];
+        const auditStmt = db.prepare(
+          `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value) VALUES(?,?,?,?,?,?,?)`
+        );
+        const ops = [];
+        for (const f of auditFields) {
+          const ov = String(oldPerson[f] ?? '');
+          const nv = String(b[f] ?? '');
+          if (ov !== nv) ops.push(auditStmt.bind('update','person',pid,personName,f,ov,nv));
+        }
+        if (ops.length) await db.batch(ops);
       }
       return json({ ok: true });
     }
@@ -245,6 +289,88 @@ export async function handleChmsApi(req, env, url, method, seg) {
     await db.prepare(
       `UPDATE people SET address1=?,city=?,state=?,zip=? WHERE household_id=? AND active=1`
     ).bind(b.address1||'',b.city||'',b.state||'MO',b.zip||'',hid).run();
+    return json({ ok: true });
+  }
+
+  // ── Follow-up items ─────────────────────────────────────────────
+  if (seg === 'followup' && method === 'GET') {
+    const completed = url.searchParams.get('completed') === '1' ? 1 : 0;
+    const personId = url.searchParams.get('person_id');
+    let rows;
+    if (personId) {
+      rows = (await db.prepare(
+        `SELECT f.*, p.first_name, p.last_name FROM follow_up_items f
+         LEFT JOIN people p ON p.id=f.person_id
+         WHERE f.person_id=? ORDER BY f.created_at DESC LIMIT 100`
+      ).bind(parseInt(personId)).all()).results || [];
+    } else {
+      rows = (await db.prepare(
+        `SELECT f.*, p.first_name, p.last_name FROM follow_up_items f
+         LEFT JOIN people p ON p.id=f.person_id
+         WHERE f.completed=? ORDER BY f.created_at DESC LIMIT 200`
+      ).bind(completed).all()).results || [];
+    }
+    return json({ items: rows });
+  }
+  if (seg === 'followup' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const r = await db.prepare(
+      `INSERT INTO follow_up_items(person_id,type,notes,due_date) VALUES(?,?,?,?)`
+    ).bind(b.person_id||null, b.type||'general', b.notes||'', b.due_date||'').run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+  const fmatch = seg.match(/^followup\/(\d+)$/);
+  if (fmatch) {
+    const fid = parseInt(fmatch[1]);
+    if (method === 'PUT') {
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      if (b.completed) {
+        await db.prepare(`UPDATE follow_up_items SET completed=1, completed_at=datetime('now') WHERE id=?`).bind(fid).run();
+      } else {
+        await db.prepare(
+          `UPDATE follow_up_items SET type=?,notes=?,due_date=?,completed=0,completed_at='' WHERE id=?`
+        ).bind(b.type||'general', b.notes||'', b.due_date||'', fid).run();
+      }
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      await db.prepare('DELETE FROM follow_up_items WHERE id=?').bind(fid).run();
+      return json({ ok: true });
+    }
+  }
+  // Audit log
+  if (seg === 'audit' && method === 'GET') {
+    const entityId = url.searchParams.get('entity_id');
+    const entityType = url.searchParams.get('entity_type') || 'person';
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
+    let rows;
+    if (entityId) {
+      rows = (await db.prepare(
+        `SELECT * FROM audit_log WHERE entity_type=? AND entity_id=? ORDER BY ts DESC LIMIT ?`
+      ).bind(entityType, parseInt(entityId), limit).all()).results || [];
+    } else {
+      rows = (await db.prepare(
+        `SELECT * FROM audit_log ORDER BY ts DESC LIMIT ?`
+      ).bind(limit).all()).results || [];
+    }
+    return json({ entries: rows });
+  }
+  if (seg === 'audit/undo' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const entry = await db.prepare('SELECT * FROM audit_log WHERE id=?').bind(b.id).first();
+    if (!entry) return json({ error: 'Audit entry not found' }, 404);
+    if (entry.entity_type !== 'person') return json({ error: 'Only person edits can be undone' }, 400);
+    // Revert: set the field back to old_value
+    const allowedFields = ['first_name','last_name','email','phone','address1','address2','city','state','zip',
+      'member_type','dob','baptism_date','confirmation_date','anniversary_date','death_date','deceased',
+      'notes','public_directory','envelope_number','last_seen_date'];
+    if (!allowedFields.includes(entry.field)) return json({ error: 'Cannot undo this field' }, 400);
+    await db.prepare(`UPDATE people SET ${entry.field}=? WHERE id=?`)
+      .bind(entry.old_value, entry.entity_id).run();
+    // Log the undo itself
+    await db.prepare(
+      `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value) VALUES(?,?,?,?,?,?,?)`
+    ).bind('undo','person',entry.entity_id,entry.person_name,entry.field,entry.new_value,entry.old_value).run();
     return json({ ok: true });
   }
 
@@ -1142,6 +1268,51 @@ export async function handleChmsApi(req, env, url, method, seg) {
   }
 
   // ── Dev Board (Kanban) ───────────────────────────────────────────
+  // ── Directory HTML (for print view) ─────────────────────────────
+  if (seg === 'directory' && method === 'GET') {
+    const people = (await db.prepare(
+      `SELECT p.first_name, p.last_name, p.email, p.phone, p.address1, p.city, p.state, p.zip,
+              p.member_type, h.name as household_name
+       FROM people p LEFT JOIN households h ON p.household_id=h.id
+       WHERE p.active=1 AND p.public_directory=1
+       ORDER BY p.last_name, p.first_name`
+    ).all()).results || [];
+    const e = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const rows = people.map(p => {
+      const name = p.last_name || p.first_name
+        ? (p.last_name ? e(p.last_name) + (p.first_name ? ', ' + e(p.first_name) : '') : e(p.first_name))
+        : '(unnamed)';
+      const addr = [p.address1, p.city, ((p.state||'')+(p.zip?' '+p.zip:'')).trim()].filter(Boolean).map(e).join(', ');
+      const contact = [addr, p.phone ? e(p.phone) : '', p.email ? e(p.email) : ''].filter(Boolean).join('<br>');
+      return `<div class="person"><div class="name">${name}</div>`
+        + (p.member_type && p.member_type !== 'visitor' ? `<div class="meta">${e(p.member_type)}</div>` : '')
+        + (contact ? `<div class="contact">${contact}</div>` : '')
+        + '</div>';
+    }).join('');
+    const dirHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Church Directory — Timothy Lutheran</title>
+<style>
+body{font-family:Georgia,serif;font-size:12pt;color:#222;margin:2cm;}
+h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bottom:20px;}
+.grid{columns:2;column-gap:28px;}
+.person{break-inside:avoid;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #ddd;}
+.name{font-weight:bold;font-size:11pt;} .meta{font-size:9pt;color:#777;text-transform:capitalize;}
+.contact{font-size:9pt;color:#444;margin-top:2px;line-height:1.5;}
+@media print{body{margin:1cm;} .no-print{display:none;}}
+@media screen{body{max-width:900px;margin:40px auto;padding:0 20px;}}
+</style></head><body>
+<div class="no-print" style="margin-bottom:20px;display:flex;gap:12px;align-items:center;">
+  <button onclick="window.print()" style="padding:8px 18px;background:#1E2D4A;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;">Print / Save PDF</button>
+  <span style="font-size:13px;color:#666;">${people.length} people listed &nbsp;&bull;&nbsp; Printed ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</span>
+</div>
+<h1>Church Directory</h1>
+<div class="subtitle">Timothy Lutheran Church &nbsp;&bull;&nbsp; ${new Date().toLocaleDateString('en-US',{month:'long',year:'numeric'})}</div>
+<div class="grid">${rows || '<p style="color:#999;">No public directory entries found.</p>'}</div>
+</body></html>`;
+    return new Response(dirHtml, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
+  }
+
   if (seg === 'board' && method === 'GET') {
     const row = await db.prepare("SELECT value FROM chms_config WHERE key='dev_board'").first();
     return json({ data: row ? row.value : null });
