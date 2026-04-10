@@ -56,7 +56,7 @@ self.addEventListener('fetch', function(event) {
 `;
 
 // ── ChMS ADMIN HTML ────────────────────────────────────────────────
-export const CHMS_HTML = `<!DOCTYPE html>
+export const CHMS_HTML = String.raw`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -1340,7 +1340,7 @@ function showErrorBanner(msg) {
   setTimeout(function(){ if(el) el.style.display='none'; }, 15000);
 }
 window.addEventListener('error', function(e) {
-  var loc = (e.filename||'').replace(/.*\//,'') + (e.lineno ? ':'+e.lineno : '');
+  var loc = (e.filename||'').replace(/.*\//, '') + (e.lineno ? ':'+e.lineno : '');
   console.error('[JS error]', e.message, loc, e.error);
   showErrorBanner(esc(e.message || 'Script error') + (loc ? ' (' + loc + ')' : ''));
 });
@@ -3729,7 +3729,7 @@ function renderLetterHTML(d) {
     .replace(/\{\{ein\}\}/g, ein)
     .replace(/\{\{date\}\}/g, today)
     .replace(/\{\{gift_table\}\}/g, giftTable)
-    .replace(/\{\{#if_ein\}\}[\\s\\S]*?\{\{\\/if_ein\}\}/g, ein ? einLine : '');
+    .replace(/\{\{#if_ein\}\}[\s\S]*?\{\{\/if_ein\}\}/g, ein ? einLine : '');
   return letter.replace(/\\n/g, '<br>');
 }
 function runGivingStatementLetter() {
