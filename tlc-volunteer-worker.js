@@ -16854,9 +16854,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 #profile-view{display:none;flex-direction:column;flex:1;overflow:hidden;}
 .pv-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;}
 .pv-hdr{display:flex;align-items:flex-start;gap:18px;padding:20px 24px 16px;border-bottom:1px solid var(--border);flex-shrink:0;}
-.pv-photo{width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:600;flex-shrink:0;}
+.pv-photo{width:88px;height:88px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:600;flex-shrink:0;box-shadow:0 1px 4px rgba(0,0,0,.12);}
 .pv-hdr-info{flex:1;}
-.pv-fullname{font-size:22px;font-weight:600;color:var(--charcoal);line-height:1.2;}
+.pv-fullname{font-size:26px;font-weight:700;color:var(--charcoal);line-height:1.2;font-family:var(--font-head,inherit);}
 .pv-meta{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;}
 .pv-hh-link{font-size:13px;color:var(--sky-steel);cursor:pointer;}
 .pv-hh-link:hover{text-decoration:underline;}
@@ -16881,6 +16881,13 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .pv-row-val a{color:var(--sky-steel);text-decoration:none;}
 .pv-row-val a:hover{text-decoration:underline;}
 .pv-row-val.empty{color:var(--faint);font-style:italic;}
+/* Demographics card grid (Church360-style) */
+.pv-field-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:4px;}
+@media(max-width:600px){.pv-field-grid{grid-template-columns:repeat(2,1fr);}}
+.pv-field-card{border:1px solid var(--border);border-radius:7px;padding:8px 11px;background:var(--bg);}
+.pv-field-card-lbl{font-size:10px;color:var(--warm-gray);text-transform:lowercase;letter-spacing:.02em;margin-bottom:3px;}
+.pv-field-card-val{font-size:13px;color:var(--charcoal);font-weight:500;}
+.pv-field-card-val.empty{color:var(--faint);font-style:italic;font-weight:400;}
 .pv-family-member{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);}
 .pv-family-member:last-child{border-bottom:none;}
 .pv-family-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white;flex-shrink:0;}
@@ -18200,14 +18207,16 @@ function showProfile(p) {
       + '</div>';
     var rightCol = '<div>'
       + '<div class="pv-section">'
-      + '<div class="pv-section-title">Key Dates</div>'
-      + pvRow('Date of Birth', p.dob ? esc(p.dob)+calcAge(p.dob) : '')
-      + pvRow('Baptism', p.baptism_date ? esc(p.baptism_date) : '')
-      + pvRow('Confirmation', p.confirmation_date ? esc(p.confirmation_date) : '')
-      + pvRow('Anniversary', p.anniversary_date ? esc(p.anniversary_date) : '')
-      + (p.death_date ? pvRow('Death', esc(p.death_date)) : '')
+      + '<div class="pv-section-title">Demographics / Dates</div>'
+      + '<div class="pv-field-grid">'
+      + pvField('birthday', p.dob ? fmtDate(p.dob)+calcAge(p.dob) : '')
+      + pvField('baptized', p.baptism_date ? fmtDate(p.baptism_date) : '')
+      + pvField('confirmed', p.confirmation_date ? fmtDate(p.confirmation_date) : '')
+      + pvField('anniversary', p.anniversary_date ? fmtDate(p.anniversary_date) : '')
+      + pvField('deceased', p.deceased ? (p.death_date ? fmtDate(p.death_date) : 'Yes') : 'No')
       + '</div>'
-      + (tagHtml ? '<div class="pv-section"><div class="pv-section-title">Tags</div><div style="display:flex;flex-wrap:wrap;gap:4px;">'+tagHtml+'</div></div>' : '')
+      + '</div>'
+      + (tagHtml ? '<div class="pv-section"><div class="pv-section-title">Tags</div><div style="display:flex;flex-wrap:wrap;gap:6px;">'+tagHtml+'</div></div>' : '')
       + (p.notes ? '<div class="pv-section"><div class="pv-section-title">Notes</div><div style="font-size:13px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'+esc(p.notes)+'</div></div>' : '')
       + '</div>';
     infoEl.innerHTML = '<div class="pv-info-cols">'+leftCol+rightCol+'</div>';
@@ -18247,7 +18256,8 @@ function pvRow(key, val) {
   return '<div class="pv-row"><div class="pv-row-key">'+key+'</div><div class="pv-row-val'+(empty?' empty':'')+'">'+(val||'—')+'</div></div>';
 }
 function pvField(label, val) {
-  return '<div class="pv-field"><div class="pv-field-key">'+label+'</div><div class="pv-field-val">'+val+'</div></div>';
+  var empty = !val;
+  return '<div class="pv-field-card"><div class="pv-field-card-lbl">'+label+'</div><div class="pv-field-card-val'+(empty?' empty':'')+'">'+( val||'—')+'</div></div>';
 }
 function loadPvFamily(hhId, selfId) {
   var el = document.getElementById('pv-family-members');
