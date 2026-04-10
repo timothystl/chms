@@ -16777,36 +16777,45 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .content-area.pv-mode > #profile-view{display:flex;}
 #profile-view{display:none;flex-direction:column;flex:1;overflow:hidden;}
 .pv-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;}
-.pv-hdr{display:flex;align-items:flex-start;gap:18px;padding:20px 24px 16px;border-bottom:1px solid var(--border);}
-.pv-photo{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:600;flex-shrink:0;}
+.pv-hdr{display:flex;align-items:flex-start;gap:18px;padding:20px 24px 16px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.pv-photo{width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:600;flex-shrink:0;}
 .pv-hdr-info{flex:1;}
-.pv-fullname{font-size:20px;font-weight:500;color:var(--charcoal);line-height:1.2;}
-.pv-meta{display:flex;align-items:center;gap:8px;margin-top:5px;flex-wrap:wrap;}
+.pv-fullname{font-size:22px;font-weight:600;color:var(--charcoal);line-height:1.2;}
+.pv-meta{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;}
 .pv-hh-link{font-size:13px;color:var(--sky-steel);cursor:pointer;}
 .pv-hh-link:hover{text-decoration:underline;}
 .pv-role-txt{font-size:13px;color:var(--warm-gray);}
-.pv-tabs{display:flex;border-bottom:1px solid var(--border);padding:0 24px;flex-shrink:0;}
-.pv-tab{font-size:13px;padding:10px 18px;color:var(--warm-gray);cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-1px;transition:all .12s;}
+.pv-tabs{display:flex;border-bottom:1px solid var(--border);padding:0 24px;flex-shrink:0;background:var(--white);}
+.pv-tab{font-size:13px;padding:11px 18px;color:var(--warm-gray);cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-1px;transition:all .12s;}
 .pv-tab:hover{color:var(--charcoal);}
 .pv-tab.active{color:var(--charcoal);border-bottom-color:var(--amber);font-weight:600;}
 .pv-layout{display:flex;flex:1;overflow:hidden;}
-.pv-main{flex:1;padding:20px 24px;overflow-y:auto;}
+.pv-main{flex:1;padding:24px;overflow-y:auto;background:var(--bg);}
 .ptab-panel{display:none;}
 .ptab-panel.active{display:block;}
-.pv-info-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
-.pv-card{background:var(--linen);border:1px solid var(--border);border-radius:9px;padding:14px 16px;}
-.pv-card-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--warm-gray);margin-bottom:10px;font-family:monospace;}
-.pv-field{display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--border);}
-.pv-field:last-child{border-bottom:none;}
-.pv-field-key{font-size:12px;color:var(--warm-gray);flex-shrink:0;margin-right:12px;}
-.pv-field-val{font-size:13px;color:var(--charcoal);text-align:right;}
-.pv-field-val.empty{color:var(--warm-gray);font-style:italic;}
-.pv-field-val a{color:var(--sky-steel);}
-.pv-aside{width:210px;border-left:1px solid var(--border);padding:18px;flex-shrink:0;background:var(--linen);overflow-y:auto;}
-.pv-aside-block{margin-bottom:18px;}
-.pv-aside-block+.pv-aside-block{padding-top:18px;border-top:1px solid var(--border);}
-.pv-aside-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--warm-gray);margin-bottom:8px;font-family:monospace;}
-.pv-aside-big{font-size:26px;font-weight:600;color:var(--steel-anchor);line-height:1;}
+/* Two-column info layout */
+.pv-info-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;}
+@media(max-width:700px){.pv-info-cols{grid-template-columns:1fr;}}
+.pv-section{background:var(--white);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:16px;}
+.pv-section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--warm-gray);margin-bottom:12px;}
+.pv-row{display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);}
+.pv-row:last-child{border-bottom:none;}
+.pv-row-key{width:110px;flex-shrink:0;font-size:11px;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.04em;padding-top:1px;}
+.pv-row-val{flex:1;font-size:13px;color:var(--charcoal);}
+.pv-row-val a{color:var(--sky-steel);text-decoration:none;}
+.pv-row-val a:hover{text-decoration:underline;}
+.pv-row-val.empty{color:var(--faint);font-style:italic;}
+.pv-family-member{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);}
+.pv-family-member:last-child{border-bottom:none;}
+.pv-family-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white;flex-shrink:0;}
+.pv-family-name{font-size:13px;font-weight:600;color:var(--charcoal);}
+.pv-family-meta{font-size:11px;color:var(--warm-gray);}
+/* aside */
+.pv-aside{width:200px;border-left:1px solid var(--border);padding:20px 16px;flex-shrink:0;background:var(--white);overflow-y:auto;}
+.pv-aside-block{margin-bottom:20px;}
+.pv-aside-block+.pv-aside-block{padding-top:20px;border-top:1px solid var(--border);}
+.pv-aside-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--warm-gray);margin-bottom:6px;}
+.pv-aside-big{font-size:28px;font-weight:700;color:var(--steel-anchor);line-height:1;}
 .pv-aside-sub{font-size:11px;color:var(--warm-gray);margin-top:3px;}
 .pv-aside-link{font-size:12px;color:var(--sky-steel);cursor:pointer;display:block;padding:3px 0;}
 .pv-aside-link:hover{text-decoration:underline;}
@@ -17967,10 +17976,8 @@ function showProfile(p) {
   _currentPvPerson = p;
   var isOrg = p.member_type === 'organization';
   var displayName = isOrg ? (p.first_name||p.last_name||'Unnamed') : ((p.first_name||'')+' '+(p.last_name||'')).trim();
-  // Topbar
   var tn = document.getElementById('pv-topbar-name');
   if (tn) tn.textContent = displayName;
-  // Header photo placeholder (initials or org icon)
   var photoEl = document.getElementById('pv-photo');
   if (photoEl) {
     if (isOrg) {
@@ -17978,67 +17985,133 @@ function showProfile(p) {
       photoEl.style.background = 'var(--linen)';
     } else {
       var initials = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-      var colors = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E87040'];
-      var bg = colors[p.id % colors.length];
-      photoEl.innerHTML = '<span style="color:white;font-size:24px;font-weight:600;line-height:1;">' + initials + '</span>';
+      var pvColors = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E87040'];
+      var bg = pvColors[p.id % pvColors.length];
+      photoEl.innerHTML = '<span style="color:white;font-size:24px;font-weight:600;line-height:1;">'+initials+'</span>';
       photoEl.style.background = bg;
     }
   }
-  // Full name
   var fnEl = document.getElementById('pv-fullname');
   if (fnEl) fnEl.textContent = displayName;
-  // Badge
   var bdEl = document.getElementById('pv-badge');
   if (bdEl) {
     var mt = p.member_type||'visitor';
     var badgeClass = mt === 'member' ? 'dir-badge-member' : mt === 'organization' ? 'dir-badge-organization' : 'dir-badge-visitor';
-    var badgeLabel = mt.charAt(0).toUpperCase()+mt.slice(1);
-    bdEl.innerHTML = '<span class="dir-badge '+badgeClass+'">'+badgeLabel+'</span>';
+    bdEl.innerHTML = '<span class="dir-badge '+badgeClass+'">'+mt.charAt(0).toUpperCase()+mt.slice(1)+'</span>';
   }
-  // Household
   var hhEl = document.getElementById('pv-hh');
   if (hhEl) hhEl.textContent = p.household_name ? ' \u00b7 '+p.household_name : '';
-  // Role
   var roleEl = document.getElementById('pv-role');
   if (roleEl) roleEl.textContent = p.family_role ? ' \u00b7 '+p.family_role : '';
-  // Info tab content
+  // Info tab — two-column layout
   var infoEl = document.getElementById('ptab-info');
   if (infoEl) {
-    var tags = (p.tags||[]).map(function(t){
-      return '<span class="dir-tag" style="padding:3px 8px;background:'+t.color+'20;border-color:'+t.color+';color:'+t.color+';">'+esc(t.name)+'</span>';
-    }).join(' ');
-    infoEl.innerHTML = '<div class="pv-info-grid">'
-      + pvField('Email', p.email ? '<a href="mailto:'+esc(p.email)+'">'+esc(p.email)+'</a>' : '—')
-      + pvField('Phone', p.phone ? esc(p.phone) : '—')
-      + pvField('Address', [p.address1,p.city,((p.state||'')+(p.zip?' '+p.zip:''))].filter(Boolean).map(esc).join(', ')||'—')
-      + pvField('Date of Birth', p.dob||'—')
-      + pvField('Baptism', p.baptism_date||'—')
-      + pvField('Confirmation', p.confirmation_date||'—')
-      + pvField('Anniversary', p.anniversary_date||'—')
-      + (p.death_date ? pvField('Death', p.death_date) : '')
+    var addrParts = [p.address1, p.city, ((p.state||'')+(p.zip ? ' '+p.zip : '')).trim()].filter(Boolean);
+    var addrStr = addrParts.map(esc).join(', ');
+    var addrVal = addrStr ? '<a href="https://maps.google.com/?q='+encodeURIComponent(addrParts.join(', '))+'" target="_blank" rel="noopener">'+addrStr+'</a>' : '';
+    var emailVal = p.email ? '<a href="mailto:'+esc(p.email)+'">'+esc(p.email)+'</a>' : '';
+    var phoneVal = p.phone ? '<a href="tel:'+esc(p.phone)+'">'+esc(p.phone)+'</a>' : '';
+    function calcAge(ds) {
+      if (!ds) return '';
+      var d = new Date(ds), now = new Date();
+      var age = now.getFullYear() - d.getFullYear();
+      if (now.getMonth() < d.getMonth() || (now.getMonth() === d.getMonth() && now.getDate() < d.getDate())) age--;
+      return age >= 0 ? ' (age '+age+')' : '';
+    }
+    var tagHtml = (p.tags||[]).map(function(t){
+      return '<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:99px;background:'+esc(t.color)+';color:white;font-size:11px;font-weight:600;margin:2px;">'+esc(t.name)+'</span>';
+    }).join('');
+    var leftCol = '<div>'
+      + '<div class="pv-section">'
+      + '<div class="pv-section-title">Contact</div>'
+      + pvRow('Address', addrVal)
+      + pvRow('Phone', phoneVal)
+      + pvRow('Email', emailVal)
       + '</div>'
-      + (tags ? '<div style="margin-top:16px;display:flex;gap:6px;flex-wrap:wrap;">'+tags+'</div>' : '')
-      + (p.notes ? '<div style="margin-top:16px;"><div class="pv-field-key">Notes</div><div class="pv-field-val" style="white-space:pre-wrap;">'+esc(p.notes)+'</div></div>' : '');
+      + '<div class="pv-section">'
+      + '<div class="pv-section-title">Family</div>'
+      + (p.household_id
+          ? '<div id="pv-family-members" style="color:var(--warm-gray);font-size:12px;">Loading\u2026</div>'
+          : '<div style="color:var(--faint);font-size:12px;font-style:italic;">No household linked</div>')
+      + '</div>'
+      + '</div>';
+    var rightCol = '<div>'
+      + '<div class="pv-section">'
+      + '<div class="pv-section-title">Key Dates</div>'
+      + pvRow('Date of Birth', p.dob ? esc(p.dob)+calcAge(p.dob) : '')
+      + pvRow('Baptism', p.baptism_date ? esc(p.baptism_date) : '')
+      + pvRow('Confirmation', p.confirmation_date ? esc(p.confirmation_date) : '')
+      + pvRow('Anniversary', p.anniversary_date ? esc(p.anniversary_date) : '')
+      + (p.death_date ? pvRow('Death', esc(p.death_date)) : '')
+      + '</div>'
+      + (tagHtml ? '<div class="pv-section"><div class="pv-section-title">Tags</div><div style="display:flex;flex-wrap:wrap;gap:4px;">'+tagHtml+'</div></div>' : '')
+      + (p.notes ? '<div class="pv-section"><div class="pv-section-title">Notes</div><div style="font-size:13px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'+esc(p.notes)+'</div></div>' : '')
+      + '</div>';
+    infoEl.innerHTML = '<div class="pv-info-cols">'+leftCol+rightCol+'</div>';
+    if (p.household_id) loadPvFamily(p.household_id, p.id);
   }
-  // Aside: summary stats
+  // Aside
   var asideEl = document.getElementById('pv-aside');
   if (asideEl) {
-    asideEl.innerHTML = '<div style="padding:16px;">'
-      + '<div class="pv-card-lbl" style="margin-bottom:4px;">ID</div>'
-      + '<div style="font-size:13px;color:var(--charcoal);margin-bottom:16px;">#'+p.id+'</div>'
-      + (p.deceased ? '<div style="color:var(--danger);font-size:12px;font-weight:600;margin-bottom:12px;">DECEASED</div>' : '')
-      + '<div class="pv-card-lbl" style="margin-bottom:4px;">Added</div>'
+    asideEl.innerHTML = '<div class="pv-aside-block">'
+      + '<div class="pv-aside-lbl">Member ID</div>'
+      + '<div style="font-size:13px;color:var(--charcoal);">#'+p.id+'</div>'
+      + '</div>'
+      + (p.deceased ? '<div class="pv-aside-block" style="color:var(--danger);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Deceased</div>' : '')
+      + '<div class="pv-aside-block">'
+      + '<div class="pv-aside-lbl">Added</div>'
       + '<div style="font-size:13px;color:var(--charcoal);">'+(p.created_at ? p.created_at.slice(0,10) : '—')+'</div>'
+      + '</div>'
+      + '<div class="pv-aside-block" id="pv-aside-giving">'
+      + '<div class="pv-aside-lbl">Total Giving</div>'
+      + '<div style="font-size:12px;color:var(--warm-gray);">—</div>'
       + '</div>';
+    api('/admin/api/giving?person_id='+p.id+'&limit=500').then(function(d) {
+      var entries = (d && d.entries) ? d.entries : (Array.isArray(d) ? d : []);
+      var total = entries.reduce(function(s,e){return s+(e.amount||0);},0);
+      var ag = document.getElementById('pv-aside-giving');
+      if (ag) ag.innerHTML = '<div class="pv-aside-lbl">Total Giving</div>'
+        + '<div class="pv-aside-big">$'+(total/100).toFixed(2)+'</div>'
+        + '<div class="pv-aside-sub">'+entries.length+' gift'+(entries.length!==1?'s':'')+'</div>';
+    });
   }
-  // Show profile view
   var ca = document.querySelector('.content-area');
   if (ca) ca.classList.add('pv-mode');
-  // Reset to info tab
   showPvTab('info');
+}
+function pvRow(key, val) {
+  var empty = !val;
+  return '<div class="pv-row"><div class="pv-row-key">'+key+'</div><div class="pv-row-val'+(empty?' empty':'')+'">'+(val||'—')+'</div></div>';
 }
 function pvField(label, val) {
   return '<div class="pv-field"><div class="pv-field-key">'+label+'</div><div class="pv-field-val">'+val+'</div></div>';
+}
+function loadPvFamily(hhId, selfId) {
+  var el = document.getElementById('pv-family-members');
+  if (!el) return;
+  api('/admin/api/households/'+hhId).then(function(d) {
+    var members = (d && d.members) ? d.members : [];
+    if (!members.length) { el.innerHTML = '<div style="color:var(--faint);font-size:12px;font-style:italic;">No members found</div>'; return; }
+    var clrs = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E87040'];
+    el.innerHTML = members.map(function(m) {
+      var mName = ((m.first_name||'')+' '+(m.last_name||'')).trim();
+      var ini = ((m.first_name||'').charAt(0)+(m.last_name||'').charAt(0)).toUpperCase();
+      var mbg = clrs[m.id % clrs.length];
+      var meta = m.family_role ? m.family_role.charAt(0).toUpperCase()+m.family_role.slice(1) : '';
+      var isSelf = m.id === selfId;
+      return '<div class="pv-family-member">'
+        + '<div class="pv-family-avatar" style="background:'+mbg+';">'+ini+'</div>'
+        + '<div style="flex:1;">'
+        + (isSelf
+            ? '<div class="pv-family-name" style="opacity:.6;">'+esc(mName)+'</div>'
+            : '<div class="pv-family-name" onclick="openPersonDetail('+m.id+')" style="cursor:pointer;color:var(--sky-steel);">'+esc(mName)+'</div>')
+        + (meta ? '<div class="pv-family-meta">'+esc(meta)+'</div>' : '')
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }).catch(function(){
+    el.innerHTML = '<div style="color:var(--faint);font-size:12px;">Could not load family</div>';
+  });
 }
 function closeProfile() {
   _currentPvPerson = null;
