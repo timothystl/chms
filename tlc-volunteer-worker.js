@@ -18780,7 +18780,7 @@ function parseRegImportFile(text, filename) {
   var colMap = {
     entry_no:       col(['entry no', 'entry no.', '#', 'no', 'no.']),
     record_type:    col(['record type','type']),
-    first_names:    col(['first names','first name','firstname','given names']),
+    first_names:    col(['first names','first name','firstname','given names','given name','christian name','christian names','forename','forenames','baptismal name','baptized name','name of child','child']),
     surname:        col(['surname','last name','lastname','family name']),
     dob:            col(['date of birth','dob','birth date','birthdate']),
     place_of_birth: col(['place of birth','birthplace','birth place']),
@@ -18795,6 +18795,7 @@ function parseRegImportFile(text, filename) {
   };
   var missing = [];
   if (colMap.first_names < 0 && colMap.surname < 0 && headers.indexOf('name') < 0) missing.push('Name column (First Names + Surname, or Name)');
+  if (colMap.first_names < 0 && colMap.surname >= 0) missing.push('First Names column (found Surname but no First Names/Given Name — names will be surnames only)');
   if (colMap.event_date < 0) missing.push('Date column (Baptism Date or Date)');
   var regType = document.getElementById('reg-import-type') ? document.getElementById('reg-import-type').value : 'baptism';
   var rows = [];
