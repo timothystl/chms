@@ -17691,6 +17691,9 @@ function initials(first, last) {
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
 function showTab(name) {
   var labels = {people:'People',households:'Households',giving:'Giving',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings'};
+  // Exit person-profile view if active
+  var ca = document.querySelector('.content-area');
+  if (ca) ca.classList.remove('pv-mode');
   document.querySelectorAll('.s-item[data-tab]').forEach(function(b) {
     b.classList.toggle('active', b.dataset.tab === name);
   });
