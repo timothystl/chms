@@ -12289,6 +12289,8 @@ async function initDb(db) {
     // people: deceased flag and death date
     'ALTER TABLE people ADD COLUMN deceased INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE people ADD COLUMN death_date TEXT NOT NULL DEFAULT ""',
+    // people: public directory opt-in (default visible)
+    'ALTER TABLE people ADD COLUMN public_directory INTEGER NOT NULL DEFAULT 1',
     // church_register: extended historical record fields
     'ALTER TABLE church_register ADD COLUMN record_type TEXT NOT NULL DEFAULT ""',
     'ALTER TABLE church_register ADD COLUMN dob TEXT NOT NULL DEFAULT ""',
@@ -13133,12 +13135,14 @@ async function handleChmsApi(req, env, url, method, seg) {
       await db.prepare(
         `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,address1=?,address2=?,
          city=?,state=?,zip=?,member_type=?,dob=?,baptism_date=?,confirmation_date=?,
-         anniversary_date=?,death_date=?,deceased=?,household_id=?,family_role=?,photo_url=?,notes=? WHERE id=?`
+         anniversary_date=?,death_date=?,deceased=?,household_id=?,family_role=?,photo_url=?,notes=?,
+         public_directory=? WHERE id=?`
       ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
              b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
              b.member_type||'visitor',b.dob||'',b.baptism_date||'',
              b.confirmation_date||'',b.anniversary_date||'',b.death_date||'',b.deceased?1:0,
-             b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',pid
+             b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',
+             b.public_directory!=null?(b.public_directory?1:0):1,pid
       ).run();
       if (Array.isArray(b.tag_ids)) {
         await db.prepare('DELETE FROM person_tags WHERE person_id=?').bind(pid).run();
@@ -13210,6 +13214,18 @@ async function handleChmsApi(req, env, url, method, seg) {
       await db.prepare('DELETE FROM households WHERE id=?').bind(hid).run();
       return json({ ok: true });
     }
+  }
+
+  // ── Household address sync ──────────────────────────────────────
+  const hhsync = seg.match(/^households\/(\d+)\/sync-address$/);
+  if (hhsync && method === 'POST') {
+    const hid = parseInt(hhsync[1]);
+    let b = {}; try { b = await req.json(); } catch {}
+    // Apply address from one person to all active members of household
+    await db.prepare(
+      `UPDATE people SET address1=?,city=?,state=?,zip=? WHERE household_id=? AND active=1`
+    ).bind(b.address1||'',b.city||'',b.state||'MO',b.zip||'',hid).run();
+    return json({ ok: true });
   }
 
   // ── Tags ────────────────────────────────────────────────────────
@@ -13960,6 +13976,21 @@ async function handleChmsApi(req, env, url, method, seg) {
     await db.prepare("INSERT INTO chms_config(key,value) VALUES('member_types',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
       .bind(JSON.stringify(types)).run();
     return json({ ok: true, types });
+  }
+
+  if (seg === 'config/member-type-map' && method === 'GET') {
+    const mapRow  = await db.prepare("SELECT value FROM chms_config WHERE key='member_type_map'").first();
+    const seenRow = await db.prepare("SELECT value FROM chms_config WHERE key='breeze_statuses_seen'").first();
+    return json({
+      map:  mapRow  ? JSON.parse(mapRow.value)  : {},
+      seen: seenRow ? JSON.parse(seenRow.value) : []
+    });
+  }
+  if (seg === 'config/member-type-map' && method === 'PUT') {
+    let b = {}; try { b = await req.json(); } catch {}
+    await db.prepare("INSERT INTO chms_config(key,value) VALUES('member_type_map',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+      .bind(JSON.stringify(b.map || {})).run();
+    return json({ ok: true });
   }
 
   if (seg === 'config/church' && method === 'GET') {
@@ -14765,8 +14796,12 @@ async function handleChmsApi(req, env, url, method, seg) {
     // Load configured member types for direct matching
     const mtCfgRow = await db.prepare("SELECT value FROM chms_config WHERE key='member_types'").first();
     const configuredMemberTypes = mtCfgRow ? JSON.parse(mtCfgRow.value) : ['Member','Attender','Visitor','Vietnamese Congregation','Other'];
+    // Load user-defined Breeze status → local member type map
+    const mtMapRow = await db.prepare("SELECT value FROM chms_config WHERE key='member_type_map'").first();
+    const memberTypeMap = mtMapRow ? JSON.parse(mtMapRow.value) : {};
     // Skip non-person status types
     const SKIP_STATUSES = new Set(['organization','christmas market','egg hunt','renter','mdo']);
+    const statusesSeen = new Set();
     let imported = 0, updated = 0, skipped = 0;
     const errors = [];
     for (const p of people) {
@@ -14780,14 +14815,18 @@ async function handleChmsApi(req, env, url, method, seg) {
         const statusName = (statusObj && statusObj.name) ? statusObj.name
                          : (typeof statusRaw === 'string' ? statusRaw : '');
         if (SKIP_STATUSES.has(statusName.toLowerCase())) { skipped++; continue; }
-        // Match Breeze status directly to a configured member type (case-insensitive), fall back to 'Other'
-        const matched = statusName ? configuredMemberTypes.find(t => t.toLowerCase() === statusName.toLowerCase()) : null;
+        if (statusName) statusesSeen.add(statusName);
+        // Use user-defined map first, then direct name match, then 'Other'
+        const mappedType = statusName ? (memberTypeMap[statusName] || memberTypeMap[statusName.toLowerCase()] || null) : null;
+        const matched = mappedType || (statusName ? configuredMemberTypes.find(t => t.toLowerCase() === statusName.toLowerCase()) : null);
         const memberType = matched || (configuredMemberTypes.includes('Other') ? 'Other' : configuredMemberTypes[0] || 'Other');
         // Dates (stored as plain strings under their field ID key)
         const dob          = toISO(details[F_DOB]          || details['birthdate'] || '');
         const baptismDate  = toISO(details[F_BAPTISM]       || '');
         const confirmDate  = toISO(details[F_CONFIRMATION]  || '');
         const anniversaryDate = toISO(details[F_ANNIVERSARY] || '');
+        // Photo (Breeze returns thumb at top level)
+        const photoUrl = (p.thumb || p.thumbnail || p.photo || '').trim();
         // Email, phone, address (from typed arrays)
         let email = '', phone = '';
         let addr = { street: '', city: '', state: '', zip: '' };
@@ -14837,24 +14876,34 @@ async function handleChmsApi(req, env, url, method, seg) {
           await db.prepare(
             `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,
              address1=?,city=?,state=?,zip=?,member_type=?,household_id=?,
-             dob=?,baptism_date=?,confirmation_date=?,anniversary_date=?,family_role=?
+             dob=?,baptism_date=?,confirmation_date=?,anniversary_date=?,family_role=?,photo_url=?
              WHERE breeze_id=?`
           ).bind(fn,ln,email,phone,addr.street,addr.city,addr.state,addr.zip,memberType,householdId,
-                 dob,baptismDate,confirmDate,anniversaryDate,familyRole,String(p.id)).run();
+                 dob,baptismDate,confirmDate,anniversaryDate,familyRole,photoUrl,String(p.id)).run();
           updated++;
         } else {
           await db.prepare(
             `INSERT INTO people
              (first_name,last_name,email,phone,address1,city,state,zip,breeze_id,member_type,
-              household_id,dob,baptism_date,confirmation_date,anniversary_date,family_role)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+              household_id,dob,baptism_date,confirmation_date,anniversary_date,family_role,photo_url)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
           ).bind(fn,ln,email,phone,addr.street,addr.city,addr.state,addr.zip,String(p.id),memberType,
-                 householdId,dob,baptismDate,confirmDate,anniversaryDate,familyRole).run();
+                 householdId,dob,baptismDate,confirmDate,anniversaryDate,familyRole,photoUrl).run();
           imported++;
         }
       } catch (e) { errors.push({ breeze_id: p.id, error: e.message }); }
     }
     const done = people.length < limit;
+    // Persist newly-seen Breeze statuses
+    if (statusesSeen.size > 0) {
+      try {
+        const existingSeenRow = await db.prepare("SELECT value FROM chms_config WHERE key='breeze_statuses_seen'").first();
+        const existingSeen = existingSeenRow ? new Set(JSON.parse(existingSeenRow.value)) : new Set();
+        statusesSeen.forEach(s => existingSeen.add(s));
+        await db.prepare("INSERT INTO chms_config(key,value) VALUES('breeze_statuses_seen',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+          .bind(JSON.stringify([...existingSeen])).run();
+      } catch {}
+    }
     // On the final batch, sync tags and tag assignments from Breeze
     let tagsSynced = 0, tagAssignments = 0;
     if (done) {
@@ -17004,6 +17053,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     </div>
     <div class="filter-pills" id="p-tag-pills" style="gap:4px;"></div>
     <button class="btn-secondary" id="p-select-btn" onclick="toggleSelectMode()" style="margin-left:auto;">&#9745; Select</button>
+    <button class="btn-secondary" onclick="printDirectory()" title="Print directory">&#128438; Directory</button>
     <button class="btn-primary" onclick="openPersonEdit(null)">+ Add Person</button>
   </div>
   <!-- Bulk action bar (visible when Select mode is active) -->
@@ -17325,7 +17375,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       </div>
     </div>
     <!-- Member Types Card -->
-    <div class="import-card">
+    <div class="import-card" style="margin-bottom:14px;">
       <h3>&#9965; Member Types</h3>
       <p>Define the member types available for people records.</p>
       <div id="settings-member-types-list" style="margin-bottom:10px;"></div>
@@ -17333,6 +17383,14 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
         <input type="text" id="st-new-type-name" placeholder="New type name" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:.88rem;width:180px;">
         <button class="btn-primary" style="font-size:.85rem;padding:6px 14px;" onclick="addMemberTypeSettings()">Add Type</button>
       </div>
+    </div>
+    <!-- Breeze Status Mapping Card -->
+    <div class="import-card">
+      <h3>&#128279; Breeze Status &rarr; Member Type Mapping</h3>
+      <p>After a Breeze import, each status name that came in from Breeze appears here. Map it to your local member type so future imports assign the right type automatically.</p>
+      <div id="settings-mt-map-list" style="margin-bottom:10px;"></div>
+      <div id="settings-mt-map-hint" style="font-size:.8rem;color:var(--warm-gray);"></div>
+      <button class="btn-secondary" style="margin-top:10px;font-size:.82rem;" onclick="loadMemberTypeMap()">&#8635; Refresh</button>
     </div>
   </div>
 </div>
@@ -17543,10 +17601,14 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
         <div class="field"><label>Anniversary</label><input type="date" id="pm-anniv"></div>
         <div class="field"><label>Death Date</label><input type="date" id="pm-death"></div>
       </div>
-      <div style="margin-bottom:10px;">
+      <div style="margin-bottom:10px;display:flex;gap:24px;flex-wrap:wrap;">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem;">
           <input type="checkbox" id="pm-deceased">
           Mark as deceased
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem;" title="Uncheck to hide this person from printed/public directories">
+          <input type="checkbox" id="pm-public" checked>
+          Include in directory
         </label>
       </div>
     </div>
@@ -17888,6 +17950,7 @@ function loadSettings() {
     renderSettingsTagsList();
   });
   renderSettingsMemberTypesList();
+  loadMemberTypeMap();
 }
 function saveSettings() {
   var data = {
@@ -17959,6 +18022,83 @@ function deleteMemberTypeSettings(idx) {
   _memberTypes = _memberTypes.filter(function(_,i){return i!==idx;});
   saveMemberTypes();
   renderSettingsMemberTypesList();
+}
+
+// ── BREEZE STATUS → MEMBER TYPE MAPPING ──────────────────────────────
+var _mtMapData = {};
+function loadMemberTypeMap() {
+  var c = document.getElementById('settings-mt-map-list');
+  var h = document.getElementById('settings-mt-map-hint');
+  if (!c) return;
+  c.innerHTML = '<span style="color:var(--warm-gray);font-size:.85rem;">Loading\u2026</span>';
+  api('/admin/api/config/member-type-map').then(function(d) {
+    _mtMapData = d.map || {};
+    var seen = d.seen || [];
+    if (!seen.length) {
+      c.innerHTML = '<p style="color:var(--warm-gray);font-size:.85rem;margin:0;">No Breeze statuses recorded yet. Run a Breeze import first, then return here to map them.</p>';
+      if (h) h.textContent = '';
+      return;
+    }
+    if (h) h.textContent = seen.length + ' distinct status value' + (seen.length !== 1 ? 's' : '') + ' seen from Breeze.';
+    c.innerHTML = seen.map(function(status) {
+      var mapped = _mtMapData[status] || '';
+      var safeStatus = status.replace(/'/g, "\\'");
+      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--linen);">'
+        + '<span style="flex:1;font-size:.9rem;">'+esc(status)+'</span>'
+        + '<svg viewBox="0 0 16 16" style="width:14px;height:14px;flex-shrink:0;fill:var(--warm-gray);"><path d="M8 1l7 7-7 7M1 8h14" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>'
+        + '<select onchange="saveMtMapEntry(\''+safeStatus+'\',this.value)" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;min-width:160px;">'
+        + '<option value="">— no mapping —</option>'
+        + _memberTypes.map(function(t) { return '<option value="'+esc(t)+'"'+(mapped===t?' selected':'')+'>'+esc(t)+'</option>'; }).join('')
+        + '</select>'
+        + '</div>';
+    }).join('');
+  });
+}
+function saveMtMapEntry(status, localType) {
+  _mtMapData[status] = localType;
+  api('/admin/api/config/member-type-map', {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({map: _mtMapData})
+  });
+}
+
+// ── PRINT DIRECTORY ──────────────────────────────────────────────────
+function printDirectory() {
+  var w = window.open('', '_blank', 'width=900,height=700');
+  if (!w) { alert('Please allow pop-ups for this page.'); return; }
+  w.document.write('<html><head><title>Directory</title><style>'
+    + 'body{font-family:Georgia,serif;font-size:12pt;color:#222;margin:2cm;}'
+    + 'h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bottom:20px;}'
+    + '.grid{columns:2;column-gap:24px;}'
+    + '.person{break-inside:avoid;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #ddd;}'
+    + '.name{font-weight:bold;font-size:11pt;} .meta{font-size:9pt;color:#555;} .contact{font-size:9pt;}'
+    + '@media print{body{margin:1cm;}}'
+    + '</style></head><body>');
+  w.document.write('<h1>Church Directory</h1><div class="subtitle">Printed '+new Date().toLocaleDateString()+'</div>');
+  w.document.write('<div class="grid" id="dir-content"><p>Loading\u2026</p></div>');
+  w.document.write('</body></html>');
+  w.document.close();
+  // Fetch all active people with public_directory=1
+  api('/admin/api/people?limit=500&offset=0').then(function(d) {
+    var people = (d.people || []).filter(function(p) { return p.public_directory !== 0; });
+    people.sort(function(a,b){ return (a.last_name||'').localeCompare(b.last_name||'') || (a.first_name||'').localeCompare(b.first_name||''); });
+    var html = people.map(function(p) {
+      var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+      var meta = [p.member_type, p.household_name].filter(Boolean).join(' \u00b7 ');
+      var addr = [p.address1, p.city, ((p.state||'')+(p.zip?' '+p.zip:'')).trim()].filter(Boolean).join(', ');
+      var contact = [addr, p.phone, p.email].filter(Boolean).join('<br>');
+      return '<div class="person">'
+        + '<div class="name">'+escHtml(name)+'</div>'
+        + (meta ? '<div class="meta">'+escHtml(meta)+'</div>' : '')
+        + (contact ? '<div class="contact">'+contact+'</div>' : '')
+        + '</div>';
+    }).join('');
+    var el = w.document.getElementById('dir-content');
+    if (el) el.innerHTML = html || '<p>No public directory entries.</p>';
+    w.print();
+  });
+  function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 }
 
 // ── FUNDS ──────────────────────────────────────────────────────────────
@@ -18207,12 +18347,24 @@ function showProfile(p) {
   if (tn) tn.textContent = displayName;
   var photoEl = document.getElementById('pv-photo');
   if (photoEl) {
-    if (isOrg) {
+    var pvColors = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E87040'];
+    if (p.photo_url) {
+      var pvi = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
+      var pvbg = pvColors[p.id % pvColors.length];
+      photoEl.style.background = pvbg;
+      var img = document.createElement('img');
+      img.src = p.photo_url;
+      img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%;';
+      img.onerror = function() {
+        photoEl.innerHTML = '<span style="color:white;font-size:24px;font-weight:600;line-height:1;">'+pvi+'</span>';
+      };
+      photoEl.innerHTML = '';
+      photoEl.appendChild(img);
+    } else if (isOrg) {
       photoEl.innerHTML = '<svg viewBox="0 0 24 24" style="width:32px;height:32px;fill:none;stroke:var(--warm-gray);stroke-width:1.5"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>';
       photoEl.style.background = 'var(--linen)';
     } else {
       var initials = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-      var pvColors = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E87040'];
       var bg = pvColors[p.id % pvColors.length];
       photoEl.innerHTML = '<span style="color:white;font-size:24px;font-weight:600;line-height:1;">'+initials+'</span>';
       photoEl.style.background = bg;
@@ -18248,15 +18400,19 @@ function showProfile(p) {
     var tagHtml = (p.tags||[]).map(function(t){
       return '<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:99px;background:'+esc(t.color)+';color:white;font-size:11px;font-weight:600;margin:2px;">'+esc(t.name)+'</span>';
     }).join('');
+    var dirBadge = p.public_directory === 0 ? '<span style="display:inline-block;font-size:10px;padding:2px 7px;border-radius:99px;background:#f4e8c1;color:#9a7a2b;font-weight:600;margin-left:8px;">Private</span>' : '';
     var leftCol = '<div>'
       + '<div class="pv-section">'
-      + '<div class="pv-section-title">Contact</div>'
+      + '<div class="pv-section-title">Contact'+dirBadge+'</div>'
       + pvRow('Address', addrVal)
       + pvRow('Phone', phoneVal)
       + pvRow('Email', emailVal)
+      + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Apply address to household</button></div>' : '')
       + '</div>'
       + '<div class="pv-section">'
-      + '<div class="pv-section-title">Family</div>'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Family</div>'
+      + (p.household_id ? '<button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;margin-left:auto;" onclick="openAddToHouseholdModal('+p.household_id+')">+ Add Person</button>' : '')
+      + '</div>'
       + (p.household_id
           ? '<div id="pv-family-members" style="color:var(--warm-gray);font-size:12px;">Loading\u2026</div>'
           : '<div style="color:var(--faint);font-size:12px;font-style:italic;">No household linked</div>')
@@ -18338,7 +18494,8 @@ function loadPvFamily(hhId, selfId) {
         + (meta ? '<div class="pv-family-meta">'+esc(meta)+'</div>' : '')
         + '</div>'
         + '</div>';
-    }).join('');
+    }).join('')
+    + '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="editHouseholdById('+hhId+')">&#9998; Edit Household Details</button></div>';
   }).catch(function(){
     el.innerHTML = '<div style="color:var(--faint);font-size:12px;">Could not load family</div>';
   });
@@ -18347,6 +18504,44 @@ function closeProfile() {
   _currentPvPerson = null;
   var ca = document.querySelector('.content-area');
   if (ca) ca.classList.remove('pv-mode');
+}
+function applyAddressToHousehold(personId, householdId) {
+  var p = _currentPvPerson;
+  if (!p) return;
+  if (!confirm('Apply this person\'s address to all members of the household?')) return;
+  api('/admin/api/households/'+householdId+'/sync-address', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ address1: p.address1||'', city: p.city||'', state: p.state||'MO', zip: p.zip||'' })
+  }).then(function(r) {
+    if (r.ok) alert('Address applied to all household members.');
+    else alert('Error: '+(r.error||'unknown'));
+  });
+}
+// Add-to-household: search for existing person and link them
+function openAddToHouseholdModal(householdId) {
+  var name = prompt('Enter the name of a person to add to this household:');
+  if (!name) return;
+  api('/admin/api/people?q='+encodeURIComponent(name)+'&limit=10').then(function(d) {
+    var people = d.people || [];
+    if (!people.length) { alert('No people found matching "'+name+'".'); return; }
+    var list = people.map(function(p,i){return (i+1)+'. '+p.first_name+' '+p.last_name+(p.household_name?' ('+p.household_name+')':'');}).join('\n');
+    var idx = parseInt(prompt('Select a person:\n'+list+'\n\nEnter number:')) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= people.length) return;
+    var chosen = people[idx];
+    api('/admin/api/people/'+chosen.id, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(Object.assign({}, chosen, { household_id: householdId, tag_ids: (chosen.tags||[]).map(function(t){return t.id;}) }))
+    }).then(function(r) {
+      if (r.ok) {
+        alert(chosen.first_name+' '+chosen.last_name+' added to household.');
+        if (_currentPvPerson && _currentPvPerson.household_id === householdId) {
+          loadPvFamily(householdId, _currentPvPerson.id);
+        }
+      } else alert('Error: '+(r.error||'unknown'));
+    });
+  });
 }
 function showPvTab(name) {
   document.querySelectorAll('.pv-tab').forEach(function(b){
@@ -18421,6 +18616,8 @@ function openPersonEdit(p) {
   document.getElementById('pm-anniv').value = isNew ? '' : (p.anniversary_date||'');
   document.getElementById('pm-death').value = isNew ? '' : (p.death_date||'');
   document.getElementById('pm-deceased').checked = !isNew && !!p.deceased;
+  var pubEl = document.getElementById('pm-public');
+  if (pubEl) pubEl.checked = isNew ? true : (p.public_directory !== 0);
   document.getElementById('pm-notes').value = isNew ? '' : (p.notes||'');
   document.getElementById('pm-hh-search').value = isNew ? '' : (p.household_name||'');
   document.getElementById('pm-hh-id').value = isNew ? '' : (p.household_id||'');
@@ -18491,6 +18688,7 @@ function savePerson() {
     anniversary_date: document.getElementById('pm-anniv').value,
     death_date: document.getElementById('pm-death').value,
     deceased: document.getElementById('pm-deceased').checked ? 1 : 0,
+    public_directory: (document.getElementById('pm-public') || {checked:true}).checked ? 1 : 0,
     notes: document.getElementById('pm-notes').value,
     tag_ids: getSelectedTagIds()
   };
@@ -19063,6 +19261,19 @@ function renderHouseholds(rows) {
   }).join('');
 }
 function openHouseholdDetail(id) {
+  api('/admin/api/households/' + id).then(function(h) {
+    var members = h.members || [];
+    // Find head of household, fall back to first member
+    var head = members.find(function(m){ return (m.family_role||'').toLowerCase() === 'head'; }) || members[0];
+    if (head) {
+      openPersonDetail(head.id);
+    } else {
+      // No members — open the edit modal for the household itself
+      openHouseholdEdit(h);
+    }
+  });
+}
+function editHouseholdById(id) {
   api('/admin/api/households/' + id).then(function(h) { openHouseholdEdit(h); });
 }
 function openHouseholdEdit(h) {
