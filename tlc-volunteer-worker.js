@@ -17964,7 +17964,7 @@ function renderPeopleDesktop(people) {
     trCls = isSelected ? ' class="dir-row-selected"' : '';
     var badge = (p.member_type||'visitor').replace(/\s+/g,'-');
     return '<tr' + trCls + ' style="cursor:pointer;" ' + clickHandler + '>'
-      + '<td style="width:36px;text-align:center;" onclick="event.stopPropagation()"><input type="checkbox"' + (isSelected ? ' checked' : '') + ' style="' + (_selectMode ? '' : 'display:none;') + '" onchange="togglePersonSelect(' + p.id + ',this.closest(\'tr\'))" onclick="event.stopPropagation()"></td>'
+      + '<td style="width:36px;text-align:center;" onclick="event.stopPropagation()"><input type="checkbox"' + (isSelected ? ' checked' : '') + ' style="' + (_selectMode ? '' : 'display:none;') + '" onchange="togglePersonSelect(' + p.id + ',this.closest(&#39;tr&#39;))" onclick="event.stopPropagation()"></td>'
       + '<td><div class="dir-name-cell"><div class="' + avClass + '">' + avInner + '</div><span class="dir-name-link">' + displayName + '</span></div></td>'
       + '<td><span class="dir-badge dir-badge-' + badge + '">' + esc(p.member_type||'visitor') + '</span></td>'
       + '<td class="dir-contact">' + (p.email ? '<a href="mailto:' + esc(p.email) + '" onclick="event.stopPropagation()">' + esc(p.email) + '</a>' : '') + (p.phone ? '<div class="dir-phone">' + esc(p.phone) + '</div>' : '') + '</td>'
