@@ -13965,6 +13965,14 @@ async function handleChmsApi(req, env, url, method, seg) {
     return json({ ok: true, id: rr.meta.last_row_id });
   }
   const regDelMatch = seg.match(/^register\/(\d+)$/);
+  if (regDelMatch && method === 'PUT') {
+    const rid = parseInt(regDelMatch[1]);
+    let rb2 = {}; try { rb2 = await req.json(); } catch {}
+    await db.prepare(
+      'UPDATE church_register SET event_date=?,name=?,name2=?,officiant=?,notes=? WHERE id=?'
+    ).bind(rb2.event_date||'', rb2.name||'', rb2.name2||'', rb2.officiant||'', rb2.notes||'', rid).run();
+    return json({ ok: true });
+  }
   if (regDelMatch && method === 'DELETE') {
     await db.prepare('DELETE FROM church_register WHERE id=?').bind(parseInt(regDelMatch[1])).run();
     return json({ ok: true });
@@ -16626,6 +16634,29 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 .entries-table tr:hover td{background:var(--linen);}
 .del-entry{background:none;border:none;color:var(--danger);cursor:pointer;font-size:1rem;padding:0 4px;opacity:.6;}
 .del-entry:hover{opacity:1;}
+/* ── CHURCH REGISTER ── */
+.reg-shell{display:flex;flex-direction:column;flex:1;overflow:hidden;}
+.reg-toolbar{display:flex;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--white);flex-shrink:0;flex-wrap:wrap;}
+.reg-search{flex:1;min-width:160px;max-width:280px;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;outline:none;}
+.reg-search:focus{border-color:var(--teal);}
+.reg-year-select{padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--white);outline:none;cursor:pointer;}
+.reg-stat-txt{font-size:13px;color:var(--warm-gray);margin-left:auto;}
+.reg-body{display:flex;flex:1;overflow:hidden;gap:0;}
+.reg-form-panel{width:300px;flex-shrink:0;border-right:1px solid var(--border);background:var(--white);overflow-y:auto;padding:20px;}
+.reg-form-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:14px;}
+.reg-list-panel{flex:1;overflow-y:auto;padding:20px;background:var(--bg);}
+.reg-year-hdr{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);padding:16px 0 8px;border-bottom:2px solid var(--border);margin-bottom:0;}
+.reg-year-hdr:first-child{padding-top:0;}
+.reg-table{width:100%;border-collapse:collapse;font-size:.875rem;background:var(--white);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:20px;}
+.reg-table th{padding:7px 12px;text-align:left;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);background:var(--linen);border-bottom:1px solid var(--border);}
+.reg-table td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top;}
+.reg-table tr:last-child td{border-bottom:none;}
+.reg-table tr:hover td{background:var(--linen);}
+.reg-person-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--teal);cursor:pointer;border:1px solid var(--teal);border-radius:99px;padding:1px 8px;}
+.reg-person-chip:hover{background:var(--blue-mist);}
+.reg-edit-btn{background:none;border:none;color:var(--sky-steel);cursor:pointer;font-size:.78rem;padding:2px 6px;border-radius:4px;opacity:.7;}
+.reg-edit-btn:hover{opacity:1;background:var(--blue-mist);}
+@media(max-width:700px){.reg-form-panel{display:none;}.reg-body{flex-direction:column;}.reg-add-toggle{display:inline-flex !important;}}
 /* ── REPORTS ── */
 .report-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-bottom:20px;}
 .report-tile{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:20px;cursor:pointer;transition:box-shadow .15s;}
@@ -17174,26 +17205,45 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <!-- ═══ REGISTER TAB ═══ -->
 <div id="tab-register" class="tab-panel">
-  <div style="display:flex;border-bottom:1px solid var(--border);padding:0 20px;flex-shrink:0;background:var(--white);">
-    <button class="pv-tab active" data-rtab="baptism" onclick="showRegisterTab('baptism')" style="font-size:13px;padding:12px 18px;">Baptisms</button>
-    <button class="pv-tab" data-rtab="confirmation" onclick="showRegisterTab('confirmation')" style="font-size:13px;padding:12px 18px;">Confirmations</button>
-    <button class="pv-tab" data-rtab="wedding" onclick="showRegisterTab('wedding')" style="font-size:13px;padding:12px 18px;">Weddings</button>
-  </div>
-  <div style="flex:1;overflow-y:auto;padding:20px;">
-    <!-- Add form -->
-    <div id="reg-add-form" style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px;">
-      <div style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);margin-bottom:12px;" id="reg-form-title">Add Baptism</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:10px;">
+  <div class="reg-shell">
+    <!-- Sub-tab bar -->
+    <div style="display:flex;align-items:center;border-bottom:1px solid var(--border);padding:0 20px;flex-shrink:0;background:var(--white);">
+      <button class="pv-tab active" data-rtab="baptism" onclick="showRegisterTab('baptism')" style="font-size:13px;padding:12px 18px;">Baptisms</button>
+      <button class="pv-tab" data-rtab="confirmation" onclick="showRegisterTab('confirmation')" style="font-size:13px;padding:12px 18px;">Confirmations</button>
+      <button class="pv-tab" data-rtab="wedding" onclick="showRegisterTab('wedding')" style="font-size:13px;padding:12px 18px;">Weddings</button>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+        <button class="btn-secondary" style="display:none;font-size:.8rem;" id="reg-add-toggle" onclick="toggleRegForm()">+ Add</button>
+        <button class="btn-secondary" style="font-size:.8rem;" onclick="printRegister()">Print Register</button>
+      </div>
+    </div>
+    <!-- Filter toolbar -->
+    <div class="reg-toolbar">
+      <input class="reg-search" type="search" id="reg-search" placeholder="Search by name&#8230;" oninput="filterRegister()">
+      <select class="reg-year-select" id="reg-year-filter" onchange="filterRegister()">
+        <option value="">All Years</option>
+      </select>
+      <span class="reg-stat-txt" id="reg-stat-txt"></span>
+    </div>
+    <!-- Body: form left + list right -->
+    <div class="reg-body">
+      <!-- Add / Edit form -->
+      <div class="reg-form-panel" id="reg-form-panel">
+        <div class="reg-form-title" id="reg-form-title">Add Baptism</div>
         <div class="field"><label>Date</label><input type="date" id="reg-date"></div>
         <div class="field"><label id="reg-name-lbl">Name Baptized</label><input type="text" id="reg-name" placeholder="Full name"></div>
-        <div class="field" id="reg-name2-wrap"><label id="reg-name2-lbl">Parent / Sponsor</label><input type="text" id="reg-name2" placeholder="Optional"></div>
+        <div class="field"><label id="reg-name2-lbl">Parent / Sponsor</label><input type="text" id="reg-name2" placeholder="Optional"></div>
         <div class="field"><label>Officiant</label><input type="text" id="reg-officiant" placeholder="Pastor name"></div>
-        <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" id="reg-notes" placeholder="Optional notes"></div>
+        <div class="field"><label>Notes</label><textarea id="reg-notes" placeholder="Optional notes" style="width:100%;height:64px;resize:vertical;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:inherit;"></textarea></div>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <button class="btn-primary" style="font-size:.85rem;" id="reg-save-btn" onclick="saveRegisterEntry()">Add Entry</button>
+          <button class="btn-secondary" style="font-size:.85rem;display:none;" id="reg-cancel-btn" onclick="cancelRegisterEdit()">Cancel</button>
+        </div>
       </div>
-      <button class="btn-primary" style="font-size:.85rem;" onclick="addRegisterEntry()">Add Entry</button>
+      <!-- List -->
+      <div class="reg-list-panel">
+        <div id="reg-list"></div>
+      </div>
     </div>
-    <!-- List -->
-    <div id="reg-list"></div>
   </div>
 </div>
 
@@ -18262,93 +18312,227 @@ function deletePerson() {
 
 // ── CHURCH REGISTER ───────────────────────────────────────────────────
 var _regType = 'baptism';
+var _regEntries = [];   // cached full list for current type
+var _regEditId = null;  // null = add mode, number = edit mode
 var _regLabels = {
-  baptism:      { title: 'Baptisms',     nameLbl: 'Name Baptized',    name2Lbl: 'Parent / Sponsor', col2: 'Parent/Sponsor' },
-  confirmation: { title: 'Confirmations',nameLbl: 'Name Confirmed',   name2Lbl: 'Class / Year',     col2: 'Class/Year' },
-  wedding:      { title: 'Weddings',     nameLbl: 'Bride',            name2Lbl: 'Groom',            col2: 'Groom' }
+  baptism:      { title: 'Baptisms',      nameLbl: 'Name Baptized',  name2Lbl: 'Parent / Sponsor', col2: 'Parent/Sponsor' },
+  confirmation: { title: 'Confirmations', nameLbl: 'Name Confirmed', name2Lbl: 'Class / Year',     col2: 'Class/Year' },
+  wedding:      { title: 'Weddings',      nameLbl: 'Bride',          name2Lbl: 'Groom',            col2: 'Groom' }
 };
 function showRegisterTab(type) {
   _regType = type;
+  _regEditId = null;
   document.querySelectorAll('[data-rtab]').forEach(function(b) {
     b.classList.toggle('active', b.dataset.rtab === type);
   });
   var lbl = _regLabels[type];
-  var ftitle = document.getElementById('reg-form-title');
-  if (ftitle) ftitle.textContent = 'Add ' + lbl.title.slice(0, -1);
-  var nl = document.getElementById('reg-name-lbl'); if (nl) nl.textContent = lbl.nameLbl;
-  var n2l = document.getElementById('reg-name2-lbl'); if (n2l) n2l.textContent = lbl.name2Lbl;
+  var ft = document.getElementById('reg-form-title'); if (ft) ft.textContent = 'Add ' + lbl.title.slice(0,-1);
+  var nl = document.getElementById('reg-name-lbl');   if (nl) nl.textContent = lbl.nameLbl;
+  var n2 = document.getElementById('reg-name2-lbl');  if (n2) n2.textContent = lbl.name2Lbl;
+  var sb = document.getElementById('reg-save-btn');   if (sb) sb.textContent = 'Add Entry';
+  var cb = document.getElementById('reg-cancel-btn'); if (cb) cb.style.display = 'none';
+  clearRegForm();
   loadRegister();
+}
+function clearRegForm() {
+  ['reg-date','reg-name','reg-name2','reg-officiant','reg-notes'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.value = '';
+  });
+}
+function toggleRegForm() {
+  var p = document.getElementById('reg-form-panel');
+  if (!p) return;
+  p.style.display = p.style.display === 'none' ? '' : 'none';
 }
 function loadRegister() {
   var el = document.getElementById('reg-list');
   if (!el) return;
-  el.innerHTML = '<div style="padding:20px;color:var(--warm-gray);font-size:.85rem;">Loading\u2026</div>';
+  el.innerHTML = '<div style="padding:32px;text-align:center;color:var(--warm-gray);font-size:.85rem;">Loading\u2026</div>';
   api('/admin/api/register?type=' + _regType).then(function(d) {
-    renderRegisterList(d.entries || []);
+    _regEntries = d.entries || [];
+    populateRegYearFilter(_regEntries);
+    filterRegister();
   }).catch(function() {
     el.innerHTML = '<div style="padding:20px;color:var(--danger);">Could not load register.</div>';
   });
+}
+function populateRegYearFilter(entries) {
+  var sel = document.getElementById('reg-year-filter');
+  if (!sel) return;
+  var years = {};
+  entries.forEach(function(e) { var y = (e.event_date||'').slice(0,4); if (y) years[y] = 1; });
+  var ys = Object.keys(years).sort().reverse();
+  var cur = sel.value;
+  sel.innerHTML = '<option value="">All Years</option>'
+    + ys.map(function(y){ return '<option value="'+y+'"'+(y===cur?' selected':'')+'>'+y+'</option>'; }).join('');
+}
+function filterRegister() {
+  var search = (document.getElementById('reg-search') ? document.getElementById('reg-search').value : '').toLowerCase().trim();
+  var year   = document.getElementById('reg-year-filter') ? document.getElementById('reg-year-filter').value : '';
+  var filtered = _regEntries.filter(function(e) {
+    if (year && (e.event_date||'').slice(0,4) !== year) return false;
+    if (search) {
+      var hay = (e.name+' '+(e.name2||'')+' '+(e.officiant||'')).toLowerCase();
+      if (hay.indexOf(search) < 0) return false;
+    }
+    return true;
+  });
+  var stat = document.getElementById('reg-stat-txt');
+  if (stat) {
+    var total = _regEntries.length;
+    stat.textContent = filtered.length === total
+      ? total + ' ' + _regLabels[_regType].title.toLowerCase()
+      : filtered.length + ' of ' + total + ' shown';
+  }
+  renderRegisterList(filtered);
 }
 function renderRegisterList(entries) {
   var el = document.getElementById('reg-list');
   if (!el) return;
   var lbl = _regLabels[_regType];
   if (!entries.length) {
-    el.innerHTML = '<div style="padding:32px;text-align:center;background:var(--white);border:1px solid var(--border);border-radius:12px;color:var(--warm-gray);">'
-      + '<div style="font-size:.9rem;margin-bottom:4px;">No ' + lbl.title.toLowerCase() + ' recorded yet.</div>'
-      + '<div style="font-size:.8rem;">Use the form above to add the first entry.</div></div>';
+    el.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--warm-gray);">'
+      + '<div style="font-size:2rem;margin-bottom:10px;">\uD83D\uDCDA</div>'
+      + '<div style="font-size:.9rem;font-weight:600;margin-bottom:4px;">No ' + lbl.title.toLowerCase() + ' found</div>'
+      + '<div style="font-size:.82rem;">' + (_regEntries.length ? 'Try adjusting the search or year filter.' : 'Use the form to record the first entry.') + '</div></div>';
     return;
   }
-  var rows = entries.map(function(e) {
-    return '<tr>'
-      + '<td style="padding:10px 14px;border-bottom:1px solid var(--border);color:var(--warm-gray);white-space:nowrap;">' + (e.event_date||'\u2014') + '</td>'
-      + '<td style="padding:10px 14px;border-bottom:1px solid var(--border);font-weight:600;">' + esc(e.name||'\u2014') + '</td>'
-      + '<td style="padding:10px 14px;border-bottom:1px solid var(--border);">' + esc(e.name2||'\u2014') + '</td>'
-      + '<td style="padding:10px 14px;border-bottom:1px solid var(--border);color:var(--warm-gray);">' + esc(e.officiant||'\u2014') + '</td>'
-      + '<td style="padding:10px 14px;border-bottom:1px solid var(--border);color:var(--warm-gray);font-size:.82rem;">' + esc(e.notes||'') + '</td>'
-      + '<td style="padding:10px 8px;border-bottom:1px solid var(--border);"><button class="del-entry" onclick="deleteRegisterEntry(' + e.id + ')" title="Delete">&#215;</button></td>'
-      + '</tr>';
-  }).join('');
-  el.innerHTML = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;">'
-    + '<table style="width:100%;border-collapse:collapse;font-size:.87rem;">'
-    + '<thead><tr style="background:var(--linen);">'
-    + '<th style="padding:8px 14px;text-align:left;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);">Date</th>'
-    + '<th style="padding:8px 14px;text-align:left;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);">' + esc(lbl.nameLbl) + '</th>'
-    + '<th style="padding:8px 14px;text-align:left;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);">' + esc(lbl.col2) + '</th>'
-    + '<th style="padding:8px 14px;text-align:left;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);">Officiant</th>'
-    + '<th style="padding:8px 14px;text-align:left;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);">Notes</th>'
-    + '<th></th>'
-    + '</tr></thead>'
-    + '<tbody>' + rows + '</tbody></table></div>';
+  // Group by year
+  var byYear = {};
+  var yearOrder = [];
+  entries.forEach(function(e) {
+    var yr = (e.event_date||'').slice(0,4) || '\u2014';
+    if (!byYear[yr]) { byYear[yr] = []; yearOrder.push(yr); }
+    byYear[yr].push(e);
+  });
+  var html = '';
+  yearOrder.forEach(function(yr) {
+    var grp = byYear[yr];
+    var rows = grp.map(function(e) {
+      var dateDisp = e.event_date ? e.event_date : '\u2014';
+      var namePart = esc(e.name||'\u2014');
+      var name2Part = e.name2 ? esc(e.name2) : '<span style="color:var(--faint);">\u2014</span>';
+      var officPart = e.officiant ? esc(e.officiant) : '<span style="color:var(--faint);">\u2014</span>';
+      var notesPart = e.notes ? '<span style="font-size:.8rem;color:var(--warm-gray);">'+esc(e.notes)+'</span>' : '';
+      return '<tr>'
+        + '<td style="white-space:nowrap;color:var(--warm-gray);width:96px;">'+dateDisp+'</td>'
+        + '<td style="font-weight:600;">'+namePart+(notesPart?'<br>'+notesPart:'')+'</td>'
+        + '<td>'+name2Part+'</td>'
+        + '<td>'+officPart+'</td>'
+        + '<td style="white-space:nowrap;text-align:right;">'
+        + '<button class="reg-edit-btn" onclick="openRegisterEdit('+e.id+')" title="Edit">Edit</button>'
+        + '<button class="del-entry" onclick="deleteRegisterEntry('+e.id+')" title="Delete">&#215;</button>'
+        + '</td>'
+        + '</tr>';
+    }).join('');
+    html += '<div class="reg-year-hdr">'+yr+' <span style="font-weight:400;color:var(--faint);">('+grp.length+')</span></div>'
+      + '<table class="reg-table" style="margin-top:8px;">'
+      + '<thead><tr>'
+      + '<th>Date</th><th>'+esc(lbl.nameLbl)+'</th><th>'+esc(lbl.col2)+'</th><th>Officiant</th><th></th>'
+      + '</tr></thead>'
+      + '<tbody>'+rows+'</tbody></table>';
+  });
+  el.innerHTML = html;
 }
-function addRegisterEntry() {
-  var date = document.getElementById('reg-date').value;
-  var name = document.getElementById('reg-name').value.trim();
-  var name2 = document.getElementById('reg-name2').value.trim();
+function saveRegisterEntry() {
+  var date      = document.getElementById('reg-date').value;
+  var name      = document.getElementById('reg-name').value.trim();
+  var name2     = document.getElementById('reg-name2').value.trim();
   var officiant = document.getElementById('reg-officiant').value.trim();
-  var notes = document.getElementById('reg-notes').value.trim();
+  var notes     = document.getElementById('reg-notes').value.trim();
   if (!name) { alert('Name is required.'); return; }
-  api('/admin/api/register', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({type: _regType, event_date: date, name: name, name2: name2, officiant: officiant, notes: notes})
-  }).then(function(r) {
+  var isEdit = !!_regEditId;
+  var url    = isEdit ? '/admin/api/register/' + _regEditId : '/admin/api/register';
+  var method = isEdit ? 'PUT' : 'POST';
+  var body   = {event_date: date, name: name, name2: name2, officiant: officiant, notes: notes};
+  if (!isEdit) body.type = _regType;
+  api(url, {method: method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)}).then(function(r) {
     if (r.ok) {
-      document.getElementById('reg-date').value = '';
-      document.getElementById('reg-name').value = '';
-      document.getElementById('reg-name2').value = '';
-      document.getElementById('reg-officiant').value = '';
-      document.getElementById('reg-notes').value = '';
+      _regEditId = null;
+      clearRegForm();
+      var ft = document.getElementById('reg-form-title'); if (ft) ft.textContent = 'Add ' + _regLabels[_regType].title.slice(0,-1);
+      var sb = document.getElementById('reg-save-btn');   if (sb) sb.textContent = 'Add Entry';
+      var cb = document.getElementById('reg-cancel-btn'); if (cb) cb.style.display = 'none';
       loadRegister();
     } else alert('Error: ' + (r.error||'unknown'));
   });
 }
+function openRegisterEdit(id) {
+  var entry = _regEntries.find(function(e){ return e.id === id; });
+  if (!entry) return;
+  _regEditId = id;
+  document.getElementById('reg-date').value      = entry.event_date || '';
+  document.getElementById('reg-name').value      = entry.name || '';
+  document.getElementById('reg-name2').value     = entry.name2 || '';
+  document.getElementById('reg-officiant').value = entry.officiant || '';
+  document.getElementById('reg-notes').value     = entry.notes || '';
+  var ft = document.getElementById('reg-form-title'); if (ft) ft.textContent = 'Edit Entry';
+  var sb = document.getElementById('reg-save-btn');   if (sb) sb.textContent = 'Save Changes';
+  var cb = document.getElementById('reg-cancel-btn'); if (cb) cb.style.display = '';
+  // Ensure form is visible (mobile)
+  var fp = document.getElementById('reg-form-panel'); if (fp) fp.style.display = '';
+  document.getElementById('reg-name').focus();
+}
+function cancelRegisterEdit() {
+  _regEditId = null;
+  clearRegForm();
+  var ft = document.getElementById('reg-form-title'); if (ft) ft.textContent = 'Add ' + _regLabels[_regType].title.slice(0,-1);
+  var sb = document.getElementById('reg-save-btn');   if (sb) sb.textContent = 'Add Entry';
+  var cb = document.getElementById('reg-cancel-btn'); if (cb) cb.style.display = 'none';
+}
 function deleteRegisterEntry(id) {
-  if (!confirm('Delete this register entry?')) return;
+  if (!confirm('Delete this register entry? This cannot be undone.')) return;
   api('/admin/api/register/' + id, {method:'DELETE'}).then(function(r) {
     if (r.ok) loadRegister();
     else alert(r.error || 'Cannot delete.');
   });
+}
+function printRegister() {
+  var lbl = _regLabels[_regType];
+  var search = (document.getElementById('reg-search') ? document.getElementById('reg-search').value : '').toLowerCase().trim();
+  var year   = document.getElementById('reg-year-filter') ? document.getElementById('reg-year-filter').value : '';
+  var entries = _regEntries.filter(function(e) {
+    if (year && (e.event_date||'').slice(0,4) !== year) return false;
+    if (search) {
+      var hay = (e.name+' '+(e.name2||'')+' '+(e.officiant||'')).toLowerCase();
+      if (hay.indexOf(search) < 0) return false;
+    }
+    return true;
+  });
+  var byYear = {}; var yearOrder = [];
+  entries.forEach(function(e) {
+    var yr = (e.event_date||'').slice(0,4)||'\u2014';
+    if (!byYear[yr]) { byYear[yr] = []; yearOrder.push(yr); }
+    byYear[yr].push(e);
+  });
+  var tableRows = '';
+  yearOrder.forEach(function(yr) {
+    tableRows += '<tr class="yr-hdr"><td colspan="5">'+yr+'</td></tr>';
+    byYear[yr].forEach(function(e, i) {
+      tableRows += '<tr>'
+        +'<td>'+(i+1)+'</td>'
+        +'<td>'+(e.event_date||'\u2014')+'</td>'
+        +'<td><strong>'+(e.name||'\u2014')+'</strong></td>'
+        +'<td>'+(e.name2||'\u2014')+'</td>'
+        +'<td>'+(e.officiant||'\u2014')+(e.notes?'<br><em style="font-size:.8em;color:#666">'+e.notes+'</em>':'')+'</td>'
+        +'</tr>';
+    });
+  });
+  var churchName = '';
+  var cn = document.getElementById('settings-church-name'); if (cn) churchName = cn.value||'';
+  var printWin = window.open('', '_blank', 'width=820,height=900');
+  printWin.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+lbl.title+' Register</title>'
+    +'<style>body{font-family:Georgia,serif;font-size:12pt;margin:0;padding:32px;}h1{font-size:18pt;margin:0 0 4px;}h2{font-size:12pt;font-weight:normal;color:#666;margin:0 0 24px;}table{width:100%;border-collapse:collapse;font-size:10pt;}'
+    +'th{border-bottom:2px solid #333;padding:6px 8px;text-align:left;}td{padding:6px 8px;border-bottom:1px solid #ddd;vertical-align:top;}'
+    +'.yr-hdr td{background:#f0f0f0;font-weight:bold;font-size:10pt;letter-spacing:.05em;padding:8px 8px 4px;border-bottom:1px solid #ccc;}'
+    +'@media print{body{padding:0;}.no-print{display:none;}}</style></head><body>'
+    +'<div class="no-print" style="margin-bottom:16px;"><button onclick="window.print()">Print</button></div>'
+    +'<h1>'+(churchName ? esc(churchName)+' \u2014 ' : '')+lbl.title+' Register</h1>'
+    +'<h2>'+(year||'All Years')+' \u00b7 '+entries.length+' entries</h2>'
+    +'<table><thead><tr><th>#</th><th>Date</th><th>'+lbl.nameLbl+'</th><th>'+lbl.col2+'</th><th>Officiant</th></tr></thead>'
+    +'<tbody>'+tableRows+'</tbody></table>'
+    +'</body></html>');
+  printWin.document.close();
 }
 
 // ── HOUSEHOLDS ────────────────────────────────────────────────────────
