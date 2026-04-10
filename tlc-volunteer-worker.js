@@ -13366,7 +13366,7 @@ async function handleChmsApi(req, env, url, method, seg) {
     ).all()).results || [];
     // Merge with configured types so all types appear (even those with 0 members)
     const cfgRow = await db.prepare("SELECT value FROM chms_config WHERE key='member_types'").first();
-    const DEFAULT_MEMBER_TYPES = ['Member','Associate','Friend','Visitor','Inactive','Organization'];
+    const DEFAULT_MEMBER_TYPES = ['Member','Attender','Visitor','Vietnamese Congregation','Other'];
     const configuredTypes = cfgRow ? JSON.parse(cfgRow.value) : DEFAULT_MEMBER_TYPES;
     const countMap = {};
     for (const r of dbCounts) countMap[(r.member_type||'').toLowerCase()] = { raw: r.member_type, n: r.n };
@@ -14717,6 +14717,9 @@ async function handleChmsApi(req, env, url, method, seg) {
       if (parts.length === 3) return parts[2] + '-' + parts[0].padStart(2,'0') + '-' + parts[1].padStart(2,'0');
       return '';
     };
+    // Load configured member types for direct matching
+    const mtCfgRow = await db.prepare("SELECT value FROM chms_config WHERE key='member_types'").first();
+    const configuredMemberTypes = mtCfgRow ? JSON.parse(mtCfgRow.value) : ['Member','Attender','Visitor','Vietnamese Congregation','Other'];
     // Skip non-person status types
     const SKIP_STATUSES = new Set(['organization','christmas market','egg hunt','renter','mdo']);
     let imported = 0, updated = 0, skipped = 0;
@@ -14732,12 +14735,9 @@ async function handleChmsApi(req, env, url, method, seg) {
         const statusName = (statusObj && statusObj.name) ? statusObj.name
                          : (typeof statusRaw === 'string' ? statusRaw : '');
         if (SKIP_STATUSES.has(statusName.toLowerCase())) { skipped++; continue; }
-        let memberType = 'visitor';
-        const sn = statusName.toLowerCase();
-        if (sn === 'member' || sn === 'active member' || sn === 'full member') memberType = 'member';
-        else if (sn === 'attender' || sn === 'regular attender' || sn === 'regular attendee' || sn === 'attendee') memberType = 'associate';
-        else if (sn.includes('no longer') || sn === 'inactive' || sn === 'inactive member' || sn === 'former member') memberType = 'inactive';
-        else if (sn === 'community contact' || sn === 'vietnamese congregation' || sn === 'friend') memberType = 'friend';
+        // Match Breeze status directly to a configured member type (case-insensitive), fall back to 'Other'
+        const matched = statusName ? configuredMemberTypes.find(t => t.toLowerCase() === statusName.toLowerCase()) : null;
+        const memberType = matched || (configuredMemberTypes.includes('Other') ? 'Other' : configuredMemberTypes[0] || 'Other');
         // Dates (stored as plain strings under their field ID key)
         const dob          = toISO(details[F_DOB]          || details['birthdate'] || '');
         const baptismDate  = toISO(details[F_BAPTISM]       || '');
@@ -17752,7 +17752,7 @@ function deleteTag(id) {
 }
 
 // ── MEMBER TYPES ──────────────────────────────────────────────────────
-var _memberTypes = ['Member','Associate','Friend','Visitor','Inactive','Organization'];
+var _memberTypes = ['Member','Attender','Visitor','Vietnamese Congregation','Other'];
 function loadMemberTypes() {
   api('/admin/api/config/member-types').then(function(d) {
     _memberTypes = d.types || _memberTypes;
