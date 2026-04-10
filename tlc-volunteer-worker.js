@@ -18854,11 +18854,11 @@ function parseRegImportFile(text, filename) {
     mother:         col(['mother']),
     sponsors:       col(['sponsors   remarks','sponsors / remarks','sponsors/remarks','sponsors remarks','sponsors witnesses','sponsors / witnesses','sponsors','godparents','witnesses','remarks']),
     officiant:      col(['officiant','pastor','minister','priest','celebrant']),
-    notes:          col(['notes','note','comments']),
+    notes:          col(['notes','note','comments','remarks notes','remarks / notes','remarks/notes','remarks']),
     pdf_page:       col(['pdf page','page','pdf'])
   };
   var missing = [];
-  if (colMap.first_names < 0 && colMap.surname < 0 && headers.indexOf('name') < 0) missing.push('Name column (First Names + Surname, or Name)');
+  if (colMap.first_names < 0 && colMap.surname < 0 && headers.indexOf('name') < 0 && headers.indexOf('full name') < 0) missing.push('Name column (First Names + Surname, or Name)');
   if (colMap.first_names < 0 && colMap.surname >= 0) missing.push('First Names column (found Surname but no First Names/Given Name — names will be surnames only)');
   if (colMap.event_date < 0) missing.push('Date column (Baptism Date or Date)');
   var regType = document.getElementById('reg-import-type') ? document.getElementById('reg-import-type').value : 'baptism';
@@ -18870,6 +18870,7 @@ function parseRegImportFile(text, filename) {
     var g = function(idx) { return (idx >= 0 && idx < cols.length) ? cols[idx] : ''; };
     var firstName = g(colMap.first_names), surname = g(colMap.surname);
     var nameCol = headers.indexOf('name');
+    if (nameCol < 0) nameCol = headers.indexOf('full name');
     var fullName = (firstName || surname)
       ? (firstName + (firstName && surname ? ' ' : '') + surname).trim()
       : g(nameCol);
