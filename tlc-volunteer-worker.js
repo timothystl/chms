@@ -13045,6 +13045,61 @@ async function handleAdminApi(req, env, url, method) {
 async function handleChmsApi(req, env, url, method, seg) {
   const db = env.DB;
 
+  // ── Dashboard ────────────────────────────────────────────────────
+  if (seg === 'dashboard' && method === 'GET') {
+    // Membership counts by type
+    const typeCounts = (await db.prepare(
+      `SELECT member_type, COUNT(*) as n FROM people WHERE active=1 GROUP BY member_type ORDER BY n DESC`
+    ).all()).results || [];
+    const totalPeople = typeCounts.reduce(function(s,r){return s+r.n;},0);
+    const totalHouseholds = (await db.prepare(`SELECT COUNT(*) as n FROM households`).first())?.n || 0;
+    // Added this month / this year
+    const addedThisMonth = (await db.prepare(
+      `SELECT COUNT(*) as n FROM people WHERE active=1 AND created_at >= date('now','start of month')`
+    ).first())?.n || 0;
+    const addedThisYear = (await db.prepare(
+      `SELECT COUNT(*) as n FROM people WHERE active=1 AND created_at >= date('now','start of year')`
+    ).first())?.n || 0;
+    // Giving this year vs last year
+    const givingThisYear = (await db.prepare(
+      `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
+       JOIN giving_batches gb ON ge.batch_id=gb.id
+       WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=strftime('%Y','now')`
+    ).first())?.total || 0;
+    const givingLastYear = (await db.prepare(
+      `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
+       JOIN giving_batches gb ON ge.batch_id=gb.id
+       WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=cast(strftime('%Y','now')-1 as text)`
+    ).first())?.total || 0;
+    // Upcoming birthdays — next 60 days
+    const birthdays = (await db.prepare(
+      `SELECT id, first_name, last_name, dob FROM people
+       WHERE active=1 AND dob != ''
+         AND cast(strftime('%j', date(substr(dob,1,4)||'-'||substr(dob,6,2)||'-'||substr(dob,9,2))) as integer)
+           BETWEEN cast(strftime('%j','now') as integer)
+             AND cast(strftime('%j','now') as integer)+60
+       ORDER BY cast(strftime('%m%d', dob) as integer)
+       LIMIT 15`
+    ).all()).results || [];
+    // Recent additions
+    const recentPeople = (await db.prepare(
+      `SELECT p.id, p.first_name, p.last_name, p.member_type, p.created_at, h.name as household_name
+       FROM people p LEFT JOIN households h ON p.household_id=h.id
+       WHERE p.active=1 ORDER BY p.created_at DESC LIMIT 10`
+    ).all()).results || [];
+    // Most recent attendance
+    const recentAttendance = (await db.prepare(
+      `SELECT service_date, service_name, attendance_count
+       FROM worship_services WHERE attendance_count > 0
+       ORDER BY service_date DESC LIMIT 5`
+    ).all()).results || [];
+    return json({
+      totalPeople, totalHouseholds, addedThisMonth, addedThisYear,
+      typeCounts, givingThisYear, givingLastYear,
+      birthdays, recentPeople, recentAttendance
+    });
+  }
+
   // ── People ──────────────────────────────────────────────────────
   if (seg === 'people' && method === 'GET') {
     const q = url.searchParams.get('q') || '';
@@ -16941,6 +16996,37 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .dir-tag-more{font-size:10px;color:var(--warm-gray);}
 #p-grid{flex:1;min-height:0;overflow-y:auto;display:block;}
 #p-pager{position:sticky;bottom:0;background:var(--white);border-top:1px solid var(--border);padding:9px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+/* ── DASHBOARD ── */
+.dash-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px;}
+@media(max-width:900px){.dash-stats{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:480px){.dash-stats{grid-template-columns:1fr 1fr;}}
+.dash-stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:4px;}
+.dash-stat-val{font-size:30px;font-weight:800;color:var(--charcoal);line-height:1;}
+.dash-stat-lbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);}
+.dash-stat-sub{font-size:11px;color:var(--teal);}
+.dash-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;}
+@media(max-width:700px){.dash-row{grid-template-columns:1fr;}}
+.dash-card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.dash-card-hdr{padding:14px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:var(--charcoal);display:flex;align-items:center;gap:8px;}
+.dash-card-body{padding:0;}
+.dash-row-item{display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--linen);cursor:pointer;transition:background .1s;}
+.dash-row-item:last-child{border-bottom:none;}
+.dash-row-item:hover{background:var(--linen);}
+.dash-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white;flex-shrink:0;}
+.dash-item-name{font-size:13px;font-weight:600;color:var(--charcoal);}
+.dash-item-sub{font-size:11px;color:var(--warm-gray);}
+.dash-type-bar{display:flex;flex-direction:column;gap:8px;padding:16px 18px;}
+.dash-bar-row{display:flex;align-items:center;gap:10px;font-size:12px;}
+.dash-bar-lbl{width:130px;flex-shrink:0;color:var(--charcoal);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.dash-bar-track{flex:1;height:8px;background:var(--linen);border-radius:99px;overflow:hidden;}
+.dash-bar-fill{height:100%;border-radius:99px;background:var(--teal);}
+.dash-bar-n{width:32px;text-align:right;color:var(--warm-gray);flex-shrink:0;}
+.dash-bday{display:flex;align-items:center;gap:10px;padding:8px 18px;border-bottom:1px solid var(--linen);}
+.dash-bday:last-child{border-bottom:none;}
+.dash-quick{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px;}
+.dash-quick-btn{display:flex;align-items:center;gap:8px;padding:12px 18px;background:var(--white);border:1px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:var(--charcoal);transition:border-color .15s,box-shadow .15s;}
+.dash-quick-btn:hover{border-color:var(--teal);box-shadow:0 0 0 3px rgba(76,154,143,.1);}
+.dash-quick-btn svg{width:18px;height:18px;flex-shrink:0;stroke:var(--teal);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
 /* ── PROFILE VIEW ── */
 .content-area.pv-mode > .topbar{display:none;}
 .content-area.pv-mode > .tab-panel{display:none!important;}
@@ -17015,7 +17101,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 <div class="app-shell">
 <nav class="sidebar" id="sidebar">
   <div class="s-logo"><svg viewBox="0 0 20 20"><path d="M10 1L2 7v12h6v-5h4v5h6V7L10 1z"/></svg></div>
-  <div class="s-item active" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
+  <div class="s-item active" data-tab="home" onclick="showTab('home')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Home</span></div>
+  <div class="s-divider"></div>
+  <div class="s-item" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
   <div class="s-item" data-tab="households" onclick="showTab('households')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Households</span></div>
   <div class="s-divider"></div>
   <div class="s-item" data-tab="giving" onclick="showTab('giving')"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg><span class="s-tip">Giving</span></div>
@@ -17039,23 +17127,26 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   </div>
 </div>
 
+<!-- ═══ HOME / DASHBOARD TAB ═══ -->
+<div id="tab-home" class="tab-panel active">
+  <div id="dash-body" style="padding:24px;max-width:1100px;"></div>
+</div>
+
 <!-- ═══ PEOPLE TAB ═══ -->
-<div id="tab-people" class="tab-panel active">
+<div id="tab-people" class="tab-panel">
   <div class="toolbar">
     <div class="search-wrap"><input type="search" id="p-search" placeholder="Search name, email, phone…" oninput="debouncePeople()"></div>
-    <div class="filter-pills" id="p-type-pills">
-      <button class="pill active" data-mt="" onclick="setPeopleFilter(this,'')">All</button>
-      <button class="pill" data-mt="member" onclick="setPeopleFilter(this,'member')">Members</button>
-      <button class="pill" data-mt="associate" onclick="setPeopleFilter(this,'associate')">Associates</button>
-      <button class="pill" data-mt="friend" onclick="setPeopleFilter(this,'friend')">Friends</button>
-      <button class="pill" data-mt="visitor" onclick="setPeopleFilter(this,'visitor')">Visitors</button>
-      <button class="pill" data-mt="inactive" onclick="setPeopleFilter(this,'inactive')">Inactive</button>
-    </div>
-    <div class="filter-pills" id="p-tag-pills" style="gap:4px;"></div>
+    <button class="btn-secondary" id="p-filter-btn" onclick="toggleFilterDrawer()" style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
+      <svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;flex-shrink:0;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+      Filters
+      <span id="p-filter-count" style="display:none;background:var(--teal);color:#fff;border-radius:99px;padding:1px 7px;font-size:.72rem;font-weight:700;"></span>
+    </button>
     <button class="btn-secondary" id="p-select-btn" onclick="toggleSelectMode()" style="margin-left:auto;">&#9745; Select</button>
     <button class="btn-secondary" onclick="printDirectory()" title="Print directory">&#128438; Directory</button>
     <button class="btn-primary" onclick="openPersonEdit(null)">+ Add Person</button>
   </div>
+  <!-- Active filter chips -->
+  <div id="p-active-filters" style="display:none;padding:0 16px 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;"></div>
   <!-- Bulk action bar (visible when Select mode is active) -->
   <div id="p-bulk-bar" style="display:none;position:sticky;bottom:0;z-index:500;background:var(--steel-anchor);color:#fff;padding:10px 16px;display:none;align-items:center;gap:10px;flex-wrap:wrap;">
     <span id="p-bulk-count" style="font-size:.9rem;font-weight:700;">0 selected</span>
@@ -17403,7 +17494,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <button class="pv-tab" data-rtab="confirmation" onclick="showRegisterTab('confirmation')" style="font-size:13px;padding:12px 18px;">Confirmations</button>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
         <button class="btn-secondary" style="display:none;font-size:.8rem;" id="reg-add-toggle" onclick="toggleRegForm()">+ Add</button>
-        <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegImport()">&#8679; Import</button>
+        <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegFromPeoplePrompt()" title="Generate register entries from people records">&#128100; From People</button>
+        <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegImport()">&#8679; Import File</button>
         <button class="btn-secondary" style="font-size:.8rem;" onclick="printRegister()">Print</button>
       </div>
     </div>
@@ -17485,6 +17577,31 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   </div>
 </div>
 </div><!-- /content-area -->
+
+<!-- ═══ PEOPLE FILTER DRAWER ═══ -->
+<div id="people-filter-overlay" onclick="closeFilterDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:1100;"></div>
+<div id="people-filter-drawer" style="display:none;position:fixed;right:0;top:0;bottom:0;width:300px;max-width:90vw;background:var(--white);box-shadow:-4px 0 24px rgba(0,0,0,.18);z-index:1101;flex-direction:column;overflow:hidden;">
+  <div style="display:flex;align-items:center;padding:16px 18px;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <span style="font-size:16px;font-weight:700;flex:1;">Filters</span>
+    <button onclick="clearAllFilters()" style="font-size:.78rem;color:var(--teal);background:none;border:none;cursor:pointer;font-weight:600;padding:4px 8px;">Clear All</button>
+    <button onclick="closeFilterDrawer()" style="background:none;border:none;cursor:pointer;font-size:22px;color:var(--warm-gray);line-height:1;margin-left:4px;">&#215;</button>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding:16px 18px;">
+    <div style="margin-bottom:20px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Member Type</div>
+      <div id="fd-member-types"></div>
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Tags</div>
+      <div id="fd-tags"></div>
+    </div>
+  </div>
+  <div style="padding:14px 18px;border-top:1px solid var(--border);flex-shrink:0;">
+    <div id="fd-result-count" style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;text-align:center;"></div>
+    <button class="btn-primary" style="width:100%;padding:10px;" onclick="closeFilterDrawer()">Done</button>
+  </div>
+</div>
+
 </div><!-- /app-shell -->
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
 
@@ -17498,26 +17615,18 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     </div>
     <!-- Step 1: file pick -->
     <div id="reg-import-step1">
-      <p style="font-size:.875rem;color:var(--warm-gray);margin:0 0 16px;">
+      <p style="font-size:.875rem;color:var(--warm-gray);margin:0 0 12px;">
         Upload a <strong>tab-separated (.tsv)</strong> or <strong>comma-separated (.csv)</strong> file exported from your spreadsheet.
         The importer auto-detects these column headers:
       </p>
-      <div style="background:var(--linen);border-radius:8px;padding:10px 14px;font-size:.78rem;color:var(--charcoal);margin-bottom:16px;line-height:1.8;">
-        <strong>Entry No.</strong> &nbsp;&#183;&nbsp; <strong>Record Type</strong> &nbsp;&#183;&nbsp;
-        <strong>First Names</strong> &nbsp;&#183;&nbsp; <strong>Surname</strong> &nbsp;&#183;&nbsp;
-        <strong>Date of Birth</strong> &nbsp;&#183;&nbsp; <strong>Place of Birth</strong> &nbsp;&#183;&nbsp;
-        <strong>Baptism Date</strong> &nbsp;&#183;&nbsp; <strong>Baptism Place</strong> &nbsp;&#183;&nbsp;
-        <strong>Father</strong> &nbsp;&#183;&nbsp; <strong>Mother</strong> &nbsp;&#183;&nbsp;
-        <strong>Sponsors / Remarks</strong> &nbsp;&#183;&nbsp; <strong>Officiant</strong> &nbsp;&#183;&nbsp;
-        <strong>Notes</strong> &nbsp;&#183;&nbsp; <strong>PDF Page</strong>
-      </div>
-      <div style="margin-bottom:14px;">
+      <div style="margin-bottom:10px;">
         <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:6px;">Register Type</label>
-        <select id="reg-import-type" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;">
+        <select id="reg-import-type" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;" onchange="updateRegImportHeaders()">
           <option value="baptism">Baptisms</option>
           <option value="confirmation">Confirmations</option>
         </select>
       </div>
+      <div id="reg-import-headers" style="background:var(--linen);border-radius:8px;padding:10px 14px;font-size:.78rem;color:var(--charcoal);margin-bottom:16px;line-height:1.8;"></div>
       <label style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;background:var(--teal);color:white;border-radius:8px;cursor:pointer;font-size:.875rem;font-weight:600;">
         &#8679; Choose File
         <input type="file" id="reg-import-file" accept=".csv,.tsv,.txt" style="display:none;" onchange="regImportFileChosen(this)">
@@ -17752,7 +17861,7 @@ function initials(first, last) {
 
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
 function showTab(name) {
-  var labels = {people:'People',households:'Households',giving:'Giving',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings'};
+  var labels = {home:'Home',people:'People',households:'Households',giving:'Giving',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings'};
   // Exit person-profile view if active
   var ca = document.querySelector('.content-area');
   if (ca) ca.classList.remove('pv-mode');
@@ -17765,6 +17874,7 @@ function showTab(name) {
   var t = document.getElementById('topbar-title');
   if (t) t.textContent = labels[name] || name;
   closeSidebar();
+  if (name === 'home') loadDashboard();
   if (name === 'people') loadPeople();
   if (name === 'households') loadHouseholds();
   if (name === 'giving') loadBatches();
@@ -17818,7 +17928,7 @@ window.addEventListener('load', function() {
   loadTags();
   loadFunds();
   loadMemberTypes();
-  loadPeople();
+  showTab('home');
 });
 
 // ── TAGS ──────────────────────────────────────────────────────────────
@@ -17829,20 +17939,112 @@ function loadTags() {
   });
 }
 function renderTagPills() {
-  var c = document.getElementById('p-tag-pills');
-  c.innerHTML = '<button class="pill pill-tag active" data-tid="" onclick="setPeopleTag(this,&#39;&#39;)" >All Tags</button>'
-    + allTags.map(function(t) {
-      return '<button class="pill pill-tag" data-tid="' + t.id + '" onclick="setPeopleTag(this,&#39;' + t.id + '&#39;)">'
-        + '<span class="tag-dot" style="background:' + esc(t.color) + '"></span>' + esc(t.name) + '</button>';
-    }).join('');
-  // Add manage link
-  c.innerHTML += '<button class="btn-sm" style="font-size:.75rem;padding:4px 10px;" onclick="openTagsManager()">&#9881; Tags</button>';
+  // No-op — pills replaced by filter drawer; drawer is rendered on open
 }
 function setPeopleTag(btn, tid) {
-  document.querySelectorAll('#p-tag-pills .pill').forEach(function(b) { b.classList.remove('active'); });
-  btn.classList.add('active');
+  // Legacy
   peopleFilter.tagId = tid;
   loadPeople(true);
+  renderActiveFilterChips();
+  updateFilterBadge();
+}
+
+// ── FILTER DRAWER ────────────────────────────────────────────────────
+var _filterDrawerOpen = false;
+function toggleFilterDrawer() {
+  if (_filterDrawerOpen) closeFilterDrawer(); else openFilterDrawer();
+}
+function openFilterDrawer() {
+  _filterDrawerOpen = true;
+  renderFilterDrawer();
+  document.getElementById('people-filter-drawer').style.display = 'flex';
+  document.getElementById('people-filter-overlay').style.display = 'block';
+}
+function closeFilterDrawer() {
+  _filterDrawerOpen = false;
+  document.getElementById('people-filter-drawer').style.display = 'none';
+  document.getElementById('people-filter-overlay').style.display = 'none';
+}
+function renderFilterDrawer() {
+  // Member types
+  var mtEl = document.getElementById('fd-member-types');
+  if (mtEl) {
+    mtEl.innerHTML = fdRadio('fd-mt', '', 'All', !peopleFilter.mt, 'setFdMt(\'\')')
+      + _memberTypes.map(function(t) {
+        var v = t.toLowerCase().replace(/\s+/g, '-');
+        return fdRadio('fd-mt', v, t, peopleFilter.mt === v, 'setFdMt(\'' + v + '\')');
+      }).join('');
+  }
+  // Tags
+  var tEl = document.getElementById('fd-tags');
+  if (tEl) {
+    tEl.innerHTML = fdRadio('fd-tag', '', 'All Tags', !peopleFilter.tagId, 'setFdTag(\'\')')
+      + allTags.map(function(t) {
+        return '<label style="display:flex;align-items:center;gap:9px;padding:6px 4px;cursor:pointer;font-size:.9rem;border-radius:6px;">'
+          + '<input type="radio" name="fd-tag" value="' + t.id + '" ' + (String(peopleFilter.tagId) === String(t.id) ? 'checked' : '') + ' onchange="setFdTag(\'' + t.id + '\')" style="flex-shrink:0;">'
+          + '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + esc(t.color) + ';flex-shrink:0;"></span>'
+          + esc(t.name) + '</label>';
+      }).join('');
+  }
+}
+function fdRadio(name, val, label, checked, onchange) {
+  return '<label style="display:flex;align-items:center;gap:9px;padding:6px 4px;cursor:pointer;font-size:.9rem;border-radius:6px;">'
+    + '<input type="radio" name="' + name + '" value="' + val + '" ' + (checked ? 'checked' : '') + ' onchange="' + onchange + '" style="flex-shrink:0;">'
+    + esc(label) + '</label>';
+}
+function setFdMt(v) {
+  peopleFilter.mt = v;
+  loadPeople(true);
+  renderActiveFilterChips();
+  updateFilterBadge();
+  updateFdCount();
+}
+function setFdTag(v) {
+  peopleFilter.tagId = v;
+  loadPeople(true);
+  renderActiveFilterChips();
+  updateFilterBadge();
+  updateFdCount();
+}
+function clearAllFilters() {
+  peopleFilter.mt = '';
+  peopleFilter.tagId = '';
+  loadPeople(true);
+  renderFilterDrawer();
+  renderActiveFilterChips();
+  updateFilterBadge();
+}
+function updateFilterBadge() {
+  var count = (peopleFilter.mt ? 1 : 0) + (peopleFilter.tagId ? 1 : 0);
+  var badge = document.getElementById('p-filter-count');
+  if (badge) { badge.textContent = count; badge.style.display = count > 0 ? 'inline-flex' : 'none'; }
+}
+function updateFdCount() {
+  var el = document.getElementById('fd-result-count');
+  if (el) el.textContent = _peopleTotal ? _peopleTotal + ' people match' : '';
+}
+function renderActiveFilterChips() {
+  var c = document.getElementById('p-active-filters');
+  if (!c) return;
+  var chips = [];
+  if (peopleFilter.mt) {
+    var label = _memberTypes.find(function(t){ return t.toLowerCase().replace(/\s+/g,'-') === peopleFilter.mt; }) || peopleFilter.mt;
+    chips.push(filterChip(label, 'var(--steel-anchor)', "setFdMt('')"));
+  }
+  if (peopleFilter.tagId) {
+    var tag = allTags.find(function(t){ return String(t.id) === String(peopleFilter.tagId); });
+    if (tag) chips.push(filterChip(tag.name, tag.color, "setFdTag('')"));
+  }
+  c.innerHTML = chips.length
+    ? chips.join('') + (chips.length > 1 ? '<button onclick="clearAllFilters()" style="font-size:.75rem;color:var(--teal);background:none;border:none;cursor:pointer;padding:2px 6px;font-weight:600;">Clear all</button>' : '')
+    : '';
+  c.style.display = chips.length ? 'flex' : 'none';
+}
+function filterChip(label, color, onclick) {
+  return '<span style="display:inline-flex;align-items:center;gap:5px;background:' + color + ';color:#fff;border-radius:99px;padding:3px 11px;font-size:.78rem;font-weight:600;">'
+    + esc(label)
+    + '<span onclick="' + onclick + '" style="cursor:pointer;opacity:.75;font-size:13px;margin-left:2px;line-height:1;">&#215;</span>'
+    + '</span>';
 }
 function openTagsManager() {
   openModal('tags-modal');
@@ -17974,12 +18176,42 @@ function renderSettingsTagsList() {
   if (!c) return;
   if (!allTags.length) { c.innerHTML = '<p style="color:var(--warm-gray);font-size:.85rem;">No tags yet.</p>'; return; }
   c.innerHTML = allTags.map(function(t) {
-    return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--linen);">'
-      + '<span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:' + esc(t.color) + ';flex-shrink:0;"></span>'
-      + '<span style="flex:1;font-size:.9rem;">' + esc(t.name) + ' <span style="color:var(--warm-gray);font-size:.78rem;">(' + (t.person_count||0) + ')</span></span>'
-      + '<button onclick="deleteTagSettings(' + t.id + ')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:.85rem;">&#10005;</button>'
+    return '<div id="tag-row-' + t.id + '" style="border-bottom:1px solid var(--linen);">'
+      + '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;">'
+      + '<span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:' + esc(t.color) + ';flex-shrink:0;cursor:pointer;" onclick="toggleTagEdit(' + t.id + ')"></span>'
+      + '<span style="flex:1;font-size:.9rem;">' + esc(t.name) + ' <span style="color:var(--warm-gray);font-size:.78rem;">(' + (t.person_count||0) + ' people)</span></span>'
+      + '<button onclick="toggleTagEdit(' + t.id + ')" style="background:none;border:none;color:var(--sky-steel);cursor:pointer;font-size:.82rem;padding:2px 6px;">&#9998; Edit</button>'
+      + '<button onclick="deleteTagSettings(' + t.id + ')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:.85rem;padding:2px 6px;">&#10005;</button>'
+      + '</div>'
+      + '<div id="tag-edit-' + t.id + '" style="display:none;padding:8px 0 12px;display:none;">'
+      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+      + '<input type="color" id="tag-color-' + t.id + '" value="' + esc(t.color) + '" style="width:36px;height:32px;border:1px solid var(--border);border-radius:6px;padding:2px;cursor:pointer;">'
+      + '<input type="text" id="tag-name-' + t.id + '" value="' + esc(t.name) + '" style="flex:1;min-width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:.88rem;">'
+      + '<button class="btn-primary" style="font-size:.82rem;padding:6px 12px;" onclick="saveTagEdit(' + t.id + ')">Save</button>'
+      + '<button class="btn-secondary" style="font-size:.82rem;padding:6px 12px;" onclick="toggleTagEdit(' + t.id + ')">Cancel</button>'
+      + '</div>'
+      + '</div>'
       + '</div>';
   }).join('');
+}
+function toggleTagEdit(id) {
+  var el = document.getElementById('tag-edit-' + id);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+function saveTagEdit(id) {
+  var name = (document.getElementById('tag-name-' + id) || {}).value || '';
+  var color = (document.getElementById('tag-color-' + id) || {}).value || '#5C8FA8';
+  name = name.trim();
+  if (!name) { alert('Tag name is required.'); return; }
+  api('/admin/api/tags/' + id, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name: name, color: color })
+  }).then(function(r) {
+    if (r.ok) { loadSettings(); loadTags(); }
+    else alert('Error: ' + (r.error||'unknown'));
+  });
 }
 function createTagSettings() {
   var name = (document.getElementById('st-new-tag-name') || {}).value || '';
@@ -18101,6 +18333,123 @@ function printDirectory() {
   function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 }
 
+// ── DASHBOARD ─────────────────────────────────────────────────────────
+function loadDashboard() {
+  var body = document.getElementById('dash-body');
+  if (!body) return;
+  body.innerHTML = '<div style="color:var(--warm-gray);font-size:13px;padding:20px 0;">Loading\u2026</div>';
+  api('/admin/api/dashboard').then(function(d) {
+    var pvColors = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E87040'];
+    var maxType = d.typeCounts && d.typeCounts.length ? d.typeCounts[0].n : 1;
+    var yr = new Date().getFullYear();
+    var html = '';
+
+    // Quick actions
+    html += '<div class="dash-quick">'
+      + dashQBtn('<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>', 'Add Person', "openPersonEdit(null);showTab('people')")
+      + dashQBtn('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/>', 'Record Giving', "showTab('giving')")
+      + dashQBtn('<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/>', 'Attendance', "showTab('attendance')")
+      + dashQBtn('<path d="M18 20V10M12 20V4M6 20v-6"/>', 'Reports', "showTab('reports')")
+      + '</div>';
+
+    // Stat cards
+    html += '<div class="dash-stats">'
+      + dashStat(d.totalPeople, 'Total People', d.addedThisYear + ' added this year')
+      + dashStat(d.totalHouseholds, 'Households', d.addedThisMonth + ' new this month')
+      + dashStat('$'+fmt$(d.givingThisYear), yr+' Giving', yr-1+': $'+fmt$(d.givingLastYear))
+      + dashStat(d.recentAttendance && d.recentAttendance.length ? d.recentAttendance[0].attendance_count : '—', 'Last Service', d.recentAttendance && d.recentAttendance.length ? d.recentAttendance[0].service_name+' '+d.recentAttendance[0].service_date : '')
+      + '</div>';
+
+    // Middle row: membership breakdown + upcoming birthdays
+    html += '<div class="dash-row">';
+
+    // Membership breakdown
+    html += '<div class="dash-card"><div class="dash-card-hdr">'
+      + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>'
+      + 'Membership by Type</div>'
+      + '<div class="dash-type-bar">'
+      + (d.typeCounts||[]).map(function(r) {
+          var pct = Math.round((r.n / Math.max(maxType,1)) * 100);
+          var lbl = r.member_type ? (r.member_type.charAt(0).toUpperCase()+r.member_type.slice(1)) : 'Unknown';
+          return '<div class="dash-bar-row">'
+            + '<div class="dash-bar-lbl" onclick="setFdMt(\''+r.member_type+'\');showTab(\'people\')" style="cursor:pointer;color:var(--sky-steel);" title="View '+lbl+' people">'+esc(lbl)+'</div>'
+            + '<div class="dash-bar-track"><div class="dash-bar-fill" style="width:'+pct+'%;"></div></div>'
+            + '<div class="dash-bar-n">'+r.n+'</div>'
+            + '</div>';
+        }).join('')
+      + '</div></div>';
+
+    // Upcoming birthdays
+    html += '<div class="dash-card"><div class="dash-card-hdr">'
+      + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>'
+      + 'Upcoming Birthdays <span style="font-weight:400;color:var(--warm-gray);font-size:11px;margin-left:4px;">next 60 days</span></div>'
+      + '<div class="dash-card-body">'
+      + (d.birthdays && d.birthdays.length
+          ? d.birthdays.map(function(p) {
+              var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+              var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
+              var bg = pvColors[p.id % pvColors.length];
+              var dob = p.dob || '';
+              var parts = dob.split('-');
+              var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+              var dateStr = parts.length >= 3 ? months[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : dob;
+              return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
+                + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+                + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
+                + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
+                + '</div>';
+            }).join('')
+          : '<div style="padding:20px 18px;color:var(--faint);font-size:13px;font-style:italic;">No birthdays in the next 60 days.</div>')
+      + '</div></div>';
+
+    html += '</div>'; // /dash-row
+
+    // Recent additions
+    html += '<div class="dash-card" style="margin-bottom:0;"><div class="dash-card-hdr">'
+      + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>'
+      + 'Recently Added</div>'
+      + '<div class="dash-card-body">'
+      + (d.recentPeople && d.recentPeople.length
+          ? d.recentPeople.map(function(p) {
+              var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+              var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
+              var bg = pvColors[p.id % pvColors.length];
+              var mt = p.member_type ? (p.member_type.charAt(0).toUpperCase()+p.member_type.slice(1)) : '';
+              var sub = [mt, p.household_name].filter(Boolean).join(' \u00b7 ');
+              var added = p.created_at ? p.created_at.slice(0,10) : '';
+              return '<div class="dash-row-item" onclick="openPersonDetail('+p.id+')">'
+                + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+                + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div>'
+                + (sub ? '<div class="dash-item-sub">'+esc(sub)+'</div>' : '')+'</div>'
+                + '<div style="font-size:11px;color:var(--warm-gray);">'+esc(added)+'</div>'
+                + '</div>';
+            }).join('')
+          : '<div style="padding:20px 18px;color:var(--faint);font-size:13px;font-style:italic;">No people yet.</div>')
+      + '</div></div>';
+
+    body.innerHTML = html;
+  }).catch(function(e) {
+    var body2 = document.getElementById('dash-body');
+    if (body2) body2.innerHTML = '<div style="color:var(--danger);padding:20px;">Could not load dashboard: '+esc(e.message||'error')+'</div>';
+  });
+}
+function dashStat(val, lbl, sub) {
+  return '<div class="dash-stat">'
+    + '<div class="dash-stat-val">'+esc(String(val))+'</div>'
+    + '<div class="dash-stat-lbl">'+esc(lbl)+'</div>'
+    + (sub ? '<div class="dash-stat-sub">'+esc(sub)+'</div>' : '')
+    + '</div>';
+}
+function dashQBtn(svgPath, label, onclick) {
+  return '<button class="dash-quick-btn" onclick="'+onclick+'">'
+    + '<svg viewBox="0 0 24 24">'+svgPath+'</svg>'
+    + esc(label)+'</button>';
+}
+function fmt$(cents) {
+  if (!cents) return '0';
+  return (cents/100).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+}
+
 // ── FUNDS ──────────────────────────────────────────────────────────────
 function loadFunds() {
   api('/admin/api/funds').then(function(d) { allFunds = d.funds || []; });
@@ -18108,10 +18457,11 @@ function loadFunds() {
 
 // ── PEOPLE ────────────────────────────────────────────────────────────
 function setPeopleFilter(btn, mt) {
-  document.querySelectorAll('#p-type-pills .pill').forEach(function(b) { b.classList.remove('active'); });
-  btn.classList.add('active');
+  // Legacy – still works if called from old code
   peopleFilter.mt = mt;
   loadPeople(true);
+  renderActiveFilterChips();
+  updateFilterBadge();
 }
 function debouncePeople() {
   clearTimeout(_pDebounce);
@@ -18137,6 +18487,7 @@ function loadPeople(resetPage) {
     renderPeopleDesktop(people);
     renderPeopleMobile(people);
     renderPeoplePager();
+    updateFdCount();
   }).catch(function() { setStatus('p-status','Error loading people.','err'); });
 }
 function renderPeoplePager() {
@@ -18975,9 +19326,27 @@ function printRegister() {
 
 // ── REGISTER IMPORT ──────────────────────────────────────────────────
 var _regImportRows = [];   // parsed rows ready to import
+var _regImportHeaders = {
+  baptism: [
+    'Entry No.', 'Record Type', 'First Names', 'Surname',
+    'Date of Birth', 'Place of Birth', 'Baptism Date', 'Baptism Place',
+    'Father', 'Mother', 'Sponsors / Remarks', 'Officiant', 'Notes', 'PDF Page'
+  ],
+  confirmation: [
+    'Entry No.', 'Full Name', 'Confirmation Date', 'Type', 'Remarks / Notes'
+  ]
+};
+function updateRegImportHeaders() {
+  var sel = document.getElementById('reg-import-type');
+  var box = document.getElementById('reg-import-headers');
+  if (!sel || !box) return;
+  var cols = _regImportHeaders[sel.value] || _regImportHeaders.baptism;
+  box.innerHTML = cols.map(function(c) { return '<strong>'+esc(c)+'</strong>'; }).join(' &nbsp;&#183;&nbsp; ');
+}
 function openRegImport() {
   var sel = document.getElementById('reg-import-type');
   if (sel) sel.value = _regType;
+  updateRegImportHeaders();
   showRegImportStep(1);
   document.getElementById('reg-import-modal').style.display = 'flex';
 }
@@ -19937,6 +20306,28 @@ function doSendBatch(yr, checks, status) {
   sendNext();
 }
 // ── GENERATE REGISTER FROM PEOPLE ─────────────────────────────────────
+// Called from the Register tab toolbar — uses the current register type
+function openRegFromPeoplePrompt() {
+  var type = _regType; // 'baptism' or 'confirmation'
+  var label = type === 'baptism' ? 'Baptisms' : 'Confirmations';
+  var cutoff = prompt(
+    'Generate ' + label + ' register entries from people records.\n\n'
+    + 'Enter earliest date to include (YYYY-MM-DD):\n'
+    + '(leave blank to use 2020-01-01)',
+    '2020-01-01'
+  );
+  if (cutoff === null) return; // cancelled
+  cutoff = cutoff.trim() || '2020-01-01';
+  api('/admin/api/import/register-from-people', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ cutoff: cutoff, types: [type] })
+  }).then(function(d) {
+    if (d.error) { alert('Error: ' + d.error); return; }
+    alert('Done. ' + d.imported + ' ' + label.toLowerCase() + ' entries created' + (d.skipped ? ', ' + d.skipped + ' already existed' : '') + '.');
+    loadRegister();
+  }).catch(function(e) { alert('Error: ' + e.message); });
+}
 function generateRegisterFromPeople() {
   var status = document.getElementById('reg-gen-status');
   var cutoff = document.getElementById('reg-gen-cutoff').value || '2020-01-01';
