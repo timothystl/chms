@@ -13006,8 +13006,10 @@ async function handleAdminApi(req, env, url, method) {
   // ── ChMS API dispatch ─────────────────────────────────────────────
   if (seg.startsWith('people') || seg.startsWith('households') ||
       seg.startsWith('tags')   || seg.startsWith('funds')      ||
-      seg.startsWith('giving/') || seg.startsWith('reports/')  ||
-      seg.startsWith('import/') || seg.startsWith('attendance')) {
+      seg.startsWith('giving') || seg.startsWith('reports/')   ||
+      seg.startsWith('import/') || seg.startsWith('attendance') ||
+      seg.startsWith('register') || seg.startsWith('config')   ||
+      seg === 'board') {
     return handleChmsApi(req, env, url, method, seg);
   }
 
