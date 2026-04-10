@@ -14014,6 +14014,13 @@ async function handleChmsApi(req, env, url, method, seg) {
     await db.prepare('DELETE FROM church_register WHERE id=?').bind(parseInt(regDelMatch[1])).run();
     return json({ ok: true });
   }
+  if (seg === 'register/clear' && method === 'POST') {
+    let b = {}; try { b = await req.json(); } catch {}
+    const validTypes = ['baptism','confirmation','wedding'];
+    if (!validTypes.includes(b.type)) return json({ error: 'type must be baptism, confirmation, or wedding' }, 400);
+    const r = await db.prepare('DELETE FROM church_register WHERE type=?').bind(b.type).run();
+    return json({ ok: true, deleted: r.meta?.changes ?? 0 });
+  }
 
   // ── Dev Board (Kanban) ───────────────────────────────────────────
   if (seg === 'board' && method === 'GET') {
@@ -17371,6 +17378,12 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
         <input type="file" id="reg-import-file" accept=".csv,.tsv,.txt" style="display:none;" onchange="regImportFileChosen(this)">
       </label>
       <span id="reg-import-filename" style="margin-left:10px;font-size:.85rem;color:var(--warm-gray);"></span>
+      <div style="margin-top:14px;padding:10px 14px;background:#fff8f0;border:1px solid #f0c080;border-radius:8px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:.85rem;">
+          <input type="checkbox" id="reg-import-clear" style="width:15px;height:15px;flex-shrink:0;">
+          <span><strong>Delete existing records of this type before importing</strong> — use this to re-import after fixing data issues</span>
+        </label>
+      </div>
     </div>
     <!-- Step 2: preview -->
     <div id="reg-import-step2" style="display:none;">
@@ -18793,26 +18806,35 @@ function parseRegImportFile(text, filename) {
 function normalizeRegDate(s) {
   if (!s) return '';
   s = s.trim();
-  // Already ISO
+  // Already ISO YYYY-MM-DD
   if (/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return s;
+  // Already ISO YYYY-MM → use 01 as day
+  if (/^\\d{4}-\\d{2}$/.test(s)) return s+'-01';
+  var MONTHS = {
+    january:'01',jan:'01',february:'02',feb:'02',march:'03',mar:'03',
+    april:'04',apr:'04',may:'05',june:'06',jun:'06',july:'07',jul:'07',
+    august:'08',aug:'08',september:'09',sept:'09',sep:'09',
+    october:'10',oct:'10',november:'11',nov:'11',december:'12',dec:'12'
+  };
+  var m;
   // MM/DD/YYYY
-  var m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})$/);
+  m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})$/);
   if (m) return m[3]+'-'+pad2(m[1])+'-'+pad2(m[2]);
-  // Month D, YYYY  (e.g. "July 1, 1928")
-  var MONTHS = {january:'01',february:'02',march:'03',april:'04',may:'05',june:'06',
-                july:'07',august:'08',september:'09',october:'10',november:'11',december:'12'};
-  var m2 = s.match(/^([A-Za-z]+)\\.?\\s+(\\d{1,2}),?\\s+(\\d{4})$/);
-  if (m2) {
-    var mo = MONTHS[m2[1].toLowerCase()];
-    if (mo) return m2[3]+'-'+mo+'-'+pad2(m2[2]);
-  }
-  // D Month YYYY  (e.g. "1 July 1928")
-  var m3 = s.match(/^(\\d{1,2})\\s+([A-Za-z]+)\\.?\\s+(\\d{4})$/);
-  if (m3) {
-    var mo2 = MONTHS[m3[2].toLowerCase()];
-    if (mo2) return m3[3]+'-'+mo2+'-'+pad2(m3[1]);
-  }
-  // Return as-is if we can't parse
+  // MM/DD/YY  (2-digit year → 19xx for historical records)
+  m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{2})$/);
+  if (m) return '19'+m[3]+'-'+pad2(m[1])+'-'+pad2(m[2]);
+  // Month D(st/nd/rd/th)?, YYYY  e.g. "July 1, 1928" or "July 1st, 1928"
+  m = s.match(/^([A-Za-z]+)\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(\\d{4})$/);
+  if (m && MONTHS[m[1].toLowerCase()]) return m[3]+'-'+MONTHS[m[1].toLowerCase()]+'-'+pad2(m[2]);
+  // D(st/nd/rd/th)? Month YYYY  e.g. "1 July 1928" or "1st July 1928"
+  m = s.match(/^(\\d{1,2})(?:st|nd|rd|th)?\\s+([A-Za-z]+)\\.?\\s+(\\d{4})$/);
+  if (m && MONTHS[m[2].toLowerCase()]) return m[3]+'-'+MONTHS[m[2].toLowerCase()]+'-'+pad2(m[1]);
+  // Month YYYY  e.g. "July 1928" (no day — store as 1st of month)
+  m = s.match(/^([A-Za-z]+)\\.?\\s+(\\d{4})$/);
+  if (m && MONTHS[m[1].toLowerCase()]) return m[2]+'-'+MONTHS[m[1].toLowerCase()]+'-01';
+  // YYYY only — store as Jan 1 of that year
+  m = s.match(/^(\\d{4})$/);
+  if (m) return m[1]+'-01-01';
   return s;
 }
 function pad2(n) { return String(n).padStart(2,'0'); }
@@ -18850,6 +18872,9 @@ function runRegImport() {
   var btn  = document.querySelector('#reg-import-step2 .btn-primary');
   if (prog) { prog.style.display = ''; prog.textContent = 'Importing\u2026'; }
   if (btn) btn.disabled = true;
+  var regType = document.getElementById('reg-import-type') ? document.getElementById('reg-import-type').value : 'baptism';
+  var clearFirst = document.getElementById('reg-import-clear') && document.getElementById('reg-import-clear').checked;
+  function doImport() {
   // Send in chunks of 50
   var allRows = _regImportRows.slice();
   var CHUNK = 50;
@@ -18888,6 +18913,17 @@ function runRegImport() {
     });
   }
   sendChunk(0);
+  } // end doImport
+  if (clearFirst) {
+    if (prog) prog.textContent = 'Clearing existing records\u2026';
+    api('/admin/api/register/clear', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({type: regType})
+    }).then(function() { doImport(); }).catch(function() { doImport(); });
+  } else {
+    doImport();
+  }
 }
 
 // ── HOUSEHOLDS ────────────────────────────────────────────────────────
