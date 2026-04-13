@@ -735,6 +735,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     <button class="btn-primary" onclick="runBreezeImport()">Sync People from Breeze</button>
     <div class="progress-bar" id="breeze-bar"><div class="progress-fill" id="breeze-fill" style="width:0%"></div></div>
     <div class="import-status" id="breeze-status"></div>
+    <div id="breeze-diag" style="display:none;margin-top:6px;font-size:.75rem;color:var(--warm-gray);font-family:monospace;word-break:break-all;"></div>
   </div>
   <div class="import-card">
     <h3>&#128181; Sync Giving from Breeze</h3>
@@ -4130,7 +4131,17 @@ function runBreezeImport() {
       totalUpdated += d.updated || 0;
       if (d.status_field) lastStatusField = d.status_field;
       if (d.statuses_seen) d.statuses_seen.forEach(function(s) { allStatusesSeen.add(s); });
-      if (d._diag && !window._breezeImportDiag) window._breezeImportDiag = d._diag;
+      if (d._diag && !window._breezeImportDiag) {
+        window._breezeImportDiag = d._diag;
+        // Show diagnostic inline so no DevTools needed
+        var diagEl = document.getElementById('breeze-diag');
+        if (diagEl && d._diag) {
+          diagEl.textContent = 'Field ID: ' + (d._diag.status_field_id || '(none)')
+            + ' | Sample detail keys: ' + (d._diag.sample_detail_keys ? d._diag.sample_detail_keys.join(', ') : '(none)')
+            + ' | Value at key: ' + JSON.stringify(d._diag.sample_status_raw);
+          diagEl.style.display = 'block';
+        }
+      }
       fill.style.width = d.done ? '100%' : Math.min(95, (d.next_offset / Math.max(d.next_offset + 100, 200)) * 100) + '%';
       status.textContent = 'Imported ' + totalImported + ', updated ' + totalUpdated + '…';
       if (d.done) {
