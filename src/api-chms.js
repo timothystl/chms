@@ -1988,6 +1988,7 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
     let sampleDetailKeys = null;
     let sampleStatusRaw = null;
     let sampleDetailEntries = null;
+    let sampleTopLevelKeys = null;
     const firstPerson = people.find(p => p.last_name && p.last_name.trim());
     if (firstPerson && offset === 0) {
       const d0 = firstPerson.details || {};
@@ -1998,6 +1999,10 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         key: k,
         val: JSON.stringify(v).slice(0, 120)
       }));
+      // Capture top-level person keys (excluding details/family which are large)
+      sampleTopLevelKeys = Object.entries(firstPerson)
+        .filter(([k]) => k !== 'details' && k !== 'family')
+        .map(([k, v]) => ({ key: k, val: JSON.stringify(v).slice(0, 80) }));
     }
     // Convert MM/DD/YYYY or YYYY-MM-DD to YYYY-MM-DD
     const toISO = s => {
@@ -2013,6 +2018,20 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
     // Load user-defined Breeze status → local member type map
     const mtMapRow = await db.prepare("SELECT value FROM chms_config WHERE key='member_type_map'").first();
     const memberTypeMap = mtMapRow ? JSON.parse(mtMapRow.value) : {};
+    // Build option-ID → name map from ALL profile field options (handles numeric option IDs like 1=Member)
+    const optionIdToName = {};
+    for (const f of allFields) {
+      for (const opt of (Array.isArray(f.options) ? f.options : [])) {
+        if (opt.id && opt.name) optionIdToName[String(opt.id)] = opt.name;
+      }
+    }
+    // Helper: extract status name from a raw detail value (array, object, or string)
+    const extractName = (raw) => {
+      const obj = Array.isArray(raw) ? raw[0] : raw;
+      if (obj && typeof obj === 'object') return obj.name || obj.value || '';
+      if (typeof raw === 'string' && raw) return optionIdToName[raw] || raw;
+      return '';
+    };
     // Skip non-person status types
     const SKIP_STATUSES = new Set(['organization','christmas market','egg hunt','renter','mdo']);
     const statusesSeen = new Set();
@@ -2023,11 +2042,23 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         const fn = (p.first_name || '').trim();
         const ln = (p.last_name  || '').trim();
         const details = p.details || {};
-        // Status / member type — Breeze returns as object, array, or string
-        const statusRaw = details[F_STATUS];
-        const statusObj = Array.isArray(statusRaw) ? statusRaw[0] : statusRaw;
-        const statusName = (statusObj && statusObj.name) ? statusObj.name
-                         : (typeof statusRaw === 'string' ? statusRaw : '');
+        // Status / member type — try profile-based field ID first, then scan all detail values.
+        // Breeze's built-in person-type field may not appear in /api/profile, so the profile ID
+        // can miss it; scanning finds it regardless of which field ID Breeze uses.
+        let statusName = F_STATUS ? extractName(details[F_STATUS]) : '';
+        if (!statusName) {
+          // Scan all detail values for any that look like a member/status type
+          for (const [, val] of Object.entries(details)) {
+            const candidate = extractName(val);
+            if (!candidate) continue;
+            const cl = candidate.toLowerCase();
+            if (configuredMemberTypes.some(t => t.toLowerCase() === cl) ||
+                memberTypeMap[candidate] || memberTypeMap[cl]) {
+              statusName = candidate;
+              break;
+            }
+          }
+        }
         if (SKIP_STATUSES.has(statusName.toLowerCase())) { skipped++; continue; }
         if (statusName) statusesSeen.add(statusName);
         // Use user-defined map first, then direct name match, then 'Other'
@@ -2188,7 +2219,7 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         }
       } catch (e) { errors.push({ tag_sync_error: e.message }); }
     }
-    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
+    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
   }
 
   return json({ error: 'Not found' }, 404);
