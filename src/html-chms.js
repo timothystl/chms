@@ -509,7 +509,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <span class="topbar-title" id="topbar-title">People</span>
   <div style="display:flex;gap:8px;align-items:center;">
     <span style="font-size:.7rem;color:var(--warm-gray);" id="deploy-ver"></span>
-    <a href="/admin" class="btn-sm">&#8592; Volunteers</a>
+    <a href="/admin" class="btn-sm">Volunteers</a>
+    <a href="/scheduler" class="btn-sm">Scheduler</a>
     <a href="/admin/logout" class="btn-sm">Sign Out</a>
   </div>
 </div>
@@ -5039,6 +5040,24 @@ function render() {
   });
 }
 load();
+// ── Auto-logout after 2 hours of inactivity ───────────────────────────
+(function(){
+  var MS=2*60*60*1000,WARN=2*60*1000,t,w,b;
+  function reset(){
+    clearTimeout(t);clearTimeout(w);
+    if(b)b.style.display='none';
+    w=setTimeout(function(){
+      if(!b){b=document.createElement('div');b.id='inact-warn';
+        b.style.cssText='position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;text-align:center;padding:10px 16px;z-index:99999;font-size:.9rem;font-family:sans-serif;';
+        b.innerHTML='Signing out in 2 minutes due to inactivity. <button onclick="document.getElementById(\'inact-warn\').style.display=\'none\';reset()" style="margin-left:10px;background:#fff;color:#c0392b;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-weight:600;">Stay Signed In</button>';
+        document.body.appendChild(b);}
+      else b.style.display='block';
+    },MS-WARN);
+    t=setTimeout(function(){location.href='/admin/logout';},MS);
+  }
+  ['click','keydown','mousemove','touchstart'].forEach(function(e){document.addEventListener(e,reset,{passive:true});});
+  window.reset=reset;reset();
+})();
 </script>
 </body>
 </html>

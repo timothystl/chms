@@ -7,7 +7,7 @@ export async function isAuthed(req, env) {
   if (!m) return false;
   const [ts, sig] = m[1].split('.');
   if (!ts || !sig) return false;
-  if (Date.now() - parseInt(ts, 10) > 7 * 24 * 60 * 60 * 1000) return false;
+  if (Date.now() - parseInt(ts, 10) > 8 * 60 * 60 * 1000) return false;
   try {
     const key = await crypto.subtle.importKey(
       'raw', new TextEncoder().encode(env.ADMIN_PASSWORD || ''),
@@ -26,7 +26,7 @@ export async function authCookieHeader(env) {
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(ts));
   const b64url = btoa(String.fromCharCode(...new Uint8Array(sig)))
     .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-  const exp = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toUTCString();
+  const exp = new Date(Date.now() + 8 * 60 * 60 * 1000).toUTCString();
   return `vol_auth=${ts}.${b64url}; Path=/; Expires=${exp}; HttpOnly; Secure; SameSite=Strict`;
 }
 
