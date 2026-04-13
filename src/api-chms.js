@@ -5,38 +5,48 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   const db = env.DB;
 
   // ── Role-based access control ────────────────────────────────────
-  // Roles: 'admin' > 'staff' > 'viewer'
-  const isAdmin = role === 'admin';
-  const isStaff = role === 'admin' || role === 'staff';
-  // Giving and giving reports — staff+ only (financial PII)
-  if ((seg.startsWith('giving') || seg.startsWith('reports/giving')) && !isStaff) {
-    return json({ error: 'Access denied: giving data requires staff access' }, 403);
+  // Roles: admin | finance | staff | member
+  //   admin   — full access
+  //   finance — people CRUD + full giving; no attendance/register/followups
+  //   staff   — people CRUD + attendance/register/followups/tags; no giving
+  //   member  — GET people filtered to member_type='member' only
+  const isAdmin   = role === 'admin';
+  const isFinance = role === 'admin' || role === 'finance';
+  const isStaff   = role === 'admin' || role === 'staff';
+  const canEdit   = role === 'admin' || role === 'finance' || role === 'staff';
+
+  // Giving and giving reports — finance+ only
+  if ((seg.startsWith('giving') || seg.startsWith('reports/giving')) && !isFinance) {
+    return json({ error: 'Access denied: giving data requires finance access' }, 403);
+  }
+  // Attendance, register, follow-ups, audit — staff+ only (NOT finance)
+  if ((seg.startsWith('attendance') || seg.startsWith('register') ||
+       seg.startsWith('followup') || seg.startsWith('audit')) && !isStaff) {
+    return json({ error: 'Access denied' }, 403);
+  }
+  // Config (settings) — reads blocked for member; writes admin only
+  if (seg.startsWith('config') && method !== 'GET' && !isAdmin) {
+    return json({ error: 'Access denied: changing settings requires admin access' }, 403);
   }
   // Imports — admin only
   if (seg.startsWith('import/') && !isAdmin) {
     return json({ error: 'Access denied: imports require admin access' }, 403);
   }
-  // Config (settings) — reads allowed for staff, writes admin only
-  if (seg.startsWith('config') && method !== 'GET' && !isAdmin) {
-    return json({ error: 'Access denied: changing settings requires admin access' }, 403);
-  }
-  // Pastoral follow-ups — staff+ only
-  if (seg.startsWith('followup') && !isStaff) {
-    return json({ error: 'Access denied' }, 403);
-  }
-  // Audit log — staff+ only
-  if (seg.startsWith('audit') && !isStaff) {
-    return json({ error: 'Access denied' }, 403);
-  }
   // Dev board — admin only
   if (seg === 'board' && !isAdmin) {
     return json({ error: 'Access denied' }, 403);
   }
-  // Write operations on people/households/tags/attendance/register — staff+ only
-  if (method !== 'GET' && !isStaff &&
+  // Member role — GET people (filtered) + tags + member-types only; all writes blocked
+  if (role === 'member') {
+    const allowedSegs = seg.startsWith('people') || seg === 'tags' || seg === 'member-types';
+    if (!allowedSegs) return json({ error: 'Access denied' }, 403);
+    if (method !== 'GET') return json({ error: 'Access denied' }, 403);
+  }
+  // Write operations — require canEdit (not member)
+  if (method !== 'GET' && !canEdit &&
       (seg.startsWith('people') || seg.startsWith('households') || seg.startsWith('tags') ||
        seg.startsWith('attendance') || seg.startsWith('register') || seg.startsWith('funds'))) {
-    return json({ error: 'Access denied: editing requires staff access' }, 403);
+    return json({ error: 'Access denied: editing requires staff or finance access' }, 403);
   }
 
   // ── Dashboard ────────────────────────────────────────────────────
@@ -112,9 +122,15 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     ).all()).results || [];
     return json({
       totalPeople, totalHouseholds, addedThisMonth, addedThisYear,
-      typeCounts, givingThisYear, givingLastYear,
-      birthdays, recentPeople, recentAttendance,
-      followUpItems, firstGivers, notSeenRecently
+      typeCounts,
+      // giving data: finance+ only
+      givingThisYear:  isFinance ? givingThisYear  : undefined,
+      givingLastYear:  isFinance ? givingLastYear  : undefined,
+      firstGivers:     isFinance ? firstGivers     : [],
+      // pastoral data: staff+ only
+      followUpItems:   isStaff  ? followUpItems   : [],
+      recentAttendance: isStaff ? recentAttendance : [],
+      birthdays, recentPeople, notSeenRecently
     });
   }
 
@@ -129,6 +145,8 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     let where = `p.active=1
       AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)`;
     const binds = [like, like, like, like];
+    // Member role can only see people with member_type='member'
+    if (role === 'member') { where += ` AND LOWER(p.member_type)='member'`; }
     if (mt) { where += ' AND p.member_type=?'; binds.push(mt); }
     if (tagId) { where += ' AND p.id IN (SELECT person_id FROM person_tags WHERE tag_id=?)'; binds.push(tagId); }
     // Total count
@@ -200,15 +218,23 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
          LEFT JOIN households h ON p.household_id=h.id WHERE p.id=?`
       ).bind(pid).first();
       if (!p) return json({ error: 'Not found' }, 404);
+      // Member role can only view actual members
+      if (role === 'member' && (p.member_type || '').toLowerCase() !== 'member') {
+        return json({ error: 'Not found' }, 404);
+      }
       const tags = (await db.prepare(
         `SELECT t.id,t.name,t.color FROM tags t JOIN person_tags pt ON pt.tag_id=t.id WHERE pt.person_id=?`
       ).bind(pid).all()).results || [];
-      const giving12 = await db.prepare(
-        `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
-         JOIN giving_batches gb ON ge.batch_id=gb.id
-         WHERE ge.person_id=? AND gb.batch_date >= date('now','-12 months')`
-      ).bind(pid).first();
-      return json({ ...p, tags, giving_12mo: giving12?.total || 0 });
+      let giving12mo = 0;
+      if (isFinance) {
+        const giving12 = await db.prepare(
+          `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
+           JOIN giving_batches gb ON ge.batch_id=gb.id
+           WHERE ge.person_id=? AND gb.batch_date >= date('now','-12 months')`
+        ).bind(pid).first();
+        giving12mo = giving12?.total || 0;
+      }
+      return json({ ...p, tags, giving_12mo: giving12mo });
     }
     if (method === 'PUT') {
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }

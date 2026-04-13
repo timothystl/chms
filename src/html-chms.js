@@ -471,10 +471,20 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .topbar-back{font-size:13px;color:var(--sky-steel);cursor:pointer;white-space:nowrap;flex-shrink:0;}
 .topbar-back:hover{text-decoration:underline;}
 /* ── ROLE-BASED VISIBILITY ── */
-.role-viewer .require-staff{display:none!important;}
-.role-viewer .require-edit{display:none!important;}
-.role-staff  .require-admin{display:none!important;}
-.role-viewer .require-admin{display:none!important;}
+/* .require-finance  = visible only for admin + finance */
+/* .require-staff    = visible only for admin + staff   */
+/* .require-edit     = visible for admin + finance + staff (not member) */
+/* .require-admin    = admin only */
+/* .no-member        = hidden for member role */
+.role-staff  .require-finance{display:none!important;}
+.role-member .require-finance{display:none!important;}
+.role-finance .require-staff{display:none!important;}
+.role-member .require-staff{display:none!important;}
+.role-member .require-edit{display:none!important;}
+.role-member .no-member{display:none!important;}
+.role-finance .require-admin{display:none!important;}
+.role-staff   .require-admin{display:none!important;}
+.role-member  .require-admin{display:none!important;}
 /* ── PRINT ── */
 @media print{
   .sidebar,.topbar,.toolbar,.modal-overlay,#offline-banner{display:none!important;}
@@ -498,10 +508,10 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div class="s-item" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
   <div class="s-item" data-tab="households" onclick="showTab('households')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Households</span></div>
   <div class="s-divider"></div>
-  <div class="s-item require-staff" data-tab="giving" onclick="showTab('giving')"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg><span class="s-tip">Giving</span></div>
-  <div class="s-item" data-tab="attendance" onclick="showTab('attendance')"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg><span class="s-tip">Attendance</span></div>
-  <div class="s-item" data-tab="reports" onclick="showTab('reports')"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span class="s-tip">Reports</span></div>
-  <div class="s-item" data-tab="register" onclick="showTab('register')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="9" y1="7" x2="17" y2="7"/><line x1="9" y1="11" x2="14" y2="11"/></svg><span class="s-tip">Register</span></div>
+  <div class="s-item require-finance" data-tab="giving" onclick="showTab('giving')"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg><span class="s-tip">Giving</span></div>
+  <div class="s-item require-staff" data-tab="attendance" onclick="showTab('attendance')"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg><span class="s-tip">Attendance</span></div>
+  <div class="s-item no-member" data-tab="reports" onclick="showTab('reports')"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span class="s-tip">Reports</span></div>
+  <div class="s-item require-staff" data-tab="register" onclick="showTab('register')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="9" y1="7" x2="17" y2="7"/><line x1="9" y1="11" x2="14" y2="11"/></svg><span class="s-tip">Register</span></div>
   <div class="s-divider require-admin"></div>
   <div class="s-item require-admin" data-tab="import" onclick="showTab('import')"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg><span class="s-tip">Import</span></div>
   <div class="s-bottom">
@@ -618,7 +628,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div class="tile-title">Membership Summary</div>
       <div class="tile-desc">Counts by member type</div>
     </div>
-    <div class="report-tile">
+    <div class="report-tile require-finance">
       <div class="tile-icon">&#128200;</div>
       <div class="tile-title">Giving by Fund</div>
       <div class="tile-desc">
@@ -627,7 +637,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
         <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingSummary()">Run Report</button>
       </div>
     </div>
-    <div class="report-tile">
+    <div class="report-tile require-finance">
       <div class="tile-icon">&#128179;</div>
       <div class="tile-title">Giving by Method</div>
       <div class="tile-desc">
@@ -636,7 +646,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
         <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingByMethod()">Run Report</button>
       </div>
     </div>
-    <div class="report-tile">
+    <div class="report-tile require-finance">
       <div class="tile-icon">&#128196;</div>
       <div class="tile-title">Giving Statement</div>
       <div class="tile-desc">
@@ -661,7 +671,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       </div>
     </div>
   </div>
-  <div class="report-tiles" style="margin-top:0;padding-top:0;">
+  <div class="report-tiles require-finance" style="margin-top:0;padding-top:0;">
     <div class="report-tile">
       <div class="tile-icon">&#128140;</div>
       <div class="tile-title">Batch Send Statements</div>
@@ -949,7 +959,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     </div>
     <div class="pv-tabs">
       <div class="pv-tab active" data-ptab="info" onclick="showPvTab('info')">Information</div>
-      <div class="pv-tab require-staff" data-ptab="giving" onclick="showPvTab('giving')">Giving</div>
+      <div class="pv-tab require-finance" data-ptab="giving" onclick="showPvTab('giving')">Giving</div>
       <div class="pv-tab" data-ptab="attendance" onclick="showPvTab('attendance')">Attendance</div>
       <div class="pv-tab" data-ptab="timeline" onclick="showPvTab('timeline')">Timeline</div>
     </div>
@@ -1330,10 +1340,15 @@ function initials(first, last) {
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
 function showTab(name) {
   // Enforce role-based tab access
-  var isStaffPlus = _userRole === 'admin' || _userRole === 'staff';
-  if (name === 'giving'   && !isStaffPlus) return;
-  if (name === 'import'   && _userRole !== 'admin') return;
-  if (name === 'settings' && _userRole !== 'admin') return;
+  var isFinancePlus = _userRole === 'admin' || _userRole === 'finance';
+  var isStaffPlus   = _userRole === 'admin' || _userRole === 'staff';
+  var canEdit       = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff';
+  if (name === 'giving'     && !isFinancePlus) return;
+  if (name === 'attendance' && !isStaffPlus)   return;
+  if (name === 'register'   && !isStaffPlus)   return;
+  if (name === 'reports'    && !canEdit)        return;
+  if (name === 'import'     && _userRole !== 'admin') return;
+  if (name === 'settings'   && _userRole !== 'admin') return;
   var labels = {home:'Home',people:'People',households:'Households',giving:'Giving',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings'};
   // Exit person-profile view if active
   var ca = document.querySelector('.content-area');
@@ -1430,7 +1445,8 @@ window.addEventListener('load', function() {
     loadTags();
     loadFunds();
     loadMemberTypes();
-    showTab('home');
+    // Members go straight to the people directory; everyone else gets the dashboard
+    showTab(_userRole === 'member' ? 'people' : 'home');
   });
 });
 function applyRoleUI(role) {
@@ -1439,7 +1455,7 @@ function applyRoleUI(role) {
   body.className = body.className.replace(/\brole-\w+/g, '').trim() + ' role-' + _userRole;
   var ri = document.getElementById('topbar-role');
   if (ri) {
-    var labels = { staff: 'Staff', viewer: 'Viewer (read-only)' };
+    var labels = { finance: 'Finance', staff: 'Staff', member: 'Member (read-only)' };
     if (labels[_userRole]) { ri.textContent = labels[_userRole]; ri.style.display = ''; }
     else ri.style.display = 'none';
   }
@@ -1837,12 +1853,14 @@ function renderDashboard(d) {
   var html = '';
 
   // ── Quick actions ──────────────────────────────────────────────
-  var isStaff = _userRole === 'admin' || _userRole === 'staff';
+  var isFinanceRole = _userRole === 'admin' || _userRole === 'finance';
+  var isStaffRole   = _userRole === 'admin' || _userRole === 'staff';
+  var canEditRole   = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff';
   html += '<div class="dash-quick">'
-    + (_userRole !== 'viewer' ? dashQBtn('<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>', 'Add Person', "openPersonEdit(null);showTab('people')") : '')
-    + (isStaff ? dashQBtn('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/>', 'Record Giving', "showTab('giving')") : '')
-    + dashQBtn('<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/>', 'Attendance', "showTab('attendance')")
-    + dashQBtn('<path d="M18 20V10M12 20V4M6 20v-6"/>', 'Reports', "showTab('reports')")
+    + (canEditRole ? dashQBtn('<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>', 'Add Person', "openPersonEdit(null);showTab('people')") : '')
+    + (isFinanceRole ? dashQBtn('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/>', 'Record Giving', "showTab('giving')") : '')
+    + (isStaffRole ? dashQBtn('<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/>', 'Attendance', "showTab('attendance')") : '')
+    + (canEditRole ? dashQBtn('<path d="M18 20V10M12 20V4M6 20v-6"/>', 'Reports', "showTab('reports')") : '')
     + '</div>';
 
   // ── Stat strip ─────────────────────────────────────────────────
@@ -1850,11 +1868,12 @@ function renderDashboard(d) {
   html += '<div class="dash-stats">'
     + dashStat(d.totalPeople, 'Total People', d.addedThisYear + ' added this year')
     + dashStat(d.totalHouseholds, 'Households', d.addedThisMonth + ' new this month')
-    + (isStaff ? dashStat('$'+fmt$(d.givingThisYear), yr+' Giving', yr-1+': $'+fmt$(d.givingLastYear)) : '')
-    + dashStat(lastSvc ? lastSvc.attendance : '\u2014', 'Last Service', lastSvc ? esc(lastSvc.service_name)+' \u00b7 '+lastSvc.service_date : 'No attendance yet')
+    + (isFinanceRole ? dashStat('$'+fmt$(d.givingThisYear), yr+' Giving', yr-1+': $'+fmt$(d.givingLastYear)) : '')
+    + (isStaffRole ? dashStat(lastSvc ? lastSvc.attendance : '\u2014', 'Last Service', lastSvc ? esc(lastSvc.service_name)+' \u00b7 '+lastSvc.service_date : 'No attendance yet') : '')
     + '</div>';
 
-  // ── Follow-up queue ────────────────────────────────────────────
+  // ── Follow-up queue — staff+ only ─────────────────────────────
+  if (isStaffRole) {
   var fuItems = d.followUpItems || [];
   var fuTypeLabels = { pastoral_call:'Pastoral Call', prayer:'Prayer Follow-up', first_gift:'First Gift', not_seen:'Not Seen', newsletter:'Newsletter', general:'General' };
   var fuTypeColors = { pastoral_call:'#2E7EA6', prayer:'#9B59B6', first_gift:'#C9973A', not_seen:'#E87040', newsletter:'#5A9E6F', general:'#666' };
@@ -1887,9 +1906,10 @@ function renderDashboard(d) {
     html += '<div style="padding:18px;color:var(--faint);font-size:13px;font-style:italic;">No open follow-up items. Enjoy the quiet!</div>';
   }
   html += '</div></div>';
+  } // end isStaffRole follow-up block
 
-  // ── First-time givers ──────────────────────────────────────────
-  var firstGivers = d.firstGivers || [];
+  // ── First-time givers — finance+ only ─────────────────────────
+  var firstGivers = isFinanceRole ? (d.firstGivers || []) : [];
   if (firstGivers.length) {
     html += '<div class="dash-section-hdr"><span>First-Time Givers</span>'
       + '<span style="font-size:12px;color:var(--warm-gray);font-weight:400;">last 60 days</span></div>';
@@ -2497,7 +2517,7 @@ function openAddToHouseholdModal(householdId) {
   });
 }
 function showPvTab(name) {
-  if (name === 'giving' && _userRole === 'viewer') return; // giving is staff+ only
+  if (name === 'giving' && _userRole !== 'admin' && _userRole !== 'finance') return; // giving is finance+ only
   document.querySelectorAll('.pv-tab').forEach(function(b){
     b.classList.toggle('active', b.dataset.ptab === name);
   });

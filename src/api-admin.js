@@ -89,17 +89,19 @@ export async function handleAdminLogin(req, env) {
   // ── Credential check ────────────────────────────────────────────────
   let body; try { body = await req.text(); } catch { body = ''; }
   const params = new URLSearchParams(body);
-  const adminPassword  = env.ADMIN_PASSWORD  || '';
-  const staffPassword  = env.STAFF_PASSWORD  || '';
-  const viewerPassword = env.VIEWER_PASSWORD || '';
+  const adminPassword   = env.ADMIN_PASSWORD   || '';
+  const financePassword = env.FINANCE_PASSWORD || '';
+  const staffPassword   = env.STAFF_PASSWORD   || '';
+  const memberPassword  = env.MEMBER_PASSWORD  || '';
   if (!adminPassword) {
     return html(LOGIN_HTML.replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">Admin password is not configured. Set the <code>ADMIN_PASSWORD</code> secret in the Cloudflare Dashboard.</p>'));
   }
   const submitted = params.get('password') || '';
   let matchedRole = null;
-  if (submitted === adminPassword)                           matchedRole = 'admin';
-  else if (staffPassword  && submitted === staffPassword)   matchedRole = 'staff';
-  else if (viewerPassword && submitted === viewerPassword)  matchedRole = 'viewer';
+  if      (submitted === adminPassword)                          matchedRole = 'admin';
+  else if (financePassword && submitted === financePassword)     matchedRole = 'finance';
+  else if (staffPassword   && submitted === staffPassword)       matchedRole = 'staff';
+  else if (memberPassword  && submitted === memberPassword)      matchedRole = 'member';
   if (matchedRole) {
     if (env.RSVP_STORE) await env.RSVP_STORE.delete(rlKey).catch(() => {});
     const dest = matchedRole === 'admin' ? '/admin' : '/chms';
@@ -120,7 +122,7 @@ export async function handleAdminApi(req, env, url, method) {
   // ── Current user info ─────────────────────────────────────────────
   if (seg === 'me' && method === 'GET') {
     const role = await getAuthRole(req, env);
-    const labels = { admin: 'Administrator', staff: 'Staff', viewer: 'Viewer' };
+    const labels = { admin: 'Administrator', finance: 'Finance', staff: 'Staff', member: 'Member (read-only)' };
     return json({ role: role || 'unknown', display_name: labels[role] || 'Unknown' });
   }
 
