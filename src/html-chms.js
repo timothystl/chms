@@ -4138,8 +4138,12 @@ function runBreezeImport() {
         if (diagEl && d._diag) {
           var diag = d._diag;
           var lines = ['Status field ID being looked up: ' + (diag.status_field_id || '(none)')];
+          if (diag.sample_top_level_keys && diag.sample_top_level_keys.length) {
+            lines.push('Top-level person properties (not details/family):');
+            diag.sample_top_level_keys.forEach(function(e) { lines.push('  ' + e.key + ' → ' + e.val); });
+          }
           if (diag.sample_detail_entries) {
-            lines.push('First person\'s details (key → value):');
+            lines.push('details entries:');
             diag.sample_detail_entries.forEach(function(e) { lines.push('  ' + e.key + ' → ' + e.val); });
           }
           diagEl.innerHTML = lines.map(function(l) { return esc(l); }).join('<br>');

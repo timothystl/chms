@@ -1988,6 +1988,7 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
     let sampleDetailKeys = null;
     let sampleStatusRaw = null;
     let sampleDetailEntries = null;
+    let sampleTopLevelKeys = null;
     const firstPerson = people.find(p => p.last_name && p.last_name.trim());
     if (firstPerson && offset === 0) {
       const d0 = firstPerson.details || {};
@@ -1998,6 +1999,10 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         key: k,
         val: JSON.stringify(v).slice(0, 120)
       }));
+      // Capture top-level person keys (excluding details/family which are large)
+      sampleTopLevelKeys = Object.entries(firstPerson)
+        .filter(([k]) => k !== 'details' && k !== 'family')
+        .map(([k, v]) => ({ key: k, val: JSON.stringify(v).slice(0, 80) }));
     }
     // Convert MM/DD/YYYY or YYYY-MM-DD to YYYY-MM-DD
     const toISO = s => {
@@ -2188,7 +2193,7 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         }
       } catch (e) { errors.push({ tag_sync_error: e.message }); }
     }
-    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
+    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
   }
 
   return json({ error: 'Not found' }, 404);
