@@ -4130,6 +4130,7 @@ function runBreezeImport() {
       totalUpdated += d.updated || 0;
       if (d.status_field) lastStatusField = d.status_field;
       if (d.statuses_seen) d.statuses_seen.forEach(function(s) { allStatusesSeen.add(s); });
+      if (d._diag && !window._breezeImportDiag) window._breezeImportDiag = d._diag;
       fill.style.width = d.done ? '100%' : Math.min(95, (d.next_offset / Math.max(d.next_offset + 100, 200)) * 100) + '%';
       status.textContent = 'Imported ' + totalImported + ', updated ' + totalUpdated + '…';
       if (d.done) {

@@ -1984,6 +1984,14 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
     const F_BAPTISM      = F_BAPTISM_FIELD ? String(F_BAPTISM_FIELD.id) : '';
     const F_CONFIRMATION = F_CONFIRM_FIELD ? String(F_CONFIRM_FIELD.id) : '';
     const F_ANNIVERSARY  = F_ANNIV_FIELD   ? String(F_ANNIV_FIELD.id)   : '';
+    // Diagnostic: capture sample details from first real person to debug field key mismatches
+    let sampleDetailKeys = null;
+    let sampleStatusRaw = null;
+    const firstPerson = people.find(p => p.last_name && p.last_name.trim());
+    if (firstPerson && offset === 0) {
+      sampleDetailKeys = Object.keys(firstPerson.details || {}).slice(0, 20);
+      sampleStatusRaw = F_STATUS ? (firstPerson.details || {})[F_STATUS] : undefined;
+    }
     // Convert MM/DD/YYYY or YYYY-MM-DD to YYYY-MM-DD
     const toISO = s => {
       if (!s) return '';
@@ -2173,7 +2181,7 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         }
       } catch (e) { errors.push({ tag_sync_error: e.message }); }
     }
-    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen] });
+    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
   }
 
   return json({ error: 'Not found' }, 404);
