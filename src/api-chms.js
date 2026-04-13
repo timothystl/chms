@@ -1987,10 +1987,17 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
     // Diagnostic: capture sample details from first real person to debug field key mismatches
     let sampleDetailKeys = null;
     let sampleStatusRaw = null;
+    let sampleDetailEntries = null;
     const firstPerson = people.find(p => p.last_name && p.last_name.trim());
     if (firstPerson && offset === 0) {
-      sampleDetailKeys = Object.keys(firstPerson.details || {}).slice(0, 20);
-      sampleStatusRaw = F_STATUS ? (firstPerson.details || {})[F_STATUS] : undefined;
+      const d0 = firstPerson.details || {};
+      sampleDetailKeys = Object.keys(d0).slice(0, 20);
+      sampleStatusRaw = F_STATUS ? d0[F_STATUS] : undefined;
+      // Capture key→value preview for each detail entry so we can identify the status field
+      sampleDetailEntries = Object.entries(d0).slice(0, 10).map(([k, v]) => ({
+        key: k,
+        val: JSON.stringify(v).slice(0, 120)
+      }));
     }
     // Convert MM/DD/YYYY or YYYY-MM-DD to YYYY-MM-DD
     const toISO = s => {
@@ -2181,7 +2188,7 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         }
       } catch (e) { errors.push({ tag_sync_error: e.message }); }
     }
-    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
+    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
   }
 
   return json({ error: 'Not found' }, 404);

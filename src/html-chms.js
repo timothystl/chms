@@ -4136,9 +4136,13 @@ function runBreezeImport() {
         // Show diagnostic inline so no DevTools needed
         var diagEl = document.getElementById('breeze-diag');
         if (diagEl && d._diag) {
-          diagEl.textContent = 'Field ID: ' + (d._diag.status_field_id || '(none)')
-            + ' | Sample detail keys: ' + (d._diag.sample_detail_keys ? d._diag.sample_detail_keys.join(', ') : '(none)')
-            + ' | Value at key: ' + JSON.stringify(d._diag.sample_status_raw);
+          var diag = d._diag;
+          var lines = ['Status field ID being looked up: ' + (diag.status_field_id || '(none)')];
+          if (diag.sample_detail_entries) {
+            lines.push('First person\'s details (key → value):');
+            diag.sample_detail_entries.forEach(function(e) { lines.push('  ' + e.key + ' → ' + e.val); });
+          }
+          diagEl.innerHTML = lines.map(function(l) { return esc(l); }).join('<br>');
           diagEl.style.display = 'block';
         }
       }
