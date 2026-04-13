@@ -116,12 +116,13 @@ export default {
     }
 
     if (path.startsWith('/scheduler')) {
+      if (!await isAuthed(req, env)) return html(LOGIN_HTML);
       // /scheduler/lcms_calendar.json is served inline (bundled) for reliability.
       if (url.pathname === '/scheduler/lcms_calendar.json') {
         return new Response(LCMS_CALENDAR_JSON, { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       // scheduler/index.html is bundled inline to avoid stale-cache from GitHub raw CDN.
-      return new Response(SCHEDULER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public, max-age=60' } });
+      return new Response(SCHEDULER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store, no-cache, must-revalidate' } });
     }
     return new Response('Not Found', { status: 404 });
   }

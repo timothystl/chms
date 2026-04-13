@@ -90,13 +90,18 @@ export async function handleAdminLogin(req, env) {
   let body; try { body = await req.text(); } catch { body = ''; }
   const params = new URLSearchParams(body);
   const adminPassword = env.ADMIN_PASSWORD || '';
+  const adminEmail    = (env.ADMIN_EMAIL || '').toLowerCase().trim();
   if (!adminPassword) {
     return html(LOGIN_HTML.replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">Admin password is not configured. Set the <code>ADMIN_PASSWORD</code> secret in the Cloudflare Dashboard.</p>'));
   }
-  if (params.get('password') === adminPassword) {
+  const submittedEmail    = (params.get('email')    || '').toLowerCase().trim();
+  const submittedPassword =  params.get('password') || '';
+  const emailOk    = !adminEmail || submittedEmail === adminEmail;
+  const passwordOk = submittedPassword === adminPassword;
+  if (emailOk && passwordOk) {
     // Clear rate-limit counter on successful login
     if (env.RSVP_STORE) await env.RSVP_STORE.delete(rlKey).catch(() => {});
-    return new Response('', { status: 302, headers: { Location: '/admin', 'Set-Cookie': await authCookieHeader(env) } });
+    return new Response('', { status: 302, headers: { Location: '/chms', 'Set-Cookie': await authCookieHeader(env) } });
   }
   // Increment failed-attempt counter (expires after 20 minutes to clean up)
   if (env.RSVP_STORE) {
