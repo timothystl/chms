@@ -1260,27 +1260,6 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div class="field"><label>Envelope #</label><input type="text" id="pm-envelope" placeholder="e.g. 42" maxlength="20"></div>
       <div class="field"><label>Last Seen</label><input type="date" id="pm-last-seen"></div>
     </div>
-    <div class="modal-section">Demographics</div>
-    <div class="modal-2col">
-      <div class="field"><label>Gender</label>
-        <select id="pm-gender" style="padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;width:100%;">
-          <option value="">— not set —</option>
-          <option value="Male">Male</option>
-          <option value="Female">Female</option>
-          <option value="Other">Other</option>
-        </select>
-      </div>
-      <div class="field"><label>Marital Status</label>
-        <select id="pm-marital" style="padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;width:100%;">
-          <option value="">— not set —</option>
-          <option value="Single">Single</option>
-          <option value="Married">Married</option>
-          <option value="Widowed">Widowed</option>
-          <option value="Divorced">Divorced</option>
-          <option value="Separated">Separated</option>
-        </select>
-      </div>
-    </div>
     <div class="modal-section">Notes</div>
     <div class="field"><textarea id="pm-notes" rows="2" style="resize:vertical;"></textarea></div>
     <div class="modal-actions">
@@ -1299,6 +1278,25 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <button class="btn-secondary" style="padding:4px 10px;font-size:.82rem;" onclick="closeModal('hh-detail-modal')">Close</button>
     </div>
     <div id="hh-detail-body"></div>
+  </div>
+</div>
+
+<!-- Edit gift modal -->
+<div class="modal-overlay" id="edit-gift-modal" onclick="if(event.target===this)closeModal('edit-gift-modal')">
+  <div class="modal" style="max-width:420px;">
+    <h2 style="margin:0 0 18px;">Edit Gift</h2>
+    <div class="modal-2col">
+      <div class="field"><label>Date</label><input type="date" id="egm-date"></div>
+      <div class="field"><label>Amount ($)</label><input type="number" id="egm-amount" step="0.01" min="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Fund</label><select id="egm-fund" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;"></select></div>
+      <div class="field"><label>Method</label><select id="egm-method" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;"><option value="cash">Cash</option><option value="check">Check</option><option value="card">Card</option><option value="ach">ACH</option><option value="other">Other</option></select></div>
+      <div class="field"><label>Check #</label><input type="text" id="egm-check" placeholder="optional"></div>
+      <div class="field"><label>Notes</label><input type="text" id="egm-notes" placeholder="optional"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('edit-gift-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveEditGift()">Save</button>
+    </div>
   </div>
 </div>
 
@@ -1411,6 +1409,8 @@ var _hhOffset = 0, _hhTotal = 0;
 var _currentPvPerson = null;
 var _pvGivingPersonId = null;
 var _pvGivingEntries = [];
+var _editGiftId = null;
+var _editGiftFilterYear = '';
 var _userRole = 'admin';
 var _batchSearch = '';
 var _attOrder = 'desc', _attGroupBy = 'none', _attChartMode = 'line';
@@ -2711,7 +2711,7 @@ function showProfile(p) {
       + '</div>';
     var rightCol = '<div>'
       + '<div class="pv-section">'
-      + '<div class="pv-section-title">Demographics / Dates</div>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Demographics / Dates</div><button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="openPersonEdit(_currentPvPerson)">Edit</button></div>'
       + '<div class="pv-field-grid">'
       + (p.gender        ? pvField('gender',         p.gender)        : '')
       + (p.marital_status? pvField('marital status', p.marital_status): '')
@@ -2757,9 +2757,15 @@ function showProfile(p) {
       var entries = (d && d.entries) ? d.entries : (Array.isArray(d) ? d : []);
       var total = entries.reduce(function(s,e){return s+(e.amount||0);},0);
       var ag = document.getElementById('pv-aside-giving');
+      var curYear = new Date().getFullYear().toString();
+      var pid = p.id;
       if (ag) ag.innerHTML = '<div class="pv-aside-lbl">Total Giving</div>'
         + '<div class="pv-aside-big">$'+(total/100).toFixed(2)+'</div>'
-        + '<div class="pv-aside-sub">'+entries.length+' gift'+(entries.length!==1?'s':'')+'</div>';
+        + '<div class="pv-aside-sub">'+entries.length+' gift'+(entries.length!==1?'s':'')+'</div>'
+        + (entries.length ? '<div style="display:flex;flex-direction:column;gap:4px;margin-top:8px;">'
+          + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;width:100%;" onclick="showPvTab(\'giving\')">View All Gifts</button>'
+          + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;width:100%;" onclick="sendGivingStatement('+pid+',\''+curYear+'\')">&#9993; Send Statement</button>'
+          + '</div>' : '');
     });
   }
   var ca = document.querySelector('.content-area');
@@ -2973,9 +2979,10 @@ function renderPvGiving(filterYear) {
       + '<td style="padding:6px 8px;text-align:right;white-space:nowrap;font-size:12px;font-weight:600;">$'+((e.amount||0)/100).toFixed(2)+'</td>'
       + '<td style="padding:6px 8px;font-size:12px;color:var(--warm-gray);">'+esc(e.method||'')+'</td>'
       + '<td style="padding:6px 8px;font-size:12px;color:var(--warm-gray);">'+esc((e.check_number||e.notes||''))+'</td>'
-      + '<td style="padding:6px 8px;text-align:center;">'
+      + '<td style="padding:6px 8px;text-align:center;white-space:nowrap;">'
       + (canDel
-          ? '<button onclick="deleteGivingEntry('+e.id+',\''+filterYear+'\')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:0 4px;line-height:1;" title="Delete">&times;</button>'
+          ? '<button onclick="openEditGiftModal('+e.id+',\''+filterYear+'\')" style="background:none;border:none;color:var(--sky-steel);cursor:pointer;font-size:14px;padding:0 4px;line-height:1;" title="Edit">&#9998;</button>'
+            + '<button onclick="deleteGivingEntry('+e.id+',\''+filterYear+'\')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:0 4px;line-height:1;" title="Delete">&times;</button>'
           : '<span style="font-size:10px;color:var(--warm-gray);">closed</span>')
       + '</td>'
       + '</tr>';
@@ -3099,6 +3106,49 @@ function sendGivingStatement(personId, year) {
       else alert('Error sending statement: '+(r && r.error ? r.error : 'unknown error'));
     }).catch(function(){ alert('Network error. Please try again.'); });
   }).catch(function(){ alert('Could not load giving data. Please try again.'); });
+}
+function openEditGiftModal(entryId, filterYear) {
+  var e = _pvGivingEntries.find(function(x){ return x.id === entryId; });
+  if (!e) return;
+  _editGiftId = entryId;
+  _editGiftFilterYear = filterYear;
+  var activeFunds = allFunds.filter(function(f){return f.active;});
+  if (!activeFunds.length) activeFunds = allFunds;
+  var fundOpts = activeFunds.map(function(f){
+    return '<option value="'+f.id+'"'+(f.id===e.fund_id?' selected':'')+'>'+esc(f.name)+'</option>';
+  }).join('');
+  document.getElementById('egm-fund').innerHTML = fundOpts;
+  document.getElementById('egm-date').value = e.contribution_date || '';
+  document.getElementById('egm-amount').value = ((e.amount||0)/100).toFixed(2);
+  document.getElementById('egm-method').value = e.method || 'check';
+  document.getElementById('egm-check').value = e.check_number || '';
+  document.getElementById('egm-notes').value = e.notes || '';
+  openModal('edit-gift-modal');
+}
+function saveEditGift() {
+  if (!_editGiftId) return;
+  var date   = document.getElementById('egm-date').value;
+  var fundId = document.getElementById('egm-fund').value;
+  var amount = parseFloat(document.getElementById('egm-amount').value);
+  var method = document.getElementById('egm-method').value;
+  var check  = document.getElementById('egm-check').value.trim();
+  var notes  = document.getElementById('egm-notes').value.trim();
+  if (!date || !fundId || !amount || amount <= 0) { alert('Date, fund, and a positive amount are required.'); return; }
+  var saveBtn = document.querySelector('#edit-gift-modal .btn-primary');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+  api('/admin/api/giving/entries/'+_editGiftId, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ fund_id: parseInt(fundId), amount: amount, method: method, check_number: check, notes: notes, date: date })
+  }).then(function(r) {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+    if (r && r.ok) {
+      closeModal('edit-gift-modal');
+      loadPvGiving(_pvGivingPersonId);
+    } else {
+      alert('Error: '+(r && r.error ? r.error : 'Could not save gift'));
+    }
+  }).catch(function(){ if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; } alert('Network error. Please try again.'); });
 }
 function togglePvQuickGift() {
   var box = document.getElementById('pv-quick-gift');

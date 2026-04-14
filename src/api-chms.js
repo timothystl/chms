@@ -621,6 +621,21 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   }
 
   const entryDelMatch = seg.match(/^giving\/entries\/(\d+)$/);
+  if (entryDelMatch && method === 'PUT') {
+    const eid = parseInt(entryDelMatch[1]);
+    const entry = await db.prepare(
+      `SELECT ge.id, gb.closed FROM giving_entries ge JOIN giving_batches gb ON ge.batch_id=gb.id WHERE ge.id=?`
+    ).bind(eid).first();
+    if (!entry) return json({ error: 'Not found' }, 404);
+    if (entry.closed) return json({ error: 'Batch is closed.' }, 409);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const amtCents = Math.round(parseFloat(b.amount || 0) * 100);
+    if (amtCents <= 0) return json({ error: 'Amount must be positive' }, 400);
+    await db.prepare(
+      `UPDATE giving_entries SET fund_id=?,amount=?,method=?,check_number=?,notes=?,contribution_date=? WHERE id=?`
+    ).bind(parseInt(b.fund_id), amtCents, b.method||'cash', b.check_number||'', b.notes||'', b.date||'', eid).run();
+    return json({ ok: true });
+  }
   if (entryDelMatch && method === 'DELETE') {
     const eid = parseInt(entryDelMatch[1]);
     const entry = await db.prepare(
