@@ -4431,7 +4431,13 @@ function runBreezeImport() {
         var diagEl = document.getElementById('breeze-diag');
         if (diagEl && d._diag) {
           var diag = d._diag;
-          var lines = ['Status field ID being looked up: ' + (diag.status_field_id || '(none)')];
+          var lines = [
+            'Date fields detected:',
+            '  DOB: '          + (diag.dob_field          ? '"' + diag.dob_field.name          + '" (id ' + diag.dob_field.id          + ')' : '(not found)'),
+            '  Baptism: '      + (diag.baptism_field      ? '"' + diag.baptism_field.name      + '" (id ' + diag.baptism_field.id      + ')' : '(not found — dates will be empty)'),
+            '  Confirmation: ' + (diag.confirmation_field ? '"' + diag.confirmation_field.name + '" (id ' + diag.confirmation_field.id + ')' : '(not found — dates will be empty)'),
+            'Status field ID: ' + (diag.status_field_id || '(none)'),
+          ];
           if (diag.sample_top_level_keys && diag.sample_top_level_keys.length) {
             lines.push('Top-level person properties (not details/family):');
             diag.sample_top_level_keys.forEach(function(e) { lines.push('  ' + e.key + ' → ' + e.val); });
