@@ -2206,24 +2206,16 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         const ln = (p.last_name  || '').trim();
         const details = p.details || {};
         // Status / member type — resolution order:
-        // 1. Breeze's hard-coded built-in person-type field (ID 1076274773)
-        // 2. Profile-based field ID lookup (custom "status" field from /api/profile)
-        // 3. Scan all detail values for a name matching a configured member type
+        // 1. Profile-based field ID lookup (custom "status" field from /api/profile) — most accurate
+        // 2. Scan all detail values for a name matching a configured member type
+        // 3. Breeze's hard-coded built-in person-type field (ID 1076274773) — last resort only
+        //    (built-in type 1=Member applies to nearly everyone and overrides real status if used first)
         let statusName = '';
-        // 1. Built-in person-type field
-        const builtinRaw = details[BREEZE_TYPE_FIELD];
-        if (builtinRaw !== undefined) {
-          const builtinStr = extractName(builtinRaw);
-          statusName = BREEZE_TYPE_NUMS[builtinStr]
-                    || memberTypeMap[builtinStr]
-                    || memberTypeMap[builtinStr.toLowerCase()]
-                    || builtinStr;
-        }
-        // 2. Profile-based field (custom status field discovered via /api/profile)
-        if (!statusName && F_STATUS) {
+        // 1. Profile-based custom status field
+        if (F_STATUS) {
           statusName = extractName(details[F_STATUS]);
         }
-        // 3. Scan all detail values for any that look like a configured member type
+        // 2. Scan all detail values for any that look like a configured member type
         if (!statusName) {
           for (const [, val] of Object.entries(details)) {
             const candidate = extractName(val);
@@ -2234,6 +2226,17 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
               statusName = candidate;
               break;
             }
+          }
+        }
+        // 3. Last resort: Breeze's built-in person-type field (only if nothing else matched)
+        if (!statusName) {
+          const builtinRaw = details[BREEZE_TYPE_FIELD];
+          if (builtinRaw !== undefined) {
+            const builtinStr = extractName(builtinRaw);
+            statusName = BREEZE_TYPE_NUMS[builtinStr]
+                      || memberTypeMap[builtinStr]
+                      || memberTypeMap[builtinStr.toLowerCase()]
+                      || builtinStr;
           }
         }
         if (SKIP_STATUSES.has(statusName.toLowerCase())) { skipped++; continue; }
@@ -2412,7 +2415,6 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
               } catch { break; }
               if (!tagMembers.length) break;
               for (const m of tagMembers) {
-                if (!m.last_name || !m.last_name.trim()) continue;
                 const bPersonId = String(m.id || '');
                 if (!bPersonId) continue;
                 const personRow = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(bPersonId).first();
