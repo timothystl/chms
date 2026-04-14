@@ -1360,11 +1360,13 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
         `INSERT INTO church_register (type,event_date,name,dob,person_id) VALUES ('baptism',?,?,?,?)`
       );
       for (const p of people) {
+        const fullName = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+        // Skip if already in register by person_id link OR by matching name+date (catches manual entries)
         const existing = await db.prepare(
-          `SELECT id FROM church_register WHERE person_id=? AND type='baptism'`
-        ).bind(p.id).first();
+          `SELECT id FROM church_register WHERE type='baptism' AND (person_id=? OR (event_date=? AND name=?))`
+        ).bind(p.id, p.baptism_date, fullName).first();
         if (existing) { skipped++; continue; }
-        await stmt.bind(p.baptism_date, ((p.first_name||'')+' '+(p.last_name||'')).trim(), p.dob||'', p.id).run();
+        await stmt.bind(p.baptism_date, fullName, p.dob||'', p.id).run();
         imported++;
       }
     }
@@ -1378,11 +1380,12 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
         `INSERT INTO church_register (type,event_date,name,dob,person_id) VALUES ('confirmation',?,?,?,?)`
       );
       for (const p of people) {
+        const fullName = ((p.first_name||'')+' '+(p.last_name||'')).trim();
         const existing = await db.prepare(
-          `SELECT id FROM church_register WHERE person_id=? AND type='confirmation'`
-        ).bind(p.id).first();
+          `SELECT id FROM church_register WHERE type='confirmation' AND (person_id=? OR (event_date=? AND name=?))`
+        ).bind(p.id, p.confirmation_date, fullName).first();
         if (existing) { skipped++; continue; }
-        await stmt.bind(p.confirmation_date, ((p.first_name||'')+' '+(p.last_name||'')).trim(), p.dob||'', p.id).run();
+        await stmt.bind(p.confirmation_date, fullName, p.dob||'', p.id).run();
         imported++;
       }
     }
@@ -2142,12 +2145,20 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         .filter(([k]) => k !== 'details' && k !== 'family')
         .map(([k, v]) => ({ key: k, val: (String(JSON.stringify(v) ?? '')).slice(0, 80) }));
     }
-    // Convert MM/DD/YYYY or YYYY-MM-DD to YYYY-MM-DD
+    // Convert MM/DD/YYYY, M/D/YYYY, or YYYY-MM-DD to YYYY-MM-DD
     const toISO = s => {
-      if (!s) return '';
-      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-      const parts = s.split('/');
-      if (parts.length === 3) return parts[2] + '-' + parts[0].padStart(2,'0') + '-' + parts[1].padStart(2,'0');
+      if (!s || typeof s !== 'string') return '';
+      const clean = s.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+      // M/D/YYYY or MM/DD/YYYY
+      const slash = clean.split('/');
+      if (slash.length === 3 && slash[2].length === 4)
+        return slash[2] + '-' + slash[0].padStart(2,'0') + '-' + slash[1].padStart(2,'0');
+      // Try JS Date as last resort (handles "January 1, 2000" etc.)
+      try {
+        const d = new Date(clean);
+        if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+      } catch {}
       return '';
     };
     // Load configured member types for direct matching
