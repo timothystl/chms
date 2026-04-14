@@ -75,15 +75,27 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
        JOIN giving_batches gb ON ge.batch_id=gb.id
        WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=cast(strftime('%Y','now')-1 as text)`
     ).first())?.total || 0;
-    // Upcoming birthdays — next 60 days
+    // Upcoming birthdays — next 60 days (exclude visitor/inactive)
     const birthdays = (await db.prepare(
       `SELECT id, first_name, last_name, dob FROM people
        WHERE active=1 AND dob != ''
+         AND LOWER(member_type) NOT IN ('visitor','inactive')
          AND cast(strftime('%j', date(substr(dob,1,4)||'-'||substr(dob,6,2)||'-'||substr(dob,9,2))) as integer)
            BETWEEN cast(strftime('%j','now') as integer)
              AND cast(strftime('%j','now') as integer)+60
        ORDER BY cast(strftime('%m%d', dob) as integer)
        LIMIT 15`
+    ).all()).results || [];
+    // Upcoming anniversaries — next 60 days
+    const anniversaries = (await db.prepare(
+      `SELECT id, first_name, last_name, anniversary_date FROM people
+       WHERE active=1 AND anniversary_date != ''
+         AND LOWER(member_type) NOT IN ('visitor','inactive')
+         AND cast(strftime('%j', date(substr(anniversary_date,1,4)||'-'||substr(anniversary_date,6,2)||'-'||substr(anniversary_date,9,2))) as integer)
+           BETWEEN cast(strftime('%j','now') as integer)
+             AND cast(strftime('%j','now') as integer)+60
+       ORDER BY cast(strftime('%m%d', anniversary_date) as integer)
+       LIMIT 10`
     ).all()).results || [];
     // Recent additions
     const recentPeople = (await db.prepare(
@@ -130,7 +142,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       // pastoral data: staff+ only
       followUpItems:   isStaff  ? followUpItems   : [],
       recentAttendance: isStaff ? recentAttendance : [],
-      birthdays, recentPeople, notSeenRecently
+      birthdays, anniversaries, recentPeople, notSeenRecently
     });
   }
 
@@ -2250,6 +2262,7 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         const memberType = matched || (configuredMemberTypes.includes('Other') ? 'Other' : configuredMemberTypes[0] || 'Other');
         // Dates — Breeze may return as a plain string, an object {date/value:"..."}, or an array.
         // extractDate unwraps all formats before passing to toISO.
+        // Also check p.birth_date top-level field which Breeze exposes directly.
         const extractDate = (raw) => {
           if (!raw) return '';
           if (typeof raw === 'string') return raw;
@@ -2259,7 +2272,7 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
           }
           return '';
         };
-        const dob             = toISO(extractDate(details[F_DOB])          || extractDate(details['birthdate']) || '');
+        const dob             = toISO(p.birth_date || extractDate(details[F_DOB]) || extractDate(details['birthdate']) || '');
         const baptismDate     = toISO(extractDate(details[F_BAPTISM])       || '');
         const confirmDate     = toISO(extractDate(details[F_CONFIRMATION])  || '');
         const anniversaryDate = toISO(extractDate(details[F_ANNIVERSARY])   || '');

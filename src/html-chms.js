@@ -825,7 +825,11 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <p>After a Breeze import, each status name that came in from Breeze appears here. Map it to your local member type so future imports assign the right type automatically.</p>
       <div id="settings-mt-map-list" style="margin-bottom:10px;"></div>
       <div id="settings-mt-map-hint" style="font-size:.8rem;color:var(--warm-gray);"></div>
-      <button class="btn-secondary" style="margin-top:10px;font-size:.82rem;" onclick="loadMemberTypeMap()">&#8635; Refresh</button>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px;">
+        <button class="btn-primary" style="font-size:.82rem;" id="mt-map-save-btn" onclick="saveMtMap()">Save Mapping</button>
+        <button class="btn-secondary" style="font-size:.82rem;" onclick="loadMemberTypeMap()">&#8635; Refresh</button>
+        <span id="mt-map-status" style="font-size:.82rem;"></span>
+      </div>
     </div>
     <!-- ── DATA IMPORT ── -->
     <div style="border-top:2px solid var(--border);margin-top:20px;padding-top:20px;">
@@ -2065,7 +2069,7 @@ function loadMemberTypeMap() {
       return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--linen);">'
         + '<span style="flex:1;font-size:.9rem;">'+esc(status)+'</span>'
         + '<svg viewBox="0 0 16 16" style="width:14px;height:14px;flex-shrink:0;fill:var(--warm-gray);"><path d="M8 1l7 7-7 7M1 8h14" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>'
-        + '<select onchange="saveMtMapEntry(\''+safeStatus+'\',this.value)" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;min-width:160px;">'
+        + '<select onchange="markMtMapChange(\''+safeStatus+'\',this.value)" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;min-width:160px;">'
         + '<option value="">— no mapping —</option>'
         + _memberTypes.map(function(t) { return '<option value="'+esc(t)+'"'+(mapped===t?' selected':'')+'>'+esc(t)+'</option>'; }).join('')
         + '</select>'
@@ -2073,12 +2077,25 @@ function loadMemberTypeMap() {
     }).join('');
   });
 }
-function saveMtMapEntry(status, localType) {
+function markMtMapChange(status, localType) {
   _mtMapData[status] = localType;
+  var statusEl = document.getElementById('mt-map-status');
+  if (statusEl) statusEl.textContent = 'Unsaved changes';
+}
+function saveMtMap() {
+  var btn = document.getElementById('mt-map-save-btn');
+  var statusEl = document.getElementById('mt-map-status');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   api('/admin/api/config/member-type-map', {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({map: _mtMapData})
+  }).then(function(d) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Mapping'; }
+    if (statusEl) { statusEl.textContent = 'Saved!'; statusEl.style.color = 'var(--teal)'; setTimeout(function(){ statusEl.textContent = ''; statusEl.style.color = ''; }, 2500); }
+  }).catch(function() {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Mapping'; }
+    if (statusEl) { statusEl.textContent = 'Error — try again'; statusEl.style.color = 'var(--danger)'; }
   });
 }
 
@@ -2228,6 +2245,28 @@ function renderDashboard(d) {
               + '</div>';
           }).join('')
         : '<div style="padding:20px 18px;color:var(--faint);font-size:13px;font-style:italic;">No birthdays in the next 60 days.</div>')
+    + '</div></div>';
+
+  // Upcoming anniversaries
+  html += '<div class="dash-card"><div class="dash-card-hdr">'
+    + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>'
+    + 'Upcoming Anniversaries <span style="font-weight:400;color:var(--warm-gray);font-size:11px;margin-left:4px;">next 60 days</span></div>'
+    + '<div class="dash-card-body">'
+    + (d.anniversaries && d.anniversaries.length
+        ? d.anniversaries.map(function(p) {
+            var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+            var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
+            var bg = pvColors[p.id % pvColors.length];
+            var parts = (p.anniversary_date||'').split('-');
+            var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            var dateStr = parts.length >= 3 ? months[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : p.anniversary_date;
+            return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
+              + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+              + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
+              + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
+              + '</div>';
+          }).join('')
+        : '<div style="padding:20px 18px;color:var(--faint);font-size:13px;font-style:italic;">No anniversaries in the next 60 days.</div>')
     + '</div></div>';
 
   // Membership breakdown
