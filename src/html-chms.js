@@ -532,6 +532,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div class="s-divider require-admin"></div>
   <div class="s-item require-admin" data-tab="import" onclick="showTab('import')"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg><span class="s-tip">Import</span></div>
   <div class="s-item require-admin" data-tab="volunteers" onclick="showTab('volunteers')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg><span class="s-tip">Volunteers</span></div>
+  <a class="s-item require-admin" href="/scheduler" target="_blank" title="Worship Scheduler" style="text-decoration:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg><span class="s-tip">Scheduler &#x2197;</span></a>
   <div class="s-bottom">
     <div class="s-item require-admin" data-tab="settings" onclick="showTab('settings')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span class="s-tip">Settings</span></div>
   </div>
@@ -760,8 +761,94 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   </div>
 </div>
 
-<!-- (import content moved into Settings tab) -->
-<div id="tab-import" style="display:none!important;"></div>
+<!-- ═══ IMPORT TAB ═══ -->
+<div id="tab-import" class="tab-panel">
+  <div style="padding:16px 20px 24px;max-width:900px;">
+    <div class="import-card">
+      <h3>&#9729; Sync from Breeze</h3>
+      <p>Pull people records directly from the Breeze API. Existing records (matched by Breeze ID) are updated; new people are added. Dates and photos already in the system are preserved if Breeze doesn't return a value.</p>
+      <button class="btn-primary" onclick="runBreezeImport()">Sync People from Breeze</button>
+      <div class="progress-bar" id="breeze-bar"><div class="progress-fill" id="breeze-fill" style="width:0%"></div></div>
+      <div class="import-status" id="breeze-status"></div>
+      <div id="breeze-diag" style="display:none;margin-top:10px;font-size:.78rem;font-family:monospace;background:var(--linen);padding:10px;border-radius:6px;white-space:pre-wrap;"></div>
+    </div>
+    <div class="import-card">
+      <h3>&#128181; Sync Giving from Breeze</h3>
+      <p>Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed in Giving &rarr; Funds after import.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+        <div class="field" style="margin:0;"><label>From</label><input type="date" id="giving-sync-from" style="font-size:.85rem;padding:4px 8px;"></div>
+        <div class="field" style="margin:0;"><label>To</label><input type="date" id="giving-sync-to" style="font-size:.85rem;padding:4px 8px;"></div>
+      </div>
+      <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Date Range</button>
+      <div class="import-status" id="giving-sync-status"></div>
+      <hr style="margin:14px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
+      <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+        <div class="field" style="margin:0;"><label>Start Year</label><input type="number" id="giving-sync-start-year" value="2020" min="2000" max="2099" style="width:90px;font-size:.85rem;padding:4px 8px;"></div>
+      </div>
+      <button class="btn-primary" id="giving-all-btn" onclick="runBreezeGivingAll()">Sync All History</button>
+      <div class="import-status" id="giving-all-status"></div>
+    </div>
+    <div class="import-card">
+      <h3>&#128181; Import Giving from Breeze CSV Export</h3>
+      <p>Export from Breeze: Contributions &rarr; Export to CSV. Drag &amp; drop the file below or click to browse. Already-imported contributions are skipped (safe to re-run).</p>
+      <div id="giving-csv-drop"
+        style="border:2px dashed var(--border);border-radius:8px;padding:28px 16px;text-align:center;cursor:pointer;margin-bottom:8px;transition:background .15s;"
+        onclick="document.getElementById(&#39;giving-csv-file&#39;).click()"
+        ondragover="event.preventDefault();this.style.background=&#39;#f0f4f8&#39;;"
+        ondragleave="this.style.background=&#39;&#39;;"
+        ondrop="event.preventDefault();this.style.background=&#39;&#39;;importGivingCSV(event.dataTransfer.files[0]);">
+        <div style="font-size:2rem;margin-bottom:6px;">&#128228;</div>
+        <div id="giving-csv-name" style="font-size:.88rem;color:var(--warm-gray);">Drop CSV here or click to browse</div>
+      </div>
+      <input type="file" id="giving-csv-file" accept=".csv,.txt" style="display:none;" onchange="importGivingCSV(this.files[0]);">
+      <div class="import-status" id="giving-csv-status"></div>
+    </div>
+    <div class="import-card">
+      <h3>&#128260; Map Breeze Funds to Real Fund Names</h3>
+      <p>After the giving sync, imported funds show as "Breeze Fund XXXXXXX". Use this tool to reassign all their contributions to your real fund names, then remove the placeholders.</p>
+      <button class="btn-secondary" onclick="loadFundMapping()" style="margin-bottom:10px;">Load Fund Mapping</button>
+      <div id="fund-map-area" style="display:none;">
+        <table style="width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:10px;" id="fund-map-table">
+          <thead><tr style="text-align:left;border-bottom:1px solid #ccc;"><th style="padding:4px 8px;">Breeze Fund</th><th style="padding:4px 8px;">Gifts</th><th style="padding:4px 8px;">Total</th><th style="padding:4px 8px;">Map to &rarr;</th></tr></thead>
+          <tbody id="fund-map-rows"></tbody>
+        </table>
+        <button class="btn-primary" onclick="applyFundMapping()">Apply Mapping</button>
+      </div>
+      <div class="import-status" id="fund-map-status"></div>
+    </div>
+    <div class="import-card">
+      <h3>&#128197; Import Attendance (Simple CSV)</h3>
+      <p>Paste or upload a 3-column file: <code>date, service_name, attendance</code>. Date must be YYYY-MM-DD. One row per service. Header row optional. Existing records for the same date+time are updated; new ones are inserted.</p>
+      <textarea id="att-simple-text" rows="6" style="width:100%;font-family:monospace;font-size:.8rem;padding:6px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;" placeholder="2024-03-10&#9;Sunday 8am&#9;112&#10;2024-03-10&#9;Sunday 10:45am&#9;187"></textarea>
+      <button class="btn-primary" onclick="importAttendanceSimple()">Import</button>
+      <div class="import-status" id="att-simple-status"></div>
+    </div>
+    <div class="import-card">
+      <h3>&#128465; Prune Empty Batches</h3>
+      <p>Remove any giving batches that have no entries (can be left behind by failed or partial imports). Safe to run at any time.</p>
+      <button class="btn-secondary" onclick="pruneEmptyBatches()">Delete Empty Batches</button>
+      <div class="import-status" id="prune-batches-status"></div>
+    </div>
+    <div class="import-card">
+      <h3>&#9997; Generate Register from People Records</h3>
+      <p>Create church register entries from baptism and confirmation dates already stored on people records. People who already have a matching register entry are skipped (safe to re-run).</p>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+        <div class="field" style="margin:0;"><label>Earliest date to include</label><input type="date" id="reg-gen-cutoff" value="1900-01-01" style="font-size:.85rem;padding:4px 8px;"></div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:.88rem;cursor:pointer;"><input type="checkbox" id="reg-gen-baptism" checked> Baptisms</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:.88rem;cursor:pointer;"><input type="checkbox" id="reg-gen-confirm" checked> Confirmations</label>
+      </div>
+      <button class="btn-primary" onclick="generateRegisterFromPeople()">Generate Register Entries</button>
+      <div class="import-status" id="reg-gen-status"></div>
+    </div>
+    <div class="import-card" style="border-color:#e74c3c;">
+      <h3 style="color:#e74c3c;">&#9888; Clear All Giving Data</h3>
+      <p>Permanently deletes all giving entries and batches from the database. Use this to start fresh before re-importing correct data. <strong>This cannot be undone.</strong></p>
+      <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearAllGiving()">&#9888; Clear All Giving Data</button>
+      <div class="import-status" id="clear-giving-status"></div>
+    </div>
+  </div>
+</div>
 
 <!-- ═══ SETTINGS TAB ═══ -->
 <div id="tab-settings" class="tab-panel">
@@ -829,92 +916,6 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
         <button class="btn-primary" style="font-size:.82rem;" id="mt-map-save-btn" onclick="saveMtMap()">Save Mapping</button>
         <button class="btn-secondary" style="font-size:.82rem;" onclick="loadMemberTypeMap()">&#8635; Refresh</button>
         <span id="mt-map-status" style="font-size:.82rem;"></span>
-      </div>
-    </div>
-    <!-- ── DATA IMPORT ── -->
-    <div style="border-top:2px solid var(--border);margin-top:20px;padding-top:20px;">
-      <h2 style="font-size:1rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--navy);margin-bottom:14px;">Data Import</h2>
-      <div class="import-card">
-        <h3>&#9729; Sync from Breeze</h3>
-        <p>Pull people records directly from the Breeze API. Existing records (matched by Breeze ID) are updated; new people are added.</p>
-        <button class="btn-primary" onclick="runBreezeImport()">Sync People from Breeze</button>
-        <div class="progress-bar" id="breeze-bar"><div class="progress-fill" id="breeze-fill" style="width:0%"></div></div>
-        <div class="import-status" id="breeze-status"></div>
-      </div>
-      <div class="import-card">
-        <h3>&#128181; Sync Giving from Breeze</h3>
-        <p>Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed in Giving &#8594; Funds after import.</p>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
-          <div class="field" style="margin:0;"><label>From</label><input type="date" id="giving-sync-from" style="font-size:.85rem;padding:4px 8px;"></div>
-          <div class="field" style="margin:0;"><label>To</label><input type="date" id="giving-sync-to" style="font-size:.85rem;padding:4px 8px;"></div>
-        </div>
-        <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Date Range</button>
-        <div class="import-status" id="giving-sync-status"></div>
-        <hr style="margin:14px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
-        <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
-          <div class="field" style="margin:0;"><label>Start Year</label><input type="number" id="giving-sync-start-year" value="2020" min="2000" max="2099" style="width:90px;font-size:.85rem;padding:4px 8px;"></div>
-        </div>
-        <button class="btn-primary" id="giving-all-btn" onclick="runBreezeGivingAll()">Sync All History</button>
-        <div class="import-status" id="giving-all-status"></div>
-      </div>
-      <div class="import-card">
-        <h3>&#128181; Import Giving from Breeze CSV Export</h3>
-        <p>Export from Breeze: Contributions &rarr; Export to CSV. Drag &amp; drop the file below or click to browse. Already-imported contributions are skipped (safe to re-run).</p>
-        <div id="giving-csv-drop"
-          style="border:2px dashed var(--border);border-radius:8px;padding:28px 16px;text-align:center;cursor:pointer;margin-bottom:8px;transition:background .15s;"
-          onclick="document.getElementById(&#39;giving-csv-file&#39;).click()"
-          ondragover="event.preventDefault();this.style.background=&#39;#f0f4f8&#39;;"
-          ondragleave="this.style.background=&#39;&#39;;"
-          ondrop="event.preventDefault();this.style.background=&#39;&#39;;importGivingCSV(event.dataTransfer.files[0]);">
-          <div style="font-size:2rem;margin-bottom:6px;">&#128228;</div>
-          <div id="giving-csv-name" style="font-size:.88rem;color:var(--warm-gray);">Drop CSV here or click to browse</div>
-        </div>
-        <input type="file" id="giving-csv-file" accept=".csv,.txt" style="display:none;" onchange="importGivingCSV(this.files[0]);">
-        <div class="import-status" id="giving-csv-status"></div>
-      </div>
-      <div class="import-card">
-        <h3>&#128260; Map Breeze Funds to Real Fund Names</h3>
-        <p>After the giving sync, imported funds show as "Breeze Fund XXXXXXX". Use this tool to reassign all their contributions to your real fund names, then remove the placeholders.</p>
-        <button class="btn-secondary" onclick="loadFundMapping()" style="margin-bottom:10px;">Load Fund Mapping</button>
-        <div id="fund-map-area" style="display:none;">
-          <table style="width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:10px;" id="fund-map-table">
-            <thead><tr style="text-align:left;border-bottom:1px solid #ccc;"><th style="padding:4px 8px;">Breeze Fund</th><th style="padding:4px 8px;">Gifts</th><th style="padding:4px 8px;">Total</th><th style="padding:4px 8px;">Map to &rarr;</th></tr></thead>
-            <tbody id="fund-map-rows"></tbody>
-          </table>
-          <button class="btn-primary" onclick="applyFundMapping()">Apply Mapping</button>
-        </div>
-        <div class="import-status" id="fund-map-status"></div>
-      </div>
-      <div class="import-card">
-        <h3>&#128197; Import Attendance (Simple CSV)</h3>
-        <p>Paste or upload a 3-column file: <code>date, service_name, attendance</code>. Date must be YYYY-MM-DD. One row per service. Header row optional. Existing records for the same date+time are updated; new ones are inserted.</p>
-        <textarea id="att-simple-text" rows="6" style="width:100%;font-family:monospace;font-size:.8rem;padding:6px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;" placeholder="2024-03-10&#9;Sunday 8am&#9;112&#10;2024-03-10&#9;Sunday 10:45am&#9;187"></textarea>
-        <button class="btn-primary" onclick="importAttendanceSimple()">Import</button>
-        <div class="import-status" id="att-simple-status"></div>
-      </div>
-      <div class="import-card">
-        <h3>&#128465; Prune Empty Batches</h3>
-        <p>Remove any giving batches that have no entries (can be left behind by failed or partial imports). Safe to run at any time.</p>
-        <button class="btn-secondary" onclick="pruneEmptyBatches()">Delete Empty Batches</button>
-        <div class="import-status" id="prune-batches-status"></div>
-      </div>
-      <div class="import-card">
-        <h3>&#9997; Generate Register from People Records</h3>
-        <p>Create church register entries from baptism and confirmation dates already stored on people records. People who already have a matching register entry are skipped (safe to re-run).</p>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
-          <div class="field" style="margin:0;"><label>Earliest date to include</label><input type="date" id="reg-gen-cutoff" value="1900-01-01" style="font-size:.85rem;padding:4px 8px;"></div>
-          <label style="display:flex;align-items:center;gap:6px;font-size:.88rem;cursor:pointer;"><input type="checkbox" id="reg-gen-baptism" checked> Baptisms</label>
-          <label style="display:flex;align-items:center;gap:6px;font-size:.88rem;cursor:pointer;"><input type="checkbox" id="reg-gen-confirm" checked> Confirmations</label>
-        </div>
-        <button class="btn-primary" onclick="generateRegisterFromPeople()">Generate Register Entries</button>
-        <div class="import-status" id="reg-gen-status"></div>
-      </div>
-      <div class="import-card" style="border-color:#e74c3c;">
-        <h3 style="color:#e74c3c;">&#9888; Clear All Giving Data</h3>
-        <p>Permanently deletes all giving entries and batches from the database. Use this to start fresh before re-importing correct data. <strong>This cannot be undone.</strong></p>
-        <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearAllGiving()">&#9888; Clear All Giving Data</button>
-        <div class="import-status" id="clear-giving-status"></div>
       </div>
     </div>
   </div>
@@ -1201,7 +1202,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     <div class="modal-section">Church Info</div>
     <div class="modal-2col">
       <div class="field"><label>Member Type</label>
-        <select id="pm-type" onchange="updatePersonNameMode()"><option value="member">Member</option><option value="associate">Associate</option><option value="friend">Friend</option><option value="visitor" selected>Visitor</option><option value="inactive">Inactive</option><option value="organization">Organization</option></select>
+        <select id="pm-type" onchange="updatePersonNameMode()"><!-- populated dynamically by openPersonEdit() from _memberTypes --></select>
       </div>
       <div class="field" id="pm-role-field"><label>Family Role</label>
         <select id="pm-role"><option value="">—</option><option value="head">Head</option><option value="spouse">Spouse</option><option value="child">Child</option><option value="other">Other</option></select>
@@ -1924,6 +1925,8 @@ function deleteUser(uid, username) {
 // ── SETTINGS ──────────────────────────────────────────────────────────
 function loadSettings() {
   if (_userRole === 'admin') loadUsers();
+  // Disable save buttons until data has loaded to prevent saving empty values
+  document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = true; });
   api('/admin/api/config/church').then(function(d) {
     _churchConfig = d || {};
     var el = document.getElementById('st-church-name');
@@ -1936,6 +1939,8 @@ function loadSettings() {
     if (el) el.value = d.church_from_email || '';
     el = document.getElementById('st-letter-tpl');
     if (el) el.value = d.giving_letter_template || DEFAULT_LETTER_TEMPLATE;
+    // Re-enable save buttons now that fields are populated
+    document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = false; });
   });
   api('/admin/api/tags').then(function(d) {
     allTags = d.tags || [];
@@ -1946,13 +1951,15 @@ function loadSettings() {
   loadMemberTypeMap();
 }
 function saveSettings() {
-  var data = {
-    church_name: (document.getElementById('st-church-name') || {}).value || '',
-    church_ein: (document.getElementById('st-ein') || {}).value || '',
-    church_from_name: (document.getElementById('st-from-name') || {}).value || '',
-    church_from_email: (document.getElementById('st-from-email') || {}).value || '',
-    giving_letter_template: (document.getElementById('st-letter-tpl') || {}).value || DEFAULT_LETTER_TEMPLATE
-  };
+  // Only include non-empty values — the API will skip saving empty strings,
+  // preserving whatever was previously stored.
+  var data = {};
+  var v;
+  v = (document.getElementById('st-church-name') || {}).value; if (v) data.church_name = v;
+  v = (document.getElementById('st-ein') || {}).value; if (v) data.church_ein = v;
+  v = (document.getElementById('st-from-name') || {}).value; if (v) data.church_from_name = v;
+  v = (document.getElementById('st-from-email') || {}).value; if (v) data.church_from_email = v;
+  v = (document.getElementById('st-letter-tpl') || {}).value || DEFAULT_LETTER_TEMPLATE; if (v) data.giving_letter_template = v;
   api('/admin/api/config/church', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(d) {
     if (d.ok) { _churchConfig = data; setStatus('st-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('st-status','');}, 2500); }
     else setStatus('st-status', 'Error: ' + (d.error||'unknown'), 'err');
@@ -3212,7 +3219,20 @@ function openPersonEdit(p) {
   document.getElementById('pm-city').value = isNew ? '' : (p.city||'');
   document.getElementById('pm-state').value = isNew ? 'MO' : (p.state||'MO');
   document.getElementById('pm-zip').value = isNew ? '' : (p.zip||'');
-  document.getElementById('pm-type').value = isNew ? 'visitor' : (p.member_type||'visitor');
+  // Populate member type select from current _memberTypes list (includes custom types)
+  // Always include 'Organization' as the last option for org records.
+  var pmType = document.getElementById('pm-type');
+  var mtOptions = (_memberTypes || []).filter(function(t){ return t.toLowerCase() !== 'organization'; });
+  pmType.innerHTML = mtOptions.map(function(t) {
+    return '<option value="' + esc(t) + '">' + esc(t) + '</option>';
+  }).join('') + '<option value="Organization">Organization</option>';
+  pmType.value = isNew ? 'Visitor' : (p.member_type || 'Visitor');
+  // Fallback: if DB value isn't in the list (e.g. old lowercase), try case-insensitive match
+  if (!pmType.value || pmType.value !== (isNew ? 'Visitor' : (p.member_type || 'Visitor'))) {
+    var mt = isNew ? 'Visitor' : (p.member_type || '');
+    var match = Array.from(pmType.options).find(function(o){ return o.value.toLowerCase() === mt.toLowerCase(); });
+    if (match) pmType.value = match.value;
+  }
   updatePersonNameMode();
   if (!isNew && p.member_type === 'organization') document.getElementById('pm-org-name').value = p.first_name||'';
   document.getElementById('pm-role').value = isNew ? '' : (p.family_role||'');

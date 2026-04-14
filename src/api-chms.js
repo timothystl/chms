@@ -1291,7 +1291,8 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     let b = {}; try { b = await req.json(); } catch {}
     const allowed = ['church_ein','church_from_name','church_from_email','giving_letter_template','church_name'];
     for (const k of allowed) {
-      if (b[k] !== undefined) {
+      // Only save non-empty values — preserves existing config if user saves with a blank field
+      if (b[k]) {
         await db.prepare("INSERT INTO chms_config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(k, String(b[k])).run();
       }
     }
@@ -1412,46 +1413,97 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   }
 
   // ── Dev Board (Kanban) ───────────────────────────────────────────
-  // ── Directory HTML (for print view) ─────────────────────────────
+  // ── Directory HTML (for print view) — grouped by household ─────
   if (seg === 'directory' && method === 'GET') {
-    const people = (await db.prepare(
-      `SELECT p.first_name, p.last_name, p.email, p.phone, p.address1, p.city, p.state, p.zip,
-              p.member_type, h.name as household_name
-       FROM people p LEFT JOIN households h ON p.household_id=h.id
+    const e = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    // Query A: people in households, ordered so head comes first within each household
+    const hhPeople = (await db.prepare(
+      `SELECT p.id, p.first_name, p.last_name, p.email, p.phone,
+              p.address1, p.city, p.state, p.zip, p.family_role, p.member_type,
+              p.household_id, h.name as household_name
+       FROM people p JOIN households h ON p.household_id=h.id
        WHERE p.active=1 AND p.public_directory=1
+         AND LOWER(p.member_type) NOT IN ('visitor','inactive','organization')
+       ORDER BY h.name, CASE p.family_role WHEN 'head' THEN 0 WHEN 'spouse' THEN 1 WHEN 'child' THEN 2 ELSE 3 END, p.last_name, p.first_name`
+    ).all()).results || [];
+    // Query B: people with no household
+    const solos = (await db.prepare(
+      `SELECT p.id, p.first_name, p.last_name, p.email, p.phone,
+              p.address1, p.city, p.state, p.zip, p.member_type
+       FROM people p WHERE p.active=1 AND p.public_directory=1 AND (p.household_id IS NULL OR p.household_id='')
+         AND LOWER(p.member_type) NOT IN ('visitor','inactive','organization')
        ORDER BY p.last_name, p.first_name`
     ).all()).results || [];
-    const e = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    const rows = people.map(p => {
-      const name = p.last_name || p.first_name
-        ? (p.last_name ? e(p.last_name) + (p.first_name ? ', ' + e(p.first_name) : '') : e(p.first_name))
-        : '(unnamed)';
+
+    // Group hhPeople by household_id
+    const hhMap = new Map();
+    for (const p of hhPeople) {
+      if (!hhMap.has(p.household_id)) hhMap.set(p.household_id, []);
+      hhMap.get(p.household_id).push(p);
+    }
+
+    let rows = '';
+    let entryCount = 0;
+    // Render households sorted by the head's last name (or first member's if no head)
+    const sortedHH = [...hhMap.values()].sort((a, b) => {
+      const aName = (a[0].last_name||'').toLowerCase();
+      const bName = (b[0].last_name||'').toLowerCase();
+      return aName < bName ? -1 : aName > bName ? 1 : 0;
+    });
+    for (const members of sortedHH) {
+      const head   = members.find(m => m.family_role === 'head') || members[0];
+      const spouse = members.find(m => m.family_role === 'spouse');
+      const children = members.filter(m => m.family_role === 'child' || (m.family_role !== 'head' && m.family_role !== 'spouse'));
+      // Household display name: "Last, First & SpouseFirst" or just "Last, First"
+      let dispName = e(head.last_name || head.first_name || '');
+      if (head.last_name) {
+        dispName = e(head.last_name);
+        const firstNames = [head.first_name, spouse ? spouse.first_name : ''].filter(Boolean);
+        if (firstNames.length) dispName += ', ' + firstNames.map(e).join(' & ');
+      }
+      const addr = [head.address1, head.city, ((head.state||'')+(head.zip?' '+head.zip:'')).trim()].filter(Boolean).map(e).join(', ');
+      const phone = head.phone || (spouse && spouse.phone) || '';
+      const email = head.email || (spouse && spouse.email) || '';
+      const contact = [addr, phone ? e(phone) : '', email ? e(email) : ''].filter(Boolean).join('<br>');
+      const childList = children.length
+        ? `<div class="members">${children.map(c => e(c.first_name||c.last_name||'')).join(', ')}</div>`
+        : '';
+      rows += `<div class="household"><div class="name">${dispName}</div>${childList}${contact ? `<div class="contact">${contact}</div>` : ''}</div>`;
+      entryCount++;
+    }
+    // Solo entries (no household)
+    for (const p of solos) {
+      const name = p.last_name
+        ? e(p.last_name) + (p.first_name ? ', ' + e(p.first_name) : '')
+        : e(p.first_name || '(unnamed)');
       const addr = [p.address1, p.city, ((p.state||'')+(p.zip?' '+p.zip:'')).trim()].filter(Boolean).map(e).join(', ');
       const contact = [addr, p.phone ? e(p.phone) : '', p.email ? e(p.email) : ''].filter(Boolean).join('<br>');
-      return `<div class="person"><div class="name">${name}</div>`
-        + (p.member_type && p.member_type !== 'visitor' ? `<div class="meta">${e(p.member_type)}</div>` : '')
-        + (contact ? `<div class="contact">${contact}</div>` : '')
-        + '</div>';
-    }).join('');
+      rows += `<div class="household"><div class="name">${name}</div>${contact ? `<div class="contact">${contact}</div>` : ''}</div>`;
+      entryCount++;
+    }
+
+    const churchNameRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_name'").first();
+    const churchName = churchNameRow?.value || 'Timothy Lutheran Church';
     const dirHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Church Directory — Timothy Lutheran</title>
+<title>Church Directory — ${e(churchName)}</title>
 <style>
 body{font-family:Georgia,serif;font-size:12pt;color:#222;margin:2cm;}
 h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bottom:20px;}
 .grid{columns:2;column-gap:28px;}
-.person{break-inside:avoid;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #ddd;}
-.name{font-weight:bold;font-size:11pt;} .meta{font-size:9pt;color:#777;text-transform:capitalize;}
-.contact{font-size:9pt;color:#444;margin-top:2px;line-height:1.5;}
+.household{break-inside:avoid;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #ddd;}
+.name{font-weight:bold;font-size:11pt;}
+.members{font-size:9pt;color:#555;margin-top:1px;}
+.contact{font-size:9pt;color:#444;margin-top:3px;line-height:1.5;}
 @media print{body{margin:1cm;} .no-print{display:none;}}
 @media screen{body{max-width:900px;margin:40px auto;padding:0 20px;}}
 </style></head><body>
 <div class="no-print" style="margin-bottom:20px;display:flex;gap:12px;align-items:center;">
   <button onclick="window.print()" style="padding:8px 18px;background:#1E2D4A;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;">Print / Save PDF</button>
-  <span style="font-size:13px;color:#666;">${people.length} people listed &nbsp;&bull;&nbsp; Printed ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</span>
+  <span style="font-size:13px;color:#666;">${entryCount} households/individuals &nbsp;&bull;&nbsp; Printed ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</span>
 </div>
 <h1>Church Directory</h1>
-<div class="subtitle">Timothy Lutheran Church &nbsp;&bull;&nbsp; ${new Date().toLocaleDateString('en-US',{month:'long',year:'numeric'})}</div>
+<div class="subtitle">${e(churchName)} &nbsp;&bull;&nbsp; ${new Date().toLocaleDateString('en-US',{month:'long',year:'numeric'})}</div>
 <div class="grid">${rows || '<p style="color:#999;">No public directory entries found.</p>'}</div>
 </body></html>`;
     return new Response(dirHtml, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
@@ -2357,25 +2409,39 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
               householdId = r.meta?.last_row_id;
             }
           }
-          // If this person is the head of household and has a photo, set it as the household photo
+          // If this person is the head of household and has a photo, update the household photo.
+          // Always update (not just when empty) so the household photo stays in sync with Breeze.
           if (householdId && familyRole === 'head' && photoUrl) {
             await db.prepare(
-              `UPDATE households SET photo_url=? WHERE id=? AND (photo_url IS NULL OR photo_url='')`
+              `UPDATE households SET photo_url=? WHERE id=?`
             ).bind(photoUrl, householdId).run();
           }
         }
         seenBreezeIds.add(String(p.id));
         const existing = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(String(p.id)).first();
         if (existing) {
+          // Use COALESCE(NULLIF(newVal,''),existingCol) for date + photo fields so that
+          // manually-entered data and any values Breeze doesn't return are never wiped.
+          // Contact/name/member fields are always overwritten (Breeze is authoritative for those).
           await db.prepare(
             `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,
              address1=?,city=?,state=?,zip=?,member_type=?,household_id=?,
-             dob=?,baptism_date=?,confirmation_date=?,anniversary_date=?,family_role=?,photo_url=?,
-             gender=?,marital_status=?,deceased=?,death_date=?,envelope_number=?,active=1
+             dob=COALESCE(NULLIF(?,''),dob),
+             baptism_date=COALESCE(NULLIF(?,''),baptism_date),
+             confirmation_date=COALESCE(NULLIF(?,''),confirmation_date),
+             anniversary_date=COALESCE(NULLIF(?,''),anniversary_date),
+             family_role=?,
+             photo_url=COALESCE(NULLIF(?,''),photo_url),
+             gender=COALESCE(NULLIF(?,''),gender),
+             marital_status=COALESCE(NULLIF(?,''),marital_status),
+             deceased=CASE WHEN ?=1 THEN 1 ELSE deceased END,
+             death_date=COALESCE(NULLIF(?,''),death_date),
+             envelope_number=COALESCE(NULLIF(?,''),envelope_number),
+             active=1
              WHERE breeze_id=?`
           ).bind(fn,ln,email,phone,addr.street,addr.city,addr.state,addr.zip,memberType,householdId,
-                 dob,baptismDate,confirmDate,anniversaryDate,familyRole,photoUrl,
-                 gender,maritalStatus,deceasedFlag,deathDate,envelopeNumber,String(p.id)).run();
+                 dob,baptismDate,confirmDate,anniversaryDate,familyRole,
+                 photoUrl,gender,maritalStatus,deceasedFlag,deathDate,envelopeNumber,String(p.id)).run();
           updated++;
         } else {
           await db.prepare(
