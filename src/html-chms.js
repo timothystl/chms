@@ -104,20 +104,20 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 #offline-banner{position:relative;z-index:200;}
 .app-shell{display:flex;height:100vh;}
 /* ── SIDEBAR ── */
-.sidebar{width:54px;background:var(--navy);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px;flex-shrink:0;z-index:100;}
-.s-logo{width:34px;height:34px;border-radius:8px;background:var(--gold-accent);display:flex;align-items:center;justify-content:center;margin-bottom:10px;flex-shrink:0;}
+.sidebar{position:fixed;left:0;top:0;height:100vh;width:54px;background:var(--navy);display:flex;flex-direction:column;align-items:stretch;padding:12px 0;gap:4px;overflow:hidden;transition:width .2s ease;z-index:200;}.sidebar:hover{width:200px;}a.s-item{text-decoration:none;color:inherit;}
+.s-logo{width:34px;height:34px;border-radius:8px;background:var(--gold-accent);display:flex;align-items:center;justify-content:center;margin-bottom:10px;flex-shrink:0;cursor:pointer;align-self:center;}
 .s-logo svg{width:18px;height:18px;fill:white;}
-.s-item{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative;flex-shrink:0;transition:background .12s;}
+.s-item{width:100%;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:flex-start;padding:0 8px 0 14px;gap:10px;cursor:pointer;position:relative;flex-shrink:0;transition:background .12s;overflow:hidden;white-space:nowrap;}
 .s-item:hover{background:rgba(255,255,255,.1);}
 .s-item.active{background:var(--teal);}
-.s-item svg{width:19px;height:19px;fill:none;stroke:rgba(255,255,255,.55);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;}
+.s-item svg{width:19px;height:19px;fill:none;stroke:rgba(255,255,255,.55);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
 .s-item.active svg{stroke:white;}
-.s-divider{width:28px;height:1px;background:rgba(255,255,255,.15);margin:4px 0;flex-shrink:0;}
-.s-bottom{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:4px;}
-.s-tip{position:absolute;left:48px;top:50%;transform:translateY(-50%);background:var(--navy);color:white;font-size:12px;white-space:nowrap;padding:4px 10px;border-radius:6px;pointer-events:none;opacity:0;transition:opacity .12s;z-index:300;border:1px solid rgba(255,255,255,.15);}
-.s-item:hover .s-tip{opacity:1;}
+.s-divider{width:28px;height:1px;background:rgba(255,255,255,.15);margin:4px 0;flex-shrink:0;align-self:center;}
+.s-bottom{margin-top:auto;display:flex;flex-direction:column;align-items:stretch;gap:4px;}
+.s-tip{position:static;transform:none;background:transparent;border:none;padding:0;font-size:13px;color:rgba(255,255,255,.7);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .12s;z-index:auto;}
+.sidebar:hover .s-tip{opacity:1;}
 /* ── CONTENT AREA ── */
-.content-area{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.content-area{flex:1;display:flex;flex-direction:column;overflow:hidden;margin-left:54px;}
 /* ── TOPBAR ── */
 .topbar{height:50px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0;background:var(--white);}
 .topbar-title{font-size:15px;font-weight:500;color:var(--charcoal);flex:1;}
@@ -125,10 +125,12 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 .hamburger svg{width:22px;height:22px;stroke:var(--charcoal);fill:none;stroke-width:2;}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:90;}
 @media(max-width:700px){
-  .sidebar{position:fixed;left:-54px;height:100vh;top:0;transition:left .2s;}
+  .sidebar{left:-200px;width:200px;transition:left .2s;}
+  .sidebar:hover{width:200px;}
   .sidebar.open{left:0;}
   .sidebar-overlay.open{display:block;}
   .hamburger{display:flex;}
+  .content-area{margin-left:0;}
 }
 /* ── TOOLBAR ── */
 .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
@@ -487,8 +489,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 <div id="error-boundary" role="alert" aria-live="assertive" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;background:#c0392b;color:#fff;padding:11px 20px;border-radius:9px;font-size:.85rem;max-width:520px;width:90vw;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.3);"></div>
 <div class="app-shell">
 <nav class="sidebar" id="sidebar">
-  <div class="s-logo"><svg viewBox="0 0 20 20"><path d="M10 1L2 7v12h6v-5h4v5h6V7L10 1z"/></svg></div>
-  <div class="s-item active" data-tab="home" onclick="showTab('home')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Home</span></div>
+  <div class="s-logo" onclick="showTab('home')" title="Home"><svg viewBox="0 0 20 20"><path d="M10 1L2 7v12h6v-5h4v5h6V7L10 1z"/></svg></div>
+  <div class="s-item active" data-tab="home" onclick="showTab('home')"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg><span class="s-tip">Home</span></div>
   <div class="s-divider"></div>
   <div class="s-item" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
   <div class="s-item" data-tab="households" onclick="showTab('households')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Households</span></div>
@@ -499,6 +501,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div class="s-item" data-tab="register" onclick="showTab('register')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="9" y1="7" x2="17" y2="7"/><line x1="9" y1="11" x2="14" y2="11"/></svg><span class="s-tip">Register</span></div>
   <div class="s-divider"></div>
   <div class="s-item" data-tab="import" onclick="showTab('import')"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg><span class="s-tip">Import</span></div>
+  <div class="s-divider"></div>
+  <a href="/admin" class="s-item" title="Volunteers"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg><span class="s-tip">Volunteers</span></a>
+  <a href="/scheduler" class="s-item" title="Scheduler"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><circle cx="12" cy="16" r="2"/></svg><span class="s-tip">Scheduler</span></a>
   <div class="s-bottom">
     <div class="s-item" data-tab="settings" onclick="showTab('settings')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span class="s-tip">Settings</span></div>
   </div>
@@ -509,8 +514,6 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <span class="topbar-title" id="topbar-title">People</span>
   <div style="display:flex;gap:8px;align-items:center;">
     <span style="font-size:.7rem;color:var(--warm-gray);" id="deploy-ver"></span>
-    <a href="/admin" class="btn-sm">Volunteers</a>
-    <a href="/scheduler" class="btn-sm">Scheduler</a>
     <a href="/admin/logout" class="btn-sm">Sign Out</a>
   </div>
 </div>
