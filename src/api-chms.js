@@ -2234,12 +2234,14 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
     const F_GENDER_FIELD   = findFieldPS(['gender','sex','gender identity'], ['gender','sex']);
     const F_MARITAL_FIELD  = findFieldPS(['marital status','marital','marriage status','civil status','married']);
 
-    const F_DOB          = F_DOB_FIELD      ? String(F_DOB_FIELD.id)      : '';
-    const F_BAPTISM      = F_BAPTISM_FIELD  ? String(F_BAPTISM_FIELD.id)  : '';
-    const F_CONFIRMATION = F_CONFIRM_FIELD  ? String(F_CONFIRM_FIELD.id)  : '';
-    const F_ANNIVERSARY  = F_ANNIV_FIELD    ? String(F_ANNIV_FIELD.id)    : '';
-    const F_GENDER       = F_GENDER_FIELD   ? String(F_GENDER_FIELD.id)   : '';
-    const F_MARITAL      = F_MARITAL_FIELD  ? String(F_MARITAL_FIELD.id)  : '';
+    // Use field_id if present — some Breeze instances use a separate field_id as the details key
+    const fieldKeyPS = (f) => f ? String(f.field_id || f.id) : '';
+    const F_DOB          = fieldKeyPS(F_DOB_FIELD);
+    const F_BAPTISM      = fieldKeyPS(F_BAPTISM_FIELD);
+    const F_CONFIRMATION = fieldKeyPS(F_CONFIRM_FIELD);
+    const F_ANNIVERSARY  = fieldKeyPS(F_ANNIV_FIELD);
+    const F_GENDER       = fieldKeyPS(F_GENDER_FIELD);
+    const F_MARITAL      = fieldKeyPS(F_MARITAL_FIELD);
 
     const toISOPS = s => {
       if (!s || typeof s !== 'string') return '';
@@ -2293,15 +2295,17 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
       profile_fields_total: allFields.length,
       all_profile_field_names: allFields.map(f => ({ id: String(f.id), name: f.name })),
       field_matches: {
-        dob:           { field: F_DOB_FIELD      ? { id: F_DOB_FIELD.id,      name: F_DOB_FIELD.name      } : null, raw: details[F_DOB]          ?? null, extracted: dob },
-        baptism:       { field: F_BAPTISM_FIELD  ? { id: F_BAPTISM_FIELD.id,  name: F_BAPTISM_FIELD.name  } : null, raw: details[F_BAPTISM]      ?? null, extracted: baptismDate },
-        confirmation:  { field: F_CONFIRM_FIELD  ? { id: F_CONFIRM_FIELD.id,  name: F_CONFIRM_FIELD.name  } : null, raw: details[F_CONFIRMATION] ?? null, extracted: confirmDate },
-        anniversary:   { field: F_ANNIV_FIELD    ? { id: F_ANNIV_FIELD.id,    name: F_ANNIV_FIELD.name    } : null, raw: details[F_ANNIVERSARY]  ?? null, extracted: anniversaryDate },
-        gender:        { field: F_GENDER_FIELD   ? { id: F_GENDER_FIELD.id,   name: F_GENDER_FIELD.name   } : null, raw: details[F_GENDER]       ?? null, extracted: gender },
-        marital_status:{ field: F_MARITAL_FIELD  ? { id: F_MARITAL_FIELD.id,  name: F_MARITAL_FIELD.name  } : null, raw: details[F_MARITAL]      ?? null, extracted: maritalStatus },
+        dob:           { field: F_DOB_FIELD      ? { id: F_DOB_FIELD.id,      field_id: F_DOB_FIELD.field_id,      name: F_DOB_FIELD.name      } : null, raw: details[F_DOB]          ?? null, extracted: dob },
+        baptism:       { field: F_BAPTISM_FIELD  ? { id: F_BAPTISM_FIELD.id,  field_id: F_BAPTISM_FIELD.field_id,  name: F_BAPTISM_FIELD.name  } : null, raw: details[F_BAPTISM]      ?? null, extracted: baptismDate },
+        confirmation:  { field: F_CONFIRM_FIELD  ? { id: F_CONFIRM_FIELD.id,  field_id: F_CONFIRM_FIELD.field_id,  name: F_CONFIRM_FIELD.name  } : null, raw: details[F_CONFIRMATION] ?? null, extracted: confirmDate },
+        anniversary:   { field: F_ANNIV_FIELD    ? { id: F_ANNIV_FIELD.id,    field_id: F_ANNIV_FIELD.field_id,    name: F_ANNIV_FIELD.name    } : null, raw: details[F_ANNIVERSARY]  ?? null, extracted: anniversaryDate },
+        gender:        { field: F_GENDER_FIELD   ? { id: F_GENDER_FIELD.id,   field_id: F_GENDER_FIELD.field_id,   name: F_GENDER_FIELD.name   } : null, raw: details[F_GENDER]       ?? null, extracted: gender },
+        marital_status:{ field: F_MARITAL_FIELD  ? { id: F_MARITAL_FIELD.id,  field_id: F_MARITAL_FIELD.field_id,  name: F_MARITAL_FIELD.name  } : null, raw: details[F_MARITAL]      ?? null, extracted: maritalStatus },
       },
       detail_keys_in_breeze: Object.keys(details),
       detail_sample: Object.entries(details).slice(0, 30).map(([k,v]) => ({ key: k, val: String(JSON.stringify(v) ?? '').slice(0, 200) })),
+      // Show raw profile field objects (truncated) so we can see if there's a field_id vs id discrepancy
+      profile_fields_raw: allFields.map(f => ({ id: f.id, field_id: f.field_id, name: f.name, has_sub_fields: Array.isArray(f.fields) && f.fields.length > 0 })),
       local_before: localPerson || null,
     };
 
@@ -2329,12 +2333,17 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
     const matchSummary = ['dob','baptism','confirmation','anniversary','gender','marital_status']
       .map(k => k + ': ' + (fm[k].field ? fm[k].field.name + ' (id ' + fm[k].field.id + ')' : 'NOT FOUND') + ' => "' + (fm[k].extracted || '') + '"')
       .join('\n');
+    // Show first 20 detail key:value pairs so we can see what Breeze is actually storing
+    const detailDump = Object.entries(details).slice(0, 20)
+      .map(([k, v]) => '  ' + k + ': ' + String(JSON.stringify(v) ?? '').slice(0, 80))
+      .join('\n');
     const summary = 'Profile fields discovered: ' + allFields.length
       + '\nDetail keys on this person: ' + Object.keys(details).length
       + '\nTop-level birth_date: "' + (p.birth_date || '') + '"'
       + '\nFetch: single=' + (fetchDebug.single_status||'?') + ' (' + (fetchDebug.single_detail_keys||0) + ' keys)'
       + (fetchDebug.list_status ? ', list=' + fetchDebug.list_status + ' (' + (fetchDebug.list_count||0) + ' results)' : '')
       + '\n\nField matching:\n' + matchSummary
+      + '\n\nDetail key sample (first 20):\n' + detailDump
       + '\n\nAll profile field names:\n' + allFields.map(f => '  ' + f.id + ': ' + f.name).join('\n');
 
     return json({
@@ -2412,17 +2421,19 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
     const F_DECEASED_FIELD = findField(['deceased','is deceased','date deceased','date of death','death'], ['deceased','death']);
     const F_DEATH_FIELD    = findField(['death date','date of death','date deceased','died'], ['death date','date of death','died']);
     const F_ENVELOPE_FIELD = findField(['envelope number','envelope #','envelope','giving number','contribution number','giving envelope'], ['envelope']);
-    // Use empty string as fallback so details[''] is always undefined — never accidentally match a real field
-    const F_STATUS       = F_STATUS_FIELD   ? String(F_STATUS_FIELD.id)   : '';
-    const F_DOB          = F_DOB_FIELD      ? String(F_DOB_FIELD.id)      : '';
-    const F_BAPTISM      = F_BAPTISM_FIELD  ? String(F_BAPTISM_FIELD.id)  : '';
-    const F_CONFIRMATION = F_CONFIRM_FIELD  ? String(F_CONFIRM_FIELD.id)  : '';
-    const F_ANNIVERSARY  = F_ANNIV_FIELD    ? String(F_ANNIV_FIELD.id)    : '';
-    const F_GENDER       = F_GENDER_FIELD   ? String(F_GENDER_FIELD.id)   : '';
-    const F_MARITAL      = F_MARITAL_FIELD  ? String(F_MARITAL_FIELD.id)  : '';
-    const F_DECEASED     = F_DECEASED_FIELD ? String(F_DECEASED_FIELD.id) : '';
-    const F_DEATH_DATE   = F_DEATH_FIELD    ? String(F_DEATH_FIELD.id)    : '';
-    const F_ENVELOPE     = F_ENVELOPE_FIELD ? String(F_ENVELOPE_FIELD.id) : '';
+    // Use field_id when present — some Breeze instances use a separate field_id as the details key.
+    // Fall back to id. Use '' so details[''] is always undefined (never matches a real key).
+    const fk = (f) => f ? String(f.field_id || f.id) : '';
+    const F_STATUS       = fk(F_STATUS_FIELD);
+    const F_DOB          = fk(F_DOB_FIELD);
+    const F_BAPTISM      = fk(F_BAPTISM_FIELD);
+    const F_CONFIRMATION = fk(F_CONFIRM_FIELD);
+    const F_ANNIVERSARY  = fk(F_ANNIV_FIELD);
+    const F_GENDER       = fk(F_GENDER_FIELD);
+    const F_MARITAL      = fk(F_MARITAL_FIELD);
+    const F_DECEASED     = fk(F_DECEASED_FIELD);
+    const F_DEATH_DATE   = fk(F_DEATH_FIELD);
+    const F_ENVELOPE     = fk(F_ENVELOPE_FIELD);
     // Breeze's built-in person-type field ID (not returned by /api/profile).
     // Values 1/2/3 are Breeze's universal numeric IDs for Member/Attender/Visitor.
     const BREEZE_TYPE_FIELD = '1076274773';
