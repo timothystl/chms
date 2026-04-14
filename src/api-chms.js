@@ -297,15 +297,22 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const q = '%' + (url.searchParams.get('q') || '') + '%';
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
     const offset = parseInt(url.searchParams.get('offset') || '0');
+    const sort = url.searchParams.get('sort') || 'name';
+    const orderBy = sort === 'members_desc' ? 'member_count DESC, h.name'
+                  : sort === 'members_asc'  ? 'member_count ASC, h.name'
+                  : 'h.name';
     const countRow = await db.prepare(
       `SELECT COUNT(*) as n FROM households h WHERE h.name LIKE ? OR h.address1 LIKE ? OR h.city LIKE ?`
     ).bind(q,q,q).first();
     const total = countRow?.n || 0;
     const rows = (await db.prepare(
-      `SELECT h.*, COUNT(p.id) as member_count FROM households h
+      `SELECT h.*, COUNT(p.id) as member_count,
+        (SELECT p2.id FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.family_role='head' LIMIT 1) as head_person_id,
+        (SELECT p3.id FROM people p3 WHERE p3.household_id=h.id AND p3.active=1 ORDER BY p3.id LIMIT 1) as first_person_id
+       FROM households h
        LEFT JOIN people p ON p.household_id=h.id AND p.active=1
        WHERE h.name LIKE ? OR h.address1 LIKE ? OR h.city LIKE ?
-       GROUP BY h.id ORDER BY h.name LIMIT ? OFFSET ?`
+       GROUP BY h.id ORDER BY ${orderBy} LIMIT ? OFFSET ?`
     ).bind(q,q,q,limit,offset).all()).results || [];
     return json({ households: rows, total, offset, limit });
   }
@@ -313,8 +320,8 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   if (seg === 'households' && method === 'POST') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const r = await db.prepare(
-      `INSERT INTO households (name,address1,address2,city,state,zip,notes) VALUES (?,?,?,?,?,?,?)`
-    ).bind(b.name||'',b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',b.notes||'').run();
+      `INSERT INTO households (name,address1,address2,city,state,zip,notes,photo_url) VALUES (?,?,?,?,?,?,?,?)`
+    ).bind(b.name||'',b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',b.notes||'',b.photo_url||'').run();
     return json({ ok: true, id: r.meta?.last_row_id });
   }
 
@@ -332,8 +339,8 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     if (method === 'PUT') {
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
       await db.prepare(
-        `UPDATE households SET name=?,address1=?,address2=?,city=?,state=?,zip=?,notes=? WHERE id=?`
-      ).bind(b.name||'',b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',b.notes||'',hid).run();
+        `UPDATE households SET name=?,address1=?,address2=?,city=?,state=?,zip=?,notes=?,photo_url=? WHERE id=?`
+      ).bind(b.name||'',b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',b.notes||'',b.photo_url||'',hid).run();
       return json({ ok: true });
     }
     if (method === 'DELETE') {
@@ -1343,7 +1350,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
 
   if (seg === 'import/register-from-people' && method === 'POST') {
     let b = {}; try { b = await req.json(); } catch {}
-    const cutoff = b.cutoff || '2020-01-01';
+    const cutoff = b.cutoff || '1900-01-01';
     const types = Array.isArray(b.types) ? b.types : ['baptism','confirmation'];
     let imported = 0, skipped = 0;
 
@@ -1356,11 +1363,13 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
         `INSERT INTO church_register (type,event_date,name,dob,person_id) VALUES ('baptism',?,?,?,?)`
       );
       for (const p of people) {
+        const fullName = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+        // Skip if already in register by person_id link OR by matching name+date (catches manual entries)
         const existing = await db.prepare(
-          `SELECT id FROM church_register WHERE person_id=? AND type='baptism'`
-        ).bind(p.id).first();
+          `SELECT id FROM church_register WHERE type='baptism' AND (person_id=? OR (event_date=? AND name=?))`
+        ).bind(p.id, p.baptism_date, fullName).first();
         if (existing) { skipped++; continue; }
-        await stmt.bind(p.baptism_date, ((p.first_name||'')+' '+(p.last_name||'')).trim(), p.dob||'', p.id).run();
+        await stmt.bind(p.baptism_date, fullName, p.dob||'', p.id).run();
         imported++;
       }
     }
@@ -1374,11 +1383,12 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
         `INSERT INTO church_register (type,event_date,name,dob,person_id) VALUES ('confirmation',?,?,?,?)`
       );
       for (const p of people) {
+        const fullName = ((p.first_name||'')+' '+(p.last_name||'')).trim();
         const existing = await db.prepare(
-          `SELECT id FROM church_register WHERE person_id=? AND type='confirmation'`
-        ).bind(p.id).first();
+          `SELECT id FROM church_register WHERE type='confirmation' AND (person_id=? OR (event_date=? AND name=?))`
+        ).bind(p.id, p.confirmation_date, fullName).first();
         if (existing) { skipped++; continue; }
-        await stmt.bind(p.confirmation_date, ((p.first_name||'')+' '+(p.last_name||'')).trim(), p.dob||'', p.id).run();
+        await stmt.bind(p.confirmation_date, fullName, p.dob||'', p.id).run();
         imported++;
       }
     }
@@ -2089,14 +2099,20 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
     for (const section of (Array.isArray(profileFields) ? profileFields : [])) {
       extractFields(section.fields || []);
     }
-    const findField = (names) => {
+    const findField = (names, fallbackSubstrings = []) => {
       const ns = names.map(n => n.toLowerCase());
-      return allFields.find(f => ns.includes((f.name||'').toLowerCase()));
+      // 1. Exact name match
+      let found = allFields.find(f => ns.includes((f.name||'').toLowerCase()));
+      // 2. Substring fallback (catches "LCMS Baptism Date", "Date Baptized", etc.)
+      if (!found && fallbackSubstrings.length) {
+        found = allFields.find(f => fallbackSubstrings.some(s => (f.name||'').toLowerCase().includes(s)));
+      }
+      return found;
     };
-    const F_STATUS_FIELD   = findField(['status','member status','membership status','fellowship status','church status','member type','church membership','congregational status','person status','participation status','attendance status']);
-    const F_DOB_FIELD      = findField(['birthdate','birth date','dob','date of birth','birthday']);
-    const F_BAPTISM_FIELD  = findField(['baptism date','baptism','baptism_date','date of baptism','baptized']);
-    const F_CONFIRM_FIELD  = findField(['confirmation date','confirmation','confirmation_date','date of confirmation','confirmed']);
+    const F_STATUS_FIELD   = findField(['status','member status','membership status','fellowship status','church status','member type','church membership','congregational status','person status','participation status','attendance status'], ['status','membership']);
+    const F_DOB_FIELD      = findField(['birthdate','birth date','dob','date of birth','birthday','date of birth'], ['birth','birthday']);
+    const F_BAPTISM_FIELD  = findField(['baptism date','baptism','baptism_date','date of baptism','baptized','date baptized','date of baptism','baptism (date)'], ['baptism','baptized']);
+    const F_CONFIRM_FIELD  = findField(['confirmation date','confirmation','confirmation_date','date of confirmation','confirmed','date confirmed','date of confirmation','confirmation (date)'], ['confirmation','confirmed']);
     const F_ANNIV_FIELD    = findField(['anniversary date','anniversary','anniversary_date','wedding anniversary','wedding date']);
     const F_GENDER_FIELD   = findField(['gender','sex','gender identity']);
     const F_MARITAL_FIELD  = findField(['marital status','marital','marriage status','civil status','married']);
@@ -2138,12 +2154,20 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         .filter(([k]) => k !== 'details' && k !== 'family')
         .map(([k, v]) => ({ key: k, val: (String(JSON.stringify(v) ?? '')).slice(0, 80) }));
     }
-    // Convert MM/DD/YYYY or YYYY-MM-DD to YYYY-MM-DD
+    // Convert MM/DD/YYYY, M/D/YYYY, or YYYY-MM-DD to YYYY-MM-DD
     const toISO = s => {
-      if (!s) return '';
-      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-      const parts = s.split('/');
-      if (parts.length === 3) return parts[2] + '-' + parts[0].padStart(2,'0') + '-' + parts[1].padStart(2,'0');
+      if (!s || typeof s !== 'string') return '';
+      const clean = s.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+      // M/D/YYYY or MM/DD/YYYY
+      const slash = clean.split('/');
+      if (slash.length === 3 && slash[2].length === 4)
+        return slash[2] + '-' + slash[0].padStart(2,'0') + '-' + slash[1].padStart(2,'0');
+      // Try JS Date as last resort (handles "January 1, 2000" etc.)
+      try {
+        const d = new Date(clean);
+        if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+      } catch {}
       return '';
     };
     // Load configured member types for direct matching
@@ -2218,18 +2242,35 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         const mappedType = statusName ? (memberTypeMap[statusName] || memberTypeMap[statusName.toLowerCase()] || null) : null;
         const matched = mappedType || (statusName ? configuredMemberTypes.find(t => t.toLowerCase() === statusName.toLowerCase()) : null);
         const memberType = matched || (configuredMemberTypes.includes('Other') ? 'Other' : configuredMemberTypes[0] || 'Other');
-        // Dates (stored as plain strings under their field ID key)
-        const dob          = toISO(details[F_DOB]          || details['birthdate'] || '');
-        const baptismDate  = toISO(details[F_BAPTISM]       || '');
-        const confirmDate  = toISO(details[F_CONFIRMATION]  || '');
-        const anniversaryDate = toISO(details[F_ANNIVERSARY] || '');
+        // Dates — Breeze may return as a plain string, an object {date/value:"..."}, or an array.
+        // extractDate unwraps all formats before passing to toISO.
+        const extractDate = (raw) => {
+          if (!raw) return '';
+          if (typeof raw === 'string') return raw;
+          const obj = Array.isArray(raw) ? raw[0] : raw;
+          if (obj && typeof obj === 'object') {
+            return obj.date || obj.value || obj.name || '';
+          }
+          return '';
+        };
+        const dob             = toISO(extractDate(details[F_DOB])          || extractDate(details['birthdate']) || '');
+        const baptismDate     = toISO(extractDate(details[F_BAPTISM])       || '');
+        const confirmDate     = toISO(extractDate(details[F_CONFIRMATION])  || '');
+        const anniversaryDate = toISO(extractDate(details[F_ANNIVERSARY])   || '');
         // Gender and marital status (stored as {value, name} objects)
         const gender        = F_GENDER  ? extractName(details[F_GENDER])  : '';
         const maritalStatus = F_MARITAL ? extractName(details[F_MARITAL]) : '';
-        // Photo: Breeze returns the path in p.path; build full URL and skip generic placeholders
-        let photoUrl = (p.thumb || p.thumbnail || p.photo || '').trim();
-        if (!photoUrl && p.path && !p.path.includes('/generic/')) {
+        // Photo: build full URL from p.path (relative path on Breeze CDN).
+        // Ignore p.thumb/p.photo — they may be blob/data URLs or generic placeholders.
+        // Skip any path that looks like a generic/default avatar.
+        const GENERIC_PAT = ['/generic/', 'silhouette', 'no-photo', 'placeholder', 'default-avatar', 'profile-generic'];
+        let photoUrl = '';
+        if (p.path && !GENERIC_PAT.some(pat => p.path.toLowerCase().includes(pat))) {
           photoUrl = `https://${subdomain}.breezechms.com/${p.path}`;
+        } else if (typeof p.thumb === 'string' && p.thumb.startsWith('https://') &&
+                   p.thumb.includes('breezechms.com') &&
+                   !GENERIC_PAT.some(pat => p.thumb.toLowerCase().includes(pat))) {
+          photoUrl = p.thumb;
         }
         // Email, phone, address (from typed arrays)
         let email = '', phone = '';
@@ -2273,6 +2314,12 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
               ).bind(hhName, addr.street, addr.city, addr.state, addr.zip, bFamilyId).run();
               householdId = r.meta?.last_row_id;
             }
+          }
+          // If this person is the head of household and has a photo, set it as the household photo
+          if (householdId && familyRole === 'head' && photoUrl) {
+            await db.prepare(
+              `UPDATE households SET photo_url=? WHERE id=? AND (photo_url IS NULL OR photo_url='')`
+            ).bind(photoUrl, householdId).run();
           }
         }
         const existing = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(String(p.id)).first();
@@ -2382,7 +2429,7 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         }
       } catch (e) { errors.push({ tag_sync_error: e.message }); }
     }
-    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
+    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, dob_field: F_DOB_FIELD ? {id: F_DOB_FIELD.id, name: F_DOB_FIELD.name} : null, baptism_field: F_BAPTISM_FIELD ? {id: F_BAPTISM_FIELD.id, name: F_BAPTISM_FIELD.name} : null, confirmation_field: F_CONFIRM_FIELD ? {id: F_CONFIRM_FIELD.id, name: F_CONFIRM_FIELD.name} : null, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
   }
 
   return json({ error: 'Not found' }, 404);

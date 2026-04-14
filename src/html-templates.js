@@ -721,7 +721,8 @@ header{background:var(--navy);color:#fff;padding:.75rem 1.5rem;display:flex;alig
     <div class="header-sub">volunteer.timothystl.org</div>
   </div>
   <div style="display:flex;gap:.5rem;align-items:center;">
-    <a href="/scheduler/" class="btn-logout">Scheduler &#x2197;</a>
+    <a href="/chms" class="btn-logout">Church Mgmt</a>
+    <a href="/scheduler/" class="btn-logout">Scheduler</a>
     <a href="#" onclick="doLogout()" class="btn-logout">Sign out</a>
   </div>
 </header>
@@ -824,6 +825,24 @@ function doLogout() {
   document.cookie = 'vol_auth=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT';
   location.href = '/admin';
 }
+// ── Auto-logout after 2 hours of inactivity ───────────────────────────
+(function(){
+  var MS=2*60*60*1000,WARN=2*60*1000,t,w,b;
+  function reset(){
+    clearTimeout(t);clearTimeout(w);
+    if(b)b.style.display='none';
+    w=setTimeout(function(){
+      if(!b){b=document.createElement('div');b.id='inact-warn';
+        b.style.cssText='position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;text-align:center;padding:10px 16px;z-index:99999;font-size:.9rem;font-family:sans-serif;';
+        b.innerHTML='Signing out in 2 minutes due to inactivity. <button onclick="document.getElementById(\'inact-warn\').style.display=\'none\';reset()" style="margin-left:10px;background:#fff;color:#c0392b;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-weight:600;">Stay Signed In</button>';
+        document.body.appendChild(b);}
+      else b.style.display='block';
+    },MS-WARN);
+    t=setTimeout(function(){location.href='/admin/logout';},MS);
+  }
+  ['click','keydown','mousemove','touchstart'].forEach(function(e){document.addEventListener(e,reset,{passive:true});});
+  window.reset=reset;reset();
+})();
 
 // ── Signups ──────────────────────────────────────────────────────────
 function loadSignups() {

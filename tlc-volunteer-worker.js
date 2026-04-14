@@ -101,6 +101,31 @@ async function _fetch(req, env) {
       if (!await isAuthed(req, env)) return html(LOGIN_HTML);
       return html(BACKLOG_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
     }
+    // ── Breeze photo proxy — requires auth, forwards to Breeze CDN with API key ──
+    if (path === '/admin/photo-proxy' && method === 'GET') {
+      if (!await isAuthed(req, env)) return json({ error: 'Unauthorized' }, 401);
+      const photoUrl = url.searchParams.get('url');
+      if (!photoUrl) return json({ error: 'url param required' }, 400);
+      // Only proxy HTTPS URLs from known Breeze domains
+      let parsed;
+      try { parsed = new URL(photoUrl); } catch { return json({ error: 'Invalid URL' }, 400); }
+      if (!parsed.hostname.endsWith('.breezechms.com') && parsed.hostname !== 'breezechms.com') {
+        return json({ error: 'Only Breeze photo URLs may be proxied' }, 403);
+      }
+      const apiKey = env.BREEZE_API_KEY || '';
+      const upstream = await fetch(photoUrl, {
+        headers: apiKey ? { 'Api-Key': apiKey } : {}
+      });
+      const ct = upstream.headers.get('Content-Type') || 'image/jpeg';
+      return new Response(upstream.body, {
+        status: upstream.status,
+        headers: {
+          'Content-Type': ct,
+          'Cache-Control': 'private, max-age=3600',
+          'Access-Control-Allow-Origin': 'same-origin'
+        }
+      });
+    }
     if (path === '/sw.js') {
       return new Response(SW_JS, {
         headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache, no-store' }
@@ -132,12 +157,13 @@ async function _fetch(req, env) {
     }
 
     if (path.startsWith('/scheduler')) {
+      if (!await isAuthed(req, env)) return html(LOGIN_HTML);
       // /scheduler/lcms_calendar.json is served inline (bundled) for reliability.
       if (url.pathname === '/scheduler/lcms_calendar.json') {
         return new Response(LCMS_CALENDAR_JSON, { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       // scheduler/index.html is bundled inline to avoid stale-cache from GitHub raw CDN.
-      return new Response(SCHEDULER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public, max-age=60' } });
+      return new Response(SCHEDULER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store, no-cache, must-revalidate' } });
     }
     return new Response('Not Found', { status: 404 });
 }

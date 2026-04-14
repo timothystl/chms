@@ -89,7 +89,11 @@ export async function handleAdminLogin(req, env) {
   // ── Credential check ────────────────────────────────────────────────
   let body; try { body = await req.text(); } catch { body = ''; }
   const params = new URLSearchParams(body);
-  const adminPassword = env.ADMIN_PASSWORD || '';
+  const adminPassword   = env.ADMIN_PASSWORD   || '';
+  const financePassword = env.FINANCE_PASSWORD || '';
+  const staffPassword   = env.STAFF_PASSWORD   || '';
+  const memberPassword  = env.MEMBER_PASSWORD  || '';
+  const adminEmail      = (env.ADMIN_EMAIL || '').toLowerCase().trim();
   if (!adminPassword) {
     return html(LOGIN_HTML.replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">Admin password is not configured. Set the <code>ADMIN_PASSWORD</code> secret in the Cloudflare Dashboard.</p>'));
   }

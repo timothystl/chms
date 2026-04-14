@@ -449,6 +449,8 @@ export async function initDb(db) {
     // people: gender and marital status (imported from Breeze)
     'ALTER TABLE people ADD COLUMN gender TEXT NOT NULL DEFAULT ""',
     'ALTER TABLE people ADD COLUMN marital_status TEXT NOT NULL DEFAULT ""',
+    // households: family/household photo URL
+    'ALTER TABLE households ADD COLUMN photo_url TEXT NOT NULL DEFAULT ""',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

@@ -104,20 +104,35 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 #offline-banner{position:relative;z-index:200;}
 .app-shell{display:flex;height:100vh;}
 /* ── SIDEBAR ── */
-.sidebar{width:54px;background:var(--navy);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px;flex-shrink:0;z-index:100;}
-.s-logo{width:34px;height:34px;border-radius:8px;background:var(--gold-accent);display:flex;align-items:center;justify-content:center;margin-bottom:10px;flex-shrink:0;}
+.sidebar{position:fixed;left:0;top:0;height:100vh;width:54px;background:var(--navy);display:flex;flex-direction:column;align-items:stretch;padding:12px 0;gap:4px;overflow:hidden;transition:width .2s ease;z-index:200;}.sidebar:hover{width:200px;}a.s-item{text-decoration:none;color:inherit;}
+.s-logo{width:34px;height:34px;border-radius:8px;background:var(--gold-accent);display:flex;align-items:center;justify-content:center;margin-bottom:10px;flex-shrink:0;cursor:pointer;align-self:center;}
 .s-logo svg{width:18px;height:18px;fill:white;}
-.s-item{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative;flex-shrink:0;transition:background .12s;}
+.s-item{width:100%;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:flex-start;padding:0 8px 0 14px;gap:10px;cursor:pointer;position:relative;flex-shrink:0;transition:background .12s;overflow:hidden;white-space:nowrap;}
 .s-item:hover{background:rgba(255,255,255,.1);}
 .s-item.active{background:var(--teal);}
-.s-item svg{width:19px;height:19px;fill:none;stroke:rgba(255,255,255,.55);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;}
+.s-item svg{width:19px;height:19px;fill:none;stroke:rgba(255,255,255,.55);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
 .s-item.active svg{stroke:white;}
-.s-divider{width:28px;height:1px;background:rgba(255,255,255,.15);margin:4px 0;flex-shrink:0;}
-.s-bottom{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:4px;}
-.s-tip{position:absolute;left:48px;top:50%;transform:translateY(-50%);background:var(--navy);color:white;font-size:12px;white-space:nowrap;padding:4px 10px;border-radius:6px;pointer-events:none;opacity:0;transition:opacity .12s;z-index:300;border:1px solid rgba(255,255,255,.15);}
-.s-item:hover .s-tip{opacity:1;}
+.s-divider{width:28px;height:1px;background:rgba(255,255,255,.15);margin:4px 0;flex-shrink:0;align-self:center;}
+.s-bottom{margin-top:auto;display:flex;flex-direction:column;align-items:stretch;gap:4px;}
+.s-tip{position:static;transform:none;background:transparent;border:none;padding:0;font-size:13px;color:rgba(255,255,255,.7);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .12s;z-index:auto;}
+.sidebar:hover .s-tip{opacity:1;}
+/* ── ROLE-BASED VISIBILITY ── */
+/* .require-finance = visible only for admin + finance */
+/* .require-staff   = visible only for admin + staff   */
+/* .require-edit    = visible for admin + finance + staff (not member) */
+/* .require-admin   = admin only */
+/* .no-member       = hidden for member role */
+.role-staff  .require-finance{display:none!important;}
+.role-member .require-finance{display:none!important;}
+.role-finance .require-staff{display:none!important;}
+.role-member .require-staff{display:none!important;}
+.role-member .require-edit{display:none!important;}
+.role-member .no-member{display:none!important;}
+.role-finance .require-admin{display:none!important;}
+.role-staff   .require-admin{display:none!important;}
+.role-member  .require-admin{display:none!important;}
 /* ── CONTENT AREA ── */
-.content-area{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.content-area{flex:1;display:flex;flex-direction:column;overflow:hidden;margin-left:54px;}
 /* ── TOPBAR ── */
 .topbar{height:50px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0;background:var(--white);}
 .topbar-title{font-size:15px;font-weight:500;color:var(--charcoal);flex:1;}
@@ -125,10 +140,12 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 .hamburger svg{width:22px;height:22px;stroke:var(--charcoal);fill:none;stroke-width:2;}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:90;}
 @media(max-width:700px){
-  .sidebar{position:fixed;left:-54px;height:100vh;top:0;transition:left .2s;}
+  .sidebar{left:-200px;width:200px;transition:left .2s;}
+  .sidebar:hover{width:200px;}
   .sidebar.open{left:0;}
   .sidebar-overlay.open{display:block;}
   .hamburger{display:flex;}
+  .content-area{margin-left:0;}
 }
 /* ── TOOLBAR ── */
 .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
@@ -502,8 +519,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 <div id="error-boundary" role="alert" aria-live="assertive" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;background:#c0392b;color:#fff;padding:11px 20px;border-radius:9px;font-size:.85rem;max-width:520px;width:90vw;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.3);"></div>
 <div class="app-shell">
 <nav class="sidebar" id="sidebar">
-  <div class="s-logo"><svg viewBox="0 0 20 20"><path d="M10 1L2 7v12h6v-5h4v5h6V7L10 1z"/></svg></div>
-  <div class="s-item active" data-tab="home" onclick="showTab('home')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Home</span></div>
+  <div class="s-logo" onclick="showTab('home')" title="Home"><svg viewBox="0 0 20 20"><path d="M10 1L2 7v12h6v-5h4v5h6V7L10 1z"/></svg></div>
+  <div class="s-item active" data-tab="home" onclick="showTab('home')"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg><span class="s-tip">Home</span></div>
   <div class="s-divider"></div>
   <div class="s-item" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
   <div class="s-item" data-tab="households" onclick="showTab('households')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Households</span></div>
@@ -743,92 +760,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   </div>
 </div>
 
-<!-- ═══ IMPORT TAB ═══ -->
-<div id="tab-import" class="tab-panel">
-  <div class="import-card">
-    <h3>&#9729; Sync from Breeze</h3>
-    <p>Pull people records directly from the Breeze API. Existing records (matched by Breeze ID) are updated; new people are added.</p>
-    <button class="btn-primary" onclick="runBreezeImport()">Sync People from Breeze</button>
-    <div class="progress-bar" id="breeze-bar"><div class="progress-fill" id="breeze-fill" style="width:0%"></div></div>
-    <div class="import-status" id="breeze-status"></div>
-    <div id="breeze-diag" style="display:none;margin-top:6px;font-size:.75rem;color:var(--warm-gray);font-family:monospace;word-break:break-all;"></div>
-  </div>
-  <div class="import-card">
-    <h3>&#128181; Sync Giving from Breeze</h3>
-    <p>Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed in Giving &#8594; Funds after import.</p>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
-      <div class="field" style="margin:0;"><label>From</label><input type="date" id="giving-sync-from" style="font-size:.85rem;padding:4px 8px;"></div>
-      <div class="field" style="margin:0;"><label>To</label><input type="date" id="giving-sync-to" style="font-size:.85rem;padding:4px 8px;"></div>
-    </div>
-    <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Date Range</button>
-    <div class="import-status" id="giving-sync-status"></div>
-    <hr style="margin:14px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
-    <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
-    <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
-      <div class="field" style="margin:0;"><label>Start Year</label><input type="number" id="giving-sync-start-year" value="2020" min="2000" max="2099" style="width:90px;font-size:.85rem;padding:4px 8px;"></div>
-    </div>
-    <button class="btn-primary" id="giving-all-btn" onclick="runBreezeGivingAll()">Sync All History</button>
-    <div class="import-status" id="giving-all-status"></div>
-  </div>
-  <div class="import-card">
-    <h3>&#128181; Import Giving from Breeze CSV Export</h3>
-    <p>Export from Breeze: Contributions &rarr; Export to CSV. Drag &amp; drop the file below or click to browse. Already-imported contributions are skipped (safe to re-run).</p>
-    <div id="giving-csv-drop"
-      style="border:2px dashed var(--border);border-radius:8px;padding:28px 16px;text-align:center;cursor:pointer;margin-bottom:8px;transition:background .15s;"
-      onclick="document.getElementById(&#39;giving-csv-file&#39;).click()"
-      ondragover="event.preventDefault();this.style.background=&#39;#f0f4f8&#39;;"
-      ondragleave="this.style.background=&#39;&#39;;"
-      ondrop="event.preventDefault();this.style.background=&#39;&#39;;importGivingCSV(event.dataTransfer.files[0]);">
-      <div style="font-size:2rem;margin-bottom:6px;">&#128228;</div>
-      <div id="giving-csv-name" style="font-size:.88rem;color:var(--warm-gray);">Drop CSV here or click to browse</div>
-    </div>
-    <input type="file" id="giving-csv-file" accept=".csv,.txt" style="display:none;" onchange="importGivingCSV(this.files[0]);">
-    <div class="import-status" id="giving-csv-status"></div>
-  </div>
-  <div class="import-card">
-    <h3>&#128260; Map Breeze Funds to Real Fund Names</h3>
-    <p>After the giving sync, imported funds show as "Breeze Fund XXXXXXX". Use this tool to reassign all their contributions to your real fund names, then remove the placeholders.</p>
-    <button class="btn-secondary" onclick="loadFundMapping()" style="margin-bottom:10px;">Load Fund Mapping</button>
-    <div id="fund-map-area" style="display:none;">
-      <table style="width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:10px;" id="fund-map-table">
-        <thead><tr style="text-align:left;border-bottom:1px solid #ccc;"><th style="padding:4px 8px;">Breeze Fund</th><th style="padding:4px 8px;">Gifts</th><th style="padding:4px 8px;">Total</th><th style="padding:4px 8px;">Map to &rarr;</th></tr></thead>
-        <tbody id="fund-map-rows"></tbody>
-      </table>
-      <button class="btn-primary" onclick="applyFundMapping()">Apply Mapping</button>
-    </div>
-    <div class="import-status" id="fund-map-status"></div>
-  </div>
-  <div class="import-card">
-    <h3>&#128197; Import Attendance (Simple CSV)</h3>
-    <p>Paste or upload a 3-column file: <code>date, service_name, attendance</code>. Date must be YYYY-MM-DD. One row per service. Header row optional. Existing records for the same date+time are updated; new ones are inserted.</p>
-    <textarea id="att-simple-text" rows="6" style="width:100%;font-family:monospace;font-size:.8rem;padding:6px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;" placeholder="2024-03-10&#9;Sunday 8am&#9;112&#10;2024-03-10&#9;Sunday 10:45am&#9;187"></textarea>
-    <button class="btn-primary" onclick="importAttendanceSimple()">Import</button>
-    <div class="import-status" id="att-simple-status"></div>
-  </div>
-  <div class="import-card">
-    <h3>&#128465; Prune Empty Batches</h3>
-    <p>Remove any giving batches that have no entries (can be left behind by failed or partial imports). Safe to run at any time.</p>
-    <button class="btn-secondary" onclick="pruneEmptyBatches()">Delete Empty Batches</button>
-    <div class="import-status" id="prune-batches-status"></div>
-  </div>
-  <div class="import-card">
-    <h3>&#9997; Generate Register from People Records</h3>
-    <p>Create church register entries from baptism and confirmation dates already stored on people records. People who already have a matching register entry are skipped (safe to re-run).</p>
-    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
-      <div class="field" style="margin:0;"><label>Earliest date to include</label><input type="date" id="reg-gen-cutoff" value="2020-01-01" style="font-size:.85rem;padding:4px 8px;"></div>
-      <label style="display:flex;align-items:center;gap:6px;font-size:.88rem;cursor:pointer;"><input type="checkbox" id="reg-gen-baptism" checked> Baptisms</label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:.88rem;cursor:pointer;"><input type="checkbox" id="reg-gen-confirm" checked> Confirmations</label>
-    </div>
-    <button class="btn-primary" onclick="generateRegisterFromPeople()">Generate Register Entries</button>
-    <div class="import-status" id="reg-gen-status"></div>
-  </div>
-  <div class="import-card" style="border-color:#e74c3c;">
-    <h3 style="color:#e74c3c;">&#9888; Clear All Giving Data</h3>
-    <p>Permanently deletes all giving entries and batches from the database. Use this to start fresh before re-importing correct data. <strong>This cannot be undone.</strong></p>
-    <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearAllGiving()">&#9888; Clear All Giving Data</button>
-    <div class="import-status" id="clear-giving-status"></div>
-  </div>
-</div>
+<!-- (import content moved into Settings tab) -->
+<div id="tab-import" style="display:none!important;"></div>
 
 <!-- ═══ SETTINGS TAB ═══ -->
 <div id="tab-settings" class="tab-panel">
@@ -893,6 +826,92 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div id="settings-mt-map-list" style="margin-bottom:10px;"></div>
       <div id="settings-mt-map-hint" style="font-size:.8rem;color:var(--warm-gray);"></div>
       <button class="btn-secondary" style="margin-top:10px;font-size:.82rem;" onclick="loadMemberTypeMap()">&#8635; Refresh</button>
+    </div>
+    <!-- ── DATA IMPORT ── -->
+    <div style="border-top:2px solid var(--border);margin-top:20px;padding-top:20px;">
+      <h2 style="font-size:1rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--navy);margin-bottom:14px;">Data Import</h2>
+      <div class="import-card">
+        <h3>&#9729; Sync from Breeze</h3>
+        <p>Pull people records directly from the Breeze API. Existing records (matched by Breeze ID) are updated; new people are added.</p>
+        <button class="btn-primary" onclick="runBreezeImport()">Sync People from Breeze</button>
+        <div class="progress-bar" id="breeze-bar"><div class="progress-fill" id="breeze-fill" style="width:0%"></div></div>
+        <div class="import-status" id="breeze-status"></div>
+      </div>
+      <div class="import-card">
+        <h3>&#128181; Sync Giving from Breeze</h3>
+        <p>Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed in Giving &#8594; Funds after import.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+          <div class="field" style="margin:0;"><label>From</label><input type="date" id="giving-sync-from" style="font-size:.85rem;padding:4px 8px;"></div>
+          <div class="field" style="margin:0;"><label>To</label><input type="date" id="giving-sync-to" style="font-size:.85rem;padding:4px 8px;"></div>
+        </div>
+        <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Date Range</button>
+        <div class="import-status" id="giving-sync-status"></div>
+        <hr style="margin:14px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
+        <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+          <div class="field" style="margin:0;"><label>Start Year</label><input type="number" id="giving-sync-start-year" value="2020" min="2000" max="2099" style="width:90px;font-size:.85rem;padding:4px 8px;"></div>
+        </div>
+        <button class="btn-primary" id="giving-all-btn" onclick="runBreezeGivingAll()">Sync All History</button>
+        <div class="import-status" id="giving-all-status"></div>
+      </div>
+      <div class="import-card">
+        <h3>&#128181; Import Giving from Breeze CSV Export</h3>
+        <p>Export from Breeze: Contributions &rarr; Export to CSV. Drag &amp; drop the file below or click to browse. Already-imported contributions are skipped (safe to re-run).</p>
+        <div id="giving-csv-drop"
+          style="border:2px dashed var(--border);border-radius:8px;padding:28px 16px;text-align:center;cursor:pointer;margin-bottom:8px;transition:background .15s;"
+          onclick="document.getElementById(&#39;giving-csv-file&#39;).click()"
+          ondragover="event.preventDefault();this.style.background=&#39;#f0f4f8&#39;;"
+          ondragleave="this.style.background=&#39;&#39;;"
+          ondrop="event.preventDefault();this.style.background=&#39;&#39;;importGivingCSV(event.dataTransfer.files[0]);">
+          <div style="font-size:2rem;margin-bottom:6px;">&#128228;</div>
+          <div id="giving-csv-name" style="font-size:.88rem;color:var(--warm-gray);">Drop CSV here or click to browse</div>
+        </div>
+        <input type="file" id="giving-csv-file" accept=".csv,.txt" style="display:none;" onchange="importGivingCSV(this.files[0]);">
+        <div class="import-status" id="giving-csv-status"></div>
+      </div>
+      <div class="import-card">
+        <h3>&#128260; Map Breeze Funds to Real Fund Names</h3>
+        <p>After the giving sync, imported funds show as "Breeze Fund XXXXXXX". Use this tool to reassign all their contributions to your real fund names, then remove the placeholders.</p>
+        <button class="btn-secondary" onclick="loadFundMapping()" style="margin-bottom:10px;">Load Fund Mapping</button>
+        <div id="fund-map-area" style="display:none;">
+          <table style="width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:10px;" id="fund-map-table">
+            <thead><tr style="text-align:left;border-bottom:1px solid #ccc;"><th style="padding:4px 8px;">Breeze Fund</th><th style="padding:4px 8px;">Gifts</th><th style="padding:4px 8px;">Total</th><th style="padding:4px 8px;">Map to &rarr;</th></tr></thead>
+            <tbody id="fund-map-rows"></tbody>
+          </table>
+          <button class="btn-primary" onclick="applyFundMapping()">Apply Mapping</button>
+        </div>
+        <div class="import-status" id="fund-map-status"></div>
+      </div>
+      <div class="import-card">
+        <h3>&#128197; Import Attendance (Simple CSV)</h3>
+        <p>Paste or upload a 3-column file: <code>date, service_name, attendance</code>. Date must be YYYY-MM-DD. One row per service. Header row optional. Existing records for the same date+time are updated; new ones are inserted.</p>
+        <textarea id="att-simple-text" rows="6" style="width:100%;font-family:monospace;font-size:.8rem;padding:6px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;" placeholder="2024-03-10&#9;Sunday 8am&#9;112&#10;2024-03-10&#9;Sunday 10:45am&#9;187"></textarea>
+        <button class="btn-primary" onclick="importAttendanceSimple()">Import</button>
+        <div class="import-status" id="att-simple-status"></div>
+      </div>
+      <div class="import-card">
+        <h3>&#128465; Prune Empty Batches</h3>
+        <p>Remove any giving batches that have no entries (can be left behind by failed or partial imports). Safe to run at any time.</p>
+        <button class="btn-secondary" onclick="pruneEmptyBatches()">Delete Empty Batches</button>
+        <div class="import-status" id="prune-batches-status"></div>
+      </div>
+      <div class="import-card">
+        <h3>&#9997; Generate Register from People Records</h3>
+        <p>Create church register entries from baptism and confirmation dates already stored on people records. People who already have a matching register entry are skipped (safe to re-run).</p>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+          <div class="field" style="margin:0;"><label>Earliest date to include</label><input type="date" id="reg-gen-cutoff" value="1900-01-01" style="font-size:.85rem;padding:4px 8px;"></div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:.88rem;cursor:pointer;"><input type="checkbox" id="reg-gen-baptism" checked> Baptisms</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:.88rem;cursor:pointer;"><input type="checkbox" id="reg-gen-confirm" checked> Confirmations</label>
+        </div>
+        <button class="btn-primary" onclick="generateRegisterFromPeople()">Generate Register Entries</button>
+        <div class="import-status" id="reg-gen-status"></div>
+      </div>
+      <div class="import-card" style="border-color:#e74c3c;">
+        <h3 style="color:#e74c3c;">&#9888; Clear All Giving Data</h3>
+        <p>Permanently deletes all giving entries and batches from the database. Use this to start fresh before re-importing correct data. <strong>This cannot be undone.</strong></p>
+        <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearAllGiving()">&#9888; Clear All Giving Data</button>
+        <div class="import-status" id="clear-giving-status"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -974,6 +993,26 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div class="pv-main">
         <div id="ptab-info" class="ptab-panel active"></div>
         <div id="ptab-giving" class="ptab-panel">
+          <div style="padding:16px 0 0;" class="require-finance">
+            <button class="btn-primary" onclick="togglePvQuickGift()" id="pv-gift-btn">+ Add Gift</button>
+            <div id="pv-quick-gift" style="display:none;margin-top:12px;background:var(--linen);border-radius:10px;padding:16px;">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+                <div class="field"><label>Date</label><input type="date" id="pv-gift-date" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;"></div>
+                <div class="field"><label>Amount ($)</label><input type="number" id="pv-gift-amount" min="0.01" step="0.01" placeholder="0.00" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;"></div>
+                <div class="field"><label>Fund</label><select id="pv-gift-fund" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;"></select></div>
+                <div class="field"><label>Method</label><select id="pv-gift-method" onchange="togglePvCheckNum()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;">
+                  <option value="cash">Cash</option><option value="check">Check</option><option value="online">Online</option><option value="stock">Stock</option><option value="other">Other</option>
+                </select></div>
+                <div class="field" id="pv-gift-check-row" style="display:none;"><label>Check #</label><input type="text" id="pv-gift-check" placeholder="e.g. 1042" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;"></div>
+                <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" id="pv-gift-notes" placeholder="Optional note…" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;"></div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button class="btn-primary" onclick="submitPvQuickGift()">Save Gift</button>
+                <button class="btn-secondary" onclick="togglePvQuickGift()">Cancel</button>
+              </div>
+              <div id="pv-gift-err" style="color:var(--danger);font-size:.82rem;margin-top:6px;display:none;"></div>
+            </div>
+          </div>
           <div id="pv-giving-content" style="color:var(--warm-gray);font-size:13px;padding:20px 0;">Loading giving history…</div>
         </div>
         <div id="ptab-attendance" class="ptab-panel">
@@ -1160,6 +1199,27 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div class="field"><label>Envelope #</label><input type="text" id="pm-envelope" placeholder="e.g. 42" maxlength="20"></div>
       <div class="field"><label>Last Seen</label><input type="date" id="pm-last-seen"></div>
     </div>
+    <div class="modal-section">Demographics</div>
+    <div class="modal-2col">
+      <div class="field"><label>Gender</label>
+        <select id="pm-gender" style="padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;width:100%;">
+          <option value="">— not set —</option>
+          <option value="Male">Male</option>
+          <option value="Female">Female</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="field"><label>Marital Status</label>
+        <select id="pm-marital" style="padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;width:100%;">
+          <option value="">— not set —</option>
+          <option value="Single">Single</option>
+          <option value="Married">Married</option>
+          <option value="Widowed">Widowed</option>
+          <option value="Divorced">Divorced</option>
+          <option value="Separated">Separated</option>
+        </select>
+      </div>
+    </div>
     <div class="modal-section">Notes</div>
     <div class="field"><textarea id="pm-notes" rows="2" style="resize:vertical;"></textarea></div>
     <div class="modal-actions">
@@ -1167,6 +1227,17 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <button class="btn-secondary" onclick="closeModal('person-modal')">Cancel</button>
       <button class="btn-primary" onclick="savePerson()">Save</button>
     </div>
+  </div>
+</div>
+
+<!-- Household detail modal -->
+<div class="modal-overlay" id="hh-detail-modal" onclick="if(event.target===this)closeModal('hh-detail-modal')">
+  <div class="modal" style="max-width:480px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h2 style="margin:0;">Household</h2>
+      <button class="btn-secondary" style="padding:4px 10px;font-size:.82rem;" onclick="closeModal('hh-detail-modal')">Close</button>
+    </div>
+    <div id="hh-detail-body"></div>
   </div>
 </div>
 
@@ -1183,6 +1254,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div class="field"><label>State / ZIP</label><div style="display:flex;gap:6px;"><input type="text" id="hm-state" style="width:60px;" maxlength="2" value="MO"><input type="text" id="hm-zip" placeholder="63000"></div></div>
     </div>
     <div class="field" style="margin-top:10px;"><label>Notes</label><textarea id="hm-notes" rows="2" style="resize:vertical;"></textarea></div>
+    <div class="field" style="margin-top:10px;"><label>Family Photo URL</label><input type="url" id="hm-photo" placeholder="https://…"></div>
     <div id="hm-members" style="margin-top:14px;"></div>
     <div class="modal-actions">
       <button class="btn-danger" id="hm-del-btn" onclick="deleteHousehold()" style="margin-right:auto;display:none;">Delete</button>
@@ -1260,7 +1332,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-08-v26';
+var DEPLOY_VERSION = '2026-04-14-v27';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -1284,6 +1356,7 @@ var _attOrder = 'desc', _attGroupBy = 'none', _attChartMode = 'line';
 var _selectMode = false, _selectedPeople = new Set();
 var _churchConfig = {};
 var DEFAULT_LETTER_TEMPLATE = 'Dear {{name}},\\n\\nThank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.\\n\\nBelow is a summary of your giving for {{year}}:\\n\\n{{gift_table}}\\n\\nTotal Contributions: {{total}}\\n\\n{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}\\n\\nWith gratitude,\\n\\nTimothy Lutheran Church\\n\\nDate: {{date}}';
+var _userRole = 'admin';
 
 // ── HELPERS ──────────────────────────────────────────────────────────
 function api(path, opts) {
@@ -1342,6 +1415,14 @@ function typeClass(t) {
 }
 function initials(first, last) {
   return ((first||'').charAt(0) + (last||'').charAt(0)).toUpperCase();
+}
+function photoSrc(url) {
+  if (!url) return null;
+  // Proxy Breeze CDN URLs through the worker so the API key header is added
+  if (url.indexOf('.breezechms.com') >= 0 || url.indexOf('breezechms.com/') >= 0) {
+    return '/admin/photo-proxy?url=' + encodeURIComponent(url);
+  }
+  return url;
 }
 
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
@@ -1466,6 +1547,24 @@ function applyRoleUI(role) {
     if (labels[_userRole]) { ri.textContent = labels[_userRole]; ri.style.display = ''; }
     else ri.style.display = 'none';
   }
+}
+
+// ── ROLE UI ──────────────────────────────────────────────────────────────
+function applyRoleUI() {
+  fetch('/admin/api/me').then(function(r){ return r.json(); }).then(function(d) {
+    _userRole = d.role || 'admin';
+    if (_userRole === 'unknown') { location.href = '/chms'; return; }
+    document.body.classList.remove('role-admin','role-finance','role-staff','role-member');
+    document.body.classList.add('role-' + _userRole);
+    var badge = document.getElementById('topbar-role');
+    if (badge && _userRole !== 'admin') {
+      badge.textContent = d.display_name || _userRole;
+      badge.style.display = 'inline-block';
+    }
+    // Member users land on People tab (no dashboard access)
+    if (_userRole === 'member') { showTab('people'); }
+    else { showTab('home'); }
+  }).catch(function() { showTab('home'); });
 }
 
 // ── TAGS ──────────────────────────────────────────────────────────────
@@ -2238,7 +2337,7 @@ function renderPeopleDesktop(people) {
       : esc(p.last_name) + (p.last_name && p.first_name ? ', ' : '') + esc(p.first_name);
     avInner = isOrg
       ? '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#888;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>'
-      : (p.photo_url ? '<img src="' + esc(p.photo_url) + '" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;">' : initials(p.first_name, p.last_name));
+      : (p.photo_url ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">' : initials(p.first_name, p.last_name));
     avClass = 'dir-avatar ' + (isOrg ? 'dir-avatar-org' : 'dir-avatar-' + (p.id % 5));
     clickHandler = _selectMode
       ? 'onclick="togglePersonSelect(' + p.id + ', this)"'
@@ -2391,7 +2490,7 @@ function renderPeopleMobile(people) {
     if (!addr && p.household_address) addr = p.household_address;
     var mapUrl = addr ? 'https://maps.apple.com/?q=' + encodeURIComponent(addr) : '';
     return '<div class="c-card">'
-      + '<div class="c-avatar">' + (p.photo_url ? '<img src="' + esc(p.photo_url) + '" alt="">' : initials(p.first_name, p.last_name)) + '</div>'
+      + '<div class="c-avatar">' + (p.photo_url ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">' : initials(p.first_name, p.last_name)) + '</div>'
       + '<div class="c-info"><div class="c-name">' + esc(p.first_name) + (p.last_name ? ' ' + esc(p.last_name) : '') + (p.deceased ? ' <span style="font-size:.72rem;color:#888;font-weight:400;">&#x271D; d. ' + (p.death_date||'') + '</span>' : '') + '</div>'
       + '<div class="c-type">' + esc(p.member_type||'visitor') + '</div>'
       + (p.phone ? '<a href="tel:' + esc(p.phone.replace(/\\D/g,'')) + '" class="c-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.37 1.18 2 2 0 012.34 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.72 6.72l1.28-.78a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>' + esc(p.phone) + '</a>' : '')
@@ -2415,7 +2514,7 @@ function showProfile(p) {
       var pvbg = pvColors[p.id % pvColors.length];
       photoEl.style.background = pvbg;
       var img = document.createElement('img');
-      img.src = p.photo_url;
+      img.src = photoSrc(p.photo_url);
       img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%;';
       img.onerror = function() {
         photoEl.innerHTML = '<span style="color:white;font-size:24px;font-weight:600;line-height:1;">'+pvi+'</span>';
@@ -2577,6 +2676,63 @@ function closeProfile() {
   _currentPvPerson = null;
   var ca = document.querySelector('.content-area');
   if (ca) ca.classList.remove('pv-mode');
+}
+function togglePvTagEditor() {
+  var editor = document.getElementById('pv-tags-editor');
+  if (!editor) return;
+  var open = editor.style.display !== 'none';
+  if (open) { editor.style.display = 'none'; return; }
+  // Populate chip picker with current person's tags pre-selected
+  var sel = (_currentPvPerson && _currentPvPerson.tags) ? _currentPvPerson.tags.map(function(t){return t.id;}) : [];
+  var chips = document.getElementById('pv-tag-chips');
+  if (chips) {
+    chips.innerHTML = allTags.map(function(t) {
+      var on = sel.indexOf(t.id) >= 0;
+      return '<span class="tag-chip" data-tid="'+t.id+'"'+(on?' data-picked="1"':'')+' onclick="togglePvTagChip(this)"'
+        +' style="cursor:pointer;padding:4px 10px;'
+        +(on?'background:'+t.color+'30;border-color:'+t.color+';color:'+t.color+';':'background:var(--linen);border-color:var(--border);color:var(--warm-gray);')
+        +'">'+esc(t.name)+'</span>';
+    }).join('');
+  }
+  editor.style.display = '';
+}
+function togglePvTagChip(el) {
+  var t = allTags.find(function(x){return x.id == el.dataset.tid;});
+  if (!t) return;
+  if (el.dataset.picked === '1') {
+    el.dataset.picked = '';
+    el.style.background = 'var(--linen)'; el.style.borderColor = 'var(--border)'; el.style.color = 'var(--warm-gray)';
+  } else {
+    el.dataset.picked = '1';
+    el.style.background = t.color+'30'; el.style.borderColor = t.color; el.style.color = t.color;
+  }
+}
+function savePvTags() {
+  if (!_currentPvPerson) return;
+  var ids = [];
+  document.querySelectorAll('#pv-tag-chips .tag-chip').forEach(function(el) {
+    if (el.dataset.picked === '1') ids.push(parseInt(el.dataset.tid));
+  });
+  api('/admin/api/people/'+_currentPvPerson.id, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(Object.assign({}, _currentPvPerson, {
+      tag_ids: ids,
+      household_id: _currentPvPerson.household_id || null
+    }))
+  }).then(function(r) {
+    if (r.error) { alert('Error: '+r.error); return; }
+    // Update local tags and re-render display
+    _currentPvPerson.tags = allTags.filter(function(t){ return ids.indexOf(t.id) >= 0; });
+    var display = document.getElementById('pv-tags-display');
+    if (display) {
+      var tagHtml = _currentPvPerson.tags.map(function(t){
+        return '<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:99px;background:'+esc(t.color)+';color:white;font-size:11px;font-weight:600;margin:2px;">'+esc(t.name)+'</span>';
+      }).join('');
+      display.innerHTML = tagHtml || '<span style="color:var(--warm-gray);font-size:.82rem;font-style:italic;">No tags</span>';
+    }
+    document.getElementById('pv-tags-editor').style.display = 'none';
+  });
 }
 function applyAddressToHousehold(personId, householdId) {
   var p = _currentPvPerson;
@@ -2814,6 +2970,54 @@ function sendGivingStatement(personId, year) {
     }).catch(function(){ alert('Network error. Please try again.'); });
   }).catch(function(){ alert('Could not load giving data. Please try again.'); });
 }
+function togglePvQuickGift() {
+  var box = document.getElementById('pv-quick-gift');
+  var btn = document.getElementById('pv-gift-btn');
+  if (!box) return;
+  var open = box.style.display !== 'none';
+  box.style.display = open ? 'none' : 'block';
+  if (btn) btn.textContent = open ? '+ Add Gift' : '— Cancel';
+  if (!open) {
+    // Pre-fill today's date and populate funds
+    var di = document.getElementById('pv-gift-date');
+    if (di && !di.value) di.value = new Date().toISOString().slice(0,10);
+    var fs = document.getElementById('pv-gift-fund');
+    if (fs && !fs.options.length) {
+      allFunds.forEach(function(f){ fs.appendChild(new Option(f.name, f.id)); });
+    }
+    document.getElementById('pv-gift-err').style.display = 'none';
+  }
+}
+function togglePvCheckNum() {
+  var m = document.getElementById('pv-gift-method');
+  var r = document.getElementById('pv-gift-check-row');
+  if (r) r.style.display = (m && m.value === 'check') ? '' : 'none';
+}
+function submitPvQuickGift() {
+  if (!_currentPvPerson) return;
+  var fund_id = document.getElementById('pv-gift-fund').value;
+  var amount  = document.getElementById('pv-gift-amount').value;
+  var date    = document.getElementById('pv-gift-date').value;
+  var method  = document.getElementById('pv-gift-method').value;
+  var check   = document.getElementById('pv-gift-check').value;
+  var notes   = document.getElementById('pv-gift-notes').value;
+  var errEl   = document.getElementById('pv-gift-err');
+  if (!fund_id || !amount || !date) { errEl.textContent = 'Fund, amount, and date are required.'; errEl.style.display='block'; return; }
+  api('/admin/api/giving/quick-entry', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ person_id: _currentPvPerson.id, fund_id, amount, date, method, check_number: check, notes })
+  }).then(function(r) {
+    if (r.error) { errEl.textContent = r.error; errEl.style.display='block'; return; }
+    // Reset form
+    document.getElementById('pv-gift-amount').value = '';
+    document.getElementById('pv-gift-notes').value = '';
+    document.getElementById('pv-gift-check').value = '';
+    errEl.style.display='none';
+    togglePvQuickGift();
+    loadPvGiving(_currentPvPerson.id);
+  }).catch(function(){ errEl.textContent = 'Error saving gift.'; errEl.style.display='block'; });
+}
 function loadPvAttendance(personId) {
   var el = document.getElementById('ptab-attendance');
   if (!el) return;
@@ -2902,6 +3106,8 @@ function openPersonEdit(p) {
   document.getElementById('pm-envelope').value = isNew ? '' : (p.envelope_number||'');
   document.getElementById('pm-last-seen').value = isNew ? '' : (p.last_seen_date||'');
   document.getElementById('pm-notes').value = isNew ? '' : (p.notes||'');
+  var genderEl = document.getElementById('pm-gender'); if (genderEl) genderEl.value = isNew ? '' : (p.gender||'');
+  var maritalEl = document.getElementById('pm-marital'); if (maritalEl) maritalEl.value = isNew ? '' : (p.marital_status||'');
   document.getElementById('pm-hh-search').value = isNew ? '' : (p.household_name||'');
   document.getElementById('pm-hh-id').value = isNew ? '' : (p.household_id||'');
   // Tag picker
@@ -2977,6 +3183,8 @@ function savePerson() {
     envelope_number: document.getElementById('pm-envelope').value.trim(),
     last_seen_date: document.getElementById('pm-last-seen').value,
     notes: document.getElementById('pm-notes').value,
+    gender: (document.getElementById('pm-gender') || {value:''}).value,
+    marital_status: (document.getElementById('pm-marital') || {value:''}).value,
     tag_ids: getSelectedTagIds()
   };
   if (!data.first_name || (!isOrg && !data.last_name)) { alert(isOrg ? 'Name is required.' : 'First and last name are required.'); return; }
@@ -3062,7 +3270,8 @@ function filterRegister() {
     if (year && (e.event_date||'').slice(0,4) !== year) return false;
     if (search) {
       var hay = (e.name+' '+(e.name2||'')+' '+(e.officiant||'')).toLowerCase();
-      if (hay.indexOf(search) < 0) return false;
+      var tokens = search.split(/\s+/).filter(Boolean);
+      if (!tokens.every(function(t){ return hay.indexOf(t) >= 0; })) return false;
     }
     return true;
   });
@@ -3201,7 +3410,8 @@ function printRegister() {
     if (year && (e.event_date||'').slice(0,4) !== year) return false;
     if (search) {
       var hay = (e.name+' '+(e.name2||'')+' '+(e.officiant||'')).toLowerCase();
-      if (hay.indexOf(search) < 0) return false;
+      var tokens = search.split(/\s+/).filter(Boolean);
+      if (!tokens.every(function(t){ return hay.indexOf(t) >= 0; })) return false;
     }
     return true;
   });
@@ -3531,8 +3741,9 @@ function debounceHouseholds() {
 function loadHouseholds(resetPage) {
   if (resetPage) _hhOffset = 0;
   var q = document.getElementById('h-search').value;
+  var sort = (document.getElementById('h-sort') || {value:'name'}).value;
   setStatus('h-status', 'Loading…');
-  api('/admin/api/households?q=' + encodeURIComponent(q) + '&limit=50&offset=' + _hhOffset).then(function(d) {
+  api('/admin/api/households?q=' + encodeURIComponent(q) + '&sort=' + sort + '&limit=50&offset=' + _hhOffset).then(function(d) {
     setStatus('h-status', '');
     _hhTotal = d.total || 0;
     renderHouseholds(d.households || []);
@@ -3558,24 +3769,50 @@ function renderHouseholds(rows) {
   if (!rows.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">&#127968;</div>No households found</div>'; return; }
   c.innerHTML = rows.map(function(h) {
     var addr = [h.address1, h.city, h.state].filter(Boolean).join(', ');
-    return '<div class="h-card" onclick="openHouseholdDetail(' + h.id + ')">'
+    var photo = h.photo_url ? '<img src="'+esc(photoSrc(h.photo_url))+'" alt="" style="width:100%;height:80px;object-fit:cover;border-radius:6px 6px 0 0;display:block;" onerror="this.style.display=\'none\'">' : '';
+    var navId = h.head_person_id || h.first_person_id;
+    var clickAction = navId ? 'openPersonDetail(' + navId + ')' : 'editHouseholdById(' + h.id + ')';
+    return '<div class="h-card" onclick="' + clickAction + '" style="padding:0;overflow:hidden;cursor:pointer;">'
+      + photo
+      + '<div style="padding:10px 12px;">'
       + '<div class="h-name">' + esc(h.name) + '</div>'
       + (addr ? '<div class="h-addr">' + esc(addr) + '</div>' : '')
       + '<div style="font-size:.78rem;color:var(--warm-gray);">' + (h.member_count||0) + ' member' + (h.member_count !== 1 ? 's' : '') + '</div>'
-      + '</div>';
+      + '</div></div>';
   }).join('');
 }
 function openHouseholdDetail(id) {
   api('/admin/api/households/' + id).then(function(h) {
     var members = h.members || [];
-    // Find head of household, fall back to first member
-    var head = members.find(function(m){ return (m.family_role||'').toLowerCase() === 'head'; }) || members[0];
-    if (head) {
-      openPersonDetail(head.id);
-    } else {
-      // No members — open the edit modal for the household itself
-      openHouseholdEdit(h);
+    var addr = [h.address1, h.city, h.state && h.zip ? h.state + ' ' + h.zip : (h.state || h.zip || '')].filter(Boolean).join(', ');
+    var roleOrder = {head:0, spouse:1, child:2, other:3};
+    members.sort(function(a,b){ return (roleOrder[a.family_role]??4)-(roleOrder[b.family_role]??4) || (a.last_name||'').localeCompare(b.last_name||''); });
+    var memberRows = members.length ? members.map(function(m) {
+      var role = m.family_role ? '<span style="font-size:.72rem;color:var(--warm-gray);margin-left:6px;text-transform:capitalize;">'+esc(m.family_role)+'</span>' : '';
+      var contact = [m.phone, m.email].filter(Boolean).map(esc).join(' · ');
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">'
+        +'<div><span style="font-weight:500;cursor:pointer;color:var(--steel-anchor);" onclick="closeModal(\'hh-detail-modal\');openPersonDetail('+m.id+')">'+esc((m.first_name||'')+' '+(m.last_name||''))+'</span>'+role
+        +(contact ? '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:2px;">'+contact+'</div>' : '')
+        +'</div></div>';
+    }).join('') : '<div style="color:var(--warm-gray);font-size:.88rem;padding:10px 0;">No members</div>';
+    var el = document.getElementById('hh-detail-body');
+    if (!el) return;
+    var photoHtml = '';
+    if (h.photo_url) {
+      photoHtml = '<img src="'+esc(photoSrc(h.photo_url))+'" alt="'+esc(h.name)+'" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:12px;" onerror="this.style.display=\'none\'">';
     }
+    el.innerHTML = photoHtml
+      +'<div style="margin-bottom:12px;">'
+      +'<div style="font-size:1.1rem;font-weight:600;margin-bottom:4px;">'+esc(h.name)+'</div>'
+      +(addr ? '<div style="font-size:.85rem;color:var(--warm-gray);">'+esc(addr)+'</div>' : '')
+      +(h.notes ? '<div style="font-size:.82rem;color:var(--charcoal);margin-top:8px;padding:8px;background:var(--linen);border-radius:6px;">'+esc(h.notes)+'</div>' : '')
+      +'</div>'
+      +'<div style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);margin-bottom:4px;">Members ('+members.length+')</div>'
+      +memberRows
+      +'<div style="display:flex;gap:8px;margin-top:16px;">'
+      +'<button class="btn-secondary require-edit" onclick="closeModal(\'hh-detail-modal\');editHouseholdById('+h.id+')">Edit Household</button>'
+      +'</div>';
+    openModal('hh-detail-modal');
   });
 }
 function editHouseholdById(id) {
@@ -3592,6 +3829,7 @@ function openHouseholdEdit(h) {
   document.getElementById('hm-state').value = isNew ? 'MO' : (h.state||'MO');
   document.getElementById('hm-zip').value = isNew ? '' : (h.zip||'');
   document.getElementById('hm-notes').value = isNew ? '' : (h.notes||'');
+  document.getElementById('hm-photo').value = isNew ? '' : (h.photo_url||'');
   document.getElementById('hm-del-btn').style.display = isNew ? 'none' : 'inline-flex';
   var mc = document.getElementById('hm-members');
   if (h && h.members && h.members.length) {
@@ -3613,7 +3851,8 @@ function saveHousehold() {
     city: document.getElementById('hm-city').value.trim(),
     state: document.getElementById('hm-state').value.trim(),
     zip: document.getElementById('hm-zip').value.trim(),
-    notes: document.getElementById('hm-notes').value
+    notes: document.getElementById('hm-notes').value,
+    photo_url: document.getElementById('hm-photo').value.trim()
   };
   if (!data.name) { alert('Family name is required.'); return; }
   var url = id ? '/admin/api/households/' + id : '/admin/api/households';
@@ -4244,29 +4483,34 @@ function doSendBatch(yr, checks, status) {
 // ── GENERATE REGISTER FROM PEOPLE ─────────────────────────────────────
 // Called from the Register tab toolbar — uses the current register type
 function openRegFromPeoplePrompt() {
-  var type = _regType; // 'baptism' or 'confirmation'
+  var type  = _regType;
   var label = type === 'baptism' ? 'Baptisms' : 'Confirmations';
-  var cutoff = prompt(
-    'Generate ' + label + ' register entries from people records.\n\n'
-    + 'Enter earliest date to include (YYYY-MM-DD):\n'
-    + '(leave blank to use 2020-01-01)',
-    '2020-01-01'
-  );
-  if (cutoff === null) return; // cancelled
-  cutoff = cutoff.trim() || '2020-01-01';
+  var btn   = document.querySelector('[onclick="openRegFromPeoplePrompt()"]');
+  var stat  = document.getElementById('reg-stat-txt');
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating\u2026'; }
+  if (stat) stat.textContent = 'Generating\u2026';
   api('/admin/api/import/register-from-people', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ cutoff: cutoff, types: [type] })
+    body: JSON.stringify({ cutoff: '1900-01-01', types: [type] })
   }).then(function(d) {
-    if (d.error) { alert('Error: ' + d.error); return; }
-    alert('Done. ' + d.imported + ' ' + label.toLowerCase() + ' entries created' + (d.skipped ? ', ' + d.skipped + ' already existed' : '') + '.');
-    loadRegister();
-  }).catch(function(e) { alert('Error: ' + e.message); });
+    if (btn) { btn.disabled = false; btn.innerHTML = '&#128100; From People'; }
+    if (d.error) {
+      if (stat) stat.textContent = 'Error: ' + d.error;
+      return;
+    }
+    var msg = d.imported + ' ' + label.toLowerCase() + ' added';
+    if (d.skipped) msg += ', ' + d.skipped + ' already existed';
+    if (stat) stat.textContent = msg;
+    if (d.imported > 0) loadRegister();
+  }).catch(function(e) {
+    if (btn) { btn.disabled = false; btn.innerHTML = '&#128100; From People'; }
+    if (stat) stat.textContent = 'Error: ' + e.message;
+  });
 }
 function generateRegisterFromPeople() {
   var status = document.getElementById('reg-gen-status');
-  var cutoff = document.getElementById('reg-gen-cutoff').value || '2020-01-01';
+  var cutoff = document.getElementById('reg-gen-cutoff').value || '1900-01-01';
   var inclBaptism = document.getElementById('reg-gen-baptism').checked;
   var inclConfirm = document.getElementById('reg-gen-confirm').checked;
   if (!inclBaptism && !inclConfirm) { status.textContent = 'Select at least one type.'; status.className = 'import-status err'; return; }
@@ -4468,7 +4712,13 @@ function runBreezeImport() {
         var diagEl = document.getElementById('breeze-diag');
         if (diagEl && d._diag) {
           var diag = d._diag;
-          var lines = ['Status field ID being looked up: ' + (diag.status_field_id || '(none)')];
+          var lines = [
+            'Date fields detected:',
+            '  DOB: '          + (diag.dob_field          ? '"' + diag.dob_field.name          + '" (id ' + diag.dob_field.id          + ')' : '(not found)'),
+            '  Baptism: '      + (diag.baptism_field      ? '"' + diag.baptism_field.name      + '" (id ' + diag.baptism_field.id      + ')' : '(not found — dates will be empty)'),
+            '  Confirmation: ' + (diag.confirmation_field ? '"' + diag.confirmation_field.name + '" (id ' + diag.confirmation_field.id + ')' : '(not found — dates will be empty)'),
+            'Status field ID: ' + (diag.status_field_id || '(none)'),
+          ];
           if (diag.sample_top_level_keys && diag.sample_top_level_keys.length) {
             lines.push('Top-level person properties (not details/family):');
             diag.sample_top_level_keys.forEach(function(e) { lines.push('  ' + e.key + ' → ' + e.val); });
@@ -5389,6 +5639,24 @@ function render() {
   });
 }
 load();
+// ── Auto-logout after 2 hours of inactivity ───────────────────────────
+(function(){
+  var MS=2*60*60*1000,WARN=2*60*1000,t,w,b;
+  function reset(){
+    clearTimeout(t);clearTimeout(w);
+    if(b)b.style.display='none';
+    w=setTimeout(function(){
+      if(!b){b=document.createElement('div');b.id='inact-warn';
+        b.style.cssText='position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;text-align:center;padding:10px 16px;z-index:99999;font-size:.9rem;font-family:sans-serif;';
+        b.innerHTML='Signing out in 2 minutes due to inactivity. <button onclick="document.getElementById(\'inact-warn\').style.display=\'none\';reset()" style="margin-left:10px;background:#fff;color:#c0392b;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-weight:600;">Stay Signed In</button>';
+        document.body.appendChild(b);}
+      else b.style.display='block';
+    },MS-WARN);
+    t=setTimeout(function(){location.href='/admin/logout';},MS);
+  }
+  ['click','keydown','mousemove','touchstart'].forEach(function(e){document.addEventListener(e,reset,{passive:true});});
+  window.reset=reset;reset();
+})();
 </script>
 </body>
 </html>
