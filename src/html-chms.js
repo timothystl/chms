@@ -2902,7 +2902,7 @@ function syncPersonFromBreeze(breezeId, personId) {
       if (u.maritalStatus)   lines.push('Marital status: ' + u.maritalStatus);
       var msg = lines.length
         ? 'Updated from Breeze:\n\u2022 ' + lines.join('\n\u2022 ')
-        : 'Sync complete \u2014 no new demographic data found in Breeze for this person.\n\nSwitch to the Console tab (not Issues) in DevTools (F12) to see the full diagnostic — look for [Breeze Sync] entries.';
+        : 'No new demographic data found.\n\n' + (r.summary || 'No diagnostic info available.');
       alert(msg);
       // Reload the profile to show any updated values
       api('/admin/api/people/' + personId).then(function(p) { if (p && p.id) showProfile(p); });

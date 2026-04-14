@@ -2322,9 +2322,23 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
       breezeId
     ).run();
 
+    // Build human-readable diagnostic summary for the UI alert
+    const fm = diag.field_matches;
+    const matchSummary = ['dob','baptism','confirmation','anniversary','gender','marital_status']
+      .map(k => k + ': ' + (fm[k].field ? fm[k].field.name + ' (id ' + fm[k].field.id + ')' : 'NOT FOUND') + ' => "' + (fm[k].extracted || '') + '"')
+      .join('\n');
+    const summary = 'Profile fields discovered: ' + allFields.length
+      + '\nDetail keys on this person: ' + Object.keys(details).length
+      + '\nTop-level birth_date: "' + (p.birth_date || '') + '"'
+      + '\nFetch: single=' + (fetchDebug.single_status||'?') + ' (' + (fetchDebug.single_detail_keys||0) + ' keys)'
+      + (fetchDebug.list_status ? ', list=' + fetchDebug.list_status + ' (' + (fetchDebug.list_count||0) + ' results)' : '')
+      + '\n\nField matching:\n' + matchSummary
+      + '\n\nAll profile field names:\n' + allFields.map(f => '  ' + f.id + ': ' + f.name).join('\n');
+
     return json({
       ok: true,
       updated: { dob, baptismDate, confirmDate, anniversaryDate, gender, maritalStatus },
+      summary,
       diag
     });
   }
