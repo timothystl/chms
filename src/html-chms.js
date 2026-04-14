@@ -2454,7 +2454,17 @@ function showProfile(p) {
       + pvField('deceased', p.deceased ? (p.death_date ? fmtDate(p.death_date) : 'Yes') : 'No')
       + '</div>'
       + '</div>'
-      + (tagHtml ? '<div class="pv-section"><div class="pv-section-title">Tags</div><div style="display:flex;flex-wrap:wrap;gap:6px;">'+tagHtml+'</div></div>' : '')
+      + '<div class="pv-section" id="pv-tags-section">'
+      + '<div class="pv-section-title" style="display:flex;align-items:center;gap:8px;">Tags'
+      + '<button class="require-edit" onclick="togglePvTagEditor()" style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--warm-gray);font-size:.78rem;line-height:1;" title="Edit tags">&#9998;</button>'
+      + '</div>'
+      + '<div id="pv-tags-display" style="display:flex;flex-wrap:wrap;gap:6px;min-height:24px;">'+(tagHtml||'<span style="color:var(--warm-gray);font-size:.82rem;font-style:italic;">No tags</span>')+'</div>'
+      + '<div id="pv-tags-editor" style="display:none;margin-top:10px;">'
+      + '<div id="pv-tag-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>'
+      + '<button class="btn-primary require-edit" style="font-size:.8rem;padding:5px 12px;" onclick="savePvTags()">Save Tags</button>'
+      + '<button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;margin-left:6px;" onclick="togglePvTagEditor()">Cancel</button>'
+      + '</div>'
+      + '</div>'
       + (p.notes ? '<div class="pv-section"><div class="pv-section-title">Notes</div><div style="font-size:13px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'+esc(p.notes)+'</div></div>' : '')
       + '</div>';
     infoEl.innerHTML = '<div class="pv-info-cols">'+leftCol+rightCol+'</div>';
@@ -2538,6 +2548,63 @@ function closeProfile() {
   _currentPvPerson = null;
   var ca = document.querySelector('.content-area');
   if (ca) ca.classList.remove('pv-mode');
+}
+function togglePvTagEditor() {
+  var editor = document.getElementById('pv-tags-editor');
+  if (!editor) return;
+  var open = editor.style.display !== 'none';
+  if (open) { editor.style.display = 'none'; return; }
+  // Populate chip picker with current person's tags pre-selected
+  var sel = (_currentPvPerson && _currentPvPerson.tags) ? _currentPvPerson.tags.map(function(t){return t.id;}) : [];
+  var chips = document.getElementById('pv-tag-chips');
+  if (chips) {
+    chips.innerHTML = allTags.map(function(t) {
+      var on = sel.indexOf(t.id) >= 0;
+      return '<span class="tag-chip" data-tid="'+t.id+'"'+(on?' data-picked="1"':'')+' onclick="togglePvTagChip(this)"'
+        +' style="cursor:pointer;padding:4px 10px;'
+        +(on?'background:'+t.color+'30;border-color:'+t.color+';color:'+t.color+';':'background:var(--linen);border-color:var(--border);color:var(--warm-gray);')
+        +'">'+esc(t.name)+'</span>';
+    }).join('');
+  }
+  editor.style.display = '';
+}
+function togglePvTagChip(el) {
+  var t = allTags.find(function(x){return x.id == el.dataset.tid;});
+  if (!t) return;
+  if (el.dataset.picked === '1') {
+    el.dataset.picked = '';
+    el.style.background = 'var(--linen)'; el.style.borderColor = 'var(--border)'; el.style.color = 'var(--warm-gray)';
+  } else {
+    el.dataset.picked = '1';
+    el.style.background = t.color+'30'; el.style.borderColor = t.color; el.style.color = t.color;
+  }
+}
+function savePvTags() {
+  if (!_currentPvPerson) return;
+  var ids = [];
+  document.querySelectorAll('#pv-tag-chips .tag-chip').forEach(function(el) {
+    if (el.dataset.picked === '1') ids.push(parseInt(el.dataset.tid));
+  });
+  api('/admin/api/people/'+_currentPvPerson.id, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(Object.assign({}, _currentPvPerson, {
+      tag_ids: ids,
+      household_id: _currentPvPerson.household_id || null
+    }))
+  }).then(function(r) {
+    if (r.error) { alert('Error: '+r.error); return; }
+    // Update local tags and re-render display
+    _currentPvPerson.tags = allTags.filter(function(t){ return ids.indexOf(t.id) >= 0; });
+    var display = document.getElementById('pv-tags-display');
+    if (display) {
+      var tagHtml = _currentPvPerson.tags.map(function(t){
+        return '<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:99px;background:'+esc(t.color)+';color:white;font-size:11px;font-weight:600;margin:2px;">'+esc(t.name)+'</span>';
+      }).join('');
+      display.innerHTML = tagHtml || '<span style="color:var(--warm-gray);font-size:.82rem;font-style:italic;">No tags</span>';
+    }
+    document.getElementById('pv-tags-editor').style.display = 'none';
+  });
 }
 function applyAddressToHousehold(personId, householdId) {
   var p = _currentPvPerson;
