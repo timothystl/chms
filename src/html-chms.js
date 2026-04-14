@@ -1413,11 +1413,27 @@ function showTab(name) {
   var isFinancePlus = _userRole === 'admin' || _userRole === 'finance';
   var isStaffPlus   = _userRole === 'admin' || _userRole === 'staff';
   var isAdmin       = _userRole === 'admin';
-  if (name === 'giving'     && !isFinancePlus) return;
-  if (name === 'attendance' && !isStaffPlus)   return;
-  if (name === 'register'   && !isStaffPlus)   return;
-  if (name === 'import'     && !isAdmin)        return;
-  if (name === 'settings'   && !isAdmin)        return;
+  var _accessDenied = (name === 'giving' && !isFinancePlus) ||
+                      (name === 'attendance' && !isStaffPlus) ||
+                      (name === 'register' && !isStaffPlus) ||
+                      (name === 'import' && !isAdmin) ||
+                      (name === 'settings' && !isAdmin);
+  if (_accessDenied) {
+    document.querySelectorAll('.s-item[data-tab]').forEach(function(b) {
+      b.classList.toggle('active', b.dataset.tab === name);
+    });
+    document.querySelectorAll('.tab-panel').forEach(function(p) {
+      p.classList.toggle('active', p.id === 'tab-' + name);
+    });
+    var _denyEl = document.getElementById('tab-' + name);
+    if (_denyEl) _denyEl.innerHTML = '<div style="padding:60px 40px;text-align:center;color:var(--warm-gray);font-size:.9rem;">'
+      + '<div style="font-size:2rem;margin-bottom:12px;">\uD83D\uDD12</div>'
+      + '<div style="font-weight:600;margin-bottom:6px;">Access restricted</div>'
+      + '<div style="font-size:.82rem;margin-bottom:16px;">Your current role does not have permission to view this section.</div>'
+      + '<a href="/chms" style="color:var(--teal);font-size:.82rem;">Sign in with a different account</a>'
+      + '</div>';
+    return;
+  }
   // Exit person-profile view if active
   var ca = document.querySelector('.content-area');
   if (ca) ca.classList.remove('pv-mode');
@@ -1514,6 +1530,7 @@ window.addEventListener('load', function() {
 function applyRoleUI() {
   fetch('/admin/api/me').then(function(r){ return r.json(); }).then(function(d) {
     _userRole = d.role || 'admin';
+    if (_userRole === 'unknown') { location.href = '/chms'; return; }
     document.body.classList.remove('role-admin','role-finance','role-staff','role-member');
     document.body.classList.add('role-' + _userRole);
     var badge = document.getElementById('topbar-role');
