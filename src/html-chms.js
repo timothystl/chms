@@ -1238,6 +1238,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div class="field"><label>State / ZIP</label><div style="display:flex;gap:6px;"><input type="text" id="hm-state" style="width:60px;" maxlength="2" value="MO"><input type="text" id="hm-zip" placeholder="63000"></div></div>
     </div>
     <div class="field" style="margin-top:10px;"><label>Notes</label><textarea id="hm-notes" rows="2" style="resize:vertical;"></textarea></div>
+    <div class="field" style="margin-top:10px;"><label>Family Photo URL</label><input type="url" id="hm-photo" placeholder="https://…"></div>
     <div id="hm-members" style="margin-top:14px;"></div>
     <div class="modal-actions">
       <button class="btn-danger" id="hm-del-btn" onclick="deleteHousehold()" style="margin-right:auto;display:none;">Delete</button>
@@ -3422,11 +3423,14 @@ function renderHouseholds(rows) {
   if (!rows.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">&#127968;</div>No households found</div>'; return; }
   c.innerHTML = rows.map(function(h) {
     var addr = [h.address1, h.city, h.state].filter(Boolean).join(', ');
-    return '<div class="h-card" onclick="openHouseholdDetail(' + h.id + ')">'
+    var photo = h.photo_url ? '<img src="'+esc(photoSrc(h.photo_url))+'" alt="" style="width:100%;height:80px;object-fit:cover;border-radius:6px 6px 0 0;display:block;" onerror="this.style.display=\'none\'">' : '';
+    return '<div class="h-card" onclick="openHouseholdDetail(' + h.id + ')" style="padding:0;overflow:hidden;">'
+      + photo
+      + '<div style="padding:10px 12px;">'
       + '<div class="h-name">' + esc(h.name) + '</div>'
       + (addr ? '<div class="h-addr">' + esc(addr) + '</div>' : '')
       + '<div style="font-size:.78rem;color:var(--warm-gray);">' + (h.member_count||0) + ' member' + (h.member_count !== 1 ? 's' : '') + '</div>'
-      + '</div>';
+      + '</div></div>';
   }).join('');
 }
 function openHouseholdDetail(id) {
@@ -3445,7 +3449,12 @@ function openHouseholdDetail(id) {
     }).join('') : '<div style="color:var(--warm-gray);font-size:.88rem;padding:10px 0;">No members</div>';
     var el = document.getElementById('hh-detail-body');
     if (!el) return;
-    el.innerHTML = '<div style="margin-bottom:12px;">'
+    var photoHtml = '';
+    if (h.photo_url) {
+      photoHtml = '<img src="'+esc(photoSrc(h.photo_url))+'" alt="'+esc(h.name)+'" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:12px;" onerror="this.style.display=\'none\'">';
+    }
+    el.innerHTML = photoHtml
+      +'<div style="margin-bottom:12px;">'
       +'<div style="font-size:1.1rem;font-weight:600;margin-bottom:4px;">'+esc(h.name)+'</div>'
       +(addr ? '<div style="font-size:.85rem;color:var(--warm-gray);">'+esc(addr)+'</div>' : '')
       +(h.notes ? '<div style="font-size:.82rem;color:var(--charcoal);margin-top:8px;padding:8px;background:var(--linen);border-radius:6px;">'+esc(h.notes)+'</div>' : '')
@@ -3472,6 +3481,7 @@ function openHouseholdEdit(h) {
   document.getElementById('hm-state').value = isNew ? 'MO' : (h.state||'MO');
   document.getElementById('hm-zip').value = isNew ? '' : (h.zip||'');
   document.getElementById('hm-notes').value = isNew ? '' : (h.notes||'');
+  document.getElementById('hm-photo').value = isNew ? '' : (h.photo_url||'');
   document.getElementById('hm-del-btn').style.display = isNew ? 'none' : 'inline-flex';
   var mc = document.getElementById('hm-members');
   if (h && h.members && h.members.length) {
@@ -3493,7 +3503,8 @@ function saveHousehold() {
     city: document.getElementById('hm-city').value.trim(),
     state: document.getElementById('hm-state').value.trim(),
     zip: document.getElementById('hm-zip').value.trim(),
-    notes: document.getElementById('hm-notes').value
+    notes: document.getElementById('hm-notes').value,
+    photo_url: document.getElementById('hm-photo').value.trim()
   };
   if (!data.name) { alert('Family name is required.'); return; }
   var url = id ? '/admin/api/households/' + id : '/admin/api/households';

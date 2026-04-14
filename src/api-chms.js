@@ -317,8 +317,8 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   if (seg === 'households' && method === 'POST') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const r = await db.prepare(
-      `INSERT INTO households (name,address1,address2,city,state,zip,notes) VALUES (?,?,?,?,?,?,?)`
-    ).bind(b.name||'',b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',b.notes||'').run();
+      `INSERT INTO households (name,address1,address2,city,state,zip,notes,photo_url) VALUES (?,?,?,?,?,?,?,?)`
+    ).bind(b.name||'',b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',b.notes||'',b.photo_url||'').run();
     return json({ ok: true, id: r.meta?.last_row_id });
   }
 
@@ -336,8 +336,8 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     if (method === 'PUT') {
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
       await db.prepare(
-        `UPDATE households SET name=?,address1=?,address2=?,city=?,state=?,zip=?,notes=? WHERE id=?`
-      ).bind(b.name||'',b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',b.notes||'',hid).run();
+        `UPDATE households SET name=?,address1=?,address2=?,city=?,state=?,zip=?,notes=?,photo_url=? WHERE id=?`
+      ).bind(b.name||'',b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',b.notes||'',b.photo_url||'',hid).run();
       return json({ ok: true });
     }
     if (method === 'DELETE') {
