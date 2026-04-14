@@ -297,6 +297,10 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const q = '%' + (url.searchParams.get('q') || '') + '%';
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
     const offset = parseInt(url.searchParams.get('offset') || '0');
+    const sort = url.searchParams.get('sort') || 'name';
+    const orderBy = sort === 'members_desc' ? 'member_count DESC, h.name'
+                  : sort === 'members_asc'  ? 'member_count ASC, h.name'
+                  : 'h.name';
     const countRow = await db.prepare(
       `SELECT COUNT(*) as n FROM households h WHERE h.name LIKE ? OR h.address1 LIKE ? OR h.city LIKE ?`
     ).bind(q,q,q).first();
@@ -305,7 +309,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       `SELECT h.*, COUNT(p.id) as member_count FROM households h
        LEFT JOIN people p ON p.household_id=h.id AND p.active=1
        WHERE h.name LIKE ? OR h.address1 LIKE ? OR h.city LIKE ?
-       GROUP BY h.id ORDER BY h.name LIMIT ? OFFSET ?`
+       GROUP BY h.id ORDER BY ${orderBy} LIMIT ? OFFSET ?`
     ).bind(q,q,q,limit,offset).all()).results || [];
     return json({ households: rows, total, offset, limit });
   }
@@ -1343,7 +1347,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
 
   if (seg === 'import/register-from-people' && method === 'POST') {
     let b = {}; try { b = await req.json(); } catch {}
-    const cutoff = b.cutoff || '2020-01-01';
+    const cutoff = b.cutoff || '1900-01-01';
     const types = Array.isArray(b.types) ? b.types : ['baptism','confirmation'];
     let imported = 0, skipped = 0;
 
