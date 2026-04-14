@@ -75,7 +75,8 @@ async function _fetch(req, env) {
     }
     if (path === '/admin' && method === 'GET') {
       if (!await isAuthed(req, env)) return html(LOGIN_HTML);
-      return html(ADMIN_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+      // Redirect authenticated users to CHMS (Volunteers tab is integrated there)
+      return new Response(null, { status: 302, headers: { 'Location': '/chms' } });
     }
     if (path.startsWith('/admin/api/')) {
       if (!await isAuthed(req, env)) return json({ error: 'Unauthorized' }, 401);
