@@ -2096,14 +2096,20 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
     for (const section of (Array.isArray(profileFields) ? profileFields : [])) {
       extractFields(section.fields || []);
     }
-    const findField = (names) => {
+    const findField = (names, fallbackSubstrings = []) => {
       const ns = names.map(n => n.toLowerCase());
-      return allFields.find(f => ns.includes((f.name||'').toLowerCase()));
+      // 1. Exact name match
+      let found = allFields.find(f => ns.includes((f.name||'').toLowerCase()));
+      // 2. Substring fallback (catches "LCMS Baptism Date", "Date Baptized", etc.)
+      if (!found && fallbackSubstrings.length) {
+        found = allFields.find(f => fallbackSubstrings.some(s => (f.name||'').toLowerCase().includes(s)));
+      }
+      return found;
     };
-    const F_STATUS_FIELD   = findField(['status','member status','membership status','fellowship status','church status','member type','church membership','congregational status','person status','participation status','attendance status']);
-    const F_DOB_FIELD      = findField(['birthdate','birth date','dob','date of birth','birthday']);
-    const F_BAPTISM_FIELD  = findField(['baptism date','baptism','baptism_date','date of baptism','baptized']);
-    const F_CONFIRM_FIELD  = findField(['confirmation date','confirmation','confirmation_date','date of confirmation','confirmed']);
+    const F_STATUS_FIELD   = findField(['status','member status','membership status','fellowship status','church status','member type','church membership','congregational status','person status','participation status','attendance status'], ['status','membership']);
+    const F_DOB_FIELD      = findField(['birthdate','birth date','dob','date of birth','birthday','date of birth'], ['birth','birthday']);
+    const F_BAPTISM_FIELD  = findField(['baptism date','baptism','baptism_date','date of baptism','baptized','date baptized','date of baptism','baptism (date)'], ['baptism','baptized']);
+    const F_CONFIRM_FIELD  = findField(['confirmation date','confirmation','confirmation_date','date of confirmation','confirmed','date confirmed','date of confirmation','confirmation (date)'], ['confirmation','confirmed']);
     const F_ANNIV_FIELD    = findField(['anniversary date','anniversary','anniversary_date','wedding anniversary','wedding date']);
     const F_GENDER_FIELD   = findField(['gender','sex','gender identity']);
     const F_MARITAL_FIELD  = findField(['marital status','marital','marriage status','civil status','married']);
@@ -2233,11 +2239,21 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         const mappedType = statusName ? (memberTypeMap[statusName] || memberTypeMap[statusName.toLowerCase()] || null) : null;
         const matched = mappedType || (statusName ? configuredMemberTypes.find(t => t.toLowerCase() === statusName.toLowerCase()) : null);
         const memberType = matched || (configuredMemberTypes.includes('Other') ? 'Other' : configuredMemberTypes[0] || 'Other');
-        // Dates (stored as plain strings under their field ID key)
-        const dob          = toISO(details[F_DOB]          || details['birthdate'] || '');
-        const baptismDate  = toISO(details[F_BAPTISM]       || '');
-        const confirmDate  = toISO(details[F_CONFIRMATION]  || '');
-        const anniversaryDate = toISO(details[F_ANNIVERSARY] || '');
+        // Dates — Breeze may return as a plain string, an object {date/value:"..."}, or an array.
+        // extractDate unwraps all formats before passing to toISO.
+        const extractDate = (raw) => {
+          if (!raw) return '';
+          if (typeof raw === 'string') return raw;
+          const obj = Array.isArray(raw) ? raw[0] : raw;
+          if (obj && typeof obj === 'object') {
+            return obj.date || obj.value || obj.name || '';
+          }
+          return '';
+        };
+        const dob             = toISO(extractDate(details[F_DOB])          || extractDate(details['birthdate']) || '');
+        const baptismDate     = toISO(extractDate(details[F_BAPTISM])       || '');
+        const confirmDate     = toISO(extractDate(details[F_CONFIRMATION])  || '');
+        const anniversaryDate = toISO(extractDate(details[F_ANNIVERSARY])   || '');
         // Gender and marital status (stored as {value, name} objects)
         const gender        = F_GENDER  ? extractName(details[F_GENDER])  : '';
         const maritalStatus = F_MARITAL ? extractName(details[F_MARITAL]) : '';
@@ -2410,7 +2426,7 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         }
       } catch (e) { errors.push({ tag_sync_error: e.message }); }
     }
-    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
+    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, dob_field: F_DOB_FIELD ? {id: F_DOB_FIELD.id, name: F_DOB_FIELD.name} : null, baptism_field: F_BAPTISM_FIELD ? {id: F_BAPTISM_FIELD.id, name: F_BAPTISM_FIELD.name} : null, confirmation_field: F_CONFIRM_FIELD ? {id: F_CONFIRM_FIELD.id, name: F_CONFIRM_FIELD.name} : null, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
   }
 
   return json({ error: 'Not found' }, 404);
