@@ -2131,14 +2131,20 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
     const F_ANNIV_FIELD    = findField(['anniversary date','anniversary','anniversary_date','wedding anniversary','wedding date']);
     const F_GENDER_FIELD   = findField(['gender','sex','gender identity']);
     const F_MARITAL_FIELD  = findField(['marital status','marital','marriage status','civil status','married']);
+    const F_DECEASED_FIELD = findField(['deceased','is deceased','date deceased','date of death','death'], ['deceased','death']);
+    const F_DEATH_FIELD    = findField(['death date','date of death','date deceased','died'], ['death date','date of death','died']);
+    const F_ENVELOPE_FIELD = findField(['envelope number','envelope #','envelope','giving number','contribution number','giving envelope'], ['envelope']);
     // Use empty string as fallback so details[''] is always undefined — never accidentally match a real field
-    const F_STATUS       = F_STATUS_FIELD  ? String(F_STATUS_FIELD.id)  : '';
-    const F_DOB          = F_DOB_FIELD     ? String(F_DOB_FIELD.id)     : '';
-    const F_BAPTISM      = F_BAPTISM_FIELD ? String(F_BAPTISM_FIELD.id) : '';
-    const F_CONFIRMATION = F_CONFIRM_FIELD ? String(F_CONFIRM_FIELD.id) : '';
-    const F_ANNIVERSARY  = F_ANNIV_FIELD   ? String(F_ANNIV_FIELD.id)   : '';
-    const F_GENDER       = F_GENDER_FIELD  ? String(F_GENDER_FIELD.id)  : '';
-    const F_MARITAL      = F_MARITAL_FIELD ? String(F_MARITAL_FIELD.id) : '';
+    const F_STATUS       = F_STATUS_FIELD   ? String(F_STATUS_FIELD.id)   : '';
+    const F_DOB          = F_DOB_FIELD      ? String(F_DOB_FIELD.id)      : '';
+    const F_BAPTISM      = F_BAPTISM_FIELD  ? String(F_BAPTISM_FIELD.id)  : '';
+    const F_CONFIRMATION = F_CONFIRM_FIELD  ? String(F_CONFIRM_FIELD.id)  : '';
+    const F_ANNIVERSARY  = F_ANNIV_FIELD    ? String(F_ANNIV_FIELD.id)    : '';
+    const F_GENDER       = F_GENDER_FIELD   ? String(F_GENDER_FIELD.id)   : '';
+    const F_MARITAL      = F_MARITAL_FIELD  ? String(F_MARITAL_FIELD.id)  : '';
+    const F_DECEASED     = F_DECEASED_FIELD ? String(F_DECEASED_FIELD.id) : '';
+    const F_DEATH_DATE   = F_DEATH_FIELD    ? String(F_DEATH_FIELD.id)    : '';
+    const F_ENVELOPE     = F_ENVELOPE_FIELD ? String(F_ENVELOPE_FIELD.id) : '';
     // Breeze's built-in person-type field ID (not returned by /api/profile).
     // Values 1/2/3 are Breeze's universal numeric IDs for Member/Attender/Visitor.
     const BREEZE_TYPE_FIELD = '1076274773';
@@ -2215,6 +2221,9 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
     const statusesSeen = new Set();
     let imported = 0, updated = 0, skipped = 0;
     const errors = [];
+    // Track breeze_ids seen this batch; accumulated across batches in chms_config
+    // so we can deactivate people removed from Breeze on the final batch.
+    const seenBreezeIds = new Set();
     for (const p of people) {
       try {
         const fn = (p.first_name || '').trim();
@@ -2276,6 +2285,20 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         const baptismDate     = toISO(extractDate(details[F_BAPTISM])       || '');
         const confirmDate     = toISO(extractDate(details[F_CONFIRMATION])  || '');
         const anniversaryDate = toISO(extractDate(details[F_ANNIVERSARY])   || '');
+        // Deceased flag and death date — Breeze may store as a checkbox field or date field.
+        // Also check p.deceased top-level if Breeze exposes it directly.
+        const deathDateRaw = extractDate(details[F_DEATH_DATE]) || extractDate(details[F_DECEASED]) || '';
+        const deathDate    = toISO(deathDateRaw);
+        // Treat as deceased if: top-level flag, a death date was found, or the deceased field
+        // has a truthy non-date value (e.g. checkbox returning "1" or "true").
+        const deceasedRaw  = details[F_DECEASED];
+        const deceasedFlag = p.deceased ? 1
+          : deathDate ? 1
+          : (deceasedRaw && typeof deceasedRaw === 'string' && deceasedRaw !== '0' && deceasedRaw !== 'false') ? 1
+          : (deceasedRaw && typeof deceasedRaw === 'object' && (deceasedRaw.value || deceasedRaw.name)) ? 1
+          : 0;
+        // Envelope number (profile field or top-level)
+        const envelopeNumber = F_ENVELOPE ? (extractName(details[F_ENVELOPE]) || extractDate(details[F_ENVELOPE]) || '') : (p.envelope_number || '');
         // Gender and marital status (stored as {value, name} objects)
         const gender        = F_GENDER  ? extractName(details[F_GENDER])  : '';
         const maritalStatus = F_MARITAL ? extractName(details[F_MARITAL]) : '';
@@ -2341,28 +2364,29 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
             ).bind(photoUrl, householdId).run();
           }
         }
+        seenBreezeIds.add(String(p.id));
         const existing = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(String(p.id)).first();
         if (existing) {
           await db.prepare(
             `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,
              address1=?,city=?,state=?,zip=?,member_type=?,household_id=?,
              dob=?,baptism_date=?,confirmation_date=?,anniversary_date=?,family_role=?,photo_url=?,
-             gender=?,marital_status=?
+             gender=?,marital_status=?,deceased=?,death_date=?,envelope_number=?,active=1
              WHERE breeze_id=?`
           ).bind(fn,ln,email,phone,addr.street,addr.city,addr.state,addr.zip,memberType,householdId,
                  dob,baptismDate,confirmDate,anniversaryDate,familyRole,photoUrl,
-                 gender,maritalStatus,String(p.id)).run();
+                 gender,maritalStatus,deceasedFlag,deathDate,envelopeNumber,String(p.id)).run();
           updated++;
         } else {
           await db.prepare(
             `INSERT INTO people
              (first_name,last_name,email,phone,address1,city,state,zip,breeze_id,member_type,
               household_id,dob,baptism_date,confirmation_date,anniversary_date,family_role,photo_url,
-              gender,marital_status)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+              gender,marital_status,deceased,death_date,envelope_number)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
           ).bind(fn,ln,email,phone,addr.street,addr.city,addr.state,addr.zip,String(p.id),memberType,
                  householdId,dob,baptismDate,confirmDate,anniversaryDate,familyRole,photoUrl,
-                 gender,maritalStatus).run();
+                 gender,maritalStatus,deceasedFlag,deathDate,envelopeNumber).run();
           imported++;
         }
       } catch (e) { errors.push({ breeze_id: p.id, error: e.message }); }
@@ -2378,6 +2402,26 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
           .bind(JSON.stringify([...existingSeen])).run();
       } catch {}
     }
+    // Accumulate seen breeze_ids across batches so the final batch can deactivate missing people.
+    // On first batch (offset===0) we reset the accumulator; on subsequent batches we append.
+    let deactivated = 0;
+    try {
+      const accKey = 'breeze_sync_seen_ids';
+      const existing = offset === 0 ? new Set() : new Set(
+        JSON.parse((await db.prepare(`SELECT value FROM chms_config WHERE key='${accKey}'`).first())?.value || '[]')
+      );
+      seenBreezeIds.forEach(id => existing.add(id));
+      await db.prepare(`INSERT INTO chms_config(key,value) VALUES('${accKey}',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`)
+        .bind(JSON.stringify([...existing])).run();
+      if (done && existing.size > 0) {
+        // Deactivate people with a breeze_id that were not seen in any batch this run
+        const idList = [...existing].map(() => '?').join(',');
+        const r = await db.prepare(
+          `UPDATE people SET active=0 WHERE active=1 AND breeze_id != '' AND breeze_id NOT IN (${idList})`
+        ).bind(...[...existing]).run();
+        deactivated = r.meta?.changes ?? 0;
+      }
+    } catch {}
     // On the final batch, sync tags and tag assignments from Breeze
     let tagsSynced = 0, tagAssignments = 0;
     if (done) {
@@ -2447,7 +2491,7 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
         }
       } catch (e) { errors.push({ tag_sync_error: e.message }); }
     }
-    return json({ ok: true, imported, updated, skipped, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, dob_field: F_DOB_FIELD ? {id: F_DOB_FIELD.id, name: F_DOB_FIELD.name} : null, baptism_field: F_BAPTISM_FIELD ? {id: F_BAPTISM_FIELD.id, name: F_BAPTISM_FIELD.name} : null, confirmation_field: F_CONFIRM_FIELD ? {id: F_CONFIRM_FIELD.id, name: F_CONFIRM_FIELD.name} : null, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
+    return json({ ok: true, imported, updated, skipped, deactivated, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, dob_field: F_DOB_FIELD ? {id: F_DOB_FIELD.id, name: F_DOB_FIELD.name} : null, baptism_field: F_BAPTISM_FIELD ? {id: F_BAPTISM_FIELD.id, name: F_BAPTISM_FIELD.name} : null, confirmation_field: F_CONFIRM_FIELD ? {id: F_CONFIRM_FIELD.id, name: F_CONFIRM_FIELD.name} : null, deceased_field: F_DECEASED_FIELD ? {id: F_DECEASED_FIELD.id, name: F_DECEASED_FIELD.name} : null, death_date_field: F_DEATH_FIELD ? {id: F_DEATH_FIELD.id, name: F_DEATH_FIELD.name} : null, envelope_field: F_ENVELOPE_FIELD ? {id: F_ENVELOPE_FIELD.id, name: F_ENVELOPE_FIELD.name} : null, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
   }
 
   return json({ error: 'Not found' }, 404);

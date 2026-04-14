@@ -4823,13 +4823,14 @@ function runBreezeImport() {
   var status = document.getElementById('breeze-status');
   bar.style.display = 'block'; fill.style.width = '0%';
   status.textContent = 'Starting import…'; status.className = 'import-status';
-  var totalImported = 0, totalUpdated = 0;
+  var totalImported = 0, totalUpdated = 0, totalDeactivated = 0;
   var lastStatusField = null, allStatusesSeen = new Set();
   function doPage(offset) {
     api('/admin/api/import/breeze', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({offset:offset, limit:100})}).then(function(d) {
       if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; bar.style.display = 'none'; return; }
       totalImported += d.imported || 0;
       totalUpdated += d.updated || 0;
+      totalDeactivated += d.deactivated || 0;
       if (d.status_field) lastStatusField = d.status_field;
       if (d.statuses_seen) d.statuses_seen.forEach(function(s) { allStatusesSeen.add(s); });
       if (d._diag && !window._breezeImportDiag) {
@@ -4843,6 +4844,9 @@ function runBreezeImport() {
             '  DOB: '          + (diag.dob_field          ? '"' + diag.dob_field.name          + '" (id ' + diag.dob_field.id          + ')' : '(not found)'),
             '  Baptism: '      + (diag.baptism_field      ? '"' + diag.baptism_field.name      + '" (id ' + diag.baptism_field.id      + ')' : '(not found — dates will be empty)'),
             '  Confirmation: ' + (diag.confirmation_field ? '"' + diag.confirmation_field.name + '" (id ' + diag.confirmation_field.id + ')' : '(not found — dates will be empty)'),
+            '  Deceased: '     + (diag.deceased_field     ? '"' + diag.deceased_field.name     + '" (id ' + diag.deceased_field.id     + ')' : '(not found)'),
+            '  Death date: '   + (diag.death_date_field   ? '"' + diag.death_date_field.name   + '" (id ' + diag.death_date_field.id   + ')' : '(not found)'),
+            '  Envelope #: '   + (diag.envelope_field     ? '"' + diag.envelope_field.name     + '" (id ' + diag.envelope_field.id     + ')' : '(not found)'),
             'Status field ID: ' + (diag.status_field_id || '(none)'),
           ];
           if (diag.sample_top_level_keys && diag.sample_top_level_keys.length) {
@@ -4860,7 +4864,7 @@ function runBreezeImport() {
       fill.style.width = d.done ? '100%' : Math.min(95, (d.next_offset / Math.max(d.next_offset + 100, 200)) * 100) + '%';
       status.textContent = 'Imported ' + totalImported + ', updated ' + totalUpdated + '…';
       if (d.done) {
-        var msg = 'Done. ' + totalImported + ' new, ' + totalUpdated + ' updated.';
+        var msg = 'Done. ' + totalImported + ' new, ' + totalUpdated + ' updated' + (totalDeactivated ? ', ' + totalDeactivated + ' deactivated (removed from Breeze)' : '') + '.';
         if (!lastStatusField) {
           msg += ' ⚠ No Breeze status field detected — check Settings › Breeze Status Mapping.';
         } else if (allStatusesSeen.size === 0) {
