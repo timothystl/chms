@@ -2358,7 +2358,7 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
   }
 
   // ── Breeze Import ────────────────────────────────────────────────
-  if (seg === 'import/breeze' && method === 'POST') {
+  if (seg === 'import/breeze' && method === 'POST') { try {
     const subdomain = env.BREEZE_SUBDOMAIN;
     const apiKey    = env.BREEZE_API_KEY;
     if (!subdomain || !apiKey) return json({ error: 'Breeze not configured (BREEZE_SUBDOMAIN / BREEZE_API_KEY missing)' }, 503);
@@ -2720,12 +2720,18 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
       await db.prepare(`INSERT INTO chms_config(key,value) VALUES('${accKey}',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`)
         .bind(JSON.stringify([...existing])).run();
       if (done && existing.size > 0) {
-        // Deactivate people with a breeze_id that were not seen in any batch this run
-        const idList = [...existing].map(() => '?').join(',');
-        const r = await db.prepare(
-          `UPDATE people SET active=0 WHERE active=1 AND breeze_id != '' AND breeze_id NOT IN (${idList})`
-        ).bind(...[...existing]).run();
-        deactivated = r.meta?.changes ?? 0;
+        // Deactivate people with a breeze_id that were not seen in any batch this run.
+        // D1 has a ~100-parameter limit per statement so batch in chunks of 90 IDs.
+        const allIds = [...existing];
+        const chunkSize = 90;
+        for (let ci = 0; ci < allIds.length; ci += chunkSize) {
+          const chunk = allIds.slice(ci, ci + chunkSize);
+          const idList = chunk.map(() => '?').join(',');
+          const r = await db.prepare(
+            `UPDATE people SET active=0 WHERE active=1 AND breeze_id != '' AND breeze_id NOT IN (${idList})`
+          ).bind(...chunk).run();
+          deactivated += r.meta?.changes ?? 0;
+        }
       }
     } catch {}
     // On the final batch, sync tags and tag assignments from Breeze
@@ -2798,7 +2804,9 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
       } catch (e) { errors.push({ tag_sync_error: e.message }); }
     }
     return json({ ok: true, imported, updated, skipped, deactivated, errors, done, next_offset: offset + people.length, tags_synced: tagsSynced, tag_assignments: tagAssignments, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, dob_field: F_DOB_FIELD ? {id: F_DOB_FIELD.id, name: F_DOB_FIELD.name} : null, baptism_field: F_BAPTISM_FIELD ? {id: F_BAPTISM_FIELD.id, name: F_BAPTISM_FIELD.name} : null, confirmation_field: F_CONFIRM_FIELD ? {id: F_CONFIRM_FIELD.id, name: F_CONFIRM_FIELD.name} : null, deceased_field: F_DECEASED_FIELD ? {id: F_DECEASED_FIELD.id, name: F_DECEASED_FIELD.name} : null, death_date_field: F_DEATH_FIELD ? {id: F_DEATH_FIELD.id, name: F_DEATH_FIELD.name} : null, envelope_field: F_ENVELOPE_FIELD ? {id: F_ENVELOPE_FIELD.id, name: F_ENVELOPE_FIELD.name} : null, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
-  }
+  } catch (importErr) {
+    return json({ ok: false, error: 'Bulk import error: ' + importErr.message, _stack: (importErr.stack||'').slice(0, 500) }, 500);
+  } }
 
   return json({ error: 'Not found' }, 404);
 }
