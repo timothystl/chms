@@ -22,60 +22,73 @@ Update it as issues are found, fixed, or queued.
 
 ---
 
-## Backlog — Requested Features & Fixes
+## Backlog — Phased Plan
 
-Items below were provided by the admin on 2026-04-15. Needs clarification marked with ❓.
+Items ordered by effort. Complete one phase, test, then move to the next.
+Added 2026-04-15, phased 2026-04-15.
 
-### Auth / Navigation
-| # | Description | Priority | Status |
-|---|-------------|----------|--------|
-| A1 | Login currently accepts password-only even though both fields are shown — **enforce both username + password as required**. Per-user credentials with roles (Admin / Finance / Staff / Member). User management exists in Settings but is **broken** — needs dedicated fix. | High | Queued — dedicated session |
-| A2 | After login, redirect directly to the CHMS/people screen instead of a splash or home page | Medium | Queued |
+---
 
-### Performance / UX Polish
-| # | Description | Priority | Status |
-|---|-------------|----------|--------|
-| P1 | Paginate all list views at **25 items per page** to speed up load times (people, households, giving, etc.) | High | Queued |
-| P2 | Move the Breeze **import** controls into the **Settings tab** — currently hard to find | Medium | Queued |
-| P3 | Edit gifts **inline on the person profile** — no separate window/tab needed | Medium | Queued |
-| P4 | **Inline field editing on profile** — master Edit button + modal is fine to keep, but every individual field should also be editable inline (click the value → edit in place). Both paths should work. | Medium | Queued |
+### Phase 1 — Quick Wins (no DB changes, low risk) ✅ START HERE
+| # | Description | Status |
+|---|-------------|--------|
+| A2 | After login, redirect directly to the CHMS/people screen instead of splash/home | Queued |
+| P2 | Move the Breeze **import** controls into the **Settings tab** | Queued |
+| B2 | Show a clear summary of which fields were synced during a Breeze import (visible in UI) | Queued |
+| B1 | **Tag import broken**: Breeze shows 99 "Voters" but only ~20 in app — fix tag-member fetch logic | Queued |
+| N1 | **Multi-tag AND search** — filter people who have ALL selected tags (e.g. Voters + Volunteers) | Queued |
 
-### Household & People Management
-| # | Description | Priority | Status |
-|---|-------------|----------|--------|
-| H1 | Add **Organizations** section to left sidebar, below Households | Medium | Queued |
-| H2 | Fix **"Add person to household"** flow — popup should let you search/select existing people OR create a new person; current text-only popup is broken | High | Queued |
-| H3 | **Household-level giving** — combine and display giving totals for all household members (spouses, etc.) together | Medium | Queued |
+**Test after Phase 1:** Login flow, Settings tab has import, tag counts match Breeze, multi-tag filter works.
 
-### Directory / Print
-| # | Description | Priority | Status |
-|---|-------------|----------|--------|
-| D1 | Directory print defaults to **member households only**; offer option to select which groups to include; non-member members of included households are still printed | High | Queued |
-| D2 | **Granular directory privacy per field** on each profile — individual toggles to hide: address, phone, email, profile photo. A person with everything hidden still appears in the directory by name only (e.g. "John and Sally Smith" with no contact details). Not a single hide-all checkbox. | Medium | Queued |
-| D3 | Printed directory formatted for **8.5×11**, includes **profile photos**, paginates **alphabetically** (A–C page 1, D–F page 2, etc.) | Medium | Queued |
+---
 
-### Breeze Import / Sync
-| # | Description | Priority | Status |
-|---|-------------|----------|--------|
-| B1 | **Tag import broken**: Breeze has 99 people tagged "Voters" but only ~20 appear in app — investigate tag-member fetch logic | High | Queued |
-| B2 | Add a clear **summary of what fields are synced** during a Breeze import (DOB, baptism, confirmation, etc.) — visible in the UI so admin knows what to expect | Low | Queued |
+### Phase 2 — UI Fixes (no schema changes)
+| # | Description | Status |
+|---|-------------|--------|
+| H2 | Fix **"Add person to household"** — search/select existing people OR create new; current text popup is broken | Queued |
+| P1 | Paginate all list views at **25 items per page** (people, households, giving) | Queued |
 
-### Dedicated Sessions Required (Complex / Unknown Scope)
-| # | Description | Priority | Status |
-|---|-------------|----------|--------|
-| S1 | **Register record creation from people records** is not working properly — needs full dedicated session to diagnose and fix | High | Queued — dedicated session |
-| S2 | **Image/photo import** is broken — needs dedicated session | High | Queued — dedicated session |
+**Test after Phase 2:** Household member adding works both ways, lists load faster and paginate correctly.
 
-### New Features
-| # | Description | Priority | Status |
-|---|-------------|----------|--------|
-| N1 | **Multi-tag search** — AND logic across tags (e.g., show people who are both "Voters" AND "Volunteers") | Medium | Queued |
-| N2 | **Scheduler app** should be integrated natively into this CHMS app rather than being a separate app | Low | Queued |
+---
 
-### Infrastructure / Planning (Discuss Before Acting)
-| # | Description | Priority | Status |
-|---|-------------|----------|--------|
-| I1 | **Rename subdomain** — considering `chms.timothystl.org` or `admin.timothystl.org`; possibly fold in website editing and newsletter tools into one app | Low | Discussion needed |
+### Phase 3 — Profile Editing Overhaul
+| # | Description | Status |
+|---|-------------|--------|
+| P3 | Edit gifts **inline on the person profile** — no separate window | Queued |
+| P4 | **Inline field editing on profile** — keep master Edit modal, but also click any field to edit in place | Queued |
+
+**Test after Phase 3:** Can edit any profile field by clicking it; gift edits work inline; master Edit modal still works.
+
+---
+
+### Phase 4 — Directory (needs new DB columns for privacy flags)
+| # | Description | Status |
+|---|-------------|--------|
+| D2 | **Per-field directory privacy** — profile toggles to hide address / phone / email / photo individually; person still appears in directory by name | Queued |
+| D1 | Directory defaults to **member households only**; group filter option; non-member household members still included | Queued |
+| D3 | Printed directory: **8.5×11**, includes profile photos, paginates **alphabetically** (A–C p.1, D–F p.2, etc.) | Queued |
+
+**Test after Phase 4:** Privacy flags save per person; directory filters correctly; print layout looks right on paper.
+
+---
+
+### Phase 5 — Dedicated Sessions (schedule separately, unknown scope)
+| # | Description | Status |
+|---|-------------|--------|
+| A1 | Per-user auth: enforce username+password, fix broken user management in Settings. Roles: Admin/Finance/Staff/Member | Queued — dedicated session |
+| S1 | **Register record creation from people records** is broken — diagnose and fix | Queued — dedicated session |
+| S2 | **Image/photo import** is broken — diagnose and fix | Queued — dedicated session |
+
+---
+
+### Phase 6 — Future / Planning
+| # | Description | Status |
+|---|-------------|--------|
+| H1 | Add **Organizations** section to sidebar below Households (new entity type, DB schema) | Future |
+| H3 | **Household-level giving** — combine/display giving totals across all household members | Future |
+| N2 | **Scheduler app** integrated natively into this CHMS app | Future |
+| I1 | **Rename subdomain** (`chms.timothystl.org` or `admin.timothystl.org`); possibly merge website editing + newsletter | Discussion needed |
 
 ---
 
