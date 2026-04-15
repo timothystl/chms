@@ -2227,9 +2227,11 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
       return found;
     };
 
-    const F_DOB_FIELD      = findFieldPS(['birthdate','birth date','dob','date of birth','birthday'], ['birth','birthday']);
+    // "Age and Birthdate" is Breeze's built-in age field that also stores birthdate
+    const F_DOB_FIELD      = findFieldPS(['birthdate','birth date','dob','date of birth','birthday','age and birthdate','age'], ['birth','birthday','age']);
     const F_BAPTISM_FIELD  = findFieldPS(['baptism date','baptismal date','date of baptism','baptized date','date baptized','baptism (date)','baptism (adult)','baptism (infant)','baptism_date','baptism','baptized'], ['baptism','baptized','baptismal']);
-    const F_CONFIRM_FIELD  = findFieldPS(['confirmation date','affirmation date','date of confirmation','date affirmed','date confirmed','date of affirmation','affirmation of baptism','confirmation (date)','confirmation_date','affirmation','confirmation','confirmed'], ['confirmation','confirmed','affirm']);
+    // "Confirmed" is a dropdown field; "Confirmation Date" is the actual date field — only match date-specific names
+    const F_CONFIRM_FIELD  = findFieldPS(['confirmation date','affirmation date','date of confirmation','date affirmed','date confirmed','date of affirmation','affirmation of baptism','confirmation (date)','confirmation_date'], ['confirmation','confirmed','affirm']);
     const F_ANNIV_FIELD    = findFieldPS(['anniversary date','anniversary','anniversary_date','wedding anniversary','wedding date'], ['anniversary','wedding']);
     const F_GENDER_FIELD   = findFieldPS(['gender','sex','gender identity'], ['gender','sex']);
     const F_MARITAL_FIELD  = findFieldPS(['marital status','marital','marriage status','civil status','married']);
@@ -2257,7 +2259,8 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
       if (!raw) return '';
       if (typeof raw === 'string') return raw;
       const obj = Array.isArray(raw) ? raw[0] : raw;
-      if (obj && typeof obj === 'object') return obj.date || obj.value || obj.name || '';
+      // Also check birth_date/birthday — Breeze "Age and Birthdate" field returns these keys
+      if (obj && typeof obj === 'object') return obj.date || obj.birth_date || obj.birthday || obj.value || obj.name || '';
       return '';
     };
     const optionIdToNamePS = {};
@@ -2409,11 +2412,12 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
       return found;
     };
     const F_STATUS_FIELD   = findField(['status','member status','membership status','fellowship status','church status','member type','church membership','congregational status','person status','participation status','attendance status'], ['status','membership']);
-    const F_DOB_FIELD      = findField(['birthdate','birth date','dob','date of birth','birthday'], ['birth','birthday']);
+    // "Age and Birthdate" is Breeze's built-in age field that also stores birthdate
+    const F_DOB_FIELD      = findField(['birthdate','birth date','dob','date of birth','birthday','age and birthdate','age'], ['birth','birthday','age']);
     // LCMS-specific: "Baptismal Date", "Date Baptized", "Baptism (Adult/Infant)"
     const F_BAPTISM_FIELD  = findField(['baptism date','baptismal date','date of baptism','baptized date','date baptized','baptism (date)','baptism (adult)','baptism (infant)','baptism_date','baptism','baptized'], ['baptism','baptized','baptismal']);
-    // LCMS-specific: "Affirmation of Baptism", "Date Affirmed", "Affirmation Date"
-    const F_CONFIRM_FIELD  = findField(['confirmation date','affirmation date','date of confirmation','date affirmed','date confirmed','date of affirmation','affirmation of baptism','confirmation (date)','confirmation_date','affirmation','confirmation','confirmed'], ['confirmation','confirmed','affirm']);
+    // "Confirmed" is a dropdown; "Confirmation Date" is the date — only match date-specific names exactly
+    const F_CONFIRM_FIELD  = findField(['confirmation date','affirmation date','date of confirmation','date affirmed','date confirmed','date of affirmation','affirmation of baptism','confirmation (date)','confirmation_date'], ['confirmation','confirmed','affirm']);
     const F_ANNIV_FIELD    = findField(['anniversary date','anniversary','anniversary_date','wedding anniversary','wedding date'], ['anniversary','wedding']);
     // Gender needs substring fallback — some Breeze instances label it "M/F", "Sex", etc.
     const F_GENDER_FIELD   = findField(['gender','sex','gender identity'], ['gender','sex']);
@@ -2565,9 +2569,8 @@ h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bo
           if (!raw) return '';
           if (typeof raw === 'string') return raw;
           const obj = Array.isArray(raw) ? raw[0] : raw;
-          if (obj && typeof obj === 'object') {
-            return obj.date || obj.value || obj.name || '';
-          }
+          // Also check birth_date/birthday — Breeze "Age and Birthdate" field returns these keys
+          if (obj && typeof obj === 'object') return obj.date || obj.birth_date || obj.birthday || obj.value || obj.name || '';
           return '';
         };
         const dob             = toISO(p.birth_date || extractDate(details[F_DOB]) || extractDate(details['birthdate']) || '');
