@@ -29,16 +29,16 @@ Added 2026-04-15, phased 2026-04-15.
 
 ---
 
-### Phase 1 — Quick Wins (no DB changes, low risk) ✅ START HERE
+### Phase 1 — Quick Wins (no DB changes, low risk) ✅ DONE 2026-04-15
 | # | Description | Status |
 |---|-------------|--------|
-| A2 | After login, redirect directly to the CHMS/people screen instead of splash/home | Queued |
-| P2 | Move the Breeze **import** controls into the **Settings tab** | Queued |
-| B2 | Show a clear summary of which fields were synced during a Breeze import (visible in UI) | Queued |
-| B1 | **Tag import broken**: Breeze shows 99 "Voters" but only ~20 in app — fix tag-member fetch logic | Queued |
-| N1 | **Multi-tag AND search** — filter people who have ALL selected tags (e.g. Voters + Volunteers) | Queued |
+| A2 | After login, redirect directly to the CHMS/people screen instead of splash/home | Done |
+| P2 | Move the Breeze **import** controls into the **Settings tab** | Done |
+| B2 | Show a clear summary of which fields were synced during a Breeze import (visible in UI) | Done |
+| B1 | **Tag import broken**: added `POST /admin/api/import/breeze-sync-tags` — clears and re-syncs all tag assignments; "Sync Tags Only" button in Settings | Done — needs test |
+| N1 | **Multi-tag AND search** — tag filter upgraded to checkboxes; selecting multiple tags shows only people with ALL tags | Done |
 
-**Test after Phase 1:** Login flow, Settings tab has import, tag counts match Breeze, multi-tag filter works.
+**Test after Phase 1:** Login lands on People tab. Settings tab has all import tools. Run "Sync Tags Only" and verify Voters tag shows ~99 people. Check multi-tag filter selects people with both tags.
 
 ---
 
