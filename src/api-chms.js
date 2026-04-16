@@ -1448,8 +1448,10 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       : typesParam.split(',').map(t => t.trim()).filter(Boolean);
     const tp = allowedTypes.map(() => '?').join(',');
 
-    // Query A: all people in households where at least one member matches allowed types
-    // Non-member household members of qualifying households are still included
+    // Query A: people in households who qualify directly (member_type matches)
+    // OR are a child/dependent in a household that has a qualifying adult.
+    // A visitor who happens to live with a member is NOT included — only
+    // qualifying adults and their children are.
     const hhPeople = (await db.prepare(
       `SELECT p.id, p.first_name, p.last_name, p.email, p.phone,
               p.address1, p.city, p.state, p.zip, p.family_role, p.member_type,
@@ -1457,15 +1459,20 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
               p.dir_hide_address, p.dir_hide_phone, p.dir_hide_email, p.photo_url
        FROM people p JOIN households h ON p.household_id=h.id
        WHERE p.active=1 AND p.public_directory=1
-         AND LOWER(p.member_type) NOT IN ('organization')
-         AND p.household_id IN (
-           SELECT DISTINCT household_id FROM people
-           WHERE active=1 AND household_id IS NOT NULL AND household_id != ''
-             AND LOWER(member_type) IN (${tp})
+         AND (
+           LOWER(p.member_type) IN (${tp})
+           OR (
+             LOWER(p.family_role) = 'child'
+             AND p.household_id IN (
+               SELECT DISTINCT household_id FROM people
+               WHERE active=1 AND household_id IS NOT NULL AND household_id != ''
+                 AND LOWER(member_type) IN (${tp})
+             )
+           )
          )
        ORDER BY CASE p.family_role WHEN 'head' THEN 0 WHEN 'spouse' THEN 1 WHEN 'child' THEN 2 ELSE 3 END,
                 p.last_name, p.first_name`
-    ).bind(...allowedTypes).all()).results || [];
+    ).bind(...allowedTypes, ...allowedTypes).all()).results || [];
 
     // Query B: solo individuals matching allowed types (no household)
     const solos = (await db.prepare(
@@ -1560,7 +1567,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
 .grid{columns:2;column-gap:32px;}
 .letter-hdr{font-size:15pt;font-weight:bold;color:#1E2D4A;border-bottom:2px solid #1E2D4A;
   margin:18px 0 8px;padding-bottom:2px;break-after:avoid;column-span:all;line-height:1;}
-.hh{break-inside:avoid;margin-bottom:11px;padding-bottom:11px;border-bottom:1px solid #e8e0d8;}
+.hh{break-inside:avoid;page-break-inside:avoid;margin-bottom:11px;padding-bottom:11px;border-bottom:1px solid #e8e0d8;}
 .hh-row{display:flex;gap:9px;align-items:flex-start;}
 .name{font-weight:bold;font-size:10.5pt;line-height:1.2;}
 .members{font-size:8.5pt;color:#555;margin-top:1px;}
