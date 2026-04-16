@@ -1414,7 +1414,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-15-v5';
+var DEPLOY_VERSION = '2026-04-15-v6';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -2728,12 +2728,12 @@ function showProfile(p) {
     }).join('');
     var dirBadge = p.public_directory === 0 ? '<span style="display:inline-block;font-size:10px;padding:2px 7px;border-radius:99px;background:#f4e8c1;color:#9a7a2b;font-weight:600;margin-left:8px;">Private</span>' : '';
     var leftCol = '<div>'
-      + '<div class="pv-section">'
+      + '<div class="pv-section" id="pv-contact-section">'
       + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Contact'+dirBadge+'</div>'
-      + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="openPersonEdit(_currentPvPerson)">Edit</button></div>'
-      + pvRow('Address', addrVal, 'address')
-      + pvRow('Phone', phoneVal, 'phone')
-      + pvRow('Email', emailVal, 'email')
+      + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditContact()">Edit</button></div>'
+      + pvRow('Address', addrVal)
+      + pvRow('Phone', phoneVal)
+      + pvRow('Email', emailVal)
       + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Apply address to household</button></div>' : '')
       + '</div>'
       + '<div class="pv-section">'
@@ -2746,25 +2746,25 @@ function showProfile(p) {
       + '</div>'
       + '</div>';
     var rightCol = '<div>'
-      + '<div class="pv-section">'
+      + '<div class="pv-section" id="pv-demo-section">'
       + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Demographics / Dates</div><div style="display:flex;gap:5px;">'
       + (p.breeze_id ? '<button class="btn-secondary role-admin" style="font-size:.7rem;padding:2px 8px;" onclick="syncPersonFromBreeze(\''+esc(p.breeze_id)+'\','+p.id+')">&#8635; Sync Breeze</button>' : '')
-      + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="openPersonEdit(_currentPvPerson)">Edit</button></div></div>'
+      + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditDemo()">Edit</button></div></div>'
       + '<div class="pv-field-grid">'
-      + pvField('gender', p.gender, 'gender')
-      + pvField('marital status', p.marital_status, 'marital_status')
-      + pvField('birthday', p.dob ? fmtDate(p.dob)+calcAge(p.dob) : '', 'dob')
-      + pvField('baptized', p.baptism_date ? fmtDate(p.baptism_date) : '', 'baptism_date')
-      + pvField('confirmed', p.confirmation_date ? fmtDate(p.confirmation_date) : '', 'confirmation_date')
-      + pvField('anniversary', p.anniversary_date ? fmtDate(p.anniversary_date) : '', 'anniversary_date')
+      + pvField('gender', p.gender)
+      + pvField('marital status', p.marital_status)
+      + pvField('birthday', p.dob ? fmtDate(p.dob)+calcAge(p.dob) : '')
+      + pvField('baptized', p.baptism_date ? fmtDate(p.baptism_date) : '')
+      + pvField('confirmed', p.confirmation_date ? fmtDate(p.confirmation_date) : '')
+      + pvField('anniversary', p.anniversary_date ? fmtDate(p.anniversary_date) : '')
       + pvField('deceased', p.deceased ? (p.death_date ? fmtDate(p.death_date) : 'Yes') : 'No')
       + '</div>'
       + '</div>'
       + '<div class="pv-section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Tags</div><button class="btn-secondary" style="font-size:.7rem;padding:2px 8px;" onclick="openPersonEdit(_currentPvPerson)">Edit</button></div><div style="display:flex;flex-wrap:wrap;gap:6px;">'+(tagHtml||'<span style="color:var(--warm-gray);font-size:12px;font-style:italic;">No tags</span>')+'</div></div>'
       + (p.notes || _userRole !== 'member'
-          ? '<div class="pv-section"><div class="pv-section-title">Notes</div><div'
-            + (_userRole !== 'member' ? ' onclick="pvStartEdit(\'notes\',this)" style="font-size:13px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;cursor:pointer;min-height:20px;" title="Click to edit"' : ' style="font-size:13px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;"')
-            + '>'+(p.notes ? esc(p.notes) : '<span style="color:var(--warm-gray);font-style:italic;">No notes \u2014 click to add</span>')+'</div></div>'
+          ? '<div class="pv-section" id="pv-notes-section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Notes</div>'
+            + (_userRole !== 'member' ? '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditNotes()">Edit</button>' : '')
+            + '</div><div style="font-size:13px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'+(p.notes ? esc(p.notes) : '<span style="color:var(--warm-gray);font-style:italic;">No notes</span>')+'</div></div>'
           : '')
       + '</div>';
     infoEl.innerHTML = '<div class="pv-info-cols">'+leftCol+rightCol+'</div>';
@@ -2814,23 +2814,15 @@ function showProfile(p) {
   if (ca) ca.classList.add('pv-mode');
   showPvTab('info');
 }
-function pvRow(key, val, fieldKey) {
-  var empty = !val;
-  var editable = fieldKey && _userRole !== 'member';
+function pvRow(key, val) {
   return '<div class="pv-row"><div class="pv-row-key">'+key+'</div>'
-    + '<div class="pv-row-val'+(empty?' empty':'')+'"'
-    + (editable ? ' onclick="pvStartEdit(\''+fieldKey+'\',this)" style="cursor:pointer;" title="Click to edit"' : '')
-    + '>'+(val||'—')+'</div></div>';
+    + '<div class="pv-row-val'+(val?'':' empty')+'">'+(val||'—')+'</div></div>';
 }
-function pvField(label, val, fieldKey) {
-  var empty = !val;
-  var editable = fieldKey && _userRole !== 'member';
+function pvField(label, val) {
   return '<div class="pv-field-card"><div class="pv-field-card-lbl">'+label+'</div>'
-    + '<div class="pv-field-card-val'+(empty?' empty':'')+'"'
-    + (editable ? ' onclick="pvStartEdit(\''+fieldKey+'\',this)" style="cursor:pointer;" title="Click to edit"' : '')
-    + '>'+(val||'—')+'</div></div>';
+    + '<div class="pv-field-card-val'+(val?'':' empty')+'">'+(val||'—')+'</div></div>';
 }
-// ── PERSON PROFILE INLINE EDITING ─────────────────────────────────────
+// ── PERSON PROFILE SECTION EDITING ─────────────────────────────────────
 function pvBuildPersonPatch(p, overrides) {
   var full = {};
   ['first_name','last_name','email','phone','address1','city','state','zip',
@@ -2842,152 +2834,185 @@ function pvBuildPersonPatch(p, overrides) {
   full.tag_ids = (p.tags || []).map(function(t){ return t.id; });
   return full;
 }
-function pvRestoreDisplay(fieldKey, el) {
+// ── Contact section ──────────────────────────────────────────────────
+function pvEditContact() {
+  var sec = document.getElementById('pv-contact-section');
+  if (!sec || sec.dataset.editing === '1') return;
+  sec.dataset.editing = '1';
   var p = _currentPvPerson;
-  var val = '', empty = false;
-  if (fieldKey === 'address') {
-    var addrParts = [p.address1, p.city, ((p.state||'')+(p.zip ? ' '+p.zip : '')).trim()].filter(Boolean);
-    var addrStr = addrParts.map(esc).join(', ');
-    val = addrStr ? '<a href="https://maps.google.com/?q='+encodeURIComponent(addrParts.join(', '))+'" target="_blank" rel="noopener">'+addrStr+'</a>' : '';
-    empty = !addrStr;
-  } else if (fieldKey === 'phone') {
-    val = p.phone ? '<a href="tel:'+esc(p.phone)+'">'+esc(p.phone)+'</a>' : '';
-    empty = !p.phone;
-  } else if (fieldKey === 'email') {
-    val = p.email ? '<a href="mailto:'+esc(p.email)+'">'+esc(p.email)+'</a>' : '';
-    empty = !p.email;
-  } else if (fieldKey === 'dob') {
-    val = p.dob ? fmtDate(p.dob)+calcAge(p.dob) : '';
-    empty = !val;
-  } else if (fieldKey === 'baptism_date' || fieldKey === 'confirmation_date' || fieldKey === 'anniversary_date') {
-    val = p[fieldKey] ? fmtDate(p[fieldKey]) : '';
-    empty = !val;
-  } else if (fieldKey === 'notes') {
-    val = p.notes ? esc(p.notes) : '<span style="color:var(--warm-gray);font-style:italic;">No notes \u2014 click to add</span>';
-    empty = !p.notes;
-  } else {
-    val = esc(p[fieldKey] || '');
-    empty = !p[fieldKey];
-  }
-  el.dataset.editing = '';
-  el.innerHTML = val || '—';
-  if (el.classList.contains('pv-row-val') || el.classList.contains('pv-field-card-val')) {
-    el.classList.toggle('empty', empty);
-  }
+  var inp = 'width:100%;box-sizing:border-box;font-size:13px;padding:5px 8px;border:1px solid var(--sky-steel);border-radius:4px;';
+  var dirBadge = p.public_directory === 0 ? '<span style="display:inline-block;font-size:10px;padding:2px 7px;border-radius:99px;background:#f4e8c1;color:#9a7a2b;font-weight:600;margin-left:8px;">Private</span>' : '';
+  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+    + '<div class="pv-section-title" style="margin:0;">Contact'+dirBadge+'</div>'
+    + '<div style="display:flex;gap:6px;">'
+    + '<button class="btn-primary" style="font-size:.7rem;padding:3px 10px;" onclick="pvSaveContact()">Save</button>'
+    + '<button class="btn-secondary" style="font-size:.7rem;padding:3px 10px;" onclick="pvCancelContact()">Cancel</button>'
+    + '</div></div>'
+    + '<div style="display:grid;gap:8px;">'
+    + '<div><label style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Street Address</label><input type="text" id="pec-addr1" value="'+esc(p.address1||'')+'" style="'+inp+'"></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 60px 90px;gap:6px;">'
+    + '<div><label style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">City</label><input type="text" id="pec-city" value="'+esc(p.city||'')+'" style="'+inp+'"></div>'
+    + '<div><label style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">State</label><input type="text" id="pec-state" value="'+esc(p.state||'')+'" style="'+inp+'" maxlength="2"></div>'
+    + '<div><label style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">ZIP</label><input type="text" id="pec-zip" value="'+esc(p.zip||'')+'" style="'+inp+'"></div>'
+    + '</div>'
+    + '<div><label style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Phone</label><input type="tel" id="pec-phone" value="'+esc(p.phone||'')+'" style="'+inp+'"></div>'
+    + '<div><label style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Email</label><input type="email" id="pec-email" value="'+esc(p.email||'')+'" style="'+inp+'"></div>'
+    + '</div>';
+  var f = sec.querySelector('#pec-addr1'); if (f) f.focus();
 }
-function pvSaveField(fieldKey, inputEl, el) {
-  if (!inputEl || !el) return;
-  var newVal = (inputEl.value || '').trim();
+function pvCancelContact() { pvRenderContact(); }
+function pvSaveContact() {
   var p = _currentPvPerson;
-  var oldVal = ((p[fieldKey] !== null && p[fieldKey] !== undefined) ? p[fieldKey] : '').toString().trim();
-  if (newVal === oldVal) { pvRestoreDisplay(fieldKey, el); return; }
-  inputEl.disabled = true;
-  var full = pvBuildPersonPatch(p, {});
-  full[fieldKey] = newVal;
-  api('/admin/api/people/'+p.id, {
-    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(full)
-  }).then(function(r) {
-    if (r && r.ok) {
-      _currentPvPerson[fieldKey] = newVal;
-      pvRestoreDisplay(fieldKey, el);
-    } else {
-      inputEl.disabled = false;
-      alert('Error: '+(r && r.error ? r.error : 'Could not save'));
-    }
-  }).catch(function() { inputEl.disabled = false; alert('Network error. Please try again.'); });
-}
-function pvSaveAddress(el) {
-  if (!el) return;
-  var p = _currentPvPerson;
-  var a1 = document.getElementById('pie-addr1'), ci = document.getElementById('pie-city'),
-      st = document.getElementById('pie-state'), zi = document.getElementById('pie-zip');
-  if (!a1) return;
-  var addr1 = a1.value.trim(), city = ci ? ci.value.trim() : '', state = st ? st.value.trim() : '', zip = zi ? zi.value.trim() : '';
-  var btn = el.querySelector('.btn-primary');
+  var btn = document.querySelector('#pv-contact-section .btn-primary');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
-  var full = pvBuildPersonPatch(p, { address1: addr1, city: city, state: state, zip: zip });
-  api('/admin/api/people/'+p.id, {
-    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(full)
-  }).then(function(r) {
-    if (r && r.ok) {
-      _currentPvPerson.address1 = addr1; _currentPvPerson.city = city;
-      _currentPvPerson.state = state; _currentPvPerson.zip = zip;
-      pvRestoreDisplay('address', el);
-    } else {
+  var patch = pvBuildPersonPatch(p, {
+    address1: (document.getElementById('pec-addr1')||{}).value || '',
+    city:     (document.getElementById('pec-city')||{}).value || '',
+    state:    (document.getElementById('pec-state')||{}).value || '',
+    zip:      (document.getElementById('pec-zip')||{}).value || '',
+    phone:    (document.getElementById('pec-phone')||{}).value || '',
+    email:    (document.getElementById('pec-email')||{}).value || ''
+  });
+  api('/admin/api/people/'+p.id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(patch)})
+    .then(function() {
+      ['address1','city','state','zip','phone','email'].forEach(function(k){ _currentPvPerson[k] = patch[k]; });
+      pvRenderContact();
+    }).catch(function() {
       if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
-      alert('Error: '+(r && r.error ? r.error : 'Could not save'));
-    }
-  }).catch(function() { if (btn) { btn.disabled = false; btn.textContent = 'Save'; } alert('Network error. Please try again.'); });
+      alert('Save failed. Please try again.');
+    });
 }
-function pvCancelEdit(el, fieldKey) {
-  if (!el) return;
-  pvRestoreDisplay(fieldKey, el);
-}
-function pvEditKey(event, fieldKey, inputEl, el) {
-  if (event.key === 'Enter') pvSaveField(fieldKey, inputEl, el);
-  if (event.key === 'Escape') pvCancelEdit(el, fieldKey);
-}
-function pvStartEdit(fieldKey, el) {
-  if (_userRole === 'member') return;
-  if (el.dataset.editing === '1') return;
-  el.dataset.editing = '1';
+function pvRenderContact() {
+  var sec = document.getElementById('pv-contact-section');
+  if (!sec) return;
   var p = _currentPvPerson;
-  var raw = (p[fieldKey] !== undefined && p[fieldKey] !== null) ? String(p[fieldKey]) : '';
-  var inp = 'width:100%;box-sizing:border-box;font-size:12px;padding:3px 6px;border:1px solid var(--sky-steel);border-radius:4px;';
-  var btn = 'font-size:11px;padding:2px 8px;border-radius:4px;cursor:pointer;margin:0;';
-  var html;
-  if (fieldKey === 'address') {
-    html = '<div style="display:grid;gap:3px;">'
-      + '<input type="text" id="pie-addr1" placeholder="Street address" value="'+esc(p.address1||'')+'" style="'+inp+'">'
-      + '<input type="text" id="pie-city" placeholder="City" value="'+esc(p.city||'')+'" style="'+inp+'">'
-      + '<div style="display:grid;grid-template-columns:70px 1fr;gap:3px;">'
-      + '<input type="text" id="pie-state" placeholder="ST" value="'+esc(p.state||'')+'" style="'+inp+'" maxlength="2">'
-      + '<input type="text" id="pie-zip" placeholder="ZIP" value="'+esc(p.zip||'')+'" style="'+inp+'">'
-      + '</div>'
-      + '<div style="display:flex;gap:4px;margin-top:3px;">'
-      + '<button class="btn-primary" style="'+btn+'" onclick="event.stopPropagation();pvSaveAddress(this.closest(\'[data-editing]\'))">Save</button>'
-      + '<button class="btn-secondary" style="'+btn+'" onclick="event.stopPropagation();pvCancelEdit(this.closest(\'[data-editing]\'),\'address\')">Cancel</button>'
-      + '</div></div>';
-    el.innerHTML = html;
-    var f = el.querySelector('#pie-addr1'); if (f) f.focus();
-    return;
-  }
-  var isSel = fieldKey === 'gender' || fieldKey === 'marital_status';
-  var isDate = ['dob','baptism_date','confirmation_date','anniversary_date'].indexOf(fieldKey) >= 0;
-  if (isSel) {
-    var opts = fieldKey === 'gender' ? ['','Male','Female','Other'] : ['','Single','Married','Divorced','Widowed'];
-    var selOpts = opts.map(function(v){
-      return '<option value="'+v+'"'+(raw.toLowerCase()===(v.toLowerCase())&&v?' selected':(!v&&!raw?' selected':''))+'>'+( v||'—')+'</option>';
-    }).join('');
-    html = '<div style="display:flex;gap:4px;align-items:center;">'
-      + '<select id="pie-'+fieldKey+'" style="'+inp+';flex:1;">'+selOpts+'</select>'
-      + '<button class="btn-primary" style="'+btn+'" onclick="event.stopPropagation();pvSaveField(\''+fieldKey+'\',document.getElementById(\'pie-'+fieldKey+'\'),this.closest(\'[data-editing]\'))">Save</button>'
-      + '<button class="btn-secondary" style="'+btn+'" onclick="event.stopPropagation();pvCancelEdit(this.closest(\'[data-editing]\'),\''+fieldKey+'\')">&#x2715;</button>'
-      + '</div>';
-  } else if (isDate) {
-    html = '<div style="display:flex;gap:4px;align-items:center;">'
-      + '<input type="date" id="pie-'+fieldKey+'" value="'+esc(raw)+'" style="'+inp+';flex:1;" onkeydown="pvEditKey(event,\''+fieldKey+'\',this,this.closest(\'[data-editing]\'))">'
-      + '<button class="btn-primary" style="'+btn+'" onclick="event.stopPropagation();pvSaveField(\''+fieldKey+'\',document.getElementById(\'pie-'+fieldKey+'\'),this.closest(\'[data-editing]\'))">Save</button>'
-      + '<button class="btn-secondary" style="'+btn+'" onclick="event.stopPropagation();pvCancelEdit(this.closest(\'[data-editing]\'),\''+fieldKey+'\')">&#x2715;</button>'
-      + '</div>';
-  } else if (fieldKey === 'notes') {
-    html = '<div>'
-      + '<textarea id="pie-notes" style="'+inp+';min-height:80px;resize:vertical;display:block;" onkeydown="if(event.key===\'Escape\')pvCancelEdit(this.closest(\'[data-editing]\'),\'notes\')">'+esc(raw)+'</textarea>'
-      + '<div style="display:flex;gap:4px;margin-top:4px;">'
-      + '<button class="btn-primary" style="'+btn+'" onclick="event.stopPropagation();pvSaveField(\'notes\',document.getElementById(\'pie-notes\'),this.closest(\'[data-editing]\'))">Save</button>'
-      + '<button class="btn-secondary" style="'+btn+'" onclick="event.stopPropagation();pvCancelEdit(this.closest(\'[data-editing]\'),\'notes\')">Cancel</button>'
-      + '</div></div>';
-  } else {
-    var type = fieldKey === 'email' ? 'email' : fieldKey === 'phone' ? 'tel' : 'text';
-    html = '<div style="display:flex;gap:4px;align-items:center;">'
-      + '<input type="'+type+'" id="pie-'+fieldKey+'" value="'+esc(raw)+'" style="'+inp+';flex:1;" onkeydown="pvEditKey(event,\''+fieldKey+'\',this,this.closest(\'[data-editing]\'))">'
-      + '<button class="btn-primary" style="'+btn+'" onclick="event.stopPropagation();pvSaveField(\''+fieldKey+'\',document.getElementById(\'pie-'+fieldKey+'\'),this.closest(\'[data-editing]\'))">Save</button>'
-      + '<button class="btn-secondary" style="'+btn+'" onclick="event.stopPropagation();pvCancelEdit(this.closest(\'[data-editing]\'),\''+fieldKey+'\')">&#x2715;</button>'
-      + '</div>';
-  }
-  el.innerHTML = html;
-  var inp2 = el.querySelector('input,select,textarea');
-  if (inp2) { inp2.focus(); if (inp2.select) inp2.select(); }
+  var addrParts = [p.address1, p.city, ((p.state||'')+(p.zip ? ' '+p.zip : '')).trim()].filter(Boolean);
+  var addrStr = addrParts.map(esc).join(', ');
+  var addrVal = addrStr ? '<a href="https://maps.google.com/?q='+encodeURIComponent(addrParts.join(', '))+'" target="_blank" rel="noopener">'+addrStr+'</a>' : '';
+  var emailVal = p.email ? '<a href="mailto:'+esc(p.email)+'">'+esc(p.email)+'</a>' : '';
+  var phoneVal = p.phone ? '<a href="tel:'+esc(p.phone)+'">'+esc(p.phone)+'</a>' : '';
+  var dirBadge = p.public_directory === 0 ? '<span style="display:inline-block;font-size:10px;padding:2px 7px;border-radius:99px;background:#f4e8c1;color:#9a7a2b;font-weight:600;margin-left:8px;">Private</span>' : '';
+  delete sec.dataset.editing;
+  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Contact'+dirBadge+'</div>'
+    + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditContact()">Edit</button></div>'
+    + pvRow('Address', addrVal)
+    + pvRow('Phone', phoneVal)
+    + pvRow('Email', emailVal)
+    + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Apply address to household</button></div>' : '');
+}
+// ── Demographics section ──────────────────────────────────────────────
+function pvEditDemo() {
+  var sec = document.getElementById('pv-demo-section');
+  if (!sec || sec.dataset.editing === '1') return;
+  sec.dataset.editing = '1';
+  var p = _currentPvPerson;
+  var inp = 'width:100%;box-sizing:border-box;font-size:13px;padding:5px 8px;border:1px solid var(--sky-steel);border-radius:4px;';
+  var gOpts = ['','Male','Female','Other'].map(function(v){
+    return '<option value="'+v+'"'+((p.gender||'')===v&&v?' selected':(!v&&!p.gender?' selected':''))+'>'+(v||'—')+'</option>';
+  }).join('');
+  var msOpts = ['','Single','Married','Divorced','Widowed'].map(function(v){
+    return '<option value="'+v+'"'+((p.marital_status||'')===v&&v?' selected':(!v&&!p.marital_status?' selected':''))+'>'+(v||'—')+'</option>';
+  }).join('');
+  var breezeBtn = p.breeze_id ? '<button class="btn-secondary role-admin" style="font-size:.7rem;padding:3px 10px;" onclick="syncPersonFromBreeze(\''+esc(p.breeze_id)+'\','+p.id+')">&#8635; Sync Breeze</button>' : '';
+  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+    + '<div class="pv-section-title" style="margin:0;">Demographics / Dates</div>'
+    + '<div style="display:flex;gap:6px;">'+breezeBtn
+    + '<button class="btn-primary" style="font-size:.7rem;padding:3px 10px;" onclick="pvSaveDemo()">Save</button>'
+    + '<button class="btn-secondary" style="font-size:.7rem;padding:3px 10px;" onclick="pvCancelDemo()">Cancel</button>'
+    + '</div></div>'
+    + '<div class="pv-field-grid">'
+    + '<div class="pv-field-card"><div class="pv-field-card-lbl">gender</div><select id="ped-gender" style="'+inp+'">'+gOpts+'</select></div>'
+    + '<div class="pv-field-card"><div class="pv-field-card-lbl">marital status</div><select id="ped-ms" style="'+inp+'">'+msOpts+'</select></div>'
+    + '<div class="pv-field-card"><div class="pv-field-card-lbl">birthday</div><input type="date" id="ped-dob" value="'+esc(p.dob ? p.dob.slice(0,10) : '')+'" style="'+inp+'"></div>'
+    + '<div class="pv-field-card"><div class="pv-field-card-lbl">baptized</div><input type="date" id="ped-bap" value="'+esc(p.baptism_date ? p.baptism_date.slice(0,10) : '')+'" style="'+inp+'"></div>'
+    + '<div class="pv-field-card"><div class="pv-field-card-lbl">confirmed</div><input type="date" id="ped-conf" value="'+esc(p.confirmation_date ? p.confirmation_date.slice(0,10) : '')+'" style="'+inp+'"></div>'
+    + '<div class="pv-field-card"><div class="pv-field-card-lbl">anniversary</div><input type="date" id="ped-ann" value="'+esc(p.anniversary_date ? p.anniversary_date.slice(0,10) : '')+'" style="'+inp+'"></div>'
+    + '</div>';
+  var f = sec.querySelector('select'); if (f) f.focus();
+}
+function pvCancelDemo() { pvRenderDemo(); }
+function pvSaveDemo() {
+  var p = _currentPvPerson;
+  var btn = document.querySelector('#pv-demo-section .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
+  var patch = pvBuildPersonPatch(p, {
+    gender:            (document.getElementById('ped-gender')||{}).value || '',
+    marital_status:    (document.getElementById('ped-ms')||{}).value || '',
+    dob:               (document.getElementById('ped-dob')||{}).value || null,
+    baptism_date:      (document.getElementById('ped-bap')||{}).value || null,
+    confirmation_date: (document.getElementById('ped-conf')||{}).value || null,
+    anniversary_date:  (document.getElementById('ped-ann')||{}).value || null
+  });
+  api('/admin/api/people/'+p.id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(patch)})
+    .then(function() {
+      ['gender','marital_status','dob','baptism_date','confirmation_date','anniversary_date'].forEach(function(k){ _currentPvPerson[k] = patch[k]; });
+      pvRenderDemo();
+    }).catch(function() {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+      alert('Save failed. Please try again.');
+    });
+}
+function pvRenderDemo() {
+  var sec = document.getElementById('pv-demo-section');
+  if (!sec) return;
+  var p = _currentPvPerson;
+  delete sec.dataset.editing;
+  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Demographics / Dates</div><div style="display:flex;gap:5px;">'
+    + (p.breeze_id ? '<button class="btn-secondary role-admin" style="font-size:.7rem;padding:2px 8px;" onclick="syncPersonFromBreeze(\''+esc(p.breeze_id)+'\','+p.id+')">&#8635; Sync Breeze</button>' : '')
+    + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditDemo()">Edit</button></div></div>'
+    + '<div class="pv-field-grid">'
+    + pvField('gender', p.gender)
+    + pvField('marital status', p.marital_status)
+    + pvField('birthday', p.dob ? fmtDate(p.dob)+calcAge(p.dob) : '')
+    + pvField('baptized', p.baptism_date ? fmtDate(p.baptism_date) : '')
+    + pvField('confirmed', p.confirmation_date ? fmtDate(p.confirmation_date) : '')
+    + pvField('anniversary', p.anniversary_date ? fmtDate(p.anniversary_date) : '')
+    + pvField('deceased', p.deceased ? (p.death_date ? fmtDate(p.death_date) : 'Yes') : 'No')
+    + '</div>';
+}
+// ── Notes section ────────────────────────────────────────────────────
+function pvEditNotes() {
+  var sec = document.getElementById('pv-notes-section');
+  if (!sec || sec.dataset.editing === '1') return;
+  sec.dataset.editing = '1';
+  var p = _currentPvPerson;
+  var inp = 'width:100%;box-sizing:border-box;font-size:13px;padding:5px 8px;border:1px solid var(--sky-steel);border-radius:4px;';
+  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+    + '<div class="pv-section-title" style="margin:0;">Notes</div>'
+    + '<div style="display:flex;gap:6px;">'
+    + '<button class="btn-primary" style="font-size:.7rem;padding:3px 10px;" onclick="pvSaveNotes()">Save</button>'
+    + '<button class="btn-secondary" style="font-size:.7rem;padding:3px 10px;" onclick="pvCancelNotes()">Cancel</button>'
+    + '</div></div>'
+    + '<textarea id="ped-notes" style="'+inp+';min-height:100px;resize:vertical;display:block;">'+esc(p.notes||'')+'</textarea>';
+  var f = sec.querySelector('textarea'); if (f) f.focus();
+}
+function pvCancelNotes() { pvRenderNotes(); }
+function pvSaveNotes() {
+  var p = _currentPvPerson;
+  var btn = document.querySelector('#pv-notes-section .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
+  var notes = (document.getElementById('ped-notes')||{}).value || '';
+  var patch = pvBuildPersonPatch(p, {notes: notes});
+  api('/admin/api/people/'+p.id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(patch)})
+    .then(function() {
+      _currentPvPerson.notes = notes;
+      pvRenderNotes();
+    }).catch(function() {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+      alert('Save failed. Please try again.');
+    });
+}
+function pvRenderNotes() {
+  var sec = document.getElementById('pv-notes-section');
+  if (!sec) return;
+  var p = _currentPvPerson;
+  delete sec.dataset.editing;
+  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Notes</div>'
+    + (_userRole !== 'member' ? '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditNotes()">Edit</button>' : '')
+    + '</div>'
+    + '<div style="font-size:13px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'
+    + (p.notes ? esc(p.notes) : '<span style="color:var(--warm-gray);font-style:italic;">No notes</span>')
+    + '</div>';
 }
 function loadPvFamily(hhId, selfId) {
   var el = document.getElementById('pv-family-members');
