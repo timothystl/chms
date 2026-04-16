@@ -1397,13 +1397,24 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div class="modal">
     <h2>Add Person to Household</h2>
     <input type="text" id="add-hh-search" placeholder="Search by name…" style="width:100%;margin-bottom:10px;" oninput="searchAddToHh(this.value)">
-    <div id="add-hh-results" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;min-height:60px;"></div>
+    <div id="add-hh-results" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;min-height:60px;"></div>
+    <div style="margin-top:12px;">
+      <button id="add-hh-new-toggle" class="btn-secondary" style="font-size:.82rem;width:100%;" onclick="toggleAddHhNew(this)">+ Create new person instead</button>
+      <div id="add-hh-new" style="display:none;margin-top:10px;padding:12px;background:var(--linen);border-radius:8px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+          <div class="field" style="margin:0;"><label style="font-size:11px;">First Name</label><input type="text" id="anh-first" style="width:100%;box-sizing:border-box;"></div>
+          <div class="field" style="margin:0;"><label style="font-size:11px;">Last Name</label><input type="text" id="anh-last" style="width:100%;box-sizing:border-box;"></div>
+        </div>
+        <div class="field" style="margin:0 0 10px;"><label style="font-size:11px;">Member Type</label><select id="anh-type" style="width:100%;"></select></div>
+        <button class="btn-primary" style="font-size:.82rem;" onclick="createAndAddToHh()">Create &amp; Add to Household</button>
+      </div>
+    </div>
     <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('add-to-hh-modal')">Cancel</button></div>
   </div>
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-15-v3';
+var DEPLOY_VERSION = '2026-04-15-v4';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -2654,6 +2665,13 @@ function renderPeopleMobile(people) {
 }
 
 // ── PERSON DETAIL ─────────────────────────────────────────────────────
+function calcAge(ds) {
+  if (!ds) return '';
+  var d = new Date(ds), now = new Date();
+  var age = now.getFullYear() - d.getFullYear();
+  if (now.getMonth() < d.getMonth() || (now.getMonth() === d.getMonth() && now.getDate() < d.getDate())) age--;
+  return age >= 0 ? ' (age '+age+')' : '';
+}
 function showProfile(p) {
   _currentPvPerson = p;
   var isOrg = p.member_type === 'organization';
@@ -2705,13 +2723,6 @@ function showProfile(p) {
     var addrVal = addrStr ? '<a href="https://maps.google.com/?q='+encodeURIComponent(addrParts.join(', '))+'" target="_blank" rel="noopener">'+addrStr+'</a>' : '';
     var emailVal = p.email ? '<a href="mailto:'+esc(p.email)+'">'+esc(p.email)+'</a>' : '';
     var phoneVal = p.phone ? '<a href="tel:'+esc(p.phone)+'">'+esc(p.phone)+'</a>' : '';
-    function calcAge(ds) {
-      if (!ds) return '';
-      var d = new Date(ds), now = new Date();
-      var age = now.getFullYear() - d.getFullYear();
-      if (now.getMonth() < d.getMonth() || (now.getMonth() === d.getMonth() && now.getDate() < d.getDate())) age--;
-      return age >= 0 ? ' (age '+age+')' : '';
-    }
     var tagHtml = (p.tags||[]).map(function(t){
       return '<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:99px;background:'+esc(t.color)+';color:white;font-size:11px;font-weight:600;margin:2px;">'+esc(t.name)+'</span>';
     }).join('');
@@ -2719,9 +2730,9 @@ function showProfile(p) {
     var leftCol = '<div>'
       + '<div class="pv-section">'
       + '<div class="pv-section-title">Contact'+dirBadge+'</div>'
-      + pvRow('Address', addrVal)
-      + pvRow('Phone', phoneVal)
-      + pvRow('Email', emailVal)
+      + pvRow('Address', addrVal, 'address')
+      + pvRow('Phone', phoneVal, 'phone')
+      + pvRow('Email', emailVal, 'email')
       + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Apply address to household</button></div>' : '')
       + '</div>'
       + '<div class="pv-section">'
@@ -2739,17 +2750,21 @@ function showProfile(p) {
       + (p.breeze_id ? '<button class="btn-secondary role-admin" style="font-size:.7rem;padding:2px 8px;" onclick="syncPersonFromBreeze(\''+esc(p.breeze_id)+'\','+p.id+')">&#8635; Sync Breeze</button>' : '')
       + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="openPersonEdit(_currentPvPerson)">Edit</button></div></div>'
       + '<div class="pv-field-grid">'
-      + (p.gender        ? pvField('gender',         p.gender)        : '')
-      + (p.marital_status? pvField('marital status', p.marital_status): '')
-      + pvField('birthday', p.dob ? fmtDate(p.dob)+calcAge(p.dob) : '')
-      + pvField('baptized', p.baptism_date ? fmtDate(p.baptism_date) : '')
-      + pvField('confirmed', p.confirmation_date ? fmtDate(p.confirmation_date) : '')
-      + pvField('anniversary', p.anniversary_date ? fmtDate(p.anniversary_date) : '')
+      + pvField('gender', p.gender, 'gender')
+      + pvField('marital status', p.marital_status, 'marital_status')
+      + pvField('birthday', p.dob ? fmtDate(p.dob)+calcAge(p.dob) : '', 'dob')
+      + pvField('baptized', p.baptism_date ? fmtDate(p.baptism_date) : '', 'baptism_date')
+      + pvField('confirmed', p.confirmation_date ? fmtDate(p.confirmation_date) : '', 'confirmation_date')
+      + pvField('anniversary', p.anniversary_date ? fmtDate(p.anniversary_date) : '', 'anniversary_date')
       + pvField('deceased', p.deceased ? (p.death_date ? fmtDate(p.death_date) : 'Yes') : 'No')
       + '</div>'
       + '</div>'
       + '<div class="pv-section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Tags</div><button class="btn-secondary" style="font-size:.7rem;padding:2px 8px;" onclick="openPersonEdit(_currentPvPerson)">Edit</button></div><div style="display:flex;flex-wrap:wrap;gap:6px;">'+(tagHtml||'<span style="color:var(--warm-gray);font-size:12px;font-style:italic;">No tags</span>')+'</div></div>'
-      + (p.notes ? '<div class="pv-section"><div class="pv-section-title">Notes</div><div style="font-size:13px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'+esc(p.notes)+'</div></div>' : '')
+      + (p.notes || _userRole !== 'member'
+          ? '<div class="pv-section"><div class="pv-section-title">Notes</div><div'
+            + (_userRole !== 'member' ? ' onclick="pvStartEdit(\'notes\',this)" style="font-size:13px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;cursor:pointer;min-height:20px;" title="Click to edit"' : ' style="font-size:13px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;"')
+            + '>'+(p.notes ? esc(p.notes) : '<span style="color:var(--warm-gray);font-style:italic;">No notes \u2014 click to add</span>')+'</div></div>'
+          : '')
       + '</div>';
     infoEl.innerHTML = '<div class="pv-info-cols">'+leftCol+rightCol+'</div>';
     if (p.household_id) loadPvFamily(p.household_id, p.id);
@@ -2798,13 +2813,180 @@ function showProfile(p) {
   if (ca) ca.classList.add('pv-mode');
   showPvTab('info');
 }
-function pvRow(key, val) {
+function pvRow(key, val, fieldKey) {
   var empty = !val;
-  return '<div class="pv-row"><div class="pv-row-key">'+key+'</div><div class="pv-row-val'+(empty?' empty':'')+'">'+(val||'—')+'</div></div>';
+  var editable = fieldKey && _userRole !== 'member';
+  return '<div class="pv-row"><div class="pv-row-key">'+key+'</div>'
+    + '<div class="pv-row-val'+(empty?' empty':'')+'"'
+    + (editable ? ' onclick="pvStartEdit(\''+fieldKey+'\',this)" style="cursor:pointer;" title="Click to edit"' : '')
+    + '>'+(val||'—')+'</div></div>';
 }
-function pvField(label, val) {
+function pvField(label, val, fieldKey) {
   var empty = !val;
-  return '<div class="pv-field-card"><div class="pv-field-card-lbl">'+label+'</div><div class="pv-field-card-val'+(empty?' empty':'')+'">'+( val||'—')+'</div></div>';
+  var editable = fieldKey && _userRole !== 'member';
+  return '<div class="pv-field-card"><div class="pv-field-card-lbl">'+label+'</div>'
+    + '<div class="pv-field-card-val'+(empty?' empty':'')+'"'
+    + (editable ? ' onclick="pvStartEdit(\''+fieldKey+'\',this)" style="cursor:pointer;" title="Click to edit"' : '')
+    + '>'+(val||'—')+'</div></div>';
+}
+// ── PERSON PROFILE INLINE EDITING ─────────────────────────────────────
+function pvBuildPersonPatch(p, overrides) {
+  var full = {};
+  ['first_name','last_name','email','phone','address1','city','state','zip',
+   'member_type','family_role','gender','marital_status','household_id',
+   'dob','baptism_date','confirmation_date','anniversary_date','death_date',
+   'deceased','public_directory','envelope_number','last_seen_date','notes','breeze_id'
+  ].forEach(function(k){ full[k] = (p[k] !== undefined) ? p[k] : null; });
+  Object.assign(full, overrides);
+  full.tag_ids = (p.tags || []).map(function(t){ return t.id; });
+  return full;
+}
+function pvRestoreDisplay(fieldKey, el) {
+  var p = _currentPvPerson;
+  var val = '', empty = false;
+  if (fieldKey === 'address') {
+    var addrParts = [p.address1, p.city, ((p.state||'')+(p.zip ? ' '+p.zip : '')).trim()].filter(Boolean);
+    var addrStr = addrParts.map(esc).join(', ');
+    val = addrStr ? '<a href="https://maps.google.com/?q='+encodeURIComponent(addrParts.join(', '))+'" target="_blank" rel="noopener">'+addrStr+'</a>' : '';
+    empty = !addrStr;
+  } else if (fieldKey === 'phone') {
+    val = p.phone ? '<a href="tel:'+esc(p.phone)+'">'+esc(p.phone)+'</a>' : '';
+    empty = !p.phone;
+  } else if (fieldKey === 'email') {
+    val = p.email ? '<a href="mailto:'+esc(p.email)+'">'+esc(p.email)+'</a>' : '';
+    empty = !p.email;
+  } else if (fieldKey === 'dob') {
+    val = p.dob ? fmtDate(p.dob)+calcAge(p.dob) : '';
+    empty = !val;
+  } else if (fieldKey === 'baptism_date' || fieldKey === 'confirmation_date' || fieldKey === 'anniversary_date') {
+    val = p[fieldKey] ? fmtDate(p[fieldKey]) : '';
+    empty = !val;
+  } else if (fieldKey === 'notes') {
+    val = p.notes ? esc(p.notes) : '<span style="color:var(--warm-gray);font-style:italic;">No notes \u2014 click to add</span>';
+    empty = !p.notes;
+  } else {
+    val = esc(p[fieldKey] || '');
+    empty = !p[fieldKey];
+  }
+  el.dataset.editing = '';
+  el.innerHTML = val || '—';
+  if (el.classList.contains('pv-row-val') || el.classList.contains('pv-field-card-val')) {
+    el.classList.toggle('empty', empty);
+  }
+}
+function pvSaveField(fieldKey, inputEl, el) {
+  if (!inputEl || !el) return;
+  var newVal = (inputEl.value || '').trim();
+  var p = _currentPvPerson;
+  var oldVal = ((p[fieldKey] !== null && p[fieldKey] !== undefined) ? p[fieldKey] : '').toString().trim();
+  if (newVal === oldVal) { pvRestoreDisplay(fieldKey, el); return; }
+  inputEl.disabled = true;
+  var full = pvBuildPersonPatch(p, {});
+  full[fieldKey] = newVal;
+  api('/admin/api/people/'+p.id, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(full)
+  }).then(function(r) {
+    if (r && r.ok) {
+      _currentPvPerson[fieldKey] = newVal;
+      pvRestoreDisplay(fieldKey, el);
+    } else {
+      inputEl.disabled = false;
+      alert('Error: '+(r && r.error ? r.error : 'Could not save'));
+    }
+  }).catch(function() { inputEl.disabled = false; alert('Network error. Please try again.'); });
+}
+function pvSaveAddress(el) {
+  if (!el) return;
+  var p = _currentPvPerson;
+  var a1 = document.getElementById('pie-addr1'), ci = document.getElementById('pie-city'),
+      st = document.getElementById('pie-state'), zi = document.getElementById('pie-zip');
+  if (!a1) return;
+  var addr1 = a1.value.trim(), city = ci ? ci.value.trim() : '', state = st ? st.value.trim() : '', zip = zi ? zi.value.trim() : '';
+  var btn = el.querySelector('.btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
+  var full = pvBuildPersonPatch(p, { address1: addr1, city: city, state: state, zip: zip });
+  api('/admin/api/people/'+p.id, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(full)
+  }).then(function(r) {
+    if (r && r.ok) {
+      _currentPvPerson.address1 = addr1; _currentPvPerson.city = city;
+      _currentPvPerson.state = state; _currentPvPerson.zip = zip;
+      pvRestoreDisplay('address', el);
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+      alert('Error: '+(r && r.error ? r.error : 'Could not save'));
+    }
+  }).catch(function() { if (btn) { btn.disabled = false; btn.textContent = 'Save'; } alert('Network error. Please try again.'); });
+}
+function pvCancelEdit(el, fieldKey) {
+  if (!el) return;
+  pvRestoreDisplay(fieldKey, el);
+}
+function pvEditKey(event, fieldKey, inputEl, el) {
+  if (event.key === 'Enter') pvSaveField(fieldKey, inputEl, el);
+  if (event.key === 'Escape') pvCancelEdit(el, fieldKey);
+}
+function pvStartEdit(fieldKey, el) {
+  if (_userRole === 'member') return;
+  if (el.dataset.editing === '1') return;
+  el.dataset.editing = '1';
+  var p = _currentPvPerson;
+  var raw = (p[fieldKey] !== undefined && p[fieldKey] !== null) ? String(p[fieldKey]) : '';
+  var inp = 'width:100%;box-sizing:border-box;font-size:12px;padding:3px 6px;border:1px solid var(--sky-steel);border-radius:4px;';
+  var btn = 'font-size:11px;padding:2px 8px;border-radius:4px;cursor:pointer;margin:0;';
+  var html;
+  if (fieldKey === 'address') {
+    html = '<div style="display:grid;gap:3px;">'
+      + '<input type="text" id="pie-addr1" placeholder="Street address" value="'+esc(p.address1||'')+'" style="'+inp+'">'
+      + '<input type="text" id="pie-city" placeholder="City" value="'+esc(p.city||'')+'" style="'+inp+'">'
+      + '<div style="display:grid;grid-template-columns:70px 1fr;gap:3px;">'
+      + '<input type="text" id="pie-state" placeholder="ST" value="'+esc(p.state||'')+'" style="'+inp+'" maxlength="2">'
+      + '<input type="text" id="pie-zip" placeholder="ZIP" value="'+esc(p.zip||'')+'" style="'+inp+'">'
+      + '</div>'
+      + '<div style="display:flex;gap:4px;margin-top:3px;">'
+      + '<button class="btn-primary" style="'+btn+'" onclick="pvSaveAddress(this.closest(\'[data-editing]\'))">Save</button>'
+      + '<button class="btn-secondary" style="'+btn+'" onclick="pvCancelEdit(this.closest(\'[data-editing]\'),\'address\')">Cancel</button>'
+      + '</div></div>';
+    el.innerHTML = html;
+    var f = el.querySelector('#pie-addr1'); if (f) f.focus();
+    return;
+  }
+  var isSel = fieldKey === 'gender' || fieldKey === 'marital_status';
+  var isDate = ['dob','baptism_date','confirmation_date','anniversary_date'].indexOf(fieldKey) >= 0;
+  if (isSel) {
+    var opts = fieldKey === 'gender' ? ['','Male','Female','Other'] : ['','Single','Married','Divorced','Widowed'];
+    var selOpts = opts.map(function(v){
+      return '<option value="'+v+'"'+(raw.toLowerCase()===(v.toLowerCase())&&v?' selected':(!v&&!raw?' selected':''))+'>'+( v||'—')+'</option>';
+    }).join('');
+    html = '<div style="display:flex;gap:4px;align-items:center;">'
+      + '<select id="pie-'+fieldKey+'" style="'+inp+';flex:1;">'+selOpts+'</select>'
+      + '<button class="btn-primary" style="'+btn+'" onclick="pvSaveField(\''+fieldKey+'\',document.getElementById(\'pie-'+fieldKey+'\'),this.closest(\'[data-editing]\'))">Save</button>'
+      + '<button class="btn-secondary" style="'+btn+'" onclick="pvCancelEdit(this.closest(\'[data-editing]\'),\''+fieldKey+'\')">&#x2715;</button>'
+      + '</div>';
+  } else if (isDate) {
+    html = '<div style="display:flex;gap:4px;align-items:center;">'
+      + '<input type="date" id="pie-'+fieldKey+'" value="'+esc(raw)+'" style="'+inp+';flex:1;" onkeydown="pvEditKey(event,\''+fieldKey+'\',this,this.closest(\'[data-editing]\'))">'
+      + '<button class="btn-primary" style="'+btn+'" onclick="pvSaveField(\''+fieldKey+'\',document.getElementById(\'pie-'+fieldKey+'\'),this.closest(\'[data-editing]\'))">Save</button>'
+      + '<button class="btn-secondary" style="'+btn+'" onclick="pvCancelEdit(this.closest(\'[data-editing]\'),\''+fieldKey+'\')">&#x2715;</button>'
+      + '</div>';
+  } else if (fieldKey === 'notes') {
+    html = '<div>'
+      + '<textarea id="pie-notes" style="'+inp+';min-height:80px;resize:vertical;display:block;" onkeydown="if(event.key===\'Escape\')pvCancelEdit(this.closest(\'[data-editing]\'),\'notes\')">'+esc(raw)+'</textarea>'
+      + '<div style="display:flex;gap:4px;margin-top:4px;">'
+      + '<button class="btn-primary" style="'+btn+'" onclick="pvSaveField(\'notes\',document.getElementById(\'pie-notes\'),this.closest(\'[data-editing]\'))">Save</button>'
+      + '<button class="btn-secondary" style="'+btn+'" onclick="pvCancelEdit(this.closest(\'[data-editing]\'),\'notes\')">Cancel</button>'
+      + '</div></div>';
+  } else {
+    var type = fieldKey === 'email' ? 'email' : fieldKey === 'phone' ? 'tel' : 'text';
+    html = '<div style="display:flex;gap:4px;align-items:center;">'
+      + '<input type="'+type+'" id="pie-'+fieldKey+'" value="'+esc(raw)+'" style="'+inp+';flex:1;" onkeydown="pvEditKey(event,\''+fieldKey+'\',this,this.closest(\'[data-editing]\'))">'
+      + '<button class="btn-primary" style="'+btn+'" onclick="pvSaveField(\''+fieldKey+'\',document.getElementById(\'pie-'+fieldKey+'\'),this.closest(\'[data-editing]\'))">Save</button>'
+      + '<button class="btn-secondary" style="'+btn+'" onclick="pvCancelEdit(this.closest(\'[data-editing]\'),\''+fieldKey+'\')">&#x2715;</button>'
+      + '</div>';
+  }
+  el.innerHTML = html;
+  var inp2 = el.querySelector('input,select,textarea');
+  if (inp2) { inp2.focus(); if (inp2.select) inp2.select(); }
 }
 function loadPvFamily(hhId, selfId) {
   var el = document.getElementById('pv-family-members');
@@ -2960,6 +3142,11 @@ function openAddToHouseholdModal(householdId) {
   if (s) s.value = '';
   var r = document.getElementById('add-hh-results');
   if (r) r.innerHTML = '<p style="color:var(--warm-gray);text-align:center;padding:16px;font-size:.88rem;">Type a name to search…</p>';
+  // Reset "create new person" panel
+  var np = document.getElementById('add-hh-new'); if (np) np.style.display = 'none';
+  var nt = document.getElementById('add-hh-new-toggle'); if (nt) nt.textContent = '+ Create new person instead';
+  var nf = document.getElementById('anh-first'); if (nf) nf.value = '';
+  var nl = document.getElementById('anh-last');  if (nl) nl.value = '';
   openModal('add-to-hh-modal');
   setTimeout(function(){ if (s) s.focus(); }, 100);
 }
@@ -3000,6 +3187,37 @@ function confirmAddToHh(personId) {
       if (_currentPvPerson && _currentPvPerson.household_id === _addToHhId) loadPvFamily(_addToHhId, _currentPvPerson.id);
     } else alert('Error: '+(r.error||'unknown'));
   });
+}
+function toggleAddHhNew(btn) {
+  var panel = document.getElementById('add-hh-new');
+  if (!panel) return;
+  var show = panel.style.display === 'none';
+  panel.style.display = show ? '' : 'none';
+  btn.textContent = show ? '— Cancel new person' : '+ Create new person instead';
+  if (show) {
+    var sel = document.getElementById('anh-type');
+    if (sel) sel.innerHTML = (_memberTypes || []).map(function(t){ return '<option value="'+esc(t)+'">'+esc(t)+'</option>'; }).join('');
+    var f = document.getElementById('anh-first'); if (f) f.focus();
+  }
+}
+function createAndAddToHh() {
+  var first = (document.getElementById('anh-first').value || '').trim();
+  var last  = (document.getElementById('anh-last').value  || '').trim();
+  var type  = document.getElementById('anh-type').value;
+  if (!first || !last) { alert('First and last name are required.'); return; }
+  var btn = document.querySelector('#add-hh-new .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating\u2026'; }
+  api('/admin/api/people', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ first_name: first, last_name: last, member_type: type || 'Visitor', household_id: _addToHhId, tag_ids: [] })
+  }).then(function(r) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Create & Add to Household'; }
+    if (r && r.ok) {
+      closeModal('add-to-hh-modal');
+      if (_currentPvPerson && _currentPvPerson.household_id === _addToHhId) loadPvFamily(_addToHhId, _currentPvPerson.id);
+      loadPeople();
+    } else { alert('Error: '+(r && r.error ? r.error : 'Could not create person')); }
+  }).catch(function() { if (btn) { btn.disabled = false; btn.textContent = 'Create & Add to Household'; } alert('Network error.'); });
 }
 function showPvTab(name) {
   if (name === 'giving' && _userRole !== 'admin' && _userRole !== 'finance') return; // giving is finance+ only
@@ -3064,8 +3282,29 @@ function renderPvGiving(filterYear) {
     + '<button class="btn-primary" style="margin-top:10px;font-size:.8rem;padding:5px 16px;" onclick="submitQuickGift('+personId+')">Add Gift</button>'
     + '</div>';
   // Table rows
+  var editFundOpts = (allFunds.filter(function(f){return f.active;}).length ? allFunds.filter(function(f){return f.active;}) : allFunds);
+  var iegIs = 'font-size:11px;padding:3px 5px;border:1px solid var(--sky-steel);border-radius:4px;width:100%;box-sizing:border-box;';
   var rows = entries.length ? entries.map(function(e){
     var canDel = !e.batch_closed;
+    // Inline edit row
+    if (_editGiftId === e.id) {
+      var fundOpts2 = editFundOpts.map(function(f){
+        return '<option value="'+f.id+'"'+(f.id===e.fund_id?' selected':'')+'>'+esc(f.name)+'</option>';
+      }).join('');
+      var methodOpts = ['cash','check','card','ach','other'].map(function(v){
+        return '<option value="'+v+'"'+(e.method===v?' selected':'')+'>'+v.charAt(0).toUpperCase()+v.slice(1)+'</option>';
+      }).join('');
+      return '<tr style="background:var(--linen);">'
+        + '<td style="padding:4px 6px;"><input type="date" id="ieg-date" value="'+esc(e.contribution_date||'')+'" style="'+iegIs+'"></td>'
+        + '<td style="padding:4px 6px;"><select id="ieg-fund" style="'+iegIs+'">'+fundOpts2+'</select></td>'
+        + '<td style="padding:4px 6px;"><input type="number" id="ieg-amount" step="0.01" min="0.01" value="'+((e.amount||0)/100).toFixed(2)+'" style="'+iegIs+';text-align:right;"></td>'
+        + '<td style="padding:4px 6px;"><select id="ieg-method" style="'+iegIs+'">'+methodOpts+'</select></td>'
+        + '<td style="padding:4px 6px;"><input type="text" id="ieg-check" placeholder="check #" value="'+esc(e.check_number||'')+'" style="'+iegIs+';margin-bottom:2px;"><input type="text" id="ieg-notes" placeholder="notes" value="'+esc(e.notes||'')+'" style="'+iegIs+'"></td>'
+        + '<td style="padding:4px 6px;white-space:nowrap;">'
+        + '<button onclick="saveInlineGift(\''+filterYear+'\')" style="background:var(--sky-steel);color:white;border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;margin-right:2px;">Save</button>'
+        + '<button onclick="cancelInlineGift(\''+filterYear+'\')" style="background:none;border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;">Cancel</button>'
+        + '</td></tr>';
+    }
     return '<tr>'
       + '<td style="padding:6px 8px;white-space:nowrap;font-size:12px;">'+(e.contribution_date||'—')+'</td>'
       + '<td style="padding:6px 8px;font-size:12px;">'+esc(e.fund_name||'General')+'</td>'
@@ -3074,7 +3313,7 @@ function renderPvGiving(filterYear) {
       + '<td style="padding:6px 8px;font-size:12px;color:var(--warm-gray);">'+esc((e.check_number||e.notes||''))+'</td>'
       + '<td style="padding:6px 8px;text-align:center;white-space:nowrap;">'
       + (canDel
-          ? '<button onclick="openEditGiftModal('+e.id+',\''+filterYear+'\')" style="background:none;border:none;color:var(--sky-steel);cursor:pointer;font-size:14px;padding:0 4px;line-height:1;" title="Edit">&#9998;</button>'
+          ? '<button onclick="startInlineGiftEdit('+e.id+',\''+filterYear+'\')" style="background:none;border:none;color:var(--sky-steel);cursor:pointer;font-size:14px;padding:0 4px;line-height:1;" title="Edit">&#9998;</button>'
             + '<button onclick="deleteGivingEntry('+e.id+',\''+filterYear+'\')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:0 4px;line-height:1;" title="Delete">&times;</button>'
           : '<span style="font-size:10px;color:var(--warm-gray);">closed</span>')
       + '</td>'
@@ -3242,6 +3481,50 @@ function saveEditGift() {
       alert('Error: '+(r && r.error ? r.error : 'Could not save gift'));
     }
   }).catch(function(){ if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; } alert('Network error. Please try again.'); });
+}
+function startInlineGiftEdit(id, filterYear) {
+  _editGiftId = id;
+  _editGiftFilterYear = filterYear;
+  renderPvGiving(filterYear);
+}
+function cancelInlineGift(filterYear) {
+  _editGiftId = null;
+  renderPvGiving(filterYear);
+}
+function saveInlineGift(filterYear) {
+  if (!_editGiftId) return;
+  var dateEl = document.getElementById('ieg-date');
+  var fundEl = document.getElementById('ieg-fund');
+  var amtEl  = document.getElementById('ieg-amount');
+  var mthEl  = document.getElementById('ieg-method');
+  var chkEl  = document.getElementById('ieg-check');
+  var ntEl   = document.getElementById('ieg-notes');
+  if (!dateEl || !fundEl || !amtEl) return;
+  var date   = dateEl.value;
+  var fundId = fundEl.value;
+  var amount = parseFloat(amtEl.value);
+  var method = mthEl ? mthEl.value : 'other';
+  var check  = chkEl ? chkEl.value.trim() : '';
+  var notes  = ntEl  ? ntEl.value.trim()  : '';
+  if (!date || !fundId || !amount || amount <= 0) { alert('Date, fund, and a positive amount are required.'); return; }
+  var saveBtn = document.querySelector('button[onclick^="saveInlineGift"]');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving\u2026'; }
+  api('/admin/api/giving/entries/'+_editGiftId, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ fund_id: parseInt(fundId), amount: amount, method: method, check_number: check, notes: notes, date: date })
+  }).then(function(r) {
+    if (r && r.ok) {
+      _editGiftId = null;
+      loadPvGiving(_pvGivingPersonId);
+    } else {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+      alert('Error: '+(r && r.error ? r.error : 'Could not save gift'));
+    }
+  }).catch(function() {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+    alert('Network error. Please try again.');
+  });
 }
 function togglePvQuickGift() {
   var box = document.getElementById('pv-quick-gift');
