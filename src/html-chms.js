@@ -1431,7 +1431,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-16-v14';
+var DEPLOY_VERSION = '2026-04-16-v15';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -3235,29 +3235,10 @@ function syncPersonFromBreeze(breezeId, personId) {
     body: JSON.stringify({ breeze_id: breezeId })
   }).then(function(r) {
     if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
-    // Always log the full diagnostic to the console — switch to Console tab (not Issues) to see it
-    console.log('[Breeze Sync] Full diagnostic response:', r);
-    if (r && r.diag) {
-      console.log('[Breeze Sync] Profile fields in Breeze:', r.diag.all_profile_field_names);
-      console.log('[Breeze Sync] Detail keys on person record:', r.diag.detail_keys_in_breeze);
-      console.log('[Breeze Sync] Detail sample:', r.diag.detail_sample);
-      console.log('[Breeze Sync] Field matches:', r.diag.field_matches);
-      console.log('[Breeze Sync] Fetch debug:', r.diag.fetch_debug);
-    }
+    console.log('[Breeze Sync] Full response:', r);
     if (r && r.ok) {
-      var u = r.updated || {};
-      var lines = [];
-      if (u.dob)             lines.push('Birthday: ' + u.dob);
-      if (u.baptismDate)     lines.push('Baptism: ' + u.baptismDate);
-      if (u.confirmDate)     lines.push('Confirmation: ' + u.confirmDate);
-      if (u.anniversaryDate) lines.push('Anniversary: ' + u.anniversaryDate);
-      if (u.gender)          lines.push('Gender: ' + u.gender);
-      if (u.maritalStatus)   lines.push('Marital status: ' + u.maritalStatus);
-      var msg = lines.length
-        ? 'Updated from Breeze:\n\u2022 ' + lines.join('\n\u2022 ')
-        : 'No new demographic data found.\n\n' + (r.summary || 'No diagnostic info available.');
-      alert(msg);
-      // Reload the profile to show any updated values
+      alert(r.summary || 'Synced from Breeze.');
+      // Reload the profile to show updated values
       api('/admin/api/people/' + personId).then(function(p) { if (p && p.id) showProfile(p); });
     } else {
       alert('Breeze sync failed: ' + ((r && r.error) || 'Unknown error'));
