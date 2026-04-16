@@ -87,6 +87,16 @@ Added 2026-04-15, phased 2026-04-15.
 
 ---
 
+### Phase 5c — People & Household Data Quality
+| # | Description | Status |
+|---|-------------|--------|
+| HQ1 | **Household-level contact info** — apply address/phone/email from household to all members; preserve individual phone/email if already set (never overwrite existing data) | Queued |
+| HQ2 | **Baptized/Confirmed without a date** — boolean flag separate from date fields; allow marking someone as baptized or confirmed even when no date is known (new DB columns: `baptized INTEGER`, `confirmed INTEGER`) | Queued |
+| HQ3 | **Sort by household in people view** — add "Household" as a sort option in the people list alongside existing last_name / first_name / member_type / created_at options | Queued |
+| HQ4 | **Disambiguate same-last-name households** — when multiple households share a last name, auto-label as "John Smith Family" / "Joe Smith Family" using the head-of-household's first name | Queued |
+
+---
+
 ### Phase 6 — Future / Planning
 | # | Description | Status |
 |---|-------------|--------|
