@@ -1421,7 +1421,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-16-v3';
+var DEPLOY_VERSION = '2026-04-16-v4';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -2857,14 +2857,14 @@ function pvEditContact() {
     + '<button class="btn-secondary" style="font-size:.7rem;padding:3px 10px;" onclick="pvCancelContact()">Cancel</button>'
     + '</div></div>'
     + '<div style="display:grid;gap:8px;">'
-    + '<div><label style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Street Address</label><input type="text" id="pec-addr1" value="'+esc(p.address1||'')+'" style="'+inp+'"></div>'
+    + '<div><label for="pec-addr1" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Street Address</label><input type="text" id="pec-addr1" value="'+esc(p.address1||'')+'" style="'+inp+'"></div>'
     + '<div style="display:grid;grid-template-columns:1fr 60px 90px;gap:6px;">'
-    + '<div><label style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">City</label><input type="text" id="pec-city" value="'+esc(p.city||'')+'" style="'+inp+'"></div>'
-    + '<div><label style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">State</label><input type="text" id="pec-state" value="'+esc(p.state||'')+'" style="'+inp+'" maxlength="2"></div>'
-    + '<div><label style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">ZIP</label><input type="text" id="pec-zip" value="'+esc(p.zip||'')+'" style="'+inp+'"></div>'
+    + '<div><label for="pec-city" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">City</label><input type="text" id="pec-city" value="'+esc(p.city||'')+'" style="'+inp+'"></div>'
+    + '<div><label for="pec-state" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">State</label><input type="text" id="pec-state" value="'+esc(p.state||'')+'" style="'+inp+'" maxlength="2"></div>'
+    + '<div><label for="pec-zip" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">ZIP</label><input type="text" id="pec-zip" value="'+esc(p.zip||'')+'" style="'+inp+'"></div>'
     + '</div>'
-    + '<div><label style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Phone</label><input type="tel" id="pec-phone" value="'+esc(p.phone||'')+'" style="'+inp+'"></div>'
-    + '<div><label style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Email</label><input type="email" id="pec-email" value="'+esc(p.email||'')+'" style="'+inp+'"></div>'
+    + '<div><label for="pec-phone" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Phone</label><input type="tel" id="pec-phone" value="'+esc(p.phone||'')+'" style="'+inp+'"></div>'
+    + '<div><label for="pec-email" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Email</label><input type="email" id="pec-email" value="'+esc(p.email||'')+'" style="'+inp+'"></div>'
     + '</div>';
   var f = sec.querySelector('#pec-addr1'); if (f) f.focus();
 }
@@ -2929,12 +2929,12 @@ function pvEditDemo() {
     + '<button class="btn-secondary" style="font-size:.7rem;padding:3px 10px;" onclick="pvCancelDemo()">Cancel</button>'
     + '</div></div>'
     + '<div class="pv-field-grid">'
-    + '<div class="pv-field-card"><div class="pv-field-card-lbl">gender</div><select id="ped-gender" style="'+inp+'">'+gOpts+'</select></div>'
-    + '<div class="pv-field-card"><div class="pv-field-card-lbl">marital status</div><select id="ped-ms" style="'+inp+'">'+msOpts+'</select></div>'
-    + '<div class="pv-field-card"><div class="pv-field-card-lbl">birthday</div><input type="date" id="ped-dob" value="'+esc(p.dob ? p.dob.slice(0,10) : '')+'" style="'+inp+'"></div>'
-    + '<div class="pv-field-card"><div class="pv-field-card-lbl">baptized</div><input type="date" id="ped-bap" value="'+esc(p.baptism_date ? p.baptism_date.slice(0,10) : '')+'" style="'+inp+'"></div>'
-    + '<div class="pv-field-card"><div class="pv-field-card-lbl">confirmed</div><input type="date" id="ped-conf" value="'+esc(p.confirmation_date ? p.confirmation_date.slice(0,10) : '')+'" style="'+inp+'"></div>'
-    + '<div class="pv-field-card"><div class="pv-field-card-lbl">anniversary</div><input type="date" id="ped-ann" value="'+esc(p.anniversary_date ? p.anniversary_date.slice(0,10) : '')+'" style="'+inp+'"></div>'
+    + '<div class="pv-field-card"><label for="ped-gender" class="pv-field-card-lbl">gender</label><select id="ped-gender" style="'+inp+'">'+gOpts+'</select></div>'
+    + '<div class="pv-field-card"><label for="ped-ms" class="pv-field-card-lbl">marital status</label><select id="ped-ms" style="'+inp+'">'+msOpts+'</select></div>'
+    + '<div class="pv-field-card"><label for="ped-dob" class="pv-field-card-lbl">birthday</label><input type="date" id="ped-dob" value="'+esc(p.dob ? p.dob.slice(0,10) : '')+'" style="'+inp+'"></div>'
+    + '<div class="pv-field-card"><label for="ped-bap" class="pv-field-card-lbl">baptized</label><input type="date" id="ped-bap" value="'+esc(p.baptism_date ? p.baptism_date.slice(0,10) : '')+'" style="'+inp+'"></div>'
+    + '<div class="pv-field-card"><label for="ped-conf" class="pv-field-card-lbl">confirmed</label><input type="date" id="ped-conf" value="'+esc(p.confirmation_date ? p.confirmation_date.slice(0,10) : '')+'" style="'+inp+'"></div>'
+    + '<div class="pv-field-card"><label for="ped-ann" class="pv-field-card-lbl">anniversary</label><input type="date" id="ped-ann" value="'+esc(p.anniversary_date ? p.anniversary_date.slice(0,10) : '')+'" style="'+inp+'"></div>'
     + '</div>';
   var f = sec.querySelector('select'); if (f) f.focus();
 }
@@ -2991,6 +2991,7 @@ function pvEditNotes() {
     + '<button class="btn-primary" style="font-size:.7rem;padding:3px 10px;" onclick="pvSaveNotes()">Save</button>'
     + '<button class="btn-secondary" style="font-size:.7rem;padding:3px 10px;" onclick="pvCancelNotes()">Cancel</button>'
     + '</div></div>'
+    + '<label for="ped-notes" style="display:none;">Notes</label>'
     + '<textarea id="ped-notes" style="'+inp+';min-height:100px;resize:vertical;display:block;">'+esc(p.notes||'')+'</textarea>';
   var f = sec.querySelector('textarea'); if (f) f.focus();
 }

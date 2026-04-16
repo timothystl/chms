@@ -1441,23 +1441,29 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   if (seg === 'directory' && method === 'GET') {
     const e = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-    // D1: type filter — which member types qualify a household for inclusion
+    // D1: type filter — hardcoded SQL clauses to avoid D1 IN-binding bugs
     const typesParam = (url.searchParams.get('types') || 'member').toLowerCase().trim();
-    const allowedTypes = typesParam === 'all'
-      ? ['member','attender','visitor','staff']
-      : typesParam.split(',').map(t => t.trim()).filter(Boolean);
-    const tp = allowedTypes.map(() => '?').join(',');
+    // Build a safe literal IN clause — values are from our own switch, not raw user input
+    let typeClause;
+    if (typesParam === 'member,attender' || typesParam === 'attender,member') {
+      typeClause = `LOWER(member_type) IN ('member','attender')`;
+    } else if (typesParam === 'all') {
+      typeClause = `LOWER(member_type) NOT IN ('organization','inactive')`;
+    } else {
+      // default: member only
+      typeClause = `LOWER(member_type) = 'member'`;
+    }
 
-    // Step 1: find household IDs that contain at least one person with a qualifying member_type
+    // Step 1: find household IDs containing ≥1 person with a qualifying member_type
     const qualHHRows = (await db.prepare(
       `SELECT DISTINCT household_id FROM people
        WHERE active=1 AND household_id IS NOT NULL AND household_id != ''
-         AND LOWER(member_type) IN (${tp})`
-    ).bind(...allowedTypes).all()).results || [];
+         AND ${typeClause}`
+    ).all()).results || [];
     const qualHHIds = qualHHRows.map(r => r.household_id).filter(Boolean);
 
     // Step 2: fetch ALL people in qualifying households (show whole family)
-    // Household IDs are DB integers — safe to interpolate directly
+    // Integer IDs interpolated directly — no injection risk
     let hhPeople = [];
     if (qualHHIds.length) {
       const hhIn = qualHHIds.join(',');
@@ -1482,9 +1488,9 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
        FROM people p
        WHERE p.active=1 AND p.public_directory=1
          AND (p.household_id IS NULL OR p.household_id='')
-         AND LOWER(p.member_type) IN (${tp})
+         AND ${typeClause}
        ORDER BY p.last_name, p.first_name`
-    ).bind(...allowedTypes).all()).results || [];
+    ).all()).results || [];
 
     // Group hhPeople by household_id
     const hhMap = new Map();
