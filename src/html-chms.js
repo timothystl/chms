@@ -1414,7 +1414,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-15-v6';
+var DEPLOY_VERSION = '2026-04-15-v7';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -2760,7 +2760,7 @@ function showProfile(p) {
       + pvField('deceased', p.deceased ? (p.death_date ? fmtDate(p.death_date) : 'Yes') : 'No')
       + '</div>'
       + '</div>'
-      + '<div class="pv-section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Tags</div><button class="btn-secondary" style="font-size:.7rem;padding:2px 8px;" onclick="openPersonEdit(_currentPvPerson)">Edit</button></div><div style="display:flex;flex-wrap:wrap;gap:6px;">'+(tagHtml||'<span style="color:var(--warm-gray);font-size:12px;font-style:italic;">No tags</span>')+'</div></div>'
+      + '<div class="pv-section" id="pv-tags-section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Tags</div><button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditTags()">Edit</button></div><div style="display:flex;flex-wrap:wrap;gap:6px;">'+(tagHtml||'<span style="color:var(--warm-gray);font-size:12px;font-style:italic;">No tags</span>')+'</div></div>'
       + (p.notes || _userRole !== 'member'
           ? '<div class="pv-section" id="pv-notes-section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Notes</div>'
             + (_userRole !== 'member' ? '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditNotes()">Edit</button>' : '')
@@ -3013,6 +3013,62 @@ function pvRenderNotes() {
     + '<div style="font-size:13px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'
     + (p.notes ? esc(p.notes) : '<span style="color:var(--warm-gray);font-style:italic;">No notes</span>')
     + '</div>';
+}
+// ── Tags section ─────────────────────────────────────────────────────
+function pvEditTags() {
+  var sec = document.getElementById('pv-tags-section');
+  if (!sec || sec.dataset.editing === '1') return;
+  sec.dataset.editing = '1';
+  var p = _currentPvPerson;
+  var currentTagIds = (p.tags||[]).map(function(t){ return t.id; });
+  var checkboxes = allTags.map(function(t){
+    var checked = currentTagIds.indexOf(t.id) >= 0 ? ' checked' : '';
+    return '<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer;font-size:13px;">'
+      + '<input type="checkbox" value="'+t.id+'"'+checked+' style="cursor:pointer;">'
+      + '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+esc(t.color||'#ccc')+';flex-shrink:0;"></span>'
+      + esc(t.name)
+      + '</label>';
+  }).join('');
+  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+    + '<div class="pv-section-title" style="margin:0;">Tags</div>'
+    + '<div style="display:flex;gap:6px;">'
+    + '<button class="btn-primary" style="font-size:.7rem;padding:3px 10px;" onclick="pvSaveTags()">Save</button>'
+    + '<button class="btn-secondary" style="font-size:.7rem;padding:3px 10px;" onclick="pvCancelTags()">Cancel</button>'
+    + '</div></div>'
+    + '<div style="max-height:220px;overflow-y:auto;">'
+    + (checkboxes || '<span style="color:var(--warm-gray);font-size:12px;font-style:italic;">No tags defined</span>')
+    + '</div>';
+}
+function pvCancelTags() { pvRenderTags(); }
+function pvSaveTags() {
+  var p = _currentPvPerson;
+  var btn = document.querySelector('#pv-tags-section .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
+  var cbs = document.querySelectorAll('#pv-tags-section input[type="checkbox"]');
+  var tagIds = [];
+  cbs.forEach(function(cb){ if (cb.checked) tagIds.push(parseInt(cb.value, 10)); });
+  var patch = pvBuildPersonPatch(p, {});
+  patch.tag_ids = tagIds;
+  api('/admin/api/people/'+p.id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(patch)})
+    .then(function() {
+      _currentPvPerson.tags = allTags.filter(function(t){ return tagIds.indexOf(t.id) >= 0; });
+      pvRenderTags();
+    }).catch(function() {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+      alert('Save failed. Please try again.');
+    });
+}
+function pvRenderTags() {
+  var sec = document.getElementById('pv-tags-section');
+  if (!sec) return;
+  var p = _currentPvPerson;
+  delete sec.dataset.editing;
+  var tagHtml = (p.tags||[]).map(function(t){
+    return '<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:99px;background:'+esc(t.color)+';color:white;font-size:11px;font-weight:600;margin:2px;">'+esc(t.name)+'</span>';
+  }).join('');
+  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Tags</div>'
+    + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditTags()">Edit</button></div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px;">'+(tagHtml||'<span style="color:var(--warm-gray);font-size:12px;font-style:italic;">No tags</span>')+'</div>';
 }
 function loadPvFamily(hhId, selfId) {
   var el = document.getElementById('pv-family-members');
