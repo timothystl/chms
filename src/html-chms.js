@@ -958,7 +958,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
         <div class="reg-form-title" id="reg-form-title">Add Baptism</div>
         <div class="field"><label>Date</label><input type="date" id="reg-date"></div>
         <div class="field"><label id="reg-name-lbl">Name Baptized</label><input type="text" id="reg-name" placeholder="Full name"></div>
-        <div class="field"><label id="reg-name2-lbl">Parent / Sponsor</label><input type="text" id="reg-name2" placeholder="Optional"></div>
+        <div class="field"><label>Father</label><input type="text" id="reg-father" placeholder="Optional"></div>
+        <div class="field"><label>Mother</label><input type="text" id="reg-mother" placeholder="Optional"></div>
+        <div class="field"><label>Sponsors / Godparents</label><input type="text" id="reg-sponsors" placeholder="Optional"></div>
         <div class="field"><label>Officiant</label><input type="text" id="reg-officiant" placeholder="Pastor name"></div>
         <div class="field"><label>Notes</label><textarea id="reg-notes" placeholder="Optional notes" style="width:100%;height:64px;resize:vertical;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:inherit;"></textarea></div>
         <div style="display:flex;gap:8px;margin-top:4px;">
@@ -1426,7 +1428,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-16-v9';
+var DEPLOY_VERSION = '2026-04-16-v10';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -3955,7 +3957,7 @@ function showRegisterTab(type) {
   loadRegister();
 }
 function clearRegForm() {
-  ['reg-date','reg-name','reg-name2','reg-officiant','reg-notes'].forEach(function(id) {
+  ['reg-date','reg-name','reg-father','reg-mother','reg-sponsors','reg-officiant','reg-notes'].forEach(function(id) {
     var el = document.getElementById(id); if (el) el.value = '';
   });
 }
@@ -4075,14 +4077,16 @@ function renderRegisterList(entries) {
 function saveRegisterEntry() {
   var date      = document.getElementById('reg-date').value;
   var name      = document.getElementById('reg-name').value.trim();
-  var name2     = document.getElementById('reg-name2').value.trim();
+  var father    = document.getElementById('reg-father').value.trim();
+  var mother    = document.getElementById('reg-mother').value.trim();
+  var sponsors  = document.getElementById('reg-sponsors').value.trim();
   var officiant = document.getElementById('reg-officiant').value.trim();
   var notes     = document.getElementById('reg-notes').value.trim();
   if (!name) { alert('Name is required.'); return; }
   var isEdit = !!_regEditId;
   var url    = isEdit ? '/admin/api/register/' + _regEditId : '/admin/api/register';
   var method = isEdit ? 'PUT' : 'POST';
-  var body   = {event_date: date, name: name, name2: name2, officiant: officiant, notes: notes};
+  var body   = {event_date: date, name: name, father: father, mother: mother, sponsors: sponsors, officiant: officiant, notes: notes};
   if (!isEdit) body.type = _regType;
   api(url, {method: method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)}).then(function(r) {
     if (r.ok) {
@@ -4101,7 +4105,9 @@ function openRegisterEdit(id) {
   _regEditId = id;
   document.getElementById('reg-date').value      = entry.event_date || '';
   document.getElementById('reg-name').value      = entry.name || '';
-  document.getElementById('reg-name2').value     = entry.name2 || '';
+  document.getElementById('reg-father').value    = entry.father || '';
+  document.getElementById('reg-mother').value    = entry.mother || '';
+  document.getElementById('reg-sponsors').value  = entry.sponsors || entry.name2 || '';
   document.getElementById('reg-officiant').value = entry.officiant || '';
   document.getElementById('reg-notes').value     = entry.notes || '';
   var ft = document.getElementById('reg-form-title'); if (ft) ft.textContent = 'Edit Entry';
