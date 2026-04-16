@@ -2688,17 +2688,22 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         const details = p.details || {};
         // Status / member type — resolution order:
         // 1. Profile-based field ID lookup (custom "status" field from /api/profile) — most accurate
-        // 2. Scan all detail values for a name matching a configured member type
-        // 3. Breeze's hard-coded built-in person-type field (ID 1076274773) — last resort only
-        //    (built-in type 1=Member applies to nearly everyone and overrides real status if used first)
+        // 2. Scan all detail values (excluding the built-in type field) for a name matching a
+        //    configured member type or the user-defined map
+        // 3. Breeze's built-in person-type field (ID 1076274773) — ONLY when no custom status
+        //    field was found in the profile at all (some Breeze instances have no custom field).
+        //    When a custom field exists but a person has no value, default to 'Other' instead —
+        //    the built-in field returns 1=Member for nearly everyone and causes over-counting.
         let statusName = '';
         // 1. Profile-based custom status field
         if (F_STATUS) {
           statusName = extractName(details[F_STATUS]);
         }
-        // 2. Scan all detail values for any that look like a configured member type
+        // 2. Scan all detail values for any that look like a configured member type,
+        //    but skip the built-in type field key (it maps to Member for most people)
         if (!statusName) {
-          for (const [, val] of Object.entries(details)) {
+          for (const [detailKey, val] of Object.entries(details)) {
+            if (detailKey === BREEZE_TYPE_FIELD) continue;
             const candidate = extractName(val);
             if (!candidate) continue;
             const cl = candidate.toLowerCase();
@@ -2709,8 +2714,8 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
             }
           }
         }
-        // 3. Last resort: Breeze's built-in person-type field (only if nothing else matched)
-        if (!statusName) {
+        // 3. Built-in type field — only when no custom status field exists in this Breeze instance
+        if (!statusName && !F_STATUS_FIELD) {
           const builtinRaw = details[BREEZE_TYPE_FIELD];
           if (builtinRaw !== undefined) {
             const builtinStr = extractName(builtinRaw);
