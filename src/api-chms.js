@@ -1916,11 +1916,15 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
             const d = { person_id: String(g.person_id || ''), amount: String(g.amount || '0'),
                         method: g.method_type_name || g.method || '', check_number: g.check_number || '',
                         note: g.note || g.notes || '', date: g.date || '', batch_num: g.batch_number || g.batch_num || '' };
-            // Embed fund splits as fund-{id}/amount-{id} keys (audit log format)
+            // Embed fund splits as fund-{id}/amount-{id}/fname-{id} keys
             if (funds.length > 0) {
               for (const f of funds) {
                 const fid = String(f.id || f.fund_id || '');
-                if (fid) { d['fund-' + fid] = fid; d['amount-' + fid] = String(f.amount || g.amount || '0'); }
+                if (fid) {
+                  d['fund-' + fid] = fid;
+                  d['amount-' + fid] = String(f.amount || g.amount || '0');
+                  if (f.name) d['fname-' + fid] = f.name; // preserve Breeze fund name
+                }
               }
             }
             givingListEntries.push({ id, object_json: id, details: JSON.stringify(d), _from_giving_list: true });
@@ -1929,8 +1933,9 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       }
     } catch (e) { /* giving/list is best-effort; audit log is primary */ }
 
-    // Merge: giving list entries first so audit log can overwrite with richer data if same ID appears in both
-    const allEntries = [...givingListEntries, ...entries];
+    // Merge: audit log first (richer batch/method data), giving list fills in anything not in the log.
+    // Order matters: the seenIds set below ensures the first occurrence wins.
+    const allEntries = [...entries, ...givingListEntries];
     if (allEntries.length === 0) return json({ ok: true, imported: 0, skipped: 0, total: 0, date_range: { start, end } });
 
     // Helpers
@@ -1940,10 +1945,11 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       for (const [key, fid] of Object.entries(d)) {
         if (!key.startsWith('fund-') || !fid) continue;
         const uuid = key.slice(5);
-        const splitAmt = uuid ? d['amount-' + uuid] : null;
-        lines.push({ breezeFundId: String(fid), amount: (splitAmt && parseFloat(splitAmt) > 0) ? splitAmt : total });
+        const splitAmt = d['amount-' + uuid];
+        const fundName = d['fname-' + uuid] || '';
+        lines.push({ breezeFundId: String(fid), amount: (splitAmt && parseFloat(splitAmt) > 0) ? splitAmt : total, fundName });
       }
-      return lines.length > 0 ? lines : [{ breezeFundId: 'default', amount: total }];
+      return lines.length > 0 ? lines : [{ breezeFundId: 'default', amount: total, fundName: '' }];
     };
     const payMethod = t => {
       const s = (t || '').toLowerCase();
@@ -1957,9 +1963,19 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       return m ? m[3] + '-' + m[1].padStart(2,'0') + '-' + m[2].padStart(2,'0') : (s || start).slice(0,10);
     };
 
+    // ── Deduplicate any existing rows caused by prior double-imports ────
+    // Keeps the lowest-id row for each (breeze_id, fund_id) pair.
+    const dupeResult = await db.prepare(
+      `DELETE FROM giving_entries
+       WHERE breeze_id != '' AND id NOT IN (
+         SELECT MIN(id) FROM giving_entries WHERE breeze_id != '' GROUP BY breeze_id, fund_id
+       )`
+    ).run();
+    const dupesRemoved = dupeResult.meta?.changes || 0;
+
     // ── Pre-load caches to avoid per-row DB round trips ──────────────
-    // Existing contribution IDs → skip set
-    const existingIds = new Set(
+    // Existing contribution IDs → skip set (also tracks IDs seen this run)
+    const seenIds = new Set(
       ((await db.prepare("SELECT breeze_id FROM giving_entries WHERE breeze_id != ''").all()).results || [])
         .map(r => r.breeze_id)
     );
@@ -1971,10 +1987,13 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     const batchByDesc = {};
     for (const bt of (await db.prepare('SELECT id, description FROM giving_batches').all()).results || [])
       batchByDesc[bt.description] = bt.id;
-    // Funds: breeze_id → local id
+    // Funds: breeze_id → local id; also name → local id for fallback matching
     const fundByBreezeId = {};
-    for (const f of (await db.prepare('SELECT id, breeze_id FROM funds WHERE breeze_id != ""').all()).results || [])
-      fundByBreezeId[f.breeze_id] = f.id;
+    const fundByName = {};
+    for (const f of (await db.prepare('SELECT id, name, breeze_id FROM funds').all()).results || []) {
+      if (f.breeze_id) fundByBreezeId[f.breeze_id] = f.id;
+      fundByName[f.name.toLowerCase().trim()] = f.id;
+    }
 
     // ── Process entries, collect inserts ─────────────────────────────
     let imported = 0, skipped = 0;
@@ -1984,7 +2003,8 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     for (const entry of allEntries) {
       try {
         const contribId = String(entry.object_json || entry.id);
-        if (existingIds.has(contribId)) { skipped++; continue; }
+        if (seenIds.has(contribId)) { skipped++; continue; }
+        seenIds.add(contribId);
         const d = parseDetails(entry.details);
         if (!d) { skipped++; continue; }
 
@@ -2012,11 +2032,20 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         for (const fl of extractFunds(d, d.amount || '0')) {
           const cents = Math.round(parseFloat(fl.amount || '0') * 100);
           if (!fundByBreezeId[fl.breezeFundId]) {
-            const fname = fl.breezeFundId === 'default' ? 'General Fund' : `Breeze Fund ${fl.breezeFundId}`;
-            const r = await db.prepare(
-              'INSERT INTO funds (name, breeze_id, active, sort_order) VALUES (?,?,1,99)'
-            ).bind(fname, fl.breezeFundId).run();
-            fundByBreezeId[fl.breezeFundId] = r.meta?.last_row_id;
+            // Try name-based match (funds created from CSV have no breeze_id)
+            const bName = fl.fundName || (fl.breezeFundId === 'default' ? 'General Fund' : `Breeze Fund ${fl.breezeFundId}`);
+            const nameKey = bName.toLowerCase().trim();
+            if (fundByName[nameKey]) {
+              // Found by name — link this breeze_id to the existing fund
+              fundByBreezeId[fl.breezeFundId] = fundByName[nameKey];
+              await db.prepare('UPDATE funds SET breeze_id=? WHERE id=? AND (breeze_id IS NULL OR breeze_id="")').bind(fl.breezeFundId, fundByName[nameKey]).run();
+            } else {
+              const r = await db.prepare(
+                'INSERT INTO funds (name, breeze_id, active, sort_order) VALUES (?,?,1,99)'
+              ).bind(bName, fl.breezeFundId).run();
+              fundByBreezeId[fl.breezeFundId] = r.meta?.last_row_id;
+              fundByName[nameKey] = fundByBreezeId[fl.breezeFundId];
+            }
           }
           entryInserts.push(
             db.prepare(
@@ -2039,7 +2068,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
     ).run();
 
-    return json({ ok: true, imported, skipped, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, from_giving_list: givingListEntries.length, date_range: { start, end } });
+    return json({ ok: true, imported, skipped, dupesRemoved, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, from_giving_list: givingListEntries.length, date_range: { start, end } });
   }
 
   // ── Breeze Giving CSV Import ─────────────────────────────────────
