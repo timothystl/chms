@@ -1251,10 +1251,17 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
           <input type="checkbox" id="pm-deceased">
           Mark as deceased
         </label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem;" title="Uncheck to hide this person from printed/public directories">
-          <input type="checkbox" id="pm-public" checked>
-          Include in directory
-        </label>
+        <div>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem;" title="Uncheck to hide this person from printed/public directories">
+            <input type="checkbox" id="pm-public" checked onchange="document.getElementById('pm-dir-fields').style.opacity=this.checked?'1':'.4'">
+            Include in directory
+          </label>
+          <div id="pm-dir-fields" style="margin-top:5px;margin-left:24px;display:flex;gap:16px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.8rem;color:var(--warm-gray);"><input type="checkbox" id="pm-hide-addr"> Hide address</label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.8rem;color:var(--warm-gray);"><input type="checkbox" id="pm-hide-phone"> Hide phone</label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.8rem;color:var(--warm-gray);"><input type="checkbox" id="pm-hide-email"> Hide email</label>
+          </div>
+        </div>
       </div>
     </div>
     <div class="modal-section">Tags</div>
@@ -1414,7 +1421,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-15-v7';
+var DEPLOY_VERSION = '2026-04-16-v1';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -2143,7 +2150,7 @@ function saveMtMap() {
 
 // ── PRINT DIRECTORY ──────────────────────────────────────────────────
 function printDirectory() {
-  window.open('/admin/api/directory', '_blank');
+  window.open('/admin/api/directory?types=member', '_blank');
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────
@@ -2828,7 +2835,8 @@ function pvBuildPersonPatch(p, overrides) {
   ['first_name','last_name','email','phone','address1','city','state','zip',
    'member_type','family_role','gender','marital_status','household_id',
    'dob','baptism_date','confirmation_date','anniversary_date','death_date',
-   'deceased','public_directory','envelope_number','last_seen_date','notes','breeze_id'
+   'deceased','public_directory','envelope_number','last_seen_date','notes','breeze_id',
+   'dir_hide_address','dir_hide_phone','dir_hide_email'
   ].forEach(function(k){ full[k] = (p[k] !== undefined) ? p[k] : null; });
   Object.assign(full, overrides);
   full.tag_ids = (p.tags || []).map(function(t){ return t.id; });
@@ -3754,6 +3762,11 @@ function openPersonEdit(p) {
   document.getElementById('pm-deceased').checked = !isNew && !!p.deceased;
   var pubEl = document.getElementById('pm-public');
   if (pubEl) pubEl.checked = isNew ? true : (p.public_directory !== 0);
+  var dirFieldsEl = document.getElementById('pm-dir-fields');
+  if (dirFieldsEl) dirFieldsEl.style.opacity = (!isNew && p.public_directory === 0) ? '.4' : '1';
+  var haEl = document.getElementById('pm-hide-addr');  if (haEl) haEl.checked = !isNew && !!p.dir_hide_address;
+  var hpEl = document.getElementById('pm-hide-phone'); if (hpEl) hpEl.checked = !isNew && !!p.dir_hide_phone;
+  var heEl = document.getElementById('pm-hide-email'); if (heEl) heEl.checked = !isNew && !!p.dir_hide_email;
   document.getElementById('pm-envelope').value = isNew ? '' : (p.envelope_number||'');
   document.getElementById('pm-last-seen').value = isNew ? '' : (p.last_seen_date||'');
   document.getElementById('pm-notes').value = isNew ? '' : (p.notes||'');
@@ -3831,6 +3844,9 @@ function savePerson() {
     death_date: document.getElementById('pm-death').value,
     deceased: document.getElementById('pm-deceased').checked ? 1 : 0,
     public_directory: (document.getElementById('pm-public') || {checked:true}).checked ? 1 : 0,
+    dir_hide_address: document.getElementById('pm-hide-addr') && document.getElementById('pm-hide-addr').checked ? 1 : 0,
+    dir_hide_phone:   document.getElementById('pm-hide-phone') && document.getElementById('pm-hide-phone').checked ? 1 : 0,
+    dir_hide_email:   document.getElementById('pm-hide-email') && document.getElementById('pm-hide-email').checked ? 1 : 0,
     envelope_number: document.getElementById('pm-envelope').value.trim(),
     last_seen_date: document.getElementById('pm-last-seen').value,
     notes: document.getElementById('pm-notes').value,

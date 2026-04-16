@@ -266,14 +266,16 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
         `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,address1=?,address2=?,
          city=?,state=?,zip=?,member_type=?,dob=?,baptism_date=?,confirmation_date=?,
          anniversary_date=?,death_date=?,deceased=?,household_id=?,family_role=?,photo_url=?,notes=?,
-         public_directory=?,envelope_number=?,last_seen_date=?,gender=?,marital_status=? WHERE id=?`
+         public_directory=?,envelope_number=?,last_seen_date=?,gender=?,marital_status=?,
+         dir_hide_address=?,dir_hide_phone=?,dir_hide_email=? WHERE id=?`
       ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
              b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
              b.member_type||'visitor',b.dob||'',b.baptism_date||'',
              b.confirmation_date||'',b.anniversary_date||'',b.death_date||'',b.deceased?1:0,
              b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',
              b.public_directory!=null?(b.public_directory?1:0):1,
-             b.envelope_number||'',b.last_seen_date||'',b.gender||'',b.marital_status||'',pid
+             b.envelope_number||'',b.last_seen_date||'',b.gender||'',b.marital_status||'',
+             b.dir_hide_address?1:0, b.dir_hide_phone?1:0, b.dir_hide_email?1:0, pid
       ).run();
       if (Array.isArray(b.tag_ids)) {
         await db.prepare('DELETE FROM person_tags WHERE person_id=?').bind(pid).run();
@@ -1438,24 +1440,44 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // ── Directory HTML (for print view) — grouped by household ─────
   if (seg === 'directory' && method === 'GET') {
     const e = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    // Query A: people in households, ordered so head comes first within each household
+
+    // D1: type filter — which member types qualify a household for inclusion
+    const typesParam = (url.searchParams.get('types') || 'member').toLowerCase().trim();
+    const allowedTypes = typesParam === 'all'
+      ? ['member','attender','visitor','staff']
+      : typesParam.split(',').map(t => t.trim()).filter(Boolean);
+    const tp = allowedTypes.map(() => '?').join(',');
+
+    // Query A: all people in households where at least one member matches allowed types
+    // Non-member household members of qualifying households are still included
     const hhPeople = (await db.prepare(
       `SELECT p.id, p.first_name, p.last_name, p.email, p.phone,
               p.address1, p.city, p.state, p.zip, p.family_role, p.member_type,
-              p.household_id, h.name as household_name
+              p.household_id, h.name as household_name,
+              p.dir_hide_address, p.dir_hide_phone, p.dir_hide_email, p.photo_url
        FROM people p JOIN households h ON p.household_id=h.id
        WHERE p.active=1 AND p.public_directory=1
-         AND LOWER(p.member_type) NOT IN ('visitor','inactive','organization')
-       ORDER BY h.name, CASE p.family_role WHEN 'head' THEN 0 WHEN 'spouse' THEN 1 WHEN 'child' THEN 2 ELSE 3 END, p.last_name, p.first_name`
-    ).all()).results || [];
-    // Query B: people with no household
+         AND LOWER(p.member_type) NOT IN ('organization')
+         AND p.household_id IN (
+           SELECT DISTINCT household_id FROM people
+           WHERE active=1 AND household_id IS NOT NULL AND household_id != ''
+             AND LOWER(member_type) IN (${tp})
+         )
+       ORDER BY CASE p.family_role WHEN 'head' THEN 0 WHEN 'spouse' THEN 1 WHEN 'child' THEN 2 ELSE 3 END,
+                p.last_name, p.first_name`
+    ).bind(...allowedTypes).all()).results || [];
+
+    // Query B: solo individuals matching allowed types (no household)
     const solos = (await db.prepare(
       `SELECT p.id, p.first_name, p.last_name, p.email, p.phone,
-              p.address1, p.city, p.state, p.zip, p.member_type
-       FROM people p WHERE p.active=1 AND p.public_directory=1 AND (p.household_id IS NULL OR p.household_id='')
-         AND LOWER(p.member_type) NOT IN ('visitor','inactive','organization')
+              p.address1, p.city, p.state, p.zip, p.member_type,
+              p.dir_hide_address, p.dir_hide_phone, p.dir_hide_email, p.photo_url
+       FROM people p
+       WHERE p.active=1 AND p.public_directory=1
+         AND (p.household_id IS NULL OR p.household_id='')
+         AND LOWER(p.member_type) IN (${tp})
        ORDER BY p.last_name, p.first_name`
-    ).all()).results || [];
+    ).bind(...allowedTypes).all()).results || [];
 
     // Group hhPeople by household_id
     const hhMap = new Map();
@@ -1464,69 +1486,102 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       hhMap.get(p.household_id).push(p);
     }
 
-    let rows = '';
-    let entryCount = 0;
-    // Render households sorted by the head's last name (or first member's if no head)
-    const sortedHH = [...hhMap.values()].sort((a, b) => {
-      const aName = (a[0].last_name||'').toLowerCase();
-      const bName = (b[0].last_name||'').toLowerCase();
-      return aName < bName ? -1 : aName > bName ? 1 : 0;
-    });
-    for (const members of sortedHH) {
-      const head   = members.find(m => m.family_role === 'head') || members[0];
-      const spouse = members.find(m => m.family_role === 'spouse');
-      const children = members.filter(m => m.family_role === 'child' || (m.family_role !== 'head' && m.family_role !== 'spouse'));
-      // Household display name: "Last, First & SpouseFirst" or just "Last, First"
-      let dispName = e(head.last_name || head.first_name || '');
-      if (head.last_name) {
-        dispName = e(head.last_name);
-        const firstNames = [head.first_name, spouse ? spouse.first_name : ''].filter(Boolean);
-        if (firstNames.length) dispName += ', ' + firstNames.map(e).join(' & ');
+    // Build a unified sorted list of entries (household or solo)
+    const bgColors = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E87040'];
+    const avatarHtml = (person, size=38) => {
+      if (person.photo_url) {
+        return `<img src="${e(person.photo_url)}" width="${size}" height="${size}" style="border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.style.display='none'">`;
       }
-      const addr = [head.address1, head.city, ((head.state||'')+(head.zip?' '+head.zip:'')).trim()].filter(Boolean).map(e).join(', ');
-      const phone = head.phone || (spouse && spouse.phone) || '';
-      const email = head.email || (spouse && spouse.email) || '';
-      const contact = [addr, phone ? e(phone) : '', email ? e(email) : ''].filter(Boolean).join('<br>');
-      const childList = children.length
-        ? `<div class="members">${children.map(c => e(c.first_name||c.last_name||'')).join(', ')}</div>`
-        : '';
-      rows += `<div class="household"><div class="name">${dispName}</div>${childList}${contact ? `<div class="contact">${contact}</div>` : ''}</div>`;
-      entryCount++;
-    }
-    // Solo entries (no household)
-    for (const p of solos) {
-      const name = p.last_name
-        ? e(p.last_name) + (p.first_name ? ', ' + e(p.first_name) : '')
-        : e(p.first_name || '(unnamed)');
-      const addr = [p.address1, p.city, ((p.state||'')+(p.zip?' '+p.zip:'')).trim()].filter(Boolean).map(e).join(', ');
-      const contact = [addr, p.phone ? e(p.phone) : '', p.email ? e(p.email) : ''].filter(Boolean).join('<br>');
-      rows += `<div class="household"><div class="name">${name}</div>${contact ? `<div class="contact">${contact}</div>` : ''}</div>`;
+      const ini = ((person.first_name||'').charAt(0)+(person.last_name||'').charAt(0)).toUpperCase();
+      const bg = bgColors[person.id % bgColors.length];
+      return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${bg};color:#fff;display:flex;align-items:center;justify-content:center;font-size:${Math.round(size*.38)}px;font-weight:700;flex-shrink:0;">${ini}</div>`;
+    };
+
+    const hhEntries = [...hhMap.values()].map(members => {
+      const head = members.find(m => m.family_role === 'head') || members[0];
+      return { type:'hh', members, head, sortName: (head.last_name||head.first_name||'').toUpperCase() };
+    });
+    const soloEntries = solos.map(p => ({
+      type:'solo', person:p, sortName: (p.last_name||p.first_name||'').toUpperCase()
+    }));
+    const allEntries = [...hhEntries, ...soloEntries]
+      .sort((a,b) => a.sortName < b.sortName ? -1 : a.sortName > b.sortName ? 1 : 0);
+
+    let rows = '', entryCount = 0, lastLetter = '';
+    for (const entry of allEntries) {
+      const letter = (entry.sortName.charAt(0) || '#').toUpperCase();
+      if (letter !== lastLetter) {
+        rows += `<div class="letter-hdr">${e(letter)}</div>`;
+        lastLetter = letter;
+      }
+      if (entry.type === 'hh') {
+        const { members, head } = entry;
+        const spouse   = members.find(m => m.family_role === 'spouse');
+        const children = members.filter(m => m.family_role !== 'head' && m.family_role !== 'spouse');
+        let dispName = head.last_name
+          ? e(head.last_name) + ', ' + [head.first_name, spouse ? spouse.first_name : ''].filter(Boolean).map(e).join(' &amp; ')
+          : e(head.first_name || '');
+        // D2: respect per-field privacy of household head
+        const addr  = !head.dir_hide_address ? [head.address1,head.city,((head.state||'')+(head.zip?' '+head.zip:'')).trim()].filter(Boolean).map(e).join(', ') : '';
+        const phone = !head.dir_hide_phone   ? e(head.phone || (spouse && !spouse.dir_hide_phone ? spouse.phone : '') || '') : '';
+        const email = !head.dir_hide_email   ? e(head.email || (spouse && !spouse.dir_hide_email ? spouse.email : '') || '') : '';
+        const contact = [addr,phone,email].filter(Boolean).join('<br>');
+        const childList = children.length ? `<div class="members">${children.map(c=>e(c.first_name||c.last_name||'')).join(', ')}</div>` : '';
+        rows += `<div class="hh"><div class="hh-row">${avatarHtml(head)}<div><div class="name">${dispName}</div>${childList}${contact?`<div class="contact">${contact}</div>`:''}</div></div></div>`;
+      } else {
+        const p = entry.person;
+        const name = p.last_name ? e(p.last_name)+(p.first_name?', '+e(p.first_name):'') : e(p.first_name||'(unnamed)');
+        const addr  = !p.dir_hide_address ? [p.address1,p.city,((p.state||'')+(p.zip?' '+p.zip:'')).trim()].filter(Boolean).map(e).join(', ') : '';
+        const phone = !p.dir_hide_phone   ? e(p.phone||'') : '';
+        const email = !p.dir_hide_email   ? e(p.email||'') : '';
+        const contact = [addr,phone,email].filter(Boolean).join('<br>');
+        rows += `<div class="hh"><div class="hh-row">${avatarHtml(p)}<div><div class="name">${name}</div>${contact?`<div class="contact">${contact}</div>`:''}</div></div></div>`;
+      }
       entryCount++;
     }
 
     const churchNameRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_name'").first();
     const churchName = churchNameRow?.value || 'Timothy Lutheran Church';
+
+    // D1: type filter buttons shown on the print page
+    const filterBtns = [['member','Members only'],['member,attender','Members + Attenders'],['all','All eligible']].map(([v,lbl])=>{
+      const active = typesParam === v;
+      return `<a href="?types=${encodeURIComponent(v)}" style="padding:5px 12px;background:${active?'#1E2D4A':'#e8e0d8'};color:${active?'#fff':'#333'};border-radius:4px;text-decoration:none;font-size:12px;white-space:nowrap;">${lbl}</a>`;
+    }).join('');
+
     const dirHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Church Directory — ${e(churchName)}</title>
 <style>
-body{font-family:Georgia,serif;font-size:12pt;color:#222;margin:2cm;}
-h1{font-size:18pt;margin:0 0 4px;} .subtitle{font-size:10pt;color:#666;margin-bottom:20px;}
-.grid{columns:2;column-gap:28px;}
-.household{break-inside:avoid;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #ddd;}
-.name{font-weight:bold;font-size:11pt;}
-.members{font-size:9pt;color:#555;margin-top:1px;}
-.contact{font-size:9pt;color:#444;margin-top:3px;line-height:1.5;}
-@media print{body{margin:1cm;} .no-print{display:none;}}
-@media screen{body{max-width:900px;margin:40px auto;padding:0 20px;}}
+*{box-sizing:border-box;}
+body{font-family:Georgia,serif;font-size:11pt;color:#222;margin:0;padding:20px;}
+h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
+.subtitle{font-size:10pt;color:#666;margin-bottom:18px;}
+.grid{columns:2;column-gap:32px;}
+.letter-hdr{font-size:15pt;font-weight:bold;color:#1E2D4A;border-bottom:2px solid #1E2D4A;
+  margin:18px 0 8px;padding-bottom:2px;break-after:avoid;column-span:all;line-height:1;}
+.hh{break-inside:avoid;margin-bottom:11px;padding-bottom:11px;border-bottom:1px solid #e8e0d8;}
+.hh-row{display:flex;gap:9px;align-items:flex-start;}
+.name{font-weight:bold;font-size:10.5pt;line-height:1.2;}
+.members{font-size:8.5pt;color:#555;margin-top:1px;}
+.contact{font-size:8.5pt;color:#444;margin-top:3px;line-height:1.45;}
+.toolbar{background:#f5f0ea;padding:11px 14px;border-radius:8px;margin-bottom:18px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+@media print{
+  .toolbar{display:none;}
+  body{margin:1.2cm 1.5cm;padding:0;}
+  .grid{columns:2;}
+  .letter-hdr{break-after:avoid;}
+}
+@media screen{body{max-width:980px;margin:0 auto;padding:28px 20px;}}
 </style></head><body>
-<div class="no-print" style="margin-bottom:20px;display:flex;gap:12px;align-items:center;">
-  <button onclick="window.print()" style="padding:8px 18px;background:#1E2D4A;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;">Print / Save PDF</button>
-  <span style="font-size:13px;color:#666;">${entryCount} households/individuals &nbsp;&bull;&nbsp; Printed ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</span>
+<div class="toolbar">
+  <button onclick="window.print()" style="padding:6px 16px;background:#1E2D4A;color:#fff;border:none;border-radius:5px;font-size:13px;cursor:pointer;font-family:inherit;">&#128438; Print / Save PDF</button>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;">${filterBtns}</div>
+  <span style="font-size:11px;color:#888;margin-left:auto;">${entryCount} entries &bull; ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</span>
 </div>
 <h1>Church Directory</h1>
 <div class="subtitle">${e(churchName)} &nbsp;&bull;&nbsp; ${new Date().toLocaleDateString('en-US',{month:'long',year:'numeric'})}</div>
-<div class="grid">${rows || '<p style="color:#999;">No public directory entries found.</p>'}</div>
+<div class="grid">${rows||'<p style="color:#999;column-span:all;">No directory entries found.</p>'}</div>
 </body></html>`;
     return new Response(dirHtml, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
   }

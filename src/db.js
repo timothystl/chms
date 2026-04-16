@@ -451,6 +451,10 @@ export async function initDb(db) {
     'ALTER TABLE people ADD COLUMN marital_status TEXT NOT NULL DEFAULT ""',
     // households: family/household photo URL
     'ALTER TABLE households ADD COLUMN photo_url TEXT NOT NULL DEFAULT ""',
+    // people: per-field directory privacy (0=show, 1=hide from printed directory)
+    'ALTER TABLE people ADD COLUMN dir_hide_address INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE people ADD COLUMN dir_hide_phone INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE people ADD COLUMN dir_hide_email INTEGER NOT NULL DEFAULT 0',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
