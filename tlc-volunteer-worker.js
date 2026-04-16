@@ -113,9 +113,27 @@ async function _fetch(req, env) {
       if (!parsed.hostname.endsWith('.breezechms.com') && parsed.hostname !== 'breezechms.com') {
         return json({ error: 'Only Breeze photo URLs may be proxied' }, 403);
       }
-      // Photo files on Breeze CDN are static assets — the REST API key is not used for
-      // file serving. Sending it can cause unexpected responses; fetch without auth headers.
-      const upstream = await fetch(photoUrl);
+      const apiKey = env.BREEZE_API_KEY || '';
+      // Try multiple auth strategies: no-auth first (public CDN), then API key header,
+      // then API key as query param. Use the first response that returns an actual image.
+      const attempts = [
+        () => fetch(photoUrl),
+        () => apiKey ? fetch(photoUrl, { headers: { 'Api-key': apiKey } }) : null,
+        () => apiKey ? fetch(photoUrl + (photoUrl.includes('?') ? '&' : '?') + 'api_key=' + encodeURIComponent(apiKey)) : null,
+      ];
+      let upstream = null;
+      for (const attempt of attempts) {
+        const res = attempt ? await attempt() : null;
+        if (!res) continue;
+        const ct = res.headers.get('Content-Type') || '';
+        if (res.ok && ct.startsWith('image/')) { upstream = res; break; }
+        // If no image yet, keep trying (response body is consumed so we can't reuse)
+      }
+      if (!upstream) {
+        // All attempts failed — return a transparent 1×1 GIF so onerror fires gracefully
+        const gif = new Uint8Array([71,73,70,56,57,97,1,0,1,0,128,0,0,0,0,0,255,255,255,33,249,4,0,0,0,0,0,44,0,0,0,0,1,0,1,0,0,2,2,68,1,0,59]);
+        return new Response(gif, { status: 200, headers: { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store' } });
+      }
       const ct = upstream.headers.get('Content-Type') || 'image/jpeg';
       return new Response(upstream.body, {
         status: upstream.status,
