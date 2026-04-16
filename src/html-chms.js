@@ -1431,7 +1431,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-16-v12';
+var DEPLOY_VERSION = '2026-04-16-v13';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -4639,11 +4639,19 @@ function selectHousehold(id, name) {
 }
 function createHouseholdFromPerson() {
   var last = document.getElementById('pm-last').value.trim();
-  var name = last ? last + ' Family' : '';
-  document.getElementById('pm-hh-search').value = name;
+  var first = document.getElementById('pm-first').value.trim();
+  var proposed = last ? last + ' Family' : (first ? first + ' Family' : 'New Family');
+  var name = prompt('New household name:', proposed);
+  if (!name || !name.trim()) return;
+  name = name.trim();
   document.getElementById('pm-hh-ac').classList.remove('open');
-  // Will be created on save if needed — for now just note it
-  alert('Enter this household name then save the person. You can create the household record separately in the Households tab.');
+  api('/admin/api/households', { method: 'POST', body: JSON.stringify({ name: name }) }).then(function(d) {
+    if (d && d.id) {
+      selectHousehold(d.id, name);
+    } else {
+      alert('Failed to create household: ' + (d && d.error ? d.error : 'unknown error'));
+    }
+  });
 }
 
 // ── PERSON AUTOCOMPLETE (for reports/giving) ──────────────────────────
