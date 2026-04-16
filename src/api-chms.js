@@ -2277,6 +2277,11 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       if (!bTagId || !localTagId) return json({ ok: false, error: 'Missing tag_id or local_tag_id' }, 400);
       // Clear existing assignments so removals in Breeze are reflected locally
       await db.prepare('DELETE FROM person_tags WHERE tag_id=?').bind(localTagId).run();
+      // Load all breeze_id→local_id mappings in ONE query to avoid per-person DB round trips
+      const allPeople = (await db.prepare(
+        `SELECT id, breeze_id FROM people WHERE breeze_id != '' AND breeze_id IS NOT NULL`
+      ).all()).results || [];
+      const breezeMap = new Map(allPeople.map(r => [String(r.breeze_id), r.id]));
       const filterJson = encodeURIComponent(`{"tag_contains": "y_${bTagId}"}`);
       let assignments = 0, tagOffset = 0;
       const tagLimit = 500;
@@ -2296,15 +2301,19 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
           tagMembers = Array.isArray(parsed) ? parsed : Object.values(parsed).filter(v => v && v.id);
         } catch { break; }
         if (!tagMembers.length) break;
+        // Build insert statements using the in-memory map (no per-person DB calls)
+        const insertStmts = [];
         for (const m of tagMembers) {
           const bPersonId = String(m.id || '');
           if (!bPersonId) continue;
-          const personRow = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(bPersonId).first();
-          if (!personRow) continue;
-          try {
-            await db.prepare('INSERT OR IGNORE INTO person_tags (person_id, tag_id) VALUES (?,?)').bind(personRow.id, localTagId).run();
-            assignments++;
-          } catch {}
+          const localId = breezeMap.get(bPersonId);
+          if (!localId) continue;
+          insertStmts.push(db.prepare('INSERT OR IGNORE INTO person_tags (person_id, tag_id) VALUES (?,?)').bind(localId, localTagId));
+          assignments++;
+        }
+        // Batch inserts in chunks of 100 (D1 batch limit)
+        for (let i = 0; i < insertStmts.length; i += 100) {
+          await db.batch(insertStmts.slice(i, i + 100));
         }
         if (tagMembers.length < tagLimit) break;
         tagOffset += tagLimit;
