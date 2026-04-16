@@ -42,23 +42,19 @@ Added 2026-04-15, phased 2026-04-15.
 
 ---
 
-### Phase 2 — UI Fixes (no schema changes)
+### Phase 2 — UI Fixes (no schema changes) ✅ DONE 2026-04-16
 | # | Description | Status |
 |---|-------------|--------|
-| H2 | Fix **"Add person to household"** — search/select existing people OR create new; current text popup is broken | Queued |
-| P1 | Paginate all list views at **25 items per page** (people, households, giving) | Queued |
-
-**Test after Phase 2:** Household member adding works both ways, lists load faster and paginate correctly.
+| H2 | Fix **"Add person to household"** — search/select existing people OR create new; current text popup is broken | Done |
+| P1 | Paginate all list views at **25 items per page** (people, households, giving) | Done |
 
 ---
 
-### Phase 3 — Profile Editing Overhaul
+### Phase 3 — Profile Editing Overhaul ✅ DONE 2026-04-16
 | # | Description | Status |
 |---|-------------|--------|
-| P3 | Edit gifts **inline on the person profile** — no separate window | Queued |
-| P4 | **Inline field editing on profile** — keep master Edit modal, but also click any field to edit in place | Queued |
-
-**Test after Phase 3:** Can edit any profile field by clicking it; gift edits work inline; master Edit modal still works.
+| P3 | Edit gifts **inline on the person profile** — no separate window | Done |
+| P4 | **Breeze-style section-level inline editing** — Contact, Demographics/Dates, Tags, Notes each have an Edit button that expands the section into an inline form; Save/Cancel in the section header | Done |
 
 ---
 
@@ -79,6 +75,17 @@ Added 2026-04-15, phased 2026-04-15.
 | A1 | Per-user auth: enforce username+password, fix broken user management in Settings. Roles: Admin/Finance/Staff/Member | Queued — dedicated session |
 | S1 | **Register record creation from people records** is broken — diagnose and fix | Queued — dedicated session |
 | S2 | **Image/photo import** is broken — diagnose and fix | Queued — dedicated session |
+
+---
+
+### Phase 5b — Dashboard & Household View Improvements
+| # | Description | Status |
+|---|-------------|--------|
+| DB1 | Dashboard people count — members only (not all person types) | Queued |
+| DB2 | Dashboard households count — members only | Queued |
+| DB3 | Dashboard last services — show both Sunday services | Queued |
+| DB4 | Dashboard birthdays/anniversaries — month-at-a-time view with copy/paste export | Queued |
+| HV1 | Household view — filter by member type (members-only or selectable) | Queued |
 
 ---
 
@@ -108,6 +115,11 @@ Added 2026-04-15, phased 2026-04-15.
 ---
 
 ## Recent Changes (newest first)
+
+### 2026-04-16
+- **Phase 3 complete**: P3 inline gift editing and P4 Breeze-style section-level inline editing shipped (v3–v7).
+- **Phase 2 complete**: H2 add-to-household with create-new-person option; P1 pagination already done.
+- **NOTES.md updated**: Marked phases 2 & 3 done; added Phase 5b dashboard/household backlog items.
 
 ### 2026-04-15
 - **NOTES.md created**: Added this dev reference file; backlog populated from admin-provided list.
