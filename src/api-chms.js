@@ -57,6 +57,16 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     ).all()).results || [];
     const totalPeople = typeCounts.reduce(function(s,r){return s+r.n;},0);
     const totalHouseholds = (await db.prepare(`SELECT COUNT(*) as n FROM households`).first())?.n || 0;
+    // DB1: member-only count for dashboard stat card
+    const memberCount = (await db.prepare(
+      `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)='member'`
+    ).first())?.n || 0;
+    // DB2: households that contain at least one member
+    const memberHHCount = (await db.prepare(
+      `SELECT COUNT(DISTINCT household_id) as n FROM people
+       WHERE active=1 AND LOWER(member_type)='member'
+         AND household_id IS NOT NULL AND household_id != ''`
+    ).first())?.n || 0;
     // Added this month / this year
     const addedThisMonth = (await db.prepare(
       `SELECT COUNT(*) as n FROM people WHERE active=1 AND created_at >= date('now','start of month')`
@@ -75,28 +85,23 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
        JOIN giving_batches gb ON ge.batch_id=gb.id
        WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=cast(strftime('%Y','now')-1 as text)`
     ).first())?.total || 0;
-    // Upcoming birthdays — next 60 days (exclude visitor/inactive)
+    // DB4: Month-at-a-time birthdays & anniversaries (exclude visitor/inactive/other/org)
+    const dashMonth = Math.max(1, Math.min(12, parseInt(url.searchParams.get('month') || '') || (new Date().getMonth() + 1)));
+    const dashMonthStr = String(dashMonth).padStart(2, '0');
     const birthdays = (await db.prepare(
       `SELECT id, first_name, last_name, dob FROM people
        WHERE active=1 AND dob != ''
-         AND LOWER(member_type) NOT IN ('visitor','inactive')
-         AND cast(strftime('%j', date(substr(dob,1,4)||'-'||substr(dob,6,2)||'-'||substr(dob,9,2))) as integer)
-           BETWEEN cast(strftime('%j','now') as integer)
-             AND cast(strftime('%j','now') as integer)+60
-       ORDER BY cast(strftime('%m%d', dob) as integer)
-       LIMIT 15`
-    ).all()).results || [];
-    // Upcoming anniversaries — next 60 days
+         AND LOWER(member_type) NOT IN ('visitor','inactive','other','organization')
+         AND strftime('%m', dob) = ?
+       ORDER BY strftime('%d', dob)`
+    ).bind(dashMonthStr).all()).results || [];
     const anniversaries = (await db.prepare(
       `SELECT id, first_name, last_name, anniversary_date FROM people
        WHERE active=1 AND anniversary_date != ''
-         AND LOWER(member_type) NOT IN ('visitor','inactive')
-         AND cast(strftime('%j', date(substr(anniversary_date,1,4)||'-'||substr(anniversary_date,6,2)||'-'||substr(anniversary_date,9,2))) as integer)
-           BETWEEN cast(strftime('%j','now') as integer)
-             AND cast(strftime('%j','now') as integer)+60
-       ORDER BY cast(strftime('%m%d', anniversary_date) as integer)
-       LIMIT 10`
-    ).all()).results || [];
+         AND LOWER(member_type) NOT IN ('visitor','inactive','other','organization')
+         AND strftime('%m', anniversary_date) = ?
+       ORDER BY strftime('%d', anniversary_date)`
+    ).bind(dashMonthStr).all()).results || [];
     // Recent additions
     const recentPeople = (await db.prepare(
       `SELECT p.id, p.first_name, p.last_name, p.member_type, p.created_at, h.name as household_name
@@ -104,10 +109,11 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
        WHERE p.active=1 ORDER BY p.created_at DESC LIMIT 10`
     ).all()).results || [];
     // Most recent attendance
+    // DB3: Last 2 services (show both Sunday services)
     const recentAttendance = (await db.prepare(
       `SELECT service_date, service_name, attendance
        FROM worship_services WHERE attendance > 0
-       ORDER BY service_date DESC LIMIT 5`
+       ORDER BY service_date DESC, service_time DESC LIMIT 2`
     ).all()).results || [];
     // Open follow-up items (pastoral queue)
     const followUpItems = (await db.prepare(
@@ -133,7 +139,8 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
        ) ORDER BY last_seen_date ASC LIMIT 20`
     ).all()).results || [];
     return json({
-      totalPeople, totalHouseholds, addedThisMonth, addedThisYear,
+      totalPeople, totalHouseholds, memberCount, memberHHCount,
+      addedThisMonth, addedThisYear, dashMonth,
       typeCounts,
       // giving data: finance+ only
       givingThisYear:  isFinance ? givingThisYear  : undefined,
@@ -322,11 +329,16 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
     const offset = parseInt(url.searchParams.get('offset') || '0');
     const sort = url.searchParams.get('sort') || 'name';
+    const hhMemberType = (url.searchParams.get('member_type') || '').toLowerCase().trim();
     const orderBy = sort === 'members_desc' ? 'member_count DESC, h.name'
                   : sort === 'members_asc'  ? 'member_count ASC, h.name'
                   : 'h.name';
+    // HV1: optional member-type filter — only show households with ≥1 person of the given type
+    const mtSubquery = hhMemberType
+      ? `AND h.id IN (SELECT household_id FROM people WHERE active=1 AND LOWER(member_type)='${hhMemberType}' AND household_id IS NOT NULL AND household_id != '')`
+      : '';
     const countRow = await db.prepare(
-      `SELECT COUNT(*) as n FROM households h WHERE h.name LIKE ? OR h.address1 LIKE ? OR h.city LIKE ?`
+      `SELECT COUNT(*) as n FROM households h WHERE (h.name LIKE ? OR h.address1 LIKE ? OR h.city LIKE ?) ${mtSubquery}`
     ).bind(q,q,q).first();
     const total = countRow?.n || 0;
     const rows = (await db.prepare(
@@ -335,7 +347,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
         (SELECT p3.id FROM people p3 WHERE p3.household_id=h.id AND p3.active=1 ORDER BY p3.id LIMIT 1) as first_person_id
        FROM households h
        LEFT JOIN people p ON p.household_id=h.id AND p.active=1
-       WHERE h.name LIKE ? OR h.address1 LIKE ? OR h.city LIKE ?
+       WHERE (h.name LIKE ? OR h.address1 LIKE ? OR h.city LIKE ?) ${mtSubquery}
        GROUP BY h.id ORDER BY ${orderBy} LIMIT ? OFFSET ?`
     ).bind(q,q,q,limit,offset).all()).results || [];
     return json({ households: rows, total, offset, limit });

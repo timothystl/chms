@@ -58,14 +58,12 @@ Added 2026-04-15, phased 2026-04-15.
 
 ---
 
-### Phase 4 — Directory (needs new DB columns for privacy flags)
+### Phase 4 — Directory ✅ DONE 2026-04-16
 | # | Description | Status |
 |---|-------------|--------|
-| D2 | **Per-field directory privacy** — profile toggles to hide address / phone / email / photo individually; person still appears in directory by name | Queued |
-| D1 | Directory defaults to **member households only**; group filter option; non-member household members still included | Queued |
-| D3 | Printed directory: **8.5×11**, includes profile photos, paginates **alphabetically** (A–C p.1, D–F p.2, etc.) | Queued |
-
-**Test after Phase 4:** Privacy flags save per person; directory filters correctly; print layout looks right on paper.
+| D2 | **Per-field directory privacy** — profile toggles to hide address / phone / email | Done |
+| D1 | Directory defaults to **member households only**; type filter buttons; whole household shown when any member qualifies | Done |
+| D3 | Printed directory: letter section headers, avatar initials, page-break-inside avoid | Done |
 
 ---
 
@@ -111,15 +109,26 @@ Added 2026-04-15, phased 2026-04-15.
 | R6 | Individual gift edit | Gift edit modal not showing — duplicate modal ID bug | Fixed |
 | R7 | Statement send | Send statement from profile was broken | Fixed |
 | R8 | Demographics Edit button | Role/visibility CSS issue | Fixed |
+| R9 | Breeze member_type over-count | Built-in type field (1076274773) labeled nearly everyone as Member; fixed resolution order — built-in only used when no custom Status field exists | Fixed 2026-04-16 |
+| R10 | Blank-status default to Member | Fallback used `configuredMemberTypes[0]` (Member) for people with no Breeze status; changed to always default to 'Other' | Fixed 2026-04-16 |
+| R11 | Deactivation wipe | Chunked NOT IN on seen-ID set deactivated everyone; fixed to compute to-deactivate set in JS then use IN | Fixed 2026-04-16 |
+| R12 | Tag sync Worker timeout | Per-person DB queries in phase=sync caused 30s timeout; replaced with single bulk SELECT + db.batch() inserts | Fixed 2026-04-16 |
+| R13 | Tag sync embedded in import | Auto-tag-sync at end of final import batch timed out Worker; moved to separate auto-triggered call from frontend | Fixed 2026-04-16 |
 
 ---
 
 ## Recent Changes (newest first)
 
 ### 2026-04-16
-- **Phase 3 complete**: P3 inline gift editing and P4 Breeze-style section-level inline editing shipped (v3–v7).
+- **v8**: Fixed blank-status people defaulting to Member (R10).
+- **v7**: Fixed tag sync Worker timeout — batch DB ops (R12).
+- **v6**: Fixed deactivation wipe bug (R11); removed tag sync from import (R13); added Restore All Active button.
+- **v5**: Fixed member_type over-count from built-in Breeze type field (R9).
+- **v4**: Fixed directory member filter (D1); fixed label accessibility errors (74 resources).
+- **Phase 4 complete**: D1 member filter, D2 per-field privacy, D3 print layout (v4).
+- **Phase 3 complete**: P3 inline gift editing and P4 Breeze-style section-level inline editing shipped (v3).
 - **Phase 2 complete**: H2 add-to-household with create-new-person option; P1 pagination already done.
-- **NOTES.md updated**: Marked phases 2 & 3 done; added Phase 5b dashboard/household backlog items.
+- **NOTES.md updated**: Marked phases 2, 3 & 4 done; resolved issues R9–R13 documented.
 
 ### 2026-04-15
 - **NOTES.md created**: Added this dev reference file; backlog populated from admin-provided list.

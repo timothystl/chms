@@ -601,6 +601,10 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 <div id="tab-households" class="tab-panel">
   <div class="toolbar">
     <div class="search-wrap"><input type="search" id="h-search" placeholder="Search households…" oninput="debounceHouseholds()"></div>
+    <div style="display:flex;gap:5px;flex-shrink:0;">
+      <button class="pill active" id="hh-filter-all" onclick="setHHFilter('all')">All</button>
+      <button class="pill" id="hh-filter-member" onclick="setHHFilter('member')">Members</button>
+    </div>
     <button class="btn-primary require-edit" onclick="openHouseholdEdit(null)" style="margin-left:auto;">+ New Household</button>
   </div>
   <div id="h-status" class="status-msg"></div>
@@ -1422,7 +1426,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-16-v8';
+var DEPLOY_VERSION = '2026-04-16-v9';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -2156,16 +2160,55 @@ function printDirectory() {
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────
 var _dashData = null;
+var _dashMonth = new Date().getMonth() + 1; // 1-12, default current month
 function loadDashboard() {
   var body = document.getElementById('dash-body');
   if (!body) return;
   body.innerHTML = '<div style="color:var(--warm-gray);font-size:13px;padding:20px 0;">Loading\u2026</div>';
-  api('/admin/api/dashboard').then(function(d) {
+  api('/admin/api/dashboard?month=' + _dashMonth).then(function(d) {
     _dashData = d;
     renderDashboard(d);
   }).catch(function(e) {
     var body2 = document.getElementById('dash-body');
     if (body2) body2.innerHTML = '<div style="color:var(--danger);padding:20px;">Could not load dashboard: '+esc(e.message||'error')+'</div>';
+  });
+}
+function dashMonthNav(delta) {
+  _dashMonth = ((_dashMonth - 1 + delta + 12) % 12) + 1;
+  loadDashboard();
+}
+function dashCopyMonth() {
+  var d = _dashData;
+  if (!d) return;
+  var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var mn = monthNames[(_dashMonth - 1)];
+  var lines = [mn + ' Birthdays & Anniversaries', ''];
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var bdList = (d.birthdays || []);
+  var annList = (d.anniversaries || []);
+  if (bdList.length) {
+    lines.push('Birthdays:');
+    bdList.forEach(function(p) {
+      var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+      var parts = (p.dob||'').split('-');
+      var ds = parts.length >= 3 ? months[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : '';
+      lines.push('  ' + name + (ds ? ' — ' + ds : ''));
+    });
+    lines.push('');
+  }
+  if (annList.length) {
+    lines.push('Anniversaries:');
+    annList.forEach(function(p) {
+      var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+      var parts = (p.anniversary_date||'').split('-');
+      var ds = parts.length >= 3 ? months[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : '';
+      lines.push('  ' + name + (ds ? ' — ' + ds : ''));
+    });
+  }
+  if (!bdList.length && !annList.length) lines.push('None this month.');
+  navigator.clipboard.writeText(lines.join('\n')).then(function() {
+    var btn = document.getElementById('dash-copy-btn');
+    if (btn) { var orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(function(){ btn.textContent = orig; }, 1500); }
   });
 }
 function renderDashboard(d) {
@@ -2188,12 +2231,12 @@ function renderDashboard(d) {
     + '</div>';
 
   // ── Stat strip ─────────────────────────────────────────────────
-  var lastSvc = d.recentAttendance && d.recentAttendance.length ? d.recentAttendance[0] : null;
+  var svcs = (d.recentAttendance || []).slice(0, 2);
   html += '<div class="dash-stats">'
-    + dashStat(d.totalPeople, 'Total People', d.addedThisYear + ' added this year')
-    + dashStat(d.totalHouseholds, 'Households', d.addedThisMonth + ' new this month')
+    + dashStat(d.memberCount !== undefined ? d.memberCount : d.totalPeople, 'Members', d.totalPeople + ' total people')
+    + dashStat(d.memberHHCount !== undefined ? d.memberHHCount : d.totalHouseholds, 'Member Households', d.totalHouseholds + ' total households')
     + (isFinanceRole ? dashStat('$'+fmt$(d.givingThisYear), yr+' Giving', yr-1+': $'+fmt$(d.givingLastYear)) : '')
-    + (isStaffRole ? dashStat(lastSvc ? lastSvc.attendance : '\u2014', 'Last Service', lastSvc ? esc(lastSvc.service_name)+' \u00b7 '+lastSvc.service_date : 'No attendance yet') : '')
+    + (isStaffRole ? (svcs.length ? svcs.map(function(s){ return dashStat(s.attendance, esc(s.service_name)||'Service', s.service_date); }).join('') : dashStat('\u2014','Last Service','No attendance yet')) : '')
     + '</div>';
 
   // ── Follow-up queue — staff+ only ─────────────────────────────
@@ -2275,49 +2318,56 @@ function renderDashboard(d) {
   // ── Bottom row: birthdays + membership ─────────────────────────
   html += '<div class="dash-row">';
 
-  // Upcoming birthdays
-  html += '<div class="dash-card"><div class="dash-card-hdr">'
-    + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>'
-    + 'Upcoming Birthdays <span style="font-weight:400;color:var(--warm-gray);font-size:11px;margin-left:4px;">next 60 days</span></div>'
-    + '<div class="dash-card-body">'
-    + (d.birthdays && d.birthdays.length
-        ? d.birthdays.map(function(p) {
-            var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-            var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-            var bg = pvColors[p.id % pvColors.length];
-            var parts = (p.dob||'').split('-');
-            var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            var dateStr = parts.length >= 3 ? months[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : p.dob;
-            return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
-              + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
-              + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
-              + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
-              + '</div>';
-          }).join('')
-        : '<div style="padding:20px 18px;color:var(--faint);font-size:13px;font-style:italic;">No birthdays in the next 60 days.</div>')
-    + '</div></div>';
-
-  // Upcoming anniversaries
-  html += '<div class="dash-card"><div class="dash-card-hdr">'
-    + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>'
-    + 'Upcoming Anniversaries <span style="font-weight:400;color:var(--warm-gray);font-size:11px;margin-left:4px;">next 60 days</span></div>'
-    + '<div class="dash-card-body">'
-    + (d.anniversaries && d.anniversaries.length
-        ? d.anniversaries.map(function(p) {
-            var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-            var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-            var bg = pvColors[p.id % pvColors.length];
-            var parts = (p.anniversary_date||'').split('-');
-            var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            var dateStr = parts.length >= 3 ? months[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : p.anniversary_date;
-            return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
-              + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
-              + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
-              + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
-              + '</div>';
-          }).join('')
-        : '<div style="padding:20px 18px;color:var(--faint);font-size:13px;font-style:italic;">No anniversaries in the next 60 days.</div>')
-    + '</div></div>';
+  // Birthdays & Anniversaries — month view with navigation and copy
+  var mnArr = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var mnShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var curMonth = d.dashMonth || _dashMonth;
+  var navBtn = 'background:none;border:1px solid var(--border);border-radius:4px;padding:1px 7px;cursor:pointer;font-size:14px;color:var(--charcoal);';
+  html += '<div class="dash-card"><div class="dash-card-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">'
+    + '<span>Birthdays &amp; Anniversaries</span>'
+    + '<div style="display:flex;align-items:center;gap:5px;">'
+    + '<button style="'+navBtn+'" onclick="dashMonthNav(-1)">&#8249;</button>'
+    + '<span style="font-size:12px;font-weight:600;min-width:70px;text-align:center;">'+mnArr[curMonth-1]+'</span>'
+    + '<button style="'+navBtn+'" onclick="dashMonthNav(1)">&#8250;</button>'
+    + '<button id="dash-copy-btn" style="'+navBtn+'margin-left:4px;" onclick="dashCopyMonth()" title="Copy list to clipboard">&#128203; Copy</button>'
+    + '</div></div>'
+    + '<div class="dash-card-body">';
+  var bdList = d.birthdays || [], annList = d.anniversaries || [];
+  if (!bdList.length && !annList.length) {
+    html += '<div style="padding:20px 18px;color:var(--faint);font-size:13px;font-style:italic;">No birthdays or anniversaries in '+mnArr[curMonth-1]+'.</div>';
+  } else {
+    if (bdList.length) {
+      html += '<div style="font-size:11px;font-weight:700;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.04em;padding:6px 0 4px;">Birthdays</div>';
+      html += bdList.map(function(p) {
+        var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+        var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
+        var bg = pvColors[p.id % pvColors.length];
+        var parts = (p.dob||'').split('-');
+        var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : p.dob;
+        return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
+          + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+          + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
+          + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
+          + '</div>';
+      }).join('');
+    }
+    if (annList.length) {
+      html += '<div style="font-size:11px;font-weight:700;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.04em;padding:8px 0 4px;">Anniversaries</div>';
+      html += annList.map(function(p) {
+        var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+        var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
+        var bg = pvColors[p.id % pvColors.length];
+        var parts = (p.anniversary_date||'').split('-');
+        var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : p.anniversary_date;
+        return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
+          + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+          + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
+          + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
+          + '</div>';
+      }).join('');
+    }
+  }
+  html += '</div></div>';
 
   // Membership breakdown
   html += '<div class="dash-card"><div class="dash-card-hdr">'
@@ -4407,6 +4457,15 @@ function runRegImport() {
 }
 
 // ── HOUSEHOLDS ────────────────────────────────────────────────────────
+var _hhMemberFilter = 'all';
+function setHHFilter(f) {
+  _hhMemberFilter = f;
+  ['all','member'].forEach(function(v) {
+    var b = document.getElementById('hh-filter-'+v);
+    if (b) b.classList.toggle('active', v === f);
+  });
+  loadHouseholds(true);
+}
 function debounceHouseholds() {
   clearTimeout(_hDebounce);
   _hDebounce = setTimeout(function() { loadHouseholds(true); }, 300);
@@ -4415,8 +4474,9 @@ function loadHouseholds(resetPage) {
   if (resetPage) _hhOffset = 0;
   var q = document.getElementById('h-search').value;
   var sort = (document.getElementById('h-sort') || {value:'name'}).value;
+  var mtParam = _hhMemberFilter !== 'all' ? '&member_type=' + encodeURIComponent(_hhMemberFilter) : '';
   setStatus('h-status', 'Loading…');
-  api('/admin/api/households?q=' + encodeURIComponent(q) + '&sort=' + sort + '&limit=50&offset=' + _hhOffset).then(function(d) {
+  api('/admin/api/households?q=' + encodeURIComponent(q) + '&sort=' + sort + '&limit=50&offset=' + _hhOffset + mtParam).then(function(d) {
     setStatus('h-status', '');
     _hhTotal = d.total || 0;
     renderHouseholds(d.households || []);
