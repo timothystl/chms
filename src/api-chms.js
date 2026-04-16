@@ -2483,11 +2483,12 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     const anniversaryDate = toISOPS(extractDatePS(details[F_ANNIVERSARY]) || extractDatePS(details['anniversary_date']) || extractDatePS(details['anniversary']) || '');
     const gender          = (F_GENDER  ? extractNamePS(details[F_GENDER])  : '') || extractNamePS(details['gender'])  || extractNamePS(details['sex']) || '';
     const maritalStatus   = (F_MARITAL ? extractNamePS(details[F_MARITAL]) : '') || extractNamePS(details['marital_status']) || extractNamePS(details['marital']) || '';
-    // Photo — same logic as bulk import: prefer p.path (relative CDN path), fall back to p.thumb
+    // Photo — same logic as bulk import: prefer p.path / p.photo (relative CDN path), fall back to p.thumb
     const GENERIC_PAT_PS = ['/generic/', 'silhouette', 'no-photo', 'placeholder', 'default-avatar', 'profile-generic'];
     let photoUrl = '';
-    if (p.path && !GENERIC_PAT_PS.some(pat => p.path.toLowerCase().includes(pat))) {
-      photoUrl = `https://${subdomain}.breezechms.com/${p.path}`;
+    const rawPathPS = (typeof p.path === 'string' && p.path) ? p.path : (typeof p.photo === 'string' && p.photo ? p.photo : '');
+    if (rawPathPS && !GENERIC_PAT_PS.some(pat => rawPathPS.toLowerCase().includes(pat))) {
+      photoUrl = `https://${subdomain}.breezechms.com/${rawPathPS.replace(/^\/+/, '')}`;
     } else if (typeof p.thumb === 'string' && p.thumb.startsWith('https://') &&
                p.thumb.includes('breezechms.com') &&
                !GENERIC_PAT_PS.some(pat => p.thumb.toLowerCase().includes(pat))) {
@@ -2514,7 +2515,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         gender:        { field: F_GENDER_FIELD   ? { id: F_GENDER_FIELD.id,   field_id: F_GENDER_FIELD.field_id,   name: F_GENDER_FIELD.name   } : null, raw: details[F_GENDER]       ?? null, extracted: gender },
         marital_status:{ field: F_MARITAL_FIELD  ? { id: F_MARITAL_FIELD.id,  field_id: F_MARITAL_FIELD.field_id,  name: F_MARITAL_FIELD.name  } : null, raw: details[F_MARITAL]      ?? null, extracted: maritalStatus },
       },
-      photo: { path: p.path || null, thumb_type: typeof p.thumb, photoUrl_extracted: '' /* filled after extraction */ },
+      photo: { path: p.path || null, photo: p.photo || null, thumb_type: typeof p.thumb, photoUrl_extracted: '' /* filled after extraction */ },
       detail_keys_in_breeze: Object.keys(details),
       detail_sample: Object.entries(details).slice(0, 30).map(([k,v]) => ({ key: k, val: String(JSON.stringify(v) ?? '').slice(0, 200) })),
       // Show raw profile field objects (truncated) so we can see if there's a field_id vs id discrepancy
@@ -2818,12 +2819,13 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         const gender        = (F_GENDER  ? extractName(details[F_GENDER])  : '') || extractName(details['gender'])        || extractName(details['sex'])     || '';
         const maritalStatus = (F_MARITAL ? extractName(details[F_MARITAL]) : '') || extractName(details['marital_status']) || extractName(details['marital']) || '';
         // Photo: build full URL from p.path (relative path on Breeze CDN).
-        // Ignore p.thumb/p.photo — they may be blob/data URLs or generic placeholders.
-        // Skip any path that looks like a generic/default avatar.
+        // p.photo may also carry the relative path; p.thumb is sometimes a full URL.
+        // Strip leading slashes from relative paths to avoid double-slash URLs.
         const GENERIC_PAT = ['/generic/', 'silhouette', 'no-photo', 'placeholder', 'default-avatar', 'profile-generic'];
         let photoUrl = '';
-        if (p.path && !GENERIC_PAT.some(pat => p.path.toLowerCase().includes(pat))) {
-          photoUrl = `https://${subdomain}.breezechms.com/${p.path}`;
+        const rawPath = (typeof p.path === 'string' && p.path) ? p.path : (typeof p.photo === 'string' && p.photo ? p.photo : '');
+        if (rawPath && !GENERIC_PAT.some(pat => rawPath.toLowerCase().includes(pat))) {
+          photoUrl = `https://${subdomain}.breezechms.com/${rawPath.replace(/^\/+/, '')}`;
         } else if (typeof p.thumb === 'string' && p.thumb.startsWith('https://') &&
                    p.thumb.includes('breezechms.com') &&
                    !GENERIC_PAT.some(pat => p.thumb.toLowerCase().includes(pat))) {
