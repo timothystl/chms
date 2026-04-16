@@ -2597,7 +2597,7 @@ function toggleSelectMode() {
   _selectMode = !_selectMode;
   _selectedPeople.clear();
   var btn = document.getElementById('p-select-btn');
-  if (btn) btn.textContent = _selectMode ? '&#10005; Cancel Select' : '&#9745; Select';
+  if (btn) btn.innerHTML = _selectMode ? '&#10005; Cancel Select' : '&#9745; Select';
   var bar = document.getElementById('p-bulk-bar');
   if (bar) bar.style.display = _selectMode ? 'flex' : 'none';
   if (_selectMode) {
@@ -2620,7 +2620,7 @@ function clearSelection() {
   _selectMode = false;
   _selectedPeople.clear();
   var btn = document.getElementById('p-select-btn');
-  if (btn) btn.textContent = '&#9745; Select';
+  if (btn) btn.innerHTML = '&#9745; Select';
   var bar = document.getElementById('p-bulk-bar');
   if (bar) bar.style.display = 'none';
   var panel = document.getElementById('p-bulk-tags-panel');
