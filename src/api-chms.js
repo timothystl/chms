@@ -51,10 +51,15 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
 
   // ── Dashboard ────────────────────────────────────────────────────
   if (seg === 'dashboard' && method === 'GET') {
-    // Membership counts by type
+    // Membership counts by type — GROUP BY LOWER() to merge case variants (e.g. "member" vs "Member")
+    const mtCfgRowDash = await db.prepare("SELECT value FROM chms_config WHERE key='member_types'").first();
+    const configuredTypesDash = mtCfgRowDash ? JSON.parse(mtCfgRowDash.value) : ['Member','Friend','Visitor','Inactive','Organization','Other'];
+    const typeNameMapDash = {};
+    for (const t of configuredTypesDash) typeNameMapDash[t.toLowerCase()] = t;
     const typeCounts = (await db.prepare(
-      `SELECT member_type, COUNT(*) as n FROM people WHERE active=1 GROUP BY member_type ORDER BY n DESC`
+      `SELECT LOWER(member_type) as member_type, COUNT(*) as n FROM people WHERE active=1 GROUP BY LOWER(member_type) ORDER BY n DESC`
     ).all()).results || [];
+    for (const r of typeCounts) r.member_type = typeNameMapDash[r.member_type] || (r.member_type.charAt(0).toUpperCase() + r.member_type.slice(1));
     const totalPeople = typeCounts.reduce(function(s,r){return s+r.n;},0);
     const totalHouseholds = (await db.prepare(`SELECT COUNT(*) as n FROM households`).first())?.n || 0;
     // DB1: member-only count for dashboard stat card
@@ -2772,7 +2777,9 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         if (SKIP_STATUSES.has(statusName.toLowerCase())) { skipped++; continue; }
         if (statusName) statusesSeen.add(statusName);
         // Use user-defined map first, then direct name match, then 'Other'
-        const mappedType = statusName ? (memberTypeMap[statusName] || memberTypeMap[statusName.toLowerCase()] || null) : null;
+        // Normalize mappedType against configuredMemberTypes to ensure consistent casing in the DB.
+        const mappedRaw = statusName ? (memberTypeMap[statusName] || memberTypeMap[statusName.toLowerCase()] || null) : null;
+        const mappedType = mappedRaw ? (configuredMemberTypes.find(t => t.toLowerCase() === mappedRaw.toLowerCase()) || mappedRaw) : null;
         const matched = mappedType || (statusName ? configuredMemberTypes.find(t => t.toLowerCase() === statusName.toLowerCase()) : null);
         // Default to 'Other' when no status found — never fall back to the first configured
         // type (which is typically 'Member'), as that causes blank-status people to be
