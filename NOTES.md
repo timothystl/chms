@@ -82,7 +82,7 @@ Added 2026-04-15, phased 2026-04-15.
 | DB1 | Dashboard people count — members only (not all person types) | Queued |
 | DB2 | Dashboard households count — members only | Queued |
 | DB3 | Dashboard last services — show both Sunday services | Queued |
-| DB4 | Dashboard birthdays/anniversaries — month-at-a-time view with copy/paste export | Queued |
+| DB4 | Dashboard birthdays/anniversaries — month-at-a-time view with copy/paste export | Done 2026-04-16 (v23): two separate cards, bulletin copy format, anniversary couple pairing |
 | HV1 | Household view — filter by member type (members-only or selectable) | Queued |
 
 ---
@@ -93,7 +93,7 @@ Added 2026-04-15, phased 2026-04-15.
 | HQ1 | **Household-level contact info** — "Push address to members without one" button in household edit modal + same from person profile; never overwrites existing individual addresses | Done 2026-04-16 |
 | HQ2 | **Baptized/Confirmed without a date** — boolean flag separate from date fields; allow marking someone as baptized or confirmed even when no date is known (new DB columns: `baptized INTEGER`, `confirmed INTEGER`) | Done |
 | HQ3 | **Sort by household in people view** — add "Household" as a sort option in the people list alongside existing last_name / first_name / member_type / created_at options | Done 2026-04-16 |
-| HQ4 | **Disambiguate same-last-name households** — when multiple households share a last name, auto-label as "John Smith Family" / "Joe Smith Family" using the head-of-household's first name | Done 2026-04-16 |
+| HQ4 | **Disambiguate same-last-name households** — when multiple households share a last name, auto-label as "John Smith Family" / "Joe Smith Family" using the head-of-household's first name | Done 2026-04-16 (v22); COALESCE fallback fixed v23 |
 
 ---
 
@@ -130,6 +130,7 @@ Added 2026-04-15, phased 2026-04-15.
 ## Recent Changes (newest first)
 
 ### 2026-04-16
+- **v23**: HQ4 fix — COALESCE fallback in all 3 disambiguation paths so households without a 'head' role still get disambiguated. DB4 — birthday and anniversary split into two separate dashboard cards; anniversary couples (same household + same date) paired into one line ("Bob & Alice Johnson"); bulletin copy format: "Apr  5  John Smith" with year in header.
 - **v22**: HQ4 — household name disambiguation. `disambiguateHHName()` helper in API; households list query now fetches `head_first_name` + a global dup-name check computes `display_name` per row. Same for `households/:id` and `people` (list + single record adds `household_display_name`). Frontend uses disambiguated name in household cards, detail modal, people table, person profile badge, and both household autocompletes. Pattern: "Smith Family" → "John Smith Family".
 - **v21**: HQ3 — "Household" sort column added to people list (API + clickable header). HQ1 — sync-address endpoint now only updates members with no existing address (never overwrites); returns updated count. "Push address to members without one" button added to household edit modal and updated on person profiles.
 - **v11**: Register edit form — DOB, Place of Birth, Baptism Place fields added (Goal 2). Autofill `name=` attributes added to all form fields missing them (~50 fields across all modals, Goal 3). Per-person Breeze sync now updates photo_url + exposes photo diagnostic (Goal 4).

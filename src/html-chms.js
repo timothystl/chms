@@ -1445,7 +1445,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-16-v22';
+var DEPLOY_VERSION = '2026-04-16-v23';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -2196,38 +2196,53 @@ function dashMonthNav(delta) {
   _dashMonth = ((_dashMonth - 1 + delta + 12) % 12) + 1;
   loadDashboard();
 }
-function dashCopyMonth() {
+function _dashBulletinDate(dateStr, mnShort) {
+  var parts = (dateStr||'').split('-');
+  if (parts.length < 3) return dateStr;
+  return mnShort[parseInt(parts[1])-1] + ' ' + String(parseInt(parts[2])).padStart(2,' ');
+}
+function dashCopyBirthdays() {
   var d = _dashData;
   if (!d) return;
+  var yr = new Date().getFullYear();
   var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var mnShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var mn = monthNames[(_dashMonth - 1)];
-  var lines = [mn + ' Birthdays & Anniversaries', ''];
-  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var bdList = (d.birthdays || []);
-  var annList = (d.anniversaries || []);
+  var bdList = d.birthdays || [];
+  var lines = ['Birthdays \u2014 ' + mn + ' ' + yr, ''];
   if (bdList.length) {
-    lines.push('Birthdays:');
     bdList.forEach(function(p) {
       var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-      var parts = (p.dob||'').split('-');
-      var ds = parts.length >= 3 ? months[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : '';
-      lines.push('  ' + name + (ds ? ' — ' + ds : ''));
+      lines.push('  ' + _dashBulletinDate(p.dob, mnShort) + '  ' + name);
     });
-    lines.push('');
+  } else {
+    lines.push('  None this month.');
   }
+  navigator.clipboard.writeText(lines.join('\n')).then(function() {
+    var btn = document.getElementById('dash-copy-bd-btn');
+    if (btn) { btn.textContent = 'Copied!'; setTimeout(function(){ btn.innerHTML = '&#128203;'; }, 1500); }
+  });
+}
+function dashCopyAnniversaries() {
+  var d = _dashData;
+  if (!d) return;
+  var yr = new Date().getFullYear();
+  var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var mnShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var mn = monthNames[(_dashMonth - 1)];
+  var annList = d.anniversaries || [];
+  var lines = ['Anniversaries \u2014 ' + mn + ' ' + yr, ''];
   if (annList.length) {
-    lines.push('Anniversaries:');
     annList.forEach(function(p) {
       var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-      var parts = (p.anniversary_date||'').split('-');
-      var ds = parts.length >= 3 ? months[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : '';
-      lines.push('  ' + name + (ds ? ' — ' + ds : ''));
+      lines.push('  ' + _dashBulletinDate(p.anniversary_date, mnShort) + '  ' + name);
     });
+  } else {
+    lines.push('  None this month.');
   }
-  if (!bdList.length && !annList.length) lines.push('None this month.');
   navigator.clipboard.writeText(lines.join('\n')).then(function() {
-    var btn = document.getElementById('dash-copy-btn');
-    if (btn) { var orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(function(){ btn.textContent = orig; }, 1500); }
+    var btn = document.getElementById('dash-copy-ann-btn');
+    if (btn) { btn.textContent = 'Copied!'; setTimeout(function(){ btn.innerHTML = '&#128203;'; }, 1500); }
   });
 }
 function renderDashboard(d) {
@@ -2334,57 +2349,68 @@ function renderDashboard(d) {
       + '</div></div>';
   }
 
-  // ── Bottom row: birthdays + membership ─────────────────────────
+  // ── Bottom row: birthdays + anniversaries + membership ─────────
   html += '<div class="dash-row">';
 
-  // Birthdays & Anniversaries — month view with navigation and copy
   var mnArr = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   var mnShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var curMonth = d.dashMonth || _dashMonth;
-  var navBtn = 'background:none;border:1px solid var(--border);border-radius:4px;padding:1px 7px;cursor:pointer;font-size:14px;color:var(--charcoal);';
-  html += '<div class="dash-card"><div class="dash-card-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">'
-    + '<span>Birthdays &amp; Anniversaries</span>'
-    + '<div style="display:flex;align-items:center;gap:5px;">'
-    + '<button style="'+navBtn+'" onclick="dashMonthNav(-1)">&#8249;</button>'
-    + '<span style="font-size:12px;font-weight:600;min-width:70px;text-align:center;">'+mnArr[curMonth-1]+'</span>'
-    + '<button style="'+navBtn+'" onclick="dashMonthNav(1)">&#8250;</button>'
-    + '<button id="dash-copy-btn" style="'+navBtn+'margin-left:4px;" onclick="dashCopyMonth()" title="Copy list to clipboard">&#128203; Copy</button>'
+  var navBtn = 'background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:14px;color:var(--charcoal);';
+  var bdList = d.birthdays || [], annList = d.anniversaries || [];
+
+  // ── Birthdays card ─────────────────────────────────────────────
+  html += '<div class="dash-card">'
+    + '<div class="dash-card-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">'
+    + '<span>Birthdays</span>'
+    + '<div style="display:flex;align-items:center;gap:4px;">'
+    + '<button style="'+navBtn+'" onclick="dashMonthNav(-1)" title="Previous month">&#8249;</button>'
+    + '<span style="font-size:12px;font-weight:600;min-width:66px;text-align:center;">'+mnArr[curMonth-1]+'</span>'
+    + '<button style="'+navBtn+'" onclick="dashMonthNav(1)" title="Next month">&#8250;</button>'
+    + '<button id="dash-copy-bd-btn" style="'+navBtn+'margin-left:2px;" onclick="dashCopyBirthdays()" title="Copy for bulletin">&#128203;</button>'
     + '</div></div>'
     + '<div class="dash-card-body">';
-  var bdList = d.birthdays || [], annList = d.anniversaries || [];
-  if (!bdList.length && !annList.length) {
-    html += '<div style="padding:20px 18px;color:var(--faint);font-size:13px;font-style:italic;">No birthdays or anniversaries in '+mnArr[curMonth-1]+'.</div>';
+  if (!bdList.length) {
+    html += '<div style="padding:16px 18px;color:var(--faint);font-size:13px;font-style:italic;">No birthdays in '+mnArr[curMonth-1]+'.</div>';
   } else {
-    if (bdList.length) {
-      html += '<div style="font-size:11px;font-weight:700;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.04em;padding:6px 0 4px;">Birthdays</div>';
-      html += bdList.map(function(p) {
-        var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-        var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-        var bg = pvColors[p.id % pvColors.length];
-        var parts = (p.dob||'').split('-');
-        var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : p.dob;
-        return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
-          + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
-          + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
-          + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
-          + '</div>';
-      }).join('');
-    }
-    if (annList.length) {
-      html += '<div style="font-size:11px;font-weight:700;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.04em;padding:8px 0 4px;">Anniversaries</div>';
-      html += annList.map(function(p) {
-        var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-        var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-        var bg = pvColors[p.id % pvColors.length];
-        var parts = (p.anniversary_date||'').split('-');
-        var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : p.anniversary_date;
-        return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
-          + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
-          + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
-          + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
-          + '</div>';
-      }).join('');
-    }
+    html += bdList.map(function(p) {
+      var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+      var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
+      var bg = pvColors[p.id % pvColors.length];
+      var parts = (p.dob||'').split('-');
+      var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : p.dob;
+      return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
+        + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+        + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
+        + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
+        + '</div>';
+    }).join('');
+  }
+  html += '</div></div>';
+
+  // ── Anniversaries card ─────────────────────────────────────────
+  html += '<div class="dash-card">'
+    + '<div class="dash-card-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">'
+    + '<span>Anniversaries</span>'
+    + '<div style="display:flex;align-items:center;gap:4px;">'
+    + '<span style="font-size:12px;font-weight:400;color:var(--warm-gray);">'+mnArr[curMonth-1]+'</span>'
+    + '<button id="dash-copy-ann-btn" style="'+navBtn+'margin-left:2px;" onclick="dashCopyAnniversaries()" title="Copy for bulletin">&#128203;</button>'
+    + '</div></div>'
+    + '<div class="dash-card-body">';
+  if (!annList.length) {
+    html += '<div style="padding:16px 18px;color:var(--faint);font-size:13px;font-style:italic;">No anniversaries in '+mnArr[curMonth-1]+'.</div>';
+  } else {
+    html += annList.map(function(p) {
+      var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+      var ini = (p.first_name||'').split(' ').map(function(n){return n.charAt(0);}).join('').slice(0,2).toUpperCase() || (p.last_name||'').charAt(0).toUpperCase();
+      var bg = pvColors[p.id % pvColors.length];
+      var parts = (p.anniversary_date||'').split('-');
+      var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : p.anniversary_date;
+      return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
+        + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+        + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
+        + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
+        + '</div>';
+    }).join('');
   }
   html += '</div></div>';
 
