@@ -2101,6 +2101,23 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
   } catch (e) { return json({ ok: false, error: e.message }, 500); }
   }
 
+  if (seg === 'giving/by-year' && method === 'DELETE') { try {
+    if (!isAdmin) return json({ error: 'Access denied' }, 403);
+    const year = url.searchParams.get('year') || '';
+    if (!/^\d{4}$/.test(year)) return json({ error: 'Invalid year' }, 400);
+    const del = await db.prepare(
+      `DELETE FROM giving_entries
+       WHERE contribution_date LIKE ? OR batch_id IN (
+         SELECT id FROM giving_batches WHERE batch_date LIKE ?
+       )`
+    ).bind(year + '-%', year + '-%').run();
+    await db.prepare(
+      'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
+    ).run();
+    return json({ ok: true, deleted: del.meta?.changes ?? 0, year });
+  } catch (e) { return json({ ok: false, error: e.message }, 500); }
+  }
+
   if (seg === 'funds/all' && method === 'DELETE') { try {
     if (!isAdmin) return json({ error: 'Access denied' }, 403);
     const r = await db.prepare('DELETE FROM funds').run();
@@ -2402,26 +2419,100 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       fundByName[f.name.toLowerCase().trim()] = f.id;
     }
 
-    // Fix any funds previously saved with placeholder names ("Breeze Fund XXXXX").
-    // Now that we have real names from /api/funds, rename them in place.
+    // ── Batch-fix any placeholder fund names ("Breeze Fund XXXXX") ──────
     let fundsRenamed = 0;
-    for (const [breezeId, localId] of Object.entries(fundByBreezeId)) {
-      const realName = breezeFundNames[breezeId];
-      if (!realName) continue;
-      const r = await db.prepare(
-        "UPDATE funds SET name=? WHERE id=? AND name LIKE 'Breeze Fund %'"
-      ).bind(realName, localId).run();
-      if (r.meta?.changes) {
-        fundsRenamed++;
-        // Keep caches consistent
-        fundByName[realName.toLowerCase().trim()] = localId;
+    {
+      const fixOps = [];
+      const fixMeta = [];
+      for (const [breezeId, localId] of Object.entries(fundByBreezeId)) {
+        const realName = breezeFundNames[breezeId];
+        if (!realName) continue;
+        fixOps.push(db.prepare("UPDATE funds SET name=? WHERE id=? AND name LIKE 'Breeze Fund %'").bind(realName, localId));
+        fixMeta.push({ breezeId, localId, realName });
+      }
+      if (fixOps.length) {
+        const results = await db.batch(fixOps);
+        results.forEach((r, i) => {
+          if (r.meta?.changes) { fundsRenamed++; fundByName[fixMeta[i].realName.toLowerCase().trim()] = fixMeta[i].localId; }
+        });
       }
     }
 
-    // ── Process entries, collect inserts ─────────────────────────────
+    // ── Pass 1: pre-scan entries to collect needed batches and funds ──
+    // This lets us batch-create everything before the main loop, avoiding
+    // per-entry sequential D1 awaits that blow through the invocation limit.
+    const newBatchesNeeded = new Map();  // batchKey -> {date, desc}
+    const batchDateFixes   = new Map();  // batchKey -> date (existing batches whose date may need correction)
+    const newFundsNeeded   = new Map();  // breezeFundId -> resolved name
+
+    for (const entry of allEntries) {
+      const contribId = String(entry.object_json || entry.id);
+      if (seenIds.has(contribId)) continue;
+      const d = parseDetails(entry.details);
+      if (!d) continue;
+      const date     = parseDate(d.date);
+      const batchKey = d.batch_num ? `Breeze Batch #${d.batch_num}` : `Breeze Import ${date}`;
+      if (!batchByDesc[batchKey]) {
+        if (!newBatchesNeeded.has(batchKey)) newBatchesNeeded.set(batchKey, { date, desc: batchKey });
+      } else {
+        batchDateFixes.set(batchKey, date); // deduplicated — last date wins, fine
+      }
+      for (const fl of extractFunds(d, d.amount || '0')) {
+        if (!fundByBreezeId[fl.breezeFundId] && !newFundsNeeded.has(fl.breezeFundId)) {
+          const bName = fl.fundName || breezeFundNames[fl.breezeFundId] || (fl.breezeFundId === 'default' ? 'General Fund' : `Breeze Fund ${fl.breezeFundId}`);
+          newFundsNeeded.set(fl.breezeFundId, bName);
+        }
+      }
+    }
+
+    // ── Batch-create new batches ────────────────────────────────────
+    let batchesMade = 0;
+    if (newBatchesNeeded.size) {
+      const keys = [...newBatchesNeeded.keys()];
+      const ops  = keys.map(k => db.prepare('INSERT INTO giving_batches (batch_date, description, closed) VALUES (?,?,1)').bind(newBatchesNeeded.get(k).date, k));
+      const res  = await db.batch(ops);
+      keys.forEach((k, i) => { batchByDesc[k] = res[i].meta?.last_row_id; batchesMade++; });
+    }
+
+    // ── Batch-fix existing batch dates (once per batch, not per entry) ─
+    if (batchDateFixes.size) {
+      const ops = [...batchDateFixes.entries()]
+        .filter(([k]) => batchByDesc[k])
+        .map(([k, date]) => db.prepare("UPDATE giving_batches SET batch_date=? WHERE id=? AND (batch_date='' OR batch_date=?)").bind(date, batchByDesc[k], start));
+      if (ops.length) await db.batch(ops);
+    }
+
+    // ── Batch-create/link new funds ─────────────────────────────────
+    let fundsMade = 0;
+    {
+      const linkOps = [], linkMeta = [], createOps = [], createMeta = [];
+      for (const [breezeFundId, bName] of newFundsNeeded) {
+        const nameKey = bName.toLowerCase().trim();
+        if (fundByName[nameKey]) {
+          fundByBreezeId[breezeFundId] = fundByName[nameKey];
+          linkOps.push(db.prepare('UPDATE funds SET breeze_id=? WHERE id=? AND (breeze_id IS NULL OR breeze_id="")').bind(breezeFundId, fundByName[nameKey]));
+          linkMeta.push({ breezeFundId });
+        } else {
+          createOps.push(db.prepare('INSERT INTO funds (name, breeze_id, active, sort_order) VALUES (?,?,1,99)').bind(bName, breezeFundId));
+          createMeta.push({ breezeFundId, nameKey });
+        }
+      }
+      if (linkOps.length) await db.batch(linkOps);
+      if (createOps.length) {
+        const res = await db.batch(createOps);
+        createMeta.forEach(({ breezeFundId, nameKey }, i) => {
+          const id = res[i].meta?.last_row_id;
+          fundByBreezeId[breezeFundId] = id;
+          fundByName[nameKey] = id;
+          fundsMade++;
+        });
+      }
+    }
+
+    // ── Pass 2: build entry inserts (no D1 calls in this loop) ──────
     let imported = 0, skipped = 0;
     const errors = [];
-    const entryInserts = []; // deferred until all lookups done
+    const entryInserts = [];
 
     for (const entry of allEntries) {
       try {
@@ -2431,50 +2522,24 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         const d = parseDetails(entry.details);
         if (!d) { skipped++; continue; }
 
-        const personId   = personByBreezeId[String(d.person_id || '')] ?? null;
-        const method     = payMethod(d.method);
-        const checkNum   = d.check_number || '';
-        const notes      = d.note || '';
-        const date       = parseDate(d.date);
-        const batchKey   = d.batch_num ? `Breeze Batch #${d.batch_num}` : `Breeze Import ${date}`;
-
-        // Get or create batch (sequential since we need the ID)
-        if (!batchByDesc[batchKey]) {
-          const r = await db.prepare(
-            'INSERT INTO giving_batches (batch_date, description, closed) VALUES (?,?,1)'
-          ).bind(date, batchKey).run();
-          batchByDesc[batchKey] = r.meta?.last_row_id;
-        } else {
-          // Update batch_date if it was set to wrong date (e.g. from a prior sync using range start)
-          await db.prepare(
-            "UPDATE giving_batches SET batch_date=? WHERE id=? AND (batch_date='' OR batch_date=?)"
-          ).bind(date, batchByDesc[batchKey], start).run();
-        }
-        const batchId = batchByDesc[batchKey];
+        const personId = personByBreezeId[String(d.person_id || '')] ?? null;
+        const method   = payMethod(d.method);
+        const checkNum = d.check_number || '';
+        const notes    = d.note || '';
+        const date     = parseDate(d.date);
+        const batchKey = d.batch_num ? `Breeze Batch #${d.batch_num}` : `Breeze Import ${date}`;
+        const batchId  = batchByDesc[batchKey];
+        if (!batchId) { errors.push({ id: entry.id, error: 'batch not found: ' + batchKey }); skipped++; continue; }
 
         for (const fl of extractFunds(d, d.amount || '0')) {
-          const cents = Math.round(parseFloat(fl.amount || '0') * 100);
-          if (!fundByBreezeId[fl.breezeFundId]) {
-            // Try name-based match (funds created from CSV have no breeze_id)
-            const bName = fl.fundName || breezeFundNames[fl.breezeFundId] || (fl.breezeFundId === 'default' ? 'General Fund' : `Breeze Fund ${fl.breezeFundId}`);
-            const nameKey = bName.toLowerCase().trim();
-            if (fundByName[nameKey]) {
-              // Found by name — link this breeze_id to the existing fund
-              fundByBreezeId[fl.breezeFundId] = fundByName[nameKey];
-              await db.prepare('UPDATE funds SET breeze_id=? WHERE id=? AND (breeze_id IS NULL OR breeze_id="")').bind(fl.breezeFundId, fundByName[nameKey]).run();
-            } else {
-              const r = await db.prepare(
-                'INSERT INTO funds (name, breeze_id, active, sort_order) VALUES (?,?,1,99)'
-              ).bind(bName, fl.breezeFundId).run();
-              fundByBreezeId[fl.breezeFundId] = r.meta?.last_row_id;
-              fundByName[nameKey] = fundByBreezeId[fl.breezeFundId];
-            }
-          }
+          const cents  = Math.round(parseFloat(fl.amount || '0') * 100);
+          const fundId = fundByBreezeId[fl.breezeFundId];
+          if (!fundId) { errors.push({ id: entry.id, error: 'fund not found: ' + fl.breezeFundId }); continue; }
           entryInserts.push(
             db.prepare(
               `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,breeze_id,contribution_date)
                VALUES (?,?,?,?,?,?,?,?,?)`
-            ).bind(batchId, personId, fundByBreezeId[fl.breezeFundId], cents, method, checkNum, notes, contribId, date)
+            ).bind(batchId, personId, fundId, cents, method, checkNum, notes, contribId, date)
           );
         }
         imported++;
@@ -2491,7 +2556,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
     ).run();
 
-    return json({ ok: true, imported, skipped, dupesRemoved, fundsRenamed, breezeFundsFound: Object.keys(breezeFundNames).length, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, from_giving_list: givingListEntries.length, date_range: { start, end } });
+    return json({ ok: true, imported, skipped, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, from_giving_list: givingListEntries.length, date_range: { start, end } });
   } catch (givingErr) {
     return json({ error: 'Giving sync error: ' + givingErr.message }, 500);
   } }
