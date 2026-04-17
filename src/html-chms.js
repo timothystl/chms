@@ -1445,7 +1445,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-16-v21';
+var DEPLOY_VERSION = '2026-04-16-v22';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -2591,7 +2591,7 @@ function renderPeopleDesktop(people) {
       + '<td><div class="dir-name-cell"><div class="' + avClass + '">' + avInner + '</div><span class="dir-name-link">' + displayName + '</span></div></td>'
       + '<td><span class="dir-badge dir-badge-' + badge + '">' + esc(p.member_type||'visitor') + '</span></td>'
       + '<td class="dir-contact">' + (p.email ? '<a href="mailto:' + esc(p.email) + '" onclick="event.stopPropagation()">' + esc(p.email) + '</a>' : '') + (p.phone ? '<div class="dir-phone">' + esc(p.phone) + '</div>' : '') + '</td>'
-      + '<td>' + (p.household_name ? '<span class="dir-hh-link">' + esc(p.household_name) + '</span>' : '<span style="color:var(--faint);">—</span>') + '</td>'
+      + '<td>' + (p.household_display_name || p.household_name ? '<span class="dir-hh-link">' + esc(p.household_display_name || p.household_name) + '</span>' : '<span style="color:var(--faint);">—</span>') + '</td>'
       + '<td><div class="dir-tags">' + tagHtml + '</div></td>'
       + '</tr>';
   }).join('');
@@ -2791,7 +2791,7 @@ function showProfile(p) {
     bdEl.innerHTML = '<span class="dir-badge '+badgeClass+'">'+mt.charAt(0).toUpperCase()+mt.slice(1)+'</span>';
   }
   var hhEl = document.getElementById('pv-hh');
-  if (hhEl) hhEl.textContent = p.household_name ? ' \u00b7 '+p.household_name : '';
+  if (hhEl) hhEl.textContent = (p.household_display_name || p.household_name) ? ' \u00b7 '+(p.household_display_name || p.household_name) : '';
   var roleEl = document.getElementById('pv-role');
   if (roleEl) roleEl.textContent = p.family_role ? ' \u00b7 '+p.family_role : '';
   // Info tab — two-column layout
@@ -3373,7 +3373,7 @@ function searchAddToHh(q) {
       people.forEach(function(p){ _addToHhPeople[p.id] = p; });
       if (!people.length) { el.innerHTML = '<p style="color:var(--warm-gray);text-align:center;padding:16px;font-size:.88rem;">No people found</p>'; return; }
       el.innerHTML = people.map(function(p) {
-        var hhTag = p.household_name ? ' <span style="font-size:.75rem;color:var(--warm-gray);background:var(--bg-alt);border-radius:4px;padding:1px 6px;margin-left:4px;">'+esc(p.household_name)+'</span>' : '';
+        var hhTag = (p.household_display_name || p.household_name) ? ' <span style="font-size:.75rem;color:var(--warm-gray);background:var(--bg-alt);border-radius:4px;padding:1px 6px;margin-left:4px;">'+esc(p.household_display_name || p.household_name)+'</span>' : '';
         return '<div style="padding:10px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;">'
           +'<span style="font-size:.92rem;">'+esc(p.first_name)+' '+esc(p.last_name)+hhTag+'</span>'
           +'<button class="btn-primary" style="font-size:.78rem;padding:4px 10px;white-space:nowrap;" onclick="confirmAddToHh('+p.id+')">Add</button>'
@@ -4584,7 +4584,7 @@ function renderHouseholds(rows) {
     return '<div class="h-card" onclick="' + clickAction + '" style="padding:0;overflow:hidden;cursor:pointer;">'
       + photo
       + '<div style="padding:10px 12px;">'
-      + '<div class="h-name">' + esc(h.name) + '</div>'
+      + '<div class="h-name">' + esc(h.display_name || h.name) + '</div>'
       + (addr ? '<div class="h-addr">' + esc(addr) + '</div>' : '')
       + '<div style="font-size:.78rem;color:var(--warm-gray);">' + (h.member_count||0) + ' member' + (h.member_count !== 1 ? 's' : '') + '</div>'
       + '</div></div>';
@@ -4612,7 +4612,7 @@ function openHouseholdDetail(id) {
     }
     el.innerHTML = photoHtml
       +'<div style="margin-bottom:12px;">'
-      +'<div style="font-size:1.1rem;font-weight:600;margin-bottom:4px;">'+esc(h.name)+'</div>'
+      +'<div style="font-size:1.1rem;font-weight:600;margin-bottom:4px;">'+esc(h.display_name || h.name)+'</div>'
       +(addr ? '<div style="font-size:.85rem;color:var(--warm-gray);">'+esc(addr)+'</div>' : '')
       +(h.notes ? '<div style="font-size:.82rem;color:var(--charcoal);margin-top:8px;padding:8px;background:var(--linen);border-radius:6px;">'+esc(h.notes)+'</div>' : '')
       +'</div>'
@@ -4711,7 +4711,8 @@ function acHouseholdSearch() {
   api('/admin/api/households?q=' + encodeURIComponent(q)).then(function(d) {
     var rows = d.households || [];
     ac.innerHTML = rows.slice(0,8).map(function(h) {
-      return '<div class="ac-item" onclick="selectHousehold(' + h.id + ',&#39;' + esc(h.name) + '&#39;)">' + esc(h.name) + '</div>';
+      var dn = h.display_name || h.name;
+      return '<div class="ac-item" onclick="selectHousehold(' + h.id + ',&#39;' + esc(dn) + '&#39;)">' + esc(dn) + '</div>';
     }).join('') + '<div class="ac-item" style="color:var(--sage);" onclick="createHouseholdFromPerson()">+ Create new household…</div>';
     ac.classList.toggle('open', rows.length > 0 || true);
   });
@@ -5027,7 +5028,8 @@ function acSearchHH(inp) {
     var items = (d.households || []);
     if (!items.length) { drop.classList.remove('open'); return; }
     drop.innerHTML = items.map(function(h) {
-      return '<div class="ac-item" onclick="selectHHAc(' + h.id + ',&#39;' + esc(h.name) + '&#39;)">' + esc(h.name) + '</div>';
+      var dn2 = h.display_name || h.name;
+      return '<div class="ac-item" onclick="selectHHAc(' + h.id + ',&#39;' + esc(dn2) + '&#39;)">' + esc(dn2) + '</div>';
     }).join('');
     drop.classList.add('open');
   });
