@@ -2108,6 +2108,26 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
   } catch (e) { return json({ ok: false, error: e.message }, 500); }
   }
 
+  // ── Look up giving entries by payment ID (breeze_id prefix) ─────────
+  if (seg === 'giving/by-payment-id' && method === 'GET') {
+    if (!isFinance) return json({ error: 'Access denied' }, 403);
+    const pid = url.searchParams.get('pid') || '';
+    if (!pid) return json({ error: 'pid required' }, 400);
+    const rows = (await db.prepare(
+      `SELECT ge.breeze_id, ge.amount, ge.contribution_date, ge.method,
+              f.name as fund_name,
+              p.first_name, p.last_name,
+              gb.description as batch_desc
+       FROM giving_entries ge
+       LEFT JOIN funds f ON f.id=ge.fund_id
+       LEFT JOIN people p ON p.id=ge.person_id
+       LEFT JOIN giving_batches gb ON gb.id=ge.batch_id
+       WHERE ge.breeze_id=? OR ge.breeze_id LIKE ?
+       ORDER BY ge.breeze_id`
+    ).bind(pid, pid + '-%').all()).results || [];
+    return json({ rows });
+  }
+
   // ── Prune empty batches ───────────────────────────────────────────
   if (seg === 'giving/prune-empty-batches' && method === 'POST') {
     const r = await db.prepare(

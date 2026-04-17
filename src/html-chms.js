@@ -907,6 +907,15 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div class="import-status" id="giving-csv-status"></div>
     </div>
     <div class="import-card">
+      <h3>&#128269; Look Up Payment ID</h3>
+      <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Enter a Breeze Payment ID from the skipped-IDs list to see what was recorded in the database for that payment.</p>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="text" id="pid-lookup-input" placeholder="e.g. 123456789" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:.88rem;" onkeydown="if(event.key==='Enter')lookupPaymentId()">
+        <button class="btn-secondary" onclick="lookupPaymentId()">Look Up</button>
+      </div>
+      <div id="pid-lookup-result" style="margin-top:10px;font-size:.85rem;"></div>
+    </div>
+    <div class="import-card">
       <h3>&#128260; Map Breeze Funds to Real Fund Names</h3>
       <p>After the giving sync, imported funds may show as "Breeze Fund XXXXXXX". Use <strong>Auto-Fix from Breeze</strong> to look up the real names directly from Breeze and rename them automatically. If any funds still have placeholder names after that, use the manual mapping tool below.</p>
       <button class="btn-primary" onclick="fixFundNames()" style="margin-bottom:8px;">&#128260; Auto-Fix Fund Names from Breeze</button>
@@ -1564,7 +1573,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-17-v51';
+var DEPLOY_VERSION = '2026-04-17-v52';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -6220,7 +6229,7 @@ function importGivingCSV(file) {
     var header = lines[0];
     var dataLines = lines.slice(1).filter(function(l) { return l.trim(); });
     var total = dataLines.length;
-    var chunkSize = 500;
+    var chunkSize = 5000;
     var chunks = [];
     for (var i = 0; i < dataLines.length; i += chunkSize)
       chunks.push(dataLines.slice(i, i + chunkSize));
@@ -6275,6 +6284,36 @@ function importGivingCSV(file) {
     sendChunk(0);
   };
   reader.readAsText(file);
+}
+function lookupPaymentId() {
+  var pid = (document.getElementById('pid-lookup-input').value || '').trim();
+  var out = document.getElementById('pid-lookup-result');
+  if (!pid) { out.innerHTML = '<span style="color:var(--warm-gray);">Enter a payment ID.</span>'; return; }
+  out.innerHTML = 'Looking up\u2026';
+  api('/admin/api/giving/by-payment-id?pid=' + encodeURIComponent(pid)).then(function(d) {
+    if (d.error) { out.innerHTML = '<span style="color:var(--red);">' + esc(d.error) + '</span>'; return; }
+    var rows = d.rows || [];
+    if (!rows.length) {
+      out.innerHTML = '<span style="color:var(--warm-gray);">No entries found for payment ID <strong>' + esc(pid) + '</strong>. It was not imported.</span>';
+      return;
+    }
+    var html = '<table style="width:100%;border-collapse:collapse;font-size:.83rem;">'
+      + '<thead><tr style="text-align:left;border-bottom:1px solid var(--border);">'
+      + '<th style="padding:3px 8px;">Breeze ID</th><th style="padding:3px 8px;">Date</th>'
+      + '<th style="padding:3px 8px;">Person</th><th style="padding:3px 8px;">Fund</th>'
+      + '<th style="padding:3px 8px;text-align:right;">Amount</th></tr></thead><tbody>';
+    rows.forEach(function(r) {
+      var person = r.first_name ? (esc(r.first_name) + ' ' + esc(r.last_name)) : '<em style="color:var(--warm-gray);">Unknown</em>';
+      html += '<tr style="border-bottom:1px solid var(--linen);">'
+        + '<td style="padding:3px 8px;font-family:monospace;">' + esc(r.breeze_id) + '</td>'
+        + '<td style="padding:3px 8px;">' + esc(r.contribution_date||'') + '</td>'
+        + '<td style="padding:3px 8px;">' + person + '</td>'
+        + '<td style="padding:3px 8px;">' + esc(r.fund_name||'') + '</td>'
+        + '<td style="padding:3px 8px;text-align:right;">' + fmtMoney(r.amount||0) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    out.innerHTML = html;
+  });
 }
 function importPeopleCSV() {
   var file = document.getElementById('csv-people-file').files[0];
