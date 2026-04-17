@@ -53,7 +53,8 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // Write operations — require canEdit (not member)
   if (method !== 'GET' && !canEdit &&
       (seg.startsWith('people') || seg.startsWith('households') || seg.startsWith('tags') ||
-       seg.startsWith('attendance') || seg.startsWith('register') || seg.startsWith('funds'))) {
+       seg.startsWith('attendance') || seg.startsWith('register') || seg.startsWith('funds') ||
+       seg.startsWith('organizations'))) {
     return json({ error: 'Access denied: editing requires staff or finance access' }, 403);
   }
 

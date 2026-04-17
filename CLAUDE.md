@@ -78,6 +78,46 @@ Full detail in `NOTES.md`. Summary:
 
 ---
 
+## Daily Code Review Checklist
+
+Run through this at the end of any session before pushing, or at the start of a session when picking up from someone else.
+
+### Security
+- [ ] Every new API endpoint checks role (`isAdmin`, `isFinance`, `isStaff`, `canEdit`) before doing anything
+- [ ] No raw user input passed into SQL — always use `.bind()` parameterized queries
+- [ ] HTML output always runs through `esc()` — never concatenate raw user data into innerHTML
+- [ ] No secrets or API keys hardcoded — all from `env.*` (Cloudflare secrets)
+- [ ] New endpoints that touch giving data are gated behind `isFinance`
+
+### Cloudflare Worker Limits
+- [ ] No single DB query uses more than ~90 parameters in an IN/NOT IN — chunk if needed
+- [ ] Any loop that does per-row DB queries is replaced with a bulk SELECT + JS grouping (avoid 30s timeouts)
+- [ ] Large import/sync operations return early with `done: true` and let the frontend re-trigger if needed
+
+### API Correctness
+- [ ] New endpoints return `json({ error: '...' }, 4xx)` on bad input, not a 200 with an error field
+- [ ] All new endpoints are wrapped in try/catch so uncaught exceptions return JSON, not Cloudflare's HTML error page
+- [ ] New routes added to the correct file (`api-chms.js` for ChMS data, `api-admin.js` for auth/users/scheduler)
+
+### Frontend Consistency
+- [ ] New API calls use `api('/admin/api/...')` wrapper, not raw `fetch()`
+- [ ] New modals have a unique ID and use `openModal(id)` / `closeModal(id)`
+- [ ] `DEPLOY_VERSION` bumped in `html-chms.js` on every commit that changes the frontend
+- [ ] New tabs added to `showTab()` labels map and trigger their load function
+
+### Data Integrity
+- [ ] Any query returning a household name uses COALESCE fallback for `head_first_name` (not all members have `family_role='head'`)
+- [ ] Giving amounts stored and retrieved as **integer cents**, converted to dollars only at display time (`/ 100`)
+- [ ] New person/household fields default to `''` (empty string) not NULL where possible — avoids COALESCE boilerplate everywhere
+
+### Before Every Push
+- [ ] `DEPLOY_VERSION` is bumped
+- [ ] `NOTES.md` Recent Changes has an entry for this version
+- [ ] `CLAUDE.md` Queued Items updated — new items added, completed items checked off
+- [ ] Pushed to `claude/continue-volunteer-app-xhY9J`, not main
+
+---
+
 ## Gotchas & Patterns
 
 - `disambiguateHHName(name, headFirst)` — shared helper at top of `api-chms.js`. Always use COALESCE fallback in `head_first_name` subqueries (not all members have `family_role='head'`).

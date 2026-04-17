@@ -385,6 +385,7 @@ export async function handleAdminApi(req, env, url, method) {
       seg.startsWith('import/') || seg.startsWith('attendance') ||
       seg.startsWith('register') || seg.startsWith('config')   ||
       seg.startsWith('followup') || seg.startsWith('audit')    ||
+      seg.startsWith('organizations') ||
       seg === 'dashboard'      || seg === 'board'              ||
       seg === 'directory') {
     try {
