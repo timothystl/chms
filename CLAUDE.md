@@ -51,6 +51,9 @@ Full detail in `NOTES.md`. Summary:
 
 <!-- Add items here as they come up. Format: - [ ] Description (noted YYYY-MM-DD) -->
 
+### People List
+- [ ] **PL1** — Revisit how the people list is divided: user primarily works with members but doesn't want to discard other contacts. Think through a better default view / filter strategy. (noted 2026-04-17)
+
 ### Giving / Finance
 - [ ] **G1** — Fund import broken: giving records coming in with fund name "breeze fund XXXXX" instead of real fund name. Fix Breeze giving import to resolve fund names correctly. (noted 2026-04-17)
 - [ ] **G2** — Edit individual gifts from person profile: click batch number → opens that batch; click a gift row → modal to edit that individual gift (amount, fund, date, method, check #, note). See screenshots for reference UI. (noted 2026-04-17)
