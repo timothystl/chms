@@ -56,11 +56,11 @@ Full detail in `NOTES.md`. Summary:
 
 ### Giving / Finance
 - [ ] **G1** — Fund import broken: giving records coming in with fund name "breeze fund XXXXX" instead of real fund name. Fix Breeze giving import to resolve fund names correctly. (noted 2026-04-17)
-- [ ] **G2** — Edit individual gifts from person profile: click batch number → opens that batch; click a gift row → modal to edit that individual gift (amount, fund, date, method, check #, note). See screenshots for reference UI. (noted 2026-04-17)
+- [x] **G2** — Edit individual gifts from person profile: click batch number → opens that batch; click a gift row → modal to edit that individual gift (amount, fund, date, method, check #, note). Done 2026-04-17 (v27).
 - [ ] **G3** — Overall gift entry workflow improvements (user has more detail — revisit in dedicated session). (noted 2026-04-17)
 
 ### Dashboard
-- [ ] **DB5** — Last worship card: show both services AND the combined total on a single card (not two separate cards). (noted 2026-04-17)
+- [x] **DB5** — Last worship card: show both services AND the combined total on a single card (not two separate cards). Done 2026-04-17 (v27).
 - [ ] **DB6** — Dashboard customization: ability to add, remove, and reorder/move cards on the dashboard. (noted 2026-04-17)
 
 ### Attendance / Reports
