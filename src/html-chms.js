@@ -906,6 +906,10 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <p>After the giving sync, imported funds may show as "Breeze Fund XXXXXXX". Use <strong>Auto-Fix from Breeze</strong> to look up the real names directly from Breeze and rename them automatically. If any funds still have placeholder names after that, use the manual mapping tool below.</p>
       <button class="btn-primary" onclick="fixFundNames()" style="margin-bottom:8px;">&#128260; Auto-Fix Fund Names from Breeze</button>
       <div class="import-status" id="fix-fund-names-status" style="margin-bottom:10px;"></div>
+      <div id="manual-fund-rename-area" style="display:none;margin-bottom:12px;">
+        <table style="width:100%;border-collapse:collapse;" id="manual-fund-rename-table"></table>
+        <button class="btn-primary" onclick="applyManualFundRenames()" style="margin-top:8px;">Save Fund Names</button>
+      </div>
       <hr style="margin:10px 0;border:none;border-top:1px solid var(--border);">
       <p style="margin:0 0 8px;font-size:.88rem;color:var(--warm-gray);">Manual mapping — reassign contributions from a placeholder fund to a real fund name:</p>
       <button class="btn-secondary" onclick="loadFundMapping()" style="margin-bottom:10px;">Load Fund Mapping</button>
@@ -1508,7 +1512,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-17-v31';
+var DEPLOY_VERSION = '2026-04-17-v33';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -5747,11 +5751,51 @@ function runBreezeGivingAll() {
   doYear();
 }
 
+function applyManualFundRenames() {
+  var rows = document.querySelectorAll('#manual-fund-rename-table tr[data-fund-id]');
+  var updates = [];
+  rows.forEach(function(row) {
+    var newName = row.querySelector('input').value.trim();
+    var fundId = row.getAttribute('data-fund-id');
+    if (newName) updates.push({ id: parseInt(fundId), name: newName });
+  });
+  if (!updates.length) { alert('Enter at least one fund name.'); return; }
+  var status = document.getElementById('fix-fund-names-status');
+  status.textContent = 'Saving ' + updates.length + ' fund name(s)…'; status.className = 'import-status';
+  api('/admin/api/import/manual-fund-renames', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates: updates }) })
+    .then(function(d) {
+      if (d.ok) {
+        status.textContent = 'Renamed ' + d.renamed + ' fund(s).'; status.className = 'import-status ok';
+        document.getElementById('manual-fund-rename-area').style.display = 'none';
+        loadFunds && loadFunds();
+      } else {
+        status.textContent = 'Error: ' + (d.error || 'unknown'); status.className = 'import-status err';
+      }
+    }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
 function fixFundNames() {
   var status = document.getElementById('fix-fund-names-status');
   status.textContent = 'Looking up fund names from Breeze…'; status.className = 'import-status';
   api('/admin/api/import/fix-fund-names', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
     .then(function(d) {
+      if (!d.ok && d.needsManual) {
+        status.textContent = 'Breeze API did not return fund names. Enter the real names below:';
+        status.className = 'import-status';
+        var area = document.getElementById('manual-fund-rename-area');
+        var tbody = document.getElementById('manual-fund-rename-table');
+        tbody.innerHTML = '';
+        (d.placeholderFunds || []).forEach(function(f) {
+          var tr = document.createElement('tr');
+          tr.setAttribute('data-fund-id', f.id);
+          tr.innerHTML = '<td style="padding:4px 8px;font-size:.82rem;color:var(--warm-gray);">ID: ' + esc(f.breeze_id||'?') + '</td>'
+            + '<td style="padding:4px 8px;font-size:.82rem;">' + esc(f.name) + '</td>'
+            + '<td style="padding:4px;"><input type="text" placeholder="Real fund name" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:.85rem;"></td>';
+          tbody.appendChild(tr);
+        });
+        area.style.display = '';
+        return;
+      }
       if (!d.ok) {
         var msg = 'Error: ' + (d.error || JSON.stringify(d));
         if (d.httpStatus !== undefined) msg += ' (HTTP ' + d.httpStatus + ')';

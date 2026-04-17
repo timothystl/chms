@@ -2089,17 +2089,19 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
             const d = { person_id: String(g.person_id || ''), amount: String(g.amount || '0'),
                         method: g.method_type_name || g.method || '', check_number: g.check_number || '',
                         note: g.note || g.notes || '', date: g.date || '', batch_num: g.batch_number || g.batch_num || '' };
-            // Embed fund splits as fund-{id}/amount-{id}/fname-{id} keys
+            // Embed fund splits as fund-{key}/amount-{key}/fname-{key} keys.
+            // Breeze funds may have no id (name-only per API docs) — use slug of name as key.
             if (funds.length > 0) {
               for (const f of funds) {
+                const fname = f.name || f.fund_name || '';
                 const fid = String(f.id || f.fund_id || '');
-                if (fid) {
-                  d['fund-' + fid] = fid;
-                  d['amount-' + fid] = String(f.amount || g.amount || '0');
-                  if (f.name) {
-                    d['fname-' + fid] = f.name;
-                    breezeFundNames[fid] = f.name; // harvest for retroactive rename
-                  }
+                const fkey = fid || (fname ? 'n:' + fname.toLowerCase().replace(/[^a-z0-9]+/g, '_') : '');
+                if (!fkey) continue;
+                d['fund-' + fkey] = fkey;
+                d['amount-' + fkey] = String(f.amount || g.amount || '0');
+                if (fname) {
+                  d['fname-' + fkey] = fname;
+                  if (fid) breezeFundNames[fid] = fname; // harvest for retroactive rename
                 }
               }
             }
@@ -2459,30 +2461,43 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     } catch (e) { fetchError = 'fetch threw: ' + e.message; }
 
     // /api/funds returned empty — fall back to harvesting names from recent giving entries
+    let glDiag = null;
     if (Object.keys(breezeFundNames).length === 0) {
       try {
         const today = new Date().toISOString().slice(0, 10);
         const fiveYrsAgo = (new Date().getFullYear() - 5) + '-01-01';
         const glRes = await fetch(
-          `https://${subdomain}.breezechms.com/api/giving/list?start=${fiveYrsAgo}&end=${today}&limit=10000`,
+          `https://${subdomain}.breezechms.com/api/giving/list?start=${fiveYrsAgo}&end=${today}&details=1&limit=100`,
           { headers: hdrs }
         );
         if (glRes.ok) {
-          const gl = await glRes.json().catch(() => null);
-          if (Array.isArray(gl)) {
-            for (const g of gl) {
-              for (const f of (Array.isArray(g.funds) ? g.funds : [])) {
+          const glRaw = await glRes.text();
+          let gl = null; try { gl = glRaw.trim() ? JSON.parse(glRaw) : null; } catch {}
+          const glArr = Array.isArray(gl) ? gl : null;
+          // Capture structure of first entry for diagnostics
+          glDiag = glArr ? { count: glArr.length, first_entry_keys: glArr[0] ? Object.keys(glArr[0]) : [], first_funds: JSON.stringify(glArr[0]?.funds ?? glArr[0]?.fund ?? 'n/a').slice(0, 300) } : { raw_preview: glRaw.slice(0, 300) };
+          if (glArr) {
+            for (const g of glArr) {
+              const funds = Array.isArray(g.funds) ? g.funds : (g.fund_id ? [{ id: g.fund_id, name: g.fund_name || g.fund || '' }] : []);
+              for (const f of funds) {
+                const fname = f.name || f.fund_name || '';
                 const fid = String(f.id || f.fund_id || '');
-                if (fid && f.name) breezeFundNames[fid] = f.name;
+                // Funds may be name-only (no id) per Breeze API design
+                if (fname) breezeFundNames[fid || ('n:' + fname.toLowerCase().replace(/[^a-z0-9]+/g, '_'))] = fname;
               }
             }
           }
         }
-      } catch {} // best-effort
+      } catch (e) { glDiag = { error: e.message }; }
     }
 
-    if (Object.keys(breezeFundNames).length === 0)
-      return json({ ok: false, error: (fetchError || '/api/funds empty') + ' and no fund names found in giving/list either', breezeFundsFound: 0, renamed: 0, httpStatus, rawBodyPreview: rawBody.slice(0, 500) });
+    if (Object.keys(breezeFundNames).length === 0) {
+      // Last resort: return placeholder funds so the frontend can render manual rename inputs
+      const placeholderFundsForManual = (await db.prepare(
+        "SELECT id, name, breeze_id FROM funds WHERE name LIKE 'Breeze Fund %' ORDER BY name"
+      ).all()).results || [];
+      return json({ ok: false, needsManual: true, error: 'Breeze API did not return fund names', placeholderFunds: placeholderFundsForManual, breezeFundsFound: 0, renamed: 0, httpStatus, glDiag });
+    }
 
     // Get all local funds with placeholder names
     const placeholderFunds = (await db.prepare(
@@ -2503,6 +2518,20 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     }
 
     return json({ ok: true, breezeFundsFound: Object.keys(breezeFundNames).length, placeholderFundsFound: placeholderFunds.length, renamed, details, fetchError });
+  } catch (e) { return json({ ok: false, error: e.message }, 500); } }
+
+  // ── Manual Fund Renames ───────────────────────────────────────────
+  if (seg === 'import/manual-fund-renames' && method === 'POST') { try {
+    if (!isAdmin) return json({ error: 'Admin only' }, 403);
+    let b = {}; try { b = await req.json(); } catch {}
+    const updates = Array.isArray(b.updates) ? b.updates : [];
+    let renamed = 0;
+    for (const u of updates) {
+      if (!u.id || !u.name) continue;
+      await db.prepare('UPDATE funds SET name=? WHERE id=?').bind(String(u.name).trim(), u.id).run();
+      renamed++;
+    }
+    return json({ ok: true, renamed });
   } catch (e) { return json({ ok: false, error: e.message }, 500); } }
 
   // ── Breeze Debug ─────────────────────────────────────────────────
