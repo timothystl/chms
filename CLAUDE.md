@@ -78,6 +78,39 @@ Full detail in `NOTES.md`. Summary:
 
 ---
 
+## Code Review Standards
+
+Before finalizing any code in this project, perform a structured five-pass review:
+
+**Pass 1 — Logic & Bugs**
+Check that every function does what its name says. Look for edge cases:
+null/undefined values, empty inputs, unexpected data types, non-exhaustive
+conditionals. Trace the logic path for failure scenarios, not just happy paths.
+
+**Pass 2 — Privacy & Security**
+Flag any exposed secrets, API keys, or credentials. Check that user input is
+validated before use. Ensure personal data (names, contact info, financial
+records) is handled with intentional access control. Never log sensitive data.
+
+**Pass 3 — Performance**
+Identify loops inside loops, unnecessary re-renders, unthrottled/undebounced
+event handlers, synchronous operations that should be async, and repeated
+data fetches that could be cached or combined.
+
+**Pass 4 — Efficiency & Clarity**
+Remove redundant variables and duplicate logic. Extract repeated patterns into
+helper functions. Simplify overly complex conditionals. Code should read like
+clear prose — if a line requires re-reading, rewrite it.
+
+**Pass 5 — Dead Code & Cleanup**
+Remove commented-out code, unused imports, leftover console.log statements,
+and completed TODO comments. Leave no debugging artifacts in production code.
+
+After each session, summarize what changed and why — treat this as a commit
+message for future reference.
+
+---
+
 ## Daily Code Review Checklist
 
 Run through this at the end of any session before pushing, or at the start of a session when picking up from someone else.
