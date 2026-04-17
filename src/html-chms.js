@@ -529,6 +529,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div class="s-divider"></div>
   <div class="s-item" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
   <div class="s-item" data-tab="households" onclick="showTab('households')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Households</span></div>
+  <div class="s-item" data-tab="organizations" onclick="showTab('organizations')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="1"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg><span class="s-tip">Organizations</span></div>
   <div class="s-divider"></div>
   <div class="s-item require-finance" data-tab="giving" onclick="showTab('giving')"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg><span class="s-tip">Giving</span></div>
   <div class="s-item require-staff" data-tab="attendance" onclick="showTab('attendance')"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg><span class="s-tip">Attendance</span></div>
@@ -615,6 +616,17 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div id="h-status" class="status-msg"></div>
   <div class="card-grid" id="h-grid"></div>
   <div id="h-pager" style="display:flex;align-items:center;justify-content:center;padding:16px 0;gap:8px;"></div>
+</div>
+
+<!-- ═══ ORGANIZATIONS TAB ═══ -->
+<div id="tab-organizations" class="tab-panel">
+  <div class="toolbar">
+    <div class="search-wrap"><input type="search" id="org-search" placeholder="Search organizations…" oninput="debounceOrgs()"></div>
+    <button class="btn-primary require-edit" onclick="openOrgEdit(null)" style="margin-left:auto;">+ New Organization</button>
+  </div>
+  <div id="org-status" class="status-msg"></div>
+  <div class="card-grid" id="org-grid"></div>
+  <div id="org-pager" style="display:flex;align-items:center;justify-content:center;padding:16px 0;gap:8px;"></div>
 </div>
 
 <!-- ═══ GIVING TAB ═══ -->
@@ -1358,6 +1370,41 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   </div>
 </div>
 
+<!-- Organization edit modal -->
+<div class="modal-overlay" id="org-modal" onclick="if(event.target===this)closeModal('org-modal')">
+  <div class="modal">
+    <h2 id="org-modal-title">New Organization</h2>
+    <input type="hidden" id="om-id">
+    <div class="modal-2col">
+      <div class="field" style="grid-column:1/-1;"><label>Organization Name *</label><input type="text" id="om-name" name="om-name" placeholder="e.g. Community Food Pantry"></div>
+      <div class="field"><label>Type</label>
+        <select id="om-type" name="om-type" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;">
+          <option value="">— Select —</option>
+          <option value="Ministry">Ministry / Church</option>
+          <option value="Nonprofit">Nonprofit</option>
+          <option value="Business">Business</option>
+          <option value="Government">Government</option>
+          <option value="School">School</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="field"><label>Primary Contact</label><input type="text" id="om-contact" name="om-contact" placeholder="Contact person's name"></div>
+      <div class="field"><label>Phone</label><input type="tel" id="om-phone" name="om-phone"></div>
+      <div class="field"><label>Email</label><input type="email" id="om-email" name="om-email"></div>
+      <div class="field" style="grid-column:1/-1;"><label>Website</label><input type="url" id="om-website" name="om-website" placeholder="https://…"></div>
+      <div class="field" style="grid-column:1/-1;"><label>Street Address</label><input type="text" id="om-addr1" name="om-addr1"></div>
+      <div class="field"><label>City</label><input type="text" id="om-city" name="om-city"></div>
+      <div class="field"><label>State / ZIP</label><div style="display:flex;gap:6px;"><input type="text" id="om-state" name="om-state" style="width:60px;" maxlength="2" value="MO"><input type="text" id="om-zip" name="om-zip" placeholder="63000"></div></div>
+      <div class="field" style="grid-column:1/-1;"><label>Notes</label><textarea id="om-notes" name="om-notes" rows="2" style="resize:vertical;"></textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-danger" id="om-del-btn" onclick="deleteOrg()" style="margin-right:auto;display:none;">Delete</button>
+      <button class="btn-secondary" onclick="closeModal('org-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveOrg()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- New batch modal -->
 <div class="modal-overlay" id="batch-modal">
   <div class="modal" style="max-width:380px;">
@@ -1457,7 +1504,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-16-v24';
+var DEPLOY_VERSION = '2026-04-17-v26';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -1565,7 +1612,7 @@ function showTab(name) {
   if (name === 'import'     && _userRole !== 'admin') return;
   if (name === 'settings'   && _userRole !== 'admin') return;
   if (name === 'volunteers' && _userRole !== 'admin') return;
-  var labels = {home:'Home',people:'People',households:'Households',giving:'Giving',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings',volunteers:'Volunteers'};
+  var labels = {home:'Home',people:'People',households:'Households',organizations:'Organizations',giving:'Giving',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings',volunteers:'Volunteers'};
   // Exit person-profile view if active
   var ca = document.querySelector('.content-area');
   if (ca) ca.classList.remove('pv-mode');
@@ -1581,6 +1628,7 @@ function showTab(name) {
   if (name === 'home') loadDashboard();
   if (name === 'people') loadPeople();
   if (name === 'households') loadHouseholds();
+  if (name === 'organizations') loadOrganizations();
   if (name === 'giving') loadBatches();
   if (name === 'reports') initReports();
   if (name === 'attendance') loadAttendance();
@@ -4644,6 +4692,21 @@ function openHouseholdDetail(id) {
     if (h.photo_url) {
       photoHtml = '<img src="'+esc(photoSrc(h.photo_url))+'" alt="'+esc(h.name)+'" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:12px;" onerror="this.style.display=\'none\'">';
     }
+    // H3: giving summary (finance+ only)
+    var givingHtml = '';
+    var isFinanceUser = (_userRole === 'admin' || _userRole === 'finance');
+    if (isFinanceUser && h.giving_years && h.giving_years.length) {
+      var rows = h.giving_years.map(function(g) {
+        return '<div style="display:flex;justify-content:space-between;padding:3px 0;">'
+          +'<span style="color:var(--charcoal);">'+esc(g.yr)+'</span>'
+          +'<span style="font-weight:600;">$'+((g.total_cents||0)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span>'
+          +'</div>';
+      }).join('');
+      givingHtml = '<div style="margin-top:14px;">'
+        +'<div style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);margin-bottom:6px;">Household Giving</div>'
+        +rows
+        +'</div>';
+    }
     el.innerHTML = photoHtml
       +'<div style="margin-bottom:12px;">'
       +'<div style="font-size:1.1rem;font-weight:600;margin-bottom:4px;">'+esc(h.display_name || h.name)+'</div>'
@@ -4652,6 +4715,7 @@ function openHouseholdDetail(id) {
       +'</div>'
       +'<div style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);margin-bottom:4px;">Members ('+members.length+')</div>'
       +memberRows
+      +givingHtml
       +'<div style="display:flex;gap:8px;margin-top:16px;">'
       +'<button class="btn-secondary require-edit" onclick="closeModal(\'hh-detail-modal\');editHouseholdById('+h.id+')">Edit Household</button>'
       +'</div>';
@@ -4734,6 +4798,103 @@ function hhPushAddress() {
     var n = r.updated || 0;
     if (n > 0) alert('Address pushed to ' + n + ' member' + (n !== 1 ? 's' : '') + ' who had no address on file.');
     else alert('All household members already have an address — nothing was changed.');
+  });
+}
+
+// ── ORGANIZATIONS ─────────────────────────────────────────────────────
+var _orgPage = 0, _orgLimit = 25, _orgTotal = 0, _orgDebounce = null;
+function debounceOrgs() {
+  clearTimeout(_orgDebounce);
+  _orgDebounce = setTimeout(function() { loadOrganizations(true); }, 300);
+}
+function loadOrganizations(reset) {
+  if (reset) _orgPage = 0;
+  var q = (document.getElementById('org-search') || {}).value || '';
+  var offset = _orgPage * _orgLimit;
+  api('/admin/api/organizations?q=' + encodeURIComponent(q) + '&offset=' + offset + '&limit=' + _orgLimit).then(function(d) {
+    _orgTotal = d.total || 0;
+    var grid = document.getElementById('org-grid');
+    var pager = document.getElementById('org-pager');
+    if (!grid) return;
+    var orgs = d.organizations || [];
+    if (!orgs.length) {
+      grid.innerHTML = '<div style="color:var(--warm-gray);padding:32px;text-align:center;">' + (q ? 'No organizations match "' + esc(q) + '".' : 'No organizations yet. Click "+ New Organization" to add one.') + '</div>';
+      if (pager) pager.innerHTML = '';
+      return;
+    }
+    grid.innerHTML = orgs.map(function(o) {
+      var badge = o.type ? '<span style="font-size:.7rem;background:var(--steel-anchor);color:#fff;border-radius:99px;padding:1px 7px;margin-left:6px;">'+esc(o.type)+'</span>' : '';
+      var contact = o.contact_name ? '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:2px;">'+esc(o.contact_name)+'</div>' : '';
+      var info = [o.phone, o.email].filter(Boolean).map(esc).join(' · ');
+      var addr = [o.city, o.state].filter(Boolean).join(', ');
+      return '<div class="hh-card" onclick="openOrgEdit('+JSON.stringify(o)+')" style="cursor:pointer;">'
+        +'<div style="font-weight:600;">'+esc(o.name)+badge+'</div>'
+        +contact
+        +(info ? '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:2px;">'+info+'</div>' : '')
+        +(addr ? '<div style="font-size:.75rem;color:var(--warm-gray);margin-top:2px;">'+esc(addr)+'</div>' : '')
+        +(o.website ? '<div style="font-size:.75rem;margin-top:2px;"><a href="'+esc(o.website)+'" target="_blank" onclick="event.stopPropagation();" style="color:var(--steel-anchor);">'+esc(o.website.replace(/^https?:\/\//,''))+'</a></div>' : '')
+        +'</div>';
+    }).join('');
+    // Pager
+    if (pager) {
+      var pages = Math.ceil(_orgTotal / _orgLimit);
+      var cur = _orgPage;
+      pager.innerHTML = (cur > 0 ? '<button class="btn-sm" onclick="_orgPage--;loadOrganizations()">&#8249; Prev</button>' : '')
+        + '<span style="font-size:.82rem;color:var(--warm-gray);">' + (offset+1) + '–' + Math.min(offset+_orgLimit,_orgTotal) + ' of ' + _orgTotal + '</span>'
+        + (cur < pages-1 ? '<button class="btn-sm" onclick="_orgPage++;loadOrganizations()">Next &#8250;</button>' : '');
+    }
+  });
+}
+function openOrgEdit(o) {
+  var isNew = !o || !o.id;
+  document.getElementById('org-modal-title').textContent = isNew ? 'New Organization' : o.name;
+  document.getElementById('om-id').value = isNew ? '' : o.id;
+  document.getElementById('om-name').value = isNew ? '' : (o.name||'');
+  document.getElementById('om-type').value = isNew ? '' : (o.type||'');
+  document.getElementById('om-contact').value = isNew ? '' : (o.contact_name||'');
+  document.getElementById('om-phone').value = isNew ? '' : (o.phone||'');
+  document.getElementById('om-email').value = isNew ? '' : (o.email||'');
+  document.getElementById('om-website').value = isNew ? '' : (o.website||'');
+  document.getElementById('om-addr1').value = isNew ? '' : (o.address1||'');
+  document.getElementById('om-city').value = isNew ? '' : (o.city||'');
+  document.getElementById('om-state').value = isNew ? 'MO' : (o.state||'MO');
+  document.getElementById('om-zip').value = isNew ? '' : (o.zip||'');
+  document.getElementById('om-notes').value = isNew ? '' : (o.notes||'');
+  document.getElementById('om-del-btn').style.display = isNew ? 'none' : 'inline-flex';
+  openModal('org-modal');
+}
+function saveOrg() {
+  var id = document.getElementById('om-id').value;
+  var name = document.getElementById('om-name').value.trim();
+  if (!name) { alert('Organization name is required.'); return; }
+  var body = {
+    name: name,
+    type: document.getElementById('om-type').value,
+    contact_name: document.getElementById('om-contact').value.trim(),
+    phone: document.getElementById('om-phone').value.trim(),
+    email: document.getElementById('om-email').value.trim(),
+    website: document.getElementById('om-website').value.trim(),
+    address1: document.getElementById('om-addr1').value.trim(),
+    city: document.getElementById('om-city').value.trim(),
+    state: document.getElementById('om-state').value.trim() || 'MO',
+    zip: document.getElementById('om-zip').value.trim(),
+    notes: document.getElementById('om-notes').value.trim()
+  };
+  var url = id ? '/admin/api/organizations/' + id : '/admin/api/organizations';
+  var method = id ? 'PUT' : 'POST';
+  api(url, { method: method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(function(r) {
+    if (r.ok) { closeModal('org-modal'); loadOrganizations(); }
+    else alert(r.error || 'Save failed.');
+  });
+}
+function deleteOrg() {
+  var id = document.getElementById('om-id').value;
+  if (!id) return;
+  var name = document.getElementById('om-name').value;
+  if (!confirm('Delete "' + name + '"? This cannot be undone.')) return;
+  api('/admin/api/organizations/' + id, { method: 'DELETE' }).then(function(r) {
+    if (r.ok) { closeModal('org-modal'); loadOrganizations(); }
+    else alert(r.error || 'Delete failed.');
   });
 }
 
