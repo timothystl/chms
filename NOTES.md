@@ -70,7 +70,7 @@ Added 2026-04-15, phased 2026-04-15.
 ### Phase 5 — Dedicated Sessions (schedule separately, unknown scope)
 | # | Description | Status |
 |---|-------------|--------|
-| A1 | Per-user auth: enforce username+password, fix broken user management in Settings. Roles: Admin/Finance/Staff/Member | Queued — dedicated session |
+| A1 | Per-user auth: enforce username+password, fix broken user management in Settings. Roles: Admin/Finance/Staff/Member | Done 2026-04-16 — Add User modal fixed (v24); FINANCE/STAFF/MEMBER env-var fallbacks removed; ADMIN_PASSWORD break-glass retained |
 | S1 | **Register record creation from people records** — diagnose and fix | Done 2026-04-16 — endpoint confirmed correct; DOB/Place of Birth/Baptism Place added to edit form |
 | S2 | **Image/photo import** — diagnose and fix | Done 2026-04-16 — bulk import already syncs photos via p.path; per-person sync now also updates photo_url; diagnostic output added |
 
@@ -79,11 +79,11 @@ Added 2026-04-15, phased 2026-04-15.
 ### Phase 5b — Dashboard & Household View Improvements
 | # | Description | Status |
 |---|-------------|--------|
-| DB1 | Dashboard people count — members only (not all person types) | Queued |
-| DB2 | Dashboard households count — members only | Queued |
-| DB3 | Dashboard last services — show both Sunday services | Queued |
+| DB1 | Dashboard people count — members only (not all person types) | Done (prior session) |
+| DB2 | Dashboard households count — members only | Done (prior session) |
+| DB3 | Dashboard last services — show both Sunday services | Done (prior session) |
 | DB4 | Dashboard birthdays/anniversaries — month-at-a-time view with copy/paste export | Done 2026-04-16 (v23): two separate cards, bulletin copy format, anniversary couple pairing |
-| HV1 | Household view — filter by member type (members-only or selectable) | Queued |
+| HV1 | Household view — filter by member type (members-only or selectable) | Done (prior session) |
 
 ---
 

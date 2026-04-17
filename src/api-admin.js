@@ -118,16 +118,9 @@ export async function handleAdminLogin(req, env) {
     }
   }
 
-  // ── 2. Fall back to env-var passwords (break-glass / initial setup) ──
-  // Username must match the role name exactly (admin/finance/staff/member)
-  if (!matchedRole) {
-    const financePassword = env.FINANCE_PASSWORD || '';
-    const staffPassword   = env.STAFF_PASSWORD   || '';
-    const memberPassword  = env.MEMBER_PASSWORD  || '';
-    if      (submittedUser === 'admin'   && submittedPass === adminPassword)                   matchedRole = 'admin';
-    else if (submittedUser === 'finance' && financePassword && submittedPass === financePassword) matchedRole = 'finance';
-    else if (submittedUser === 'staff'   && staffPassword   && submittedPass === staffPassword)   matchedRole = 'staff';
-    else if (submittedUser === 'member'  && memberPassword  && submittedPass === memberPassword)  matchedRole = 'member';
+  // ── 2. Fall back to ADMIN_PASSWORD env-var (break-glass / initial setup) ──
+  if (!matchedRole && submittedUser === 'admin' && submittedPass === adminPassword) {
+    matchedRole = 'admin';
   }
 
   if (matchedRole) {
