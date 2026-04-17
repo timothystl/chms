@@ -1987,7 +1987,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // Also handles colon format: "General Fund: $160.00, Tuition Aid: $40.00"
     const parseFundSplits = (fundStr, totalCents) => {
       const s = (fundStr || '').trim();
-      if (!s) return [{ name: 'General Fund', cents: totalCents }];
+      if (!s || s.toLowerCase() === 'nan') return [{ name: 'General Fund', cents: totalCents }];
       // Breeze CSV format: starts with numeric fund ID prefix e.g. "40085 General Fund (160.00)"
       // Keep the full name including the number; strip only the trailing amount in parens.
       if (/^\d+\s/.test(s)) {
@@ -2021,7 +2021,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       const date      = parseDate(C.date >= 0 ? row[C.date] : '');
       const batchNum  = C.batchNum >= 0  ? (row[C.batchNum]  || '').trim() : '';
       const batchName = C.batchName >= 0 ? (row[C.batchName] || '').trim() : '';
-      const personBId = C.personId >= 0  ? (row[C.personId]  || '').trim() : '';
+      const personBId = (C.personId >= 0  ? (row[C.personId]  || '').trim() : '').replace(/\.0$/, '');
       const amtStr    = (C.amount >= 0   ? row[C.amount]     : '0').replace(/[$, ]/g, '');
       const cents     = Math.round(parseFloat(amtStr || '0') * 100);
       const fundStr   = C.fund >= 0 ? (row[C.fund] || '') : '';
@@ -2029,7 +2029,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       const checkNum  = C.checkNumber >= 0 ? (row[C.checkNumber] || '') : '';
       const note      = C.note >= 0 ? (row[C.note] || '') : '';
 
-      if (cents <= 0) { skipped++; skipZero++; continue; }
+      if (cents === 0) { skipped++; skipZero++; continue; }
 
       const personId = personByBreezeId[personBId] ?? null;
 
