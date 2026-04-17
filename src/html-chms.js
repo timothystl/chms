@@ -903,7 +903,11 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     </div>
     <div class="import-card">
       <h3>&#128260; Map Breeze Funds to Real Fund Names</h3>
-      <p>After the giving sync, imported funds show as "Breeze Fund XXXXXXX". Use this tool to reassign all their contributions to your real fund names, then remove the placeholders.</p>
+      <p>After the giving sync, imported funds may show as "Breeze Fund XXXXXXX". Use <strong>Auto-Fix from Breeze</strong> to look up the real names directly from Breeze and rename them automatically. If any funds still have placeholder names after that, use the manual mapping tool below.</p>
+      <button class="btn-primary" onclick="fixFundNames()" style="margin-bottom:8px;">&#128260; Auto-Fix Fund Names from Breeze</button>
+      <div class="import-status" id="fix-fund-names-status" style="margin-bottom:10px;"></div>
+      <hr style="margin:10px 0;border:none;border-top:1px solid var(--border);">
+      <p style="margin:0 0 8px;font-size:.88rem;color:var(--warm-gray);">Manual mapping — reassign contributions from a placeholder fund to a real fund name:</p>
       <button class="btn-secondary" onclick="loadFundMapping()" style="margin-bottom:10px;">Load Fund Mapping</button>
       <div id="fund-map-area" style="display:none;">
         <table style="width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:10px;" id="fund-map-table">
@@ -1504,7 +1508,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-17-v27';
+var DEPLOY_VERSION = '2026-04-17-v28';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -5741,6 +5745,25 @@ function runBreezeGivingAll() {
     });
   }
   doYear();
+}
+
+function fixFundNames() {
+  var status = document.getElementById('fix-fund-names-status');
+  status.textContent = 'Looking up fund names from Breeze…'; status.className = 'import-status';
+  api('/admin/api/import/fix-fund-names', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+    .then(function(d) {
+      if (!d.ok) { status.textContent = 'Error: ' + (d.error || JSON.stringify(d)); status.className = 'import-status err'; return; }
+      var msg = 'Breeze funds found: ' + d.breezeFundsFound + '. Placeholder funds: ' + d.placeholderFundsFound + '. Renamed: ' + d.renamed + '.';
+      if (d.fetchError) msg += ' (Warning: ' + d.fetchError + ')';
+      if (d.renamed > 0) {
+        msg += '\nRenamed: ' + d.details.filter(function(x){return x.status==='renamed';}).map(function(x){return x.old_name+' → '+x.new_name;}).join(', ');
+        loadFunds && loadFunds();
+      }
+      var noMatch = d.details ? d.details.filter(function(x){return x.status==='no_match';}) : [];
+      if (noMatch.length > 0) msg += '\nNo match in Breeze for: ' + noMatch.map(function(x){return x.old_name+'(id:'+x.breeze_id+')';}).join(', ');
+      status.textContent = msg; status.className = 'import-status ' + (d.renamed > 0 ? 'ok' : '');
+    })
+    .catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
 function runBreezeImport() {

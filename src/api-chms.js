@@ -2052,9 +2052,8 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       const fRes = await fetch(`https://${subdomain}.breezechms.com/api/funds`, { headers: hdrs });
       if (fRes.ok) {
         const fData = await fRes.json();
-        if (Array.isArray(fData)) {
-          for (const f of fData) { if (f.id && f.name) breezeFundNames[String(f.id)] = f.name; }
-        }
+        const fArr = Array.isArray(fData) ? fData : (Array.isArray(fData?.funds) ? fData.funds : []);
+        for (const f of fArr) { if (f.id && f.name) breezeFundNames[String(f.id)] = f.name; }
       }
     } catch {} // best-effort — missing names fall back gracefully below
 
@@ -2253,7 +2252,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
     ).run();
 
-    return json({ ok: true, imported, skipped, dupesRemoved, fundsRenamed, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, from_giving_list: givingListEntries.length, date_range: { start, end } });
+    return json({ ok: true, imported, skipped, dupesRemoved, fundsRenamed, breezeFundsFound: Object.keys(breezeFundNames).length, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, from_giving_list: givingListEntries.length, date_range: { start, end } });
   }
 
   // ── Breeze Giving CSV Import ─────────────────────────────────────
@@ -2315,8 +2314,11 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     for (const bt of (await db.prepare('SELECT id, description FROM giving_batches').all()).results || [])
       batchByDesc[bt.description] = bt.id;
     const fundByBreezeId = {};
-    for (const f of (await db.prepare('SELECT id, breeze_id FROM funds WHERE breeze_id != ""').all()).results || [])
-      fundByBreezeId[f.breeze_id] = f.id;
+    const fundByName = {};
+    for (const f of (await db.prepare('SELECT id, name, breeze_id FROM funds').all()).results || []) {
+      if (f.breeze_id) fundByBreezeId[f.breeze_id] = f.id;
+      fundByName[f.name.toLowerCase().trim()] = f.id;
+    }
 
     let imported = 0, skipped = 0;
     const errors = [];
@@ -2360,11 +2362,23 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         for (const fl of parseFunds(fundsStr, String(totalAmount))) {
           const cents = Math.round(parseFloat(fl.amount || '0') * 100);
           if (!fundByBreezeId[fl.breezeFundId]) {
-            // Use the real fund name from the CSV, not a generic placeholder
             const fname = fl.fundName || `Breeze Fund ${fl.breezeFundId}`;
-            const r = await db.prepare('INSERT INTO funds (name, breeze_id, active, sort_order) VALUES (?,?,1,99)')
-              .bind(fname, fl.breezeFundId).run();
-            fundByBreezeId[fl.breezeFundId] = r.meta?.last_row_id;
+            const nameKey = fname.toLowerCase().trim();
+            if (fundByName[nameKey]) {
+              // Fund exists by name (may have no breeze_id yet) — link it
+              fundByBreezeId[fl.breezeFundId] = fundByName[nameKey];
+              await db.prepare('UPDATE funds SET breeze_id=? WHERE id=? AND (breeze_id IS NULL OR breeze_id="")').bind(fl.breezeFundId, fundByName[nameKey]).run();
+            } else {
+              const r = await db.prepare('INSERT INTO funds (name, breeze_id, active, sort_order) VALUES (?,?,1,99)')
+                .bind(fname, fl.breezeFundId).run();
+              fundByBreezeId[fl.breezeFundId] = r.meta?.last_row_id;
+              fundByName[nameKey] = fundByBreezeId[fl.breezeFundId];
+            }
+          } else if (fl.fundName) {
+            // Fund already exists — if it has a placeholder name, fix it using the real CSV name
+            const existId = fundByBreezeId[fl.breezeFundId];
+            await db.prepare("UPDATE funds SET name=? WHERE id=? AND name LIKE 'Breeze Fund %'")
+              .bind(fl.fundName, existId).run();
           }
           entryInserts.push(
             db.prepare(
@@ -2395,6 +2409,59 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
   if (seg === 'import/restore-breeze-active' && method === 'POST') {
     const r = await db.prepare(`UPDATE people SET active=1 WHERE breeze_id != '' AND breeze_id IS NOT NULL`).run();
     return json({ ok: true, restored: r.meta?.changes ?? 0 });
+  }
+
+  // ── Fix Fund Names ───────────────────────────────────────────────
+  // Fetches /api/funds from Breeze and renames any local funds whose name
+  // still starts with "Breeze Fund " to the real Breeze fund name.
+  if (seg === 'import/fix-fund-names' && method === 'POST') {
+    const subdomain = env.BREEZE_SUBDOMAIN;
+    const apiKey    = env.BREEZE_API_KEY;
+    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
+    const hdrs = { 'Api-key': apiKey };
+
+    // Fetch real fund names from Breeze
+    const breezeFundNames = {};
+    let fetchError = null;
+    try {
+      const fRes = await fetch(`https://${subdomain}.breezechms.com/api/funds`, { headers: hdrs });
+      if (fRes.ok) {
+        const fData = await fRes.json();
+        if (Array.isArray(fData)) {
+          for (const f of fData) { if (f.id && f.name) breezeFundNames[String(f.id)] = f.name; }
+        } else if (fData && Array.isArray(fData.funds)) {
+          // Some Breeze installs return { funds: [...] }
+          for (const f of fData.funds) { if (f.id && f.name) breezeFundNames[String(f.id)] = f.name; }
+        } else {
+          fetchError = 'Unexpected /api/funds format: ' + JSON.stringify(fData).slice(0, 200);
+        }
+      } else {
+        fetchError = `Breeze /api/funds returned ${fRes.status}`;
+      }
+    } catch (e) { fetchError = e.message; }
+
+    if (fetchError && Object.keys(breezeFundNames).length === 0)
+      return json({ ok: false, error: fetchError, breezeFundsFound: 0, renamed: 0 });
+
+    // Get all local funds with placeholder names
+    const placeholderFunds = (await db.prepare(
+      "SELECT id, name, breeze_id FROM funds WHERE name LIKE 'Breeze Fund %'"
+    ).all()).results || [];
+
+    let renamed = 0;
+    const details = [];
+    for (const f of placeholderFunds) {
+      const realName = f.breeze_id ? breezeFundNames[String(f.breeze_id)] : null;
+      if (!realName) {
+        details.push({ id: f.id, old_name: f.name, breeze_id: f.breeze_id, status: 'no_match' });
+        continue;
+      }
+      await db.prepare('UPDATE funds SET name=? WHERE id=?').bind(realName, f.id).run();
+      details.push({ id: f.id, old_name: f.name, new_name: realName, breeze_id: f.breeze_id, status: 'renamed' });
+      renamed++;
+    }
+
+    return json({ ok: true, breezeFundsFound: Object.keys(breezeFundNames).length, placeholderFundsFound: placeholderFunds.length, renamed, details, fetchError });
   }
 
   // ── Breeze Debug ─────────────────────────────────────────────────
