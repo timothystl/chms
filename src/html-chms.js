@@ -1512,7 +1512,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-17-v33';
+var DEPLOY_VERSION = '2026-04-17-v34';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -5803,15 +5803,25 @@ function fixFundNames() {
         status.textContent = msg; status.className = 'import-status err';
         return;
       }
-      var msg = 'Breeze funds found: ' + d.breezeFundsFound + '. Placeholder funds: ' + d.placeholderFundsFound + '. Renamed: ' + d.renamed + '.';
-      if (d.fetchError) msg += ' (Warning: ' + d.fetchError + ')';
-      if (d.renamed > 0) {
-        msg += '\nRenamed: ' + d.details.filter(function(x){return x.status==='renamed';}).map(function(x){return x.old_name+' → '+x.new_name;}).join(', ');
-        loadFunds && loadFunds();
+      var msg = 'Breeze funds found: ' + d.breezeFundsFound + '. Renamed: ' + d.renamed + '.';
+      if (d.renamed > 0) loadFunds && loadFunds();
+      var noMatch = d.noMatchFunds || [];
+      if (noMatch.length > 0) {
+        msg += ' ' + noMatch.length + ' fund(s) not found in Breeze — enter names below:';
+        var area = document.getElementById('manual-fund-rename-area');
+        var tbody = document.getElementById('manual-fund-rename-table');
+        tbody.innerHTML = '';
+        noMatch.forEach(function(f) {
+          var tr = document.createElement('tr');
+          tr.setAttribute('data-fund-id', f.id);
+          tr.innerHTML = '<td style="padding:4px 8px;font-size:.82rem;color:var(--warm-gray);white-space:nowrap;">Breeze ID: ' + esc(f.breeze_id||'?') + '</td>'
+            + '<td style="padding:4px 8px;font-size:.82rem;">' + esc(f.old_name) + '</td>'
+            + '<td style="padding:4px;"><input type="text" name="fund-rename" placeholder="Real fund name" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:.85rem;"></td>';
+          tbody.appendChild(tr);
+        });
+        area.style.display = '';
       }
-      var noMatch = d.details ? d.details.filter(function(x){return x.status==='no_match';}) : [];
-      if (noMatch.length > 0) msg += '\nNo match in Breeze for: ' + noMatch.map(function(x){return x.old_name+'(id:'+x.breeze_id+')';}).join(', ');
-      status.textContent = msg; status.className = 'import-status ' + (d.renamed > 0 ? 'ok' : '');
+      status.textContent = msg; status.className = 'import-status ' + (d.renamed > 0 || noMatch.length === 0 ? 'ok' : '');
     })
     .catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }

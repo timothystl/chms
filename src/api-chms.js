@@ -2517,7 +2517,8 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       renamed++;
     }
 
-    return json({ ok: true, breezeFundsFound: Object.keys(breezeFundNames).length, placeholderFundsFound: placeholderFunds.length, renamed, details, fetchError });
+    const noMatchFunds = details.filter(d => d.status === 'no_match');
+    return json({ ok: true, breezeFundsFound: Object.keys(breezeFundNames).length, placeholderFundsFound: placeholderFunds.length, renamed, details, fetchError, noMatchFunds });
   } catch (e) { return json({ ok: false, error: e.message }, 500); } }
 
   // ── Manual Fund Renames ───────────────────────────────────────────
