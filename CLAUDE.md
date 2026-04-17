@@ -59,7 +59,7 @@ Full detail in `NOTES.md`. Summary:
 - [x] **G1** — Fund import: pre-fetches `/api/funds` from Breeze to resolve real names; retroactively renames any "Breeze Fund XXXXX" placeholders on next sync. Done 2026-04-17.
 - [x] **G2** — Edit individual gifts from person profile: click batch number → opens that batch; click a gift row → modal to edit that individual gift (amount, fund, date, method, check #, note). Done 2026-04-17 (v27).
 - [ ] **G3** — Overall gift entry workflow improvements (user has more detail — revisit in dedicated session). (noted 2026-04-17)
-- [ ] **G4** — Reopen batch button is broken/dead — investigate and fix. (noted 2026-04-17)
+- [x] **G4** — Reopen batch button is broken/dead — fixed 2026-04-17 (v37).
 - [ ] **G5** — Export data: persons, giving (year-by-year), and register data — all useful formats for records/reporting. (noted 2026-04-17)
 
 ### Dashboard
