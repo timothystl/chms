@@ -1978,6 +1978,13 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
   } catch (e) { return json({ ok: false, error: e.message }, 500); }
   }
 
+  if (seg === 'funds/all' && method === 'DELETE') { try {
+    if (!isAdmin) return json({ error: 'Access denied' }, 403);
+    const r = await db.prepare('DELETE FROM funds').run();
+    return json({ ok: true, deleted: r.meta?.changes ?? 0 });
+  } catch (e) { return json({ ok: false, error: e.message }, 500); }
+  }
+
   // ── Prune empty batches ───────────────────────────────────────────
   if (seg === 'giving/prune-empty-batches' && method === 'POST') {
     const r = await db.prepare(
