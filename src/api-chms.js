@@ -1985,6 +1985,71 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     return json({ ok: true, deleted: r.meta?.changes ?? 0 });
   }
 
+  // ── Export endpoints ─────────────────────────────────────────────
+  if (seg.startsWith('export/') && method === 'GET') {
+    const csvEsc = v => {
+      const s = String(v == null ? '' : v);
+      return (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r'))
+        ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const csvRow = arr => arr.map(csvEsc).join(',');
+
+    if (seg === 'export/people') {
+      if (!isAdmin) return json({ error: 'Access denied' }, 403);
+      const rows = (await db.prepare(`
+        SELECT p.first_name, p.last_name, p.email, p.phone,
+               p.address1, p.address2, p.city, p.state, p.zip,
+               p.member_type, p.family_role, p.gender, p.marital_status,
+               p.dob, p.baptism_date, p.confirmation_date, p.anniversary_date,
+               p.death_date, p.notes, p.breeze_id, p.active,
+               h.name as household_name
+        FROM people p LEFT JOIN households h ON p.household_id=h.id
+        ORDER BY p.last_name, p.first_name
+      `).all()).results || [];
+      const lines = [csvRow(['First Name','Last Name','Email','Phone','Address','Address 2','City','State','ZIP','Member Type','Family Role','Household','Gender','Marital Status','DOB','Baptism Date','Confirmation Date','Anniversary Date','Death Date','Active','Notes','Breeze ID'])];
+      for (const r of rows)
+        lines.push(csvRow([r.first_name,r.last_name,r.email,r.phone,r.address1,r.address2,r.city,r.state,r.zip,r.member_type,r.family_role,r.household_name,r.gender,r.marital_status,r.dob,r.baptism_date,r.confirmation_date,r.anniversary_date,r.death_date,r.active?'Yes':'No',r.notes,r.breeze_id]));
+      return new Response(lines.join('\r\n'), { headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="people-export.csv"' } });
+    }
+
+    if (seg === 'export/giving') {
+      if (!isFinance) return json({ error: 'Access denied' }, 403);
+      const year = url.searchParams.get('year') || '';
+      let sql = `SELECT COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date) as gift_date,
+                        p.first_name, p.last_name,
+                        f.name as fund_name,
+                        ge.amount, ge.method, ge.check_number, ge.notes,
+                        gb.description as batch_desc, ge.breeze_id
+                 FROM giving_entries ge
+                 LEFT JOIN people p ON ge.person_id=p.id
+                 JOIN funds f ON ge.fund_id=f.id
+                 JOIN giving_batches gb ON ge.batch_id=gb.id`;
+      const binds = [];
+      if (year) { sql += ` WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=?`; binds.push(year); }
+      sql += ` ORDER BY gift_date, gb.id, ge.id`;
+      const rows = (await db.prepare(sql).bind(...binds).all()).results || [];
+      const fmtAmt = c => (c / 100).toFixed(2);
+      const lines = [csvRow(['Date','First Name','Last Name','Fund','Amount','Method','Check #','Batch','Notes','Breeze ID'])];
+      for (const r of rows)
+        lines.push(csvRow([r.gift_date,r.first_name||'',r.last_name||'',r.fund_name,fmtAmt(r.amount),r.method,r.check_number||'',r.batch_desc,r.notes||'',r.breeze_id||'']));
+      const filename = year ? `giving-${year}.csv` : 'giving-all.csv';
+      return new Response(lines.join('\r\n'), { headers: { 'Content-Type': 'text/csv', 'Content-Disposition': `attachment; filename="${filename}"` } });
+    }
+
+    if (seg === 'export/register') {
+      if (!isAdmin) return json({ error: 'Access denied' }, 403);
+      const rows = (await db.prepare(`
+        SELECT type, event_date, name, name2, officiant, dob, place_of_birth, baptism_place,
+               father, mother, sponsors, notes, record_type, pdf_page
+        FROM church_register ORDER BY event_date, type, id
+      `).all()).results || [];
+      const lines = [csvRow(['Type','Date','Name','Name 2','Officiant','DOB','Place of Birth','Baptism Place','Father','Mother','Sponsors','Notes','Record Type','PDF Page'])];
+      for (const r of rows)
+        lines.push(csvRow([r.type,r.event_date,r.name,r.name2||'',r.officiant||'',r.dob||'',r.place_of_birth||'',r.baptism_place||'',r.father||'',r.mother||'',r.sponsors||'',r.notes||'',r.record_type||'',r.pdf_page||'']));
+      return new Response(lines.join('\r\n'), { headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="register-export.csv"' } });
+    }
+  }
+
   // ── Send Giving Statement via Resend ─────────────────────────────
   if (seg === 'giving/send-statement' && method === 'POST') {
     let b = {}; try { b = await req.json(); } catch {}

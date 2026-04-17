@@ -946,6 +946,28 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <button class="btn-primary" onclick="generateRegisterFromPeople()">Generate Register Entries</button>
       <div class="import-status" id="reg-gen-status"></div>
     </div>
+    <div class="import-card">
+      <h3>&#128229; Export Data</h3>
+      <p>Download records as CSV files for reporting, backups, or transfer to other software.</p>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button class="btn-secondary" onclick="exportPeople()">&#128100; Export All People</button>
+          <span style="font-size:.82rem;color:var(--warm-gray);">All members and contacts with contact info, dates, and household.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button class="btn-secondary" onclick="exportGiving()">&#128181; Export Giving</button>
+          <select id="export-giving-year" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:.88rem;">
+            <option value="">All Years</option>
+          </select>
+          <span style="font-size:.82rem;color:var(--warm-gray);">All gifts with date, person, fund, amount, method.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button class="btn-secondary" onclick="exportRegister()">&#128214; Export Register</button>
+          <span style="font-size:.82rem;color:var(--warm-gray);">All baptism, confirmation, and wedding records.</span>
+        </div>
+      </div>
+      <div class="import-status" id="export-status"></div>
+    </div>
     <div class="import-card" style="border-color:#e74c3c;">
       <h3 style="color:#e74c3c;">&#9888; Clear All Giving Data</h3>
       <p>Permanently deletes all giving entries and batches from the database. Use this to start fresh before re-importing correct data. <strong>This cannot be undone.</strong></p>
@@ -1512,7 +1534,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-17-v37';
+var DEPLOY_VERSION = '2026-04-17-v38';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -2055,6 +2077,17 @@ function deleteUser(uid, username) {
 // ── SETTINGS ──────────────────────────────────────────────────────────
 function loadSettings() {
   if (_userRole === 'admin') loadUsers();
+  // Populate giving export year dropdown
+  var yrSel = document.getElementById('export-giving-year');
+  if (yrSel && yrSel.options.length <= 1) {
+    var thisYear = new Date().getFullYear();
+    for (var y = thisYear; y >= 2010; y--) {
+      var opt = document.createElement('option');
+      opt.value = y; opt.textContent = y;
+      if (y === thisYear) opt.selected = true;
+      yrSel.appendChild(opt);
+    }
+  }
   // Disable save buttons until data has loaded to prevent saving empty values
   document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = true; });
   api('/admin/api/config/church').then(function(d) {
@@ -5607,6 +5640,41 @@ function pruneEmptyBatches() {
       status.className = 'import-status err';
     }
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+// ── EXPORT ──────────────────────────────────────────────────────────────
+function exportPeople() {
+  var status = document.getElementById('export-status');
+  status.textContent = 'Preparing people export…'; status.className = 'import-status';
+  var a = document.createElement('a');
+  a.href = '/admin/api/export/people';
+  a.download = 'people-export.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { status.textContent = 'Download started.'; status.className = 'import-status ok'; }, 500);
+}
+function exportGiving() {
+  var status = document.getElementById('export-status');
+  var year = document.getElementById('export-giving-year').value;
+  status.textContent = 'Preparing giving export…'; status.className = 'import-status';
+  var a = document.createElement('a');
+  a.href = '/admin/api/export/giving' + (year ? '?year=' + year : '');
+  a.download = year ? ('giving-' + year + '.csv') : 'giving-all.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { status.textContent = 'Download started.'; status.className = 'import-status ok'; }, 500);
+}
+function exportRegister() {
+  var status = document.getElementById('export-status');
+  status.textContent = 'Preparing register export…'; status.className = 'import-status';
+  var a = document.createElement('a');
+  a.href = '/admin/api/export/register';
+  a.download = 'register-export.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { status.textContent = 'Download started.'; status.className = 'import-status ok'; }, 500);
 }
 function clearAllGiving() {
   if (!confirm('This will PERMANENTLY DELETE all giving entries and batches. This cannot be undone.\\n\\nAre you absolutely sure?')) return;
