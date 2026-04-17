@@ -275,6 +275,8 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 .rpt-table th{text-align:left;padding:6px 10px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);border-bottom:2px solid var(--border);}
 .rpt-table td{padding:7px 10px;border-bottom:1px solid var(--linen);}
 .rpt-total{font-weight:700;border-top:2px solid var(--border) !important;}
+.rpt-group-hdr td{background:var(--linen);font-weight:700;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);padding:5px 10px;border-bottom:none !important;}
+.rpt-group-sub td{font-style:italic;font-weight:600;background:#faf7f4;border-bottom:1px solid var(--border) !important;}
 /* ── ATTENDANCE ── */
 .att-chart-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px 10px;margin-bottom:14px;}
 .att-stats-row{display:flex;gap:22px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end;}
@@ -1562,7 +1564,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-17-v46';
+var DEPLOY_VERSION = '2026-04-17-v48';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -5386,9 +5388,32 @@ function runGivingSummary() {
   var to = document.getElementById('rpt-to').value;
   if (!from || !to) { alert('Please select a date range.'); return; }
   api('/admin/api/reports/giving-summary?from=' + from + '&to=' + to).then(function(d) {
-    var rows = (d.rows||[]).map(function(r) {
-      return '<tr><td>' + esc(r.fund_name) + '</td><td style="text-align:right;">' + (r.contributions||0) + '</td><td style="text-align:right;">' + fmtMoney(r.total_cents||0) + '</td></tr>';
-    }).join('');
+    // Group funds by numeric prefix (e.g. "40085" from "40085 General Fund")
+    var groups = {}, order = [];
+    (d.rows||[]).forEach(function(r) {
+      var m = (r.fund_name||'').match(/^(\d+)\s/);
+      var key = m ? m[1] : '';
+      if (!groups[key]) { groups[key] = []; order.push(key); }
+      groups[key].push(r);
+    });
+    var rows = '';
+    order.forEach(function(key) {
+      var grp = groups[key];
+      var multipleInGroup = key && grp.length > 1;
+      if (multipleInGroup) {
+        var grpCents = grp.reduce(function(s,r){ return s+(r.total_cents||0); }, 0);
+        var grpGifts = grp.reduce(function(s,r){ return s+(r.contributions||0); }, 0);
+        rows += '<tr class="rpt-group-hdr"><td colspan="3">' + esc(key) + '</td></tr>';
+        grp.forEach(function(r) {
+          rows += '<tr><td style="padding-left:22px;">' + esc(r.fund_name) + '</td><td style="text-align:right;">' + (r.contributions||0) + '</td><td style="text-align:right;">' + fmtMoney(r.total_cents||0) + '</td></tr>';
+        });
+        rows += '<tr class="rpt-group-sub"><td style="padding-left:22px;">Subtotal</td><td style="text-align:right;">' + grpGifts + '</td><td style="text-align:right;">' + fmtMoney(grpCents) + '</td></tr>';
+      } else {
+        grp.forEach(function(r) {
+          rows += '<tr><td>' + esc(r.fund_name) + '</td><td style="text-align:right;">' + (r.contributions||0) + '</td><td style="text-align:right;">' + fmtMoney(r.total_cents||0) + '</td></tr>';
+        });
+      }
+    });
     showRptOutput(
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
       + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving by Fund: ' + esc(fmtDate(from)) + ' – ' + esc(fmtDate(to)) + '</h3>'
