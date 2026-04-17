@@ -130,6 +130,7 @@ Added 2026-04-15, phased 2026-04-15.
 ## Recent Changes (newest first)
 
 ### 2026-04-17
+- **v42**: DB7 — Fix anniversary spouse pairing for couples where only one person has the anniversary_date set in Breeze (the other's field is blank). After the initial grouping pass, a secondary household lookup finds the head/spouse partner and adds them to the entry. Covers the common Breeze pattern where only the household head has the date.
 - **v41**: Add "Clear All Funds" button in Settings danger zone. Deletes all fund records (not giving entries) so garbage fund names from bad imports can be wiped before re-importing. API: DELETE /admin/api/funds/all (admin only).
 - **v40**: Keep Breeze fund number prefix in fund names. The v36 parseFundSplits change stripped "40085" from "40085 General Fund" — user wants the full name including the number. Regex now strips only the trailing amount in parens, leaving the rest of the name intact.
 - **v39**: Fix "Internal server error" on Breeze sync. Root cause: `import/breeze-giving`, `import/breeze-sync-person`, and `import/breeze-giving-csv` had no outer try/catch — any uncaught exception escaped to the api-admin.js outer catch and returned the generic "Internal server error" message instead of a descriptive one. Added try/catch to all three. Also fixed the export endpoints being unreachable (404): added `seg.startsWith('export/')` to the ChMS dispatch condition in api-admin.js.

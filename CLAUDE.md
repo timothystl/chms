@@ -65,7 +65,7 @@ Full detail in `NOTES.md`. Summary:
 ### Dashboard
 - [x] **DB5** — Last worship card: show both services AND the combined total on a single card (not two separate cards). Done 2026-04-17 (v27).
 - [ ] **DB6** — Dashboard customization: ability to add, remove, and reorder/move cards on the dashboard. (noted 2026-04-17)
-- [ ] **DB7** — Anniversary dashboard spouse pairing misses some households — not all married couples are being grouped into one line. (noted 2026-04-17)
+- [x] **DB7** — Anniversary dashboard spouse pairing misses some households — fixed 2026-04-17 (v42). Secondary household lookup finds partner when only one spouse has anniversary_date set.
 
 ### Photos
 - [ ] **PH1** — Household picture: ability to set/upload a photo for the whole household, or apply a member photo as the household picture. (noted 2026-04-17)

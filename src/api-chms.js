@@ -126,6 +126,33 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       if (!annGroupMap.has(key)) annGroupMap.set(key, []);
       annGroupMap.get(key).push(p);
     }
+    // For still-unpaired entries, try to find the household partner who may not have anniversary_date set.
+    // Common Breeze pattern: only the head of household has the date; spouse field is blank.
+    const unpairedHHIds = [...new Set(
+      [...annGroupMap.values()]
+        .filter(g => g.length === 1 && g[0].household_id)
+        .map(g => g[0].household_id)
+    )];
+    if (unpairedHHIds.length > 0) {
+      const ph = unpairedHHIds.map(() => '?').join(',');
+      const partners = (await db.prepare(
+        `SELECT id, first_name, last_name, anniversary_date, family_role, household_id
+         FROM people WHERE active=1 AND household_id IN (${ph})
+         AND family_role IN ('head','spouse')
+         AND LOWER(member_type) NOT IN ('visitor','inactive','other','organization')`
+      ).bind(...unpairedHHIds).all()).results || [];
+      const partnersByHH = {};
+      for (const s of partners) {
+        if (!partnersByHH[s.household_id]) partnersByHH[s.household_id] = [];
+        partnersByHH[s.household_id].push(s);
+      }
+      for (const group of annGroupMap.values()) {
+        if (group.length !== 1 || !group[0].household_id) continue;
+        const existing = group[0];
+        const partner = (partnersByHH[existing.household_id] || []).find(s => s.id !== existing.id);
+        if (partner) group.push({ ...partner, anniversary_date: existing.anniversary_date });
+      }
+    }
     const anniversaries = [...annGroupMap.values()]
       .map(group => {
         group.sort((a, b) => (_annRoleOrder[a.family_role] ?? 4) - (_annRoleOrder[b.family_role] ?? 4) || a.id - b.id);
