@@ -1347,6 +1347,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     <div class="field" style="margin-top:10px;"><label>Notes</label><textarea id="hm-notes" name="hm-notes" rows="2" style="resize:vertical;"></textarea></div>
     <div class="field" style="margin-top:10px;"><label>Family Photo URL</label><input type="url" id="hm-photo" name="hm-photo" placeholder="https://…"></div>
     <div id="hm-members" style="margin-top:14px;"></div>
+    <div id="hm-push-addr-row" style="display:none;margin-top:10px;">
+      <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;width:100%;" onclick="hhPushAddress()">Push address to household members without one</button>
+    </div>
     <div class="modal-actions">
       <button class="btn-danger" id="hm-del-btn" onclick="deleteHousehold()" style="margin-right:auto;display:none;">Delete</button>
       <button class="btn-secondary" onclick="closeModal('hh-modal')">Cancel</button>
@@ -1442,7 +1445,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-16-v20';
+var DEPLOY_VERSION = '2026-04-16-v21';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -2600,7 +2603,7 @@ function renderPeopleDesktop(people) {
   }
   c.innerHTML = '<table class="dir-table"><thead><tr>'
     + '<th>' + cbAll + '</th>'
-    + sortTh('Name','last_name') + sortTh('Status','member_type') + '<th>Contact</th><th>Household</th><th>Tags</th>'
+    + sortTh('Name','last_name') + sortTh('Status','member_type') + '<th>Contact</th>' + sortTh('Household','household') + '<th>Tags</th>'
     + '</tr></thead><tbody>' + rows + '</tbody></table>';
 }
 // ── MULTI-SELECT ──────────────────────────────────────────────────────
@@ -2810,7 +2813,7 @@ function showProfile(p) {
       + pvRow('Address', addrVal)
       + pvRow('Phone', phoneVal)
       + pvRow('Email', emailVal)
-      + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Apply address to household</button></div>' : '')
+      + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button></div>' : '')
       + '</div>'
       + '<div class="pv-section">'
       + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Family</div>'
@@ -2975,7 +2978,7 @@ function pvRenderContact() {
     + pvRow('Address', addrVal)
     + pvRow('Phone', phoneVal)
     + pvRow('Email', emailVal)
-    + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Apply address to household</button></div>' : '');
+    + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button></div>' : '');
 }
 // ── Demographics section ──────────────────────────────────────────────
 function pvEditDemo() {
@@ -3325,15 +3328,17 @@ function syncPersonFromBreeze(breezeId, personId) {
 }
 function applyAddressToHousehold(personId, householdId) {
   var p = _currentPvPerson;
-  if (!p) return;
-  if (!confirm('Apply this person\'s address to all members of the household?')) return;
+  if (!p || !p.address1) { alert('This person has no address to push.'); return; }
+  if (!confirm('Push this address to household members who have no address on file? (Existing addresses will not be changed.)')) return;
   api('/admin/api/households/'+householdId+'/sync-address', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ address1: p.address1||'', city: p.city||'', state: p.state||'MO', zip: p.zip||'' })
   }).then(function(r) {
-    if (r.ok) alert('Address applied to all household members.');
-    else alert('Error: '+(r.error||'unknown'));
+    if (!r.ok) { alert('Error: '+(r.error||'unknown')); return; }
+    var n = r.updated || 0;
+    if (n > 0) alert('Address pushed to ' + n + ' member' + (n !== 1 ? 's' : '') + ' who had no address on file.');
+    else alert('All household members already have an address — nothing was changed.');
   });
 }
 // Add-to-household: search for existing person and link them
@@ -4635,6 +4640,7 @@ function openHouseholdEdit(h) {
   document.getElementById('hm-notes').value = isNew ? '' : (h.notes||'');
   document.getElementById('hm-photo').value = isNew ? '' : (h.photo_url||'');
   document.getElementById('hm-del-btn').style.display = isNew ? 'none' : 'inline-flex';
+  document.getElementById('hm-push-addr-row').style.display = isNew ? 'none' : '';
   var mc = document.getElementById('hm-members');
   if (h && h.members && h.members.length) {
     mc.innerHTML = '<div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);margin-bottom:6px;">Members</div>'
@@ -4672,6 +4678,28 @@ function deleteHousehold() {
   api('/admin/api/households/' + id, {method:'DELETE'}).then(function(r) {
     if (r.ok) { closeModal('hh-modal'); loadHouseholds(); }
     else alert(r.error || 'Cannot delete.');
+  });
+}
+function hhPushAddress() {
+  var id = document.getElementById('hm-id').value;
+  if (!id) return;
+  var addr1 = document.getElementById('hm-addr1').value.trim();
+  if (!addr1) { alert('No address to push — fill in the street address first.'); return; }
+  var data = {
+    address1: addr1,
+    city: document.getElementById('hm-city').value.trim(),
+    state: document.getElementById('hm-state').value.trim() || 'MO',
+    zip: document.getElementById('hm-zip').value.trim()
+  };
+  api('/admin/api/households/' + id + '/sync-address', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(data)
+  }).then(function(r) {
+    if (!r.ok) { alert('Error: ' + (r.error || 'unknown')); return; }
+    var n = r.updated || 0;
+    if (n > 0) alert('Address pushed to ' + n + ' member' + (n !== 1 ? 's' : '') + ' who had no address on file.');
+    else alert('All household members already have an address — nothing was changed.');
   });
 }
 

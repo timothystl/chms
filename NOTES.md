@@ -90,9 +90,9 @@ Added 2026-04-15, phased 2026-04-15.
 ### Phase 5c — People & Household Data Quality
 | # | Description | Status |
 |---|-------------|--------|
-| HQ1 | **Household-level contact info** — apply address/phone/email from household to all members; preserve individual phone/email if already set (never overwrite existing data) | Queued |
-| HQ2 | **Baptized/Confirmed without a date** — boolean flag separate from date fields; allow marking someone as baptized or confirmed even when no date is known (new DB columns: `baptized INTEGER`, `confirmed INTEGER`) | Queued |
-| HQ3 | **Sort by household in people view** — add "Household" as a sort option in the people list alongside existing last_name / first_name / member_type / created_at options | Queued |
+| HQ1 | **Household-level contact info** — "Push address to members without one" button in household edit modal + same from person profile; never overwrites existing individual addresses | Done 2026-04-16 |
+| HQ2 | **Baptized/Confirmed without a date** — boolean flag separate from date fields; allow marking someone as baptized or confirmed even when no date is known (new DB columns: `baptized INTEGER`, `confirmed INTEGER`) | Done |
+| HQ3 | **Sort by household in people view** — add "Household" as a sort option in the people list alongside existing last_name / first_name / member_type / created_at options | Done 2026-04-16 |
 | HQ4 | **Disambiguate same-last-name households** — when multiple households share a last name, auto-label as "John Smith Family" / "Joe Smith Family" using the head-of-household's first name | Queued |
 
 ---
@@ -130,6 +130,7 @@ Added 2026-04-15, phased 2026-04-15.
 ## Recent Changes (newest first)
 
 ### 2026-04-16
+- **v21**: HQ3 — "Household" sort column added to people list (API + clickable header). HQ1 — sync-address endpoint now only updates members with no existing address (never overwrites); returns updated count. "Push address to members without one" button added to household edit modal and updated on person profiles.
 - **v11**: Register edit form — DOB, Place of Birth, Baptism Place fields added (Goal 2). Autofill `name=` attributes added to all form fields missing them (~50 fields across all modals, Goal 3). Per-person Breeze sync now updates photo_url + exposes photo diagnostic (Goal 4).
 - **v8**: Fixed blank-status people defaulting to Member (R10).
 - **v7**: Fixed tag sync Worker timeout — batch DB ops (R12).

@@ -166,7 +166,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const tagIdsRaw = url.searchParams.get('tag_ids') || '';
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '100'), 200);
     const offset = parseInt(url.searchParams.get('offset') || '0');
-    const SORT_COLS = { last_name: 'p.last_name', first_name: 'p.first_name', member_type: 'p.member_type', created_at: 'p.created_at' };
+    const SORT_COLS = { last_name: 'p.last_name', first_name: 'p.first_name', member_type: 'p.member_type', created_at: 'p.created_at', household: 'h.name' };
     const sortCol = SORT_COLS[url.searchParams.get('sort') || ''] || 'p.last_name';
     const sortDir = url.searchParams.get('dir') === 'desc' ? 'DESC' : 'ASC';
     const like = '%' + q + '%';
@@ -417,11 +417,12 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   if (hhsync && method === 'POST') {
     const hid = parseInt(hhsync[1]);
     let b = {}; try { b = await req.json(); } catch {}
-    // Apply address from one person to all active members of household
-    await db.prepare(
-      `UPDATE people SET address1=?,city=?,state=?,zip=? WHERE household_id=? AND active=1`
+    // Push address to members who have no address — never overwrite existing individual addresses
+    const r = await db.prepare(
+      `UPDATE people SET address1=?,city=?,state=?,zip=?
+       WHERE household_id=? AND active=1 AND (COALESCE(address1,'')='')`
     ).bind(b.address1||'',b.city||'',b.state||'MO',b.zip||'',hid).run();
-    return json({ ok: true });
+    return json({ ok: true, updated: r.meta?.changes ?? 0 });
   }
 
   // ── Follow-up items ─────────────────────────────────────────────
