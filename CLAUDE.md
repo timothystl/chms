@@ -56,7 +56,7 @@ Full detail in `NOTES.md`. Summary:
 - [ ] **PL2** — Archive/Deceased people: how to handle people who have died or should be archived — separate status, hide from active lists, preserve giving history, show in a separate view. Needs design conversation. (noted 2026-04-17)
 
 ### Giving / Finance
-- [ ] **G1** ⚠️ URGENT — Fund import broken: giving records coming in with fund name "breeze fund XXXXX" instead of real fund name. **Corrupts existing giving data on every sync — fix before running another import.** (noted 2026-04-17)
+- [x] **G1** — Fund import: pre-fetches `/api/funds` from Breeze to resolve real names; retroactively renames any "Breeze Fund XXXXX" placeholders on next sync. Done 2026-04-17.
 - [x] **G2** — Edit individual gifts from person profile: click batch number → opens that batch; click a gift row → modal to edit that individual gift (amount, fund, date, method, check #, note). Done 2026-04-17 (v27).
 - [ ] **G3** — Overall gift entry workflow improvements (user has more detail — revisit in dedicated session). (noted 2026-04-17)
 

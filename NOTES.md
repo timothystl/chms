@@ -130,6 +130,7 @@ Added 2026-04-15, phased 2026-04-15.
 ## Recent Changes (newest first)
 
 ### 2026-04-17
+- **G1 fix**: Breeze giving import now pre-fetches `/api/funds` at the start of every sync to build a real fund-name map. Fixes "Breeze Fund XXXXX" placeholders appearing as fund names. Also retroactively renames any already-corrupted placeholder funds on the next sync. Response now includes `fundsRenamed` count. (api-chms.js only — no frontend change)
 - **v27**: G2 — person profile giving tab: added Batch column (clickable → navigates to that batch in the Giving tab), gift rows are now clickable (opens edit-gift-modal instead of inline editing), edit modal title shows batch # and hides Save button for closed batches. DB5 — last worship stat card now shows both services + combined total on a single card instead of two separate cards.
 - **v26**: H1 — Organizations tab added (sidebar between Households and Giving; new `organizations` DB table; full CRUD API + UI with card grid, search, pagination, add/edit modal). H3 — Household giving summary added to household detail modal (finance+ only; shows last 5 years of giving totals for all household members).
 

@@ -2046,6 +2046,18 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     const end   = b.end   || new Date().toISOString().slice(0, 10);
     const hdrs = { 'Api-key': apiKey };
 
+    // Pre-fetch all Breeze fund names so we never create "Breeze Fund XXXXX" placeholders.
+    const breezeFundNames = {};
+    try {
+      const fRes = await fetch(`https://${subdomain}.breezechms.com/api/funds`, { headers: hdrs });
+      if (fRes.ok) {
+        const fData = await fRes.json();
+        if (Array.isArray(fData)) {
+          for (const f of fData) { if (f.id && f.name) breezeFundNames[String(f.id)] = f.name; }
+        }
+      }
+    } catch {} // best-effort — missing names fall back gracefully below
+
     // Fetch log entries
     const logUrl = `https://${subdomain}.breezechms.com/api/account/list_log?action=contribution_added&details=1&limit=3000&start=${start}&end=${end}`;
     const logRes = await fetch(logUrl, { headers: hdrs });
@@ -2152,6 +2164,22 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       fundByName[f.name.toLowerCase().trim()] = f.id;
     }
 
+    // Fix any funds previously saved with placeholder names ("Breeze Fund XXXXX").
+    // Now that we have real names from /api/funds, rename them in place.
+    let fundsRenamed = 0;
+    for (const [breezeId, localId] of Object.entries(fundByBreezeId)) {
+      const realName = breezeFundNames[breezeId];
+      if (!realName) continue;
+      const r = await db.prepare(
+        "UPDATE funds SET name=? WHERE id=? AND name LIKE 'Breeze Fund %'"
+      ).bind(realName, localId).run();
+      if (r.meta?.changes) {
+        fundsRenamed++;
+        // Keep caches consistent
+        fundByName[realName.toLowerCase().trim()] = localId;
+      }
+    }
+
     // ── Process entries, collect inserts ─────────────────────────────
     let imported = 0, skipped = 0;
     const errors = [];
@@ -2190,7 +2218,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
           const cents = Math.round(parseFloat(fl.amount || '0') * 100);
           if (!fundByBreezeId[fl.breezeFundId]) {
             // Try name-based match (funds created from CSV have no breeze_id)
-            const bName = fl.fundName || (fl.breezeFundId === 'default' ? 'General Fund' : `Breeze Fund ${fl.breezeFundId}`);
+            const bName = fl.fundName || breezeFundNames[fl.breezeFundId] || (fl.breezeFundId === 'default' ? 'General Fund' : `Breeze Fund ${fl.breezeFundId}`);
             const nameKey = bName.toLowerCase().trim();
             if (fundByName[nameKey]) {
               // Found by name — link this breeze_id to the existing fund
@@ -2225,7 +2253,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
     ).run();
 
-    return json({ ok: true, imported, skipped, dupesRemoved, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, from_giving_list: givingListEntries.length, date_range: { start, end } });
+    return json({ ok: true, imported, skipped, dupesRemoved, fundsRenamed, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, from_giving_list: givingListEntries.length, date_range: { start, end } });
   }
 
   // ── Breeze Giving CSV Import ─────────────────────────────────────
