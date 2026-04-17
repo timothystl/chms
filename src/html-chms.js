@@ -758,6 +758,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     <!-- "Add Sunday" inline form slot -->
     <div id="att-add-form" style="display:none;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:12px;"></div>
     <!-- Service list -->
+    <div style="display:flex;justify-content:flex-end;margin-bottom:4px;">
+      <button id="att-table-toggle" class="btn-sm" style="padding:3px 10px;font-size:.75rem;" onclick="toggleAttTable()">&#9660; Hide Table</button>
+    </div>
     <div id="att-list"></div>
     <!-- ── Inline Attendance Reports ── -->
     <div style="margin-top:28px;border-top:2px solid var(--border);padding-top:20px;">
@@ -967,6 +970,13 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
         </div>
       </div>
       <div class="import-status" id="export-status"></div>
+    </div>
+    <div class="import-card">
+      <h3>&#127968; Household Head Assignment</h3>
+      <p id="hq4-status-text">Loading…</p>
+      <p style="font-size:.82rem;color:var(--warm-gray);">Heads are used for display names and anniversary pairing. Promotes a spouse (or first member) to Head when none is assigned.</p>
+      <button class="btn-secondary" onclick="fixHouseholdHeads()" style="font-size:.88rem;">Fix Household Heads</button>
+      <div class="import-status" id="hq4-status"></div>
     </div>
     <div class="import-card" style="border-color:#e74c3c;">
       <h3 style="color:#e74c3c;">&#9888; Clear All Giving Data</h3>
@@ -1178,6 +1188,10 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     <div>
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Tags</div>
       <div id="fd-tags"></div>
+    </div>
+    <div style="margin-top:20px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Missing Field</div>
+      <div id="fd-missing"></div>
     </div>
   </div>
   <div style="padding:14px 18px;border-top:1px solid var(--border);flex-shrink:0;">
@@ -1393,7 +1407,15 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div class="field"><label>State / ZIP</label><div style="display:flex;gap:6px;"><input type="text" id="hm-state" name="hm-state" style="width:60px;" maxlength="2" value="MO"><input type="text" id="hm-zip" name="hm-zip" placeholder="63000"></div></div>
     </div>
     <div class="field" style="margin-top:10px;"><label>Notes</label><textarea id="hm-notes" name="hm-notes" rows="2" style="resize:vertical;"></textarea></div>
-    <div class="field" style="margin-top:10px;"><label>Family Photo URL</label><input type="url" id="hm-photo" name="hm-photo" placeholder="https://…"></div>
+    <div class="field" style="margin-top:10px;">
+      <label>Family Photo</label>
+      <input type="hidden" id="hm-photo">
+      <div style="display:flex;align-items:center;gap:12px;margin-top:4px;">
+        <img id="hm-photo-preview" src="" alt="" style="display:none;width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);">
+        <button type="button" id="hm-photo-upload-btn" class="btn-secondary require-edit" style="display:none;font-size:.82rem;padding:5px 12px;" onclick="triggerHHPhotoUpload()">&#128247; Upload Photo</button>
+        <input type="file" id="hm-photo-input" accept="image/*" style="display:none;" onchange="handleHHPhotoSelected(this)">
+      </div>
+    </div>
     <div id="hm-members" style="margin-top:14px;"></div>
     <div id="hm-push-addr-row" style="display:none;margin-top:10px;">
       <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;width:100%;" onclick="hhPushAddress()">Push address to household members without one</button>
@@ -1540,7 +1562,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-17-v45';
+var DEPLOY_VERSION = '2026-04-17-v46';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -1550,7 +1572,7 @@ window.onerror = function(msg, src, line, col, err) {
   return false;
 };
 // ── STATE ────────────────────────────────────────────────────────────
-var allTags = [], allFunds = [], currentBatchId = null, _currentBatch = null, peopleFilter = {q:'',mt:'',tagIds:[],offset:0,limit:25,sort:'last_name',dir:'asc'};
+var allTags = [], allFunds = [], currentBatchId = null, _currentBatch = null, peopleFilter = {q:'',mt:'',tagIds:[],missingFields:[],offset:0,limit:25,sort:'last_name',dir:'asc'};
 var _peopleTotal = 0;
 var _pDebounce, _hDebounce;
 var _loadedServices = [];
@@ -1562,8 +1584,9 @@ var _editGiftId = null;
 var _editGiftFilterYear = '';
 var _userRole = 'admin';
 var _batchSearch = '';
-var _attOrder = 'desc', _attGroupBy = 'none', _attChartMode = 'line';
+var _attOrder = 'desc', _attGroupBy = 'none', _attChartMode = 'line', _attTableVisible = true;
 var _selectMode = false, _selectedPeople = new Set();
+var _editingHouseholdId = null;
 var _churchConfig = {};
 var DEFAULT_LETTER_TEMPLATE = 'Dear {{name}},\\n\\nThank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.\\n\\nBelow is a summary of your giving for {{year}}:\\n\\n{{gift_table}}\\n\\nTotal Contributions: {{total}}\\n\\n{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}\\n\\nWith gratitude,\\n\\nTimothy Lutheran Church\\n\\nDate: {{date}}';
 var _userRole = 'admin';
@@ -1835,6 +1858,27 @@ function renderFilterDrawer() {
         + esc(t.name) + '</label>';
     }).join('');
   }
+  // Missing field checkboxes organized by category
+  var mfEl = document.getElementById('fd-missing');
+  if (mfEl) {
+    var mfCategories = [
+      { label: 'Main', fields: [{ v: 'dob', label: 'Birthday' }, { v: 'gender', label: 'Gender' }] },
+      { label: 'Family', fields: [{ v: 'photo', label: 'Photo' }] },
+      { label: 'Other', fields: [{ v: 'anniversary', label: 'Anniversary Date' }, { v: 'baptism', label: 'Baptism Date' }, { v: 'confirmation', label: 'Confirmation Date' }] },
+      { label: 'Contact', fields: [{ v: 'email', label: 'Email' }, { v: 'phone', label: 'Phone' }, { v: 'address', label: 'Address' }] }
+    ];
+    mfEl.innerHTML = mfCategories.map(function(cat) {
+      return '<div style="margin-bottom:10px;">'
+        + '<div style="font-size:.72rem;font-weight:700;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">' + esc(cat.label) + '</div>'
+        + cat.fields.map(function(f) {
+          var checked = peopleFilter.missingFields.indexOf(f.v) !== -1;
+          return '<label style="display:flex;align-items:center;gap:9px;padding:5px 4px;cursor:pointer;font-size:.9rem;border-radius:6px;">'
+            + '<input type="checkbox" value="' + f.v + '" ' + (checked ? 'checked' : '') + ' onchange="toggleFdMissing(\'' + f.v + '\',this.checked)" style="flex-shrink:0;">'
+            + esc(f.label) + '</label>';
+        }).join('')
+        + '</div>';
+    }).join('');
+  }
 }
 function fdRadio(name, val, label, checked, onchange) {
   return '<label style="display:flex;align-items:center;gap:9px;padding:6px 4px;cursor:pointer;font-size:.9rem;border-radius:6px;">'
@@ -1858,6 +1902,15 @@ function toggleFdTag(id, on) {
   updateFilterBadge();
   updateFdCount();
 }
+function toggleFdMissing(v, on) {
+  var idx = peopleFilter.missingFields.indexOf(v);
+  if (on && idx === -1) peopleFilter.missingFields.push(v);
+  else if (!on && idx !== -1) peopleFilter.missingFields.splice(idx, 1);
+  loadPeople(true);
+  renderActiveFilterChips();
+  updateFilterBadge();
+  updateFdCount();
+}
 // Keep legacy setFdTag for any existing callers
 function setFdTag(v) {
   peopleFilter.tagIds = v ? [String(v)] : [];
@@ -1870,13 +1923,14 @@ function setFdTag(v) {
 function clearAllFilters() {
   peopleFilter.mt = '';
   peopleFilter.tagIds = [];
+  peopleFilter.missingFields = [];
   loadPeople(true);
   renderFilterDrawer();
   renderActiveFilterChips();
   updateFilterBadge();
 }
 function updateFilterBadge() {
-  var count = (peopleFilter.mt ? 1 : 0) + peopleFilter.tagIds.length;
+  var count = (peopleFilter.mt ? 1 : 0) + peopleFilter.tagIds.length + peopleFilter.missingFields.length;
   var badge = document.getElementById('p-filter-count');
   if (badge) { badge.textContent = count; badge.style.display = count > 0 ? 'inline-flex' : 'none'; }
 }
@@ -1895,6 +1949,10 @@ function renderActiveFilterChips() {
   peopleFilter.tagIds.forEach(function(tid) {
     var tag = allTags.find(function(t){ return String(t.id) === tid; });
     if (tag) chips.push(filterChip(tag.name, tag.color, "toggleFdTag('" + tid + "',false)"));
+  });
+  var _mfLabels = { dob:'No Birthday', gender:'No Gender', photo:'No Photo', anniversary:'No Anniversary', baptism:'No Baptism Date', confirmation:'No Confirmation Date', email:'No Email', phone:'No Phone', address:'No Address' };
+  peopleFilter.missingFields.forEach(function(v) {
+    chips.push(filterChip(_mfLabels[v] || ('No ' + v), 'var(--warm-gray)', "toggleFdMissing('" + v + "',false)"));
   });
   c.innerHTML = chips.length
     ? chips.join('') + (chips.length > 1 ? '<button onclick="clearAllFilters()" style="font-size:.75rem;color:var(--teal);background:none;border:none;cursor:pointer;padding:2px 6px;font-weight:600;">Clear all</button>' : '')
@@ -2118,6 +2176,11 @@ function loadSettings() {
   });
   renderSettingsMemberTypesList();
   loadMemberTypeMap();
+  // HQ4: load headless household count
+  api('/admin/api/households/no-head-count').then(function(d) {
+    var el = document.getElementById('hq4-status-text');
+    if (el) el.textContent = (d.count || 0) + ' household' + (d.count === 1 ? '' : 's') + ' have no Head of Household assigned.';
+  });
 }
 function saveSettings() {
   // Only include non-empty values — the API will skip saving empty strings,
@@ -2657,6 +2720,7 @@ function loadPeople(resetPage) {
   if (peopleFilter.q) params.set('q', peopleFilter.q);
   if (peopleFilter.mt) params.set('member_type', peopleFilter.mt);
   if (peopleFilter.tagIds && peopleFilter.tagIds.length) params.set('tag_ids', peopleFilter.tagIds.join(','));
+  if (peopleFilter.missingFields && peopleFilter.missingFields.length) params.set('missing_fields', peopleFilter.missingFields.join(','));
   params.set('limit', peopleFilter.limit);
   params.set('offset', peopleFilter.offset);
   params.set('sort', peopleFilter.sort || 'last_name');
@@ -3394,6 +3458,56 @@ function savePvTags() {
 function triggerPhotoUpload() {
   var inp = document.getElementById('pv-photo-input');
   if (inp) inp.click();
+}
+function triggerHHPhotoUpload() {
+  var inp = document.getElementById('hm-photo-input');
+  if (inp) inp.click();
+}
+function handleHHPhotoSelected(input) {
+  if (!input.files || !input.files[0]) return;
+  var file = input.files[0];
+  input.value = '';
+  if (!file.type.startsWith('image/')) { alert('Please select an image file.'); return; }
+  var hid = _editingHouseholdId;
+  if (!hid) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var img = new Image();
+    img.onload = function() {
+      var MAX = 600;
+      var w = img.width, h = img.height;
+      if (w > MAX || h > MAX) {
+        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+        else { w = Math.round(w * MAX / h); h = MAX; }
+      }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(function(blob) {
+        var btn = document.getElementById('hm-photo-upload-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Uploading\u2026'; }
+        var fd = new FormData();
+        fd.append('photo', blob, 'photo.jpg');
+        fetch('/admin/api/households/' + hid + '/photo', { method: 'POST', body: fd, credentials: 'same-origin' })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (btn) { btn.disabled = false; btn.innerHTML = '&#128247; Upload Photo'; }
+            if (d && d.ok && d.photo_url) {
+              document.getElementById('hm-photo').value = d.photo_url;
+              var prevEl = document.getElementById('hm-photo-preview');
+              if (prevEl) { prevEl.src = photoSrc(d.photo_url) + '?t=' + Date.now(); prevEl.style.display = 'block'; }
+            } else {
+              alert('Upload failed: ' + ((d && d.error) || 'unknown error'));
+            }
+          }).catch(function() {
+            if (btn) { btn.disabled = false; btn.innerHTML = '&#128247; Upload Photo'; }
+            alert('Upload failed. Please try again.');
+          });
+      }, 'image/jpeg', 0.85);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 
 function handlePhotoFileSelected(input) {
@@ -4792,7 +4906,13 @@ function openHouseholdEdit(h) {
   document.getElementById('hm-state').value = isNew ? 'MO' : (h.state||'MO');
   document.getElementById('hm-zip').value = isNew ? '' : (h.zip||'');
   document.getElementById('hm-notes').value = isNew ? '' : (h.notes||'');
-  document.getElementById('hm-photo').value = isNew ? '' : (h.photo_url||'');
+  _editingHouseholdId = isNew ? null : h.id;
+  var photoUrl = isNew ? '' : (h.photo_url||'');
+  document.getElementById('hm-photo').value = photoUrl;
+  var prevEl = document.getElementById('hm-photo-preview');
+  if (prevEl) { prevEl.src = photoUrl ? photoSrc(photoUrl) : ''; prevEl.style.display = photoUrl ? 'block' : 'none'; }
+  var upBtn = document.getElementById('hm-photo-upload-btn');
+  if (upBtn) upBtn.style.display = isNew ? 'none' : 'inline-flex';
   document.getElementById('hm-del-btn').style.display = isNew ? 'none' : 'inline-flex';
   document.getElementById('hm-push-addr-row').style.display = isNew ? 'none' : '';
   var mc = document.getElementById('hm-members');
@@ -5719,6 +5839,24 @@ function clearAllFunds() {
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
+function fixHouseholdHeads() {
+  var status = document.getElementById('hq4-status');
+  status.textContent = 'Working\u2026'; status.className = 'import-status';
+  api('/admin/api/households/fix-heads', {method:'POST'}).then(function(d) {
+    if (d.ok) {
+      var msg = 'Fixed ' + d.fixed + ' household' + (d.fixed === 1 ? '' : 's') + '.';
+      if (d.fixed === 0) msg = 'All households already have a head assigned.';
+      status.textContent = msg;
+      status.className = 'import-status ok';
+      var el = document.getElementById('hq4-status-text');
+      if (el) el.textContent = '0 households have no Head of Household assigned.';
+    } else {
+      status.textContent = 'Error: ' + (d.error||'unknown');
+      status.className = 'import-status err';
+    }
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
 // ── IMPORT ──────────────────────────────────────────────────────────────
 function loadFundMapping() {
   var status = document.getElementById('fund-map-status');
@@ -6189,6 +6327,13 @@ function renderAttendanceListFromLoaded() {
   renderAttendanceList(_loadedServices, _attTotalInDb || 0);
 }
 var _attTotalInDb = 0;
+function toggleAttTable() {
+  _attTableVisible = !_attTableVisible;
+  var el = document.getElementById('att-list');
+  var btn = document.getElementById('att-table-toggle');
+  if (el)  el.style.display  = _attTableVisible ? '' : 'none';
+  if (btn) btn.innerHTML = _attTableVisible ? '&#9660; Hide Table' : '&#9654; Show Table';
+}
 function toggleAttOrder() {
   _attOrder = _attOrder === 'desc' ? 'asc' : 'desc';
   var btn = document.getElementById('att-order-btn');

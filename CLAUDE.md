@@ -67,17 +67,20 @@ Full detail in `NOTES.md`. Summary:
 - [ ] **DB6** — Dashboard customization: ability to add, remove, and reorder/move cards on the dashboard. (noted 2026-04-17)
 - [x] **DB7** — Anniversary dashboard spouse pairing misses some households — fixed 2026-04-17 (v42). Secondary household lookup finds partner when only one spouse has anniversary_date set.
 
+### Households / Data Quality
+- [x] **HQ4** — Household head robustness scan: Settings card shows count of headless households; "Fix Household Heads" promotes spouse or first member. API: GET /admin/api/households/no-head-count and POST /admin/api/households/fix-heads. Done 2026-04-17 (v46).
+
 ### Photos
-- [ ] **PH1** — Household picture: ability to set/upload a photo for the whole household, or apply a member photo as the household picture. (noted 2026-04-17)
+- [x] **PH1** — Household picture: upload photo for a household via hh-modal upload button → R2 → DB. Done 2026-04-17 (v46).
 - [ ] **PH2** — Crop profile picture: add a crop/resize tool when uploading a profile photo. (noted 2026-04-17)
 - [x] **PH3** — Black bar appearing above some household cards — fixed 2026-04-17 (v45). Wrapped photo img in a container div with background:var(--linen); onerror hides the whole container.
 
 ### People / Filters
-- [ ] **PF1** — More filter-by-X options: filter people by missing data fields (no DOB, no address, no email, etc.) for data cleanup workflows. (noted 2026-04-17)
+- [x] **PF1** — Filter people by missing data fields: checkboxes organized by category with AND logic. Done 2026-04-17 (v46).
 
 ### Attendance / Reports
-- [ ] **AT1** — Attendance table: add collapse/expand toggle so the full Sunday attendance table can be hidden. (noted 2026-04-17)
-- [ ] **AT2** — Attendance graph direction: January should be on the left (currently reversed). (noted 2026-04-17)
+- [x] **AT1** — Attendance table collapse/expand toggle. Done 2026-04-17 (v46).
+- [x] **AT2** — Attendance graph direction fixed: ORDER BY ASC so oldest dates plot left. Done 2026-04-17 (v46).
 - [ ] **AT3** — Attendance graphs: drag to resize charts. (noted 2026-04-17)
 - [ ] **AT4** — Year-over-year giving/attendance report: overlapping graphs to compare current year vs prior year on the same chart. (noted 2026-04-17)
 

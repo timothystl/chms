@@ -246,6 +246,22 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       where += ' AND p.id IN (SELECT person_id FROM person_tags WHERE tag_id=?)';
       binds.push(tid);
     }
+    // Missing-field AND filter: validate each value against allowlist to prevent injection
+    const missingClauses = {
+      dob:          `(p.dob IS NULL OR p.dob='')`,
+      gender:       `(p.gender IS NULL OR p.gender='')`,
+      photo:        `(p.photo_url IS NULL OR p.photo_url='')`,
+      anniversary:  `(p.anniversary_date IS NULL OR p.anniversary_date='')`,
+      baptism:      `(p.baptism_date IS NULL OR p.baptism_date='')`,
+      confirmation: `(p.confirmation_date IS NULL OR p.confirmation_date='')`,
+      email:        `(p.email IS NULL OR p.email='')`,
+      phone:        `(p.phone IS NULL OR p.phone='')`,
+      address:      `(p.address1 IS NULL OR p.address1='')`,
+    };
+    const missingFieldsRaw = url.searchParams.get('missing_fields') || '';
+    for (const f of missingFieldsRaw.split(',').map(s => s.trim()).filter(Boolean)) {
+      if (missingClauses[f]) where += ' AND ' + missingClauses[f];
+    }
     // Total count
     const countRow = await db.prepare(`SELECT COUNT(*) as n FROM people p WHERE ${where}`).bind(...binds).first();
     const total = countRow?.n || 0;
@@ -450,6 +466,25 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     return json({ ok: true, photo_url: photoUrl });
   }
 
+  // ── Household photo upload ───────────────────────────────────────
+  const hhPhotoMatch = seg.match(/^households\/(\d+)\/photo$/);
+  if (hhPhotoMatch && method === 'POST') {
+    if (!canEdit) return json({ error: 'Access denied' }, 403);
+    if (!env.PHOTOS) return json({ error: 'Photo storage not configured' }, 503);
+    const hid = parseInt(hhPhotoMatch[1]);
+    let file;
+    try { const fd = await req.formData(); file = fd.get('photo'); } catch { return json({ error: 'Invalid form data' }, 400); }
+    if (!file || !file.size) return json({ error: 'No file provided' }, 400);
+    const ct = file.type || 'image/jpeg';
+    if (!ct.startsWith('image/')) return json({ error: 'File must be an image' }, 400);
+    const ext = ct === 'image/png' ? 'png' : ct === 'image/webp' ? 'webp' : 'jpg';
+    const r2Key = `households/${hid}/photo.${ext}`;
+    await env.PHOTOS.put(r2Key, await file.arrayBuffer(), { httpMetadata: { contentType: ct } });
+    const photoUrl = `/admin/r2photo/${r2Key}`;
+    await db.prepare('UPDATE households SET photo_url=? WHERE id=?').bind(photoUrl, hid).run();
+    return json({ ok: true, photo_url: photoUrl });
+  }
+
   // ── Households ──────────────────────────────────────────────────
   if (seg === 'households' && method === 'GET') {
     const q = '%' + (url.searchParams.get('q') || '') + '%';
@@ -544,6 +579,40 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       await db.prepare('DELETE FROM households WHERE id=?').bind(hid).run();
       return json({ ok: true });
     }
+  }
+
+  // ── HQ4: Household head quality scan ────────────────────────────
+  if (seg === 'households/no-head-count' && method === 'GET') {
+    const row = await db.prepare(
+      `SELECT COUNT(DISTINCT h.id) as cnt FROM households h
+       JOIN people p ON p.household_id=h.id AND p.active=1
+       WHERE NOT EXISTS (
+         SELECT 1 FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.family_role='head'
+       )`
+    ).first();
+    return json({ count: row?.cnt ?? 0 });
+  }
+  if (seg === 'households/fix-heads' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied' }, 403);
+    const headless = (await db.prepare(
+      `SELECT DISTINCT h.id FROM households h
+       JOIN people p ON p.household_id=h.id AND p.active=1
+       WHERE NOT EXISTS (
+         SELECT 1 FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.family_role='head'
+       )`
+    ).all()).results || [];
+    let fixed = 0;
+    for (const hh of headless) {
+      const candidate = await db.prepare(
+        `SELECT id FROM people WHERE household_id=? AND active=1
+         ORDER BY CASE family_role WHEN 'spouse' THEN 0 ELSE 1 END, id LIMIT 1`
+      ).bind(hh.id).first();
+      if (candidate) {
+        await db.prepare(`UPDATE people SET family_role='head' WHERE id=?`).bind(candidate.id).run();
+        fixed++;
+      }
+    }
+    return json({ ok: true, fixed, total_headless: headless.length });
   }
 
   // ── Household address sync ──────────────────────────────────────
@@ -1196,7 +1265,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
               MIN(CASE WHEN service_time='10:45' THEN attendance END) as att_1045
        FROM worship_services
        WHERE service_type='sunday' AND attendance > 0 AND service_date BETWEEN ? AND ?
-       GROUP BY service_date ORDER BY service_date DESC`
+       GROUP BY service_date ORDER BY service_date ASC`
     ).bind(from, to).all()).results || [];
     return json({ from, to, by_time: rows, sundays });
   }
