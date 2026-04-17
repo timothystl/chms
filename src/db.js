@@ -193,7 +193,26 @@ export const DB_INIT = [
     created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     last_login    TEXT    NOT NULL DEFAULT ''
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_app_users_username ON app_users(username)`
+  `CREATE INDEX IF NOT EXISTS idx_app_users_username ON app_users(username)`,
+  // H1: Organizations — external bodies, businesses, nonprofits, etc.
+  `CREATE TABLE IF NOT EXISTS organizations (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT    NOT NULL DEFAULT '',
+    type         TEXT    NOT NULL DEFAULT '',
+    contact_name TEXT    NOT NULL DEFAULT '',
+    phone        TEXT    NOT NULL DEFAULT '',
+    email        TEXT    NOT NULL DEFAULT '',
+    website      TEXT    NOT NULL DEFAULT '',
+    address1     TEXT    NOT NULL DEFAULT '',
+    address2     TEXT    NOT NULL DEFAULT '',
+    city         TEXT    NOT NULL DEFAULT '',
+    state        TEXT    NOT NULL DEFAULT 'MO',
+    zip          TEXT    NOT NULL DEFAULT '',
+    notes        TEXT    NOT NULL DEFAULT '',
+    active       INTEGER NOT NULL DEFAULT 1,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_organizations_name ON organizations(name)`
 ];
 
 

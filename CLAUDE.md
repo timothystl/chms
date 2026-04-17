@@ -42,7 +42,7 @@ Church Management System (ChMS) for Timothy Lutheran Church. Built on **Cloudfla
 Full detail in `NOTES.md`. Summary:
 
 - **Phases 1–5c**: All complete as of 2026-04-16 (v25).
-- **Phase 6 (future)**: H1 Organizations, H3 Household giving, N2 Scheduler integration, I1 Subdomain rename.
+- **Phase 6**: H1 (Organizations) and H3 (Household giving) done as of 2026-04-17 (v26). Remaining: N2 Scheduler integration, I1 Subdomain rename.
 - **Anything added below this line was noted mid-session and not yet scheduled.**
 
 ---

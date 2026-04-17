@@ -476,7 +476,17 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
           if (head?.first_name) display_name = disambiguateHHName(h.name, head.first_name);
         }
       }
-      return json({ ...h, members, display_name });
+      // H3: household giving summary — last 5 years, grouped by year
+      const givingYears = (await db.prepare(
+        `SELECT substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4) as yr,
+                SUM(ge.amount) as total_cents
+         FROM giving_entries ge
+         JOIN giving_batches gb ON ge.batch_id=gb.id
+         JOIN people p ON ge.person_id=p.id
+         WHERE p.household_id=? AND p.active=1
+         GROUP BY yr ORDER BY yr DESC LIMIT 5`
+      ).bind(hid).all()).results || [];
+      return json({ ...h, members, display_name, giving_years: givingYears });
     }
     if (method === 'PUT') {
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
@@ -504,6 +514,50 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
        WHERE household_id=? AND active=1 AND (COALESCE(address1,'')='')`
     ).bind(b.address1||'',b.city||'',b.state||'MO',b.zip||'',hid).run();
     return json({ ok: true, updated: r.meta?.changes ?? 0 });
+  }
+
+  // ── Organizations ────────────────────────────────────────────────
+  if (seg === 'organizations' && method === 'GET') {
+    const q = url.searchParams.get('q') || '';
+    const offset = parseInt(url.searchParams.get('offset') || '0');
+    const limit = parseInt(url.searchParams.get('limit') || '25');
+    const showInactive = url.searchParams.get('inactive') === '1';
+    const activeClause = showInactive ? '' : 'AND active=1';
+    const like = `%${q}%`;
+    const [countRow, listRows] = await Promise.all([
+      db.prepare(`SELECT COUNT(*) as n FROM organizations WHERE (name LIKE ? OR contact_name LIKE ? OR city LIKE ?) ${activeClause}`).bind(like, like, like).first(),
+      db.prepare(`SELECT * FROM organizations WHERE (name LIKE ? OR contact_name LIKE ? OR city LIKE ?) ${activeClause} ORDER BY name LIMIT ? OFFSET ?`).bind(like, like, like, limit, offset).all()
+    ]);
+    return json({ organizations: listRows.results || [], total: countRow?.n || 0, offset, limit });
+  }
+  if (seg === 'organizations' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    if (!b.name?.trim()) return json({ error: 'Name is required' }, 400);
+    const r = await db.prepare(
+      `INSERT INTO organizations (name,type,contact_name,phone,email,website,address1,address2,city,state,zip,notes,active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)`
+    ).bind(b.name.trim(), b.type||'', b.contact_name||'', b.phone||'', b.email||'', b.website||'', b.address1||'', b.address2||'', b.city||'', b.state||'MO', b.zip||'', b.notes||'').run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+  const orgMatch = seg.match(/^organizations\/(\d+)$/);
+  if (orgMatch) {
+    const oid = parseInt(orgMatch[1]);
+    if (method === 'GET') {
+      const o = await db.prepare('SELECT * FROM organizations WHERE id=?').bind(oid).first();
+      if (!o) return json({ error: 'Not found' }, 404);
+      return json(o);
+    }
+    if (method === 'PUT') {
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      if (!b.name?.trim()) return json({ error: 'Name is required' }, 400);
+      await db.prepare(
+        `UPDATE organizations SET name=?,type=?,contact_name=?,phone=?,email=?,website=?,address1=?,address2=?,city=?,state=?,zip=?,notes=?,active=? WHERE id=?`
+      ).bind(b.name.trim(), b.type||'', b.contact_name||'', b.phone||'', b.email||'', b.website||'', b.address1||'', b.address2||'', b.city||'', b.state||'MO', b.zip||'', b.notes||'', b.active===false?0:1, oid).run();
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      await db.prepare('DELETE FROM organizations WHERE id=?').bind(oid).run();
+      return json({ ok: true });
+    }
   }
 
   // ── Follow-up items ─────────────────────────────────────────────

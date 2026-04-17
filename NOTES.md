@@ -100,8 +100,8 @@ Added 2026-04-15, phased 2026-04-15.
 ### Phase 6 — Future / Planning
 | # | Description | Status |
 |---|-------------|--------|
-| H1 | Add **Organizations** section to sidebar below Households (new entity type, DB schema) | Future |
-| H3 | **Household-level giving** — combine/display giving totals across all household members | Future |
+| H1 | Add **Organizations** section to sidebar below Households (new entity type, DB schema) | Done 2026-04-17 (v26) |
+| H3 | **Household-level giving** — combine/display giving totals across all household members | Done 2026-04-17 (v26) |
 | N2 | **Scheduler app** integrated natively into this CHMS app | Future |
 | I1 | **Rename subdomain** (`chms.timothystl.org` or `admin.timothystl.org`); possibly merge website editing + newsletter | Discussion needed |
 
@@ -128,6 +128,9 @@ Added 2026-04-15, phased 2026-04-15.
 ---
 
 ## Recent Changes (newest first)
+
+### 2026-04-17
+- **v26**: H1 — Organizations tab added (sidebar between Households and Giving; new `organizations` DB table; full CRUD API + UI with card grid, search, pagination, add/edit modal). H3 — Household giving summary added to household detail modal (finance+ only; shows last 5 years of giving totals for all household members).
 
 ### 2026-04-16
 - **v23**: HQ4 fix — COALESCE fallback in all 3 disambiguation paths so households without a 'head' role still get disambiguated. DB4 — birthday and anniversary split into two separate dashboard cards; anniversary couples (same household + same date) paired into one line ("Bob & Alice Johnson"); bulletin copy format: "Apr  5  John Smith" with year in header.
