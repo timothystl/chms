@@ -59,10 +59,21 @@ Full detail in `NOTES.md`. Summary:
 - [x] **G1** — Fund import: pre-fetches `/api/funds` from Breeze to resolve real names; retroactively renames any "Breeze Fund XXXXX" placeholders on next sync. Done 2026-04-17.
 - [x] **G2** — Edit individual gifts from person profile: click batch number → opens that batch; click a gift row → modal to edit that individual gift (amount, fund, date, method, check #, note). Done 2026-04-17 (v27).
 - [ ] **G3** — Overall gift entry workflow improvements (user has more detail — revisit in dedicated session). (noted 2026-04-17)
+- [ ] **G4** — Reopen batch button is broken/dead — investigate and fix. (noted 2026-04-17)
+- [ ] **G5** — Export data: persons, giving (year-by-year), and register data — all useful formats for records/reporting. (noted 2026-04-17)
 
 ### Dashboard
 - [x] **DB5** — Last worship card: show both services AND the combined total on a single card (not two separate cards). Done 2026-04-17 (v27).
 - [ ] **DB6** — Dashboard customization: ability to add, remove, and reorder/move cards on the dashboard. (noted 2026-04-17)
+- [ ] **DB7** — Anniversary dashboard spouse pairing misses some households — not all married couples are being grouped into one line. (noted 2026-04-17)
+
+### Photos
+- [ ] **PH1** — Household picture: ability to set/upload a photo for the whole household, or apply a member photo as the household picture. (noted 2026-04-17)
+- [ ] **PH2** — Crop profile picture: add a crop/resize tool when uploading a profile photo. (noted 2026-04-17)
+- [ ] **PH3** — Black bar appearing above some household cards — investigate and fix rendering bug. (noted 2026-04-17)
+
+### People / Filters
+- [ ] **PF1** — More filter-by-X options: filter people by missing data fields (no DOB, no address, no email, etc.) for data cleanup workflows. (noted 2026-04-17)
 
 ### Attendance / Reports
 - [ ] **AT1** — Attendance table: add collapse/expand toggle so the full Sunday attendance table can be hidden. (noted 2026-04-17)
