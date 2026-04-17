@@ -1512,7 +1512,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-17-v36';
+var DEPLOY_VERSION = '2026-04-17-v37';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -1522,7 +1522,7 @@ window.onerror = function(msg, src, line, col, err) {
   return false;
 };
 // ── STATE ────────────────────────────────────────────────────────────
-var allTags = [], allFunds = [], currentBatchId = null, peopleFilter = {q:'',mt:'',tagIds:[],offset:0,limit:25,sort:'last_name',dir:'asc'};
+var allTags = [], allFunds = [], currentBatchId = null, _currentBatch = null, peopleFilter = {q:'',mt:'',tagIds:[],offset:0,limit:25,sort:'last_name',dir:'asc'};
 var _peopleTotal = 0;
 var _pDebounce, _hDebounce;
 var _loadedServices = [];
@@ -5029,6 +5029,7 @@ function openBatch(id) {
   api('/admin/api/giving/batches/' + id).then(function(b) { renderBatchDetail(b); });
 }
 function renderBatchDetail(b) {
+  _currentBatch = b;
   var c = document.getElementById('batch-detail');
   var isOpen = !b.closed;
   var total = (b.entries||[]).reduce(function(s,e){return s+(e.amount||0);},0);
@@ -5125,19 +5126,23 @@ function deleteEntry(id) {
 }
 function closeBatch(id) {
   if (!confirm('Close this batch? Entries cannot be added or removed after closing.')) return;
-  api('/admin/api/giving/batches/' + id).then(function(b) {
-    api('/admin/api/giving/batches/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({closed:1,batch_date:b.batch_date,description:b.description})}).then(function() {
-      openBatch(id); loadBatches();
-    });
-  });
+  var b = _currentBatch || {};
+  api('/admin/api/giving/batches/' + id, {method:'PUT', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({closed:1, batch_date:b.batch_date||'', description:b.description||''})})
+    .then(function(r) {
+      if (r && r.ok) { openBatch(id); loadBatches(); }
+      else alert('Error closing batch: ' + (r && r.error || 'Unknown error'));
+    }).catch(function(e) { alert('Error closing batch: ' + e.message); });
 }
 function reopenBatch(id) {
   if (!confirm('Reopen this batch?')) return;
-  api('/admin/api/giving/batches/' + id).then(function(b) {
-    api('/admin/api/giving/batches/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({closed:0,batch_date:b.batch_date,description:b.description})}).then(function() {
-      openBatch(id); loadBatches();
-    });
-  });
+  var b = _currentBatch || {};
+  api('/admin/api/giving/batches/' + id, {method:'PUT', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({closed:0, batch_date:b.batch_date||'', description:b.description||''})})
+    .then(function(r) {
+      if (r && r.ok) { openBatch(id); loadBatches(); }
+      else alert('Error reopening batch: ' + (r && r.error || 'Unknown error'));
+    }).catch(function(e) { alert('Error reopening batch: ' + e.message); });
 }
 function openNewBatch() {
   var today = new Date().toISOString().slice(0,10);
