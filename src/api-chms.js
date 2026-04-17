@@ -2424,23 +2424,35 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // Fetch real fund names from Breeze
     const breezeFundNames = {};
     let fetchError = null;
+    let rawBody = '';
+    let httpStatus = 0;
     try {
       const fRes = await fetch(`https://${subdomain}.breezechms.com/api/funds`, { headers: hdrs });
+      httpStatus = fRes.status;
+      rawBody = await fRes.text();
       if (fRes.ok) {
-        const fData = await fRes.json();
-        const fArr = Array.isArray(fData) ? fData : (Array.isArray(fData?.funds) ? fData.funds : null);
-        if (fArr) {
-          for (const f of fArr) { if (f.id && f.name) breezeFundNames[String(f.id)] = f.name; }
+        if (!rawBody.trim()) {
+          fetchError = 'Breeze /api/funds returned empty body (status ' + httpStatus + ')';
         } else {
-          fetchError = 'Unexpected /api/funds format: ' + JSON.stringify(fData).slice(0, 200);
+          let fData;
+          try { fData = JSON.parse(rawBody); }
+          catch (pe) { fetchError = 'Breeze /api/funds returned non-JSON: ' + rawBody.slice(0, 200); }
+          if (fData) {
+            const fArr = Array.isArray(fData) ? fData : (Array.isArray(fData?.funds) ? fData.funds : null);
+            if (fArr) {
+              for (const f of fArr) { if (f.id && f.name) breezeFundNames[String(f.id)] = f.name; }
+            } else {
+              fetchError = 'Unexpected /api/funds format: ' + rawBody.slice(0, 200);
+            }
+          }
         }
       } else {
-        fetchError = `Breeze /api/funds returned ${fRes.status}`;
+        fetchError = `Breeze /api/funds returned ${httpStatus}: ` + rawBody.slice(0, 200);
       }
-    } catch (e) { fetchError = e.message; }
+    } catch (e) { fetchError = 'fetch threw: ' + e.message; }
 
     if (fetchError && Object.keys(breezeFundNames).length === 0)
-      return json({ ok: false, error: fetchError, breezeFundsFound: 0, renamed: 0 });
+      return json({ ok: false, error: fetchError, breezeFundsFound: 0, renamed: 0, httpStatus, rawBodyPreview: rawBody.slice(0, 500) });
 
     // Get all local funds with placeholder names
     const placeholderFunds = (await db.prepare(
