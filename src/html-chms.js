@@ -1512,7 +1512,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-17-v35';
+var DEPLOY_VERSION = '2026-04-17-v36';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -5954,7 +5954,7 @@ function importGivingCSV(file) {
   status.textContent = 'Reading\u2026'; status.className = 'import-status';
   var reader = new FileReader();
   reader.onload = function(e) {
-    var lines = e.target.result.split(/\\r?\\n/);
+    var lines = e.target.result.split(/\r?\n/);
     var header = lines[0];
     var dataLines = lines.slice(1).filter(function(l) { return l.trim(); });
     var total = dataLines.length;
@@ -5983,7 +5983,7 @@ function importGivingCSV(file) {
       fetch('/admin/api/import/giving-csv', {
         method: 'POST',
         headers: {'Content-Type': 'text/csv'},
-        body: header + '\\n' + chunks[idx].join('\\n')
+        body: header + '\n' + chunks[idx].join('\n')
       }).then(function(r) { return r.json(); }).then(function(d) {
         if (d.error) { status.textContent = 'Error on chunk ' + idx + ': ' + d.error; status.className = 'import-status err'; return; }
         totImported += d.imported   || 0;

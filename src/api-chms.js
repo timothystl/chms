@@ -1871,15 +1871,28 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     let imported = 0, skipped = 0, skipBlank = 0, skipDup = 0, skipZero = 0, fundsMade = 0, batchesMade = 0;
     const ops = [];
 
-    // Parse "40085 General Fund: $160.00, 49094 Tuition Aid: $40.00" into per-fund splits
+    // Parse Breeze fund strings into per-fund splits.
+    // Handles Breeze CSV format: "40085 General Fund" or "40085 General Fund (160.00), 49094 Tuition Aid (40.00)"
+    // Also handles colon format: "General Fund: $160.00, Tuition Aid: $40.00"
     const parseFundSplits = (fundStr, totalCents) => {
       const s = (fundStr || '').trim();
       if (!s) return [{ name: 'General Fund', cents: totalCents }];
+      // Breeze CSV format: starts with numeric fund ID prefix
+      if (/^\d+\s/.test(s)) {
+        const parts = s.split(/,\s*(?=\d)/);
+        const splits = parts.map(p => {
+          const m = p.trim().match(/^\d+\s+(.+?)(?:\s+\(([0-9.]+)\))?\s*$/);
+          return m ? { name: m[1].trim(), cents: m[2] ? Math.round(parseFloat(m[2]) * 100) : null } : null;
+        }).filter(Boolean);
+        if (splits.length > 1) return splits.map(f => ({ name: f.name, cents: f.cents ?? 0 }));
+        if (splits.length === 1) return [{ name: splits[0].name, cents: totalCents }];
+      }
+      // Colon format: "General Fund: $160.00"
       if (/:\s*\$?[0-9]/.test(s)) {
         const parts = s.split(/,\s*(?=\S)/);
         const splits = [];
         for (const p of parts) {
-          const m = p.trim().match(/^((?:\d+\s+)?[^:]+?):\s*\$?([0-9.]+)\s*$/);
+          const m = p.trim().match(/^([^:]+?):\s*\$?([0-9.]+)\s*$/);
           if (m) splits.push({ name: m[1].trim(), cents: Math.round(parseFloat(m[2]) * 100) });
         }
         if (splits.length > 1) return splits;
