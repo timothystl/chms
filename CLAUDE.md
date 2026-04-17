@@ -63,7 +63,7 @@ Full detail in `NOTES.md`. Summary:
 - [x] **G5** — Export data: persons, giving (year-by-year), and register data. Done 2026-04-17 (v38).
 - [x] **G6** — Giving CSV import reconciliation fixes (v47, v51, 2026-04-17): (1) Negative entries (refunds/adjustments) were silently dropped — fixed. (2) "nan" fund name (blank exported by Excel) now maps to General Fund. (3) Float person IDs (`43826663.0`) now stripped. (4) Split-fund multi-row payments: Breeze exports one row per fund with same Payment ID; second row was treated as duplicate and fund allocation dropped — fixed with nth-occurrence tracking. Import now shows expandable list of skipped payment IDs as diagnostic.
 - [x] **G7** — Giving by Fund report now groups funds by numeric code prefix (e.g., all "40085 *" variants under one collapsible group with subtotal). Done 2026-04-17 (v48).
-- [ ] **G8** — Re-import all giving years (2022–2026) after G6 fixes to recover: (a) previously-dropped negative adjustment entries, (b) split-fund second rows that were skipped. A full clear-and-reimport is the cleanest approach. (noted 2026-04-17)
+- [x] **G8** — Re-import all giving years (2022–2026) after G6 fixes. Completed 2026-04-17 — all years 2021–2026 verified correct.
 
 ### Dashboard
 - [x] **DB5** — Last worship card: show both services AND the combined total on a single card (not two separate cards). Done 2026-04-17 (v27).

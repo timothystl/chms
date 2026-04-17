@@ -990,6 +990,15 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div class="import-status" id="hq4-status"></div>
     </div>
     <div class="import-card" style="border-color:#e74c3c;">
+      <h3 style="color:#e74c3c;">&#9888; Clear Giving Data for One Year</h3>
+      <p>Deletes all giving entries and batches for a single year. Use this to re-import one year without touching other years. <strong>This cannot be undone.</strong></p>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="number" id="clear-year-input" placeholder="e.g. 2026" min="2000" max="2099" style="width:110px;padding:6px 10px;border:1px solid #e74c3c;border-radius:6px;font-size:.88rem;">
+        <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearGivingByYear()">&#9888; Clear Year</button>
+      </div>
+      <div class="import-status" id="clear-year-status" style="margin-top:8px;"></div>
+    </div>
+    <div class="import-card" style="border-color:#e74c3c;">
       <h3 style="color:#e74c3c;">&#9888; Clear All Giving Data</h3>
       <p>Permanently deletes all giving entries and batches from the database. Use this to start fresh before re-importing correct data. <strong>This cannot be undone.</strong></p>
       <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearAllGiving()">&#9888; Clear All Giving Data</button>
@@ -1573,7 +1582,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-17-v52';
+var DEPLOY_VERSION = '2026-04-17-v53';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -5839,6 +5848,23 @@ function exportRegister() {
   a.click();
   document.body.removeChild(a);
   setTimeout(function() { status.textContent = 'Download started.'; status.className = 'import-status ok'; }, 500);
+}
+function clearGivingByYear() {
+  var year = (document.getElementById('clear-year-input').value || '').trim();
+  if (!/^\d{4}$/.test(year)) { alert('Enter a valid 4-digit year.'); return; }
+  var status = document.getElementById('clear-year-status');
+  if (!confirm('This will PERMANENTLY DELETE all giving entries for ' + year + '. 2021\u20132025 data will not be affected.\n\nAre you sure?')) return;
+  status.textContent = 'Deleting\u2026'; status.className = 'import-status';
+  api('/admin/api/giving/by-year?year=' + year, {method:'DELETE'}).then(function(d) {
+    if (d.ok) {
+      status.textContent = 'Deleted ' + (d.deleted||0) + ' entries for ' + year + '. Safe to re-import.';
+      status.className = 'import-status ok';
+      loadBatches();
+    } else {
+      status.textContent = 'Error: ' + (d.error||'unknown');
+      status.className = 'import-status err';
+    }
+  });
 }
 function clearAllGiving() {
   if (!confirm('This will PERMANENTLY DELETE all giving entries and batches. This cannot be undone.\\n\\nAre you absolutely sure?')) return;
