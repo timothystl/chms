@@ -1,6 +1,14 @@
 // ── ChMS (People & Giving) API handler ────────────────────────────────────────
 import { html, json } from './auth.js';
 
+// Disambiguate household display names when multiple households share the same name.
+// "Smith Family" + "John" → "John Smith Family"; "Smith" + "John" → "John Smith"
+function disambiguateHHName(name, headFirst) {
+  if (!headFirst) return name;
+  const m = name.match(/^(.*?)\s*Family\s*$/i);
+  return m ? (headFirst + ' ' + m[1].trim() + ' Family') : (headFirst + ' ' + name);
+}
+
 export async function handleChmsApi(req, env, url, method, seg, role = 'admin') {
   const db = env.DB;
 
@@ -100,13 +108,35 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
          AND strftime('%m', dob) = ?
        ORDER BY strftime('%d', dob)`
     ).bind(dashMonthStr).all()).results || [];
-    const anniversaries = (await db.prepare(
-      `SELECT id, first_name, last_name, anniversary_date FROM people
+    // DB4: fetch anniversaries with role+household so couples can be paired
+    const annRows = (await db.prepare(
+      `SELECT id, first_name, last_name, anniversary_date, family_role, household_id FROM people
        WHERE active=1 AND anniversary_date != ''
          AND LOWER(member_type) NOT IN ('visitor','inactive','other','organization')
          AND strftime('%m', anniversary_date) = ?
-       ORDER BY strftime('%d', anniversary_date)`
+       ORDER BY strftime('%d', anniversary_date), household_id,
+         CASE family_role WHEN 'head' THEN 0 WHEN 'spouse' THEN 1 ELSE 2 END`
     ).bind(dashMonthStr).all()).results || [];
+    // Group same-household + same-date pairs into one entry ("Bob & Alice Johnson")
+    const _annRoleOrder = { head: 0, spouse: 1, child: 2, other: 3 };
+    const annGroupMap = new Map();
+    for (const p of annRows) {
+      const key = (p.household_id && p.household_id !== '') ? `${p.household_id}:${p.anniversary_date}` : `_${p.id}`;
+      if (!annGroupMap.has(key)) annGroupMap.set(key, []);
+      annGroupMap.get(key).push(p);
+    }
+    const anniversaries = [...annGroupMap.values()]
+      .map(group => {
+        group.sort((a, b) => (_annRoleOrder[a.family_role] ?? 4) - (_annRoleOrder[b.family_role] ?? 4) || a.id - b.id);
+        return {
+          id: group[0].id,
+          first_name: group.map(p => p.first_name || '').filter(Boolean).join(' & '),
+          last_name: group[0].last_name,
+          anniversary_date: group[0].anniversary_date,
+          paired: group.length > 1
+        };
+      })
+      .sort((a, b) => a.anniversary_date.slice(5) < b.anniversary_date.slice(5) ? -1 : 1);
     // Recent additions
     const recentPeople = (await db.prepare(
       `SELECT p.id, p.first_name, p.last_name, p.member_type, p.created_at, h.name as household_name
@@ -206,7 +236,27 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
         tagsByPerson[tr.person_id].push({ id: tr.id, name: tr.name, color: tr.color });
       }
     }
-    const people = rows.map(p => ({ ...p, tags: tagsByPerson[p.id] || [] }));
+    // HQ4: disambiguate household names that are shared across multiple households
+    const hhIdsUniq = [...new Set(rows.map(r => r.household_id).filter(Boolean))];
+    const hhDisambigMap = {};
+    if (hhIdsUniq.length) {
+      const ph2 = hhIdsUniq.map(() => '?').join(',');
+      const dRows = (await db.prepare(
+        `SELECT h.id, h.name,
+         COALESCE(
+           (SELECT p2.first_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.family_role='head' LIMIT 1),
+           (SELECT p2.first_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 ORDER BY p2.id LIMIT 1)
+         ) as head_first_name
+         FROM households h WHERE h.id IN (${ph2})
+         AND LOWER(h.name) IN (SELECT LOWER(name) FROM households GROUP BY LOWER(name) HAVING COUNT(*)>1)`
+      ).bind(...hhIdsUniq).all()).results || [];
+      for (const r of dRows) hhDisambigMap[r.id] = disambiguateHHName(r.name, r.head_first_name);
+    }
+    const people = rows.map(p => ({
+      ...p,
+      tags: tagsByPerson[p.id] || [],
+      household_display_name: hhDisambigMap[p.household_id] || p.household_name || null
+    }));
     return json({ people, total, offset, limit });
   }
 
@@ -268,7 +318,16 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
         ).bind(pid).first();
         giving12mo = giving12?.total || 0;
       }
-      return json({ ...p, tags, giving_12mo: giving12mo });
+      // HQ4: disambiguate if this household name is shared with another household
+      let household_display_name = p.household_name || null;
+      if (p.household_id && p.household_name) {
+        const dup2 = await db.prepare(`SELECT COUNT(*) as n FROM households WHERE LOWER(name)=LOWER(?) AND id!=?`).bind(p.household_name, p.household_id).first();
+        if (dup2?.n > 0) {
+          const hd = await db.prepare(`SELECT first_name FROM people WHERE household_id=? AND active=1 ORDER BY CASE family_role WHEN 'head' THEN 0 ELSE 1 END, id LIMIT 1`).bind(p.household_id).first();
+          if (hd?.first_name) household_display_name = disambiguateHHName(p.household_name, hd.first_name);
+        }
+      }
+      return json({ ...p, tags, giving_12mo: giving12mo, household_display_name });
     }
     if (method === 'PUT') {
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
@@ -368,13 +427,26 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const total = countRow?.n || 0;
     const rows = (await db.prepare(
       `SELECT h.*, COUNT(p.id) as member_count,
-        (SELECT p2.id FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.family_role='head' LIMIT 1) as head_person_id,
-        (SELECT p3.id FROM people p3 WHERE p3.household_id=h.id AND p3.active=1 ORDER BY p3.id LIMIT 1) as first_person_id
+        (SELECT p2.id   FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.family_role='head' LIMIT 1) as head_person_id,
+        COALESCE(
+          (SELECT p2.first_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.family_role='head' LIMIT 1),
+          (SELECT p2.first_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 ORDER BY p2.id LIMIT 1)
+        ) as head_first_name,
+        (SELECT p3.id   FROM people p3 WHERE p3.household_id=h.id AND p3.active=1 ORDER BY p3.id LIMIT 1) as first_person_id
        FROM households h
        LEFT JOIN people p ON p.household_id=h.id AND p.active=1
        WHERE (h.name LIKE ? OR h.address1 LIKE ? OR h.city LIKE ?) ${mtSubquery}
        GROUP BY h.id ORDER BY ${orderBy} LIMIT ? OFFSET ?`
     ).bind(q,q,q,limit,offset).all()).results || [];
+    // HQ4: compute display_name for households whose name is shared by another household
+    const dupNameSet = new Set(
+      ((await db.prepare(`SELECT LOWER(name) as n FROM households GROUP BY LOWER(name) HAVING COUNT(*)>1`).all()).results || []).map(r => r.n)
+    );
+    for (const r of rows) {
+      r.display_name = dupNameSet.has((r.name||'').toLowerCase()) && r.head_first_name
+        ? disambiguateHHName(r.name, r.head_first_name)
+        : r.name;
+    }
     return json({ households: rows, total, offset, limit });
   }
 
@@ -395,7 +467,16 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       const members = (await db.prepare(
         `SELECT id,first_name,last_name,member_type,family_role,phone,email FROM people WHERE household_id=? AND active=1 ORDER BY family_role,last_name`
       ).bind(hid).all()).results || [];
-      return json({ ...h, members });
+      // HQ4: compute display_name if another household shares this name
+      let display_name = h.name;
+      if (h.name) {
+        const dup = await db.prepare(`SELECT COUNT(*) as n FROM households WHERE LOWER(name)=LOWER(?) AND id!=?`).bind(h.name, hid).first();
+        if (dup?.n > 0) {
+          const head = members.find(m => m.family_role === 'head') || members[0];
+          if (head?.first_name) display_name = disambiguateHHName(h.name, head.first_name);
+        }
+      }
+      return json({ ...h, members, display_name });
     }
     if (method === 'PUT') {
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
