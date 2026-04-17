@@ -2048,15 +2048,19 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     const hdrs = { 'Api-key': apiKey };
 
     // Pre-fetch all Breeze fund names so we never create "Breeze Fund XXXXX" placeholders.
+    // /api/funds returns empty for some accounts — also harvested from giving/list below.
     const breezeFundNames = {};
     try {
       const fRes = await fetch(`https://${subdomain}.breezechms.com/api/funds`, { headers: hdrs });
       if (fRes.ok) {
-        const fData = await fRes.json();
-        const fArr = Array.isArray(fData) ? fData : (Array.isArray(fData?.funds) ? fData.funds : []);
-        for (const f of fArr) { if (f.id && f.name) breezeFundNames[String(f.id)] = f.name; }
+        const fRaw = await fRes.text();
+        if (fRaw.trim()) {
+          const fData = JSON.parse(fRaw);
+          const fArr = Array.isArray(fData) ? fData : (Array.isArray(fData?.funds) ? fData.funds : []);
+          for (const f of fArr) { if (f.id && f.name) breezeFundNames[String(f.id)] = f.name; }
+        }
       }
-    } catch {} // best-effort — missing names fall back gracefully below
+    } catch {} // best-effort — also populated from giving/list fund entries below
 
     // Fetch log entries
     const logUrl = `https://${subdomain}.breezechms.com/api/account/list_log?action=contribution_added&details=1&limit=3000&start=${start}&end=${end}`;
@@ -2092,7 +2096,10 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
                 if (fid) {
                   d['fund-' + fid] = fid;
                   d['amount-' + fid] = String(f.amount || g.amount || '0');
-                  if (f.name) d['fname-' + fid] = f.name; // preserve Breeze fund name
+                  if (f.name) {
+                    d['fname-' + fid] = f.name;
+                    breezeFundNames[fid] = f.name; // harvest for retroactive rename
+                  }
                 }
               }
             }
@@ -2451,8 +2458,31 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       }
     } catch (e) { fetchError = 'fetch threw: ' + e.message; }
 
-    if (fetchError && Object.keys(breezeFundNames).length === 0)
-      return json({ ok: false, error: fetchError, breezeFundsFound: 0, renamed: 0, httpStatus, rawBodyPreview: rawBody.slice(0, 500) });
+    // /api/funds returned empty — fall back to harvesting names from recent giving entries
+    if (Object.keys(breezeFundNames).length === 0) {
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const fiveYrsAgo = (new Date().getFullYear() - 5) + '-01-01';
+        const glRes = await fetch(
+          `https://${subdomain}.breezechms.com/api/giving/list?start=${fiveYrsAgo}&end=${today}&limit=10000`,
+          { headers: hdrs }
+        );
+        if (glRes.ok) {
+          const gl = await glRes.json().catch(() => null);
+          if (Array.isArray(gl)) {
+            for (const g of gl) {
+              for (const f of (Array.isArray(g.funds) ? g.funds : [])) {
+                const fid = String(f.id || f.fund_id || '');
+                if (fid && f.name) breezeFundNames[fid] = f.name;
+              }
+            }
+          }
+        }
+      } catch {} // best-effort
+    }
+
+    if (Object.keys(breezeFundNames).length === 0)
+      return json({ ok: false, error: (fetchError || '/api/funds empty') + ' and no fund names found in giving/list either', breezeFundsFound: 0, renamed: 0, httpStatus, rawBodyPreview: rawBody.slice(0, 500) });
 
     // Get all local funds with placeholder names
     const placeholderFunds = (await db.prepare(
