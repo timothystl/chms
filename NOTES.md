@@ -130,6 +130,7 @@ Added 2026-04-15, phased 2026-04-15.
 ## Recent Changes (newest first)
 
 ### 2026-04-17
+- **v41**: Add "Clear All Funds" button in Settings danger zone. Deletes all fund records (not giving entries) so garbage fund names from bad imports can be wiped before re-importing. API: DELETE /admin/api/funds/all (admin only).
 - **v40**: Keep Breeze fund number prefix in fund names. The v36 parseFundSplits change stripped "40085" from "40085 General Fund" — user wants the full name including the number. Regex now strips only the trailing amount in parens, leaving the rest of the name intact.
 - **v39**: Fix "Internal server error" on Breeze sync. Root cause: `import/breeze-giving`, `import/breeze-sync-person`, and `import/breeze-giving-csv` had no outer try/catch — any uncaught exception escaped to the api-admin.js outer catch and returned the generic "Internal server error" message instead of a descriptive one. Added try/catch to all three. Also fixed the export endpoints being unreachable (404): added `seg.startsWith('export/')` to the ChMS dispatch condition in api-admin.js.
 - **v38**: G5 — Export Data. Three CSV download buttons in Settings → Data Import & Sync: Export All People (name, contact, dates, household, member type), Export Giving (year selector, all entries with date/person/fund/amount/method), Export Register (all baptism/confirmation/wedding records). API: GET /admin/api/export/{people,giving,register}; people/register = admin-only, giving = finance+.

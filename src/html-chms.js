@@ -974,6 +974,12 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearAllGiving()">&#9888; Clear All Giving Data</button>
       <div class="import-status" id="clear-giving-status"></div>
     </div>
+    <div class="import-card" style="border-color:#e74c3c;">
+      <h3 style="color:#e74c3c;">&#9888; Clear All Funds</h3>
+      <p>Permanently deletes all fund records from the database. Use this to clean up bad or placeholder fund names before re-importing. Funds will be recreated on next import. <strong>This cannot be undone.</strong></p>
+      <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearAllFunds()">&#9888; Clear All Funds</button>
+      <div class="import-status" id="clear-funds-status"></div>
+    </div>
   </div>
 </div>
 <!-- ═══ REGISTER TAB ═══ -->
@@ -1534,7 +1540,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-17-v40';
+var DEPLOY_VERSION = '2026-04-17-v41';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -5686,6 +5692,22 @@ function clearAllGiving() {
       status.textContent = 'All giving data cleared. You can now re-import.';
       status.className = 'import-status ok';
       loadBatches();
+    } else {
+      status.textContent = 'Error: ' + (d.error||'unknown');
+      status.className = 'import-status err';
+    }
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
+function clearAllFunds() {
+  if (!confirm('This will PERMANENTLY DELETE all fund records. Funds will be recreated on next import. This cannot be undone.\\n\\nAre you absolutely sure?')) return;
+  var status = document.getElementById('clear-funds-status');
+  status.textContent = 'Deleting…'; status.className = 'import-status';
+  api('/admin/api/funds/all', {method:'DELETE'}).then(function(d) {
+    if (d.ok) {
+      status.textContent = 'All funds cleared (' + (d.deleted||0) + ' removed). Funds will be recreated on next import.';
+      status.className = 'import-status ok';
+      loadFunds();
     } else {
       status.textContent = 'Error: ' + (d.error||'unknown');
       status.className = 'import-status err';
