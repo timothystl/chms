@@ -51,6 +51,28 @@ Full detail in `NOTES.md`. Summary:
 
 <!-- Add items here as they come up. Format: - [ ] Description (noted YYYY-MM-DD) -->
 
+### Giving / Finance
+- [ ] **G1** — Fund import broken: giving records coming in with fund name "breeze fund XXXXX" instead of real fund name. Fix Breeze giving import to resolve fund names correctly. (noted 2026-04-17)
+- [ ] **G2** — Edit individual gifts from person profile: click batch number → opens that batch; click a gift row → modal to edit that individual gift (amount, fund, date, method, check #, note). See screenshots for reference UI. (noted 2026-04-17)
+- [ ] **G3** — Overall gift entry workflow improvements (user has more detail — revisit in dedicated session). (noted 2026-04-17)
+
+### Dashboard
+- [ ] **DB5** — Last worship card: show both services AND the combined total on a single card (not two separate cards). (noted 2026-04-17)
+- [ ] **DB6** — Dashboard customization: ability to add, remove, and reorder/move cards on the dashboard. (noted 2026-04-17)
+
+### Attendance / Reports
+- [ ] **AT1** — Attendance table: add collapse/expand toggle so the full Sunday attendance table can be hidden. (noted 2026-04-17)
+- [ ] **AT2** — Attendance graph direction: January should be on the left (currently reversed). (noted 2026-04-17)
+- [ ] **AT3** — Attendance graphs: drag to resize charts. (noted 2026-04-17)
+- [ ] **AT4** — Year-over-year giving/attendance report: overlapping graphs to compare current year vs prior year on the same chart. (noted 2026-04-17)
+
+### Communications / Email
+- [ ] **EM1** — Connect member email list to the newsletter the church sends out (integrate or export for mailing). (noted 2026-04-17)
+- [ ] **EM2** — Automated birthday/anniversary emails: automatically send a "Happy Birthday" or "Happy Anniversary" email to members on their day. (noted 2026-04-17)
+
+### Scheduler
+- [ ] **SC1** — Make the scheduler native to the CHMS app instead of linking out to an external scheduler. (noted 2026-04-17) — see Phase 6 N2.
+
 ---
 
 ## Gotchas & Patterns
