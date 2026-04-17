@@ -142,9 +142,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       const ph = unpairedHHIds.map(() => '?').join(',');
       const partners = (await db.prepare(
         `SELECT id, first_name, last_name, anniversary_date, family_role, household_id
-         FROM people WHERE active=1 AND household_id IN (${ph})
-         AND family_role IN ('head','spouse')
-         AND LOWER(member_type) NOT IN ('visitor','inactive','other','organization')`
+         FROM people WHERE active=1 AND (deceased=0 OR deceased IS NULL) AND household_id IN (${ph})`
       ).bind(...unpairedHHIds).all()).results || [];
       const partnersByHH = {};
       for (const s of partners) {
@@ -154,7 +152,9 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       for (const group of annGroupMap.values()) {
         if (group.length !== 1 || !group[0].household_id) continue;
         const existing = group[0];
-        const partner = (partnersByHH[existing.household_id] || []).find(s => s.id !== existing.id);
+        const candidates = (partnersByHH[existing.household_id] || []).filter(s => s.id !== existing.id);
+        // Prefer head/spouse roles; fall back to any household member
+        const partner = candidates.find(s => s.family_role === 'head' || s.family_role === 'spouse') || candidates[0];
         if (partner) group.push({ ...partner, anniversary_date: existing.anniversary_date });
       }
     }
