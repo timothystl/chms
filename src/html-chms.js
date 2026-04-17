@@ -1564,7 +1564,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-17-v50';
+var DEPLOY_VERSION = '2026-04-17-v51';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -6224,7 +6224,7 @@ function importGivingCSV(file) {
     var chunks = [];
     for (var i = 0; i < dataLines.length; i += chunkSize)
       chunks.push(dataLines.slice(i, i + chunkSize));
-    var totImported = 0, totSkipped = 0, totBatches = 0, totFunds = 0, totBlank = 0, totDup = 0, totZero = 0;
+    var totImported = 0, totSkipped = 0, totBatches = 0, totFunds = 0, totBlank = 0, totDup = 0, totZero = 0, allDupIds = [];
     function sendChunk(idx) {
       if (idx >= chunks.length) {
         var msg = 'Done \u2014 ' + totImported + ' imported, ' + totSkipped + ' skipped (of ' + total + ' rows).';
@@ -6238,6 +6238,19 @@ function importGivingCSV(file) {
           if (why.length) msg += ' Skipped: ' + why.join(', ') + '.';
         }
         status.textContent = msg; status.className = 'import-status ok';
+        if (allDupIds.length) {
+          var details = document.createElement('details');
+          details.style.cssText = 'margin-top:6px;font-size:.8rem;color:var(--warm-gray);';
+          var summary = document.createElement('summary');
+          summary.style.cssText = 'cursor:pointer;';
+          summary.textContent = 'Show ' + allDupIds.length + ' skipped payment ID(s)';
+          details.appendChild(summary);
+          var pre = document.createElement('pre');
+          pre.style.cssText = 'margin:4px 0 0;white-space:pre-wrap;font-size:.75rem;max-height:200px;overflow-y:auto;';
+          pre.textContent = allDupIds.join('\n');
+          details.appendChild(pre);
+          status.after(details);
+        }
         return;
       }
       var pct = Math.round(idx / chunks.length * 100);
@@ -6255,6 +6268,7 @@ function importGivingCSV(file) {
         totBlank    += d.skipBlank  || 0;
         totDup      += d.skipDup    || 0;
         totZero     += d.skipZero   || 0;
+        if (d.dupIds && d.dupIds.length) allDupIds = allDupIds.concat(d.dupIds);
         sendChunk(idx + 1);
       }).catch(function(err) { status.textContent = 'Error: ' + err.message; status.className = 'import-status err'; });
     }

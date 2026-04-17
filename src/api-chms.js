@@ -1980,6 +1980,8 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       fundByName[f.name.toLowerCase().trim()] = f.id;
 
     let imported = 0, skipped = 0, skipBlank = 0, skipDup = 0, skipZero = 0, fundsMade = 0, batchesMade = 0;
+    const dupIds = [];
+    const pidSeenInCsv = {}; // tracks nth occurrence of each payment ID in this chunk
     const ops = [];
 
     // Parse Breeze fund strings into per-fund splits.
@@ -2016,7 +2018,15 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     for (const row of dataRows) {
       const pid = String(row[C.paymentId] || '').trim();
       if (!pid) { skipped++; skipBlank++; continue; }
-      if (existingIds.has(pid) || existingIds.has(pid + '-1')) { skipped++; skipDup++; continue; }
+      // Track how many times this payment ID appears in this CSV chunk.
+      // Breeze exports one row per fund for split payments (same pid, different fund/amount).
+      // First occurrence: check pid and pid-1. Subsequent: check pid-N.
+      pidSeenInCsv[pid] = (pidSeenInCsv[pid] || 0) + 1;
+      const nthOcc = pidSeenInCsv[pid];
+      const isDup = nthOcc === 1
+        ? (existingIds.has(pid) || existingIds.has(pid + '-1'))
+        : existingIds.has(pid + '-' + nthOcc);
+      if (isDup) { skipped++; skipDup++; dupIds.push(pid + (nthOcc > 1 ? ' (row ' + nthOcc + ')' : '')); continue; }
 
       const date      = parseDate(C.date >= 0 ? row[C.date] : '');
       const batchNum  = C.batchNum >= 0  ? (row[C.batchNum]  || '').trim() : '';
@@ -2052,7 +2062,9 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
 
       for (let si = 0; si < fundSplits.length; si++) {
         const { name: fName, cents: fCents } = fundSplits[si];
-        const entryId = isMulti ? pid + '-' + (si + 1) : pid;
+        // Multi-fund single row: pid-1, pid-2 … (parseFundSplits split)
+        // Multi-row split (Breeze per-fund rows): pid (1st row), pid-2 (2nd), pid-3 (3rd)
+        const entryId = isMulti ? (pid + '-' + (si + 1)) : (nthOcc === 1 ? pid : pid + '-' + nthOcc);
         const fundKey = fName.toLowerCase().trim();
         if (!fundByName[fundKey]) {
           const r = await db.prepare(
@@ -2075,7 +2087,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
     ).run();
 
-    return json({ ok: true, imported, skipped, skipBlank, skipDup, skipZero, fundsMade, batchesMade, total: dataRows.length });
+    return json({ ok: true, imported, skipped, skipBlank, skipDup, skipZero, fundsMade, batchesMade, total: dataRows.length, dupIds });
   } catch (e) { return json({ ok: false, error: e.message }, 500); } }
 
   // ── Giving Reset ──────────────────────────────────────────────────
