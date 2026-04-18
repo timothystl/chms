@@ -2370,6 +2370,26 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // Record all harvested fund names after both /api/funds and giving/list
     diag.breezeFundNamesAfterHarvest = Object.entries(breezeFundNames).map(([id, name]) => ({ id, name }));
 
+    // ── Batch-fix any placeholder fund names ("Breeze Fund XXXXX") ──────
+    // Must run AFTER giving/list harvest so breezeFundNames is fully populated.
+    let fundsRenamed = 0;
+    {
+      const fixOps = [];
+      const fixMeta = [];
+      for (const [breezeId, localId] of Object.entries(fundByBreezeId)) {
+        const realName = breezeFundNames[breezeId];
+        if (!realName) continue;
+        fixOps.push(db.prepare("UPDATE funds SET name=? WHERE id=? AND name LIKE 'Breeze Fund %'").bind(realName, localId));
+        fixMeta.push({ breezeId, localId, realName });
+      }
+      if (fixOps.length) {
+        const results = await db.batch(fixOps);
+        results.forEach((r, i) => {
+          if (r.meta?.changes) { fundsRenamed++; fundByName[fixMeta[i].realName.toLowerCase().trim()] = fixMeta[i].localId; }
+        });
+      }
+    }
+
     // All contributions come from the audit log only.
     const allEntries = entries;
     if (allEntries.length === 0) return json({ ok: true, imported: 0, skipped: 0, total: 0, date_range: { start, end } });
@@ -2442,25 +2462,6 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     for (const f of (await db.prepare('SELECT id, name, breeze_id FROM funds').all()).results || []) {
       if (f.breeze_id) fundByBreezeId[f.breeze_id] = f.id;
       fundByName[f.name.toLowerCase().trim()] = f.id;
-    }
-
-    // ── Batch-fix any placeholder fund names ("Breeze Fund XXXXX") ──────
-    let fundsRenamed = 0;
-    {
-      const fixOps = [];
-      const fixMeta = [];
-      for (const [breezeId, localId] of Object.entries(fundByBreezeId)) {
-        const realName = breezeFundNames[breezeId];
-        if (!realName) continue;
-        fixOps.push(db.prepare("UPDATE funds SET name=? WHERE id=? AND name LIKE 'Breeze Fund %'").bind(realName, localId));
-        fixMeta.push({ breezeId, localId, realName });
-      }
-      if (fixOps.length) {
-        const results = await db.batch(fixOps);
-        results.forEach((r, i) => {
-          if (r.meta?.changes) { fundsRenamed++; fundByName[fixMeta[i].realName.toLowerCase().trim()] = fixMeta[i].localId; }
-        });
-      }
     }
 
     // ── Pass 1: pre-scan entries to collect needed batches and funds ──
@@ -2585,7 +2586,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     }
 
     // ── Pass 2: build entry inserts (no D1 calls in this loop) ──────
-    let imported = 0, skipped = 0;
+    let imported = 0, skipped = 0, skippedDateFilter = 0;
     const errors = [];
     const entryInserts = [];
 
@@ -2602,7 +2603,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         const checkNum = d.check_number || '';
         const notes    = d.note || '';
         const date     = parseDate(d.date);
-        if (date < start || date > end) { skipped++; continue; }
+        if (date < start || date > end) { skippedDateFilter++; continue; }
         const batchKey = d.batch_num ? `Breeze Batch #${d.batch_num}` : `Breeze Import ${date}`;
         const batchId  = batchByDesc[batchKey];
         if (!batchId) { errors.push({ id: entry.id, error: 'batch not found: ' + batchKey }); skipped++; continue; }
@@ -2632,7 +2633,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
     ).run();
 
-    return json({ ok: true, imported, skipped, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, givingListFundHarvest, givingListFiltered, seenIdsCount: seenIds.size, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, date_range: { start, end }, diagnostics: diag });
+    return json({ ok: true, imported, skipped, skippedDateFilter, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, givingListFundHarvest, givingListFiltered, seenIdsCount: seenIds.size, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, date_range: { start, end }, diagnostics: diag });
   } catch (givingErr) {
     return json({ error: 'Giving sync error: ' + givingErr.message }, 500);
   } }
