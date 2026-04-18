@@ -2476,6 +2476,27 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       if (ops.length) await db.batch(ops);
     }
 
+    // ── Resolve unknown fund names individually from Breeze ─────────
+    // For any fund that would be named "Breeze Fund XXXXX", try a direct
+    // API lookup. This is a one-time cost per fund — once the name is in
+    // the DB, subsequent syncs find it by breeze_id without extra calls.
+    const placeholderIds = [...newFundsNeeded.entries()]
+      .filter(([, name]) => name.startsWith('Breeze Fund '))
+      .map(([id]) => id);
+    if (placeholderIds.length > 0) {
+      await Promise.allSettled(placeholderIds.map(async fid => {
+        try {
+          const r = await fetch(`https://${subdomain}.breezechms.com/api/funds/${fid}`, { headers: hdrs });
+          if (!r.ok) return;
+          const raw = await r.text();
+          if (!raw.trim()) return;
+          const data = JSON.parse(raw);
+          const name = data?.name || data?.fund_name || (Array.isArray(data) && data[0]?.name) || '';
+          if (name) { breezeFundNames[fid] = name; newFundsNeeded.set(fid, name); }
+        } catch {}
+      }));
+    }
+
     // ── Batch-create/link new funds ─────────────────────────────────
     let fundsMade = 0;
     {
@@ -2784,18 +2805,30 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       } catch (e) { glDiag = { error: e.message }; }
     }
 
-    if (Object.keys(breezeFundNames).length === 0) {
-      // Last resort: return placeholder funds so the frontend can render manual rename inputs
-      const placeholderFundsForManual = (await db.prepare(
-        "SELECT id, name, breeze_id FROM funds WHERE name LIKE 'Breeze Fund %' ORDER BY name"
-      ).all()).results || [];
-      return json({ ok: false, needsManual: true, error: 'Breeze API did not return fund names', placeholderFunds: placeholderFundsForManual, breezeFundsFound: 0, renamed: 0, httpStatus, glDiag });
-    }
-
     // Get all local funds with placeholder names
     const placeholderFunds = (await db.prepare(
       "SELECT id, name, breeze_id FROM funds WHERE name LIKE 'Breeze Fund %'"
     ).all()).results || [];
+
+    // Try individual lookups for any placeholder fund whose ID wasn't resolved above
+    const stillUnresolved = placeholderFunds.filter(f => f.breeze_id && !breezeFundNames[String(f.breeze_id)]);
+    if (stillUnresolved.length > 0) {
+      await Promise.allSettled(stillUnresolved.map(async f => {
+        try {
+          const r = await fetch(`https://${subdomain}.breezechms.com/api/funds/${f.breeze_id}`, { headers: hdrs });
+          if (!r.ok) return;
+          const raw = await r.text();
+          if (!raw.trim()) return;
+          const data = JSON.parse(raw);
+          const name = data?.name || data?.fund_name || (Array.isArray(data) && data[0]?.name) || '';
+          if (name) breezeFundNames[String(f.breeze_id)] = name;
+        } catch {}
+      }));
+    }
+
+    if (Object.keys(breezeFundNames).length === 0) {
+      return json({ ok: false, needsManual: true, error: 'Breeze API did not return fund names — use manual mapping below', placeholderFunds, breezeFundsFound: 0, renamed: 0, httpStatus, glDiag });
+    }
 
     let renamed = 0;
     const details = [];
