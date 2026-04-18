@@ -2589,7 +2589,14 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // ── Pass 2: build entry inserts (no D1 calls in this loop) ──────
     let imported = 0, skipped = 0, skippedDateFilter = 0;
     const errors = [];
+    const lateEntries = [];
     const entryInserts = [];
+
+    // Build a quick fundId→name lookup for late entry reporting
+    const fundNameById = {};
+    for (const [breezeId, localId] of Object.entries(fundByBreezeId)) {
+      if (breezeFundNames[breezeId]) fundNameById[localId] = breezeFundNames[breezeId];
+    }
 
     for (const entry of allEntries) {
       try {
@@ -2604,7 +2611,21 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         const checkNum = d.check_number || '';
         const notes    = d.note || '';
         const date     = parseDate(d.date);
-        if (date < start || date > end) { skippedDateFilter++; continue; }
+        if (date < start || date > end) {
+          skippedDateFilter++;
+          for (const fl of extractFunds(d, d.amount || '0')) {
+            const fundLocalId = fundByBreezeId[fl.breezeFundId];
+            lateEntries.push({
+              date,
+              amount: parseFloat(fl.amount || '0').toFixed(2),
+              fund: breezeFundNames[fl.breezeFundId] || fl.fundName || fl.breezeFundId,
+              method: d.method || '',
+              person_id: d.person_id || '',
+              breeze_id: contribId,
+            });
+          }
+          continue;
+        }
         const batchKey = d.batch_num ? `Breeze Batch #${d.batch_num}` : `Breeze Import ${date}`;
         const batchId  = batchByDesc[batchKey];
         if (!batchId) { errors.push({ id: entry.id, error: 'batch not found: ' + batchKey }); skipped++; continue; }
@@ -2634,7 +2655,17 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
     ).run();
 
-    return json({ ok: true, imported, skipped, skippedDateFilter, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, givingListFundHarvest, givingListFiltered, seenIdsCount: seenIds.size, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, date_range: { start, end }, diagnostics: diag });
+    // ── Report contributions tied to still-unresolved "Breeze Fund XXXXX" funds ──
+    const ghostFundContribs = (await db.prepare(
+      `SELECT ge.contribution_date, ge.amount, ge.method, ge.notes, ge.breeze_id,
+              f.name AS fund_name, f.breeze_id AS fund_breeze_id
+       FROM giving_entries ge
+       JOIN funds f ON f.id = ge.fund_id
+       WHERE f.name LIKE 'Breeze Fund %'
+       ORDER BY ge.contribution_date DESC`
+    ).all()).results || [];
+
+    return json({ ok: true, imported, skipped, skippedDateFilter, lateEntries, ghostFundContribs, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, givingListFundHarvest, givingListFiltered, seenIdsCount: seenIds.size, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, date_range: { start, end }, diagnostics: diag });
   } catch (givingErr) {
     return json({ error: 'Giving sync error: ' + givingErr.message }, 500);
   } }

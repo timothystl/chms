@@ -1556,7 +1556,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-18-v66';
+var DEPLOY_VERSION = '2026-04-18-v67';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -5978,7 +5978,7 @@ function runBreezeGivingSync() {
     if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
     var msg = 'Done. ' + (d.imported||0) + ' imported';
     if (d.skipped) msg += ', ' + d.skipped + ' already existed';
-    if (d.skippedDateFilter) msg += ', ' + d.skippedDateFilter + ' outside date range (logged late)';
+    if (d.skippedDateFilter) msg += ', ' + d.skippedDateFilter + ' outside date range (logged late — see diagnostics)';
     if (d.dupesRemoved) msg += ', ' + d.dupesRemoved + ' dupes removed';
     if (d.fundsRenamed) msg += ', ' + d.fundsRenamed + ' funds renamed';
     if (d.fundsMade) msg += ', ' + d.fundsMade + ' funds created';
@@ -5988,7 +5988,11 @@ function runBreezeGivingSync() {
     var diagEl = document.getElementById('giving-sync-diagnostics');
     if (diagEl) {
       diagEl.style.display = 'block';
-      diagEl.textContent = JSON.stringify(d.diagnostics || d, null, 2);
+      var out = {};
+      if (d.lateEntries && d.lateEntries.length) out.lateEntries = d.lateEntries;
+      if (d.ghostFundContribs && d.ghostFundContribs.length) out.ghostFundContribs = d.ghostFundContribs;
+      if (d.diagnostics) out.diagnostics = d.diagnostics;
+      diagEl.textContent = JSON.stringify(Object.keys(out).length ? out : d, null, 2);
     }
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
