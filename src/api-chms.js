@@ -2331,10 +2331,10 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       unresolvedFundIds: [],
     };
     try {
-      // No date filter — harvest fund names from all-time giving to catch every fund ID ever used.
-      // We only use this for names, so fetching beyond the sync window is safe and ensures
-      // a fund used once in an old year is still resolved if it reappears in the sync window.
-      const glUrl = `https://${subdomain}.breezechms.com/api/giving/list?details=1&limit=10000`;
+      // Wide fixed date range — Breeze returns empty without date params.
+      // Using 2020-01-01 to today captures all-time fund names regardless of sync window.
+      const glHarvestEnd = new Date().toISOString().slice(0, 10);
+      const glUrl = `https://${subdomain}.breezechms.com/api/giving/list?start=2020-01-01&end=${glHarvestEnd}&details=1&limit=10000`;
       const glRes = await fetch(glUrl, { headers: hdrs });
       if (glRes.ok) {
         const gl = await glRes.json();

@@ -130,6 +130,7 @@ Added 2026-04-15, phased 2026-04-15.
 ## Recent Changes (newest first)
 
 ### 2026-04-18
+- **v68**: Fix giving list harvest returning empty. Breeze requires date params — without them it returns []. Now uses fixed wide range (2020-01-01 to today) so all-time fund names are captured regardless of sync window.
 - **v67**: Sync diagnostics now show `lateEntries` (contributions outside the sync date range, with date/amount/fund/method per entry) and `ghostFundContribs` (all DB contributions tied to still-unresolved "Breeze Fund XXXXX" funds). Both appear at the top of the diagnostics block after a sync.
 - **v65**: Fix batch-rename of placeholder funds running before giving/list harvest. The rename block checked `breezeFundNames` before the giving list had been fetched, so it always had 0 names (since /api/funds returns empty for this account). Moved batch-rename to after the giving list harvest so the full name map is available.
 - **v64**: Separate "already existed" from "outside date range" in sync status. The audit log filters by LOG DATE, so Dec contributions entered in Jan appear in the Jan sync window but have prior-year contribution dates. These were counted as "already existed" — now shown as "outside date range (logged late)" so a clean sync after deleting data shows 0 already-existed instead of a confusing number.
