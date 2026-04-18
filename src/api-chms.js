@@ -2548,7 +2548,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
                 const d2 = JSON.parse(raw2);
                 const g = Array.isArray(d2) ? d2[0] : null;
                 if (g) {
-                  const f = (Array.isArray(g.funds) ? g.funds : []).find(f => String(f.id || f.fund_id) === fid);
+                  const f = (Array.isArray(g.funds) ? g.funds : []).find(f => String(f.fund_id || f.id) === fid);
                   name = f?.name || f?.fund_name || g?.fund_name || '';
                 }
               }
@@ -2583,6 +2583,37 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
           fundByName[nameKey] = id;
           fundsMade++;
         });
+      }
+    }
+
+    // ── Resolve fund names for late-entry fund IDs ──────────────────
+    // Pass 1 skips date-filtered entries, so their fund IDs never go through
+    // the individual lookup path. Resolve them now so lateEntries shows
+    // real names instead of raw Breeze IDs.
+    {
+      const lateFundIds = new Set();
+      for (const entry of allEntries) {
+        const d = parseDetails(entry.details);
+        if (!d) continue;
+        const date = parseDate(d.date);
+        if (date >= start && date <= end) continue;
+        for (const fl of extractFunds(d, d.amount || '0')) {
+          if (fl.breezeFundId !== 'default' && !breezeFundNames[fl.breezeFundId]) {
+            lateFundIds.add(fl.breezeFundId);
+          }
+        }
+      }
+      if (lateFundIds.size) {
+        await Promise.allSettled([...lateFundIds].map(async fid => {
+          try {
+            const r = await fetch(`https://${subdomain}.breezechms.com/api/funds/${fid}`, { headers: hdrs });
+            if (r.ok) {
+              const fd = await r.json();
+              const name = fd?.name || fd?.fund_name || (Array.isArray(fd) && fd[0]?.name) || '';
+              if (name) breezeFundNames[fid] = name;
+            }
+          } catch {}
+        }));
       }
     }
 
