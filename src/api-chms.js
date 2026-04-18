@@ -2319,6 +2319,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // bulk-imported historical contributions that never appear in the audit log.
     // Normalize to the same shape as audit log entries so the same processing loop handles both.
     let givingListEntries = [];
+    let givingListFiltered = 0;
     try {
       const glUrl = `https://${subdomain}.breezechms.com/api/giving/list?start=${start}&end=${end}&limit=10000`;
       const glRes = await fetch(glUrl, { headers: hdrs });
@@ -2330,6 +2331,11 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
           for (const g of gl) {
             const id = String(g.id || g.payment_id || '');
             if (!id) continue;
+            // Client-side date filter — API may not honour start/end params reliably
+            const rawGDate = (g.date || '');
+            const mdyGM = rawGDate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            const normGDate = mdyGM ? `${mdyGM[3]}-${mdyGM[1].padStart(2,'0')}-${mdyGM[2].padStart(2,'0')}` : rawGDate.slice(0, 10);
+            if (normGDate.length === 10 && (normGDate < start || normGDate > end)) { givingListFiltered++; continue; }
             // Build a details object matching what the audit log parser expects
             const funds = Array.isArray(g.funds) ? g.funds : [];
             const d = { person_id: String(g.person_id || ''), amount: String(g.amount || '0'),
@@ -2458,9 +2464,10 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         batchDateFixes.set(batchKey, date); // deduplicated — last date wins, fine
       }
       for (const fl of extractFunds(d, d.amount || '0')) {
-        if (!fundByBreezeId[fl.breezeFundId] && !newFundsNeeded.has(fl.breezeFundId)) {
+        if (!fundByBreezeId[fl.breezeFundId]) {
           const bName = fl.fundName || breezeFundNames[fl.breezeFundId] || (fl.breezeFundId === 'default' ? 'General Fund' : `Breeze Fund ${fl.breezeFundId}`);
-          newFundsNeeded.set(fl.breezeFundId, bName);
+          const existing = newFundsNeeded.get(fl.breezeFundId);
+          if (!existing || existing.startsWith('Breeze Fund ')) newFundsNeeded.set(fl.breezeFundId, bName);
         }
       }
     }
@@ -2556,7 +2563,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
     ).run();
 
-    return json({ ok: true, imported, skipped, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, from_giving_list: givingListEntries.length, date_range: { start, end } });
+    return json({ ok: true, imported, skipped, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, from_giving_list: givingListEntries.length, giving_list_filtered: givingListFiltered, date_range: { start, end } });
   } catch (givingErr) {
     return json({ error: 'Giving sync error: ' + givingErr.message }, 500);
   } }
