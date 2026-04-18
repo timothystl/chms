@@ -2254,7 +2254,8 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     const real = (await db.prepare(
       "SELECT id, name FROM funds WHERE breeze_id='' OR breeze_id IS NULL ORDER BY sort_order, name"
     ).all()).results || [];
-    return json({ breeze_funds: rows, real_funds: real });
+    const subdomain = env.BREEZE_SUBDOMAIN || '';
+    return json({ breeze_funds: rows, real_funds: real, breeze_subdomain: subdomain });
   }
 
   // ── Fund Mapping (re-link or rename Breeze fund placeholders) ────
@@ -2440,6 +2441,10 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       const d = parseDetails(entry.details);
       if (!d) continue;
       const date     = parseDate(d.date);
+      // Skip entries whose contribution date falls outside the requested range.
+      // The audit log filters by LOG date (when entered), not contribution date,
+      // so late-December entries logged in January appear here with prior-year dates.
+      if (date < start || date > end) continue;
       const batchKey = d.batch_num ? `Breeze Batch #${d.batch_num}` : `Breeze Import ${date}`;
       if (!batchByDesc[batchKey]) {
         if (!newBatchesNeeded.has(batchKey)) newBatchesNeeded.set(batchKey, { date, desc: batchKey });
@@ -2470,6 +2475,46 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         .filter(([k]) => batchByDesc[k])
         .map(([k, date]) => db.prepare("UPDATE giving_batches SET batch_date=? WHERE id=? AND (batch_date='' OR batch_date=?)").bind(date, batchByDesc[k], start));
       if (ops.length) await db.batch(ops);
+    }
+
+    // ── Resolve unknown fund names individually from Breeze ─────────
+    // For any fund that would be named "Breeze Fund XXXXX", try a direct
+    // API lookup. This is a one-time cost per fund — once the name is in
+    // the DB, subsequent syncs find it by breeze_id without extra calls.
+    const placeholderIds = [...newFundsNeeded.entries()]
+      .filter(([, name]) => name.startsWith('Breeze Fund '))
+      .map(([id]) => id);
+    if (placeholderIds.length > 0) {
+      await Promise.allSettled(placeholderIds.map(async fid => {
+        try {
+          // Try GET /api/funds/{id} first
+          let name = '';
+          const r1 = await fetch(`https://${subdomain}.breezechms.com/api/funds/${fid}`, { headers: hdrs });
+          if (r1.ok) {
+            const raw1 = await r1.text();
+            if (raw1.trim()) {
+              const d1 = JSON.parse(raw1);
+              name = d1?.name || d1?.fund_name || (Array.isArray(d1) && d1[0]?.name) || '';
+            }
+          }
+          // Fallback: GET /api/giving/list?fund_id={id}&limit=1 — harvest name from a sample contribution
+          if (!name) {
+            const r2 = await fetch(`https://${subdomain}.breezechms.com/api/giving/list?fund_id=${fid}&limit=1`, { headers: hdrs });
+            if (r2.ok) {
+              const raw2 = await r2.text();
+              if (raw2.trim()) {
+                const d2 = JSON.parse(raw2);
+                const g = Array.isArray(d2) ? d2[0] : null;
+                if (g) {
+                  const f = (Array.isArray(g.funds) ? g.funds : []).find(f => String(f.id || f.fund_id) === fid);
+                  name = f?.name || f?.fund_name || g?.fund_name || '';
+                }
+              }
+            }
+          }
+          if (name) { breezeFundNames[fid] = name; newFundsNeeded.set(fid, name); }
+        } catch {}
+      }));
     }
 
     // ── Batch-create/link new funds ─────────────────────────────────
@@ -2517,6 +2562,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         const checkNum = d.check_number || '';
         const notes    = d.note || '';
         const date     = parseDate(d.date);
+        if (date < start || date > end) { skipped++; continue; }
         const batchKey = d.batch_num ? `Breeze Batch #${d.batch_num}` : `Breeze Import ${date}`;
         const batchId  = batchByDesc[batchKey];
         if (!batchId) { errors.push({ id: entry.id, error: 'batch not found: ' + batchKey }); skipped++; continue; }
@@ -2546,7 +2592,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
     ).run();
 
-    return json({ ok: true, imported, skipped, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, givingListFundHarvest, givingListFiltered, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, date_range: { start, end } });
+    return json({ ok: true, imported, skipped, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, givingListFundHarvest, givingListFiltered, seenIdsCount: seenIds.size, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, date_range: { start, end } });
   } catch (givingErr) {
     return json({ error: 'Giving sync error: ' + givingErr.message }, 500);
   } }
@@ -2779,18 +2825,30 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       } catch (e) { glDiag = { error: e.message }; }
     }
 
-    if (Object.keys(breezeFundNames).length === 0) {
-      // Last resort: return placeholder funds so the frontend can render manual rename inputs
-      const placeholderFundsForManual = (await db.prepare(
-        "SELECT id, name, breeze_id FROM funds WHERE name LIKE 'Breeze Fund %' ORDER BY name"
-      ).all()).results || [];
-      return json({ ok: false, needsManual: true, error: 'Breeze API did not return fund names', placeholderFunds: placeholderFundsForManual, breezeFundsFound: 0, renamed: 0, httpStatus, glDiag });
-    }
-
     // Get all local funds with placeholder names
     const placeholderFunds = (await db.prepare(
       "SELECT id, name, breeze_id FROM funds WHERE name LIKE 'Breeze Fund %'"
     ).all()).results || [];
+
+    // Try individual lookups for any placeholder fund whose ID wasn't resolved above
+    const stillUnresolved = placeholderFunds.filter(f => f.breeze_id && !breezeFundNames[String(f.breeze_id)]);
+    if (stillUnresolved.length > 0) {
+      await Promise.allSettled(stillUnresolved.map(async f => {
+        try {
+          const r = await fetch(`https://${subdomain}.breezechms.com/api/funds/${f.breeze_id}`, { headers: hdrs });
+          if (!r.ok) return;
+          const raw = await r.text();
+          if (!raw.trim()) return;
+          const data = JSON.parse(raw);
+          const name = data?.name || data?.fund_name || (Array.isArray(data) && data[0]?.name) || '';
+          if (name) breezeFundNames[String(f.breeze_id)] = name;
+        } catch {}
+      }));
+    }
+
+    if (Object.keys(breezeFundNames).length === 0) {
+      return json({ ok: false, needsManual: true, error: 'Breeze API did not return fund names — use manual mapping below', placeholderFunds, breezeFundsFound: 0, renamed: 0, httpStatus, glDiag });
+    }
 
     let renamed = 0;
     const details = [];

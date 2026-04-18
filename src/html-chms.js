@@ -977,6 +977,12 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       </div>
       <div class="import-status" id="clear-year-status" style="margin-top:8px;"></div>
     </div>
+    <div class="import-card" style="border-color:#e74c3c;">
+      <h3 style="color:#e74c3c;">&#9888; Clear All Giving Data</h3>
+      <p>Permanently deletes <strong>all</strong> giving entries and batches across every year. Use this to fully reset giving data before a clean re-import. <strong>This cannot be undone.</strong></p>
+      <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearAllGiving()">&#9888; Clear All Giving Data</button>
+      <div class="import-status" id="clear-giving-status"></div>
+    </div>
   </div>
 </div>
 <!-- ═══ REGISTER TAB ═══ -->
@@ -1549,7 +1555,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-18-v56';
+var DEPLOY_VERSION = '2026-04-18-v59';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -5891,6 +5897,7 @@ function loadFundMapping() {
   api('/admin/api/import/breeze-fund-list').then(function(d) {
     var breezeFunds = d.breeze_funds || [];
     var realFunds   = d.real_funds   || [];
+    var breezeSubdomain = d.breeze_subdomain || '';
     if (!breezeFunds.length) {
       status.textContent = 'No unmapped Breeze funds found — all done!';
       status.className = 'import-status ok';
@@ -5902,8 +5909,11 @@ function loadFundMapping() {
     }).join('');
     var rows = breezeFunds.map(function(f) {
       var amt = '$' + (f.total_cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+      var breezeLink = (breezeSubdomain && f.breeze_id)
+        ? ' <a href="https://' + esc(breezeSubdomain) + '.breezechms.com/payments/reports#/&funds=' + esc(f.breeze_id) + '" target="_blank" style="font-size:.78rem;color:var(--link);">View in Breeze &#8599;</a>'
+        : '';
       return '<tr style="border-bottom:1px solid #eee;">'
-        + '<td style="padding:6px 8px;font-size:.82rem;">' + esc(f.name) + '<br><span style="color:#888;">' + f.gifts + ' gifts &bull; ' + amt + '</span></td>'
+        + '<td style="padding:6px 8px;font-size:.82rem;">' + esc(f.name) + breezeLink + '<br><span style="color:#888;">' + f.gifts + ' gifts &bull; ' + amt + '</span></td>'
         + '<td style="padding:6px 8px;">'
         +   '<select data-from="' + f.id + '" style="font-size:.82rem;padding:2px 4px;width:100%;margin-bottom:4px;">'
         +     '<option value="">— skip —</option>'
