@@ -2315,57 +2315,40 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     let entries; try { entries = await logRes.json(); } catch { return json({ error: 'Invalid JSON from Breeze log' }, 502); }
     if (!Array.isArray(entries)) return json({ error: 'Unexpected response format', raw: String(entries).slice(0,200) }, 502);
 
-    // Also pull from the official /api/giving/list endpoint to catch
-    // bulk-imported historical contributions that never appear in the audit log.
-    // Normalize to the same shape as audit log entries so the same processing loop handles both.
-    let givingListEntries = [];
+    // Pull from /api/giving/list solely to harvest fund names (breezeFundNames map).
+    // We do NOT import these as contributions — the audit log above is the authoritative
+    // contribution source.  Using giving/list as a second contribution source caused
+    // double-counting because the two endpoints use different IDs for the same payment.
     let givingListFiltered = 0;
+    let givingListFundHarvest = 0;
     try {
-      const glUrl = `https://${subdomain}.breezechms.com/api/giving/list?start=${start}&end=${end}&limit=10000`;
+      const glUrl = `https://${subdomain}.breezechms.com/api/giving/list?start=${start}&end=${end}&details=1&limit=10000`;
       const glRes = await fetch(glUrl, { headers: hdrs });
       if (glRes.ok) {
         const gl = await glRes.json();
         if (Array.isArray(gl)) {
-          // Giving list returns one row per gift (possibly with fund splits nested).
-          // Normalize to audit-log shape: { id, object_json, details: JSON string }
           for (const g of gl) {
-            const id = String(g.id || g.payment_id || '');
-            if (!id) continue;
             // Client-side date filter — API may not honour start/end params reliably
             const rawGDate = (g.date || '');
             const mdyGM = rawGDate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
             const normGDate = mdyGM ? `${mdyGM[3]}-${mdyGM[1].padStart(2,'0')}-${mdyGM[2].padStart(2,'0')}` : rawGDate.slice(0, 10);
             if (normGDate.length === 10 && (normGDate < start || normGDate > end)) { givingListFiltered++; continue; }
-            // Build a details object matching what the audit log parser expects
-            const funds = Array.isArray(g.funds) ? g.funds : [];
-            const d = { person_id: String(g.person_id || ''), amount: String(g.amount || '0'),
-                        method: g.method_type_name || g.method || '', check_number: g.check_number || '',
-                        note: g.note || g.notes || '', date: g.date || '', batch_num: g.batch_number || g.batch_num || '' };
-            // Embed fund splits as fund-{key}/amount-{key}/fname-{key} keys.
-            // Breeze funds may have no id (name-only per API docs) — use slug of name as key.
-            if (funds.length > 0) {
-              for (const f of funds) {
-                const fname = f.name || f.fund_name || '';
-                const fid = String(f.id || f.fund_id || '');
-                const fkey = fid || (fname ? 'n:' + fname.toLowerCase().replace(/[^a-z0-9]+/g, '_') : '');
-                if (!fkey) continue;
-                d['fund-' + fkey] = fkey;
-                d['amount-' + fkey] = String(f.amount || g.amount || '0');
-                if (fname) {
-                  d['fname-' + fkey] = fname;
-                  if (fid) breezeFundNames[fid] = fname; // harvest for retroactive rename
-                }
-              }
+            // Harvest fund names — handle both 'funds' array and top-level fund_id/fund_name
+            const rawFunds = Array.isArray(g.funds) ? g.funds :
+                             (g.fund && typeof g.fund === 'object' ? [g.fund] :
+                             (g.fund_id ? [{ id: g.fund_id, name: g.fund_name || g.fund || '' }] : []));
+            for (const f of rawFunds) {
+              const fname = f.name || f.fund_name || '';
+              const fid = String(f.id || f.fund_id || '');
+              if (fid && fname) { breezeFundNames[fid] = fname; givingListFundHarvest++; }
             }
-            givingListEntries.push({ id, object_json: id, details: JSON.stringify(d), _from_giving_list: true });
           }
         }
       }
-    } catch (e) { /* giving/list is best-effort; audit log is primary */ }
+    } catch (e) { /* giving/list is best-effort — fund names only */ }
 
-    // Merge: audit log first (richer batch/method data), giving list fills in anything not in the log.
-    // Order matters: the seenIds set below ensures the first occurrence wins.
-    const allEntries = [...entries, ...givingListEntries];
+    // All contributions come from the audit log only.
+    const allEntries = entries;
     if (allEntries.length === 0) return json({ ok: true, imported: 0, skipped: 0, total: 0, date_range: { start, end } });
 
     // Helpers
@@ -2563,7 +2546,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
     ).run();
 
-    return json({ ok: true, imported, skipped, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, from_giving_list: givingListEntries.length, giving_list_filtered: givingListFiltered, date_range: { start, end } });
+    return json({ ok: true, imported, skipped, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, givingListFundHarvest, givingListFiltered, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, date_range: { start, end } });
   } catch (givingErr) {
     return json({ error: 'Giving sync error: ' + givingErr.message }, 500);
   } }
