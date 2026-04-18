@@ -2585,7 +2585,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     }
 
     // ── Pass 2: build entry inserts (no D1 calls in this loop) ──────
-    let imported = 0, skipped = 0;
+    let imported = 0, skipped = 0, skippedDateFilter = 0;
     const errors = [];
     const entryInserts = [];
 
@@ -2602,7 +2602,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         const checkNum = d.check_number || '';
         const notes    = d.note || '';
         const date     = parseDate(d.date);
-        if (date < start || date > end) { skipped++; continue; }
+        if (date < start || date > end) { skippedDateFilter++; continue; }
         const batchKey = d.batch_num ? `Breeze Batch #${d.batch_num}` : `Breeze Import ${date}`;
         const batchId  = batchByDesc[batchKey];
         if (!batchId) { errors.push({ id: entry.id, error: 'batch not found: ' + batchKey }); skipped++; continue; }
@@ -2632,7 +2632,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
     ).run();
 
-    return json({ ok: true, imported, skipped, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, givingListFundHarvest, givingListFiltered, seenIdsCount: seenIds.size, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, date_range: { start, end }, diagnostics: diag });
+    return json({ ok: true, imported, skipped, skippedDateFilter, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, givingListFundHarvest, givingListFiltered, seenIdsCount: seenIds.size, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, date_range: { start, end }, diagnostics: diag });
   } catch (givingErr) {
     return json({ error: 'Giving sync error: ' + givingErr.message }, 500);
   } }

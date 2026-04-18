@@ -1556,7 +1556,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-18-v63';
+var DEPLOY_VERSION = '2026-04-18-v64';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -5976,11 +5976,14 @@ function runBreezeGivingSync() {
     body: JSON.stringify({start: from, end: to})
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
-    var msg = 'Done. ' + (d.imported||0) + ' contributions imported, ' + (d.skipped||0) + ' already existed.';
-    if (d.dupesRemoved) msg += ' ' + d.dupesRemoved + ' dupes removed.';
-    if (d.fundsRenamed) msg += ' ' + d.fundsRenamed + ' funds renamed.';
-    if (d.fundsMade) msg += ' ' + d.fundsMade + ' funds created.';
-    if (d.errors && d.errors.length) msg += ' ' + d.errors.length + ' error(s).';
+    var msg = 'Done. ' + (d.imported||0) + ' imported';
+    if (d.skipped) msg += ', ' + d.skipped + ' already existed';
+    if (d.skippedDateFilter) msg += ', ' + d.skippedDateFilter + ' outside date range (logged late)';
+    if (d.dupesRemoved) msg += ', ' + d.dupesRemoved + ' dupes removed';
+    if (d.fundsRenamed) msg += ', ' + d.fundsRenamed + ' funds renamed';
+    if (d.fundsMade) msg += ', ' + d.fundsMade + ' funds created';
+    if (d.errors && d.errors.length) msg += ', ' + d.errors.length + ' error(s)';
+    msg += '.';
     status.textContent = msg; status.className = 'import-status ok';
     var diagEl = document.getElementById('giving-sync-diagnostics');
     if (diagEl) {
