@@ -2360,7 +2360,8 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
                              (g.fund_id ? [{ id: g.fund_id, name: g.fund_name || g.fund || '' }] : []));
             for (const f of rawFunds) {
               const fname = f.name || f.fund_name || '';
-              const fid = String(f.id || f.fund_id || '');
+              // f.fund_id is the actual Breeze fund ID; f.id is a per-payment row ID — always prefer fund_id
+              const fid = String(f.fund_id || f.id || '');
               if (fid && fname) { breezeFundNames[fid] = fname; givingListFundHarvest++; }
             }
           }
