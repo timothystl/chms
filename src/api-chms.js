@@ -2370,6 +2370,26 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // Record all harvested fund names after both /api/funds and giving/list
     diag.breezeFundNamesAfterHarvest = Object.entries(breezeFundNames).map(([id, name]) => ({ id, name }));
 
+    // ── Batch-fix any placeholder fund names ("Breeze Fund XXXXX") ──────
+    // Must run AFTER giving/list harvest so breezeFundNames is fully populated.
+    let fundsRenamed = 0;
+    {
+      const fixOps = [];
+      const fixMeta = [];
+      for (const [breezeId, localId] of Object.entries(fundByBreezeId)) {
+        const realName = breezeFundNames[breezeId];
+        if (!realName) continue;
+        fixOps.push(db.prepare("UPDATE funds SET name=? WHERE id=? AND name LIKE 'Breeze Fund %'").bind(realName, localId));
+        fixMeta.push({ breezeId, localId, realName });
+      }
+      if (fixOps.length) {
+        const results = await db.batch(fixOps);
+        results.forEach((r, i) => {
+          if (r.meta?.changes) { fundsRenamed++; fundByName[fixMeta[i].realName.toLowerCase().trim()] = fixMeta[i].localId; }
+        });
+      }
+    }
+
     // All contributions come from the audit log only.
     const allEntries = entries;
     if (allEntries.length === 0) return json({ ok: true, imported: 0, skipped: 0, total: 0, date_range: { start, end } });
@@ -2442,25 +2462,6 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     for (const f of (await db.prepare('SELECT id, name, breeze_id FROM funds').all()).results || []) {
       if (f.breeze_id) fundByBreezeId[f.breeze_id] = f.id;
       fundByName[f.name.toLowerCase().trim()] = f.id;
-    }
-
-    // ── Batch-fix any placeholder fund names ("Breeze Fund XXXXX") ──────
-    let fundsRenamed = 0;
-    {
-      const fixOps = [];
-      const fixMeta = [];
-      for (const [breezeId, localId] of Object.entries(fundByBreezeId)) {
-        const realName = breezeFundNames[breezeId];
-        if (!realName) continue;
-        fixOps.push(db.prepare("UPDATE funds SET name=? WHERE id=? AND name LIKE 'Breeze Fund %'").bind(realName, localId));
-        fixMeta.push({ breezeId, localId, realName });
-      }
-      if (fixOps.length) {
-        const results = await db.batch(fixOps);
-        results.forEach((r, i) => {
-          if (r.meta?.changes) { fundsRenamed++; fundByName[fixMeta[i].realName.toLowerCase().trim()] = fixMeta[i].localId; }
-        });
-      }
     }
 
     // ── Pass 1: pre-scan entries to collect needed batches and funds ──
