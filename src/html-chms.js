@@ -867,7 +867,6 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
         <button class="btn-primary" onclick="runBreezeImport()">Sync People from Breeze</button>
         <button class="btn-secondary" onclick="runBreezeTagSync()">&#127991; Sync Tags Only</button>
-        <button class="btn-secondary" style="color:#c0392b;border-color:#c0392b;" onclick="restoreBreezeActive()" title="Emergency: re-activate all Breeze-imported people (use after a deactivation bug)">&#9881; Restore All Active</button>
       </div>
       <div class="progress-bar" id="breeze-bar"><div class="progress-fill" id="breeze-fill" style="width:0%"></div></div>
       <div class="import-status" id="breeze-status"></div>
@@ -907,15 +906,6 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div class="import-status" id="giving-csv-status"></div>
     </div>
     <div class="import-card">
-      <h3>&#128269; Look Up Payment ID</h3>
-      <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Enter a Breeze Payment ID from the skipped-IDs list to see what was recorded in the database for that payment.</p>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <input type="text" id="pid-lookup-input" placeholder="e.g. 123456789" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:.88rem;" onkeydown="if(event.key==='Enter')lookupPaymentId()">
-        <button class="btn-secondary" onclick="lookupPaymentId()">Look Up</button>
-      </div>
-      <div id="pid-lookup-result" style="margin-top:10px;font-size:.85rem;"></div>
-    </div>
-    <div class="import-card">
       <h3>&#128260; Map Breeze Funds to Real Fund Names</h3>
       <p>After the giving sync, imported funds may show as "Breeze Fund XXXXXXX". Use <strong>Auto-Fix from Breeze</strong> to look up the real names directly from Breeze and rename them automatically. If any funds still have placeholder names after that, use the manual mapping tool below.</p>
       <button class="btn-primary" onclick="fixFundNames()" style="margin-bottom:8px;">&#128260; Auto-Fix Fund Names from Breeze</button>
@@ -948,17 +938,6 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <p>Remove any giving batches that have no entries (can be left behind by failed or partial imports). Safe to run at any time.</p>
       <button class="btn-secondary" onclick="pruneEmptyBatches()">Delete Empty Batches</button>
       <div class="import-status" id="prune-batches-status"></div>
-    </div>
-    <div class="import-card">
-      <h3>&#9997; Generate Register from People Records</h3>
-      <p>Create church register entries from baptism and confirmation dates already stored on people records. People who already have a matching register entry are skipped (safe to re-run).</p>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
-        <div class="field" style="margin:0;"><label>Earliest date to include</label><input type="date" id="reg-gen-cutoff" name="reg-gen-cutoff" value="1900-01-01" style="font-size:.85rem;padding:4px 8px;"></div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:.88rem;cursor:pointer;"><input type="checkbox" id="reg-gen-baptism" name="reg-gen-baptism" checked> Baptisms</label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:.88rem;cursor:pointer;"><input type="checkbox" id="reg-gen-confirm" name="reg-gen-confirm" checked> Confirmations</label>
-      </div>
-      <button class="btn-primary" onclick="generateRegisterFromPeople()">Generate Register Entries</button>
-      <div class="import-status" id="reg-gen-status"></div>
     </div>
     <div class="import-card">
       <h3>&#128229; Export Data</h3>
@@ -997,18 +976,6 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
         <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearGivingByYear()">&#9888; Clear Year</button>
       </div>
       <div class="import-status" id="clear-year-status" style="margin-top:8px;"></div>
-    </div>
-    <div class="import-card" style="border-color:#e74c3c;">
-      <h3 style="color:#e74c3c;">&#9888; Clear All Giving Data</h3>
-      <p>Permanently deletes all giving entries and batches from the database. Use this to start fresh before re-importing correct data. <strong>This cannot be undone.</strong></p>
-      <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearAllGiving()">&#9888; Clear All Giving Data</button>
-      <div class="import-status" id="clear-giving-status"></div>
-    </div>
-    <div class="import-card" style="border-color:#e74c3c;">
-      <h3 style="color:#e74c3c;">&#9888; Clear All Funds</h3>
-      <p>Permanently deletes all fund records from the database. Use this to clean up bad or placeholder fund names before re-importing. Funds will be recreated on next import. <strong>This cannot be undone.</strong></p>
-      <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearAllFunds()">&#9888; Clear All Funds</button>
-      <div class="import-status" id="clear-funds-status"></div>
     </div>
   </div>
 </div>
@@ -1582,7 +1549,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-17-v53';
+var DEPLOY_VERSION = '2026-04-18-v54';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
