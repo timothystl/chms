@@ -130,6 +130,7 @@ Added 2026-04-15, phased 2026-04-15.
 ## Recent Changes (newest first)
 
 ### 2026-04-19
+- **v70**: Fix merged/deleted Breeze fund IDs still showing as "Breeze Fund XXXXX". Root cause: `breezeFundNames` is only populated from Breeze API endpoints, which no longer return merged funds. Fix: scan all audit log entries for `fname-{uuid}` fields (recorded at log time, survives merges) and use those as a fallback source for `breezeFundNames` before the batch-rename block runs.
 - **v69**: Code review improvements: add numeric guard on fund IDs before URL interpolation; replace silent catch{} with `diag.lateFundFetchWarnings` logging; update DEPLOY_VERSION date.
 
 ### 2026-04-18

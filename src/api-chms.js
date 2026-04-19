@@ -2444,6 +2444,19 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       fundByName[f.name.toLowerCase().trim()] = f.id;
     }
 
+    // ── Harvest fund names from audit log details (covers merged/deleted funds) ──
+    // The audit log stores fname-{uuid} at log time — this name survives even when
+    // Breeze merges or deletes a fund, so no API endpoint returns it any more.
+    for (const entry of allEntries) {
+      const d = parseDetails(entry.details);
+      if (!d) continue;
+      for (const fl of extractFunds(d, d.amount || '0')) {
+        if (fl.breezeFundId !== 'default' && fl.fundName && !breezeFundNames[fl.breezeFundId]) {
+          breezeFundNames[fl.breezeFundId] = fl.fundName;
+        }
+      }
+    }
+
     // ── Batch-fix any placeholder fund names ("Breeze Fund XXXXX") ──────
     // Runs after giving/list harvest (breezeFundNames populated) AND after
     // fundByBreezeId is loaded, so we can match existing DB funds by breeze_id.
