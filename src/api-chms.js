@@ -2623,6 +2623,25 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       fundByName[f.name.toLowerCase().trim()] = f.id;
     }
 
+    // Ghost fund redirects: map deleted/retired Breeze fund IDs to their replacement.
+    // These IDs no longer appear in /api/funds or giving/list, so they can never be
+    // resolved automatically — hardcode them here so contributions get the right fund.
+    const GHOST_FUND_REDIRECTS = {
+      '1771128': '1718214', // deleted fund → General Fund
+    };
+    for (const [ghostId, realId] of Object.entries(GHOST_FUND_REDIRECTS)) {
+      if (fundByBreezeId[realId]) fundByBreezeId[ghostId] = fundByBreezeId[realId];
+    }
+    // Migrate any existing DB entries still pointing to the ghost fund's local record
+    // so they show the correct fund name even before a re-sync.
+    for (const [ghostId, realId] of Object.entries(GHOST_FUND_REDIRECTS)) {
+      const ghostLocalId = (await db.prepare('SELECT id FROM funds WHERE breeze_id=?').bind(ghostId).first())?.id;
+      const realLocalId  = fundByBreezeId[realId];
+      if (ghostLocalId && realLocalId && ghostLocalId !== realLocalId) {
+        await db.prepare('UPDATE giving_entries SET fund_id=? WHERE fund_id=?').bind(realLocalId, ghostLocalId).run();
+      }
+    }
+
     // ── Harvest fund names from audit log details (covers merged/deleted funds) ──
     // The audit log stores fname-{uuid} at log time — this name survives even when
     // Breeze merges or deletes a fund, so no API endpoint returns it any more.
