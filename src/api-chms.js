@@ -2284,6 +2284,106 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     return json({ ok: true, entries_moved: moved, renamed });
   }
 
+  // ── Breeze Full Audit Log Export (CSV) ───────────────────────────
+  // Returns every contribution-related event from Breeze's audit log as a CSV
+  // with all available fields. Purely diagnostic — does not write to DB.
+  if (seg === 'giving/breeze-audit-export' && method === 'GET') {
+    if (!isFinance) return json({ error: 'Forbidden' }, 403);
+    const subdomain = env.BREEZE_SUBDOMAIN;
+    const apiKey    = env.BREEZE_API_KEY;
+    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
+    const qs  = new URL(req.url).searchParams;
+    const start = qs.get('start') || (new Date().getFullYear() + '-01-01');
+    const end   = qs.get('end')   || new Date().toISOString().slice(0, 10);
+    const hdrs  = { 'Api-key': apiKey };
+    const logBase = `https://${subdomain}.breezechms.com/api/account/list_log?details=1&limit=10000&start=${start}&end=${end}`;
+    const actionTypes = [
+      'contribution_added', 'contribution_updated', 'contribution_deleted',
+      'bulk_contributions_deleted', 'bulk_import_contributions',
+      'batch_updated', 'batch_deleted',
+    ];
+    const allRaw = [];
+    await Promise.allSettled(actionTypes.map(async action => {
+      try {
+        const r = await fetch(logBase + '&action=' + action, { headers: hdrs });
+        if (!r.ok) return;
+        const rows = await r.json();
+        if (Array.isArray(rows)) rows.forEach(e => allRaw.push({ ...e, _action: action }));
+      } catch {}
+    }));
+    // Fetch giving/list for the same window — provides current amounts (post-edit), fund names, person names
+    let glMap = new Map();
+    try {
+      const gr = await fetch(`https://${subdomain}.breezechms.com/api/giving/list?start=${start}&end=${end}&details=1&limit=10000`, { headers: hdrs });
+      if (gr.ok) { const gl = await gr.json(); if (Array.isArray(gl)) gl.forEach(g => glMap.set(String(g.id), g)); }
+    } catch {}
+    // Load person breeze_id → local_id + name from DB
+    const peopleRows = (await db.prepare('SELECT id, breeze_id, first_name, last_name FROM people WHERE breeze_id IS NOT NULL AND breeze_id != ""').all()).results || [];
+    const personByBreezeId = {};
+    peopleRows.forEach(p => { personByBreezeId[String(p.breeze_id)] = p; });
+
+    allRaw.sort((a, b) => {
+      const da = String(a.created_on || a.id || '');
+      const db2 = String(b.created_on || b.id || '');
+      return da < db2 ? -1 : da > db2 ? 1 : 0;
+    });
+
+    const csvCols = [
+      'action_type','entry_id','payment_id','contribution_date',
+      'breeze_person_id','local_person_id','first_name','last_name',
+      'amount_audit','amount_current','method','check_number','note',
+      'fund_1_id','fund_1_name','fund_1_amount',
+      'fund_2_id','fund_2_name','fund_2_amount',
+      'fund_3_id','fund_3_name','fund_3_amount',
+      'batch_ref','batch_name_current',
+    ];
+    const esc2 = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const lines = [csvCols.join(',')];
+    for (const e of allRaw) {
+      let d = null; try { d = typeof e.details === 'string' ? JSON.parse(e.details) : e.details; } catch {}
+      const pid = String(e.object_json || e.id || '');
+      const gl  = glMap.get(pid);
+      const breezePersonId = String(d?.person_id || gl?.person_id || '');
+      const person = personByBreezeId[breezePersonId] || null;
+      const rawFunds = Array.isArray(gl?.funds) ? gl.funds : [];
+      // Fund fields: from giving/list if available (current), else from audit log details
+      let fundLines = rawFunds.length > 0 ? rawFunds.map(f => ({
+        id: String(f.fund_id || f.id || ''), name: f.fund_name || '', amount: f.amount || gl?.amount || ''
+      })) : [];
+      if (fundLines.length === 0 && d) {
+        for (const [key, fid] of Object.entries(d)) {
+          if (!key.startsWith('fund-') || !fid) continue;
+          const uuid = key.slice(5);
+          fundLines.push({ id: String(fid), name: d['fname-' + uuid] || '', amount: d['amount-' + uuid] || d.amount || '' });
+        }
+      }
+      const f1 = fundLines[0] || {}; const f2 = fundLines[1] || {}; const f3 = fundLines[2] || {};
+      const batchRef = d?.batch_num || d?.batch_edit_select || '';
+      lines.push([
+        e._action, e.id, pid,
+        d?.date || gl?.paid_on?.slice(0,10) || '',
+        breezePersonId,
+        person?.id || '',
+        gl?.first_name || person?.first_name || '',
+        gl?.last_name  || person?.last_name  || '',
+        d?.amount || '', gl?.amount || '',
+        d?.method || gl?.method || '',
+        d?.check_number || '',
+        d?.note || gl?.note || '',
+        f1.id || '', f1.name || '', f1.amount || '',
+        f2.id || '', f2.name || '', f2.amount || '',
+        f3.id || '', f3.name || '', f3.amount || '',
+        batchRef,
+        gl?.batch_name || (batchRef ? 'Breeze Batch #' + batchRef : ''),
+      ].map(esc2).join(','));
+    }
+    const csv = lines.join('\r\n');
+    return new Response(csv, { headers: {
+      'Content-Type': 'text/csv',
+      'Content-Disposition': `attachment; filename="breeze-audit-${start}-to-${end}.csv"`,
+    }});
+  }
+
   // ── Breeze Giving Sync (via account/list_log) ────────────────────
   if (seg === 'import/breeze-giving' && method === 'POST') { try {
     const subdomain = env.BREEZE_SUBDOMAIN;
@@ -2315,23 +2415,34 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       }
     } catch {} // best-effort — also populated from giving/list fund entries below
 
-    // Fetch audit log entries — two action types in parallel:
+    // Fetch audit log entries — four action types in parallel:
     // 1. contribution_added  — manually keyed contributions
-    // 2. bulk_import_contributions — Tithely (and other processor) batch imports land here
+    // 2. bulk_import_contributions — processor batch imports (returns 0 for Tithely but kept for future)
+    // 3. contribution_deleted / bulk_contributions_deleted — deleted entries we must NOT import
     const logBase = `https://${subdomain}.breezechms.com/api/account/list_log?details=1&limit=10000&start=${start}&end=${end}`;
-    const [logRes1, logRes2] = await Promise.all([
-      fetch(logBase + '&action=contribution_added',        { headers: hdrs }),
-      fetch(logBase + '&action=bulk_import_contributions', { headers: hdrs }),
+    const [logRes1, logRes2, logRes3, logRes4, logRes5] = await Promise.all([
+      fetch(logBase + '&action=contribution_added',          { headers: hdrs }),
+      fetch(logBase + '&action=bulk_import_contributions',   { headers: hdrs }),
+      fetch(logBase + '&action=contribution_deleted',        { headers: hdrs }),
+      fetch(logBase + '&action=bulk_contributions_deleted',  { headers: hdrs }),
+      fetch(logBase + '&action=contribution_updated',        { headers: hdrs }),
     ]);
     if (!logRes1.ok) return json({ error: `Breeze log API error (contribution_added): ${logRes1.status}` }, 502);
-    let entries1, entries2 = [];
+    let entries1, entries2 = [], entries3 = [], entries4 = [], entries5 = [];
     try { entries1 = await logRes1.json(); } catch { return json({ error: 'Invalid JSON from Breeze log (contribution_added)' }, 502); }
     if (!Array.isArray(entries1)) return json({ error: 'Unexpected response format', raw: String(entries1).slice(0,200) }, 502);
-    // bulk_import_contributions is best-effort — don't fail the whole sync if it errors
     if (logRes2.ok) { try { const r = await logRes2.json(); if (Array.isArray(r)) entries2 = r; } catch {} }
-    // Merge and deduplicate by object_json (payment ID). contribution_added wins on collision.
+    if (logRes3.ok) { try { const r = await logRes3.json(); if (Array.isArray(r)) entries3 = r; } catch {} }
+    if (logRes4.ok) { try { const r = await logRes4.json(); if (Array.isArray(r)) entries4 = r; } catch {} }
+    if (logRes5.ok) { try { const r = await logRes5.json(); if (Array.isArray(r)) entries5 = r; } catch {} }
+    // Build set of payment IDs that were deleted in Breeze — never import these
+    const deletedPaymentIds = new Set([...entries3, ...entries4].map(e => String(e.object_json || e.id)));
+    // contribution_updated events — used after import to correct already-imported entries
+    const updatedEntries = entries5;
+    // Merge contribution_added + bulk_import_contributions, deduplicate, exclude deleted
     const seenLogIds = new Set(entries1.map(e => String(e.object_json || e.id)));
-    const entries = [...entries1, ...entries2.filter(e => !seenLogIds.has(String(e.object_json || e.id)))];
+    const entries = [...entries1, ...entries2.filter(e => !seenLogIds.has(String(e.object_json || e.id)))]
+      .filter(e => !deletedPaymentIds.has(String(e.object_json || e.id)));
 
     // Pull from /api/giving/list solely to harvest fund names (breezeFundNames map).
     // We do NOT import these as contributions — the audit log above is the authoritative
@@ -2344,6 +2455,8 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       apiFundsSample: Object.entries(breezeFundNames).slice(0, 5).map(([id, name]) => ({ id, name })),
       contributionAddedCount: entries1.length,
       bulkImportCount: entries2.length,
+      deletedCount: deletedPaymentIds.size,
+      contributionUpdatedCount: updatedEntries.length,
       bulkImportSample: entries2.slice(0, 3).map(e => ({ id: e.id, object_json: e.object_json, details_keys: Object.keys(e.details || e.description || {}) })),
       givingListSample: [],
       auditLogSample: [],
@@ -2391,6 +2504,11 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
 
     // Record all harvested fund names after both /api/funds and giving/list
     diag.breezeFundNamesAfterHarvest = Object.entries(breezeFundNames).map(([id, name]) => ({ id, name }));
+
+    // Build payment-ID → giving/list record map so Pass 2 can use current (post-edit) amounts
+    // instead of stale original amounts from contribution_added events.
+    const glByPaymentId = new Map();
+    for (const g of glRaw) { glByPaymentId.set(String(g.id), g); }
 
     // Supplement audit log with giving/list entries not captured there (e.g. Tithely batch imports).
     // giving/list id == audit log object_json (both are the Breeze payment ID), so seenLogIds deduplicates.
@@ -2739,7 +2857,22 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         const batchId  = batchByDesc[batchKey];
         if (!batchId) { errors.push({ id: entry.id, error: 'batch not found: ' + batchKey }); skipped++; continue; }
 
-        for (const fl of extractFunds(d, d.amount || '0')) {
+        // Use giving/list current data if available — overrides stale audit log amounts for edited contributions.
+        // giving/list id == audit log object_json (payment ID), so the map lookup is exact.
+        const glEntry = glByPaymentId.get(contribId);
+        let fundLines;
+        if (glEntry && Array.isArray(glEntry.funds) && glEntry.funds.length > 0) {
+          const totalAmt = String(glEntry.amount || d.amount || '0');
+          fundLines = glEntry.funds.map(f => ({
+            breezeFundId: String(f.fund_id || f.id || 'default'),
+            amount: f.amount ? String(f.amount) : totalAmt,
+            fundName: f.name || f.fund_name || breezeFundNames[String(f.fund_id || f.id || '')] || '',
+          }));
+        } else {
+          // No giving/list match: use audit log data, but prefer giving/list total if present
+          fundLines = extractFunds(d, glEntry ? String(glEntry.amount || d.amount || '0') : (d.amount || '0'));
+        }
+        for (const fl of fundLines) {
           const cents  = Math.round(parseFloat(fl.amount || '0') * 100);
           const fundId = fundByBreezeId[fl.breezeFundId];
           if (!fundId) { errors.push({ id: entry.id, error: 'fund not found: ' + fl.breezeFundId }); continue; }
@@ -2764,6 +2897,60 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
     ).run();
 
+    // ── Correction pass: apply contribution_updated edits to already-imported entries ──
+    // Uses giving/list current data (glByPaymentId) as the source of truth for edited amounts/dates.
+    // Fetches existing rows in bulk (chunked), scales multi-fund splits proportionally.
+    let corrected = 0;
+    if (updatedEntries.length > 0) {
+      const updatedPaymentIds = [...new Set(updatedEntries.map(e => String(e.object_json || e.id)).filter(Boolean))];
+      if (updatedPaymentIds.length > 0) {
+        const existingMap = {};
+        for (let i = 0; i < updatedPaymentIds.length; i += 90) {
+          const chunk = updatedPaymentIds.slice(i, i + 90);
+          const placeholders = chunk.map(() => '?').join(',');
+          const rows = (await db.prepare(
+            `SELECT id, amount, contribution_date, breeze_id FROM giving_entries WHERE breeze_id IN (${placeholders})`
+          ).bind(...chunk).all()).results || [];
+          rows.forEach(r => {
+            if (!existingMap[r.breeze_id]) existingMap[r.breeze_id] = [];
+            existingMap[r.breeze_id].push(r);
+          });
+        }
+        const correctionOps = [];
+        for (const paymentId of updatedPaymentIds) {
+          const glCurrent = glByPaymentId.get(paymentId);
+          if (!glCurrent) continue;
+          const newAmtCents = Math.round(parseFloat(glCurrent.amount || '0') * 100);
+          if (!newAmtCents) continue;
+          const existingRows = existingMap[paymentId] || [];
+          if (existingRows.length === 0) continue;
+          const newDate = (glCurrent.paid_on || glCurrent.date || '').slice(0, 10) || null;
+          const existingTotal = existingRows.reduce((s, r) => s + (r.amount || 0), 0);
+          if (existingTotal === newAmtCents && (!newDate || existingRows[0].contribution_date === newDate)) continue;
+          if (existingRows.length === 1) {
+            correctionOps.push(
+              db.prepare('UPDATE giving_entries SET amount=?, contribution_date=COALESCE(?,contribution_date) WHERE id=?')
+                .bind(newAmtCents, newDate || null, existingRows[0].id)
+            );
+          } else {
+            // Multi-fund split: scale each row proportionally to new total
+            const scale = existingTotal > 0 ? newAmtCents / existingTotal : 1;
+            for (const row of existingRows) {
+              correctionOps.push(
+                db.prepare('UPDATE giving_entries SET amount=?, contribution_date=COALESCE(?,contribution_date) WHERE id=?')
+                  .bind(Math.round((row.amount || 0) * scale), newDate || null, row.id)
+              );
+            }
+          }
+          corrected++;
+        }
+        for (let i = 0; i < correctionOps.length; i += 100) {
+          await db.batch(correctionOps.slice(i, i + 100));
+        }
+      }
+    }
+    diag.correctedCount = corrected;
+
     // ── Report contributions tied to still-unresolved "Breeze Fund XXXXX" funds ──
     const ghostFundContribs = (await db.prepare(
       `SELECT ge.contribution_date, ge.amount, ge.method, ge.notes, ge.breeze_id,
@@ -2774,7 +2961,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
        ORDER BY ge.contribution_date DESC`
     ).all()).results || [];
 
-    return json({ ok: true, imported, lateImported, skipped, skippedDateFilter, lateEntries, ghostFundContribs, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, givingListFundHarvest, givingListFiltered, seenIdsCount: seenIds.size, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, date_range: { start, end }, lateGraceDays: 45, diagnostics: diag });
+    return json({ ok: true, imported, lateImported, corrected, skipped, skippedDateFilter, lateEntries, ghostFundContribs, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, givingListFundHarvest, givingListFiltered, seenIdsCount: seenIds.size, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, date_range: { start, end }, lateGraceDays: 45, diagnostics: diag });
   } catch (givingErr) {
     return json({ error: 'Giving sync error: ' + givingErr.message }, 500);
   } }

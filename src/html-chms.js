@@ -890,6 +890,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       </div>
       <button class="btn-primary" id="giving-all-btn" onclick="runBreezeGivingAll()">Sync All History</button>
       <div class="import-status" id="giving-all-status"></div>
+      <hr style="margin:14px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
+      <p style="margin:0 0 8px;"><strong>Breeze Audit Log Export</strong> — Download every contribution-related event from Breeze (added, updated, deleted) as a CSV for reconciliation. Uses the same date range as the sync above.</p>
+      <button class="btn-secondary" onclick="downloadBreezeAuditLog()">&#128229; Download Audit Log CSV</button>
     </div>
     <div class="import-card">
       <h3>&#128181; Import Giving from Breeze CSV Export</h3>
@@ -1556,7 +1559,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-19-v75';
+var DEPLOY_VERSION = '2026-04-19-v76';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -5964,6 +5967,13 @@ function applyFundMapping() {
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
+function downloadBreezeAuditLog() {
+  var from = document.getElementById('giving-sync-from').value;
+  var to = document.getElementById('giving-sync-to').value;
+  if (!from || !to) { alert('Please select a date range (From / To) above first.'); return; }
+  window.location.href = '/admin/api/giving/breeze-audit-export?start=' + encodeURIComponent(from) + '&end=' + encodeURIComponent(to);
+}
+
 function runBreezeGivingSync() {
   var from = document.getElementById('giving-sync-from').value;
   var to = document.getElementById('giving-sync-to').value;
@@ -5978,6 +5988,7 @@ function runBreezeGivingSync() {
     if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
     var msg = 'Done. ' + (d.imported||0) + ' imported';
     if (d.lateImported) msg += ', ' + d.lateImported + ' cross-year late entries imported';
+    if (d.corrected) msg += ', ' + d.corrected + ' existing entries corrected';
     if (d.skipped) msg += ', ' + d.skipped + ' already existed';
     if (d.skippedDateFilter) msg += ', ' + d.skippedDateFilter + ' outside date range (see diagnostics)';
     if (d.dupesRemoved) msg += ', ' + d.dupesRemoved + ' dupes removed';
