@@ -2315,12 +2315,23 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       }
     } catch {} // best-effort — also populated from giving/list fund entries below
 
-    // Fetch log entries
-    const logUrl = `https://${subdomain}.breezechms.com/api/account/list_log?action=contribution_added&details=1&limit=10000&start=${start}&end=${end}`;
-    const logRes = await fetch(logUrl, { headers: hdrs });
-    if (!logRes.ok) return json({ error: `Breeze log API error: ${logRes.status}` }, 502);
-    let entries; try { entries = await logRes.json(); } catch { return json({ error: 'Invalid JSON from Breeze log' }, 502); }
-    if (!Array.isArray(entries)) return json({ error: 'Unexpected response format', raw: String(entries).slice(0,200) }, 502);
+    // Fetch audit log entries — two action types in parallel:
+    // 1. contribution_added  — manually keyed contributions
+    // 2. bulk_import_contributions — Tithely (and other processor) batch imports land here
+    const logBase = `https://${subdomain}.breezechms.com/api/account/list_log?details=1&limit=10000&start=${start}&end=${end}`;
+    const [logRes1, logRes2] = await Promise.all([
+      fetch(logBase + '&action=contribution_added',        { headers: hdrs }),
+      fetch(logBase + '&action=bulk_import_contributions', { headers: hdrs }),
+    ]);
+    if (!logRes1.ok) return json({ error: `Breeze log API error (contribution_added): ${logRes1.status}` }, 502);
+    let entries1, entries2 = [];
+    try { entries1 = await logRes1.json(); } catch { return json({ error: 'Invalid JSON from Breeze log (contribution_added)' }, 502); }
+    if (!Array.isArray(entries1)) return json({ error: 'Unexpected response format', raw: String(entries1).slice(0,200) }, 502);
+    // bulk_import_contributions is best-effort — don't fail the whole sync if it errors
+    if (logRes2.ok) { try { const r = await logRes2.json(); if (Array.isArray(r)) entries2 = r; } catch {} }
+    // Merge and deduplicate by object_json (payment ID). contribution_added wins on collision.
+    const seenLogIds = new Set(entries1.map(e => String(e.object_json || e.id)));
+    const entries = [...entries1, ...entries2.filter(e => !seenLogIds.has(String(e.object_json || e.id)))];
 
     // Pull from /api/giving/list solely to harvest fund names (breezeFundNames map).
     // We do NOT import these as contributions — the audit log above is the authoritative
@@ -2331,6 +2342,9 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     const diag = {
       apiFundsCount: Object.keys(breezeFundNames).length,
       apiFundsSample: Object.entries(breezeFundNames).slice(0, 5).map(([id, name]) => ({ id, name })),
+      contributionAddedCount: entries1.length,
+      bulkImportCount: entries2.length,
+      bulkImportSample: entries2.slice(0, 3).map(e => ({ id: e.id, object_json: e.object_json, details_keys: Object.keys(e.details || e.description || {}) })),
       givingListSample: [],
       auditLogSample: [],
       breezeFundNamesAfterHarvest: null,
