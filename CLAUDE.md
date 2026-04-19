@@ -103,6 +103,9 @@ Full detail in `NOTES.md`. Summary:
 ### Scheduler
 - [ ] **SC1** — Make the scheduler native to the CHMS app instead of linking out to an external scheduler. Large, unknown scope — needs scoping session. (noted 2026-04-17) — see Phase 6 N2.
 
+### Breeze Integration
+- [ ] **BR1** — Reverse sync (app → Breeze): Breeze API supports write operations (add/update people, add contributions). Feasible for narrow workflows (e.g. new person entered here → push to Breeze, or walk-in gift batch → push to Breeze). Full bidirectional sync is complex due to conflict resolution. Needs scoping conversation: which specific data entry workflows would benefit? (noted 2026-04-19)
+
 ---
 
 ## Code Review Standards
