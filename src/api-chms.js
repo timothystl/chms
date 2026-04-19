@@ -2350,6 +2350,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       breezeFundNamesAfterHarvest: null,
       unresolvedFundIds: [],
     };
+    let glRaw = [];
     try {
       // Wide fixed date range — Breeze returns empty without date params.
       // Using 2020-01-01 to today captures all-time fund names regardless of sync window.
@@ -2359,6 +2360,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       if (glRes.ok) {
         const gl = await glRes.json();
         if (Array.isArray(gl)) {
+          glRaw = gl;
           // Capture raw structure of first 3 entries for diagnostics
           diag.givingListSample = gl.slice(0, 3).map(g => ({
             id: g.id,
@@ -2368,7 +2370,6 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
             fund_name: g.fund_name,
             fund: g.fund,
             funds: g.funds,
-            // Show all keys present
             keys: Object.keys(g),
           }));
           for (const g of gl) {
@@ -2390,8 +2391,47 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // Record all harvested fund names after both /api/funds and giving/list
     diag.breezeFundNamesAfterHarvest = Object.entries(breezeFundNames).map(([id, name]) => ({ id, name }));
 
-    // All contributions come from the audit log only.
-    const allEntries = entries;
+    // Supplement audit log with giving/list entries not captured there (e.g. Tithely batch imports).
+    // giving/list id == audit log object_json (both are the Breeze payment ID), so seenLogIds deduplicates.
+    const glSupplementEntries = [];
+    for (const g of glRaw) {
+      const pid = String(g.id);
+      if (seenLogIds.has(pid)) continue;
+      const date = (g.paid_on || g.date || '').slice(0, 10);
+      if (!date || date < lateStart || date > end) continue;
+      // Build synthetic details object matching audit log structure so existing helpers work
+      const fundFields = {};
+      const gFunds = Array.isArray(g.funds) ? g.funds : [];
+      if (gFunds.length === 0) {
+        fundFields['fund-'] = 'default';
+      } else if (gFunds.length === 1) {
+        fundFields['fund-'] = String(gFunds[0].fund_id || gFunds[0].id || '');
+      } else {
+        gFunds.forEach((f, i) => {
+          fundFields[`fund-gl${i}`] = String(f.fund_id || f.id || '');
+          if (f.amount) fundFields[`amount-gl${i}`] = String(f.amount);
+        });
+      }
+      glSupplementEntries.push({
+        id: pid,
+        object_json: pid,
+        details: JSON.stringify({
+          person_id: String(g.person_id || ''),
+          amount: String(g.amount || '0'),
+          method: g.method || '',
+          check_number: '',
+          date,
+          note: g.note || '',
+          batch_num: g.num || '',
+          ...fundFields,
+        }),
+      });
+      seenLogIds.add(pid);
+    }
+    diag.givingListSupplementCount = glSupplementEntries.length;
+
+    // Contributions = audit log entries + giving/list supplement (Tithely and other non-logged imports)
+    const allEntries = [...entries, ...glSupplementEntries];
     if (allEntries.length === 0) return json({ ok: true, imported: 0, skipped: 0, total: 0, date_range: { start, end } });
 
     // Capture raw audit log details for first 3 entries
