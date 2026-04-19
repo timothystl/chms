@@ -2515,7 +2515,8 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       // Entries within the 45-day grace window before `start` are imported
       // with their actual contribution date (G9 fix — covers Dec entries logged in Jan).
       if (date < lateStart || date > end) continue;
-      const batchKey = d.batch_num ? `Breeze Batch #${d.batch_num}` : `Breeze Import ${date}`;
+      const batchNum = d.batch_num || d.batch_edit_select;
+      const batchKey = batchNum ? `Breeze Batch #${batchNum}` : `Breeze Import ${date}`;
       if (!batchByDesc[batchKey]) {
         if (!newBatchesNeeded.has(batchKey)) newBatchesNeeded.set(batchKey, { date, desc: batchKey });
       } else {
@@ -2692,7 +2693,8 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
 
         // Import the entry — whether it's in-window (date >= start) or a grace-window
         // late entry (lateStart <= date < start). Contribution date is stored as-is.
-        const batchKey = d.batch_num ? `Breeze Batch #${d.batch_num}` : `Breeze Import ${date}`;
+        const batchNum2 = d.batch_num || d.batch_edit_select;
+        const batchKey = batchNum2 ? `Breeze Batch #${batchNum2}` : `Breeze Import ${date}`;
         const batchId  = batchByDesc[batchKey];
         if (!batchId) { errors.push({ id: entry.id, error: 'batch not found: ' + batchKey }); skipped++; continue; }
 
