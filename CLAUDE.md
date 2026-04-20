@@ -52,7 +52,7 @@ Full detail in `NOTES.md`. Summary:
 <!-- Add items here as they come up. Format: - [ ] Description (noted YYYY-MM-DD) -->
 
 ### People List
-- [ ] **PL1** — Revisit how the people list is divided: user primarily works with members but doesn't want to discard other contacts. Think through a better default view / filter strategy. Needs design conversation first. (noted 2026-04-17)
+- [x] **PL1** — Members-first people list: default view shows Members only; "Members" toggle button in toolbar switches to all-types view. Done 2026-04-20 (v82).
 - [x] **PL2** — Archive/Deceased people: `status` column (`active|archived|deceased`) added; archived/deceased hidden from default list; "Archived" toggle button in toolbar; Archive/Deceased/Reactivate buttons on profile; anniversary cards exclude deceased. Done 2026-04-20 (v81).
 
 ### Giving / Finance
