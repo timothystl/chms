@@ -569,7 +569,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       Filters
       <span id="p-filter-count" style="display:none;background:var(--teal);color:#fff;border-radius:99px;padding:1px 7px;font-size:.72rem;font-weight:700;"></span>
     </button>
-    <button class="btn-secondary" id="p-select-btn" onclick="toggleSelectMode()" style="margin-left:auto;">&#9745; Select</button>
+    <button class="btn-secondary" id="p-members-btn" onclick="toggleMemberFilter()" title="Toggle between Members only and all types" style="margin-left:auto;">Members</button>
+    <button class="btn-secondary" id="p-select-btn" onclick="toggleSelectMode()">&#9745; Select</button>
     <button class="btn-secondary" id="p-archive-btn" onclick="toggleArchiveView()" title="View archived &amp; deceased people">Archived</button>
     <button class="btn-secondary" onclick="printDirectory()" title="Print directory">&#128438; Directory</button>
     <button class="btn-primary require-edit" onclick="openPersonEdit(null)">+ Add Person</button>
@@ -1599,7 +1600,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-20-v81';
+var DEPLOY_VERSION = '2026-04-20-v82';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -1609,7 +1610,7 @@ window.onerror = function(msg, src, line, col, err) {
   return false;
 };
 // ── STATE ────────────────────────────────────────────────────────────
-var allTags = [], allFunds = [], currentBatchId = null, _currentBatch = null, peopleFilter = {q:'',mt:'',tagIds:[],missingFields:[],offset:0,limit:25,sort:'last_name',dir:'asc'};
+var allTags = [], allFunds = [], currentBatchId = null, _currentBatch = null, peopleFilter = {q:'',mt:'member',tagIds:[],missingFields:[],offset:0,limit:25,sort:'last_name',dir:'asc'};
 var _peopleTotal = 0;
 var _pDebounce, _hDebounce;
 var _loadedServices = [];
@@ -1975,6 +1976,11 @@ function updateFilterBadge() {
   var count = (peopleFilter.mt ? 1 : 0) + peopleFilter.tagIds.length + peopleFilter.missingFields.length;
   var badge = document.getElementById('p-filter-count');
   if (badge) { badge.textContent = count; badge.style.display = count > 0 ? 'inline-flex' : 'none'; }
+  var mb = document.getElementById('p-members-btn');
+  if (mb) { mb.style.background = peopleFilter.mt === 'member' ? 'var(--teal)' : ''; mb.style.color = peopleFilter.mt === 'member' ? '#fff' : ''; }
+}
+function toggleMemberFilter() {
+  setFdMt(peopleFilter.mt === 'member' ? '' : 'member');
 }
 function updateFdCount() {
   var el = document.getElementById('fd-result-count');
@@ -2812,6 +2818,8 @@ function loadPeople(resetPage) {
     renderPeopleMobile(people);
     renderPeoplePager();
     updateFdCount();
+    renderActiveFilterChips();
+    updateFilterBadge();
   }).catch(function() {
     _peopleTotal = 0;
     renderPeopleDesktop([]);
