@@ -570,6 +570,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <span id="p-filter-count" style="display:none;background:var(--teal);color:#fff;border-radius:99px;padding:1px 7px;font-size:.72rem;font-weight:700;"></span>
     </button>
     <button class="btn-secondary" id="p-select-btn" onclick="toggleSelectMode()" style="margin-left:auto;">&#9745; Select</button>
+    <button class="btn-secondary" id="p-archive-btn" onclick="toggleArchiveView()" title="View archived &amp; deceased people">Archived</button>
     <button class="btn-secondary" onclick="printDirectory()" title="Print directory">&#128438; Directory</button>
     <button class="btn-primary require-edit" onclick="openPersonEdit(null)">+ Add Person</button>
   </div>
@@ -1111,7 +1112,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
     <button class="hamburger" onclick="openSidebar()" aria-label="Menu"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
     <span class="topbar-back" onclick="closeProfile()">&#8592; People</span>
     <span id="pv-topbar-name" style="font-size:15px;font-weight:500;color:var(--charcoal);margin-left:8px;"></span>
-    <div style="display:flex;gap:8px;margin-left:auto;">
+    <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
+      <div id="pv-status-actions" style="display:flex;gap:6px;align-items:center;"></div>
       <button class="btn-secondary" onclick="window.print()">Print</button>
       <button class="btn-secondary require-edit" onclick="openPersonEdit(_currentPvPerson)">Edit</button>
     </div>
@@ -1597,7 +1599,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-20-v80';
+var DEPLOY_VERSION = '2026-04-20-v81';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -1624,6 +1626,7 @@ var _yoyRptH = 200, _byServiceRptH = 180, _givingTrendH = 220;
 var _lastYoYRptData = null, _lastByServiceRptData = null, _lastGivingTrendData = null;
 var _cropImg = null, _cropCallback = null, _cropRect = {x:0,y:0,w:0,h:0}, _cropScale = 1, _cropDrag = null;
 var _dashPrefs = null;
+var _archiveView = false;
 var _selectMode = false, _selectedPeople = new Set();
 var _editingHouseholdId = null;
 var _churchConfig = {};
@@ -2798,6 +2801,7 @@ function loadPeople(resetPage) {
   params.set('offset', peopleFilter.offset);
   params.set('sort', peopleFilter.sort || 'last_name');
   params.set('dir', peopleFilter.dir || 'asc');
+  if (_archiveView) params.set('archived', '1');
   setStatus('p-status', 'Loading…');
   api('/admin/api/people?' + params).then(function(d) {
     setStatus('p-status', '');
@@ -2844,10 +2848,16 @@ function sortPeople(col) {
   }
   loadPeople(true);
 }
+function toggleArchiveView() {
+  _archiveView = !_archiveView;
+  var btn = document.getElementById('p-archive-btn');
+  if (btn) { btn.style.background = _archiveView ? 'var(--teal)' : ''; btn.style.color = _archiveView ? '#fff' : ''; }
+  loadPeople(true);
+}
 function renderPeopleDesktop(people) {
   _loadedPeople = people;
   var c = document.getElementById('p-grid');
-  if (!people.length) { c.innerHTML = '<div class="empty" style="padding:40px 24px;"><div class="empty-icon">&#128100;</div>No people found</div>'; return; }
+  if (!people.length) { c.innerHTML = '<div class="empty" style="padding:40px 24px;"><div class="empty-icon">&#128100;</div>' + (_archiveView ? 'No archived people found' : 'No people found') + '</div>'; return; }
   var isOrg, isSelected, displayName, avInner, avClass, clickHandler, tags, tagHtml, trCls;
   var rows = people.map(function(p) {
     isOrg = p.member_type === 'organization';
@@ -2869,9 +2879,12 @@ function renderPeopleDesktop(people) {
     if (tags.length > 3) tagHtml += '<span class="dir-tag-more">+' + (tags.length - 3) + '</span>';
     trCls = isSelected ? ' class="dir-row-selected"' : '';
     var badge = (p.member_type||'visitor').replace(/\s+/g,'-');
+    var statusPill = '';
+    if (p.status === 'archived') statusPill = ' <span style="font-size:.68rem;padding:1px 6px;border-radius:99px;background:#8b735522;color:#8b7355;border:1px solid #8b735544;vertical-align:middle;">archived</span>';
+    else if (p.status === 'deceased') statusPill = ' <span style="font-size:.68rem;padding:1px 6px;border-radius:99px;background:#6c757d22;color:#6c757d;border:1px solid #6c757d44;vertical-align:middle;">&#x271D; deceased</span>';
     return '<tr' + trCls + ' style="cursor:pointer;" ' + clickHandler + '>'
       + '<td style="width:36px;text-align:center;" onclick="event.stopPropagation()"><input type="checkbox" name="person-select"' + (isSelected ? ' checked' : '') + ' style="' + (_selectMode ? '' : 'display:none;') + '" onchange="togglePersonSelect(' + p.id + ',this.closest(&#39;tr&#39;))" onclick="event.stopPropagation()"></td>'
-      + '<td><div class="dir-name-cell"><div class="' + avClass + '">' + avInner + '</div><span class="dir-name-link">' + displayName + '</span></div></td>'
+      + '<td><div class="dir-name-cell"><div class="' + avClass + '">' + avInner + '</div><span class="dir-name-link">' + displayName + '</span>' + statusPill + '</div></td>'
       + '<td><span class="dir-badge dir-badge-' + badge + '">' + esc(p.member_type||'visitor') + '</span></td>'
       + '<td class="dir-contact">' + (p.email ? '<a href="mailto:' + esc(p.email) + '" onclick="event.stopPropagation()">' + esc(p.email) + '</a>' : '') + (p.phone ? '<div class="dir-phone">' + esc(p.phone) + '</div>' : '') + '</td>'
       + '<td>' + (p.household_display_name || p.household_name ? '<span class="dir-hh-link">' + esc(p.household_display_name || p.household_name) + '</span>' : '<span style="color:var(--faint);">—</span>') + '</td>'
@@ -3009,7 +3022,7 @@ function applyBulkTags() {
 }
 function renderPeopleMobile(people) {
   var c = document.getElementById('p-contact-list');
-  if (!people.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">&#128100;</div>No people found</div>'; return; }
+  if (!people.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">&#128100;</div>' + (_archiveView ? 'No archived people found' : 'No people found') + '</div>'; return; }
   c.innerHTML = people.map(function(p) {
     var addr = [p.address1, p.city, p.state].filter(Boolean).join(', ');
     if (!addr && p.household_address) addr = p.household_address;
@@ -3071,7 +3084,22 @@ function showProfile(p) {
   if (bdEl) {
     var mt = p.member_type||'visitor';
     var badgeClass = mt === 'member' ? 'dir-badge-member' : mt === 'organization' ? 'dir-badge-organization' : 'dir-badge-visitor';
-    bdEl.innerHTML = '<span class="dir-badge '+badgeClass+'">'+mt.charAt(0).toUpperCase()+mt.slice(1)+'</span>';
+    var statusHtml = '';
+    if (p.status === 'archived') statusHtml = ' <span style="font-size:.7rem;padding:2px 8px;border-radius:99px;background:#8b735522;color:#8b7355;border:1px solid #8b735544;">Archived</span>';
+    else if (p.status === 'deceased') statusHtml = ' <span style="font-size:.7rem;padding:2px 8px;border-radius:99px;background:#6c757d22;color:#6c757d;border:1px solid #6c757d44;">&#x271D; Deceased' + (p.death_date ? ' '+esc(p.death_date) : '') + '</span>';
+    bdEl.innerHTML = '<span class="dir-badge '+badgeClass+'">'+mt.charAt(0).toUpperCase()+mt.slice(1)+'</span>'+statusHtml;
+  }
+  var saEl = document.getElementById('pv-status-actions');
+  if (saEl && _userRole !== 'member') {
+    var pStatus = p.status || 'active';
+    if (pStatus === 'active') {
+      saEl.innerHTML = '<button class="btn-secondary" style="font-size:.76rem;padding:3px 9px;color:var(--warm-gray);" onclick="archivePerson('+p.id+')">Archive</button>'
+        + '<button class="btn-secondary" style="font-size:.76rem;padding:3px 9px;color:var(--warm-gray);" onclick="markPersonDeceased('+p.id+')">Deceased</button>';
+    } else if (pStatus === 'archived') {
+      saEl.innerHTML = '<button class="btn-primary" style="font-size:.76rem;padding:3px 9px;background:var(--teal);" onclick="unarchivePerson('+p.id+')">Reactivate</button>';
+    } else if (pStatus === 'deceased') {
+      saEl.innerHTML = '<button class="btn-secondary" style="font-size:.76rem;padding:3px 9px;color:var(--warm-gray);" onclick="unarchivePerson('+p.id+')">Reactivate</button>';
+    }
   }
   var hhEl = document.getElementById('pv-hh');
   if (hhEl) hhEl.textContent = (p.household_display_name || p.household_name) ? ' \u00b7 '+(p.household_display_name || p.household_name) : '';
@@ -4418,6 +4446,27 @@ function deletePerson() {
   if (!id) return;
   if (!confirm('Mark this person as inactive?')) return;
   api('/admin/api/people/' + id, {method:'DELETE'}).then(function() { closeModal('person-modal'); loadPeople(); });
+}
+function archivePerson(id) {
+  if (!confirm('Archive this person? They will be hidden from the active list but their records and giving history are preserved.')) return;
+  api('/admin/api/people/' + id + '/archive', {method:'POST'}).then(function(r) {
+    if (r.ok) { openPersonDetail(id); loadPeople(); }
+    else alert('Error: ' + (r.error || 'unknown'));
+  });
+}
+function unarchivePerson(id) {
+  if (!confirm('Reactivate this person and return them to the active people list?')) return;
+  api('/admin/api/people/' + id + '/unarchive', {method:'POST'}).then(function(r) {
+    if (r.ok) { openPersonDetail(id); loadPeople(); }
+    else alert('Error: ' + (r.error || 'unknown'));
+  });
+}
+function markPersonDeceased(id) {
+  if (!confirm('Mark this person as deceased? Today will be set as their death date. They will be archived, removed from anniversary cards, and their giving history is preserved.')) return;
+  api('/admin/api/people/' + id + '/deceased', {method:'POST'}).then(function(r) {
+    if (r.ok) { openPersonDetail(id); loadPeople(); }
+    else alert('Error: ' + (r.error || 'unknown'));
+  });
 }
 
 // ── CHURCH REGISTER ───────────────────────────────────────────────────

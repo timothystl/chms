@@ -477,6 +477,8 @@ export async function initDb(db) {
     // people: baptized/confirmed boolean flags (independent of date — for cases where date is unknown)
     'ALTER TABLE people ADD COLUMN baptized INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE people ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0',
+    // people: archive/deceased status ('active' | 'archived' | 'deceased')
+    'ALTER TABLE people ADD COLUMN status TEXT NOT NULL DEFAULT \'active\'',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

@@ -104,7 +104,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const dashMonthStr = String(dashMonth).padStart(2, '0');
     const birthdays = (await db.prepare(
       `SELECT id, first_name, last_name, dob FROM people
-       WHERE active=1 AND dob != ''
+       WHERE active=1 AND (status IS NULL OR status='active') AND dob != ''
          AND LOWER(member_type) NOT IN ('visitor','inactive','other','organization')
          AND strftime('%m', dob) = ?
        ORDER BY strftime('%d', dob)`
@@ -112,13 +112,14 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // DB4: fetch anniversaries with role+household so couples can be paired
     const annRows = (await db.prepare(
       `SELECT id, first_name, last_name, anniversary_date, family_role, household_id FROM people
-       WHERE active=1 AND (deceased=0 OR deceased IS NULL) AND anniversary_date != ''
+       WHERE active=1 AND (status IS NULL OR status='active')
+         AND (deceased=0 OR deceased IS NULL) AND anniversary_date != ''
          AND LOWER(member_type) NOT IN ('visitor','inactive','other','organization')
          AND strftime('%m', anniversary_date) = ?
          AND NOT EXISTS (
            SELECT 1 FROM people p2
            WHERE p2.household_id=people.household_id AND p2.id!=people.id
-             AND p2.deceased=1 AND p2.family_role IN ('head','spouse')
+             AND (p2.deceased=1 OR p2.status='deceased') AND p2.family_role IN ('head','spouse')
          )
        ORDER BY strftime('%d', anniversary_date), household_id,
          CASE family_role WHEN 'head' THEN 0 WHEN 'spouse' THEN 1 ELSE 2 END`
@@ -142,7 +143,8 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       const ph = unpairedHHIds.map(() => '?').join(',');
       const partners = (await db.prepare(
         `SELECT id, first_name, last_name, anniversary_date, family_role, household_id
-         FROM people WHERE active=1 AND (deceased=0 OR deceased IS NULL) AND household_id IN (${ph})`
+         FROM people WHERE active=1 AND (status IS NULL OR status='active')
+           AND (deceased=0 OR deceased IS NULL) AND household_id IN (${ph})`
       ).bind(...unpairedHHIds).all()).results || [];
       const partnersByHH = {};
       for (const s of partners) {
@@ -227,15 +229,22 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const mt = url.searchParams.get('member_type') || '';
     const tagId = url.searchParams.get('tag_id') || '';
     const tagIdsRaw = url.searchParams.get('tag_ids') || '';
+    const archivedView = url.searchParams.get('archived') === '1';
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '100'), 200);
     const offset = parseInt(url.searchParams.get('offset') || '0');
     const SORT_COLS = { last_name: 'p.last_name', first_name: 'p.first_name', member_type: 'p.member_type', created_at: 'p.created_at', household: 'h.name' };
     const sortCol = SORT_COLS[url.searchParams.get('sort') || ''] || 'p.last_name';
     const sortDir = url.searchParams.get('dir') === 'desc' ? 'DESC' : 'ASC';
     const like = '%' + q + '%';
-    let where = `p.active=1 AND LOWER(p.member_type) != 'organization'
-      AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)`;
+    let where;
     const binds = [like, like, like, like];
+    if (archivedView) {
+      where = `p.status IN ('archived','deceased') AND LOWER(p.member_type) != 'organization'
+        AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)`;
+    } else {
+      where = `p.active=1 AND (p.status IS NULL OR p.status='active') AND LOWER(p.member_type) != 'organization'
+        AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)`;
+    }
     // Member role can only see people with member_type='member'
     if (role === 'member') { where += ` AND LOWER(p.member_type)='member'`; }
     if (mt) { where += ' AND LOWER(p.member_type)=LOWER(?)'; binds.push(mt); }
@@ -445,6 +454,48 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       }
       return json({ ok: true });
     }
+  }
+
+  // ── Archive / unarchive / deceased ──────────────────────────────────
+  const archiveMatch = seg.match(/^people\/(\d+)\/(archive|unarchive|deceased)$/);
+  if (archiveMatch && method === 'POST') {
+    if (!isStaff) return json({ error: 'Access denied' }, 403);
+    const pid = parseInt(archiveMatch[1]);
+    const action = archiveMatch[2];
+    const person = await db.prepare('SELECT * FROM people WHERE id=?').bind(pid).first();
+    if (!person) return json({ error: 'Person not found' }, 404);
+
+    if (action === 'archive') {
+      await db.prepare(`UPDATE people SET status='archived', active=0 WHERE id=?`).bind(pid).run();
+      await db.prepare(`INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
+        VALUES('update','person',?,?,?,'active','archived')`
+      ).bind(pid, `${person.first_name} ${person.last_name}`, 'status').run();
+    } else if (action === 'unarchive') {
+      await db.prepare(`UPDATE people SET status='active', active=1, deceased=0 WHERE id=?`).bind(pid).run();
+      await db.prepare(`INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
+        VALUES('update','person',?,?,?,'archived','active')`
+      ).bind(pid, `${person.first_name} ${person.last_name}`, 'status').run();
+    } else if (action === 'deceased') {
+      if (!isAdmin && !isStaff) return json({ error: 'Access denied' }, 403);
+      const today = new Date().toISOString().slice(0, 10);
+      await db.prepare(`UPDATE people SET status='deceased', deceased=1, death_date=?, active=0 WHERE id=?`)
+        .bind(today, pid).run();
+      await db.prepare(`INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
+        VALUES('update','person',?,?,?,'active','deceased')`
+      ).bind(pid, `${person.first_name} ${person.last_name}`, 'status').run();
+      // If this person was the household head, promote spouse or first remaining active member
+      if (person.household_id && person.family_role === 'head') {
+        const members = (await db.prepare(
+          `SELECT id, family_role FROM people
+           WHERE household_id=? AND id!=? AND active=1 AND (status IS NULL OR status='active')
+           ORDER BY CASE family_role WHEN 'spouse' THEN 0 ELSE 1 END, id`
+        ).bind(person.household_id, pid).all()).results || [];
+        if (members.length > 0) {
+          await db.prepare(`UPDATE people SET family_role='head' WHERE id=?`).bind(members[0].id).run();
+        }
+      }
+    }
+    return json({ ok: true });
   }
 
   // ── Person photo upload ──────────────────────────────────────────

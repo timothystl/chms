@@ -53,7 +53,7 @@ Full detail in `NOTES.md`. Summary:
 
 ### People List
 - [ ] **PL1** — Revisit how the people list is divided: user primarily works with members but doesn't want to discard other contacts. Think through a better default view / filter strategy. Needs design conversation first. (noted 2026-04-17)
-- [ ] **PL2** — Archive/Deceased people: how to handle people who have died or should be archived — separate status, hide from active lists, preserve giving history, show in a separate view. Needs design conversation. (noted 2026-04-17)
+- [x] **PL2** — Archive/Deceased people: `status` column (`active|archived|deceased`) added; archived/deceased hidden from default list; "Archived" toggle button in toolbar; Archive/Deceased/Reactivate buttons on profile; anniversary cards exclude deceased. Done 2026-04-20 (v81).
 
 ### Giving / Finance
 - [x] **G1** — Fund import: pre-fetches `/api/funds` from Breeze to resolve real names; retroactively renames any "Breeze Fund XXXXX" placeholders on next sync. Done 2026-04-17.
