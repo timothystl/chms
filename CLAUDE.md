@@ -166,7 +166,7 @@ Full detail in `NOTES.md`. Summary:
 ### Communications / Email
 - [ ] **EM1** — Brevo newsletter sync: (1) "Add to newsletter" button on person profile → Brevo Contacts API, (2) bulk sync in Settings, (3) auto-sync on person save if email changes. Needs `BREVO_API_KEY` and `BREVO_LIST_ID` secrets added to Worker. Plan written in Architecture section above. (noted 2026-04-17, scoped 2026-04-20)
 - [x] **EM2** — Automated birthday/anniversary emails via Resend. Daily cron (`0 14 * * *`), birthday to member, anniversary to couple (shared email → one combined email). Dedup via audit_log. Admin test buttons in Settings. Done 2026-04-20 (v83).
-- [ ] **EM1** — Brevo newsletter sync. Needs `BREVO_API_KEY` + `BREVO_LIST_ID` added to Cloudflare Worker secrets before building (Cloudflare Dashboard → Workers → this worker → Settings → Variables). Build after EM2. (noted 2026-04-17, scoped 2026-04-20)
+- [x] **EM1** — Brevo newsletter sync: (1) "Add to newsletter" button on person profile → Brevo Contacts API, (2) bulk sync in Settings, (3) auto-sync on person save if email changes, (4) reconciliation view shows ChMS vs Brevo comparison with "Add All Missing" button. Done 2026-04-20 (v84).
 - [ ] **SMS1** — SMS birthday/anniversary + bulk messaging. **Preferred provider: Brevo SMS** — already have an account, `BREVO_API_KEY` will be in the worker for EM1, no new signup needed (~€0.07/SMS, slightly more than Twilio but zero friction). Alternative: Twilio (~$0.008/SMS + $1/month phone number). Needs `sms_opt_in` field on people. Build after EM1. (noted 2026-04-20)
 
 ### Scheduler

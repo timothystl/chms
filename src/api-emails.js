@@ -2,6 +2,77 @@
 // Uses RESEND_API_KEY and EMAIL_FROM from env (already present for scheduler).
 // Called by the daily cron handler in tlc-volunteer-worker.js and by admin trigger endpoints.
 
+// ── Brevo helpers (EM1) ──────────────────────────────────────────────────────
+
+export async function brevoUpsertContact(env, email, firstName, lastName) {
+  const apiKey = env.BREVO_API_KEY || '';
+  const listId = parseInt(env.BREVO_LIST_ID || '0');
+  if (!apiKey || !listId) return { ok: false, error: 'Brevo not configured (missing BREVO_API_KEY or BREVO_LIST_ID)' };
+  try {
+    const res = await fetch('https://api.brevo.com/v3/contacts', {
+      method: 'POST',
+      headers: { 'api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        attributes: { FIRSTNAME: firstName || '', LASTNAME: lastName || '' },
+        listIds: [listId],
+        updateEnabled: true,
+      }),
+    });
+    if (res.status === 201 || res.status === 204) return { ok: true };
+    const data = await res.json().catch(() => ({}));
+    return { ok: false, error: data.message || String(res.status) };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
+export async function brevoBulkSync(env, contacts) {
+  // contacts: [{ email, firstName, lastName }, ...]
+  const apiKey = env.BREVO_API_KEY || '';
+  const listId = parseInt(env.BREVO_LIST_ID || '0');
+  if (!apiKey || !listId) return { ok: false, error: 'Brevo not configured' };
+  try {
+    const res = await fetch('https://api.brevo.com/v3/contacts/import', {
+      method: 'POST',
+      headers: { 'api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        listIds: [listId],
+        jsonBody: contacts.map(c => ({
+          email: c.email,
+          attributes: { FIRSTNAME: c.firstName || '', LASTNAME: c.lastName || '' },
+        })),
+        updateExistingContacts: true,
+        emptyContactsAttributes: false,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    return res.ok ? { ok: true, processId: data.processId, count: contacts.length } : { ok: false, error: data.message || String(res.status) };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
+export async function brevoGetListContacts(env) {
+  const apiKey = env.BREVO_API_KEY || '';
+  const listId = parseInt(env.BREVO_LIST_ID || '0');
+  if (!apiKey || !listId) return { ok: false, error: 'Brevo not configured' };
+  const emails = [];
+  let offset = 0;
+  const limit = 500;
+  try {
+    while (true) {
+      const res = await fetch(
+        `https://api.brevo.com/v3/contacts/lists/${listId}/contacts?limit=${limit}&offset=${offset}&sort=asc`,
+        { headers: { 'api-key': apiKey } }
+      );
+      if (!res.ok) { const d = await res.json().catch(() => ({})); return { ok: false, error: d.message || String(res.status) }; }
+      const data = await res.json();
+      const batch = data.contacts || [];
+      for (const c of batch) { if (c.email) emails.push(c.email.toLowerCase()); }
+      if (batch.length < limit) break;
+      offset += limit;
+    }
+    return { ok: true, emails };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
 async function sendResend(env, to, subject, text, htmlBody) {
   const key = env.RESEND_API_KEY || '';
   const from = env.EMAIL_FROM || '';

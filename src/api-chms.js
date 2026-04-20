@@ -1,5 +1,6 @@
 // ── ChMS (People & Giving) API handler ────────────────────────────────────────
 import { html, json } from './auth.js';
+import { brevoUpsertContact, brevoBulkSync, brevoGetListContacts } from './api-emails.js';
 
 // Disambiguate household display names when multiple households share the same name.
 // "Smith Family" + "John" → "John Smith Family"; "Smith" + "John" → "John Smith"
@@ -441,6 +442,12 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
         }
         if (ops.length) await db.batch(ops);
       }
+      // Auto-sync to Brevo if email changed and person is a member
+      const newEmail = (b.email || '').trim().toLowerCase();
+      const oldEmail = (oldPerson?.email || '').trim().toLowerCase();
+      if (newEmail && newEmail !== oldEmail && (b.member_type || '').toLowerCase() === 'member') {
+        brevoUpsertContact(env, b.email.trim(), b.first_name || '', b.last_name || '').catch(() => {});
+      }
       return json({ ok: true });
     }
     if (method === 'DELETE') {
@@ -496,6 +503,49 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       }
     }
     return json({ ok: true });
+  }
+
+  // ── Brevo newsletter sync (EM1) ──────────────────────────────────────────
+  if (seg === 'brevo/sync-contact' && method === 'POST') {
+    if (!isStaff) return json({ error: 'Access denied' }, 403);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    if (!b.email) return json({ error: 'email required' }, 400);
+    const result = await brevoUpsertContact(env, b.email, b.first_name || '', b.last_name || '');
+    return json(result);
+  }
+
+  if (seg === 'brevo/bulk-sync' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied' }, 403);
+    const members = (await db.prepare(
+      `SELECT first_name, last_name, email FROM people
+       WHERE active=1 AND (status IS NULL OR status='active')
+         AND LOWER(member_type)='member' AND email != ''`
+    ).all()).results || [];
+    if (!members.length) return json({ ok: true, count: 0, message: 'No members with email addresses found.' });
+    const result = await brevoBulkSync(env, members.map(m => ({ email: m.email, firstName: m.first_name, lastName: m.last_name })));
+    return json(result);
+  }
+
+  if (seg === 'brevo/reconcile' && method === 'GET') {
+    if (!isAdmin) return json({ error: 'Access denied' }, 403);
+    const members = (await db.prepare(
+      `SELECT id, first_name, last_name, email FROM people
+       WHERE active=1 AND (status IS NULL OR status='active')
+         AND LOWER(member_type)='member' AND email != ''
+       ORDER BY last_name, first_name`
+    ).all()).results || [];
+    const brevoResult = await brevoGetListContacts(env);
+    if (!brevoResult.ok) return json({ error: brevoResult.error }, 502);
+    const brevoSet = new Set(brevoResult.emails);
+    const chmsSet = new Set(members.map(m => m.email.toLowerCase()));
+    const missingFromBrevo = members.filter(m => !brevoSet.has(m.email.toLowerCase()));
+    const inBrevoNotChms = brevoResult.emails.filter(e => !chmsSet.has(e));
+    return json({
+      chms_member_count: members.length,
+      brevo_list_count: brevoResult.emails.length,
+      missing_from_brevo: missingFromBrevo,
+      in_brevo_not_chms: inBrevoNotChms,
+    });
   }
 
   // ── Person photo upload ──────────────────────────────────────────

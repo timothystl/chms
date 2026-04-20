@@ -978,6 +978,16 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div class="import-status" id="export-status"></div>
     </div>
     <div class="import-card">
+      <h3>&#128140; Brevo Newsletter Sync</h3>
+      <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Syncs active members with email addresses to your Brevo contact list. Use "Check Sync" to see who's missing, then bulk-add all at once.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-secondary" style="font-size:.88rem;" onclick="brevoCheckSync()">&#128269; Check Brevo Sync</button>
+        <button class="btn-secondary" style="font-size:.88rem;" onclick="brevoBulkSyncAll()">&#8593; Bulk Sync All Members</button>
+      </div>
+      <div id="brevo-reconcile-status" class="import-status" style="margin-top:8px;"></div>
+      <div id="brevo-reconcile-results" style="margin-top:10px;"></div>
+    </div>
+    <div class="import-card">
       <h3>&#9993; Automated Emails (EM2)</h3>
       <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Daily cron sends birthday emails to active members and anniversary emails to couples at 9am Central. Use these buttons to trigger manually or test.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -1609,7 +1619,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-20-v83';
+var DEPLOY_VERSION = '2026-04-20-v84';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -3141,6 +3151,10 @@ function showProfile(p) {
       + pvRow('Address', addrVal)
       + pvRow('Phone', phoneVal)
       + pvRow('Email', emailVal)
+      + (p.email && _userRole !== 'member' ? '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">'
+          + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="addToNewsletter('+p.id+',\''+esc(p.email)+'\',\''+esc(p.first_name||'')+'\',\''+esc(p.last_name||'')+'\')">&#9993; Add to Newsletter</button>'
+          + '<span id="pv-newsletter-status" style="font-size:.75rem;line-height:2;color:var(--teal);"></span>'
+          + '</div>' : '')
       + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button></div>' : '')
       + '</div>'
       + '<div class="pv-section">'
@@ -6193,6 +6207,54 @@ function clearAllFunds() {
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
+function addToNewsletter(id, email, firstName, lastName) {
+  var st = document.getElementById('pv-newsletter-status');
+  if (st) st.textContent = 'Adding\u2026';
+  api('/admin/api/brevo/sync-contact', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({email: email, first_name: firstName, last_name: lastName})
+  }).then(function(r) {
+    if (st) { st.textContent = r.ok ? 'Added to newsletter \u2713' : 'Error: '+(r.error||'unknown'); }
+  }).catch(function() { if (st) st.textContent = 'Request failed.'; });
+}
+function brevoCheckSync() {
+  var status = document.getElementById('brevo-reconcile-status');
+  var results = document.getElementById('brevo-reconcile-results');
+  status.textContent = 'Checking\u2026'; status.className = 'import-status';
+  results.innerHTML = '';
+  api('/admin/api/brevo/reconcile').then(function(d) {
+    if (d.error) { status.textContent = 'Error: '+d.error; status.className = 'import-status err'; return; }
+    status.textContent = d.chms_member_count+' members in ChMS with email \u00b7 '+d.brevo_list_count+' contacts in Brevo list';
+    status.className = 'import-status ok';
+    var html = '';
+    if (d.missing_from_brevo && d.missing_from_brevo.length) {
+      html += '<div style="margin-top:10px;"><strong style="color:var(--charcoal);">'+d.missing_from_brevo.length+' members missing from Brevo:</strong>'
+        + ' <button class="btn-secondary" style="font-size:.78rem;padding:2px 8px;margin-left:8px;" onclick="brevoBulkSyncAll()">Add All Missing</button>'
+        + '<div style="margin-top:6px;font-size:.82rem;color:var(--warm-gray);max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:6px 10px;">'
+        + d.missing_from_brevo.map(function(p){ return esc(p.first_name+' '+p.last_name)+' &lt;'+esc(p.email)+'&gt;'; }).join('<br>')
+        + '</div></div>';
+    } else {
+      html += '<div style="margin-top:8px;color:var(--teal);font-size:.88rem;">&#10003; All members are in Brevo.</div>';
+    }
+    if (d.in_brevo_not_chms && d.in_brevo_not_chms.length) {
+      html += '<div style="margin-top:10px;"><strong style="color:var(--warm-gray);">'+d.in_brevo_not_chms.length+' in Brevo not found as active members</strong>'
+        + ' <span style="font-size:.78rem;color:var(--warm-gray);">(website sign-ups or past members — no action needed)</span>'
+        + '<div style="margin-top:4px;font-size:.78rem;color:var(--warm-gray);max-height:100px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:4px 8px;">'
+        + d.in_brevo_not_chms.map(esc).join('<br>')
+        + '</div></div>';
+    }
+    results.innerHTML = html;
+  }).catch(function() { status.textContent = 'Request failed.'; status.className = 'import-status err'; });
+}
+function brevoBulkSyncAll() {
+  var status = document.getElementById('brevo-reconcile-status');
+  status.textContent = 'Syncing all members to Brevo\u2026'; status.className = 'import-status';
+  document.getElementById('brevo-reconcile-results').innerHTML = '';
+  api('/admin/api/brevo/bulk-sync', {method:'POST'}).then(function(d) {
+    if (d.error) { status.textContent = 'Error: '+d.error; status.className = 'import-status err'; return; }
+    status.textContent = 'Bulk sync queued: '+d.count+' members sent to Brevo (import is async \u2014 allow a minute to complete).';
+    status.className = 'import-status ok';
+  }).catch(function() { status.textContent = 'Request failed.'; status.className = 'import-status err'; });
+}
 function runEmailTest(type) {
   var status = document.getElementById('email-test-status');
   status.textContent = 'Sending\u2026'; status.className = 'import-status';
