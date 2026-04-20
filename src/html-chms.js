@@ -1597,7 +1597,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-20-v79';
+var DEPLOY_VERSION = '2026-04-20-v80';
 window.onerror = function(msg, src, line, col, err) {
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
@@ -1620,6 +1620,8 @@ var _editGiftFilterYear = '';
 var _userRole = 'admin';
 var _batchSearch = '';
 var _attOrder = 'desc', _attGroupBy = 'none', _attChartMode = 'line', _attTableVisible = true, _attChartH = 210;
+var _yoyRptH = 200, _byServiceRptH = 180, _givingTrendH = 220;
+var _lastYoYRptData = null, _lastByServiceRptData = null, _lastGivingTrendData = null;
 var _cropImg = null, _cropCallback = null, _cropRect = {x:0,y:0,w:0,h:0}, _cropScale = 1, _cropDrag = null;
 var _dashPrefs = null;
 var _selectMode = false, _selectedPeople = new Set();
@@ -5612,13 +5614,14 @@ function runGivingTrend() {
   var checked = Array.from(document.querySelectorAll('#rpt-trend-years input:checked')).map(function(c){return c.value;});
   if (!checked.length) { alert('Please select at least one year.'); return; }
   api('/admin/api/reports/giving-trend?years=' + encodeURIComponent(checked.join(','))).then(function(d) {
-    showRptOutput(renderGivingTrendChart(d));
+    _lastGivingTrendData = d;
+    showRptOutput(renderGivingTrendChart(d, _givingTrendH));
   });
 }
-function renderGivingTrendChart(d) {
+function renderGivingTrendChart(d, chartH) {
   var palette = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E74C3C'];
   var mShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var W=800,H=220,pL=60,pR=16,pT=16,pB=36,cW=W-pL-pR,cH=H-pT-pB;
+  var W=800,H=chartH||220,pL=60,pR=16,pT=16,pB=36,cW=W-pL-pR,cH=H-pT-pB;
   var allV = [];
   (d.years||[]).forEach(function(yr) {
     (d.monthly[yr]||[]).forEach(function(r) { if (r.total_cents) allV.push(r.total_cents); });
@@ -5663,7 +5666,9 @@ function renderGivingTrendChart(d) {
     + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'
     + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;">Giving Trend — Monthly Totals by Year</div>'
     + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
-    + svg + legend + '</div>';
+    + '<div id="giving-trend-svg-wrap">'+svg+'</div>' + legend
+    + _chartResizeHandle('givingTrendResizeStart')
+    + '</div>';
 }
 
 var _stmtData = null;
@@ -6704,6 +6709,10 @@ function setAttChartMode(m) {
   renderAttendanceChart(_loadedServices);
 }
 
+function _chartResizeHandle(fnName) {
+  return '<div style="height:8px;cursor:ns-resize;display:flex;align-items:center;justify-content:center;margin:2px 0;opacity:0.4;" onmousedown="'+fnName+'(event)" title="Drag to resize chart"><div style="width:32px;height:3px;background:var(--warm-gray);border-radius:2px;"></div></div>';
+}
+
 var _attResizing = false, _attResizeStartY = 0, _attResizeStartH = 0, _attResizeRaf = 0;
 function attChartResizeStart(e) {
   _attResizing = true;
@@ -6726,6 +6735,67 @@ var _attResizeEnd = function() {
   document.removeEventListener('mousemove', _attResizeMove);
   document.removeEventListener('mouseup', _attResizeEnd);
 };
+
+// ── Report chart resize (YoY att, by-service att, giving trend) ───────
+var _rptResizing = false, _rptResizeStartY = 0, _rptResizeStartH = 0, _rptResizeRaf = 0, _rptResizeKey = '';
+function _rptResizeStart(e, key, h0) {
+  _rptResizing = true; _rptResizeKey = key; _rptResizeStartY = e.clientY; _rptResizeStartH = h0;
+  e.preventDefault();
+  document.addEventListener('mousemove', _rptResizeMoveH);
+  document.addEventListener('mouseup', _rptResizeEndH);
+}
+var _rptResizeMoveH = function(e) {
+  if (!_rptResizing) return;
+  cancelAnimationFrame(_rptResizeRaf);
+  _rptResizeRaf = requestAnimationFrame(function() {
+    var newH = Math.max(120, Math.min(600, _rptResizeStartH + e.clientY - _rptResizeStartY));
+    if (_rptResizeKey === 'yoy') {
+      _yoyRptH = newH;
+      var w = document.getElementById('att-yoy-chart-wrap');
+      if (w && _lastYoYRptData) w.innerHTML = renderYoYChart(_lastYoYRptData, newH);
+    } else if (_rptResizeKey === 'byService') {
+      _byServiceRptH = newH;
+      var w = document.getElementById('att-service-chart-wrap');
+      if (w && _lastByServiceRptData) w.innerHTML = renderByServiceChart(_lastByServiceRptData, newH);
+    } else if (_rptResizeKey === 'givingTrend') {
+      _givingTrendH = newH;
+      var w = document.getElementById('giving-trend-svg-wrap');
+      if (w && _lastGivingTrendData) {
+        var palette=['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E74C3C'];
+        var mShort=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        var W2=800,H2=newH,pL=60,pR=16,pT=16,pB=36,cW2=W2-pL-pR,cH2=H2-pT-pB;
+        var allV2=[];
+        (_lastGivingTrendData.years||[]).forEach(function(yr){(_lastGivingTrendData.monthly[yr]||[]).forEach(function(r){if(r.total_cents)allV2.push(r.total_cents);});});
+        var maxV2=Math.max.apply(null,allV2)*1.1||1;
+        var pxM2=function(i){return pL+i*(cW2/11);};
+        var pyV2=function(v){return pT+cH2-(v/maxV2)*cH2;};
+        var grid2='',ylbls2='',xlbls2='',lines2='';
+        [0,Math.round(maxV2*0.25/1.1),Math.round(maxV2*0.5/1.1),Math.round(maxV2*0.75/1.1),Math.round(maxV2/1.1)].forEach(function(v){
+          var yy=pyV2(v);
+          grid2+='<line x1="'+pL+'" y1="'+yy.toFixed(1)+'" x2="'+(W2-pR)+'" y2="'+yy.toFixed(1)+'" stroke="#f0ece8" stroke-width="1"/>';
+          ylbls2+='<text x="'+(pL-4)+'" y="'+(yy+3).toFixed(1)+'" text-anchor="end" fill="#9A8A78" font-size="9">$'+Math.round(v/100).toLocaleString()+'</text>';
+        });
+        for(var xi2=0;xi2<12;xi2++) xlbls2+='<text x="'+pxM2(xi2).toFixed(1)+'" y="'+(H2-5)+'" text-anchor="middle" fill="#9A8A78" font-size="9">'+mShort[xi2]+'</text>';
+        (_lastGivingTrendData.years||[]).forEach(function(yr,yi){
+          var color=palette[yi%palette.length],pts2=[];
+          for(var mo2=1;mo2<=12;mo2++){var ms2=mo2<10?'0'+mo2:''+mo2;var row2=(_lastGivingTrendData.monthly[yr]||[]).find(function(r){return r.month===ms2;});if(row2&&row2.total_cents)pts2.push({x:pxM2(mo2-1),y:pyV2(row2.total_cents),v:row2.total_cents,mi:mo2-1});}
+          if(!pts2.length)return;
+          lines2+='<path d="'+pts2.map(function(p,j){return(j?'L ':'M ')+p.x.toFixed(1)+','+p.y.toFixed(1);}).join(' ')+'" fill="none" stroke="'+color+'" stroke-width="2.5" stroke-linejoin="round"/>';
+          pts2.forEach(function(p){lines2+='<circle cx="'+p.x.toFixed(1)+'" cy="'+p.y.toFixed(1)+'" r="3.5" fill="'+color+'"><title>'+mShort[p.mi]+' '+yr+': $'+Math.round(p.v/100).toLocaleString()+'</title></circle>';});
+        });
+        w.innerHTML='<svg viewBox="0 0 '+W2+' '+H2+'" style="width:100%;height:'+H2+'px;">'+grid2+lines2+xlbls2+ylbls2+'</svg>';
+      }
+    }
+  });
+};
+var _rptResizeEndH = function() {
+  _rptResizing = false;
+  document.removeEventListener('mousemove', _rptResizeMoveH);
+  document.removeEventListener('mouseup', _rptResizeEndH);
+};
+function yoyRptResizeStart(e) { _rptResizeStart(e, 'yoy', _yoyRptH); }
+function byServiceResizeStart(e) { _rptResizeStart(e, 'byService', _byServiceRptH); }
+function givingTrendResizeStart(e) { _rptResizeStart(e, 'givingTrend', _givingTrendH); }
 
 function renderAttendanceChart(services) {
   var today = new Date().toISOString().slice(0,10);
@@ -6800,7 +6870,7 @@ function renderAttendanceChart(services) {
       });
     });
     if(statsEl) statsEl.innerHTML='<span style="font-size:.82rem;color:var(--warm-gray);">Year-over-Year — avg Sunday attendance per month. Use date filter to choose years.</span>';
-    if(cw) cw.innerHTML=renderYoYChart(dYoY);
+    if(cw) cw.innerHTML=renderYoYChart(dYoY, _attChartH);
     return;
   }
 
@@ -6905,10 +6975,10 @@ function renderAttendanceChart(services) {
     +avgLine+markers+dots+xlbls+ylbls+'</svg>'+avgLegend;
 }
 
-function renderYoYChart(d) {
+function renderYoYChart(d, chartH) {
   var palette=['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E74C3C'];
   var mShort=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var W=800,H=200,pL=36,pR=12,pT=12,pB=36,cW=W-pL-pR,cH=H-pT-pB;
+  var W=800,H=chartH||200,pL=36,pR=12,pT=12,pB=36,cW=W-pL-pR,cH=H-pT-pB;
   var allV=[];
   d.years.forEach(function(yr){
     for(var mo=1;mo<=12;mo++){
@@ -6952,12 +7022,12 @@ function renderYoYChart(d) {
   return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 16px 8px;margin-bottom:16px;"><div style="font-weight:700;color:var(--steel-anchor);font-size:.9rem;margin-bottom:8px;">Year-over-Year Trend</div>'+svg+legend+'</div>';
 }
 
-function renderByServiceChart(d) {
+function renderByServiceChart(d, chartH) {
   var sundays=d.sundays||[];
   if(sundays.length>52) sundays=sundays.slice(sundays.length-52);
   var n=sundays.length;
   if(!n) return '';
-  var W=800,H=180,pL=36,pR=12,pT=12,pB=32,cW=W-pL-pR,cH=H-pT-pB;
+  var W=800,H=chartH||180,pL=36,pR=12,pT=12,pB=32,cW=W-pL-pR,cH=H-pT-pB;
   var allV=[];
   sundays.forEach(function(s){if(s.att_8)allV.push(s.att_8);if(s.att_1045)allV.push(s.att_1045);});
   if(!allV.length) return '';
@@ -7183,68 +7253,69 @@ function saveBulkSunday() {
 }
 
 
+function _buildAttYoYHtml(d, h) {
+  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var html = '<div id="att-yoy-chart-wrap">'+renderYoYChart(d, h)+'</div>';
+  html += _chartResizeHandle('yoyRptResizeStart');
+  html += '<div style="font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin-bottom:4px;">Attendance Year-over-Year (Sunday Combined)</div>';
+  html += '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:12px;">Monthly values show average Sunday attendance for that month.</div>';
+  html += '<table class="rpt-table"><thead><tr><th>Month</th>';
+  d.years.forEach(function(yr) { html += '<th style="text-align:right;">'+yr+'<br><span style="font-weight:400;font-size:.75rem;">avg/Sun</span></th>'; });
+  html += '</tr></thead><tbody>';
+  for (var m = 1; m <= 12; m++) {
+    var mStr = String(m).padStart(2, '0');
+    html += '<tr><td>' + months[m-1] + '</td>';
+    d.years.forEach(function(yr) {
+      var row = (d.monthly[yr] || []).find(function(r) { return r.month === mStr; });
+      var cell = row ? row.total + '<span style="color:var(--warm-gray);font-size:.75rem;"> ('+row.sundays+')</span>' : '—';
+      html += '<td style="text-align:right;">' + cell + '</td>';
+    });
+    html += '</tr>';
+  }
+  html += '<tr class="rpt-total"><td>Annual Total</td>';
+  d.years.forEach(function(yr) { html += '<td style="text-align:right;">' + ((d.totals[yr] || {}).total || 0) + '</td>'; });
+  html += '</tr><tr><td style="color:var(--warm-gray);font-size:.82rem;">Sundays recorded</td>';
+  d.years.forEach(function(yr) { html += '<td style="text-align:right;color:var(--warm-gray);font-size:.82rem;">' + ((d.totals[yr] || {}).sundays || 0) + '</td>'; });
+  html += '</tr></tbody></table><div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print</button></div>';
+  return html;
+}
+function _buildAttByServiceHtml(d, h) {
+  var html = '<div id="att-service-chart-wrap">'+renderByServiceChart(d, h)+'</div>';
+  html += _chartResizeHandle('byServiceResizeStart');
+  html += '<div style="font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin-bottom:12px;">Attendance by Service Time</div>';
+  html += '<table class="rpt-table" style="margin-bottom:16px;"><thead><tr><th>Service</th><th style="text-align:right;">Services</th><th style="text-align:right;">Total</th><th style="text-align:right;">Avg/Service</th></tr></thead><tbody>';
+  (d.by_time || []).forEach(function(r) {
+    var lbl = r.service_name || (r.service_time === '08:00' ? '8am Service' : r.service_time === '10:45' ? '10:45am Service' : esc(r.service_time));
+    html += '<tr><td>' + esc(lbl) + '</td><td style="text-align:right;">' + r.services + '</td><td style="text-align:right;">' + r.total + '</td><td style="text-align:right;">' + r.avg_attendance + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  if (d.sundays && d.sundays.length) {
+    html += '<div style="font-weight:700;color:var(--steel-anchor);font-size:.88rem;margin-bottom:8px;">Sunday Combined Totals</div>';
+    html += '<table class="rpt-table"><thead><tr><th>Date</th><th style="text-align:right;">8am</th><th style="text-align:right;">10:45am</th><th style="text-align:right;">Combined</th></tr></thead><tbody>';
+    d.sundays.forEach(function(r) {
+      var parts = r.service_date.split('-');
+      html += '<tr><td>' + ((parts[1]|0)+'/'+((parts[2]|0))+'/'+parts[0]) + '</td><td style="text-align:right;">' + (r.att_8 || '—') + '</td><td style="text-align:right;">' + (r.att_1045 || '—') + '</td><td style="text-align:right;font-weight:600;">' + r.combined + '</td></tr>';
+    });
+    html += '</tbody></table>';
+  }
+  html += '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print</button></div>';
+  return html;
+}
 function runAttendanceSummary() {
   var years = [];
-  document.querySelectorAll('#rpt-att-years input[type=checkbox]:checked').forEach(function(cb) {
-    years.push(cb.value);
-  });
+  document.querySelectorAll('#rpt-att-years input[type=checkbox]:checked').forEach(function(cb) { years.push(cb.value); });
   if (!years.length) { alert('Select at least one year.'); return; }
   api('/admin/api/reports/attendance-summary?years=' + encodeURIComponent(years.join(','))).then(function(d) {
-    var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-    var html = renderYoYChart(d);
-    html += '<div style="font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin-bottom:4px;">Attendance Year-over-Year (Sunday Combined)</div>';
-    html += '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:12px;">Monthly values show average Sunday attendance for that month.</div>';
-    html += '<table class="rpt-table"><thead><tr><th>Month</th>';
-    d.years.forEach(function(yr) { html += '<th style="text-align:right;">' + yr + '<br><span style="font-weight:400;font-size:.75rem;">avg/Sun</span></th>'; });
-    html += '</tr></thead><tbody>';
-    for (var m = 1; m <= 12; m++) {
-      var mStr = String(m).padStart(2, '0');
-      html += '<tr><td>' + months[m-1] + '</td>';
-      d.years.forEach(function(yr) {
-        var row = (d.monthly[yr] || []).find(function(r) { return r.month === mStr; });
-        var cell = row ? row.total + '<span style="color:var(--warm-gray);font-size:.75rem;"> ('+row.sundays+')</span>' : '—';
-        html += '<td style="text-align:right;">' + cell + '</td>';
-      });
-      html += '</tr>';
-    }
-    html += '<tr class="rpt-total"><td>Annual Total</td>';
-    d.years.forEach(function(yr) {
-      html += '<td style="text-align:right;">' + ((d.totals[yr] || {}).total || 0) + '</td>';
-    });
-    html += '</tr><tr><td style="color:var(--warm-gray);font-size:.82rem;">Sundays recorded</td>';
-    d.years.forEach(function(yr) {
-      html += '<td style="text-align:right;color:var(--warm-gray);font-size:.82rem;">' + ((d.totals[yr] || {}).sundays || 0) + '</td>';
-    });
-    html += '</tr></tbody></table>'
-      + '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print</button></div>';
-    showAttRptOutput(html);
+    _lastYoYRptData = d;
+    showAttRptOutput(_buildAttYoYHtml(d, _yoyRptH));
   });
 }
-
 function runAttendanceByTime() {
   var from = document.getElementById('rpt-att-from').value;
   var to = document.getElementById('rpt-att-to').value;
   api('/admin/api/reports/attendance-by-time?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)).then(function(d) {
-    var html = renderByServiceChart(d);
-    html += '<div style="font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin-bottom:12px;">Attendance by Service Time</div>';
-    html += '<table class="rpt-table" style="margin-bottom:16px;"><thead><tr><th>Service</th><th style="text-align:right;">Services</th><th style="text-align:right;">Total</th><th style="text-align:right;">Avg/Service</th></tr></thead><tbody>';
-    (d.by_time || []).forEach(function(r) {
-      var lbl = r.service_name || (r.service_time === '08:00' ? '8am Service' : r.service_time === '10:45' ? '10:45am Service' : esc(r.service_time));
-      html += '<tr><td>' + esc(lbl) + '</td><td style="text-align:right;">' + r.services + '</td><td style="text-align:right;">' + r.total + '</td><td style="text-align:right;">' + r.avg_attendance + '</td></tr>';
-    });
-    html += '</tbody></table>';
-    if (d.sundays && d.sundays.length) {
-      html += '<div style="font-weight:700;color:var(--steel-anchor);font-size:.88rem;margin-bottom:8px;">Sunday Combined Totals</div>';
-      html += '<table class="rpt-table"><thead><tr><th>Date</th><th style="text-align:right;">8am</th><th style="text-align:right;">10:45am</th><th style="text-align:right;">Combined</th></tr></thead><tbody>';
-      d.sundays.forEach(function(r) {
-        var parts = r.service_date.split('-');
-        var dsp = (parts[1]|0) + '/' + (parts[2]|0) + '/' + parts[0];
-        html += '<tr><td>' + dsp + '</td><td style="text-align:right;">' + (r.att_8 || '—') + '</td><td style="text-align:right;">' + (r.att_1045 || '—') + '</td><td style="text-align:right;font-weight:600;">' + r.combined + '</td></tr>';
-      });
-      html += '</tbody></table>';
-    }
-    html += '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print</button></div>';
-    showAttRptOutput(html);
+    _lastByServiceRptData = d;
+    showAttRptOutput(_buildAttByServiceHtml(d, _byServiceRptH));
   });
 }
 
