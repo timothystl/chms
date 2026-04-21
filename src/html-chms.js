@@ -5671,15 +5671,38 @@ function runGivingSummary() {
         });
       }
     });
+    var givers = d.total_givers || 0;
+    var reconBtn = '<button id="rpt-reconcile-btn" class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" '
+      + 'onclick="reconcileGivingOrphans(\'' + esc(from) + '\',\'' + esc(to) + '\')">Reconcile Orphans</button>';
     showRptOutput(
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">'
       + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving by Fund: ' + esc(fmtDate(from)) + ' – ' + esc(fmtDate(to)) + '</h3>'
-      + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
+      + '<div style="display:flex;gap:8px;">' + reconBtn + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div></div>'
+      + '<div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:10px;">' + givers.toLocaleString() + ' givers</div>'
       + '<table class="rpt-table"><thead><tr><th>Fund</th><th style="text-align:right;">Gifts</th><th style="text-align:right;">Total</th></tr></thead><tbody>'
       + rows
       + '<tr class="rpt-total"><td>Total</td><td></td><td style="text-align:right;">' + fmtMoney(d.grand_total_cents||0) + '</td></tr>'
       + '</tbody></table>'
     );
+  });
+}
+function reconcileGivingOrphans(from, to) {
+  var btn = document.getElementById('rpt-reconcile-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Reconciling…'; }
+  api('/admin/api/giving/reconcile-orphans', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({start: from, end: to})
+  }).then(function(d) {
+    if (d.error) { alert('Error: ' + d.error); if (btn) { btn.disabled = false; btn.textContent = 'Reconcile Orphans'; } return; }
+    var msg = 'Reconciliation complete.\n'
+      + 'Breeze payments checked: ' + (d.breezePaymentsChecked||0) + '\n'
+      + 'DB entries checked: ' + (d.dbEntriesChecked||0) + '\n'
+      + 'Orphan candidates: ' + (d.orphanCandidates||0) + '\n'
+      + 'Orphans removed: ' + (d.orphansRemoved||0);
+    alert(msg);
+    if (d.orphansRemoved > 0) runGivingSummary();
+    else if (btn) { btn.disabled = false; btn.textContent = 'Reconcile Orphans'; }
   });
 }
 function initReportTrendYears() {

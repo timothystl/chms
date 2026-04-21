@@ -1104,17 +1104,87 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   if (seg === 'reports/giving-summary' && method === 'GET') {
     const from = url.searchParams.get('from') || new Date().getFullYear() + '-01-01';
     const to   = url.searchParams.get('to')   || new Date().getFullYear() + '-12-31';
-    const rows = (await db.prepare(
-      `SELECT f.name as fund_name, COUNT(ge.id) as contributions, COALESCE(SUM(ge.amount),0) as total_cents
-       FROM funds f LEFT JOIN giving_entries ge ON ge.fund_id=f.id
-       LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
-       WHERE f.active=1
-         AND COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) BETWEEN ? AND ?
-       GROUP BY f.id ORDER BY f.sort_order, f.name`
-    ).bind(from,to).all()).results || [];
+    const [rowsResult, giverResult] = await Promise.all([
+      db.prepare(
+        `SELECT f.name as fund_name, COUNT(ge.id) as contributions, COALESCE(SUM(ge.amount),0) as total_cents
+         FROM funds f LEFT JOIN giving_entries ge ON ge.fund_id=f.id
+         LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+         WHERE f.active=1
+           AND COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) BETWEEN ? AND ?
+         GROUP BY f.id ORDER BY f.sort_order, f.name`
+      ).bind(from, to).all(),
+      db.prepare(
+        `SELECT COUNT(DISTINCT ge.person_id) as n
+         FROM giving_entries ge
+         LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+         WHERE COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) BETWEEN ? AND ?
+           AND ge.person_id IS NOT NULL`
+      ).bind(from, to).first(),
+    ]);
+    const rows = rowsResult.results || [];
     const grand = rows.reduce((s,r) => s + r.total_cents, 0);
-    return json({ from, to, rows, grand_total_cents: grand });
+    return json({ from, to, rows, grand_total_cents: grand, total_givers: giverResult?.n ?? 0 });
   }
+
+  // Standalone orphan cleanup: find DB entries whose breeze_id no longer exists in Breeze
+  // for a given date range and remove them (same safety check as the sync orphan pass).
+  if (seg === 'giving/reconcile-orphans' && method === 'POST') { try {
+    const subdomain = env.BREEZE_SUBDOMAIN;
+    const apiKey    = env.BREEZE_API_KEY;
+    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
+    let b = {}; try { b = await req.json(); } catch {}
+    const start = b.start || '';
+    const end   = b.end   || '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start > end) {
+      return json({ error: 'start and end (YYYY-MM-DD) required' }, 400);
+    }
+    const lateStartObj = new Date(start);
+    lateStartObj.setDate(lateStartObj.getDate() - 45);
+    const lateStart = lateStartObj.toISOString().slice(0, 10);
+
+    const hdrs = { 'Api-key': apiKey };
+    const glRes = await fetch(
+      `https://${subdomain}.breezechms.com/api/giving/list?start=${lateStart}&end=${end}&details=1&limit=10000`,
+      { headers: hdrs }
+    );
+    if (!glRes.ok) return json({ error: 'Breeze API error: ' + glRes.status }, 502);
+    const glData = await glRes.json();
+    const glByPaymentId = new Map();
+    if (Array.isArray(glData)) {
+      for (const p of glData) { if (p.id) glByPaymentId.set(String(p.id), true); }
+    }
+
+    const winRows = (await db.prepare(
+      `SELECT ge.id, ge.breeze_id, ge.person_id, ge.contribution_date
+       FROM giving_entries ge
+       WHERE ge.contribution_date >= ? AND ge.contribution_date <= ? AND ge.breeze_id != ''`
+    ).bind(lateStart, end).all()).results || [];
+
+    const orphaned = winRows.filter(r => !glByPaymentId.has(r.breeze_id));
+    const currentKeys = new Set(
+      winRows.filter(r => glByPaymentId.has(r.breeze_id))
+        .map(r => `${r.person_id}::${r.contribution_date}`)
+    );
+    const toDelete = orphaned.filter(r => currentKeys.has(`${r.person_id}::${r.contribution_date}`));
+
+    let orphansRemoved = 0;
+    if (toDelete.length > 0) {
+      const deleteOps = [];
+      for (let i = 0; i < toDelete.length; i += 90) {
+        const chunk = toDelete.slice(i, i + 90);
+        deleteOps.push(
+          db.prepare(`DELETE FROM giving_entries WHERE id IN (${chunk.map(() => '?').join(',')})`)
+            .bind(...chunk.map(r => r.id))
+        );
+      }
+      for (let i = 0; i < deleteOps.length; i += 10) {
+        const results = await db.batch(deleteOps.slice(i, i + 10));
+        for (const r of results) orphansRemoved += r.meta?.changes || 0;
+      }
+    }
+    return json({ ok: true, orphanCandidates: orphaned.length, orphansRemoved,
+      breezePaymentsChecked: glByPaymentId.size, dbEntriesChecked: winRows.length });
+  } catch (e) { return json({ error: 'Reconcile error: ' + e.message }, 500); } }
 
   if (seg === 'reports/giving-trend' && method === 'GET') {
     if (!isFinance) return json({ error: 'Forbidden' }, 403);
