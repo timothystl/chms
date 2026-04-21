@@ -5,7 +5,7 @@
 // v2 — modular build (src/)
 
 // ── Imports ────────────────────────────────────────────────────────────────────
-import { html, json, isAuthed, SCHED_CORS } from './src/auth.js';
+import { html, json, isAuthed, getAuthInfo, refreshAuthCookie, SCHED_CORS } from './src/auth.js';
 import { initDb } from './src/db.js';
 import { LCMS_CALENDAR_JSON } from './src/lectionary.js';
 import { SCHEDULER_HTML } from './src/scheduler-html.js';
@@ -24,7 +24,12 @@ import { sendBirthdayEmails, sendAnniversaryEmails } from './src/api-emails.js';
 export default {
   async fetch(req, env) {
     try {
-      return await _fetch(req, env);
+      // Check auth once up front so we can refresh the cookie on every
+      // authenticated response (sliding idle timeout). Re-parsing inside
+      // handlers via isAuthed() is cheap (HMAC verify on a short string).
+      const authInfo = await getAuthInfo(req, env).catch(() => null);
+      const response = await _fetch(req, env);
+      return await refreshAuthCookie(response, authInfo, env);
     } catch (e) {
       // Last-resort catch: prevents Cloudflare from returning its HTML error page.
       // All internal handlers have their own try/catch; this only fires for truly

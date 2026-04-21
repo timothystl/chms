@@ -4,6 +4,14 @@
 //   3-part: `<ts>.<role>.<sig>`             sig covers `ts.role`
 //   2-part: `<ts>.<sig>`                    sig covers `ts`  (legacy admin)
 // Username may be empty string for env-var logins.
+//
+// Session behavior:
+//   - Cookie is a session cookie (no Expires) so it dies on browser close.
+//   - The ts embedded in the cookie is the LAST activity time; it's refreshed
+//     on every authenticated request via `refreshAuthCookie` wrapper in the
+//     worker entry. If no request arrives within IDLE_TIMEOUT_MS, the cookie
+//     is rejected and the user is forced back to the login page.
+export const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 // Parse and verify the auth cookie. Returns { role, username } or null.
 export async function getAuthInfo(req, env) {
@@ -23,7 +31,7 @@ export async function getAuthInfo(req, env) {
     return null;
   }
   if (!ts || !sig) return null;
-  if (Date.now() - parseInt(ts, 10) > 7 * 24 * 60 * 60 * 1000) return null;
+  if (Date.now() - parseInt(ts, 10) > IDLE_TIMEOUT_MS) return null;
   try {
     const key = await crypto.subtle.importKey(
       'raw', new TextEncoder().encode(env.ADMIN_PASSWORD || ''),
@@ -57,8 +65,21 @@ export async function authCookieHeader(env, role = 'admin', username = '') {
   const b64url = btoa(String.fromCharCode(...new Uint8Array(sig)))
     .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const cookieVal = safeUser ? `${ts}.${role}.${safeUser}.${b64url}` : `${ts}.${role}.${b64url}`;
-  const exp = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toUTCString();
-  return `vol_auth=${cookieVal}; Path=/; Expires=${exp}; HttpOnly; Secure; SameSite=Strict`;
+  // Session cookie (no Expires/Max-Age) — browser discards on close.
+  return `vol_auth=${cookieVal}; Path=/; HttpOnly; Secure; SameSite=Strict`;
+}
+
+// Wrap an authenticated response with a refreshed Set-Cookie so the idle
+// timeout rolls forward with activity. Skips refresh if the response is
+// already setting vol_auth (login/logout handle their own cookie).
+export async function refreshAuthCookie(response, authInfo, env) {
+  if (!authInfo || !response) return response;
+  const existing = response.headers.get('Set-Cookie') || '';
+  if (existing.includes('vol_auth=')) return response;
+  const newCookie = await authCookieHeader(env, authInfo.role, authInfo.username);
+  const headers = new Headers(response.headers);
+  headers.append('Set-Cookie', newCookie);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 // ── PASSWORD HASHING (PBKDF2-SHA256) ────────────────────────────────
