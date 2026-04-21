@@ -74,33 +74,21 @@ Combine ChMS + Scheduler + Website admin into one Worker.
 - Not recommended: website admin (CMS/content) is a genuinely different domain from membership management. Merging adds complexity without much benefit.
 
 ### Recommended Path
-1. **Now**: Build EM1/EM2 directly in ChMS using Brevo + Resend APIs (Option A). No inter-app dependencies.
-2. **Medium term**: Absorb Scheduler into ChMS (SC1, Option C). Reuse Resend config and person records.
+1. ~~**Now**: Build EM1/EM2~~ ✅ Done (v83/v84).
+2. **Next**: Absorb Scheduler into ChMS (SC1, Option C) — backend already merged, UI integration remaining.
 3. **Long term**: Consider a thin "people API" in ChMS that website admin and any future apps can query (Option B) — but only when the pain of duplicated data is actually felt.
 
 ### Prerequisites for EM1/EM2
 - `RESEND_API_KEY` — **already in this worker** (used by `src/api-scheduler.js`)
-- `EMAIL_FROM` — **already in this worker** (e.g. `Timothy Lutheran <noreply@timothystl.org>`) — EM2 will reuse this
-- `BREVO_API_KEY` — **needs to be added** (Brevo → Account → SMTP & API → API Keys)
-- `BREVO_LIST_ID` — **needs to be added** (Brevo → Contacts → Lists, the numeric ID in the URL)
+- `EMAIL_FROM` — **already in this worker** (e.g. `Timothy Lutheran <noreply@timothystl.org>`)
+- `BREVO_API_KEY` — **already in this worker** (added 2026-04-20)
+- `BREVO_LIST_ID` — **already in this worker** (added 2026-04-20)
 
-### EM1 Plan (Brevo newsletter sync)
-- "Add to newsletter" button on person profile (staff+) → POST to Brevo Contacts API, adds/updates contact in the configured list
-- Bulk sync button in Settings → pushes all active members with email addresses to Brevo list in batches
-- Auto-sync on person save: if email changes AND person is a member, upsert contact in Brevo
-- Brevo handles unsubscribe/opt-out natively — no opt-out field needed in DB
-- **Reconciliation view** (Settings card): "Check Brevo Sync" button fetches all contacts currently in the Brevo list, compares against ChMS active members with email addresses, and shows:
-  - Total ChMS members with email vs. total in Brevo list
-  - Members missing from Brevo (with "Add All Missing" button)
-  - Contacts in Brevo not found in ChMS members (for awareness — may be website sign-ups or past members)
-  - This gives confidence that all members are covered and makes it easy to catch gaps
+### EM1 — Done (v84)
+Brevo sync built: "Add to Newsletter" button on profile, bulk sync + reconciliation view in Settings, auto-sync on member email change.
 
-### EM2 Plan (Birthday/anniversary emails via Resend)
-- Daily cron trigger (add to existing Cloudflare cron schedule)
-- Birthday: query active members with `dob` matching today's month/day → send personal email via Resend
-- Anniversary: query active couples with `anniversary_date` matching today → send to couple; if they share an email address, one email addressed to both ("Dear Bob and Alice,")
-- No opt-out needed for these (transactional/personal, small volume)
-- Email templates stored as constants in `src/api-admin.js` (same file as scheduler email logic)
+### EM2 — Done (v83)
+Birthday/anniversary emails built: daily cron at 9am Central, Resend, dedup via audit_log, admin test buttons in Settings.
 
 ---
 
@@ -164,10 +152,9 @@ Full detail in `NOTES.md`. Summary:
 - [x] **AT4** — Year-over-year giving/attendance report: overlapping graphs to compare current year vs prior year on the same chart. Done 2026-04-20 (v79) — Giving Trend tile in Reports tab; YoY attendance was already implemented.
 
 ### Communications / Email
-- [ ] **EM1** — Brevo newsletter sync: (1) "Add to newsletter" button on person profile → Brevo Contacts API, (2) bulk sync in Settings, (3) auto-sync on person save if email changes. Needs `BREVO_API_KEY` and `BREVO_LIST_ID` secrets added to Worker. Plan written in Architecture section above. (noted 2026-04-17, scoped 2026-04-20)
-- [x] **EM2** — Automated birthday/anniversary emails via Resend. Daily cron (`0 14 * * *`), birthday to member, anniversary to couple (shared email → one combined email). Dedup via audit_log. Admin test buttons in Settings. Done 2026-04-20 (v83).
 - [x] **EM1** — Brevo newsletter sync: (1) "Add to newsletter" button on person profile → Brevo Contacts API, (2) bulk sync in Settings, (3) auto-sync on person save if email changes, (4) reconciliation view shows ChMS vs Brevo comparison with "Add All Missing" button. Done 2026-04-20 (v84).
-- [ ] **SMS1** — SMS birthday/anniversary + bulk messaging. **Preferred provider: Brevo SMS** — already have an account, `BREVO_API_KEY` will be in the worker for EM1, no new signup needed (~€0.07/SMS, slightly more than Twilio but zero friction). Alternative: Twilio (~$0.008/SMS + $1/month phone number). Needs `sms_opt_in` field on people. Build after EM1. (noted 2026-04-20)
+- [x] **EM2** — Automated birthday/anniversary emails via Resend. Daily cron (`0 14 * * *`), birthday to member, anniversary to couple (shared email → one combined email). Dedup via audit_log. Admin test buttons in Settings. Done 2026-04-20 (v83).
+- [ ] **SMS1** — SMS birthday/anniversary + bulk messaging. **Preferred provider: Brevo SMS** — already have an account, `BREVO_API_KEY` already in worker, no new signup needed (~€0.07/SMS). Alternative: Twilio (~$0.008/SMS + $1/month). Needs `sms_opt_in` field on people. (noted 2026-04-20)
 
 ### Scheduler
 - [ ] **SC1** — Scheduler is ~80% merged already. Backend (`src/api-scheduler.js`) and frontend (`src/scheduler-html.js` → `/scheduler`) are already in this worker. `RESEND_API_KEY` and `EMAIL_FROM` already present. **Remaining work**: make scheduler accessible as a tab inside the ChMS SPA instead of a standalone page at `/scheduler`. Smaller effort than originally estimated. (noted 2026-04-17, re-scoped 2026-04-20)
@@ -246,7 +233,7 @@ Run through this at the end of any session before pushing, or at the start of a 
 - [ ] `DEPLOY_VERSION` is bumped
 - [ ] `NOTES.md` Recent Changes has an entry for this version
 - [ ] `CLAUDE.md` Queued Items updated — new items added, completed items checked off
-- [ ] Pushed to `claude/continue-volunteer-app-xhY9J`, not main
+- [ ] Pushed to `claude/review-claude-md-f62iL`, not main
 
 ---
 
@@ -264,5 +251,5 @@ Run through this at the end of any session before pushing, or at the start of a 
 
 ## Dev Branch
 
-Working branch: `claude/continue-volunteer-app-xhY9J`
+Working branch: `claude/review-claude-md-f62iL`
 Push to this branch. Do not push directly to main.
