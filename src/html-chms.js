@@ -1619,8 +1619,10 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-21-v85';
+var DEPLOY_VERSION = '2026-04-21-v87';
 window.onerror = function(msg, src, line, col, err) {
+  // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
+  if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
     b.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#c0392b;color:#fff;padding:10px 16px;font-size:.82rem;z-index:99999;font-family:monospace;';
@@ -1778,6 +1780,8 @@ function showErrorBanner(msg) {
   setTimeout(function(){ if(el) el.style.display='none'; }, 15000);
 }
 window.addEventListener('error', function(e) {
+  // Suppress benign ResizeObserver warning fired when a resize callback causes layout.
+  if (e.message && e.message.indexOf('ResizeObserver loop') !== -1) { e.stopImmediatePropagation(); return; }
   var loc = (e.filename||'').replace(/.*\//, '') + (e.lineno ? ':'+e.lineno : '');
   console.error('[JS error]', e.message, loc, e.error);
   showErrorBanner(esc(e.message || 'Script error') + (loc ? ' (' + loc + ')' : ''));
