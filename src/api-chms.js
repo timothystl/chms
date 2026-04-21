@@ -3087,6 +3087,45 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     }
     diag.correctedCount = corrected;
 
+    // ── Orphan cleanup pass ───────────────────────────────────────────────────
+    // When Breeze edits a contribution it creates a NEW payment ID. The supplement
+    // pass already imported the corrected version from giving/list; this pass removes
+    // the old stale entry whose breeze_id no longer appears in giving/list.
+    // Safety condition: only delete if a current replacement exists for the same
+    // person+date — this prevents removing entries that Breeze fully deleted.
+    let orphansRemoved = 0;
+    {
+      const winRows = (await db.prepare(
+        `SELECT ge.id, ge.breeze_id, ge.person_id, ge.contribution_date
+         FROM giving_entries ge
+         WHERE ge.contribution_date >= ? AND ge.contribution_date <= ? AND ge.breeze_id != ''`
+      ).bind(lateStart, end).all()).results || [];
+
+      const orphaned = winRows.filter(r => !glByPaymentId.has(r.breeze_id));
+      const currentKeys = new Set(
+        winRows.filter(r => glByPaymentId.has(r.breeze_id))
+          .map(r => `${r.person_id}::${r.contribution_date}`)
+      );
+      const toDelete = orphaned.filter(r => currentKeys.has(`${r.person_id}::${r.contribution_date}`));
+
+      if (toDelete.length > 0) {
+        const deleteOps = [];
+        for (let i = 0; i < toDelete.length; i += 90) {
+          const chunk = toDelete.slice(i, i + 90);
+          const placeholders = chunk.map(() => '?').join(',');
+          deleteOps.push(
+            db.prepare(`DELETE FROM giving_entries WHERE id IN (${placeholders})`).bind(...chunk.map(r => r.id))
+          );
+        }
+        for (let i = 0; i < deleteOps.length; i += 10) {
+          const results = await db.batch(deleteOps.slice(i, i + 10));
+          for (const r of results) orphansRemoved += r.meta?.changes || 0;
+        }
+      }
+      diag.orphansRemoved = orphansRemoved;
+      diag.orphanCandidates = orphaned.length;
+    }
+
     // ── Report contributions tied to still-unresolved "Breeze Fund XXXXX" funds ──
     const ghostFundContribs = (await db.prepare(
       `SELECT ge.contribution_date, ge.amount, ge.method, ge.notes, ge.breeze_id,
@@ -3097,7 +3136,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
        ORDER BY ge.contribution_date DESC`
     ).all()).results || [];
 
-    return json({ ok: true, imported, lateImported, corrected, skipped, skippedDateFilter, lateEntries, ghostFundContribs, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, givingListFundHarvest, givingListFiltered, seenIdsCount: seenIds.size, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, date_range: { start, end }, lateGraceDays: 45, diagnostics: diag });
+    return json({ ok: true, imported, lateImported, corrected, orphansRemoved, skipped, skippedDateFilter, lateEntries, ghostFundContribs, dupesRemoved, fundsRenamed, fundsMade, batchesMade, breezeFundsFound: Object.keys(breezeFundNames).length, givingListFundHarvest, givingListFiltered, seenIdsCount: seenIds.size, errors: errors.slice(0, 20), total: allEntries.length, from_log: entries.length, date_range: { start, end }, lateGraceDays: 45, diagnostics: diag });
   } catch (givingErr) {
     return json({ error: 'Giving sync error: ' + givingErr.message }, 500);
   } }
