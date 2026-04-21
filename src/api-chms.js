@@ -1353,6 +1353,116 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     });
   } catch (e) { return json({ error: 'Diagnose error: ' + e.message }, 500); } }
 
+  // Force-remove orphans: delete giving_entries whose breeze_id is not in
+  // Breeze's giving/list for the window — without reconcile-orphans' safety
+  // "current replacement exists for same person+date" check. Admin-only.
+  // The caller must include the exact count and total cents returned by the
+  // diagnose endpoint; the server recomputes and aborts if they disagree, so
+  // the button can't run against stale data.
+  if (seg === 'giving/force-remove-orphans' && method === 'POST') { try {
+    if (!isAdmin) return json({ error: 'Access denied: force-remove requires admin' }, 403);
+    const subdomain = env.BREEZE_SUBDOMAIN;
+    const apiKey    = env.BREEZE_API_KEY;
+    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
+    let b = {}; try { b = await req.json(); } catch {}
+    const start = b.start || '';
+    const end   = b.end   || '';
+    const confirmCount = Number.isInteger(b.confirm_count) ? b.confirm_count : NaN;
+    const confirmCents = Number.isInteger(b.confirm_cents) ? b.confirm_cents : NaN;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start > end) {
+      return json({ error: 'start and end (YYYY-MM-DD) required' }, 400);
+    }
+    if (!Number.isFinite(confirmCount) || !Number.isFinite(confirmCents)) {
+      return json({ error: 'confirm_count and confirm_cents (integers) required' }, 400);
+    }
+    const lateStartObj = new Date(start);
+    lateStartObj.setDate(lateStartObj.getDate() - 45);
+    const lateStart = lateStartObj.toISOString().slice(0, 10);
+
+    const hdrs = { 'Api-key': apiKey };
+    const glRes = await fetch(
+      `https://${subdomain}.breezechms.com/api/giving/list?start=${lateStart}&end=${end}&details=1&limit=10000`,
+      { headers: hdrs }
+    );
+    if (!glRes.ok) return json({ error: 'Breeze API error: ' + glRes.status }, 502);
+    const glData = await glRes.json();
+    const glIds = new Set();
+    if (Array.isArray(glData)) {
+      for (const p of glData) if (p.id != null) glIds.add(String(p.id));
+    }
+    // Truncation safeguard: a tiny giving/list likely means the API call failed
+    // or returned partial data — refuse rather than mass-delete in that case.
+    const MIN_BREEZE_PAYMENTS = 100;
+    if (glIds.size < MIN_BREEZE_PAYMENTS) {
+      return json({ error: `Aborted: Breeze giving/list returned only ${glIds.size} payments (threshold ${MIN_BREEZE_PAYMENTS}) — refusing to mass-delete on a likely truncated response.` }, 409);
+    }
+
+    // Use the same date-coalesce logic as the diagnose endpoint so the count
+    // we compute matches what the user confirmed.
+    const rows = (await db.prepare(
+      `SELECT ge.id, ge.amount, ge.breeze_id, ge.person_id, ge.fund_id,
+              COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) AS gift_date
+       FROM giving_entries ge
+       LEFT JOIN giving_batches gb ON ge.batch_id = gb.id
+       WHERE COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) BETWEEN ? AND ?
+         AND ge.breeze_id != ''`
+    ).bind(start, end).all()).results || [];
+
+    // Split-suffix `pid-N` rows: match if base pid is in Breeze.
+    const isOrphan = bid => {
+      if (!bid) return false;
+      if (glIds.has(bid)) return false;
+      const m = bid.match(/^(\d+)-(\d+)$/);
+      if (m && glIds.has(m[1])) return false;
+      return true;
+    };
+    const orphans = rows.filter(r => isOrphan(r.breeze_id));
+    const actualCount = orphans.length;
+    const actualCents = orphans.reduce((s, r) => s + (r.amount || 0), 0);
+
+    if (actualCount !== confirmCount || actualCents !== confirmCents) {
+      return json({
+        error: 'Confirmation mismatch — data has changed since diagnose ran. Re-run Diagnose and try again.',
+        expected: { count: confirmCount, cents: confirmCents },
+        actual:   { count: actualCount,  cents: actualCents },
+      }, 409);
+    }
+    if (actualCount === 0) {
+      return json({ ok: true, removed: 0, removed_cents: 0 });
+    }
+
+    // Delete in chunks of 90 ids (D1 ~100 param limit).
+    const deleteOps = [];
+    for (let i = 0; i < orphans.length; i += 90) {
+      const chunk = orphans.slice(i, i + 90);
+      const placeholders = chunk.map(() => '?').join(',');
+      deleteOps.push(
+        db.prepare(`DELETE FROM giving_entries WHERE id IN (${placeholders})`)
+          .bind(...chunk.map(r => r.id))
+      );
+    }
+    let removed = 0;
+    for (let i = 0; i < deleteOps.length; i += 10) {
+      const results = await db.batch(deleteOps.slice(i, i + 10));
+      for (const r of results) removed += r.meta?.changes || 0;
+    }
+    await db.prepare(
+      'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
+    ).run();
+
+    // Record the action so this irreversible op is traceable. Store the list
+    // of removed ids in new_value so the removal can be audited later.
+    try {
+      await db.prepare(
+        `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value) VALUES(?,?,?,?,?,?,?)`
+      ).bind('force_remove_orphans','giving_entries', null,'', start + ' to ' + end,
+             String(actualCents),
+             JSON.stringify({ count: actualCount, ids: orphans.map(r => r.id).slice(0, 500) })).run();
+    } catch {}
+
+    return json({ ok: true, removed, removed_cents: actualCents, breezePaymentsChecked: glIds.size });
+  } catch (e) { return json({ error: 'Force-remove error: ' + e.message }, 500); } }
+
   if (seg === 'reports/giving-trend' && method === 'GET') {
     if (!isFinance) return json({ error: 'Forbidden' }, 403);
     const yearsParam = url.searchParams.get('years') || String(new Date().getFullYear());

@@ -1619,7 +1619,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-21-v88';
+var DEPLOY_VERSION = '2026-04-21-v89';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -5744,9 +5744,13 @@ function renderGivingDiagnose(d, from, to) {
     return '<tr><td>' + esc(classLabel(k)) + '</td><td style="text-align:right;">' + cc[k] + '</td></tr>';
   }).join('');
 
+  var forceBtn = (d.extras_count > 0 && _userRole === 'admin')
+    ? '<button id="rpt-force-remove-btn" class="btn-secondary" style="font-size:.8rem;padding:4px 10px;color:#c0392b;border-color:#c0392b;" onclick="forceRemoveGivingOrphans()">Force Remove ' + d.extras_count + '</button>'
+    : '';
   return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'
     + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Reconcile Diagnose: ' + esc(fmtDate(from)) + ' – ' + esc(fmtDate(to)) + '</h3>'
     + '<div style="display:flex;gap:8px;">'
+    +   forceBtn
     +   '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="exportGivingDiagnoseCsv()">Export Extras CSV</button>'
     +   '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="runGivingSummary()">Back to Report</button>'
     + '</div></div>'
@@ -5767,6 +5771,37 @@ function renderGivingDiagnose(d, from, to) {
        ? '<table class="rpt-table" style="font-size:.88rem;"><thead><tr><th>Fund</th><th>Date</th><th>Person</th><th style="text-align:right;">Amount</th><th>breeze_id</th><th>Classification</th><th>Batch</th><th>Twins</th><th>DB ID</th></tr></thead><tbody>'
          + extraRows + '</tbody></table>'
        : '<p style="color:var(--warm-gray);">No extras — DB matches Breeze giving/list for this range.</p>');
+}
+function forceRemoveGivingOrphans() {
+  var d = _lastGivingDiagnose;
+  if (!d) { alert('Run Diagnose first.'); return; }
+  if (!d.extras_count) { alert('No orphans to remove.'); return; }
+  var msg = 'This will PERMANENTLY DELETE ' + d.extras_count + ' giving entries totaling '
+    + fmtMoney(d.extras_total_cents) + ' for ' + d.from + ' to ' + d.to + '.\n\n'
+    + 'This is irreversible. These are entries whose breeze_id is not in Breeze\'s '
+    + 'current giving/list (typically from batches the user deleted in Breeze).\n\n'
+    + 'Only rows with a breeze_id are affected — manual/quick-entry rows are never touched.\n\n'
+    + 'Continue?';
+  if (!confirm(msg)) return;
+  var btn = document.getElementById('rpt-force-remove-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Removing…'; }
+  api('/admin/api/giving/force-remove-orphans', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      start: d.from, end: d.to,
+      confirm_count: d.extras_count,
+      confirm_cents: d.extras_total_cents
+    })
+  }).then(function(r) {
+    if (r.error) {
+      alert('Error: ' + r.error);
+      if (btn) { btn.disabled = false; btn.textContent = 'Force Remove ' + d.extras_count; }
+      return;
+    }
+    alert('Removed ' + (r.removed || 0) + ' entries (' + fmtMoney(r.removed_cents || 0) + ').');
+    runGivingSummary();
+  });
 }
 function exportGivingDiagnoseCsv() {
   var d = _lastGivingDiagnose;
