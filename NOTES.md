@@ -130,6 +130,7 @@ Added 2026-04-15, phased 2026-04-15.
 ## Recent Changes (newest first)
 
 ### 2026-04-21
+- **v87**: Suppress benign `ResizeObserver loop completed with undelivered notifications` warning in both `window.onerror` and the `window.addEventListener('error')` handler, so the chart drag-to-resize code doesn't trigger the red error banner on pages with multiple charts (e.g. Reports tab).
 - **v86**: Auth — shorten session lifetime. Cookie is now a session cookie (no `Expires`) so it dies when the browser closes. Absolute 7-day lifetime replaced with a 30-minute sliding idle timeout (`IDLE_TIMEOUT_MS` in `src/auth.js`); the cookie is refreshed on every authenticated request via `refreshAuthCookie` wrapped into the main fetch handler, so activity rolls the timeout forward. Addresses "logged in for 7 days = no password" concern. Frontend already redirects on 401 so no client changes needed.
 - **v85**: G10 fix — Orphan cleanup pass added to Breeze giving sync. When Breeze edits a contribution it creates a new payment ID; the old DB entry becomes stale ("orphaned"). The supplement pass (v74) already imports the corrected version from giving/list; this new pass detects DB entries in the sync window whose `breeze_id` no longer appears in giving/list and removes them if a current replacement exists for the same person+date. This resolves G10 (correction pass was always 0) and allows G11/G12/G13/G14 corrections made in Breeze to apply automatically on next sync. Response now includes `orphansRemoved` count; status message updated accordingly.
 
