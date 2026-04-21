@@ -405,6 +405,10 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .role-override-table td { text-align:center; padding:3px 4px; }
 .role-override-table td:first-child { font-weight:700; color: var(--steel-anchor); text-align:left; padding-right:8px; white-space:nowrap; }
 .role-override-table input[type=checkbox] { width:14px; height:14px; cursor:pointer; }
+
+/* ── Embedded mode (inside ChMS SPA iframe) ─────────────── */
+body.embedded header, body.embedded .tabs { display:none!important; }
+body.embedded { overflow-y:auto; }
 </style>
 </head>
 <body>
@@ -862,6 +866,10 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 
 
 <script>
+// ── Embedded mode: detect ?embedded=1 (loaded in ChMS SPA iframe) ──
+var _embedded = new URLSearchParams(location.search).has('embedded');
+if (_embedded) document.body.classList.add('embedded');
+
 // ══════════════════════════════════════════════════════════════════
 // HELPERS
 // ══════════════════════════════════════════════════════════════════
@@ -3798,9 +3806,10 @@ function fbSignOut() {
 
 
 async function checkAuth() {
+  var topNav = _embedded ? (window.top || window) : window;
   try {
     var resp = await fetch('/admin/api/scheduler/data', {credentials: 'include'});
-    if (resp.status === 401) { window.location.href = '/admin'; return; }
+    if (resp.status === 401) { topNav.location.href = '/admin'; return; }
     var loginScreen = document.getElementById('login-screen');
     var appContent  = document.getElementById('app-content');
     if (loginScreen) loginScreen.style.display = 'none';
@@ -3809,7 +3818,7 @@ async function checkAuth() {
     fetchPendingSignups();
     fetchGeneralVolunteers();
     fetchEventVolunteers();
-  } catch(e) { window.location.href = '/admin'; }
+  } catch(e) { topNav.location.href = '/admin'; }
 }
 checkAuth();
 
@@ -4643,8 +4652,9 @@ document.getElementById('btn-close-signups-panel').addEventListener('click', clo
 document.getElementById('btn-close-general-panel').addEventListener('click', closeAllPanels);
 document.getElementById('btn-close-events-panel').addEventListener('click', closeAllPanels);
 
-// ── Auto-logout after 2 hours of inactivity ───────────────────────────
+// ── Auto-logout after 2 hours of inactivity (skip when embedded — parent handles it) ──
 (function(){
+  if (_embedded) return;
   var MS=2*60*60*1000,WARN=2*60*1000,t,w,b;
   function reset(){
     clearTimeout(t);clearTimeout(w);

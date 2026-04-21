@@ -100,6 +100,7 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 /* ── PANELS ── */
 .tab-panel{display:none;padding:20px 24px;}
 .tab-panel.active{display:flex;flex-direction:column;flex:1;overflow-y:auto;}
+#tab-scheduler.active{padding:0;overflow:hidden;}
 /* ── APP SHELL ── */
 #offline-banner{position:relative;z-index:200;}
 .app-shell{display:flex;height:100vh;}
@@ -543,7 +544,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div class="s-item require-staff" data-tab="register" onclick="showTab('register')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="9" y1="7" x2="17" y2="7"/><line x1="9" y1="11" x2="14" y2="11"/></svg><span class="s-tip">Register</span></div>
   <div class="s-divider require-admin"></div>
   <div class="s-item require-admin" data-tab="volunteers" onclick="showTab('volunteers')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg><span class="s-tip">Volunteers</span></div>
-  <a class="s-item require-admin" href="/scheduler" target="_blank" title="Worship Scheduler" style="text-decoration:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg><span class="s-tip">Scheduler &#x2197;</span></a>
+  <div class="s-item require-admin" data-tab="scheduler" onclick="showTab('scheduler')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg><span class="s-tip">Scheduler</span></div>
   <div class="s-bottom">
     <div class="s-item require-admin" data-tab="settings" onclick="showTab('settings')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span class="s-tip">Settings</span></div>
   </div>
@@ -1079,7 +1080,6 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div style="padding:16px 20px;max-width:1100px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
       <h2 style="font-size:1.1rem;font-weight:700;color:var(--charcoal);">Volunteers</h2>
-      <a href="/scheduler/" target="_blank" class="btn-secondary" style="font-size:.82rem;">Open Scheduler &#x2197;</a>
     </div>
     <!-- Ministry filter tabs -->
     <div id="vol-ministry-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);">
@@ -1128,6 +1128,10 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div id="vol-events-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
     </div>
   </div>
+</div>
+
+<div id="tab-scheduler" class="tab-panel">
+  <iframe id="scheduler-iframe" src="" style="width:100%;flex:1;border:none;display:block;min-height:0;" title="Worship Scheduler"></iframe>
 </div>
 
 <!-- ═══ PROFILE VIEW ═══ -->
@@ -1623,7 +1627,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-21-v91';
+var DEPLOY_VERSION = '2026-04-21-v92';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -1739,7 +1743,8 @@ function showTab(name) {
   if (name === 'import'     && _userRole !== 'admin') return;
   if (name === 'settings'   && _userRole !== 'admin') return;
   if (name === 'volunteers' && _userRole !== 'admin') return;
-  var labels = {home:'Home',people:'People',households:'Households',organizations:'Organizations',giving:'Giving',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings',volunteers:'Volunteers'};
+  if (name === 'scheduler'  && _userRole !== 'admin') return;
+  var labels = {home:'Home',people:'People',households:'Households',organizations:'Organizations',giving:'Giving',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings',volunteers:'Volunteers',scheduler:'Scheduler'};
   // Exit person-profile view if active
   var ca = document.querySelector('.content-area');
   if (ca) ca.classList.remove('pv-mode');
@@ -1762,6 +1767,10 @@ function showTab(name) {
   if (name === 'register') loadRegister();
   if (name === 'settings') loadSettings();
   if (name === 'volunteers') { volLoadSignups(); volLoadEvents(); }
+  if (name === 'scheduler') {
+    var fr = document.getElementById('scheduler-iframe');
+    if (fr && !fr.src) fr.src = '/scheduler?embedded=1';
+  }
 }
 function openSidebar() {
   var s = document.getElementById('sidebar'); if (s) s.classList.add('open');

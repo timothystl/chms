@@ -160,7 +160,7 @@ Full detail in `NOTES.md`. Summary:
 - [ ] **SMS1** — SMS birthday/anniversary + bulk messaging. **Preferred provider: Brevo SMS** — already have an account, `BREVO_API_KEY` already in worker, no new signup needed (~€0.07/SMS). Alternative: Twilio (~$0.008/SMS + $1/month). Needs `sms_opt_in` field on people. (noted 2026-04-20)
 
 ### Scheduler
-- [ ] **SC1** — Scheduler is ~80% merged already. Backend (`src/api-scheduler.js`) and frontend (`src/scheduler-html.js` → `/scheduler`) are already in this worker. `RESEND_API_KEY` and `EMAIL_FROM` already present. **Remaining work**: make scheduler accessible as a tab inside the ChMS SPA instead of a standalone page at `/scheduler`. Smaller effort than originally estimated. (noted 2026-04-17, re-scoped 2026-04-20)
+- [x] **SC1** — Scheduler integrated as a tab inside the ChMS SPA. `/scheduler?embedded=1` hides own header/tabs; ChMS sidebar "Scheduler" tab lazy-loads it in an iframe. Done 2026-04-21 (v92).
 
 ### Breeze Integration
 - [ ] **BR1** — Reverse sync (app → Breeze): Breeze API supports write operations (add/update people, add contributions). Feasible for narrow workflows (e.g. new person entered here → push to Breeze, or walk-in gift batch → push to Breeze). Full bidirectional sync is complex due to conflict resolution. Needs scoping conversation: which specific data entry workflows would benefit? (noted 2026-04-19)
