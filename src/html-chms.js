@@ -1619,7 +1619,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-21-v87';
+var DEPLOY_VERSION = '2026-04-21-v88';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -5674,10 +5674,12 @@ function runGivingSummary() {
     var givers = d.total_givers || 0;
     var reconBtn = '<button id="rpt-reconcile-btn" class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" '
       + 'onclick="reconcileGivingOrphans(\'' + esc(from) + '\',\'' + esc(to) + '\')">Reconcile Orphans</button>';
+    var diagBtn = '<button id="rpt-diagnose-btn" class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" '
+      + 'onclick="diagnoseGivingReconcile(\'' + esc(from) + '\',\'' + esc(to) + '\')">Diagnose</button>';
     showRptOutput(
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">'
       + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving by Fund: ' + esc(fmtDate(from)) + ' – ' + esc(fmtDate(to)) + '</h3>'
-      + '<div style="display:flex;gap:8px;">' + reconBtn + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div></div>'
+      + '<div style="display:flex;gap:8px;">' + diagBtn + reconBtn + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div></div>'
       + '<div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:10px;">' + givers.toLocaleString() + ' givers</div>'
       + '<table class="rpt-table"><thead><tr><th>Fund</th><th style="text-align:right;">Gifts</th><th style="text-align:right;">Total</th></tr></thead><tbody>'
       + rows
@@ -5685,6 +5687,103 @@ function runGivingSummary() {
       + '</tbody></table>'
     );
   });
+}
+function diagnoseGivingReconcile(from, to) {
+  var btn = document.getElementById('rpt-diagnose-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Diagnosing…'; }
+  api('/admin/api/giving/reconcile-diagnose?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to))
+    .then(function(d) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Diagnose'; }
+      if (d.error) { alert('Error: ' + d.error); return; }
+      _lastGivingDiagnose = d;
+      showRptOutput(renderGivingDiagnose(d, from, to));
+    });
+}
+var _lastGivingDiagnose = null;
+function classLabel(k) {
+  return {
+    in_breeze: 'In Breeze',
+    no_breeze_id: 'No Breeze ID (manual / quick entry)',
+    split_suffix_base_in_breeze: 'Split-row suffix (base in Breeze)',
+    split_suffix_orphan: 'Split-row suffix (base missing)',
+    orphan: 'Orphan (breeze_id not in Breeze)'
+  }[k] || k;
+}
+function renderGivingDiagnose(d, from, to) {
+  var extras = d.extras || [];
+  var fundRows = (d.fund_summary || [])
+    .filter(function(s){ return s.extras_count > 0; })
+    .map(function(s) {
+      var classSummary = Object.keys(s.by_class || {}).filter(function(k){ return k !== 'in_breeze'; })
+        .map(function(k){ return classLabel(k) + ': ' + s.by_class[k]; }).join('; ') || '—';
+      return '<tr><td>' + esc(s.fund_name) + '</td>'
+        + '<td style="text-align:right;">' + s.total_count + '</td>'
+        + '<td style="text-align:right;">' + fmtMoney(s.total_cents) + '</td>'
+        + '<td style="text-align:right;color:#c0392b;"><strong>+' + s.extras_count + '</strong></td>'
+        + '<td style="text-align:right;color:#c0392b;"><strong>+' + fmtMoney(s.extras_cents) + '</strong></td>'
+        + '<td style="font-size:.78rem;color:var(--warm-gray);">' + esc(classSummary) + '</td></tr>';
+    }).join('');
+  if (!fundRows) fundRows = '<tr><td colspan="6" style="text-align:center;color:var(--warm-gray);">No funds have extras — DB matches Breeze in this range.</td></tr>';
+
+  var extraRows = extras.map(function(r) {
+    return '<tr>'
+      + '<td>' + esc(r.fund_name) + '</td>'
+      + '<td>' + esc(r.gift_date) + '</td>'
+      + '<td>' + esc(r.person_name) + '</td>'
+      + '<td style="text-align:right;">' + fmtMoney(r.amount_cents) + '</td>'
+      + '<td style="font-family:monospace;font-size:.78rem;">' + esc(r.breeze_id || '—') + '</td>'
+      + '<td style="font-size:.78rem;">' + esc(classLabel(r.classification)) + '</td>'
+      + '<td style="font-size:.78rem;">' + esc(r.batch_desc) + '</td>'
+      + '<td style="font-size:.78rem;">' + (r.twin_entry_ids.length ? ('twin: ' + r.twin_entry_ids.join(',')) : '—') + '</td>'
+      + '<td>id ' + r.id + '</td>'
+      + '</tr>';
+  }).join('');
+
+  var cc = d.classification_counts || {};
+  var ccRows = Object.keys(cc).sort().map(function(k) {
+    return '<tr><td>' + esc(classLabel(k)) + '</td><td style="text-align:right;">' + cc[k] + '</td></tr>';
+  }).join('');
+
+  return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'
+    + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Reconcile Diagnose: ' + esc(fmtDate(from)) + ' – ' + esc(fmtDate(to)) + '</h3>'
+    + '<div style="display:flex;gap:8px;">'
+    +   '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="exportGivingDiagnoseCsv()">Export Extras CSV</button>'
+    +   '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="runGivingSummary()">Back to Report</button>'
+    + '</div></div>'
+    + '<div style="display:flex;gap:30px;flex-wrap:wrap;margin-bottom:14px;font-size:.88rem;">'
+    +   '<div><strong>DB rows:</strong> ' + d.db_row_count + ' (' + fmtMoney(d.db_total_cents) + ')</div>'
+    +   '<div><strong>Breeze payments:</strong> ' + d.breeze_payment_count + '</div>'
+    +   '<div style="color:#c0392b;"><strong>Extras in DB:</strong> ' + d.extras_count + ' (' + fmtMoney(d.extras_total_cents) + ')</div>'
+    +   '<div style="color:#888;"><strong>Missing from DB:</strong> ' + d.missing_from_db_count + '</div>'
+    + '</div>'
+    + '<h4 style="margin:12px 0 4px 0;">Classification Counts</h4>'
+    + '<table class="rpt-table" style="max-width:520px;"><thead><tr><th>Classification</th><th style="text-align:right;">Rows</th></tr></thead><tbody>'
+    + ccRows + '</tbody></table>'
+    + '<h4 style="margin:16px 0 4px 0;">Funds with Extras</h4>'
+    + '<table class="rpt-table"><thead><tr><th>Fund</th><th style="text-align:right;">Rows</th><th style="text-align:right;">Total</th><th style="text-align:right;">Extras</th><th style="text-align:right;">Extra $</th><th>Breakdown</th></tr></thead><tbody>'
+    + fundRows + '</tbody></table>'
+    + '<h4 style="margin:16px 0 4px 0;">Extra Entries (' + extras.length + ')</h4>'
+    + (extras.length
+       ? '<table class="rpt-table" style="font-size:.88rem;"><thead><tr><th>Fund</th><th>Date</th><th>Person</th><th style="text-align:right;">Amount</th><th>breeze_id</th><th>Classification</th><th>Batch</th><th>Twins</th><th>DB ID</th></tr></thead><tbody>'
+         + extraRows + '</tbody></table>'
+       : '<p style="color:var(--warm-gray);">No extras — DB matches Breeze giving/list for this range.</p>');
+}
+function exportGivingDiagnoseCsv() {
+  var d = _lastGivingDiagnose;
+  if (!d) { alert('Run Diagnose first.'); return; }
+  var header = 'id,fund,gift_date,contribution_date,person_id,person,amount,breeze_id,classification,batch_desc,twins\n';
+  var rows = (d.extras||[]).map(function(r) {
+    return [r.id, r.fund_name, r.gift_date, r.contribution_date, r.person_id, r.person_name,
+            (r.amount_cents/100).toFixed(2), r.breeze_id, r.classification, r.batch_desc,
+            (r.twin_entry_ids||[]).join(';')]
+      .map(function(v){ var s = String(v==null?'':v); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; })
+      .join(',');
+  }).join('\n');
+  var blob = new Blob([header + rows + '\n'], { type: 'text/csv' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'giving-diagnose-' + d.from + '-to-' + d.to + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 function reconcileGivingOrphans(from, to) {
   var btn = document.getElementById('rpt-reconcile-btn');

@@ -1186,6 +1186,173 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       breezePaymentsChecked: glByPaymentId.size, dbEntriesChecked: winRows.length });
   } catch (e) { return json({ error: 'Reconcile error: ' + e.message }, 500); } }
 
+  // Diagnostic: list every DB giving_entry in a date range, classified by
+  // whether its breeze_id still exists in Breeze's giving/list. Use this to
+  // find the source of Giving-by-Fund discrepancies with Breeze. Read-only.
+  if (seg === 'giving/reconcile-diagnose' && method === 'GET') { try {
+    const subdomain = env.BREEZE_SUBDOMAIN;
+    const apiKey    = env.BREEZE_API_KEY;
+    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
+    const from = url.searchParams.get('from') || '';
+    const to   = url.searchParams.get('to')   || '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+      return json({ error: 'from and to (YYYY-MM-DD) required' }, 400);
+    }
+    // Match the sync's 45-day grace window when fetching Breeze payments so
+    // an early-year contribution logged within that grace isn't flagged.
+    const lateStartObj = new Date(from);
+    lateStartObj.setDate(lateStartObj.getDate() - 45);
+    const lateStart = lateStartObj.toISOString().slice(0, 10);
+
+    const hdrs = { 'Api-key': apiKey };
+    const glRes = await fetch(
+      `https://${subdomain}.breezechms.com/api/giving/list?start=${lateStart}&end=${to}&details=1&limit=10000`,
+      { headers: hdrs }
+    );
+    if (!glRes.ok) return json({ error: 'Breeze API error: ' + glRes.status }, 502);
+    const glData = await glRes.json();
+    const glIds = new Set();
+    const glPayments = [];
+    if (Array.isArray(glData)) {
+      for (const p of glData) {
+        if (p.id != null) glIds.add(String(p.id));
+        glPayments.push(p);
+      }
+    }
+
+    // All DB rows whose effective gift date lands in [from, to], matching the
+    // Giving-by-Fund report's date-coalesce logic exactly.
+    const rows = (await db.prepare(
+      `SELECT ge.id, ge.person_id, ge.fund_id, ge.amount, ge.breeze_id, ge.batch_id,
+              ge.method, ge.check_number, ge.notes,
+              ge.contribution_date AS raw_contribution_date,
+              COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) AS gift_date,
+              gb.batch_date, gb.description AS batch_desc, gb.closed AS batch_closed,
+              p.first_name, p.last_name, p.breeze_id AS person_breeze_id,
+              f.name AS fund_name, f.breeze_id AS fund_breeze_id
+       FROM giving_entries ge
+       LEFT JOIN giving_batches gb ON ge.batch_id = gb.id
+       LEFT JOIN people p         ON ge.person_id = p.id
+       LEFT JOIN funds f          ON ge.fund_id   = f.id
+       WHERE COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) BETWEEN ? AND ?
+       ORDER BY f.name, gift_date, ge.id`
+    ).bind(from, to).all()).results || [];
+
+    // Classify each row. Split-row suffixes (`12345-2`) come from the older
+    // CSV importer — check their base pid against Breeze too.
+    const classify = bid => {
+      if (!bid) return { key: 'no_breeze_id', inBreeze: false };
+      if (glIds.has(bid)) return { key: 'in_breeze', inBreeze: true };
+      const m = bid.match(/^(\d+)-(\d+)$/);
+      if (m) return glIds.has(m[1])
+        ? { key: 'split_suffix_base_in_breeze', inBreeze: true, basePid: m[1] }
+        : { key: 'split_suffix_orphan',         inBreeze: false, basePid: m[1] };
+      return { key: 'orphan', inBreeze: false };
+    };
+
+    // Twin detection: an orphan with a sibling row sharing person+date+amount
+    // (sometimes with different breeze_ids) is almost certainly a duplicate
+    // left behind by a previous import format.
+    const keyByPDA = {};
+    for (const r of rows) {
+      if (!r.person_id) continue;
+      const k = `${r.person_id}|${r.gift_date}|${r.amount}`;
+      (keyByPDA[k] = keyByPDA[k] || []).push(r.id);
+    }
+
+    const enriched = rows.map(r => {
+      const c = classify(r.breeze_id || '');
+      const twinKey = r.person_id ? `${r.person_id}|${r.gift_date}|${r.amount}` : '';
+      const twinIds = twinKey ? (keyByPDA[twinKey] || []).filter(id => id !== r.id) : [];
+      return {
+        id: r.id,
+        person_id: r.person_id,
+        person_name: [r.first_name, r.last_name].filter(Boolean).join(' ') || '(unlinked)',
+        person_breeze_id: r.person_breeze_id || '',
+        fund_id: r.fund_id,
+        fund_name: r.fund_name || '(no fund)',
+        fund_breeze_id: r.fund_breeze_id || '',
+        amount_cents: r.amount,
+        contribution_date: r.raw_contribution_date || '',
+        gift_date: r.gift_date,
+        batch_id: r.batch_id,
+        batch_desc: r.batch_desc || '',
+        batch_date: r.batch_date || '',
+        batch_closed: !!r.batch_closed,
+        breeze_id: r.breeze_id || '',
+        method: r.method || '',
+        check_number: r.check_number || '',
+        notes: r.notes || '',
+        classification: c.key,
+        in_breeze_giving_list: c.inBreeze,
+        base_payment_id: c.basePid || '',
+        twin_entry_ids: twinIds,
+      };
+    });
+
+    // Per-fund summary: highlight exactly which funds carry extras.
+    const fundSummary = {};
+    for (const r of enriched) {
+      const k = r.fund_name;
+      if (!fundSummary[k]) fundSummary[k] = {
+        fund_id: r.fund_id, fund_name: r.fund_name, fund_breeze_id: r.fund_breeze_id,
+        total_count: 0, total_cents: 0,
+        matched_count: 0, matched_cents: 0,
+        extras_count: 0, extras_cents: 0,
+        by_class: {},
+      };
+      const s = fundSummary[k];
+      s.total_count++; s.total_cents += r.amount_cents;
+      if (r.in_breeze_giving_list) { s.matched_count++; s.matched_cents += r.amount_cents; }
+      else { s.extras_count++; s.extras_cents += r.amount_cents; }
+      s.by_class[r.classification] = (s.by_class[r.classification] || 0) + 1;
+    }
+    const fundSummaryList = Object.values(fundSummary)
+      .sort((a, b) => b.extras_cents - a.extras_cents || b.total_cents - a.total_cents);
+
+    const classification_counts = enriched.reduce((acc, r) => {
+      acc[r.classification] = (acc[r.classification] || 0) + 1;
+      return acc;
+    }, {});
+
+    const extras = enriched.filter(r => !r.in_breeze_giving_list);
+
+    // Breeze-side view: which payments exist in giving/list but have 0 rows
+    // in the DB? These are the inverse problem (missing imports, not extras).
+    const dbBreezeIds = new Set(enriched.map(r => r.breeze_id).filter(Boolean));
+    const missingFromDb = [];
+    for (const p of glPayments) {
+      const pid = String(p.id);
+      if (dbBreezeIds.has(pid)) continue;
+      // Exclude payments whose paid_on date is outside the [from,to] window
+      const paid = (p.paid_on || p.date || '').slice(0, 10);
+      if (!paid || paid < from || paid > to) continue;
+      missingFromDb.push({
+        breeze_id: pid,
+        date: paid,
+        amount: p.amount,
+        person_id: p.person_id,
+        person_name: [p.first_name, p.last_name].filter(Boolean).join(' '),
+        fund_names: Array.isArray(p.funds) ? p.funds.map(f => f.name || f.fund_name).filter(Boolean) : [],
+      });
+    }
+
+    return json({
+      ok: true,
+      from, to, lateStart,
+      db_row_count: enriched.length,
+      db_total_cents: enriched.reduce((s, r) => s + r.amount_cents, 0),
+      breeze_payment_count: glIds.size,
+      extras_count: extras.length,
+      extras_total_cents: extras.reduce((s, r) => s + r.amount_cents, 0),
+      missing_from_db_count: missingFromDb.length,
+      classification_counts,
+      fund_summary: fundSummaryList,
+      extras,
+      missing_from_db: missingFromDb.slice(0, 200),
+    });
+  } catch (e) { return json({ error: 'Diagnose error: ' + e.message }, 500); } }
+
   if (seg === 'reports/giving-trend' && method === 'GET') {
     if (!isFinance) return json({ error: 'Forbidden' }, 403);
     const yearsParam = url.searchParams.get('years') || String(new Date().getFullYear());
