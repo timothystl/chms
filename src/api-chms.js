@@ -2612,13 +2612,17 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // Fetch audit log entries — four action types in parallel:
     // 1. contribution_added  — manually keyed contributions
     // 2. bulk_import_contributions — processor batch imports (returns 0 for Tithely but kept for future)
-    // 3. contribution_deleted / bulk_contributions_deleted — deleted entries we must NOT import
+    // 3. contribution_deleted / bulk_contributions_deleted — deleted entries we must NOT import.
+    //    Use today as the upper bound (not `end`) so that a 2025 contribution deleted in 2026
+    //    is still excluded from the 2025 sync.
+    const today = new Date().toISOString().slice(0, 10);
     const logBase = `https://${subdomain}.breezechms.com/api/account/list_log?details=1&limit=10000&start=${start}&end=${end}`;
+    const logBaseDeleted = `https://${subdomain}.breezechms.com/api/account/list_log?details=1&limit=10000&start=${start}&end=${today}`;
     const [logRes1, logRes2, logRes3, logRes4, logRes5] = await Promise.all([
       fetch(logBase + '&action=contribution_added',          { headers: hdrs }),
       fetch(logBase + '&action=bulk_import_contributions',   { headers: hdrs }),
-      fetch(logBase + '&action=contribution_deleted',        { headers: hdrs }),
-      fetch(logBase + '&action=bulk_contributions_deleted',  { headers: hdrs }),
+      fetch(logBaseDeleted + '&action=contribution_deleted',        { headers: hdrs }),
+      fetch(logBaseDeleted + '&action=bulk_contributions_deleted',  { headers: hdrs }),
       fetch(logBase + '&action=contribution_updated',        { headers: hdrs }),
     ]);
     if (!logRes1.ok) return json({ error: `Breeze log API error (contribution_added): ${logRes1.status}` }, 502);
