@@ -1104,7 +1104,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   if (seg === 'reports/giving-summary' && method === 'GET') {
     const from = url.searchParams.get('from') || new Date().getFullYear() + '-01-01';
     const to   = url.searchParams.get('to')   || new Date().getFullYear() + '-12-31';
-    const [rowsResult, giverResult] = await Promise.all([
+    const [rowsResult, giverResult, txnResult, methodResult] = await Promise.all([
       db.prepare(
         `SELECT f.name as fund_name, COUNT(ge.id) as contributions, COALESCE(SUM(ge.amount),0) as total_cents
          FROM funds f LEFT JOIN giving_entries ge ON ge.fund_id=f.id
@@ -1120,10 +1120,28 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
          WHERE COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) BETWEEN ? AND ?
            AND ge.person_id IS NOT NULL`
       ).bind(from, to).first(),
+      db.prepare(
+        `SELECT COUNT(ge.id) as n
+         FROM giving_entries ge
+         LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+         WHERE COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) BETWEEN ? AND ?`
+      ).bind(from, to).first(),
+      db.prepare(
+        `SELECT ge.method, COUNT(ge.id) as contributions, COALESCE(SUM(ge.amount),0) as total_cents
+         FROM giving_entries ge
+         LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+         WHERE COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) BETWEEN ? AND ?
+         GROUP BY ge.method ORDER BY total_cents DESC`
+      ).bind(from, to).all(),
     ]);
     const rows = rowsResult.results || [];
     const grand = rows.reduce((s,r) => s + r.total_cents, 0);
-    return json({ from, to, rows, grand_total_cents: grand, total_givers: giverResult?.n ?? 0 });
+    return json({
+      from, to, rows, grand_total_cents: grand,
+      total_givers: giverResult?.n ?? 0,
+      total_transactions: txnResult?.n ?? 0,
+      by_method: methodResult.results || [],
+    });
   }
 
   // Standalone orphan cleanup: find DB entries whose breeze_id no longer exists in Breeze

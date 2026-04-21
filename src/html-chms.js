@@ -277,6 +277,10 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 .rpt-total{font-weight:700;border-top:2px solid var(--border) !important;}
 .rpt-group-hdr td{background:var(--linen);font-weight:700;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);padding:5px 10px;border-bottom:none !important;}
 .rpt-group-sub td{font-style:italic;font-weight:600;background:#faf7f4;border-bottom:1px solid var(--border) !important;}
+.rpt-overview{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:14px;}
+.rpt-stat{background:var(--linen);border:1px solid var(--border);border-radius:8px;padding:10px 16px;min-width:140px;flex:1 1 140px;max-width:220px;}
+.rpt-stat-num{font-size:1.35rem;font-weight:700;font-family:var(--font-head);color:var(--steel-anchor);line-height:1.1;}
+.rpt-stat-lbl{font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);margin-top:3px;}
 /* ── ATTENDANCE ── */
 .att-chart-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px 10px;margin-bottom:14px;}
 .att-stats-row{display:flex;gap:22px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end;}
@@ -1619,7 +1623,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-21-v89';
+var DEPLOY_VERSION = '2026-04-21-v90';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -5672,18 +5676,41 @@ function runGivingSummary() {
       }
     });
     var givers = d.total_givers || 0;
+    var txns   = d.total_transactions || 0;
+    var grand  = d.grand_total_cents || 0;
+    var avgGift = txns > 0 ? Math.round(grand / txns) : 0;
+    var methodLabels = { cash:'Cash', check:'Check', card:'Card / Online', ach:'ACH / Bank', other:'Other' };
+    var methodRows = (d.by_method||[]).map(function(m) {
+      var pct = grand > 0 ? Math.round((m.total_cents||0) * 1000 / grand) / 10 : 0;
+      return '<tr><td>' + esc(methodLabels[m.method] || m.method || 'Unknown') + '</td>'
+        + '<td style="text-align:right;">' + (m.contributions||0) + '</td>'
+        + '<td style="text-align:right;">' + fmtMoney(m.total_cents||0) + '</td>'
+        + '<td style="text-align:right;color:var(--warm-gray);">' + pct.toFixed(1) + '%</td></tr>';
+    }).join('');
+    var overview = '<div class="rpt-overview">'
+      + '<div class="rpt-stat"><div class="rpt-stat-num">' + givers.toLocaleString() + '</div><div class="rpt-stat-lbl">Total Givers</div></div>'
+      + '<div class="rpt-stat"><div class="rpt-stat-num">' + txns.toLocaleString() + '</div><div class="rpt-stat-lbl">Total Transactions</div></div>'
+      + '<div class="rpt-stat"><div class="rpt-stat-num">' + fmtMoney(grand) + '</div><div class="rpt-stat-lbl">Total Given</div></div>'
+      + '<div class="rpt-stat"><div class="rpt-stat-num">' + fmtMoney(avgGift) + '</div><div class="rpt-stat-lbl">Average Gift</div></div>'
+      + '</div>';
+    var methodTable = methodRows
+      ? '<h4 style="font-family:var(--font-head);color:var(--steel-anchor);margin:18px 0 6px 0;">Method Overview</h4>'
+        + '<table class="rpt-table" style="max-width:560px;margin-bottom:18px;"><thead><tr><th>Method</th><th style="text-align:right;">Gifts</th><th style="text-align:right;">Total</th><th style="text-align:right;">Share</th></tr></thead><tbody>' + methodRows + '</tbody></table>'
+      : '';
     var reconBtn = '<button id="rpt-reconcile-btn" class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" '
       + 'onclick="reconcileGivingOrphans(\'' + esc(from) + '\',\'' + esc(to) + '\')">Reconcile Orphans</button>';
     var diagBtn = '<button id="rpt-diagnose-btn" class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" '
       + 'onclick="diagnoseGivingReconcile(\'' + esc(from) + '\',\'' + esc(to) + '\')">Diagnose</button>';
     showRptOutput(
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">'
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'
       + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving by Fund: ' + esc(fmtDate(from)) + ' – ' + esc(fmtDate(to)) + '</h3>'
       + '<div style="display:flex;gap:8px;">' + diagBtn + reconBtn + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div></div>'
-      + '<div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:10px;">' + givers.toLocaleString() + ' givers</div>'
+      + overview
+      + methodTable
+      + '<h4 style="font-family:var(--font-head);color:var(--steel-anchor);margin:6px 0 6px 0;">By Fund</h4>'
       + '<table class="rpt-table"><thead><tr><th>Fund</th><th style="text-align:right;">Gifts</th><th style="text-align:right;">Total</th></tr></thead><tbody>'
       + rows
-      + '<tr class="rpt-total"><td>Total</td><td></td><td style="text-align:right;">' + fmtMoney(d.grand_total_cents||0) + '</td></tr>'
+      + '<tr class="rpt-total"><td>Total</td><td></td><td style="text-align:right;">' + fmtMoney(grand) + '</td></tr>'
       + '</tbody></table>'
     );
   });
