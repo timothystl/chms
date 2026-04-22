@@ -183,9 +183,9 @@ Full detail in `NOTES.md`. Summary:
 ### Engagement & Data Quality (noted 2026-04-22)
 - [ ] **FU1** — Prayer request tracking. New schema (request text, person, date, status, resolution note), capture UI, list view with filters, admin follow-up workflow.
 - [ ] **FU2** — New-contact follow-up tracking. Captures first-contact date per person and a follow-up queue/workflow to move visitors → regulars → members.
-- [ ] **DC1** — Annual friend/visitor review on dashboard. Each week surface a small batch of stale visitor/friend records (e.g. inactive > N months) for triage: archive / engage / move to next step. Spreads full-DB review over the year.
+- [x] **DC1** — Annual friend/visitor review on dashboard. Done 2026-04-22 (v103). New `last_reviewed_at` field on people. `GET /admin/api/engagement/review-queue` returns the next 5 stale (never-reviewed OR reviewed > 365 days ago) non-member, non-organization, active records ordered stalest-first. `POST /admin/api/engagement/mark-reviewed` stamps today. Dashboard "Weekly Review Queue" card renders the batch with Reviewed / Archive / Open actions. Spreads full-DB review over the year (~5/wk × 52 = 260 records).
 - [ ] **WC1** — Electronic contact card intake. Public web form (or existing website form) POSTs to a ChMS endpoint; creates/merges a person record and drops into the FU2 follow-up queue.
-- [ ] **DB9** — Dashboard weekly workflow card. Consolidated card listing this week's engagement + data-cleanup tasks (DC1 batch, FU2 new contacts, prayer follow-ups, etc.).
+- [x] **DB9** — Dashboard weekly workflow card (first source: DC1). Done 2026-04-22 (v103). New "Weekly Review Queue" card on the dashboard shows DC1's batch of stale records with quick actions (Mark Reviewed / Archive / Open). Will accumulate more sources as FU1 (prayer follow-ups) and FU2 (new-contact follow-ups) land. Toggle-able via Customize panel (`reviewQueue` pref).
 
 ---
 

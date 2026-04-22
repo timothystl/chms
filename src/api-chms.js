@@ -209,6 +209,30 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
          (last_seen_date != '' AND last_seen_date < date('now','-56 days'))
        ) ORDER BY last_seen_date ASC LIMIT 20`
     ).all()).results || [];
+    // Weekly review queue (DC1): small batch of stale visitor/friend records due for triage.
+    // "Stale" = never reviewed OR last_reviewed_at older than 365 days.
+    const reviewQueueBatch = (await db.prepare(
+      `SELECT id, first_name, last_name, member_type, email, phone,
+              created_at, last_reviewed_at, last_seen_date,
+              (SELECT MAX(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date))
+                 FROM giving_entries ge
+                 JOIN giving_batches gb ON gb.id = ge.batch_id
+                 WHERE ge.person_id = people.id) AS last_gift_date
+       FROM people
+       WHERE status='active'
+         AND LOWER(member_type) NOT IN ('member','organization','')
+         AND (last_reviewed_at = '' OR date(last_reviewed_at) < date('now','-365 days'))
+       ORDER BY CASE WHEN last_reviewed_at = '' THEN 0 ELSE 1 END,
+                last_reviewed_at ASC,
+                created_at ASC
+       LIMIT 5`
+    ).all()).results || [];
+    const reviewQueueTotal = (await db.prepare(
+      `SELECT COUNT(*) AS n FROM people
+       WHERE status='active'
+         AND LOWER(member_type) NOT IN ('member','organization','')
+         AND (last_reviewed_at = '' OR date(last_reviewed_at) < date('now','-365 days'))`
+    ).first())?.n || 0;
     return json({
       totalPeople, totalHouseholds, memberCount, memberHHCount,
       addedThisMonth, addedThisYear, dashMonth,
@@ -220,7 +244,10 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       // pastoral data: staff+ only
       followUpItems:   isStaff  ? followUpItems   : [],
       recentAttendance: isStaff ? recentAttendance : [],
-      birthdays, anniversaries, recentPeople, notSeenRecently
+      birthdays, anniversaries, recentPeople, notSeenRecently,
+      // engagement review queue (DC1/DB9): any editor can triage
+      reviewQueue:     canEdit ? reviewQueueBatch : [],
+      reviewQueueTotal: canEdit ? reviewQueueTotal : 0
     });
   }
 
@@ -1125,6 +1152,49 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       { key: 'unknown',  label: 'Unknown (no DOB)', n: ageMap.unknown || 0 },
     ];
     return json({ counts, total, tag_counts: tagCounts, age_groups: ageBuckets });
+  }
+
+  // ── Engagement review queue (DC1/DB9) ───────────────────────────────
+  // Returns a small weekly batch of stale visitor/friend records for triage:
+  // archive, engage, promote, or dismiss. Goal: process the whole DB over a year.
+  if (seg === 'engagement/review-queue' && method === 'GET') {
+    const limit     = Math.min(parseInt(url.searchParams.get('limit') || '5', 10) || 5, 50);
+    const maxAgeDays = parseInt(url.searchParams.get('stale_days') || '365', 10) || 365;
+    const rows = (await db.prepare(
+      `SELECT id, first_name, last_name, member_type, email, phone, created_at,
+              last_reviewed_at, last_seen_date, first_contact_date,
+              (SELECT MAX(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date))
+                 FROM giving_entries ge
+                 JOIN giving_batches gb ON gb.id = ge.batch_id
+                 WHERE ge.person_id = people.id) AS last_gift_date
+       FROM people
+       WHERE status='active'
+         AND LOWER(member_type) NOT IN ('member','organization','')
+         AND (last_reviewed_at = ''
+              OR date(last_reviewed_at) < date('now', '-' || ? || ' days'))
+       ORDER BY CASE WHEN last_reviewed_at = '' THEN 0 ELSE 1 END,
+                last_reviewed_at ASC,
+                created_at ASC
+       LIMIT ?`
+    ).bind(maxAgeDays, limit).all()).results || [];
+    const totalPending = (await db.prepare(
+      `SELECT COUNT(*) AS n FROM people
+       WHERE status='active'
+         AND LOWER(member_type) NOT IN ('member','organization','')
+         AND (last_reviewed_at = ''
+              OR date(last_reviewed_at) < date('now', '-' || ? || ' days'))`
+    ).bind(maxAgeDays).first())?.n || 0;
+    return json({ people: rows, total_pending: totalPending, stale_days: maxAgeDays });
+  }
+
+  // Mark a person as reviewed (sets last_reviewed_at = today). Editors+ only.
+  if (seg === 'engagement/mark-reviewed' && method === 'POST') {
+    if (!canEdit) return json({ error: 'Access denied' }, 403);
+    let b = {}; try { b = await req.json(); } catch {}
+    const pid = parseInt(b.person_id, 10);
+    if (!pid) return json({ error: 'person_id required' }, 400);
+    await db.prepare(`UPDATE people SET last_reviewed_at = date('now') WHERE id = ?`).bind(pid).run();
+    return json({ ok: true });
   }
 
   // ── Contact info completeness (R5) ──────────────────────────────────

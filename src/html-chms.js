@@ -1651,7 +1651,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-22-v102';
+var DEPLOY_VERSION = '2026-04-22-v103';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -2461,8 +2461,8 @@ function printDirectory() {
 // ── DASHBOARD ─────────────────────────────────────────────────────────
 var _dashData = null;
 var _dashMonth = new Date().getMonth() + 1; // 1-12, default current month
-var DASH_PREF_DEFAULTS = {followUp:true, firstGivers:true, notSeen:true, birthdays:true, anniversaries:true, membership:true};
-var DASH_PREF_LABELS = {followUp:'Follow-up Queue', firstGivers:'First-Time Givers', notSeen:'Not Seen Recently', birthdays:'Birthdays', anniversaries:'Anniversaries', membership:'Membership by Type'};
+var DASH_PREF_DEFAULTS = {followUp:true, reviewQueue:true, firstGivers:true, notSeen:true, birthdays:true, anniversaries:true, membership:true};
+var DASH_PREF_LABELS = {followUp:'Follow-up Queue', reviewQueue:'Weekly Review Queue', firstGivers:'First-Time Givers', notSeen:'Not Seen Recently', birthdays:'Birthdays', anniversaries:'Anniversaries', membership:'Membership by Type'};
 function dashGetPrefs() {
   if (!_dashPrefs) {
     try { _dashPrefs = Object.assign({}, DASH_PREF_DEFAULTS, JSON.parse(localStorage.getItem('dashCardPrefs')||'{}')); }
@@ -2502,6 +2502,31 @@ function loadDashboard() {
 function dashMonthNav(delta) {
   _dashMonth = ((_dashMonth - 1 + delta + 12) % 12) + 1;
   loadDashboard();
+}
+
+// ── Weekly Review Queue actions (DC1/DB9) ────────────────────────────
+function reviewMark(personId) {
+  api('/admin/api/engagement/mark-reviewed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ person_id: personId })
+  }).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    var row = document.getElementById('rq-row-' + personId);
+    if (row) row.remove();
+    // Quietly reload so new records slide in to replace the batch
+    setTimeout(loadDashboard, 400);
+  });
+}
+
+function reviewArchive(personId, name) {
+  if (!confirm('Archive ' + (name || 'this person') + '? They will be hidden from the active list. You can restore later from their profile.')) return;
+  api('/admin/api/people/' + personId + '/archive', { method: 'POST' }).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    var row = document.getElementById('rq-row-' + personId);
+    if (row) row.remove();
+    setTimeout(loadDashboard, 400);
+  });
 }
 function _dashBulletinDate(dateStr, mnShort) {
   var parts = (dateStr||'').split('-');
@@ -2619,6 +2644,47 @@ function renderDashboard(d) {
   }
   html += '</div></div>';
   } // end isStaffRole follow-up block
+
+  // ── Weekly Review Queue (DC1/DB9) — editors+ only ─────────────
+  // Surfaces a small batch of stale visitor/friend records to triage.
+  // Goal: spread a full-DB review over the year (52 wks × ~5 = ~260 records).
+  if (canEditRole && prefs.reviewQueue) {
+    var rq       = d.reviewQueue || [];
+    var rqTotal  = d.reviewQueueTotal || 0;
+    html += '<div class="dash-section-hdr">'
+      + '<span>Weekly Review Queue</span>'
+      + '<span style="font-size:12px;color:var(--warm-gray);font-weight:400;">'
+      + (rqTotal ? rqTotal + ' pending triage' : 'all reviewed') + '</span></div>';
+    html += '<div class="dash-card" style="padding:0;"><div class="dash-card-body">';
+    if (rq.length) {
+      html += rq.map(function(p) {
+        var name = ((p.first_name||'') + ' ' + (p.last_name||'')).trim() || '(no name)';
+        var mt   = esc(p.member_type || '');
+        var sinceAdd = p.created_at ? Math.floor((Date.now() - new Date(p.created_at)) / 86400000 / 30) : 0;
+        var meta = [];
+        meta.push(mt);
+        if (sinceAdd >= 1) meta.push('added ' + sinceAdd + ' mo ago');
+        if (p.last_gift_date) meta.push('last gift ' + p.last_gift_date);
+        else meta.push('no giving');
+        if (p.last_seen_date) meta.push('last seen ' + p.last_seen_date);
+        if (p.last_reviewed_at) meta.push('reviewed ' + p.last_reviewed_at);
+        else meta.push('never reviewed');
+        return '<div class="dash-row-item" style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--linen);" id="rq-row-'+p.id+'">'
+          + '<div style="flex:1;min-width:0;">'
+          +   '<div style="font-weight:600;color:var(--steel-anchor);cursor:pointer;" onclick="openPersonDetail('+p.id+')">' + esc(name) + '</div>'
+          +   '<div style="font-size:.75rem;color:var(--warm-gray);">' + meta.map(esc).join(' · ') + '</div>'
+          + '</div>'
+          + '<div style="display:flex;gap:4px;flex-shrink:0;">'
+          +   '<button class="btn-sm" style="padding:3px 8px;font-size:.72rem;background:var(--linen);border:1px solid var(--border);border-radius:6px;cursor:pointer;" onclick="reviewMark('+p.id+')" title="Mark as reviewed — keep as is">Reviewed</button>'
+          +   '<button class="btn-sm" style="padding:3px 8px;font-size:.72rem;background:var(--linen);border:1px solid var(--border);border-radius:6px;cursor:pointer;" onclick="reviewArchive('+p.id+',\''+esc(name).replace(/\\\'/g,"\\\\'")+'\')" title="Archive this record">Archive</button>'
+          +   '<button class="btn-sm" style="padding:3px 8px;font-size:.72rem;background:var(--linen);border:1px solid var(--border);border-radius:6px;cursor:pointer;" onclick="openPersonDetail('+p.id+')" title="Open profile">Open</button>'
+          + '</div></div>';
+      }).join('');
+    } else {
+      html += '<div style="padding:14px 16px;color:var(--warm-gray);font-size:.85rem;">Nothing to review this week. &#127881;</div>';
+    }
+    html += '</div></div>';
+  }
 
   // ── First-time givers — finance+ only ─────────────────────────
   var firstGivers = isFinanceRole ? (d.firstGivers || []) : [];

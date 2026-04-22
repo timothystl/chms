@@ -479,6 +479,15 @@ export async function initDb(db) {
     'ALTER TABLE people ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0',
     // people: archive/deceased status ('active' | 'archived' | 'deceased')
     'ALTER TABLE people ADD COLUMN status TEXT NOT NULL DEFAULT \'active\'',
+    // people: engagement workflow (DC1/DB9/FU2)
+    // last_reviewed_at: when this record was last manually triaged via the weekly review queue
+    'ALTER TABLE people ADD COLUMN last_reviewed_at TEXT NOT NULL DEFAULT ""',
+    // first_contact_date: date the person first engaged with the church (for FU2 follow-up)
+    'ALTER TABLE people ADD COLUMN first_contact_date TEXT NOT NULL DEFAULT ""',
+    // followup_status: 'new' | 'in_progress' | 'done' | '' (empty = not in followup flow)
+    'ALTER TABLE people ADD COLUMN followup_status TEXT NOT NULL DEFAULT ""',
+    // followup_notes: free-text notes from follow-up workflow (FU2)
+    'ALTER TABLE people ADD COLUMN followup_notes TEXT NOT NULL DEFAULT ""',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
