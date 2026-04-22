@@ -1101,6 +1101,154 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     return json({ counts, total, tag_counts: tagCounts });
   }
 
+  // ── Contact info completeness (R5) ──────────────────────────────────
+  // Counts of active members/attenders missing each contact field, with
+  // optional drill-down list via ?field=email|phone|address|dob|photo
+  if (seg === 'reports/contact-completeness' && method === 'GET') {
+    const scope = url.searchParams.get('scope') || 'active'; // 'active' | 'member'
+    const field = url.searchParams.get('field') || '';
+    let where = "status='active'";
+    if (scope === 'member') where += " AND LOWER(member_type)='member'";
+    // Exclude organizations from contact-completeness counts (they often lack personal data intentionally)
+    where += " AND LOWER(member_type) != 'organization'";
+    if (field) {
+      let cond;
+      if (field === 'email')   cond = "email=''";
+      else if (field === 'phone')   cond = "phone=''";
+      else if (field === 'address') cond = "address1='' AND city=''";
+      else if (field === 'dob')     cond = "dob=''";
+      else if (field === 'photo')   cond = "photo_url=''";
+      else return json({ error: 'Unknown field' }, 400);
+      const rows = (await db.prepare(
+        `SELECT id, first_name, last_name, member_type, email, phone, address1, city, state, zip, dob, photo_url
+         FROM people WHERE ${where} AND ${cond}
+         ORDER BY last_name, first_name LIMIT 500`
+      ).all()).results || [];
+      return json({ field, scope, people: rows });
+    }
+    const row = await db.prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN email=''                THEN 1 ELSE 0 END) AS missing_email,
+              SUM(CASE WHEN phone=''                THEN 1 ELSE 0 END) AS missing_phone,
+              SUM(CASE WHEN address1='' AND city='' THEN 1 ELSE 0 END) AS missing_address,
+              SUM(CASE WHEN dob=''                  THEN 1 ELSE 0 END) AS missing_dob,
+              SUM(CASE WHEN photo_url=''            THEN 1 ELSE 0 END) AS missing_photo
+       FROM people WHERE ${where}`
+    ).first();
+    return json({
+      scope,
+      total:            row?.total           || 0,
+      missing_email:    row?.missing_email   || 0,
+      missing_phone:    row?.missing_phone   || 0,
+      missing_address:  row?.missing_address || 0,
+      missing_dob:      row?.missing_dob     || 0,
+      missing_photo:    row?.missing_photo   || 0,
+    });
+  }
+
+  // ── Giving insights (R2) ────────────────────────────────────────────
+  // Top givers, lapsed givers (gave prior year, not this year), giving
+  // frequency distribution, average-gift trend by year. Finance-gated.
+  if (seg === 'reports/giving-insights' && method === 'GET') {
+    const year   = parseInt(url.searchParams.get('year') || '', 10);
+    if (!year || isNaN(year)) return json({ error: 'year required' }, 400);
+    const topN   = Math.min(parseInt(url.searchParams.get('top') || '25', 10) || 25, 100);
+    const start  = year + '-01-01';
+    const end    = year + '-12-31';
+    const pStart = (year - 1) + '-01-01';
+    const pEnd   = (year - 1) + '-12-31';
+
+    // Canonical effective date: contribution_date falls back to batch_date
+    const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
+
+    // Top givers in `year`
+    const topGivers = (await db.prepare(
+      `SELECT p.id, p.first_name, p.last_name, p.member_type,
+              COUNT(*) AS gifts, SUM(ge.amount_cents) AS total_cents
+       FROM giving_entries ge
+       JOIN giving_batches gb ON gb.id = ge.batch_id
+       JOIN people p ON p.id = ge.person_id
+       WHERE ${effDate} >= ? AND ${effDate} <= ?
+       GROUP BY p.id
+       ORDER BY total_cents DESC
+       LIMIT ?`
+    ).bind(start, end, topN).all()).results || [];
+
+    // Lapsed givers: gave in prior year, nothing in this year
+    const lapsed = (await db.prepare(
+      `SELECT p.id, p.first_name, p.last_name, p.member_type,
+              SUM(ge.amount_cents) AS prior_total_cents,
+              COUNT(*)             AS prior_gifts,
+              MAX(${effDate})      AS last_gift_date
+       FROM giving_entries ge
+       JOIN giving_batches gb ON gb.id = ge.batch_id
+       JOIN people p ON p.id = ge.person_id
+       WHERE ${effDate} >= ? AND ${effDate} <= ?
+         AND p.id NOT IN (
+           SELECT DISTINCT ge2.person_id
+           FROM giving_entries ge2
+           JOIN giving_batches gb2 ON gb2.id = ge2.batch_id
+           WHERE COALESCE(NULLIF(ge2.contribution_date,''), gb2.batch_date) >= ?
+             AND COALESCE(NULLIF(ge2.contribution_date,''), gb2.batch_date) <= ?
+         )
+       GROUP BY p.id
+       ORDER BY prior_total_cents DESC`
+    ).bind(pStart, pEnd, start, end).all()).results || [];
+
+    // Frequency distribution — bucket each giver by # of gifts this year
+    const freqRaw = (await db.prepare(
+      `SELECT person_id, COUNT(*) AS gifts
+       FROM giving_entries ge
+       JOIN giving_batches gb ON gb.id = ge.batch_id
+       WHERE ${effDate} >= ? AND ${effDate} <= ?
+       GROUP BY person_id`
+    ).bind(start, end).all()).results || [];
+    const buckets = [
+      { label: '1 gift',       min: 1,  max: 1,   n: 0 },
+      { label: '2–5 gifts',    min: 2,  max: 5,   n: 0 },
+      { label: '6–12 gifts',   min: 6,  max: 12,  n: 0 },
+      { label: '13–26 gifts',  min: 13, max: 26,  n: 0 },
+      { label: '27+ gifts',    min: 27, max: 9e9, n: 0 },
+    ];
+    for (const r of freqRaw) {
+      const g = r.gifts || 0;
+      for (const b of buckets) { if (g >= b.min && g <= b.max) { b.n++; break; } }
+    }
+
+    // Average-gift trend — last 5 years ending in `year`
+    const trendYears = [];
+    for (let y = year - 4; y <= year; y++) trendYears.push(y);
+    const trendRows = [];
+    for (const y of trendYears) {
+      const s = y + '-01-01', e = y + '-12-31';
+      const r = await db.prepare(
+        `SELECT COUNT(*) AS gifts, COUNT(DISTINCT ge.person_id) AS givers, SUM(ge.amount_cents) AS total_cents
+         FROM giving_entries ge
+         JOIN giving_batches gb ON gb.id = ge.batch_id
+         WHERE ${effDate} >= ? AND ${effDate} <= ?`
+      ).bind(s, e).first();
+      const gifts  = r?.gifts  || 0;
+      const givers = r?.givers || 0;
+      const tot    = r?.total_cents || 0;
+      trendRows.push({
+        year: y,
+        gifts, givers,
+        total_cents: tot,
+        avg_gift_cents:  gifts  > 0 ? Math.round(tot / gifts)  : 0,
+        avg_giver_cents: givers > 0 ? Math.round(tot / givers) : 0,
+      });
+    }
+
+    return json({
+      year,
+      top_givers: topGivers,
+      lapsed,
+      frequency:  buckets,
+      trend:      trendRows,
+    });
+  }
+
+
   if (seg === 'reports/giving-summary' && method === 'GET') {
     const from = url.searchParams.get('from') || new Date().getFullYear() + '-01-01';
     const to   = url.searchParams.get('to')   || new Date().getFullYear() + '-12-31';

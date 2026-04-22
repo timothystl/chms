@@ -675,6 +675,11 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div class="tile-title">Membership Summary</div>
       <div class="tile-desc">Counts by member type</div>
     </div>
+    <div class="report-tile no-member" onclick="runContactCompleteness()">
+      <div class="tile-icon">&#128231;</div>
+      <div class="tile-title">Contact Completeness</div>
+      <div class="tile-desc">Missing email, phone, address, DOB, photo</div>
+    </div>
     <div class="report-tile require-finance">
       <div class="tile-icon">&#128200;</div>
       <div class="tile-title">Giving by Fund</div>
@@ -726,6 +731,15 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
         <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year giving comparison by month.</div>
         <div id="rpt-trend-years" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
         <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingTrend()">Run Report</button>
+      </div>
+    </div>
+    <div class="report-tile">
+      <div class="tile-icon">&#128202;</div>
+      <div class="tile-title">Giving Insights</div>
+      <div class="tile-desc">
+        <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Top givers, lapsed givers, frequency, and average gift trends.</div>
+        <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-insights-year" name="rpt-insights-year" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+        <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingInsights()">Run Report</button>
       </div>
     </div>
     <div class="report-tile">
@@ -1627,7 +1641,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-21-v98';
+var DEPLOY_VERSION = '2026-04-22-v99';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -1816,6 +1830,9 @@ window.addEventListener('load', function() {
   document.getElementById('rpt-year').value = y;
   document.getElementById('rpt-from').value = y + '-01-01';
   document.getElementById('rpt-to').value = y + '-12-31';
+  var ry = document.getElementById('rpt-insights-year'); if (ry) ry.value = y;
+  var mf = document.getElementById('rpt-method-from');   if (mf && !mf.value) mf.value = y + '-01-01';
+  var mt = document.getElementById('rpt-method-to');     if (mt && !mt.value) mt.value = y + '-12-31';
   // Attendance date range defaults
   document.getElementById('att-from').value = (y - 5) + '-01-01';
   document.getElementById('att-to').value = y + '-12-31';
@@ -5635,19 +5652,67 @@ function runMembership() {
     );
   });
 }
+// ── Reusable pie chart (SVG) ──────────────────────────────────────────
+// items: [{label, value, color}]; diameter in px.
+function renderPieChart(items, diameter) {
+  var total = items.reduce(function(s, it){ return s + (it.value||0); }, 0);
+  if (!total) return '<div style="color:var(--warm-gray);font-size:.85rem;">No data.</div>';
+  var D = diameter || 220, R = D/2, cx = R, cy = R;
+  var angle = -Math.PI / 2;
+  var slices = '';
+  items.forEach(function(it) {
+    var frac = (it.value || 0) / total;
+    if (!frac) return;
+    var end = angle + frac * 2 * Math.PI;
+    var x1 = cx + R * Math.cos(angle), y1 = cy + R * Math.sin(angle);
+    var x2 = cx + R * Math.cos(end),   y2 = cy + R * Math.sin(end);
+    var largeArc = frac > 0.5 ? 1 : 0;
+    if (frac >= 0.9999) {
+      slices += '<circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="'+it.color+'"><title>'+esc(it.label)+': 100%</title></circle>';
+    } else {
+      slices += '<path d="M '+cx+','+cy+' L '+x1.toFixed(2)+','+y1.toFixed(2)
+        +' A '+R+','+R+' 0 '+largeArc+' 1 '+x2.toFixed(2)+','+y2.toFixed(2)+' Z" fill="'+it.color+'"'
+        +'><title>'+esc(it.label)+': '+(frac*100).toFixed(1)+'%</title></path>';
+    }
+    angle = end;
+  });
+  var svg = '<svg viewBox="0 0 '+D+' '+D+'" style="width:'+D+'px;height:'+D+'px;max-width:100%;">'+slices+'</svg>';
+  var legend = '<div style="display:flex;flex-direction:column;gap:6px;font-size:.85rem;">';
+  items.forEach(function(it) {
+    if (!it.value) return;
+    var pct = (it.value / total * 100).toFixed(1);
+    legend += '<div style="display:flex;align-items:center;gap:8px;">'
+      + '<span style="display:inline-block;width:12px;height:12px;background:'+it.color+';border-radius:2px;flex-shrink:0;"></span>'
+      + '<span style="flex:1;">'+esc(it.label)+'</span>'
+      + '<span style="color:var(--warm-gray);font-variant-numeric:tabular-nums;">'+pct+'%</span></div>';
+  });
+  legend += '</div>';
+  return '<div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">'
+    + '<div>'+svg+'</div><div style="flex:1;min-width:180px;">'+legend+'</div></div>';
+}
+
 function runGivingByMethod() {
   var from = document.getElementById('rpt-method-from').value;
   var to   = document.getElementById('rpt-method-to').value;
   if (!from || !to) { alert('Please select a date range.'); return; }
   api('/admin/api/reports/giving-by-method?from=' + from + '&to=' + to).then(function(d) {
-    var labels = { cash:'Cash', check:'Check', card:'Card / Online', ach:'ACH / Bank', other:'Other' };
+    var labels  = { cash:'Cash', check:'Check', card:'Card / Online', ach:'ACH / Bank', other:'Other' };
+    var palette = { cash:'#5A9E6F', check:'#2E7EA6', card:'#C9973A', ach:'#9B59B6', other:'#8A7968' };
     var rows = (d.rows||[]).map(function(r) {
       return '<tr><td>' + esc(labels[r.method] || r.method || 'Unknown') + '</td><td style="text-align:right;">' + (r.contributions||0) + '</td><td style="text-align:right;">' + fmtMoney(r.total_cents||0) + '</td></tr>';
     }).join('');
+    var pieItems = (d.rows||[]).map(function(r) {
+      return { label: labels[r.method] || r.method || 'Unknown', value: r.total_cents||0, color: palette[r.method] || '#8A7968' };
+    });
+    var pieBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.9rem;margin-bottom:10px;">Share by Method</div>'
+      + renderPieChart(pieItems, 200)
+      + '</div>';
     showRptOutput(
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
       + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving by Method: ' + esc(fmtDate(from)) + ' \u2013 ' + esc(fmtDate(to)) + '</h3>'
       + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
+      + pieBlock
       + '<table class="rpt-table"><thead><tr><th>Method</th><th style="text-align:right;">Gifts</th><th style="text-align:right;">Total</th></tr></thead><tbody>'
       + rows
       + '<tr class="rpt-total"><td>Total</td><td></td><td style="text-align:right;">' + fmtMoney(d.grand_total_cents||0) + '</td></tr>'
@@ -5909,7 +5974,7 @@ function renderGivingTrendChart(d, chartH) {
   var maxV = Math.max.apply(null, allV) * 1.1;
   var pxM = function(i) { return pL + i * (cW / 11); };
   var pyV = function(v) { return pT + cH - (v / maxV) * cH; };
-  var grid = '', ylbls = '', xlbls = '', lines = '';
+  var grid = '', ylbls = '', xlbls = '', lines = '', markers = '';
   var gridVals = [0, Math.round(maxV*0.25/1.1), Math.round(maxV*0.5/1.1), Math.round(maxV*0.75/1.1), Math.round(maxV/1.1)];
   gridVals.forEach(function(v) {
     var yy = pyV(v);
@@ -5919,9 +5984,28 @@ function renderGivingTrendChart(d, chartH) {
   for (var xi = 0; xi < 12; xi++) {
     xlbls += '<text x="'+pxM(xi).toFixed(1)+'" y="'+(H-5)+'" text-anchor="middle" fill="#9A8A78" font-size="9">'+mShort[xi]+'</text>';
   }
+  // Easter (Meeus/Jones/Butcher Gregorian algorithm) and Christmas markers
+  var daysInMo = function(m, y) {
+    var di = [31,28,31,30,31,30,31,31,30,31,30,31];
+    if (m === 2 && ((y%4===0 && y%100!==0) || y%400===0)) return 29;
+    return di[m-1];
+  };
+  var easterOf = function(y) {
+    var a=y%19, b=Math.floor(y/100), c=y%100, e=Math.floor(b/4), ee=b%4;
+    var f=Math.floor((b+8)/25), g=Math.floor((b-f+1)/3);
+    var h=(19*a+b-e-g+15)%30, i=Math.floor(c/4), k=c%4;
+    var l=(32+2*ee+2*i-h-k)%7, mm=Math.floor((a+11*h+22*l)/451);
+    var month=Math.floor((h+l-7*mm+114)/31), day=((h+l-7*mm+114)%31)+1;
+    return { month: month, day: day };
+  };
+  var xAtDate = function(y, m, day) {
+    var frac = (m - 1) + (day - 1) / daysInMo(m, y);
+    return pxM(frac);
+  };
   var legend = '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;justify-content:center;">';
   (d.years||[]).forEach(function(yr, yi) {
     var color = palette[yi % palette.length];
+    var yrInt = parseInt(yr, 10);
     var pts = [];
     for (var mo = 1; mo <= 12; mo++) {
       var ms = mo < 10 ? '0'+mo : ''+mo;
@@ -5934,13 +6018,23 @@ function renderGivingTrendChart(d, chartH) {
     pts.forEach(function(p) {
       lines += '<circle cx="'+p.x.toFixed(1)+'" cy="'+p.y.toFixed(1)+'" r="3.5" fill="'+color+'"><title>'+mShort[p.mi]+' '+yr+': $'+Math.round(p.v/100).toLocaleString()+'</title></circle>';
     });
+    // Easter marker for this year (dashed vertical line)
+    var ed = easterOf(yrInt);
+    var ex = xAtDate(yrInt, ed.month, ed.day);
+    markers += '<line x1="'+ex.toFixed(1)+'" y1="'+pT+'" x2="'+ex.toFixed(1)+'" y2="'+(H-pB)+'" stroke="'+color+'" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"><title>Easter '+yr+': '+mShort[ed.month-1]+' '+ed.day+'</title></line>';
+    markers += '<text x="'+ex.toFixed(1)+'" y="'+(pT+9)+'" text-anchor="middle" fill="'+color+'" font-size="9" font-weight="700" opacity="0.75">E</text>';
     var yearTotal = (d.monthly[yr]||[]).reduce(function(s,r){return s+(r.total_cents||0);},0);
     legend += '<span style="display:flex;align-items:center;gap:5px;font-size:.82rem;">'
       + '<span style="display:inline-block;width:14px;height:14px;background:'+color+';border-radius:3px;flex-shrink:0;"></span>'
       + yr+' <span style="color:var(--warm-gray);">($'+Math.round(yearTotal/100).toLocaleString()+')</span></span>';
   });
+  // Shared Christmas marker (Dec 25) — gray dashed line, single instance
+  var cx = xAtDate(2026, 12, 25);
+  markers += '<line x1="'+cx.toFixed(1)+'" y1="'+pT+'" x2="'+cx.toFixed(1)+'" y2="'+(H-pB)+'" stroke="#8a7968" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"><title>Christmas: Dec 25</title></line>';
+  markers += '<text x="'+cx.toFixed(1)+'" y="'+(pT+9)+'" text-anchor="middle" fill="#8a7968" font-size="9" font-weight="700" opacity="0.8">C</text>';
+  legend += '<span style="display:flex;align-items:center;gap:10px;font-size:.75rem;color:var(--warm-gray);margin-left:8px;border-left:1px solid var(--border);padding-left:12px;"><span>E = Easter</span><span>C = Christmas</span></span>';
   legend += '</div>';
-  var svg = '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:'+H+'px;">'+grid+lines+xlbls+ylbls+'</svg>';
+  var svg = '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:'+H+'px;">'+grid+markers+lines+xlbls+ylbls+'</svg>';
   return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 16px 8px;">'
     + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'
     + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;">Giving Trend — Monthly Totals by Year</div>'
@@ -5948,6 +6042,141 @@ function renderGivingTrendChart(d, chartH) {
     + '<div id="giving-trend-svg-wrap">'+svg+'</div>' + legend
     + _chartResizeHandle('givingTrendResizeStart')
     + '</div>';
+}
+
+// ── R5: Contact Info Completeness ───────────────────────────────────────
+function runContactCompleteness(scope) {
+  scope = scope || 'active';
+  api('/admin/api/reports/contact-completeness?scope=' + encodeURIComponent(scope)).then(function(d) {
+    var total = d.total || 0;
+    var cats = [
+      { k: 'email',   lbl: 'Missing Email',   n: d.missing_email,   icon: '&#9993;' },
+      { k: 'phone',   lbl: 'Missing Phone',   n: d.missing_phone,   icon: '&#9742;' },
+      { k: 'address', lbl: 'Missing Address', n: d.missing_address, icon: '&#127968;' },
+      { k: 'dob',     lbl: 'Missing DOB',     n: d.missing_dob,     icon: '&#127874;' },
+      { k: 'photo',   lbl: 'Missing Photo',   n: d.missing_photo,   icon: '&#128247;' },
+    ];
+    var bars = cats.map(function(c) {
+      var pct = total > 0 ? Math.round(c.n * 100 / total) : 0;
+      var complete = total - c.n;
+      var cpct = total > 0 ? Math.round(complete * 100 / total) : 100;
+      return '<div style="margin-bottom:10px;cursor:pointer;" onclick="runContactCompletenessField(\'' + c.k + '\',\'' + scope + '\')">'
+        + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;">'
+        + '<div style="font-size:.88rem;color:var(--charcoal);font-weight:600;">' + c.icon + ' ' + esc(c.lbl) + '</div>'
+        + '<div style="font-size:.82rem;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + c.n.toLocaleString() + ' of ' + total.toLocaleString() + ' (' + pct + '%)</div></div>'
+        + '<div style="background:var(--linen);border-radius:4px;height:12px;overflow:hidden;position:relative;">'
+        + '<div style="background:#5A9E6F;height:100%;width:' + cpct + '%;transition:width .2s;" title="Complete: ' + cpct + '%"></div>'
+        + '</div></div>';
+    }).join('');
+    var scopeBtn = function(val, lbl) {
+      var active = scope === val;
+      return '<button class="btn-sm" style="padding:4px 10px;font-size:.8rem;' + (active ? 'background:var(--steel-anchor);color:#fff;' : 'background:var(--linen);color:var(--charcoal);') + 'border:1px solid var(--border);border-radius:6px;cursor:pointer;" onclick="runContactCompleteness(\'' + val + '\')">' + lbl + '</button>';
+    };
+    showRptOutput(
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:10px;">'
+      + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Contact Info Completeness</h3>'
+      + '<div style="display:flex;gap:6px;">' + scopeBtn('active','All Active') + scopeBtn('member','Members Only') + '</div></div>'
+      + '<div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:14px;">' + total.toLocaleString() + ' active people' + (scope === 'member' ? ' (members only)' : '') + '. Green bar = complete. Click a row to drill down to the list of missing records.</div>'
+      + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;">' + bars + '</div>'
+    );
+  });
+}
+
+function runContactCompletenessField(field, scope) {
+  api('/admin/api/reports/contact-completeness?scope=' + encodeURIComponent(scope) + '&field=' + encodeURIComponent(field)).then(function(d) {
+    var people = d.people || [];
+    var fieldLabels = { email:'Email', phone:'Phone', address:'Address', dob:'DOB', photo:'Photo' };
+    var rows = people.map(function(p) {
+      var name = esc((p.first_name||'') + ' ' + (p.last_name||''));
+      var mt = esc(p.member_type || '');
+      return '<tr style="cursor:pointer;" onclick="openProfile(' + p.id + ')">'
+        + '<td><span style="color:var(--steel-anchor);font-weight:600;">' + name + '</span></td>'
+        + '<td style="color:var(--warm-gray);">' + mt + '</td></tr>';
+    }).join('');
+    var trunc = people.length >= 500 ? '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:8px;font-style:italic;">Showing first 500. Fix some and re-run for more.</div>' : '';
+    showRptOutput(
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+      + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Missing ' + esc(fieldLabels[field]||field) + ' &mdash; ' + people.length + (people.length >= 500 ? '+' : '') + ' people</h3>'
+      + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="runContactCompleteness(\'' + scope + '\')">&larr; Back</button></div>'
+      + '<table class="rpt-table"><thead><tr><th>Name</th><th>Type</th></tr></thead><tbody>'
+      + (rows || '<tr><td colspan="2" style="text-align:center;color:var(--warm-gray);padding:20px;">All records complete!</td></tr>')
+      + '</tbody></table>' + trunc
+    );
+  });
+}
+
+// ── R2: Giving Insights ─────────────────────────────────────────────────
+function runGivingInsights() {
+  var yr = parseInt(document.getElementById('rpt-insights-year').value, 10);
+  if (!yr) { alert('Please enter a year.'); return; }
+  api('/admin/api/reports/giving-insights?year=' + yr).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    var topRows = (d.top_givers||[]).map(function(r, i) {
+      var name = esc((r.first_name||'') + ' ' + (r.last_name||''));
+      return '<tr style="cursor:pointer;" onclick="openProfile(' + r.id + ')">'
+        + '<td style="color:var(--warm-gray);text-align:right;font-variant-numeric:tabular-nums;">' + (i+1) + '</td>'
+        + '<td style="color:var(--steel-anchor);font-weight:600;">' + name + '</td>'
+        + '<td>' + esc(r.member_type||'') + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (r.gifts||0) + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + fmtMoney(r.total_cents||0) + '</td></tr>';
+    }).join('');
+    var topTotal = (d.top_givers||[]).reduce(function(s,r){return s+(r.total_cents||0);},0);
+    var topBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#127942; Top ' + (d.top_givers||[]).length + ' Givers — ' + yr + '</div>'
+      + '<table class="rpt-table"><thead><tr><th style="text-align:right;">#</th><th>Name</th><th>Type</th><th style="text-align:right;">Gifts</th><th style="text-align:right;">Total</th></tr></thead>'
+      + '<tbody>' + (topRows || '<tr><td colspan="5" style="text-align:center;color:var(--warm-gray);padding:20px;">No giving data for ' + yr + '.</td></tr>') + '</tbody></table>'
+      + '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:8px;">Top '+(d.top_givers||[]).length+' combined: ' + fmtMoney(topTotal) + '</div></div>';
+
+    var lapsedRows = (d.lapsed||[]).map(function(r) {
+      var name = esc((r.first_name||'') + ' ' + (r.last_name||''));
+      return '<tr style="cursor:pointer;" onclick="openProfile(' + r.id + ')">'
+        + '<td style="color:var(--steel-anchor);font-weight:600;">' + name + '</td>'
+        + '<td>' + esc(r.member_type||'') + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (r.prior_gifts||0) + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + fmtMoney(r.prior_total_cents||0) + '</td>'
+        + '<td style="color:var(--warm-gray);font-size:.82rem;">' + esc(r.last_gift_date||'') + '</td></tr>';
+    }).join('');
+    var lapsedTotal = (d.lapsed||[]).reduce(function(s,r){return s+(r.prior_total_cents||0);},0);
+    var lapsedBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#128276; Lapsed Givers — gave in ' + (yr-1) + ', nothing in ' + yr + '</div>'
+      + '<table class="rpt-table"><thead><tr><th>Name</th><th>Type</th><th style="text-align:right;">' + (yr-1) + ' Gifts</th><th style="text-align:right;">' + (yr-1) + ' Total</th><th>Last Gift</th></tr></thead>'
+      + '<tbody>' + (lapsedRows || '<tr><td colspan="5" style="text-align:center;color:var(--warm-gray);padding:20px;">No lapsed givers — everyone who gave last year gave this year too. &#127881;</td></tr>') + '</tbody></table>'
+      + '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:8px;">' + (d.lapsed||[]).length + ' lapsed givers, ' + fmtMoney(lapsedTotal) + ' given in ' + (yr-1) + '.</div></div>';
+
+    var totalGivers = (d.frequency||[]).reduce(function(s,b){return s+(b.n||0);}, 0);
+    var freqRows = (d.frequency||[]).map(function(b) {
+      var pct = totalGivers > 0 ? Math.round(b.n * 100 / totalGivers) : 0;
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+        + '<div style="flex:0 0 110px;font-size:.85rem;color:var(--charcoal);">' + esc(b.label) + '</div>'
+        + '<div style="flex:1;background:var(--linen);border-radius:4px;height:16px;overflow:hidden;position:relative;">'
+        + '<div style="background:#2E7EA6;height:100%;width:' + pct + '%;"></div></div>'
+        + '<div style="flex:0 0 110px;text-align:right;font-size:.82rem;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + b.n + ' (' + pct + '%)</div></div>';
+    }).join('');
+    var freqBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#128200; Giving Frequency — ' + yr + ' (' + totalGivers + ' givers)</div>'
+      + freqRows + '</div>';
+
+    var trendRows = (d.trend||[]).map(function(r) {
+      return '<tr>'
+        + '<td>' + r.year + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (r.givers||0) + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (r.gifts||0) + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + fmtMoney(r.total_cents||0) + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + fmtMoney(r.avg_gift_cents||0) + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + fmtMoney(r.avg_giver_cents||0) + '</td></tr>';
+    }).join('');
+    var trendBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;">'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#128640; Average Gift Trends — last 5 years</div>'
+      + '<table class="rpt-table"><thead><tr><th>Year</th><th style="text-align:right;">Givers</th><th style="text-align:right;">Gifts</th><th style="text-align:right;">Total</th><th style="text-align:right;">Avg / Gift</th><th style="text-align:right;">Avg / Giver</th></tr></thead>'
+      + '<tbody>' + trendRows + '</tbody></table></div>';
+
+    showRptOutput(
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+      + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving Insights — ' + yr + '</h3>'
+      + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
+      + topBlock + lapsedBlock + freqBlock + trendBlock
+    );
+  });
 }
 
 var _stmtData = null;

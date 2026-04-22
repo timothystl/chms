@@ -160,10 +160,30 @@ Full detail in `NOTES.md`. Summary:
 - [ ] **SMS1** — SMS birthday/anniversary + bulk messaging. **Preferred provider: Brevo SMS** — already have an account, `BREVO_API_KEY` already in worker, no new signup needed (~€0.07/SMS). Alternative: Twilio (~$0.008/SMS + $1/month). Needs `sms_opt_in` field on people. (noted 2026-04-20)
 
 ### Scheduler
-- [x] **SC1** — Scheduler integrated as a tab inside the ChMS SPA. `/scheduler?embedded=1` hides own header/tabs; ChMS sidebar "Scheduler" tab lazy-loads it in an iframe. Done 2026-04-21 (v92).
+- [x] **SC1** — Scheduler integrated as a tab inside the ChMS SPA. `/scheduler?embedded=1` hides own header/tabs; ChMS sidebar "Scheduler" tab lazy-loads it in an iframe. Done 2026-04-21 (v92, fully working at v98).
+- [ ] **SC2** — Inline scheduler into ChMS SPA (no iframe). Replace the iframe approach from SC1 with native integration so the scheduler behaves like other tabs (Home, People, etc.). Required work: (1) strip `<html>/<head>/<body>` wrapper from `scheduler-html.js`, keep only inner content; (2) namespace CSS classes (prefix with `.sched-` or wrap content under `.sched-root` and scope all rules); (3) wrap the ~3000 lines of scheduler JS in an IIFE so globals like `currentMonthKey`, `_pendingSignups`, `_embedded` don't leak; (4) rename overlapping DOM IDs (`tab-people`, `tab-settings`, `current-month-label`, `login-screen`, `app-content`) or scope all `getElementById` calls to a container; (5) manually invoke scheduler init from `showTab('scheduler')` instead of running on page load. Estimated 2-3 hours, risky due to many small breakage points. (noted 2026-04-21)
 
 ### Breeze Integration
 - [ ] **BR1** — Reverse sync (app → Breeze): Breeze API supports write operations (add/update people, add contributions). Feasible for narrow workflows (e.g. new person entered here → push to Breeze, or walk-in gift batch → push to Breeze). Full bidirectional sync is complex due to conflict resolution. Needs scoping conversation: which specific data entry workflows would benefit? (noted 2026-04-19)
+
+### Reports / Insights (noted 2026-04-22)
+- [ ] **R1** — Age group breakdown across Membership Summary, Giving, Attendance. Default buckets: Under 18, 18–29, 30–44, 45–64, 65+. Requires `dob` on person.
+- [x] **R2** — Giving insights report: top givers (top N by year), lapsed givers (gave in prior year, nothing this year), giving frequency distribution, average gift amount trends. Done 2026-04-22 (v99). New `GET /admin/api/reports/giving-insights?year=YYYY` endpoint; new "Giving Insights" tile in Reports tab. Renders four blocks: top 25 givers (clickable to profile), lapsed givers (prior-year donors absent this year, sortable by prior total), frequency histogram (1 / 2-5 / 6-12 / 13-26 / 27+ gifts per giver this year), and 5-year trend table (givers/gifts/total/avg gift/avg per giver).
+- [ ] **R3** — People insights report: new members over time (by join month), age distribution histogram, member-type trend.
+- [ ] **R4** — Member tenure report. Needs `member_since` / `join_date` field — check if we have it on the person schema; may require Breeze field mapping.
+- [x] **R5** — Contact info completeness report: counts of people missing email / phone / address / dob / photo; drill-down list per category. Done 2026-04-22 (v99). New `GET /admin/api/reports/contact-completeness?scope=active|member&field=...` endpoint. New "Contact Completeness" tile renders progress bars (green = complete) for each field with scope toggle (all active vs. members only); clicking a row drills to the list of missing records (clickable to profile).
+- [ ] **R6** — Person-by-person attendance tracking. Currently we track service totals only. Needs schema (attendance record per person per service) + check-in UI. Substantial new feature — worth a dedicated scoping conversation.
+- [x] **R7** — Easter/Christmas markers on Giving Trend chart. Done 2026-04-22 (v99). Easter computed per-year via Meeus/Jones/Butcher Gregorian algorithm, rendered as dashed vertical line in that year's color with "E" label. Christmas is shared Dec 25 dashed line in warm-gray with "C" label. Legend updated to explain the markers.
+- [ ] **R8** — Giving × Attendance overlay chart: dual-axis plot (weekly attendance + weekly giving) to surface correlation.
+- [x] **R9** — Pie chart for Giving by Method. Done 2026-04-22 (v99). New reusable `renderPieChart(items, diameter)` helper (SVG slices with hover tooltips + legend). Added "Share by Method" block above the existing table on the Giving by Method report.
+- [ ] **R10** — Average giving stats overlay (average per giver, average per gift) on Giving by Fund / Trend reports.
+
+### Engagement & Data Quality (noted 2026-04-22)
+- [ ] **FU1** — Prayer request tracking. New schema (request text, person, date, status, resolution note), capture UI, list view with filters, admin follow-up workflow.
+- [ ] **FU2** — New-contact follow-up tracking. Captures first-contact date per person and a follow-up queue/workflow to move visitors → regulars → members.
+- [ ] **DC1** — Annual friend/visitor review on dashboard. Each week surface a small batch of stale visitor/friend records (e.g. inactive > N months) for triage: archive / engage / move to next step. Spreads full-DB review over the year.
+- [ ] **WC1** — Electronic contact card intake. Public web form (or existing website form) POSTs to a ChMS endpoint; creates/merges a person record and drops into the FU2 follow-up queue.
+- [ ] **DB9** — Dashboard weekly workflow card. Consolidated card listing this week's engagement + data-cleanup tasks (DC1 batch, FU2 new contacts, prayer follow-ups, etc.).
 
 ---
 
