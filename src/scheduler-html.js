@@ -3806,10 +3806,24 @@ function fbSignOut() {
 
 
 async function checkAuth() {
-  var topNav = _embedded ? (window.top || window) : window;
+  // Embedded mode: the /scheduler route gate already verified auth before
+  // serving this HTML, and the parent ChMS handles session timeouts. Skip
+  // the redundant probe (which can hang or 401 unexpectedly inside iframes
+  // depending on cookie/SameSite behavior) and render the app immediately.
+  if (_embedded) {
+    var ls = document.getElementById('login-screen');
+    var ac = document.getElementById('app-content');
+    if (ls) ls.style.display = 'none';
+    if (ac) ac.style.display = 'block';
+    d1Pull();
+    fetchPendingSignups();
+    fetchGeneralVolunteers();
+    fetchEventVolunteers();
+    return;
+  }
   try {
     var resp = await fetch('/admin/api/scheduler/data', {credentials: 'include'});
-    if (resp.status === 401) { topNav.location.href = '/admin'; return; }
+    if (resp.status === 401) { window.location.href = '/admin'; return; }
     var loginScreen = document.getElementById('login-screen');
     var appContent  = document.getElementById('app-content');
     if (loginScreen) loginScreen.style.display = 'none';
@@ -3818,7 +3832,7 @@ async function checkAuth() {
     fetchPendingSignups();
     fetchGeneralVolunteers();
     fetchEventVolunteers();
-  } catch(e) { topNav.location.href = '/admin'; }
+  } catch(e) { window.location.href = '/admin'; }
 }
 checkAuth();
 
