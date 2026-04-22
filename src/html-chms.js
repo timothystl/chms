@@ -1651,7 +1651,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-22-v104';
+var DEPLOY_VERSION = '2026-04-22-v105';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -2461,8 +2461,8 @@ function printDirectory() {
 // ── DASHBOARD ─────────────────────────────────────────────────────────
 var _dashData = null;
 var _dashMonth = new Date().getMonth() + 1; // 1-12, default current month
-var DASH_PREF_DEFAULTS = {followUp:true, newContacts:true, reviewQueue:true, firstGivers:true, notSeen:true, birthdays:true, anniversaries:true, membership:true};
-var DASH_PREF_LABELS = {followUp:'Follow-up Queue', newContacts:'New Contacts', reviewQueue:'Weekly Review Queue', firstGivers:'First-Time Givers', notSeen:'Not Seen Recently', birthdays:'Birthdays', anniversaries:'Anniversaries', membership:'Membership by Type'};
+var DASH_PREF_DEFAULTS = {weeklyTasks:true, followUp:true, newContacts:true, reviewQueue:false, firstGivers:true, notSeen:true, birthdays:true, anniversaries:true, membership:true};
+var DASH_PREF_LABELS = {weeklyTasks:'This Week\'s Tasks', followUp:'Follow-up Queue', newContacts:'New Contacts', reviewQueue:'Visitor Review Batch', firstGivers:'First-Time Givers', notSeen:'Not Seen Recently', birthdays:'Birthdays', anniversaries:'Anniversaries', membership:'Membership by Type'};
 function dashGetPrefs() {
   if (!_dashPrefs) {
     try { _dashPrefs = Object.assign({}, DASH_PREF_DEFAULTS, JSON.parse(localStorage.getItem('dashCardPrefs')||'{}')); }
@@ -2504,7 +2504,7 @@ function dashMonthNav(delta) {
   loadDashboard();
 }
 
-// ── Weekly Review Queue actions (DC1/DB9) ────────────────────────────
+// ── Visitor Review Batch actions (DC1) — hidden by default ──────────────
 function reviewMark(personId) {
   api('/admin/api/engagement/mark-reviewed', {
     method: 'POST',
@@ -2514,7 +2514,6 @@ function reviewMark(personId) {
     if (d.error) { alert(d.error); return; }
     var row = document.getElementById('rq-row-' + personId);
     if (row) row.remove();
-    // Quietly reload so new records slide in to replace the batch
     setTimeout(loadDashboard, 400);
   });
 }
@@ -2526,6 +2525,63 @@ function reviewArchive(personId, name) {
     var row = document.getElementById('rq-row-' + personId);
     if (row) row.remove();
     setTimeout(loadDashboard, 400);
+  });
+}
+
+// ── This Week's Tasks (engagement checklist) ────────────────────────
+var _weekTasksWeekKey = '';
+function taskToggle(id, completed) {
+  api('/admin/api/engagement/tasks/' + id, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ completed: completed ? 0 : 1 })
+  }).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    var row = document.getElementById('wt-row-' + id);
+    if (row) {
+      var cb = row.querySelector('.wt-cb');
+      var lbl = row.querySelector('.wt-lbl');
+      if (completed) {
+        row.dataset.completed = '0';
+        if (cb) cb.textContent = '□';
+        if (lbl) lbl.style.textDecoration = '';
+      } else {
+        row.dataset.completed = '1';
+        if (cb) cb.textContent = '☑';
+        if (lbl) lbl.style.textDecoration = 'line-through';
+      }
+    }
+  });
+}
+function taskDelete(id) {
+  api('/admin/api/engagement/tasks/' + id, { method: 'DELETE' }).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    var row = document.getElementById('wt-row-' + id);
+    if (row) row.remove();
+  });
+}
+function taskAddSubmit() {
+  var inp = document.getElementById('wt-add-input');
+  var urlInp = document.getElementById('wt-add-url');
+  if (!inp) return;
+  var title = inp.value.trim();
+  if (!title) { inp.focus(); return; }
+  api('/admin/api/engagement/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: title, link_url: urlInp ? urlInp.value.trim() : '', week_key: _weekTasksWeekKey })
+  }).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    inp.value = '';
+    if (urlInp) urlInp.value = '';
+    loadDashboard();
+  });
+}
+function dismissFirstGift(personId) {
+  api('/admin/api/people/' + personId + '/dismiss-first-gift', { method: 'POST' }).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    var row = document.getElementById('fg-row-' + personId);
+    if (row) row.remove();
   });
 }
 
@@ -2612,6 +2668,7 @@ function renderDashboard(d) {
   var maxType = d.typeCounts && d.typeCounts.length ? d.typeCounts[0].n : 1;
   var yr = new Date().getFullYear();
   var html = '';
+  _weekTasksWeekKey = d.weeklyTasksWeek || '';
 
   // ── Quick actions ──────────────────────────────────────────────
   var isFinanceRole = _userRole === 'admin' || _userRole === 'finance';
@@ -2635,6 +2692,40 @@ function renderDashboard(d) {
     + (isFinanceRole ? dashStat('$'+fmt$(d.givingThisYear), yr+' Giving', yr-1+': $'+fmt$(d.givingLastYear)) : '')
     + (isStaffRole ? dashStatServices(svcs) : '')
     + '</div>';
+
+  // ── This Week's Tasks (engagement checklist) — editors+ only ─────────
+  if (canEditRole && prefs.weeklyTasks) {
+    var wtTasks = d.weeklyTasks || [];
+    var wtDone  = wtTasks.filter(function(t){ return t.completed; }).length;
+    html += '<div class="dash-section-hdr">'
+      + '<span>This Week\'s Tasks</span>'
+      + '<span style="font-size:12px;color:var(--warm-gray);font-weight:400;">'
+      + (wtTasks.length ? wtDone + ' / ' + wtTasks.length + ' done' : 'no tasks') + '</span>'
+      + '</div>';
+    html += '<div class="dash-card" style="padding:0;"><div class="dash-card-body">';
+    if (wtTasks.length) {
+      html += wtTasks.map(function(t) {
+        var done = t.completed ? 1 : 0;
+        var lineThrough = done ? 'text-decoration:line-through;color:var(--warm-gray);' : '';
+        var cbChar = done ? '&#9745;' : '&#9744;';
+        var titleHtml = t.link_url
+          ? '<a href="' + esc(t.link_url) + '" target="_blank" rel="noopener" style="color:var(--steel-anchor);text-decoration:none;' + lineThrough + '" class="wt-lbl">' + esc(t.title) + '</a>'
+          : '<span class="wt-lbl" style="' + lineThrough + '">' + esc(t.title) + '</span>';
+        return '<div class="dash-row-item" id="wt-row-' + t.id + '" data-completed="' + done + '"'
+          + ' style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--linen);">'
+          + '<span class="wt-cb" style="font-size:1.2rem;cursor:pointer;flex-shrink:0;color:var(--steel-anchor);" onclick="taskToggle(' + t.id + ',' + done + ')" title="Toggle complete">' + cbChar + '</span>'
+          + '<div style="flex:1;min-width:0;font-size:.88rem;">' + titleHtml + '</div>'
+          + '<button style="background:none;border:none;cursor:pointer;color:var(--faint);font-size:1rem;padding:0 4px;flex-shrink:0;" onclick="taskDelete(' + t.id + ')" title="Remove task">&#10005;</button>'
+          + '</div>';
+      }).join('');
+    }
+    html += '<div style="padding:10px 14px;border-top:' + (wtTasks.length ? '1px solid var(--linen)' : 'none') + ';display:flex;gap:6px;align-items:center;">'
+      + '<input id="wt-add-input" type="text" placeholder="Add a task…" style="flex:1;min-width:0;padding:5px 8px;font-size:.83rem;border:1px solid var(--border);border-radius:5px;background:var(--linen);" onkeydown="if(event.key===\'Enter\')taskAddSubmit();">'
+      + '<input id="wt-add-url" type="url" placeholder="Link (optional)" style="width:160px;padding:5px 8px;font-size:.83rem;border:1px solid var(--border);border-radius:5px;background:var(--linen);" onkeydown="if(event.key===\'Enter\')taskAddSubmit();">'
+      + '<button class="btn-primary" style="padding:5px 12px;font-size:.83rem;white-space:nowrap;" onclick="taskAddSubmit()">Add</button>'
+      + '</div>';
+    html += '</div></div>';
+  }
 
   // ── Follow-up queue — staff+ only ─────────────────────────────
   if (isStaffRole && prefs.followUp) {
@@ -2715,16 +2806,14 @@ function renderDashboard(d) {
     html += '</div></div>';
   }
 
-  // ── Weekly Review Queue (DC1/DB9) — editors+ only ─────────────
-  // Surfaces a small batch of stale visitor/friend records to triage.
-  // Goal: spread a full-DB review over the year (52 wks × ~5 = ~260 records).
+  // ── Visitor Review Batch (DC1) — editors+, off by default ─────────────
   if (canEditRole && prefs.reviewQueue) {
     var rq       = d.reviewQueue || [];
     var rqTotal  = d.reviewQueueTotal || 0;
     html += '<div class="dash-section-hdr">'
-      + '<span>Weekly Review Queue</span>'
+      + '<span>Visitor Review Batch</span>'
       + '<span style="font-size:12px;color:var(--warm-gray);font-weight:400;">'
-      + (rqTotal ? rqTotal + ' pending triage' : 'all reviewed') + '</span></div>';
+      + (rqTotal ? rqTotal + ' pending review' : 'all reviewed') + '</span></div>';
     html += '<div class="dash-card" style="padding:0;"><div class="dash-card-body">';
     if (rq.length) {
       html += rq.map(function(p) {
@@ -2766,11 +2855,12 @@ function renderDashboard(d) {
           var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
           var bg = pvColors[p.id % pvColors.length];
           var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-          return '<div class="dash-row-item" style="cursor:pointer;" onclick="openPersonDetail('+p.id+')">'
+          return '<div class="dash-row-item" id="fg-row-'+p.id+'" style="cursor:pointer;" onclick="openPersonDetail('+p.id+')">'
             + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
             + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div>'
             + '<div class="dash-item-sub">First gift '+esc(p.first_gift_date||'')+'</div></div>'
-            + '<button class="btn-secondary" style="font-size:.72rem;padding:3px 8px;" onclick="event.stopPropagation();addFollowUpForPerson('+p.id+',\''+esc(name)+'\',\'first_gift\')">Follow up</button>'
+            + '<button class="btn-secondary" style="font-size:.72rem;padding:3px 8px;margin-right:4px;" onclick="event.stopPropagation();addFollowUpForPerson('+p.id+',\''+esc(name)+'\',\'first_gift\')">Follow up</button>'
+            + '<button class="btn-secondary" style="font-size:.72rem;padding:3px 8px;" onclick="event.stopPropagation();dismissFirstGift('+p.id+')" title="Dismiss from this card">&#10005;</button>'
             + '</div>';
         }).join('')
       + '</div></div>';
