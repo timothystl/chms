@@ -1131,7 +1131,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 
 <div id="tab-scheduler" class="tab-panel">
-  <iframe id="scheduler-iframe" src="" style="width:100%;flex:1;border:none;display:block;min-height:0;" title="Worship Scheduler"></iframe>
+  <iframe id="scheduler-iframe" style="width:100%;height:calc(100vh - 50px);border:none;display:block;" title="Worship Scheduler"></iframe>
 </div>
 
 <!-- ═══ PROFILE VIEW ═══ -->
@@ -1627,7 +1627,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-21-v92';
+var DEPLOY_VERSION = '2026-04-21-v93';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -1769,7 +1769,9 @@ function showTab(name) {
   if (name === 'volunteers') { volLoadSignups(); volLoadEvents(); }
   if (name === 'scheduler') {
     var fr = document.getElementById('scheduler-iframe');
-    if (fr && !fr.src) fr.src = '/scheduler?embedded=1';
+    if (fr && fr.getAttribute('src') !== '/scheduler?embedded=1') {
+      fr.setAttribute('src', '/scheduler?embedded=1');
+    }
   }
 }
 function openSidebar() {
