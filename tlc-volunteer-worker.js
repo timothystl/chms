@@ -213,7 +213,14 @@ async function _fetch(req, env) {
         return new Response(LCMS_CALENDAR_JSON, { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       // scheduler/index.html is bundled inline to avoid stale-cache from GitHub raw CDN.
-      return new Response(SCHEDULER_HTML, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store, no-cache, must-revalidate' } });
+      // When loaded with ?embedded=1 (inside the ChMS SPA iframe), inject the
+      // body.embedded class server-side so the login screen and outer chrome
+      // are hidden by CSS regardless of client-side JS execution.
+      let body = SCHEDULER_HTML;
+      if (url.searchParams.has('embedded')) {
+        body = body.replace('<body>', '<body class="embedded">');
+      }
+      return new Response(body, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store, no-cache, must-revalidate' } });
     }
     return new Response('Not Found', { status: 404 });
 }

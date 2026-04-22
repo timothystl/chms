@@ -868,11 +868,14 @@ body.embedded #app-content { display:block!important; }
 
 
 <script>
-// ── Embedded mode: detect iframe context OR ?embedded=1 query param ──
-// Iframe detection (window.self !== window.top) is the primary signal;
-// query param is a fallback in case iframe detection is blocked.
+// ── Embedded mode detection ──
+// Primary: server injects <body class="embedded"> when serving /scheduler?embedded=1
+// Fallbacks: iframe context detection + URL query param.
 var _embedded = false;
-try { _embedded = (window.self !== window.top); } catch (e) { _embedded = true; }
+try { _embedded = document.body.classList.contains('embedded'); } catch (e) {}
+if (!_embedded) {
+  try { _embedded = (window.self !== window.top); } catch (e) { _embedded = true; }
+}
 if (!_embedded) {
   try { _embedded = new URLSearchParams(location.search).has('embedded'); } catch (e) {}
 }
