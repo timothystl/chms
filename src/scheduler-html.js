@@ -409,6 +409,8 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 /* ── Embedded mode (inside ChMS SPA iframe) ─────────────── */
 body.embedded header, body.embedded .tabs { display:none!important; }
 body.embedded { overflow-y:auto; }
+body.embedded #login-screen { display:none!important; }
+body.embedded #app-content { display:block!important; }
 </style>
 </head>
 <body>
@@ -866,8 +868,14 @@ body.embedded { overflow-y:auto; }
 
 
 <script>
-// ── Embedded mode: detect ?embedded=1 (loaded in ChMS SPA iframe) ──
-var _embedded = new URLSearchParams(location.search).has('embedded');
+// ── Embedded mode: detect iframe context OR ?embedded=1 query param ──
+// Iframe detection (window.self !== window.top) is the primary signal;
+// query param is a fallback in case iframe detection is blocked.
+var _embedded = false;
+try { _embedded = (window.self !== window.top); } catch (e) { _embedded = true; }
+if (!_embedded) {
+  try { _embedded = new URLSearchParams(location.search).has('embedded'); } catch (e) {}
+}
 if (_embedded) document.body.classList.add('embedded');
 
 // ══════════════════════════════════════════════════════════════════
