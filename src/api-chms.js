@@ -233,6 +233,25 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
          AND LOWER(member_type) NOT IN ('member','organization','')
          AND (last_reviewed_at = '' OR date(last_reviewed_at) < date('now','-365 days'))`
     ).first())?.n || 0;
+    // New-contact follow-up queue (FU2/DB9)
+    const followupQueueBatch = (await db.prepare(
+      `SELECT id, first_name, last_name, member_type, email, phone,
+              first_contact_date, followup_status, followup_notes
+       FROM people
+       WHERE status='active'
+         AND first_contact_date != ''
+         AND (followup_status IS NULL OR followup_status != 'done')
+         AND LOWER(member_type) NOT IN ('member','organization')
+       ORDER BY first_contact_date DESC, id DESC
+       LIMIT 5`
+    ).all()).results || [];
+    const followupQueueTotal = (await db.prepare(
+      `SELECT COUNT(*) AS n FROM people
+       WHERE status='active'
+         AND first_contact_date != ''
+         AND (followup_status IS NULL OR followup_status != 'done')
+         AND LOWER(member_type) NOT IN ('member','organization')`
+    ).first())?.n || 0;
     return json({
       totalPeople, totalHouseholds, memberCount, memberHHCount,
       addedThisMonth, addedThisYear, dashMonth,
@@ -247,7 +266,10 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       birthdays, anniversaries, recentPeople, notSeenRecently,
       // engagement review queue (DC1/DB9): any editor can triage
       reviewQueue:     canEdit ? reviewQueueBatch : [],
-      reviewQueueTotal: canEdit ? reviewQueueTotal : 0
+      reviewQueueTotal: canEdit ? reviewQueueTotal : 0,
+      // new-contact follow-up queue (FU2/DB9)
+      followupQueue:   canEdit ? followupQueueBatch : [],
+      followupQueueTotal: canEdit ? followupQueueTotal : 0
     });
   }
 
@@ -348,17 +370,24 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
 
   if (seg === 'people' && method === 'POST') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    // FU2: auto-set first_contact_date = today for new manually-added people
+    // (not imported from Breeze — those keep their Breeze-supplied dates or blank).
+    // Explicit empty string in body overrides the auto-default.
+    let firstContactDate = b.first_contact_date;
+    if (firstContactDate === undefined || firstContactDate === null) {
+      firstContactDate = b.breeze_id ? '' : new Date().toISOString().slice(0,10);
+    }
     const r = await db.prepare(
       `INSERT INTO people (first_name,last_name,email,phone,address1,address2,city,state,zip,
        member_type,dob,baptism_date,confirmation_date,anniversary_date,death_date,deceased,
-       household_id,family_role,photo_url,notes,breeze_id,gender,marital_status)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       household_id,family_role,photo_url,notes,breeze_id,gender,marital_status,first_contact_date)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
            b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
            b.member_type||'visitor',b.dob||'',b.baptism_date||'',
            b.confirmation_date||'',b.anniversary_date||'',b.death_date||'',b.deceased?1:0,
            b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',b.breeze_id||'',
-           b.gender||'',b.marital_status||''
+           b.gender||'',b.marital_status||'', firstContactDate||''
     ).run();
     const personId = r.meta?.last_row_id;
     if (Array.isArray(b.tag_ids)) {
@@ -1194,6 +1223,59 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const pid = parseInt(b.person_id, 10);
     if (!pid) return json({ error: 'person_id required' }, 400);
     await db.prepare(`UPDATE people SET last_reviewed_at = date('now') WHERE id = ?`).bind(pid).run();
+    return json({ ok: true });
+  }
+
+  // ── New-contact follow-up queue (FU2) ────────────────────────────────
+  // Non-members with a first_contact_date set and followup_status != 'done',
+  // newest-first. Feeds the dashboard "New Contacts" card.
+  if (seg === 'engagement/followup-queue' && method === 'GET') {
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '10', 10) || 10, 100);
+    const rows = (await db.prepare(
+      `SELECT id, first_name, last_name, member_type, email, phone,
+              first_contact_date, followup_status, followup_notes, created_at
+       FROM people
+       WHERE status='active'
+         AND first_contact_date != ''
+         AND (followup_status IS NULL OR followup_status != 'done')
+         AND LOWER(member_type) NOT IN ('member','organization')
+       ORDER BY first_contact_date DESC, id DESC
+       LIMIT ?`
+    ).bind(limit).all()).results || [];
+    const total = (await db.prepare(
+      `SELECT COUNT(*) AS n FROM people
+       WHERE status='active'
+         AND first_contact_date != ''
+         AND (followup_status IS NULL OR followup_status != 'done')
+         AND LOWER(member_type) NOT IN ('member','organization')`
+    ).first())?.n || 0;
+    return json({ people: rows, total });
+  }
+
+  // Update follow-up state on a person. Editors+ only.
+  // Body: { person_id, followup_status?, followup_notes?, first_contact_date? }
+  if (seg === 'engagement/update-followup' && method === 'POST') {
+    if (!canEdit) return json({ error: 'Access denied' }, 403);
+    let b = {}; try { b = await req.json(); } catch {}
+    const pid = parseInt(b.person_id, 10);
+    if (!pid) return json({ error: 'person_id required' }, 400);
+    const sets = [], binds = [];
+    if (b.followup_status !== undefined) {
+      const allowed = ['', 'new', 'in_progress', 'done'];
+      if (!allowed.includes(b.followup_status)) return json({ error: 'Invalid followup_status' }, 400);
+      sets.push('followup_status = ?'); binds.push(b.followup_status);
+    }
+    if (b.followup_notes !== undefined) {
+      sets.push('followup_notes = ?'); binds.push(String(b.followup_notes).slice(0, 2000));
+    }
+    if (b.first_contact_date !== undefined) {
+      const fcd = String(b.first_contact_date || '');
+      if (fcd && !/^\d{4}-\d{2}-\d{2}$/.test(fcd)) return json({ error: 'Invalid first_contact_date' }, 400);
+      sets.push('first_contact_date = ?'); binds.push(fcd);
+    }
+    if (!sets.length) return json({ error: 'Nothing to update' }, 400);
+    binds.push(pid);
+    await db.prepare(`UPDATE people SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
     return json({ ok: true });
   }
 

@@ -1651,7 +1651,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-22-v103';
+var DEPLOY_VERSION = '2026-04-22-v104';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -2461,8 +2461,8 @@ function printDirectory() {
 // ── DASHBOARD ─────────────────────────────────────────────────────────
 var _dashData = null;
 var _dashMonth = new Date().getMonth() + 1; // 1-12, default current month
-var DASH_PREF_DEFAULTS = {followUp:true, reviewQueue:true, firstGivers:true, notSeen:true, birthdays:true, anniversaries:true, membership:true};
-var DASH_PREF_LABELS = {followUp:'Follow-up Queue', reviewQueue:'Weekly Review Queue', firstGivers:'First-Time Givers', notSeen:'Not Seen Recently', birthdays:'Birthdays', anniversaries:'Anniversaries', membership:'Membership by Type'};
+var DASH_PREF_DEFAULTS = {followUp:true, newContacts:true, reviewQueue:true, firstGivers:true, notSeen:true, birthdays:true, anniversaries:true, membership:true};
+var DASH_PREF_LABELS = {followUp:'Follow-up Queue', newContacts:'New Contacts', reviewQueue:'Weekly Review Queue', firstGivers:'First-Time Givers', notSeen:'Not Seen Recently', birthdays:'Birthdays', anniversaries:'Anniversaries', membership:'Membership by Type'};
 function dashGetPrefs() {
   if (!_dashPrefs) {
     try { _dashPrefs = Object.assign({}, DASH_PREF_DEFAULTS, JSON.parse(localStorage.getItem('dashCardPrefs')||'{}')); }
@@ -2525,6 +2525,33 @@ function reviewArchive(personId, name) {
     if (d.error) { alert(d.error); return; }
     var row = document.getElementById('rq-row-' + personId);
     if (row) row.remove();
+    setTimeout(loadDashboard, 400);
+  });
+}
+
+// ── New Contacts follow-up actions (FU2) ──────────────────────────────
+function followupMarkDone(personId) {
+  api('/admin/api/engagement/update-followup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ person_id: personId, followup_status: 'done' })
+  }).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    var row = document.getElementById('fu-row-' + personId);
+    if (row) row.remove();
+    setTimeout(loadDashboard, 400);
+  });
+}
+
+function followupEditNotes(personId, currentNotes) {
+  var next = prompt('Follow-up notes (saved to this contact):', currentNotes || '');
+  if (next === null) return;
+  api('/admin/api/engagement/update-followup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ person_id: personId, followup_notes: next, followup_status: next ? 'in_progress' : '' })
+  }).then(function(d) {
+    if (d.error) { alert(d.error); return; }
     setTimeout(loadDashboard, 400);
   });
 }
@@ -2644,6 +2671,49 @@ function renderDashboard(d) {
   }
   html += '</div></div>';
   } // end isStaffRole follow-up block
+
+  // ── New Contacts follow-up (FU2/DB9) — editors+ only ──────────
+  // Visitors/friends with a first_contact_date set, not yet marked done.
+  // Newer contacts first so they get attention before going cold.
+  if (canEditRole && prefs.newContacts) {
+    var nc       = d.followupQueue || [];
+    var ncTotal  = d.followupQueueTotal || 0;
+    html += '<div class="dash-section-hdr">'
+      + '<span>New Contacts</span>'
+      + '<span style="font-size:12px;color:var(--warm-gray);font-weight:400;">'
+      + (ncTotal ? ncTotal + ' awaiting follow-up' : 'all caught up') + '</span></div>';
+    html += '<div class="dash-card" style="padding:0;"><div class="dash-card-body">';
+    if (nc.length) {
+      html += nc.map(function(p) {
+        var name = ((p.first_name||'') + ' ' + (p.last_name||'')).trim() || '(no name)';
+        var days = p.first_contact_date
+          ? Math.max(0, Math.floor((Date.now() - new Date(p.first_contact_date + 'T00:00:00')) / 86400000))
+          : 0;
+        var ageStr = days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago';
+        var meta = [];
+        meta.push(esc(p.member_type || ''));
+        meta.push('first contact ' + ageStr);
+        if (p.email) meta.push(esc(p.email));
+        if (p.phone) meta.push(esc(p.phone));
+        if (p.followup_status) meta.push('status: ' + esc(p.followup_status.replace(/_/g, ' ')));
+        var notesEsc = (p.followup_notes || '').replace(/"/g, '&quot;');
+        return '<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-bottom:1px solid var(--linen);" id="fu-row-'+p.id+'">'
+          + '<div style="flex:1;min-width:0;">'
+          +   '<div style="font-weight:600;color:var(--steel-anchor);cursor:pointer;" onclick="openPersonDetail('+p.id+')">' + esc(name) + '</div>'
+          +   '<div style="font-size:.75rem;color:var(--warm-gray);">' + meta.join(' · ') + '</div>'
+          +   (p.followup_notes ? '<div style="font-size:.78rem;color:var(--charcoal);margin-top:4px;font-style:italic;">"' + esc(p.followup_notes) + '"</div>' : '')
+          + '</div>'
+          + '<div style="display:flex;gap:4px;flex-shrink:0;">'
+          +   '<button class="btn-sm" style="padding:3px 8px;font-size:.72rem;background:var(--linen);border:1px solid var(--border);border-radius:6px;cursor:pointer;" onclick="followupEditNotes('+p.id+',\''+notesEsc.replace(/\\\'/g,"\\\\'")+'\')" title="Add or edit notes">Notes</button>'
+          +   '<button class="btn-sm" style="padding:3px 8px;font-size:.72rem;background:var(--pale-sage);border:1px solid var(--soft-sage);border-radius:6px;cursor:pointer;color:var(--on-pale-sage);" onclick="followupMarkDone('+p.id+')" title="Mark follow-up complete">Done</button>'
+          +   '<button class="btn-sm" style="padding:3px 8px;font-size:.72rem;background:var(--linen);border:1px solid var(--border);border-radius:6px;cursor:pointer;" onclick="openPersonDetail('+p.id+')" title="Open profile">Open</button>'
+          + '</div></div>';
+      }).join('');
+    } else {
+      html += '<div style="padding:14px 16px;color:var(--warm-gray);font-size:.85rem;">No new contacts awaiting follow-up.</div>';
+    }
+    html += '</div></div>';
+  }
 
   // ── Weekly Review Queue (DC1/DB9) — editors+ only ─────────────
   // Surfaces a small batch of stale visitor/friend records to triage.
