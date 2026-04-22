@@ -3900,22 +3900,29 @@ function importAllData(file) {
 // ══════════════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════════════
-migrateOldSchedule();
-_pendingSignups = getPendingSignups();
-updateSignupsBadge();
-_generalVolunteers = getGeneralVolunteers();
-updateGeneralBadge();
-_eventVolunteers = getEventVolunteers();
-updateEventBadge();
-renderPeopleList();
-var _monthLabelEl = document.getElementById('current-month-label');
-if (_monthLabelEl) _monthLabelEl.textContent = monthKeyLabel(currentMonthKey);
+// Set the month label first so the user never sees "Loading…" stuck
+// even if a later init step throws.
+try {
+  var _monthLabelEl = document.getElementById('current-month-label');
+  if (_monthLabelEl) _monthLabelEl.textContent = monthKeyLabel(currentMonthKey);
+} catch (e) { console.error('init month label:', e); }
+
+function _safeInit(name, fn) {
+  try { fn(); } catch (e) { console.error('init ' + name + ':', e); }
+}
+_safeInit('migrateOldSchedule', migrateOldSchedule);
+_safeInit('pendingSignups',     function(){ _pendingSignups   = getPendingSignups();   updateSignupsBadge(); });
+_safeInit('generalVolunteers',  function(){ _generalVolunteers = getGeneralVolunteers(); updateGeneralBadge(); });
+_safeInit('eventVolunteers',    function(){ _eventVolunteers   = getEventVolunteers();   updateEventBadge(); });
+_safeInit('renderPeopleList',   renderPeopleList);
 
 // Restore saved schedule if any
-if (loadSchedule()) {
-  renderTable(getPeople(), null);
-  document.getElementById('schedule-output').style.display = 'block';
-}
+_safeInit('loadSchedule', function() {
+  if (loadSchedule()) {
+    renderTable(getPeople(), null);
+    document.getElementById('schedule-output').style.display = 'block';
+  }
+});
 
 
 // ══════════════════════════════════════════════════════════════════
