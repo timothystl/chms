@@ -212,7 +212,19 @@ export const DB_INIT = [
     active       INTEGER NOT NULL DEFAULT 1,
     created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_organizations_name ON organizations(name)`
+  `CREATE INDEX IF NOT EXISTS idx_organizations_name ON organizations(name)`,
+  // Engagement task checklist — weekly recurring items the user can check off and customize
+  `CREATE TABLE IF NOT EXISTS engagement_tasks (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    title        TEXT    NOT NULL DEFAULT '',
+    link_url     TEXT    NOT NULL DEFAULT '',
+    week_key     TEXT    NOT NULL DEFAULT '',
+    completed    INTEGER NOT NULL DEFAULT 0,
+    completed_at TEXT    NOT NULL DEFAULT '',
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_engagement_tasks_week ON engagement_tasks(week_key)`
 ];
 
 
@@ -480,14 +492,12 @@ export async function initDb(db) {
     // people: archive/deceased status ('active' | 'archived' | 'deceased')
     'ALTER TABLE people ADD COLUMN status TEXT NOT NULL DEFAULT \'active\'',
     // people: engagement workflow (DC1/DB9/FU2)
-    // last_reviewed_at: when this record was last manually triaged via the weekly review queue
     'ALTER TABLE people ADD COLUMN last_reviewed_at TEXT NOT NULL DEFAULT ""',
-    // first_contact_date: date the person first engaged with the church (for FU2 follow-up)
     'ALTER TABLE people ADD COLUMN first_contact_date TEXT NOT NULL DEFAULT ""',
-    // followup_status: 'new' | 'in_progress' | 'done' | '' (empty = not in followup flow)
     'ALTER TABLE people ADD COLUMN followup_status TEXT NOT NULL DEFAULT ""',
-    // followup_notes: free-text notes from follow-up workflow (FU2)
     'ALTER TABLE people ADD COLUMN followup_notes TEXT NOT NULL DEFAULT ""',
+    // people: first_gift_noted — set to 1 when staff have seen and dismissed this person from the First-Time Givers dashboard card
+    'ALTER TABLE people ADD COLUMN first_gift_noted INTEGER NOT NULL DEFAULT 0',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

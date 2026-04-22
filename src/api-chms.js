@@ -10,6 +10,14 @@ function disambiguateHHName(name, headFirst) {
   return m ? (headFirst + ' ' + m[1].trim() + ' Family') : (headFirst + ' ' + name);
 }
 
+function isoWeekKey() {
+  const dayOfWeek = new Date().getUTCDay(); // 0=Sun
+  const daysToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const mon = new Date();
+  mon.setUTCDate(mon.getUTCDate() + daysToMon);
+  return mon.toISOString().slice(0, 10); // YYYY-MM-DD of Monday (UTC)
+}
+
 export async function handleChmsApi(req, env, url, method, seg, role = 'admin') {
   const db = env.DB;
 
@@ -192,12 +200,13 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
        LEFT JOIN people p ON p.id=f.person_id
        WHERE f.completed=0 ORDER BY f.created_at DESC LIMIT 50`
     ).all()).results || [];
-    // First-time givers in the last 60 days
+    // First-time givers in the last 60 days (exclude dismissed records)
     const firstGivers = (await db.prepare(
       `SELECT p.id, p.first_name, p.last_name, MIN(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date)) as first_gift_date
        FROM giving_entries ge
        JOIN giving_batches gb ON ge.batch_id=gb.id
        JOIN people p ON p.id=ge.person_id
+       WHERE p.first_gift_noted = 0
        GROUP BY ge.person_id
        HAVING first_gift_date >= date('now','-60 days')
        ORDER BY first_gift_date DESC LIMIT 20`
@@ -252,6 +261,28 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
          AND (followup_status IS NULL OR followup_status != 'done')
          AND LOWER(member_type) NOT IN ('member','organization')`
     ).first())?.n || 0;
+    // Weekly task checklist (engagement_tasks) — auto-seed defaults on first access each week
+    let weeklyTasks = [], weeklyTasksWeek = '';
+    if (canEdit) {
+      weeklyTasksWeek = isoWeekKey();
+      weeklyTasks = (await db.prepare(
+        'SELECT * FROM engagement_tasks WHERE week_key=? ORDER BY sort_order, id'
+      ).bind(weeklyTasksWeek).all()).results || [];
+      if (!weeklyTasks.length) {
+        const defaults = [
+          'Review new visitors in the people list',
+          'Send newsletter to new contacts',
+          'Follow up with first-time givers',
+          'Check in with members not seen recently',
+        ];
+        for (let i = 0; i < defaults.length; i++) {
+          await db.prepare('INSERT INTO engagement_tasks(title,week_key,sort_order) VALUES(?,?,?)').bind(defaults[i], weeklyTasksWeek, i).run();
+        }
+        weeklyTasks = (await db.prepare(
+          'SELECT * FROM engagement_tasks WHERE week_key=? ORDER BY sort_order, id'
+        ).bind(weeklyTasksWeek).all()).results || [];
+      }
+    }
     return json({
       totalPeople, totalHouseholds, memberCount, memberHHCount,
       addedThisMonth, addedThisYear, dashMonth,
@@ -264,12 +295,14 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       followUpItems:   isStaff  ? followUpItems   : [],
       recentAttendance: isStaff ? recentAttendance : [],
       birthdays, anniversaries, recentPeople, notSeenRecently,
-      // engagement review queue (DC1/DB9): any editor can triage
+      // engagement review queue (DC1/DB9): any editor can use
       reviewQueue:     canEdit ? reviewQueueBatch : [],
       reviewQueueTotal: canEdit ? reviewQueueTotal : 0,
       // new-contact follow-up queue (FU2/DB9)
       followupQueue:   canEdit ? followupQueueBatch : [],
-      followupQueueTotal: canEdit ? followupQueueTotal : 0
+      followupQueueTotal: canEdit ? followupQueueTotal : 0,
+      // weekly task checklist
+      weeklyTasks, weeklyTasksWeek
     });
   }
 
@@ -522,7 +555,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // ── Archive / unarchive / deceased ──────────────────────────────────
   const archiveMatch = seg.match(/^people\/(\d+)\/(archive|unarchive|deceased)$/);
   if (archiveMatch && method === 'POST') {
-    if (!isStaff) return json({ error: 'Access denied' }, 403);
+    if (!canEdit) return json({ error: 'Access denied' }, 403);
     const pid = parseInt(archiveMatch[1]);
     const action = archiveMatch[2];
     const person = await db.prepare('SELECT * FROM people WHERE id=?').bind(pid).first();
@@ -1276,6 +1309,69 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     if (!sets.length) return json({ error: 'Nothing to update' }, 400);
     binds.push(pid);
     await db.prepare(`UPDATE people SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
+    return json({ ok: true });
+  }
+
+  // ── Weekly engagement task checklist ────────────────────────────────
+  // GET  /admin/api/engagement/tasks?week=YYYY-MM-DD
+  // POST /admin/api/engagement/tasks  { title, link_url?, week_key }
+  // PUT  /admin/api/engagement/tasks/:id  { completed?, title?, link_url? }
+  // DELETE /admin/api/engagement/tasks/:id
+  if (seg === 'engagement/tasks' && method === 'GET') {
+    if (!canEdit) return json({ error: 'Access denied' }, 403);
+    const weekKey = url.searchParams.get('week') || isoWeekKey();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekKey)) return json({ error: 'Invalid week format' }, 400);
+    const tasks = (await db.prepare(
+      'SELECT * FROM engagement_tasks WHERE week_key=? ORDER BY sort_order, id'
+    ).bind(weekKey).all()).results || [];
+    return json({ tasks, week_key: weekKey });
+  }
+  if (seg === 'engagement/tasks' && method === 'POST') {
+    if (!canEdit) return json({ error: 'Access denied' }, 403);
+    let b = {}; try { b = await req.json(); } catch {}
+    const title = String(b.title || '').trim().slice(0, 200);
+    if (!title) return json({ error: 'title required' }, 400);
+    const weekKey = String(b.week_key || isoWeekKey());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekKey)) return json({ error: 'Invalid week_key' }, 400);
+    const linkUrl = String(b.link_url || '').slice(0, 500);
+    const maxOrder = (await db.prepare(
+      'SELECT MAX(sort_order) AS m FROM engagement_tasks WHERE week_key=?'
+    ).bind(weekKey).first())?.m ?? -1;
+    const r = await db.prepare(
+      'INSERT INTO engagement_tasks(title,link_url,week_key,sort_order) VALUES(?,?,?,?)'
+    ).bind(title, linkUrl, weekKey, (maxOrder || 0) + 1).run();
+    return json({ ok: true, id: r.meta.last_row_id });
+  }
+  const etMatch = seg.match(/^engagement\/tasks\/(\d+)$/);
+  if (etMatch && method === 'PUT') {
+    if (!canEdit) return json({ error: 'Access denied' }, 403);
+    let b = {}; try { b = await req.json(); } catch {}
+    const tid = parseInt(etMatch[1]);
+    const sets = [], binds = [];
+    if (b.title !== undefined) { sets.push('title=?'); binds.push(String(b.title || '').trim().slice(0, 200)); }
+    if (b.link_url !== undefined) { sets.push('link_url=?'); binds.push(String(b.link_url || '').slice(0, 500)); }
+    if (b.completed !== undefined) {
+      sets.push('completed=?'); binds.push(b.completed ? 1 : 0);
+      sets.push('completed_at=?'); binds.push(b.completed ? new Date().toISOString().slice(0, 10) : '');
+    }
+    if (!sets.length) return json({ error: 'Nothing to update' }, 400);
+    binds.push(tid);
+    await db.prepare(`UPDATE engagement_tasks SET ${sets.join(',')} WHERE id=?`).bind(...binds).run();
+    return json({ ok: true });
+  }
+  if (etMatch && method === 'DELETE') {
+    if (!canEdit) return json({ error: 'Access denied' }, 403);
+    const tid = parseInt(etMatch[1]);
+    await db.prepare('DELETE FROM engagement_tasks WHERE id=?').bind(tid).run();
+    return json({ ok: true });
+  }
+
+  // Dismiss a person from the First-Time Givers dashboard card
+  const dismissFGMatch = seg.match(/^people\/(\d+)\/dismiss-first-gift$/);
+  if (dismissFGMatch && method === 'POST') {
+    if (!canEdit) return json({ error: 'Access denied' }, 403);
+    const pid = parseInt(dismissFGMatch[1]);
+    await db.prepare('UPDATE people SET first_gift_noted=1 WHERE id=?').bind(pid).run();
     return json({ ok: true });
   }
 
