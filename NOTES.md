@@ -130,6 +130,7 @@ Added 2026-04-15, phased 2026-04-15.
 ## Recent Changes (newest first)
 
 ### 2026-04-22
+- **v101**: Three fixes on v99 reports. (1) `openProfile` calls in R2/R5 drill-downs didn't exist — function is `openPersonDetail`. Three occurrences renamed; clicking a row on Giving Insights / Contact Completeness drill-down now opens the person's profile. (2) Giving Trend Easter/Christmas markers now use day-of-year mapping (Jan 1 → leftmost, Dec 31 → rightmost) instead of month-fraction, so Dec 25 stays inside the chart viewbox. (3) Resize handler duplicated the trend-chart build inline and was missing the marker code — added Easter/Christmas markers to the resize branch so they persist after drag-resize.
 - **v100**: Fix Giving Insights 500 — SQL referenced `ge.amount_cents` but the actual column in `giving_entries` is `amount` (stored as integer cents). Replaced four occurrences in the new `reports/giving-insights` endpoint with `SUM(ge.amount) AS total_cents` / `SUM(ge.amount) AS prior_total_cents`.
 - **v99**: Reporting pack — four improvements to the Reports tab.
   - **R7** — Easter/Christmas markers on Giving Trend chart. Easter computed per-year via Meeus/Jones/Butcher Gregorian algorithm and rendered as a dashed vertical line in each year's color with an "E" label. Christmas is a shared Dec 25 dashed line in warm-gray with a "C" label. Legend updated.

@@ -1641,7 +1641,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-22-v100';
+var DEPLOY_VERSION = '2026-04-22-v101';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -5984,12 +5984,9 @@ function renderGivingTrendChart(d, chartH) {
   for (var xi = 0; xi < 12; xi++) {
     xlbls += '<text x="'+pxM(xi).toFixed(1)+'" y="'+(H-5)+'" text-anchor="middle" fill="#9A8A78" font-size="9">'+mShort[xi]+'</text>';
   }
-  // Easter (Meeus/Jones/Butcher Gregorian algorithm) and Christmas markers
-  var daysInMo = function(m, y) {
-    var di = [31,28,31,30,31,30,31,31,30,31,30,31];
-    if (m === 2 && ((y%4===0 && y%100!==0) || y%400===0)) return 29;
-    return di[m-1];
-  };
+  // Easter (Meeus/Jones/Butcher Gregorian algorithm) and Christmas markers.
+  // Uses day-of-year to position markers (Jan 1 = pxM(0), Dec 31 = pxM(11))
+  // so dates near year-end (like Dec 25) stay inside the chart area.
   var easterOf = function(y) {
     var a=y%19, b=Math.floor(y/100), c=y%100, e=Math.floor(b/4), ee=b%4;
     var f=Math.floor((b+8)/25), g=Math.floor((b-f+1)/3);
@@ -5999,8 +5996,11 @@ function renderGivingTrendChart(d, chartH) {
     return { month: month, day: day };
   };
   var xAtDate = function(y, m, day) {
-    var frac = (m - 1) + (day - 1) / daysInMo(m, y);
-    return pxM(frac);
+    var daysBefore = [0,31,59,90,120,151,181,212,243,273,304,334];
+    var isLeap = (y%4===0 && y%100!==0) || y%400===0;
+    var doy = daysBefore[m-1] + day + ((isLeap && m > 2) ? 1 : 0);
+    var total = isLeap ? 366 : 365;
+    return pL + ((doy - 1) / (total - 1)) * (pxM(11) - pL);
   };
   var legend = '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;justify-content:center;">';
   (d.years||[]).forEach(function(yr, yi) {
@@ -6089,7 +6089,7 @@ function runContactCompletenessField(field, scope) {
     var rows = people.map(function(p) {
       var name = esc((p.first_name||'') + ' ' + (p.last_name||''));
       var mt = esc(p.member_type || '');
-      return '<tr style="cursor:pointer;" onclick="openProfile(' + p.id + ')">'
+      return '<tr style="cursor:pointer;" onclick="openPersonDetail(' + p.id + ')">'
         + '<td><span style="color:var(--steel-anchor);font-weight:600;">' + name + '</span></td>'
         + '<td style="color:var(--warm-gray);">' + mt + '</td></tr>';
     }).join('');
@@ -6113,7 +6113,7 @@ function runGivingInsights() {
     if (d.error) { alert(d.error); return; }
     var topRows = (d.top_givers||[]).map(function(r, i) {
       var name = esc((r.first_name||'') + ' ' + (r.last_name||''));
-      return '<tr style="cursor:pointer;" onclick="openProfile(' + r.id + ')">'
+      return '<tr style="cursor:pointer;" onclick="openPersonDetail(' + r.id + ')">'
         + '<td style="color:var(--warm-gray);text-align:right;font-variant-numeric:tabular-nums;">' + (i+1) + '</td>'
         + '<td style="color:var(--steel-anchor);font-weight:600;">' + name + '</td>'
         + '<td>' + esc(r.member_type||'') + '</td>'
@@ -6129,7 +6129,7 @@ function runGivingInsights() {
 
     var lapsedRows = (d.lapsed||[]).map(function(r) {
       var name = esc((r.first_name||'') + ' ' + (r.last_name||''));
-      return '<tr style="cursor:pointer;" onclick="openProfile(' + r.id + ')">'
+      return '<tr style="cursor:pointer;" onclick="openPersonDetail(' + r.id + ')">'
         + '<td style="color:var(--steel-anchor);font-weight:600;">' + name + '</td>'
         + '<td>' + esc(r.member_type||'') + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (r.prior_gifts||0) + '</td>'
@@ -7340,7 +7340,9 @@ var _rptResizeMoveH = function(e) {
         var maxV2=Math.max.apply(null,allV2)*1.1||1;
         var pxM2=function(i){return pL+i*(cW2/11);};
         var pyV2=function(v){return pT+cH2-(v/maxV2)*cH2;};
-        var grid2='',ylbls2='',xlbls2='',lines2='';
+        var easterOf2=function(y){var a=y%19,b=Math.floor(y/100),c=y%100,e=Math.floor(b/4),ee=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-e-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*ee+2*i-h-k)%7,mm=Math.floor((a+11*h+22*l)/451);return{month:Math.floor((h+l-7*mm+114)/31),day:((h+l-7*mm+114)%31)+1};};
+        var xAtDate2=function(y,m,day){var db=[0,31,59,90,120,151,181,212,243,273,304,334],isLeap=(y%4===0&&y%100!==0)||y%400===0,doy=db[m-1]+day+((isLeap&&m>2)?1:0),total=isLeap?366:365;return pL+((doy-1)/(total-1))*(pxM2(11)-pL);};
+        var grid2='',ylbls2='',xlbls2='',lines2='',markers2='';
         [0,Math.round(maxV2*0.25/1.1),Math.round(maxV2*0.5/1.1),Math.round(maxV2*0.75/1.1),Math.round(maxV2/1.1)].forEach(function(v){
           var yy=pyV2(v);
           grid2+='<line x1="'+pL+'" y1="'+yy.toFixed(1)+'" x2="'+(W2-pR)+'" y2="'+yy.toFixed(1)+'" stroke="#f0ece8" stroke-width="1"/>';
@@ -7348,13 +7350,19 @@ var _rptResizeMoveH = function(e) {
         });
         for(var xi2=0;xi2<12;xi2++) xlbls2+='<text x="'+pxM2(xi2).toFixed(1)+'" y="'+(H2-5)+'" text-anchor="middle" fill="#9A8A78" font-size="9">'+mShort[xi2]+'</text>';
         (_lastGivingTrendData.years||[]).forEach(function(yr,yi){
-          var color=palette[yi%palette.length],pts2=[];
+          var color=palette[yi%palette.length],pts2=[],yrInt=parseInt(yr,10);
           for(var mo2=1;mo2<=12;mo2++){var ms2=mo2<10?'0'+mo2:''+mo2;var row2=(_lastGivingTrendData.monthly[yr]||[]).find(function(r){return r.month===ms2;});if(row2&&row2.total_cents)pts2.push({x:pxM2(mo2-1),y:pyV2(row2.total_cents),v:row2.total_cents,mi:mo2-1});}
           if(!pts2.length)return;
           lines2+='<path d="'+pts2.map(function(p,j){return(j?'L ':'M ')+p.x.toFixed(1)+','+p.y.toFixed(1);}).join(' ')+'" fill="none" stroke="'+color+'" stroke-width="2.5" stroke-linejoin="round"/>';
           pts2.forEach(function(p){lines2+='<circle cx="'+p.x.toFixed(1)+'" cy="'+p.y.toFixed(1)+'" r="3.5" fill="'+color+'"><title>'+mShort[p.mi]+' '+yr+': $'+Math.round(p.v/100).toLocaleString()+'</title></circle>';});
+          var ed=easterOf2(yrInt),ex=xAtDate2(yrInt,ed.month,ed.day);
+          markers2+='<line x1="'+ex.toFixed(1)+'" y1="'+pT+'" x2="'+ex.toFixed(1)+'" y2="'+(H2-pB)+'" stroke="'+color+'" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"><title>Easter '+yr+': '+mShort[ed.month-1]+' '+ed.day+'</title></line>';
+          markers2+='<text x="'+ex.toFixed(1)+'" y="'+(pT+9)+'" text-anchor="middle" fill="'+color+'" font-size="9" font-weight="700" opacity="0.75">E</text>';
         });
-        w.innerHTML='<svg viewBox="0 0 '+W2+' '+H2+'" style="width:100%;height:'+H2+'px;">'+grid2+lines2+xlbls2+ylbls2+'</svg>';
+        var cx2=xAtDate2(2026,12,25);
+        markers2+='<line x1="'+cx2.toFixed(1)+'" y1="'+pT+'" x2="'+cx2.toFixed(1)+'" y2="'+(H2-pB)+'" stroke="#8a7968" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"><title>Christmas: Dec 25</title></line>';
+        markers2+='<text x="'+cx2.toFixed(1)+'" y="'+(pT+9)+'" text-anchor="middle" fill="#8a7968" font-size="9" font-weight="700" opacity="0.8">C</text>';
+        w.innerHTML='<svg viewBox="0 0 '+W2+' '+H2+'" style="width:100%;height:'+H2+'px;">'+grid2+markers2+lines2+xlbls2+ylbls2+'</svg>';
       }
     }
   });
