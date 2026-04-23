@@ -130,6 +130,9 @@ Added 2026-04-15, phased 2026-04-15.
 ## Recent Changes (newest first)
 
 ### 2026-04-23
+- **IN7 + IN8** (no version bump — backend/infra only):
+  - **IN7** — Schema migrations system. Created `migrations/0001_baseline.sql` with the complete current schema (all tables, all columns as of today). Added `migrations_dir = "migrations"` to `wrangler.toml` `[[d1_databases]]` section. Future schema additions go in new numbered SQL files and are applied with `wrangler d1 migrations apply tlc-volunteer-db --remote`. The existing `initDb()` in `src/db.js` remains as a cold-start safety net (all `CREATE TABLE IF NOT EXISTS` / try-catch ALTER TABLE).
+  - **IN8** — Audit log pruning. Added `pruneAuditLog(db)` in `tlc-volunteer-worker.js`, called from the existing daily cron (`0 14 * * *`). Two-tier retention: `birthday_email_sent` and `anniversary_email_sent` rows deleted after 60 days (they only serve same-day dedup); all other audit entries deleted after 365 days (covers financial and destructive actions). Logged to cron console as `audit_prune: { email_dedup_deleted, general_deleted }`.
 - **v109**: AT5 — Christmas/Easter markers on attendance chart + separate Special/Midweek services chart.
   - Attendance chart markers now use `xAtAnyDate(dateStr)` interpolation instead of `dataPts.indexOf(date)`. The old approach only found a date if it was an exact Sunday data point; Christmas Eve (Dec 24) and Christmas Day (Dec 25) are almost never on a Sunday, so markers never appeared. The new function binary-searches the sorted Sunday x-positions and linearly interpolates between the two nearest Sundays so any calendar date renders a correctly-positioned vertical line.
   - Easter and Christmas dashed markers now show reliably on the main Sunday chart. Fixed variable collision (`edy` → `edy2`) in Easter date calculation. Legend updated with green (Easter) and purple (Christmas) entries.

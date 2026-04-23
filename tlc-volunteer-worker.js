@@ -45,14 +45,31 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
       try { await initDb(env.DB); } catch (e) { console.error('Cron DB init error:', e.message); return; }
-      const [bday, ann] = await Promise.all([
+      const [bday, ann, prune] = await Promise.all([
         sendBirthdayEmails(env).catch(e => ({ error: e.message })),
         sendAnniversaryEmails(env).catch(e => ({ error: e.message })),
+        pruneAuditLog(env.DB).catch(e => ({ error: e.message })),
       ]);
-      console.log('Daily email cron:', JSON.stringify({ birthdays: bday, anniversaries: ann }));
+      console.log('Daily email cron:', JSON.stringify({ birthdays: bday, anniversaries: ann, audit_prune: prune }));
     })());
   },
 };
+
+async function pruneAuditLog(db) {
+  // Email dedup entries only need to exist for the same day — purge after 60 days.
+  const r1 = await db.prepare(
+    `DELETE FROM audit_log
+     WHERE action IN ('birthday_email_sent','anniversary_email_sent')
+       AND ts < datetime('now','-60 days')`
+  ).run();
+  // All other audit entries kept for 1 year (covers financial / destructive actions).
+  const r2 = await db.prepare(
+    `DELETE FROM audit_log
+     WHERE action NOT IN ('birthday_email_sent','anniversary_email_sent')
+       AND ts < datetime('now','-365 days')`
+  ).run();
+  return { email_dedup_deleted: r1.meta?.changes ?? 0, general_deleted: r2.meta?.changes ?? 0 };
+}
 
 async function _fetch(req, env) {
     try {

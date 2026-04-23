@@ -18,6 +18,7 @@ custom_domain = false
 binding = "DB"
 database_name = "tlc-volunteer-db"
 database_id = "9399ee53-3386-4084-9b6b-def46b88f96a"
+migrations_dir = "migrations"
 
 [[kv_namespaces]]
 binding = "RSVP_STORE"
