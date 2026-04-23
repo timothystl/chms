@@ -1,4 +1,5 @@
 // ── ChMS HTML app, service worker, manifest, and backlog ──────────────────────
+import { getSchedulerInline } from './scheduler-inline.js';
 export const CHMS_MANIFEST_JSON = '{"name":"TLC Church Directory","short_name":"TLC Directory","description":"People directory and giving records for Timothy Lutheran Church","start_url":"/chms","display":"standalone","theme_color":"#0A3C5C","background_color":"#EDF5F8","scope":"/","icons":[{"src":"tlc-logo.png","sizes":"500x500","type":"image/png","purpose":"any maskable"}]}';
 
 // ── SERVICE WORKER ──────────────────────────────────────────────────
@@ -100,7 +101,8 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 /* ── PANELS ── */
 .tab-panel{display:none;padding:20px 24px;}
 .tab-panel.active{display:flex;flex-direction:column;flex:1;overflow-y:auto;}
-#tab-scheduler.active{padding:0;overflow:hidden;}
+#tab-scheduler.active{padding:0;}
+#tab-scheduler .sched-root{flex:1;min-height:0;overflow-y:auto;}
 /* ── APP SHELL ── */
 #offline-banner{position:relative;z-index:200;}
 .app-shell{display:flex;height:100vh;}
@@ -1162,7 +1164,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 
 <div id="tab-scheduler" class="tab-panel">
-  <iframe id="scheduler-iframe" style="width:100%;height:calc(100vh - 50px);border:none;display:block;" title="Worship Scheduler"></iframe>
+${getSchedulerInline()}
 </div>
 
 <!-- ═══ PROFILE VIEW ═══ -->
@@ -1688,7 +1690,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-23-v110';
+var DEPLOY_VERSION = '2026-04-23-v111';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -1829,9 +1831,8 @@ function showTab(name) {
   if (name === 'settings') loadSettings();
   if (name === 'volunteers') { volLoadSignups(); volLoadEvents(); }
   if (name === 'scheduler') {
-    var fr = document.getElementById('scheduler-iframe');
-    if (fr && fr.getAttribute('src') !== '/scheduler?embedded=1') {
-      fr.setAttribute('src', '/scheduler?embedded=1');
+    if (window.schedInitScheduler && !window._schedInited) {
+      window.schedInitScheduler();
     }
   }
 }
