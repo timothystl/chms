@@ -16,6 +16,7 @@ import {
   handleSchedRsvpPortal, handleSchedRsvp, handleSchedBreezeProxy,
 } from './src/api-scheduler.js';
 import { handleAdminLogin, handleAdminApi } from './src/api-admin.js';
+import { handleIntake } from './src/api-intake.js';
 import { LOGIN_HTML, PUBLIC_HTML, ADMIN_HTML } from './src/html-templates.js';
 import { CHMS_HTML, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML } from './src/html-chms.js';
 import { sendBirthdayEmails, sendAnniversaryEmails } from './src/api-emails.js';
@@ -185,6 +186,12 @@ async function _fetch(req, env) {
     // ── Public volunteer-facing RSVP endpoints (linked directly from emails) ──
     if (path.startsWith('/rsvp/portal'))               return handleSchedRsvpPortal(req, env, url);
     if (path === '/rsvp')                              return handleSchedRsvp(req, env, url);
+
+    // ── Public form intake — server-to-server from the church website ────────
+    // Auth is via X-Intake-Key header (validated inside handleIntake against
+    // the CHMS_INTAKE_API_KEY secret). Matched here BEFORE the scheduler auth
+    // gate and BEFORE the /api/* Breeze catch-all below.
+    if (path.startsWith('/api/intake/')) return handleIntake(req, env, path);
 
     // ── Scheduler backend routes — require admin cookie OR WORKER_SECRET ──────
     // These endpoints expose volunteer PII and church database access; they must

@@ -224,7 +224,38 @@ export const DB_INIT = [
     sort_order   INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_engagement_tasks_week ON engagement_tasks(week_key)`
+  `CREATE INDEX IF NOT EXISTS idx_engagement_tasks_week ON engagement_tasks(week_key)`,
+  // FU1 — Prayer requests (from public /api/intake/prayer or manual entry)
+  `CREATE TABLE IF NOT EXISTS prayer_requests (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id        INTEGER,
+    submitter_name   TEXT    NOT NULL DEFAULT '',
+    submitter_email  TEXT    NOT NULL DEFAULT '',
+    submitter_phone  TEXT    NOT NULL DEFAULT '',
+    request_text     TEXT    NOT NULL DEFAULT '',
+    is_urgent        INTEGER NOT NULL DEFAULT 0,
+    share_publicly   INTEGER NOT NULL DEFAULT 0,
+    status           TEXT    NOT NULL DEFAULT 'new',
+    resolution_note  TEXT    NOT NULL DEFAULT '',
+    source           TEXT    NOT NULL DEFAULT '',
+    created_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+    resolved_at      TEXT    NOT NULL DEFAULT ''
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_prayer_status ON prayer_requests(status, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_prayer_person ON prayer_requests(person_id)`,
+  // WC1 — Raw inbound form payload log (forensic / debug / replay)
+  `CREATE TABLE IF NOT EXISTS intake_submissions (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind              TEXT    NOT NULL DEFAULT '',
+    received_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+    remote_ip         TEXT    NOT NULL DEFAULT '',
+    payload_json      TEXT    NOT NULL DEFAULT '',
+    processed         INTEGER NOT NULL DEFAULT 0,
+    error_message     TEXT    NOT NULL DEFAULT '',
+    person_id         INTEGER,
+    prayer_request_id INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_intake_kind_ts ON intake_submissions(kind, received_at)`
 ];
 
 
