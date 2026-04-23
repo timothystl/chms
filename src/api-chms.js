@@ -1182,6 +1182,130 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   }
 
   // ── Reports ──────────────────────────────────────────────────────
+  if (seg === 'reports/people-insights' && method === 'GET') {
+    const now = new Date();
+    // 24-month window start (first day of month 24 months ago)
+    const cutoff24mo = new Date(now.getFullYear() - 2, now.getMonth(), 1).toISOString().slice(0, 10);
+    const cutoff5yr  = String(now.getFullYear() - 4);
+
+    const [
+      newContactsRaw,
+      typeTrendRaw,
+      ageRows,
+      genderRows,
+      hhSizeRaw,
+      pipelineRows,
+      noHHRow,
+    ] = await Promise.all([
+      // New contacts by month (last 24 months) — use first_contact_date, fall back to created_at
+      db.prepare(
+        `SELECT substr(COALESCE(NULLIF(first_contact_date,''), created_at), 1, 7) AS month,
+                COUNT(*) AS n
+         FROM people
+         WHERE status='active' AND LOWER(member_type) != 'organization'
+           AND COALESCE(NULLIF(first_contact_date,''), created_at) >= ?
+         GROUP BY month ORDER BY month ASC`
+      ).bind(cutoff24mo).all().then(r => r.results || []),
+
+      // Member-type by year of first contact (last 5 years)
+      db.prepare(
+        `SELECT substr(COALESCE(NULLIF(first_contact_date,''), created_at), 1, 4) AS year,
+                member_type, COUNT(*) AS n
+         FROM people
+         WHERE status='active' AND LOWER(member_type) != 'organization'
+           AND substr(COALESCE(NULLIF(first_contact_date,''), created_at), 1, 4) >= ?
+         GROUP BY year, member_type ORDER BY year ASC, n DESC`
+      ).bind(cutoff5yr).all().then(r => r.results || []),
+
+      // Age distribution
+      db.prepare(
+        `SELECT CASE
+           WHEN dob='' OR dob IS NULL THEN 'unknown'
+           WHEN (julianday('now')-julianday(dob))/365.25 < 18 THEN 'under_18'
+           WHEN (julianday('now')-julianday(dob))/365.25 < 30 THEN 'a18_29'
+           WHEN (julianday('now')-julianday(dob))/365.25 < 45 THEN 'a30_44'
+           WHEN (julianday('now')-julianday(dob))/365.25 < 65 THEN 'a45_64'
+           ELSE 'a65_plus'
+         END AS age_group, COUNT(*) AS n
+         FROM people
+         WHERE status='active' AND LOWER(member_type) != 'organization'
+         GROUP BY age_group`
+      ).all().then(r => r.results || []),
+
+      // Gender
+      db.prepare(
+        `SELECT CASE WHEN gender='' OR gender IS NULL THEN 'Unknown' ELSE gender END AS g,
+                COUNT(*) AS n
+         FROM people
+         WHERE status='active' AND LOWER(member_type) != 'organization'
+         GROUP BY g ORDER BY n DESC`
+      ).all().then(r => r.results || []),
+
+      // Household sizes
+      db.prepare(
+        `SELECT household_id, COUNT(*) AS size
+         FROM people
+         WHERE status='active' AND household_id IS NOT NULL AND household_id != 0
+         GROUP BY household_id`
+      ).all().then(r => r.results || []),
+
+      // Baptism/confirmation pipeline (members only)
+      db.prepare(
+        `SELECT baptized, confirmed, COUNT(*) AS n
+         FROM people
+         WHERE status='active' AND LOWER(member_type)='member'
+         GROUP BY baptized, confirmed`
+      ).all().then(r => r.results || []),
+
+      // People with no household (active non-org)
+      db.prepare(
+        `SELECT COUNT(*) AS n FROM people
+         WHERE status='active' AND LOWER(member_type) != 'organization'
+           AND (household_id IS NULL OR household_id = 0)`
+      ).first(),
+    ]);
+
+    // Build household size buckets
+    const hhBuckets = { single: 0, couple: 0, small: 0, large: 0 };
+    for (const r of hhSizeRaw) {
+      const s = r.size || 0;
+      if (s === 1)       hhBuckets.single++;
+      else if (s === 2)  hhBuckets.couple++;
+      else if (s <= 4)   hhBuckets.small++;
+      else               hhBuckets.large++;
+    }
+    hhBuckets.no_household = noHHRow?.n || 0;
+
+    // Sacramental pipeline
+    const pipeline = { neither: 0, baptized_only: 0, confirmed_only: 0, both: 0 };
+    for (const r of pipelineRows) {
+      const b = r.baptized ? 1 : 0, c = r.confirmed ? 1 : 0;
+      if (!b && !c) pipeline.neither += r.n;
+      else if (b && !c) pipeline.baptized_only += r.n;
+      else if (!b && c) pipeline.confirmed_only += r.n;
+      else pipeline.both += r.n;
+    }
+
+    // Normalise age groups into ordered array
+    const ageOrder = [
+      { key: 'under_18', label: 'Under 18' }, { key: 'a18_29', label: '18–29' },
+      { key: 'a30_44',   label: '30–44' },    { key: 'a45_64', label: '45–64' },
+      { key: 'a65_plus', label: '65+' },       { key: 'unknown', label: 'Unknown (no DOB)' },
+    ];
+    const ageMap = {};
+    for (const r of ageRows) ageMap[r.age_group] = r.n || 0;
+    const ageBuckets = ageOrder.map(a => ({ ...a, n: ageMap[a.key] || 0 }));
+
+    return json({
+      new_contacts: newContactsRaw,
+      member_type_trend: typeTrendRaw,
+      age_groups: ageBuckets,
+      gender: genderRows,
+      household_sizes: hhBuckets,
+      sacramental_pipeline: pipeline,
+    });
+  }
+
   if (seg === 'reports/membership' && method === 'GET') {
     const dbCounts = (await db.prepare(
       `SELECT member_type, COUNT(*) as n FROM people WHERE active=1 GROUP BY member_type ORDER BY n DESC`
