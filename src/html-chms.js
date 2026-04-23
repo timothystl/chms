@@ -680,6 +680,11 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
       <div class="tile-title">Contact Completeness</div>
       <div class="tile-desc">Missing email, phone, address, DOB, photo</div>
     </div>
+    <div class="report-tile no-member" onclick="runPeopleInsights()">
+      <div class="tile-icon">&#128196;</div>
+      <div class="tile-title">People Insights</div>
+      <div class="tile-desc">Growth, age, gender, households, sacramental pipeline</div>
+    </div>
     <div class="report-tile require-finance">
       <div class="tile-icon">&#128200;</div>
       <div class="tile-title">Giving by Fund</div>
@@ -1683,7 +1688,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-23-v109';
+var DEPLOY_VERSION = '2026-04-23-v110';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -6081,6 +6086,149 @@ function runMembership() {
     );
   });
 }
+// ── R3: People Insights ───────────────────────────────────────────────
+function runPeopleInsights() {
+  api('/admin/api/reports/people-insights').then(function(d) {
+    if (d.error) { alert(d.error); return; }
+
+    // ── Block 1: New contacts by month (bar chart) ──────────────────
+    var contacts = d.new_contacts || [];
+    var contactBlock = '';
+    if (contacts.length) {
+      var maxC = Math.max.apply(null, contacts.map(function(r){return r.n||0;})) || 1;
+      var n = contacts.length, W = Math.max(400, n*34), H = 110, pL = 28, pR = 8, pT = 18, pB = 26;
+      var cW = W - pL - pR, cH = H - pT - pB, slotW = cW/n, barW = Math.max(6, Math.min(24, slotW*0.7));
+      var baseY = pT + cH;
+      var bars2 = '', xlbls2 = '', ylbls2 = '', grid2 = '';
+      [0, Math.round(maxC/2), maxC].forEach(function(v) {
+        var yy = pT + cH - (v/maxC)*cH;
+        grid2 += '<line x1="'+pL+'" y1="'+yy.toFixed(1)+'" x2="'+(W-pR)+'" y2="'+yy.toFixed(1)+'" stroke="#f0ece8" stroke-width="1"/>';
+        ylbls2 += '<text x="'+(pL-3)+'" y="'+(yy+3).toFixed(1)+'" text-anchor="end" fill="#9A8A78" font-size="8">'+Math.round(v)+'</text>';
+      });
+      var labelEvery = Math.max(1, Math.ceil(n/12));
+      contacts.forEach(function(r, i) {
+        var bxv = pL + (i+0.5)*slotW, bv = r.n||0, byv = pT + cH - (bv/maxC)*cH, bhv = baseY - byv;
+        bars2 += '<rect x="'+(bxv-barW/2).toFixed(1)+'" y="'+byv.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bhv.toFixed(1)+'" fill="#2E7EA6" rx="2" opacity="0.8"><title>'+esc(r.month)+': '+bv+'</title></rect>';
+        if (bv > 0) bars2 += '<text x="'+bxv.toFixed(1)+'" y="'+(byv-2).toFixed(1)+'" text-anchor="middle" fill="#2E7EA6" font-size="7">'+bv+'</text>';
+        if (i % labelEvery === 0) {
+          var parts = r.month.split('-');
+          xlbls2 += '<text x="'+bxv.toFixed(1)+'" y="'+(H-4)+'" text-anchor="middle" fill="#9A8A78" font-size="7">'+MONTH_NAMES[parseInt(parts[1])-1]+' \''+parts[0].slice(2)+'</text>';
+        }
+      });
+      var totalContacts = contacts.reduce(function(s,r){return s+(r.n||0);},0);
+      contactBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
+        + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128200; New Contacts — last 24 months (' + totalContacts + ' total)</div>'
+        + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:8px;">Based on first contact date, or record created date if not set.</div>'
+        + '<div style="overflow-x:auto;"><svg viewBox="0 0 '+W+' '+H+'" style="min-width:'+W+'px;width:100%;height:'+H+'px;">'+grid2+bars2+xlbls2+ylbls2+'</svg></div></div>';
+    }
+
+    // ── Block 2: Member-type trend by year ──────────────────────────
+    var trendRaw = d.member_type_trend || [];
+    var trendBlock = '';
+    if (trendRaw.length) {
+      var years2 = [], typeSet = [];
+      var trendMap = {};
+      trendRaw.forEach(function(r) {
+        if (years2.indexOf(r.year) < 0) years2.push(r.year);
+        var tl = (r.member_type||'Unknown');
+        if (typeSet.indexOf(tl) < 0) typeSet.push(tl);
+        trendMap[(r.year||'') + '|' + tl] = r.n || 0;
+      });
+      var trendHead = '<tr><th>Year</th>' + typeSet.map(function(t){return '<th style="text-align:right;">'+esc(t)+'</th>';}).join('') + '<th style="text-align:right;">Total</th></tr>';
+      var trendRows2 = years2.map(function(yr) {
+        var total2 = 0;
+        var cells = typeSet.map(function(t) {
+          var v = trendMap[yr + '|' + t] || 0; total2 += v;
+          return '<td style="text-align:right;">' + v + '</td>';
+        }).join('');
+        return '<tr><td>' + esc(yr) + '</td>' + cells + '<td style="text-align:right;font-weight:600;">' + total2 + '</td></tr>';
+      }).join('');
+      trendBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
+        + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128101; New People by Year &amp; Type</div>'
+        + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:8px;">Current active people grouped by their first contact year and current member type.</div>'
+        + '<div style="overflow-x:auto;"><table class="rpt-table"><thead>' + trendHead + '</thead><tbody>' + trendRows2 + '</tbody></table></div></div>';
+    }
+
+    // ── Block 3: Age distribution (horizontal bars) ─────────────────
+    var ageGroups2 = d.age_groups || [];
+    var ageTotal2 = ageGroups2.reduce(function(s,b){return s+(b.n||0);},0);
+    var ageRows2 = ageGroups2.map(function(b) {
+      var pct = ageTotal2 > 0 ? Math.round(b.n * 100 / ageTotal2) : 0;
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">'
+        + '<div style="flex:0 0 120px;font-size:.85rem;color:var(--charcoal);">'+esc(b.label)+'</div>'
+        + '<div style="flex:1;background:var(--linen);border-radius:4px;height:15px;overflow:hidden;">'
+        + '<div style="background:#C9973A;height:100%;width:'+pct+'%;"></div></div>'
+        + '<div style="flex:0 0 90px;text-align:right;font-size:.82rem;color:var(--warm-gray);">'+b.n+' ('+pct+'%)</div></div>';
+    }).join('');
+    var ageBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#127891; Age Distribution ('+ageTotal2+' active people)</div>'
+      + ageRows2 + '</div>';
+
+    // ── Block 4: Gender pie chart ───────────────────────────────────
+    var genderColors = { Male:'#2E7EA6', Female:'#C9973A', Unknown:'#b0a090' };
+    var genderItems = (d.gender||[]).map(function(r){
+      return { label: esc(r.g), value: r.n, color: genderColors[r.g] || '#888' };
+    });
+    var genderTotal = genderItems.reduce(function(s,it){return s+(it.value||0);},0);
+    var genderBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#9874;&#65039; Gender Breakdown ('+genderTotal+' active people)</div>'
+      + '<div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">'
+      + renderPieChart(genderItems, 180)
+      + '</div></div>';
+
+    // ── Block 5: Household composition ─────────────────────────────
+    var hh = d.household_sizes || {};
+    var hhItems = [
+      { label: 'Single (1 person)',     value: hh.single || 0,       color: '#2E7EA6' },
+      { label: 'Couple (2 people)',     value: hh.couple || 0,       color: '#5A9E6F' },
+      { label: 'Small family (3–4)',    value: hh.small  || 0,       color: '#C9973A' },
+      { label: 'Large family (5+)',     value: hh.large  || 0,       color: '#9B59B6' },
+      { label: 'No household assigned', value: hh.no_household || 0, color: '#b0a090' },
+    ];
+    var hhTotal2 = hhItems.reduce(function(s,it){return s+(it.value||0);},0);
+    var hhRows2 = hhItems.map(function(it) {
+      var pct = hhTotal2 > 0 ? Math.round(it.value * 100 / hhTotal2) : 0;
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">'
+        + '<div style="flex:0 0 170px;font-size:.85rem;color:var(--charcoal);">'+esc(it.label)+'</div>'
+        + '<div style="flex:1;background:var(--linen);border-radius:4px;height:15px;overflow:hidden;">'
+        + '<div style="background:'+it.color+';height:100%;width:'+pct+'%;opacity:.8;"></div></div>'
+        + '<div style="flex:0 0 90px;text-align:right;font-size:.82rem;color:var(--warm-gray);">'+it.value+' ('+pct+'%)</div></div>';
+    }).join('');
+    var hhBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#127968; Household Composition ('+hhTotal2+' active people)</div>'
+      + hhRows2 + '</div>';
+
+    // ── Block 6: Sacramental pipeline (members only) ────────────────
+    var pl = d.sacramental_pipeline || {};
+    var plTotal = (pl.both||0) + (pl.baptized_only||0) + (pl.confirmed_only||0) + (pl.neither||0);
+    var plItems = [
+      { label: 'Baptized &amp; Confirmed', value: pl.both||0,            color:'#5A9E6F' },
+      { label: 'Baptized only',            value: pl.baptized_only||0,   color:'#2E7EA6' },
+      { label: 'Confirmed only',           value: pl.confirmed_only||0,  color:'#C9973A' },
+      { label: 'Neither recorded',         value: pl.neither||0,         color:'#b0a090' },
+    ];
+    var plRows = plItems.map(function(it) {
+      var pct = plTotal > 0 ? Math.round(it.value * 100 / plTotal) : 0;
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">'
+        + '<div style="flex:0 0 180px;font-size:.85rem;color:var(--charcoal);">'+it.label+'</div>'
+        + '<div style="flex:1;background:var(--linen);border-radius:4px;height:15px;overflow:hidden;">'
+        + '<div style="background:'+it.color+';height:100%;width:'+pct+'%;opacity:.85;"></div></div>'
+        + '<div style="flex:0 0 90px;text-align:right;font-size:.82rem;color:var(--warm-gray);">'+it.value+' ('+pct+'%)</div></div>';
+    }).join('');
+    var pipelineBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;">'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#9989; Sacramental Pipeline ('+plTotal+' members)</div>'
+      + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:8px;">Members only — baptized and confirmed flags from Breeze profile.</div>'
+      + plRows + '</div>';
+
+    showRptOutput(
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+      + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">People Insights</h3>'
+      + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
+      + contactBlock + trendBlock + ageBlock + genderBlock + hhBlock + pipelineBlock
+    );
+  });
+}
+
 // ── Reusable pie chart (SVG) ──────────────────────────────────────────
 // items: [{label, value, color}]; diameter in px.
 function renderPieChart(items, diameter) {
