@@ -1681,7 +1681,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-23-v107';
+var DEPLOY_VERSION = '2026-04-23-v108';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -2634,6 +2634,14 @@ function prayerSetStatus(id, status) {
     loadDashboard();
   });
 }
+function downloadPrayerCsv() {
+  var status = prompt('Export which requests?\n\nType: all, open, praying, active (open+praying), answered, closed', 'all');
+  if (status === null) return;
+  status = (status || 'all').trim().toLowerCase();
+  var allowed = ['all','open','praying','active','answered','closed'];
+  if (!allowed.includes(status)) { alert('Invalid choice. Use: all, open, praying, active, answered, or closed'); return; }
+  window.location.href = '/admin/api/prayer-requests/export.csv?status=' + encodeURIComponent(status);
+}
 function openAddPrayerModal() {
   var m = document.getElementById('prayer-modal');
   if (!m) return;
@@ -2845,7 +2853,8 @@ function renderDashboard(d) {
       + '<span>Prayer Requests</span>'
       + '<span style="font-size:12px;color:var(--warm-gray);font-weight:400;">'
       + (prTotal ? prTotal + ' open' : 'none open') + '</span>'
-      + '<button class="btn-secondary" style="font-size:.72rem;padding:3px 10px;margin-left:auto;" onclick="openAddPrayerModal()">+ Add</button>'
+      + '<button class="btn-secondary" style="font-size:.72rem;padding:3px 10px;margin-left:auto;" onclick="downloadPrayerCsv()">↓ CSV</button>'
+      + '<button class="btn-secondary" style="font-size:.72rem;padding:3px 10px;" onclick="openAddPrayerModal()">+ Add</button>'
       + '</div>';
     html += '<div class="dash-card" style="padding:0;"><div class="dash-card-body">';
     if (pr.length) {

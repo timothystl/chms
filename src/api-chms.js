@@ -1441,6 +1441,46 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     ).bind(pid, reqName, reqEmail, text, submittedAt).run();
     return json({ ok: true, id: r.meta.last_row_id });
   }
+  if (seg === 'prayer-requests/export.csv' && method === 'GET') {
+    if (!canEdit) return json({ error: 'Access denied' }, 403);
+    const statusParam = url.searchParams.get('status') || 'all';
+    const allowed = ['open', 'praying', 'answered', 'closed', 'active', 'all'];
+    if (!allowed.includes(statusParam)) return json({ error: 'Invalid status' }, 400);
+    let where = '1=1';
+    if (statusParam === 'active')        where = "pr.status IN ('open','praying')";
+    else if (statusParam !== 'all')      where = "pr.status = '" + statusParam + "'";
+    const rows = (await db.prepare(
+      `SELECT pr.submitted_at, pr.requester_name, pr.requester_email,
+              pr.status, pr.resolution_note, pr.resolved_at,
+              pr.request_text, pr.source,
+              p.first_name, p.last_name
+       FROM prayer_requests pr
+       LEFT JOIN people p ON p.id = pr.person_id
+       WHERE ${where}
+       ORDER BY pr.submitted_at DESC, pr.id DESC`
+    ).all()).results || [];
+    const cols = ['date','name','email','status','resolution_note','resolved_at','request','source'];
+    let csv = cols.join(',') + '\n';
+    for (const r of rows) {
+      const name = r.person_id
+        ? ((r.first_name || '') + ' ' + (r.last_name || '')).trim()
+        : (r.requester_name || '');
+      const vals = [
+        r.submitted_at || '', name, r.requester_email || '',
+        r.status || '', r.resolution_note || '', r.resolved_at || '',
+        r.request_text || '', r.source || '',
+      ];
+      csv += vals.map(function(v) {
+        const s = String(v);
+        return s.includes(',') || s.includes('"') || s.includes('\n')
+          ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(',') + '\n';
+    }
+    return new Response(csv, { headers: {
+      'Content-Type': 'text/csv',
+      'Content-Disposition': 'attachment; filename="prayer-requests-' + new Date().toISOString().slice(0,10) + '.csv"',
+    }});
+  }
   const prMatch = seg.match(/^prayer-requests\/(\d+)$/);
   if (prMatch && method === 'PUT') {
     if (!canEdit) return json({ error: 'Access denied' }, 403);
