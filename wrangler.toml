@@ -49,6 +49,7 @@ crons = ["0 14 * * *"]
 #   wrangler d1 migrations apply tlc-volunteer-db-staging --remote --env staging
 [env.staging]
 name = "breeze-proxy-worker-staging"
+workers_dev = true
 
 [[env.staging.d1_databases]]
 binding = "DB"
