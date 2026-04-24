@@ -131,6 +131,113 @@ function anniversaryText(name1, name2) {
   return `${greeting}\n\n${salutation}\n\nWishing you a blessed anniversary. May God continue to strengthen and bless your marriage with joy, love, and grace.\n\nWith warm regards,\nTimothy Lutheran Church\n6704 Fyler Ave, St. Louis, MO 63139`;
 }
 
+// ── Brevo SMS helpers (SMS1) ─────────────────────────────────────────────────
+
+function normalizePhone(phone) {
+  const digits = (phone || '').replace(/\D/g, '');
+  if (digits.length === 10) return '+1' + digits;
+  if (digits.length === 11 && digits[0] === '1') return '+' + digits;
+  return null;
+}
+
+async function sendBrevoSms(env, to, content) {
+  const apiKey = env.BREVO_API_KEY || '';
+  if (!apiKey) return { ok: false, error: 'Brevo not configured (missing BREVO_API_KEY)' };
+  try {
+    const res = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
+      method: 'POST',
+      headers: { 'api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sender: 'TimothyLC', recipient: to, content, type: 'transactional' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    return res.ok ? { ok: true } : { ok: false, error: data.message || String(res.status) };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
+export async function sendBirthdayTexts(env) {
+  const db = env.DB;
+  const todayMMDD = new Date().toISOString().slice(5, 10);
+  const alreadySent = new Set(
+    ((await db.prepare(
+      `SELECT entity_id FROM audit_log WHERE action='birthday_sms_sent' AND date(ts)=date('now')`
+    ).all()).results || []).map(r => String(r.entity_id))
+  );
+  const people = (await db.prepare(
+    `SELECT id, first_name, last_name, phone FROM people
+     WHERE active=1 AND (status IS NULL OR status='active') AND sms_opt_in=1 AND phone != '' AND dob != ''
+       AND LOWER(member_type) NOT IN ('visitor','inactive','other','organization')
+       AND strftime('%m-%d', dob) = ?`
+  ).bind(todayMMDD).all()).results || [];
+  let sent = 0, skipped = 0;
+  const errors = [];
+  for (const p of people) {
+    if (alreadySent.has(String(p.id))) { skipped++; continue; }
+    const e164 = normalizePhone(p.phone);
+    if (!e164) { errors.push(`${p.first_name} ${p.last_name}: invalid phone ${p.phone}`); continue; }
+    const result = await sendBrevoSms(env, e164,
+      `Happy Birthday, ${p.first_name}! Wishing you a blessed day. - Timothy Lutheran Church`);
+    if (result.ok) {
+      sent++;
+      await db.prepare(
+        `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,new_value) VALUES(?,?,?,?,?,?)`
+      ).bind('birthday_sms_sent', 'person', p.id, `${p.first_name} ${p.last_name}`.trim(), 'phone', p.phone).run();
+    } else {
+      errors.push(`${p.first_name} ${p.last_name}: ${result.error}`);
+    }
+  }
+  return { sent, skipped, errors, total: people.length };
+}
+
+export async function sendAnniversaryTexts(env) {
+  const db = env.DB;
+  const todayMMDD = new Date().toISOString().slice(5, 10);
+  const alreadySent = new Set(
+    ((await db.prepare(
+      `SELECT entity_id FROM audit_log WHERE action='anniversary_sms_sent' AND date(ts)=date('now')`
+    ).all()).results || []).map(r => String(r.entity_id))
+  );
+  const rows = (await db.prepare(
+    `SELECT id, first_name, last_name, phone, anniversary_date, family_role, household_id FROM people
+     WHERE active=1 AND (status IS NULL OR status='active') AND (deceased=0 OR deceased IS NULL)
+       AND sms_opt_in=1 AND phone != '' AND anniversary_date != ''
+       AND LOWER(member_type) NOT IN ('visitor','inactive','other','organization')
+       AND strftime('%m-%d', anniversary_date) = ?
+     ORDER BY household_id, CASE family_role WHEN 'head' THEN 0 WHEN 'spouse' THEN 1 ELSE 2 END`
+  ).bind(todayMMDD).all()).results || [];
+  const hhMap = new Map();
+  for (const p of rows) {
+    const key = p.household_id ? String(p.household_id) : `_${p.id}`;
+    if (!hhMap.has(key)) hhMap.set(key, []);
+    hhMap.get(key).push(p);
+  }
+  let sent = 0, skipped = 0;
+  const errors = [];
+  for (const members of hhMap.values()) {
+    const p1 = members[0];
+    const dedupeKey = String(p1.household_id || p1.id);
+    if (alreadySent.has(dedupeKey)) { skipped++; continue; }
+    const name2 = members.length >= 2 ? members[1].first_name : null;
+    const greeting = name2 ? `Happy Anniversary, ${p1.first_name} and ${name2}!` : `Happy Anniversary, ${p1.first_name}!`;
+    const content = `${greeting} Wishing you a blessed anniversary. - Timothy Lutheran Church`;
+    let householdSent = false;
+    for (const p of members) {
+      const e164 = normalizePhone(p.phone);
+      if (!e164) continue;
+      const result = await sendBrevoSms(env, e164, content);
+      if (result.ok) { sent++; householdSent = true; }
+      else errors.push(`${p.first_name}: ${result.error}`);
+    }
+    if (householdSent) {
+      await db.prepare(
+        `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,new_value) VALUES(?,?,?,?,?,?)`
+      ).bind('anniversary_sms_sent', 'household', p1.household_id || p1.id,
+        `${p1.first_name}${name2 ? ' & ' + name2 : ''}`, 'phone',
+        members.map(p => p.phone).filter(Boolean).join(', ')).run();
+    }
+  }
+  return { sent, skipped, errors, total: rows.length };
+}
+
 // ── Birthday sends ───────────────────────────────────────────────────────────
 
 export async function sendBirthdayEmails(env) {

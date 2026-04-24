@@ -19,7 +19,7 @@ import { handleAdminLogin, handleAdminApi } from './src/api-admin.js';
 import { handleIntakeApi } from './src/api-intake.js';
 import { LOGIN_HTML, PUBLIC_HTML, ADMIN_HTML } from './src/html-templates.js';
 import { CHMS_HTML, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML } from './src/html-chms.js';
-import { sendBirthdayEmails, sendAnniversaryEmails } from './src/api-emails.js';
+import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts } from './src/api-emails.js';
 
 // ── MAIN FETCH HANDLER ────────────────────────────────────────────────
 export default {
@@ -45,27 +45,29 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
       try { await initDb(env.DB); } catch (e) { console.error('Cron DB init error:', e.message); return; }
-      const [bday, ann, prune] = await Promise.all([
+      const [bday, ann, bdaySms, annSms, prune] = await Promise.all([
         sendBirthdayEmails(env).catch(e => ({ error: e.message })),
         sendAnniversaryEmails(env).catch(e => ({ error: e.message })),
+        sendBirthdayTexts(env).catch(e => ({ error: e.message })),
+        sendAnniversaryTexts(env).catch(e => ({ error: e.message })),
         pruneAuditLog(env.DB).catch(e => ({ error: e.message })),
       ]);
-      console.log('Daily email cron:', JSON.stringify({ birthdays: bday, anniversaries: ann, audit_prune: prune }));
+      console.log('Daily cron:', JSON.stringify({ birthdays: bday, anniversaries: ann, birthday_sms: bdaySms, anniversary_sms: annSms, audit_prune: prune }));
     })());
   },
 };
 
 async function pruneAuditLog(db) {
-  // Email dedup entries only need to exist for the same day — purge after 60 days.
+  // Email/SMS dedup entries only need to exist for the same day — purge after 60 days.
   const r1 = await db.prepare(
     `DELETE FROM audit_log
-     WHERE action IN ('birthday_email_sent','anniversary_email_sent')
+     WHERE action IN ('birthday_email_sent','anniversary_email_sent','birthday_sms_sent','anniversary_sms_sent')
        AND ts < datetime('now','-60 days')`
   ).run();
   // All other audit entries kept for 1 year (covers financial / destructive actions).
   const r2 = await db.prepare(
     `DELETE FROM audit_log
-     WHERE action NOT IN ('birthday_email_sent','anniversary_email_sent')
+     WHERE action NOT IN ('birthday_email_sent','anniversary_email_sent','birthday_sms_sent','anniversary_sms_sent')
        AND ts < datetime('now','-365 days')`
   ).run();
   return { email_dedup_deleted: r1.meta?.changes ?? 0, general_deleted: r2.meta?.changes ?? 0 };

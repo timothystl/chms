@@ -514,6 +514,8 @@ export async function initDb(db) {
     'ALTER TABLE people ADD COLUMN followup_notes TEXT NOT NULL DEFAULT ""',
     // people: first_gift_noted — set to 1 when staff have seen and dismissed this person from the First-Time Givers dashboard card
     'ALTER TABLE people ADD COLUMN first_gift_noted INTEGER NOT NULL DEFAULT 0',
+    // people: SMS opt-in for birthday/anniversary texts via Brevo
+    'ALTER TABLE people ADD COLUMN sms_opt_in INTEGER NOT NULL DEFAULT 0',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
