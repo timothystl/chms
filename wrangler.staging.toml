@@ -1,0 +1,33 @@
+name = "breeze-proxy-worker-staging"
+main = "tlc-volunteer-worker.js"
+compatibility_date = "2024-01-01"
+workers_dev = true
+
+# Deploy:   wrangler deploy --config wrangler.staging.toml
+# Secrets:  wrangler secret put <NAME> --config wrangler.staging.toml
+# Migrate:  wrangler d1 migrations apply tlc-volunteer-db-staging --remote --config wrangler.staging.toml
+# URL:      https://breeze-proxy-worker-staging.<subdomain>.workers.dev
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tlc-volunteer-db-staging"
+database_id = "d1d2a73f-67f2-4780-8b96-c97ec6bc2df3"
+migrations_dir = "migrations"
+
+[[kv_namespaces]]
+binding = "RSVP_STORE"
+id = "561f364cf1104424bf5f8377ae9d5a32"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "tlc-chms-photos"
+
+[triggers]
+crons = []
