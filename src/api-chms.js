@@ -1,6 +1,7 @@
 // ── ChMS (People & Giving) API handler ────────────────────────────────────────
 import { html, json } from './auth.js';
 import { brevoUpsertContact, brevoBulkSync, brevoGetListContacts } from './api-emails.js';
+import { makeBreezeClient } from './breeze.js';
 
 // Disambiguate household display names when multiple households share the same name.
 // "Smith Family" + "John" → "John Smith Family"; "Smith" + "John" → "John Smith"
@@ -1900,9 +1901,8 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // Standalone orphan cleanup: find DB entries whose breeze_id no longer exists in Breeze
   // for a given date range and remove them (same safety check as the sync orphan pass).
   if (seg === 'giving/reconcile-orphans' && method === 'POST') { try {
-    const subdomain = env.BREEZE_SUBDOMAIN;
-    const apiKey    = env.BREEZE_API_KEY;
-    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
+    const breeze = makeBreezeClient(env);
+    if (!breeze) return json({ error: 'Breeze not configured' }, 503);
     let b = {}; try { b = await req.json(); } catch {}
     const start = b.start || '';
     const end   = b.end   || '';
@@ -1913,11 +1913,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     lateStartObj.setDate(lateStartObj.getDate() - 45);
     const lateStart = lateStartObj.toISOString().slice(0, 10);
 
-    const hdrs = { 'Api-key': apiKey };
-    const glRes = await fetch(
-      `https://${subdomain}.breezechms.com/api/giving/list?start=${lateStart}&end=${end}&details=1&limit=10000`,
-      { headers: hdrs }
-    );
+    const glRes = await breeze.givingList({ start: lateStart, end, details: 1, limit: 10000 });
     if (!glRes.ok) return json({ error: 'Breeze API error: ' + glRes.status }, 502);
     const glData = await glRes.json();
     const glByPaymentId = new Map();
@@ -1961,9 +1957,8 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // whether its breeze_id still exists in Breeze's giving/list. Use this to
   // find the source of Giving-by-Fund discrepancies with Breeze. Read-only.
   if (seg === 'giving/reconcile-diagnose' && method === 'GET') { try {
-    const subdomain = env.BREEZE_SUBDOMAIN;
-    const apiKey    = env.BREEZE_API_KEY;
-    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
+    const breeze = makeBreezeClient(env);
+    if (!breeze) return json({ error: 'Breeze not configured' }, 503);
     const from = url.searchParams.get('from') || '';
     const to   = url.searchParams.get('to')   || '';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
@@ -1975,11 +1970,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     lateStartObj.setDate(lateStartObj.getDate() - 45);
     const lateStart = lateStartObj.toISOString().slice(0, 10);
 
-    const hdrs = { 'Api-key': apiKey };
-    const glRes = await fetch(
-      `https://${subdomain}.breezechms.com/api/giving/list?start=${lateStart}&end=${to}&details=1&limit=10000`,
-      { headers: hdrs }
-    );
+    const glRes = await breeze.givingList({ start: lateStart, end: to, details: 1, limit: 10000 });
     if (!glRes.ok) return json({ error: 'Breeze API error: ' + glRes.status }, 502);
     const glData = await glRes.json();
     const glIds = new Set();
@@ -2132,9 +2123,8 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // the button can't run against stale data.
   if (seg === 'giving/force-remove-orphans' && method === 'POST') { try {
     if (!isAdmin) return json({ error: 'Access denied: force-remove requires admin' }, 403);
-    const subdomain = env.BREEZE_SUBDOMAIN;
-    const apiKey    = env.BREEZE_API_KEY;
-    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
+    const breeze = makeBreezeClient(env);
+    if (!breeze) return json({ error: 'Breeze not configured' }, 503);
     let b = {}; try { b = await req.json(); } catch {}
     const start = b.start || '';
     const end   = b.end   || '';
@@ -2150,11 +2140,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     lateStartObj.setDate(lateStartObj.getDate() - 45);
     const lateStart = lateStartObj.toISOString().slice(0, 10);
 
-    const hdrs = { 'Api-key': apiKey };
-    const glRes = await fetch(
-      `https://${subdomain}.breezechms.com/api/giving/list?start=${lateStart}&end=${end}&details=1&limit=10000`,
-      { headers: hdrs }
-    );
+    const glRes = await breeze.givingList({ start: lateStart, end, details: 1, limit: 10000 });
     if (!glRes.ok) return json({ error: 'Breeze API error: ' + glRes.status }, 502);
     const glData = await glRes.json();
     const glIds = new Set();
@@ -2703,10 +2689,8 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // ── Breeze Attendance Count Sync ─────────────────────────────────
   // Fetches actual headcounts from Breeze for imported service instances
   if (seg === 'import/breeze-attendance-sync' && method === 'POST') {
-    const subdomain = env.BREEZE_SUBDOMAIN;
-    const apiKey    = env.BREEZE_API_KEY;
-    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
-    const hdrs = { 'Api-key': apiKey };
+    const breeze = makeBreezeClient(env);
+    if (!breeze) return json({ error: 'Breeze not configured' }, 503);
     // Find services that have a breeze_instance_id (all, not just zeros, so re-sync is safe)
     let b = {}; try { b = await req.json(); } catch {}
     const onlyEmpty = b.only_empty !== false; // default: only sync where attendance=0
@@ -2720,10 +2704,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const errors = [];
     for (const svc of services) {
       try {
-        const res = await fetch(
-          `https://${subdomain}.breezechms.com/api/events/attendance/list?instance_id=${svc.breeze_instance_id}&type=anonymous`,
-          { headers: hdrs }
-        );
+        const res = await breeze.attendance(svc.breeze_instance_id);
         if (!res.ok) {
           const errText = await res.text().catch(() => res.status);
           errors.push({ instance_id: svc.breeze_instance_id, date: svc.service_date, time: svc.service_time, error: `HTTP ${res.status}: ${errText}`.slice(0,120) });
@@ -2754,26 +2735,18 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
 
   // ── Breeze Giving Debug ──────────────────────────────────────────
   if (seg === 'import/breeze-giving-debug' && method === 'GET') {
-    const subdomain = env.BREEZE_SUBDOMAIN;
-    const apiKey    = env.BREEZE_API_KEY;
-    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
-    const hdrs = { 'Api-key': apiKey };
+    const breeze = makeBreezeClient(env);
+    if (!breeze) return json({ error: 'Breeze not configured' }, 503);
     const results = {};
 
     // Test account/list_log with contribution_added — raw object_json
-    const logR = await fetch(
-      `https://${subdomain}.breezechms.com/api/account/list_log?action=contribution_added&limit=5`,
-      { headers: hdrs }
-    );
+    const logR = await breeze.auditLog({ action: 'contribution_added', limit: 5 });
     const logText = await logR.text();
     let logParsed = null; try { logParsed = JSON.parse(logText); } catch {}
     results.log_no_details = { status: logR.status, count: Array.isArray(logParsed) ? logParsed.length : null, sample: Array.isArray(logParsed) ? logParsed.slice(0, 3) : logText.slice(0, 500) };
 
     // Same but with details=1 — may include amount/fund/person
-    const logDR = await fetch(
-      `https://${subdomain}.breezechms.com/api/account/list_log?action=contribution_added&details=1&limit=5`,
-      { headers: hdrs }
-    );
+    const logDR = await breeze.auditLog({ action: 'contribution_added', details: 1, limit: 5 });
     const logDText = await logDR.text();
     let logDParsed = null; try { logDParsed = JSON.parse(logDText); } catch {}
     results.log_with_details = { status: logDR.status, count: Array.isArray(logDParsed) ? logDParsed.length : null, sample: Array.isArray(logDParsed) ? logDParsed.slice(0, 3) : logDText.slice(0, 500) };
@@ -2781,7 +2754,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // Try undocumented Breeze fund endpoints
     for (const path of ['giving/funds', 'funds', 'giving/list_funds', 'giving/fund']) {
       try {
-        const r = await fetch(`https://${subdomain}.breezechms.com/api/${path}`, { headers: hdrs });
+        const r = await breeze.get(path);
         const t = await r.text();
         let p = null; try { p = JSON.parse(t); } catch {}
         results['fund_endpoint_' + path.replace('/','_')] = { status: r.status, body: t.slice(0, 300), parsed_count: Array.isArray(p) ? p.length : (p ? 'object' : null) };
@@ -2789,28 +2762,19 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     }
 
     // Check oldest contribution_added log entry (how far back does log go?)
-    const oldestR = await fetch(
-      `https://${subdomain}.breezechms.com/api/account/list_log?action=contribution_added&limit=1&start=2010-01-01&end=2021-01-01`,
-      { headers: hdrs }
-    );
+    const oldestR = await breeze.auditLog({ action: 'contribution_added', limit: 1, start: '2010-01-01', end: '2021-01-01' });
     const oldestText = await oldestR.text();
     let oldestParsed = null; try { oldestParsed = JSON.parse(oldestText); } catch {}
     results.oldest_contribution_log = { status: oldestR.status, count: Array.isArray(oldestParsed) ? oldestParsed.length : null, sample: Array.isArray(oldestParsed) ? oldestParsed.slice(0,2) : oldestText.slice(0,300) };
 
     // Check bulk_import_contributions — historical data may have been bulk-imported
-    const bulkR = await fetch(
-      `https://${subdomain}.breezechms.com/api/account/list_log?action=bulk_import_contributions&details=1&limit=5`,
-      { headers: hdrs }
-    );
+    const bulkR = await breeze.auditLog({ action: 'bulk_import_contributions', details: 1, limit: 5 });
     const bulkText = await bulkR.text();
     let bulkParsed = null; try { bulkParsed = JSON.parse(bulkText); } catch {}
     results.bulk_imports = { status: bulkR.status, count: Array.isArray(bulkParsed) ? bulkParsed.length : null, sample: Array.isArray(bulkParsed) ? bulkParsed.slice(0,3) : bulkText.slice(0,300) };
 
     // Try official /api/giving/list endpoint
-    const glR = await fetch(
-      `https://${subdomain}.breezechms.com/api/giving/list?start=2024-01-01&end=2024-12-31&limit=5`,
-      { headers: hdrs }
-    );
+    const glR = await breeze.givingList({ start: '2024-01-01', end: '2024-12-31', limit: 5 });
     const glText = await glR.text();
     let glParsed = null; try { glParsed = JSON.parse(glText); } catch {}
     results.giving_list = { status: glR.status, count: Array.isArray(glParsed) ? glParsed.length : null, sample: Array.isArray(glParsed) ? glParsed.slice(0,3) : glText.slice(0,500) };
@@ -3549,14 +3513,11 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
   // with all available fields. Purely diagnostic — does not write to DB.
   if (seg === 'giving/breeze-audit-export' && method === 'GET') {
     if (!isFinance) return json({ error: 'Forbidden' }, 403);
-    const subdomain = env.BREEZE_SUBDOMAIN;
-    const apiKey    = env.BREEZE_API_KEY;
-    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
+    const breeze = makeBreezeClient(env);
+    if (!breeze) return json({ error: 'Breeze not configured' }, 503);
     const qs  = new URL(req.url).searchParams;
     const start = qs.get('start') || (new Date().getFullYear() + '-01-01');
     const end   = qs.get('end')   || new Date().toISOString().slice(0, 10);
-    const hdrs  = { 'Api-key': apiKey };
-    const logBase = `https://${subdomain}.breezechms.com/api/account/list_log?details=1&limit=10000&start=${start}&end=${end}`;
     const actionTypes = [
       'contribution_added', 'contribution_updated', 'contribution_deleted',
       'bulk_contributions_deleted', 'bulk_import_contributions',
@@ -3565,7 +3526,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     const allRaw = [];
     await Promise.allSettled(actionTypes.map(async action => {
       try {
-        const r = await fetch(logBase + '&action=' + action, { headers: hdrs });
+        const r = await breeze.auditLog({ details: 1, limit: 10000, start, end, action });
         if (!r.ok) return;
         const rows = await r.json();
         if (Array.isArray(rows)) rows.forEach(e => allRaw.push({ ...e, _action: action }));
@@ -3574,7 +3535,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // Fetch giving/list for the same window — provides current amounts (post-edit), fund names, person names
     let glMap = new Map();
     try {
-      const gr = await fetch(`https://${subdomain}.breezechms.com/api/giving/list?start=${start}&end=${end}&details=1&limit=10000`, { headers: hdrs });
+      const gr = await breeze.givingList({ start, end, details: 1, limit: 10000 });
       if (gr.ok) { const gl = await gr.json(); if (Array.isArray(gl)) gl.forEach(g => glMap.set(String(g.id), g)); }
     } catch {}
     // Load person breeze_id → local_id + name from DB
@@ -3646,13 +3607,11 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
 
   // ── Breeze Giving Sync (via account/list_log) ────────────────────
   if (seg === 'import/breeze-giving' && method === 'POST') { try {
-    const subdomain = env.BREEZE_SUBDOMAIN;
-    const apiKey    = env.BREEZE_API_KEY;
-    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
+    const breeze = makeBreezeClient(env);
+    if (!breeze) return json({ error: 'Breeze not configured' }, 503);
     let b = {}; try { b = await req.json(); } catch {}
     const start = b.start || (new Date().getFullYear() + '-01-01');
     const end   = b.end   || new Date().toISOString().slice(0, 10);
-    const hdrs = { 'Api-key': apiKey };
     // G9: accept contributions whose log date falls in this window but whose contribution
     // date is up to 45 days before start (covers Dec entries logged in Jan of the next year).
     // seenIds prevents double-import if the prior year was also synced.
@@ -3664,7 +3623,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // /api/funds returns empty for some accounts — also harvested from giving/list below.
     const breezeFundNames = {};
     try {
-      const fRes = await fetch(`https://${subdomain}.breezechms.com/api/funds`, { headers: hdrs });
+      const fRes = await breeze.funds();
       if (fRes.ok) {
         const fRaw = await fRes.text();
         if (fRaw.trim()) {
@@ -3675,21 +3634,19 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       }
     } catch {} // best-effort — also populated from giving/list fund entries below
 
-    // Fetch audit log entries — four action types in parallel:
+    // Fetch audit log entries — five action types in parallel:
     // 1. contribution_added  — manually keyed contributions
     // 2. bulk_import_contributions — processor batch imports (returns 0 for Tithely but kept for future)
     // 3. contribution_deleted / bulk_contributions_deleted — deleted entries we must NOT import.
     //    Use today as the upper bound (not `end`) so that a 2025 contribution deleted in 2026
     //    is still excluded from the 2025 sync.
     const today = new Date().toISOString().slice(0, 10);
-    const logBase = `https://${subdomain}.breezechms.com/api/account/list_log?details=1&limit=10000&start=${start}&end=${end}`;
-    const logBaseDeleted = `https://${subdomain}.breezechms.com/api/account/list_log?details=1&limit=10000&start=${start}&end=${today}`;
     const [logRes1, logRes2, logRes3, logRes4, logRes5] = await Promise.all([
-      fetch(logBase + '&action=contribution_added',          { headers: hdrs }),
-      fetch(logBase + '&action=bulk_import_contributions',   { headers: hdrs }),
-      fetch(logBaseDeleted + '&action=contribution_deleted',        { headers: hdrs }),
-      fetch(logBaseDeleted + '&action=bulk_contributions_deleted',  { headers: hdrs }),
-      fetch(logBase + '&action=contribution_updated',        { headers: hdrs }),
+      breeze.auditLog({ details: 1, limit: 10000, start, end, action: 'contribution_added' }),
+      breeze.auditLog({ details: 1, limit: 10000, start, end, action: 'bulk_import_contributions' }),
+      breeze.auditLog({ details: 1, limit: 10000, start, end: today, action: 'contribution_deleted' }),
+      breeze.auditLog({ details: 1, limit: 10000, start, end: today, action: 'bulk_contributions_deleted' }),
+      breeze.auditLog({ details: 1, limit: 10000, start, end, action: 'contribution_updated' }),
     ]);
     if (!logRes1.ok) return json({ error: `Breeze log API error (contribution_added): ${logRes1.status}` }, 502);
     let entries1, entries2 = [], entries3 = [], entries4 = [], entries5 = [];
@@ -3733,8 +3690,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       // range with limit=10000 was silently truncating early-year entries — a church
       // with 15,000+ all-time contributions loses ~2025-01 entries entirely.
       // A single year has ~3,000 contributions, safely under the 10,000 limit.
-      const glUrl = `https://${subdomain}.breezechms.com/api/giving/list?start=${lateStart}&end=${end}&details=1&limit=10000`;
-      const glRes = await fetch(glUrl, { headers: hdrs });
+      const glRes = await breeze.givingList({ start: lateStart, end, details: 1, limit: 10000 });
       if (glRes.ok) {
         const gl = await glRes.json();
         if (Array.isArray(gl)) {
@@ -4000,7 +3956,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         try {
           // Try GET /api/funds/{id} first
           let name = '';
-          const r1 = await fetch(`https://${subdomain}.breezechms.com/api/funds/${fid}`, { headers: hdrs });
+          const r1 = await breeze.fund(fid);
           if (r1.ok) {
             const raw1 = await r1.text();
             if (raw1.trim()) {
@@ -4010,7 +3966,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
           }
           // Fallback: GET /api/giving/list?fund_id={id}&limit=1 — harvest name from a sample contribution
           if (!name) {
-            const r2 = await fetch(`https://${subdomain}.breezechms.com/api/giving/list?fund_id=${fid}&limit=1`, { headers: hdrs });
+            const r2 = await breeze.givingList({ fund_id: fid, limit: 1 });
             if (r2.ok) {
               const raw2 = await r2.text();
               if (raw2.trim()) {
@@ -4076,7 +4032,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
         await Promise.allSettled([...lateFundIds].map(async fid => {
           if (!/^\d+$/.test(fid)) return;
           try {
-            const r = await fetch(`https://${subdomain}.breezechms.com/api/funds/${fid}`, { headers: hdrs });
+            const r = await breeze.fund(fid);
             if (r.ok) {
               const fd = await r.json();
               const name = fd?.name || fd?.fund_name || (Array.isArray(fd) && fd[0]?.name) || '';
@@ -4443,10 +4399,8 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
   // Fetches /api/funds from Breeze and renames any local funds whose name
   // still starts with "Breeze Fund " to the real Breeze fund name.
   if (seg === 'import/fix-fund-names' && method === 'POST') { try {
-    const subdomain = env.BREEZE_SUBDOMAIN;
-    const apiKey    = env.BREEZE_API_KEY;
-    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
-    const hdrs = { 'Api-key': apiKey };
+    const breeze = makeBreezeClient(env);
+    if (!breeze) return json({ error: 'Breeze not configured' }, 503);
 
     // Fetch real fund names from Breeze
     const breezeFundNames = {};
@@ -4454,7 +4408,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     let rawBody = '';
     let httpStatus = 0;
     try {
-      const fRes = await fetch(`https://${subdomain}.breezechms.com/api/funds`, { headers: hdrs });
+      const fRes = await breeze.funds();
       httpStatus = fRes.status;
       rawBody = await fRes.text();
       if (fRes.ok) {
@@ -4484,10 +4438,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       try {
         const today = new Date().toISOString().slice(0, 10);
         const fiveYrsAgo = (new Date().getFullYear() - 5) + '-01-01';
-        const glRes = await fetch(
-          `https://${subdomain}.breezechms.com/api/giving/list?start=${fiveYrsAgo}&end=${today}&details=1&limit=100`,
-          { headers: hdrs }
-        );
+        const glRes = await breeze.givingList({ start: fiveYrsAgo, end: today, details: 1, limit: 100 });
         if (glRes.ok) {
           const glRaw = await glRes.text();
           let gl = null; try { gl = glRaw.trim() ? JSON.parse(glRaw) : null; } catch {}
@@ -4519,7 +4470,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     if (stillUnresolved.length > 0) {
       await Promise.allSettled(stillUnresolved.map(async f => {
         try {
-          const r = await fetch(`https://${subdomain}.breezechms.com/api/funds/${f.breeze_id}`, { headers: hdrs });
+          const r = await breeze.fund(f.breeze_id);
           if (!r.ok) return;
           const raw = await r.text();
           if (!raw.trim()) return;
@@ -4567,15 +4518,13 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
 
   // ── Breeze Debug ─────────────────────────────────────────────────
   if (seg === 'import/breeze-debug' && method === 'GET') {
-    const subdomain = env.BREEZE_SUBDOMAIN;
-    const apiKey    = env.BREEZE_API_KEY;
-    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
-    const hdrs = { 'Api-key': apiKey };
+    const breeze = makeBreezeClient(env);
+    if (!breeze) return json({ error: 'Breeze not configured' }, 503);
     // Fetch profile field definitions
-    const profileRes = await fetch(`https://${subdomain}.breezechms.com/api/profile`, { headers: hdrs });
+    const profileRes = await breeze.profile();
     let profileFields = []; try { profileFields = await profileRes.json(); } catch {}
     // Fetch 50 people and skip organizations (no last_name)
-    const pRes = await fetch(`https://${subdomain}.breezechms.com/api/people?details=1&limit=50&offset=0`, { headers: hdrs });
+    const pRes = await breeze.people('details=1&limit=50&offset=0');
     if (!pRes.ok) return json({ error: `Breeze API error: ${pRes.status}` }, 502);
     let people; try { people = await pRes.json(); } catch { return json({ error: 'Invalid JSON' }, 502); }
     const members = (people || []).filter(p => p.last_name && p.last_name.trim());
@@ -4604,7 +4553,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // Confirm tag list endpoint
     const tagResults = {};
     try {
-      const tr = await fetch(`https://${subdomain}.breezechms.com/api/tags/list_tags`, { headers: hdrs });
+      const tr = await breeze.tags();
       const txt = await tr.text();
       let parsed; try { parsed = JSON.parse(txt); } catch {}
       tagResults['list_tags'] = { status: tr.status, count: Array.isArray(parsed) ? parsed.length : 0, sample: Array.isArray(parsed) ? parsed.slice(0,3) : null, note: 'tag-to-person assignments not available in Breeze REST API' };
@@ -4617,7 +4566,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // If none found in first 50 people, fetch one more page
     if (!familyMember) {
       try {
-        const pr2 = await fetch(`https://${subdomain}.breezechms.com/api/people?details=1&limit=50&offset=50`, { headers: hdrs });
+        const pr2 = await breeze.people('details=1&limit=50&offset=50');
         const p2 = await pr2.json();
         for (const m of (p2||[])) {
           if (m.last_name && Array.isArray(m.family) && m.family.length > 0) { familyMember = m; break; }
@@ -4632,15 +4581,14 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
   //   phase=list  → fetch all tags from Breeze, upsert locally, return tag list
   //   phase=sync  → clear + re-sync ONE tag's members (called once per tag by frontend)
   if (seg === 'import/breeze-sync-tags' && method === 'POST') { try {
-    const subdomain = env.BREEZE_SUBDOMAIN;
-    const apiKey    = env.BREEZE_API_KEY;
-    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured' }, 503);
+    const breeze = makeBreezeClient(env);
+    if (!breeze) return json({ error: 'Breeze not configured' }, 503);
     let b = {}; try { b = await req.json(); } catch {}
     const phase = b.phase || 'list';
 
     if (phase === 'list') {
       // Fetch all tags from Breeze and upsert records. Returns tag list for frontend to iterate.
-      const tagRes = await fetch(`https://${subdomain}.breezechms.com/api/tags/list_tags`, { headers: { 'Api-key': apiKey } });
+      const tagRes = await breeze.tags();
       if (!tagRes.ok) return json({ error: `Breeze API error: ${tagRes.status}` }, 502);
       let rawTags; try { rawTags = await tagRes.json(); } catch { return json({ error: 'Invalid JSON from Breeze' }, 502); }
       const allBreezeTags = Array.isArray(rawTags) ? rawTags : [];
@@ -4687,10 +4635,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
       while (true) {
         let memText = '';
         try {
-          const memRes = await fetch(
-            `https://${subdomain}.breezechms.com/api/people?filter_json=${filterJson}&limit=${tagLimit}&offset=${tagOffset}`,
-            { headers: { 'Api-key': apiKey } }
-          );
+          const memRes = await breeze.people(`filter_json=${filterJson}&limit=${tagLimit}&offset=${tagOffset}`);
           memText = await memRes.text();
         } catch { break; }
         if (!memText || !memText.trim()) break;
@@ -4730,14 +4675,12 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
   // Returns detailed diagnostics: which profile fields matched, raw Breeze values,
   // and what was written to the database — useful for debugging field-mapping issues.
   if (seg === 'import/breeze-sync-person' && method === 'POST') { try {
-    const subdomain = env.BREEZE_SUBDOMAIN;
-    const apiKey    = env.BREEZE_API_KEY;
-    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured (BREEZE_SUBDOMAIN / BREEZE_API_KEY missing)' }, 503);
+    const breeze = makeBreezeClient(env);
+    if (!breeze) return json({ error: 'Breeze not configured (BREEZE_SUBDOMAIN / BREEZE_API_KEY missing)' }, 503);
+    const subdomain = breeze.subdomain; // needed for photo CDN URL construction below
     let b = {}; try { b = await req.json(); } catch {}
     const breezeId = String(b.breeze_id || '').trim();
     if (!breezeId) return json({ error: 'breeze_id is required' }, 400);
-
-    const hdrs = { 'Api-key': apiKey };
 
     // Fetch the individual person from Breeze.
     // Try /api/people/{id}?details=1 first (standard RESTful form).
@@ -4746,7 +4689,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     let p = null;
     let fetchDebug = {};
     {
-      const pRes = await fetch(`https://${subdomain}.breezechms.com/api/people/${breezeId}?details=1`, { headers: hdrs });
+      const pRes = await breeze.person(breezeId);
       fetchDebug.single_status = pRes.status;
       if (pRes.ok) {
         let raw; try { raw = await pRes.json(); } catch { raw = null; }
@@ -4762,10 +4705,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // If individual fetch returned no usable details, try the list endpoint filtered by Breeze ID.
     // This is the same call as the bulk import and is known to include details.
     if (!p || Object.keys(p.details || {}).length === 0) {
-      const listRes = await fetch(
-        `https://${subdomain}.breezechms.com/api/people?details=1&limit=1&filter_json=${encodeURIComponent(JSON.stringify({person_id:breezeId}))}`,
-        { headers: hdrs }
-      );
+      const listRes = await breeze.people(`details=1&limit=1&filter_json=${encodeURIComponent(JSON.stringify({person_id:breezeId}))}`);
       fetchDebug.list_status = listRes.status;
       if (listRes.ok) {
         let listRaw; try { listRaw = await listRes.json(); } catch { listRaw = null; }
@@ -4779,7 +4719,7 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
     // Fetch profile field definitions to discover field IDs
     let profileFields = [];
     try {
-      const pr = await fetch(`https://${subdomain}.breezechms.com/api/profile`, { headers: hdrs });
+      const pr = await breeze.profile();
       if (pr.ok) profileFields = await pr.json();
     } catch {}
 
@@ -5035,23 +4975,20 @@ h1{font-size:20pt;margin:0 0 3px;font-family:Georgia,serif;}
 
   // ── Breeze Import ────────────────────────────────────────────────
   if (seg === 'import/breeze' && method === 'POST') { try {
-    const subdomain = env.BREEZE_SUBDOMAIN;
-    const apiKey    = env.BREEZE_API_KEY;
-    if (!subdomain || !apiKey) return json({ error: 'Breeze not configured (BREEZE_SUBDOMAIN / BREEZE_API_KEY missing)' }, 503);
+    const breeze = makeBreezeClient(env);
+    if (!breeze) return json({ error: 'Breeze not configured (BREEZE_SUBDOMAIN / BREEZE_API_KEY missing)' }, 503);
+    const subdomain = breeze.subdomain; // needed for photo CDN URL construction below
     let b = {}; try { b = await req.json(); } catch {}
     const offset = parseInt(b.offset || 0);
     const limit  = 100;
-    const res = await fetch(
-      `https://${subdomain}.breezechms.com/api/people?details=1&limit=${limit}&offset=${offset}`,
-      { headers: { 'Api-key': apiKey } }
-    );
+    const res = await breeze.people(`details=1&limit=${limit}&offset=${offset}`);
     if (!res.ok) return json({ error: `Breeze API error: ${res.status}` }, 502);
     let people; try { people = await res.json(); } catch { return json({ error: 'Breeze returned invalid JSON' }, 502); }
     if (!Array.isArray(people)) return json({ done: true, imported: 0, updated: 0, errors: [] });
     // Dynamically discover field IDs from /api/profile
     let profileFields = [];
     try {
-      const pr = await fetch(`https://${subdomain}.breezechms.com/api/profile`, { headers: { 'Api-key': apiKey } });
+      const pr = await breeze.profile();
       if (pr.ok) profileFields = await pr.json();
     } catch {}
     // Flatten all fields from all sections (handles Breeze sub-sections up to 2 levels deep)

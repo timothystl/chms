@@ -1710,7 +1710,7 @@ ${getSchedulerInline()}
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-24-v112';
+var DEPLOY_VERSION = '2026-04-24-v114';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -2085,15 +2085,6 @@ function toggleFdMissing(v, on) {
   if (on && idx === -1) peopleFilter.missingFields.push(v);
   else if (!on && idx !== -1) peopleFilter.missingFields.splice(idx, 1);
   loadPeople(true);
-  renderActiveFilterChips();
-  updateFilterBadge();
-  updateFdCount();
-}
-// Keep legacy setFdTag for any existing callers
-function setFdTag(v) {
-  peopleFilter.tagIds = v ? [String(v)] : [];
-  loadPeople(true);
-  renderFilterDrawer();
   renderActiveFilterChips();
   updateFilterBadge();
   updateFdCount();
@@ -4294,7 +4285,6 @@ function syncPersonFromBreeze(breezeId, personId) {
     body: JSON.stringify({ breeze_id: breezeId })
   }).then(function(r) {
     if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
-    console.log('[Breeze Sync] Full response:', r);
     if (r && r.ok) {
       alert(r.summary || 'Synced from Breeze.');
       // Reload the profile to show updated values
