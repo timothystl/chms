@@ -135,7 +135,7 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 ### Phase 3 — Infrastructure Safety
 **Goal:** Establish a staging environment and clean up the Worker name before any further risky changes.
 
-- [ ] **IN9** — Add `[env.staging]` block to `wrangler.toml` with its own D1 DB; add `staging.volunteer.timothystl.org` (or `*.workers.dev`) route
+- [ ] **IN9** — `[env.staging]` block added to `wrangler.toml` (v115). Needs manual steps to complete: (1) `wrangler d1 create tlc-volunteer-db-staging` → fill in `database_id`, (2) `wrangler kv:namespace create RSVP_STORE --env staging` → fill in `id`, (3) add all 8 secrets with `--env staging`, (4) `wrangler d1 migrations apply tlc-volunteer-db-staging --remote --env staging`, (5) `wrangler deploy --env staging`. URL will be `https://breeze-proxy-worker-staging.<subdomain>.workers.dev`.
 - [ ] **IN1** — Rename Worker: change `name=` in `wrangler.toml` → `tlc-chms`; `wrangler deploy`; re-add all secrets; move custom domain route; verify cron; delete old Worker. Brief ≤1 min downtime.
 
 **Done when:** Staging URL exists and responds; prod Worker is named `tlc-chms`.
