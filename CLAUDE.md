@@ -132,13 +132,13 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ---
 
-### Phase 3 — Infrastructure Safety
+### Phase 3 — Infrastructure Safety ✅ DONE 2026-04-24
 **Goal:** Establish a staging environment and clean up the Worker name before any further risky changes.
 
 - [x] **IN9** — Staging environment live at `https://breeze-proxy-worker-staging.timothystl.workers.dev/chms`. Separate `wrangler.staging.toml` config (avoids wrangler v4 route inheritance bug). D1: `tlc-volunteer-db-staging`, KV: staging RSVP_STORE, shared R2, crons disabled. Deploy: `wrangler deploy --config wrangler.staging.toml`. Done 2026-04-24.
-- [ ] **IN1** — Rename Worker: change `name=` in `wrangler.toml` → `tlc-chms`; `wrangler deploy`; re-add all secrets; move custom domain route; verify cron; delete old Worker. Brief ≤1 min downtime.
+- [x] **IN1** — Worker renamed to `tlc-chms`. Added `chms.timothystl.org` as dedicated ChMS subdomain (root serves app directly; `volunteer.timothystl.org/chms` redirects). `tlc-newsletter-admin` service binding updated to `tlc-chms`. Old `breeze-proxy-worker` deleted. Done 2026-04-24.
 
-**Done when:** Staging URL exists and responds; prod Worker is named `tlc-chms`.
+**Done when:** Staging URL exists and responds; prod Worker is named `tlc-chms`. ✅ Phase 3 complete 2026-04-24.
 
 ---
 
