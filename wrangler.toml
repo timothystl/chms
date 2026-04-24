@@ -1,4 +1,4 @@
-name = "breeze-proxy-worker"
+name = "tlc-chms"
 main = "tlc-volunteer-worker.js"
 compatibility_date = "2024-01-01"
 
