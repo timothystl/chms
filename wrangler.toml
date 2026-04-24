@@ -53,12 +53,12 @@ name = "breeze-proxy-worker-staging"
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "tlc-volunteer-db-staging"
-database_id = "REPLACE_WITH_STAGING_DB_ID"
+database_id = "d1d2a73f-67f2-4780-8b96-c97ec6bc2df3"
 migrations_dir = "migrations"
 
 [[env.staging.kv_namespaces]]
 binding = "RSVP_STORE"
-id = "REPLACE_WITH_STAGING_KV_ID"
+id = "561f364cf1104424bf5f8377ae9d5a32"
 
 [[env.staging.r2_buckets]]
 binding = "PHOTOS"
