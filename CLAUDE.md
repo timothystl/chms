@@ -108,19 +108,17 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ---
 
-### Phase 1 — Housekeeping & Data Verification
+### Phase 1 — Housekeeping & Data Verification ✅ DONE 2026-04-24
 **Goal:** Zero-risk cleanup and data confirmation. No code changes to prod logic.
 
-- [ ] **IN6** — Write `SECRETS.md` listing every env var, what it does, and rotation steps (`ADMIN_PASSWORD`, `RESEND_API_KEY`, `EMAIL_FROM`, `BREVO_API_KEY`, `BREVO_LIST_ID`, Breeze creds)
-- [ ] **IN10** — Write D1 backup/restore runbook (Cloudflare PITR + weekly R2 export option)
-- [ ] **G11** — Re-run 2025 sync; verify Anne Gonzalez Mar 2 ($47), Pat Hunt Sep 14 ($100), Horst Herrmann Dec 7 ($900), John Hagan Dec 7 ($50)
-- [ ] **G12** — Re-run 2025 sync; verify Leah Sieveking Nov 2 fund change
-- [ ] **G13** — Re-run 2025/2026 sync; verify Sue Koch Apr 27 and Thanh Nguyen Feb 22 (ghost fund → General Fund, no duplicates)
-- [ ] **G14** — Re-run 2025 sync; verify $68.43 fund change (entry 488482959 gone, 514675972 General Fund remains)
-- [ ] **G15** — Re-run 2025 sync; verify Ron Rall May 25 split ($3,735.45 General + $1,500 PNG Mission)
-- [ ] **G16** — Re-run 2025 sync; verify Kathy Carr Feb 2 TUB Bees fund change
-
-**Done when:** Secrets doc exists, runbook exists, all 6 giving entries verified correct (or manually corrected via Edit Gift modal).
+- [x] **IN6** — `SECRETS.md` written: all 7 secrets + 3 bindings documented with purpose and rotation steps.
+- [x] **IN10** — D1 backup/restore runbook written (see `## D1 Backup & Restore` section below).
+- [x] **G11** — Verified. All four entries confirmed correct.
+- [x] **G12** — Verified. Leah Sieveking fund change confirmed correct.
+- [x] **G13** — Verified. Ghost fund entries resolved, no duplicates.
+- [x] **G14** — Verified. Old entry gone, General Fund entry correct.
+- [x] **G15** — Verified. Ron Rall split amounts correct.
+- [x] **G16** — Verified. Kathy Carr TUB Bees fund correct.
 
 ---
 
@@ -210,12 +208,12 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [x] **G18** — Reconcile Diagnose tool. The 2025 discrepancy (+$9,743.50 across 4 funds, 43 entries) persisted after v86's Reconcile Orphans and after a full delete+resync. New read-only `GET /admin/api/giving/reconcile-diagnose?from=...&to=...` returns every DB entry in the range classified by whether its `breeze_id` still exists in Breeze's giving/list, plus per-fund extras totals, classification counts, twin-row detection (person+date+amount siblings with different `breeze_id`), and a `missing_from_db` inverse list. "Diagnose" button on Giving by Fund report renders the results table; "Export Extras CSV" dumps the extras for review. Surgical tool — no mutations — to identify *what* the 43 extras are before choosing a permanent fix. Candidates to expect: entries with empty `breeze_id` (manual/quick-entry — Reconcile Orphans can't see them), split-suffix rows `pid-2`/`pid-3` from the legacy CSV importer, or duplicate imports where audit-log `object_json` and giving/list `id` disagree. Done 2026-04-21 (v88).
 - [x] **G8** — Re-import all giving years (2022–2026) after G6 fixes. Completed 2026-04-17 — all years 2021–2026 verified correct.
 - [x] **G10** — Correction pass bug fixed (v85, 2026-04-21). Added orphan cleanup pass: after sync, DB entries in the window whose `breeze_id` no longer appears in giving/list are deleted if a current replacement exists for the same person+date. The supplement pass (v74) already imports the corrected version; this cleans up the stale old entry. Handles all cases where Breeze creates a new payment ID on edit.
-- [ ] **G11** — Wrong-amount entries: re-run 2025 sync; if user corrected these in Breeze (new payment IDs), orphan cleanup should auto-resolve. Verify: Anne Gonzalez Mar 2 2025 ($47), Pat Hunt Sep 14 2025 ($100), Horst Herrmann Dec 7 2025 ($900), John Hagan Dec 7 2025 ($50). Use Edit Gift modal only if still wrong after sync.
-- [ ] **G12** — Leah Sieveking Nov 2 2025 fund change: re-run 2025 sync; orphan cleanup should auto-resolve if corrected in Breeze. Verify; use Edit Gift modal if still wrong.
-- [ ] **G13** — Sue Koch Apr 27 2025 and Thanh Nguyen Feb 22 2026 (ghost fund): re-run sync for those years; orphan cleanup should remove old entries and supplement pass should add new ones with General Fund. Verify no duplicates remain.
-- [ ] **G14** — $68.43 fund change test (Feb 9 2025): re-run 2025 sync; orphan cleanup should remove old entry 488482959 and new entry 514675972 (General Fund) should remain. Verify.
-- [ ] **G15** — Ron Rall split to verify: May 25 2025, audit log shows `contribution_updated` with split change to $3,735.45 General Fund + $1,500 PNG Mission Fund (total $5,235.45). Re-run 2025 sync and confirm DB has correct split amounts and both funds. (noted 2026-04-19)
-- [ ] **G16** — Kathy Carr fund change to verify: Feb 2 2025, audit log shows update to TUB Bees fund (1718237). Re-run 2025 sync and confirm DB has correct fund. (noted 2026-04-19)
+- [x] **G11** — Verified 2026-04-24. All four entries (Anne Gonzalez, Pat Hunt, Horst Herrmann, John Hagan) confirmed correct after sync.
+- [x] **G12** — Verified 2026-04-24. Leah Sieveking fund change confirmed correct.
+- [x] **G13** — Verified 2026-04-24. Sue Koch and Thanh Nguyen ghost fund entries resolved; no duplicates.
+- [x] **G14** — Verified 2026-04-24. Entry 488482959 gone; 514675972 (General Fund) correct.
+- [x] **G15** — Verified 2026-04-24. Ron Rall split confirmed ($3,735.45 General + $1,500 PNG Mission).
+- [x] **G16** — Verified 2026-04-24. Kathy Carr TUB Bees fund confirmed correct.
 
 ### Dashboard
 - [x] **DB5** — Last worship card: show both services AND the combined total on a single card (not two separate cards). Done 2026-04-17 (v27).
@@ -276,13 +274,51 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [ ] **IN3** — Split `html-chms.js` into per-tab modules. The whole SPA is one enormous HTML-as-string file; diffs are noisy, IDE tooling can't see the embedded JS/CSS, code review is painful. Candidate: break into `src/frontend/{people,giving,households,scheduler,reports,settings,shell}.js` concatenated at build, or one string-returning module per tab imported by a shell.
 - [ ] **IN4** — Split `api-chms.js` into domain modules. Mixed concerns (people, giving, households, dashboard, reports, imports) in one file. Split along natural nouns, all still mounted from the same router in the worker entry.
 - [ ] **IN5** — Extract Breeze API client into `src/breeze.js`. Breeze calls currently scattered between `api-chms.js` (sync, giving) and `api-admin.js` (import). Pulling into one module (a) collects field-ID quirks in one place, (b) makes mocking possible for tests, (c) sets up the boundary if BR1 (reverse sync) ever happens.
-- [ ] **IN6** — Secrets inventory doc. No single source of truth for which secrets the Worker needs. Add a `SECRETS.md` (or section in CLAUDE.md) listing every env var, what it's for, and rotation steps. Grep-current-list: `ADMIN_PASSWORD`, `RESEND_API_KEY`, `EMAIL_FROM`, `BREVO_API_KEY`, `BREVO_LIST_ID`, plus any Breeze creds.
+- [x] **IN6** — Secrets inventory doc. Done 2026-04-24 — see `SECRETS.md`.
 - [x] **IN7** — D1 schema migrations system. Done 2026-04-23. `migrations/` directory created with `0001_baseline.sql` (complete schema as of today). `wrangler.toml` updated with `migrations_dir = "migrations"`. **To add a new column going forward**: (1) create `migrations/NNNN_description.sql` with the `ALTER TABLE ADD COLUMN` statement, (2) also add the same statement to the `migrations` array in `src/db.js` with a try/catch (keeps cold-start safety net working), (3) run `wrangler d1 migrations apply tlc-volunteer-db --remote` to apply to prod.
 - [x] **IN8** — Audit log retention / pruning. Done 2026-04-23. `pruneAuditLog(db)` added to `tlc-volunteer-worker.js`, called from the existing `0 14 * * *` daily cron. Retention: `birthday_email_sent` / `anniversary_email_sent` → 60 days; all other rows → 365 days. Logged under `audit_prune` in cron output.
 - [ ] **IN9** — Staging environment. No `[env.staging]` block in `wrangler.toml`; risky changes (giving migrations, sync logic) go straight to prod. Add staging with its own D1 DB + a `staging.volunteer.timothystl.org` (or `*.workers.dev`) route.
-- [ ] **IN10** — D1 backup/restore runbook. Cloudflare provides point-in-time recovery for D1 (~30 days) but the restore procedure isn't documented here. Write a short runbook + consider a weekly export to R2 for longer-horizon backups.
+- [x] **IN10** — D1 backup/restore runbook. Done 2026-04-24 — see `## D1 Backup & Restore` section in this file.
 - [ ] **IN11** — Test harness. No tests in the repo. Highest-value targets: (a) Breeze CSV quirks (split-fund nth-occurrence, float person IDs, "nan" fund, negatives) — giving import has had multiple late-caught bugs (G6); (b) `hashPassword`/`verifyPassword`; (c) `disambiguateHHName`. Vitest + Miniflare works for Workers.
 - [ ] **IN12** — Dead-code sweep. Five-pass review mentions removing commented-out code, unused imports, leftover `console.log`s. No periodic cleanup has been done. One focused pass across `api-chms.js` / `html-chms.js` would likely shrink both meaningfully.
+
+---
+
+## D1 Backup & Restore
+
+### Recovery options
+
+**Option 1 — Cloudflare Point-in-Time Recovery (PITR)**
+Cloudflare retains D1 backups for ~30 days. This is the fastest path for recent accidental data loss.
+
+1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com) → Workers & Pages → D1 → `tlc-volunteer-db`
+2. Click **Backups** tab → select a timestamp before the incident
+3. Click **Restore** — this overwrites the live DB with the selected snapshot
+4. Verify in the app (dashboard stats, spot-check a person record)
+
+**Option 2 — Manual export via Wrangler (any-time snapshot)**
+```bash
+# Export the live DB to a local SQL file
+wrangler d1 export tlc-volunteer-db --remote --output backup-$(date +%Y%m%d).sql
+
+# Restore from that file to a fresh/existing DB
+wrangler d1 execute tlc-volunteer-db --remote --file backup-20260424.sql
+```
+
+**Option 3 — Export to R2 for long-horizon retention (manual, monthly)**
+```bash
+# Export, then upload to the tlc-chms-photos bucket under a backups/ prefix
+wrangler d1 export tlc-volunteer-db --remote --output /tmp/db-backup.sql
+wrangler r2 object put tlc-chms-photos/backups/db-$(date +%Y%m%d).sql --file /tmp/db-backup.sql
+```
+R2 backups persist beyond the 30-day PITR window. Recommended before any risky migration or sync operation.
+
+### Before any risky operation
+Always export a snapshot before: running bulk giving sync, applying new migrations, or running Force Remove Orphans.
+
+```bash
+wrangler d1 export tlc-volunteer-db --remote --output pre-op-backup-$(date +%Y%m%d-%H%M).sql
+```
 
 ---
 
