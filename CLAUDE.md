@@ -8,7 +8,7 @@ Read this at the start of every session. Update NOTES.md (and this file if neede
 
 Church Management System (ChMS) for Timothy Lutheran Church. Built on **Cloudflare Workers + D1 (SQLite)**. Single-page app served from `src/html-chms.js` (renders as one large HTML string). API routes live in `src/api-chms.js` (people, giving, households, dashboard) and `src/api-admin.js` (auth, users, scheduler).
 
-**Live at:** `https://[subdomain].timothystl.org/chms`
+**Live at:** `https://chms.timothystl.org` (old `volunteer.timothystl.org/chms` redirects here)
 
 ---
 

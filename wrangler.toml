@@ -14,6 +14,10 @@ pattern = "volunteer.timothystl.org/*"
 zone_name = "timothystl.org"
 custom_domain = false
 
+[[routes]]
+pattern = "chms.timothystl.org"
+custom_domain = true
+
 [[d1_databases]]
 binding = "DB"
 database_name = "tlc-volunteer-db"
