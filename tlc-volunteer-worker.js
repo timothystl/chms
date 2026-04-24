@@ -93,7 +93,13 @@ async function _fetch(req, env) {
       const fRes = await fetch('https://raw.githubusercontent.com/timothystl/volunteer/main/favicon.svg', { cf: { cacheEverything: true, cacheTtl: 86400 } });
       return new Response(fRes.ok ? fRes.body : '', { status: fRes.ok ? 200 : 404, headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' } });
     }
-    if ((path === '/' || path === '/index.html') && method === 'GET') return html(PUBLIC_HTML);
+    if ((path === '/' || path === '/index.html') && method === 'GET') {
+      if (isChmsHost) {
+        if (!await isAuthed(req, env)) return html(LOGIN_HTML);
+        return html(CHMS_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+      }
+      return html(PUBLIC_HTML);
+    }
     if (path === '/api/events' && method === 'GET') return handleApiEvents(env);
     if (path === '/volunteer/signup' && method === 'POST') {
       try {
