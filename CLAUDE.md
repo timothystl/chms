@@ -102,6 +102,92 @@ Full detail in `NOTES.md`. Summary:
 
 ---
 
+## Development Phases
+
+Use this as the session-to-session roadmap. Complete one phase fully before starting the next. Each phase has a clear goal, bounded scope, and "done" criteria.
+
+---
+
+### Phase 1 — Housekeeping & Data Verification
+**Goal:** Zero-risk cleanup and data confirmation. No code changes to prod logic.
+
+- [ ] **IN6** — Write `SECRETS.md` listing every env var, what it does, and rotation steps (`ADMIN_PASSWORD`, `RESEND_API_KEY`, `EMAIL_FROM`, `BREVO_API_KEY`, `BREVO_LIST_ID`, Breeze creds)
+- [ ] **IN10** — Write D1 backup/restore runbook (Cloudflare PITR + weekly R2 export option)
+- [ ] **G11** — Re-run 2025 sync; verify Anne Gonzalez Mar 2 ($47), Pat Hunt Sep 14 ($100), Horst Herrmann Dec 7 ($900), John Hagan Dec 7 ($50)
+- [ ] **G12** — Re-run 2025 sync; verify Leah Sieveking Nov 2 fund change
+- [ ] **G13** — Re-run 2025/2026 sync; verify Sue Koch Apr 27 and Thanh Nguyen Feb 22 (ghost fund → General Fund, no duplicates)
+- [ ] **G14** — Re-run 2025 sync; verify $68.43 fund change (entry 488482959 gone, 514675972 General Fund remains)
+- [ ] **G15** — Re-run 2025 sync; verify Ron Rall May 25 split ($3,735.45 General + $1,500 PNG Mission)
+- [ ] **G16** — Re-run 2025 sync; verify Kathy Carr Feb 2 TUB Bees fund change
+
+**Done when:** Secrets doc exists, runbook exists, all 6 giving entries verified correct (or manually corrected via Edit Gift modal).
+
+---
+
+### Phase 2 — Code Quality Prep
+**Goal:** Reduce noise and isolate Breeze logic before the big refactor. No behavior changes.
+
+- [ ] **IN12** — Dead-code sweep: remove commented-out code, unused variables, leftover `console.log`s from `api-chms.js` and `html-chms.js`
+- [ ] **IN5** — Extract Breeze API client into `src/breeze.js` (consolidates field-ID quirks, enables mocking for IN11)
+
+**Done when:** No `console.log` artifacts in prod files; all Breeze HTTP calls live in `src/breeze.js`.
+
+---
+
+### Phase 3 — Infrastructure Safety
+**Goal:** Establish a staging environment and clean up the Worker name before any further risky changes.
+
+- [ ] **IN9** — Add `[env.staging]` block to `wrangler.toml` with its own D1 DB; add `staging.volunteer.timothystl.org` (or `*.workers.dev`) route
+- [ ] **IN1** — Rename Worker: change `name=` in `wrangler.toml` → `tlc-chms`; `wrangler deploy`; re-add all secrets; move custom domain route; verify cron; delete old Worker. Brief ≤1 min downtime.
+
+**Done when:** Staging URL exists and responds; prod Worker is named `tlc-chms`.
+
+---
+
+### Phase 4 — Refactoring
+**Goal:** Break the two monolith files into maintainable modules. No behavior changes.
+
+- [ ] **IN4** — Split `api-chms.js` into domain modules: `src/api-people.js`, `src/api-giving.js`, `src/api-households.js`, `src/api-reports.js`, `src/api-import.js` — all still mounted from worker entry
+- [ ] **IN3** — Split `html-chms.js` into per-tab frontend modules: `src/frontend/{shell,people,giving,households,scheduler,reports,settings}.js` concatenated at build (or one string-returning module per tab)
+
+**Done when:** `html-chms.js` and `api-chms.js` no longer exist as monoliths; IDE can syntax-highlight and navigate the embedded JS/CSS.
+
+---
+
+### Phase 5 — Test Harness
+**Goal:** Regression coverage for the highest-risk logic, now that code is modular enough to test.
+
+- [ ] **IN11** — Vitest + Miniflare setup; priority test targets:
+  - Breeze CSV importer quirks (split-fund nth-occurrence, float person IDs, `"nan"` fund, negatives)
+  - `hashPassword` / `verifyPassword` round-trip
+  - `disambiguateHHName` edge cases (same last name, missing head, org names)
+  - Giving sync orphan cleanup logic
+
+**Done when:** `npm test` passes; CI runs tests on every PR.
+
+---
+
+### Phase 6 — New Features
+**Goal:** Add capabilities that have been scoped and are ready to build.
+
+- [ ] **G3** — Gift entry workflow improvements (user has detail — schedule a dedicated scoping session first)
+- [ ] **R4** — Member tenure report: check if `member_since`/`join_date` field exists in Breeze mapping; add report if data is available
+- [ ] **BR1** — Reverse sync (app → Breeze): scope to narrow workflows first (new person push, walk-in gift batch push); needs scoping conversation before implementation
+
+**Done when:** Each item either shipped or formally deferred with a reason.
+
+---
+
+### Phase 7 — Large Features (needs scoping first)
+**Goal:** Substantial new capabilities that require design decisions before coding starts.
+
+- [ ] **R6** — Per-person attendance tracking: schema (attendance record per person per service) + check-in UI — dedicated scoping session required
+- [ ] **IN2** — Decide on app merge strategy: Option C (absorb scheduler fully) vs Option B (thin people-API); audit monorepo vs split-repo; document decision in CLAUDE.md
+
+**Done when:** Each item either has a design doc / scoping decision logged here, or is in active implementation.
+
+---
+
 ## Queued Items (add new ones here during sessions)
 
 <!-- Add items here as they come up. Format: - [ ] Description (noted YYYY-MM-DD) -->
@@ -154,12 +240,12 @@ Full detail in `NOTES.md`. Summary:
 - [x] **AT3** — Attendance graphs: drag to resize charts. Done 2026-04-20 (v79).
 - [x] **AT4** — Year-over-year giving/attendance report: overlapping graphs to compare current year vs prior year on the same chart. Done 2026-04-20 (v79) — Giving Trend tile in Reports tab; YoY attendance was already implemented.
 - [x] **AT5** — Christmas/Easter markers on attendance chart + separate Special/Midweek bar chart. Done 2026-04-23 (v109). Easter/Christmas dashed markers on Sunday chart use `xAtAnyDate` interpolation so Dec 24/25 always render even when not Sunday. New `renderSpecialServicesChart` below the main chart shows amber (special) and purple (midweek) bars; midweek/special services excluded from Sunday average. New "+ Special" button adds `service_type=special` or `midweek` entries.
-- [ ] **AT6** — Attendance by Service report: support multi-year comparison. Currently the tile uses a date from/to range (`runAttendanceByTime`). The adjacent YoY tile uses year-checkboxes (`#rpt-att-years`). Add an option/mode toggle on Attendance by Service so users can check multiple years and see each year's service-time totals side-by-side or overlaid. Likely add a `years=` query param to `/reports/attendance-by-time` and render a grouped bar chart per service time. (noted 2026-04-22)
+- [x] **AT6** — Attendance by Service report: multi-year comparison. Date Range / Multi-Year toggle buttons on tile; year checkboxes (last 5 years, 2 most recent pre-checked); `years=` param on API runs parallel D1 queries; `renderMultiYearServiceChart` draws grouped bar chart (X = service times, one bar per year). Done 2026-04-24 (v112).
 
 ### Communications / Email
 - [x] **EM1** — Brevo newsletter sync: (1) "Add to newsletter" button on person profile → Brevo Contacts API, (2) bulk sync in Settings, (3) auto-sync on person save if email changes, (4) reconciliation view shows ChMS vs Brevo comparison with "Add All Missing" button. Done 2026-04-20 (v84).
 - [x] **EM2** — Automated birthday/anniversary emails via Resend. Daily cron (`0 14 * * *`), birthday to member, anniversary to couple (shared email → one combined email). Dedup via audit_log. Admin test buttons in Settings. Done 2026-04-20 (v83).
-- [ ] **SMS1** — SMS birthday/anniversary + bulk messaging. **Preferred provider: Brevo SMS** — already have an account, `BREVO_API_KEY` already in worker, no new signup needed (~€0.07/SMS). Alternative: Twilio (~$0.008/SMS + $1/month). Needs `sms_opt_in` field on people. (noted 2026-04-20)
+- [x] **SMS1** — Birthday/anniversary SMS via Brevo Transactional SMS. `sms_opt_in` column added to `people` (`migrations/0002_add_sms_opt_in.sql`). `normalizePhone()` (E.164), `sendBrevoSms()`, `sendBirthdayTexts()`, `sendAnniversaryTexts()` in `src/api-emails.js`. Admin test buttons in Settings. Cron sends daily alongside emails. Person edit form: SMS opt-in checkbox. Done 2026-04-24 (v112).
 
 ### Scheduler
 - [x] **SC1** — Scheduler integrated as a tab inside the ChMS SPA. `/scheduler?embedded=1` hides own header/tabs; ChMS sidebar "Scheduler" tab lazy-loads it in an iframe. Done 2026-04-21 (v92, fully working at v98).
@@ -287,5 +373,5 @@ Run through this at the end of any session before pushing, or at the start of a 
 
 ## Dev Branch
 
-Working branch: `claude/review-claude-md-f62iL`
+Working branch: `claude/review-codebase-docs-ka3vu`
 Push to this branch. Do not push directly to main.
