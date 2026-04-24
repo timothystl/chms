@@ -433,14 +433,14 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const r = await db.prepare(
       `INSERT INTO people (first_name,last_name,email,phone,address1,address2,city,state,zip,
        member_type,dob,baptism_date,confirmation_date,anniversary_date,death_date,deceased,
-       household_id,family_role,photo_url,notes,breeze_id,gender,marital_status,first_contact_date)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       household_id,family_role,photo_url,notes,breeze_id,gender,marital_status,first_contact_date,sms_opt_in)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
            b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
            b.member_type||'visitor',b.dob||'',b.baptism_date||'',
            b.confirmation_date||'',b.anniversary_date||'',b.death_date||'',b.deceased?1:0,
            b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',b.breeze_id||'',
-           b.gender||'',b.marital_status||'', firstContactDate||''
+           b.gender||'',b.marital_status||'', firstContactDate||'', b.sms_opt_in?1:0
     ).run();
     const personId = r.meta?.last_row_id;
     if (Array.isArray(b.tag_ids)) {
@@ -506,7 +506,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
          city=?,state=?,zip=?,member_type=?,dob=?,baptism_date=?,confirmation_date=?,
          anniversary_date=?,death_date=?,deceased=?,household_id=?,family_role=?,photo_url=?,notes=?,
          public_directory=?,envelope_number=?,last_seen_date=?,gender=?,marital_status=?,
-         dir_hide_address=?,dir_hide_phone=?,dir_hide_email=?,baptized=?,confirmed=? WHERE id=?`
+         dir_hide_address=?,dir_hide_phone=?,dir_hide_email=?,baptized=?,confirmed=?,sms_opt_in=? WHERE id=?`
       ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
              b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
              b.member_type||'visitor',b.dob||'',b.baptism_date||'',
@@ -515,7 +515,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
              b.public_directory!=null?(b.public_directory?1:0):1,
              b.envelope_number||'',b.last_seen_date||'',b.gender||'',b.marital_status||'',
              b.dir_hide_address?1:0, b.dir_hide_phone?1:0, b.dir_hide_email?1:0,
-             b.baptized?1:0, b.confirmed?1:0, pid
+             b.baptized?1:0, b.confirmed?1:0, b.sms_opt_in?1:0, pid
       ).run();
       if (Array.isArray(b.tag_ids)) {
         await db.prepare('DELETE FROM person_tags WHERE person_id=?').bind(pid).run();
@@ -2489,6 +2489,24 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   }
 
   if (seg === 'reports/attendance-by-time' && method === 'GET') {
+    const yearsParam = url.searchParams.get('years');
+    if (yearsParam) {
+      const years = yearsParam.split(',').map(y => y.trim()).filter(y => /^\d{4}$/.test(y)).slice(0, 10);
+      const by_time_years = {};
+      await Promise.all(years.map(async yr => {
+        const rows = (await db.prepare(
+          `SELECT service_time, service_type,
+                  MAX(service_name) as service_name,
+                  COUNT(*) as services, SUM(attendance) as total,
+                  ROUND(AVG(attendance)) as avg_attendance
+           FROM worship_services
+           WHERE attendance > 0 AND service_date BETWEEN ? AND ?
+           GROUP BY service_type, service_time ORDER BY service_type, service_time`
+        ).bind(yr + '-01-01', yr + '-12-31').all()).results || [];
+        by_time_years[yr] = rows;
+      }));
+      return json({ mode: 'multi-year', years, by_time_years });
+    }
     const from = url.searchParams.get('from') || (new Date().getFullYear() + '-01-01');
     const to   = url.searchParams.get('to')   || (new Date().getFullYear() + '-12-31');
     const rows = (await db.prepare(
@@ -2509,7 +2527,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
        WHERE service_type='sunday' AND attendance > 0 AND service_date BETWEEN ? AND ?
        GROUP BY service_date ORDER BY service_date ASC`
     ).bind(from, to).all()).results || [];
-    return json({ from, to, by_time: rows, sundays });
+    return json({ mode: 'date-range', from, to, by_time: rows, sundays });
   }
 
   // ── Attendance TSV Import ─────────────────────────────────────────

@@ -826,8 +826,18 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
         </div>
         <div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;flex:1;min-width:220px;">
           <div style="font-weight:700;font-size:.88rem;color:var(--steel-anchor);margin-bottom:6px;">&#128337; Attendance by Service</div>
-          <div class="field" style="margin:6px 0 4px;"><label>From</label><input type="date" id="rpt-att-from" name="rpt-att-from" style="font-size:.82rem;padding:4px 8px;"></div>
-          <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-att-to" name="rpt-att-to" style="font-size:.82rem;padding:4px 8px;"></div>
+          <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <button id="att-svc-mode-range" class="btn-secondary active" style="font-size:.78rem;padding:3px 10px;" onclick="setAttByServiceMode(\'range\')">Date Range</button>
+            <button id="att-svc-mode-years" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="setAttByServiceMode(\'years\')">Multi-Year</button>
+          </div>
+          <div id="att-svc-range-inputs">
+            <div class="field" style="margin:6px 0 4px;"><label>From</label><input type="date" id="rpt-att-from" name="rpt-att-from" style="font-size:.82rem;padding:4px 8px;"></div>
+            <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-att-to" name="rpt-att-to" style="font-size:.82rem;padding:4px 8px;"></div>
+          </div>
+          <div id="att-svc-years-inputs" style="display:none;">
+            <div style="font-size:.8rem;color:var(--warm-gray);margin-bottom:6px;">Select years to compare:</div>
+            <div id="rpt-att-svc-years" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px;"></div>
+          </div>
           <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runAttendanceByTime()">Run Report</button>
         </div>
       </div>
@@ -1033,6 +1043,15 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
         <button class="btn-secondary" style="font-size:.88rem;" onclick="runEmailTest('anniversary')">&#10084; Send Anniversary Emails (Today)</button>
       </div>
       <div class="import-status" id="email-test-status" style="margin-top:8px;"></div>
+    </div>
+    <div class="import-card">
+      <h3>&#128241; Automated Texts (SMS1)</h3>
+      <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Daily cron sends birthday and anniversary SMS via Brevo to members with SMS opt-in enabled and a valid phone number. Use these buttons to trigger manually or test.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-secondary" style="font-size:.88rem;" onclick="runSmsTest(\'birthday\')">&#127874; Send Birthday Texts (Today)</button>
+        <button class="btn-secondary" style="font-size:.88rem;" onclick="runSmsTest(\'anniversary\')">&#10084; Send Anniversary Texts (Today)</button>
+      </div>
+      <div class="import-status" id="sms-test-status" style="margin-top:8px;"></div>
     </div>
     <div class="import-card">
       <h3>&#127968; Household Head Assignment</h3>
@@ -1350,6 +1369,7 @@ ${getSchedulerInline()}
       <div class="field"><label>Email</label><input type="email" id="pm-email" name="pm-email"></div>
       <div class="field"><label>Phone</label><input type="tel" id="pm-phone" name="pm-phone"></div>
     </div>
+    <div style="margin:-4px 0 8px;"><label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer;"><input type="checkbox" id="pm-sms-opt-in"> Opt in to birthday &amp; anniversary texts (SMS)</label></div>
     <div class="modal-section" id="pm-addr-section">Address <span id="pm-addr-hint" style="font-weight:400;text-transform:none;">(leave blank to use household address)</span></div>
     <div class="field" style="margin-bottom:8px;"><label>Street</label><input type="text" id="pm-addr1" name="pm-addr1"></div>
     <div class="modal-2col">
@@ -1690,7 +1710,7 @@ ${getSchedulerInline()}
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-23-v111';
+var DEPLOY_VERSION = '2026-04-24-v112';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -1717,6 +1737,7 @@ var _batchSearch = '';
 var _attOrder = 'desc', _attGroupBy = 'none', _attChartMode = 'line', _attTableVisible = true, _attChartH = 210;
 var _yoyRptH = 200, _byServiceRptH = 180, _givingTrendH = 220;
 var _lastYoYRptData = null, _lastByServiceRptData = null, _lastGivingTrendData = null;
+var _attSvcMode = 'range';
 var _cropImg = null, _cropCallback = null, _cropRect = {x:0,y:0,w:0,h:0}, _cropScale = 1, _cropDrag = null;
 var _dashPrefs = null;
 var _archiveView = false;
@@ -1899,6 +1920,15 @@ window.addEventListener('load', function() {
     cb.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer;';
     cb.innerHTML = '<input type="checkbox" name="stmt-year" value="' + yr + '"' + (i === 0 ? ' checked' : '') + '> ' + yr;
     yc.appendChild(cb);
+  }
+  // Attendance by Service multi-year checkboxes (last 5 years, 2 most recent pre-checked)
+  var svcYc = document.getElementById('rpt-att-svc-years');
+  for (var si = 0; si < 5; si++) {
+    var syr = y - si;
+    var scb = document.createElement('label');
+    scb.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer;';
+    scb.innerHTML = '<input type="checkbox" value="' + syr + '"' + (si < 2 ? ' checked' : '') + '> ' + syr;
+    svcYc.appendChild(scb);
   }
   // Register SW
   if ('serviceWorker' in navigator) {
@@ -4788,6 +4818,7 @@ function openPersonEdit(p) {
   document.getElementById('pm-last').value = isNew ? '' : (p.last_name||'');
   document.getElementById('pm-email').value = isNew ? '' : (p.email||'');
   document.getElementById('pm-phone').value = isNew ? '' : (p.phone||'');
+  document.getElementById('pm-sms-opt-in').checked = !isNew && !!p.sms_opt_in;
   document.getElementById('pm-addr1').value = isNew ? '' : (p.address1||'');
   document.getElementById('pm-city').value = isNew ? '' : (p.city||'');
   document.getElementById('pm-state').value = isNew ? 'MO' : (p.state||'MO');
@@ -4909,6 +4940,7 @@ function savePerson() {
     notes: document.getElementById('pm-notes').value,
     gender: (document.getElementById('pm-gender') || {value:''}).value,
     marital_status: (document.getElementById('pm-marital') || {value:''}).value,
+    sms_opt_in: document.getElementById('pm-sms-opt-in').checked ? 1 : 0,
     tag_ids: getSelectedTagIds()
   };
   if (!data.first_name || (!isOrg && !data.last_name)) { alert(isOrg ? 'Name is required.' : 'First and last name are required.'); return; }
@@ -7385,6 +7417,20 @@ function runEmailTest(type) {
     status.textContent = msg; status.className = 'import-status ok';
   }).catch(function() { status.textContent = 'Request failed.'; status.className = 'import-status err'; });
 }
+function runSmsTest(type) {
+  var status = document.getElementById('sms-test-status');
+  status.textContent = 'Sending…'; status.className = 'import-status';
+  var endpoint = type === 'birthday' ? 'sms/run-birthday' : 'sms/run-anniversary';
+  api('/admin/api/' + endpoint, {method:'POST'}).then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    var label = type === 'birthday' ? 'Birthday' : 'Anniversary';
+    var msg = label + ' texts: ' + d.sent + ' sent';
+    if (d.skipped) msg += ', ' + d.skipped + ' already sent today';
+    if (d.errors && d.errors.length) msg += '. Errors: ' + d.errors.join('; ');
+    else msg += '.';
+    status.textContent = msg; status.className = 'import-status ok';
+  }).catch(function() { status.textContent = 'Request failed.'; status.className = 'import-status err'; });
+}
 function fixHouseholdHeads() {
   var status = document.getElementById('hq4-status');
   status.textContent = 'Working\u2026'; status.className = 'import-status';
@@ -8015,7 +8061,9 @@ var _rptResizeMoveH = function(e) {
     } else if (_rptResizeKey === 'byService') {
       _byServiceRptH = newH;
       var w = document.getElementById('att-service-chart-wrap');
-      if (w && _lastByServiceRptData) w.innerHTML = renderByServiceChart(_lastByServiceRptData, newH);
+      if (w && _lastByServiceRptData) w.innerHTML = _lastByServiceRptData.mode === 'multi-year'
+        ? renderMultiYearServiceChart(_lastByServiceRptData, newH)
+        : renderByServiceChart(_lastByServiceRptData, newH);
     } else if (_rptResizeKey === 'givingTrend') {
       _givingTrendH = newH;
       var w = document.getElementById('giving-trend-svg-wrap');
@@ -8674,13 +8722,116 @@ function runAttendanceSummary() {
     showAttRptOutput(_buildAttYoYHtml(d, _yoyRptH));
   });
 }
+function setAttByServiceMode(mode) {
+  _attSvcMode = mode;
+  document.getElementById('att-svc-range-inputs').style.display = mode === 'range' ? '' : 'none';
+  document.getElementById('att-svc-years-inputs').style.display = mode === 'years' ? '' : 'none';
+  document.getElementById('att-svc-mode-range').classList.toggle('active', mode === 'range');
+  document.getElementById('att-svc-mode-years').classList.toggle('active', mode === 'years');
+}
 function runAttendanceByTime() {
-  var from = document.getElementById('rpt-att-from').value;
-  var to = document.getElementById('rpt-att-to').value;
-  api('/admin/api/reports/attendance-by-time?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)).then(function(d) {
-    _lastByServiceRptData = d;
-    showAttRptOutput(_buildAttByServiceHtml(d, _byServiceRptH));
+  if (_attSvcMode === 'years') {
+    var years = [];
+    document.querySelectorAll('#rpt-att-svc-years input[type=checkbox]:checked').forEach(function(cb) { years.push(cb.value); });
+    if (!years.length) { alert('Select at least one year.'); return; }
+    api('/admin/api/reports/attendance-by-time?years=' + encodeURIComponent(years.join(','))).then(function(d) {
+      _lastByServiceRptData = d;
+      showAttRptOutput(_buildAttByServiceMultiYearHtml(d, _byServiceRptH));
+    });
+  } else {
+    var from = document.getElementById('rpt-att-from').value;
+    var to = document.getElementById('rpt-att-to').value;
+    api('/admin/api/reports/attendance-by-time?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)).then(function(d) {
+      _lastByServiceRptData = d;
+      showAttRptOutput(_buildAttByServiceHtml(d, _byServiceRptH));
+    });
+  }
+}
+function renderMultiYearServiceChart(d, chartH) {
+  var years = d.years || [];
+  var palette = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E74C3C'];
+  var timesSet = {};
+  years.forEach(function(yr) {
+    (d.by_time_years[yr] || []).forEach(function(r) {
+      if (r.service_type === 'sunday') timesSet[r.service_time] = r.service_name || r.service_time;
+    });
   });
+  var times = Object.keys(timesSet).sort();
+  if (!years.length || !times.length) return '';
+  var W = 800, H = chartH || 180, pL = 40, pR = 16, pT = 12, pB = 40;
+  var cW = W - pL - pR, cH = H - pT - pB;
+  var maxV = 0;
+  years.forEach(function(yr) {
+    (d.by_time_years[yr] || []).forEach(function(r) {
+      if (r.service_type === 'sunday' && r.avg_attendance > maxV) maxV = r.avg_attendance;
+    });
+  });
+  if (!maxV) return '';
+  maxV = maxV * 1.15;
+  var groupW = cW / times.length;
+  var barW = Math.max(4, Math.min(30, (groupW * 0.8) / years.length));
+  var groupGap = (groupW - barW * years.length) / 2;
+  var pyV = function(v) { return pT + cH - (v / maxV) * cH; };
+  var grid = '', ylbls = '', xlbls = '', bars = '';
+  [0, Math.round(maxV * 0.5 / 1.15), Math.round(maxV / 1.15)].forEach(function(v) {
+    var yy = pyV(v);
+    grid += '<line x1="'+pL+'" y1="'+yy.toFixed(1)+'" x2="'+(W-pR)+'" y2="'+yy.toFixed(1)+'" stroke="#f0ece8" stroke-width="1"/>';
+    ylbls += '<text x="'+(pL-4)+'" y="'+(yy+3).toFixed(1)+'" text-anchor="end" fill="#9A8A78" font-size="9">'+Math.round(v)+'</text>';
+  });
+  times.forEach(function(t, ti) {
+    var cx = pL + ti * groupW + groupW / 2;
+    var lbl = t === '08:00' ? '8am' : t === '10:45' ? '10:45am' : t;
+    xlbls += '<text x="'+cx.toFixed(1)+'" y="'+(H-5)+'" text-anchor="middle" fill="#9A8A78" font-size="10">'+lbl+'</text>';
+  });
+  years.forEach(function(yr, yi) {
+    var color = palette[yi % palette.length];
+    var byTime = {};
+    (d.by_time_years[yr] || []).forEach(function(r) { if (r.service_type === 'sunday') byTime[r.service_time] = r; });
+    times.forEach(function(t, ti) {
+      var r = byTime[t];
+      if (!r) return;
+      var tlbl = t === '08:00' ? '8am' : t === '10:45' ? '10:45am' : t;
+      var x = pL + ti * groupW + groupGap + yi * barW;
+      var bH = Math.max(1, (r.avg_attendance / maxV) * cH);
+      var barY = pT + cH - bH;
+      bars += '<rect x="'+x.toFixed(1)+'" y="'+barY.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bH.toFixed(1)+'" fill="'+color+'" rx="2"><title>'+yr+' '+tlbl+': avg '+r.avg_attendance+', total '+r.total+', '+r.services+' services</title></rect>';
+      if (bH > 14) bars += '<text x="'+(x+barW/2).toFixed(1)+'" y="'+(barY+bH-3).toFixed(1)+'" text-anchor="middle" fill="#fff" font-size="8">'+Math.round(r.avg_attendance)+'</text>';
+    });
+  });
+  var legend = '<div style="display:flex;gap:12px;margin-top:6px;justify-content:center;flex-wrap:wrap;">';
+  years.forEach(function(yr, yi) {
+    legend += '<span style="display:flex;align-items:center;gap:5px;font-size:.8rem;"><span style="display:inline-block;width:14px;height:14px;background:'+palette[yi % palette.length]+';border-radius:3px;flex-shrink:0;"></span>'+yr+'</span>';
+  });
+  legend += '</div>';
+  var svg = '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:'+H+'px;">'+grid+bars+xlbls+ylbls+'</svg>';
+  return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 16px 8px;margin-bottom:16px;"><div style="font-weight:700;color:var(--steel-anchor);font-size:.9rem;margin-bottom:8px;">Avg Attendance by Service Time</div>'+svg+legend+'</div>';
+}
+function _buildAttByServiceMultiYearHtml(d, h) {
+  var years = d.years || [];
+  var html = '<div id="att-service-chart-wrap">'+renderMultiYearServiceChart(d, h)+'</div>';
+  html += _chartResizeHandle('byServiceResizeStart');
+  html += '<div style="font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin-bottom:12px;">Attendance by Service — Multi-Year</div>';
+  html += '<table class="rpt-table" style="margin-bottom:16px;"><thead><tr><th>Service</th>';
+  years.forEach(function(yr) { html += '<th style="text-align:right;">'+esc(yr)+' Avg</th><th style="text-align:right;">'+esc(yr)+' Total</th>'; });
+  html += '</tr></thead><tbody>';
+  var timesMap = {};
+  years.forEach(function(yr) {
+    (d.by_time_years[yr] || []).forEach(function(r) { if (r.service_type === 'sunday') timesMap[r.service_time] = r.service_name || r.service_time; });
+  });
+  Object.keys(timesMap).sort().forEach(function(t) {
+    var lbl = t === '08:00' ? '8am Service' : t === '10:45' ? '10:45am Service' : esc(timesMap[t]);
+    html += '<tr><td>'+lbl+'</td>';
+    years.forEach(function(yr) {
+      var byTime = {};
+      (d.by_time_years[yr] || []).forEach(function(r) { byTime[r.service_time] = r; });
+      var r = byTime[t];
+      html += '<td style="text-align:right;">'+(r ? r.avg_attendance : '—')+'</td><td style="text-align:right;">'+(r ? r.total : '—')+'</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  html += '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print</button></div>';
+  return html;
 }
 
 // ── VOLUNTEERS TAB ────────────────────────────────────────────────────
