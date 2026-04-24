@@ -50,6 +50,7 @@ crons = ["0 14 * * *"]
 [env.staging]
 name = "breeze-proxy-worker-staging"
 workers_dev = true
+routes = []
 
 [[env.staging.d1_databases]]
 binding = "DB"
