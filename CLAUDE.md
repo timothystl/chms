@@ -122,11 +122,11 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ---
 
-### Phase 2 — Code Quality Prep
+### Phase 2 — Code Quality Prep ✅ DONE 2026-04-24
 **Goal:** Reduce noise and isolate Breeze logic before the big refactor. No behavior changes.
 
 - [x] **IN12** — Dead-code sweep: removed debug `console.log` from Breeze per-person sync and dead `setFdTag` function (no callers). Done 2026-04-24 (v113).
-- [ ] **IN5** — Extract Breeze API client into `src/breeze.js` (consolidates field-ID quirks, enables mocking for IN11)
+- [x] **IN5** — Extract Breeze API client into `src/breeze.js` (consolidates field-ID quirks, enables mocking for IN11). Done 2026-04-24 (v114).
 
 **Done when:** No `console.log` artifacts in prod files; all Breeze HTTP calls live in `src/breeze.js`.
 
@@ -273,7 +273,7 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [ ] **IN2** — Evaluate merging Workers and/or repos. Three Workers share a common subject (people) but live separately: ChMS (this), Scheduler (backend merged, UI embedded via iframe per SC1; SC2 tracks inline rewrite), Website admin. See "Multi-App Architecture" section above for options A–D. Decision needed: pursue Option C (absorb scheduler fully, leave website admin separate — currently recommended) vs Option B (thin people-API in ChMS, others stay separate). Adjacent: audit whether the three Workers live in one monorepo or three repos and consolidate if split.
 - [ ] **IN3** — Split `html-chms.js` into per-tab modules. The whole SPA is one enormous HTML-as-string file; diffs are noisy, IDE tooling can't see the embedded JS/CSS, code review is painful. Candidate: break into `src/frontend/{people,giving,households,scheduler,reports,settings,shell}.js` concatenated at build, or one string-returning module per tab imported by a shell.
 - [ ] **IN4** — Split `api-chms.js` into domain modules. Mixed concerns (people, giving, households, dashboard, reports, imports) in one file. Split along natural nouns, all still mounted from the same router in the worker entry.
-- [ ] **IN5** — Extract Breeze API client into `src/breeze.js`. Breeze calls currently scattered between `api-chms.js` (sync, giving) and `api-admin.js` (import). Pulling into one module (a) collects field-ID quirks in one place, (b) makes mocking possible for tests, (c) sets up the boundary if BR1 (reverse sync) ever happens.
+- [x] **IN5** — Extract Breeze API client into `src/breeze.js`. Done 2026-04-24 (v114). New `makeBreezeClient(env)` factory returns null when env vars missing; all 9 endpoints wrapped; raw `Response` objects returned so all caller error handling is unchanged. `subdomain` exposed on client for photo CDN URL construction. All 12 Breeze-calling handlers in `api-chms.js` updated; `filter_json` pre-encoding preserved.
 - [x] **IN6** — Secrets inventory doc. Done 2026-04-24 — see `SECRETS.md`.
 - [x] **IN7** — D1 schema migrations system. Done 2026-04-23. `migrations/` directory created with `0001_baseline.sql` (complete schema as of today). `wrangler.toml` updated with `migrations_dir = "migrations"`. **To add a new column going forward**: (1) create `migrations/NNNN_description.sql` with the `ALTER TABLE ADD COLUMN` statement, (2) also add the same statement to the `migrations` array in `src/db.js` with a try/catch (keeps cold-start safety net working), (3) run `wrangler d1 migrations apply tlc-volunteer-db --remote` to apply to prod.
 - [x] **IN8** — Audit log retention / pruning. Done 2026-04-23. `pruneAuditLog(db)` added to `tlc-volunteer-worker.js`, called from the existing `0 14 * * *` daily cron. Retention: `birthday_email_sent` / `anniversary_email_sent` → 60 days; all other rows → 365 days. Logged under `audit_prune` in cron output.
