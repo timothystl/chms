@@ -162,21 +162,27 @@ function _transformJs(js) {
   // 7. Remove the top-level checkAuth() call — deferred to schedInitScheduler below.
   js = js.replace(/^checkAuth\(\);\n/m, '');
 
-  // 8. Append schedInitScheduler at the end of the script.
-  //    The INIT block above still runs at page load (elements are already in the DOM
-  //    since the scheduler HTML is part of the initial server response, not injected).
-  //    schedInitScheduler defers only the network fetch (checkAuth → d1Pull) to the
-  //    first Scheduler tab visit. It also re-sets the month label in case the page-load
-  //    INIT try/catch swallowed an error.
-  js += '\n\nwindow.schedInitScheduler = function() {\n'
+  // 8. Prepend schedInitScheduler at the START of the transformed script.
+  //    The scheduler JS has many top-level addEventListener registrations that run at
+  //    page load. If any getElementById call returns null (element out of DOM),
+  //    a TypeError would halt execution before an appended schedInitScheduler could
+  //    be reached. Prepending ensures it is defined before any top-level code runs.
+  //    schedInitScheduler calls d1Pull() directly (avoids checkAuth() indirection
+  //    which is unnecessary — the user is already authenticated in ChMS). It also
+  //    sets the month label in case the page-load INIT try/catch swallowed an error.
+  const _schedInitCode = 'window.schedInitScheduler = function() {\n'
      + '  if (window._schedInited) return;\n'
      + '  window._schedInited = true;\n'
      + '  try {\n'
      + '    var _ml = document.getElementById(\'sched-current-month-label\');\n'
      + '    if (_ml) _ml.textContent = monthKeyLabel(currentMonthKey);\n'
      + '  } catch(e) {}\n'
-     + '  checkAuth();\n'
+     + '  if (typeof d1Pull === \'function\') d1Pull();\n'
+     + '  if (typeof fetchPendingSignups === \'function\') fetchPendingSignups();\n'
+     + '  if (typeof fetchGeneralVolunteers === \'function\') fetchGeneralVolunteers();\n'
+     + '  if (typeof fetchEventVolunteers === \'function\') fetchEventVolunteers();\n'
      + '};\n';
+  js = _schedInitCode + '\n' + js;
 
   return js;
 }
