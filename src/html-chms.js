@@ -1710,7 +1710,7 @@ ${getSchedulerInline()}
 </div>
 <script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-24-v118';
+var DEPLOY_VERSION = '2026-04-25-v119';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -3647,7 +3647,7 @@ function showProfile(p) {
     var rightCol = '<div>'
       + '<div class="pv-section" id="pv-demo-section">'
       + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Demographics / Dates</div><div style="display:flex;gap:5px;">'
-      + (p.breeze_id ? '<button class="btn-secondary role-admin" style="font-size:.7rem;padding:2px 8px;" onclick="syncPersonFromBreeze(\''+esc(p.breeze_id)+'\','+p.id+')">&#8635; Sync Breeze</button>' : '')
+      + (p.breeze_id ? '<button class="btn-secondary role-admin" style="font-size:.7rem;padding:2px 8px;" onclick="syncPersonFromBreeze(\''+esc(p.breeze_id)+'\','+p.id+')">&#8635; Sync Breeze</button>' : '<button class="btn-secondary role-admin role-staff" style="font-size:.7rem;padding:2px 8px;" onclick="pushPersonToBreeze('+p.id+')">&#8679; Push to Breeze</button>')
       + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditDemo()">Edit</button></div></div>'
       + '<div class="pv-field-grid">'
       + pvField('gender', p.gender)
@@ -3813,7 +3813,9 @@ function pvEditDemo() {
   var msOpts = ['','Single','Married','Divorced','Widowed'].map(function(v){
     return '<option value="'+v+'"'+((p.marital_status||'')===v&&v?' selected':(!v&&!p.marital_status?' selected':''))+'>'+(v||'—')+'</option>';
   }).join('');
-  var breezeBtn = p.breeze_id ? '<button class="btn-secondary role-admin" style="font-size:.7rem;padding:3px 10px;" onclick="syncPersonFromBreeze(\''+esc(p.breeze_id)+'\','+p.id+')">&#8635; Sync Breeze</button>' : '';
+  var breezeBtn = p.breeze_id
+    ? '<button class="btn-secondary role-admin" style="font-size:.7rem;padding:3px 10px;" onclick="syncPersonFromBreeze(\''+esc(p.breeze_id)+'\','+p.id+')">&#8635; Sync Breeze</button>'
+    : '<button class="btn-secondary role-admin role-staff" style="font-size:.7rem;padding:3px 10px;" onclick="pushPersonToBreeze('+p.id+')">&#8679; Push to Breeze</button>';
   sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
     + '<div class="pv-section-title" style="margin:0;">Demographics / Dates</div>'
     + '<div style="display:flex;gap:6px;">'+breezeBtn
@@ -4295,6 +4297,27 @@ function syncPersonFromBreeze(breezeId, personId) {
   }).catch(function(e) {
     if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
     alert('Breeze sync error: ' + (e.message || e));
+  });
+}
+function pushPersonToBreeze(personId) {
+  if (!confirm('Create this person in Breeze? Their name and contact info will be pushed. This cannot be undone automatically.')) return;
+  var btn = event && event.currentTarget;
+  var origLabel = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Pushing…'; }
+  api('/admin/api/people/' + personId + '/push-to-breeze', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'}
+  }).then(function(r) {
+    if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
+    if (r && r.ok) {
+      alert('Created in Breeze (ID: ' + r.breeze_id + ').' + (r.fields_sent ? ' ' + r.fields_sent + ' contact field(s) sent.' : ''));
+      api('/admin/api/people/' + personId).then(function(p) { if (p && p.id) showProfile(p); });
+    } else {
+      alert('Push to Breeze failed: ' + ((r && r.error) || 'Unknown error'));
+    }
+  }).catch(function(e) {
+    if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
+    alert('Push to Breeze error: ' + (e.message || e));
   });
 }
 function applyAddressToHousehold(personId, householdId) {

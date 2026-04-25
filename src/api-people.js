@@ -2,6 +2,7 @@
 import { json } from './auth.js';
 import { brevoUpsertContact, brevoBulkSync, brevoGetListContacts } from './api-emails.js';
 import { disambiguateHHName } from './api-utils.js';
+import { makeBreezeClient } from './breeze.js';
 
 export async function handlePeopleApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -334,6 +335,89 @@ if (seg === 'brevo/reconcile' && method === 'GET') {
     missing_from_brevo: missingFromBrevo,
     in_brevo_not_chms: inBrevoNotChms,
   });
+}
+
+// ── Push person to Breeze (reverse sync) ────────────────────────
+const pushToBreezeMatch = seg.match(/^people\/(\d+)\/push-to-breeze$/);
+if (pushToBreezeMatch && method === 'POST') {
+  if (!canEdit) return json({ error: 'Access denied' }, 403);
+  const pid = parseInt(pushToBreezeMatch[1]);
+  const person = await db.prepare('SELECT * FROM people WHERE id=?').bind(pid).first();
+  if (!person) return json({ error: 'Person not found' }, 404);
+  if (person.breeze_id) return json({ error: 'Person already has a Breeze ID — use Sync Breeze instead' }, 409);
+
+  const breeze = makeBreezeClient(env);
+  if (!breeze) return json({ error: 'Breeze not configured' }, 503);
+
+  // Discover contact field IDs — check cache first, then fetch from a known Breeze person.
+  // The cache key `breeze_contact_field_ids` stores {email, phone, address} field ID strings.
+  let fieldIds = {};
+  const cachedRow = await db.prepare("SELECT value FROM chms_config WHERE key='breeze_contact_field_ids'").first();
+  if (cachedRow?.value) {
+    try { fieldIds = JSON.parse(cachedRow.value); } catch {}
+  }
+  if (!fieldIds.email && !fieldIds.phone && !fieldIds.address) {
+    const sample = await db.prepare("SELECT breeze_id FROM people WHERE breeze_id!='' AND active=1 LIMIT 1").first();
+    if (sample) {
+      try {
+        const pr = await breeze.person(sample.breeze_id);
+        if (pr.ok) {
+          const pd = await pr.json();
+          const details = (Array.isArray(pd) ? pd[0] : pd)?.details || {};
+          for (const [key, val] of Object.entries(details)) {
+            if (!Array.isArray(val)) continue;
+            for (const item of val) {
+              if (!item || typeof item !== 'object') continue;
+              const ft = item.field_type || '';
+              if ((ft === 'email_primary' || ft === 'email') && !fieldIds.email) fieldIds.email = key;
+              else if ((ft === 'phone' || ft.startsWith('phone')) && !fieldIds.phone) fieldIds.phone = key;
+              else if ((ft === 'address_primary' || ft === 'address') && !fieldIds.address) fieldIds.address = key;
+            }
+          }
+          if (fieldIds.email || fieldIds.phone || fieldIds.address) {
+            await db.prepare("INSERT OR REPLACE INTO chms_config(key,value) VALUES('breeze_contact_field_ids',?)")
+              .bind(JSON.stringify(fieldIds)).run();
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // Build fields_json with whatever contact info the person has
+  const fields = [];
+  if (fieldIds.email && person.email) {
+    fields.push({ field_id: fieldIds.email, field_type: 'email_primary', response: 'true', details: { address: person.email } });
+  }
+  if (fieldIds.phone && person.phone) {
+    fields.push({ field_id: fieldIds.phone, field_type: 'phone', response: 'true', details: { phone_number: person.phone } });
+  }
+  if (fieldIds.address && person.address1) {
+    fields.push({ field_id: fieldIds.address, field_type: 'address_primary', response: 'true',
+      details: { street_address: person.address1, city: person.city || '', state: person.state || '', zip: person.zip || '' } });
+  }
+
+  const res = await breeze.addPerson(
+    person.first_name || '',
+    person.last_name || '',
+    fields.length ? JSON.stringify(fields) : undefined
+  );
+
+  let raw;
+  try { raw = await res.json(); } catch { raw = {}; }
+  if (!res.ok) return json({ error: 'Breeze API error', details: raw }, 502);
+
+  const breezeId = String(raw?.id || raw?.person_id || '');
+  if (!breezeId) return json({ error: 'Breeze returned no person ID', raw }, 502);
+
+  await db.prepare('UPDATE people SET breeze_id=? WHERE id=?').bind(breezeId, pid).run();
+
+  const personName = [person.first_name, person.last_name].filter(Boolean).join(' ');
+  await db.prepare(
+    `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
+     VALUES('push_to_breeze','person',?,?,?,?,?)`
+  ).bind(pid, personName, 'breeze_id', '', breezeId).run();
+
+  return json({ ok: true, breeze_id: breezeId, fields_sent: fields.length });
 }
 
 // ── Person photo upload ──────────────────────────────────────────

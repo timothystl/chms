@@ -46,7 +46,7 @@ export function makeBreezeClient(env) {
     funds:    ()   => get('funds'),
     fund:     (id) => get(`funds/${id}`),
 
-    // ── People ─────────────────────────────────────────────────────────────
+    // ── People read ────────────────────────────────────────────────────────
     // `queryString` is a pre-built query string. Callers must build it manually
     // to avoid double-encoding issues with filter_json values.
     // Examples:
@@ -58,6 +58,21 @@ export function makeBreezeClient(env) {
     // May return a single object, a wrapped {person:...}, or a one-element array
     // depending on Breeze API version. Callers normalise the response themselves.
     person: (id) => get(`people/${id}?details=1`),
+
+    // ── People write ───────────────────────────────────────────────────────
+    // Create a new person in Breeze.
+    // fieldsJson: JSON-encoded array of {field_id, field_type, response, details}
+    // objects, or undefined to create with name only.
+    // Returns a raw Response whose JSON body contains the new person's `id`.
+    addPerson: (first, last, fieldsJson) => {
+      const body = new URLSearchParams({ first, last });
+      if (fieldsJson) body.set('fields_json', fieldsJson);
+      return fetch(`${base}/people/add`, {
+        method: 'POST',
+        headers: { ...hdrs, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+    },
 
     // ── Profile (field definitions) ────────────────────────────────────────
     // Returns an array of profile sections; each section has a `fields` array.
