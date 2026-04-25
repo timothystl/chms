@@ -25,17 +25,23 @@ All secrets are stored as Cloudflare Worker secrets (`wrangler secret put <NAME>
 - **Rotation**: Only changes if the church switches Breeze accounts. `wrangler secret put BREEZE_SUBDOMAIN`.
 - **Risk if leaked**: Low on its own — just the subdomain, not the API key.
 
+### `ADMIN_EMAIL`
+- **Purpose**: The `From:` address on all Resend emails (birthday, anniversary).
+- **Format**: RFC 5322 format, e.g. `Timothy Lutheran <noreply@timothystl.org>`. Domain must be verified in Resend.
+- **Rotation**: `wrangler secret put ADMIN_EMAIL`.
+- **Risk if leaked**: Low — it's an email address, not a credential.
+
 ### `RESEND_API_KEY`
 - **Purpose**: Authenticates calls to the Resend email API. Used for birthday and anniversary emails sent to members.
 - **Format**: `re_` prefixed key from resend.com → API Keys.
 - **Rotation**: Create a new key in Resend, `wrangler secret put RESEND_API_KEY`, delete old key in Resend dashboard.
-- **Risk if leaked**: Ability to send email from the configured `EMAIL_FROM` address via Resend.
+- **Risk if leaked**: Ability to send email from the configured `ADMIN_EMAIL` address via Resend.
 
-### `EMAIL_FROM`
-- **Purpose**: The `From:` address on all Resend emails (birthday, anniversary).
-- **Format**: RFC 5322 format, e.g. `Timothy Lutheran <noreply@timothystl.org>`. Domain must be verified in Resend.
-- **Rotation**: Update DNS records in Resend for new domain, then `wrangler secret put EMAIL_FROM`.
-- **Risk if leaked**: Low — it's an email address, not a credential.
+### `CHMS_INTAKE_API_KEY`
+- **Purpose**: Shared secret for intake API endpoints (`/api/intake/connect-card`, `/api/intake/prayer`). The website Worker passes this key to authenticate form submissions without a user session.
+- **Format**: Any strong random string (≥32 chars).
+- **Rotation**: `wrangler secret put CHMS_INTAKE_API_KEY`, then update the same value in the website Worker.
+- **Risk if leaked**: Ability to create person records and prayer requests via the intake endpoints.
 
 ### `BREVO_API_KEY`
 - **Purpose**: Authenticates calls to the Brevo API. Used for (1) newsletter contact sync and (2) transactional SMS (birthday/anniversary texts).

@@ -8,7 +8,7 @@ Read this at the start of every session. Update NOTES.md (and this file if neede
 
 Church Management System (ChMS) for Timothy Lutheran Church. Built on **Cloudflare Workers + D1 (SQLite)**. Single-page app served from `src/html-chms.js` (renders as one large HTML string). API routes live in `src/api-chms.js` (people, giving, households, dashboard) and `src/api-admin.js` (auth, users, scheduler).
 
-**Live at:** `https://[subdomain].timothystl.org/chms`
+**Live at:** `https://chms.timothystl.org` (old `volunteer.timothystl.org/chms` redirects here)
 
 ---
 
@@ -18,7 +18,13 @@ Church Management System (ChMS) for Timothy Lutheran Church. Built on **Cloudfla
 |------|---------|
 | `tlc-volunteer-worker.js` | Worker entry point — routes all requests |
 | `src/api-admin.js` | Auth, user management, scheduler API |
-| `src/api-chms.js` | People, households, giving, dashboard, import |
+| `src/api-chms.js` | ACL checks, dashboard, delegation to domain modules |
+| `src/api-people.js` | People CRUD, archive, Brevo sync, photo upload, follow-ups |
+| `src/api-giving.js` | Giving entries, batches, quick entry |
+| `src/api-households.js` | Households, organizations, tags, funds |
+| `src/api-reports.js` | Reports, engagement queue, prayer requests, reconcile tools |
+| `src/api-import.js` | Import/sync, config, register, export, Breeze sync |
+| `src/api-utils.js` | Shared utilities (disambiguateHHName, isoWeekKey) |
 | `src/html-chms.js` | Entire frontend SPA (HTML + CSS + JS as a string) |
 | `src/auth.js` | Cookie auth, PBKDF2 password hashing, helpers |
 | `src/html-templates.js` | Login page HTML |
@@ -132,20 +138,20 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ---
 
-### Phase 3 — Infrastructure Safety
+### Phase 3 — Infrastructure Safety ✅ DONE 2026-04-24
 **Goal:** Establish a staging environment and clean up the Worker name before any further risky changes.
 
-- [ ] **IN9** — `[env.staging]` block added to `wrangler.toml` (v115). Needs manual steps to complete: (1) `wrangler d1 create tlc-volunteer-db-staging` → fill in `database_id`, (2) `wrangler kv:namespace create RSVP_STORE --env staging` → fill in `id`, (3) add all 8 secrets with `--env staging`, (4) `wrangler d1 migrations apply tlc-volunteer-db-staging --remote --env staging`, (5) `wrangler deploy --env staging`. URL will be `https://breeze-proxy-worker-staging.<subdomain>.workers.dev`.
-- [ ] **IN1** — Rename Worker: change `name=` in `wrangler.toml` → `tlc-chms`; `wrangler deploy`; re-add all secrets; move custom domain route; verify cron; delete old Worker. Brief ≤1 min downtime.
+- [x] **IN9** — Staging environment live at `https://breeze-proxy-worker-staging.timothystl.workers.dev/chms`. Separate `wrangler.staging.toml` config (avoids wrangler v4 route inheritance bug). D1: `tlc-volunteer-db-staging`, KV: staging RSVP_STORE, shared R2, crons disabled. Deploy: `wrangler deploy --config wrangler.staging.toml`. Done 2026-04-24.
+- [x] **IN1** — Worker renamed to `tlc-chms`. Added `chms.timothystl.org` as dedicated ChMS subdomain (root serves app directly; `volunteer.timothystl.org/chms` redirects). `tlc-newsletter-admin` service binding updated to `tlc-chms`. Old `breeze-proxy-worker` deleted. Done 2026-04-24.
 
-**Done when:** Staging URL exists and responds; prod Worker is named `tlc-chms`.
+**Done when:** Staging URL exists and responds; prod Worker is named `tlc-chms`. ✅ Phase 3 complete 2026-04-24.
 
 ---
 
-### Phase 4 — Refactoring
+### Phase 4 — Refactoring ✅ DONE 2026-04-24 (api-chms.js split; html-chms.js deferred)
 **Goal:** Break the two monolith files into maintainable modules. No behavior changes.
 
-- [ ] **IN4** — Split `api-chms.js` into domain modules: `src/api-people.js`, `src/api-giving.js`, `src/api-households.js`, `src/api-reports.js`, `src/api-import.js` — all still mounted from worker entry
+- [x] **IN4** — Split `api-chms.js` into domain modules: `src/api-people.js`, `src/api-giving.js`, `src/api-households.js`, `src/api-reports.js`, `src/api-import.js`, `src/api-utils.js` — all delegated from `api-chms.js`. Done 2026-04-24 (v114–v118).
 - [ ] **IN3** — Split `html-chms.js` into per-tab frontend modules: `src/frontend/{shell,people,giving,households,scheduler,reports,settings}.js` concatenated at build (or one string-returning module per tab)
 
 **Done when:** `html-chms.js` and `api-chms.js` no longer exist as monoliths; IDE can syntax-highlight and navigate the embedded JS/CSS.
@@ -272,7 +278,7 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [ ] **IN1** — Rename Worker `breeze-proxy-worker` → something intuitive (candidate: `tlc-chms`). Name is legacy — Breeze is one integration among many now (Resend, Brevo, R2, D1, scheduler). Cloudflare has no rename button, so this is a mini-migration: change `name=` in `wrangler.toml`, `wrangler deploy` to create the new Worker, re-add every secret (`ADMIN_PASSWORD`, `RESEND_API_KEY`, `EMAIL_FROM`, `BREVO_API_KEY`, `BREVO_LIST_ID`, Breeze keys — secrets don't carry), move the `volunteer.timothystl.org/*` custom domain route off the old Worker onto the new one, verify the cron (`0 14 * * *`) lands on the new Worker, delete the old Worker. D1/KV/R2 bindings reference resources by ID so data is unaffected. Brief (≤1 min) downtime during route cutover.
 - [ ] **IN2** — Evaluate merging Workers and/or repos. Three Workers share a common subject (people) but live separately: ChMS (this), Scheduler (backend merged, UI embedded via iframe per SC1; SC2 tracks inline rewrite), Website admin. See "Multi-App Architecture" section above for options A–D. Decision needed: pursue Option C (absorb scheduler fully, leave website admin separate — currently recommended) vs Option B (thin people-API in ChMS, others stay separate). Adjacent: audit whether the three Workers live in one monorepo or three repos and consolidate if split.
 - [ ] **IN3** — Split `html-chms.js` into per-tab modules. The whole SPA is one enormous HTML-as-string file; diffs are noisy, IDE tooling can't see the embedded JS/CSS, code review is painful. Candidate: break into `src/frontend/{people,giving,households,scheduler,reports,settings,shell}.js` concatenated at build, or one string-returning module per tab imported by a shell.
-- [ ] **IN4** — Split `api-chms.js` into domain modules. Mixed concerns (people, giving, households, dashboard, reports, imports) in one file. Split along natural nouns, all still mounted from the same router in the worker entry.
+- [x] **IN4** — Split `api-chms.js` into domain modules. Done 2026-04-24 (v114–v118). `api-chms.js` now 533 lines (was 5,151); domains in `api-people.js`, `api-giving.js`, `api-households.js`, `api-reports.js`, `api-import.js`, `api-utils.js`.
 - [x] **IN5** — Extract Breeze API client into `src/breeze.js`. Done 2026-04-24 (v114). New `makeBreezeClient(env)` factory returns null when env vars missing; all 9 endpoints wrapped; raw `Response` objects returned so all caller error handling is unchanged. `subdomain` exposed on client for photo CDN URL construction. All 12 Breeze-calling handlers in `api-chms.js` updated; `filter_json` pre-encoding preserved.
 - [x] **IN6** — Secrets inventory doc. Done 2026-04-24 — see `SECRETS.md`.
 - [x] **IN7** — D1 schema migrations system. Done 2026-04-23. `migrations/` directory created with `0001_baseline.sql` (complete schema as of today). `wrangler.toml` updated with `migrations_dir = "migrations"`. **To add a new column going forward**: (1) create `migrations/NNNN_description.sql` with the `ALTER TABLE ADD COLUMN` statement, (2) also add the same statement to the `migrations` array in `src/db.js` with a try/catch (keeps cold-start safety net working), (3) run `wrangler d1 migrations apply tlc-volunteer-db --remote` to apply to prod.

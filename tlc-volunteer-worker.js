@@ -83,6 +83,8 @@ async function _fetch(req, env) {
     const url = new URL(req.url);
     const path = url.pathname.replace(/\/$/, '') || '/';
     const method = req.method.toUpperCase();
+    const host = url.hostname;
+    const isChmsHost = host === 'chms.timothystl.org';
 
     // CORS preflight for scheduler backend routes
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: SCHED_CORS });
@@ -91,7 +93,13 @@ async function _fetch(req, env) {
       const fRes = await fetch('https://raw.githubusercontent.com/timothystl/volunteer/main/favicon.svg', { cf: { cacheEverything: true, cacheTtl: 86400 } });
       return new Response(fRes.ok ? fRes.body : '', { status: fRes.ok ? 200 : 404, headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' } });
     }
-    if ((path === '/' || path === '/index.html') && method === 'GET') return html(PUBLIC_HTML);
+    if ((path === '/' || path === '/index.html') && method === 'GET') {
+      if (isChmsHost) {
+        if (!await isAuthed(req, env)) return html(LOGIN_HTML);
+        return html(CHMS_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+      }
+      return html(PUBLIC_HTML);
+    }
     if (path === '/api/events' && method === 'GET') return handleApiEvents(env);
     if (path === '/volunteer/signup' && method === 'POST') {
       try {
@@ -105,14 +113,17 @@ async function _fetch(req, env) {
     if (path === '/admin/login' && method === 'POST') return handleAdminLogin(req, env);
     if (path === '/admin/logout') {
       return new Response(null, { status: 302, headers: {
-        'Location': '/admin',
+        'Location': isChmsHost ? '/' : '/admin',
         'Set-Cookie': 'vol_auth=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict'
       }});
     }
     if (path === '/admin' && method === 'GET') {
       if (!await isAuthed(req, env)) return html(LOGIN_HTML);
-      // Redirect authenticated users to CHMS (Volunteers tab is integrated there)
-      return new Response(null, { status: 302, headers: { 'Location': '/chms' } });
+      return new Response(null, { status: 302, headers: { 'Location': isChmsHost ? '/' : '/chms' } });
+    }
+    // Permanent redirect: old volunteer.timothystl.org/chms → chms.timothystl.org
+    if (!isChmsHost && path === '/chms' && method === 'GET') {
+      return new Response(null, { status: 301, headers: { 'Location': 'https://chms.timothystl.org' } });
     }
     // Public intake endpoints (gated by X-Intake-Key header, NOT user session).
     // Called server-to-server from the timothystl.org admin worker.
@@ -135,7 +146,8 @@ async function _fetch(req, env) {
       }
     }
     // ── ChMS (People & Giving) ─────────────────────────────────────────
-    if (path === '/chms' && method === 'GET') {
+    // Serve at root on chms.timothystl.org, or at /chms on any host (staging, etc.)
+    if ((path === '/chms' || (isChmsHost && path === '/')) && method === 'GET') {
       if (!await isAuthed(req, env)) return html(LOGIN_HTML);
       return html(CHMS_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
     }
