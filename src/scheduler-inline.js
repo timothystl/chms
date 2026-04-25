@@ -159,15 +159,24 @@ function _transformJs(js) {
   js = js.replace(/getElementById\('current-month-label'\)/g, "getElementById('sched-current-month-label')");
   js = js.replace(/getElementById\('app-content'\)/g,         "getElementById('sched-app-content')");
 
-  // 7. Remove the top-level checkAuth() call — it will be deferred to schedInitScheduler
+  // 7. Remove the top-level checkAuth() call — deferred to schedInitScheduler below.
   js = js.replace(/^checkAuth\(\);\n/m, '');
 
-  // 8. Wrap the INIT block (+ checkAuth call) in window.schedInitScheduler so ChMS
-  //    controls when data loading begins (on first tab visit, not on page load).
-  js = js.replace(
-    /(\/\/ [^\n]+\n\/\/ INIT\n\/\/ [^\n]+\n)([\s\S]*?)(\/\/ [^\n]+\n\/\/ SCHEDULE HISTORY)/,
-    '$1window.schedInitScheduler = function() {\n  if (window._schedInited) return;\n  window._schedInited = true;\n  checkAuth();\n$2};\n\n$3'
-  );
+  // 8. Append schedInitScheduler at the end of the script.
+  //    The INIT block above still runs at page load (elements are already in the DOM
+  //    since the scheduler HTML is part of the initial server response, not injected).
+  //    schedInitScheduler defers only the network fetch (checkAuth → d1Pull) to the
+  //    first Scheduler tab visit. It also re-sets the month label in case the page-load
+  //    INIT try/catch swallowed an error.
+  js += '\n\nwindow.schedInitScheduler = function() {\n'
+     + '  if (window._schedInited) return;\n'
+     + '  window._schedInited = true;\n'
+     + '  try {\n'
+     + '    var _ml = document.getElementById(\'sched-current-month-label\');\n'
+     + '    if (_ml) _ml.textContent = monthKeyLabel(currentMonthKey);\n'
+     + '  } catch(e) {}\n'
+     + '  checkAuth();\n'
+     + '};\n';
 
   return js;
 }
