@@ -1,6 +1,7 @@
 // ── Import, Config, Register, Export, Breeze Sync API handlers ──────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
+import { parseFundSplits, givingEntryId, isGivingDup } from './api-utils.js';
 
 export async function handleImportApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -696,49 +697,16 @@ if (seg === 'import/giving-csv' && method === 'POST') { try {
   const pidSeenInCsv = {}; // tracks nth occurrence of each payment ID in this chunk
   const ops = [];
 
-  // Parse Breeze fund strings into per-fund splits.
-  // Handles Breeze CSV format: "40085 General Fund" or "40085 General Fund (160.00), 49094 Tuition Aid (40.00)"
-  // Also handles colon format: "General Fund: $160.00, Tuition Aid: $40.00"
-  const parseFundSplits = (fundStr, totalCents) => {
-    const s = (fundStr || '').trim();
-    if (!s || s.toLowerCase() === 'nan') return [{ name: 'General Fund', cents: totalCents }];
-    // Breeze CSV format: starts with numeric fund ID prefix e.g. "40085 General Fund (160.00)"
-    // Keep the full name including the number; strip only the trailing amount in parens.
-    if (/^\d+\s/.test(s)) {
-      const parts = s.split(/,\s*(?=\d)/);
-      const splits = parts.map(p => {
-        const m = p.trim().match(/^(.+?)(?:\s+\(([0-9.]+)\))?\s*$/);
-        return m ? { name: m[1].trim(), cents: m[2] ? Math.round(parseFloat(m[2]) * 100) : null } : null;
-      }).filter(Boolean);
-      if (splits.length > 1) return splits.map(f => ({ name: f.name, cents: f.cents ?? 0 }));
-      if (splits.length === 1) return [{ name: splits[0].name, cents: totalCents }];
-    }
-    // Colon format: "General Fund: $160.00"
-    if (/:\s*\$?[0-9]/.test(s)) {
-      const parts = s.split(/,\s*(?=\S)/);
-      const splits = [];
-      for (const p of parts) {
-        const m = p.trim().match(/^([^:]+?):\s*\$?([0-9.]+)\s*$/);
-        if (m) splits.push({ name: m[1].trim(), cents: Math.round(parseFloat(m[2]) * 100) });
-      }
-      if (splits.length > 1) return splits;
-      if (splits.length === 1) return [{ name: splits[0].name, cents: totalCents }];
-    }
-    return [{ name: s, cents: totalCents }];
-  };
-
   for (const row of dataRows) {
     const pid = String(row[C.paymentId] || '').trim();
     if (!pid) { skipped++; skipBlank++; continue; }
     // Track how many times this payment ID appears in this CSV chunk.
     // Breeze exports one row per fund for split payments (same pid, different fund/amount).
-    // First occurrence: check pid and pid-1. Subsequent: check pid-N.
     pidSeenInCsv[pid] = (pidSeenInCsv[pid] || 0) + 1;
     const nthOcc = pidSeenInCsv[pid];
-    const isDup = nthOcc === 1
-      ? (existingIds.has(pid) || existingIds.has(pid + '-1'))
-      : existingIds.has(pid + '-' + nthOcc);
-    if (isDup) { skipped++; skipDup++; dupIds.push(pid + (nthOcc > 1 ? ' (row ' + nthOcc + ')' : '')); continue; }
+    if (isGivingDup(pid, nthOcc, existingIds)) {
+      skipped++; skipDup++; dupIds.push(pid + (nthOcc > 1 ? ' (row ' + nthOcc + ')' : '')); continue;
+    }
 
     const date      = parseDate(C.date >= 0 ? row[C.date] : '');
     const batchNum  = C.batchNum >= 0  ? (row[C.batchNum]  || '').trim() : '';
@@ -774,9 +742,7 @@ if (seg === 'import/giving-csv' && method === 'POST') { try {
 
     for (let si = 0; si < fundSplits.length; si++) {
       const { name: fName, cents: fCents } = fundSplits[si];
-      // Multi-fund single row: pid-1, pid-2 … (parseFundSplits split)
-      // Multi-row split (Breeze per-fund rows): pid (1st row), pid-2 (2nd), pid-3 (3rd)
-      const entryId = isMulti ? (pid + '-' + (si + 1)) : (nthOcc === 1 ? pid : pid + '-' + nthOcc);
+      const entryId = givingEntryId(pid, nthOcc, isMulti ? si : -1);
       const fundKey = fName.toLowerCase().trim();
       if (!fundByName[fundKey]) {
         const r = await db.prepare(

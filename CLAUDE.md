@@ -159,14 +159,14 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ---
 
-### Phase 5 — Test Harness
+### Phase 5 — Test Harness ✅ DONE 2026-04-25
 **Goal:** Regression coverage for the highest-risk logic, now that code is modular enough to test.
 
-- [ ] **IN11** — Vitest + Miniflare setup; priority test targets:
-  - Breeze CSV importer quirks (split-fund nth-occurrence, float person IDs, `"nan"` fund, negatives)
-  - `hashPassword` / `verifyPassword` round-trip
-  - `disambiguateHHName` edge cases (same last name, missing head, org names)
-  - Giving sync orphan cleanup logic
+- [x] **IN11** — Vitest setup; 37 tests across 3 files. Done 2026-04-25 (v121).
+  - `test/utils.test.js` — `disambiguateHHName` (8 cases: falsy head, Family suffix, case-insensitive, plain name, org names)
+  - `test/auth.test.js` — `hashPassword`/`verifyPassword` (7 cases: format, round-trip, wrong password, empty, unique salts, malformed stored, unicode)
+  - `test/csv-import.test.js` — `parseFundSplits`, `givingEntryId`, `isGivingDup` (22 cases: nan/blank, numeric prefix, multi-fund split, colon format, nth-occurrence dedup)
+  - `parseFundSplits`, `givingEntryId`, `isGivingDup` extracted from `api-import.js` to `api-utils.js` as exported functions
 
 **Done when:** `npm test` passes; CI runs tests on every PR.
 
@@ -286,7 +286,7 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [x] **IN8** — Audit log retention / pruning. Done 2026-04-23. `pruneAuditLog(db)` added to `tlc-volunteer-worker.js`, called from the existing `0 14 * * *` daily cron. Retention: `birthday_email_sent` / `anniversary_email_sent` → 60 days; all other rows → 365 days. Logged under `audit_prune` in cron output.
 - [ ] **IN9** — Staging environment. No `[env.staging]` block in `wrangler.toml`; risky changes (giving migrations, sync logic) go straight to prod. Add staging with its own D1 DB + a `staging.volunteer.timothystl.org` (or `*.workers.dev`) route.
 - [x] **IN10** — D1 backup/restore runbook. Done 2026-04-24 — see `## D1 Backup & Restore` section in this file.
-- [ ] **IN11** — Test harness. No tests in the repo. Highest-value targets: (a) Breeze CSV quirks (split-fund nth-occurrence, float person IDs, "nan" fund, negatives) — giving import has had multiple late-caught bugs (G6); (b) `hashPassword`/`verifyPassword`; (c) `disambiguateHHName`. Vitest + Miniflare works for Workers.
+- [x] **IN11** — Test harness. Done 2026-04-25 (v121). Vitest; 37 tests in `test/`: `utils.test.js` (disambiguateHHName), `auth.test.js` (hashPassword/verifyPassword), `csv-import.test.js` (parseFundSplits/givingEntryId/isGivingDup). `npm test` passes.
 - [x] **IN12** — Dead-code sweep. Done 2026-04-24 (v113). Removed debug `console.log('[Breeze Sync]…')` from per-person Breeze sync in `html-chms.js` and dead `setFdTag` function (comment said "keep for legacy callers" but no callers existed). Both `api-chms.js` and `html-chms.js` were otherwise clean — comments are explanatory, `console.error` calls are the intentional global error boundary.
 
 ---
