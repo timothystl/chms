@@ -61,7 +61,21 @@ function _scopeCss(css) {
   // Drop body.embedded rules — we're always "embedded" in SC2
   css = css.replace(/body\.embedded[^{]*\{[^}]*\}\n?/g, '');
 
-  return _prefixSelectors(css, SCOPE);
+  let scoped = _prefixSelectors(css, SCOPE);
+
+  // Safety overrides: side panels and the overlay are position:fixed; inset:0
+  // (or right:0; height:100vh) with z-index 300/301. They sit above the schedule
+  // table and month-nav buttons. CSS transforms push closed panels offscreen
+  // visually but their hit-test boxes can still intercept clicks in some
+  // engines (or whenever a panel is briefly mid-transition). Force
+  // pointer-events:none unless explicitly opened.
+  scoped += '\n'
+    + SCOPE + ' .side-panel { pointer-events: none; }\n'
+    + SCOPE + ' .side-panel.open { pointer-events: auto; }\n'
+    + SCOPE + ' .panel-overlay { pointer-events: none; }\n'
+    + SCOPE + ' .panel-overlay.open { pointer-events: auto; }\n';
+
+  return scoped;
 }
 
 // Stateful CSS selector prefixer.
@@ -192,10 +206,11 @@ function _transformJs(js) {
   const _schedInitCode = 'window.schedInitScheduler = function() {\n'
      + '  if (window._schedInited) return;\n'
      + '  window._schedInited = true;\n'
-     + '  // Ensure the panel overlay never blocks clicks — its CSS pointer-events:none\n'
-     + '  // rule may be silently dropped if the scoped selector had a comment in it.\n'
-     + '  var _po = document.getElementById(\'panel-overlay\');\n'
-     + '  if (_po) _po.style.pointerEvents = \'none\';\n'
+     + '  // Click-blocking belt-and-suspenders: scope-prefixed rules now also live\n'
+     + '  // in the appended <style> ensuring closed side-panels and the closed overlay\n'
+     + '  // pass clicks through (their position:fixed; height:100vh hit-test region can\n'
+     + '  // still absorb clicks in some scenarios). When a panel opens, the .open rule\n'
+     + '  // restores pointer-events:auto so background clicks close it normally.\n'
      + '  try {\n'
      + '    var _ml = document.getElementById(\'sched-current-month-label\');\n'
      + '    if (_ml) _ml.textContent = monthKeyLabel(currentMonthKey);\n'
