@@ -92,7 +92,9 @@ function _prefixSelectors(css, scope) {
 
     // Opening brace is next
     const before      = css.slice(i, nextOpen);
-    const trimmed     = before.trim();
+    // Strip CSS comments from the selector text — comments inside selectors are
+    // invalid per CSS2.1 and cause the entire rule to be silently ignored.
+    const trimmed     = before.trim().replace(/\/\*[\s\S]*?\*\//g, '').trim();
     const leadingWs   = before.match(/^(\s*)/)[0];
 
     if (!trimmed) {
@@ -190,6 +192,10 @@ function _transformJs(js) {
   const _schedInitCode = 'window.schedInitScheduler = function() {\n'
      + '  if (window._schedInited) return;\n'
      + '  window._schedInited = true;\n'
+     + '  // Ensure the panel overlay never blocks clicks — its CSS pointer-events:none\n'
+     + '  // rule may be silently dropped if the scoped selector had a comment in it.\n'
+     + '  var _po = document.getElementById(\'panel-overlay\');\n'
+     + '  if (_po) _po.style.pointerEvents = \'none\';\n'
      + '  try {\n'
      + '    var _ml = document.getElementById(\'sched-current-month-label\');\n'
      + '    if (_ml) _ml.textContent = monthKeyLabel(currentMonthKey);\n'
