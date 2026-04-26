@@ -74,6 +74,20 @@ export function makeBreezeClient(env) {
       });
     },
 
+    // Update an existing person in Breeze by their Breeze person_id.
+    // Only fields provided are updated; omit first/last/fieldsJson to leave unchanged.
+    updatePerson: (breezeId, first, last, fieldsJson) => {
+      const body = new URLSearchParams({ person_id: breezeId });
+      if (first) body.set('first', first);
+      if (last) body.set('last', last);
+      if (fieldsJson) body.set('fields_json', fieldsJson);
+      return fetch(`${base}/people/update`, {
+        method: 'POST',
+        headers: { ...hdrs, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+    },
+
     // ── Profile (field definitions) ────────────────────────────────────────
     // Returns an array of profile sections; each section has a `fields` array.
     // field_id (not id) is the key used in a person's `details` object.

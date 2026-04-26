@@ -4,6 +4,91 @@ import { brevoUpsertContact, brevoBulkSync, brevoGetListContacts } from './api-e
 import { disambiguateHHName } from './api-utils.js';
 import { makeBreezeClient } from './breeze.js';
 
+// ── Breeze reverse-sync helpers ──────────────────────────────────────────────
+
+// Returns cached {email, phone, address} field IDs, discovering them from a
+// sample person if the cache is empty. Returns {} if discovery fails.
+async function getBreezeFieldIds(db, breeze) {
+  const cached = await db.prepare("SELECT value FROM chms_config WHERE key='breeze_contact_field_ids'").first();
+  if (cached?.value) {
+    try { return JSON.parse(cached.value); } catch {}
+  }
+  const fieldIds = {};
+  const sample = await db.prepare("SELECT breeze_id FROM people WHERE breeze_id!='' AND active=1 LIMIT 1").first();
+  if (!sample) return fieldIds;
+  try {
+    const pr = await breeze.person(sample.breeze_id);
+    if (!pr.ok) return fieldIds;
+    const pd = await pr.json();
+    const details = (Array.isArray(pd) ? pd[0] : pd)?.details || {};
+    for (const [key, val] of Object.entries(details)) {
+      if (!Array.isArray(val)) continue;
+      for (const item of val) {
+        if (!item || typeof item !== 'object') continue;
+        const ft = item.field_type || '';
+        if ((ft === 'email_primary' || ft === 'email') && !fieldIds.email) fieldIds.email = key;
+        else if ((ft === 'phone' || ft.startsWith('phone')) && !fieldIds.phone) fieldIds.phone = key;
+        else if ((ft === 'address_primary' || ft === 'address') && !fieldIds.address) fieldIds.address = key;
+      }
+    }
+    if (fieldIds.email || fieldIds.phone || fieldIds.address) {
+      await db.prepare("INSERT OR REPLACE INTO chms_config(key,value) VALUES('breeze_contact_field_ids',?)")
+        .bind(JSON.stringify(fieldIds)).run();
+    }
+  } catch {}
+  return fieldIds;
+}
+
+// Builds the fields_json array for a Breeze add/update call from known field IDs and a person object.
+function buildBreezeContactFields(fieldIds, person) {
+  const fields = [];
+  if (fieldIds.email && person.email)
+    fields.push({ field_id: fieldIds.email, field_type: 'email_primary', response: 'true', details: { address: person.email } });
+  if (fieldIds.phone && person.phone)
+    fields.push({ field_id: fieldIds.phone, field_type: 'phone', response: 'true', details: { phone_number: person.phone } });
+  if (fieldIds.address && person.address1)
+    fields.push({ field_id: fieldIds.address, field_type: 'address_primary', response: 'true',
+      details: { street_address: person.address1, city: person.city || '', state: person.state || '', zip: person.zip || '' } });
+  return fields;
+}
+
+// Push a newly-created local person to Breeze, then store the returned breeze_id.
+// Fire-and-forget: call with .catch(() => {}) — failures are silent.
+async function autoPushPersonToBreeze(env, db, personId, person) {
+  const breeze = makeBreezeClient(env);
+  if (!breeze) return;
+  const fieldIds = await getBreezeFieldIds(db, breeze);
+  const fields = buildBreezeContactFields(fieldIds, person);
+  const res = await breeze.addPerson(
+    person.first_name || '', person.last_name || '',
+    fields.length ? JSON.stringify(fields) : undefined
+  );
+  if (!res.ok) return;
+  let raw; try { raw = await res.json(); } catch { return; }
+  const breezeId = String(raw?.id || raw?.person_id || '');
+  if (!breezeId) return;
+  await db.prepare('UPDATE people SET breeze_id=? WHERE id=?').bind(breezeId, personId).run();
+  const name = [person.first_name, person.last_name].filter(Boolean).join(' ');
+  await db.prepare(
+    `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
+     VALUES('auto_push_to_breeze','person',?,?,'breeze_id',?,?)`
+  ).bind(personId, name, '', breezeId).run();
+}
+
+// Push updated contact fields for an existing person to Breeze.
+// Fire-and-forget: call with .catch(() => {}) — failures are silent.
+async function autoUpdatePersonInBreeze(env, db, breezeId, person) {
+  const breeze = makeBreezeClient(env);
+  if (!breeze) return;
+  const fieldIds = await getBreezeFieldIds(db, breeze);
+  const fields = buildBreezeContactFields(fieldIds, person);
+  await breeze.updatePerson(
+    breezeId,
+    person.first_name || '', person.last_name || '',
+    fields.length ? JSON.stringify(fields) : undefined
+  );
+}
+
 export async function handlePeopleApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
 // ── People ──────────────────────────────────────────────────────
@@ -128,6 +213,8 @@ if (seg === 'people' && method === 'POST') {
       try { await db.prepare('INSERT OR IGNORE INTO person_tags(person_id,tag_id) VALUES(?,?)').bind(personId,tid).run(); } catch {}
     }
   }
+  // Auto-push to Breeze for manually-added people (not Breeze imports which already have breeze_id).
+  if (!b.breeze_id) autoPushPersonToBreeze(env, db, personId, b).catch(() => {});
   return json({ ok: true, id: personId });
 }
 
@@ -237,6 +324,13 @@ if (pmatch) {
     if (newEmail && newEmail !== oldEmail && (b.member_type || '').toLowerCase() === 'member') {
       brevoUpsertContact(env, b.email.trim(), b.first_name || '', b.last_name || '').catch(() => {});
     }
+    // Auto-update Breeze if name/contact info changed and person is already in Breeze
+    const breezeId = oldPerson?.breeze_id || '';
+    if (breezeId) {
+      const breezeFields = ['first_name','last_name','email','phone','address1','address2','city','state','zip'];
+      const breezeChanged = breezeFields.some(f => String(oldPerson[f] ?? '') !== String(b[f] ?? ''));
+      if (breezeChanged) autoUpdatePersonInBreeze(env, db, breezeId, b).catch(() => {});
+    }
     return json({ ok: true });
   }
   if (method === 'DELETE') {
@@ -337,7 +431,7 @@ if (seg === 'brevo/reconcile' && method === 'GET') {
   });
 }
 
-// ── Push person to Breeze (reverse sync) ────────────────────────
+// ── Push person to Breeze (manual reverse sync) ─────────────────────────────
 const pushToBreezeMatch = seg.match(/^people\/(\d+)\/push-to-breeze$/);
 if (pushToBreezeMatch && method === 'POST') {
   if (!canEdit) return json({ error: 'Access denied' }, 403);
@@ -349,73 +443,26 @@ if (pushToBreezeMatch && method === 'POST') {
   const breeze = makeBreezeClient(env);
   if (!breeze) return json({ error: 'Breeze not configured' }, 503);
 
-  // Discover contact field IDs — check cache first, then fetch from a known Breeze person.
-  // The cache key `breeze_contact_field_ids` stores {email, phone, address} field ID strings.
-  let fieldIds = {};
-  const cachedRow = await db.prepare("SELECT value FROM chms_config WHERE key='breeze_contact_field_ids'").first();
-  if (cachedRow?.value) {
-    try { fieldIds = JSON.parse(cachedRow.value); } catch {}
-  }
-  if (!fieldIds.email && !fieldIds.phone && !fieldIds.address) {
-    const sample = await db.prepare("SELECT breeze_id FROM people WHERE breeze_id!='' AND active=1 LIMIT 1").first();
-    if (sample) {
-      try {
-        const pr = await breeze.person(sample.breeze_id);
-        if (pr.ok) {
-          const pd = await pr.json();
-          const details = (Array.isArray(pd) ? pd[0] : pd)?.details || {};
-          for (const [key, val] of Object.entries(details)) {
-            if (!Array.isArray(val)) continue;
-            for (const item of val) {
-              if (!item || typeof item !== 'object') continue;
-              const ft = item.field_type || '';
-              if ((ft === 'email_primary' || ft === 'email') && !fieldIds.email) fieldIds.email = key;
-              else if ((ft === 'phone' || ft.startsWith('phone')) && !fieldIds.phone) fieldIds.phone = key;
-              else if ((ft === 'address_primary' || ft === 'address') && !fieldIds.address) fieldIds.address = key;
-            }
-          }
-          if (fieldIds.email || fieldIds.phone || fieldIds.address) {
-            await db.prepare("INSERT OR REPLACE INTO chms_config(key,value) VALUES('breeze_contact_field_ids',?)")
-              .bind(JSON.stringify(fieldIds)).run();
-          }
-        }
-      } catch {}
-    }
-  }
-
-  // Build fields_json with whatever contact info the person has
-  const fields = [];
-  if (fieldIds.email && person.email) {
-    fields.push({ field_id: fieldIds.email, field_type: 'email_primary', response: 'true', details: { address: person.email } });
-  }
-  if (fieldIds.phone && person.phone) {
-    fields.push({ field_id: fieldIds.phone, field_type: 'phone', response: 'true', details: { phone_number: person.phone } });
-  }
-  if (fieldIds.address && person.address1) {
-    fields.push({ field_id: fieldIds.address, field_type: 'address_primary', response: 'true',
-      details: { street_address: person.address1, city: person.city || '', state: person.state || '', zip: person.zip || '' } });
-  }
+  const fieldIds = await getBreezeFieldIds(db, breeze);
+  const fields = buildBreezeContactFields(fieldIds, person);
 
   const res = await breeze.addPerson(
-    person.first_name || '',
-    person.last_name || '',
+    person.first_name || '', person.last_name || '',
     fields.length ? JSON.stringify(fields) : undefined
   );
 
-  let raw;
-  try { raw = await res.json(); } catch { raw = {}; }
+  let raw; try { raw = await res.json(); } catch { raw = {}; }
   if (!res.ok) return json({ error: 'Breeze API error', details: raw }, 502);
 
   const breezeId = String(raw?.id || raw?.person_id || '');
   if (!breezeId) return json({ error: 'Breeze returned no person ID', raw }, 502);
 
   await db.prepare('UPDATE people SET breeze_id=? WHERE id=?').bind(breezeId, pid).run();
-
   const personName = [person.first_name, person.last_name].filter(Boolean).join(' ');
   await db.prepare(
     `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
-     VALUES('push_to_breeze','person',?,?,?,?,?)`
-  ).bind(pid, personName, 'breeze_id', '', breezeId).run();
+     VALUES('push_to_breeze','person',?,?,'breeze_id',?,?)`
+  ).bind(pid, personName, '', breezeId).run();
 
   return json({ ok: true, breeze_id: breezeId, fields_sent: fields.length });
 }
