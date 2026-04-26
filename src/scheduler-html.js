@@ -2551,7 +2551,7 @@ function buildPersonIcal(person, assignments) {
 
 function sendReminderEmails() {
   var s = getBreezeSettings();
-  if (!s.resendKey || !s.emailFrom) {
+  if (!_embedded && (!s.resendKey || !s.emailFrom)) {
     alert('Please configure your Resend API key and From address in the Settings tab first.');
     return;
   }
@@ -2650,12 +2650,13 @@ function sendReminderEmails() {
         if (rd.psalm)  lines.push('    Psalm: ' + rd.psalm);
       }
     });
-    if (token && s.workerUrl) {
+    var _rsvpBase = s.workerUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+    if (token && _rsvpBase) {
       lines.push(
         '',
         'Please confirm your availability by clicking one of the links below:',
-        '  \\u2713 Yes, I\\'ll be there: ' + s.workerUrl + '/rsvp?token=' + encodeURIComponent(token) + '&status=confirmed',
-        '  \\u26a0 I need a change:  ' + s.workerUrl + '/rsvp?token=' + encodeURIComponent(token) + '&status=needs_changes'
+        '  \\u2713 Yes, I\\'ll be there: ' + _rsvpBase + '/rsvp?token=' + encodeURIComponent(token) + '&status=confirmed',
+        '  \\u26a0 I need a change:  ' + _rsvpBase + '/rsvp?token=' + encodeURIComponent(token) + '&status=needs_changes'
       );
     }
     lines.push(
@@ -2673,7 +2674,7 @@ function sendReminderEmails() {
 
     // Store token in Worker KV before sending
     chain = chain.then(function() {
-      var storePromise = (token && s.workerUrl)
+      var storePromise = (token && (s.workerUrl || _embedded))
         ? fetch(s.workerUrl + '/rsvp/store', {
             method: 'POST',
             headers: Object.assign({ 'Content-Type': 'application/json' }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
@@ -2692,15 +2693,15 @@ function sendReminderEmails() {
         return fetch(s.workerUrl + '/email/send', {
           method: 'POST',
           headers: Object.assign({
-            'X-Resend-Key':  s.resendKey,
-            'X-Email-From':  s.emailFrom,
+            'X-Resend-Key':  s.resendKey || '',
+            'X-Email-From':  s.emailFrom || '',
             'Content-Type':  'application/json',
           }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
           body: JSON.stringify({
             to:       person.email,
             subject:  'Your Upcoming Worship Service Assignments \\u2014 Timothy Lutheran',
             text:     lines.join('\\n'),
-            html:     buildHtmlEmail(person, assignments, s.replyTo || '', token, s.workerUrl || ''),
+            html:     buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase),
             reply_to: s.replyTo || '',
             attachments: [{
               filename: 'worship-schedule.ics',
@@ -2749,7 +2750,7 @@ document.getElementById('btn-send-emails').addEventListener('click', sendReminde
 // ══════════════════════════════════════════════════════════════════
 function syncConfirmations() {
   var s = getBreezeSettings();
-  if (!s.workerUrl) {
+  if (!_embedded && !s.workerUrl) {
     alert('Configure your Worker URL in the Settings tab first.');
     return;
   }
@@ -2851,7 +2852,7 @@ document.getElementById('btn-sync-confirmations').addEventListener('click', sync
 // ══════════════════════════════════════════════════════════════════
 function restoreRsvpTokens() {
   var s = getBreezeSettings();
-  if (!s.workerUrl) { alert('Configure your Worker URL in Settings first.'); return; }
+  if (!_embedded && !s.workerUrl) { alert('Configure your Worker URL in Settings first.'); return; }
   var rsvpTokens = getRsvpTokens();
   var people = getPeople();
   var pMap = {};
@@ -3109,7 +3110,7 @@ function buildVolunteerRequestHtml(person, slot, replyTo) {
 
 function sendVolunteerNotifications() {
   var s = getBreezeSettings();
-  if (!s.resendKey || !s.emailFrom) {
+  if (!_embedded && (!s.resendKey || !s.emailFrom)) {
     alert('Please configure your Resend API key and From address in the Settings tab first.');
     return;
   }
@@ -3168,8 +3169,8 @@ function sendVolunteerNotifications() {
       return fetch(s.workerUrl + '/email/send', {
         method: 'POST',
         headers: Object.assign({
-          'X-Resend-Key':  s.resendKey,
-          'X-Email-From':  s.emailFrom,
+          'X-Resend-Key':  s.resendKey || '',
+          'X-Email-From':  s.emailFrom || '',
           'Content-Type':  'application/json',
         }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
         body: JSON.stringify({
