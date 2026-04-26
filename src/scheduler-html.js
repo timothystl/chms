@@ -3061,20 +3061,20 @@ function _sendWeekReminders() {
 // ══════════════════════════════════════════════════════════════════
 // SYNC CONFIRMATIONS — pull RSVP statuses from Worker KV
 // ══════════════════════════════════════════════════════════════════
-function syncConfirmations() {
+function syncConfirmations(silent) {
   var s = getBreezeSettings();
   if (!_embedded && !s.workerUrl) {
-    alert('Configure your Worker URL in the Settings tab first.');
+    if (!silent) alert('Configure your Worker URL in the Settings tab first.');
     return;
   }
   var rsvpTokens = getRsvpTokens();                   // { pid: token }
   var tokenList  = Object.keys(rsvpTokens).map(function(pid) { return rsvpTokens[pid]; }).filter(Boolean);
   var statusEl   = document.getElementById('email-send-status');
   if (!tokenList.length) {
-    statusEl.textContent = 'No RSVP tokens found \\u2014 send reminder emails first.';
+    if (!silent) statusEl.textContent = 'No RSVP tokens found \\u2014 send reminder emails first.';
     return;
   }
-  statusEl.textContent = 'Syncing confirmations\\u2026';
+  if (!silent) statusEl.textContent = 'Syncing confirmations\\u2026';
 
   fetch(s.workerUrl + '/rsvp/sync', {
     method:  'POST',
@@ -3149,11 +3149,11 @@ function syncConfirmations() {
         renderTable(people, counts);
       }
 
-      statusEl.textContent = '\\u2713 Synced \\u2014 '
+      if (!silent) statusEl.textContent = '\\u2713 Synced \\u2014 '
         + updated + ' assignment' + (updated !== 1 ? 's' : '') + ' updated.';
     })
     .catch(function(e) {
-      statusEl.textContent = '\\u00d7 Sync failed: ' + esc(String(e));
+      if (!silent) statusEl.textContent = '\\u00d7 Sync failed: ' + esc(String(e));
     });
 }
 

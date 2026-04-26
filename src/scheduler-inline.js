@@ -233,6 +233,7 @@ function _transformJs(js) {
      + '  if (typeof d1Pull === \'function\') {\n'
      + '    d1Pull().then(function() {\n'
      + '      document.querySelectorAll(\'.sunday-detail\').forEach(function(tr) { tr.style.display=\'none\'; });\n'
+     + '      if (typeof syncConfirmations === \'function\') syncConfirmations(true);\n'
      + '    }).catch(function(){});\n'
      + '  }\n'
      + '  if (typeof fetchPendingSignups === \'function\') fetchPendingSignups();\n'
