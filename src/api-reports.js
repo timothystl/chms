@@ -286,11 +286,39 @@ if (seg === 'engagement/update-followup' && method === 'POST') {
 // DELETE /admin/api/engagement/tasks/:id
 if (seg === 'engagement/tasks' && method === 'GET') {
   if (!canEdit) return json({ error: 'Access denied' }, 403);
-  const weekKey = url.searchParams.get('week') || isoWeekKey();
+  const currentWeekKey = isoWeekKey();
+  const weekKey = url.searchParams.get('week') || currentWeekKey;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(weekKey)) return json({ error: 'Invalid week format' }, 400);
-  const tasks = (await db.prepare(
+  let tasks = (await db.prepare(
     'SELECT * FROM engagement_tasks WHERE week_key=? ORDER BY sort_order, id'
   ).bind(weekKey).all()).results || [];
+
+  // Auto-seed the current week when it has no tasks yet.
+  // Copy from the prior week if it had tasks; otherwise seed hardcoded defaults.
+  if (tasks.length === 0 && weekKey === currentWeekKey) {
+    const priorDate = new Date(weekKey + 'T12:00:00Z');
+    priorDate.setUTCDate(priorDate.getUTCDate() - 7);
+    const priorKey  = priorDate.toISOString().slice(0, 10);
+    const priorRows = (await db.prepare(
+      'SELECT title, link_url FROM engagement_tasks WHERE week_key=? ORDER BY sort_order, id'
+    ).bind(priorKey).all()).results || [];
+
+    const seeds = priorRows.length > 0
+      ? priorRows.map(function(t) { return { title: t.title, link_url: t.link_url || '' }; })
+      : [
+          { title: 'Pray for people prayer cards', link_url: '' },
+          { title: 'Work through member list',     link_url: '' },
+        ];
+
+    await db.batch(seeds.map(function(s, i) {
+      return db.prepare('INSERT INTO engagement_tasks(title,link_url,week_key,sort_order) VALUES(?,?,?,?)')
+        .bind(s.title, s.link_url, weekKey, i);
+    }));
+    tasks = (await db.prepare(
+      'SELECT * FROM engagement_tasks WHERE week_key=? ORDER BY sort_order, id'
+    ).bind(weekKey).all()).results || [];
+  }
+
   return json({ tasks, week_key: weekKey });
 }
 if (seg === 'engagement/tasks' && method === 'POST') {
