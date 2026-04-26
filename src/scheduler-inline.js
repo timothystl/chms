@@ -157,15 +157,15 @@ function _transformJs(js) {
   // 3. Fix relative URL — without <base href="/scheduler/">, this would 404
   js = js.replace("fetch('lcms_calendar.json')", "fetch('/scheduler/lcms_calendar.json')");
 
-  // 4. Rename functions that collide with ChMS globals
-  js = js.replace(/function fmtDate\(/g,    'function schedFmtDate(');
-  js = js.replace(/\bfmtDate\(/g,           'schedFmtDate(');
-  js = js.replace(/function showTab\(/g,    'function schedShowTab(');
-  js = js.replace(/\bshowTab\(/g,           'schedShowTab(');
-  js = js.replace(/function savePerson\(/g, 'function schedSavePerson(');
-  js = js.replace(/\bsavePerson\(/g,        'schedSavePerson(');
-  js = js.replace(/function deletePerson\(/g, 'function schedDeletePerson(');
-  js = js.replace(/\bdeletePerson\(/g,       'schedDeletePerson(');
+  // 4. Rename functions that collide with ChMS globals.
+  //    Use \bNAME\b (not \bNAME\() so we also catch callback references like
+  //    addEventListener('click', savePerson) — those are bare identifier
+  //    references with no parentheses; missing them leaves a ReferenceError
+  //    at script load time that halts every subsequent addEventListener.
+  js = js.replace(/\bfmtDate\b/g,      'schedFmtDate');
+  js = js.replace(/\bshowTab\b/g,      'schedShowTab');
+  js = js.replace(/\bsavePerson\b/g,   'schedSavePerson');
+  js = js.replace(/\bdeletePerson\b/g, 'schedDeletePerson');
 
   // 5. Fix dynamic tab ID construction to match renamed HTML IDs
   js = js.replace(/'tab-btn-' \+ t/g, "'sched-tab-btn-' + t");
