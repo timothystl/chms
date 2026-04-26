@@ -177,7 +177,14 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 - [ ] **G3** — Gift entry workflow improvements (user has detail — schedule a dedicated scoping session first)
 - [ ] **R4** — Member tenure report: check if `member_since`/`join_date` field exists in Breeze mapping; add report if data is available
-- [ ] **BR1** — Reverse sync (app → Breeze): scope to narrow workflows first (new person push, walk-in gift batch push); needs scoping conversation before implementation
+- [x] **BR1** — Reverse sync (app → Breeze): auto-push on person create, auto-update on contact field change. Done 2026-04-26 (v133).
+- [ ] **GS1** — Giving statements by email: generate year-end PDF/HTML tax statements per donor, send via Resend; admin trigger in Settings. (noted 2026-04-26)
+- [ ] **BR2** — Bulk "Push to Breeze": Settings button finds all people with no `breeze_id` and pushes them to Breeze in batch (rate-limited). (noted 2026-04-26)
+- [ ] **GN1** — Giving entry notes on batch view: show note field inline on batch list rows, not only in the edit modal. (noted 2026-04-26)
+- [ ] **HH1** — Quick-add household member: "+ Add Member" button on household card opens person-create form pre-filled with household. (noted 2026-04-26)
+- [ ] **GS2** — Annual giving statements batch run: one-click in Settings emails statements to all donors who gave during the selected year. (noted 2026-04-26)
+- [ ] **VF1** — Visitor follow-up automation: auto-send welcome email via Resend to new Visitors N days after first contact; configurable N and template in Settings. (noted 2026-04-26)
+- [ ] **CI1** — GitHub Actions CI pipeline: `npm test` runs on every PR; badge in README. (noted 2026-04-26)
 
 **Done when:** Each item either shipped or formally deferred with a reason.
 
@@ -188,6 +195,8 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 - [ ] **R6** — Per-person attendance tracking: schema (attendance record per person per service) + check-in UI — dedicated scoping session required
 - [ ] **IN2** — Decide on app merge strategy: Option C (absorb scheduler fully) vs Option B (thin people-API); audit monorepo vs split-repo; document decision in CLAUDE.md
+- [ ] **PM1** — Person merge: deduplicate records by moving giving, tags, and household membership to the canonical record then deleting the duplicate; needs a confirmation UI with diff view. (noted 2026-04-26)
+- [ ] **PL1b** — Pledge tracking: new `pledges` table (person, year, amount); pledge vs. actual giving shown on profile and in a Giving Insights section. (noted 2026-04-26)
 
 **Done when:** Each item either has a design doc / scoping decision logged here, or is in active implementation.
 
@@ -284,7 +293,7 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [x] **IN6** — Secrets inventory doc. Done 2026-04-24 — see `SECRETS.md`.
 - [x] **IN7** — D1 schema migrations system. Done 2026-04-23. `migrations/` directory created with `0001_baseline.sql` (complete schema as of today). `wrangler.toml` updated with `migrations_dir = "migrations"`. **To add a new column going forward**: (1) create `migrations/NNNN_description.sql` with the `ALTER TABLE ADD COLUMN` statement, (2) also add the same statement to the `migrations` array in `src/db.js` with a try/catch (keeps cold-start safety net working), (3) run `wrangler d1 migrations apply tlc-volunteer-db --remote` to apply to prod.
 - [x] **IN8** — Audit log retention / pruning. Done 2026-04-23. `pruneAuditLog(db)` added to `tlc-volunteer-worker.js`, called from the existing `0 14 * * *` daily cron. Retention: `birthday_email_sent` / `anniversary_email_sent` → 60 days; all other rows → 365 days. Logged under `audit_prune` in cron output.
-- [ ] **IN9** — Staging environment. No `[env.staging]` block in `wrangler.toml`; risky changes (giving migrations, sync logic) go straight to prod. Add staging with its own D1 DB + a `staging.volunteer.timothystl.org` (or `*.workers.dev`) route.
+- [x] **IN9** — Staging environment live at `https://breeze-proxy-worker-staging.timothystl.workers.dev/chms`. Separate `wrangler.staging.toml` config; D1: `tlc-volunteer-db-staging`, KV: staging RSVP_STORE, shared R2, crons disabled. Deploy: `wrangler deploy --config wrangler.staging.toml`. Done 2026-04-24.
 - [x] **IN10** — D1 backup/restore runbook. Done 2026-04-24 — see `## D1 Backup & Restore` section in this file.
 - [ ] **IN11** — Test harness. No tests in the repo. Highest-value targets: (a) Breeze CSV quirks (split-fund nth-occurrence, float person IDs, "nan" fund, negatives) — giving import has had multiple late-caught bugs (G6); (b) `hashPassword`/`verifyPassword`; (c) `disambiguateHHName`. Vitest + Miniflare works for Workers.
 - [x] **IN12** — Dead-code sweep. Done 2026-04-24 (v113). Removed debug `console.log('[Breeze Sync]…')` from per-person Breeze sync in `html-chms.js` and dead `setFdTag` function (comment said "keep for legacy callers" but no callers existed). Both `api-chms.js` and `html-chms.js` were otherwise clean — comments are explanatory, `console.error` calls are the intentional global error boundary.
