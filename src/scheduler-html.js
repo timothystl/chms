@@ -820,6 +820,10 @@ body.embedded #app-content { display:block!important; }
       Requires a Resend API key configured in Settings.
     </p>
     <div id="notify-alert" style="margin-bottom:12px;"></div>
+    <div id="notify-week-filter-wrap" style="display:none;margin-bottom:12px;font-size:.86rem;">
+      <label for="notify-week-filter" style="display:inline-block;margin-right:8px;font-weight:600;color:var(--steel-anchor);">Week:</label>
+      <select id="notify-week-filter" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:white;font-family:var(--font-body);font-size:.86rem;color:var(--steel-anchor);"></select>
+    </div>
     <div id="notify-slots-list"></div>
     <div id="notify-actions" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
@@ -2962,13 +2966,65 @@ function openNotifyPanel() {
   var listEl = document.getElementById('notify-slots-list');
   var actionsEl = document.getElementById('notify-actions');
   var alertEl = document.getElementById('notify-alert');
+  var filterWrap = document.getElementById('notify-week-filter-wrap');
+  var filterSel  = document.getElementById('notify-week-filter');
   alertEl.innerHTML = '';
   document.getElementById('notify-send-status').textContent = '';
 
   if (!slots.length) {
     listEl.innerHTML = '<p style="color:var(--sage);font-size:.88rem;">&#10003; All slots are filled for this month!</p>';
     actionsEl.style.display = 'none';
+    filterWrap.style.display = 'none';
     openPanel('notify-panel');
+    return;
+  }
+
+  // Build the week-picker dropdown from unique Sundays present in the open-slots list.
+  // (Special services are excluded from getOpenSlots, so we only deal with Sundays here.)
+  var seenDates = {};
+  var sundayOptions = [];
+  slots.forEach(function(s){
+    if (seenDates[s.dateISO]) return;
+    seenDates[s.dateISO] = true;
+    sundayOptions.push({ iso: s.dateISO, label: s.date });
+  });
+  sundayOptions.sort(function(a,b){ return a.iso < b.iso ? -1 : 1; });
+  var optsHtml = '<option value="all">All weeks (' + slots.length + ' open)</option>';
+  sundayOptions.forEach(function(o){
+    var count = slots.filter(function(s){ return s.dateISO === o.iso; }).length;
+    optsHtml += '<option value="' + esc(o.iso) + '">' + esc(o.label) + ' (' + count + ' open)</option>';
+  });
+  filterSel.innerHTML = optsHtml;
+  filterWrap.style.display = '';
+
+  // Default selection: the next upcoming Sunday with open slots (≥ today),
+  // or fall back to "all" if none.
+  var todayIso = new Date().toISOString().slice(0, 10);
+  var nextUp = sundayOptions.find(function(o){ return o.iso >= todayIso; });
+  filterSel.value = nextUp ? nextUp.iso : 'all';
+
+  // Cache slots so the change handler doesn't re-scan currentSchedule
+  _notifySlotsCache = slots;
+  renderNotifySlots(filterSel.value);
+  openPanel('notify-panel');
+}
+
+var _notifySlotsCache = [];
+
+function renderNotifySlots(weekFilter) {
+  // Build displaySlots as { slot, idx } pairs so data-slot-idx always refers to
+  // the cache, not the filtered view — sendVolunteerNotifications relies on
+  // those cache indices.
+  var displaySlots = _notifySlotsCache.map(function(s, i){ return { slot: s, idx: i }; });
+  if (weekFilter && weekFilter !== 'all') {
+    displaySlots = displaySlots.filter(function(d){ return d.slot.dateISO === weekFilter; });
+  }
+  var listEl = document.getElementById('notify-slots-list');
+  var actionsEl = document.getElementById('notify-actions');
+
+  if (!displaySlots.length) {
+    listEl.innerHTML = '<p style="color:var(--sage);font-size:.88rem;margin-top:6px;">&#10003; No open slots for this week.</p>';
+    actionsEl.style.display = 'none';
     return;
   }
 
@@ -2981,7 +3037,9 @@ function openNotifyPanel() {
     + '<th style="padding:6px 8px;text-align:left;font-weight:600;color:var(--steel-anchor);">Eligible</th>'
     + '</tr></thead><tbody>';
 
-  slots.forEach(function(slot, i) {
+  displaySlots.forEach(function(d, rowIdx) {
+    var slot = d.slot;
+    var cacheIdx = d.idx;
     var withEmail = slot.pool.filter(function(p) { return p.email; });
     var withoutEmail = slot.pool.filter(function(p) { return !p.email; });
     var eligibleHtml = '';
@@ -2999,11 +3057,11 @@ function openNotifyPanel() {
       }
     }
     var canNotify = withEmail.length > 0;
-    var rowBg = i % 2 === 0 ? '' : 'background:#fafaf8;';
+    var rowBg = rowIdx % 2 === 0 ? '' : 'background:#fafaf8;';
     html += '<tr style="' + rowBg + 'border-bottom:1px solid var(--border);">'
       + '<td style="padding:7px 8px;vertical-align:top;">'
       + (canNotify
-          ? '<input type="checkbox" class="notify-slot-cb" data-slot-idx="' + i + '" checked style="margin:0;">'
+          ? '<input type="checkbox" class="notify-slot-cb" data-slot-idx="' + cacheIdx + '" checked style="margin:0;">'
           : '<input type="checkbox" disabled style="margin:0;opacity:0.35;" title="No eligible volunteers with email">')
       + '</td>'
       + '<td style="padding:7px 8px;vertical-align:top;white-space:nowrap;">' + esc(slot.date) + '</td>'
@@ -3018,7 +3076,6 @@ function openNotifyPanel() {
 
   listEl.innerHTML = html;
   actionsEl.style.display = '';
-  openPanel('notify-panel');
 }
 
 function buildVolunteerRequestHtml(person, slot, replyTo) {
@@ -3056,7 +3113,10 @@ function sendVolunteerNotifications() {
     alert('Please configure your Resend API key and From address in the Settings tab first.');
     return;
   }
-  var slots = getOpenSlots();
+  // Use the cache that the panel was rendered from. data-slot-idx values
+  // index into _notifySlotsCache, not a fresh getOpenSlots() result — those
+  // could differ if the schedule changed since the panel opened.
+  var slots = _notifySlotsCache.length ? _notifySlotsCache : getOpenSlots();
   var checkedIdxs = [];
   document.querySelectorAll('.notify-slot-cb:checked').forEach(function(cb) {
     checkedIdxs.push(parseInt(cb.getAttribute('data-slot-idx'), 10));
@@ -3162,6 +3222,9 @@ document.getElementById('btn-notify-deselect-all').addEventListener('click', fun
   document.querySelectorAll('.notify-slot-cb:not(:disabled)').forEach(function(cb) { cb.checked = false; });
 });
 document.getElementById('btn-notify-send').addEventListener('click', sendVolunteerNotifications);
+document.getElementById('notify-week-filter').addEventListener('change', function() {
+  renderNotifySlots(this.value);
+});
 
 // ══════════════════════════════════════════════════════════════════
 // SETTINGS
