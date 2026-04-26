@@ -836,6 +836,32 @@ body.embedded #app-content { display:block!important; }
   </div>
 </div>
 
+<!-- ══ REMINDER EMAILS PANEL ════════════════════════════════════════════════ -->
+<div id="reminder-panel" class="side-panel">
+  <div class="panel-hdr">
+    <h2>&#9993; Send Reminder Emails</h2>
+    <button class="panel-close" id="btn-close-reminder-panel">&times;</button>
+  </div>
+  <div class="panel-body">
+    <p style="font-size:.85rem;color:var(--warm-gray);margin-bottom:16px;">
+      Send a personalized reminder to each volunteer with their assignment(s) for the selected Sunday. Each email includes an iCal attachment.
+    </p>
+    <div id="reminder-week-filter-wrap" style="display:none;margin-bottom:12px;font-size:.86rem;">
+      <label for="reminder-week-filter" style="display:inline-block;margin-right:8px;font-weight:600;color:var(--steel-anchor);">Week:</label>
+      <select id="reminder-week-filter" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:white;font-family:var(--font-body);font-size:.86rem;color:var(--steel-anchor);"></select>
+    </div>
+    <div id="reminder-person-list"></div>
+    <div id="reminder-actions" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+        <button class="btn btn-outline btn-sm" id="btn-reminder-select-all">Select All</button>
+        <button class="btn btn-outline btn-sm" id="btn-reminder-deselect-all">Deselect All</button>
+      </div>
+      <button class="btn btn-primary" id="btn-reminder-send">Send Reminder Emails</button>
+      <div id="reminder-send-status" style="font-size:0.85rem;color:var(--warm-gray);margin-top:10px;min-height:18px;"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ══ READINGS PANEL ════════════════════════════════════════════════════════ -->
 <div id="readings-panel" class="side-panel">
   <div class="panel-hdr">
@@ -2743,7 +2769,294 @@ function sendReminderEmails() {
   });
 }
 
-document.getElementById('btn-send-emails').addEventListener('click', sendReminderEmails);
+document.getElementById('btn-send-emails').addEventListener('click', openReminderPanel);
+
+// ══════════════════════════════════════════════════════════════════
+// REMINDER EMAILS PANEL — week-filtered schedule reminders
+// ══════════════════════════════════════════════════════════════════
+var _reminderAssignmentsCache = {};
+
+function openReminderPanel() {
+  if (!currentSchedule.length) {
+    alert('Generate a schedule first.');
+    return;
+  }
+  var people = getPeople();
+  var pMap = {};
+  people.forEach(function(p){ pMap[p.id] = p; });
+
+  // Build full person→assignments map across all Sundays
+  var allPA = {};
+  currentSchedule.forEach(function(row) {
+    if (row.type !== 'sunday') return;
+    var dateStr = fmtDate(row.date);
+    var dateISO = row.date.toISOString().slice(0, 10);
+    PER_ROLES.forEach(function(role) {
+      ['8am','10:45am'].forEach(function(svc) {
+        var pid = row.assignments[role] && row.assignments[role][svc];
+        if (!pid) return;
+        if (!allPA[pid]) allPA[pid] = [];
+        allPA[pid].push({ date: dateStr, dateISO: dateISO, svc: svc, role: role });
+      });
+    });
+    SHARED_ROLES.forEach(function(role) {
+      var pid = row.assignments[role] && row.assignments[role].shared;
+      if (!pid) return;
+      if (!allPA[pid]) allPA[pid] = [];
+      allPA[pid].push({ date: dateStr, dateISO: dateISO, svc: 'both services', role: role });
+    });
+  });
+
+  // Unique Sundays that have at least one assignment
+  var seenDates = {};
+  var sundayOptions = [];
+  Object.keys(allPA).forEach(function(pid) {
+    allPA[pid].forEach(function(a) {
+      if (!seenDates[a.dateISO]) {
+        seenDates[a.dateISO] = true;
+        sundayOptions.push({ iso: a.dateISO, label: a.date });
+      }
+    });
+  });
+  sundayOptions.sort(function(a,b){ return a.iso < b.iso ? -1 : 1; });
+
+  if (!sundayOptions.length) {
+    alert('No assignments found in the schedule.');
+    return;
+  }
+
+  _reminderAssignmentsCache = allPA;
+
+  var filterWrap = document.getElementById('reminder-week-filter-wrap');
+  var filterSel  = document.getElementById('reminder-week-filter');
+  var optsHtml   = '';
+  sundayOptions.forEach(function(o) {
+    var count = Object.keys(allPA).filter(function(pid) {
+      return allPA[pid].some(function(a){ return a.dateISO === o.iso; });
+    }).length;
+    optsHtml += '<option value="' + esc(o.iso) + '">' + esc(o.label)
+      + ' (' + count + ' volunteer' + (count !== 1 ? 's' : '') + ')</option>';
+  });
+  filterSel.innerHTML = optsHtml;
+  filterWrap.style.display = '';
+
+  var todayIso = new Date().toISOString().slice(0, 10);
+  var nextUp = sundayOptions.find(function(o){ return o.iso >= todayIso; });
+  filterSel.value = nextUp ? nextUp.iso : sundayOptions[0].iso;
+
+  document.getElementById('reminder-send-status').textContent = '';
+  renderReminderList(filterSel.value);
+  openPanel('reminder-panel');
+}
+
+function renderReminderList(weekFilter) {
+  var people = getPeople();
+  var pMap = {};
+  people.forEach(function(p){ pMap[p.id] = p; });
+
+  var assignedPids = Object.keys(_reminderAssignmentsCache).filter(function(pid) {
+    return _reminderAssignmentsCache[pid].some(function(a){ return a.dateISO === weekFilter; });
+  });
+
+  var listEl    = document.getElementById('reminder-person-list');
+  var actionsEl = document.getElementById('reminder-actions');
+
+  if (!assignedPids.length) {
+    listEl.innerHTML = '<p style="color:var(--warm-gray);font-size:.88rem;margin-top:6px;">No volunteers assigned for this week.</p>';
+    actionsEl.style.display = 'none';
+    return;
+  }
+
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:0.84rem;">'
+    + '<thead><tr style="background:var(--blue-mist);">'
+    + '<th style="padding:6px 8px;text-align:left;font-weight:600;color:var(--steel-anchor);width:28px;"></th>'
+    + '<th style="padding:6px 8px;text-align:left;font-weight:600;color:var(--steel-anchor);">Volunteer</th>'
+    + '<th style="padding:6px 8px;text-align:left;font-weight:600;color:var(--steel-anchor);">Role(s) this Sunday</th>'
+    + '</tr></thead><tbody>';
+
+  assignedPids.forEach(function(pid, rowIdx) {
+    var person = pMap[pid];
+    if (!person) return;
+    var weekA  = _reminderAssignmentsCache[pid].filter(function(a){ return a.dateISO === weekFilter; });
+    var hasEmail = !!(person.email);
+    var rowBg    = rowIdx % 2 === 0 ? '' : 'background:#fafaf8;';
+    var roleText = weekA.map(function(a) {
+      return roleLabel(a.role) + ' (' + (a.svc === 'both services' ? 'Both' : a.svc) + ')';
+    }).join(', ');
+    html += '<tr style="' + rowBg + 'border-bottom:1px solid var(--border);">'
+      + '<td style="padding:7px 8px;vertical-align:middle;">'
+      + (hasEmail
+          ? '<input type="checkbox" class="reminder-person-cb" data-pid="' + esc(pid) + '" data-week="' + esc(weekFilter) + '" checked style="margin:0;">'
+          : '<input type="checkbox" disabled style="margin:0;opacity:0.35;" title="No email address">')
+      + '</td>'
+      + '<td style="padding:7px 8px;vertical-align:top;">'
+      + esc(person.name)
+      + (!hasEmail ? ' <span style="font-size:0.72rem;color:var(--warm-gray);">(no email)</span>' : '')
+      + '</td>'
+      + '<td style="padding:7px 8px;vertical-align:top;font-size:0.8rem;color:var(--warm-gray);">' + esc(roleText) + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+
+  listEl.innerHTML = html;
+  actionsEl.style.display = '';
+}
+
+function _sendWeekReminders() {
+  var s = getBreezeSettings();
+  if (!_embedded && (!s.resendKey || !s.emailFrom)) {
+    alert('Please configure your Resend API key and From address in the Settings tab first.');
+    return;
+  }
+  var people = getPeople();
+  var pMap = {};
+  people.forEach(function(p){ pMap[p.id] = p; });
+
+  var statusEl = document.getElementById('reminder-send-status');
+  var sendBtn  = document.getElementById('btn-reminder-send');
+
+  var tasks = [];
+  document.querySelectorAll('.reminder-person-cb:checked').forEach(function(cb) {
+    var pid  = cb.getAttribute('data-pid');
+    var week = cb.getAttribute('data-week');
+    var person = pMap[pid];
+    if (!person || !person.email) return;
+    var weekA = (_reminderAssignmentsCache[pid] || []).filter(function(a){ return a.dateISO === week; });
+    if (!weekA.length) return;
+    tasks.push({ person: person, assignments: weekA });
+  });
+
+  if (!tasks.length) {
+    statusEl.textContent = 'No people selected.';
+    return;
+  }
+
+  var total = tasks.length, sent = 0, errors = 0;
+  statusEl.textContent = 'Sending 0 of ' + total + '\\u2026';
+  sendBtn.disabled = true;
+
+  var rsvpTokens = getRsvpTokens();
+  tasks.forEach(function(t) {
+    if (!rsvpTokens[t.person.id]) {
+      rsvpTokens[t.person.id] = Math.random().toString(36).slice(2)
+                               + Math.random().toString(36).slice(2)
+                               + Date.now().toString(36);
+    }
+  });
+  saveRsvpTokens(rsvpTokens);
+
+  var chain = Promise.resolve();
+  tasks.forEach(function(task) {
+    var person      = task.person;
+    var assignments = task.assignments;
+    var token       = rsvpTokens[person.id] || '';
+    var _rsvpBase   = s.workerUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+
+    var lines = [
+      'Hello ' + person.name + ',',
+      '',
+      'This is a reminder of your worship service assignment this Sunday at Timothy Lutheran Church:',
+      ''
+    ];
+    assignments.forEach(function(a) {
+      var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
+      lines.push('  \\u2022 ' + a.date + ' \\u2014 ' + svcLabel + ': ' + roleLabel(a.role));
+    });
+    // Readings for Lectors / Liturgists
+    var hasReadings = false;
+    assignments.forEach(function(a) {
+      var role = (a.role || '').toLowerCase();
+      if (role !== 'lector' && role !== 'liturgist') return;
+      var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
+      if (!rd) return;
+      if (!hasReadings) { lines.push('', 'Your Readings:'); hasReadings = true; }
+      var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
+      lines.push('', '  ' + a.date + ' \\u2014 ' + svcLabel + ' (' + roleLabel(a.role) + ')');
+      if (role === 'lector') {
+        if (rd.ot)      lines.push('    OT: ' + rd.ot);
+        if (rd.epistle) lines.push('    Epistle: ' + rd.epistle);
+      } else {
+        if (rd.gospel) lines.push('    Gospel: ' + rd.gospel);
+        if (rd.psalm)  lines.push('    Psalm: ' + rd.psalm);
+      }
+    });
+    if (token && _rsvpBase) {
+      lines.push(
+        '',
+        'Please confirm your availability:',
+        '  \\u2713 Yes, I\\'ll be there: ' + _rsvpBase + '/rsvp?token=' + encodeURIComponent(token) + '&status=confirmed',
+        '  \\u26a0 I need a change:  ' + _rsvpBase + '/rsvp?token=' + encodeURIComponent(token) + '&status=needs_changes'
+      );
+    }
+    lines.push('', 'Thank you for serving!', '', 'Timothy Lutheran Church');
+
+    var icalContent = buildPersonIcal(person, assignments);
+    var icalB64     = btoa(unescape(encodeURIComponent(icalContent)));
+
+    chain = chain.then(function() {
+      var storePromise = (token && (s.workerUrl || _embedded))
+        ? fetch(s.workerUrl + '/rsvp/store', {
+            method: 'POST',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
+            body: JSON.stringify({
+              token: token, name: person.name, personId: person.id,
+              assignments: assignments.map(function(a){
+                return { date: a.date, dateISO: a.dateISO, svc: a.svc, role: a.role };
+              }),
+            }),
+          }).catch(function(){})
+        : Promise.resolve();
+
+      return storePromise.then(function() {
+        return fetch(s.workerUrl + '/email/send', {
+          method: 'POST',
+          headers: Object.assign({
+            'X-Resend-Key': s.resendKey || '',
+            'X-Email-From': s.emailFrom || '',
+            'Content-Type': 'application/json',
+          }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
+          body: JSON.stringify({
+            to:          person.email,
+            subject:     'Worship Service Reminder \\u2014 ' + assignments[0].date + ' \\u2014 Timothy Lutheran',
+            text:        lines.join('\\n'),
+            html:        buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase),
+            reply_to:    s.replyTo || '',
+            attachments: [{ filename: 'worship-schedule.ics', content: icalB64 }],
+          }),
+        })
+          .then(function(r) {
+            var ok = r.ok, status = r.status;
+            return r.json().then(function(body){ return { ok: ok, status: status, body: body }; });
+          })
+          .then(function(res) {
+            if (res.ok) {
+              sent++;
+              statusEl.textContent = 'Sent ' + sent + ' of ' + total + '\\u2026';
+            } else {
+              errors++;
+              var msg = res.body && (res.body.message || res.body.error || res.body.name)
+                ? (res.body.message || res.body.error || res.body.name)
+                : JSON.stringify(res.body);
+              statusEl.textContent = '\\u00d7 ' + esc(person.name) + ' (error ' + res.status + '): ' + esc(msg);
+            }
+          })
+          .catch(function(e) {
+            errors++;
+            statusEl.textContent = '\\u00d7 Network error: ' + esc(String(e));
+          });
+      });
+    });
+  });
+
+  chain.then(function() {
+    sendBtn.disabled = false;
+    if (!errors) {
+      statusEl.textContent = '\\u2713 Done \\u2014 ' + sent + ' email' + (sent !== 1 ? 's' : '') + ' sent.';
+    } else {
+      statusEl.textContent += ' (' + sent + ' sent, ' + errors + ' failed)';
+    }
+  });
+}
 
 // ══════════════════════════════════════════════════════════════════
 // SYNC CONFIRMATIONS — pull RSVP statuses from Worker KV
@@ -3213,6 +3526,19 @@ function sendVolunteerNotifications() {
     }
   });
 }
+
+document.getElementById('btn-close-reminder-panel').addEventListener('click', closeAllPanels);
+document.getElementById('reminder-week-filter').addEventListener('change', function() {
+  document.getElementById('reminder-send-status').textContent = '';
+  renderReminderList(this.value);
+});
+document.getElementById('btn-reminder-select-all').addEventListener('click', function() {
+  document.querySelectorAll('.reminder-person-cb:not(:disabled)').forEach(function(cb){ cb.checked = true; });
+});
+document.getElementById('btn-reminder-deselect-all').addEventListener('click', function() {
+  document.querySelectorAll('.reminder-person-cb:not(:disabled)').forEach(function(cb){ cb.checked = false; });
+});
+document.getElementById('btn-reminder-send').addEventListener('click', _sendWeekReminders);
 
 document.getElementById('btn-notify-volunteers').addEventListener('click', openNotifyPanel);
 document.getElementById('btn-close-notify-panel').addEventListener('click', closeAllPanels);
