@@ -3610,7 +3610,7 @@ function breezeGet(path, params) {
   var s = getBreezeSettings();
   if (!s.subdomain||!s.apiKey) return Promise.reject('No Breeze credentials configured.');
 
-  var base = (s.workerUrl || window.location.origin).replace(/\/$/, '');
+  var base = (s.workerUrl || window.location.origin).replace(/\\/$/, '');
   params = params || {};
   var qs = Object.keys(params).map(function(k){ return encodeURIComponent(k)+'='+encodeURIComponent(params[k]); }).join('&');
   var url = base + path + (qs ? '?'+qs : '');
@@ -3637,7 +3637,7 @@ function breezePost(path, fields) {
     return encodeURIComponent(k) + '=' + encodeURIComponent(fields[k]);
   }).join('&');
 
-  var base = (s.workerUrl || window.location.origin).replace(/\/$/, '');
+  var base = (s.workerUrl || window.location.origin).replace(/\\/$/, '');
   var url = base + path;
   return fetch(url, {
     method: 'POST',
