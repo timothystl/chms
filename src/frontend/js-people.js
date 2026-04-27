@@ -1,6 +1,6 @@
 export const JS_PEOPLE = String.raw`// ── FUNDS ──────────────────────────────────────────────────────────────
 function loadFunds() {
-  api('/admin/api/funds').then(function(d) { allFunds = d.funds || []; });
+  api('/admin/api/funds').then(function(d) { allFunds = d.funds || []; }).catch(function(){});
 }
 
 // ── PEOPLE ────────────────────────────────────────────────────────────
