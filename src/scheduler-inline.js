@@ -161,7 +161,7 @@ function _transformJs(js) {
   //    functionally equivalent (HTML entity escape).
 
   // 3. Fix relative URL — without <base href="/scheduler/">, this would 404
-  js = js.replace("fetch('lcms_calendar.json')", "fetch('/scheduler/lcms_calendar.json')");
+  js = js.replaceAll("fetch('lcms_calendar.json')", "fetch('/scheduler/lcms_calendar.json')");
 
   // 3b. Strip workerUrl prefix from fetch() calls. The scheduler historically
   //     lived at volunteer.timothystl.org and stored that as workerUrl. Now
