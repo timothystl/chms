@@ -1702,8 +1702,10 @@ function savePerson() {
 function deletePerson() {
   var id = document.getElementById('pm-id').value;
   if (!id) return;
-  if (!confirm('Mark this person as inactive?')) return;
-  api('/admin/api/people/' + id, {method:'DELETE'}).then(function() { closeModal('person-modal'); loadPeople(); });
+  if (!confirm('Mark this person as inactive? They will be hidden from the people list.')) return;
+  api('/admin/api/people/' + id, {method:'DELETE'})
+    .then(function() { closeModal('person-modal'); loadPeople(); })
+    .catch(function(e) { alert('Delete failed: ' + (e && e.message ? e.message : 'Server error. Please try again.')); });
 }
 function archivePerson(id) {
   if (!confirm('Archive this person? They will be hidden from the active list but their records and giving history are preserved.')) return;

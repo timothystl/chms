@@ -642,9 +642,9 @@ body.embedded #app-content { display:block!important; }
 
         <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
           <label for="breeze-worker-url">Cloudflare Worker Proxy URL</label>
-          <input type="text" id="breeze-worker-url" placeholder="https://volunteer.timothystl.org" style="max-width:380px;">
+          <input type="text" id="breeze-worker-url" placeholder="Leave blank to auto-detect (https://chms.timothystl.org)" style="max-width:380px;">
           <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
-            Use <strong>https://volunteer.timothystl.org</strong> — the scheduler backend (Breeze proxy, email, RSVP) is now built into the main Worker.
+            Leave blank — the scheduler auto-uses the current site (<strong>https://chms.timothystl.org</strong>). Only fill this in if running the standalone scheduler on a different domain. If you previously had <code>https://volunteer.timothystl.org</code> here, clear it.
           </small>
         </div>
 
@@ -3609,11 +3609,11 @@ document.getElementById('btn-test-breeze').addEventListener('click', function() 
 function breezeGet(path, params) {
   var s = getBreezeSettings();
   if (!s.subdomain||!s.apiKey) return Promise.reject('No Breeze credentials configured.');
-  if (!s.workerUrl) return Promise.reject('No Cloudflare Worker URL configured. Add it in Settings.');
 
+  var base = (s.workerUrl || window.location.origin).replace(/\/$/, '');
   params = params || {};
   var qs = Object.keys(params).map(function(k){ return encodeURIComponent(k)+'='+encodeURIComponent(params[k]); }).join('&');
-  var url = s.workerUrl + path + (qs ? '?'+qs : '');
+  var url = base + path + (qs ? '?'+qs : '');
   return fetch(url, {
     method: 'GET',
     headers: Object.assign({
@@ -3631,14 +3631,14 @@ function breezeGet(path, params) {
 function breezePost(path, fields) {
   var s = getBreezeSettings();
   if (!s.subdomain||!s.apiKey) return Promise.reject('No Breeze credentials configured.');
-  if (!s.workerUrl) return Promise.reject('No Cloudflare Worker URL configured. Add it in Settings.');
 
   // Build form-encoded body (same format as a browser form submit)
   var body = Object.keys(fields).map(function(k) {
     return encodeURIComponent(k) + '=' + encodeURIComponent(fields[k]);
   }).join('&');
 
-  var url = s.workerUrl + path;
+  var base = (s.workerUrl || window.location.origin).replace(/\/$/, '');
+  var url = base + path;
   return fetch(url, {
     method: 'POST',
     headers: Object.assign({
