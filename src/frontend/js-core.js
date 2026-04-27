@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-27-v139';
+var DEPLOY_VERSION = '2026-04-27-v140';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -41,9 +41,8 @@ function api(path, opts) {
   return fetch(path, opts || {}).then(function(r) {
     if (r.status === 401) { location.href = '/chms'; return Promise.reject(new Error('Unauthorized')); }
     return r.json().then(function(data) {
-      if (data && data.error && !opts) {
-        // Surface API errors as rejected promises so callers can .catch() them
-        // Exception: mutation calls (POST/PUT/DELETE) that return {error} are handled by their own code
+      if (!r.ok && data && data.error && !opts) {
+        return Promise.reject(new Error(data.error));
       }
       return data;
     });

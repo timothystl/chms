@@ -110,7 +110,7 @@ if (seg === 'people' && method === 'GET') {
     where = `p.status IN ('archived','deceased') AND LOWER(p.member_type) != 'organization'
       AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)`;
   } else {
-    where = `p.active=1 AND (p.status IS NULL OR p.status='active') AND LOWER(p.member_type) != 'organization'
+    where = `p.active=1 AND LOWER(p.member_type) != 'organization'
       AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)`;
   }
   // Member role can only see people with member_type='member'
