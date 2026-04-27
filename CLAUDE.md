@@ -159,14 +159,14 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ---
 
-### Phase 5 — Test Harness
+### Phase 5 — Test Harness ✅ DONE 2026-04-25
 **Goal:** Regression coverage for the highest-risk logic, now that code is modular enough to test.
 
-- [ ] **IN11** — Vitest + Miniflare setup; priority test targets:
-  - Breeze CSV importer quirks (split-fund nth-occurrence, float person IDs, `"nan"` fund, negatives)
-  - `hashPassword` / `verifyPassword` round-trip
-  - `disambiguateHHName` edge cases (same last name, missing head, org names)
-  - Giving sync orphan cleanup logic
+- [x] **IN11** — Vitest setup; 37 tests across 3 files. Done 2026-04-25 (v121).
+  - `test/utils.test.js` — `disambiguateHHName` (8 cases: falsy head, Family suffix, case-insensitive, plain name, org names)
+  - `test/auth.test.js` — `hashPassword`/`verifyPassword` (7 cases: format, round-trip, wrong password, empty, unique salts, malformed stored, unicode)
+  - `test/csv-import.test.js` — `parseFundSplits`, `givingEntryId`, `isGivingDup` (22 cases: nan/blank, numeric prefix, multi-fund split, colon format, nth-occurrence dedup)
+  - `parseFundSplits`, `givingEntryId`, `isGivingDup` extracted from `api-import.js` to `api-utils.js` as exported functions
 
 **Done when:** `npm test` passes; CI runs tests on every PR.
 
@@ -178,13 +178,6 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [ ] **G3** — Gift entry workflow improvements (user has detail — schedule a dedicated scoping session first)
 - [ ] **R4** — Member tenure report: check if `member_since`/`join_date` field exists in Breeze mapping; add report if data is available
 - [x] **BR1** — Reverse sync (app → Breeze): auto-push on person create, auto-update on contact field change. Done 2026-04-26 (v133).
-- [ ] **GS1** — Giving statements by email: generate year-end PDF/HTML tax statements per donor, send via Resend; admin trigger in Settings. (noted 2026-04-26)
-- [ ] **BR2** — Bulk "Push to Breeze": Settings button finds all people with no `breeze_id` and pushes them to Breeze in batch (rate-limited). (noted 2026-04-26)
-- [ ] **GN1** — Giving entry notes on batch view: show note field inline on batch list rows, not only in the edit modal. (noted 2026-04-26)
-- [ ] **HH1** — Quick-add household member: "+ Add Member" button on household card opens person-create form pre-filled with household. (noted 2026-04-26)
-- [ ] **GS2** — Annual giving statements batch run: one-click in Settings emails statements to all donors who gave during the selected year. (noted 2026-04-26)
-- [ ] **VF1** — Visitor follow-up automation: auto-send welcome email via Resend to new Visitors N days after first contact; configurable N and template in Settings. (noted 2026-04-26)
-- [ ] **CI1** — GitHub Actions CI pipeline: `npm test` runs on every PR; badge in README. (noted 2026-04-26)
 
 **Done when:** Each item either shipped or formally deferred with a reason.
 
@@ -266,7 +259,7 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [x] **SC2** — Inline scheduler into ChMS SPA (no iframe). Done 2026-04-23 (v111). New `src/scheduler-inline.js` transforms `SCHEDULER_HTML` at module load time: CSS scoped with `.sched-root`, HTML stripped of login screen and header, conflicting IDs renamed (`sched-tab-*`, `sched-current-month-label`, `sched-app-content`), JS has 4 renamed functions (`schedFmtDate/ShowTab/SavePerson/DeletePerson`), `checkAuth()` + INIT block deferred to `window.schedInitScheduler()` (called on first Scheduler tab visit). Standalone `/scheduler` route unchanged.
 
 ### Breeze Integration
-- [ ] **BR1** — Reverse sync (app → Breeze): Breeze API supports write operations (add/update people, add contributions). Feasible for narrow workflows (e.g. new person entered here → push to Breeze, or walk-in gift batch → push to Breeze). Full bidirectional sync is complex due to conflict resolution. Needs scoping conversation: which specific data entry workflows would benefit? (noted 2026-04-19)
+- [x] **BR1** — Reverse sync (app → Breeze). Done 2026-04-26 (v133). Auto-push new people to Breeze on create (no `breeze_id`); auto-update Breeze when name/contact fields change on people who have a `breeze_id`. `updatePerson` added to `breeze.js`. Field-ID discovery/building extracted to shared helpers. Manual "Push to Breeze" button remains as fallback.
 
 ### Reports / Insights (noted 2026-04-22)
 - [x] **R1** — Age group breakdown across Membership Summary, Giving. Done 2026-04-22 (v102). Default buckets: Under 18, 18–29, 30–44, 45–64, 65+, Unknown (no DOB). Membership Summary gets an "By Age Group" table with count + share %. Giving by Fund gets a "By Age Group" table with givers, gifts, total, avg/giver, share %. Attendance age-groups deferred — we only track service totals, not per-person attendance (would require R6).
@@ -295,7 +288,7 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [x] **IN8** — Audit log retention / pruning. Done 2026-04-23. `pruneAuditLog(db)` added to `tlc-volunteer-worker.js`, called from the existing `0 14 * * *` daily cron. Retention: `birthday_email_sent` / `anniversary_email_sent` → 60 days; all other rows → 365 days. Logged under `audit_prune` in cron output.
 - [x] **IN9** — Staging environment live at `https://breeze-proxy-worker-staging.timothystl.workers.dev/chms`. Separate `wrangler.staging.toml` config; D1: `tlc-volunteer-db-staging`, KV: staging RSVP_STORE, shared R2, crons disabled. Deploy: `wrangler deploy --config wrangler.staging.toml`. Done 2026-04-24.
 - [x] **IN10** — D1 backup/restore runbook. Done 2026-04-24 — see `## D1 Backup & Restore` section in this file.
-- [ ] **IN11** — Test harness. No tests in the repo. Highest-value targets: (a) Breeze CSV quirks (split-fund nth-occurrence, float person IDs, "nan" fund, negatives) — giving import has had multiple late-caught bugs (G6); (b) `hashPassword`/`verifyPassword`; (c) `disambiguateHHName`. Vitest + Miniflare works for Workers.
+- [x] **IN11** — Test harness. Done 2026-04-25 (v121). Vitest; 37 tests in `test/`: `utils.test.js` (disambiguateHHName), `auth.test.js` (hashPassword/verifyPassword), `csv-import.test.js` (parseFundSplits/givingEntryId/isGivingDup). `npm test` passes.
 - [x] **IN12** — Dead-code sweep. Done 2026-04-24 (v113). Removed debug `console.log('[Breeze Sync]…')` from per-person Breeze sync in `html-chms.js` and dead `setFdTag` function (comment said "keep for legacy callers" but no callers existed). Both `api-chms.js` and `html-chms.js` were otherwise clean — comments are explanatory, `console.error` calls are the intentional global error boundary.
 
 ---
