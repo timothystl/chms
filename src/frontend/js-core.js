@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-04-26-v133';
+var DEPLOY_VERSION = '2026-04-27-v141';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -276,7 +276,7 @@ function loadTags() {
   api('/admin/api/tags').then(function(d) {
     allTags = d.tags || [];
     renderTagPills();
-  });
+  }).catch(function(){});
 }
 function renderTagPills() {
   // No-op — pills replaced by filter drawer; drawer is rendered on open

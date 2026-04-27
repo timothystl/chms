@@ -322,6 +322,13 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     if (result !== null) return result;
   }
 
+  // ── Households / Organizations / Tags / Funds → api-households.js ─────────
+  if (seg.startsWith('households') || seg.startsWith('organizations') ||
+      seg.startsWith('tags') || seg.startsWith('funds')) {
+    const result = await handleHouseholdsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit);
+    if (result !== null) return result;
+  }
+
   // ── Giving Entries / Batches / Quick Entry → api-giving.js ─────────────────
   if (seg.startsWith('giving') || seg.startsWith('giving/')) {
     const result = await handleGivingApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit);

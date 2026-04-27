@@ -114,7 +114,7 @@ if (seg === 'people' && method === 'GET') {
       AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)`;
   }
   // Member role can only see people with member_type='member'
-  if (role === 'member') { where += ` AND LOWER(p.member_type)='member'`; }
+  if (!canEdit) { where += ` AND LOWER(p.member_type)='member'`; }
   if (mt) { where += ' AND LOWER(p.member_type)=LOWER(?)'; binds.push(mt); }
   if (tagId) { where += ' AND p.id IN (SELECT person_id FROM person_tags WHERE tag_id=?)'; binds.push(tagId); }
   // Multi-tag AND filter: each tag must match separately
@@ -238,7 +238,7 @@ if (pmatch) {
     ).bind(pid).first();
     if (!p) return json({ error: 'Not found' }, 404);
     // Member role can only view actual members
-    if (role === 'member' && (p.member_type || '').toLowerCase() !== 'member') {
+    if (!canEdit && (p.member_type || '').toLowerCase() !== 'member') {
       return json({ error: 'Not found' }, 404);
     }
     const tags = (await db.prepare(
