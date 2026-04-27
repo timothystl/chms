@@ -317,7 +317,7 @@ function renderDashboard(d) {
   html += '<div class="dash-stats">'
     + dashStat(d.memberCount !== undefined ? d.memberCount : d.totalPeople, 'Members', d.totalPeople + ' total people')
     + dashStat(d.memberHHCount !== undefined ? d.memberHHCount : d.totalHouseholds, 'Member Households', d.totalHouseholds + ' total households')
-    + (isFinanceRole ? dashStat('$'+fmt$(d.givingThisYear), yr+' Giving', yr-1+': $'+fmt$(d.givingLastYear)) : '')
+    + (isFinanceRole ? dashStat('$'+fmt$(d.gfYtd), yr+' Gen. Fund', yr-1+' YTD $'+fmt$(d.gfLastYearYtd), yr-1+' Full Year $'+fmt$(d.gfLastYearTotal)) : '')
     + (isStaffRole ? dashStatServices(svcs) : '')
     + '</div>';
 
@@ -737,11 +737,12 @@ function dashStatServices(svcs) {
     +lines
     +'</div>';
 }
-function dashStat(val, lbl, sub) {
+function dashStat(val, lbl, sub, sub2) {
   return '<div class="dash-stat">'
     + '<div class="dash-stat-val">'+esc(String(val))+'</div>'
     + '<div class="dash-stat-lbl">'+esc(lbl)+'</div>'
     + (sub ? '<div class="dash-stat-sub">'+esc(sub)+'</div>' : '')
+    + (sub2 ? '<div class="dash-stat-sub">'+esc(sub2)+'</div>' : '')
     + '</div>';
 }
 function dashQBtn(svgPath, label, onclick) {

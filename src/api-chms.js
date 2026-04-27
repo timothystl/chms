@@ -86,16 +86,29 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const addedThisYear = (await db.prepare(
       `SELECT COUNT(*) as n FROM people WHERE active=1 AND created_at >= date('now','start of year')`
     ).first())?.n || 0;
-    // Giving this year vs last year
-    const givingThisYear = (await db.prepare(
+    // Giving dashboard stats — General Fund only (funds whose name starts with '40085')
+    const gfYtd = (await db.prepare(
       `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
        JOIN giving_batches gb ON ge.batch_id=gb.id
-       WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=strftime('%Y','now')`
+       JOIN funds f ON ge.fund_id=f.id
+       WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=strftime('%Y','now')
+         AND f.name LIKE '40085%'`
     ).first())?.total || 0;
-    const givingLastYear = (await db.prepare(
+    const gfLastYearYtd = (await db.prepare(
       `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
        JOIN giving_batches gb ON ge.batch_id=gb.id
-       WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=cast(strftime('%Y','now')-1 as text)`
+       JOIN funds f ON ge.fund_id=f.id
+       WHERE COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date)
+               BETWEEN strftime('%Y','now','-1 year')||'-01-01'
+                   AND strftime('%Y-%m-%d','now','-1 year')
+         AND f.name LIKE '40085%'`
+    ).first())?.total || 0;
+    const gfLastYearTotal = (await db.prepare(
+      `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
+       JOIN giving_batches gb ON ge.batch_id=gb.id
+       JOIN funds f ON ge.fund_id=f.id
+       WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=cast(strftime('%Y','now')-1 as text)
+         AND f.name LIKE '40085%'`
     ).first())?.total || 0;
     // DB4: Month-at-a-time birthdays & anniversaries (exclude visitor/inactive/other/org)
     const dashMonth = Math.max(1, Math.min(12, parseInt(url.searchParams.get('month') || '') || (new Date().getMonth() + 1)));
@@ -294,9 +307,10 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       totalPeople, totalHouseholds, memberCount, memberHHCount,
       addedThisMonth, addedThisYear, dashMonth,
       typeCounts,
-      // giving data: finance+ only
-      givingThisYear:  isFinance ? givingThisYear  : undefined,
-      givingLastYear:  isFinance ? givingLastYear  : undefined,
+      // giving data: finance+ only (General Fund = funds starting with '40085')
+      gfYtd:           isFinance ? gfYtd           : undefined,
+      gfLastYearYtd:   isFinance ? gfLastYearYtd   : undefined,
+      gfLastYearTotal: isFinance ? gfLastYearTotal  : undefined,
       firstGivers:     isFinance ? firstGivers     : [],
       // pastoral data: staff+ only
       followUpItems:   isStaff  ? followUpItems   : [],
