@@ -437,7 +437,15 @@ export async function seedChmsDefaults(db) {
 }
 
 
-export async function initDb(db) {
+// Cache the init so it only runs once per Worker isolate (not on every request).
+// Resets to null on error so the next request retries.
+let _initPromise = null;
+export function initDb(db) {
+  if (!_initPromise) _initPromise = _doInitDb(db).catch(e => { _initPromise = null; throw e; });
+  return _initPromise;
+}
+
+async function _doInitDb(db) {
   for (const stmt of DB_INIT) {
     await db.prepare(stmt).run();
   }
@@ -524,3 +532,4 @@ export async function initDb(db) {
   await migrateChristmasMarketRoles(db);
   await seedChmsDefaults(db);
 }
+
