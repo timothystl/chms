@@ -617,68 +617,52 @@ body.embedded #app-content { display:block!important; }
     <details id="integrations-details" style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <summary style="cursor:pointer;font-weight:700;color:var(--steel-anchor);font-size:.95rem;font-family:var(--font-head);display:flex;align-items:center;gap:8px;list-style:none;-webkit-appearance:none;">
         &#9881; Integrations
-        <span style="font-weight:400;font-size:.82rem;color:var(--warm-gray);">(Breeze CHMS, Reminder Emails — expand to configure)</span>
+        <span style="font-weight:400;font-size:.82rem;color:var(--warm-gray);">(Breeze CHMS, Reminder Emails)</span>
       </summary>
 
-      <div style="margin-top:16px;">
-        <h3 style="margin:0 0 8px;font-size:.95rem;color:var(--steel-anchor);font-family:var(--font-head);">Breeze CHMS Connection</h3>
-        <p style="font-size:0.88rem;color:var(--warm-gray);margin-bottom:14px;">
-          Enter your Breeze subdomain and API key to enable syncing volunteers to Breeze.
-          Your credentials are stored only in this browser's localStorage.
-        </p>
+      <!-- Hidden inputs — populated from server config; read by save handler -->
+      <input type="hidden" id="breeze-subdomain">
+      <input type="hidden" id="breeze-apikey">
+      <input type="hidden" id="breeze-worker-url">
+      <input type="hidden" id="breeze-worker-secret">
+      <input type="hidden" id="email-resend-key">
+      <input type="hidden" id="email-from">
 
-        <label for="breeze-subdomain">Breeze Subdomain</label>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span style="color:#666;font-size:0.9rem;white-space:nowrap;">https://</span>
-          <input type="text" id="breeze-subdomain" placeholder="mychurch" style="max-width:200px;">
-          <span style="color:#666;font-size:0.9rem;white-space:nowrap;">.breezechms.com</span>
+      <div style="margin-top:16px;">
+        <!-- Server-managed read-only display -->
+        <div style="background:var(--linen,#faf5ed);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:20px;">
+          <div style="font-size:0.78rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--warm-gray);margin-bottom:10px;">
+            Server-managed — auto-applied from Cloudflare Worker
+          </div>
+          <div style="display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;font-size:0.85rem;align-items:center;">
+            <span style="color:var(--warm-gray);">Breeze subdomain</span>
+            <span id="sdisp-subdomain" style="font-family:monospace;color:var(--steel-anchor);"></span>
+            <span style="color:var(--warm-gray);">Breeze API key</span>
+            <span style="color:#2e7d32;font-weight:600;">&#128274; configured on server</span>
+            <span style="color:var(--warm-gray);">Worker URL</span>
+            <span id="sdisp-workerurl" style="font-family:monospace;font-size:0.82rem;color:var(--steel-anchor);"></span>
+            <span style="color:var(--warm-gray);">Worker secret</span>
+            <span style="color:#2e7d32;font-weight:600;">&#128274; configured on server</span>
+            <span style="color:var(--warm-gray);">Resend API key</span>
+            <span style="color:#2e7d32;font-weight:600;">&#128274; configured on server</span>
+            <span style="color:var(--warm-gray);">From address</span>
+            <span id="sdisp-emailfrom" style="font-family:monospace;color:var(--steel-anchor);"></span>
+          </div>
         </div>
 
-        <label for="breeze-apikey" style="margin-top:12px;">API Key</label>
-        <input type="password" id="breeze-apikey" placeholder="Paste your Breeze API key here" style="max-width:360px;">
+        <!-- User-configurable fields -->
+        <h3 style="margin:0 0 12px;font-size:.95rem;color:var(--steel-anchor);font-family:var(--font-head);">Your Settings</h3>
+
+        <label for="breeze-tag-ids">Breeze Tag IDs <span style="font-weight:normal;color:var(--warm-gray);">(optional)</span></label>
+        <input type="text" id="breeze-tag-ids" placeholder="e.g. 4884325, 5123456" style="max-width:280px;">
         <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
-          Find this in Breeze: Settings &rarr; Advanced &rarr; API
+          Comma-separated tag IDs to include in people search. Leave blank to search all.
+          Find tag IDs in the Breeze URL: <code>people/filter#/tag_contains=y_XXXXXXX</code>
         </small>
 
-        <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
-          <label for="breeze-worker-url">Cloudflare Worker Proxy URL</label>
-          <input type="text" id="breeze-worker-url" placeholder="Leave blank to auto-detect (https://chms.timothystl.org)" style="max-width:380px;">
-          <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
-            Leave blank — the scheduler auto-uses the current site (<strong>https://chms.timothystl.org</strong>). Only fill this in if running the standalone scheduler on a different domain. If you previously had <code>https://volunteer.timothystl.org</code> here, clear it.
-          </small>
-        </div>
-
-        <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
-          <label for="breeze-worker-secret">Worker Secret <span style="font-weight:normal;color:var(--warm-gray);">(recommended)</span></label>
-          <input type="password" id="breeze-worker-secret" placeholder="Paste your WORKER_SECRET value" style="max-width:380px;">
-          <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
-            In Cloudflare Dashboard: Worker Settings &rarr; Variables &rarr; add <code>WORKER_SECRET</code> = any long random string.
-          </small>
-        </div>
-
-        <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
-          <label for="breeze-tag-ids">Breeze Tag IDs <span style="font-weight:normal;color:var(--warm-gray);">(optional)</span></label>
-          <input type="text" id="breeze-tag-ids" placeholder="e.g. 4884325, 5123456" style="max-width:280px;">
-          <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
-            Comma-separated tag IDs to include in people search. Leave blank to search all.
-            Find tag IDs in the Breeze URL: <code>people/filter#/tag_contains=y_XXXXXXX</code>
-          </small>
-        </div>
-
-        <div style="border-top:1px solid var(--border);margin-top:20px;padding-top:16px;">
-          <h3 style="margin:0 0 8px;font-size:.95rem;color:var(--steel-anchor);font-family:var(--font-head);">Volunteer Reminder Emails</h3>
-          <p style="font-size:0.82rem;color:var(--warm-gray);margin:4px 0 10px;">
-            Send personalized reminder emails via <a href="https://resend.com" target="_blank" style="color:var(--mid-steel);">Resend</a> (free up to 3,000/month).
-          </p>
-          <label for="email-resend-key">Resend API Key</label>
-          <input type="password" id="email-resend-key" placeholder="re_xxxxxxxxxxxxxxxx" style="max-width:320px;">
-          <label for="email-from" style="margin-top:12px;">From Address</label>
-          <input type="email" id="email-from" placeholder="dinger@reminder.timothystl.org" style="max-width:320px;">
-          <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">Must be on a domain verified in Resend.</small>
-          <label for="email-reply-to" style="margin-top:12px;">Reply-To Address</label>
-          <input type="email" id="email-reply-to" placeholder="dinger@timothystl.org" style="max-width:320px;">
-          <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">Where volunteer replies are sent.</small>
-        </div>
+        <label for="email-reply-to" style="margin-top:16px;">Reply-To Address</label>
+        <input type="email" id="email-reply-to" placeholder="dinger@timothystl.org" style="max-width:320px;">
+        <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">Where volunteer email replies are sent.</small>
 
         <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);padding-top:16px;">
           <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>
@@ -3588,7 +3572,7 @@ document.getElementById('btn-save-settings').addEventListener('click', function(
 
 document.getElementById('btn-test-breeze').addEventListener('click', function() {
   var s = getBreezeSettings();
-  if (!s.subdomain||!s.apiKey) { showAlert('settings-alert','Save your settings first.','warning'); return; }
+  if (!s.subdomain) { showAlert('settings-alert','Save your settings first.','warning'); return; }
   var statusEl = document.getElementById('settings-status');
   var testUrl = (s.workerUrl||'') + '/api/people?limit=1&details=0';
   statusEl.textContent = 'Testing… (→ '+testUrl+')';
