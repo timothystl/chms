@@ -1528,12 +1528,12 @@ function editPerson(id) {
   document.getElementById('person-name').value = person.name;
   document.getElementById('person-email').value = person.email || '';
   document.getElementById('pref-sundays').querySelectorAll('input').forEach(function(cb){
-    cb.checked = person.preferredSundays.indexOf(parseInt(cb.value,10)) > -1;
+    cb.checked = (person.preferredSundays || []).indexOf(parseInt(cb.value,10)) > -1;
   });
   var r = document.getElementById('pref-service').querySelector('input[value="'+person.servicePreference+'"]');
   if (r) r.checked = true;
   document.getElementById('pref-roles').querySelectorAll('input').forEach(function(cb){
-    cb.checked = person.roles.indexOf(cb.value) > -1;
+    cb.checked = (person.roles || []).indexOf(cb.value) > -1;
   });
   document.getElementById('primary-roles').querySelectorAll('input').forEach(function(cb){
     cb.checked = (person.primaryFor || []).indexOf(cb.value) > -1;
