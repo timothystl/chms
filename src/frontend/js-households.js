@@ -197,6 +197,7 @@ function hhPushAddress() {
 
 // ── ORGANIZATIONS ─────────────────────────────────────────────────────
 var _orgPage = 0, _orgLimit = 25, _orgTotal = 0, _orgDebounce = null;
+var _orgRows = [];
 function debounceOrgs() {
   clearTimeout(_orgDebounce);
   _orgDebounce = setTimeout(function() { loadOrganizations(true); }, 300);
@@ -211,18 +212,21 @@ function loadOrganizations(reset) {
     var pager = document.getElementById('org-pager');
     if (!grid) return;
     var orgs = d.organizations || [];
+    _orgRows = orgs;
     if (!orgs.length) {
       grid.innerHTML = '<div style="color:var(--warm-gray);padding:32px;text-align:center;">' + (q ? 'No organizations match "' + esc(q) + '".' : 'No organizations yet. Click "+ New Organization" to add one.') + '</div>';
       if (pager) pager.innerHTML = '';
       return;
     }
-    grid.innerHTML = orgs.map(function(o) {
-      var badge = o.type ? '<span style="font-size:.7rem;background:var(--steel-anchor);color:#fff;border-radius:99px;padding:1px 7px;margin-left:6px;">'+esc(o.type)+'</span>' : '';
+    grid.innerHTML = orgs.map(function(o, idx) {
+      var isPerson = o.source === 'person';
+      var typeBadge = o.type ? '<span style="font-size:.7rem;background:var(--steel-anchor);color:#fff;border-radius:99px;padding:1px 7px;margin-left:6px;">'+esc(o.type)+'</span>' : '';
+      var personBadge = isPerson ? '<span style="font-size:.7rem;background:var(--linen);color:var(--warm-gray);border:1px solid var(--border);border-radius:99px;padding:1px 7px;margin-left:6px;">Person record</span>' : '';
       var contact = o.contact_name ? '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:2px;">'+esc(o.contact_name)+'</div>' : '';
-      var info = [o.phone, o.email].filter(Boolean).map(esc).join(' · ');
+      var info = [o.phone, o.email].filter(Boolean).map(esc).join(' &middot; ');
       var addr = [o.city, o.state].filter(Boolean).join(', ');
-      return '<div class="hh-card" onclick="openOrgEdit('+JSON.stringify(o)+')" style="cursor:pointer;">'
-        +'<div style="font-weight:600;">'+esc(o.name)+badge+'</div>'
+      return '<div class="hh-card" onclick="openOrgRow(' + idx + ')" style="cursor:pointer;">'
+        +'<div style="font-weight:600;">'+esc(o.name)+typeBadge+personBadge+'</div>'
         +contact
         +(info ? '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:2px;">'+info+'</div>' : '')
         +(addr ? '<div style="font-size:.75rem;color:var(--warm-gray);margin-top:2px;">'+esc(addr)+'</div>' : '')
@@ -238,6 +242,17 @@ function loadOrganizations(reset) {
         + (cur < pages-1 ? '<button class="btn-sm" onclick="_orgPage++;loadOrganizations()">Next &#8250;</button>' : '');
     }
   });
+}
+function openOrgRow(idx) {
+  var o = _orgRows[idx];
+  if (!o) return;
+  if (o.source === 'person') {
+    api('/admin/api/people/' + o.id).then(function(p) {
+      if (p && p.id) showProfile(p);
+    });
+    return;
+  }
+  openOrgEdit(o);
 }
 function openOrgEdit(o) {
   var isNew = !o || !o.id;

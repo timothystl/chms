@@ -148,16 +148,50 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
   }
 
   // ── Organizations ────────────────────────────────────────────────
+  // Returns both rows from the `organizations` table AND people whose
+  // member_type is 'organization' — those person-records are otherwise
+  // hidden from the People list, so without this the user can't see them.
+  // Each row carries a `source` of 'org' or 'person' so the frontend can
+  // route edits to the correct modal/endpoint.
   if (seg === 'organizations' && method === 'GET') {
     const q = url.searchParams.get('q') || '';
     const offset = parseInt(url.searchParams.get('offset') || '0');
     const limit = parseInt(url.searchParams.get('limit') || '25');
     const showInactive = url.searchParams.get('inactive') === '1';
-    const activeClause = showInactive ? '' : 'AND active=1';
+    const orgActive = showInactive ? '' : 'AND o.active=1';
+    const personActive = showInactive ? '' : "AND p.active=1 AND p.status NOT IN ('archived','deceased')";
     const like = `%${q}%`;
+
+    const unionSql = `
+      SELECT 'org' AS source, o.id AS id, o.name AS name, o.type AS type,
+             o.contact_name AS contact_name, o.phone AS phone, o.email AS email,
+             o.website AS website, o.address1 AS address1, o.address2 AS address2,
+             o.city AS city, o.state AS state, o.zip AS zip, o.notes AS notes,
+             o.active AS active
+      FROM organizations o
+      WHERE (o.name LIKE ? OR o.contact_name LIKE ? OR o.city LIKE ?) ${orgActive}
+      UNION ALL
+      SELECT 'person' AS source, p.id AS id, p.first_name AS name,
+             '' AS type,
+             '' AS contact_name, p.phone AS phone, p.email AS email,
+             '' AS website, p.address1 AS address1, p.address2 AS address2,
+             p.city AS city, p.state AS state, p.zip AS zip, p.notes AS notes,
+             p.active AS active
+      FROM people p
+      WHERE LOWER(p.member_type)='organization'
+        AND (p.first_name LIKE ? OR p.city LIKE ?) ${personActive}
+    `;
+
     const [countRow, listRows] = await Promise.all([
-      db.prepare(`SELECT COUNT(*) as n FROM organizations WHERE (name LIKE ? OR contact_name LIKE ? OR city LIKE ?) ${activeClause}`).bind(like, like, like).first(),
-      db.prepare(`SELECT * FROM organizations WHERE (name LIKE ? OR contact_name LIKE ? OR city LIKE ?) ${activeClause} ORDER BY name LIMIT ? OFFSET ?`).bind(like, like, like, limit, offset).all()
+      db.prepare(
+        `SELECT (
+          (SELECT COUNT(*) FROM organizations o WHERE (o.name LIKE ? OR o.contact_name LIKE ? OR o.city LIKE ?) ${orgActive})
+          +
+          (SELECT COUNT(*) FROM people p WHERE LOWER(p.member_type)='organization' AND (p.first_name LIKE ? OR p.city LIKE ?) ${personActive})
+        ) AS n`
+      ).bind(like, like, like, like, like).first(),
+      db.prepare(`SELECT * FROM (${unionSql}) ORDER BY name LIMIT ? OFFSET ?`)
+        .bind(like, like, like, like, like, limit, offset).all()
     ]);
     return json({ organizations: listRows.results || [], total: countRow?.n || 0, offset, limit });
   }
