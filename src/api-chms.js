@@ -1,6 +1,6 @@
 // ── ChMS (People & Giving) API handler ────────────────────────────────────────
 import { json } from './auth.js';
-import { isoWeekKey } from './api-utils.js';
+import { isoWeekKey, handleUtilsApi } from './api-utils.js';
 import { handleHouseholdsApi } from './api-households.js';
 import { handleImportApi } from './api-import.js';
 import { handleReportsApi } from './api-reports.js';
@@ -327,6 +327,12 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       // prayer requests (FU1)
       prayerOpen, prayerOpenTotal
     });
+  }
+
+  // ── Utilities (address validation, phone normalization) → api-utils.js ─────
+  if (seg.startsWith('utils/')) {
+    const result = await handleUtilsApi(req, env, url, method, seg, db, isAdmin);
+    if (result) return result;
   }
 
   // ── People / Archive / Brevo / Photos / Follow-ups → api-people.js ────────

@@ -361,8 +361,13 @@ function showProfile(p) {
       + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button></div>' : '')
       + '</div>'
       + '<div class="pv-section">'
-      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Family</div>'
-      + (p.household_id ? '<button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;margin-left:auto;" onclick="openAddToHouseholdModal('+p.household_id+')">+ Add Person</button>' : '')
+      + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Family</div>'
+      + (p.household_id
+          ? '<button class="btn-secondary require-edit" style="font-size:.75rem;padding:3px 9px;margin-left:auto;" onclick="openAddToHouseholdModal('+p.household_id+')">+ Add Person</button>'
+          : '<div style="margin-left:auto;display:flex;gap:5px;">'
+            + '<button class="btn-secondary require-edit" style="font-size:.75rem;padding:3px 9px;" onclick="createHouseholdForPerson('+p.id+',\''+esc(p.last_name||'')+'\')">+ Create Household</button>'
+            + '<button class="btn-secondary require-edit" style="font-size:.75rem;padding:3px 9px;" onclick="openPersonEdit(_currentPvPerson)">Link to Existing</button>'
+            + '</div>')
       + '</div>'
       + (p.household_id
           ? '<div id="pv-family-members" style="color:var(--warm-gray);font-size:12px;">Loading\u2026</div>'
@@ -1726,6 +1731,82 @@ function markPersonDeceased(id) {
   api('/admin/api/people/' + id + '/deceased', {method:'POST'}).then(function(r) {
     if (r.ok) { openPersonDetail(id); loadPeople(); }
     else alert('Error: ' + (r.error || 'unknown'));
+  });
+}
+
+// ── PHONE FORMATTING ──────────────────────────────────────────────────────
+function formatPhoneOnBlur(el) {
+  var digits = (el.value || '').replace(/\D/g, '');
+  if (digits.length === 11 && digits[0] === '1') {
+    el.value = '(' + digits.slice(1,4) + ') ' + digits.slice(4,7) + '-' + digits.slice(7);
+  } else if (digits.length === 10) {
+    el.value = '(' + digits.slice(0,3) + ') ' + digits.slice(3,6) + '-' + digits.slice(6);
+  }
+}
+
+// ── USPS ADDRESS VALIDATION ───────────────────────────────────────────────
+function validatePersonAddress() {
+  var btn = document.getElementById('pm-addr-validate-btn');
+  var status = document.getElementById('pm-addr-validate-status');
+  var street = (document.getElementById('pm-addr1').value || '').trim();
+  if (!street) { if (status) status.innerHTML = '<span style="color:var(--danger);">Enter a street address first.</span>'; return; }
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Validating…';
+  api('/admin/api/utils/validate-address', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      address1: street,
+      city: (document.getElementById('pm-city').value || '').trim(),
+      state: (document.getElementById('pm-state').value || '').trim(),
+      zip: (document.getElementById('pm-zip').value || '').trim()
+    })
+  }).then(function(r) {
+    if (btn) btn.disabled = false;
+    if (!r.ok) {
+      if (status) status.innerHTML = '<span style="color:var(--danger);">' + esc(r.error || 'Validation failed') + '</span>';
+      return;
+    }
+    document.getElementById('pm-addr1').value = r.address1;
+    document.getElementById('pm-city').value  = r.city;
+    document.getElementById('pm-state').value = r.state;
+    document.getElementById('pm-zip').value   = r.zip + (r.zip4 ? '-' + r.zip4 : '');
+    var dpv = r.dpvConfirmation;
+    var msg = dpv === 'Y' ? '<span style="color:#27ae60;">&#10003; Confirmed deliverable</span>'
+            : dpv === 'S' ? '<span style="color:#e67e22;">&#9888; Primary confirmed — apt/suite info needed</span>'
+            : dpv === 'D' ? '<span style="color:#e67e22;">&#9888; Primary confirmed — secondary not matched</span>'
+            : '<span style="color:var(--danger);">&#10005; Address not found by USPS</span>';
+    if (status) status.innerHTML = msg;
+  }).catch(function() {
+    if (btn) btn.disabled = false;
+    if (status) status.innerHTML = '<span style="color:var(--danger);">Request failed — try again.</span>';
+  });
+}
+
+// ── CREATE HOUSEHOLD FROM PROFILE ─────────────────────────────────────────
+function createHouseholdForPerson(personId, lastName) {
+  var hhName = (lastName || '').trim();
+  hhName = hhName ? hhName + ' Family' : 'New Household';
+  api('/admin/api/households', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name: hhName, state: 'MO' })
+  }).then(function(r) {
+    if (!r.ok || !r.id) { alert('Error creating household: ' + (r.error || 'unknown')); return; }
+    var hhId = r.id;
+    api('/admin/api/people/' + personId).then(function(p) {
+      if (!p || !p.id) return;
+      var tagIds = (p.tags || []).map(function(t){ return t.id; });
+      api('/admin/api/people/' + personId, {
+        method: 'PUT',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(Object.assign({}, p, { household_id: hhId, family_role: p.family_role || 'head', tag_ids: tagIds }))
+      }).then(function(r2) {
+        if (r2.ok) {
+          api('/admin/api/people/' + personId).then(function(p2) { if (p2 && p2.id) showProfile(p2); });
+        } else alert('Error linking to household: ' + (r2.error || 'unknown'));
+      });
+    });
   });
 }
 

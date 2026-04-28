@@ -497,6 +497,12 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <button class="btn-secondary" onclick="fixHouseholdHeads()" style="font-size:.88rem;">Fix Household Heads</button>
       <div class="import-status" id="hq4-status"></div>
     </div>
+    <div class="import-card role-admin">
+      <h3>&#128222; Normalize Phone Numbers</h3>
+      <p>Reformats all phone numbers in the database to <strong>(XXX) XXX-XXXX</strong>. Safe to run multiple times — unchanged numbers are skipped. Run once after migrating data from Breeze or another source.</p>
+      <button class="btn-secondary" onclick="normalizeAllPhones()" style="font-size:.88rem;">Normalize All Phones</button>
+      <div class="import-status" id="normalize-phones-status"></div>
+    </div>
     <div class="import-card" style="border-color:#e74c3c;">
       <h3 style="color:#e74c3c;">&#9888; Clear Giving Data for One Year</h3>
       <p>Deletes all giving entries and batches for a single year. Use this to re-import one year without touching other years. <strong>This cannot be undone.</strong></p>
@@ -803,14 +809,18 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-section">Contact</div>
     <div class="modal-2col">
       <div class="field"><label>Email</label><input type="email" id="pm-email" name="pm-email"></div>
-      <div class="field"><label>Phone</label><input type="tel" id="pm-phone" name="pm-phone"></div>
+      <div class="field"><label>Phone</label><input type="tel" id="pm-phone" name="pm-phone" onblur="formatPhoneOnBlur(this)" placeholder="(314) 555-0100"></div>
     </div>
     <div style="margin:-4px 0 8px;"><label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer;"><input type="checkbox" id="pm-sms-opt-in"> Opt in to birthday &amp; anniversary texts (SMS)</label></div>
     <div class="modal-section" id="pm-addr-section">Address <span id="pm-addr-hint" style="font-weight:400;text-transform:none;">(leave blank to use household address)</span></div>
-    <div class="field" style="margin-bottom:8px;"><label>Street</label><input type="text" id="pm-addr1" name="pm-addr1"></div>
+    <div class="field" style="margin-bottom:8px;"><label>Street</label><input type="text" id="pm-addr1" name="pm-addr1" placeholder="123 Main St"></div>
     <div class="modal-2col">
       <div class="field"><label>City</label><input type="text" id="pm-city" name="pm-city"></div>
       <div class="field"><label>State / ZIP</label><div style="display:flex;gap:6px;"><input type="text" id="pm-state" name="pm-state" style="width:60px;" maxlength="2" placeholder="MO"><input type="text" id="pm-zip" name="pm-zip" placeholder="63000"></div></div>
+    </div>
+    <div style="margin-top:4px;display:flex;align-items:center;gap:10px;">
+      <button type="button" id="pm-addr-validate-btn" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="validatePersonAddress()">Validate Address (USPS)</button>
+      <span id="pm-addr-validate-status" style="font-size:.78rem;"></span>
     </div>
     <div class="modal-section">Church Info</div>
     <div class="modal-2col">

@@ -1,7 +1,7 @@
 // ── People, Follow-up, Archive, Brevo Sync, Photos API handlers ────────────
 import { json } from './auth.js';
 import { brevoUpsertContact, brevoBulkSync, brevoGetListContacts } from './api-emails.js';
-import { disambiguateHHName } from './api-utils.js';
+import { disambiguateHHName, normalizePhone } from './api-utils.js';
 import { makeBreezeClient } from './breeze.js';
 
 // ── Breeze reverse-sync helpers ──────────────────────────────────────────────
@@ -200,7 +200,7 @@ if (seg === 'people' && method === 'POST') {
      member_type,dob,baptism_date,confirmation_date,anniversary_date,death_date,deceased,
      household_id,family_role,photo_url,notes,breeze_id,gender,marital_status,first_contact_date,sms_opt_in)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
+  ).bind(b.first_name||'',b.last_name||'',b.email||'',normalizePhone(b.phone||''),
          b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
          b.member_type||'visitor',b.dob||'',b.baptism_date||'',
          b.confirmation_date||'',b.anniversary_date||'',b.death_date||'',b.deceased?1:0,
@@ -274,7 +274,7 @@ if (pmatch) {
        anniversary_date=?,death_date=?,deceased=?,household_id=?,family_role=?,photo_url=?,notes=?,
        public_directory=?,envelope_number=?,last_seen_date=?,gender=?,marital_status=?,
        dir_hide_address=?,dir_hide_phone=?,dir_hide_email=?,baptized=?,confirmed=?,sms_opt_in=? WHERE id=?`
-    ).bind(b.first_name||'',b.last_name||'',b.email||'',b.phone||'',
+    ).bind(b.first_name||'',b.last_name||'',b.email||'',normalizePhone(b.phone||''),
            b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
            b.member_type||'visitor',b.dob||'',b.baptism_date||'',
            b.confirmation_date||'',b.anniversary_date||'',b.death_date||'',b.deceased?1:0,

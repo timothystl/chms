@@ -331,6 +331,22 @@ function fixHouseholdHeads() {
     }
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
+function normalizeAllPhones() {
+  var status = document.getElementById('normalize-phones-status');
+  if (status) { status.textContent = 'Working…'; status.className = 'import-status'; }
+  api('/admin/api/utils/normalize-phones', {method:'POST'}).then(function(d) {
+    if (d.ok) {
+      var msg = d.updated + ' phone number' + (d.updated === 1 ? '' : 's') + ' reformatted'
+              + ' (' + d.total_with_phone + ' total with a phone number).';
+      if (d.updated === 0) msg = 'All phone numbers are already in the correct format.';
+      if (status) { status.textContent = msg; status.className = 'import-status ok'; }
+    } else {
+      if (status) { status.textContent = 'Error: ' + (d.error||'unknown'); status.className = 'import-status err'; }
+    }
+  }).catch(function(e) {
+    if (status) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; }
+  });
+}
 
 // ── IMPORT ──────────────────────────────────────────────────────────────
 function loadFundMapping() {
