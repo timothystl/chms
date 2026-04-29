@@ -478,9 +478,9 @@ body.embedded #app-content { display:block!important; }
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-success btn-sm" id="btn-export-csv">Export CSV</button>
         <button class="btn btn-outline btn-sm" id="btn-print">Print</button>
-        <button class="btn btn-outline btn-sm" id="btn-send-emails" style="background:var(--blue-mist);border-color:var(--sky-steel);color:var(--mid-steel);">&#9993; Send Reminder Emails</button>
+        <button class="btn btn-outline btn-sm" id="btn-send-emails" style="background:var(--blue-mist);border-color:var(--sky-steel);color:var(--mid-steel);">&#9993; Email Assignments</button>
         <button class="btn btn-outline btn-sm" id="btn-sync-confirmations" style="background:var(--pale-sage);border-color:var(--sage);color:var(--on-pale-sage);">&#8635; Sync Confirmations</button>
-        <button class="btn btn-outline btn-sm" id="btn-notify-volunteers" style="background:var(--pale-gold);border-color:var(--amber);color:var(--on-pale-gold);">&#128276; Notify Volunteers</button>
+        <button class="btn btn-outline btn-sm" id="btn-notify-volunteers" style="background:var(--pale-gold);border-color:var(--amber);color:var(--on-pale-gold);">&#128276; Request Volunteers</button>
         <span id="email-send-status" style="font-size:0.82rem;color:var(--warm-gray);"></span>
         <button class="btn btn-outline btn-sm saved" id="btn-save-schedule">Saved &#10003;</button>
         <button class="btn btn-outline btn-sm" id="btn-expand-all">&#9660; Expand All</button>
@@ -793,12 +793,12 @@ body.embedded #app-content { display:block!important; }
 <!-- ══ NOTIFY VOLUNTEERS PANEL ═════════════════════════════════════════════ -->
 <div id="notify-panel" class="side-panel">
   <div class="panel-hdr">
-    <h2>&#128276; Notify Volunteers</h2>
+    <h2>&#128276; Request Volunteers</h2>
     <button class="panel-close" id="btn-close-notify-panel">&times;</button>
   </div>
   <div class="panel-body">
     <p style="font-size:.85rem;color:var(--warm-gray);margin-bottom:4px;">
-      Send a targeted email to eligible volunteers for each unfilled slot. Only people who can serve that role on that Sunday are included — no mass blasts.
+      Ask eligible volunteers to fill an open slot. Only people qualified for that role on that Sunday are emailed — no mass blasts.
     </p>
     <p style="font-size:.82rem;color:var(--warm-gray);margin-bottom:16px;">
       Requires a Resend API key configured in Settings.
@@ -808,13 +808,14 @@ body.embedded #app-content { display:block!important; }
       <label for="notify-week-filter" style="display:inline-block;margin-right:8px;font-weight:600;color:var(--steel-anchor);">Week:</label>
       <select id="notify-week-filter" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:white;font-family:var(--font-body);font-size:.86rem;color:var(--steel-anchor);"></select>
     </div>
+    <div id="notify-sent-banner" style="display:none;"></div>
     <div id="notify-slots-list"></div>
     <div id="notify-actions" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
         <button class="btn btn-outline btn-sm" id="btn-notify-select-all">Select All</button>
         <button class="btn btn-outline btn-sm" id="btn-notify-deselect-all">Deselect All</button>
       </div>
-      <button class="btn btn-primary" id="btn-notify-send">Send Notification Emails</button>
+      <button class="btn btn-primary" id="btn-notify-send">Send Requests</button>
       <div id="notify-send-status" style="font-size:0.85rem;color:var(--warm-gray);margin-top:10px;min-height:18px;"></div>
     </div>
   </div>
@@ -823,24 +824,25 @@ body.embedded #app-content { display:block!important; }
 <!-- ══ REMINDER EMAILS PANEL ════════════════════════════════════════════════ -->
 <div id="reminder-panel" class="side-panel">
   <div class="panel-hdr">
-    <h2>&#9993; Send Reminder Emails</h2>
+    <h2>&#9993; Email Assignments</h2>
     <button class="panel-close" id="btn-close-reminder-panel">&times;</button>
   </div>
   <div class="panel-body">
     <p style="font-size:.85rem;color:var(--warm-gray);margin-bottom:16px;">
-      Send a personalized reminder to each volunteer with their assignment(s) for the selected Sunday. Each email includes an iCal attachment.
+      Email each assigned volunteer their role(s) for the selected Sunday. Includes an iCal attachment and RSVP links.
     </p>
     <div id="reminder-week-filter-wrap" style="display:none;margin-bottom:12px;font-size:.86rem;">
       <label for="reminder-week-filter" style="display:inline-block;margin-right:8px;font-weight:600;color:var(--steel-anchor);">Week:</label>
       <select id="reminder-week-filter" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:white;font-family:var(--font-body);font-size:.86rem;color:var(--steel-anchor);"></select>
     </div>
+    <div id="reminder-sent-banner" style="display:none;"></div>
     <div id="reminder-person-list"></div>
     <div id="reminder-actions" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
         <button class="btn btn-outline btn-sm" id="btn-reminder-select-all">Select All</button>
         <button class="btn btn-outline btn-sm" id="btn-reminder-deselect-all">Deselect All</button>
       </div>
-      <button class="btn btn-primary" id="btn-reminder-send">Send Reminder Emails</button>
+      <button class="btn btn-primary" id="btn-reminder-send">Email Selected</button>
       <div id="reminder-send-status" style="font-size:0.85rem;color:var(--warm-gray);margin-top:10px;min-height:18px;"></div>
     </div>
   </div>
@@ -960,6 +962,8 @@ function getConfirmations()  { try { return JSON.parse(localStorage.getItem('ws_
 function saveConfirmations(o){ localStorage.setItem('ws_confirmations', JSON.stringify(o)); }
 function getRsvpTokens()     { try { return JSON.parse(localStorage.getItem('ws_rsvp_tokens')  || '{}'); } catch(e) { return {}; } }
 function saveRsvpTokens(o)   { localStorage.setItem('ws_rsvp_tokens',   JSON.stringify(o)); }
+function getEmailSentLog()   { try { return JSON.parse(localStorage.getItem('ws_email_sent_log') || '{}'); } catch(e) { return {}; } }
+function saveEmailSentLog(o) { localStorage.setItem('ws_email_sent_log', JSON.stringify(o)); }
 
 function saveEventMap(o){ localStorage.setItem('ws_breeze_event_map', JSON.stringify(o)); }
 
@@ -2756,6 +2760,54 @@ function sendReminderEmails() {
 document.getElementById('btn-send-emails').addEventListener('click', openReminderPanel);
 
 // ══════════════════════════════════════════════════════════════════
+// SENT-EMAIL BANNER HELPERS
+// ══════════════════════════════════════════════════════════════════
+
+function _fmtSentTime(isoStr) {
+  var d = new Date(isoStr);
+  var now = new Date();
+  var diffMs = now - d;
+  var diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 2)  return 'just now';
+  if (diffMins < 60) return diffMins + ' minutes ago';
+  var diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return diffHours + ' hour' + (diffHours !== 1 ? 's' : '') + ' ago';
+  var diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 14) return diffDays + ' days ago';
+  return d.toLocaleDateString();
+}
+
+function renderReminderSentBanner(weekISO) {
+  var bannerEl = document.getElementById('reminder-sent-banner');
+  if (!bannerEl) return;
+  var log = getEmailSentLog();
+  var entry = log['reminder_' + weekISO];
+  if (!entry) { bannerEl.style.display = 'none'; bannerEl.innerHTML = ''; return; }
+  bannerEl.style.display = '';
+  bannerEl.innerHTML = '<div style="background:var(--pale-gold);border:1px solid var(--amber);border-radius:6px;padding:8px 12px;font-size:0.82rem;color:var(--on-pale-gold);margin-bottom:10px;">'
+    + '&#9888; Assignment emails last sent <strong>' + _fmtSentTime(entry.sentAt) + '</strong>'
+    + ' (' + entry.count + ' email' + (entry.count !== 1 ? 's' : '') + ').'
+    + ' Sending again will re-email all selected volunteers.'
+    + '</div>';
+}
+
+function renderNotifySentBanner(weekISO) {
+  var bannerEl = document.getElementById('notify-sent-banner');
+  if (!bannerEl) return;
+  var log = getEmailSentLog();
+  var logKey = (!weekISO || weekISO === 'all') ? 'notify_all' : 'notify_' + weekISO;
+  var entry = log[logKey];
+  if (!entry) { bannerEl.style.display = 'none'; bannerEl.innerHTML = ''; return; }
+  bannerEl.style.display = '';
+  bannerEl.innerHTML = '<div style="background:var(--pale-gold);border:1px solid var(--amber);border-radius:6px;padding:8px 12px;font-size:0.82rem;color:var(--on-pale-gold);margin-bottom:10px;">'
+    + '&#9888; Volunteer requests last sent <strong>' + _fmtSentTime(entry.sentAt) + '</strong>'
+    + ' (' + entry.count + ' email' + (entry.count !== 1 ? 's' : '') + ').'
+    + ' Sending again will re-email all selected volunteers.'
+    + '</div>';
+}
+
+// ══════════════════════════════════════════════════════════════════
 // REMINDER EMAILS PANEL — week-filtered schedule reminders
 // ══════════════════════════════════════════════════════════════════
 var _reminderAssignmentsCache = {};
@@ -2829,6 +2881,7 @@ function openReminderPanel() {
   filterSel.value = nextUp ? nextUp.iso : sundayOptions[0].iso;
 
   document.getElementById('reminder-send-status').textContent = '';
+  renderReminderSentBanner(filterSel.value);
   renderReminderList(filterSel.value);
   openPanel('reminder-panel');
 }
@@ -2899,6 +2952,7 @@ function _sendWeekReminders() {
   var statusEl = document.getElementById('reminder-send-status');
   var sendBtn  = document.getElementById('btn-reminder-send');
 
+  var currentWeekISO = document.getElementById('reminder-week-filter').value;
   var tasks = [];
   document.querySelectorAll('.reminder-person-cb:checked').forEach(function(cb) {
     var pid  = cb.getAttribute('data-pid');
@@ -3036,6 +3090,12 @@ function _sendWeekReminders() {
     sendBtn.disabled = false;
     if (!errors) {
       statusEl.textContent = '\\u2713 Done \\u2014 ' + sent + ' email' + (sent !== 1 ? 's' : '') + ' sent.';
+      if (sent > 0 && currentWeekISO) {
+        var log = getEmailSentLog();
+        log['reminder_' + currentWeekISO] = { sentAt: new Date().toISOString(), count: sent };
+        saveEmailSentLog(log);
+        renderReminderSentBanner(currentWeekISO);
+      }
     } else {
       statusEl.textContent += ' (' + sent + ' sent, ' + errors + ' failed)';
     }
@@ -3303,6 +3363,7 @@ function openNotifyPanel() {
 
   // Cache slots so the change handler doesn't re-scan currentSchedule
   _notifySlotsCache = slots;
+  renderNotifySentBanner(filterSel.value);
   renderNotifySlots(filterSel.value);
   openPanel('notify-panel');
 }
@@ -3411,6 +3472,7 @@ function sendVolunteerNotifications() {
     alert('Please configure your Resend API key and From address in the Settings tab first.');
     return;
   }
+  var notifyWeekISO = document.getElementById('notify-week-filter').value;
   // Use the cache that the panel was rendered from. data-slot-idx values
   // index into _notifySlotsCache, not a fresh getOpenSlots() result — those
   // could differ if the schedule changed since the panel opened.
@@ -3507,6 +3569,13 @@ function sendVolunteerNotifications() {
       statusEl.textContent += ' (' + sent + ' sent, ' + errors + ' failed)';
     } else {
       statusEl.textContent = '\\u2713 Done \\u2014 ' + sent + ' notification' + (sent !== 1 ? 's' : '') + ' sent.';
+      if (sent > 0 && notifyWeekISO) {
+        var log = getEmailSentLog();
+        var logKey = notifyWeekISO === 'all' ? 'notify_all' : 'notify_' + notifyWeekISO;
+        log[logKey] = { sentAt: new Date().toISOString(), count: sent };
+        saveEmailSentLog(log);
+        renderNotifySentBanner(notifyWeekISO);
+      }
     }
   });
 }
@@ -3514,6 +3583,7 @@ function sendVolunteerNotifications() {
 document.getElementById('btn-close-reminder-panel').addEventListener('click', closeAllPanels);
 document.getElementById('reminder-week-filter').addEventListener('change', function() {
   document.getElementById('reminder-send-status').textContent = '';
+  renderReminderSentBanner(this.value);
   renderReminderList(this.value);
 });
 document.getElementById('btn-reminder-select-all').addEventListener('click', function() {
@@ -3534,6 +3604,7 @@ document.getElementById('btn-notify-deselect-all').addEventListener('click', fun
 });
 document.getElementById('btn-notify-send').addEventListener('click', sendVolunteerNotifications);
 document.getElementById('notify-week-filter').addEventListener('change', function() {
+  renderNotifySentBanner(this.value);
   renderNotifySlots(this.value);
 });
 
