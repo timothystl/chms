@@ -600,9 +600,26 @@ body.embedded #app-content { display:block!important; }
     <div id="blackout-date-error" style="font-size:0.8rem;color:#c0392b;margin-top:4px;display:none;">Please pick a Sunday.</div>
     <div id="blackout-chips"></div>
 
-    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:16px;">
+    <div style="margin-top:16px;padding:10px 14px;background:var(--pale-gold);border:1px solid var(--honey);border-radius:8px;">
+      <label style="font-weight:600;display:block;margin-bottom:6px;">&#9992; Extended Absence <span style="font-weight:normal;color:var(--warm-gray);">(optional)</span></label>
+      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:6px;">
+        <div>
+          <label style="font-size:.8rem;color:var(--warm-gray);margin-bottom:3px;display:block;">Away from</label>
+          <input type="date" id="absence-start" style="max-width:160px;">
+        </div>
+        <div>
+          <label style="font-size:.8rem;color:var(--warm-gray);margin-bottom:3px;display:block;">Return date</label>
+          <input type="date" id="absence-until" style="max-width:160px;">
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" id="btn-clear-absence">Clear</button>
+      </div>
+      <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:6px;">Person will be skipped during scheduling for this date range and shown as "Away" in the people list.</small>
+    </div>
+
+    <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);padding-top:16px;">
       <button class="btn btn-primary" id="btn-save-person">Save Person</button>
       <button class="btn btn-outline" id="btn-clear-form">Clear</button>
+      <button type="button" class="btn btn-danger btn-sm" id="btn-delete-person-form" style="display:none;margin-left:auto;">&#128465; Delete</button>
     </div>
   </div>
 </div>
@@ -1346,6 +1363,9 @@ function clearForm() {
   document.getElementById('breeze-import-results').innerHTML = '';
   currentBlackouts = [];
   renderBlackoutChips();
+  document.getElementById('absence-start').value = '';
+  document.getElementById('absence-until').value = '';
+  document.getElementById('btn-delete-person-form').style.display = 'none';
   document.getElementById('role-override-section').style.display = 'none';
   document.getElementById('toggle-role-overrides').innerHTML = '&#9658; Customize Sundays per role (optional)';
   document.getElementById('role-override-body').innerHTML = '';
@@ -1382,17 +1402,19 @@ function savePerson() {
   });
 
   var importedBreezeId = document.getElementById('breeze-import-id').value || null;
+  var absenceStart = document.getElementById('absence-start').value || '';
+  var absenceUntil = document.getElementById('absence-until').value || '';
   var people = getPeople();
   var editId = document.getElementById('edit-id').value;
   if (editId) {
     for (var i = 0; i < people.length; i++) {
       if (people[i].id === editId) {
-        people[i] = { id: editId, name: name, email: email, preferredSundays: preferredSundays, servicePreference: servicePreference, roles: roles, primaryFor: primaryFor, roleSundayOverrides: roleSundayOverrides, breezePersonId: importedBreezeId || people[i].breezePersonId || null, blackoutDates: currentBlackouts.slice() };
+        people[i] = { id: editId, name: name, email: email, preferredSundays: preferredSundays, servicePreference: servicePreference, roles: roles, primaryFor: primaryFor, roleSundayOverrides: roleSundayOverrides, breezePersonId: importedBreezeId || people[i].breezePersonId || null, blackoutDates: currentBlackouts.slice(), absenceStart: absenceStart, absenceUntil: absenceUntil };
         break;
       }
     }
   } else {
-    people.push({ id: makeId(), name: name, email: email, preferredSundays: preferredSundays, servicePreference: servicePreference, roles: roles, primaryFor: primaryFor, roleSundayOverrides: roleSundayOverrides, breezePersonId: importedBreezeId, blackoutDates: currentBlackouts.slice() });
+    people.push({ id: makeId(), name: name, email: email, preferredSundays: preferredSundays, servicePreference: servicePreference, roles: roles, primaryFor: primaryFor, roleSundayOverrides: roleSundayOverrides, breezePersonId: importedBreezeId, blackoutDates: currentBlackouts.slice(), absenceStart: absenceStart, absenceUntil: absenceUntil });
   }
   savePeople(people);
   clearForm();
@@ -1403,6 +1425,17 @@ function savePerson() {
 
 document.getElementById('btn-save-person').addEventListener('click', savePerson);
 document.getElementById('btn-clear-form').addEventListener('click', clearForm);
+document.getElementById('btn-clear-absence').addEventListener('click', function() {
+  document.getElementById('absence-start').value = '';
+  document.getElementById('absence-until').value = '';
+});
+document.getElementById('btn-delete-person-form').addEventListener('click', function() {
+  var id = document.getElementById('edit-id').value;
+  if (!id) return;
+  if (!confirm('Remove this person from the scheduler? They will also be cleared from the current schedule.')) return;
+  closeAllPanels();
+  deletePerson(id);
+});
 
 // ══════════════════════════════════════════════════════════════════
 // PEOPLE LIST
@@ -1478,14 +1511,24 @@ function renderPeopleList() {
     +'<th></th>'
     +'</tr></thead><tbody>';
 
+  var todayISO = new Date().toISOString().slice(0, 10);
   people.forEach(function(p) {
     var roleTags = p.roles.length
       ? p.roles.map(function(r){ return '<span class="tag tag-role">'+esc(roleLabel(r))+'</span>'; }).join(' ')
       : '<span style="color:#7A6E60;font-size:.78rem;">—</span>';
     var breeze   = p.breezePersonId ? ' <span title="Breeze linked" style="font-size:.7rem;color:#004085;">&#9729;</span>' : '';
     var primary  = (p.primaryFor && p.primaryFor.length) ? ' <span title="Primary: '+esc((p.primaryFor||[]).map(roleLabel).join(', '))+'" style="font-size:.72rem;color:#6B8F71;">&#9733;</span>' : '';
+    var absenceBadge = '';
+    if (p.absenceUntil) {
+      var start = p.absenceStart || p.absenceUntil;
+      if (todayISO <= p.absenceUntil) {
+        var label = todayISO >= start ? 'Away until ' + p.absenceUntil : 'Away ' + start + '–' + p.absenceUntil;
+        absenceBadge = ' <span style="font-size:.7rem;padding:1px 7px;border-radius:99px;background:var(--pale-gold);color:var(--on-pale-gold);border:1px solid var(--honey);white-space:nowrap;">&#9992; ' + esc(label) + '</span>';
+      }
+    }
     html += '<tr>'
       +'<td><div class="pt-name">'+esc(p.name)+primary+breeze+'</div>'
+      +(absenceBadge ? '<div style="margin-top:2px;">'+absenceBadge+'</div>' : '')
       +(p.email ? '<div class="pt-email">'+esc(p.email)+'</div>' : '')
       +'</td>'
       +'<td><div class="pt-roles">'+roleTags+'</div></td>'
@@ -1529,6 +1572,9 @@ function editPerson(id) {
   syncLabels('pref-sundays'); syncLabels('pref-roles'); syncLabels('primary-roles');
   currentBlackouts = (person.blackoutDates || []).slice();
   renderBlackoutChips();
+  document.getElementById('absence-start').value = person.absenceStart || '';
+  document.getElementById('absence-until').value = person.absenceUntil || '';
+  document.getElementById('btn-delete-person-form').style.display = '';
   // Load role override table if the person has any overrides
   var hasOverrides = person.roleSundayOverrides && Object.keys(person.roleSundayOverrides).length > 0;
   if (hasOverrides) {
@@ -1585,6 +1631,11 @@ function getSundays(start, end) {
   return sundays;
 }
 function getOrdinal(date) { return Math.ceil(date.getDate()/7); }
+function isOnAbsence(person, dateISO) {
+  if (!person.absenceUntil || !dateISO) return false;
+  var start = person.absenceStart || person.absenceUntil;
+  return dateISO >= start && dateISO <= person.absenceUntil;
+}
 function eligible(person, ordinal, svc, dateISO, role) {
   // Use role-specific Sunday override if set, else global preferredSundays
   var sundays = (role && person.roleSundayOverrides && person.roleSundayOverrides[role] && person.roleSundayOverrides[role].length > 0)
@@ -1593,6 +1644,7 @@ function eligible(person, ordinal, svc, dateISO, role) {
   if (sundays.length > 0 && sundays.indexOf(ordinal) === -1) return false;
   if (svc !== 'shared' && person.servicePreference !== 'both' && person.servicePreference !== svc) return false;
   if (dateISO && person.blackoutDates && person.blackoutDates.indexOf(dateISO) !== -1) return false;
+  if (isOnAbsence(person, dateISO)) return false;
   return true;
 }
 function pickBest(pool, counts) {
@@ -1648,7 +1700,7 @@ function generateSchedule() {
       var primary = primaryMap[role];
       var picked;
       if (primary) {
-        picked = (primary.blackoutDates||[]).indexOf(dateISO)!==-1 ? null : primary;
+        picked = ((primary.blackoutDates||[]).indexOf(dateISO)!==-1 || isOnAbsence(primary,dateISO)) ? null : primary;
       } else {
         var pool = people.filter(function(p){ return p.roles.indexOf(role)>-1 && eligible(p,ordinal,'shared',dateISO,role); });
         picked = pickBest(pool, counts);
@@ -1664,7 +1716,7 @@ function generateSchedule() {
       ['8am','10:45am'].forEach(function(svc) {
         var picked;
         if (primary) {
-          var blacked = (primary.blackoutDates||[]).indexOf(dateISO)!==-1;
+          var blacked = (primary.blackoutDates||[]).indexOf(dateISO)!==-1 || isOnAbsence(primary,dateISO);
           var svcOk = primary.servicePreference==='both'||primary.servicePreference===svc;
           picked = (!blacked&&svcOk) ? primary : null;
         } else {
@@ -1921,7 +1973,7 @@ function renderTable(people, counts) {
             var pid = (svc.assignments||{})[role] || '';
             var opts = '<option value="">-- unassigned --</option>';
             allPeople.filter(function(p){
-              return p.roles.indexOf(role)>-1 && (p.blackoutDates||[]).indexOf(dateISO)===-1;
+              return p.roles.indexOf(role)>-1 && (p.blackoutDates||[]).indexOf(dateISO)===-1 && !isOnAbsence(p,dateISO);
             }).forEach(function(p){
               opts += '<option value="'+esc(p.id)+'"'+(pid===p.id?' selected':'')+'>'+esc(p.name)+'</option>';
             });
@@ -1936,7 +1988,7 @@ function renderTable(people, counts) {
             var pid = (svc.assignments||{})[role] || '';
             var opts = '<option value="">-- unassigned --</option>';
             allPeople.filter(function(p){
-              return p.roles.indexOf(role)>-1 && (p.blackoutDates||[]).indexOf(dateISO)===-1;
+              return p.roles.indexOf(role)>-1 && (p.blackoutDates||[]).indexOf(dateISO)===-1 && !isOnAbsence(p,dateISO);
             }).forEach(function(p){
               opts += '<option value="'+esc(p.id)+'"'+(pid===p.id?' selected':'')+'>'+esc(p.name)+'</option>';
             });
@@ -2017,12 +2069,12 @@ function buildCell(pid, pMap, rowIdx, role, svc, rowspan) {
   var pool = people.filter(function(p){
     if (primaryPerson && p.id === primaryPerson.id) {
       // Include primary person if not blacked out (ignore preferredSundays for primary)
-      var blacked = (p.blackoutDates || []).indexOf(dateISO) !== -1;
+      var blacked = (p.blackoutDates || []).indexOf(dateISO) !== -1 || isOnAbsence(p, dateISO);
       var svcOk = svc === 'shared' || p.servicePreference === 'both' || p.servicePreference === svc;
       return p.roles.indexOf(role) > -1 && !blacked && svcOk;
     }
     // Manual dropdown shows all role+service matches regardless of preferred Sunday
-    var blacked = (p.blackoutDates || []).indexOf(dateISO) !== -1;
+    var blacked = (p.blackoutDates || []).indexOf(dateISO) !== -1 || isOnAbsence(p, dateISO);
     var svcOk = svc === 'shared' || p.servicePreference === 'both' || p.servicePreference === svc;
     return p.roles.indexOf(role) > -1 && !blacked && svcOk;
   });
