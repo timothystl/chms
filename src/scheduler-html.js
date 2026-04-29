@@ -4590,6 +4590,7 @@ function renderStatsTab() {
   var allRows = [];
   getHistory().forEach(function(h) { allRows = allRows.concat(h.rows); });
   currentSchedule.forEach(function(row) {
+    if (row.type !== 'sunday') return;
     allRows.push({ dateISO: row.date.toISOString(), ordinal: row.ordinal, assignments: row.assignments });
   });
   if (!allRows.length) {
