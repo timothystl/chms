@@ -486,6 +486,7 @@ function pvEditContact() {
     + '<div><label for="pec-state" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">State</label><input type="text" id="pec-state" value="'+esc(p.state||'')+'" style="'+inp+'" maxlength="2"></div>'
     + '<div><label for="pec-zip" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">ZIP</label><input type="text" id="pec-zip" value="'+esc(p.zip||'')+'" style="'+inp+'"></div>'
     + '</div>'
+    + '<div style="margin-top:2px;display:flex;align-items:center;gap:10px;"><button type="button" class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="validateContactAddress()">Validate Address</button><span id="pec-addr-validate-status" style="font-size:.75rem;"></span></div>'
     + '<div><label for="pec-phone" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Phone</label><input type="tel" id="pec-phone" value="'+esc(p.phone||'')+'" style="'+inp+'"></div>'
     + '<div><label for="pec-email" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Email</label><input type="email" id="pec-email" value="'+esc(p.email||'')+'" style="'+inp+'"></div>'
     + '</div>';
@@ -1784,6 +1785,45 @@ function validatePersonAddress() {
   });
 }
 
+// Validate address in the inline profile contact editor (pec-* fields)
+function validateContactAddress() {
+  var btn = document.querySelector('#pv-contact-section button[onclick="validateContactAddress()"]');
+  var status = document.getElementById('pec-addr-validate-status');
+  var street = (document.getElementById('pec-addr1').value || '').trim();
+  if (!street) { if (status) status.innerHTML = '<span style="color:var(--danger);">Enter a street address first.</span>'; return; }
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Validating…';
+  api('/admin/api/utils/validate-address', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      address1: street,
+      city:  (document.getElementById('pec-city').value  || '').trim(),
+      state: (document.getElementById('pec-state').value || '').trim(),
+      zip:   (document.getElementById('pec-zip').value   || '').trim()
+    })
+  }).then(function(r) {
+    if (btn) btn.disabled = false;
+    if (!r.ok) {
+      if (status) status.innerHTML = '<span style="color:var(--danger);">' + esc(r.error || 'Validation failed') + '</span>';
+      return;
+    }
+    document.getElementById('pec-addr1').value = r.address1;
+    document.getElementById('pec-city').value  = r.city;
+    document.getElementById('pec-state').value = r.state;
+    document.getElementById('pec-zip').value   = r.zip + (r.zip4 ? '-' + r.zip4 : '');
+    var dpv = r.dpvConfirmation;
+    var msg = dpv === 'Y' ? '<span style="color:#27ae60;">&#10003; Confirmed deliverable</span>'
+            : dpv === 'S' ? '<span style="color:#e67e22;">&#9888; Primary confirmed — apt/suite info needed</span>'
+            : dpv === 'D' ? '<span style="color:#e67e22;">&#9888; Primary confirmed — secondary not matched</span>'
+            : '<span style="color:var(--danger);">&#10005; Address not found by USPS</span>';
+    if (status) status.innerHTML = msg;
+  }).catch(function() {
+    if (btn) btn.disabled = false;
+    if (status) status.innerHTML = '<span style="color:var(--danger);">Request failed — try again.</span>';
+  });
+}
+
 // ── CREATE HOUSEHOLD FROM PROFILE ─────────────────────────────────────────
 function createHouseholdForPerson(personId, lastName) {
   var hhName = (lastName || '').trim();
@@ -1811,19 +1851,34 @@ function createHouseholdForPerson(personId, lastName) {
   });
 }
 
-// ── GOOGLE MAPS EMBED ─────────────────────────────────────────────────────
+// ── MAP EMBED (OpenStreetMap via Nominatim geocoding — no API key required) ──
 function togglePersonMap(personId) {
   var el  = document.getElementById('pv-map-' + personId);
   var btn = document.getElementById('pv-map-btn-' + personId);
   if (!el) return;
   if (el.style.display === 'none') {
-    el.innerHTML = '<iframe src="https://maps.google.com/maps?q=' + el.dataset.addr + '&output=embed&hl=en" width="100%" height="240" style="border:0;display:block;" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>';
     el.style.display = '';
     if (btn) btn.textContent = '▼ Hide Map';
+    if (el.dataset.loaded) return;
+    var addr = decodeURIComponent(el.dataset.addr);
+    el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--warm-gray);">Loading map…</div>';
+    fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(addr), {
+      headers: { 'Accept-Language': 'en', 'User-Agent': 'TLC-ChMS/1.0 (contact@timothystl.org)' }
+    }).then(function(r) { return r.json(); }).then(function(results) {
+      if (!results || !results.length) {
+        el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--danger);">Address not found on map.</div>';
+        return;
+      }
+      var lat = parseFloat(results[0].lat), lon = parseFloat(results[0].lon), d = 0.005;
+      var bbox = (lon-d)+','+(lat-d)+','+(lon+d)+','+(lat+d);
+      el.innerHTML = '<iframe src="https://www.openstreetmap.org/export/embed.html?bbox='+bbox+'&layer=mapnik&marker='+lat+','+lon+'" width="100%" height="240" style="border:0;display:block;" loading="lazy"></iframe>';
+      el.dataset.loaded = '1';
+    }).catch(function() {
+      el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--danger);">Map unavailable. <a href="https://maps.google.com/?q='+el.dataset.addr+'" target="_blank" rel="noopener">Open in Google Maps</a></div>';
+    });
   } else {
     el.style.display = 'none';
-    el.innerHTML = '';
-    if (btn) btn.textContent = '► Show Map';
+    if (btn) btn.textContent = '&#9654; Show Map';
   }
 }
 
