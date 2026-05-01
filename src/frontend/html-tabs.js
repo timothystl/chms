@@ -885,6 +885,8 @@ export const HTML_TABS_2 = String.raw`
             <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.8rem;color:var(--warm-gray);"><input type="checkbox" id="pm-hide-addr"> Hide address</label>
             <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.8rem;color:var(--warm-gray);"><input type="checkbox" id="pm-hide-phone"> Hide phone</label>
             <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.8rem;color:var(--warm-gray);"><input type="checkbox" id="pm-hide-email"> Hide email</label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.8rem;color:var(--warm-gray);"><input type="checkbox" id="pm-hide-dob"> Hide birthday</label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.8rem;color:var(--warm-gray);"><input type="checkbox" id="pm-hide-anniversary"> Hide anniversary</label>
           </div>
         </div>
       </div>

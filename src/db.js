@@ -524,6 +524,9 @@ async function _doInitDb(db) {
     'ALTER TABLE people ADD COLUMN first_gift_noted INTEGER NOT NULL DEFAULT 0',
     // people: SMS opt-in for birthday/anniversary texts via Brevo
     'ALTER TABLE people ADD COLUMN sms_opt_in INTEGER NOT NULL DEFAULT 0',
+    // people: privacy — hide DOB and anniversary from member-role profile views
+    'ALTER TABLE people ADD COLUMN dir_hide_dob INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE people ADD COLUMN dir_hide_anniversary INTEGER NOT NULL DEFAULT 0',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

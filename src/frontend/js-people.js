@@ -459,7 +459,7 @@ function pvBuildPersonPatch(p, overrides) {
    'member_type','family_role','gender','marital_status','household_id',
    'dob','baptism_date','confirmation_date','anniversary_date','death_date',
    'deceased','public_directory','envelope_number','last_seen_date','notes','breeze_id',
-   'dir_hide_address','dir_hide_phone','dir_hide_email'
+   'dir_hide_address','dir_hide_phone','dir_hide_email','dir_hide_dob','dir_hide_anniversary'
   ].forEach(function(k){ full[k] = (p[k] !== undefined) ? p[k] : null; });
   Object.assign(full, overrides);
   full.tag_ids = (p.tags || []).map(function(t){ return t.id; });
@@ -1597,9 +1597,11 @@ function openPersonEdit(p) {
   if (pubEl) pubEl.checked = isNew ? true : (p.public_directory !== 0);
   var dirFieldsEl = document.getElementById('pm-dir-fields');
   if (dirFieldsEl) dirFieldsEl.style.opacity = (!isNew && p.public_directory === 0) ? '.4' : '1';
-  var haEl = document.getElementById('pm-hide-addr');  if (haEl) haEl.checked = !isNew && !!p.dir_hide_address;
-  var hpEl = document.getElementById('pm-hide-phone'); if (hpEl) hpEl.checked = !isNew && !!p.dir_hide_phone;
-  var heEl = document.getElementById('pm-hide-email'); if (heEl) heEl.checked = !isNew && !!p.dir_hide_email;
+  var haEl = document.getElementById('pm-hide-addr');        if (haEl) haEl.checked = !isNew && !!p.dir_hide_address;
+  var hpEl = document.getElementById('pm-hide-phone');       if (hpEl) hpEl.checked = !isNew && !!p.dir_hide_phone;
+  var heEl = document.getElementById('pm-hide-email');       if (heEl) heEl.checked = !isNew && !!p.dir_hide_email;
+  var hdEl = document.getElementById('pm-hide-dob');         if (hdEl) hdEl.checked = !isNew && !!p.dir_hide_dob;
+  var hanEl = document.getElementById('pm-hide-anniversary'); if (hanEl) hanEl.checked = !isNew && !!p.dir_hide_anniversary;
   document.getElementById('pm-envelope').value = isNew ? '' : (p.envelope_number||'');
   document.getElementById('pm-last-seen').value = isNew ? '' : (p.last_seen_date||'');
   document.getElementById('pm-notes').value = isNew ? '' : (p.notes||'');
@@ -1677,9 +1679,11 @@ function savePerson() {
     death_date: document.getElementById('pm-death').value,
     deceased: document.getElementById('pm-deceased').checked ? 1 : 0,
     public_directory: (document.getElementById('pm-public') || {checked:true}).checked ? 1 : 0,
-    dir_hide_address: document.getElementById('pm-hide-addr') && document.getElementById('pm-hide-addr').checked ? 1 : 0,
-    dir_hide_phone:   document.getElementById('pm-hide-phone') && document.getElementById('pm-hide-phone').checked ? 1 : 0,
-    dir_hide_email:   document.getElementById('pm-hide-email') && document.getElementById('pm-hide-email').checked ? 1 : 0,
+    dir_hide_address:     document.getElementById('pm-hide-addr')        ? (document.getElementById('pm-hide-addr').checked        ? 1 : 0) : 0,
+    dir_hide_phone:       document.getElementById('pm-hide-phone')       ? (document.getElementById('pm-hide-phone').checked       ? 1 : 0) : 0,
+    dir_hide_email:       document.getElementById('pm-hide-email')       ? (document.getElementById('pm-hide-email').checked       ? 1 : 0) : 0,
+    dir_hide_dob:         document.getElementById('pm-hide-dob')         ? (document.getElementById('pm-hide-dob').checked         ? 1 : 0) : 0,
+    dir_hide_anniversary: document.getElementById('pm-hide-anniversary') ? (document.getElementById('pm-hide-anniversary').checked ? 1 : 0) : 0,
     envelope_number: document.getElementById('pm-envelope').value.trim(),
     last_seen_date: document.getElementById('pm-last-seen').value,
     notes: document.getElementById('pm-notes').value,

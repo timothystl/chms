@@ -262,7 +262,16 @@ if (pmatch) {
         if (hd?.first_name) household_display_name = disambiguateHHName(p.household_name, hd.first_name);
       }
     }
-    return json({ ...p, tags, giving_12mo: giving12mo, household_display_name });
+    // Redact privacy-protected fields when viewed by a member-role user
+    let personData = { ...p };
+    if (!canEdit) {
+      if (p.dir_hide_address)     { personData.address1 = ''; personData.address2 = ''; personData.city = ''; personData.state = ''; personData.zip = ''; }
+      if (p.dir_hide_phone)       { personData.phone = ''; }
+      if (p.dir_hide_email)       { personData.email = ''; }
+      if (p.dir_hide_dob)         { personData.dob = ''; }
+      if (p.dir_hide_anniversary) { personData.anniversary_date = ''; }
+    }
+    return json({ ...personData, tags, giving_12mo: giving12mo, household_display_name });
   }
   if (method === 'PUT') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
@@ -273,7 +282,8 @@ if (pmatch) {
        city=?,state=?,zip=?,member_type=?,dob=?,baptism_date=?,confirmation_date=?,
        anniversary_date=?,death_date=?,deceased=?,household_id=?,family_role=?,photo_url=?,notes=?,
        public_directory=?,envelope_number=?,last_seen_date=?,gender=?,marital_status=?,
-       dir_hide_address=?,dir_hide_phone=?,dir_hide_email=?,baptized=?,confirmed=?,sms_opt_in=? WHERE id=?`
+       dir_hide_address=?,dir_hide_phone=?,dir_hide_email=?,dir_hide_dob=?,dir_hide_anniversary=?,
+       baptized=?,confirmed=?,sms_opt_in=? WHERE id=?`
     ).bind(b.first_name||'',b.last_name||'',b.email||'',normalizePhone(b.phone||''),
            b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
            b.member_type||'visitor',b.dob||'',b.baptism_date||'',
@@ -282,6 +292,7 @@ if (pmatch) {
            b.public_directory!=null?(b.public_directory?1:0):1,
            b.envelope_number||'',b.last_seen_date||'',b.gender||'',b.marital_status||'',
            b.dir_hide_address?1:0, b.dir_hide_phone?1:0, b.dir_hide_email?1:0,
+           b.dir_hide_dob?1:0, b.dir_hide_anniversary?1:0,
            b.baptized?1:0, b.confirmed?1:0, b.sms_opt_in?1:0, pid
     ).run();
     if (Array.isArray(b.tag_ids)) {
