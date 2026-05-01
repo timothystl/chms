@@ -129,6 +129,14 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-05-01
+- **v165**: ST1/RI1/PF2 — Three filter/visibility improvements. (1) **ST1**: Automated Emails and Automated Texts test cards in Settings are now `require-admin` — hidden from staff/finance/member roles. (2) **RI1**: People Insights defaults to Members only (scope=member); "Members Only / All Active" toggle buttons let admins switch the scope for all six chart blocks. (3) **PF2**: Positive people filters added — Gender radio (Any/Male/Female/Not set) and Age Range radio (Any/Under 18/18-29/30-44/45-64/65+) in the filter drawer. Both wire through to the backend `GET /people` query. Active filter chips shown for each. Also: revert `wrangler-action@v4` → `@v3` (v4 tag doesn't exist on the action).
+- **v164**: Fix bulk address validation timeout. Paginate to 50 addresses/request; cache USPS OAuth token once per page.
+- **v163**: Add USPS OAuth 2.0 API support (USPS_CLIENT_ID + USPS_CLIENT_SECRET secrets). Priority chain: USPS OAuth → USPS WebTools XML → Lob → Census Bureau.
+- **v162**: Add privacy settings for DOB and anniversary (dir_hide_dob, dir_hide_anniversary). Enforce all five privacy flags for member-role API responses.
+- **v161**: Replace Lob-only address validation with USPS OAuth + Census Bureau fallback. Add "Validate All Addresses" bulk operation.
+- **v160**: Fix BUG1/BUG2 — utils/ routes returning 404 (missing from api-admin.js delegation guard).
+
 ### 2026-04-28
 - **v152**: Swap address validation from USPS to Lob. USPS OAuth was difficult to provision; Lob uses simple Basic auth (API key as username). Backend (`src/api-utils.js`) now calls `POST https://api.lob.com/v1/us_verifications` with `LOB_API_KEY` secret. Lob's `deliverability` field is mapped to the same Y/S/D/N values the frontend already handles. Button label updated from "Validate Address (USPS)" → "Validate Address". Add secret: `wrangler secret put LOB_API_KEY`.
 - **v151**: Google Maps embed on person profile. When a person has a street address + city, a "Show Map" button appears in the Contact card. Clicking it lazy-loads a Google Maps iframe (240 px, no API key required) pinned to their address with a built-in "Get Directions" link — on mobile this opens Google Maps for turn-by-turn navigation. Clicking again collapses the map. (`src/frontend/js-people.js`)

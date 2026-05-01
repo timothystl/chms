@@ -139,6 +139,23 @@ if (seg === 'people' && method === 'GET') {
   for (const f of missingFieldsRaw.split(',').map(s => s.trim()).filter(Boolean)) {
     if (missingClauses[f]) where += ' AND ' + missingClauses[f];
   }
+  // Positive gender filter
+  const genderFilter = url.searchParams.get('gender') || '';
+  if (genderFilter === 'Unknown') {
+    where += ` AND (p.gender IS NULL OR p.gender='')`;
+  } else if (genderFilter) {
+    where += ' AND p.gender=?'; binds.push(genderFilter);
+  }
+  // Positive age range filter
+  const ageRange = url.searchParams.get('age_range') || '';
+  const ageRangeClauses = {
+    under_18: `(p.dob != '' AND p.dob IS NOT NULL AND (julianday('now')-julianday(p.dob))/365.25 < 18)`,
+    '18_29':  `(p.dob != '' AND p.dob IS NOT NULL AND (julianday('now')-julianday(p.dob))/365.25 >= 18 AND (julianday('now')-julianday(p.dob))/365.25 < 30)`,
+    '30_44':  `(p.dob != '' AND p.dob IS NOT NULL AND (julianday('now')-julianday(p.dob))/365.25 >= 30 AND (julianday('now')-julianday(p.dob))/365.25 < 45)`,
+    '45_64':  `(p.dob != '' AND p.dob IS NOT NULL AND (julianday('now')-julianday(p.dob))/365.25 >= 45 AND (julianday('now')-julianday(p.dob))/365.25 < 65)`,
+    '65_plus':`(p.dob != '' AND p.dob IS NOT NULL AND (julianday('now')-julianday(p.dob))/365.25 >= 65)`,
+  };
+  if (ageRangeClauses[ageRange]) where += ' AND ' + ageRangeClauses[ageRange];
   // Total count
   const countRow = await db.prepare(`SELECT COUNT(*) as n FROM people p WHERE ${where}`).bind(...binds).first();
   const total = countRow?.n || 0;

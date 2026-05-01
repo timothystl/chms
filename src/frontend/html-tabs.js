@@ -472,7 +472,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div id="brevo-reconcile-status" class="import-status" style="margin-top:8px;"></div>
       <div id="brevo-reconcile-results" style="margin-top:10px;"></div>
     </div>
-    <div class="import-card">
+    <div class="import-card require-admin">
       <h3>&#9993; Automated Emails (EM2)</h3>
       <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Daily cron sends birthday emails to active members and anniversary emails to couples at 9am Central. Use these buttons to trigger manually or test.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -481,7 +481,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <div class="import-status" id="email-test-status" style="margin-top:8px;"></div>
     </div>
-    <div class="import-card">
+    <div class="import-card require-admin">
       <h3>&#128241; Automated Texts (SMS1)</h3>
       <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Daily cron sends birthday and anniversary SMS via Brevo to members with SMS opt-in enabled and a valid phone number. Use these buttons to trigger manually or test.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -725,6 +725,14 @@ export const HTML_TABS_2 = String.raw`
     <div>
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Tags</div>
       <div id="fd-tags"></div>
+    </div>
+    <div style="margin-top:20px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Gender</div>
+      <div id="fd-gender"></div>
+    </div>
+    <div style="margin-top:20px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Age Range</div>
+      <div id="fd-age-range"></div>
     </div>
     <div style="margin-top:20px;">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Missing Field</div>

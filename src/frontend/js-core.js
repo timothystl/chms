@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-05-01-v164';
+var DEPLOY_VERSION = '2026-05-01-v165';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -12,7 +12,7 @@ window.onerror = function(msg, src, line, col, err) {
   return false;
 };
 // ── STATE ────────────────────────────────────────────────────────────
-var allTags = [], allFunds = [], currentBatchId = null, _currentBatch = null, peopleFilter = {q:'',mt:'member',tagIds:[],missingFields:[],offset:0,limit:25,sort:'last_name',dir:'asc'};
+var allTags = [], allFunds = [], currentBatchId = null, _currentBatch = null, peopleFilter = {q:'',mt:'member',tagIds:[],missingFields:[],gender:'',ageRange:'',offset:0,limit:25,sort:'last_name',dir:'asc'};
 var _peopleTotal = 0;
 var _pDebounce, _hDebounce;
 var _loadedServices = [];
@@ -311,6 +311,22 @@ function renderFilterDrawer() {
         + esc(t.name) + '</label>';
     }).join('');
   }
+  // Gender filter
+  var gEl = document.getElementById('fd-gender');
+  if (gEl) {
+    var genders = [{v:'', label:'Any'}, {v:'Male', label:'Male'}, {v:'Female', label:'Female'}, {v:'Unknown', label:'Not set'}];
+    gEl.innerHTML = genders.map(function(g) {
+      return fdRadio('fd-gender', g.v, g.label, peopleFilter.gender === g.v, 'setFdGender(\'' + g.v + '\')');
+    }).join('');
+  }
+  // Age range filter
+  var arEl = document.getElementById('fd-age-range');
+  if (arEl) {
+    var ranges = [{v:'', label:'Any'}, {v:'under_18', label:'Under 18'}, {v:'18_29', label:'18–29'}, {v:'30_44', label:'30–44'}, {v:'45_64', label:'45–64'}, {v:'65_plus', label:'65+'}];
+    arEl.innerHTML = ranges.map(function(r) {
+      return fdRadio('fd-age-range', r.v, r.label, peopleFilter.ageRange === r.v, 'setFdAgeRange(\'' + r.v + '\')');
+    }).join('');
+  }
   // Missing field checkboxes organized by category
   var mfEl = document.getElementById('fd-missing');
   if (mfEl) {
@@ -364,17 +380,33 @@ function toggleFdMissing(v, on) {
   updateFilterBadge();
   updateFdCount();
 }
+function setFdGender(v) {
+  peopleFilter.gender = v;
+  loadPeople(true);
+  renderActiveFilterChips();
+  updateFilterBadge();
+  updateFdCount();
+}
+function setFdAgeRange(v) {
+  peopleFilter.ageRange = v;
+  loadPeople(true);
+  renderActiveFilterChips();
+  updateFilterBadge();
+  updateFdCount();
+}
 function clearAllFilters() {
   peopleFilter.mt = '';
   peopleFilter.tagIds = [];
   peopleFilter.missingFields = [];
+  peopleFilter.gender = '';
+  peopleFilter.ageRange = '';
   loadPeople(true);
   renderFilterDrawer();
   renderActiveFilterChips();
   updateFilterBadge();
 }
 function updateFilterBadge() {
-  var count = (peopleFilter.mt ? 1 : 0) + peopleFilter.tagIds.length + peopleFilter.missingFields.length;
+  var count = (peopleFilter.mt ? 1 : 0) + peopleFilter.tagIds.length + peopleFilter.missingFields.length + (peopleFilter.gender ? 1 : 0) + (peopleFilter.ageRange ? 1 : 0);
   var badge = document.getElementById('p-filter-count');
   if (badge) { badge.textContent = count; badge.style.display = count > 0 ? 'inline-flex' : 'none'; }
   var mb = document.getElementById('p-members-btn');
@@ -399,6 +431,9 @@ function renderActiveFilterChips() {
     var tag = allTags.find(function(t){ return String(t.id) === tid; });
     if (tag) chips.push(filterChip(tag.name, tag.color, "toggleFdTag('" + tid + "',false)"));
   });
+  if (peopleFilter.gender) chips.push(filterChip('Gender: ' + peopleFilter.gender, '#2E7EA6', "setFdGender('')"));
+  var _arLabels = { under_18:'Age: Under 18', '18_29':'Age: 18–29', '30_44':'Age: 30–44', '45_64':'Age: 45–64', '65_plus':'Age: 65+' };
+  if (peopleFilter.ageRange) chips.push(filterChip(_arLabels[peopleFilter.ageRange] || peopleFilter.ageRange, '#C9973A', "setFdAgeRange('')"));
   var _mfLabels = { dob:'No Birthday', gender:'No Gender', photo:'No Photo', anniversary:'No Anniversary', baptism:'No Baptism Date', confirmation:'No Confirmation Date', email:'No Email', phone:'No Phone', address:'No Address' };
   peopleFilter.missingFields.forEach(function(v) {
     chips.push(filterChip(_mfLabels[v] || ('No ' + v), 'var(--warm-gray)', "toggleFdMissing('" + v + "',false)"));
