@@ -199,6 +199,12 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 <!-- Add items here as they come up. Format: - [ ] Description (noted YYYY-MM-DD) -->
 
+### Auth / Login
+- [ ] **AU1** — Forgot password flow: add email field to each user account in admin; add "Forgot password?" link on login page that sends a reset email via Resend. (noted 2026-05-01)
+
+### Settings
+- [ ] **ST1** — Hide testing sections in Settings tab from non-admin users (birthday/anniversary/SMS test buttons, etc.) — these are admin-only tools and should not be visible to staff/finance/member roles. (noted 2026-05-01)
+
 ### People List
 - [x] **PL1** — Members-first people list: default view shows Members only; "Members" toggle button in toolbar switches to all-types view. Done 2026-04-20 (v82).
 - [x] **PL2** — Archive/Deceased people: `status` column (`active|archived|deceased`) added; archived/deceased hidden from default list; "Archived" toggle button in toolbar; Archive/Deceased/Reactivate buttons on profile; anniversary cards exclude deceased. Done 2026-04-20 (v81).
@@ -241,6 +247,7 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ### People / Filters
 - [x] **PF1** — Filter people by missing data fields: checkboxes organized by category with AND logic. Done 2026-04-17 (v46).
+- [ ] **PF2** — Filter people by positive attributes: age range (e.g. 65+, 30–44), gender, member type, tags, household type, sacramental status (baptized/confirmed). Currently filters only show what is *missing*; add a positive filter panel alongside. (noted 2026-05-01)
 
 ### Attendance / Reports
 - [x] **AT1** — Attendance table collapse/expand toggle. Done 2026-04-17 (v46).
@@ -267,12 +274,18 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [x] **R2** — Giving insights report: top givers (top N by year), lapsed givers (gave in prior year, nothing this year), giving frequency distribution, average gift amount trends. Done 2026-04-22 (v99). New `GET /admin/api/reports/giving-insights?year=YYYY` endpoint; new "Giving Insights" tile in Reports tab. Renders four blocks: top 25 givers (clickable to profile), lapsed givers (prior-year donors absent this year, sortable by prior total), frequency histogram (1 / 2-5 / 6-12 / 13-26 / 27+ gifts per giver this year), and 5-year trend table (givers/gifts/total/avg gift/avg per giver).
 - [x] **R3** — People insights report. Done 2026-04-23 (v110). New `GET /admin/api/reports/people-insights` endpoint; new "People Insights" tile. Six sections: new contacts bar chart (24 months), new people by year × member type cross-tab, age distribution bars (6 buckets), gender pie chart, household composition bars (single/couple/small/large/none), sacramental pipeline bars (members only: neither/baptized/confirmed/both).
 - [x] **R4** — Member tenure report. Closed — `member_since`/`join_date` not in Breeze field mapping; deferred indefinitely. (2026-05-01)
+- [ ] **RI1** — People Insights: default scope to Members only (currently defaults to all active). (noted 2026-05-01)
+- [ ] **RI2** — People Insights: sacramental pipeline ("neither/baptized/confirmed/both") shows no data for all members — trace the baptism/confirmation field mapping from Breeze to `people` schema and fix. (noted 2026-05-01)
 - [x] **R5** — Contact info completeness report: counts of people missing email / phone / address / dob / photo; drill-down list per category. Done 2026-04-22 (v99). New `GET /admin/api/reports/contact-completeness?scope=active|member&field=...` endpoint. New "Contact Completeness" tile renders progress bars (green = complete) for each field with scope toggle (all active vs. members only); clicking a row drills to the list of missing records (clickable to profile).
 - [x] **R6** — Person-by-person attendance tracking. Closed — out of scope; service-total tracking is sufficient for now. (2026-05-01)
 - [x] **R7** — Easter/Christmas markers on Giving Trend chart. Done 2026-04-22 (v99). Easter computed per-year via Meeus/Jones/Butcher Gregorian algorithm, rendered as dashed vertical line in that year's color with "E" label. Christmas is shared Dec 25 dashed line in warm-gray with "C" label. Legend updated to explain the markers.
 - [x] **R8** — Giving × Attendance overlay chart. Done 2026-04-22 (v102). New `GET /admin/api/reports/giving-vs-attendance?from=&to=` endpoint. Groups both datasets by Sunday-of-week. New "Giving × Attendance" tile on Reports tab. Chart: green bars (attendance, left axis) + teal line (giving, right axis). Overview stats include Weeks, Total Attendance, Total Given, Avg per Attender, and Pearson correlation coefficient with a qualitative label (Strong+/Moderate+/Weak+/None/Weak−/etc.).
 - [x] **R9** — Pie chart for Giving by Method. Done 2026-04-22 (v99). New reusable `renderPieChart(items, diameter)` helper (SVG slices with hover tooltips + legend). Added "Share by Method" block above the existing table on the Giving by Method report.
 - [x] **R10** — Average giving stats overlay. Done 2026-04-22 (v102). Giving by Fund overview now has 5 tiles (added "Avg / Giver" = total / distinct givers, relabeled "Average Gift" → "Avg / Gift"). "Avg / Giver" also appears per age-group row in the new R1 table. Giving Insights already had both avg stats in its 5-year trend table (from v99). Giving Trend chart stats deferred — the per-year tile total in its legend already serves the year-level averages context.
+
+### Bugs (noted 2026-05-01)
+- [ ] **BUG1** — `normalizePhone()` throws an error in some cases — need console output to trace. User will provide error report.
+- [ ] **BUG2** — "Validate Address" button on person profile gives an error; also needs a global bulk-validate mode (run across all people, not just one at a time). Trace error first, then add bulk option.
 
 ### Engagement & Data Quality (noted 2026-04-22)
 - [x] **FU1** — Prayer request tracking. Done 2026-04-23 (v107/v108). API dispatch bug fixed (prayer-requests and engagement routes were missing from api-admin.js dispatch list — all status changes returned 404). Cancel guard bug fixed in prayerSetStatus. Dashboard card now has Praying/Answered/Close buttons (working), + Add modal, and "↓ CSV" export button (`GET /admin/api/prayer-requests/export.csv?status=all|open|praying|active|answered|closed`). Website contact and prayer forms wired end-to-end via service binding (timothystl/website) — submissions create person records and prayer_requests rows in this DB.
