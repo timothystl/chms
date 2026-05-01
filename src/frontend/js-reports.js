@@ -51,8 +51,10 @@ function runMembership() {
   });
 }
 // ── R3: People Insights ───────────────────────────────────────────────
-function runPeopleInsights() {
-  api('/admin/api/reports/people-insights').then(function(d) {
+var _peopleInsightsScope = 'member';
+function runPeopleInsights(scope) {
+  if (scope) _peopleInsightsScope = scope;
+  api('/admin/api/reports/people-insights?scope=' + encodeURIComponent(_peopleInsightsScope)).then(function(d) {
     if (d.error) { alert(d.error); return; }
 
     // ── Block 1: New contacts by month (bar chart) ──────────────────
@@ -125,7 +127,7 @@ function runPeopleInsights() {
         + '<div style="flex:0 0 90px;text-align:right;font-size:.82rem;color:var(--warm-gray);">'+b.n+' ('+pct+'%)</div></div>';
     }).join('');
     var ageBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#127891; Age Distribution ('+ageTotal2+' active people)</div>'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#127891; Age Distribution — '+scopeLabel+' ('+ageTotal2+')</div>'
       + ageRows2 + '</div>';
 
     // ── Block 4: Gender pie chart ───────────────────────────────────
@@ -135,7 +137,7 @@ function runPeopleInsights() {
     });
     var genderTotal = genderItems.reduce(function(s,it){return s+(it.value||0);},0);
     var genderBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#9874;&#65039; Gender Breakdown ('+genderTotal+' active people)</div>'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#9874;&#65039; Gender Breakdown — '+scopeLabel+' ('+genderTotal+')</div>'
       + '<div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">'
       + renderPieChart(genderItems, 180)
       + '</div></div>';
@@ -159,7 +161,7 @@ function runPeopleInsights() {
         + '<div style="flex:0 0 90px;text-align:right;font-size:.82rem;color:var(--warm-gray);">'+it.value+' ('+pct+'%)</div></div>';
     }).join('');
     var hhBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#127968; Household Composition ('+hhTotal2+' active people)</div>'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#127968; Household Composition — '+scopeLabel+' ('+hhTotal2+')</div>'
       + hhRows2 + '</div>';
 
     // ── Block 6: Sacramental pipeline (members only) ────────────────
@@ -184,10 +186,19 @@ function runPeopleInsights() {
       + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:8px;">Members only — baptized and confirmed flags from Breeze profile.</div>'
       + plRows + '</div>';
 
+    var scopeLabel = d.scope === 'member' ? 'Members' : 'All Active';
+    var scopeBar = '<div style="display:flex;gap:6px;margin-bottom:14px;">'
+      + ['member','active'].map(function(s) {
+          var lbl = s === 'member' ? 'Members Only' : 'All Active';
+          var active = d.scope === s;
+          return '<button class="btn-secondary" style="font-size:.8rem;padding:4px 12px;'+(active?'background:var(--teal);color:#fff;border-color:var(--teal);':'')+'" onclick="runPeopleInsights(\''+s+'\')">'+lbl+'</button>';
+        }).join('')
+      + '</div>';
     showRptOutput(
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'
       + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">People Insights</h3>'
       + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
+      + scopeBar
       + contactBlock + trendBlock + ageBlock + genderBlock + hhBlock + pipelineBlock
     );
   });

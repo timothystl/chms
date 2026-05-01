@@ -25,6 +25,8 @@ function loadPeople(resetPage) {
   if (peopleFilter.mt) params.set('member_type', peopleFilter.mt);
   if (peopleFilter.tagIds && peopleFilter.tagIds.length) params.set('tag_ids', peopleFilter.tagIds.join(','));
   if (peopleFilter.missingFields && peopleFilter.missingFields.length) params.set('missing_fields', peopleFilter.missingFields.join(','));
+  if (peopleFilter.gender) params.set('gender', peopleFilter.gender);
+  if (peopleFilter.ageRange) params.set('age_range', peopleFilter.ageRange);
   params.set('limit', peopleFilter.limit);
   params.set('offset', peopleFilter.offset);
   params.set('sort', peopleFilter.sort || 'last_name');
