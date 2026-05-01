@@ -2104,12 +2104,12 @@ function buildCell(pid, pMap, rowIdx, role, svc, rowspan) {
 
   var emailedPids = (getEmailSentLog()['reminder_' + dateISO] || {}).pids || [];
   var emailBadge = (pid && emailedPids.indexOf(pid) !== -1)
-    ? '<span title="Assignment email sent" style="font-size:.7rem;color:var(--warm-gray);margin-left:3px;">&#9993;</span>'
+    ? '<span title="Assignment email sent" style="display:block;font-size:.68rem;color:var(--warm-gray);text-align:center;margin-top:2px;letter-spacing:0.02em;">&#9993; emailed</span>'
     : '';
 
   return '<td class="'+tdClass+'"'+rsAttr+'>'
     +'<select class="cell-select" data-row="'+rowIdx+'" data-role="'+esc(role)+'" data-svc="'+esc(svc)+'">'+opts+'</select>'
-    +badge+emailBadge+confPill+'</td>';
+    +badge+confPill+emailBadge+'</td>';
 }
 
 document.getElementById('schedule-table').addEventListener('change', function(e) {
