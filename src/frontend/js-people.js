@@ -483,6 +483,7 @@ function pvEditContact() {
     + '</div></div>'
     + '<div style="display:grid;gap:8px;">'
     + '<div><label for="pec-addr1" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Street Address</label><input type="text" id="pec-addr1" value="'+esc(p.address1||'')+'" style="'+inp+'"></div>'
+    + '<div><label for="pec-addr2" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Apt / Unit</label><input type="text" id="pec-addr2" value="'+esc(p.address2||'')+'" style="'+inp+'" placeholder="Apt, Unit, Suite…"></div>'
     + '<div style="display:grid;grid-template-columns:1fr 60px 90px;gap:6px;">'
     + '<div><label for="pec-city" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">City</label><input type="text" id="pec-city" value="'+esc(p.city||'')+'" style="'+inp+'"></div>'
     + '<div><label for="pec-state" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">State</label><input type="text" id="pec-state" value="'+esc(p.state||'')+'" style="'+inp+'" maxlength="2"></div>'
@@ -501,6 +502,7 @@ function pvSaveContact() {
   if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
   var patch = pvBuildPersonPatch(p, {
     address1: (document.getElementById('pec-addr1')||{}).value || '',
+    address2: (document.getElementById('pec-addr2')||{}).value || '',
     city:     (document.getElementById('pec-city')||{}).value || '',
     state:    (document.getElementById('pec-state')||{}).value || '',
     zip:      (document.getElementById('pec-zip')||{}).value || '',
@@ -1808,6 +1810,7 @@ function validateContactAddress() {
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({
       address1: street,
+      address2: (document.getElementById('pec-addr2') || {value:''}).value.trim(),
       city:  (document.getElementById('pec-city').value  || '').trim(),
       state: (document.getElementById('pec-state').value || '').trim(),
       zip:   (document.getElementById('pec-zip').value   || '').trim()
@@ -1819,6 +1822,7 @@ function validateContactAddress() {
       return;
     }
     document.getElementById('pec-addr1').value = r.address1;
+    var pec2 = document.getElementById('pec-addr2'); if (pec2) pec2.value = r.address2 || '';
     document.getElementById('pec-city').value  = r.city;
     document.getElementById('pec-state').value = r.state;
     document.getElementById('pec-zip').value   = r.zip + (r.zip4 ? '-' + r.zip4 : '');
