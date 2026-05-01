@@ -96,6 +96,15 @@ function escXml(s) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Strip HTML tags and normalize whitespace from an address field
+function cleanAddrField(s) {
+  return (s || '').replace(/<[^>]*>/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+// Return a copy of addr with HTML stripped from address1/address2
+function cleanAddr(addr) {
+  return { ...addr, address1: cleanAddrField(addr.address1), address2: cleanAddrField(addr.address2) };
+}
+
 // Fetch a USPS OAuth token (call once per bulk operation, share across addresses)
 async function getUspsToken(clientId, clientSecret) {
   const tokenRes = await fetch('https://apis.usps.com/oauth2/v3/token', {
@@ -244,11 +253,12 @@ async function validateCensus(addr) {
 }
 
 async function validateAddressCore(addr, env, uspsToken) {
+  const a = cleanAddr(addr);
   if (env.USPS_CLIENT_ID && env.USPS_CLIENT_SECRET)
-    return validateUspsOAuth(addr, env.USPS_CLIENT_ID, env.USPS_CLIENT_SECRET, uspsToken);
-  if (env.USPS_USER_ID)  return validateUspsWebTools(addr, env.USPS_USER_ID);
-  if (env.LOB_API_KEY)   return validateLob(addr, env.LOB_API_KEY);
-  return validateCensus(addr);
+    return validateUspsOAuth(a, env.USPS_CLIENT_ID, env.USPS_CLIENT_SECRET, uspsToken);
+  if (env.USPS_USER_ID)  return validateUspsWebTools(a, env.USPS_USER_ID);
+  if (env.LOB_API_KEY)   return validateLob(a, env.LOB_API_KEY);
+  return validateCensus(a);
 }
 
 // ── UTILS API HANDLER ─────────────────────────────────────────────────────
@@ -267,12 +277,14 @@ export async function handleUtilsApi(req, env, url, method, seg, db, isAdmin) {
   }
 
   // POST /admin/api/utils/bulk-validate-addresses — validate + standardize active people with an address.
-  // Processes 50 addresses per call to avoid Worker timeout. Frontend loops until hasMore=false.
+  // Processes 45 addresses per call to stay under Cloudflare's 50-subrequest limit
+  // (1 USPS token fetch + up to 45 address calls = 46 max per invocation).
+  // Frontend loops until hasMore=false.
   if (seg === 'utils/bulk-validate-addresses' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied' }, 403);
     let body = {}; try { body = await req.json(); } catch {}
     const offset = parseInt(body.offset || 0);
-    const PAGE = 50;
+    const PAGE = 45;
 
     const totalRow = await db.prepare(
       `SELECT COUNT(*) as n FROM people WHERE address1 != '' AND status = 'active'`
@@ -300,10 +312,32 @@ export async function handleUtilsApi(req, env, url, method, seg, db, isAdmin) {
       const batch = rows.slice(i, i + 5);
       await Promise.all(batch.map(async row => {
         try {
+          // Strip HTML from stored address regardless of USPS outcome
+          const cleanA1 = cleanAddrField(row.address1);
+          const cleanA2 = cleanAddrField(row.address2);
+          const hadHtml = cleanA1 !== (row.address1 || '') || cleanA2 !== (row.address2 || '');
+
           const r = await validateAddressCore(row, env, uspsToken);
           validated++;
-          if (!r.ok) { failed++; failures.push({ id: row.id, name: (row.first_name + ' ' + row.last_name).trim(), address: [row.address1, row.city, row.state].filter(Boolean).join(', '), error: r.error }); return; }
-          if (!r.deliverable) return;
+          if (!r.ok) {
+            // Still clean HTML tags from storage even if USPS fails
+            if (hadHtml) {
+              await db.prepare('UPDATE people SET address1=?,address2=? WHERE id=?')
+                .bind(cleanA1, cleanA2, row.id).run();
+              updated++;
+            }
+            failed++;
+            failures.push({ id: row.id, name: (row.first_name + ' ' + row.last_name).trim(), address: [cleanA1, row.city, row.state].filter(Boolean).join(', '), error: r.error });
+            return;
+          }
+          if (!r.deliverable) {
+            if (hadHtml) {
+              await db.prepare('UPDATE people SET address1=?,address2=? WHERE id=?')
+                .bind(cleanA1, cleanA2, row.id).run();
+              updated++;
+            }
+            return;
+          }
           const newZip = r.zip + (r.zip4 ? '-' + r.zip4 : '');
           const changed = r.address1 !== (row.address1 || '') || r.address2 !== (row.address2 || '')
                        || r.city !== (row.city || '') || r.state !== (row.state || '')
