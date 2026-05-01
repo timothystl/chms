@@ -176,7 +176,7 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 **Goal:** Add capabilities that have been scoped and are ready to build.
 
 - [ ] **G3** — Gift entry workflow improvements (user has detail — schedule a dedicated scoping session first)
-- [ ] **R4** — Member tenure report: check if `member_since`/`join_date` field exists in Breeze mapping; add report if data is available
+- [x] **R4** — Member tenure report: closed — `member_since`/`join_date` not available in Breeze field mapping; deferred indefinitely. (2026-05-01)
 - [x] **BR1** — Reverse sync (app → Breeze): auto-push on person create, auto-update on contact field change. Done 2026-04-26 (v133).
 
 **Done when:** Each item either shipped or formally deferred with a reason.
@@ -186,8 +186,8 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 ### Phase 7 — Large Features (needs scoping first)
 **Goal:** Substantial new capabilities that require design decisions before coding starts.
 
-- [ ] **R6** — Per-person attendance tracking: schema (attendance record per person per service) + check-in UI — dedicated scoping session required
-- [ ] **IN2** — Decide on app merge strategy: Option C (absorb scheduler fully) vs Option B (thin people-API); audit monorepo vs split-repo; document decision in CLAUDE.md
+- [x] **R6** — Per-person attendance tracking: closed — out of scope for now; service-total tracking is sufficient. (2026-05-01)
+- [x] **IN2** — App merge strategy: closed — Decision: Option C (absorb scheduler, leave website admin separate) is the right long-term direction but not active work; website admin stays separate. No action needed until SC1 is revisited. (2026-05-01)
 - [ ] **PM1** — Person merge: deduplicate records by moving giving, tags, and household membership to the canonical record then deleting the duplicate; needs a confirmation UI with diff view. (noted 2026-04-26)
 - [ ] **PL1b** — Pledge tracking: new `pledges` table (person, year, amount); pledge vs. actual giving shown on profile and in a Giving Insights section. (noted 2026-04-26)
 
@@ -198,6 +198,12 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 ## Queued Items (add new ones here during sessions)
 
 <!-- Add items here as they come up. Format: - [ ] Description (noted YYYY-MM-DD) -->
+
+### Auth / Login
+- [ ] **AU1** — Forgot password flow: add email field to each user account in admin; add "Forgot password?" link on login page that sends a reset email via Resend. (noted 2026-05-01)
+
+### Settings
+- [ ] **ST1** — Hide testing sections in Settings tab from non-admin users (birthday/anniversary/SMS test buttons, etc.) — these are admin-only tools and should not be visible to staff/finance/member roles. (noted 2026-05-01)
 
 ### People List
 - [x] **PL1** — Members-first people list: default view shows Members only; "Members" toggle button in toolbar switches to all-types view. Done 2026-04-20 (v82).
@@ -241,6 +247,7 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ### People / Filters
 - [x] **PF1** — Filter people by missing data fields: checkboxes organized by category with AND logic. Done 2026-04-17 (v46).
+- [ ] **PF2** — Filter people by positive attributes: age range (e.g. 65+, 30–44), gender, member type, tags, household type, sacramental status (baptized/confirmed). Currently filters only show what is *missing*; add a positive filter panel alongside. (noted 2026-05-01)
 
 ### Attendance / Reports
 - [x] **AT1** — Attendance table collapse/expand toggle. Done 2026-04-17 (v46).
@@ -266,21 +273,27 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [x] **R1** — Age group breakdown across Membership Summary, Giving. Done 2026-04-22 (v102). Default buckets: Under 18, 18–29, 30–44, 45–64, 65+, Unknown (no DOB). Membership Summary gets an "By Age Group" table with count + share %. Giving by Fund gets a "By Age Group" table with givers, gifts, total, avg/giver, share %. Attendance age-groups deferred — we only track service totals, not per-person attendance (would require R6).
 - [x] **R2** — Giving insights report: top givers (top N by year), lapsed givers (gave in prior year, nothing this year), giving frequency distribution, average gift amount trends. Done 2026-04-22 (v99). New `GET /admin/api/reports/giving-insights?year=YYYY` endpoint; new "Giving Insights" tile in Reports tab. Renders four blocks: top 25 givers (clickable to profile), lapsed givers (prior-year donors absent this year, sortable by prior total), frequency histogram (1 / 2-5 / 6-12 / 13-26 / 27+ gifts per giver this year), and 5-year trend table (givers/gifts/total/avg gift/avg per giver).
 - [x] **R3** — People insights report. Done 2026-04-23 (v110). New `GET /admin/api/reports/people-insights` endpoint; new "People Insights" tile. Six sections: new contacts bar chart (24 months), new people by year × member type cross-tab, age distribution bars (6 buckets), gender pie chart, household composition bars (single/couple/small/large/none), sacramental pipeline bars (members only: neither/baptized/confirmed/both).
-- [ ] **R4** — Member tenure report. Needs `member_since` / `join_date` field — check if we have it on the person schema; may require Breeze field mapping.
+- [x] **R4** — Member tenure report. Closed — `member_since`/`join_date` not in Breeze field mapping; deferred indefinitely. (2026-05-01)
+- [ ] **RI1** — People Insights: default scope to Members only (currently defaults to all active). (noted 2026-05-01)
+- [ ] **RI2** — People Insights: sacramental pipeline ("neither/baptized/confirmed/both") shows no data for all members — trace the baptism/confirmation field mapping from Breeze to `people` schema and fix. (noted 2026-05-01)
 - [x] **R5** — Contact info completeness report: counts of people missing email / phone / address / dob / photo; drill-down list per category. Done 2026-04-22 (v99). New `GET /admin/api/reports/contact-completeness?scope=active|member&field=...` endpoint. New "Contact Completeness" tile renders progress bars (green = complete) for each field with scope toggle (all active vs. members only); clicking a row drills to the list of missing records (clickable to profile).
-- [ ] **R6** — Person-by-person attendance tracking. Currently we track service totals only. Needs schema (attendance record per person per service) + check-in UI. Substantial new feature — worth a dedicated scoping conversation.
+- [x] **R6** — Person-by-person attendance tracking. Closed — out of scope; service-total tracking is sufficient for now. (2026-05-01)
 - [x] **R7** — Easter/Christmas markers on Giving Trend chart. Done 2026-04-22 (v99). Easter computed per-year via Meeus/Jones/Butcher Gregorian algorithm, rendered as dashed vertical line in that year's color with "E" label. Christmas is shared Dec 25 dashed line in warm-gray with "C" label. Legend updated to explain the markers.
 - [x] **R8** — Giving × Attendance overlay chart. Done 2026-04-22 (v102). New `GET /admin/api/reports/giving-vs-attendance?from=&to=` endpoint. Groups both datasets by Sunday-of-week. New "Giving × Attendance" tile on Reports tab. Chart: green bars (attendance, left axis) + teal line (giving, right axis). Overview stats include Weeks, Total Attendance, Total Given, Avg per Attender, and Pearson correlation coefficient with a qualitative label (Strong+/Moderate+/Weak+/None/Weak−/etc.).
 - [x] **R9** — Pie chart for Giving by Method. Done 2026-04-22 (v99). New reusable `renderPieChart(items, diameter)` helper (SVG slices with hover tooltips + legend). Added "Share by Method" block above the existing table on the Giving by Method report.
 - [x] **R10** — Average giving stats overlay. Done 2026-04-22 (v102). Giving by Fund overview now has 5 tiles (added "Avg / Giver" = total / distinct givers, relabeled "Average Gift" → "Avg / Gift"). "Avg / Giver" also appears per age-group row in the new R1 table. Giving Insights already had both avg stats in its 5-year trend table (from v99). Giving Trend chart stats deferred — the per-year tile total in its legend already serves the year-level averages context.
+
+### Bugs (noted 2026-05-01)
+- [ ] **BUG1** — `normalizePhone()` throws an error in some cases — need console output to trace. User will provide error report.
+- [ ] **BUG2** — "Validate Address" button on person profile gives an error; also needs a global bulk-validate mode (run across all people, not just one at a time). Trace error first, then add bulk option.
 
 ### Engagement & Data Quality (noted 2026-04-22)
 - [x] **FU1** — Prayer request tracking. Done 2026-04-23 (v107/v108). API dispatch bug fixed (prayer-requests and engagement routes were missing from api-admin.js dispatch list — all status changes returned 404). Cancel guard bug fixed in prayerSetStatus. Dashboard card now has Praying/Answered/Close buttons (working), + Add modal, and "↓ CSV" export button (`GET /admin/api/prayer-requests/export.csv?status=all|open|praying|active|answered|closed`). Website contact and prayer forms wired end-to-end via service binding (timothystl/website) — submissions create person records and prayer_requests rows in this DB.
 - [x] **WC1** — Electronic contact card intake. Done 2026-04-23. Website contact form → admin worker → service binding → `/api/intake/connect-card` creates Visitor + follow_up_items row. Website prayer form → `/api/intake/prayer` creates prayer_requests row. Both confirmed working end-to-end.
 
 ### Infrastructure / Backend Cleanup (noted 2026-04-22)
-- [ ] **IN1** — Rename Worker `breeze-proxy-worker` → something intuitive (candidate: `tlc-chms`). Name is legacy — Breeze is one integration among many now (Resend, Brevo, R2, D1, scheduler). Cloudflare has no rename button, so this is a mini-migration: change `name=` in `wrangler.toml`, `wrangler deploy` to create the new Worker, re-add every secret (`ADMIN_PASSWORD`, `RESEND_API_KEY`, `EMAIL_FROM`, `BREVO_API_KEY`, `BREVO_LIST_ID`, Breeze keys — secrets don't carry), move the `volunteer.timothystl.org/*` custom domain route off the old Worker onto the new one, verify the cron (`0 14 * * *`) lands on the new Worker, delete the old Worker. D1/KV/R2 bindings reference resources by ID so data is unaffected. Brief (≤1 min) downtime during route cutover.
-- [ ] **IN2** — Evaluate merging Workers and/or repos. Three Workers share a common subject (people) but live separately: ChMS (this), Scheduler (backend merged, UI embedded via iframe per SC1; SC2 tracks inline rewrite), Website admin. See "Multi-App Architecture" section above for options A–D. Decision needed: pursue Option C (absorb scheduler fully, leave website admin separate — currently recommended) vs Option B (thin people-API in ChMS, others stay separate). Adjacent: audit whether the three Workers live in one monorepo or three repos and consolidate if split.
+- [x] **IN1** — Worker renamed to `tlc-chms`. Done 2026-04-24 (Phase 3).
+- [x] **IN2** — App merge strategy decided: Option C (absorb scheduler, leave website admin separate). No active work needed now. Done 2026-05-01.
 - [x] **IN3** — Split `html-chms.js` into per-tab modules. Done 2026-04-25 (v120). `html-chms.js` reduced from 9,443 → 311 lines; 13 string-fragment modules in `src/frontend/` (`html-head.js`, `html-tabs.js`, `js-core.js`, `js-settings.js`, `js-dashboard.js`, `js-people.js`, `js-register.js`, `js-households.js`, `js-giving.js`, `js-reports.js`, `js-export-import.js`, `js-attendance.js`, `js-volunteers.js`). Shell assembles them; `CHMS_HTML` unchanged byte-for-byte.
 - [x] **IN4** — Split `api-chms.js` into domain modules. Done 2026-04-24 (v114–v118). `api-chms.js` now 533 lines (was 5,151); domains in `api-people.js`, `api-giving.js`, `api-households.js`, `api-reports.js`, `api-import.js`, `api-utils.js`.
 - [x] **IN5** — Extract Breeze API client into `src/breeze.js`. Done 2026-04-24 (v114). New `makeBreezeClient(env)` factory returns null when env vars missing; all 9 endpoints wrapped; raw `Response` objects returned so all caller error handling is unchanged. `subdomain` exposed on client for photo CDN URL construction. All 12 Breeze-calling handlers in `api-chms.js` updated; `filter_json` pre-encoding preserved.
