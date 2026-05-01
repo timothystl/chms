@@ -2102,8 +2102,11 @@ function buildCell(pid, pMap, rowIdx, role, svc, rowspan) {
             : isPrimary  ? '<span class="cell-badge cell-badge-primary"  title="Primary assignment">&#9733;</span>'
             : '';
 
-  var emailedPids = (getEmailSentLog()['reminder_' + dateISO] || {}).pids || [];
-  var emailBadge = (pid && emailedPids.indexOf(pid) !== -1)
+  var sentEntry = getEmailSentLog()['reminder_' + dateISO] || null;
+  var emailedPids = sentEntry ? (sentEntry.pids || []) : [];
+  // Fallback: if an entry exists but predates pid tracking, treat all assigned people as emailed
+  var weekWasEmailed = !!(sentEntry && sentEntry.sentAt && (!sentEntry.pids || emailedPids.indexOf(pid) !== -1));
+  var emailBadge = (pid && weekWasEmailed)
     ? '<span title="Assignment email sent" style="display:block;font-size:.68rem;color:var(--warm-gray);text-align:center;margin-top:2px;letter-spacing:0.02em;">&#9993; emailed</span>'
     : '';
 
