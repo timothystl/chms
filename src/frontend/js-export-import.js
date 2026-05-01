@@ -335,22 +335,39 @@ function bulkValidateAddresses() {
   var btn = document.getElementById('bulk-validate-addr-btn');
   var status = document.getElementById('bulk-validate-addr-status');
   if (btn) btn.disabled = true;
-  if (status) { status.textContent = 'Validating addresses — this may take a minute…'; status.className = 'import-status'; }
-  api('/admin/api/utils/bulk-validate-addresses', { method: 'POST' }).then(function(d) {
-    if (btn) btn.disabled = false;
-    if (d.ok) {
-      var msg = 'Validated ' + d.validated + ' of ' + d.total + ' addresses. '
-              + d.updated + ' standardized';
-      if (d.failed) msg += ', ' + d.failed + ' failed';
-      msg += '.';
-      if (status) { status.textContent = msg; status.className = 'import-status ok'; }
-    } else {
-      if (status) { status.textContent = 'Error: ' + (d.error || 'unknown'); status.className = 'import-status err'; }
-    }
-  }).catch(function(e) {
-    if (btn) btn.disabled = false;
-    if (status) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; }
-  });
+  var totals = { validated: 0, updated: 0, failed: 0, total: 0 };
+  function runPage(offset) {
+    if (status) { status.textContent = 'Validating… ' + (totals.total ? offset + ' of ' + totals.total : ''); status.className = 'import-status'; }
+    api('/admin/api/utils/bulk-validate-addresses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ offset: offset })
+    }).then(function(d) {
+      if (!d.ok) {
+        if (btn) btn.disabled = false;
+        if (status) { status.textContent = 'Error: ' + (d.error || 'unknown'); status.className = 'import-status err'; }
+        return;
+      }
+      totals.total = d.total;
+      totals.validated += d.validated;
+      totals.updated += d.updated;
+      totals.failed += d.failed;
+      if (d.hasMore) {
+        runPage(d.nextOffset);
+      } else {
+        if (btn) btn.disabled = false;
+        var msg = 'Done. Validated ' + totals.validated + ' of ' + totals.total + ' addresses. '
+                + totals.updated + ' standardized';
+        if (totals.failed) msg += ', ' + totals.failed + ' failed';
+        msg += '.';
+        if (status) { status.textContent = msg; status.className = 'import-status ok'; }
+      }
+    }).catch(function(e) {
+      if (btn) btn.disabled = false;
+      if (status) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; }
+    });
+  }
+  runPage(0);
 }
 function normalizeAllPhones() {
   var status = document.getElementById('normalize-phones-status');

@@ -96,9 +96,8 @@ function escXml(s) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// New USPS OAuth 2.0 API (client_id + client_secret)
-async function validateUspsOAuth(addr, clientId, clientSecret) {
-  // Step 1: get access token via client_credentials grant
+// Fetch a USPS OAuth token (call once per bulk operation, share across addresses)
+async function getUspsToken(clientId, clientSecret) {
   const tokenRes = await fetch('https://apis.usps.com/oauth2/v3/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -110,9 +109,15 @@ async function validateUspsOAuth(addr, clientId, clientSecret) {
   });
   if (!tokenRes.ok) {
     const err = await tokenRes.json().catch(() => ({}));
-    return { ok: false, error: 'USPS token error: ' + (err.error_description || tokenRes.status) };
+    throw new Error('USPS token error: ' + (err.error_description || tokenRes.status));
   }
   const { access_token } = await tokenRes.json();
+  return access_token;
+}
+
+// New USPS OAuth 2.0 API — accepts a pre-fetched token to avoid re-authing per address
+async function validateUspsOAuth(addr, clientId, clientSecret, token) {
+  const access_token = token || await getUspsToken(clientId, clientSecret);
 
   // Step 2: validate address
   const params = new URLSearchParams();
@@ -238,9 +243,9 @@ async function validateCensus(addr) {
   };
 }
 
-async function validateAddressCore(addr, env) {
+async function validateAddressCore(addr, env, uspsToken) {
   if (env.USPS_CLIENT_ID && env.USPS_CLIENT_SECRET)
-    return validateUspsOAuth(addr, env.USPS_CLIENT_ID, env.USPS_CLIENT_SECRET);
+    return validateUspsOAuth(addr, env.USPS_CLIENT_ID, env.USPS_CLIENT_SECRET, uspsToken);
   if (env.USPS_USER_ID)  return validateUspsWebTools(addr, env.USPS_USER_ID);
   if (env.LOB_API_KEY)   return validateLob(addr, env.LOB_API_KEY);
   return validateCensus(addr);
@@ -261,23 +266,41 @@ export async function handleUtilsApi(req, env, url, method, seg, db, isAdmin) {
     }
   }
 
-  // POST /admin/api/utils/bulk-validate-addresses — validate + standardize all active people with an address
+  // POST /admin/api/utils/bulk-validate-addresses — validate + standardize active people with an address.
+  // Processes 50 addresses per call to avoid Worker timeout. Frontend loops until hasMore=false.
   if (seg === 'utils/bulk-validate-addresses' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied' }, 403);
+    let body = {}; try { body = await req.json(); } catch {}
+    const offset = parseInt(body.offset || 0);
+    const PAGE = 50;
+
+    const totalRow = await db.prepare(
+      `SELECT COUNT(*) as n FROM people WHERE address1 != '' AND status = 'active'`
+    ).first();
+    const total = totalRow?.n || 0;
+
     const rows = (await db.prepare(
-      `SELECT id, first_name, last_name, address1, address2, city, state, zip
-       FROM people WHERE address1 != '' AND status = 'active'`
-    ).all()).results || [];
+      `SELECT id, address1, address2, city, state, zip
+       FROM people WHERE address1 != '' AND status = 'active'
+       ORDER BY id LIMIT ? OFFSET ?`
+    ).bind(PAGE, offset).all()).results || [];
+
+    // Fetch USPS token once for the whole page (avoids one token request per address)
+    let uspsToken = null;
+    if (env.USPS_CLIENT_ID && env.USPS_CLIENT_SECRET) {
+      try { uspsToken = await getUspsToken(env.USPS_CLIENT_ID, env.USPS_CLIENT_SECRET); }
+      catch (e) { return json({ error: 'USPS auth failed: ' + e.message }, 502); }
+    }
 
     let validated = 0, updated = 0, failed = 0;
     const failures = [];
 
-    // Process in batches of 5 concurrent requests to stay well within Worker limits
+    // 5 concurrent per mini-batch within the page
     for (let i = 0; i < rows.length; i += 5) {
       const batch = rows.slice(i, i + 5);
       await Promise.all(batch.map(async row => {
         try {
-          const r = await validateAddressCore(row, env);
+          const r = await validateAddressCore(row, env, uspsToken);
           validated++;
           if (!r.ok) { failed++; failures.push({ id: row.id, error: r.error }); return; }
           if (!r.deliverable) return;
@@ -297,8 +320,10 @@ export async function handleUtilsApi(req, env, url, method, seg, db, isAdmin) {
       }));
     }
 
-    return json({ ok: true, total: rows.length, validated, updated, failed,
-                  failures: failures.slice(0, 20) });
+    const nextOffset = offset + rows.length;
+    return json({ ok: true, total, offset, validated, updated, failed,
+                  hasMore: nextOffset < total, nextOffset,
+                  failures: failures.slice(0, 10) });
   }
 
   // POST /admin/api/utils/normalize-phones — one-time bulk phone cleanup (admin only)
