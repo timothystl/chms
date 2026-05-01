@@ -84,7 +84,11 @@ export function normalizePhone(raw) {
 }
 
 // ── ADDRESS VALIDATION HELPERS ───────────────────────────────────────────
-// Service priority: USPS Web Tools (USPS_USER_ID) → Lob (LOB_API_KEY) → Census Bureau (free fallback)
+// Service priority:
+//   1. USPS OAuth API  (USPS_CLIENT_ID + USPS_CLIENT_SECRET) — new REST API
+//   2. USPS Web Tools  (USPS_USER_ID)                        — legacy XML API
+//   3. Lob             (LOB_API_KEY)
+//   4. Census Bureau   (free fallback, no key needed)
 // All helpers return a plain object: { ok, address1, address2, city, state, zip, zip4, dpvConfirmation, deliverable }
 // or { ok: false, error } on failure.
 
@@ -92,7 +96,62 @@ function escXml(s) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-async function validateUsps(addr, userId) {
+// New USPS OAuth 2.0 API (client_id + client_secret)
+async function validateUspsOAuth(addr, clientId, clientSecret) {
+  // Step 1: get access token via client_credentials grant
+  const tokenRes = await fetch('https://apis.usps.com/oauth2/v3/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: clientId,
+      client_secret: clientSecret,
+    }).toString(),
+  });
+  if (!tokenRes.ok) {
+    const err = await tokenRes.json().catch(() => ({}));
+    return { ok: false, error: 'USPS token error: ' + (err.error_description || tokenRes.status) };
+  }
+  const { access_token } = await tokenRes.json();
+
+  // Step 2: validate address
+  const params = new URLSearchParams();
+  params.set('streetAddress', (addr.address1 || '').trim());
+  if ((addr.address2 || '').trim()) params.set('secondaryAddress', addr.address2.trim());
+  if ((addr.city    || '').trim()) params.set('city',  addr.city.trim());
+  if ((addr.state   || '').trim()) params.set('state', addr.state.trim());
+  if ((addr.zip     || '').trim()) params.set('ZIPCode', addr.zip.replace(/[^0-9]/g, '').slice(0, 5));
+
+  const addrRes = await fetch('https://apis.usps.com/addresses/v3/address?' + params.toString(), {
+    headers: { Authorization: 'Bearer ' + access_token },
+  });
+  if (!addrRes.ok) {
+    const err = await addrRes.json().catch(() => ({}));
+    const msg = err.apiMessage || err.detail || ('USPS error ' + addrRes.status);
+    return { ok: false, error: msg };
+  }
+  const data = await addrRes.json();
+  const addr2 = data.address || {};
+  const addInfo = data.additionalInfo || {};
+  const dpvMap = { Y: 'Y', S: 'S', D: 'D', N: 'N' };
+  const dpv = dpvMap[addInfo.DPVConfirmation] || (data.firm ? 'Y' : 'N');
+  return {
+    ok: true,
+    address1: addr2.streetAddress || (addr.address1 || ''),
+    address2: addr2.secondaryAddress || (addr.address2 || ''),
+    city: addr2.city || (addr.city || ''),
+    state: addr2.state || (addr.state || ''),
+    zip: addr2.ZIPCode || (addr.zip || ''),
+    zip4: addr2.ZIPPlus4 || '',
+    dpvConfirmation: dpv,
+    deliverable: dpv === 'Y' || dpv === 'S' || dpv === 'D',
+    deliverability: dpv === 'Y' ? 'deliverable' : dpv === 'S' ? 'deliverable_missing_unit'
+                  : dpv === 'D' ? 'deliverable_incorrect_unit' : 'undeliverable',
+  };
+}
+
+// Legacy USPS Web Tools XML API (single user ID)
+async function validateUspsWebTools(addr, userId) {
   const street = (addr.address1 || '').trim();
   const unit   = (addr.address2 || '').trim();
   const city   = (addr.city    || '').trim();
@@ -109,14 +168,12 @@ async function validateUsps(addr, userId) {
   const get = tag => { const m = text.match(new RegExp('<' + tag + '>([^<]*)</' + tag + '>')); return m ? m[1] : ''; };
   if (text.includes('<Error>')) return { ok: false, error: get('Description') || 'USPS error' };
   const dpv = get('DPVConfirmation') || 'N';
-  const zip5 = get('Zip5');
-  const zip4 = get('Zip4');
   return {
     ok: true,
     address1: get('Address2'),  // USPS response: street is Address2
     address2: get('Address1'),  // USPS response: unit is Address1
     city: get('City'), state: get('State'),
-    zip: zip5, zip4,
+    zip: get('Zip5'), zip4: get('Zip4'),
     dpvConfirmation: dpv,
     deliverable: dpv === 'Y' || dpv === 'S' || dpv === 'D',
     deliverability: dpv === 'Y' ? 'deliverable' : dpv === 'S' ? 'deliverable_missing_unit'
@@ -182,8 +239,10 @@ async function validateCensus(addr) {
 }
 
 async function validateAddressCore(addr, env) {
-  if (env.USPS_USER_ID) return validateUsps(addr, env.USPS_USER_ID);
-  if (env.LOB_API_KEY)  return validateLob(addr, env.LOB_API_KEY);
+  if (env.USPS_CLIENT_ID && env.USPS_CLIENT_SECRET)
+    return validateUspsOAuth(addr, env.USPS_CLIENT_ID, env.USPS_CLIENT_SECRET);
+  if (env.USPS_USER_ID)  return validateUspsWebTools(addr, env.USPS_USER_ID);
+  if (env.LOB_API_KEY)   return validateLob(addr, env.LOB_API_KEY);
   return validateCensus(addr);
 }
 
