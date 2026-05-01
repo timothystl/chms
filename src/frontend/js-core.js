@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-05-01-v170';
+var DEPLOY_VERSION = '2026-05-01-v172';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -103,6 +103,7 @@ function photoSrc(url) {
 }
 
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
+var _tabFromPopState = false;
 function showTab(name) {
   // Enforce role-based tab access
   var isFinancePlus = _userRole === 'admin' || _userRole === 'finance';
@@ -117,6 +118,10 @@ function showTab(name) {
   if (name === 'volunteers' && _userRole !== 'admin') return;
   if (name === 'scheduler'  && _userRole !== 'admin') return;
   var labels = {home:'Home',people:'People',households:'Households',organizations:'Organizations',giving:'Giving',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings',volunteers:'Volunteers',scheduler:'Scheduler'};
+  // Push browser history so back button works (skip when responding to popstate)
+  if (!_tabFromPopState) {
+    history.pushState({ tab: name }, '', '#' + name);
+  }
   // Exit person-profile view if active
   var ca = document.querySelector('.content-area');
   if (ca) ca.classList.remove('pv-mode');
@@ -150,6 +155,14 @@ function goToProfile(id) {
   showTab('people');
   api('/admin/api/people/' + id).then(function(p) { if (p && p.id) showProfile(p); });
 }
+
+// Browser back/forward support — restore tab from history state
+window.addEventListener('popstate', function(e) {
+  var tab = (e.state && e.state.tab) || location.hash.replace('#', '') || 'home';
+  _tabFromPopState = true;
+  showTab(tab);
+  _tabFromPopState = false;
+});
 function openSidebar() {
   var s = document.getElementById('sidebar'); if (s) s.classList.add('open');
   var o = document.getElementById('sidebar-overlay'); if (o) o.classList.add('open');
@@ -240,8 +253,12 @@ window.addEventListener('load', function() {
     loadTags();
     loadFunds();
     loadMemberTypes();
-    // Members go straight to the people directory; everyone else gets the dashboard
-    showTab(_userRole === 'member' ? 'people' : 'home');
+    // Restore tab from URL hash (back/forward or bookmarked link), otherwise default
+    var hashTab = location.hash.replace('#', '');
+    var defaultTab = _userRole === 'member' ? 'people' : 'home';
+    // Replace initial state so back button from first tab exits the app cleanly
+    history.replaceState({ tab: hashTab || defaultTab }, '', location.href);
+    showTab(hashTab || defaultTab);
   });
 });
 // ── ROLE UI ──────────────────────────────────────────────────────────────

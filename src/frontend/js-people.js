@@ -360,7 +360,10 @@ function showProfile(p) {
           + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="addToNewsletter('+p.id+',\''+esc(p.email)+'\',\''+esc(p.first_name||'')+'\',\''+esc(p.last_name||'')+'\')">&#9993; Add to Newsletter</button>'
           + '<span id="pv-newsletter-status" style="font-size:.75rem;line-height:2;color:var(--teal);"></span>'
           + '</div>' : '')
-      + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button></div>' : '')
+      + (p.household_id && (p.address1||'').trim() ? '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">'
+          + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button>'
+          + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="syncPersonAddrToHousehold('+p.household_id+')">&#8593; Sync to household record</button>'
+          + '</div>' : '')
       + (addrParts.length >= 2 ? '<div style="margin-top:8px;"><button id="pv-map-btn-'+p.id+'" class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="togglePersonMap('+p.id+')">&#9654; Show Map</button><div id="pv-map-'+p.id+'" data-addr="'+encodeURIComponent(addrParts.join(', '))+'" style="display:none;margin-top:8px;border-radius:8px;overflow:hidden;line-height:0;"></div></div>' : '')
       + '</div>'
       + '<div class="pv-section">'
@@ -534,7 +537,25 @@ function pvRenderContact() {
     + pvRow('Address', addrVal)
     + pvRow('Phone', phoneVal)
     + pvRow('Email', emailVal)
-    + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button></div>' : '');
+    + (p.household_id && (p.address1||'').trim() ? '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">'
+        + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button>'
+        + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="syncPersonAddrToHousehold('+p.household_id+')">&#8593; Sync to household record</button>'
+        + '</div>' : '');
+}
+
+function syncPersonAddrToHousehold(hhId) {
+  var p = _currentPvPerson;
+  if (!p || !p.address1) return;
+  if (!confirm('Update the household address to match this person\'s address?\n\n' + [p.address1, p.address2, p.city, ((p.state||'') + ' ' + (p.zip||'')).trim()].filter(Boolean).join(', '))) return;
+  api('/admin/api/households/' + hhId).then(function(hh) {
+    if (!hh || !hh.id) { alert('Could not load household.'); return; }
+    var updated = Object.assign({}, hh, { address1: p.address1||'', address2: p.address2||'', city: p.city||'', state: p.state||'', zip: p.zip||'' });
+    api('/admin/api/households/' + hhId, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(updated) })
+      .then(function(r) {
+        if (r && r.ok) { pvRenderContact(); }
+        else alert('Failed to update household address: ' + ((r && r.error) || 'unknown error'));
+      });
+  });
 }
 // ── Demographics section ──────────────────────────────────────────────
 function pvEditDemo() {
