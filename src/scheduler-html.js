@@ -2102,9 +2102,14 @@ function buildCell(pid, pMap, rowIdx, role, svc, rowspan) {
             : isPrimary  ? '<span class="cell-badge cell-badge-primary"  title="Primary assignment">&#9733;</span>'
             : '';
 
+  var emailedPids = (getEmailSentLog()['reminder_' + dateISO] || {}).pids || [];
+  var emailBadge = (pid && emailedPids.indexOf(pid) !== -1)
+    ? '<span title="Assignment email sent" style="font-size:.7rem;color:var(--warm-gray);margin-left:3px;">&#9993;</span>'
+    : '';
+
   return '<td class="'+tdClass+'"'+rsAttr+'>'
     +'<select class="cell-select" data-row="'+rowIdx+'" data-role="'+esc(role)+'" data-svc="'+esc(svc)+'">'+opts+'</select>'
-    +badge+confPill+'</td>';
+    +badge+emailBadge+confPill+'</td>';
 }
 
 document.getElementById('schedule-table').addEventListener('change', function(e) {
@@ -3144,9 +3149,15 @@ function _sendWeekReminders() {
       statusEl.textContent = '\\u2713 Done \\u2014 ' + sent + ' email' + (sent !== 1 ? 's' : '') + ' sent.';
       if (sent > 0 && currentWeekISO) {
         var log = getEmailSentLog();
-        log['reminder_' + currentWeekISO] = { sentAt: new Date().toISOString(), count: sent };
+        var existing = log['reminder_' + currentWeekISO] || {};
+        var existingPids = existing.pids || [];
+        var newPids = tasks.map(function(t){ return t.person.id; });
+        var mergedPids = existingPids.slice();
+        newPids.forEach(function(id){ if (mergedPids.indexOf(id) === -1) mergedPids.push(id); });
+        log['reminder_' + currentWeekISO] = { sentAt: new Date().toISOString(), count: mergedPids.length, pids: mergedPids };
         saveEmailSentLog(log);
         renderReminderSentBanner(currentWeekISO);
+        renderTable(getPeople(), null);
       }
     } else {
       statusEl.textContent += ' (' + sent + ' sent, ' + errors + ' failed)';
