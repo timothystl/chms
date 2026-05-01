@@ -280,7 +280,7 @@ export async function handleUtilsApi(req, env, url, method, seg, db, isAdmin) {
     const total = totalRow?.n || 0;
 
     const rows = (await db.prepare(
-      `SELECT id, address1, address2, city, state, zip
+      `SELECT id, first_name, last_name, address1, address2, city, state, zip
        FROM people WHERE address1 != '' AND status = 'active'
        ORDER BY id LIMIT ? OFFSET ?`
     ).bind(PAGE, offset).all()).results || [];
@@ -302,7 +302,7 @@ export async function handleUtilsApi(req, env, url, method, seg, db, isAdmin) {
         try {
           const r = await validateAddressCore(row, env, uspsToken);
           validated++;
-          if (!r.ok) { failed++; failures.push({ id: row.id, error: r.error }); return; }
+          if (!r.ok) { failed++; failures.push({ id: row.id, name: (row.first_name + ' ' + row.last_name).trim(), address: [row.address1, row.city, row.state].filter(Boolean).join(', '), error: r.error }); return; }
           if (!r.deliverable) return;
           const newZip = r.zip + (r.zip4 ? '-' + r.zip4 : '');
           const changed = r.address1 !== (row.address1 || '') || r.address2 !== (row.address2 || '')
@@ -315,7 +315,7 @@ export async function handleUtilsApi(req, env, url, method, seg, db, isAdmin) {
           }
         } catch (e) {
           failed++;
-          failures.push({ id: row.id, error: e.message });
+          failures.push({ id: row.id, name: (row.first_name + ' ' + row.last_name).trim(), address: [row.address1, row.city, row.state].filter(Boolean).join(', '), error: e.message });
         }
       }));
     }
@@ -323,7 +323,7 @@ export async function handleUtilsApi(req, env, url, method, seg, db, isAdmin) {
     const nextOffset = offset + rows.length;
     return json({ ok: true, total, offset, validated, updated, failed,
                   hasMore: nextOffset < total, nextOffset,
-                  failures: failures.slice(0, 10) });
+                  failures });
   }
 
   // POST /admin/api/utils/normalize-phones — one-time bulk phone cleanup (admin only)
