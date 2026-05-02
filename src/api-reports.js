@@ -6,6 +6,11 @@ export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, 
 
 // ── Reports ──────────────────────────────────────────────────────
 if (seg === 'reports/people-insights' && method === 'GET') {
+  const scope = url.searchParams.get('scope') || 'member'; // 'member' | 'active'
+  const scopeWhere = scope === 'member'
+    ? `status='active' AND LOWER(member_type)='member'`
+    : `status='active' AND LOWER(member_type) != 'organization'`;
+
   const now = new Date();
   // 24-month window start (first day of month 24 months ago)
   const cutoff24mo = new Date(now.getFullYear() - 2, now.getMonth(), 1).toISOString().slice(0, 10);
@@ -25,7 +30,7 @@ if (seg === 'reports/people-insights' && method === 'GET') {
       `SELECT substr(COALESCE(NULLIF(first_contact_date,''), created_at), 1, 7) AS month,
               COUNT(*) AS n
        FROM people
-       WHERE status='active' AND LOWER(member_type) != 'organization'
+       WHERE ${scopeWhere}
          AND COALESCE(NULLIF(first_contact_date,''), created_at) >= ?
        GROUP BY month ORDER BY month ASC`
     ).bind(cutoff24mo).all().then(r => r.results || []),
@@ -35,7 +40,7 @@ if (seg === 'reports/people-insights' && method === 'GET') {
       `SELECT substr(COALESCE(NULLIF(first_contact_date,''), created_at), 1, 4) AS year,
               member_type, COUNT(*) AS n
        FROM people
-       WHERE status='active' AND LOWER(member_type) != 'organization'
+       WHERE ${scopeWhere}
          AND substr(COALESCE(NULLIF(first_contact_date,''), created_at), 1, 4) >= ?
        GROUP BY year, member_type ORDER BY year ASC, n DESC`
     ).bind(cutoff5yr).all().then(r => r.results || []),
@@ -51,7 +56,7 @@ if (seg === 'reports/people-insights' && method === 'GET') {
          ELSE 'a65_plus'
        END AS age_group, COUNT(*) AS n
        FROM people
-       WHERE status='active' AND LOWER(member_type) != 'organization'
+       WHERE ${scopeWhere}
        GROUP BY age_group`
     ).all().then(r => r.results || []),
 
@@ -60,7 +65,7 @@ if (seg === 'reports/people-insights' && method === 'GET') {
       `SELECT CASE WHEN gender='' OR gender IS NULL THEN 'Unknown' ELSE gender END AS g,
               COUNT(*) AS n
        FROM people
-       WHERE status='active' AND LOWER(member_type) != 'organization'
+       WHERE ${scopeWhere}
        GROUP BY g ORDER BY n DESC`
     ).all().then(r => r.results || []),
 
@@ -68,11 +73,11 @@ if (seg === 'reports/people-insights' && method === 'GET') {
     db.prepare(
       `SELECT household_id, COUNT(*) AS size
        FROM people
-       WHERE status='active' AND household_id IS NOT NULL AND household_id != 0
+       WHERE ${scopeWhere} AND household_id IS NOT NULL AND household_id != 0
        GROUP BY household_id`
     ).all().then(r => r.results || []),
 
-    // Baptism/confirmation pipeline (members only)
+    // Baptism/confirmation pipeline (always members only)
     db.prepare(
       `SELECT baptized, confirmed, COUNT(*) AS n
        FROM people
@@ -80,10 +85,10 @@ if (seg === 'reports/people-insights' && method === 'GET') {
        GROUP BY baptized, confirmed`
     ).all().then(r => r.results || []),
 
-    // People with no household (active non-org)
+    // People with no household
     db.prepare(
       `SELECT COUNT(*) AS n FROM people
-       WHERE status='active' AND LOWER(member_type) != 'organization'
+       WHERE ${scopeWhere}
          AND (household_id IS NULL OR household_id = 0)`
     ).first(),
   ]);
@@ -120,6 +125,7 @@ if (seg === 'reports/people-insights' && method === 'GET') {
   const ageBuckets = ageOrder.map(a => ({ ...a, n: ageMap[a.key] || 0 }));
 
   return json({
+    scope,
     new_contacts: newContactsRaw,
     member_type_trend: typeTrendRaw,
     age_groups: ageBuckets,

@@ -336,6 +336,7 @@ function bulkValidateAddresses() {
   var status = document.getElementById('bulk-validate-addr-status');
   if (btn) btn.disabled = true;
   var totals = { validated: 0, updated: 0, failed: 0, total: 0 };
+  var allFailures = [];
   function runPage(offset) {
     if (status) { status.textContent = 'Validating… ' + (totals.total ? offset + ' of ' + totals.total : ''); status.className = 'import-status'; }
     api('/admin/api/utils/bulk-validate-addresses', {
@@ -352,15 +353,33 @@ function bulkValidateAddresses() {
       totals.validated += d.validated;
       totals.updated += d.updated;
       totals.failed += d.failed;
+      if (d.failures && d.failures.length) allFailures = allFailures.concat(d.failures);
       if (d.hasMore) {
         runPage(d.nextOffset);
       } else {
         if (btn) btn.disabled = false;
         var msg = 'Done. Validated ' + totals.validated + ' of ' + totals.total + ' addresses. '
                 + totals.updated + ' standardized';
-        if (totals.failed) msg += ', ' + totals.failed + ' failed';
+        if (totals.failed) msg += ', ' + totals.failed + ' could not be validated';
         msg += '.';
-        if (status) { status.textContent = msg; status.className = 'import-status ok'; }
+        if (status) {
+          status.className = 'import-status ok';
+          var html = '<div>' + esc(msg) + '</div>';
+          if (allFailures.length) {
+            html += '<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:.82rem;color:var(--warm-gray);">'
+              + 'Show ' + allFailures.length + ' unvalidated address' + (allFailures.length === 1 ? '' : 'es')
+              + '</summary><div style="margin-top:6px;font-size:.8rem;">'
+              + allFailures.map(function(f) {
+                  return '<div style="padding:4px 0;border-bottom:1px solid var(--border);">'
+                    + '<a href="#" onclick="goToProfile(' + f.id + ');return false;" style="font-weight:600;color:var(--teal);">' + esc(f.name || 'Person #' + f.id) + '</a>'
+                    + ' <span style="color:var(--warm-gray);">' + esc(f.address || '') + '</span>'
+                    + (f.error ? ' <span style="color:#c0392b;font-size:.75rem;">— ' + esc(f.error) + '</span>' : '')
+                    + '</div>';
+                }).join('')
+              + '</div></details>';
+          }
+          status.innerHTML = html;
+        }
       }
     }).catch(function(e) {
       if (btn) btn.disabled = false;

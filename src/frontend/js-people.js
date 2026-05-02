@@ -25,6 +25,8 @@ function loadPeople(resetPage) {
   if (peopleFilter.mt) params.set('member_type', peopleFilter.mt);
   if (peopleFilter.tagIds && peopleFilter.tagIds.length) params.set('tag_ids', peopleFilter.tagIds.join(','));
   if (peopleFilter.missingFields && peopleFilter.missingFields.length) params.set('missing_fields', peopleFilter.missingFields.join(','));
+  if (peopleFilter.gender) params.set('gender', peopleFilter.gender);
+  if (peopleFilter.ageRange) params.set('age_range', peopleFilter.ageRange);
   params.set('limit', peopleFilter.limit);
   params.set('offset', peopleFilter.offset);
   params.set('sort', peopleFilter.sort || 'last_name');
@@ -358,7 +360,10 @@ function showProfile(p) {
           + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="addToNewsletter('+p.id+',\''+esc(p.email)+'\',\''+esc(p.first_name||'')+'\',\''+esc(p.last_name||'')+'\')">&#9993; Add to Newsletter</button>'
           + '<span id="pv-newsletter-status" style="font-size:.75rem;line-height:2;color:var(--teal);"></span>'
           + '</div>' : '')
-      + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button></div>' : '')
+      + (p.household_id && (p.address1||'').trim() ? '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">'
+          + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button>'
+          + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="syncPersonAddrToHousehold('+p.household_id+')">&#8593; Sync to household record</button>'
+          + '</div>' : '')
       + (addrParts.length >= 2 ? '<div style="margin-top:8px;"><button id="pv-map-btn-'+p.id+'" class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="togglePersonMap('+p.id+')">&#9654; Show Map</button><div id="pv-map-'+p.id+'" data-addr="'+encodeURIComponent(addrParts.join(', '))+'" style="display:none;margin-top:8px;border-radius:8px;overflow:hidden;line-height:0;"></div></div>' : '')
       + '</div>'
       + '<div class="pv-section">'
@@ -455,7 +460,7 @@ function pvField(label, val) {
 // ── PERSON PROFILE SECTION EDITING ─────────────────────────────────────
 function pvBuildPersonPatch(p, overrides) {
   var full = {};
-  ['first_name','last_name','email','phone','address1','city','state','zip',
+  ['first_name','last_name','email','phone','address1','address2','city','state','zip',
    'member_type','family_role','gender','marital_status','household_id',
    'dob','baptism_date','confirmation_date','anniversary_date','death_date',
    'deceased','public_directory','envelope_number','last_seen_date','notes','breeze_id',
@@ -481,6 +486,7 @@ function pvEditContact() {
     + '</div></div>'
     + '<div style="display:grid;gap:8px;">'
     + '<div><label for="pec-addr1" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Street Address</label><input type="text" id="pec-addr1" value="'+esc(p.address1||'')+'" style="'+inp+'"></div>'
+    + '<div><label for="pec-addr2" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Apt / Unit</label><input type="text" id="pec-addr2" value="'+esc(p.address2||'')+'" style="'+inp+'" placeholder="Apt, Unit, Suite…"></div>'
     + '<div style="display:grid;grid-template-columns:1fr 60px 90px;gap:6px;">'
     + '<div><label for="pec-city" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">City</label><input type="text" id="pec-city" value="'+esc(p.city||'')+'" style="'+inp+'"></div>'
     + '<div><label for="pec-state" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">State</label><input type="text" id="pec-state" value="'+esc(p.state||'')+'" style="'+inp+'" maxlength="2"></div>'
@@ -499,6 +505,7 @@ function pvSaveContact() {
   if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
   var patch = pvBuildPersonPatch(p, {
     address1: (document.getElementById('pec-addr1')||{}).value || '',
+    address2: (document.getElementById('pec-addr2')||{}).value || '',
     city:     (document.getElementById('pec-city')||{}).value || '',
     state:    (document.getElementById('pec-state')||{}).value || '',
     zip:      (document.getElementById('pec-zip')||{}).value || '',
@@ -507,7 +514,7 @@ function pvSaveContact() {
   });
   api('/admin/api/people/'+p.id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(patch)})
     .then(function() {
-      ['address1','city','state','zip','phone','email'].forEach(function(k){ _currentPvPerson[k] = patch[k]; });
+      ['address1','address2','city','state','zip','phone','email'].forEach(function(k){ _currentPvPerson[k] = patch[k]; });
       pvRenderContact();
     }).catch(function() {
       if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
@@ -530,7 +537,25 @@ function pvRenderContact() {
     + pvRow('Address', addrVal)
     + pvRow('Phone', phoneVal)
     + pvRow('Email', emailVal)
-    + (p.household_id ? '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button></div>' : '');
+    + (p.household_id && (p.address1||'').trim() ? '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">'
+        + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button>'
+        + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="syncPersonAddrToHousehold('+p.household_id+')">&#8593; Sync to household record</button>'
+        + '</div>' : '');
+}
+
+function syncPersonAddrToHousehold(hhId) {
+  var p = _currentPvPerson;
+  if (!p || !p.address1) return;
+  if (!confirm('Update the household address to match this person\'s address?\n\n' + [p.address1, p.address2, p.city, ((p.state||'') + ' ' + (p.zip||'')).trim()].filter(Boolean).join(', '))) return;
+  api('/admin/api/households/' + hhId).then(function(hh) {
+    if (!hh || !hh.id) { alert('Could not load household.'); return; }
+    var updated = Object.assign({}, hh, { address1: p.address1||'', address2: p.address2||'', city: p.city||'', state: p.state||'', zip: p.zip||'' });
+    api('/admin/api/households/' + hhId, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(updated) })
+      .then(function(r) {
+        if (r && r.ok) { pvRenderContact(); }
+        else alert('Failed to update household address: ' + ((r && r.error) || 'unknown error'));
+      });
+  });
 }
 // ── Demographics section ──────────────────────────────────────────────
 function pvEditDemo() {
@@ -1565,6 +1590,7 @@ function openPersonEdit(p) {
   document.getElementById('pm-phone').value = isNew ? '' : (p.phone||'');
   document.getElementById('pm-sms-opt-in').checked = !isNew && !!p.sms_opt_in;
   document.getElementById('pm-addr1').value = isNew ? '' : (p.address1||'');
+  var a2El = document.getElementById('pm-addr2'); if (a2El) a2El.value = isNew ? '' : (p.address2||'');
   document.getElementById('pm-city').value = isNew ? '' : (p.city||'');
   document.getElementById('pm-state').value = isNew ? 'MO' : (p.state||'MO');
   document.getElementById('pm-zip').value = isNew ? '' : (p.zip||'');
@@ -1664,6 +1690,7 @@ function savePerson() {
     email: document.getElementById('pm-email').value.trim(),
     phone: document.getElementById('pm-phone').value.trim(),
     address1: document.getElementById('pm-addr1').value.trim(),
+    address2: (document.getElementById('pm-addr2') || {value:''}).value.trim(),
     city: document.getElementById('pm-city').value.trim(),
     state: document.getElementById('pm-state').value.trim(),
     zip: document.getElementById('pm-zip').value.trim(),
@@ -1763,6 +1790,7 @@ function validatePersonAddress() {
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({
       address1: street,
+      address2: (document.getElementById('pm-addr2') || {value:''}).value.trim(),
       city: (document.getElementById('pm-city').value || '').trim(),
       state: (document.getElementById('pm-state').value || '').trim(),
       zip: (document.getElementById('pm-zip').value || '').trim()
@@ -1774,6 +1802,7 @@ function validatePersonAddress() {
       return;
     }
     document.getElementById('pm-addr1').value = r.address1;
+    var a2v = document.getElementById('pm-addr2'); if (a2v) a2v.value = r.address2 || '';
     document.getElementById('pm-city').value  = r.city;
     document.getElementById('pm-state').value = r.state;
     document.getElementById('pm-zip').value   = r.zip + (r.zip4 ? '-' + r.zip4 : '');
@@ -1802,6 +1831,7 @@ function validateContactAddress() {
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({
       address1: street,
+      address2: (document.getElementById('pec-addr2') || {value:''}).value.trim(),
       city:  (document.getElementById('pec-city').value  || '').trim(),
       state: (document.getElementById('pec-state').value || '').trim(),
       zip:   (document.getElementById('pec-zip').value   || '').trim()
@@ -1813,6 +1843,7 @@ function validateContactAddress() {
       return;
     }
     document.getElementById('pec-addr1').value = r.address1;
+    var pec2 = document.getElementById('pec-addr2'); if (pec2) pec2.value = r.address2 || '';
     document.getElementById('pec-city').value  = r.city;
     document.getElementById('pec-state').value = r.state;
     document.getElementById('pec-zip').value   = r.zip + (r.zip4 ? '-' + r.zip4 : '');

@@ -472,7 +472,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div id="brevo-reconcile-status" class="import-status" style="margin-top:8px;"></div>
       <div id="brevo-reconcile-results" style="margin-top:10px;"></div>
     </div>
-    <div class="import-card">
+    <div class="import-card require-admin">
       <h3>&#9993; Automated Emails (EM2)</h3>
       <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Daily cron sends birthday emails to active members and anniversary emails to couples at 9am Central. Use these buttons to trigger manually or test.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -481,7 +481,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <div class="import-status" id="email-test-status" style="margin-top:8px;"></div>
     </div>
-    <div class="import-card">
+    <div class="import-card require-admin">
       <h3>&#128241; Automated Texts (SMS1)</h3>
       <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Daily cron sends birthday and anniversary SMS via Brevo to members with SMS opt-in enabled and a valid phone number. Use these buttons to trigger manually or test.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -727,6 +727,14 @@ export const HTML_TABS_2 = String.raw`
       <div id="fd-tags"></div>
     </div>
     <div style="margin-top:20px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Gender</div>
+      <div id="fd-gender"></div>
+    </div>
+    <div style="margin-top:20px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Age Range</div>
+      <div id="fd-age-range"></div>
+    </div>
+    <div style="margin-top:20px;">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Missing Field</div>
       <div id="fd-missing"></div>
     </div>
@@ -820,6 +828,7 @@ export const HTML_TABS_2 = String.raw`
     <div style="margin:-4px 0 8px;"><label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer;"><input type="checkbox" id="pm-sms-opt-in"> Opt in to birthday &amp; anniversary texts (SMS)</label></div>
     <div class="modal-section" id="pm-addr-section">Address <span id="pm-addr-hint" style="font-weight:400;text-transform:none;">(leave blank to use household address)</span></div>
     <div class="field" style="margin-bottom:8px;"><label>Street</label><input type="text" id="pm-addr1" name="pm-addr1" placeholder="123 Main St"></div>
+    <div class="field" style="margin-bottom:8px;"><label>Apt / Unit</label><input type="text" id="pm-addr2" name="pm-addr2" placeholder="Apt 1S, Unit B, Suite 200…"></div>
     <div class="modal-2col">
       <div class="field"><label>City</label><input type="text" id="pm-city" name="pm-city"></div>
       <div class="field"><label>State / ZIP</label><div style="display:flex;gap:6px;"><input type="text" id="pm-state" name="pm-state" style="width:60px;" maxlength="2" placeholder="MO"><input type="text" id="pm-zip" name="pm-zip" placeholder="63000"></div></div>
