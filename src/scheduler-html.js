@@ -335,6 +335,43 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .sv-last { font-size:.82rem; color: var(--warm-gray); white-space:nowrap; }
 @media(max-width:600px){ .stats-table th:nth-child(2), .stats-table td:nth-child(2) { display:none; } }
 
+/* ── Mobile card rows (hidden on desktop, revealed on mobile) ─────────────── */
+.sunday-mobile { display: none !important; }
+.sched-mc { background: var(--white); }
+.sched-mc-svc { padding: 10px 14px; border-bottom: 2px solid var(--linen); }
+.sched-mc-svc:last-child { border-bottom: none; }
+.sched-mc-shared { background: var(--pale-sage); }
+.sched-mc-svctime { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--warm-gray); margin-bottom: 6px; }
+.sched-mc-row { display: flex; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--linen); gap: 10px; }
+.sched-mc-row:last-child { border-bottom: none; }
+.sched-mc-lbl { width: 110px; flex-shrink: 0; font-size: .72rem; font-weight: 600; color: var(--warm-gray); text-transform: uppercase; letter-spacing: .03em; }
+.sched-mc-val { flex: 1; font-size: .9rem; color: var(--charcoal); font-weight: 500; }
+.sched-mc-empty .sched-mc-val { color: var(--danger-btn,#b85c3a); font-style: italic; font-weight: 400; }
+
+@media(max-width:600px){
+  /* Hide horizontal table detail rows; show vertical cards instead */
+  .sunday-detail:not(.sunday-mobile) { display: none !important; }
+  .sunday-mobile.visible { display: table-row !important; }
+  /* Hide redundant nav links when embedded in ChMS */
+  .header-gear { display: none; }
+  /* Tab buttons — tighter padding */
+  .tab-btn { padding: 8px 14px; font-size: .8rem; }
+  /* Tab content — less horizontal padding */
+  .tab-content { padding: 12px; }
+  /* Month nav */
+  .month-nav-bar { gap: 6px; }
+  .month-nav-label { min-width: 100px; }
+  .btn-sm { padding: 5px 10px; font-size: .78rem; }
+  /* Schedule controls — stack vertically */
+  .schedule-controls { flex-direction: column; align-items: stretch; gap: 10px; }
+  .schedule-controls .field { flex-direction: row; align-items: center; gap: 8px; }
+  .schedule-controls .field label { min-width: 80px; flex-shrink: 0; }
+  .schedule-controls .field input { flex: 1; width: auto; }
+  /* Legend */
+  .legend { gap: 8px; font-size: .75rem; }
+  /* Table scroll hint */
+  .table-wrapper { -webkit-overflow-scrolling: touch; box-shadow: inset -16px 0 12px -8px rgba(0,0,0,.1); }
+}
 
 /* ── Sunday summary row (collapsible) ─────────────────────────────────────── */
 .sunday-summary td { padding:0; cursor:pointer; background: var(--linen); border-bottom:2px solid var(--border); border-top:1px solid var(--border); }
@@ -2033,6 +2070,41 @@ function renderTable(people, counts) {
     r2 += '</tr>';
 
     bodyHtml += r1 + r2;
+
+    // Mobile card row — vertical layout for narrow screens, toggled alongside desktop rows
+    var mCard = '<tr class="sunday-detail sunday-mobile" data-idx="'+rowIdx+'">'
+      +'<td colspan="'+totalCols+'" style="padding:0;border-top:none;">'
+      +'<div class="sched-mc">';
+    mCard += '<div class="sched-mc-svc"><div class="sched-mc-svctime">8:00am</div>';
+    PER_ROLES.forEach(function(role){
+      var pid8 = row.assignments[role]['8am'];
+      var p8 = pid8 && pMap[pid8];
+      mCard += '<div class="sched-mc-row'+(p8?' sched-mc-filled':' sched-mc-empty')+'">'
+        +'<span class="sched-mc-lbl">'+esc(role)+'</span>'
+        +'<span class="sched-mc-val">'+(p8?esc(p8.name):'Unfilled')+'</span></div>';
+    });
+    mCard += '</div>';
+    if (SHARED_ROLES.length) {
+      mCard += '<div class="sched-mc-svc sched-mc-shared"><div class="sched-mc-svctime">Both Services</div>';
+      SHARED_ROLES.forEach(function(role){
+        var pidS = row.assignments[role].shared;
+        var pS = pidS && pMap[pidS];
+        mCard += '<div class="sched-mc-row'+(pS?' sched-mc-filled':' sched-mc-empty')+'">'
+          +'<span class="sched-mc-lbl">'+esc(role)+'</span>'
+          +'<span class="sched-mc-val">'+(pS?esc(pS.name):'Unfilled')+'</span></div>';
+      });
+      mCard += '</div>';
+    }
+    mCard += '<div class="sched-mc-svc"><div class="sched-mc-svctime">10:45am</div>';
+    PER_ROLES.forEach(function(role){
+      var pid45 = row.assignments[role]['10:45am'];
+      var p45 = pid45 && pMap[pid45];
+      mCard += '<div class="sched-mc-row'+(p45?' sched-mc-filled':' sched-mc-empty')+'">'
+        +'<span class="sched-mc-lbl">'+esc(role)+'</span>'
+        +'<span class="sched-mc-val">'+(p45?esc(p45.name):'Unfilled')+'</span></div>';
+    });
+    mCard += '</div></div></td></tr>';
+    bodyHtml += mCard;
   });
   document.getElementById('schedule-tbody').innerHTML = bodyHtml;
 

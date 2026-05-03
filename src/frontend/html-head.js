@@ -39,13 +39,6 @@ header{background:var(--white);border-bottom:3px solid var(--amber);padding:14px
 .tab-panel.active{display:flex;flex-direction:column;flex:1;overflow-y:auto;}
 #tab-scheduler.active{padding:0;}
 #tab-scheduler .sched-root{flex:1;min-height:0;overflow-y:auto;}
-/* ── SCHEDULER MOBILE ── */
-@media(max-width:600px){
-  .sched-root td{min-width:60px;padding:3px 4px;font-size:.72rem;}
-  .sched-root td.date-cell{min-width:88px;font-size:.78rem;}
-  .sched-root .month-nav-label{min-width:110px;font-size:.88rem;}
-  .sched-root .schedule-controls .field input{width:120px;}
-}
 /* ── APP SHELL ── */
 #offline-banner{position:relative;z-index:200;}
 .app-shell{display:flex;height:100vh;}
