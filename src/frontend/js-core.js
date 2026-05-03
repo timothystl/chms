@@ -1,9 +1,12 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '2026-05-01-v173';
+var DEPLOY_VERSION = '2026-05-02-v175';
 window.onerror = function(msg, src, line, col, err) {
-  // Benign browser quirk when a ResizeObserver callback triggers layout — no real failure.
+  // Benign browser quirks — suppress these and don't show the error banner.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
+  // Mobile browsers (Samsung Internet, Brave) try to redefine navigator.userAgent for
+  // anti-fingerprinting and throw this when the property is already non-configurable.
+  if (msg && String(msg).indexOf('redefine property') !== -1) return true;
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
     b.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#c0392b;color:#fff;padding:10px 16px;font-size:.82rem;z-index:99999;font-family:monospace;';
