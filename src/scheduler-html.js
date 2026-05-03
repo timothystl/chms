@@ -371,6 +371,14 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
   .legend { gap: 8px; font-size: .75rem; }
   /* Table scroll hint */
   .table-wrapper { -webkit-overflow-scrolling: touch; box-shadow: inset -16px 0 12px -8px rgba(0,0,0,.1); }
+  /* Summary row — 2-line layout: date+label on line 1, stats+pills on line 2 */
+  .ss-inner { gap: 3px 6px; padding: 7px 12px; align-items: center; }
+  .ss-date { width: auto; font-size: .8rem; flex-shrink: 1; }
+  .ss-label-area { flex: 1 0 0; width: auto; padding-right: 0; min-width: 0; }
+  .ss-stats-area { width: auto; flex-shrink: 0; padding-left: 20px; }
+  .ss-conf-area { flex: 1 1 auto; padding-left: 0; }
+  /* Hide Readings/Slide buttons on mobile */
+  .btn-edit-readings, .btn-bulletin-slide { display: none !important; }
 }
 
 /* ── Sunday summary row (collapsible) ─────────────────────────────────────── */
