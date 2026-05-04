@@ -1860,18 +1860,21 @@ document.getElementById('btn-next-month').addEventListener('click', function() {
   switchMonth(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
 });
 
-// Mobile single-Sunday picker handlers
-document.getElementById('smv-picker').addEventListener('change', function() {
-  setActiveSmv(parseInt(this.value, 10));
-});
-document.getElementById('smv-prev').addEventListener('click', function() {
-  var p = document.getElementById('smv-picker');
-  setActiveSmv(parseInt(p.value, 10) - 1);
-});
-document.getElementById('smv-next').addEventListener('click', function() {
-  var p = document.getElementById('smv-picker');
-  setActiveSmv(parseInt(p.value, 10) + 1);
-});
+// Mobile single-Sunday picker handlers (null-guarded for safety)
+(function() {
+  var smvP = document.getElementById('smv-picker');
+  var smvPrev = document.getElementById('smv-prev');
+  var smvNext = document.getElementById('smv-next');
+  if (smvP) smvP.addEventListener('change', function() { setActiveSmv(parseInt(this.value, 10)); });
+  if (smvPrev) smvPrev.addEventListener('click', function() {
+    var p = document.getElementById('smv-picker');
+    if (p) setActiveSmv(parseInt(p.value, 10) - 1);
+  });
+  if (smvNext) smvNext.addEventListener('click', function() {
+    var p = document.getElementById('smv-picker');
+    if (p) setActiveSmv(parseInt(p.value, 10) + 1);
+  });
+})();
 
 document.getElementById('btn-save-schedule').addEventListener('click', function() {
   saveCurrentMonth();
@@ -1909,10 +1912,10 @@ document.getElementById('btn-expand-all').addEventListener('click', function() {
     var idx = row.getAttribute('data-idx');
     if (allExpanded) {
       row.classList.remove('expanded');
-      document.querySelectorAll('.sunday-detail[data-idx="'+idx+'"]').forEach(function(tr){ tr.classList.remove('visible'); });
+      document.querySelectorAll('.sunday-detail[data-idx="'+idx+'"]:not(.sunday-mobile)').forEach(function(tr){ tr.classList.remove('visible'); });
     } else {
       row.classList.add('expanded');
-      document.querySelectorAll('.sunday-detail[data-idx="'+idx+'"]').forEach(function(tr){ tr.classList.add('visible'); });
+      document.querySelectorAll('.sunday-detail[data-idx="'+idx+'"]:not(.sunday-mobile)').forEach(function(tr){ tr.classList.add('visible'); });
     }
   });
   this.textContent = allExpanded ? '\\u25bc Expand All' : '\\u25b2 Collapse All';
@@ -2172,7 +2175,7 @@ function renderTable(people, counts) {
     PER_ROLES.forEach(function(role){
       var pid8 = row.assignments[role]['8am'];
       var cellHtml = buildCell(pid8, pMap, rowIdx, role, '8am')
-        .replace(/^<td[^>]*>/, '').replace(/<\/td>$/, '');
+        .replace(/^<td[^>]*>/, '').replace(/<[/]td>$/, '');
       mCard += '<div class="sched-mc-row'+(pid8?'':' sched-mc-empty')+'">'
         +'<span class="sched-mc-lbl">'+esc(role)+'</span>'
         +'<span class="sched-mc-val">'+cellHtml+'</span></div>';
@@ -2183,7 +2186,7 @@ function renderTable(people, counts) {
       SHARED_ROLES.forEach(function(role){
         var pidS = row.assignments[role].shared;
         var cellHtml = buildCell(pidS, pMap, rowIdx, role, 'shared')
-          .replace(/^<td[^>]*>/, '').replace(/<\/td>$/, '');
+          .replace(/^<td[^>]*>/, '').replace(/<[/]td>$/, '');
         mCard += '<div class="sched-mc-row'+(pidS?'':' sched-mc-empty')+'">'
           +'<span class="sched-mc-lbl">'+esc(role)+'</span>'
           +'<span class="sched-mc-val">'+cellHtml+'</span></div>';
@@ -2194,7 +2197,7 @@ function renderTable(people, counts) {
     PER_ROLES.forEach(function(role){
       var pid45 = row.assignments[role]['10:45am'];
       var cellHtml = buildCell(pid45, pMap, rowIdx, role, '10:45am')
-        .replace(/^<td[^>]*>/, '').replace(/<\/td>$/, '');
+        .replace(/^<td[^>]*>/, '').replace(/<[/]td>$/, '');
       mCard += '<div class="sched-mc-row'+(pid45?'':' sched-mc-empty')+'">'
         +'<span class="sched-mc-lbl">'+esc(role)+'</span>'
         +'<span class="sched-mc-val">'+cellHtml+'</span></div>';
@@ -2439,7 +2442,7 @@ document.getElementById('schedule-table').addEventListener('click', function(e) 
   var idx = summaryRow.getAttribute('data-idx');
   summaryRow.classList.toggle('expanded');
   var isExpanded = summaryRow.classList.contains('expanded');
-  document.querySelectorAll('.sunday-detail[data-idx="'+idx+'"]').forEach(function(tr) {
+  document.querySelectorAll('.sunday-detail[data-idx="'+idx+'"]:not(.sunday-mobile)').forEach(function(tr) {
     tr.classList.toggle('visible', isExpanded);
   });
   updateScheduleHeaders();
