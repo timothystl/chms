@@ -1244,6 +1244,46 @@ if (seg === 'reports/giving-statement-household' && method === 'GET') {
   return json({ household, members, year, entries, total_cents: total });
 }
 
+if (seg === 'reports/giving-yoy' && method === 'GET') {
+  if (!isFinance) return json({ error: 'Access denied' }, 403);
+  const baseYear = parseInt(url.searchParams.get('year') || String(new Date().getFullYear()), 10);
+  if (!baseYear || baseYear < 2000 || baseYear > 2100) return json({ error: 'Invalid year' }, 400);
+  const numYears = 3;
+  const yearList = [];
+  for (let y = baseYear - numYears + 1; y <= baseYear; y++) yearList.push(String(y));
+  const placeholders = yearList.map(() => '?').join(',');
+  const rows = (await db.prepare(
+    `SELECT p.id, p.first_name, p.last_name, p.member_type,
+            substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),1,4) AS yr,
+            SUM(ge.amount) AS total_cents, COUNT(ge.id) AS gifts
+     FROM people p
+     JOIN giving_entries ge ON ge.person_id=p.id
+     JOIN giving_batches gb ON ge.batch_id=gb.id
+     WHERE p.active=1
+       AND substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),1,4) IN (${placeholders})
+     GROUP BY p.id, yr
+     ORDER BY p.last_name, p.first_name, yr`
+  ).bind(...yearList).all()).results || [];
+
+  const personMap = {};
+  for (const r of rows) {
+    if (!personMap[r.id]) {
+      personMap[r.id] = { id: r.id, first_name: r.first_name, last_name: r.last_name, member_type: r.member_type, by_year: {} };
+    }
+    personMap[r.id].by_year[r.yr] = { total_cents: r.total_cents, gifts: r.gifts };
+  }
+  const currYrStr = String(baseYear), priorYrStr = String(baseYear - 1);
+  const people = Object.values(personMap).map(p => {
+    const curr = (p.by_year[currYrStr] || {}).total_cents || 0;
+    const prior = (p.by_year[priorYrStr] || {}).total_cents || 0;
+    const change_cents = curr - prior;
+    const change_pct = prior > 0 ? Math.round((curr - prior) * 1000 / prior) / 10 : null;
+    return { ...p, curr_total: curr, prior_total: prior, change_cents, change_pct };
+  });
+  people.sort((a, b) => Math.abs(b.change_cents) - Math.abs(a.change_cents));
+  return json({ base_year: baseYear, years: yearList, people });
+}
+
 
   return null; // not handled
 }
