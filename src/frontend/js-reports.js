@@ -1,6 +1,136 @@
 export const JS_REPORTS = String.raw`// ── REPORTS ────────────────────────────────────────────────────────────
+
+// ── Report tile customize ────────────────────────────────────────────────
+var RPT_TILE_DEFAULTS = [
+  'membership','contact-completeness','people-insights','attendance-summary',
+  'giving-by-fund','giving-by-method','giving-statement','giving-trend',
+  'giving-insights','giving-yoy','giving-vs-attendance','batch-send-statements'
+];
+var RPT_TILE_LABELS = {
+  'membership':            'Membership Summary',
+  'contact-completeness':  'Contact Completeness',
+  'people-insights':       'People Insights',
+  'attendance-summary':    'Attendance Summary',
+  'giving-by-fund':        'Giving by Fund',
+  'giving-by-method':      'Giving by Method',
+  'giving-statement':      'Giving Statement',
+  'giving-trend':          'Giving Trend',
+  'giving-insights':       'Giving Insights',
+  'giving-yoy':            'Giving Trends (YoY)',
+  'giving-vs-attendance':  'Giving \xd7 Attendance',
+  'batch-send-statements': 'Batch Send Statements'
+};
+var _rptPrefs = null;
+function rptGetPrefs() {
+  if (!_rptPrefs) {
+    try {
+      var stored = JSON.parse(localStorage.getItem('rptTilePrefs') || 'null');
+      _rptPrefs = { order: RPT_TILE_DEFAULTS.slice(), hidden: [] };
+      if (stored) {
+        if (Array.isArray(stored.order)) {
+          var known = stored.order.filter(function(id){ return !!RPT_TILE_LABELS[id]; });
+          RPT_TILE_DEFAULTS.forEach(function(id){ if (known.indexOf(id) < 0) known.push(id); });
+          _rptPrefs.order = known;
+        }
+        if (Array.isArray(stored.hidden)) _rptPrefs.hidden = stored.hidden.slice();
+      }
+    } catch(e) { _rptPrefs = { order: RPT_TILE_DEFAULTS.slice(), hidden: [] }; }
+  }
+  return _rptPrefs;
+}
+function rptSavePrefs() {
+  localStorage.setItem('rptTilePrefs', JSON.stringify(_rptPrefs));
+}
+function applyRptPrefs() {
+  var prefs = rptGetPrefs();
+  var grid = document.getElementById('rpt-tiles-grid');
+  if (!grid) return;
+  prefs.order.forEach(function(id) {
+    var tile = grid.querySelector('[data-tile-id="' + id + '"]');
+    if (tile) grid.appendChild(tile);
+  });
+  grid.querySelectorAll('[data-tile-id]').forEach(function(tile) {
+    var hidden = prefs.hidden.indexOf(tile.dataset.tileId) >= 0;
+    tile.style.display = hidden ? 'none' : '';
+  });
+}
+var _rptDragSrc = null;
+function openRptCustomize() {
+  var prefs = rptGetPrefs();
+  var listHtml = prefs.order.map(function(id) {
+    var lbl = RPT_TILE_LABELS[id] || id;
+    var isHidden = prefs.hidden.indexOf(id) >= 0;
+    return '<div class="rpt-cust-item" data-id="' + id + '" draggable="true"'
+      + ' style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--white);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:default;">'
+      + '<span style="color:var(--warm-gray);font-size:1rem;cursor:grab;" title="Drag to reorder">&#9776;</span>'
+      + '<input type="checkbox" id="rpt-cb-' + id + '"' + (isHidden ? '' : ' checked') + ' style="width:16px;height:16px;flex-shrink:0;">'
+      + '<label for="rpt-cb-' + id + '" style="flex:1;font-size:.9rem;cursor:pointer;">' + esc(lbl) + '</label>'
+      + '<button onclick="rptMoveUp(\'' + id + '\')" style="background:none;border:none;cursor:pointer;padding:2px 6px;font-size:.9rem;color:var(--warm-gray);" title="Move up">&#8593;</button>'
+      + '<button onclick="rptMoveDown(\'' + id + '\')" style="background:none;border:none;cursor:pointer;padding:2px 6px;font-size:.9rem;color:var(--warm-gray);" title="Move down">&#8595;</button>'
+      + '</div>';
+  }).join('');
+  document.getElementById('rpt-cust-list').innerHTML = listHtml;
+  _initRptCustDrag();
+  openModal('rpt-cust-modal');
+}
+function _initRptCustDrag() {
+  var items = document.querySelectorAll('.rpt-cust-item');
+  items.forEach(function(el) {
+    el.addEventListener('dragstart', function(e) {
+      _rptDragSrc = this;
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      this.style.borderColor = 'var(--teal)';
+    });
+    el.addEventListener('dragleave', function() { this.style.borderColor = 'var(--border)'; });
+    el.addEventListener('drop', function(e) {
+      e.stopPropagation();
+      this.style.borderColor = 'var(--border)';
+      if (!_rptDragSrc || _rptDragSrc === this) return;
+      var srcId = _rptDragSrc.dataset.id;
+      var dstId = this.dataset.id;
+      var prefs = rptGetPrefs();
+      var si = prefs.order.indexOf(srcId), di = prefs.order.indexOf(dstId);
+      if (si >= 0 && di >= 0) { prefs.order.splice(si, 1); prefs.order.splice(di, 0, srcId); }
+      openRptCustomize();
+    });
+    el.addEventListener('dragend', function() { this.style.borderColor = 'var(--border)'; });
+  });
+}
+function rptMoveUp(id) {
+  var prefs = rptGetPrefs();
+  var i = prefs.order.indexOf(id);
+  if (i > 0) { prefs.order.splice(i-1, 0, prefs.order.splice(i, 1)[0]); openRptCustomize(); }
+}
+function rptMoveDown(id) {
+  var prefs = rptGetPrefs();
+  var i = prefs.order.indexOf(id);
+  if (i >= 0 && i < prefs.order.length - 1) { prefs.order.splice(i+1, 0, prefs.order.splice(i, 1)[0]); openRptCustomize(); }
+}
+function rptSaveCustomize() {
+  var prefs = rptGetPrefs();
+  var newOrder = Array.from(document.querySelectorAll('.rpt-cust-item')).map(function(el){ return el.dataset.id; });
+  if (newOrder.length) prefs.order = newOrder;
+  prefs.hidden = [];
+  prefs.order.forEach(function(id) {
+    var cb = document.getElementById('rpt-cb-' + id);
+    if (cb && !cb.checked) prefs.hidden.push(id);
+  });
+  rptSavePrefs();
+  closeModal('rpt-cust-modal');
+  applyRptPrefs();
+}
+
 function initReports() {
   initReportTrendYears();
+  initRptsAttYears();
+  var curY = new Date().getFullYear();
+  var yoyEl = document.getElementById('rpt-yoy-year');
+  if (yoyEl && !yoyEl.value) yoyEl.value = curY;
+  applyRptPrefs();
 }
 function showRptOutput(html) {
   var o = document.getElementById('rpt-output');
@@ -1144,5 +1274,81 @@ function downloadStatement() {
   var pid = document.getElementById('rpt-person-id').value;
   if (!pid || !yr) { alert('Select a person and year first.'); return; }
   window.location = '/admin/api/reports/giving-statement?person_id=' + pid + '&year=' + yr + '&format=csv';
+}
+
+// ── Attendance Report tile (Reports tab) ────────────────────────────────
+function initRptsAttYears() {
+  var el = document.getElementById('rpts-att-years');
+  if (!el || el.children.length) return;
+  var cur = new Date().getFullYear();
+  for (var y = cur; y >= cur - 4; y--) {
+    var chk = document.createElement('label');
+    chk.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer;';
+    chk.innerHTML = '<input type="checkbox" value="'+y+'" '+(y>=cur-1?'checked':'')+' style="width:14px;height:14px;"> <span>'+y+'</span>';
+    el.appendChild(chk);
+  }
+}
+function runAttendanceRpt() {
+  initRptsAttYears();
+  var years = Array.from(document.querySelectorAll('#rpts-att-years input:checked')).map(function(c){return c.value;});
+  if (!years.length) { alert('Select at least one year.'); return; }
+  api('/admin/api/reports/attendance-summary?years=' + encodeURIComponent(years.join(','))).then(function(d) {
+    showRptOutput(_buildAttYoYHtml(d, 220));
+  });
+}
+
+// ── Giving Trends: Year-over-Year per person ────────────────────────────
+function runGivingYoy() {
+  var yr = parseInt(document.getElementById('rpt-yoy-year').value, 10);
+  if (!yr) { alert('Please enter a year.'); return; }
+  api('/admin/api/reports/giving-yoy?year=' + yr).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    var years = d.years || [];
+    var people = d.people || [];
+    var baseYear = d.base_year;
+    var priorYear = baseYear - 1;
+    var yearHeaders = years.map(function(y){ return '<th style="text-align:right;">' + esc(y) + '</th>'; }).join('');
+    var thead = '<tr><th>Name</th><th>Type</th>' + yearHeaders + '<th style="text-align:right;">Change</th><th style="text-align:right;">%</th></tr>';
+
+    function makeRow(p) {
+      var name = esc((p.first_name||'') + ' ' + (p.last_name||''));
+      var color = p.change_cents > 0 ? '#5A9E6F' : (p.change_cents < 0 ? '#C0392B' : '#888');
+      var changeStr = p.change_cents !== 0 ? (p.change_cents > 0 ? '+' : '-') + fmtMoney(Math.abs(p.change_cents)) : '&#8212;';
+      var pctStr = p.change_pct !== null ? (p.change_cents > 0 ? '+' : '') + p.change_pct.toFixed(1) + '%' : '';
+      var cells = '<td style="color:var(--steel-anchor);font-weight:600;">' + name + '</td>'
+        + '<td style="color:var(--warm-gray);font-size:.82rem;">' + esc(p.member_type||'') + '</td>';
+      years.forEach(function(y) {
+        var v = p.by_year && p.by_year[y] ? p.by_year[y].total_cents : 0;
+        cells += '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (v ? fmtMoney(v) : '&#8212;') + '</td>';
+      });
+      cells += '<td style="text-align:right;color:' + color + ';font-weight:600;">' + changeStr + '</td>'
+        + '<td style="text-align:right;color:' + color + ';font-size:.85rem;">' + pctStr + '</td>';
+      return '<tr style="cursor:pointer;" onclick="openPersonDetail(' + p.id + ')">' + cells + '</tr>';
+    }
+
+    function makeBlock(icon, title, subtitle, items) {
+      if (!items.length) return '';
+      return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
+        + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">' + icon + ' ' + title + ' (' + items.length + ')</div>'
+        + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:8px;">' + subtitle + '</div>'
+        + '<div style="overflow-x:auto;"><table class="rpt-table"><thead>' + thead + '</thead><tbody>' + items.map(makeRow).join('') + '</tbody></table></div></div>';
+    }
+
+    var increased = people.filter(function(p){ return p.prior_total > 0 && p.change_cents > 0; });
+    var decreased = people.filter(function(p){ return p.prior_total > 0 && p.change_cents < 0; });
+    var newGivers = people.filter(function(p){ return p.prior_total === 0 && p.curr_total > 0; });
+    var lapsed = people.filter(function(p){ return p.curr_total === 0 && p.prior_total > 0; });
+
+    showRptOutput(
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+      + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving Trends &#8212; ' + yr + '</h3>'
+      + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
+      + (increased.length ? makeBlock('&#128200;', 'Increased — ' + priorYear + ' → ' + baseYear, 'Gave more this year than last year, sorted by biggest change.', increased) : '')
+      + (decreased.length ? makeBlock('&#128203;', 'Decreased — ' + priorYear + ' → ' + baseYear, 'Gave less this year than last year.', decreased) : '')
+      + (newGivers.length ? makeBlock('&#127381;', 'New Givers — first gift in ' + baseYear, 'Gave this year but not in ' + priorYear + '.', newGivers) : '')
+      + (lapsed.length ? makeBlock('&#128276;', 'Stopped Giving — gave in ' + priorYear + ', not in ' + baseYear, 'Gave last year but nothing recorded this year yet.', lapsed) : '')
+      + (!increased.length && !decreased.length && !newGivers.length && !lapsed.length ? '<div style="padding:20px;color:var(--warm-gray);">No giving data found for ' + yr + ' or ' + priorYear + '.</div>' : '')
+    );
+  });
 }
 `;

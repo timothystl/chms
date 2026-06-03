@@ -153,23 +153,35 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
 <!-- ═══ REPORTS TAB ═══ -->
 <div id="tab-reports" class="tab-panel">
-  <div class="report-tiles">
-    <div class="report-tile" onclick="runMembership()">
+  <div style="padding:10px 16px 0;display:flex;align-items:center;gap:8px;">
+    <button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="openRptCustomize()">&#9881; Customize</button>
+  </div>
+  <div class="report-tiles" id="rpt-tiles-grid">
+    <div class="report-tile" data-tile-id="membership" onclick="runMembership()">
       <div class="tile-icon">&#128100;</div>
       <div class="tile-title">Membership Summary</div>
       <div class="tile-desc">Counts by member type</div>
     </div>
-    <div class="report-tile no-member" onclick="runContactCompleteness()">
+    <div class="report-tile no-member" data-tile-id="contact-completeness" onclick="runContactCompleteness()">
       <div class="tile-icon">&#128231;</div>
       <div class="tile-title">Contact Completeness</div>
       <div class="tile-desc">Missing email, phone, address, DOB, photo</div>
     </div>
-    <div class="report-tile no-member" onclick="runPeopleInsights()">
+    <div class="report-tile no-member" data-tile-id="people-insights" onclick="runPeopleInsights()">
       <div class="tile-icon">&#128196;</div>
       <div class="tile-title">People Insights</div>
       <div class="tile-desc">Growth, age, gender, households, sacramental pipeline</div>
     </div>
-    <div class="report-tile require-finance">
+    <div class="report-tile" data-tile-id="attendance-summary">
+      <div class="tile-icon">&#128197;</div>
+      <div class="tile-title">Attendance Summary</div>
+      <div class="tile-desc">
+        <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year Sunday attendance comparison.</div>
+        <div id="rpts-att-years" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
+        <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runAttendanceRpt()">Run Report</button>
+      </div>
+    </div>
+    <div class="report-tile require-finance" data-tile-id="giving-by-fund">
       <div class="tile-icon">&#128200;</div>
       <div class="tile-title">Giving by Fund</div>
       <div class="tile-desc">
@@ -178,7 +190,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingSummary()">Run Report</button>
       </div>
     </div>
-    <div class="report-tile require-finance">
+    <div class="report-tile require-finance" data-tile-id="giving-by-method">
       <div class="tile-icon">&#128179;</div>
       <div class="tile-title">Giving by Method</div>
       <div class="tile-desc">
@@ -187,7 +199,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingByMethod()">Run Report</button>
       </div>
     </div>
-    <div class="report-tile require-finance">
+    <div class="report-tile require-finance" data-tile-id="giving-statement">
       <div class="tile-icon">&#128196;</div>
       <div class="tile-title">Giving Statement</div>
       <div class="tile-desc">
@@ -211,9 +223,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
       </div>
     </div>
-  </div>
-  <div class="report-tiles require-finance" style="margin-top:0;padding-top:0;">
-    <div class="report-tile">
+    <div class="report-tile require-finance" data-tile-id="giving-trend">
       <div class="tile-icon">&#128200;</div>
       <div class="tile-title">Giving Trend</div>
       <div class="tile-desc">
@@ -222,7 +232,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingTrend()">Run Report</button>
       </div>
     </div>
-    <div class="report-tile">
+    <div class="report-tile require-finance" data-tile-id="giving-insights">
       <div class="tile-icon">&#128202;</div>
       <div class="tile-title">Giving Insights</div>
       <div class="tile-desc">
@@ -231,7 +241,16 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingInsights()">Run Report</button>
       </div>
     </div>
-    <div class="report-tile">
+    <div class="report-tile require-finance" data-tile-id="giving-yoy">
+      <div class="tile-icon">&#128200;</div>
+      <div class="tile-title">Giving Trends</div>
+      <div class="tile-desc">
+        <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year giving changes per person — who increased, decreased, or lapsed.</div>
+        <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-yoy-year" name="rpt-yoy-year" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+        <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingYoy()">Run Report</button>
+      </div>
+    </div>
+    <div class="report-tile require-finance" data-tile-id="giving-vs-attendance">
       <div class="tile-icon">&#128202;</div>
       <div class="tile-title">Giving &times; Attendance</div>
       <div class="tile-desc">
@@ -241,7 +260,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingVsAttendance()">Run Report</button>
       </div>
     </div>
-    <div class="report-tile">
+    <div class="report-tile require-finance" data-tile-id="batch-send-statements">
       <div class="tile-icon">&#128140;</div>
       <div class="tile-title">Batch Send Statements</div>
       <div class="tile-desc">
@@ -250,6 +269,20 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchStatementGivers()">Load Givers</button>
         <div id="batch-stmt-status" class="import-status" style="margin-top:6px;"></div>
         <div id="batch-stmt-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="rpt-cust-modal" onclick="if(event.target===this)closeModal('rpt-cust-modal')">
+    <div class="modal" style="max-width:480px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Customize Report Tiles</h3>
+        <button onclick="closeModal('rpt-cust-modal')" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:var(--warm-gray);">&#x2715;</button>
+      </div>
+      <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:10px;">Check to show. Drag &#9776; or use &#8593;&#8595; to reorder.</div>
+      <div id="rpt-cust-list" style="max-height:400px;overflow-y:auto;"></div>
+      <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">
+        <button class="btn-secondary" onclick="closeModal('rpt-cust-modal')">Cancel</button>
+        <button class="btn-primary" onclick="rptSaveCustomize()">Save</button>
       </div>
     </div>
   </div>
