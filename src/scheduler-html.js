@@ -2285,22 +2285,24 @@ function buildCell(pid, pMap, rowIdx, role, svc, rowspan) {
   people.forEach(function(p){ if ((p.primaryFor||[]).indexOf(role) > -1 && !primaryPerson) primaryPerson = p; });
   var isPrimary = !isOverride && pid && primaryPerson && pid === primaryPerson.id;
 
-  // Build dropdown pool — always include primary person if not blacked out
+  // Build dropdown pool — show ALL role-holders regardless of service preference
+  // so admins can fill in across services. Blackout dates and absences still exclude people.
   var pool = people.filter(function(p){
-    if (primaryPerson && p.id === primaryPerson.id) {
-      // Include primary person if not blacked out (ignore preferredSundays for primary)
-      var blacked = (p.blackoutDates || []).indexOf(dateISO) !== -1 || isOnAbsence(p, dateISO);
-      var svcOk = svc === 'shared' || p.servicePreference === 'both' || p.servicePreference === svc;
-      return p.roles.indexOf(role) > -1 && !blacked && svcOk;
-    }
-    // Manual dropdown shows all role+service matches regardless of preferred Sunday
     var blacked = (p.blackoutDates || []).indexOf(dateISO) !== -1 || isOnAbsence(p, dateISO);
-    var svcOk = svc === 'shared' || p.servicePreference === 'both' || p.servicePreference === svc;
-    return p.roles.indexOf(role) > -1 && !blacked && svcOk;
+    return p.roles.indexOf(role) > -1 && !blacked;
+  });
+  // Sort: people who prefer this service (or both) first, then the other service
+  pool.sort(function(a, b){
+    var aMatch = svc === 'shared' || a.servicePreference === 'both' || a.servicePreference === svc;
+    var bMatch = svc === 'shared' || b.servicePreference === 'both' || b.servicePreference === svc;
+    if (aMatch !== bMatch) return aMatch ? -1 : 1;
+    return a.name.localeCompare(b.name);
   });
   var opts = '<option value="">-- unassigned --</option>';
   pool.forEach(function(p){
-    opts += '<option value="'+esc(p.id)+'"'+(pid===p.id?' selected':'')+'>'+esc(p.name)+'</option>';
+    var prefMatch = svc === 'shared' || p.servicePreference === 'both' || p.servicePreference === svc;
+    var label = prefMatch ? esc(p.name) : esc(p.name) + ' • other svc';
+    opts += '<option value="'+esc(p.id)+'"'+(pid===p.id?' selected':'')+'>'+label+'</option>';
   });
   // If current person isn't in pool at all, still show them with a warning
   if (pid && pMap[pid] && !pool.some(function(p){ return p.id===pid; })) {

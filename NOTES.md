@@ -129,6 +129,9 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-06-16
+- **v1.1.1**: Scheduler assignment dropdowns now show ALL people with the role, regardless of service preference. Previously only people marked for that specific service (or "both") appeared. The pool now sorts preferred-service people first, with cross-service fills labeled `• other svc` so admins can see at a glance who's a stretch pick. Blackout dates and absences still exclude people. Auto-scheduling logic unchanged.
+
 ### 2026-05-21
 - **v228**: Scheduler integrations panel now shows real env-var presence. `/admin/api/scheduler/config` includes `hasBreezeApiKey` / `hasResendKey` / `hasWorkerSecret` booleans. Frontend init flips the secret rows to ✓ green ("configured on server") or ✗ red ("not configured"), and value rows (Breeze subdomain / Worker URL / From address) show "(not configured)" in red italic when the corresponding env var is missing. Replaces the prior hardcoded "configured on server" labels that lied when the env var was absent. Makes "EMAIL_FROM is unset" diagnosable from the UI without checking Cloudflare Dashboard.
 - **v227**: Fix scheduler reminder emails returning 401. v184 had made `env.RESEND_API_KEY` win over the `X-Resend-Key` header at `/email/send`, so the key saved in the scheduler UI was being ignored. If the env key was unset, expired, or registered to a different sender domain than Resend had verified, scheduler emails got rejected even though the UI had a working key. Reverted `/email/send` to header-first, env-fallback. Cron birthday/anniversary paths in api-emails.js still use env directly so v184's consolidation goal stays intact for them.
