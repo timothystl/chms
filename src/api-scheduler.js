@@ -283,12 +283,13 @@ export async function handleSchedEmailSend(req, env) {
 export async function handleSchedRsvpStore(req, env) {
   let body;
   try { body = await req.json(); } catch { return schedJson({ error: 'Invalid JSON' }, 400); }
-  const { token, name, personId, notifyEmail, assignments } = body;
+  const { token, name, personId, email, notifyEmail, assignments } = body;
   if (!token) return schedJson({ error: 'Missing token' }, 400);
   const existing = await schedKvGet(env, token);
-  const record = existing || { token, name, personId, notifyEmail: notifyEmail||'', assignments: assignments||[], responses: {} };
+  const record = existing || { token, name, personId, email: email||'', notifyEmail: notifyEmail||'', assignments: assignments||[], responses: {} };
   record.name        = name        || record.name;
   record.personId    = personId    || record.personId;
+  record.email       = email       || record.email;
   record.notifyEmail = notifyEmail || record.notifyEmail;
   record.assignments = assignments || record.assignments;
   await schedKvPut(env, token, record);
@@ -463,13 +464,15 @@ export async function handleSchedRsvp(req, env, url) {
       const assignmentLines = (record.assignments||[]).map(function(a) {
         return '  • '+a.date+' — '+formatServiceTime(a.svc)+' — '+a.role;
       }).join('\n');
+      const notifPayload = { from: emailFrom, to: notifyEmail,
+        subject: 'Worship Scheduler: '+record.name+' — '+statusLabel,
+        text: record.name+' responded to their worship service assignments.\n\nStatus: '+statusLabel+'\n\nAssignments:\n'+assignmentLines,
+      };
+      if (record.email) notifPayload.reply_to = record.email;
       await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer '+resendKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: emailFrom, to: notifyEmail,
-          subject: 'Worship Scheduler: '+record.name+' — '+statusLabel,
-          text: record.name+' responded to their worship service assignments.\n\nStatus: '+statusLabel+'\n\nAssignments:\n'+assignmentLines,
-        }),
+        body: JSON.stringify(notifPayload),
       }).catch(function(){});
     }
   }

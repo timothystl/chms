@@ -2976,6 +2976,8 @@ function sendReminderEmails() {
               token:       token,
               name:        person.name,
               personId:    person.id,
+              email:       person.email || '',
+              notifyEmail: s.replyTo || '',
               assignments: assignments.map(function(a) {
                 return { date: a.date, dateISO: a.dateISO, svc: a.svc, role: a.role };
               }),
@@ -3314,6 +3316,7 @@ function _sendWeekReminders() {
             headers: Object.assign({ 'Content-Type': 'application/json' }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
             body: JSON.stringify({
               token: token, name: person.name, personId: person.id,
+              email: person.email || '', notifyEmail: s.replyTo || '',
               assignments: assignments.map(function(a){
                 return { date: a.date, dateISO: a.dateISO, svc: a.svc, role: a.role };
               }),
