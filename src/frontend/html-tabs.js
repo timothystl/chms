@@ -698,6 +698,69 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <div id="vol-signups-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
     </div>
+    <!-- Ministry Roles management -->
+    <div id="vol-mroles-section" style="margin-bottom:28px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+        <h3 style="font-size:1rem;font-weight:600;color:var(--charcoal);">Ministry Roles <span id="vol-mroles-count" style="background:var(--navy);color:#fff;border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">…</span></h3>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <select id="vol-mroles-ministry" class="form-input" style="font-size:.82rem;padding:4px 8px;width:auto;" onchange="volLoadMinistryRoles()">
+            <option value="worship">Worship</option>
+            <option value="education">Education</option>
+            <option value="acceptance">Acceptance</option>
+            <option value="outreach">Outreach</option>
+            <option value="transportation">Transportation</option>
+            <option value="general">General</option>
+          </select>
+          <button class="btn-primary" style="font-size:.82rem;" onclick="volShowMRoleForm()">+ Add Role</button>
+        </div>
+      </div>
+      <!-- Add / Edit form -->
+      <div id="vol-mrole-form" style="display:none;background:var(--white);border-radius:10px;border:1px solid var(--border);padding:16px;margin-bottom:12px;">
+        <div style="font-size:.88rem;font-weight:600;color:var(--charcoal);margin-bottom:10px;" id="vol-mrole-form-title">Add Role</div>
+        <input type="hidden" id="vol-mrole-editing-id" value="">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+          <div style="flex:2;min-width:180px;">
+            <label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Role Name *</label>
+            <input type="text" id="vol-mrole-name" class="form-input" style="width:100%;" placeholder="e.g. Sunday Worship Care">
+          </div>
+          <div style="flex:1;min-width:130px;" id="vol-mrole-ministry-wrap">
+            <label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Ministry</label>
+            <select id="vol-mrole-ministry-sel" class="form-input" style="width:100%;">
+              <option value="worship">Worship</option>
+              <option value="education">Education</option>
+              <option value="acceptance">Acceptance</option>
+              <option value="outreach">Outreach</option>
+              <option value="transportation">Transportation</option>
+              <option value="general">General</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-bottom:8px;">
+          <label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Description</label>
+          <textarea id="vol-mrole-desc" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:.85rem;font-family:inherit;height:64px;resize:vertical;" placeholder="Brief description of this role…"></textarea>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+          <div style="flex:1;min-width:150px;">
+            <label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Commitment</label>
+            <input type="text" id="vol-mrole-commitment" class="form-input" style="width:100%;" placeholder="e.g. After second service">
+          </div>
+          <div style="flex:1;min-width:150px;">
+            <label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Training</label>
+            <input type="text" id="vol-mrole-training" class="form-input" style="width:100%;" placeholder="e.g. 15-minute walk-through">
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
+          <input type="checkbox" id="vol-mrole-active" checked style="width:auto;margin:0;">
+          <label for="vol-mrole-active" style="font-size:.83rem;cursor:pointer;">Visible on volunteer signup page</label>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-primary" style="font-size:.82rem;" id="vol-mrole-save-btn" onclick="volSaveMinistryRole()">Save Role</button>
+          <button class="btn-secondary" style="font-size:.82rem;" onclick="volCancelMRoleForm()">Cancel</button>
+        </div>
+      </div>
+      <div id="vol-mroles-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
+    </div>
+
     <!-- Events management -->
     <div id="vol-events-section" style="margin-bottom:28px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">

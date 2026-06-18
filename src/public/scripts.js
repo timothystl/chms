@@ -1,11 +1,42 @@
 export const PUBLIC_SCRIPTS = `<script>
 // ── Page navigation ───────────────────────────────────────────────────
+var _dynRolesLoaded = {};
+function loadDynamicMinistryRoles(ministry) {
+  if (_dynRolesLoaded[ministry]) return;
+  var grid = document.querySelector('#page-' + ministry + ' .role-grid');
+  if (!grid) return;
+  _dynRolesLoaded[ministry] = true;
+  fetch('/api/ministry-roles?ministry=' + ministry)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var roles = data.roles || [];
+      if (!roles.length) return;
+      var html = roles.map(function(r) {
+        var idKey = 'r-dyn-' + r.id;
+        var meta = '';
+        if (r.commitment) meta += '<div class="role-meta-item"><strong>Commitment:</strong> ' + escH(r.commitment) + '</div>';
+        if (r.training) meta += '<div class="role-meta-item"><strong>Training:</strong> ' + escH(r.training) + '</div>';
+        return '<label class="role-card" for="' + idKey + '">'
+          + '<input type="checkbox" id="' + idKey + '" name="roles" value="' + escH(r.name) + '" data-ministry="' + ministry + '">'
+          + '<div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">' + escH(r.name) + '</span></div>'
+          + (r.description ? '<p class="role-desc">' + escH(r.description) + '</p>' : '')
+          + (meta ? '<div class="role-meta">' + meta + '</div>' : '')
+          + '</label>';
+      }).join('');
+      grid.insertAdjacentHTML('beforeend', html);
+    })
+    .catch(function() {});
+}
+
 function navigate(pageId) {
   document.querySelectorAll('.app-page').forEach(function(p) { p.hidden = true; });
   var target = document.getElementById('page-' + pageId);
   if (target) { target.hidden = false; }
   window.scrollTo({ top: 0, behavior: 'instant' });
   if (pageId === 'events') { loadDynamicEvents(); }
+  if (pageId === 'worship' || pageId === 'education' || pageId === 'acceptance' || pageId === 'outreach') {
+    loadDynamicMinistryRoles(pageId);
+  }
   var sb = document.getElementById('sticky-back');
   if (sb) sb.style.display = pageId === 'landing' ? 'none' : 'inline-flex';
   history.pushState({ page: pageId }, '', pageId === 'landing' ? location.pathname : '#' + pageId);
@@ -18,6 +49,9 @@ window.addEventListener('popstate', function(e) {
   if (target) { target.hidden = false; }
   window.scrollTo({ top: 0, behavior: 'instant' });
   if (pageId === 'events') { loadDynamicEvents(); }
+  if (pageId === 'worship' || pageId === 'education' || pageId === 'acceptance' || pageId === 'outreach') {
+    loadDynamicMinistryRoles(pageId);
+  }
   var sb = document.getElementById('sticky-back');
   if (sb) sb.style.display = pageId === 'landing' ? 'none' : 'inline-flex';
 });

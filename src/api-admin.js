@@ -555,7 +555,55 @@ export async function handleAdminApi(req, env, url, method) {
     return handleSignupSendEmail(req, env, parseInt(sendMatch[1]));
   }
 
+  // ── Ministry Roles CRUD ───────────────────────────────────────────────
+  if (seg === 'ministry-roles' && method === 'GET') {
+    const ministry = url.searchParams.get('ministry') || '';
+    let q = 'SELECT * FROM ministry_roles';
+    const binds = [];
+    if (ministry) { q += ' WHERE ministry=?'; binds.push(ministry); }
+    q += ' ORDER BY sort_order, id';
+    const rows = await env.DB.prepare(q).bind(...binds).all();
+    return json({ roles: rows.results || [] });
+  }
+
+  if (seg === 'ministry-roles' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    if (!b.name || !b.ministry) return json({ error: 'name and ministry required' }, 400);
+    const VALID_MIN = ['worship','education','acceptance','outreach','transportation','general','lasm','wol','cfna'];
+    if (!VALID_MIN.includes(b.ministry)) return json({ error: 'Invalid ministry' }, 400);
+    const r = await env.DB.prepare(
+      'INSERT INTO ministry_roles (ministry,name,description,commitment,training,sort_order,active) VALUES (?,?,?,?,?,?,1)'
+    ).bind(b.ministry, b.name.trim(), b.description||'', b.commitment||'', b.training||'', b.sort_order||0).run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+
+  if (seg.match(/^ministry-roles\/\d+$/) && method === 'PUT') {
+    const id = parseInt(seg.split('/')[1]);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    await env.DB.prepare(
+      'UPDATE ministry_roles SET name=?,description=?,commitment=?,training=?,sort_order=?,active=? WHERE id=?'
+    ).bind(b.name||'', b.description||'', b.commitment||'', b.training||'', b.sort_order||0, b.active===false?0:1, id).run();
+    return json({ ok: true });
+  }
+
+  if (seg.match(/^ministry-roles\/\d+$/) && method === 'DELETE') {
+    const id = parseInt(seg.split('/')[1]);
+    await env.DB.prepare('DELETE FROM ministry_roles WHERE id=?').bind(id).run();
+    return json({ ok: true });
+  }
+
   return json({ error: 'Not found' }, 404);
+}
+
+// ── Public: ministry roles (no auth required) ─────────────────────────────────
+export async function handleApiMinistryRoles(env, url) {
+  const ministry = url.searchParams.get('ministry') || '';
+  let q = 'SELECT id,ministry,name,description,commitment,training,sort_order FROM ministry_roles WHERE active=1';
+  const binds = [];
+  if (ministry) { q += ' AND ministry=?'; binds.push(ministry); }
+  q += ' ORDER BY sort_order, id';
+  const rows = await env.DB.prepare(q).bind(...binds).all();
+  return json({ roles: rows.results || [] });
 }
 
 // ── Forgot password / reset (public) ─────────────────────────────────────────
