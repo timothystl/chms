@@ -262,6 +262,18 @@ export const DB_INIT = [
     subject    TEXT NOT NULL DEFAULT '',
     body       TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  // Ministry Roles: standing volunteer roles per ministry page
+  `CREATE TABLE IF NOT EXISTS ministry_roles (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ministry    TEXT    NOT NULL DEFAULT '',
+    name        TEXT    NOT NULL DEFAULT '',
+    description TEXT    NOT NULL DEFAULT '',
+    commitment  TEXT    NOT NULL DEFAULT '',
+    training    TEXT    NOT NULL DEFAULT '',
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    active      INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
   )`
 ];
 
@@ -569,6 +581,18 @@ async function _doInitDb(db) {
     'CREATE INDEX IF NOT EXISTS idx_giving_breeze ON giving_entries(breeze_id)',
     // AU1: email column on app_users for password reset flow.
     'ALTER TABLE app_users ADD COLUMN email TEXT NOT NULL DEFAULT ""',
+    // Ministry Roles: standing volunteer roles per ministry category
+    `CREATE TABLE IF NOT EXISTS ministry_roles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ministry TEXT NOT NULL DEFAULT '',
+      name TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      commitment TEXT NOT NULL DEFAULT '',
+      training TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

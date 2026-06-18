@@ -637,5 +637,129 @@ function volAddRole(evId) {
     volLoadEvents(evId);
   }).catch(function(e){alert('Error: '+e);});
 }
+
+// ── MINISTRY ROLES ─────────────────────────────────────────────────────
+
+function volLoadMinistryRoles() {
+  var ministry = (document.getElementById('vol-mroles-ministry')||{}).value || 'worship';
+  var listEl = document.getElementById('vol-mroles-list');
+  var countEl = document.getElementById('vol-mroles-count');
+  if (listEl) listEl.innerHTML = '<span style="color:var(--warm-gray);">Loading…</span>';
+  api('/admin/api/ministry-roles?ministry=' + encodeURIComponent(ministry))
+    .then(function(d) {
+      var roles = d.roles || [];
+      if (countEl) countEl.textContent = roles.length;
+      if (!roles.length) {
+        if (listEl) listEl.innerHTML = '<div style="padding:14px 0;text-align:center;color:var(--warm-gray);font-size:.85rem;">No roles yet. Click “+ Add Role” to create one.</div>';
+        return;
+      }
+      if (listEl) listEl.innerHTML = roles.map(function(r) {
+        var activeBadge = r.active
+          ? '<span style="font-size:.7rem;background:rgba(39,174,96,.1);color:#1a7a3a;border:1px solid rgba(39,174,96,.3);border-radius:6px;padding:1px 7px;">Visible</span>'
+          : '<span style="font-size:.7rem;background:rgba(192,57,43,.08);color:var(--danger);border:1px solid rgba(192,57,43,.2);border-radius:6px;padding:1px 7px;">Hidden</span>';
+        var meta = [];
+        if (r.commitment) meta.push('<strong>Commitment:</strong> ' + esc(r.commitment));
+        if (r.training) meta.push('<strong>Training:</strong> ' + esc(r.training));
+        return '<div style="background:var(--white);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:7px;">'
+          + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">'
+          + '<div style="min-width:0;">'
+          + '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">'
+          + '<span style="font-weight:600;font-size:.9rem;">' + esc(r.name) + '</span>' + activeBadge
+          + '</div>'
+          + (r.description ? '<div style="font-size:.82rem;color:#4A4860;margin-top:3px;">' + esc(r.description) + '</div>' : '')
+          + (meta.length ? '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:3px;">' + meta.join(' &nbsp;&bull;&nbsp; ') + '</div>' : '')
+          + '</div>'
+          + '<div style="display:flex;gap:5px;flex-shrink:0;">'
+          + '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;" onclick="volEditMinistryRole(' + r.id + ')">Edit</button>'
+          + '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;color:var(--danger);border-color:rgba(192,57,43,.3);" onclick="volDeleteMinistryRole(' + r.id + ')">Del</button>'
+          + '</div></div></div>';
+      }).join('');
+    })
+    .catch(function() { if (listEl) listEl.innerHTML = '<span style="color:var(--danger);">Error loading roles.</span>'; });
+}
+
+function volShowMRoleForm() {
+  var ministry = (document.getElementById('vol-mroles-ministry')||{}).value || 'worship';
+  var editingEl = document.getElementById('vol-mrole-editing-id');
+  if (editingEl) editingEl.value = '';
+  var titleEl = document.getElementById('vol-mrole-form-title');
+  if (titleEl) titleEl.textContent = 'Add Role';
+  var saveBtn = document.getElementById('vol-mrole-save-btn');
+  if (saveBtn) saveBtn.textContent = 'Save Role';
+  var sel = document.getElementById('vol-mrole-ministry-sel');
+  if (sel) sel.value = ministry;
+  ['vol-mrole-name','vol-mrole-desc','vol-mrole-commitment','vol-mrole-training'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.value = '';
+  });
+  var activeEl = document.getElementById('vol-mrole-active');
+  if (activeEl) activeEl.checked = true;
+  var formEl = document.getElementById('vol-mrole-form');
+  if (formEl) { formEl.style.display = ''; formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+}
+
+function volCancelMRoleForm() {
+  var formEl = document.getElementById('vol-mrole-form');
+  if (formEl) formEl.style.display = 'none';
+  var editingEl = document.getElementById('vol-mrole-editing-id');
+  if (editingEl) editingEl.value = '';
+}
+
+function volEditMinistryRole(id) {
+  api('/admin/api/ministry-roles?ministry=')
+    .then(function(d) {
+      var role = (d.roles || []).find(function(r) { return r.id === id; });
+      if (!role) { alert('Role not found.'); return; }
+      var editingEl = document.getElementById('vol-mrole-editing-id');
+      if (editingEl) editingEl.value = id;
+      var titleEl = document.getElementById('vol-mrole-form-title');
+      if (titleEl) titleEl.textContent = 'Edit Role';
+      var saveBtn = document.getElementById('vol-mrole-save-btn');
+      if (saveBtn) saveBtn.textContent = 'Save Changes';
+      var nameEl = document.getElementById('vol-mrole-name'); if (nameEl) nameEl.value = role.name || '';
+      var descEl = document.getElementById('vol-mrole-desc'); if (descEl) descEl.value = role.description || '';
+      var commEl = document.getElementById('vol-mrole-commitment'); if (commEl) commEl.value = role.commitment || '';
+      var trainEl = document.getElementById('vol-mrole-training'); if (trainEl) trainEl.value = role.training || '';
+      var activeEl = document.getElementById('vol-mrole-active'); if (activeEl) activeEl.checked = role.active !== 0;
+      var sel = document.getElementById('vol-mrole-ministry-sel'); if (sel) sel.value = role.ministry || 'worship';
+      var formEl = document.getElementById('vol-mrole-form');
+      if (formEl) { formEl.style.display = ''; formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+    });
+}
+
+function volSaveMinistryRole() {
+  var editingId = parseInt((document.getElementById('vol-mrole-editing-id')||{}).value || '0');
+  var name = ((document.getElementById('vol-mrole-name')||{}).value || '').trim();
+  if (!name) { alert('Role name is required.'); return; }
+  var ministry = (document.getElementById('vol-mrole-ministry-sel')||{}).value || 'worship';
+  var desc = (document.getElementById('vol-mrole-desc')||{}).value || '';
+  var commitment = (document.getElementById('vol-mrole-commitment')||{}).value || '';
+  var training = (document.getElementById('vol-mrole-training')||{}).value || '';
+  var active = (document.getElementById('vol-mrole-active')||{}).checked !== false;
+  var saveBtn = document.getElementById('vol-mrole-save-btn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+  var method = editingId ? 'PUT' : 'POST';
+  var url = '/admin/api/ministry-roles' + (editingId ? '/' + editingId : '');
+  api(url, {
+    method: method, headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, ministry: ministry, description: desc, commitment: commitment, training: training, active: active })
+  }).then(function(d) {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = editingId ? 'Save Changes' : 'Save Role'; }
+    if (!d.ok && !d.id) { alert(d.error || 'Save failed'); return; }
+    // Switch ministry filter to match saved role and reload
+    var filterSel = document.getElementById('vol-mroles-ministry');
+    if (filterSel) filterSel.value = ministry;
+    volCancelMRoleForm();
+    volLoadMinistryRoles();
+  }).catch(function(e) {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = editingId ? 'Save Changes' : 'Save Role'; }
+    alert('Error: ' + e);
+  });
+}
+
+function volDeleteMinistryRole(id) {
+  if (!confirm('Delete this role? Existing sign-ups will not be affected.')) return;
+  api('/admin/api/ministry-roles/' + id, { method: 'DELETE' })
+    .then(function() { volLoadMinistryRoles(); });
+}
 </script>
 `;
