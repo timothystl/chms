@@ -1,8 +1,8 @@
 export const JS_DASHBOARD = String.raw`// ── DASHBOARD ─────────────────────────────────────────────────────────
 var _dashData = null;
 var _dashMonth = new Date().getMonth() + 1; // 1-12, default current month
-var DASH_PREF_DEFAULTS = {weeklyTasks:true, prayers:true, followUp:true, newContacts:true, reviewQueue:false, firstGivers:true, notSeen:true, birthdays:true, anniversaries:true, membership:true};
-var DASH_PREF_LABELS = {weeklyTasks:'This Week\'s Tasks', prayers:'Prayer Requests', followUp:'Follow-up Queue', newContacts:'New Contacts', reviewQueue:'Visitor Review Batch', firstGivers:'First-Time Givers', notSeen:'Not Seen Recently', birthdays:'Birthdays', anniversaries:'Anniversaries', membership:'Membership by Type'};
+var DASH_PREF_DEFAULTS = {weeklyTasks:true, prayers:true, followUp:true, newContacts:true, reviewQueue:false, firstGivers:true, notSeen:true, birthdays:true, anniversaries:true, baptismAnniversaries:true, membership:true};
+var DASH_PREF_LABELS = {weeklyTasks:'This Week\'s Tasks', prayers:'Prayer Requests', followUp:'Follow-up Queue', newContacts:'New Contacts', reviewQueue:'Visitor Review Batch', firstGivers:'First-Time Givers', notSeen:'Not Seen Recently', birthdays:'Birthdays', anniversaries:'Anniversaries', baptismAnniversaries:'Baptism Anniversaries', membership:'Membership by Type'};
 function dashGetPrefs() {
   if (!_dashPrefs) {
     try { _dashPrefs = Object.assign({}, DASH_PREF_DEFAULTS, JSON.parse(localStorage.getItem('dashCardPrefs')||'{}')); }
@@ -290,6 +290,28 @@ function dashCopyAnniversaries() {
     if (btn) { btn.textContent = 'Copied!'; setTimeout(function(){ btn.innerHTML = '&#128203;'; }, 1500); }
   });
 }
+function dashCopyBaptisms() {
+  var d = _dashData;
+  if (!d) return;
+  var yr = new Date().getFullYear();
+  var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var mnShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var mn = monthNames[(_dashMonth - 1)];
+  var list = d.baptismAnniversaries || [];
+  var lines = ['Baptism Anniversaries — ' + mn + ' ' + yr, ''];
+  if (list.length) {
+    list.forEach(function(p) {
+      var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+      lines.push('  ' + _dashBulletinDate(p.baptism_date, mnShort) + '  ' + name);
+    });
+  } else {
+    lines.push('  None this month.');
+  }
+  navigator.clipboard.writeText(lines.join('\n')).then(function() {
+    var btn = document.getElementById('dash-copy-bap-btn');
+    if (btn) { btn.textContent = 'Copied!'; setTimeout(function(){ btn.innerHTML = '&#128203;'; }, 1500); }
+  });
+}
 function renderDashboard(d) {
   var body = document.getElementById('dash-body');
   if (!body) return;
@@ -567,7 +589,7 @@ function renderDashboard(d) {
   var mnShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var curMonth = d.dashMonth || _dashMonth;
   var navBtn = 'background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:14px;color:var(--charcoal);';
-  var bdList = d.birthdays || [], annList = d.anniversaries || [];
+  var bdList = d.birthdays || [], annList = d.anniversaries || [], bapList = d.baptismAnniversaries || [];
 
   // ── Birthdays card ─────────────────────────────────────────────
   if (prefs.birthdays) {
@@ -619,6 +641,35 @@ function renderDashboard(d) {
         var bg = pvColors[p.id % pvColors.length];
         var parts = (p.anniversary_date||'').split('-');
         var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : p.anniversary_date;
+        return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
+          + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+          + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
+          + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
+          + '</div>';
+      }).join('');
+    }
+    html += '</div></div>';
+  }
+
+  // ── Baptism Anniversaries card ─────────────────────────────────
+  if (prefs.baptismAnniversaries) {
+    html += '<div class="dash-card">'
+      + '<div class="dash-card-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">'
+      + '<span>Baptism Anniversaries</span>'
+      + '<div style="display:flex;align-items:center;gap:4px;">'
+      + '<span style="font-size:12px;font-weight:400;color:var(--warm-gray);">'+mnArr[curMonth-1]+'</span>'
+      + '<button id="dash-copy-bap-btn" style="'+navBtn+'margin-left:2px;" onclick="dashCopyBaptisms()" title="Copy for bulletin">&#128203;</button>'
+      + '</div></div>'
+      + '<div class="dash-card-body">';
+    if (!bapList.length) {
+      html += '<div style="padding:16px 18px;color:var(--faint);font-size:13px;font-style:italic;">No baptism anniversaries in '+mnArr[curMonth-1]+'.</div>';
+    } else {
+      html += bapList.map(function(p) {
+        var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+        var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
+        var bg = pvColors[p.id % pvColors.length];
+        var parts = (p.baptism_date||'').split('-');
+        var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : esc(p.baptism_date||'');
         return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
           + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
           + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
