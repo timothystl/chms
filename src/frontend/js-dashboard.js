@@ -58,6 +58,14 @@ function reviewMark(personId) {
   });
 }
 
+function reviewMarkAll() {
+  var btn = document.getElementById('rq-mark-all-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Marking…'; }
+  api('/admin/api/engagement/mark-all-reviewed', { method: 'POST' }).then(function(d) {
+    if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.textContent = 'Mark All Reviewed'; } return; }
+    loadDashboard();
+  });
+}
 function reviewArchive(personId, name) {
   if (!confirm('Archive ' + (name || 'this person') + '? They will be hidden from the active list. You can restore later from their profile.')) return;
   api('/admin/api/people/' + personId + '/archive', { method: 'POST' }).then(function(d) {
@@ -508,8 +516,10 @@ function renderDashboard(d) {
     var rqTotal  = d.reviewQueueTotal || 0;
     html += '<div class="dash-section-hdr">'
       + '<span>Visitor Review Batch</span>'
-      + '<span style="font-size:12px;color:var(--warm-gray);font-weight:400;">'
-      + (rqTotal ? rqTotal + ' pending review' : 'all reviewed') + '</span></div>';
+      + '<span style="font-size:12px;color:var(--warm-gray);font-weight:400;margin-right:auto;">'
+      + (rqTotal ? rqTotal + ' pending review' : 'all reviewed') + '</span>'
+      + (rqTotal ? '<button id="rq-mark-all-btn" class="btn-secondary" style="font-size:.72rem;padding:3px 10px;" onclick="reviewMarkAll()" title="Set last_reviewed_at=today for all '+rqTotal+' pending records">Mark All Reviewed</button>' : '')
+      + '</div>';
     html += '<div class="dash-card" style="padding:0;"><div class="dash-card-body">';
     if (rq.length) {
       html += rq.map(function(p) {
