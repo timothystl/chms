@@ -126,8 +126,10 @@ export const SEC_HEADERS = {
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
   // Tight CSP — no external scripts, no eval; inline styles/scripts are
   // required by the SPA so 'unsafe-inline' is the pragmatic choice here.
+  // cdn.jsdelivr.net allowed for on-demand SheetJS (xlsx parser, loaded only
+  // when the admin uses the Old System Comparison tool).
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src * data:; connect-src 'self'; frame-ancestors 'none';",
+    "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src * data:; connect-src 'self'; frame-ancestors 'none';",
 };
 export function html(content, status = 200, extraHeaders = {}) {
   return new Response(content, {
