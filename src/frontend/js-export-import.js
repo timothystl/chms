@@ -983,12 +983,59 @@ function _oldSysLoadSheetJS(cb) {
   document.head.appendChild(s);
 }
 
+function _oldSysParseCsv(text) {
+  var lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  if (!lines.length) return [];
+  function parseLine(line) {
+    var fields = [], cur = '', inQ = false;
+    for (var i = 0; i < line.length; i++) {
+      var c = line[i];
+      if (inQ) {
+        if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
+        else if (c === '"') { inQ = false; }
+        else { cur += c; }
+      } else {
+        if (c === '"') { inQ = true; }
+        else if (c === ',') { fields.push(cur); cur = ''; }
+        else { cur += c; }
+      }
+    }
+    fields.push(cur);
+    return fields;
+  }
+  var headers = parseLine(lines[0]);
+  var rows = [];
+  for (var i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    var vals = parseLine(lines[i]);
+    var obj = {};
+    headers.forEach(function(h, j) { obj[h] = vals[j] !== undefined ? vals[j] : ''; });
+    rows.push(obj);
+  }
+  return rows;
+}
+
 function oldSysFileSelected(input) {
   var file = input.files[0];
   if (!file) return;
   document.getElementById('old-sys-filename').textContent = file.name;
   document.getElementById('old-sys-col-map').style.display = 'none';
   document.getElementById('old-sys-results').innerHTML = '';
+  var isCsv = /\.(csv|tsv|txt)$/i.test(file.name);
+  if (isCsv) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var data = _oldSysParseCsv(e.target.result);
+        if (!data.length) { alert('File appears empty.'); return; }
+        _oldSysRows = data;
+        _oldSysHeaders = Object.keys(data[0]);
+        _oldSysRenderColumnMap();
+      } catch(err) { alert('Could not parse file: ' + err.message); }
+    };
+    reader.readAsText(file);
+    return;
+  }
   _oldSysLoadSheetJS(function() {
     var reader = new FileReader();
     reader.onload = function(e) {
