@@ -437,6 +437,24 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
     <!-- ── Data Import & Sync ─────────────────────────────────── -->
     <h2 style="font-size:1rem;font-weight:700;margin:24px 0 12px;color:var(--warm-gray);">Data Import &amp; Sync</h2>
+    <!-- Old System Comparison Card -->
+    <div class="import-card require-admin" style="margin-bottom:14px;" id="old-sys-compare-card">
+      <h3>&#128202; Old System Comparison</h3>
+      <p>Upload a spreadsheet from a previous system to compare dates (baptism, confirmation, birthday, anniversary), email, phone, and address against what&#8217;s currently in TLC Gather. Identify missing or mismatched data before deciding what to patch.</p>
+      <p style="font-size:.82rem;color:var(--warm-gray);margin-bottom:10px;">Accepts <strong>.xlsx</strong> (Excel). Matches people by full name. After upload, map your column headers to the fields below, then run the comparison.</p>
+      <input type="file" id="old-sys-file" accept=".xlsx,.xls" style="display:none;" onchange="oldSysFileSelected(this)">
+      <button class="btn-secondary" onclick="document.getElementById('old-sys-file').click()">&#128196; Choose Spreadsheet…</button>
+      <span id="old-sys-filename" style="font-size:.82rem;color:var(--warm-gray);margin-left:10px;"></span>
+      <div id="old-sys-col-map" style="display:none;margin-top:14px;">
+        <p style="font-weight:600;font-size:.88rem;margin-bottom:8px;">Map spreadsheet columns to fields:</p>
+        <div id="old-sys-col-map-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px 18px;font-size:.84rem;max-width:560px;"></div>
+        <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+          <button class="btn-primary" onclick="runOldSysCompare()">Run Comparison</button>
+          <span id="old-sys-status" class="import-status" style="display:inline;padding:0;background:none;border:none;"></span>
+        </div>
+      </div>
+      <div id="old-sys-results" style="margin-top:18px;"></div>
+    </div>
     <div class="import-card">
       <h3>&#9729; Sync People from Breeze</h3>
       <p>Pull people records directly from the Breeze API. Existing records (matched by Breeze ID) are updated; new people are added. Dates and photos already in the system are preserved if Breeze doesn't return a value.</p>
