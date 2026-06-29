@@ -130,6 +130,7 @@ Added 2026-04-15, phased 2026-04-15.
 ## Recent Changes (newest first)
 
 ### 2026-06-23
+- **v1.2.4**: Old System Comparison tool. Upload an Excel (.xlsx) spreadsheet from a previous system. Browser parses it with SheetJS, auto-maps column headers (with manual override), sends rows to `POST /admin/api/import/old-system-compare`. API name-matches against active people and diffs: birthday, baptism date, confirmation date, anniversary date, email, phone, address. Results show tabbed by status (Differences / Not Found / Multiple Matches / Identical). "Apply Old" button per patchable field uses the existing PATCH endpoint to write the value. Admin-only.
 - **v1.2.3**: Visitor Review Batch bulk reset. "Mark All Reviewed" button in the section header sets `last_reviewed_at=today` for every pending stale visitor/friend record in one click. New `POST /admin/api/engagement/mark-all-reviewed` endpoint. Button only appears when there are records pending.
 - **v1.2.2**: Dashboard baptism anniversaries card. New "Baptism Anniversaries" card on the dashboard shows members whose `baptism_date` falls in the selected month (same month navigation as birthdays). Includes copy-for-bulletin button and is togglable via the Customize panel. API adds `baptismAnniversaries` to `/admin/api/dashboard` response.
 

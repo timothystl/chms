@@ -3139,5 +3139,110 @@ if (seg === 'import/breeze' && method === 'POST') { try {
   return json({ ok: false, error: 'Bulk import error: ' + importErr.message, _stack: (importErr.stack||'').slice(0, 500) }, 500);
 } }
 
+// ── Old System Comparison ─────────────────────────────────────────────────
+// Accepts an array of people from an old spreadsheet, matches them against the DB
+// by normalized full name, and returns a diff of 7 fields per person.
+if (seg === 'import/old-system-compare' && method === 'POST') {
+  if (!isStaff) return json({ error: 'Access denied' }, 403);
+  let b = {}; try { b = await req.json(); } catch {}
+  const rows = b.people;
+  if (!Array.isArray(rows) || !rows.length) return json({ error: 'No people provided' }, 400);
+  if (rows.length > 3000) return json({ error: 'Too many rows (max 3000)' }, 400);
+
+  const dbPeople = (await db.prepare(
+    `SELECT id, first_name, last_name, email, phone,
+            dob, baptism_date, confirmation_date, anniversary_date,
+            address1, city, state, zip
+     FROM people WHERE active=1`
+  ).all()).results || [];
+
+  const normName = (f, l) => ((String(f||'')+' '+String(l||'')).toLowerCase().replace(/\s+/g,' ').trim());
+  const nameIdx = new Map();
+  for (const p of dbPeople) {
+    const k = normName(p.first_name, p.last_name);
+    if (!nameIdx.has(k)) nameIdx.set(k, []);
+    nameIdx.get(k).push(p);
+  }
+
+  const normDate = s => {
+    if (!s) return '';
+    s = String(s).trim();
+    if (!s || /^(0|null|undefined|n\/a|none)$/i.test(s)) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const m1 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m1) return `${m1[3]}-${m1[1].padStart(2,'0')}-${m1[2].padStart(2,'0')}`;
+    const m2 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+    if (m2) { const y = parseInt(m2[3]) < 30 ? '20'+m2[3] : '19'+m2[3]; return `${y}-${m2[1].padStart(2,'0')}-${m2[2].padStart(2,'0')}`; }
+    const m3 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (m3) return `${m3[3]}-${m3[1].padStart(2,'0')}-${m3[2].padStart(2,'0')}`;
+    return s;
+  };
+  const normPhone = s => s ? String(s).replace(/\D/g,'').slice(-10) : '';
+  const normAddr  = s => s ? String(s).toLowerCase().replace(/[,.\s]+/g,' ').trim() : '';
+  const normEmail = s => s ? String(s).trim().toLowerCase() : '';
+
+  const results = [];
+  for (const row of rows) {
+    const key = normName(row.first_name, row.last_name);
+    if (!key || key.length < 2) continue;
+    const matches = nameIdx.get(key) || [];
+
+    const oldData = {
+      first_name: String(row.first_name||'').trim(),
+      last_name:  String(row.last_name||'').trim(),
+      dob:               normDate(row.dob),
+      baptism_date:      normDate(row.baptism_date),
+      confirmation_date: normDate(row.confirmation_date),
+      anniversary_date:  normDate(row.anniversary_date),
+      phone:   String(row.phone||'').trim(),
+      email:   String(row.email||'').trim(),
+      address: String(row.address||'').trim(),
+    };
+
+    if (!matches.length) {
+      results.push({ old: oldData, match: null, status: 'not_found', diffs: {} });
+      continue;
+    }
+
+    const dbP = matches[0];
+    const dbAddr = [dbP.address1, dbP.city, [dbP.state, dbP.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    const matchData = {
+      id: dbP.id, first_name: dbP.first_name, last_name: dbP.last_name,
+      dob:               normDate(dbP.dob),
+      baptism_date:      normDate(dbP.baptism_date),
+      confirmation_date: normDate(dbP.confirmation_date),
+      anniversary_date:  normDate(dbP.anniversary_date),
+      phone:   dbP.phone||'',
+      email:   dbP.email||'',
+      address: dbAddr,
+    };
+
+    const diffs = {};
+    for (const f of ['dob','baptism_date','confirmation_date','anniversary_date']) {
+      if (oldData[f] && normDate(oldData[f]) !== matchData[f]) diffs[f] = { old: oldData[f], db: matchData[f] };
+    }
+    if (oldData.phone && normPhone(oldData.phone) !== normPhone(matchData.phone)) diffs.phone = { old: oldData.phone, db: matchData.phone };
+    if (oldData.email && normEmail(oldData.email) !== normEmail(matchData.email)) diffs.email = { old: oldData.email, db: matchData.email };
+    if (oldData.address && normAddr(oldData.address) !== normAddr(dbAddr)) diffs.address = { old: oldData.address, db: dbAddr };
+
+    results.push({
+      old: oldData,
+      match: matchData,
+      status: matches.length > 1 ? 'multiple' : Object.keys(diffs).length ? 'diff' : 'match',
+      multiple_count: matches.length > 1 ? matches.length : undefined,
+      diffs,
+    });
+  }
+
+  const summary = {
+    total: results.length,
+    diff:      results.filter(r => r.status === 'diff').length,
+    not_found: results.filter(r => r.status === 'not_found').length,
+    multiple:  results.filter(r => r.status === 'multiple').length,
+    matched:   results.filter(r => r.status === 'match').length,
+  };
+  return json({ ok: true, results, summary });
+}
+
 return json({ error: 'Not found' }, 404);
 }

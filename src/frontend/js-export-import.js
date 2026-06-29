@@ -948,4 +948,219 @@ function importAttendanceTSV() {
   reader.readAsText(file);
 }
 
+// ── Old System Comparison ────────────────────────────────────────────────
+var _oldSysRows = null; // raw parsed rows from spreadsheet
+var _oldSysHeaders = [];
+var OLD_SYS_FIELDS = [
+  { key: 'first_name',       label: 'First Name',        required: true  },
+  { key: 'last_name',        label: 'Last Name',         required: true  },
+  { key: 'dob',              label: 'Birthday / DOB',    required: false },
+  { key: 'baptism_date',     label: 'Baptism Date',      required: false },
+  { key: 'confirmation_date',label: 'Confirmation Date', required: false },
+  { key: 'anniversary_date', label: 'Anniversary Date',  required: false },
+  { key: 'email',            label: 'Email',             required: false },
+  { key: 'phone',            label: 'Phone',             required: false },
+  { key: 'address',          label: 'Address',           required: false },
+];
+var OLD_SYS_AUTO_MATCH = {
+  first_name:        /^first.?name$|^fname$|^first$/i,
+  last_name:         /^last.?name$|^lname$|^last$|^surname$/i,
+  dob:               /^d\.?o\.?b\.?$|^birth.?date$|^date.?of.?birth$|^birthday$/i,
+  baptism_date:      /^baptism.?date$|^date.?baptized$|^baptized$|^baptism$/i,
+  confirmation_date: /^confirm(ation)?.?date$|^date.?confirm(ed)?$|^confirmed$/i,
+  anniversary_date:  /^anniversary.?date$|^wedding.?date$|^marriage.?date$|^anniversary$/i,
+  email:             /^e.?mail$|^email.?address$/i,
+  phone:             /^phone.?(number)?$|^cell$|^mobile$|^home.?phone$|^tel(ephone)?$/i,
+  address:           /^address$|^street$|^home.?address$|^street.?address$|^mailing.?address$/i,
+};
+
+function _oldSysLoadSheetJS(cb) {
+  if (window.XLSX) { cb(); return; }
+  var s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+  s.onload = cb;
+  s.onerror = function() { alert('Could not load Excel parser. Check your internet connection.'); };
+  document.head.appendChild(s);
+}
+
+function oldSysFileSelected(input) {
+  var file = input.files[0];
+  if (!file) return;
+  document.getElementById('old-sys-filename').textContent = file.name;
+  document.getElementById('old-sys-col-map').style.display = 'none';
+  document.getElementById('old-sys-results').innerHTML = '';
+  _oldSysLoadSheetJS(function() {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
+        var ws = wb.Sheets[wb.SheetNames[0]];
+        var data = XLSX.utils.sheet_to_json(ws, { raw: false, defval: '' });
+        if (!data.length) { alert('Spreadsheet appears empty.'); return; }
+        _oldSysRows = data;
+        _oldSysHeaders = Object.keys(data[0]);
+        _oldSysRenderColumnMap();
+      } catch(err) {
+        alert('Could not parse spreadsheet: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function _oldSysRenderColumnMap() {
+  var grid = document.getElementById('old-sys-col-map-grid');
+  var opts = ['(skip)'].concat(_oldSysHeaders).map(function(h) {
+    return '<option value="'+esc(h)+'">'+esc(h)+'</option>';
+  }).join('');
+  grid.innerHTML = OLD_SYS_FIELDS.map(function(f) {
+    // auto-detect best match
+    var autoCol = '';
+    for (var i = 0; i < _oldSysHeaders.length; i++) {
+      var re = OLD_SYS_AUTO_MATCH[f.key];
+      if (re && re.test(_oldSysHeaders[i])) { autoCol = _oldSysHeaders[i]; break; }
+    }
+    var selOpts = ['(skip)'].concat(_oldSysHeaders).map(function(h) {
+      return '<option value="'+esc(h)+'"'+(h===autoCol?' selected':'')+'>'+esc(h)+'</option>';
+    }).join('');
+    return '<div style="display:flex;align-items:center;gap:6px;">'
+      + '<label style="min-width:140px;color:var(--charcoal);">'+(f.required?'<strong>':'')+'&#8203;'+esc(f.label)+(f.required?'</strong>':'')+'</label>'
+      + '<select id="old-sys-col-'+f.key+'" style="flex:1;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:.82rem;">'+selOpts+'</select>'
+      + '</div>';
+  }).join('');
+  document.getElementById('old-sys-col-map').style.display = '';
+}
+
+function runOldSysCompare() {
+  var status = document.getElementById('old-sys-status');
+  var resultsEl = document.getElementById('old-sys-results');
+  if (!_oldSysRows || !_oldSysRows.length) { status.textContent = 'No spreadsheet loaded.'; status.className = 'import-status err'; return; }
+  // Build column map
+  var colMap = {};
+  OLD_SYS_FIELDS.forEach(function(f) {
+    var sel = document.getElementById('old-sys-col-'+f.key);
+    if (sel && sel.value && sel.value !== '(skip)') colMap[f.key] = sel.value;
+  });
+  if (!colMap.first_name || !colMap.last_name) {
+    status.textContent = 'First Name and Last Name columns are required.';
+    status.className = 'import-status err';
+    return;
+  }
+  // Extract mapped rows
+  var people = _oldSysRows.map(function(row) {
+    var p = {};
+    OLD_SYS_FIELDS.forEach(function(f) {
+      p[f.key] = colMap[f.key] ? String(row[colMap[f.key]]||'').trim() : '';
+    });
+    return p;
+  }).filter(function(p) { return p.first_name || p.last_name; });
+  if (!people.length) { status.textContent = 'No valid rows found.'; status.className = 'import-status err'; return; }
+  status.textContent = 'Comparing ' + people.length + ' rows…';
+  status.className = 'import-status';
+  resultsEl.innerHTML = '';
+  api('/admin/api/import/old-system-compare', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ people: people })
+  }).then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    status.textContent = 'Done. ' + d.summary.diff + ' with differences, ' + d.summary.not_found + ' not found, ' + d.summary.matched + ' identical.';
+    status.className = 'import-status ok';
+    _oldSysRenderResults(d.results, d.summary);
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
+var _oldSysFilter = 'diff';
+var _oldSysResultData = null;
+var _oldSysSummary = null;
+var _OLD_SYS_FIELD_LABELS = {
+  dob:'Birthday', baptism_date:'Baptism Date', confirmation_date:'Confirmation Date',
+  anniversary_date:'Anniversary Date', email:'Email', phone:'Phone', address:'Address'
+};
+var _OLD_SYS_PATCHABLE = { dob:1, baptism_date:1, confirmation_date:1, anniversary_date:1, email:1, phone:1 };
+
+function _oldSysRenderResults(results, summary) {
+  _oldSysResultData = results;
+  _oldSysSummary = summary;
+  _oldSysReRender(_oldSysFilter);
+}
+function _oldSysReRender(filter) {
+  _oldSysFilter = filter;
+  var results = _oldSysResultData;
+  var summary = _oldSysSummary;
+  if (!results) return;
+  var el = document.getElementById('old-sys-results');
+  if (!el) return;
+
+  var show = results.filter(function(r) {
+    if (filter === 'diff')      return r.status === 'diff';
+    if (filter === 'not_found') return r.status === 'not_found';
+    if (filter === 'multiple')  return r.status === 'multiple';
+    if (filter === 'match')     return r.status === 'match';
+    return true;
+  });
+
+  var tabBtns = ['diff','not_found','multiple','match','all'].map(function(f) {
+    var counts = {diff:summary.diff, not_found:summary.not_found, multiple:summary.multiple, match:summary.matched, all:summary.total};
+    var lbls = {diff:'Differences', not_found:'Not Found', multiple:'Multiple Matches', match:'Identical', all:'All'};
+    var active = f===filter ? 'background:var(--navy);color:#fff;' : 'background:var(--linen);';
+    return '<button onclick="_oldSysReRender(\''+f+'\')" style="'+active+'border:1px solid var(--border);border-radius:6px;padding:4px 12px;font-size:.8rem;cursor:pointer;white-space:nowrap;">'+lbls[f]+' ('+counts[f]+')</button>';
+  }).join('');
+
+  var rows = show.map(function(r) {
+    var name = esc((r.old.first_name||'')+' '+(r.old.last_name||''));
+    var matchLink = r.match
+      ? '<span style="color:var(--sky-steel);cursor:pointer;font-size:.8rem;" onclick="openPersonDetail('+r.match.id+')">'+esc((r.match.first_name||'')+' '+(r.match.last_name||''))+' &#8594;</span>'
+      : (r.status==='not_found'
+          ? '<span style="color:var(--danger);font-size:.8rem;">Not found in database</span>'
+          : '<span style="color:var(--gold);font-size:.8rem;">'+(r.multiple_count||'?')+' name matches — open profile to disambiguate</span>');
+    var diffRows = '';
+    if (r.diffs && Object.keys(r.diffs).length) {
+      diffRows = Object.keys(r.diffs).map(function(field) {
+        var diff = r.diffs[field];
+        var lbl = _OLD_SYS_FIELD_LABELS[field] || field;
+        var oldVal = diff.old || '(blank)';
+        var dbVal  = diff.db  || '(blank)';
+        var safeOld = diff.old.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+        var applyBtn = (_OLD_SYS_PATCHABLE[field] && r.match)
+          ? '<button class="btn-sm" style="font-size:.72rem;padding:2px 8px;background:var(--pale-sage);border:1px solid var(--soft-sage);border-radius:5px;cursor:pointer;white-space:nowrap;" onclick="oldSysApplyField('+r.match.id+',\''+field+'\',\''+safeOld+'\')" title="Set '+esc(lbl)+' to old-system value">Apply Old</button>'
+          : '';
+        return '<tr>'
+          + '<td style="padding:4px 8px;font-size:.78rem;color:var(--warm-gray);white-space:nowrap;">'+esc(lbl)+'</td>'
+          + '<td style="padding:4px 8px;font-size:.78rem;font-weight:600;color:var(--navy);">'+esc(oldVal)+'</td>'
+          + '<td style="padding:4px 8px;font-size:.78rem;color:var(--charcoal);">'+esc(dbVal)+'</td>'
+          + '<td style="padding:4px 2px;">'+applyBtn+'</td>'
+          + '</tr>';
+      }).join('');
+      diffRows = '<table style="width:100%;border-collapse:collapse;margin-top:6px;">'
+        + '<thead><tr><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">Field</th><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">Old System</th><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">TLC Gather</th><th></th></tr></thead>'
+        + '<tbody>'+diffRows+'</tbody></table>';
+    }
+    var borderColor = r.status==='diff' ? 'var(--gold)' : r.status==='not_found' ? '#e74c3c' : r.status==='multiple' ? 'var(--teal)' : 'var(--soft-sage)';
+    return '<div style="border-left:3px solid '+borderColor+';padding:8px 12px 8px 14px;margin-bottom:8px;background:var(--linen);border-radius:0 8px 8px 0;">'
+      + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+      +   '<span style="font-weight:600;font-size:.88rem;">'+name+'</span>'
+      +   matchLink
+      + '</div>'
+      + diffRows
+      + '</div>';
+  }).join('');
+
+  el.innerHTML = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">'+tabBtns+'</div>'
+    + (show.length ? rows : '<div style="color:var(--warm-gray);font-size:.85rem;padding:8px 0;">No records in this category.</div>');
+}
+function oldSysApplyField(personId, field, value) {
+  var body = {};
+  body[field] = value;
+  api('/admin/api/people/' + personId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function(d) {
+    if (d.error) { alert('Error applying field: ' + d.error); return; }
+    // Re-run comparison to refresh results
+    runOldSysCompare();
+  }).catch(function(e) { alert('Error: ' + e.message); });
+}
+
 `;
