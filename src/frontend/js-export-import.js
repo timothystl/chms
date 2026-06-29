@@ -960,7 +960,10 @@ var OLD_SYS_FIELDS = [
   { key: 'anniversary_date', label: 'Anniversary Date',  required: false },
   { key: 'email',            label: 'Email',             required: false },
   { key: 'phone',            label: 'Phone',             required: false },
-  { key: 'address',          label: 'Address',           required: false },
+  { key: 'address',          label: 'Street Address',    required: false },
+  { key: 'city',             label: 'City',              required: false },
+  { key: 'state',            label: 'State',             required: false },
+  { key: 'zip',              label: 'ZIP Code',          required: false },
 ];
 var OLD_SYS_AUTO_MATCH = {
   first_name:        /^first.?name$|^fname$|^first$/i,
@@ -971,7 +974,10 @@ var OLD_SYS_AUTO_MATCH = {
   anniversary_date:  /^anniversary.?date$|^wedding.?date$|^marriage.?date$|^anniversary$/i,
   email:             /^e.?mail$|^email.?address$/i,
   phone:             /^phone.?(number)?$|^cell$|^mobile$|^home.?phone$|^tel(ephone)?$/i,
-  address:           /^address$|^street$|^home.?address$|^street.?address$|^mailing.?address$/i,
+  address:           /^address$|^street$|^home.?address$|^street.?address$|^mailing.?address$|^address1$/i,
+  city:              /^city$|^town$|^municipality$/i,
+  state:             /^state$|^province$|^st$|^state.?code$/i,
+  zip:               /^zip$|^zip.?code$|^postal.?code$|^postal$/i,
 };
 
 function _oldSysLoadSheetJS(cb) {
@@ -1122,9 +1128,10 @@ var _oldSysResultData = null;
 var _oldSysSummary = null;
 var _OLD_SYS_FIELD_LABELS = {
   dob:'Birthday', baptism_date:'Baptism Date', confirmation_date:'Confirmation Date',
-  anniversary_date:'Anniversary Date', email:'Email', phone:'Phone', address:'Address'
+  anniversary_date:'Anniversary Date', email:'Email', phone:'Phone',
+  address:'Street Address', city:'City', state:'State', zip:'ZIP Code'
 };
-var _OLD_SYS_PATCHABLE = { dob:1, baptism_date:1, confirmation_date:1, anniversary_date:1, email:1, phone:1, address:1 };
+var _OLD_SYS_PATCHABLE = { dob:1, baptism_date:1, confirmation_date:1, anniversary_date:1, email:1, phone:1, address:1, city:1, state:1, zip:1 };
 
 function _oldSysRenderResults(results, summary) {
   _oldSysResultData = results;
@@ -1169,7 +1176,8 @@ function _oldSysReRender(filter) {
         var lbl = _OLD_SYS_FIELD_LABELS[field] || field;
         var oldVal = diff.old || '(blank)';
         var dbVal  = diff.db  || '(blank)';
-        var canApply = r.match && _OLD_SYS_PATCHABLE[field] && (field !== 'address' || diff.db_blank);
+        var addrField = field === 'address' || field === 'city' || field === 'state' || field === 'zip';
+        var canApply = r.match && _OLD_SYS_PATCHABLE[field] && (!addrField || diff.db_blank);
         var applyBtn = canApply
           ? '<button class="btn-sm" style="font-size:.72rem;padding:2px 8px;background:var(--pale-sage);border:1px solid var(--soft-sage);border-radius:5px;cursor:pointer;white-space:nowrap;" onclick="oldSysApplyField('+r.match.id+',\''+field+'\')" title="Set '+esc(lbl)+' to old-system value">Apply Old</button>'
           : '';

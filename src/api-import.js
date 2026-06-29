@@ -3233,6 +3233,9 @@ if (seg === 'import/old-system-compare' && method === 'POST') {
       phone:   String(row.phone||'').trim(),
       email:   String(row.email||'').trim(),
       address: String(row.address||'').trim(),
+      city:    String(row.city||'').trim(),
+      state:   String(row.state||'').trim(),
+      zip:     String(row.zip||'').trim(),
     };
 
     if (!matches.length) {
@@ -3250,7 +3253,10 @@ if (seg === 'import/old-system-compare' && method === 'POST') {
       anniversary_date:  normDate(dbP.anniversary_date),
       phone:   dbP.phone||'',
       email:   dbP.email||'',
-      address: dbAddr,
+      address: dbP.address1||'',
+      city:    dbP.city||'',
+      state:   dbP.state||'',
+      zip:     dbP.zip||'',
     };
 
     const diffs = {};
@@ -3259,7 +3265,12 @@ if (seg === 'import/old-system-compare' && method === 'POST') {
     }
     if (oldData.phone && normPhone(oldData.phone) !== normPhone(matchData.phone)) diffs.phone = { old: oldData.phone, db: matchData.phone };
     if (oldData.email && normEmail(oldData.email) !== normEmail(matchData.email)) diffs.email = { old: oldData.email, db: matchData.email };
-    if (oldData.address && normAddr(oldData.address) !== normAddr(dbAddr)) diffs.address = { old: oldData.address, db: dbAddr, db_blank: !dbAddr.trim() };
+    if (oldData.address && normAddr(oldData.address) !== normAddr(matchData.address)) diffs.address = { old: oldData.address, db: matchData.address, db_blank: !matchData.address.trim() };
+    for (const f of ['city','state','zip']) {
+      if (oldData[f] && oldData[f].toLowerCase().trim() !== matchData[f].toLowerCase().trim()) {
+        diffs[f] = { old: oldData[f], db: matchData[f], db_blank: !matchData[f].trim() };
+      }
+    }
 
     results.push({
       old: oldData,
