@@ -1124,7 +1124,7 @@ var _OLD_SYS_FIELD_LABELS = {
   dob:'Birthday', baptism_date:'Baptism Date', confirmation_date:'Confirmation Date',
   anniversary_date:'Anniversary Date', email:'Email', phone:'Phone', address:'Address'
 };
-var _OLD_SYS_PATCHABLE = { dob:1, baptism_date:1, confirmation_date:1, anniversary_date:1, email:1, phone:1 };
+var _OLD_SYS_PATCHABLE = { dob:1, baptism_date:1, confirmation_date:1, anniversary_date:1, email:1, phone:1, address:1 };
 
 function _oldSysRenderResults(results, summary) {
   _oldSysResultData = results;
@@ -1158,6 +1158,7 @@ function _oldSysReRender(filter) {
     var name = esc((r.old.first_name||'')+' '+(r.old.last_name||''));
     var matchLink = r.match
       ? '<span style="color:var(--sky-steel);cursor:pointer;font-size:.8rem;" onclick="openPersonDetail('+r.match.id+')">'+esc((r.match.first_name||'')+' '+(r.match.last_name||''))+' &#8594;</span>'
+          + (r.fuzzy_match ? '<span style="font-size:.72rem;color:var(--warm-gray);margin-left:4px;">(nickname match)</span>' : '')
       : (r.status==='not_found'
           ? '<span style="color:var(--danger);font-size:.8rem;">Not found in database</span>'
           : '<span style="color:var(--gold);font-size:.8rem;">'+(r.multiple_count||'?')+' name matches — open profile to disambiguate</span>');
@@ -1168,15 +1169,21 @@ function _oldSysReRender(filter) {
         var lbl = _OLD_SYS_FIELD_LABELS[field] || field;
         var oldVal = diff.old || '(blank)';
         var dbVal  = diff.db  || '(blank)';
-        var safeOld = diff.old.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-        var applyBtn = (_OLD_SYS_PATCHABLE[field] && r.match)
-          ? '<button class="btn-sm" style="font-size:.72rem;padding:2px 8px;background:var(--pale-sage);border:1px solid var(--soft-sage);border-radius:5px;cursor:pointer;white-space:nowrap;" onclick="oldSysApplyField('+r.match.id+',\''+field+'\',\''+safeOld+'\')" title="Set '+esc(lbl)+' to old-system value">Apply Old</button>'
+        var canApply = r.match && _OLD_SYS_PATCHABLE[field] && (field !== 'address' || diff.db_blank);
+        var applyBtn = canApply
+          ? '<button class="btn-sm" style="font-size:.72rem;padding:2px 8px;background:var(--pale-sage);border:1px solid var(--soft-sage);border-radius:5px;cursor:pointer;white-space:nowrap;" onclick="oldSysApplyField('+r.match.id+',\''+field+'\')" title="Set '+esc(lbl)+' to old-system value">Apply Old</button>'
           : '';
+        var extraBtn = '';
+        if (field === 'phone' && diff.old) {
+          var d10 = diff.old.replace(/\D/g,'').slice(-10);
+          var fmtPhone = d10.length === 10 ? '('+d10.slice(0,3)+') '+d10.slice(3,6)+'-'+d10.slice(6) : diff.old;
+          extraBtn = '<button class="btn-sm" style="font-size:.72rem;padding:2px 7px;margin-left:3px;background:var(--linen);border:1px solid var(--border);border-radius:5px;cursor:pointer;" onclick="this.textContent=\''+esc(fmtPhone)+'\';this.onclick=null;" title="Show formatted phone">Format</button>';
+        }
         return '<tr>'
           + '<td style="padding:4px 8px;font-size:.78rem;color:var(--warm-gray);white-space:nowrap;">'+esc(lbl)+'</td>'
           + '<td style="padding:4px 8px;font-size:.78rem;font-weight:600;color:var(--navy);">'+esc(oldVal)+'</td>'
           + '<td style="padding:4px 8px;font-size:.78rem;color:var(--charcoal);">'+esc(dbVal)+'</td>'
-          + '<td style="padding:4px 2px;">'+applyBtn+'</td>'
+          + '<td style="padding:4px 2px;white-space:nowrap;">'+applyBtn+extraBtn+'</td>'
           + '</tr>';
       }).join('');
       diffRows = '<table style="width:100%;border-collapse:collapse;margin-top:6px;">'
@@ -1196,16 +1203,24 @@ function _oldSysReRender(filter) {
   el.innerHTML = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">'+tabBtns+'</div>'
     + (show.length ? rows : '<div style="color:var(--warm-gray);font-size:.85rem;padding:8px 0;">No records in this category.</div>');
 }
-function oldSysApplyField(personId, field, value) {
+function oldSysApplyField(personId, field) {
+  var record = null;
+  if (_oldSysResultData) {
+    for (var i = 0; i < _oldSysResultData.length; i++) {
+      var r = _oldSysResultData[i];
+      if (r.match && r.match.id === personId) { record = r; break; }
+    }
+  }
+  if (!record || !record.diffs || !record.diffs[field]) { alert('Data not found — please re-run comparison.'); return; }
+  var value = record.diffs[field].old;
   var body = {};
-  body[field] = value;
+  body[field === 'address' ? 'address1' : field] = value;
   api('/admin/api/people/' + personId, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   }).then(function(d) {
     if (d.error) { alert('Error applying field: ' + d.error); return; }
-    // Re-run comparison to refresh results
     runOldSysCompare();
   }).catch(function(e) { alert('Error: ' + e.message); });
 }

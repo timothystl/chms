@@ -3175,17 +3175,53 @@ if (seg === 'import/old-system-compare' && method === 'POST') {
     if (m2) { const y = parseInt(m2[3]) < 30 ? '20'+m2[3] : '19'+m2[3]; return `${y}-${m2[1].padStart(2,'0')}-${m2[2].padStart(2,'0')}`; }
     const m3 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
     if (m3) return `${m3[3]}-${m3[1].padStart(2,'0')}-${m3[2].padStart(2,'0')}`;
+    // "Aug 5, 1982" / "August 5, 1982" / "Aug 05 1982"
+    const MONTHS = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+    const m4 = s.match(/^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})$/);
+    if (m4) { const mo = MONTHS[m4[1].toLowerCase().slice(0,3)]; if (mo) return `${m4[3]}-${String(mo).padStart(2,'0')}-${m4[2].padStart(2,'0')}`; }
     return s;
   };
   const normPhone = s => s ? String(s).replace(/\D/g,'').slice(-10) : '';
   const normAddr  = s => s ? String(s).toLowerCase().replace(/[,.\s]+/g,' ').trim() : '';
   const normEmail = s => s ? String(s).trim().toLowerCase() : '';
 
+  // Nickname alias groups for fuzzy first-name matching
+  const NICK_GROUPS = [
+    ['robert','bob','rob','bobby'],['william','bill','will','billy'],
+    ['james','jim','jimmy'],['john','johnny','jon'],['michael','mike','mick'],
+    ['richard','rick','rich','dick'],['charles','charlie','chuck'],
+    ['thomas','tom','tommy'],['joseph','joe','joey'],['david','dave'],
+    ['daniel','dan','danny'],['christopher','chris'],['timothy','tim','timmy'],
+    ['nicholas','nick'],['matthew','matt'],['anthony','tony'],
+    ['donald','don','donnie'],['edward','ed','eddie','ted'],
+    ['george','georgie'],['henry','hank','harry'],['kenneth','ken','kenny'],
+    ['lawrence','larry'],['gerald','jerry'],['steven','steve'],['stephen','steve'],
+    ['elizabeth','liz','beth','betty','eliza'],['margaret','maggie','peg','peggy','marge'],
+    ['patricia','pat','patty','tricia','trish'],['barbara','barb'],
+    ['katherine','kate','kathy','kat','katie'],['catherine','kate','kathy','cathy'],
+    ['judith','judy'],['carol','carrie'],['susan','sue','suzy','susie'],
+    ['dorothy','dot','dottie'],['deborah','debra','deb','debbie'],
+    ['jennifer','jen','jenny'],['cynthia','cindy'],['ann','anne'],
+    ['virginia','ginny'],['mary','marie','molly'],
+  ];
+  const nickMap = new Map();
+  for (const g of NICK_GROUPS) for (const n of g) { if (!nickMap.has(n)) nickMap.set(n, g); }
+
   const results = [];
   for (const row of rows) {
     const key = normName(row.first_name, row.last_name);
     if (!key || key.length < 2) continue;
-    const matches = nameIdx.get(key) || [];
+    let matches = nameIdx.get(key) || [];
+    let fuzzyMatch = false;
+    if (!matches.length) {
+      const fn = String(row.first_name||'').toLowerCase().trim();
+      const ln = String(row.last_name||'').toLowerCase().trim();
+      for (const alias of (nickMap.get(fn) || [])) {
+        if (alias === fn) continue;
+        const alt = nameIdx.get((alias+' '+ln).replace(/\s+/g,' ').trim()) || [];
+        if (alt.length) { matches = alt; fuzzyMatch = true; break; }
+      }
+    }
 
     const oldData = {
       first_name: String(row.first_name||'').trim(),
@@ -3200,7 +3236,7 @@ if (seg === 'import/old-system-compare' && method === 'POST') {
     };
 
     if (!matches.length) {
-      results.push({ old: oldData, match: null, status: 'not_found', diffs: {} });
+      results.push({ old: oldData, match: null, status: 'not_found', diffs: {}, fuzzy_match: false });
       continue;
     }
 
@@ -3223,13 +3259,14 @@ if (seg === 'import/old-system-compare' && method === 'POST') {
     }
     if (oldData.phone && normPhone(oldData.phone) !== normPhone(matchData.phone)) diffs.phone = { old: oldData.phone, db: matchData.phone };
     if (oldData.email && normEmail(oldData.email) !== normEmail(matchData.email)) diffs.email = { old: oldData.email, db: matchData.email };
-    if (oldData.address && normAddr(oldData.address) !== normAddr(dbAddr)) diffs.address = { old: oldData.address, db: dbAddr };
+    if (oldData.address && normAddr(oldData.address) !== normAddr(dbAddr)) diffs.address = { old: oldData.address, db: dbAddr, db_blank: !dbAddr.trim() };
 
     results.push({
       old: oldData,
       match: matchData,
       status: matches.length > 1 ? 'multiple' : Object.keys(diffs).length ? 'diff' : 'match',
       multiple_count: matches.length > 1 ? matches.length : undefined,
+      fuzzy_match: fuzzyMatch || undefined,
       diffs,
     });
   }
