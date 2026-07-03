@@ -7,6 +7,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 <div id="tab-people" class="tab-panel">
   <div class="toolbar">
     <div class="search-wrap"><input type="search" id="p-search" placeholder="Search name, email, phone…" oninput="debouncePeople()"></div>
+    <div class="view-toggle" title="Switch between list and card view">
+      <button id="p-view-list-btn" class="active" onclick="setPeopleViewMode('list')">&#9776; List</button>
+      <button id="p-view-card-btn" onclick="setPeopleViewMode('card')">&#9638; Card</button>
+    </div>
     <button class="btn-secondary" id="p-filter-btn" onclick="toggleFilterDrawer()" style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
       <svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;flex-shrink:0;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
       Filters
@@ -88,8 +92,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
   </div>
   <div id="p-status" class="status-msg"></div>
-  <!-- Desktop grid -->
+  <!-- Desktop list (table) view -->
   <div id="p-grid"></div>
+  <!-- Desktop card view -->
+  <div id="p-card-grid"></div>
   <!-- Mobile contact list -->
   <div class="contact-list" id="p-contact-list"></div>
   <!-- Pagination -->
@@ -910,7 +916,6 @@ export const HTML_TABS_2 = String.raw`
     <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
       <div id="pv-status-actions" style="display:flex;gap:6px;align-items:center;"></div>
       <button class="btn-secondary" onclick="window.print()">Print</button>
-      <button class="btn-secondary require-edit" onclick="openPersonEdit(_currentPvPerson)">Edit</button>
     </div>
   </div>
   <div class="pv-body">
@@ -933,6 +938,7 @@ export const HTML_TABS_2 = String.raw`
           <span id="pv-role" class="pv-role-txt"></span>
         </div>
       </div>
+      <div class="pv-hdr-actions" id="pv-hdr-actions"></div>
     </div>
     <div class="pv-tabs">
       <div class="pv-tab active" data-ptab="info" onclick="showPvTab('info')">Information</div>
@@ -974,6 +980,32 @@ export const HTML_TABS_2 = String.raw`
         </div>
       </div>
       <div class="pv-aside" id="pv-aside"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ HOUSEHOLD VIEW ═══ -->
+<div id="household-view">
+  <div class="topbar">
+    <button class="hamburger" onclick="openSidebar()" aria-label="Menu"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+    <span class="topbar-back" onclick="closeHouseholdView()">&#8592; Households</span>
+    <span id="hv-topbar-name" style="font-size:15px;font-weight:500;color:var(--charcoal);margin-left:8px;"></span>
+    <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
+      <button class="btn-outline-cream require-edit" id="hv-edit-btn">Edit</button>
+    </div>
+  </div>
+  <div class="hv-body">
+    <div class="hv-hdr">
+      <div class="hv-icon-tile" id="hv-icon-tile">&#127968;</div>
+      <div style="flex:1;">
+        <div class="hv-name" id="hv-name"></div>
+        <div class="hv-addr" id="hv-addr"></div>
+      </div>
+    </div>
+    <div class="hv-main">
+      <div class="hv-section-title">Household Members</div>
+      <div id="hv-members"></div>
+      <div class="hv-summary" id="hv-summary" style="display:none;"></div>
     </div>
   </div>
 </div>
@@ -1200,17 +1232,6 @@ export const HTML_TABS_2 = String.raw`
       <button class="btn-secondary" onclick="closeModal('person-modal')">Cancel</button>
       <button class="btn-primary" onclick="savePerson()">Save</button>
     </div>
-  </div>
-</div>
-
-<!-- Household detail modal -->
-<div class="modal-overlay" id="hh-detail-modal" onclick="if(event.target===this)closeModal('hh-detail-modal')">
-  <div class="modal" style="max-width:480px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <h2 style="margin:0;">Household</h2>
-      <button class="btn-secondary" style="padding:4px 10px;font-size:.82rem;" onclick="closeModal('hh-detail-modal')">Close</button>
-    </div>
-    <div id="hh-detail-body"></div>
   </div>
 </div>
 

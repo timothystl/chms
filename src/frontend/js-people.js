@@ -41,6 +41,7 @@ function loadPeople(resetPage) {
     _peopleTotal = d.total || 0;
     var people = d.people || [];
     renderPeopleDesktop(people);
+    renderPeopleCards(people);
     renderPeopleMobile(people);
     renderPeoplePager();
     updateFdCount();
@@ -49,6 +50,7 @@ function loadPeople(resetPage) {
   }).catch(function() {
     _peopleTotal = 0;
     renderPeopleDesktop([]);
+    renderPeopleCards([]);
     renderPeopleMobile([]);
     renderPeoplePager();
     setStatus('p-status','Error loading people.','err');
@@ -92,7 +94,7 @@ function renderPeopleDesktop(people) {
   _loadedPeople = people;
   var c = document.getElementById('p-grid');
   if (!people.length) { c.innerHTML = '<div class="empty" style="padding:40px 24px;"><div class="empty-icon">&#128100;</div>' + (_archiveView ? 'No archived people found' : 'No people found') + '</div>'; return; }
-  var isOrg, isSelected, displayName, avInner, avClass, clickHandler, tags, tagHtml, trCls;
+  var isOrg, isSelected, displayName, avInner, avClass, clickHandler, trCls;
   var rows = people.map(function(p) {
     isOrg = (p.member_type||'').toLowerCase() === 'organization';
     isSelected = _selectedPeople.has(p.id);
@@ -101,28 +103,23 @@ function renderPeopleDesktop(people) {
       : esc(p.last_name) + (p.last_name && p.first_name ? ', ' : '') + esc(p.first_name);
     avInner = isOrg
       ? '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#888;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>'
-      : (p.photo_url ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">' : initials(p.first_name, p.last_name));
+      : (p.photo_url ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" style="width:38px;height:38px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">' : initials(p.first_name, p.last_name));
     avClass = 'dir-avatar ' + (isOrg ? 'dir-avatar-org' : 'dir-avatar-' + (p.id % 5));
     clickHandler = _selectMode
       ? 'onclick="togglePersonSelect(' + p.id + ', this)"'
       : 'onclick="openPersonDetail(' + p.id + ')"';
-    tags = p.tags || [];
-    tagHtml = tags.slice(0,3).map(function(t) {
-      return '<span class="dir-tag" style="background:' + esc(t.color) + '22;color:' + esc(t.color) + ';border-color:' + esc(t.color) + '44;">' + esc(t.name) + '</span>';
-    }).join('');
-    if (tags.length > 3) tagHtml += '<span class="dir-tag-more">+' + (tags.length - 3) + '</span>';
     trCls = isSelected ? ' class="dir-row-selected"' : '';
-    var badge = (p.member_type||'visitor').replace(/\s+/g,'-');
     var statusPill = '';
     if (p.status === 'archived') statusPill = ' <span style="font-size:.68rem;padding:1px 6px;border-radius:99px;background:#8b735522;color:#8b7355;border:1px solid #8b735544;vertical-align:middle;">archived</span>';
     else if (p.status === 'deceased') statusPill = ' <span style="font-size:.68rem;padding:1px 6px;border-radius:99px;background:#6c757d22;color:#6c757d;border:1px solid #6c757d44;vertical-align:middle;">&#x271D; deceased</span>';
+    var contactHtml = (p.phone ? '<div class="dir-phone-main"><a href="tel:' + esc(p.phone.replace(/\D/g,'')) + '" onclick="event.stopPropagation()">' + esc(p.phone) + '</a></div>' : '')
+      + (p.email ? '<div class="dir-email-sub"><a href="mailto:' + esc(p.email) + '" onclick="event.stopPropagation()">' + esc(p.email) + '</a></div>' : '');
+    if (!contactHtml) contactHtml = '<span style="color:var(--faint);">—</span>';
     return '<tr' + trCls + ' style="cursor:pointer;" ' + clickHandler + '>'
       + '<td style="width:36px;text-align:center;" onclick="event.stopPropagation()"><input type="checkbox" name="person-select"' + (isSelected ? ' checked' : '') + ' style="' + (_selectMode ? '' : 'display:none;') + '" onchange="togglePersonSelect(' + p.id + ',this.closest(&#39;tr&#39;))" onclick="event.stopPropagation()"></td>'
       + '<td><div class="dir-name-cell"><div class="' + avClass + '">' + avInner + '</div><span class="dir-name-link">' + displayName + '</span>' + statusPill + '</div></td>'
-      + '<td><span class="dir-badge dir-badge-' + badge + '">' + esc(p.member_type||'visitor') + '</span></td>'
-      + '<td class="dir-contact">' + (p.email ? '<a href="mailto:' + esc(p.email) + '" onclick="event.stopPropagation()">' + esc(p.email) + '</a>' : '') + (p.phone ? '<div class="dir-phone">' + esc(p.phone) + '</div>' : '') + '</td>'
-      + '<td>' + (p.household_display_name || p.household_name ? '<span class="dir-hh-link">' + esc(p.household_display_name || p.household_name) + '</span>' : '<span style="color:var(--faint);">—</span>') + '</td>'
-      + '<td><div class="dir-tags">' + tagHtml + '</div></td>'
+      + '<td>' + typeDotHtml(p.member_type) + '</td>'
+      + '<td class="dir-contact">' + contactHtml + '</td>'
       + '</tr>';
   }).join('');
   var cbAll = '<input type="checkbox" id="p-check-all" style="' + (_selectMode ? '' : 'display:none;') + '" onchange="selectAllVisible(this.checked)">';
@@ -133,8 +130,57 @@ function renderPeopleDesktop(people) {
   }
   c.innerHTML = '<table class="dir-table"><thead><tr>'
     + '<th>' + cbAll + '</th>'
-    + sortTh('Name','last_name') + sortTh('Status','member_type') + '<th>Contact</th>' + sortTh('Household','household') + '<th>Tags</th>'
+    + sortTh('Name','last_name') + sortTh('Type','member_type') + '<th>Contact</th>'
     + '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+// Card view (2b) — same data/interactions as the table, denser visual scan.
+function renderPeopleCards(people) {
+  var c = document.getElementById('p-card-grid');
+  if (!c) return;
+  if (!people.length) { c.innerHTML = '<div class="empty" style="padding:40px 24px;"><div class="empty-icon">&#128100;</div>' + (_archiveView ? 'No archived people found' : 'No people found') + '</div>'; return; }
+  c.innerHTML = '<div class="ppl-card-grid">' + people.map(function(p) {
+    var isOrg = (p.member_type||'').toLowerCase() === 'organization';
+    var isSelected = _selectedPeople.has(p.id);
+    var displayName = isOrg
+      ? esc(p.first_name || p.last_name)
+      : esc(p.first_name) + (p.first_name && p.last_name ? ' ' : '') + esc(p.last_name);
+    var avClass = 'dir-avatar ' + (isOrg ? 'dir-avatar-org' : 'dir-avatar-' + (p.id % 5));
+    var avInner = isOrg
+      ? '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#888;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>'
+      : (p.photo_url ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" style="width:42px;height:42px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">' : initials(p.first_name, p.last_name));
+    var clickHandler = _selectMode ? 'togglePersonSelect(' + p.id + ', this)' : 'openPersonDetail(' + p.id + ')';
+    var cb = _selectMode ? '<div class="ppl-card-cb">' + (isSelected ? '&#10003;' : '') + '</div>' : '';
+    return '<div class="ppl-card' + (isSelected ? ' selected' : '') + '" style="border-left-color:' + typeColor(p.member_type) + ';" onclick="' + clickHandler + '">'
+      + cb
+      + '<div class="ppl-card-top"><div class="' + avClass + '" style="width:42px;height:42px;">' + avInner + '</div>'
+      + '<div style="min-width:0;"><div class="ppl-card-name">' + displayName + '</div><div>' + typeDotHtml(p.member_type, 7) + '</div></div></div>'
+      + (p.phone ? '<div class="ppl-card-phone">' + esc(p.phone) + '</div>' : '')
+      + (p.email ? '<div class="ppl-card-email">' + esc(p.email) + '</div>' : '')
+      + '</div>';
+  }).join('') + '</div>';
+}
+// List/Card toggle — persists the user's choice and re-renders the already-loaded
+// dataset in the other layout, no refetch.
+var _peopleViewMode = 'list';
+function initPeopleViewMode() {
+  try { _peopleViewMode = localStorage.getItem('peopleViewMode') || 'list'; } catch (e) {}
+  applyPeopleViewMode();
+}
+function setPeopleViewMode(mode) {
+  _peopleViewMode = mode;
+  try { localStorage.setItem('peopleViewMode', mode); } catch (e) {}
+  applyPeopleViewMode();
+}
+function applyPeopleViewMode() {
+  var listBtn = document.getElementById('p-view-list-btn');
+  var cardBtn = document.getElementById('p-view-card-btn');
+  var grid = document.getElementById('p-grid');
+  var cardGrid = document.getElementById('p-card-grid');
+  var isCard = _peopleViewMode === 'card';
+  if (listBtn) listBtn.classList.toggle('active', !isCard);
+  if (cardBtn) cardBtn.classList.toggle('active', isCard);
+  if (grid) grid.style.display = isCard ? 'none' : 'block';
+  if (cardGrid) cardGrid.style.display = isCard ? 'block' : 'none';
 }
 // ── MULTI-SELECT ──────────────────────────────────────────────────────
 function toggleSelectMode() {
@@ -158,6 +204,7 @@ function toggleSelectMode() {
     renderBulkTagsPanel();
   }
   renderPeopleDesktop(_loadedPeople || []);
+  renderPeopleCards(_loadedPeople || []);
 }
 var _loadedPeople = [];
 function clearSelection() {
@@ -170,19 +217,15 @@ function clearSelection() {
   var panel = document.getElementById('p-bulk-tags-panel');
   if (panel) panel.style.display = 'none';
   renderPeopleDesktop(_loadedPeople || []);
+  renderPeopleCards(_loadedPeople || []);
 }
 function togglePersonSelect(id, el) {
-  if (_selectedPeople.has(id)) {
-    _selectedPeople.delete(id);
-    el.classList.remove('selected', 'dir-row-selected');
-  } else {
-    _selectedPeople.add(id);
-    el.classList.add('selected', 'dir-row-selected');
-  }
-  var cb = el.querySelector('input[type=checkbox]');
-  if (cb) cb.checked = _selectedPeople.has(id);
+  if (_selectedPeople.has(id)) _selectedPeople.delete(id); else _selectedPeople.add(id);
   var countEl = document.getElementById('p-bulk-count');
   if (countEl) countEl.textContent = _selectedPeople.size + ' selected';
+  // Full re-render keeps table row + card checkmark state in sync (lists are page-sized, cheap to redraw).
+  renderPeopleDesktop(_loadedPeople || []);
+  renderPeopleCards(_loadedPeople || []);
 }
 function selectAllVisible(checked) {
   (_loadedPeople || []).forEach(function(p) {
@@ -191,6 +234,7 @@ function selectAllVisible(checked) {
   var countEl = document.getElementById('p-bulk-count');
   if (countEl) countEl.textContent = _selectedPeople.size + ' selected';
   renderPeopleDesktop(_loadedPeople || []);
+  renderPeopleCards(_loadedPeople || []);
 }
 function applyBulkMemberType() {
   var mt = document.getElementById('p-bulk-mt').value;
@@ -322,15 +366,24 @@ function renderPeopleMobile(people) {
   var c = document.getElementById('p-contact-list');
   if (!people.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">&#128100;</div>' + (_archiveView ? 'No archived people found' : 'No people found') + '</div>'; return; }
   c.innerHTML = people.map(function(p) {
+    var isOrg = (p.member_type||'').toLowerCase() === 'organization';
     var addr = [p.address1, p.city, p.state].filter(Boolean).join(', ');
     if (!addr && p.household_address) addr = p.household_address;
-    var mapUrl = addr ? 'https://maps.apple.com/?q=' + encodeURIComponent(addr) : '';
-    return '<div class="c-card">'
-      + '<div class="c-avatar">' + (p.photo_url ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">' : initials(p.first_name, p.last_name)) + '</div>'
+    var url = mapUrl(addr);
+    var tint = avatarTint(p.id);
+    var avInner = p.photo_url
+      ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">'
+      : initials(p.first_name, p.last_name);
+    var actions = '<div class="c-actions">'
+      + (p.phone ? '<a href="tel:' + esc(p.phone.replace(/\D/g,'')) + '" class="c-btn c-btn-call" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.37 1.18 2 2 0 012.34 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.72 6.72l1.28-.78a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>Call</a>' : '')
+      + (p.email ? '<a href="mailto:' + esc(p.email) + '" class="c-btn c-btn-outline" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M22 6l-10 7L2 6"/></svg>Email</a>' : '')
+      + (addr && url ? '<a href="' + esc(url) + '" class="c-btn c-btn-outline" target="_blank" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>Map</a>' : '')
+      + '</div>';
+    return '<div class="c-card" onclick="openPersonDetail(' + p.id + ')">'
+      + '<div class="c-avatar"' + (isOrg ? '' : ' style="background:' + tint.bg + ';color:' + tint.fg + ';"') + '>' + avInner + '</div>'
       + '<div class="c-info"><div class="c-name">' + esc(p.first_name) + (p.last_name ? ' ' + esc(p.last_name) : '') + (p.deceased ? ' <span style="font-size:.72rem;color:#888;font-weight:400;">&#x271D; d. ' + (p.death_date||'') + '</span>' : '') + '</div>'
-      + '<div class="c-type">' + esc(p.member_type||'visitor') + '</div>'
-      + (p.phone ? '<a href="tel:' + esc(p.phone.replace(/\\D/g,'')) + '" class="c-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.37 1.18 2 2 0 012.34 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.72 6.72l1.28-.78a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>' + esc(p.phone) + '</a>' : '')
-      + (addr && mapUrl ? '<a href="' + esc(mapUrl) + '" class="c-link" target="_blank"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>' + esc(addr) + '</a>' : '')
+      + '<div class="c-type">' + typeDotHtml(p.member_type, 7) + '</div>'
+      + actions
       + '</div></div>';
   }).join('');
 }
@@ -391,16 +444,15 @@ function showProfile(p) {
   if (tn) tn.textContent = displayName;
   var photoEl = document.getElementById('pv-photo');
   if (photoEl) {
-    var pvColors = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E87040'];
+    var pvTint = avatarTint(p.id);
     if (p.photo_url) {
       var pvi = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-      var pvbg = pvColors[p.id % pvColors.length];
-      photoEl.style.background = pvbg;
+      photoEl.style.background = pvTint.bg;
       var img = document.createElement('img');
       img.src = photoSrc(p.photo_url);
       img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%;';
       img.onerror = function() {
-        photoEl.innerHTML = '<span style="color:white;font-size:24px;font-weight:600;line-height:1;">'+pvi+'</span>';
+        photoEl.innerHTML = '<span style="color:'+pvTint.fg+';font-size:28px;font-weight:700;line-height:1;">'+pvi+'</span>';
       };
       photoEl.innerHTML = '';
       photoEl.appendChild(img);
@@ -409,9 +461,8 @@ function showProfile(p) {
       photoEl.style.background = 'var(--linen)';
     } else {
       var initials = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-      var bg = pvColors[p.id % pvColors.length];
-      photoEl.innerHTML = '<span style="color:white;font-size:24px;font-weight:600;line-height:1;">'+initials+'</span>';
-      photoEl.style.background = bg;
+      photoEl.innerHTML = '<span style="color:'+pvTint.fg+';font-size:28px;font-weight:700;line-height:1;">'+initials+'</span>';
+      photoEl.style.background = pvTint.bg;
     }
     var overlayEl = document.getElementById('pv-photo-overlay');
     if (overlayEl) overlayEl.style.display = (_userRole !== 'member') ? 'flex' : 'none';
@@ -425,14 +476,22 @@ function showProfile(p) {
   var fnEl = document.getElementById('pv-fullname');
   if (fnEl) fnEl.textContent = displayName;
   var bdEl = document.getElementById('pv-badge');
+  var mt = p.member_type||'visitor';
+  var mtL = mt.toLowerCase();
   if (bdEl) {
-    var mt = p.member_type||'visitor';
-    var mtL = mt.toLowerCase();
-    var badgeClass = mtL === 'member' ? 'dir-badge-member' : mtL === 'organization' ? 'dir-badge-organization' : 'dir-badge-visitor';
     var statusHtml = '';
     if (p.status === 'archived') statusHtml = ' <span style="font-size:.7rem;padding:2px 8px;border-radius:99px;background:#8b735522;color:#8b7355;border:1px solid #8b735544;">Archived</span>';
     else if (p.status === 'deceased') statusHtml = ' <span style="font-size:.7rem;padding:2px 8px;border-radius:99px;background:#6c757d22;color:#6c757d;border:1px solid #6c757d44;">&#x271D; Deceased' + (p.death_date ? ' '+esc(p.death_date) : '') + '</span>';
-    bdEl.innerHTML = '<span class="dir-badge '+badgeClass+'">'+mt.charAt(0).toUpperCase()+mt.slice(1)+'</span>'+statusHtml;
+    bdEl.innerHTML = typeDotHtml(mt) + statusHtml;
+  }
+  var haEl = document.getElementById('pv-hdr-actions');
+  if (haEl) {
+    var pvAddrParts = [p.address1, p.city, ((p.state||'')+(p.zip ? ' '+p.zip : '')).trim()].filter(Boolean);
+    var pvMapUrl = pvAddrParts.length ? mapUrl(pvAddrParts.join(', ')) : '';
+    haEl.innerHTML = (p.phone ? '<a class="btn-call" href="tel:'+esc(p.phone)+'">&#128222; Call</a>' : '')
+      + '<button class="btn-outline-cream pv-desktop-only require-edit" onclick="openPersonEdit(_currentPvPerson)">Edit</button>'
+      + (p.email ? '<a class="btn-outline-cream pv-mobile-only" href="mailto:'+esc(p.email)+'">&#9993; Email</a>' : '')
+      + (pvMapUrl ? '<a class="btn-outline-cream pv-mobile-only" href="'+esc(pvMapUrl)+'" target="_blank">&#128205; Map</a>' : '');
   }
   var saEl = document.getElementById('pv-status-actions');
   if (saEl && _userRole !== 'member') {
@@ -451,7 +510,12 @@ function showProfile(p) {
     }
   }
   var hhEl = document.getElementById('pv-hh');
-  if (hhEl) hhEl.textContent = (p.household_display_name || p.household_name) ? ' \u00b7 '+(p.household_display_name || p.household_name) : '';
+  if (hhEl) {
+    var hhName = p.household_display_name || p.household_name;
+    hhEl.innerHTML = hhName
+      ? '<span class="pv-meta-sep">&middot;</span> <span onclick="openHouseholdDetail('+p.household_id+')">'+esc(hhName)+'</span>'
+      : '';
+  }
   var roleEl = document.getElementById('pv-role');
   if (roleEl) roleEl.textContent = p.family_role ? ' \u00b7 '+p.family_role : '';
   // Info tab — two-column layout
@@ -566,7 +630,7 @@ function showProfile(p) {
     });
   }
   var ca = document.querySelector('.content-area');
-  if (ca) ca.classList.add('pv-mode');
+  if (ca) { ca.classList.remove('hv-mode'); ca.classList.add('pv-mode'); }
   showPvTab('info');
 }
 function pvRow(key, val) {
@@ -865,19 +929,18 @@ function loadPvFamily(hhId, selfId) {
   api('/admin/api/households/'+hhId).then(function(d) {
     var members = (d && d.members) ? d.members : [];
     if (!members.length) { el.innerHTML = '<div style="color:var(--faint);font-size:12px;font-style:italic;">No members found</div>'; return; }
-    var clrs = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E87040'];
     el.innerHTML = members.map(function(m) {
       var mName = ((m.first_name||'')+' '+(m.last_name||'')).trim();
       var ini = ((m.first_name||'').charAt(0)+(m.last_name||'').charAt(0)).toUpperCase();
-      var mbg = clrs[m.id % clrs.length];
+      var mTint = avatarTint(m.id);
       var meta = m.family_role ? m.family_role.charAt(0).toUpperCase()+m.family_role.slice(1) : '';
       var isSelf = m.id === selfId;
       return '<div class="pv-family-member">'
-        + '<div class="pv-family-avatar" style="background:'+mbg+';">'+ini+'</div>'
+        + '<div class="pv-family-avatar" style="background:'+mTint.bg+';color:'+mTint.fg+';">'+ini+'</div>'
         + '<div style="flex:1;">'
         + (isSelf
             ? '<div class="pv-family-name" style="opacity:.6;">'+esc(mName)+'</div>'
-            : '<div class="pv-family-name" onclick="openPersonDetail('+m.id+')" style="cursor:pointer;color:var(--sky-steel);">'+esc(mName)+'</div>')
+            : '<div class="pv-family-name" onclick="openPersonDetail('+m.id+')" style="cursor:pointer;color:var(--color-teal);">'+esc(mName)+'</div>')
         + (meta ? '<div class="pv-family-meta">'+esc(meta)+'</div>' : '')
         + '</div>'
         + '</div>';
