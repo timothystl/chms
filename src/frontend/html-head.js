@@ -374,6 +374,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .dash-stat-val{font-size:30px;font-weight:800;color:var(--charcoal);line-height:1;}
 .dash-stat-lbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);}
 .dash-stat-sub{font-size:11px;color:var(--teal);}
+.dash-stat-quad-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;}
+.dash-stat-quad-grid .dash-stat-val{font-size:22px;}
 .dash-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;}
 @media(max-width:700px){.dash-row{grid-template-columns:1fr;}}
 .dash-card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;}

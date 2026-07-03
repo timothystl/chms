@@ -80,6 +80,13 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
        WHERE active=1 AND LOWER(member_type)='member'
          AND household_id IS NOT NULL AND household_id != ''`
     ).first())?.n || 0;
+    // Confirmed / baptized counts (members only) for the dashboard quick-stat card
+    const confirmedCount = (await db.prepare(
+      `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)='member' AND confirmed=1`
+    ).first())?.n || 0;
+    const baptizedCount = (await db.prepare(
+      `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)='member' AND baptized=1`
+    ).first())?.n || 0;
     // Added this month / this year
     const addedThisMonth = (await db.prepare(
       `SELECT COUNT(*) as n FROM people WHERE active=1 AND created_at >= date('now','start of month')`
@@ -319,7 +326,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       ).first())?.n || 0;
     }
     return json({
-      totalPeople, totalHouseholds, memberCount, memberHHCount,
+      totalPeople, totalHouseholds, memberCount, memberHHCount, confirmedCount, baptizedCount,
       addedThisMonth, addedThisYear, dashMonth,
       typeCounts,
       // giving data: finance+ only (General Fund = funds starting with '40085')
