@@ -405,6 +405,7 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 ### People List
 - [x] **PL1** — Members-first people list: default view shows Members only; "Members" toggle button in toolbar switches to all-types view. Done 2026-04-20 (v82).
 - [x] **PL2** — Archive/Deceased people: `status` column (`active|archived|deceased`) added; archived/deceased hidden from default list; "Archived" toggle button in toolbar; Archive/Deceased/Reactivate buttons on profile; anniversary cards exclude deceased. Done 2026-04-20 (v81).
+- [x] **PL3** — People Directory / Person Profile / Household View visual redesign (warm navy/teal/gold palette, larger high-contrast type, real mobile Call/Email/Map buttons, List/Card toggle, Household View converted from modal to full page). See NOTES.md 2026-07-03 entry for full detail. Done 2026-07-03 (v1.4.0).
 
 ### Giving / Finance
 - [x] **G1** — Fund import: pre-fetches `/api/funds` from Breeze to resolve real names; retroactively renames any "Breeze Fund XXXXX" placeholders on next sync. Done 2026-04-17.

@@ -49,9 +49,7 @@ function renderHouseholds(rows) {
         + '<img src="'+esc(photoSrc(h.photo_url))+'" alt="" style="width:100%;height:80px;object-fit:cover;display:block;" onerror="this.parentNode.style.display=\'none\'">'
         + '</div>'
       : '';
-    var navId = h.head_person_id || h.first_person_id;
-    var clickAction = navId ? 'openPersonDetail(' + navId + ')' : 'editHouseholdById(' + h.id + ')';
-    return '<div class="h-card" onclick="' + clickAction + '" style="padding:0;overflow:hidden;cursor:pointer;">'
+    return '<div class="h-card" onclick="openHouseholdDetail(' + h.id + ')" style="padding:0;overflow:hidden;cursor:pointer;">'
       + photo
       + '<div style="padding:10px 12px;">'
       + '<div class="h-name">' + esc(h.display_name || h.name) + '</div>'
@@ -60,55 +58,70 @@ function renderHouseholds(rows) {
       + '</div></div>';
   }).join('');
 }
+var _currentHousehold = null;
 function openHouseholdDetail(id) {
   api('/admin/api/households/' + id).then(function(h) {
-    var members = h.members || [];
-    var addr = [h.address1, h.city, h.state && h.zip ? h.state + ' ' + h.zip : (h.state || h.zip || '')].filter(Boolean).join(', ');
-    var roleOrder = {head:0, spouse:1, child:2, other:3};
-    members.sort(function(a,b){ return (roleOrder[a.family_role]??4)-(roleOrder[b.family_role]??4) || (a.last_name||'').localeCompare(b.last_name||''); });
-    var memberRows = members.length ? members.map(function(m) {
-      var role = m.family_role ? '<span style="font-size:.72rem;color:var(--warm-gray);margin-left:6px;text-transform:capitalize;">'+esc(m.family_role)+'</span>' : '';
-      var contact = [m.phone, m.email].filter(Boolean).map(esc).join(' · ');
-      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">'
-        +'<div><span style="font-weight:500;cursor:pointer;color:var(--steel-anchor);" onclick="closeModal(\'hh-detail-modal\');openPersonDetail('+m.id+')">'+esc((m.first_name||'')+' '+(m.last_name||''))+'</span>'+role
-        +(contact ? '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:2px;">'+contact+'</div>' : '')
-        +'</div></div>';
-    }).join('') : '<div style="color:var(--warm-gray);font-size:.88rem;padding:10px 0;">No members</div>';
-    var el = document.getElementById('hh-detail-body');
-    if (!el) return;
-    var photoHtml = '';
-    if (h.photo_url) {
-      photoHtml = '<img src="'+esc(photoSrc(h.photo_url))+'" alt="'+esc(h.name)+'" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:12px;" onerror="this.style.display=\'none\'">';
-    }
-    // H3: giving summary (finance+ only)
-    var givingHtml = '';
-    var isFinanceUser = (_userRole === 'admin' || _userRole === 'finance');
-    if (isFinanceUser && h.giving_years && h.giving_years.length) {
-      var rows = h.giving_years.map(function(g) {
-        return '<div style="display:flex;justify-content:space-between;padding:3px 0;">'
-          +'<span style="color:var(--charcoal);">'+esc(g.yr)+'</span>'
-          +'<span style="font-weight:600;">$'+((g.total_cents||0)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span>'
-          +'</div>';
-      }).join('');
-      givingHtml = '<div style="margin-top:14px;">'
-        +'<div style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);margin-bottom:6px;">Household Giving</div>'
-        +rows
-        +'</div>';
-    }
-    el.innerHTML = photoHtml
-      +'<div style="margin-bottom:12px;">'
-      +'<div style="font-size:1.1rem;font-weight:600;margin-bottom:4px;">'+esc(h.display_name || h.name)+'</div>'
-      +(addr ? '<div style="font-size:.85rem;color:var(--warm-gray);">'+esc(addr)+'</div>' : '')
-      +(h.notes ? '<div style="font-size:.82rem;color:var(--charcoal);margin-top:8px;padding:8px;background:var(--linen);border-radius:6px;">'+esc(h.notes)+'</div>' : '')
-      +'</div>'
-      +'<div style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);margin-bottom:4px;">Members ('+members.length+')</div>'
-      +memberRows
-      +givingHtml
-      +'<div style="display:flex;gap:8px;margin-top:16px;">'
-      +'<button class="btn-secondary require-edit" onclick="closeModal(\'hh-detail-modal\');editHouseholdById('+h.id+')">Edit Household</button>'
-      +'</div>';
-    openModal('hh-detail-modal');
+    if (!h || !h.id) return;
+    showHouseholdView(h);
   });
+}
+function closeHouseholdView() {
+  _currentHousehold = null;
+  var ca = document.querySelector('.content-area');
+  if (ca) ca.classList.remove('hv-mode');
+}
+function showHouseholdView(h) {
+  _currentHousehold = h;
+  var members = (h.members || []).slice();
+  var addr = [h.address1, h.city, h.state && h.zip ? h.state + ' ' + h.zip : (h.state || h.zip || '')].filter(Boolean).join(', ');
+  var roleOrder = {head:0, spouse:1, child:2, other:3};
+  members.sort(function(a,b){ return (roleOrder[a.family_role]??4)-(roleOrder[b.family_role]??4) || (a.last_name||'').localeCompare(b.last_name||''); });
+  var dispName = h.display_name || h.name;
+  var tn = document.getElementById('hv-topbar-name');
+  if (tn) tn.textContent = dispName;
+  var iconEl = document.getElementById('hv-icon-tile');
+  if (iconEl) {
+    iconEl.innerHTML = h.photo_url
+      ? '<img src="'+esc(photoSrc(h.photo_url))+'" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:12px;" onerror="this.parentNode.innerHTML=&#39;&#127968;&#39;">'
+      : '&#127968;';
+  }
+  var nameEl = document.getElementById('hv-name');
+  if (nameEl) nameEl.textContent = dispName;
+  var addrEl = document.getElementById('hv-addr');
+  if (addrEl) addrEl.textContent = addr;
+  var editBtn = document.getElementById('hv-edit-btn');
+  if (editBtn) editBtn.setAttribute('onclick', 'editHouseholdById(' + h.id + ')');
+  var membersEl = document.getElementById('hv-members');
+  if (membersEl) {
+    membersEl.innerHTML = members.length ? members.map(function(m) {
+      var mName = ((m.first_name||'')+' '+(m.last_name||'')).trim();
+      var ini = ((m.first_name||'').charAt(0)+(m.last_name||'').charAt(0)).toUpperCase();
+      var mTint = avatarTint(m.id);
+      var role = m.family_role ? m.family_role.charAt(0).toUpperCase()+m.family_role.slice(1) : '';
+      return '<div class="hv-member-row" onclick="openPersonDetail('+m.id+')">'
+        + '<div class="hv-member-avatar" style="background:'+mTint.bg+';color:'+mTint.fg+';">'+ini+'</div>'
+        + '<div style="flex:1;min-width:0;"><div class="hv-member-name">'+esc(mName)+'</div>'
+        + (role ? '<div class="hv-member-role">'+esc(role)+'</div>' : '')
+        + '</div>'
+        + '<div style="flex-shrink:0;">'+typeDotHtml(m.member_type)+'</div>'
+        + '</div>';
+    }).join('') : '<div style="color:var(--warm-meta);font-size:.88rem;padding:10px 0;">No members</div>';
+  }
+  // Desktop-only summary strip: current-year giving (finance+ only), envelope #, anniversary
+  var summaryEl = document.getElementById('hv-summary');
+  if (summaryEl) {
+    var isFinanceUser = (_userRole === 'admin' || _userRole === 'finance');
+    var curYear = new Date().getFullYear().toString();
+    var curYearGiving = isFinanceUser ? ((h.giving_years||[]).find(function(g){ return String(g.yr) === curYear; }) || {}).total_cents || 0 : null;
+    var tiles = '';
+    if (isFinanceUser) tiles += '<div><div class="hv-summary-lbl">'+curYear+' Giving</div><div class="hv-summary-val">$'+(curYearGiving/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</div></div>';
+    if (h.envelope_number) tiles += '<div><div class="hv-summary-lbl">Envelope #</div><div class="hv-summary-val">'+esc(h.envelope_number)+'</div></div>';
+    if (h.anniversary_date) tiles += '<div><div class="hv-summary-lbl">Anniversary</div><div class="hv-summary-val">'+fmtDate(h.anniversary_date)+'</div></div>';
+    summaryEl.innerHTML = tiles;
+    summaryEl.style.display = tiles ? 'flex' : 'none';
+  }
+  var ca = document.querySelector('.content-area');
+  if (ca) { ca.classList.remove('pv-mode'); ca.classList.add('hv-mode'); }
 }
 function editHouseholdById(id) {
   api('/admin/api/households/' + id).then(function(h) { openHouseholdEdit(h); });
@@ -170,16 +183,22 @@ function saveHousehold() {
   var url = id ? '/admin/api/households/' + id : '/admin/api/households';
   var meth = id ? 'PUT' : 'POST';
   api(url, {method:meth, headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(r) {
-    if (r.ok) { closeModal('hh-modal'); loadHouseholds(); }
-    else alert('Error: ' + (r.error||'unknown'));
+    if (r.ok) {
+      closeModal('hh-modal');
+      loadHouseholds();
+      if (_currentHousehold && String(_currentHousehold.id) === String(id)) openHouseholdDetail(id);
+    } else alert('Error: ' + (r.error||'unknown'));
   });
 }
 function deleteHousehold() {
   var id = document.getElementById('hm-id').value;
   if (!confirm('Delete this household?')) return;
   api('/admin/api/households/' + id, {method:'DELETE'}).then(function(r) {
-    if (r.ok) { closeModal('hh-modal'); loadHouseholds(); }
-    else alert(r.error || 'Cannot delete.');
+    if (r.ok) {
+      closeModal('hh-modal');
+      if (_currentHousehold && String(_currentHousehold.id) === String(id)) closeHouseholdView();
+      loadHouseholds();
+    } else alert(r.error || 'Cannot delete.');
   });
 }
 function hhPushAddress() {
