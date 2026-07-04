@@ -347,8 +347,7 @@ function renderDashboard(d) {
   // ── Stat strip ─────────────────────────────────────────────────
   var svcs = (d.recentAttendance || []).slice(0, 2);
   html += '<div class="dash-stats">'
-    + dashStat(d.memberCount !== undefined ? d.memberCount : d.totalPeople, 'Members', d.totalPeople + ' total people')
-    + dashStat(d.memberHHCount !== undefined ? d.memberHHCount : d.totalHouseholds, 'Member Households', d.totalHouseholds + ' total households')
+    + dashStatPeopleQuad(d)
     + (isFinanceRole ? dashStat('$'+fmt$(d.gfYtd), yr+' Gen. Fund', yr-1+' YTD $'+fmt$(d.gfLastYearYtd), yr-1+' Full Year $'+fmt$(d.gfLastYearTotal)) : '')
     + (isStaffRole ? dashStatServices(svcs) : '')
     + '</div>';
@@ -805,6 +804,23 @@ function dashStat(val, lbl, sub, sub2) {
     + '<div class="dash-stat-lbl">'+esc(lbl)+'</div>'
     + (sub ? '<div class="dash-stat-sub">'+esc(sub)+'</div>' : '')
     + (sub2 ? '<div class="dash-stat-sub">'+esc(sub2)+'</div>' : '')
+    + '</div>';
+}
+function dashStatQuadCell(val, lbl) {
+  return '<div><div class="dash-stat-val">'+esc(String(val))+'</div><div class="dash-stat-lbl">'+esc(lbl)+'</div></div>';
+}
+function dashStatPeopleQuad(d) {
+  var members    = d.memberCount    !== undefined ? d.memberCount    : d.totalPeople;
+  var households = d.memberHHCount  !== undefined ? d.memberHHCount  : d.totalHouseholds;
+  var confirmed  = d.confirmedCount || 0;
+  var baptized   = d.baptizedCount  || 0;
+  return '<div class="dash-stat">'
+    + '<div class="dash-stat-quad-grid">'
+    + dashStatQuadCell(members, 'Members')
+    + dashStatQuadCell(households, 'Households')
+    + dashStatQuadCell(confirmed, 'Confirmed')
+    + dashStatQuadCell(baptized, 'Baptized')
+    + '</div>'
     + '</div>';
 }
 function dashQBtn(svgPath, label, onclick) {
