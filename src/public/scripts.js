@@ -37,8 +37,6 @@ function navigate(pageId) {
   if (pageId === 'worship' || pageId === 'education' || pageId === 'acceptance' || pageId === 'outreach') {
     loadDynamicMinistryRoles(pageId);
   }
-  var sb = document.getElementById('sticky-back');
-  if (sb) sb.style.display = pageId === 'landing' ? 'none' : 'inline-flex';
   history.pushState({ page: pageId }, '', pageId === 'landing' ? location.pathname : '#' + pageId);
 }
 
@@ -52,8 +50,6 @@ window.addEventListener('popstate', function(e) {
   if (pageId === 'worship' || pageId === 'education' || pageId === 'acceptance' || pageId === 'outreach') {
     loadDynamicMinistryRoles(pageId);
   }
-  var sb = document.getElementById('sticky-back');
-  if (sb) sb.style.display = pageId === 'landing' ? 'none' : 'inline-flex';
 });
 
 (function() {
@@ -62,8 +58,6 @@ window.addEventListener('popstate', function(e) {
     document.querySelectorAll('.app-page').forEach(function(p) { p.hidden = true; });
     document.getElementById('page-' + hash).hidden = false;
     history.replaceState({ page: hash }, '', '#' + hash);
-    var sb = document.getElementById('sticky-back');
-    if (sb) sb.style.display = 'inline-flex';
   } else {
     history.replaceState({ page: 'landing' }, '', location.pathname);
   }
@@ -640,7 +634,6 @@ function submitSimpleEvent(evId, evName, btnEl) {
 document.addEventListener('click', function(e) {
   var el = e.target.closest('[data-nav-page]');
   if (el) { e.preventDefault(); navigate(el.dataset.navPage); return; }
-  if (e.target.closest('#sticky-back')) { e.preventDefault(); history.back(); }
 });
 </script>
 </body>
