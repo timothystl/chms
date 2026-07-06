@@ -351,9 +351,9 @@ if (seg === 'config/member-type-map' && method === 'PUT') {
 
 if (seg === 'config/church' && method === 'GET') {
   // EIN is admin-only (PII). Non-admins get the rest of the config without it.
-  const keys = isAdmin
-    ? ['church_ein','church_from_name','church_from_email','giving_letter_template','church_name']
-    : ['church_from_name','church_from_email','giving_letter_template','church_name'];
+  const publicKeys = ['church_from_name','church_from_email','giving_letter_template','church_name',
+    'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
+  const keys = isAdmin ? ['church_ein', ...publicKeys] : publicKeys;
   const rows = (await db.prepare(`SELECT key, value FROM chms_config WHERE key IN (${keys.map(()=>'?').join(',')})`).bind(...keys).all()).results || [];
   const config = {};
   for (const r of rows) config[r.key] = r.value;
@@ -361,7 +361,8 @@ if (seg === 'config/church' && method === 'GET') {
 }
 if (seg === 'config/church' && method === 'PUT') {
   let b = {}; try { b = await req.json(); } catch {}
-  const allowed = ['church_ein','church_from_name','church_from_email','giving_letter_template','church_name'];
+  const allowed = ['church_ein','church_from_name','church_from_email','giving_letter_template','church_name',
+    'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
   for (const k of allowed) {
     // Only save non-empty values — preserves existing config if user saves with a blank field
     if (b[k]) {

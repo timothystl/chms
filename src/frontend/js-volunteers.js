@@ -1,5 +1,6 @@
 export const JS_VOLUNTEERS = String.raw`// ── VOLUNTEERS TAB ────────────────────────────────────────────────────
 var _volCurrentTab = 'all';
+var _volStatusFilter = 'all';
 var _volDupVisible = false;
 var _volTemplates = [];
 var _volSignupsCache = [];
@@ -7,6 +8,14 @@ var _volSignupsCache = [];
 // ── Ministry labels ───────────────────────────────────────────────────
 var VOL_MINISTRY_LABELS = {all:'All',worship:'Worship',events:'Events',education:'Education',
   acceptance:'Acceptance',outreach:'Outreach',transportation:'Transportation',general:'General'};
+var VOL_STATUS_LABELS = {new:'New',contacted:'Contacted',confirmed:'Confirmed',declined:'Declined'};
+
+// JSON.stringify wraps in double quotes, which breaks out of a double-quoted onclick="" attribute.
+// HTML-entity-encoding those quotes lets the browser decode them back to real quotes when it
+// reads the attribute value, without ever closing the attribute early.
+function volJsAttr(v) {
+  return JSON.stringify(v).replace(/"/g, '&quot;');
+}
 
 function volSetTab(tab, btn) {
   _volCurrentTab = tab;
@@ -20,21 +29,97 @@ function volSetTab(tab, btn) {
   volLoadSignups();
 }
 
+function volSetStatusFilter(status) {
+  _volStatusFilter = status;
+  volRenderSignupsList();
+}
+
+function volRenderStatusPills() {
+  var pillsEl = document.getElementById('vol-status-pills');
+  if (!pillsEl) return;
+  var counts = { all: _volSignupsCache.length, new: 0, contacted: 0, confirmed: 0, declined: 0 };
+  _volSignupsCache.forEach(function(s) { var st = s.status || 'new'; if (counts[st] !== undefined) counts[st]++; });
+  var order = ['all','new','contacted','confirmed'];
+  if (counts.declined) order.push('declined');
+  pillsEl.innerHTML = order.map(function(st) {
+    var label = st === 'all' ? 'All' : VOL_STATUS_LABELS[st];
+    var cls = st === 'all' ? 'background:' + (_volStatusFilter==='all'?'var(--navy)':'var(--linen)') + ';color:' + (_volStatusFilter==='all'?'#fff':'var(--charcoal)') + ';' : '';
+    var pillClass = st === 'all' ? '' : ' status-pill status-' + st;
+    var activeRing = _volStatusFilter === st ? 'box-shadow:0 0 0 2px rgba(30,45,74,.4);' : '';
+    return '<span class="' + pillClass + '" style="cursor:pointer;font-size:.78rem;font-weight:600;padding:4px 12px;border-radius:99px;' + cls + activeRing + '" onclick="volSetStatusFilter(' + volJsAttr(st) + ')">' + label + ' (' + counts[st] + ')</span>';
+  }).join('');
+}
+
+function volLoadSnapshotStats() {
+  var el = document.getElementById('vol-snapshot-stats');
+  if (!el) return;
+  Promise.all([api('/admin/api/signups'), api('/admin/api/events')]).then(function(res) {
+    var allSignups = res[0].signups || [];
+    var allEvents = res[1].events || [];
+    var openShifts = 0, filledShifts = 0;
+    allEvents.forEach(function(ev) {
+      (ev.roles||[]).forEach(function(r) {
+        if (!(r.slots > 0)) return;
+        if ((r.filled_count||0) >= r.slots) filledShifts++; else openShifts++;
+      });
+    });
+    var weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+    var newThisWeek = allSignups.filter(function(s) {
+      return s.created_at && new Date(s.created_at.replace(' ', 'T')) >= weekAgo;
+    }).length;
+    var today = new Date().toISOString().slice(0, 10);
+    var upcoming = allEvents.filter(function(ev) { return ev.event_date && ev.event_date >= today && !ev.hidden; }).length;
+    var stats = [
+      { label: 'Open shifts', value: openShifts, color: 'var(--steel-anchor)' },
+      { label: 'Filled shifts', value: filledShifts, color: 'var(--sage)' },
+      { label: 'New signups', value: newThisWeek, sub: 'this week', color: 'var(--teal)' },
+      { label: 'Upcoming events', value: upcoming, color: 'var(--amber)' },
+    ];
+    el.innerHTML = stats.map(function(s) {
+      return '<div style="background:var(--linen);border-radius:12px;padding:12px 14px;flex:1;min-width:130px;">'
+        + '<div style="font-size:.7rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--warm-gray);margin-bottom:5px;">' + s.label + '</div>'
+        + '<div style="font-family:var(--font-head);font-size:1.4rem;color:' + s.color + ';">' + s.value + (s.sub ? ' <span style="font-size:.7rem;color:var(--warm-gray);font-family:var(--font-body);font-weight:600;">' + s.sub + '</span>' : '') + '</div>'
+        + '</div>';
+    }).join('');
+  }).catch(function() {});
+}
+
 function volLoadSignups() {
   var url = '/admin/api/signups' + (_volCurrentTab !== 'all' ? '?ministry=' + _volCurrentTab : '');
   var listEl = document.getElementById('vol-signups-list');
   if (listEl) listEl.innerHTML = '<span style="color:var(--warm-gray);">Loading…</span>';
   api(url)
     .then(function(d) {
-      var items = d.signups || [];
-      _volSignupsCache = items;
+      _volSignupsCache = d.signups || [];
+      _volStatusFilter = 'all';
       var titleEl = document.getElementById('vol-signups-title');
-      if (titleEl) titleEl.innerHTML = (VOL_MINISTRY_LABELS[_volCurrentTab]||_volCurrentTab) + ' Volunteers <span id="vol-signups-count" style="background:var(--navy);color:#fff;border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">' + items.length + '</span>';
-      if (!items.length) {
-        if (listEl) listEl.innerHTML = '<div style="padding:20px 0;text-align:center;color:var(--warm-gray);">No sign-ups yet.</div>';
-        return;
-      }
-      if (listEl) listEl.innerHTML = items.map(function(s) {
+      if (titleEl) titleEl.innerHTML = (VOL_MINISTRY_LABELS[_volCurrentTab]||_volCurrentTab) + ' Volunteers <span id="vol-signups-count" style="background:var(--navy);color:#fff;border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">' + _volSignupsCache.length + '</span>';
+      volRenderStatusPills();
+      volRenderSignupsList();
+    })
+    .catch(function() { if (listEl) listEl.innerHTML = '<span style="color:var(--danger);">Error loading sign-ups.</span>'; });
+}
+
+function volSetSignupStatus(id, status) {
+  api('/admin/api/signups/' + id + '/status', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: status }) })
+    .then(function(d) {
+      if (!d.ok) { alert(d.error || 'Could not update status.'); return; }
+      var s = _volSignupsCache.find(function(x){ return x.id === id; });
+      if (s) s.status = status;
+      volRenderStatusPills();
+      volRenderSignupsList();
+    });
+}
+
+function volRenderSignupsList() {
+  var listEl = document.getElementById('vol-signups-list');
+  if (!listEl) return;
+  var items = _volStatusFilter === 'all' ? _volSignupsCache : _volSignupsCache.filter(function(s){ return (s.status||'new') === _volStatusFilter; });
+  if (!items.length) {
+    listEl.innerHTML = '<div style="padding:20px 0;text-align:center;color:var(--warm-gray);">No sign-ups' + (_volStatusFilter !== 'all' ? ' with this status' : '') + '.</div>';
+    return;
+  }
+  listEl.innerHTML = items.map(function(s) {
         var roles = []; try { roles = JSON.parse(s.roles || '[]'); } catch {}
         var sundays = []; try { sundays = JSON.parse(s.sundays || '[]'); } catch {}
         var meta = [];
@@ -48,6 +133,7 @@ function volLoadSignups() {
           meta.push('<strong>Shifts:</strong> ' + shiftList);
         }
         if (s.shirt_wanted) meta.push('<strong>T-shirt:</strong> ' + (s.shirt_size || 'Yes'));
+        if (s.sms_reminder_opt_in) meta.push('🔔 Wants a reminder before serving');
         // Person link badge
         var personBadge = s.person_id
           ? '<span style="font-size:.72rem;background:rgba(46,126,166,.12);color:var(--sky-steel);border:1px solid rgba(46,126,166,.25);border-radius:6px;padding:1px 7px;cursor:pointer;" onclick="openPersonProfile(' + s.person_id + ')" title="Open profile">✓ ' + esc(s.linked_person_name || 'Person') + '</span>'
@@ -56,6 +142,10 @@ function volLoadSignups() {
         var contactBadge = s.contact_count > 0
           ? '<span style="font-size:.72rem;background:rgba(39,174,96,.1);color:#1a7a3a;border:1px solid rgba(39,174,96,.25);border-radius:6px;padding:1px 7px;" title="Last: ' + esc((s.contacted_at||'').slice(0,10)) + '">✉ ' + s.contact_count + '×</span>'
           : '';
+        var status = s.status || 'new';
+        var statusSelect = '<select class="status-pill status-' + status + '" onchange="volSetSignupStatus(' + s.id + ',this.value)" onclick="event.stopPropagation()">'
+          + Object.keys(VOL_STATUS_LABELS).map(function(st) { return '<option value="' + st + '"' + (st===status?' selected':'') + '>' + VOL_STATUS_LABELS[st] + '</option>'; }).join('')
+          + '</select>';
         return '<div style="background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;">'
           + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">'
           + '<div><div style="font-weight:600;font-size:.92rem;">' + esc(s.name) + '</div>'
@@ -63,8 +153,9 @@ function volLoadSignups() {
           + '<div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap;">' + personBadge + (contactBadge ? ' ' + contactBadge : '') + '</div>'
           + '</div>'
           + '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">'
+          + statusSelect
           + '<span style="font-size:.75rem;color:var(--warm-gray);">' + esc((s.created_at||'').slice(0,10)) + '</span>'
-          + '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;" onclick="volOpenLinkPerson(' + s.id + ',' + JSON.stringify(esc(s.name)) + ',' + JSON.stringify(esc(s.email)) + ',' + (s.person_id||'null') + ',' + JSON.stringify(esc(s.linked_person_name||'')) + ')" title="Link to person record">'
+          + '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;" onclick="volOpenLinkPerson(' + s.id + ',' + volJsAttr(esc(s.name)) + ',' + volJsAttr(esc(s.email)) + ',' + (s.person_id||'null') + ',' + volJsAttr(esc(s.linked_person_name||'')) + ')" title="Link to person record">'
           + (s.person_id ? '↩ Relink' : '+ Link') + '</button>'
           + (s.email ? '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;color:var(--teal);border-color:rgba(46,126,166,.3);" data-sig-id="' + s.id + '" data-sig-name="' + esc(s.name) + '" data-sig-email="' + esc(s.email) + '" data-sig-ministry="' + esc(s.ministry) + '" onclick="volOpenSendEmail(this)">✉ Email</button>' : '')
           + '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;color:var(--danger);border-color:rgba(192,57,43,.3);" onclick="volDeleteSignup(' + s.id + ')">Remove</button>'
@@ -74,8 +165,6 @@ function volLoadSignups() {
           + (s.notes ? '<div style="font-size:.82rem;color:#6A6880;font-style:italic;margin-top:4px;">"' + esc(s.notes) + '"</div>' : '')
           + '</div>';
       }).join('');
-    })
-    .catch(function() { if (listEl) listEl.innerHTML = '<span style="color:var(--danger);">Error loading sign-ups.</span>'; });
 }
 
 function volDeleteSignup(id) {
@@ -392,94 +481,23 @@ function volDeleteTemplate(id) {
     .then(function() { volLoadTemplates(); });
 }
 
-// ── EVENTS ────────────────────────────────────────────────────────────
-function volLoadEvents(expandEvId) {
+// ── EVENTS (master-detail shell + day-grouped shift modal) ────────────
+var _volEventsCache = [];
+var _volActiveEventId = null;
+var _volEditingShift = null; // { eventId, roleId, dayDate } — roleId null means "add new"
+
+function volLoadEvents(selectEvId) {
   api('/admin/api/events')
     .then(function(data) {
-      var events = data.events || [];
+      _volEventsCache = data.events || [];
       var cntEl = document.getElementById('vol-events-count');
-      if (cntEl) cntEl.textContent = events.length;
-      var listEl = document.getElementById('vol-events-list');
-      if (!events.length) {
-        if (listEl) listEl.innerHTML = '<div style="padding:20px 0;text-align:center;color:var(--warm-gray);">No events yet.</div>';
-        return;
+      if (cntEl) cntEl.textContent = _volEventsCache.length;
+      if (selectEvId) _volActiveEventId = selectEvId;
+      else if (!_volActiveEventId || !_volEventsCache.some(function(e){return e.id===_volActiveEventId;})) {
+        _volActiveEventId = _volEventsCache.length ? _volEventsCache[0].id : null;
       }
-      var preserved = {};
-      document.querySelectorAll('[id^="vr-start-"],[id^="vr-end-"],[id^="vr-date-"]').forEach(function(el) { if (el.value) preserved[el.id] = el.value; });
-      if (listEl) listEl.innerHTML = events.map(function(ev) {
-        var useTs = (ev.use_time_slots === undefined || ev.use_time_slots === null) ? 1 : ev.use_time_slots;
-        var tsHide = useTs ? '' : 'display:none;';
-        var statusLabel = ev.hidden ? 'Hidden' : 'Visible';
-        var statusColor = ev.hidden ? 'color:#c0392b;background:rgba(192,57,43,.1);' : 'color:var(--teal);background:rgba(46,126,166,.1);';
-        return '<div style="background:var(--white);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;overflow:hidden;" id="vol-ev-' + ev.id + '" data-hidden="' + (ev.hidden?1:0) + '" data-sort-order="' + (ev.sort_order||0) + '" data-use-time-slots="' + useTs + '">'
-          + '<button onclick="volToggleEv(' + ev.id + ')" aria-expanded="false" id="vol-ev-hdr-' + ev.id + '" style="width:100%;display:flex;align-items:center;gap:10px;padding:12px 14px;background:none;border:none;cursor:pointer;text-align:left;">'
-          + '<span style="font-weight:600;font-size:.9rem;flex:1;">' + esc(ev.name) + '</span>'
-          + '<span style="font-size:.78rem;color:var(--warm-gray);">' + (ev.event_date || 'No date') + '</span>'
-          + '<span style="font-size:.72rem;font-weight:600;border-radius:99px;padding:1px 8px;' + statusColor + '">' + statusLabel + '</span>'
-          + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;stroke-width:2.5;fill:none;flex-shrink:0;transition:transform .2s;" id="vol-ev-chevron-' + ev.id + '"><polyline points="6 9 12 15 18 9"/></svg>'
-          + '</button>'
-          + '<div id="vol-ev-body-' + ev.id + '" style="display:none;border-top:1px solid var(--border);padding:14px;">'
-          + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;">'
-          + '<div style="flex:1;min-width:180px;"><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Event Name</label><input type="text" id="vol-ev-name-' + ev.id + '" class="form-input" style="width:100%;" value="' + esc(ev.name) + '"></div>'
-          + '<div style="flex:0 0 150px;"><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Date</label><input type="date" id="vol-ev-date-' + ev.id + '" class="form-input" style="width:100%;" value="' + esc(ev.event_date||'') + '"></div>'
-          + '</div>'
-          + '<div style="margin-bottom:8px;"><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Description</label><textarea id="vol-ev-desc-' + ev.id + '" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:.83rem;font-family:inherit;height:56px;resize:vertical;">' + esc(ev.description||'') + '</textarea></div>'
-          + '<input type="hidden" id="vol-ev-hidden-' + ev.id + '" value="' + (ev.hidden?1:0) + '">'
-          + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;"><input type="checkbox" id="vol-ev-ts-' + ev.id + '"' + (useTs ? ' checked' : '') + ' style="width:auto;margin:0;" onchange="volToggleTsFields(' + ev.id + ',this.checked)"><label for="vol-ev-ts-' + ev.id + '" style="font-size:.82rem;cursor:pointer;">Roles have scheduled time slots</label></div>'
-          + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">'
-          + '<button class="btn-primary" style="font-size:.8rem;" onclick="volSaveEvent(' + ev.id + ')">Save Changes</button>'
-          + '<button class="btn-secondary" style="font-size:.8rem;" onclick="volToggleEventVisibility(' + ev.id + ',' + (ev.hidden?0:1) + ')">' + (ev.hidden?'Make Visible':'Hide Event') + '</button>'
-          + '<button class="btn-secondary" style="font-size:.8rem;color:var(--danger);" onclick="volDeleteEvent(' + ev.id + ')">Delete Event</button>'
-          + '</div>'
-          + '<div style="font-size:.82rem;font-weight:600;color:var(--charcoal);margin-bottom:6px;">Roles</div>'
-          + '<div id="vol-roles-list-' + ev.id + '">'
-          + (ev.roles||[]).map(function(r) {
-              return '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid var(--linen);" id="vol-role-row-' + r.id + '" data-sort-order="' + (r.sort_order||0) + '">'
-                + '<span style="font-size:.72rem;font-weight:600;color:var(--sky-steel);white-space:nowrap;min-width:36px;text-align:center;">' + (r.filled_count||0) + '/' + (r.slots||'∞') + '</span>'
-                + '<input type="text" class="form-input" style="flex:1;min-width:100px;" id="vol-role-name-' + r.id + '" value="' + esc(r.name) + '" placeholder="Role name">'
-                + '<input type="text" class="form-input" style="flex:2;min-width:120px;" id="vol-role-desc-' + r.id + '" value="' + esc(r.description||'') + '" placeholder="Description">'
-                + '<input type="date" class="form-input vr-time-field" style="flex:1;min-width:110px;' + tsHide + '" id="vr-date-' + r.id + '" value="' + esc(r.role_date||'') + '" title="Date">'
-                + '<input type="time" class="form-input vr-time-field" style="flex:0 0 84px;' + tsHide + '" id="vr-start-' + r.id + '" data-raw="' + esc(r.start_time||'') + '" title="Start">'
-                + '<input type="time" class="form-input vr-time-field" style="flex:0 0 84px;' + tsHide + '" id="vr-end-' + r.id + '" data-raw="' + esc(r.end_time||'') + '" title="End">'
-                + '<input type="number" class="form-input" style="flex:0 0 56px;" id="vol-role-slots-' + r.id + '" value="' + (r.slots||0) + '" min="0" title="Slots">'
-                + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="volSaveRole(' + ev.id + ',' + r.id + ')">Save</button>'
-                + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 8px;color:var(--danger);" onclick="volDeleteRole(' + ev.id + ',' + r.id + ')">Del</button>'
-                + '</div>';
-            }).join('')
-          + '</div>'
-          + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">'
-          + '<input type="text" class="form-input" style="flex:1;min-width:100px;" id="vol-new-role-name-' + ev.id + '" placeholder="Role name…">'
-          + '<input type="text" class="form-input" style="flex:2;min-width:120px;" id="vol-new-role-desc-' + ev.id + '" placeholder="Description…">'
-          + '<input type="date" class="form-input vr-time-field" style="flex:1;min-width:110px;' + tsHide + '" id="vol-new-role-date-' + ev.id + '" title="Date">'
-          + '<input type="time" class="form-input vr-time-field" style="flex:0 0 84px;' + tsHide + '" id="vol-new-role-start-' + ev.id + '" title="Start">'
-          + '<input type="time" class="form-input vr-time-field" style="flex:0 0 84px;' + tsHide + '" id="vol-new-role-end-' + ev.id + '" title="End">'
-          + '<input type="number" class="form-input" style="flex:0 0 56px;" id="vol-new-role-slots-' + ev.id + '" value="0" min="0" title="Slots">'
-          + '<button class="btn-primary" style="font-size:.8rem;" onclick="volAddRole(' + ev.id + ')">+ Role</button>'
-          + '</div>'
-          + '</div>'
-          + '</div>';
-      }).join('');
-      // Set time input values via JS (innerHTML doesn't reliably set type=time values)
-      events.forEach(function(ev) {
-        (ev.roles||[]).forEach(function(r) {
-          var startEl = document.getElementById('vr-start-' + r.id);
-          var endEl   = document.getElementById('vr-end-'   + r.id);
-          if (startEl) startEl.value = volToTimeInput(r.start_time || '');
-          if (endEl)   endEl.value   = volToTimeInput(r.end_time   || '');
-        });
-      });
-      // Restore preserved values
-      Object.keys(preserved).forEach(function(id) {
-        var el = document.getElementById(id); if (el && preserved[id]) el.value = preserved[id];
-      });
-      if (expandEvId) {
-        var body = document.getElementById('vol-ev-body-' + expandEvId);
-        var hdr  = document.getElementById('vol-ev-hdr-' + expandEvId);
-        if (body) body.style.display = '';
-        if (hdr)  hdr.setAttribute('aria-expanded','true');
-        var chev = document.getElementById('vol-ev-chevron-' + expandEvId);
-        if (chev) chev.style.transform = 'rotate(180deg)';
-      }
+      volRenderEventsList();
+      volRenderEventDetail();
     })
     .catch(function() {
       var listEl = document.getElementById('vol-events-list');
@@ -487,25 +505,198 @@ function volLoadEvents(expandEvId) {
     });
 }
 
-function volToggleEv(evId) {
-  var body = document.getElementById('vol-ev-body-' + evId);
-  var hdr  = document.getElementById('vol-ev-hdr-'  + evId);
-  var chev = document.getElementById('vol-ev-chevron-' + evId);
-  var isOpen = body && body.style.display !== 'none';
-  document.querySelectorAll('[id^="vol-ev-body-"]').forEach(function(el) { el.style.display = 'none'; });
-  document.querySelectorAll('[id^="vol-ev-hdr-"]').forEach(function(b) { b.setAttribute('aria-expanded','false'); });
-  document.querySelectorAll('[id^="vol-ev-chevron-"]').forEach(function(c) { c.style.transform = ''; });
-  if (!isOpen) {
-    if (body) body.style.display = '';
-    if (hdr)  hdr.setAttribute('aria-expanded','true');
-    if (chev) chev.style.transform = 'rotate(180deg)';
+function volRenderEventsList() {
+  var listEl = document.getElementById('vol-events-list');
+  if (!listEl) return;
+  if (!_volEventsCache.length) {
+    listEl.innerHTML = '<div style="padding:20px 10px;text-align:center;color:var(--warm-gray);font-size:.85rem;">No events yet.</div>';
+    return;
   }
+  listEl.innerHTML = _volEventsCache.map(function(ev) {
+    return '<div class="ev-list-row' + (ev.id===_volActiveEventId?' active':'') + '" onclick="volSelectEvent(' + ev.id + ')">'
+      + '<div class="ev-list-name">' + esc(ev.name) + '</div>'
+      + '<div class="ev-list-meta">' + (ev.event_date ? fmtDate(ev.event_date) : 'No date') + ' &middot; ' + (ev.hidden ? 'Hidden' : 'Visible') + '</div>'
+      + '</div>';
+  }).join('');
 }
 
-function volToggleTsFields(evId, show) {
-  var card = document.getElementById('vol-ev-' + evId);
-  if (!card) return;
-  card.querySelectorAll('.vr-time-field').forEach(function(el) { el.style.display = show ? '' : 'none'; });
+function volSelectEvent(evId) {
+  _volActiveEventId = evId;
+  volRenderEventsList();
+  volRenderEventDetail();
+}
+
+function volActiveEvent() { return _volEventsCache.find(function(e){ return e.id === _volActiveEventId; }) || null; }
+
+function volEventDayGroups(ev) {
+  var groups = {}, order = [];
+  (ev.roles||[]).forEach(function(r) {
+    var key = r.role_date || '';
+    if (!(key in groups)) { groups[key] = []; order.push(key); }
+    groups[key].push(r);
+  });
+  order.sort(function(a,b){ return a < b ? -1 : a > b ? 1 : 0; });
+  return order.map(function(dateStr){ return { date: dateStr, roles: groups[dateStr] }; });
+}
+
+function volRenderEventDetail() {
+  var detailEl = document.getElementById('vol-event-detail');
+  if (!detailEl) return;
+  var ev = volActiveEvent();
+  if (!ev) { detailEl.innerHTML = '<div style="padding:20px 10px;text-align:center;color:var(--warm-gray);font-size:.85rem;">Select an event, or add a new one.</div>'; return; }
+  var useTs = (ev.use_time_slots === undefined || ev.use_time_slots === null) ? 1 : ev.use_time_slots;
+
+  var topBar = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">'
+    + '<span style="font-size:.72rem;font-weight:600;border-radius:99px;padding:2px 10px;' + (ev.hidden ? 'color:var(--danger);background:rgba(184,92,58,.1);' : 'color:var(--teal);background:rgba(46,126,166,.1);') + '">' + (ev.hidden ? 'Hidden' : 'Visible on site') + '</span>'
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+    + '<button class="btn-secondary" style="font-size:.8rem;" onclick="volToggleEventVisibility(' + ev.id + ',' + (ev.hidden?0:1) + ')">' + (ev.hidden?'Make Visible':'Hide Event') + '</button>'
+    + '<a href="javascript:void(0)" style="color:var(--danger);font-size:.8rem;font-weight:600;" onclick="volDeleteEvent(' + ev.id + ')">Delete</a>'
+    + '<button class="btn-primary" style="font-size:.8rem;" onclick="volSaveEvent(' + ev.id + ')">Save Changes</button>'
+    + '</div></div>';
+
+  var fields = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
+    + '<div style="flex:2;min-width:180px;"><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Event Name</label><input type="text" id="vol-ev-name" class="form-input" style="width:100%;" value="' + esc(ev.name) + '"></div>'
+    + '<div style="flex:1;min-width:150px;"><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Date</label><input type="date" id="vol-ev-date" class="form-input" style="width:100%;" value="' + esc(ev.event_date||'') + '"></div>'
+    + '</div>'
+    + '<div style="margin-bottom:10px;"><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Description</label><textarea id="vol-ev-desc" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:.83rem;font-family:inherit;height:56px;resize:vertical;">' + esc(ev.description||'') + '</textarea></div>'
+    + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;"><input type="checkbox" id="vol-ev-ts"' + (useTs ? ' checked' : '') + ' style="width:auto;margin:0;" onchange="volSaveEvent(' + ev.id + ')"><label for="vol-ev-ts" style="font-size:.82rem;cursor:pointer;">Roles have scheduled time slots</label></div>';
+
+  var body;
+  if (useTs) {
+    var groups = volEventDayGroups(ev);
+    body = groups.map(function(g) {
+      var label = g.date ? volFormatDayLabel(g.date) : 'No date set';
+      var dateArg = "'" + (g.date||'').replace(/'/g,'') + "'";
+      return '<div class="ev-day-header"><h4>Shifts &mdash; ' + esc(label) + '</h4>'
+        + '<button class="btn-secondary" style="font-size:.75rem;padding:4px 10px;" onclick="volOpenShiftModal(' + ev.id + ',' + dateArg + ',null)">+ Add shift</button></div>'
+        + g.roles.map(function(r) {
+            var pct = r.slots > 0 ? Math.round(((r.filled_count||0) / r.slots) * 100) : 0;
+            var full = r.slots > 0 && (r.filled_count||0) >= r.slots;
+            var barColor = full ? 'var(--warm-gray)' : 'var(--sage)';
+            return '<div class="ev-shift-row" onclick="volOpenShiftModal(' + ev.id + ',' + dateArg + ',' + r.id + ')">'
+              + '<div><div class="ev-shift-name">' + esc(r.name) + '</div>' + (r.start_time ? '<div class="ev-shift-time">' + esc(r.start_time) + '&ndash;' + esc(r.end_time||'') + '</div>' : '') + '</div>'
+              + '<div class="ev-fill-bar"><div style="width:' + pct + '%;background:' + barColor + ';"></div></div>'
+              + '<div class="ev-fill-count" style="color:' + barColor + ';">' + (r.filled_count||0) + ' / ' + (r.slots||0) + '</div>'
+              + '<div class="ev-edit-link">Edit</div>'
+              + '</div>';
+          }).join('');
+    }).join('') || '<p style="font-size:.85rem;color:var(--warm-gray);margin-bottom:10px;">No shifts yet.</p>';
+    body += '<div style="margin-top:10px;"><button class="btn-secondary" style="font-size:.8rem;" onclick="volOpenShiftModal(' + ev.id + ',null,null)">+ Add shift on a new day</button></div>';
+  } else {
+    // Simple (non-shift) event: role checkboxes, still live-editable per row (unchanged pattern —
+    // out of scope per the shift-modal handoff, which only covers time-slotted events).
+    body = '<div id="vol-roles-list-' + ev.id + '">'
+      + (ev.roles||[]).map(function(r) {
+          return '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid var(--linen);" id="vol-role-row-' + r.id + '">'
+            + '<span style="font-size:.72rem;font-weight:600;color:var(--sky-steel);white-space:nowrap;min-width:36px;text-align:center;">' + (r.filled_count||0) + '/' + (r.slots||'∞') + '</span>'
+            + '<input type="text" class="form-input" style="flex:1;min-width:100px;" id="vol-role-name-' + r.id + '" value="' + esc(r.name) + '" placeholder="Role name">'
+            + '<input type="text" class="form-input" style="flex:2;min-width:120px;" id="vol-role-desc-' + r.id + '" value="' + esc(r.description||'') + '" placeholder="Description">'
+            + '<input type="number" class="form-input" style="flex:0 0 56px;" id="vol-role-slots-' + r.id + '" value="' + (r.slots||0) + '" min="0" title="Slots">'
+            + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="volSaveRole(' + ev.id + ',' + r.id + ')">Save</button>'
+            + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 8px;color:var(--danger);" onclick="volDeleteRole(' + ev.id + ',' + r.id + ')">Del</button>'
+            + '</div>';
+        }).join('')
+      + '</div>'
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">'
+      + '<input type="text" class="form-input" style="flex:1;min-width:100px;" id="vol-new-role-name-' + ev.id + '" placeholder="Role name…">'
+      + '<input type="text" class="form-input" style="flex:2;min-width:120px;" id="vol-new-role-desc-' + ev.id + '" placeholder="Description…">'
+      + '<input type="number" class="form-input" style="flex:0 0 56px;" id="vol-new-role-slots-' + ev.id + '" value="0" min="0" title="Slots">'
+      + '<button class="btn-primary" style="font-size:.8rem;" onclick="volAddRole(' + ev.id + ')">+ Role</button>'
+      + '</div>';
+    var totalSlots = (ev.roles||[]).reduce(function(sum,r){ return sum + (r.slots||0); }, 0);
+    var totalFilled = (ev.roles||[]).reduce(function(sum,r){ return sum + (r.filled_count||0); }, 0);
+    body += '<div style="display:flex;gap:24px;margin:16px 0;">'
+      + '<div><div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);">Slots filled</div><div style="font-family:var(--font-head);font-size:1.25rem;color:var(--steel-anchor);">' + totalFilled + ' / ' + totalSlots + '</div></div>'
+      + '<div id="vol-ev-signups-stat-' + ev.id + '"><div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);">Signups</div><div style="font-family:var(--font-head);font-size:1.25rem;color:var(--steel-anchor);">&hellip;</div></div>'
+      + '</div>'
+      + '<h4 style="font-family:var(--font-head);font-size:.92rem;color:var(--steel-anchor);margin:0 0 8px;">Volunteers signed up</h4>'
+      + '<div id="vol-ev-roster-' + ev.id + '" style="font-size:.85rem;color:var(--warm-gray);">Loading&hellip;</div>';
+    volLoadEventRoster(ev.id);
+  }
+
+  detailEl.innerHTML = topBar + fields + body;
+}
+
+function volLoadEventRoster(evId) {
+  api('/admin/api/signups?ministry=events').then(function(d) {
+    var rows = (d.signups||[]).filter(function(s){ return s.event_id === evId; });
+    var el = document.getElementById('vol-ev-roster-' + evId);
+    var statEl = document.getElementById('vol-ev-signups-stat-' + evId);
+    if (statEl) statEl.querySelector('div:last-child').textContent = rows.length;
+    if (!el) return;
+    if (!rows.length) { el.innerHTML = '<div style="padding:10px 0;color:var(--warm-gray);">No signups yet.</div>'; return; }
+    el.innerHTML = rows.map(function(s) {
+      var roles = []; try { roles = JSON.parse(s.roles || '[]'); } catch {}
+      var status = s.status || 'new';
+      var statusSelect = '<select class="status-pill status-' + status + '" onchange="volSetSignupStatus(' + s.id + ',this.value)">'
+        + Object.keys(VOL_STATUS_LABELS).map(function(st) { return '<option value="' + st + '"' + (st===status?' selected':'') + '>' + VOL_STATUS_LABELS[st] + '</option>'; }).join('')
+        + '</select>';
+      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--linen);">'
+        + '<div><div style="font-weight:600;color:var(--charcoal);">' + esc(s.name) + '</div>'
+        + '<div style="font-size:.78rem;color:var(--warm-gray);">' + (roles.length ? esc(roles.join(', ')) : 'No role specified') + (s.email ? ' &middot; ' + esc(s.email) : '') + '</div></div>'
+        + statusSelect
+        + '</div>';
+    }).join('');
+  });
+}
+
+function volFormatDayLabel(dateStr) {
+  var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var months = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+  var p = dateStr.split('-');
+  var d = new Date(parseInt(p[0],10),parseInt(p[1],10)-1,parseInt(p[2],10));
+  return days[d.getDay()] + ', ' + months[parseInt(p[1],10)] + ' ' + parseInt(p[2],10);
+}
+
+// ── Add/Edit shift modal ────────────────────────────────────────────
+function volOpenShiftModal(evId, dayDate, roleId) {
+  var ev = _volEventsCache.find(function(e){ return e.id === evId; });
+  if (!ev) return;
+  var role = roleId ? (ev.roles||[]).find(function(r){ return r.id === roleId; }) : null;
+  _volEditingShift = { eventId: evId, roleId: roleId, dayDate: dayDate };
+
+  document.getElementById('vol-shift-modal-title').textContent = role ? 'Edit shift' : 'Add shift';
+  document.getElementById('vol-shift-day-label').textContent = dayDate ? volFormatDayLabel(dayDate) : (role && role.role_date ? volFormatDayLabel(role.role_date) : 'New day');
+  document.getElementById('vol-shift-name').value = role ? role.name : '';
+  document.getElementById('vol-shift-desc').value = role ? (role.description||'') : '';
+  document.getElementById('vol-shift-date').value = role ? (role.role_date||'') : (dayDate || '');
+  document.getElementById('vol-shift-start').value = volToTimeInput(role ? (role.start_time||'') : '');
+  document.getElementById('vol-shift-end').value = volToTimeInput(role ? (role.end_time||'') : '');
+  document.getElementById('vol-shift-slots').value = role ? (role.slots||0) : 0;
+  document.getElementById('vol-shift-filled-hint').textContent = role
+    ? ((role.filled_count||0) + ' of ' + (role.slots||0) + ' filled · safe to change spot count any time')
+    : 'New shift · starts with 0 filled';
+  document.getElementById('vol-shift-delete').style.display = role ? '' : 'none';
+  openModal('vol-shift-modal');
+}
+
+function volSaveShift() {
+  var s = _volEditingShift;
+  if (!s) return;
+  var body = {
+    name: (document.getElementById('vol-shift-name').value || '').trim(),
+    description: document.getElementById('vol-shift-desc').value || '',
+    role_date: document.getElementById('vol-shift-date').value || '',
+    start_time: volFromTimeInput(document.getElementById('vol-shift-start').value || ''),
+    end_time: volFromTimeInput(document.getElementById('vol-shift-end').value || ''),
+    slots: parseInt(document.getElementById('vol-shift-slots').value || '0', 10) || 0,
+  };
+  if (!body.name) { alert('Please enter a shift name.'); return; }
+  var url = '/admin/api/events/' + s.eventId + '/roles' + (s.roleId ? '/' + s.roleId : '');
+  api(url, { method: s.roleId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function(d) {
+      if (!d.ok) { alert(d.error || 'Save failed.'); return; }
+      closeModal('vol-shift-modal');
+      volLoadEvents(s.eventId);
+    }).catch(function(){ alert('Network error saving shift.'); });
+}
+
+function volDeleteShift() {
+  var s = _volEditingShift;
+  if (!s || !s.roleId) return;
+  if (!confirm('Delete this shift?')) return;
+  api('/admin/api/events/' + s.eventId + '/roles/' + s.roleId, { method: 'DELETE' })
+    .then(function() { closeModal('vol-shift-modal'); volLoadEvents(s.eventId); });
 }
 
 function volToTimeInput(str) {
@@ -526,17 +717,15 @@ function volFromTimeInput(str) {
 }
 
 function volSaveEvent(evId) {
-  var name = (document.getElementById('vol-ev-name-' + evId)||{}).value || '';
-  var date = (document.getElementById('vol-ev-date-' + evId)||{}).value || '';
-  var desc = (document.getElementById('vol-ev-desc-' + evId)||{}).value || '';
-  var card = document.getElementById('vol-ev-' + evId);
-  var hidden = card ? parseInt(card.dataset.hidden||'0',10) : 0;
-  var sortOrder = card ? parseInt(card.dataset.sortOrder||'0',10) : 0;
-  var tsEl = document.getElementById('vol-ev-ts-' + evId);
+  var ev = _volEventsCache.find(function(e){ return e.id === evId; }) || {};
+  var name = (document.getElementById('vol-ev-name')||{}).value || '';
+  var date = (document.getElementById('vol-ev-date')||{}).value || '';
+  var desc = (document.getElementById('vol-ev-desc')||{}).value || '';
+  var tsEl = document.getElementById('vol-ev-ts');
   var useTimeSlots = tsEl ? (tsEl.checked?1:0) : 1;
   api('/admin/api/events/' + evId, {
     method:'PUT', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:name,event_date:date,description:desc,hidden:hidden,sort_order:sortOrder,use_time_slots:useTimeSlots})
+    body:JSON.stringify({name:name,event_date:date,description:desc,hidden:ev.hidden?1:0,sort_order:ev.sort_order||0,use_time_slots:useTimeSlots})
   }).then(function(d) {
     if (!d.ok) { alert('Save failed: ' + (d.error || 'Unknown error')); return; }
     volLoadEvents(evId);
@@ -544,19 +733,18 @@ function volSaveEvent(evId) {
 }
 
 function volToggleEventVisibility(evId, hidden) {
-  var name = (document.getElementById('vol-ev-name-' + evId)||{}).value || '';
-  var date = (document.getElementById('vol-ev-date-' + evId)||{}).value || '';
-  var desc = (document.getElementById('vol-ev-desc-' + evId)||{}).value || '';
-  var card = document.getElementById('vol-ev-' + evId);
-  var sortOrder = card ? parseInt(card.dataset.sortOrder||'0',10) : 0;
-  var tsEl = document.getElementById('vol-ev-ts-' + evId);
+  var ev = _volEventsCache.find(function(e){ return e.id === evId; }) || {};
+  var name = (document.getElementById('vol-ev-name')||{}).value || ev.name || '';
+  var date = (document.getElementById('vol-ev-date')||{}).value || ev.event_date || '';
+  var desc = (document.getElementById('vol-ev-desc')||{}).value || ev.description || '';
+  var tsEl = document.getElementById('vol-ev-ts');
   var useTimeSlots = tsEl ? (tsEl.checked?1:0) : 1;
   api('/admin/api/events/' + evId, {
     method:'PUT', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:name,event_date:date,description:desc,hidden:hidden,sort_order:sortOrder,use_time_slots:useTimeSlots})
+    body:JSON.stringify({name:name,event_date:date,description:desc,hidden:hidden,sort_order:ev.sort_order||0,use_time_slots:useTimeSlots})
   }).then(function(d) {
     if (!d.ok) { alert('Error: ' + (d.error || 'Unknown error')); return; }
-    volLoadEvents();
+    volLoadEvents(evId);
   }).catch(function(e){alert('Error: '+e);});
 }
 
@@ -591,25 +779,17 @@ function volSaveNewEvent() {
 }
 
 function volSaveRole(evId, roleId) {
-  var name   = (document.getElementById('vol-role-name-'  + roleId)||{}).value||'';
-  var desc   = (document.getElementById('vol-role-desc-'  + roleId)||{}).value||'';
-  var date   = (document.getElementById('vr-date-'  + roleId)||{}).value||'';
-  var startEl = document.getElementById('vr-start-' + roleId);
-  var endEl   = document.getElementById('vr-end-'   + roleId);
-  var start = startEl ? (startEl.value ? volFromTimeInput(startEl.value) : (startEl.dataset.raw||'')) : '';
-  var end   = endEl   ? (endEl.value   ? volFromTimeInput(endEl.value)   : (endEl.dataset.raw  ||'')) : '';
+  var name  = (document.getElementById('vol-role-name-'  + roleId)||{}).value||'';
+  var desc  = (document.getElementById('vol-role-desc-'  + roleId)||{}).value||'';
   var slots = parseInt((document.getElementById('vol-role-slots-' + roleId)||{}).value||'0',10);
   var row = document.getElementById('vol-role-row-' + roleId);
-  var sortOrder = row ? parseInt(row.dataset.sortOrder||'0',10) : 0;
   var saveBtn = row ? row.querySelector('.btn-secondary') : null;
   if (saveBtn) { saveBtn.disabled=true; saveBtn.textContent='Saving…'; }
   api('/admin/api/events/' + evId + '/roles/' + roleId, {
     method:'PUT', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:name,description:desc,slots:slots,role_date:date,start_time:start,end_time:end,sort_order:sortOrder})
+    body:JSON.stringify({name:name,description:desc,slots:slots})
   }).then(function(d) {
     if (!d.ok) { alert('Error saving role.'); if (saveBtn){saveBtn.disabled=false;saveBtn.textContent='Save';} return; }
-    if (startEl && startEl.value) startEl.dataset.raw = start;
-    if (endEl   && endEl.value)   endEl.dataset.raw   = end;
     if (saveBtn) { saveBtn.textContent='Saved!'; saveBtn.style.background='var(--teal)'; saveBtn.style.color='#fff'; setTimeout(function(){saveBtn.disabled=false;saveBtn.textContent='Save';saveBtn.style.background='';saveBtn.style.color='';},1500); }
   }).catch(function(){alert('Network error saving role.');if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='Save';}});
 }
@@ -623,111 +803,108 @@ function volDeleteRole(evId, roleId) {
 function volAddRole(evId) {
   var name  = (document.getElementById('vol-new-role-name-' +evId)||{}).value||'';
   var desc  = (document.getElementById('vol-new-role-desc-' +evId)||{}).value||'';
-  var date  = (document.getElementById('vol-new-role-date-' +evId)||{}).value||'';
-  var start = volFromTimeInput((document.getElementById('vol-new-role-start-'+evId)||{}).value||'');
-  var end   = volFromTimeInput((document.getElementById('vol-new-role-end-'  +evId)||{}).value||'');
   var slots = parseInt((document.getElementById('vol-new-role-slots-'+evId)||{}).value||'0',10);
   if (!name.trim()) { alert('Please enter a role name.'); return; }
   api('/admin/api/events/' + evId + '/roles', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:name,description:desc,slots:slots,role_date:date,start_time:start,end_time:end})
+    body:JSON.stringify({name:name,description:desc,slots:slots})
   }).then(function(d){
     if (!d.ok){alert('Add role failed: ' + (d.error||'Unknown error'));return;}
-    ['vol-new-role-name-','vol-new-role-desc-','vol-new-role-date-','vol-new-role-start-','vol-new-role-end-','vol-new-role-slots-'].forEach(function(pfx){var el=document.getElementById(pfx+evId);if(el)el.value='';});
     volLoadEvents(evId);
   }).catch(function(e){alert('Error: '+e);});
 }
 
-// ── MINISTRY ROLES ─────────────────────────────────────────────────────
+// ── MINISTRY ROLES (master-detail: searchable list + side edit panel) ──
+var _volMRolesCache = [];
+var _volActiveMRoleId = null; // number = editing that role, 'new' = blank add form, null = nothing selected
+var _volMRoleSearch = '';
+var MR_MINISTRY_LABELS = {worship:'Worship',education:'Christian Ed',acceptance:'Acceptance',outreach:'Outreach',transportation:'Transportation',general:'General'};
 
 function volLoadMinistryRoles() {
-  var ministry = (document.getElementById('vol-mroles-ministry')||{}).value || 'worship';
-  var listEl = document.getElementById('vol-mroles-list');
-  var countEl = document.getElementById('vol-mroles-count');
-  if (listEl) listEl.innerHTML = '<span style="color:var(--warm-gray);">Loading…</span>';
-  api('/admin/api/ministry-roles?ministry=' + encodeURIComponent(ministry))
-    .then(function(d) {
-      var roles = d.roles || [];
-      if (countEl) countEl.textContent = roles.length;
-      if (!roles.length) {
-        if (listEl) listEl.innerHTML = '<div style="padding:14px 0;text-align:center;color:var(--warm-gray);font-size:.85rem;">No roles yet. Click “+ Add Role” to create one.</div>';
-        return;
-      }
-      if (listEl) listEl.innerHTML = roles.map(function(r) {
-        var activeBadge = r.active
-          ? '<span style="font-size:.7rem;background:rgba(39,174,96,.1);color:#1a7a3a;border:1px solid rgba(39,174,96,.3);border-radius:6px;padding:1px 7px;">Visible</span>'
-          : '<span style="font-size:.7rem;background:rgba(192,57,43,.08);color:var(--danger);border:1px solid rgba(192,57,43,.2);border-radius:6px;padding:1px 7px;">Hidden</span>';
-        var meta = [];
-        if (r.commitment) meta.push('<strong>Commitment:</strong> ' + esc(r.commitment));
-        if (r.training) meta.push('<strong>Training:</strong> ' + esc(r.training));
-        return '<div style="background:var(--white);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:7px;">'
-          + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">'
-          + '<div style="min-width:0;">'
-          + '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">'
-          + '<span style="font-weight:600;font-size:.9rem;">' + esc(r.name) + '</span>' + activeBadge
-          + '</div>'
-          + (r.description ? '<div style="font-size:.82rem;color:#4A4860;margin-top:3px;">' + esc(r.description) + '</div>' : '')
-          + (meta.length ? '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:3px;">' + meta.join(' &nbsp;&bull;&nbsp; ') + '</div>' : '')
-          + '</div>'
-          + '<div style="display:flex;gap:5px;flex-shrink:0;">'
-          + '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;" onclick="volEditMinistryRole(' + r.id + ')">Edit</button>'
-          + '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;color:var(--danger);border-color:rgba(192,57,43,.3);" onclick="volDeleteMinistryRole(' + r.id + ')">Del</button>'
-          + '</div></div></div>';
-      }).join('');
-    })
-    .catch(function() { if (listEl) listEl.innerHTML = '<span style="color:var(--danger);">Error loading roles.</span>'; });
-}
-
-function volShowMRoleForm() {
-  var ministry = (document.getElementById('vol-mroles-ministry')||{}).value || 'worship';
-  var editingEl = document.getElementById('vol-mrole-editing-id');
-  if (editingEl) editingEl.value = '';
-  var titleEl = document.getElementById('vol-mrole-form-title');
-  if (titleEl) titleEl.textContent = 'Add Role';
-  var saveBtn = document.getElementById('vol-mrole-save-btn');
-  if (saveBtn) saveBtn.textContent = 'Save Role';
-  var sel = document.getElementById('vol-mrole-ministry-sel');
-  if (sel) sel.value = ministry;
-  ['vol-mrole-name','vol-mrole-desc','vol-mrole-commitment','vol-mrole-training'].forEach(function(id) {
-    var el = document.getElementById(id); if (el) el.value = '';
-  });
-  var activeEl = document.getElementById('vol-mrole-active');
-  if (activeEl) activeEl.checked = true;
-  var formEl = document.getElementById('vol-mrole-form');
-  if (formEl) { formEl.style.display = ''; formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
-}
-
-function volCancelMRoleForm() {
-  var formEl = document.getElementById('vol-mrole-form');
-  if (formEl) formEl.style.display = 'none';
-  var editingEl = document.getElementById('vol-mrole-editing-id');
-  if (editingEl) editingEl.value = '';
-}
-
-function volEditMinistryRole(id) {
   api('/admin/api/ministry-roles?ministry=')
     .then(function(d) {
-      var role = (d.roles || []).find(function(r) { return r.id === id; });
-      if (!role) { alert('Role not found.'); return; }
-      var editingEl = document.getElementById('vol-mrole-editing-id');
-      if (editingEl) editingEl.value = id;
-      var titleEl = document.getElementById('vol-mrole-form-title');
-      if (titleEl) titleEl.textContent = 'Edit Role';
-      var saveBtn = document.getElementById('vol-mrole-save-btn');
-      if (saveBtn) saveBtn.textContent = 'Save Changes';
-      var nameEl = document.getElementById('vol-mrole-name'); if (nameEl) nameEl.value = role.name || '';
-      var descEl = document.getElementById('vol-mrole-desc'); if (descEl) descEl.value = role.description || '';
-      var commEl = document.getElementById('vol-mrole-commitment'); if (commEl) commEl.value = role.commitment || '';
-      var trainEl = document.getElementById('vol-mrole-training'); if (trainEl) trainEl.value = role.training || '';
-      var activeEl = document.getElementById('vol-mrole-active'); if (activeEl) activeEl.checked = role.active !== 0;
-      var sel = document.getElementById('vol-mrole-ministry-sel'); if (sel) sel.value = role.ministry || 'worship';
-      var formEl = document.getElementById('vol-mrole-form');
-      if (formEl) { formEl.style.display = ''; formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+      _volMRolesCache = d.roles || [];
+      if (_volActiveMRoleId !== 'new' && !_volMRolesCache.some(function(r){ return r.id === _volActiveMRoleId; })) {
+        _volActiveMRoleId = _volMRolesCache.length ? _volMRolesCache[0].id : null;
+      }
+      volRenderMRolesList();
+      volRenderMRoleDetail();
+    })
+    .catch(function() {
+      var listEl = document.getElementById('vol-mroles-list');
+      if (listEl) listEl.innerHTML = '<span style="color:var(--danger);">Error loading roles.</span>';
     });
 }
 
+function volFilterMRoles(q) {
+  _volMRoleSearch = q || '';
+  volRenderMRolesList();
+}
+
+function volRenderMRolesList() {
+  var listEl = document.getElementById('vol-mroles-list');
+  var countEl = document.getElementById('vol-mroles-count');
+  if (!listEl) return;
+  var q = _volMRoleSearch.trim().toLowerCase();
+  var roles = _volMRolesCache.filter(function(r) {
+    if (!q) return true;
+    return (r.name||'').toLowerCase().indexOf(q) !== -1 || (MR_MINISTRY_LABELS[r.ministry]||r.ministry||'').toLowerCase().indexOf(q) !== -1;
+  });
+  if (countEl) countEl.textContent = _volMRolesCache.length;
+  if (!roles.length) {
+    listEl.innerHTML = '<div style="padding:14px 10px;text-align:center;color:var(--warm-gray);font-size:.85rem;">' + (_volMRolesCache.length ? 'No roles match your search.' : 'No roles yet — click "+ Add Role" to create one.') + '</div>';
+    return;
+  }
+  listEl.innerHTML = roles.map(function(r) {
+    return '<div class="ev-list-row' + (r.id===_volActiveMRoleId?' active':'') + '" onclick="volSelectMRole(' + r.id + ')">'
+      + '<div class="ev-list-name">' + esc(r.name) + '</div>'
+      + '<div class="ev-list-meta">' + esc(MR_MINISTRY_LABELS[r.ministry]||r.ministry) + ' &middot; ' + (r.active ? 'Visible' : 'Hidden') + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function volNewMinistryRole() {
+  _volActiveMRoleId = 'new';
+  volRenderMRolesList();
+  volRenderMRoleDetail();
+}
+
+function volSelectMRole(id) {
+  _volActiveMRoleId = id;
+  volRenderMRolesList();
+  volRenderMRoleDetail();
+}
+
+function volRenderMRoleDetail() {
+  var detailEl = document.getElementById('vol-mrole-detail');
+  if (!detailEl) return;
+  if (_volActiveMRoleId === null) { detailEl.innerHTML = '<div style="padding:20px 10px;text-align:center;color:var(--warm-gray);font-size:.85rem;">Select a role, or add a new one.</div>'; return; }
+  var isNew = _volActiveMRoleId === 'new';
+  var role = isNew ? { name:'', ministry:'worship', description:'', commitment:'', training:'', active:1 } : _volMRolesCache.find(function(r){ return r.id === _volActiveMRoleId; });
+  if (!role) { detailEl.innerHTML = ''; return; }
+  var ministryOptions = Object.keys(MR_MINISTRY_LABELS).map(function(k) {
+    return '<option value="' + k + '"' + (role.ministry===k?' selected':'') + '>' + MR_MINISTRY_LABELS[k] + '</option>';
+  }).join('');
+
+  detailEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">'
+    + '<span style="font-size:.72rem;font-weight:600;border-radius:99px;padding:2px 10px;' + (role.active ? 'color:var(--teal);background:rgba(46,126,166,.1);' : 'color:var(--danger);background:rgba(184,92,58,.1);') + '">' + (role.active ? 'Visible on site' : 'Hidden') + '</span>'
+    + (isNew ? '' : '<a href="javascript:void(0)" style="color:var(--danger);font-size:.8rem;font-weight:600;" onclick="volDeleteMinistryRole(' + role.id + ')">Delete role</a>')
+    + '</div>'
+    + '<div style="display:flex;flex-direction:column;gap:12px;max-width:460px;">'
+    + '<div><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;">Role name</label><input type="text" id="vol-mrole-name" class="form-input" style="width:100%;" value="' + esc(role.name) + '" placeholder="e.g. Sunday Worship Care"></div>'
+    + '<div><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;">Ministry</label><select id="vol-mrole-ministry-sel" class="form-input" style="max-width:220px;">' + ministryOptions + '</select></div>'
+    + '<div><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;">Description</label><textarea id="vol-mrole-desc" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:.85rem;font-family:inherit;height:64px;resize:vertical;" placeholder="Brief description of this role…">' + esc(role.description||'') + '</textarea></div>'
+    + '<div><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;">Commitment / schedule</label><input type="text" id="vol-mrole-commitment" class="form-input" style="width:100%;" value="' + esc(role.commitment||'') + '" placeholder="e.g. Weekly, Thursday rehearsal"></div>'
+    + '<div><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;">Training</label><input type="text" id="vol-mrole-training" class="form-input" style="width:100%;" value="' + esc(role.training||'') + '" placeholder="e.g. 15-minute walk-through"></div>'
+    + '<label class="toggle-switch" style="background:var(--linen);border-radius:8px;padding:10px 12px;"><input type="checkbox" id="vol-mrole-active"' + (role.active?' checked':'') + '><span class="toggle-track"></span><span style="font-size:.82rem;font-weight:600;color:var(--charcoal);">Visible on the volunteer site</span></label>'
+    + '<div style="display:flex;gap:8px;margin-top:4px;">'
+    + '<button class="btn-primary" style="font-size:.82rem;" onclick="volSaveMinistryRole()">' + (isNew ? 'Save Role' : 'Save Changes') + '</button>'
+    + (isNew ? '<button class="btn-secondary" style="font-size:.82rem;" onclick="volSelectMRole(' + (_volMRolesCache[0] ? _volMRolesCache[0].id : 'null') + ')">Cancel</button>' : '')
+    + '</div></div>';
+}
+
 function volSaveMinistryRole() {
-  var editingId = parseInt((document.getElementById('vol-mrole-editing-id')||{}).value || '0');
+  var isNew = _volActiveMRoleId === 'new';
   var name = ((document.getElementById('vol-mrole-name')||{}).value || '').trim();
   if (!name) { alert('Role name is required.'); return; }
   var ministry = (document.getElementById('vol-mrole-ministry-sel')||{}).value || 'worship';
@@ -735,31 +912,22 @@ function volSaveMinistryRole() {
   var commitment = (document.getElementById('vol-mrole-commitment')||{}).value || '';
   var training = (document.getElementById('vol-mrole-training')||{}).value || '';
   var active = (document.getElementById('vol-mrole-active')||{}).checked !== false;
-  var saveBtn = document.getElementById('vol-mrole-save-btn');
-  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
-  var method = editingId ? 'PUT' : 'POST';
-  var url = '/admin/api/ministry-roles' + (editingId ? '/' + editingId : '');
+  var method = isNew ? 'POST' : 'PUT';
+  var url = '/admin/api/ministry-roles' + (isNew ? '' : '/' + _volActiveMRoleId);
   api(url, {
     method: method, headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: name, ministry: ministry, description: desc, commitment: commitment, training: training, active: active })
   }).then(function(d) {
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = editingId ? 'Save Changes' : 'Save Role'; }
     if (!d.ok && !d.id) { alert(d.error || 'Save failed'); return; }
-    // Switch ministry filter to match saved role and reload
-    var filterSel = document.getElementById('vol-mroles-ministry');
-    if (filterSel) filterSel.value = ministry;
-    volCancelMRoleForm();
+    if (isNew && d.id) _volActiveMRoleId = d.id;
     volLoadMinistryRoles();
-  }).catch(function(e) {
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = editingId ? 'Save Changes' : 'Save Role'; }
-    alert('Error: ' + e);
-  });
+  }).catch(function(e) { alert('Error: ' + e); });
 }
 
 function volDeleteMinistryRole(id) {
   if (!confirm('Delete this role? Existing sign-ups will not be affected.')) return;
   api('/admin/api/ministry-roles/' + id, { method: 'DELETE' })
-    .then(function() { volLoadMinistryRoles(); });
+    .then(function() { _volActiveMRoleId = null; volLoadMinistryRoles(); });
 }
 </script>
 `;

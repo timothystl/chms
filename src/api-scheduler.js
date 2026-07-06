@@ -107,14 +107,15 @@ export async function handleSignup(req, env) {
   }
 
   const r = await env.DB.prepare(
-    `INSERT INTO signups (event_id,role_id,ministry,name,email,phone,roles,service,sundays,shirt_wanted,shirt_size,notes)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO signups (event_id,role_id,ministry,name,email,phone,roles,service,sundays,shirt_wanted,shirt_size,notes,sms_reminder_opt_in)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     data.event_id || 0, data.role_id || 0,
     data.ministry || '', name, email, data.phone || '',
     JSON.stringify(data.roles || roleIds.map(String)),
     data.service || '', JSON.stringify(data.sundays || []),
-    data.shirt_wanted ? 1 : 0, data.shirt_size || '', data.notes || ''
+    data.shirt_wanted ? 1 : 0, data.shirt_size || '', data.notes || '',
+    data.sms_reminder_opt_in ? 1 : 0
   ).run();
   const signupId = r.meta?.last_row_id;
 
@@ -144,6 +145,23 @@ export async function handleSignup(req, env) {
       body: JSON.stringify({ from: emailFrom, to: email, reply_to: officeEmail(env),
         subject: 'Thanks for signing up to serve at Timothy!', text }),
     }).catch(() => { /* non-fatal */ });
+  }
+
+  // Notify the office of the new sign-up, if enabled in Settings
+  if (resendKey && emailFrom) {
+    const notifyRow = await env.DB.prepare("SELECT value FROM chms_config WHERE key='notify_new_signup'").first();
+    if (notifyRow && notifyRow.value === '1') {
+      const notifyEmailRow = await env.DB.prepare("SELECT value FROM chms_config WHERE key='volunteer_public_email'").first();
+      const notifyTo = (notifyEmailRow && notifyEmailRow.value) || officeEmail(env);
+      const rolesList = (data.roles && data.roles.length) ? data.roles.join(', ') : '';
+      const notifyText = `New volunteer sign-up:\n\nName: ${name}\nEmail: ${email}\nPhone: ${data.phone || '(none)'}\nMinistry: ${data.ministry || '(none)'}${rolesList ? `\nRoles/shifts: ${rolesList}` : ''}${data.notes ? `\nNotes: ${data.notes}` : ''}`;
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: emailFrom, to: notifyTo, reply_to: email,
+          subject: `New volunteer sign-up: ${name}`, text: notifyText }),
+      }).catch(() => { /* non-fatal */ });
+    }
   }
 
   return json({ ok: true, signup_id: signupId });
@@ -616,7 +634,7 @@ export async function handleSignupSendEmail(req, env, signupId) {
   }
 
   await db.prepare(
-    `UPDATE signups SET contacted_at=datetime('now'), contact_count=contact_count+1 WHERE id=?`
+    `UPDATE signups SET contacted_at=datetime('now'), contact_count=contact_count+1, status=CASE WHEN status='new' THEN 'contacted' ELSE status END WHERE id=?`
   ).bind(signupId).run();
 
   await db.prepare(

@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '1.4.1';
+var DEPLOY_VERSION = '1.5.0';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirks — suppress these and don't show the error banner.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -188,7 +188,7 @@ function showTab(name) {
   if (name === 'attendance') loadAttendance();
   if (name === 'register') loadRegister();
   if (name === 'settings') loadSettings();
-  if (name === 'volunteers') { volLoadSignups(); volLoadMinistryRoles(); volLoadEvents(); volLoadTemplates(); }
+  if (name === 'volunteers') { volLoadSnapshotStats(); volLoadSignups(); volLoadMinistryRoles(); volLoadEvents(); volLoadTemplates(); }
   if (name === 'scheduler') {
     if (window.schedInitScheduler && !window._schedInited) {
       window.schedInitScheduler();

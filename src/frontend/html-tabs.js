@@ -397,6 +397,23 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <button class="btn-primary" onclick="saveSettings()">Save Church Info</button>
     </div>
+    <!-- Volunteer Site & Notifications Card -->
+    <div class="import-card" style="margin-bottom:14px;">
+      <h3>&#128101; Volunteer Site &amp; Notifications</h3>
+      <p>Shown on the public volunteer sign-up site, plus who gets notified about new sign-ups.</p>
+      <div class="field" style="margin-bottom:10px;"><label>Address</label><input type="text" id="st-vol-address" name="st-vol-address" placeholder="6704 Fyler Ave, St. Louis, MO 63139" style="width:100%;"></div>
+      <div class="modal-2col" style="margin-bottom:12px;">
+        <div class="field"><label>Public contact email</label><input type="email" id="st-vol-email" name="st-vol-email" placeholder="office@timothystl.org" style="width:100%;"></div>
+        <div class="field"><label>Phone</label><input type="text" id="st-vol-phone" name="st-vol-phone" placeholder="(314) 555-0100" style="width:100%;"></div>
+      </div>
+      <div style="font-size:.82rem;font-weight:700;color:var(--charcoal);margin-bottom:8px;">Who gets notified</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+        <label class="toggle-switch" style="background:var(--linen);border-radius:8px;padding:10px 12px;"><input type="checkbox" id="st-notify-new-signup"><span class="toggle-track"></span><span style="font-size:.85rem;color:var(--charcoal);">Email the office on every new volunteer sign-up</span></label>
+        <label class="toggle-switch" style="background:var(--linen);border-radius:8px;padding:10px 12px;"><input type="checkbox" id="st-notify-weekly-digest"><span class="toggle-track"></span><span style="font-size:.85rem;color:var(--charcoal);">Weekly digest to ministry leaders</span></label>
+      </div>
+      <p style="font-size:.76rem;color:var(--warm-gray);margin-bottom:10px;">The weekly digest isn&rsquo;t built yet &mdash; this just saves the preference for when it is.</p>
+      <button class="btn-primary" onclick="saveVolunteerSettings()">Save Volunteer Settings</button>
+    </div>
     <!-- Letter Template Card -->
     <div class="import-card" style="margin-bottom:14px;">
       <h3>&#128140; Year-End Giving Letter Template</h3>
@@ -696,6 +713,8 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
       <h2 style="font-size:1.1rem;font-weight:700;color:var(--charcoal);">Volunteers</h2>
     </div>
+    <!-- Snapshot stats -->
+    <div id="vol-snapshot-stats" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;"></div>
     <!-- Ministry filter tabs -->
     <div id="vol-ministry-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);">
       <button class="btn-secondary active" onclick="volSetTab('all',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">All</button>
@@ -720,69 +739,20 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <h4 style="font-size:.9rem;font-weight:600;color:#8a5000;margin-bottom:10px;">Emails with multiple signups</h4>
         <div id="vol-duplicates-list"></div>
       </div>
+      <div id="vol-status-pills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"></div>
       <div id="vol-signups-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
     </div>
     <!-- Ministry Roles management -->
     <div id="vol-mroles-section" style="margin-bottom:28px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
         <h3 style="font-size:1rem;font-weight:600;color:var(--charcoal);">Ministry Roles <span id="vol-mroles-count" style="background:var(--navy);color:#fff;border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">…</span></h3>
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-          <select id="vol-mroles-ministry" class="form-input" style="font-size:.82rem;padding:4px 8px;width:auto;" onchange="volLoadMinistryRoles()">
-            <option value="worship">Worship</option>
-            <option value="education">Education</option>
-            <option value="acceptance">Acceptance</option>
-            <option value="outreach">Outreach</option>
-            <option value="transportation">Transportation</option>
-            <option value="general">General</option>
-          </select>
-          <button class="btn-primary" style="font-size:.82rem;" onclick="volShowMRoleForm()">+ Add Role</button>
-        </div>
+        <button class="btn-primary" style="font-size:.82rem;" onclick="volNewMinistryRole()">+ Add Role</button>
       </div>
-      <!-- Add / Edit form -->
-      <div id="vol-mrole-form" style="display:none;background:var(--white);border-radius:10px;border:1px solid var(--border);padding:16px;margin-bottom:12px;">
-        <div style="font-size:.88rem;font-weight:600;color:var(--charcoal);margin-bottom:10px;" id="vol-mrole-form-title">Add Role</div>
-        <input type="hidden" id="vol-mrole-editing-id" value="">
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
-          <div style="flex:2;min-width:180px;">
-            <label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Role Name *</label>
-            <input type="text" id="vol-mrole-name" class="form-input" style="width:100%;" placeholder="e.g. Sunday Worship Care">
-          </div>
-          <div style="flex:1;min-width:130px;" id="vol-mrole-ministry-wrap">
-            <label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Ministry</label>
-            <select id="vol-mrole-ministry-sel" class="form-input" style="width:100%;">
-              <option value="worship">Worship</option>
-              <option value="education">Education</option>
-              <option value="acceptance">Acceptance</option>
-              <option value="outreach">Outreach</option>
-              <option value="transportation">Transportation</option>
-              <option value="general">General</option>
-            </select>
-          </div>
-        </div>
-        <div style="margin-bottom:8px;">
-          <label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Description</label>
-          <textarea id="vol-mrole-desc" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:.85rem;font-family:inherit;height:64px;resize:vertical;" placeholder="Brief description of this role…"></textarea>
-        </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-          <div style="flex:1;min-width:150px;">
-            <label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Commitment</label>
-            <input type="text" id="vol-mrole-commitment" class="form-input" style="width:100%;" placeholder="e.g. After second service">
-          </div>
-          <div style="flex:1;min-width:150px;">
-            <label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Training</label>
-            <input type="text" id="vol-mrole-training" class="form-input" style="width:100%;" placeholder="e.g. 15-minute walk-through">
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
-          <input type="checkbox" id="vol-mrole-active" checked style="width:auto;margin:0;">
-          <label for="vol-mrole-active" style="font-size:.83rem;cursor:pointer;">Visible on volunteer signup page</label>
-        </div>
-        <div style="display:flex;gap:6px;">
-          <button class="btn-primary" style="font-size:.82rem;" id="vol-mrole-save-btn" onclick="volSaveMinistryRole()">Save Role</button>
-          <button class="btn-secondary" style="font-size:.82rem;" onclick="volCancelMRoleForm()">Cancel</button>
-        </div>
+      <input type="text" class="form-input" style="width:100%;margin-bottom:10px;" placeholder="Search roles…" oninput="volFilterMRoles(this.value)">
+      <div class="ev-master-detail">
+        <div class="ev-list-col" id="vol-mroles-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
+        <div class="ev-detail-col" id="vol-mrole-detail" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
       </div>
-      <div id="vol-mroles-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
     </div>
 
     <!-- Events management -->
@@ -803,7 +773,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <button class="btn-secondary" style="font-size:.82rem;" onclick="document.getElementById('vol-add-event-form').style.display='none'">Cancel</button>
         </div>
       </div>
-      <div id="vol-events-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
+      <div class="ev-master-detail">
+        <div class="ev-list-col" id="vol-events-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
+        <div class="ev-detail-col" id="vol-event-detail" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
+      </div>
     </div>
 
     <!-- Email Templates section -->
@@ -845,8 +818,8 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 </div>
 
 <!-- ═══ VOLUNTEER: LINK PERSON MODAL ═══ -->
-<div id="vol-link-person-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeModal('vol-link-person-modal')">
-  <div class="modal-box" style="max-width:520px;width:95%;">
+<div id="vol-link-person-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('vol-link-person-modal')">
+  <div class="modal" style="max-width:520px;width:95%;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
       <h3 style="font-size:1rem;font-weight:700;color:var(--charcoal);">Link to Person Record</h3>
       <button onclick="closeModal('vol-link-person-modal')" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:var(--warm-gray);">✕</button>
@@ -871,8 +844,8 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 </div>
 
 <!-- ═══ VOLUNTEER: SEND EMAIL MODAL ═══ -->
-<div id="vol-send-email-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeModal('vol-send-email-modal')">
-  <div class="modal-box" style="max-width:580px;width:95%;">
+<div id="vol-send-email-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('vol-send-email-modal')">
+  <div class="modal" style="max-width:580px;width:95%;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
       <h3 style="font-size:1rem;font-weight:700;color:var(--charcoal);">Send Outreach Email</h3>
       <button onclick="closeModal('vol-send-email-modal')" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:var(--warm-gray);">✕</button>
@@ -899,6 +872,32 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div style="display:flex;gap:6px;">
         <button class="btn-secondary" style="font-size:.82rem;" onclick="closeModal('vol-send-email-modal')">Cancel</button>
         <button class="btn-primary" style="font-size:.82rem;" id="vol-send-btn" onclick="volDoSendEmail()">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ VOLUNTEER: ADD/EDIT SHIFT MODAL ═══ -->
+<div id="vol-shift-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('vol-shift-modal')">
+  <div class="modal" style="max-width:460px;width:95%;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <h3 id="vol-shift-modal-title" style="font-size:1rem;font-weight:700;color:var(--charcoal);">Edit shift</h3>
+      <span id="vol-shift-day-label" style="font-size:.78rem;color:var(--warm-gray);"></span>
+    </div>
+    <div style="margin-bottom:10px;"><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Shift name</label><input type="text" id="vol-shift-name" class="form-input" style="width:100%;"></div>
+    <div style="margin-bottom:10px;"><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Description</label><textarea id="vol-shift-desc" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:.83rem;font-family:inherit;height:52px;resize:vertical;"></textarea></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
+      <div><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Date</label><input type="date" id="vol-shift-date" class="form-input" style="width:100%;"></div>
+      <div><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Start</label><input type="time" id="vol-shift-start" class="form-input" style="width:100%;"></div>
+      <div><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">End</label><input type="time" id="vol-shift-end" class="form-input" style="width:100%;"></div>
+    </div>
+    <div style="margin-bottom:6px;max-width:110px;"><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Spots</label><input type="number" id="vol-shift-slots" min="0" class="form-input" style="width:100%;"></div>
+    <div id="vol-shift-filled-hint" style="font-size:.78rem;color:var(--warm-gray);margin-bottom:14px;"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <a href="javascript:void(0)" id="vol-shift-delete" style="color:var(--danger);font-size:.82rem;font-weight:600;" onclick="volDeleteShift()">Delete shift</a>
+      <div style="display:flex;gap:6px;">
+        <button class="btn-secondary" style="font-size:.82rem;" onclick="closeModal('vol-shift-modal')">Cancel</button>
+        <button class="btn-primary" style="font-size:.82rem;" onclick="volSaveShift()">Save shift</button>
       </div>
     </div>
   </div>

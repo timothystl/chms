@@ -344,6 +344,8 @@ export async function handleAdminApi(req, env, url, method) {
         created_at: s.created_at || '', event_name: s.event_name || null,
         person_id: s.person_id || null, contact_count: s.contact_count || 0,
         contacted_at: s.contacted_at || '',
+        status: s.status || 'new',
+        sms_reminder_opt_in: s.sms_reminder_opt_in || 0,
         linked_person_name: s.person_id ? (personNames[s.person_id] || '') : '',
         slot_details: slotsBySignup[s.id] || [],
       };
@@ -355,6 +357,16 @@ export async function handleAdminApi(req, env, url, method) {
     const id = parseInt(seg.split('/')[1]);
     await env.DB.prepare('DELETE FROM signup_slots WHERE signup_id=?').bind(id).run();
     await env.DB.prepare('DELETE FROM signups WHERE id=?').bind(id).run();
+    return json({ ok: true });
+  }
+
+  // PUT /admin/api/signups/:id/status — { status: 'new'|'contacted'|'confirmed'|'declined' }
+  const statusMatch = seg.match(/^signups\/(\d+)\/status$/);
+  if (statusMatch && method === 'PUT') {
+    const VALID_STATUS = ['new', 'contacted', 'confirmed', 'declined'];
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    if (!VALID_STATUS.includes(b.status)) return json({ error: 'Invalid status' }, 400);
+    await env.DB.prepare('UPDATE signups SET status=? WHERE id=?').bind(b.status, parseInt(statusMatch[1])).run();
     return json({ ok: true });
   }
 

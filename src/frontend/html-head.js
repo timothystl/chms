@@ -553,6 +553,40 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .report-tiles{display:none;}
   button{display:none!important;}
 }
+/* ── Events: master/detail layout + shift modal (day-grouped shift rows) ── */
+.ev-master-detail{display:flex;gap:14px;align-items:flex-start;}
+.ev-list-col{width:230px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;}
+.ev-list-row{padding:9px 12px;border-left:3px solid transparent;border-radius:6px;cursor:pointer;background:var(--white);border:1px solid var(--border);border-left-width:3px;margin-bottom:4px;}
+.ev-list-row.active{background:rgba(46,126,166,.08);border-color:var(--teal);border-left-color:var(--teal);}
+.ev-list-row .ev-list-name{font-weight:700;font-size:.86rem;color:var(--charcoal);}
+.ev-list-row.active .ev-list-name{color:var(--steel-anchor);}
+.ev-list-row .ev-list-meta{font-size:.72rem;color:var(--warm-gray);margin-top:2px;}
+.ev-detail-col{flex:1;min-width:0;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:16px;}
+.ev-day-header{display:flex;align-items:center;justify-content:space-between;margin:18px 0 8px;}
+.ev-day-header:first-of-type{margin-top:4px;}
+.ev-day-header h4{font-family:var(--font-head);font-size:.92rem;color:var(--steel-anchor);margin:0;}
+.ev-shift-row{display:grid;grid-template-columns:1.6fr 1fr 60px 50px;gap:10px;align-items:center;background:var(--linen);border-radius:9px;padding:9px 12px;margin-bottom:6px;cursor:pointer;}
+.ev-shift-row:hover{background:var(--border);}
+.ev-shift-row .ev-shift-name{font-size:.85rem;font-weight:600;color:var(--charcoal);}
+.ev-shift-row .ev-shift-time{font-size:.72rem;color:var(--warm-gray);}
+.ev-fill-bar{height:6px;background:rgba(30,45,74,.1);border-radius:99px;overflow:hidden;}
+.ev-fill-bar>div{height:100%;}
+.ev-fill-count{font-size:.78rem;font-weight:700;text-align:center;}
+.ev-edit-link{font-size:.78rem;font-weight:600;color:var(--teal);text-align:center;}
+@media(max-width:720px){.ev-master-detail{flex-direction:column;}.ev-list-col{width:100%;flex-direction:row;flex-wrap:wrap;}}
+/* ── Reusable pill toggle switch (Ministry Roles, Settings) ── */
+.toggle-switch{display:inline-flex;align-items:center;gap:10px;cursor:pointer;}
+.toggle-switch input{display:none;}
+.toggle-track{width:34px;height:18px;border-radius:99px;background:var(--border);position:relative;flex-shrink:0;transition:background .15s;}
+.toggle-track::after{content:'';width:14px;height:14px;border-radius:50%;background:#fff;position:absolute;top:2px;left:2px;transition:left .15s;}
+.toggle-switch input:checked+.toggle-track{background:var(--sage);}
+.toggle-switch input:checked+.toggle-track::after{left:18px;}
+/* ── Status pills (Signups list, event roster) ── */
+.status-pill{font-size:.7rem;font-weight:700;padding:2px 9px;border-radius:99px;white-space:nowrap;border:none;cursor:pointer;font-family:var(--font-body);}
+.status-pill.status-new{background:rgba(201,151,58,.15);color:#a3781f;}
+.status-pill.status-contacted{background:rgba(46,126,166,.12);color:var(--teal);}
+.status-pill.status-confirmed{background:rgba(107,143,113,.15);color:#3d5c42;}
+.status-pill.status-declined{background:rgba(184,92,58,.1);color:var(--danger);}
 </style>
 </head>
 <body>

@@ -75,7 +75,49 @@ document.addEventListener('change', function(e) {
   if (t.type === 'checkbox' && t.name === 'sun') { t.closest('.chip-label').classList.toggle('checked', t.checked); }
   if (t.type === 'checkbox' && (t.name === 'trans-svc' || t.name === 'trans-avail')) { t.closest('.chip-label').classList.toggle('checked', t.checked); }
   if (t.type === 'radio' && t.name === 'trans-wc') { document.querySelectorAll('#trans-wc-chips .chip-label').forEach(function(l) { l.classList.toggle('checked', l.querySelector('input').checked); }); }
+  if (t.type === 'radio' && t.name === 'ff-time') { document.querySelectorAll('#ff-time-chips .chip-label').forEach(function(l) { l.classList.toggle('checked', l.querySelector('input').checked); }); }
 });
+
+// ── Find Your Fit (guided 2-tap intake) ────────────────────────────────
+var FF_MINISTRY_META = {
+  worship: { label: 'Worship' }, education: { label: 'Christian Education' },
+  acceptance: { label: 'Acceptance' }, outreach: { label: 'Outreach' },
+};
+var FF_TIME_LABELS = { hour: 'An hour on Sunday', month: 'A few hours a month', unsure: 'Flexible on time' };
+
+function ffShowResults() {
+  var interests = Array.from(document.querySelectorAll('input[name="ff-interest"]:checked')).map(function(c){ return c.value; });
+  if (!interests.length) { alert('Please select at least one area that draws you \\u2014 or tap "Skip" to browse everything.'); return; }
+  var timeEl = document.querySelector('input[name="ff-time"]:checked');
+  var time = timeEl ? timeEl.value : 'unsure';
+  var subhead = document.getElementById('ff-results-subhead');
+  if (subhead) subhead.textContent = FF_TIME_LABELS[time] + ' \\u00B7 ' + interests.map(function(i){ return (FF_MINISTRY_META[i]||{}).label || i; }).join(', ');
+  var listEl = document.getElementById('ff-results-list');
+  if (listEl) listEl.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:1rem;">Finding roles\\u2026</p>';
+  document.getElementById('ff-step1').hidden = true;
+  document.getElementById('ff-step2').hidden = false;
+  window.scrollTo({ top: 0, behavior: 'instant' });
+
+  Promise.all(interests.map(function(m) {
+    return fetch('/api/ministry-roles?ministry=' + m).then(function(r) { return r.json(); })
+      .then(function(d) { return (d.roles || []).map(function(role) { role._ministry = m; return role; }); })
+      .catch(function() { return []; });
+  })).then(function(results) {
+    var roles = [].concat.apply([], results);
+    if (!roles.length) {
+      listEl.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:1rem;">No open roles listed in those areas right now \\u2014 but we would still love your help. <a href="javascript:void(0)" data-nav-page="general" style="color:var(--teal);font-weight:600;">Tell us about yourself</a>.</p>';
+      return;
+    }
+    listEl.innerHTML = roles.map(function(role) {
+      var meta = FF_MINISTRY_META[role._ministry] || { label: role._ministry };
+      return '<a href="javascript:void(0)" data-nav-page="' + role._ministry + '" class="role-card" style="display:block;text-decoration:none;">'
+        + '<div class="role-card-top"><span class="role-name">' + escH(role.name) + '</span></div>'
+        + (role.description ? '<p class="role-desc">' + escH(role.description) + '</p>' : '')
+        + '<span style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--teal);">' + meta.label + (role.commitment ? ' &middot; ' + escH(role.commitment) : '') + '</span>'
+        + '</a>';
+    }).join('');
+  });
+}
 
 function roleTag(r, bg, border) { return '<span style="display:inline-flex;align-items:center;gap:.3rem;background:'+bg+';border:1px solid '+border+';border-radius:6px;padding:.2rem .65rem;font-size:.82rem;margin:.2rem .2rem 0 0;">'+r+'</span>'; }
 function syncPreview(sel, previewId, formId, bg, border, emptyMsg, alwaysShow) {
@@ -193,6 +235,32 @@ function goToStep2(ministry) {
   window.scrollTo({top:0, behavior:'instant'});
 }
 
+function goToStep3(cfg, ministry) {
+  var name  = ((document.getElementById(cfg.nameId)||{}).value||'');
+  var email = ((document.getElementById(cfg.emailId)||{}).value||'');
+  var phone = cfg.phoneId ? ((document.getElementById(cfg.phoneId)||{}).value||'') : '';
+  var roles = Array.from(document.querySelectorAll('#page-'+ministry+' [name=roles]:checked')).map(function(x){ return x.value; });
+  var rows = [['Name', name], ['Email', email]];
+  if (phone) rows.push(['Phone', phone]);
+  var summaryEl = document.getElementById('step3-summary-'+ministry);
+  if (summaryEl) {
+    summaryEl.innerHTML = '<p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:1rem;">Here\\'s what a leader will see. Anything look off?</p>'
+      + '<div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:.85rem;">'
+      + rows.map(function(r, i){
+          return (i > 0 ? '<div style="height:1px;background:var(--border);margin:.6rem 0;"></div>' : '')
+            + '<div style="display:flex;justify-content:space-between;gap:1rem;align-items:baseline;"><span style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);">' + r[0] + '</span><span style="font-size:.9rem;color:var(--text-primary);font-weight:600;">' + escH(r[1]) + '</span></div>';
+        }).join('')
+      + '</div>'
+      + (roles.length
+          ? '<div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:.85rem;"><div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.5rem;">Roles selected</div>'
+            + roles.map(function(r){ return '<span style="display:inline-block;background:rgba(30,45,74,.06);border-radius:6px;padding:.25rem .65rem;font-size:.82rem;margin:0 .3rem .3rem 0;">' + escH(r) + '</span>'; }).join('') + '</div>'
+          : '');
+  }
+  document.getElementById('step2-'+ministry).style.display = 'none';
+  document.getElementById('step3-'+ministry).style.display = '';
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+
 function goToStep1(ministry) {
   var s1 = document.getElementById('step1-'+ministry), s2 = document.getElementById('step2-'+ministry);
   if (s2) s2.style.display = 'none';
@@ -203,9 +271,11 @@ function goToStep1(ministry) {
 function _makeStepIndicator(step) {
   var d = document.createElement('div'); d.className = 'step-indicator';
   if (step === 1) {
-    d.innerHTML = '<div class="step-dot s-active">1</div><div class="step-line"></div><div class="step-dot">2</div><span class="step-label">Your Information</span>';
+    d.innerHTML = '<div class="step-dot s-active">1</div><div class="step-line"></div><div class="step-dot">2</div><div class="step-line"></div><div class="step-dot">3</div><span class="step-label">Your Information</span>';
+  } else if (step === 2) {
+    d.innerHTML = '<div class="step-dot s-done">\\u2713</div><div class="step-line s-done"></div><div class="step-dot s-active">2</div><div class="step-line"></div><div class="step-dot">3</div><span class="step-label">Select Roles</span>';
   } else {
-    d.innerHTML = '<div class="step-dot s-done">\\u2713</div><div class="step-line s-done"></div><div class="step-dot s-active">2</div><span class="step-label">Select Roles</span>';
+    d.innerHTML = '<div class="step-dot s-done">\\u2713</div><div class="step-line s-done"></div><div class="step-dot s-done">\\u2713</div><div class="step-line s-done"></div><div class="step-dot s-active">3</div><span class="step-label">Confirm</span>';
   }
   return d;
 }
@@ -259,10 +329,32 @@ function initStepForms() {
     var backBtn = document.createElement('button');
     backBtn.type = 'button'; backBtn.className = 'btn-back'; backBtn.innerHTML = '\\u2190 Back';
     (function(m){ backBtn.addEventListener('click', function(){ goToStep1(m); }); })(ministry);
-    var submitBtn = document.createElement('button');
-    submitBtn.type = 'button'; submitBtn.className = 'btn-submit'; submitBtn.textContent = 'Submit';
-    (function(c, m, sb){
-      sb.addEventListener('click', function(){
+    var reviewBtn = document.createElement('button');
+    reviewBtn.type = 'button'; reviewBtn.className = 'btn-submit'; reviewBtn.textContent = 'Review & Continue';
+    (function(c, m, rb){ rb.addEventListener('click', function(){ goToStep3(c, m); }); })(cfg, ministry, reviewBtn);
+    btnRow.appendChild(backBtn); btnRow.appendChild(reviewBtn);
+    step2.appendChild(btnRow);
+
+    // Build step3: confirm-and-submit — read-back summary, reminder opt-in, final submit
+    var step3 = document.createElement('div');
+    step3.id = 'step3-'+ministry; step3.className = 'step-container'; step3.style.display = 'none';
+    step3.appendChild(_makeStepIndicator(3));
+    var summaryEl = document.createElement('div');
+    summaryEl.id = 'step3-summary-'+ministry;
+    step3.appendChild(summaryEl);
+    var reminderLabel = document.createElement('label');
+    reminderLabel.style.cssText = 'display:flex;align-items:flex-start;gap:.6rem;background:var(--cream);border-radius:10px;padding:.75rem .9rem;margin:0 0 1.25rem;cursor:pointer;';
+    reminderLabel.innerHTML = '<input type="checkbox" id="step3-reminder-'+ministry+'" style="margin-top:2px;width:auto;">'
+      + '<span style="font-size:.85rem;color:var(--text-secondary);">I\\'d like a reminder before I get started \\u2014 a ministry leader may follow up by text or email.</span>';
+    step3.appendChild(reminderLabel);
+    var btnRow3 = document.createElement('div'); btnRow3.className = 'step2-btn-row';
+    var backBtn3 = document.createElement('button');
+    backBtn3.type = 'button'; backBtn3.className = 'btn-back'; backBtn3.innerHTML = '\\u2190 Back to edit info';
+    (function(m){ backBtn3.addEventListener('click', function(){ document.getElementById('step3-'+m).style.display = 'none'; document.getElementById('step2-'+m).style.display = ''; window.scrollTo({top:0, behavior:'instant'}); }); })(ministry);
+    var confirmBtn = document.createElement('button');
+    confirmBtn.type = 'button'; confirmBtn.className = 'btn-submit'; confirmBtn.textContent = 'Confirm sign-up';
+    (function(c, m, cb){
+      cb.addEventListener('click', function(){
         var data = { ministry: m };
         data.name  = ((document.getElementById(c.nameId)||{}).value||'');
         data.email = ((document.getElementById(c.emailId)||{}).value||'');
@@ -270,11 +362,13 @@ function initStepForms() {
         if (c.hasService){ var svc = document.querySelector('[name=svc]:checked'); data.service = svc ? svc.value : 'both'; }
         if (c.hasSundays) data.sundays = Array.from(document.querySelectorAll('[name=sun]:checked')).map(function(x){return x.value;});
         data.roles = Array.from(document.querySelectorAll('#page-'+m+' [name=roles]:checked')).map(function(x){return x.value;});
-        submitVolunteer(data, document.getElementById('step2-'+m), sb);
+        data.sms_reminder_opt_in = (document.getElementById('step3-reminder-'+m)||{}).checked ? 1 : 0;
+        submitVolunteer(data, document.getElementById('step3-'+m), cb);
       });
-    })(cfg, ministry, submitBtn);
-    btnRow.appendChild(backBtn); btnRow.appendChild(submitBtn);
-    step2.appendChild(btnRow);
+    })(cfg, ministry, confirmBtn);
+    btnRow3.appendChild(backBtn3); btnRow3.appendChild(confirmBtn);
+    step3.appendChild(btnRow3);
+    if (mainEl) mainEl.appendChild(step3);
   });
 
   // Remove notes from general interest form (single-step, no roles)
@@ -350,42 +444,33 @@ function renderEventExpanded(ev) {
     + '</div>';
 
   if (isTimeSlotted(ev)) {
-    // Time-slotted event: show day-picker first, then sort toggle + shift grid
+    // Time-slotted event: always-visible day toggle (defaults to the first day), contact card,
+    // sort toggle, then the shift grid for the active day — no gating step before the form shows.
     var uniqueDates = getUniqueDates(ev);
-    var dayPickerHtml = '';
+    var activeDate = _selectedDays[ev.id] || uniqueDates[0] || null;
+    _selectedDays[ev.id] = activeDate;
+    var dayToggleHtml = '';
     if (uniqueDates.length > 1) {
-      var months = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
-      var weekdays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      var weekdays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      var months = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       var dayBtns = uniqueDates.map(function(dateStr) {
         var p = dateStr.split('-');
         var d = new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
-        var wday = weekdays[d.getDay()];
-        var mname = months[parseInt(p[1])];
-        var mday = parseInt(p[2]);
-        // Count roles for this date to show a helpful sub-label
-        var roleCount = (ev.roles||[]).filter(function(r){return r.role_date===dateStr;}).length;
-        return '<button class="day-pick-btn" data-ev="'+ev.id+'" data-date="'+dateStr+'" onclick="selectDay('+ev.id+',this.getAttribute(\\'data-date\\'))">'
-          + '<span class="day-pick-weekday">'+wday+'</span>'
-          + '<span class="day-pick-date">'+mname+' '+mday+'</span>'
-          + '<span class="day-pick-sub">'+roleCount+' shift'+(roleCount===1?'':'s')+'</span>'
-          + '</button>';
+        var label = weekdays[d.getDay()]+' '+months[parseInt(p[1])]+' '+parseInt(p[2]);
+        return '<div class="day-btn'+(dateStr===activeDate?' active':'')+'" data-ev="'+ev.id+'" data-date="'+dateStr+'" onclick="selectDay('+ev.id+',this.getAttribute(\\'data-date\\'))">'+label+'</div>';
       }).join('');
-      dayPickerHtml = '<div class="day-picker"><h4>Which day would you like to volunteer?</h4>'
-        + '<div class="day-pick-btns">'+dayBtns+'</div></div>';
+      dayToggleHtml = '<div class="day-toggle" data-ev="'+ev.id+'">'+dayBtns+'</div>';
     }
-    var formSectionId = 'day-form-'+ev.id;
-    var formHidden = uniqueDates.length > 1 ? ' hidden' : '';
     var sortBar = '<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:1.25rem;flex-wrap:wrap;">'
       + '<span style="font-size:.88rem;color:var(--text-muted);margin-right:.25rem;">Sort by:</span>'
       + '<button id="sort-time-'+ev.id+'" onclick="setSort(\\'time\\','+ev.id+')" class="sort-btn sort-active">By Time</button>'
       + '<button id="sort-role-'+ev.id+'" onclick="setSort(\\'role\\','+ev.id+')" class="sort-btn">By Role</button>'
       + '<span id="shift-count-'+ev.id+'" style="margin-left:auto;font-size:.85rem;font-weight:600;color:var(--teal);"></span>'
       + '</div>';
-    var grid = '<div id="slot-grid-'+ev.id+'"></div>';
+    var grid = '<div id="slot-grid-'+ev.id+'">'+renderSlotsByTime(ev, activeDate)+'</div>';
     var notes = '<div class="form-field" style="margin-top:1rem;"><label class="form-label">Notes <span style="font-weight:400;">(optional)</span></label><textarea id="ev-notes-'+ev.id+'" class="form-textarea" placeholder="Any questions or constraints?"></textarea></div>';
     var submitBtn = '<button class="btn-submit" type="button" onclick="submitTimeSlottedEvent('+ev.id+',this)" style="margin-top:1rem;">Sign Up for Selected Shifts <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
-    var formSection = '<div id="'+formSectionId+'"'+formHidden+'>'+contactForm+sortBar+grid+notes+submitBtn+'</div>';
-    return dayPickerHtml + formSection;
+    return dayToggleHtml + contactForm + sortBar + grid + notes + submitBtn;
   } else {
     // Simple event: role checkboxes
     var rolesHtml = '';
@@ -480,12 +565,18 @@ function renderSlotsByRole(ev, dateFilter) {
   return html;
 }
 
+function spotsBadge(role) {
+  if (!(role.slots > 0)) return '';
+  var remaining = role.slots - (role.filled_count||0);
+  if (remaining <= 0) return '<span class="slots-full">Full</span>';
+  if (remaining <= 3) return '<span class="slots-low">'+remaining+' left</span>';
+  return '<span class="slots-left">'+remaining+' left</span>';
+}
+
 function renderSlotCard(evId, role) {
   var available = role.slots > 0 ? role.slots - (role.filled_count||0) : 999;
   var isFull = role.slots > 0 && available <= 0;
-  var spotsLabel = role.slots > 0
-    ? (isFull ? '<span class="slots-full">Full</span>' : '<span class="slots-left">'+available+' of '+role.slots+' spot'+(role.slots===1?'':'s')+'</span>')
-    : '';
+  var spotsLabel = spotsBadge(role);
   var timeLabel = role.start_time ? role.start_time+(role.end_time?' \\u2013 '+role.end_time:'') : '';
   var dateLabel = role.role_date ? formatShortDate(role.role_date) + (timeLabel?' &nbsp;\\u00B7\\u00A0' + timeLabel : '') : timeLabel;
 
@@ -550,13 +641,10 @@ function selectDay(evId, dateStr) {
     }
   }
   _selectedDays[evId] = dateStr;
-  // Update button highlight
-  document.querySelectorAll('.day-pick-btn[data-ev="'+evId+'"]').forEach(function(btn) {
-    btn.classList.toggle('day-pick-active', btn.dataset.date === dateStr);
+  // Update pill highlight
+  document.querySelectorAll('.day-toggle[data-ev="'+evId+'"] .day-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.date === dateStr);
   });
-  // Reveal the form + grid section
-  var formSection = document.getElementById('day-form-'+evId);
-  if (formSection) formSection.hidden = false;
   // Re-render the grid filtered to this day
   var ev = _eventsData.find(function(e){return e.id===evId;});
   if (!ev) return;
