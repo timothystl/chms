@@ -831,11 +831,26 @@ function volRenderMRolesList() {
     listEl.innerHTML = '<div style="padding:14px 10px;text-align:center;color:var(--warm-gray);font-size:.85rem;">' + (_volMRolesCache.length ? 'No roles match your search.' : 'No roles yet — click "Add role" to create one.') + '</div>';
     return;
   }
-  listEl.innerHTML = roles.map(function(r) {
-    return '<div class="ev-list-row' + (r.id===_volActiveMRoleId?' active':'') + '" onclick="volSelectMRole(' + r.id + ')">'
-      + '<div class="ev-list-name">' + esc(r.name) + '</div>'
-      + '<div class="ev-list-meta">' + esc(MR_MINISTRY_LABELS[r.ministry]||r.ministry) + ' &middot; ' + (r.active ? 'Open' : 'Hidden') + '</div>'
-      + '</div>';
+  // Group by ministry (Worship, Christian Ed, Acceptance, Outreach, ...) so the list reads as
+  // categorized sections instead of one flat run of roles.
+  var order = Object.keys(MR_MINISTRY_LABELS);
+  var groups = {};
+  roles.forEach(function(r) {
+    var key = r.ministry || '';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(r);
+  });
+  var orderedKeys = order.filter(function(k) { return groups[k]; })
+    .concat(Object.keys(groups).filter(function(k) { return order.indexOf(k) === -1; }));
+  listEl.innerHTML = orderedKeys.map(function(key) {
+    var label = MR_MINISTRY_LABELS[key] || key || 'Other';
+    return '<div class="ev-list-group-hdr">' + esc(label) + '</div>'
+      + groups[key].map(function(r) {
+          return '<div class="ev-list-row' + (r.id===_volActiveMRoleId?' active':'') + '" onclick="volSelectMRole(' + r.id + ')">'
+            + '<div class="ev-list-name">' + esc(r.name) + '</div>'
+            + '<div class="ev-list-meta">' + (r.active ? 'Open' : 'Hidden') + '</div>'
+            + '</div>';
+        }).join('');
   }).join('');
 }
 
