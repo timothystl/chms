@@ -65,8 +65,12 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
       const h = await db.prepare('SELECT * FROM households WHERE id=?').bind(hid).first();
       if (!h) return json({ error: 'Not found' }, 404);
       const members = (await db.prepare(
-        `SELECT id,first_name,last_name,member_type,family_role,phone,email,photo_url FROM people WHERE household_id=? AND active=1 ORDER BY family_role,last_name`
+        `SELECT id,first_name,last_name,member_type,family_role,phone,email,photo_url,envelope_number,anniversary_date FROM people WHERE household_id=? AND active=1 ORDER BY family_role,last_name`
       ).bind(hid).all()).results || [];
+      // Household-level envelope # / anniversary: prefer the head of household, else any member with a value set.
+      const headMember = members.find(m => m.family_role === 'head') || members[0] || {};
+      const envelope_number = headMember.envelope_number || (members.find(m => m.envelope_number) || {}).envelope_number || '';
+      const anniversary_date = headMember.anniversary_date || (members.find(m => m.anniversary_date) || {}).anniversary_date || '';
       // HQ4: compute display_name if another household shares this name
       let display_name = h.name;
       if (h.name) {
@@ -86,7 +90,7 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
          WHERE p.household_id=? AND p.active=1
          GROUP BY yr ORDER BY yr DESC LIMIT 5`
       ).bind(hid).all()).results || [];
-      return json({ ...h, members, display_name, giving_years: givingYears });
+      return json({ ...h, members, display_name, giving_years: givingYears, envelope_number, anniversary_date });
     }
     if (method === 'PUT') {
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }

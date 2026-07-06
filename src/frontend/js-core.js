@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '1.2.1';
+var DEPLOY_VERSION = '1.5.4';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirks — suppress these and don't show the error banner.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -111,6 +111,32 @@ function photoSrc(url) {
   }
   return url;
 }
+// ── SHARED AVATAR / STATUS-COLOR SYSTEM (People list, Person Profile, Household View) ──
+var AVATAR_TINTS = [
+  {bg:'#F5E0B0',fg:'#8A5A12'}, // gold
+  {bg:'#EAF4FA',fg:'#2E7EA6'}, // sky
+  {bg:'#F0D7C4',fg:'#8A4A1E'}, // terracotta
+  {bg:'#D9E8D3',fg:'#3F5E38'}, // sage
+  {bg:'#F0C9B8',fg:'#7A3418'}  // blush
+];
+function avatarTint(id) {
+  return AVATAR_TINTS[Math.abs(id||0) % AVATAR_TINTS.length];
+}
+var TYPE_COLORS = { member:'#6B8F71', visitor:'#4D6BA0', associate:'#2E7EA6', friend:'#8A7A5C', inactive:'#C9973A', organization:'#5C4B2E' };
+function typeColor(mt) {
+  return TYPE_COLORS[(mt||'visitor').toLowerCase()] || 'var(--warm-meta)';
+}
+// Color-coded dot + label — replaces the filled pill badge for member type everywhere.
+function mapUrl(addr) {
+  return addr ? 'https://maps.apple.com/?q=' + encodeURIComponent(addr) : '';
+}
+function typeDotHtml(mt, size) {
+  size = size || 8;
+  var label = mt || 'Visitor';
+  label = label.charAt(0).toUpperCase() + label.slice(1);
+  var c = typeColor(mt);
+  return '<span class="type-dot" style="width:'+size+'px;height:'+size+'px;background:'+c+';"></span><span class="type-label" style="color:'+c+';">'+esc(label)+'</span>';
+}
 
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
 var _tabFromPopState = false;
@@ -134,9 +160,9 @@ function showTab(name) {
   if (!_tabFromPopState) {
     history.pushState({ tab: name }, '', '#' + name);
   }
-  // Exit person-profile view if active
+  // Exit person-profile / household views if active
   var ca = document.querySelector('.content-area');
-  if (ca) ca.classList.remove('pv-mode');
+  if (ca) ca.classList.remove('pv-mode', 'hv-mode');
   document.querySelectorAll('.s-item[data-tab]').forEach(function(b) {
     b.classList.toggle('active', b.dataset.tab === name);
   });
@@ -272,6 +298,7 @@ window.addEventListener('load', function() {
     loadTags();
     loadFunds();
     loadMemberTypes();
+    initPeopleViewMode();
     // Restore tab from URL hash (back/forward or bookmarked link), otherwise default
     var hashTab = location.hash.replace('#', '');
     var defaultTab = _userRole === 'member' ? 'people' : 'home';
