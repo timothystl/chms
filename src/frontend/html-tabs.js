@@ -744,23 +744,20 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <!-- Ministry Roles management -->
     <div id="vol-mroles-section" style="margin-bottom:28px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-        <h3 style="font-size:1rem;font-weight:600;color:var(--charcoal);">Ministry Roles <span id="vol-mroles-count" style="background:var(--navy);color:#fff;border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">…</span></h3>
-        <button class="btn-primary" style="font-size:.82rem;" onclick="volNewMinistryRole()">+ Add Role</button>
-      </div>
-      <input type="text" class="form-input" style="width:100%;margin-bottom:10px;" placeholder="Search roles…" oninput="volFilterMRoles(this.value)">
+      <h3 style="font-size:1rem;font-weight:600;color:var(--charcoal);margin-bottom:10px;">Ministry Roles <span id="vol-mroles-count" style="background:var(--navy);color:#fff;border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">…</span></h3>
       <div class="ev-master-detail">
-        <div class="ev-list-col" id="vol-mroles-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
+        <div class="ev-list-col">
+          <div class="ev-list-search"><input type="text" class="form-input" style="width:100%;" placeholder="Search roles…" oninput="volFilterMRoles(this.value)"></div>
+          <div class="ev-list-rows" id="vol-mroles-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
+          <div class="ev-list-footer"><button class="btn-primary" onclick="volNewMinistryRole()">+ Add Role</button></div>
+        </div>
         <div class="ev-detail-col" id="vol-mrole-detail" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
       </div>
     </div>
 
     <!-- Events management -->
     <div id="vol-events-section" style="margin-bottom:28px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-        <h3 style="font-size:1rem;font-weight:600;color:var(--charcoal);">Community Events <span id="vol-events-count" style="background:var(--navy);color:#fff;border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">…</span></h3>
-        <button class="btn-primary" style="font-size:.82rem;" onclick="volShowAddEventForm()">+ Add Event</button>
-      </div>
+      <h3 style="font-size:1rem;font-weight:600;color:var(--charcoal);margin-bottom:10px;">Community Events <span id="vol-events-count" style="background:var(--navy);color:#fff;border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">…</span></h3>
       <div id="vol-add-event-form" style="display:none;background:var(--white);border-radius:10px;border:1px solid var(--border);padding:16px;margin-bottom:12px;">
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
           <div style="flex:1;min-width:180px;"><label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Event Name *</label><input type="text" id="vol-new-ev-name" name="vol-new-ev-name" class="form-input" style="width:100%;" placeholder="e.g. Easter Egg Hunt"></div>
@@ -774,7 +771,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
       </div>
       <div class="ev-master-detail">
-        <div class="ev-list-col" id="vol-events-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
+        <div class="ev-list-col">
+          <div class="ev-list-header"><h4>Events</h4><button class="btn-primary" style="font-size:.8rem;padding:6px 12px;" onclick="volShowAddEventForm()">+ New</button></div>
+          <div class="ev-list-rows" id="vol-events-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
+        </div>
         <div class="ev-detail-col" id="vol-event-detail" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
       </div>
     </div>
