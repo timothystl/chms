@@ -557,16 +557,20 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .report-tiles{display:none;}
   button{display:none!important;}
 }
-/* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) ── */
-.vol-subtab-btn{background:none;border:none;border-bottom:2.5px solid transparent;color:var(--ev-muted,#8A8898);font-family:var(--font-body);font-size:.88rem;font-weight:600;padding:9px 4px;margin-right:22px;margin-bottom:-1.5px;cursor:pointer;}
-.vol-subtab-btn.active{color:var(--ev-navy,#1E2D4A);border-bottom-color:var(--ev-navy,#1E2D4A);}
-.vol-subtab-btn:hover{color:var(--ev-navy,#1E2D4A);}
-/* ── Events / Ministry Roles: master-detail shell — exact palette from the design
+/* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) — a
+   left-side navy menu column matching the design mockup's inner "TLC Admin"
+   sidebar exactly, not a horizontal tab row. Sits inside the same shell card
+   as the list+detail pane to its right (see vol-subnav markup in html-tabs.js). ── */
+.vol-subtab-btn{text-align:left;background:none;border:none;color:rgba(255,255,255,.55);font-family:var(--font-body);font-size:12.5px;font-weight:600;padding:8px 10px;border-radius:6px;cursor:pointer;}
+.vol-subtab-btn.active{color:#fff;background:rgba(255,255,255,.12);}
+.vol-subtab-btn:hover:not(.active){color:#fff;background:rgba(255,255,255,.08);}
+/* ── Events / Ministry Roles: master-detail — exact palette from the design
    handoff mockups (navy/teal/muted-gray-blue tokens defined in :root above),
    named .ev-* so it doesn't touch this app's existing warm navy/tan tokens
-   used elsewhere. ── */
+   used elsewhere. Flush (no own card chrome) — it now sits inside the shared
+   shell card alongside .vol-subnav. ── */
 .ev-master-detail{
-  display:flex;align-items:stretch;background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.14);overflow:hidden;
+  display:flex;align-items:stretch;
 }
 .ev-list-col{width:250px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--ev-border);}
 .ev-list-header{padding:16px 16px 10px;}

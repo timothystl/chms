@@ -129,6 +129,12 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-06 (v1.5.4 follow-up)
+- **v1.5.4**: Two more direct fixes to the Volunteers tab, per feedback on a live screenshot:
+  - **Removed the four snapshot stat cards** (Open Shifts / Filled Shifts / New Signups / Upcoming Events) — not part of any mockup, and were adding vertical space above the actual working area. Deleted `volLoadSnapshotStats()` entirely (`src/frontend/js-volunteers.js`) and its call site in `showTab()` (`src/frontend/js-core.js`), plus the now-empty `vol-snapshot-stats` container div.
+  - **Converted the Signups/Ministry Roles/Events sub-nav from a horizontal tab row into a left-side vertical navy menu**, matching the mockup's inner "TLC Admin" sidebar exactly (`#1E2D4A` background, `rgba(255,255,255,.55)` inactive text, `#fff` + `rgba(255,255,255,.12)` background active state, 8px/10px item padding, 6px radius). The sub-nav column now sits inside the *same* shell card as whichever panel is active (Signups list, or the Ministry Roles/Events master-detail), rather than a separate horizontal strip above a separately-carded panel — this is the sidebar → list → detail three-pane structure from the mockup, all in one card. `.ev-master-detail` no longer carries its own background/radius/shadow (redundant now that the outer shell provides it) — it's flush inside the shared card. (`src/frontend/html-tabs.js`, `html-head.js`)
+  - Verified locally with `wrangler dev` + seeded ministry role/event + Playwright: confirmed cards gone, confirmed the navy vertical sub-nav renders correctly for all three sections with the master-detail panes flush against it in one shell.
+
 ### 2026-07-06 (v1.5.3 follow-up)
 - **v1.5.3**: Converted the app-wide sidebar from an always-present, hover-to-expand icon rail into an off-canvas hamburger drawer, at all screen sizes (not just the old `max-width:700px` mobile breakpoint). The persistent 54px rail was quietly eating a fixed slice of every screen's width and made every admin screen's usable width narrower than what the design mockups assumed (they're all designed against a full-width working area). `src/frontend/html-head.js`:
   - `.sidebar` now sits fully off-canvas (`left:-200px`) by default and slides in at full width (`left:0`) only when `.open`, matching the drawer behavior that already existed for narrow viewports — just no longer gated behind a media query.

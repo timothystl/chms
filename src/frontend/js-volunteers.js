@@ -60,40 +60,6 @@ function volRenderStatusPills() {
   }).join('');
 }
 
-function volLoadSnapshotStats() {
-  var el = document.getElementById('vol-snapshot-stats');
-  if (!el) return;
-  Promise.all([api('/admin/api/signups'), api('/admin/api/events')]).then(function(res) {
-    var allSignups = res[0].signups || [];
-    var allEvents = res[1].events || [];
-    var openShifts = 0, filledShifts = 0;
-    allEvents.forEach(function(ev) {
-      (ev.roles||[]).forEach(function(r) {
-        if (!(r.slots > 0)) return;
-        if ((r.filled_count||0) >= r.slots) filledShifts++; else openShifts++;
-      });
-    });
-    var weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-    var newThisWeek = allSignups.filter(function(s) {
-      return s.created_at && new Date(s.created_at.replace(' ', 'T')) >= weekAgo;
-    }).length;
-    var today = new Date().toISOString().slice(0, 10);
-    var upcoming = allEvents.filter(function(ev) { return ev.event_date && ev.event_date >= today && !ev.hidden; }).length;
-    var stats = [
-      { label: 'Open shifts', value: openShifts, color: 'var(--steel-anchor)' },
-      { label: 'Filled shifts', value: filledShifts, color: 'var(--sage)' },
-      { label: 'New signups', value: newThisWeek, sub: 'this week', color: 'var(--teal)' },
-      { label: 'Upcoming events', value: upcoming, color: 'var(--amber)' },
-    ];
-    el.innerHTML = stats.map(function(s) {
-      return '<div style="background:var(--linen);border-radius:12px;padding:12px 14px;flex:1;min-width:130px;">'
-        + '<div style="font-size:.7rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--warm-gray);margin-bottom:5px;">' + s.label + '</div>'
-        + '<div style="font-family:var(--font-head);font-size:1.4rem;color:' + s.color + ';">' + s.value + (s.sub ? ' <span style="font-size:.7rem;color:var(--warm-gray);font-family:var(--font-body);font-weight:600;">' + s.sub + '</span>' : '') + '</div>'
-        + '</div>';
-    }).join('');
-  }).catch(function() {});
-}
-
 function volLoadSignups() {
   var url = '/admin/api/signups' + (_volCurrentTab !== 'all' ? '?ministry=' + _volCurrentTab : '');
   var listEl = document.getElementById('vol-signups-list');
