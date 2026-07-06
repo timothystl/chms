@@ -12,7 +12,7 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500;1,600&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500;1,600&family=DM+Sans:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet">
 <style>
 :root{
   /* ── TLC Gather brand tokens ── */
@@ -36,6 +36,12 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
   --warm-surface-header:#FBF3E1;--warm-surface-card-page:#F4EFE2;
   --status-member:#6B8F71;--status-visitor:#4D6BA0;--status-associate:#2E7EA6;
   --status-friend:#8A7A5C;--status-inactive:#C9973A;--status-organization:#5C4B2E;
+  /* ── Volunteer/Events design-handoff palette (exact mockup values, kept
+     separate from the tokens above so this feature area can match its
+     mockups pixel-for-pixel without altering the rest of the app) ── */
+  --ev-navy:#1E2D4A;--ev-teal:#2E7EA6;--ev-muted:#8A8898;--ev-ink:#1A1A2A;
+  --ev-border:rgba(30,45,74,.12);--ev-border2:rgba(30,45,74,.18);
+  --ev-cream:#F7F3EC;--ev-moss:#4A5E3A;--ev-danger:#c0392b;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;overflow:hidden;}
@@ -553,40 +559,70 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .report-tiles{display:none;}
   button{display:none!important;}
 }
-/* ── Events / Ministry Roles: master-detail shell (one unified card, per mockup) ── */
-.ev-master-detail{display:flex;align-items:stretch;background:var(--white);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.14);overflow:hidden;}
-.ev-list-col{width:250px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--border);}
-.ev-list-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:16px 16px 10px;}
-.ev-list-header h4{font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin:0;}
-.ev-list-search{margin:0 16px 10px;}
+/* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) ── */
+.vol-subtab-btn{background:none;border:none;border-bottom:2.5px solid transparent;color:var(--ev-muted,#8A8898);font-family:var(--font-body);font-size:.88rem;font-weight:600;padding:9px 4px;margin-right:22px;margin-bottom:-1.5px;cursor:pointer;}
+.vol-subtab-btn.active{color:var(--ev-navy,#1E2D4A);border-bottom-color:var(--ev-navy,#1E2D4A);}
+.vol-subtab-btn:hover{color:var(--ev-navy,#1E2D4A);}
+/* ── Events / Ministry Roles: master-detail shell — exact palette from the design
+   handoff mockups (navy/teal/muted-gray-blue tokens defined in :root above),
+   named .ev-* so it doesn't touch this app's existing warm navy/tan tokens
+   used elsewhere. ── */
+.ev-master-detail{
+  display:flex;align-items:stretch;background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.14);overflow:hidden;
+}
+.ev-list-col{width:250px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--ev-border);}
+.ev-list-header{padding:16px 16px 10px;}
+.ev-list-header h4{font-family:'Lora',serif;font-weight:600;font-size:1rem;color:var(--ev-navy);margin:0 0 10px;}
+.ev-list-header-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;}
+.ev-list-header-row h4{margin:0;}
+.ev-list-search input{background:var(--ev-cream);border:1px solid var(--ev-border);border-radius:8px;font-size:.82rem;color:var(--ev-muted);}
 .ev-list-rows{flex:1;overflow-y:auto;min-height:80px;}
-.ev-list-footer{padding:12px 16px;border-top:1px solid var(--border);}
-.ev-list-footer .btn-primary{width:100%;}
-.ev-list-row{padding:11px 16px;border-left:3px solid transparent;cursor:pointer;}
-.ev-list-row:hover{background:var(--linen);}
-.ev-list-row.active{background:rgba(46,126,166,.08);border-left-color:var(--teal);}
-.ev-list-row .ev-list-name{font-weight:700;font-size:.86rem;color:var(--charcoal);}
-.ev-list-row.active .ev-list-name{color:var(--steel-anchor);}
-.ev-list-row .ev-list-meta{font-size:.72rem;color:var(--warm-gray);margin-top:2px;}
-.ev-detail-col{flex:1;min-width:0;padding:20px 24px;overflow-y:auto;}
+.ev-list-footer{padding:12px 16px;border-top:1px solid var(--ev-border);}
+.ev-list-footer button{width:100%;background:var(--ev-navy);color:#fff;border:none;border-radius:8px;padding:9px;font-size:.82rem;font-weight:600;cursor:pointer;}
+.ev-new-btn{background:var(--ev-navy);color:#fff;border:none;border-radius:7px;padding:6px 11px;font-size:.75rem;font-weight:600;cursor:pointer;flex-shrink:0;}
+.ev-list-row{padding:10px 16px;border-left:3px solid transparent;cursor:pointer;}
+.ev-list-row:hover{background:rgba(30,45,74,.03);}
+.ev-list-row.active{background:rgba(46,126,166,.08);border-left-color:var(--ev-teal);}
+.ev-list-row .ev-list-name{font-weight:600;font-size:.82rem;color:var(--ev-navy);}
+.ev-list-row.active .ev-list-name{font-weight:700;}
+.ev-list-row .ev-list-meta{font-size:.7rem;color:var(--ev-muted);margin-top:2px;}
+.ev-detail-col{flex:1;min-width:0;padding:22px 26px;overflow-y:auto;}
+.ev-detail-topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
+.ev-badge-open{background:rgba(74,94,58,.1);color:var(--ev-moss);font-size:.7rem;font-weight:600;padding:3px 9px;border-radius:100px;}
+.ev-badge-visible{background:rgba(46,126,166,.1);color:var(--ev-teal);font-size:.69rem;font-weight:600;padding:3px 9px;border-radius:100px;}
+.ev-badge-hidden{background:rgba(192,57,43,.08);color:var(--ev-danger);font-size:.7rem;font-weight:600;padding:3px 9px;border-radius:100px;}
+.ev-field-row{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:14px;}
+@media(max-width:600px){.ev-field-row{grid-template-columns:1fr;}}
+.ev-delete-link{color:var(--ev-danger);font-size:.78rem;font-weight:600;text-decoration:none;cursor:pointer;}
+.ev-fields{display:flex;flex-direction:column;gap:14px;max-width:480px;}
+.ev-fields label,.ev-field-row label{display:block;font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);margin-bottom:5px;}
+.ev-fields input[type=text],.ev-fields input[type=date],.ev-fields select,.ev-fields textarea,
+.ev-field-row input[type=text],.ev-field-row input[type=date],.ev-field-row select,.ev-field-row textarea{
+  background:#fff;border:1.5px solid var(--ev-border2);border-radius:7px;padding:9px 12px;font-size:.85rem;color:var(--ev-ink);width:100%;font-family:inherit;
+}
+.ev-fields textarea{min-height:64px;resize:vertical;}
+.ev-toggle-row{display:flex;align-items:center;gap:10px;background:var(--ev-cream);border-radius:8px;padding:10px 12px;}
+.ev-fields label.ev-toggle-row,.ev-field-row label.ev-toggle-row{display:flex;align-items:center;text-transform:none;font-size:.78rem;font-weight:600;letter-spacing:normal;color:var(--ev-navy);margin-bottom:0;}
+.ev-btn-primary{background:var(--ev-navy);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:.82rem;font-weight:600;cursor:pointer;}
+.ev-btn-secondary{background:transparent;border:1.5px solid var(--ev-border2);color:var(--ev-navy);border-radius:8px;padding:10px 16px;font-size:.82rem;font-weight:600;cursor:pointer;}
 .ev-day-header{display:flex;align-items:center;justify-content:space-between;margin:18px 0 8px;}
 .ev-day-header:first-of-type{margin-top:4px;}
-.ev-day-header h4{font-family:var(--font-head);font-size:.92rem;color:var(--steel-anchor);margin:0;}
-.ev-shift-row{display:grid;grid-template-columns:1.6fr 1fr 60px 50px;gap:10px;align-items:center;background:var(--linen);border-radius:9px;padding:9px 12px;margin-bottom:6px;cursor:pointer;}
-.ev-shift-row:hover{background:var(--border);}
-.ev-shift-row .ev-shift-name{font-size:.85rem;font-weight:600;color:var(--charcoal);}
-.ev-shift-row .ev-shift-time{font-size:.72rem;color:var(--warm-gray);}
+.ev-day-header h4{font-family:'Lora',serif;font-weight:600;font-size:.92rem;color:var(--ev-navy);margin:0;}
+.ev-shift-row{display:grid;grid-template-columns:1.6fr 1fr 60px 50px;gap:10px;align-items:center;background:var(--ev-cream);border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;}
+.ev-shift-row:hover{background:var(--ev-border);}
+.ev-shift-row .ev-shift-name{font-size:.82rem;font-weight:600;color:var(--ev-navy);}
+.ev-shift-row .ev-shift-time{font-size:.7rem;color:var(--ev-muted);}
 .ev-fill-bar{height:6px;background:rgba(30,45,74,.1);border-radius:99px;overflow:hidden;}
 .ev-fill-bar>div{height:100%;}
-.ev-fill-count{font-size:.78rem;font-weight:700;text-align:center;}
-.ev-edit-link{font-size:.78rem;font-weight:600;color:var(--teal);text-align:center;}
-@media(max-width:720px){.ev-master-detail{flex-direction:column;}.ev-list-col{width:100%;border-right:none;border-bottom:1px solid var(--border);}}
+.ev-fill-count{font-size:.75rem;font-weight:700;text-align:center;}
+.ev-edit-link{font-size:.75rem;font-weight:600;color:var(--ev-teal);text-align:center;}
+@media(max-width:720px){.ev-master-detail{flex-direction:column;}.ev-list-col{width:100%;border-right:none;border-bottom:1px solid var(--ev-border);}}
 /* ── Reusable pill toggle switch (Ministry Roles, Settings) ── */
 .toggle-switch{display:inline-flex;align-items:center;gap:10px;cursor:pointer;}
 .toggle-switch input{display:none;}
 .toggle-track{width:34px;height:18px;border-radius:99px;background:var(--border);position:relative;flex-shrink:0;transition:background .15s;}
 .toggle-track::after{content:'';width:14px;height:14px;border-radius:50%;background:#fff;position:absolute;top:2px;left:2px;transition:left .15s;}
-.toggle-switch input:checked+.toggle-track{background:var(--sage);}
+.toggle-switch input:checked+.toggle-track{background:#4A5E3A;}
 .toggle-switch input:checked+.toggle-track::after{left:18px;}
 /* ── Status pills (Signups list, event roster) ── */
 .status-pill{font-size:.7rem;font-weight:700;padding:2px 9px;border-radius:99px;white-space:nowrap;border:none;cursor:pointer;font-family:var(--font-body);}

@@ -17,6 +17,16 @@ function volJsAttr(v) {
   return JSON.stringify(v).replace(/"/g, '&quot;');
 }
 
+function volShowSection(section, btn) {
+  ['signups', 'mroles', 'events'].forEach(function(s) {
+    var panel = document.getElementById('vol-panel-' + s);
+    if (panel) panel.style.display = (s === section) ? '' : 'none';
+  });
+  document.querySelectorAll('#vol-subnav .vol-subtab-btn').forEach(function(b) {
+    b.classList.toggle('active', b === btn);
+  });
+}
+
 function volSetTab(tab, btn) {
   _volCurrentTab = tab;
   document.querySelectorAll('#vol-ministry-tabs .btn-secondary').forEach(function(b) {
@@ -546,19 +556,19 @@ function volRenderEventDetail() {
   if (!ev) { detailEl.innerHTML = '<div style="padding:20px 10px;text-align:center;color:var(--warm-gray);font-size:.85rem;">Select an event, or add a new one.</div>'; return; }
   var useTs = (ev.use_time_slots === undefined || ev.use_time_slots === null) ? 1 : ev.use_time_slots;
 
-  var topBar = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">'
-    + '<span style="font-size:.72rem;font-weight:600;border-radius:99px;padding:2px 10px;' + (ev.hidden ? 'color:var(--danger);background:rgba(184,92,58,.1);' : 'color:var(--teal);background:rgba(46,126,166,.1);') + '">' + (ev.hidden ? 'Hidden' : 'Visible on site') + '</span>'
+  var topBar = '<div class="ev-detail-topbar">'
+    + '<span class="' + (ev.hidden ? 'ev-badge-hidden' : 'ev-badge-visible') + '">' + (ev.hidden ? 'Hidden' : 'Visible on site') + '</span>'
     + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
-    + '<button class="btn-secondary" style="font-size:.8rem;" onclick="volToggleEventVisibility(' + ev.id + ',' + (ev.hidden?0:1) + ')">' + (ev.hidden?'Make Visible':'Hide Event') + '</button>'
-    + '<a href="javascript:void(0)" style="color:var(--danger);font-size:.8rem;font-weight:600;" onclick="volDeleteEvent(' + ev.id + ')">Delete</a>'
-    + '<button class="btn-primary" style="font-size:.8rem;" onclick="volSaveEvent(' + ev.id + ')">Save Changes</button>'
+    + '<button class="ev-btn-secondary" onclick="volToggleEventVisibility(' + ev.id + ',' + (ev.hidden?0:1) + ')">' + (ev.hidden?'Show event':'Hide event') + '</button>'
+    + '<a href="javascript:void(0)" class="ev-delete-link" onclick="volDeleteEvent(' + ev.id + ')">Delete</a>'
+    + '<button class="ev-btn-primary" onclick="volSaveEvent(' + ev.id + ')">Save changes</button>'
     + '</div></div>';
 
-  var fields = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
-    + '<div style="flex:2;min-width:180px;"><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Event Name</label><input type="text" id="vol-ev-name" class="form-input" style="width:100%;" value="' + esc(ev.name) + '"></div>'
-    + '<div style="flex:1;min-width:150px;"><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Date</label><input type="date" id="vol-ev-date" class="form-input" style="width:100%;" value="' + esc(ev.event_date||'') + '"></div>'
+  var fields = '<div class="ev-field-row">'
+    + '<div><label>Event name</label><input type="text" id="vol-ev-name" value="' + esc(ev.name) + '"></div>'
+    + '<div><label>Date</label><input type="date" id="vol-ev-date" value="' + esc(ev.event_date||'') + '"></div>'
     + '</div>'
-    + '<div style="margin-bottom:10px;"><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px;">Description</label><textarea id="vol-ev-desc" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:.83rem;font-family:inherit;height:56px;resize:vertical;">' + esc(ev.description||'') + '</textarea></div>'
+    + '<div class="ev-field-row" style="grid-template-columns:1fr;margin-bottom:10px;"><div><label>Description</label><textarea id="vol-ev-desc" style="min-height:56px;">' + esc(ev.description||'') + '</textarea></div></div>'
     + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;"><input type="checkbox" id="vol-ev-ts"' + (useTs ? ' checked' : '') + ' style="width:auto;margin:0;" onchange="volSaveEvent(' + ev.id + ')"><label for="vol-ev-ts" style="font-size:.82rem;cursor:pointer;">Roles have scheduled time slots</label></div>';
 
   var body;
@@ -568,11 +578,11 @@ function volRenderEventDetail() {
       var label = g.date ? volFormatDayLabel(g.date) : 'No date set';
       var dateArg = "'" + (g.date||'').replace(/'/g,'') + "'";
       return '<div class="ev-day-header"><h4>Shifts &mdash; ' + esc(label) + '</h4>'
-        + '<button class="btn-secondary" style="font-size:.75rem;padding:4px 10px;" onclick="volOpenShiftModal(' + ev.id + ',' + dateArg + ',null)">+ Add shift</button></div>'
+        + '<button class="ev-btn-secondary" style="padding:6px 12px;font-size:.75rem;" onclick="volOpenShiftModal(' + ev.id + ',' + dateArg + ',null)">+ Add shift</button></div>'
         + g.roles.map(function(r) {
             var pct = r.slots > 0 ? Math.round(((r.filled_count||0) / r.slots) * 100) : 0;
             var full = r.slots > 0 && (r.filled_count||0) >= r.slots;
-            var barColor = full ? 'var(--warm-gray)' : 'var(--sage)';
+            var barColor = full ? '#8C8880' : '#4A5E3A';
             return '<div class="ev-shift-row" onclick="volOpenShiftModal(' + ev.id + ',' + dateArg + ',' + r.id + ')">'
               + '<div><div class="ev-shift-name">' + esc(r.name) + '</div>' + (r.start_time ? '<div class="ev-shift-time">' + esc(r.start_time) + '&ndash;' + esc(r.end_time||'') + '</div>' : '') + '</div>'
               + '<div class="ev-fill-bar"><div style="width:' + pct + '%;background:' + barColor + ';"></div></div>'
@@ -581,7 +591,7 @@ function volRenderEventDetail() {
               + '</div>';
           }).join('');
     }).join('') || '<p style="font-size:.85rem;color:var(--warm-gray);margin-bottom:10px;">No shifts yet.</p>';
-    body += '<div style="margin-top:10px;"><button class="btn-secondary" style="font-size:.8rem;" onclick="volOpenShiftModal(' + ev.id + ',null,null)">+ Add shift on a new day</button></div>';
+    body += '<div style="margin-top:10px;"><button class="ev-btn-secondary" onclick="volOpenShiftModal(' + ev.id + ',null,null)">+ Add shift on a new day</button></div>';
   } else {
     // Simple (non-shift) event: role checkboxes, still live-editable per row (unchanged pattern —
     // out of scope per the shift-modal handoff, which only covers time-slotted events).
@@ -852,13 +862,13 @@ function volRenderMRolesList() {
   });
   if (countEl) countEl.textContent = _volMRolesCache.length;
   if (!roles.length) {
-    listEl.innerHTML = '<div style="padding:14px 10px;text-align:center;color:var(--warm-gray);font-size:.85rem;">' + (_volMRolesCache.length ? 'No roles match your search.' : 'No roles yet — click "+ Add Role" to create one.') + '</div>';
+    listEl.innerHTML = '<div style="padding:14px 10px;text-align:center;color:var(--warm-gray);font-size:.85rem;">' + (_volMRolesCache.length ? 'No roles match your search.' : 'No roles yet — click "Add role" to create one.') + '</div>';
     return;
   }
   listEl.innerHTML = roles.map(function(r) {
     return '<div class="ev-list-row' + (r.id===_volActiveMRoleId?' active':'') + '" onclick="volSelectMRole(' + r.id + ')">'
       + '<div class="ev-list-name">' + esc(r.name) + '</div>'
-      + '<div class="ev-list-meta">' + esc(MR_MINISTRY_LABELS[r.ministry]||r.ministry) + ' &middot; ' + (r.active ? 'Visible' : 'Hidden') + '</div>'
+      + '<div class="ev-list-meta">' + esc(MR_MINISTRY_LABELS[r.ministry]||r.ministry) + ' &middot; ' + (r.active ? 'Open' : 'Hidden') + '</div>'
       + '</div>';
   }).join('');
 }
@@ -886,20 +896,20 @@ function volRenderMRoleDetail() {
     return '<option value="' + k + '"' + (role.ministry===k?' selected':'') + '>' + MR_MINISTRY_LABELS[k] + '</option>';
   }).join('');
 
-  detailEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">'
-    + '<span style="font-size:.72rem;font-weight:600;border-radius:99px;padding:2px 10px;' + (role.active ? 'color:var(--teal);background:rgba(46,126,166,.1);' : 'color:var(--danger);background:rgba(184,92,58,.1);') + '">' + (role.active ? 'Visible on site' : 'Hidden') + '</span>'
-    + (isNew ? '' : '<a href="javascript:void(0)" style="color:var(--danger);font-size:.8rem;font-weight:600;" onclick="volDeleteMinistryRole(' + role.id + ')">Delete role</a>')
+  detailEl.innerHTML = '<div class="ev-detail-topbar">'
+    + '<span class="' + (role.active ? 'ev-badge-open' : 'ev-badge-hidden') + '">' + (role.active ? 'Open on site' : 'Hidden') + '</span>'
+    + (isNew ? '' : '<a href="javascript:void(0)" class="ev-delete-link" onclick="volDeleteMinistryRole(' + role.id + ')">Delete role</a>')
     + '</div>'
-    + '<div style="display:flex;flex-direction:column;gap:12px;max-width:460px;">'
-    + '<div><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;">Role name</label><input type="text" id="vol-mrole-name" class="form-input" style="width:100%;" value="' + esc(role.name) + '" placeholder="e.g. Sunday Worship Care"></div>'
-    + '<div><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;">Ministry</label><select id="vol-mrole-ministry-sel" class="form-input" style="max-width:220px;">' + ministryOptions + '</select></div>'
-    + '<div><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;">Description</label><textarea id="vol-mrole-desc" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:.85rem;font-family:inherit;height:64px;resize:vertical;" placeholder="Brief description of this role…">' + esc(role.description||'') + '</textarea></div>'
-    + '<div><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;">Commitment / schedule</label><input type="text" id="vol-mrole-commitment" class="form-input" style="width:100%;" value="' + esc(role.commitment||'') + '" placeholder="e.g. Weekly, Thursday rehearsal"></div>'
-    + '<div><label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;">Training</label><input type="text" id="vol-mrole-training" class="form-input" style="width:100%;" value="' + esc(role.training||'') + '" placeholder="e.g. 15-minute walk-through"></div>'
-    + '<label class="toggle-switch" style="background:var(--linen);border-radius:8px;padding:10px 12px;"><input type="checkbox" id="vol-mrole-active"' + (role.active?' checked':'') + '><span class="toggle-track"></span><span style="font-size:.82rem;font-weight:600;color:var(--charcoal);">Visible on the volunteer site</span></label>'
-    + '<div style="display:flex;gap:8px;margin-top:4px;">'
-    + '<button class="btn-primary" style="font-size:.82rem;" onclick="volSaveMinistryRole()">' + (isNew ? 'Save Role' : 'Save Changes') + '</button>'
-    + (isNew ? '<button class="btn-secondary" style="font-size:.82rem;" onclick="volSelectMRole(' + (_volMRolesCache[0] ? _volMRolesCache[0].id : 'null') + ')">Cancel</button>' : '')
+    + '<div class="ev-fields">'
+    + '<div><label>Role name</label><input type="text" id="vol-mrole-name" value="' + esc(role.name) + '" placeholder="e.g. Sunday Worship Care"></div>'
+    + '<div><label>Ministry</label><select id="vol-mrole-ministry-sel" style="max-width:220px;">' + ministryOptions + '</select></div>'
+    + '<div><label>Description</label><textarea id="vol-mrole-desc" placeholder="Brief description of this role…">' + esc(role.description||'') + '</textarea></div>'
+    + '<div><label>Commitment / schedule</label><input type="text" id="vol-mrole-commitment" value="' + esc(role.commitment||'') + '" placeholder="e.g. Weekly, Thursday rehearsal"></div>'
+    + '<div><label>Training</label><input type="text" id="vol-mrole-training" value="' + esc(role.training||'') + '" placeholder="e.g. 15-minute walk-through"></div>'
+    + '<label class="toggle-switch ev-toggle-row"><input type="checkbox" id="vol-mrole-active"' + (role.active?' checked':'') + '><span class="toggle-track"></span><span style="font-size:.78rem;font-weight:600;color:#1E2D4A;">Visible on the volunteer site</span></label>'
+    + '<div style="display:flex;gap:10px;margin-top:2px;">'
+    + '<button class="ev-btn-primary" onclick="volSaveMinistryRole()">' + (isNew ? 'Save role' : 'Save changes') + '</button>'
+    + (isNew ? '<button class="ev-btn-secondary" onclick="volSelectMRole(' + (_volMRolesCache[0] ? _volMRolesCache[0].id : 'null') + ')">Cancel</button>' : '')
     + '</div></div>';
 }
 
