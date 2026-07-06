@@ -129,6 +129,15 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-06 (v1.5.3 follow-up)
+- **v1.5.3**: Converted the app-wide sidebar from an always-present, hover-to-expand icon rail into an off-canvas hamburger drawer, at all screen sizes (not just the old `max-width:700px` mobile breakpoint). The persistent 54px rail was quietly eating a fixed slice of every screen's width and made every admin screen's usable width narrower than what the design mockups assumed (they're all designed against a full-width working area). `src/frontend/html-head.js`:
+  - `.sidebar` now sits fully off-canvas (`left:-200px`) by default and slides in at full width (`left:0`) only when `.open`, matching the drawer behavior that already existed for narrow viewports — just no longer gated behind a media query.
+  - `.content-area` no longer reserves `margin-left:54px` — every tab now gets the full viewport width.
+  - The hamburger button in the topbar (already wired to `openSidebar()`/`closeSidebar()`, already closing on tab navigation via `showTab()`) is now visible at all sizes instead of only appearing under 700px.
+  - Removed the hover-driven reveal for section headers/labels (`.s-section-hdr`/`.s-tip` used to fade in only on `.sidebar:hover`) since the sidebar is now always either fully open (full-width, labels always visible) or fully closed (off-canvas) — there's no more collapsed-icon-only state to reveal labels over.
+  - No JS changes — `openSidebar()`/`closeSidebar()`/`showTab()` already had the full drawer + backdrop + close-on-navigate behavior built for the old mobile breakpoint; this just makes it the universal behavior.
+  - Verified locally with `wrangler dev` + Playwright: sidebar closed by default (full-width Home dashboard), hamburger opens the full drawer with a dim backdrop, clicking a menu item navigates and auto-closes the drawer, People tab also confirmed at full width.
+
 ### 2026-07-06 (v1.5.2 follow-up)
 - **v1.5.2**: Second, stricter pixel-fidelity pass on the Ministry Roles/Events admin screens, after the v1.5.1 fix still didn't match the mockup (`04-admin-ministry-roles-editor.html`) closely enough. Root cause: the v1.5.1 rewrite still substituted this app's pre-existing "warm" design tokens (`--charcoal`, `--warm-gray`, `--border`, `--sage`, `--danger`) for the mockup's own distinct palette, on the theory that internal consistency mattered more — it didn't; the mockup's literal values are the spec.
   - Loaded **Lora** as a third Google Font (`src/frontend/html-head.js`) — the admin app previously only loaded Cormorant Garamond + DM Sans, so all mockup headings that specify Lora were silently falling back to a different serif.
