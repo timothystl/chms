@@ -129,6 +129,9 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-06 (v1.5.5 follow-up)
+- **v1.5.5**: Folded the "Outreach Email Templates" section into the same left vertical sub-nav pattern as Signups/Ministry Roles/Events, instead of leaving it as an always-visible section below the shell card. Added a `.vol-subnav-divider` line under "Events" and a fourth "Templates" item below it; its content now lives in a `vol-panel-templates` wrapper toggled by the same `volShowSection()` used for the other three, so it folds out into the shared shell exactly like the rest instead of always taking up page space. (`src/frontend/html-tabs.js`, `html-head.js`, `js-volunteers.js`)
+
 ### 2026-07-06 (v1.5.4 follow-up)
 - **v1.5.4**: Two more direct fixes to the Volunteers tab, per feedback on a live screenshot:
   - **Removed the four snapshot stat cards** (Open Shifts / Filled Shifts / New Signups / Upcoming Events) — not part of any mockup, and were adding vertical space above the actual working area. Deleted `volLoadSnapshotStats()` entirely (`src/frontend/js-volunteers.js`) and its call site in `showTab()` (`src/frontend/js-core.js`), plus the now-empty `vol-snapshot-stats` container div.

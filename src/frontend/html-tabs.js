@@ -720,6 +720,8 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <button class="vol-subtab-btn active" onclick="volShowSection('signups',this)">Signups</button>
         <button class="vol-subtab-btn" onclick="volShowSection('mroles',this)">Ministry Roles</button>
         <button class="vol-subtab-btn" onclick="volShowSection('events',this)">Events</button>
+        <div class="vol-subnav-divider"></div>
+        <button class="vol-subtab-btn" onclick="volShowSection('templates',this)">Templates</button>
       </div>
 
       <div style="flex:1;min-width:0;padding:20px 24px;">
@@ -792,10 +794,9 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
       </div>
     </div>
-      </div>
-    </div>
 
     <!-- Email Templates section -->
+    <div id="vol-panel-templates" style="display:none;">
     <div id="vol-templates-section">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
         <div>
@@ -828,6 +829,9 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <button class="btn-primary" style="font-size:.82rem;" id="vol-tmpl-save-btn" onclick="volSaveTemplate()">Add Template</button>
           <button class="btn-secondary" style="font-size:.82rem;display:none;" id="vol-tmpl-cancel-btn" onclick="volCancelEditTemplate()">Cancel</button>
         </div>
+      </div>
+    </div>
+    </div>
       </div>
     </div>
   </div>

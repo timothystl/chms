@@ -18,7 +18,7 @@ function volJsAttr(v) {
 }
 
 function volShowSection(section, btn) {
-  ['signups', 'mroles', 'events'].forEach(function(s) {
+  ['signups', 'mroles', 'events', 'templates'].forEach(function(s) {
     var panel = document.getElementById('vol-panel-' + s);
     if (panel) panel.style.display = (s === section) ? '' : 'none';
   });

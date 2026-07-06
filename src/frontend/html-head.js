@@ -564,6 +564,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .vol-subtab-btn{text-align:left;background:none;border:none;color:rgba(255,255,255,.55);font-family:var(--font-body);font-size:12.5px;font-weight:600;padding:8px 10px;border-radius:6px;cursor:pointer;}
 .vol-subtab-btn.active{color:#fff;background:rgba(255,255,255,.12);}
 .vol-subtab-btn:hover:not(.active){color:#fff;background:rgba(255,255,255,.08);}
+.vol-subnav-divider{height:1px;background:rgba(255,255,255,.15);margin:6px 4px;}
 /* ── Events / Ministry Roles: master-detail — exact palette from the design
    handoff mockups (navy/teal/muted-gray-blue tokens defined in :root above),
    named .ev-* so it doesn't touch this app's existing warm navy/tan tokens
