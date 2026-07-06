@@ -126,8 +126,10 @@ export const SEC_HEADERS = {
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
   // Tight CSP — no external scripts, no eval; inline styles/scripts are
   // required by the SPA so 'unsafe-inline' is the pragmatic choice here.
+  // fonts.googleapis.com serves the @import CSS; fonts.gstatic.com serves the
+  // actual font binary files; both are needed for Google Fonts to load.
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src * data:; connect-src 'self'; frame-ancestors 'none';",
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src * data:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; frame-ancestors 'none';",
 };
 export function html(content, status = 200, extraHeaders = {}) {
   return new Response(content, {
