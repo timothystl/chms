@@ -60,8 +60,15 @@ a{color:var(--sky-steel);}
 /* ── APP SHELL ── */
 #offline-banner{position:relative;z-index:200;}
 .app-shell{display:flex;height:100vh;}
-/* ── SIDEBAR ── */
-.sidebar{position:fixed;left:0;top:0;height:100vh;width:54px;background:var(--navy);display:flex;flex-direction:column;align-items:stretch;padding:12px 0;gap:4px;overflow:hidden;transition:width .2s ease;z-index:200;}.sidebar:hover{width:200px;}a.s-item{text-decoration:none;color:inherit;}
+/* ── SIDEBAR ──
+   Off-canvas drawer at all screen sizes — opened via the hamburger button in the
+   topbar, closed by picking a tab or tapping the backdrop. Replaces the old
+   always-present icon rail that hover-expanded to 200px (it ate a fixed slice of
+   every screen's width and didn't match any of the design mockups, which all
+   assume a full-width working area). ── */
+.sidebar{position:fixed;left:-200px;top:0;height:100vh;width:200px;background:var(--navy);display:flex;flex-direction:column;align-items:stretch;padding:12px 0;gap:4px;overflow-y:auto;transition:left .2s ease;z-index:200;}
+.sidebar.open{left:0;}
+a.s-item{text-decoration:none;color:inherit;}
 .s-logo{width:34px;height:34px;border-radius:8px;background:var(--color-navy);display:flex;align-items:center;justify-content:center;margin-bottom:10px;flex-shrink:0;cursor:pointer;align-self:center;overflow:hidden;}
 .s-logo svg{width:32px;height:32px;display:block;}
 .s-item{width:100%;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:flex-start;padding:0 8px 0 14px;gap:10px;cursor:pointer;position:relative;flex-shrink:0;transition:background .12s;overflow:hidden;white-space:nowrap;}
@@ -70,11 +77,9 @@ a{color:var(--sky-steel);}
 .s-item svg{width:19px;height:19px;fill:none;stroke:rgba(255,255,255,.55);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
 .s-item.active svg{stroke:#fff;}
 .s-divider{width:28px;height:1px;background:rgba(255,255,255,.15);margin:4px 0;flex-shrink:0;align-self:center;}
-.s-section-hdr{font-family:var(--font-body);font-size:10px;font-weight:500;letter-spacing:.3em;text-transform:uppercase;color:var(--color-gold);padding:10px 14px 4px;white-space:nowrap;opacity:0;transition:opacity .12s;pointer-events:none;}
-.sidebar:hover .s-section-hdr{opacity:1;}
+.s-section-hdr{font-family:var(--font-body);font-size:10px;font-weight:500;letter-spacing:.3em;text-transform:uppercase;color:var(--color-gold);padding:10px 14px 4px;white-space:nowrap;}
 .s-bottom{margin-top:auto;display:flex;flex-direction:column;align-items:stretch;gap:4px;}
-.s-tip{position:static;transform:none;background:transparent;border:none;padding:0;font-size:13px;color:rgba(255,255,255,.7);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .12s;z-index:auto;}
-.sidebar:hover .s-tip{opacity:1;}
+.s-tip{position:static;transform:none;background:transparent;border:none;padding:0;font-size:13px;color:rgba(255,255,255,.7);white-space:nowrap;pointer-events:none;z-index:auto;}
 /* ── ROLE-BASED VISIBILITY ── */
 /* .require-finance = visible only for admin + finance */
 /* .require-staff   = visible only for admin + staff   */
@@ -91,21 +96,14 @@ a{color:var(--sky-steel);}
 .role-staff   .require-admin{display:none!important;}
 .role-member  .require-admin{display:none!important;}
 /* ── CONTENT AREA ── */
-.content-area{flex:1;display:flex;flex-direction:column;overflow:hidden;margin-left:54px;}
+.content-area{flex:1;display:flex;flex-direction:column;overflow:hidden;margin-left:0;}
 /* ── TOPBAR ── */
 .topbar{height:50px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0;background:var(--white);}
 .topbar-title{font-size:15px;font-weight:500;color:var(--charcoal);flex:1;}
-.hamburger{display:none;background:none;border:none;cursor:pointer;padding:0;}
+.hamburger{display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;padding:0;}
 .hamburger svg{width:22px;height:22px;stroke:var(--charcoal);fill:none;stroke-width:2;}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:90;}
-@media(max-width:700px){
-  .sidebar{left:-200px;width:200px;transition:left .2s;}
-  .sidebar:hover{width:200px;}
-  .sidebar.open{left:0;}
-  .sidebar-overlay.open{display:block;}
-  .hamburger{display:flex;}
-  .content-area{margin-left:0;}
-}
+.sidebar-overlay.open{display:block;}
 /* ── TOOLBAR ── */
 .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
 .search-wrap{position:relative;flex:1;min-width:180px;max-width:360px;}
@@ -559,16 +557,20 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .report-tiles{display:none;}
   button{display:none!important;}
 }
-/* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) ── */
-.vol-subtab-btn{background:none;border:none;border-bottom:2.5px solid transparent;color:var(--ev-muted,#8A8898);font-family:var(--font-body);font-size:.88rem;font-weight:600;padding:9px 4px;margin-right:22px;margin-bottom:-1.5px;cursor:pointer;}
-.vol-subtab-btn.active{color:var(--ev-navy,#1E2D4A);border-bottom-color:var(--ev-navy,#1E2D4A);}
-.vol-subtab-btn:hover{color:var(--ev-navy,#1E2D4A);}
-/* ── Events / Ministry Roles: master-detail shell — exact palette from the design
+/* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) — a
+   left-side navy menu column matching the design mockup's inner "TLC Admin"
+   sidebar exactly, not a horizontal tab row. Sits inside the same shell card
+   as the list+detail pane to its right (see vol-subnav markup in html-tabs.js). ── */
+.vol-subtab-btn{text-align:left;background:none;border:none;color:rgba(255,255,255,.55);font-family:var(--font-body);font-size:12.5px;font-weight:600;padding:8px 10px;border-radius:6px;cursor:pointer;}
+.vol-subtab-btn.active{color:#fff;background:rgba(255,255,255,.12);}
+.vol-subtab-btn:hover:not(.active){color:#fff;background:rgba(255,255,255,.08);}
+/* ── Events / Ministry Roles: master-detail — exact palette from the design
    handoff mockups (navy/teal/muted-gray-blue tokens defined in :root above),
    named .ev-* so it doesn't touch this app's existing warm navy/tan tokens
-   used elsewhere. ── */
+   used elsewhere. Flush (no own card chrome) — it now sits inside the shared
+   shell card alongside .vol-subnav. ── */
 .ev-master-detail{
-  display:flex;align-items:stretch;background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.14);overflow:hidden;
+  display:flex;align-items:stretch;
 }
 .ev-list-col{width:250px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--ev-border);}
 .ev-list-header{padding:16px 16px 10px;}

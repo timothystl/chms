@@ -713,15 +713,16 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
       <h2 style="font-size:1.1rem;font-weight:700;color:var(--charcoal);">Volunteers</h2>
     </div>
-    <!-- Snapshot stats -->
-    <div id="vol-snapshot-stats" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;"></div>
-    <!-- Sub-tabs: Signups / Ministry Roles / Events -->
-    <div id="vol-subnav" style="display:flex;gap:4px;margin-bottom:18px;border-bottom:1.5px solid var(--ev-border,rgba(30,45,74,.12));">
-      <button class="vol-subtab-btn active" onclick="volShowSection('signups',this)">Signups</button>
-      <button class="vol-subtab-btn" onclick="volShowSection('mroles',this)">Ministry Roles</button>
-      <button class="vol-subtab-btn" onclick="volShowSection('events',this)">Events</button>
-    </div>
 
+    <div style="display:flex;align-items:flex-start;gap:0;background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.14);overflow:hidden;margin-bottom:28px;">
+      <!-- Sub-nav: Signups / Ministry Roles / Events -->
+      <div id="vol-subnav" style="width:170px;flex-shrink:0;background:#1E2D4A;padding:16px 10px;display:flex;flex-direction:column;gap:2px;align-self:stretch;">
+        <button class="vol-subtab-btn active" onclick="volShowSection('signups',this)">Signups</button>
+        <button class="vol-subtab-btn" onclick="volShowSection('mroles',this)">Ministry Roles</button>
+        <button class="vol-subtab-btn" onclick="volShowSection('events',this)">Events</button>
+      </div>
+
+      <div style="flex:1;min-width:0;padding:20px 24px;">
     <div id="vol-panel-signups">
       <!-- Ministry filter tabs -->
       <div id="vol-ministry-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);">
@@ -789,6 +790,8 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           </div>
           <div class="ev-detail-col" id="vol-event-detail" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
         </div>
+      </div>
+    </div>
       </div>
     </div>
 
