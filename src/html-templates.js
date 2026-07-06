@@ -1,6 +1,7 @@
 // ── HTML templates: Login, Public signup page, Admin scheduler page ────────────
 import { PUBLIC_HEAD } from './public/head.js';
 import { PUBLIC_LANDING } from './public/landing.js';
+import { PAGE_FINDFIT } from './public/findfit.js';
 import { PUBLIC_FOOTER } from './public/footer.js';
 import { PUBLIC_SCRIPTS } from './public/scripts.js';
 import { PAGE_WORSHIP } from './public/ministries/worship.js';
@@ -22,6 +23,7 @@ export const LOGIN_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="U
 export const PUBLIC_HTML =
   PUBLIC_HEAD +
   PUBLIC_LANDING +
+  PAGE_FINDFIT +
   PAGE_WORSHIP +
   PAGE_EVENTS +
   PAGE_EDUCATION +

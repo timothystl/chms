@@ -172,6 +172,11 @@ function loadSettings() {
     if (el) el.value = d.church_from_email || '';
     el = document.getElementById('st-letter-tpl');
     if (el) el.value = d.giving_letter_template || DEFAULT_LETTER_TEMPLATE;
+    el = document.getElementById('st-vol-address'); if (el) el.value = d.volunteer_address || '';
+    el = document.getElementById('st-vol-email'); if (el) el.value = d.volunteer_public_email || '';
+    el = document.getElementById('st-vol-phone'); if (el) el.value = d.volunteer_phone || '';
+    el = document.getElementById('st-notify-new-signup'); if (el) el.checked = d.notify_new_signup === '1';
+    el = document.getElementById('st-notify-weekly-digest'); if (el) el.checked = d.notify_weekly_digest === '1';
     // Re-enable save buttons now that fields are populated
     document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = false; });
   });
@@ -200,6 +205,19 @@ function saveSettings() {
   v = (document.getElementById('st-letter-tpl') || {}).value || DEFAULT_LETTER_TEMPLATE; if (v) data.giving_letter_template = v;
   api('/admin/api/config/church', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(d) {
     if (d.ok) { _churchConfig = data; setStatus('st-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('st-status','');}, 2500); }
+    else setStatus('st-status', 'Error: ' + (d.error||'unknown'), 'err');
+  });
+}
+function saveVolunteerSettings() {
+  var data = {};
+  var v;
+  v = (document.getElementById('st-vol-address') || {}).value; if (v) data.volunteer_address = v;
+  v = (document.getElementById('st-vol-email') || {}).value; if (v) data.volunteer_public_email = v;
+  v = (document.getElementById('st-vol-phone') || {}).value; if (v) data.volunteer_phone = v;
+  data.notify_new_signup = (document.getElementById('st-notify-new-signup') || {}).checked ? '1' : '0';
+  data.notify_weekly_digest = (document.getElementById('st-notify-weekly-digest') || {}).checked ? '1' : '0';
+  api('/admin/api/config/church', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(d) {
+    if (d.ok) { setStatus('st-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('st-status','');}, 2500); }
     else setStatus('st-status', 'Error: ' + (d.error||'unknown'), 'err');
   });
 }

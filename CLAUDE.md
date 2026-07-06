@@ -387,6 +387,20 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 <!-- Add items here as they come up. Format: - [ ] Description (noted YYYY-MM-DD) -->
 
+### Volunteer / Events UX Redesign (2026-07)
+- [x] **VUX1** — Public event sign-up: contact-first flow (day-toggle pills + contact card no longer gated behind picking a day), 3-tier capacity badges. Done 2026-07-06 (v1.5.0). (`src/public/scripts.js`, `head.js`)
+- [x] **VUX2** — Public landing: "Not sure where to start?" CTA → 2-tap Find Your Fit guided flow. Done 2026-07-06 (v1.5.0). (`src/public/findfit.js`)
+- [x] **VUX3** — Ministry role sign-up: new Confirm & submit step (read-back summary + reminder opt-in). Done 2026-07-06 (v1.5.0).
+- [x] **VUX4** — Admin Events tab: master-detail shell + Add/Edit shift modal, replacing the always-editable inline-row table. Done 2026-07-06 (v1.5.0). (`src/frontend/js-volunteers.js`)
+- [x] **VUX5** — Admin Ministry Roles tab: searchable master-detail list + side panel, all ministries at once. Done 2026-07-06 (v1.5.0).
+- [x] **VUX6** — Admin Signups: status workflow (new/contacted/confirmed/declined), filter pills, inline status select. New `signups.status` column (migration `0010_signup_status.sql`). Done 2026-07-06 (v1.5.0).
+- [x] **VUX7** — Admin Settings: "Volunteer Site & Notifications" card; office-notification-on-new-signup wired for real via Resend. Done 2026-07-06 (v1.5.0).
+- [x] **VUX8** — Admin Volunteers tab: snapshot stat row (open/filled shifts, new signups, upcoming events). Done 2026-07-06 (v1.5.0).
+- [x] **VUXBUG1** — `vol-link-person-modal`/`vol-send-email-modal` used a dead `.modal-box` class (no CSS) plus a hardcoded `style="display:none"` that permanently defeated the `.open` toggle — both modals never actually showed their card styling. Fixed by switching to the shared `.modal` class with no inline display override. Found via Playwright verification, not inspection. Done 2026-07-06 (v1.5.0).
+- [x] **VUXBUG2** — "Link to Person" button's `onclick` embedded `JSON.stringify(...)` output (double-quoted) inside a double-quoted HTML attribute, truncating the handler for every signup. New `volJsAttr()` helper HTML-entity-encodes the quotes. Done 2026-07-06 (v1.5.0). (`src/frontend/js-volunteers.js`)
+- [ ] **VUX-DEFER1** — Weekly digest to ministry leaders: Settings toggle exists and saves the preference, but no digest cron/sending logic was built (needs ministry-leader contact mapping, which doesn't exist yet). (noted 2026-07-06)
+- [ ] **VUX-DEFER2** — Automated SMS/text reminder before a volunteer's first Sunday: the confirm-step checkbox stores `sms_reminder_opt_in` for staff visibility only — no automated send exists (ministry-role signups are recurring with no specific date to schedule a reminder against). (noted 2026-07-06)
+
 ### Branding / Public Site (2026-05)
 - [x] **BR2** — TLC Gather rebrand. Done 2026-05 (PRs #454–#457). Three-pillar identity (People/Ministry/Giving), Cormorant Garamond + DM Sans, navy/teal/gold tokens, sidebar mark + wordmark lockup, topbar pill driven by `showTab()`, PWA icons + manifest under `icons/`.
 - [x] **VS1** — Public volunteer page (`volunteer.timothystl.org`): added Transportation Ministry signup card. Done 2026-05 (PR #452).

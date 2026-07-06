@@ -5,23 +5,23 @@ export const PUBLIC_HEAD = `<!DOCTYPE html> <html lang="en"> <head> <meta charse
 .slot-group-header { font-size:.85rem; font-weight:600; color:var(--navy); padding:.4rem 0; border-bottom:2px solid var(--teal); margin-bottom:.75rem; }
 .slot-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:.6rem; }
 .slot-card { position:relative; }
-.day-picker { margin-bottom:1.5rem; }
-.day-picker h4 { font-family:Lora,serif; font-size:1rem; font-weight:600; color:var(--navy); margin-bottom:1rem; text-align:center; }
-.day-pick-btns { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
-.day-pick-btn { display:flex; flex-direction:column; align-items:center; gap:.2rem; padding:1.1rem 1rem; border-radius:14px; border:2px solid var(--border); background:#fff; cursor:pointer; transition:all .2s; }
-.day-pick-btn:hover { border-color:var(--teal); background:rgba(71,153,145,.06); }
-.day-pick-btn.day-pick-active { border-color:var(--navy); background:var(--navy); color:#fff; }
-.day-pick-btn.day-pick-active .day-pick-weekday { color:#fff; }
-.day-pick-btn.day-pick-active .day-pick-date { color:rgba(255,255,255,.85); }
-.day-pick-btn.day-pick-active .day-pick-sub { color:rgba(255,255,255,.7); }
-.day-pick-weekday { font-family:Lora,serif; font-size:1.15rem; font-weight:700; color:var(--navy); }
-.day-pick-date { font-size:.85rem; font-weight:600; color:var(--text-muted); }
-.day-pick-sub { font-size:.78rem; color:var(--text-muted); }
-.slots-left { font-size:.75rem; font-weight:600; color:var(--teal); background:rgba(46,126,166,.1); border-radius:100px; padding:.15rem .55rem; margin-left:auto; white-space:nowrap; }
-.slots-full { font-size:.75rem; font-weight:600; color:#c0392b; background:rgba(192,57,43,.1); border-radius:100px; padding:.15rem .55rem; margin-left:auto; white-space:nowrap; }
-.role-card.full { opacity:.55; cursor:not-allowed; background:rgba(0,0,0,.03); }
+.day-toggle { display:flex; gap:.5rem; margin-bottom:1.25rem; flex-wrap:wrap; }
+.day-btn { flex:1; min-width:100px; text-align:center; border-radius:9px; padding:.5rem .25rem; font-size:.78rem; font-weight:700; cursor:pointer; background:#fff; border:1.5px solid var(--border); color:var(--navy); transition:all .15s; }
+.day-btn:hover { border-color:var(--teal); }
+.day-btn.active { background:var(--navy); color:#fff; border-color:var(--navy); }
+.slots-left { font-size:.75rem; font-weight:700; color:var(--moss); background:rgba(74,94,58,.1); border-radius:100px; padding:.15rem .55rem; margin-left:auto; white-space:nowrap; }
+.slots-low { font-size:.75rem; font-weight:700; color:#a3781f; background:rgba(201,151,58,.15); border-radius:100px; padding:.15rem .55rem; margin-left:auto; white-space:nowrap; }
+.slots-full { font-size:.75rem; font-weight:700; color:var(--stone); background:rgba(140,136,128,.14); border-radius:100px; padding:.15rem .55rem; margin-left:auto; white-space:nowrap; }
+.role-card.full { opacity:.6; cursor:not-allowed; background:#F1F0EC; }
+.slot-card.selected { border-color:var(--teal); background:rgba(46,126,166,.05); box-shadow:none; }
+.slot-card.selected .role-check { background:var(--teal); border-color:var(--teal); }
 .slot-time { font-size:.75rem; color:var(--text-muted); margin-top:.35rem; }
 .step-indicator { display:flex; align-items:center; gap:.75rem; padding:1rem 0 1.5rem; }
+.findfit-cta { display:flex; align-items:center; justify-content:space-between; background:#fff; border:1px dashed rgba(30,45,74,0.3); border-radius:12px; padding:.9rem 1.1rem; margin:0 auto 2.5rem; max-width:520px; text-decoration:none; transition:border-color .2s, background .2s; }
+.findfit-cta:hover { border-color:var(--teal); background:rgba(46,126,166,.04); }
+.findfit-cta-text { font-size:.9rem; font-weight:600; color:var(--navy); }
+.findfit-cta-link { font-size:.85rem; font-weight:700; color:var(--teal); display:flex; align-items:center; gap:.3rem; }
+.findfit-cta-link svg { width:14px; height:14px; }
 .step-dot { width:32px; height:32px; border-radius:50%; border:2px solid rgba(30,45,74,.2); color:rgba(30,45,74,.4); font-size:.85rem; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .step-dot.s-active { border-color:var(--navy); background:var(--navy); color:#fff; }
 .step-dot.s-done { border-color:var(--teal); background:var(--teal); color:#fff; }
