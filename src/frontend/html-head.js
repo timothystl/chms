@@ -553,15 +553,22 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .report-tiles{display:none;}
   button{display:none!important;}
 }
-/* ── Events: master/detail layout + shift modal (day-grouped shift rows) ── */
-.ev-master-detail{display:flex;gap:14px;align-items:flex-start;}
-.ev-list-col{width:230px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;}
-.ev-list-row{padding:9px 12px;border-left:3px solid transparent;border-radius:6px;cursor:pointer;background:var(--white);border:1px solid var(--border);border-left-width:3px;margin-bottom:4px;}
-.ev-list-row.active{background:rgba(46,126,166,.08);border-color:var(--teal);border-left-color:var(--teal);}
+/* ── Events / Ministry Roles: master-detail shell (one unified card, per mockup) ── */
+.ev-master-detail{display:flex;align-items:stretch;background:var(--white);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.14);overflow:hidden;}
+.ev-list-col{width:250px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--border);}
+.ev-list-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:16px 16px 10px;}
+.ev-list-header h4{font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin:0;}
+.ev-list-search{margin:0 16px 10px;}
+.ev-list-rows{flex:1;overflow-y:auto;min-height:80px;}
+.ev-list-footer{padding:12px 16px;border-top:1px solid var(--border);}
+.ev-list-footer .btn-primary{width:100%;}
+.ev-list-row{padding:11px 16px;border-left:3px solid transparent;cursor:pointer;}
+.ev-list-row:hover{background:var(--linen);}
+.ev-list-row.active{background:rgba(46,126,166,.08);border-left-color:var(--teal);}
 .ev-list-row .ev-list-name{font-weight:700;font-size:.86rem;color:var(--charcoal);}
 .ev-list-row.active .ev-list-name{color:var(--steel-anchor);}
 .ev-list-row .ev-list-meta{font-size:.72rem;color:var(--warm-gray);margin-top:2px;}
-.ev-detail-col{flex:1;min-width:0;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:16px;}
+.ev-detail-col{flex:1;min-width:0;padding:20px 24px;overflow-y:auto;}
 .ev-day-header{display:flex;align-items:center;justify-content:space-between;margin:18px 0 8px;}
 .ev-day-header:first-of-type{margin-top:4px;}
 .ev-day-header h4{font-family:var(--font-head);font-size:.92rem;color:var(--steel-anchor);margin:0;}
@@ -573,7 +580,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .ev-fill-bar>div{height:100%;}
 .ev-fill-count{font-size:.78rem;font-weight:700;text-align:center;}
 .ev-edit-link{font-size:.78rem;font-weight:600;color:var(--teal);text-align:center;}
-@media(max-width:720px){.ev-master-detail{flex-direction:column;}.ev-list-col{width:100%;flex-direction:row;flex-wrap:wrap;}}
+@media(max-width:720px){.ev-master-detail{flex-direction:column;}.ev-list-col{width:100%;border-right:none;border-bottom:1px solid var(--border);}}
 /* ── Reusable pill toggle switch (Ministry Roles, Settings) ── */
 .toggle-switch{display:inline-flex;align-items:center;gap:10px;cursor:pointer;}
 .toggle-switch input{display:none;}

@@ -129,6 +129,11 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-06 (v1.5.1 follow-up)
+- **v1.5.1**: Two fidelity fixes to the v1.5.0 volunteer/events redesign, found by comparing the live site against the original design mockups:
+  - **CSP was blocking every Google Font on the whole app.** `SEC_HEADERS`'s `Content-Security-Policy` (`src/auth.js`) had `style-src 'self' 'unsafe-inline'` with no allowance for `https://fonts.googleapis.com`, and no `font-src` directive at all (falls back to `default-src 'self'`, blocking `fonts.gstatic.com`). This predates this redesign — confirmed via `git log` — and has apparently been silently forcing every page (public and admin) to fall back to system fonts instead of Lora/Source Sans 3/Cormorant Garamond/DM Sans since the CSP was first added. Fixed by adding both allowances.
+  - **Admin Events/Ministry Roles master-detail wasn't one unified card.** The list column and detail column rendered as two independent floating boxes instead of a single rounded-corner, shadowed shell like the mockup (`.ev-master-detail` now carries the card's background/radius/shadow; `.ev-list-row` no longer looks like an individual card). Also moved "Search roles…" + "+ Add Role" inside the Ministry Roles list column (search top, button pinned to a footer) and "Events" + "+ New" inside the Events list column header, matching the mockups instead of sitting in a page-level header above the shell.
+
 ### 2026-07-06
 - **v1.5.0**: Volunteer/Events UX redesign — public sign-up + full admin Volunteers tab. Implements the approved `design_handoff_volunteer_mobile_ux` package (screens #04, #06–#09, #11, #13; #01 base + #02/#03 as an add-on card; shift-first alternate #10 and accordion alternate #12 explicitly NOT used per the chosen directions).
   - **Public event sign-up** (`src/public/scripts.js`, `head.js`): contact-first flow — day-toggle pills + contact card now show immediately (no longer gated behind picking a day first); 3-tier capacity badges (green ≥4 left / gold 1–3 left / gray Full, replacing the old "N of M spots" text); shift-card selected state now teal, scoped to `.slot-card` only (ministry role cards elsewhere unchanged).

@@ -128,8 +128,11 @@ export const SEC_HEADERS = {
   // required by the SPA so 'unsafe-inline' is the pragmatic choice here.
   // cdn.jsdelivr.net allowed for on-demand SheetJS (xlsx parser, loaded only
   // when the admin uses the Old System Comparison tool).
+  // fonts.googleapis.com (stylesheet) + fonts.gstatic.com (font files) allowed —
+  // every page's <head> loads a Google Fonts family; without these the browser
+  // silently falls back to system fonts instead of the site's actual typography.
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src * data:; connect-src 'self'; frame-ancestors 'none';",
+    "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src * data:; connect-src 'self'; frame-ancestors 'none';",
 };
 export function html(content, status = 200, extraHeaders = {}) {
   return new Response(content, {
