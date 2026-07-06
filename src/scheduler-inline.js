@@ -195,6 +195,16 @@ function _transformJs(js) {
   js = js.replace(/\bshowTab\b/g,      'schedShowTab');
   js = js.replace(/\bsavePerson\b/g,   'schedSavePerson');
   js = js.replace(/\bdeletePerson\b/g, 'schedDeletePerson');
+  // AVATAR_TINTS/avatarTint (Focus Week redesign, added 2026-07-06): ChMS's own
+  // js-core.js defines identically-named globals for its People list (keyed by
+  // NUMERIC D1 ids via Math.abs(id||0)). Because ChMS's <script> executes after
+  // the scheduler's in the concatenated page, its version silently overwrites
+  // the scheduler's — and the scheduler's person ids are client-generated
+  // STRINGS (makeId()), so Math.abs(stringId) is NaN and the array lookup
+  // returns undefined, crashing every avatar render ("Cannot read properties
+  // of undefined (reading 'ring')") the moment the embedded tab loads.
+  js = js.replace(/\bAVATAR_TINTS\b/g, 'SCHED_AVATAR_TINTS');
+  js = js.replace(/\bavatarTint\b/g,   'schedAvatarTint');
 
   // 5. Fix dynamic tab ID construction to match renamed HTML IDs
   js = js.replace(/'tab-btn-' \+ t/g, "'sched-tab-btn-' + t");
