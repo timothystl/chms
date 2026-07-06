@@ -517,8 +517,6 @@ body.embedded #app-content { display:block!important; }
   <button class="tab-btn active" id="tab-btn-schedule">Schedule</button>
   <button class="tab-btn" id="tab-btn-people">People &amp; Availability <span id="signups-badge" style="display:none;background:var(--amber);color:var(--steel-anchor);border-radius:999px;padding:1px 7px;font-size:0.75rem;font-weight:700;margin-left:4px;"></span></button>
   <button class="tab-btn" id="tab-btn-stats">&#128202; Stats</button>
-  <a href="/chms" class="header-gear" style="text-decoration:none;">Church Mgmt</a>
-  <a href="/admin" class="header-gear" style="text-decoration:none;">Volunteers</a>
   <button class="header-gear" id="btn-open-settings" title="Settings">&#9881; Settings</button>
   <button class="header-gear" id="btn-header-signout" title="Sign Out" style="margin-left:0;">&#x2192; Sign Out</button>
 </div>

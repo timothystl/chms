@@ -130,6 +130,7 @@ Added 2026-04-15, phased 2026-04-15.
 ## Recent Changes (newest first)
 
 ### 2026-06-16
+- **v1.1.2**: Removed "Church Mgmt" and "Volunteers" links from the scheduler top nav bar.
 - **v1.1.1**: Scheduler assignment dropdowns now show ALL people with the role, regardless of service preference. Previously only people marked for that specific service (or "both") appeared. The pool now sorts preferred-service people first, with cross-service fills labeled `• other svc` so admins can see at a glance who's a stretch pick. Blackout dates and absences still exclude people. Auto-scheduling logic unchanged.
 
 ### 2026-05-21
