@@ -5074,6 +5074,11 @@ async function d1Pull() {
       if (data[k] !== undefined) localStorage.setItem(k, JSON.stringify(data[k]));
     });
     updateSyncStatus('Loaded \\u2713 ' + new Date().toLocaleTimeString());
+    // Ensure month label is always set after a successful pull (belt-and-suspenders).
+    try {
+      var _lbl = document.getElementById('current-month-label') || document.getElementById('sched-current-month-label');
+      if (_lbl) _lbl.textContent = monthKeyLabel(currentMonthKey);
+    } catch (e) {}
     loadSettingsForm();
     renderPeopleList();
     if (loadSchedule()) {
