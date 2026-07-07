@@ -5074,12 +5074,20 @@ async function d1Pull() {
       if (data[k] !== undefined) localStorage.setItem(k, JSON.stringify(data[k]));
     });
     updateSyncStatus('Loaded \\u2713 ' + new Date().toLocaleTimeString());
+    // Ensure month label is always set after a successful pull (belt-and-suspenders).
+    try {
+      var _lbl = document.getElementById('current-month-label') || document.getElementById('sched-current-month-label');
+      if (_lbl) _lbl.textContent = monthKeyLabel(currentMonthKey);
+    } catch (e) {}
     loadSettingsForm();
     renderPeopleList();
     if (loadSchedule()) {
       renderTable(getPeople(), null);
-      document.getElementById('schedule-output').style.display = 'block';
+    } else {
+      renderFocusWeek();
     }
+    var _schedOut = document.getElementById('schedule-output');
+    if (_schedOut) _schedOut.style.display = 'block';
   } catch(e) { updateSyncStatus('Load error: ' + e.message, true); }
 }
 
@@ -5198,12 +5206,16 @@ _safeInit('generalVolunteers',  function(){ _generalVolunteers = getGeneralVolun
 _safeInit('eventVolunteers',    function(){ _eventVolunteers   = getEventVolunteers();   updateEventBadge(); });
 _safeInit('renderPeopleList',   renderPeopleList);
 
-// Restore saved schedule if any
+// Restore saved schedule if any; always show schedule-output so the
+// empty-state ("No schedule generated yet") is visible on first visit.
 _safeInit('loadSchedule', function() {
   if (loadSchedule()) {
     renderTable(getPeople(), null);
-    document.getElementById('schedule-output').style.display = 'block';
+  } else {
+    renderFocusWeek();
   }
+  var _schedOut = document.getElementById('schedule-output');
+  if (_schedOut) _schedOut.style.display = 'block';
 });
 
 

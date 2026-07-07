@@ -34,6 +34,15 @@ function _build() {
   // Drop the standalone page header (logo + nav links — redundant inside ChMS)
   html = html.replace(/<header>[\s\S]*?<\/header>\n?/, '');
 
+  // Always show schedule-output in embedded mode — auth is already handled by ChMS,
+  // so there's no login gate. The empty state ("No schedule generated yet") is always
+  // better than an invisible area. JS would set display:block after d1Pull() but that
+  // path is fragile (inside try/catch; d1Pull() may be async or throw).
+  html = html.replace(
+    /(<div class="card" id="schedule-output") style="display:none;"/,
+    '$1'
+  );
+
   // Rename IDs that duplicate ChMS's own IDs
   html = html.replace(/id="current-month-label"/g, 'id="sched-current-month-label"');
   html = html.replace(/id="(tab-(?:people|schedule|stats|settings))"/g,     'id="sched-$1"');
@@ -248,6 +257,11 @@ function _transformJs(js) {
      + '  try {\n'
      + '    var _ml = document.getElementById(\'sched-current-month-label\');\n'
      + '    if (_ml) _ml.textContent = monthKeyLabel(currentMonthKey);\n'
+     + '  } catch(e) {}\n'
+     + '  try {\n'
+     + '    if (typeof renderFocusWeek === \'function\') renderFocusWeek();\n'
+     + '    var _so = document.getElementById(\'schedule-output\');\n'
+     + '    if (_so) _so.style.display = \'block\';\n'
      + '  } catch(e) {}\n'
      + '  var _cfgFetch = fetch(\'/admin/api/scheduler/config\', {credentials:\'include\'})\n'
      + '    .then(function(r) { return r.ok ? r.json() : {}; }).catch(function() { return {}; });\n'
