@@ -129,6 +129,9 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-07 (v1.6.5)
+- **Scheduler calendar still not visible after v1.6.4**: The v1.6.4 fix set `schedule-output.style.display='block'` inside the `try` block of `d1Pull()` and the INIT block — meaning if `renderFocusWeek()` threw, the display set never ran (the catch silently swallowed it). Two-part fix: (1) In `_build()` in `src/scheduler-inline.js`, strip `style="display:none;"` from `#schedule-output` directly in the transformed HTML — the element is unconditionally visible from the moment the DOM is built, with zero JS dependency. (2) In `schedInitScheduler`, add a synchronous try/catch block (before any async fetch) that calls `renderFocusWeek()` and sets `schedule-output.style.display='block'` — so the empty state appears immediately when the user clicks the Scheduler tab. The `schedule-output` element is still revealed even if `renderFocusWeek()` throws. (`src/scheduler-inline.js`)
+
 ### 2026-07-07 (v1.6.4)
 - **Scheduler calendar and people availability not loading**: `#schedule-output` (the card that wraps the focus-week rail + detail pane) starts `display:none` and was only revealed when `loadSchedule()` returned true — meaning D1 had schedule data for the current month. On a fresh install or with no schedule data, `schedule-output` stayed hidden indefinitely, making the calendar area invisible even though the month-nav buttons were functional. Fix: both `d1Pull()` and the INIT block now always show `#schedule-output` and call `renderFocusWeek()` even when `loadSchedule()` returns false, so the "No schedule generated yet for this month." empty-state message is always visible. (`src/scheduler-html.js`, `scheduler/index.html`)
 
