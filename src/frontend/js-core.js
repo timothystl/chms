@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '1.6.2';
+var DEPLOY_VERSION = '1.6.3';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirks — suppress these and don't show the error banner.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -190,6 +190,10 @@ function showTab(name) {
   if (name === 'settings') loadSettings();
   if (name === 'volunteers') { volLoadSignups(); volLoadMinistryRoles(); volLoadEvents(); volLoadTemplates(); }
   if (name === 'scheduler') {
+    // Set month label directly — bypasses all silent try/catch in schedInitScheduler.
+    // Scheduler's own currentMonthKey is always today's month at init time; match that.
+    var _sml = document.getElementById('sched-current-month-label');
+    if (_sml) _sml.textContent = new Date().toLocaleDateString('en-US', {month:'long', year:'numeric'});
     if (window.schedInitScheduler && !window._schedInited) {
       window.schedInitScheduler();
     }
