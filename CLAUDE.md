@@ -663,4 +663,6 @@ Run through this at the end of any session before pushing, or at the start of a 
 
 ## Dev Branch
 
-Create a new branch for each session's work using the pattern `feature/<short-description>` (e.g. `feature/anniversary-widowed-fix`). Do not push directly to main. Open a draft PR after pushing; GitHub Actions deploys on merge.
+Create a new branch for each session's work using the pattern `feature/<short-description>` (e.g. `feature/anniversary-widowed-fix`). Do not push directly to main.
+
+**PR workflow:** When working in a cloud session (feature branch required by session config), create the PR using the GitHub MCP tool and immediately merge it — do not leave it as a draft for the user to merge. GitHub Actions deploys on merge to `main`. Always paste the PR URL in the chat so it's visible.
