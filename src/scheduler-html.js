@@ -1214,10 +1214,12 @@ function loadSchedule() { return loadMonthSchedule(currentMonthKey); }
 // ── LECTIONARY CALENDAR ────────────────────────────────────────────
 // Populated by fetch('lcms_calendar.json') on load; keyed by ISO date
 var lectCalendar = {};
-function fmtSundayName(name) { return (name||'').replace(/\\s*\\(prop\\d+\\)/i,'').trim(); }
+function fmtSundayName(name) { return (name||'').replace(/\\(prop(\\d+)\\)/i,'(Proper $1)'); }
 function getLectEntry(date) {
   if (!date || !Object.keys(lectCalendar).length) return null;
-  return lectCalendar[date.toISOString().slice(0, 10)] || null;
+  var e = lectCalendar[date.toISOString().slice(0, 10)];
+  if (!e) return null;
+  return Object.assign({}, e, { sundayName: fmtSundayName(e.sundayName) });
 }
 function getReadingsOverrides() { try { return JSON.parse(localStorage.getItem('ws_readings') || '{}'); } catch(e) { return {}; } }
 function saveReadingsOverrides(o) { localStorage.setItem('ws_readings', JSON.stringify(o)); }
@@ -1344,10 +1346,10 @@ function switchMonth(key) {
     setDirty(false);
   }
   currentMonthKey = key;
-  focusWeekSelectedIdx = 0;
   document.getElementById('current-month-label').textContent = monthKeyLabel(key);
   var found = loadMonthSchedule(key);
   if (found) {
+    focusWeekSelectedIdx = focusWeekDefaultIdx();
     renderTable(getPeople(), null);
     document.getElementById('schedule-output').style.display = 'block';
   } else {
@@ -2460,6 +2462,19 @@ function renderTable(people, counts) {
 // ══════════════════════════════════════════════════════════════════
 var focusWeekSelectedIdx = 0;
 
+// Index of the next upcoming Sunday/service in currentSchedule (today or
+// later); falls back to the last row if the whole month is in the past,
+// or 0 if the schedule is empty.
+function focusWeekDefaultIdx() {
+  if (!currentSchedule.length) return 0;
+  var now = new Date();
+  var todayISO = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  for (var i = 0; i < currentSchedule.length; i++) {
+    if (currentSchedule[i].date.toISOString().slice(0,10) >= todayISO) return i;
+  }
+  return currentSchedule.length - 1;
+}
+
 function renderFocusWeek() {
   renderFocusWeekRail();
   renderFocusWeekDetail();
@@ -2569,7 +2584,6 @@ function buildRoleRowHtml(rowIdx, role, svc, svcIdxOrNull, pid, pMap, dateISO, o
   var confColors = { pending:'var(--amber)', confirmed:'var(--sage)', declined:'var(--danger-btn)', needs_changes:'var(--amber)' };
   var confLabels = { pending:'Pending', confirmed:'Confirmed', declined:'Declined', needs_changes:'Needs Change' };
 
-  var avatar = avatarHtml(person, 36);
   var nameHtml = person ? '<span class="rr-name">'+esc(person.name)+'</span>' : '<span class="rr-name placeholder">&mdash; assign &mdash;</span>';
   var star = isPrimary ? '<span class="rr-star" title="Primary / Always-First">&#9733;</span>' : '';
   var otherSvc = crossSvc ? '<span class="rr-otherSvc">other svc</span>' : '';
@@ -2583,7 +2597,6 @@ function buildRoleRowHtml(rowIdx, role, svc, svcIdxOrNull, pid, pMap, dateISO, o
 
   return '<div class="role-row-wrap">'
     + '<button type="button" class="role-row'+(person?'':' empty')+'" '+attrs+'>'
-      + avatar
       + '<span class="rr-text"><span class="rr-role">'+esc(roleLabel(role))+'</span>'+nameHtml+'</span>'
       + star + otherSvc + confHtml
     + '</button>'
@@ -5082,6 +5095,7 @@ async function d1Pull() {
     loadSettingsForm();
     renderPeopleList();
     if (loadSchedule()) {
+      focusWeekSelectedIdx = focusWeekDefaultIdx();
       renderTable(getPeople(), null);
     } else {
       renderFocusWeek();
@@ -5175,6 +5189,7 @@ function importAllData(file) {
       loadSettingsForm();
       renderPeopleList();
       if (loadSchedule()) {
+        focusWeekSelectedIdx = focusWeekDefaultIdx();
         renderTable(getPeople(), null);
         document.getElementById('schedule-output').style.display = 'block';
       }
@@ -5210,6 +5225,7 @@ _safeInit('renderPeopleList',   renderPeopleList);
 // empty-state ("No schedule generated yet") is visible on first visit.
 _safeInit('loadSchedule', function() {
   if (loadSchedule()) {
+    focusWeekSelectedIdx = focusWeekDefaultIdx();
     renderTable(getPeople(), null);
   } else {
     renderFocusWeek();
