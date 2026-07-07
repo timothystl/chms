@@ -80,6 +80,13 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
        WHERE active=1 AND LOWER(member_type)='member'
          AND household_id IS NOT NULL AND household_id != ''`
     ).first())?.n || 0;
+    // Confirmed / baptized counts (members only) for the dashboard quick-stat card
+    const confirmedCount = (await db.prepare(
+      `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)='member' AND confirmed=1`
+    ).first())?.n || 0;
+    const baptizedCount = (await db.prepare(
+      `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)='member' AND baptized=1`
+    ).first())?.n || 0;
     // Added this month / this year
     const addedThisMonth = (await db.prepare(
       `SELECT COUNT(*) as n FROM people WHERE active=1 AND created_at >= date('now','start of month')`
@@ -188,6 +195,16 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
         };
       })
       .sort((a, b) => a.anniversary_date.slice(5) < b.anniversary_date.slice(5) ? -1 : 1);
+    // DB4: Baptism anniversaries for the month (members only, non-deceased, with a baptism_date)
+    const baptismAnniversaries = (await db.prepare(
+      `SELECT id, first_name, last_name, baptism_date FROM people
+       WHERE active=1 AND (status IS NULL OR status='active')
+         AND (deceased=0 OR deceased IS NULL)
+         AND baptism_date != ''
+         AND LOWER(member_type) = 'member'
+         AND strftime('%m', baptism_date) = ?
+       ORDER BY strftime('%d', baptism_date)`
+    ).bind(dashMonthStr).all()).results || [];
     // Recent additions
     const recentPeople = (await db.prepare(
       `SELECT p.id, p.first_name, p.last_name, p.member_type, p.created_at, h.name as household_name
@@ -309,7 +326,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       ).first())?.n || 0;
     }
     return json({
-      totalPeople, totalHouseholds, memberCount, memberHHCount,
+      totalPeople, totalHouseholds, memberCount, memberHHCount, confirmedCount, baptizedCount,
       addedThisMonth, addedThisYear, dashMonth,
       typeCounts,
       // giving data: finance+ only (General Fund = funds starting with '40085')
@@ -320,7 +337,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       // pastoral data: staff+ only
       followUpItems:   isStaff  ? followUpItems   : [],
       recentAttendance: isStaff ? recentAttendance : [],
-      birthdays, anniversaries, recentPeople, notSeenRecently,
+      birthdays, anniversaries, baptismAnniversaries, recentPeople, notSeenRecently,
       // engagement review queue (DC1/DB9): any editor can use
       reviewQueue:     canEdit ? reviewQueueBatch : [],
       reviewQueueTotal: canEdit ? reviewQueueTotal : 0,

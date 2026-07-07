@@ -100,7 +100,7 @@ function esc(s) {
 
 export { centralDayOfWeek };
 
-async function sendResend(env, to, subject, text, htmlBody) {
+async function sendResend(env, to, subject, text, htmlBody, replyTo) {
   const key = env.RESEND_API_KEY || '';
   const from = env.EMAIL_FROM || '';
   if (!key || !from) return { ok: false, error: 'Resend not configured (missing RESEND_API_KEY or EMAIL_FROM)' };
@@ -108,7 +108,7 @@ async function sendResend(env, to, subject, text, htmlBody) {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, subject, text, html: htmlBody, reply_to: env.REPLY_TO_EMAIL || 'office@timothystl.org' }),
+      body: JSON.stringify({ from, to, subject, text, html: htmlBody, reply_to: replyTo || env.REPLY_TO_EMAIL || 'office@timothystl.org' }),
     });
     const data = await res.json().catch(() => ({}));
     return res.ok ? { ok: true, id: data.id } : { ok: false, error: data.message || String(res.status) };

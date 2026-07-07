@@ -7,6 +7,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 <div id="tab-people" class="tab-panel">
   <div class="toolbar">
     <div class="search-wrap"><input type="search" id="p-search" placeholder="Search name, email, phone…" oninput="debouncePeople()"></div>
+    <div class="view-toggle" title="Switch between list and card view">
+      <button id="p-view-list-btn" class="active" onclick="setPeopleViewMode('list')">&#9776; List</button>
+      <button id="p-view-card-btn" onclick="setPeopleViewMode('card')">&#9638; Card</button>
+    </div>
     <button class="btn-secondary" id="p-filter-btn" onclick="toggleFilterDrawer()" style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
       <svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;flex-shrink:0;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
       Filters
@@ -88,8 +92,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
   </div>
   <div id="p-status" class="status-msg"></div>
-  <!-- Desktop grid -->
+  <!-- Desktop list (table) view -->
   <div id="p-grid"></div>
+  <!-- Desktop card view -->
+  <div id="p-card-grid"></div>
   <!-- Mobile contact list -->
   <div class="contact-list" id="p-contact-list"></div>
   <!-- Pagination -->
@@ -391,6 +397,23 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <button class="btn-primary" onclick="saveSettings()">Save Church Info</button>
     </div>
+    <!-- Volunteer Site & Notifications Card -->
+    <div class="import-card" style="margin-bottom:14px;">
+      <h3>&#128101; Volunteer Site &amp; Notifications</h3>
+      <p>Shown on the public volunteer sign-up site, plus who gets notified about new sign-ups.</p>
+      <div class="field" style="margin-bottom:10px;"><label>Address</label><input type="text" id="st-vol-address" name="st-vol-address" placeholder="6704 Fyler Ave, St. Louis, MO 63139" style="width:100%;"></div>
+      <div class="modal-2col" style="margin-bottom:12px;">
+        <div class="field"><label>Public contact email</label><input type="email" id="st-vol-email" name="st-vol-email" placeholder="office@timothystl.org" style="width:100%;"></div>
+        <div class="field"><label>Phone</label><input type="text" id="st-vol-phone" name="st-vol-phone" placeholder="(314) 555-0100" style="width:100%;"></div>
+      </div>
+      <div style="font-size:.82rem;font-weight:700;color:var(--charcoal);margin-bottom:8px;">Who gets notified</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+        <label class="toggle-switch" style="background:var(--linen);border-radius:8px;padding:10px 12px;"><input type="checkbox" id="st-notify-new-signup"><span class="toggle-track"></span><span style="font-size:.85rem;color:var(--charcoal);">Email the office on every new volunteer sign-up</span></label>
+        <label class="toggle-switch" style="background:var(--linen);border-radius:8px;padding:10px 12px;"><input type="checkbox" id="st-notify-weekly-digest"><span class="toggle-track"></span><span style="font-size:.85rem;color:var(--charcoal);">Weekly digest to ministry leaders</span></label>
+      </div>
+      <p style="font-size:.76rem;color:var(--warm-gray);margin-bottom:10px;">The weekly digest isn&rsquo;t built yet &mdash; this just saves the preference for when it is.</p>
+      <button class="btn-primary" onclick="saveVolunteerSettings()">Save Volunteer Settings</button>
+    </div>
     <!-- Letter Template Card -->
     <div class="import-card" style="margin-bottom:14px;">
       <h3>&#128140; Year-End Giving Letter Template</h3>
@@ -437,6 +460,24 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
     <!-- ── Data Import & Sync ─────────────────────────────────── -->
     <h2 style="font-size:1rem;font-weight:700;margin:24px 0 12px;color:var(--warm-gray);">Data Import &amp; Sync</h2>
+    <!-- Old System Comparison Card -->
+    <div class="import-card require-admin" style="margin-bottom:14px;" id="old-sys-compare-card">
+      <h3>&#128202; Old System Comparison</h3>
+      <p>Upload a spreadsheet from a previous system to compare dates (baptism, confirmation, birthday, anniversary), email, phone, and address against what&#8217;s currently in TLC Gather. Identify missing or mismatched data before deciding what to patch.</p>
+      <p style="font-size:.82rem;color:var(--warm-gray);margin-bottom:10px;">Accepts <strong>.csv</strong> (preferred) or <strong>.xlsx</strong> (Excel). To use Excel: File &#8594; Save As &#8594; CSV. Matches people by full name. After upload, map your column headers to the fields below, then run the comparison.</p>
+      <input type="file" id="old-sys-file" accept=".csv,.xlsx,.xls,.tsv,.txt" style="display:none;" onchange="oldSysFileSelected(this)">
+      <button class="btn-secondary" onclick="document.getElementById('old-sys-file').click()">&#128196; Choose Spreadsheet…</button>
+      <span id="old-sys-filename" style="font-size:.82rem;color:var(--warm-gray);margin-left:10px;"></span>
+      <div id="old-sys-col-map" style="display:none;margin-top:14px;">
+        <p style="font-weight:600;font-size:.88rem;margin-bottom:8px;">Map spreadsheet columns to fields:</p>
+        <div id="old-sys-col-map-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px 18px;font-size:.84rem;max-width:560px;"></div>
+        <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+          <button class="btn-primary" onclick="runOldSysCompare()">Run Comparison</button>
+          <span id="old-sys-status" class="import-status" style="display:inline;padding:0;background:none;border:none;"></span>
+        </div>
+      </div>
+      <div id="old-sys-results" style="margin-top:18px;"></div>
+    </div>
     <div class="import-card">
       <h3>&#9729; Sync People from Breeze</h3>
       <p>Pull people records directly from the Breeze API. Existing records (matched by Breeze ID) are updated; new people are added. Dates and photos already in the system are preserved if Breeze doesn't return a value.</p>
@@ -672,54 +713,90 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
       <h2 style="font-size:1.1rem;font-weight:700;color:var(--charcoal);">Volunteers</h2>
     </div>
-    <!-- Ministry filter tabs -->
-    <div id="vol-ministry-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);">
-      <button class="btn-secondary active" onclick="volSetTab('all',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">All</button>
-      <button class="btn-secondary" onclick="volSetTab('worship',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Worship</button>
-      <button class="btn-secondary" onclick="volSetTab('events',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Events</button>
-      <button class="btn-secondary" onclick="volSetTab('education',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Education</button>
-      <button class="btn-secondary" onclick="volSetTab('acceptance',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Acceptance</button>
-      <button class="btn-secondary" onclick="volSetTab('outreach',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Outreach</button>
-      <button class="btn-secondary" onclick="volSetTab('general',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">General</button>
+
+    <div style="display:flex;align-items:flex-start;gap:0;background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.14);overflow:hidden;margin-bottom:28px;">
+      <!-- Sub-nav: Signups / Ministry Roles / Events -->
+      <div id="vol-subnav" style="width:170px;flex-shrink:0;background:#1E2D4A;padding:16px 10px;display:flex;flex-direction:column;gap:2px;align-self:stretch;">
+        <button class="vol-subtab-btn active" onclick="volShowSection('signups',this)">Signups</button>
+        <button class="vol-subtab-btn" onclick="volShowSection('mroles',this)">Ministry Roles</button>
+        <button class="vol-subtab-btn" onclick="volShowSection('events',this)">Events</button>
+        <div class="vol-subnav-divider"></div>
+        <button class="vol-subtab-btn" onclick="volShowSection('templates',this)">Templates</button>
+      </div>
+
+      <div style="flex:1;min-width:0;padding:20px 24px;">
+    <div id="vol-panel-signups">
+      <!-- Ministry filter tabs -->
+      <div id="vol-ministry-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+        <button class="btn-secondary active" onclick="volSetTab('all',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">All</button>
+        <button class="btn-secondary" onclick="volSetTab('worship',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Worship</button>
+        <button class="btn-secondary" onclick="volSetTab('events',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Events</button>
+        <button class="btn-secondary" onclick="volSetTab('education',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Education</button>
+        <button class="btn-secondary" onclick="volSetTab('acceptance',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Acceptance</button>
+        <button class="btn-secondary" onclick="volSetTab('outreach',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Outreach</button>
+        <button class="btn-secondary" onclick="volSetTab('general',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">General</button>
+      </div>
+      <!-- Signups section -->
+      <div id="vol-signups-section" style="margin-bottom:28px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+          <h3 id="vol-signups-title" style="font-size:1rem;font-weight:600;color:var(--charcoal);">All Volunteers <span id="vol-signups-count" style="background:var(--navy);color:#fff;border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">…</span></h3>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn-secondary" style="font-size:.8rem;" onclick="volToggleDuplicates()" id="vol-dup-btn">Show Duplicates</button>
+            <button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print List</button>
+            <a id="vol-export-link" href="/admin/api/export.csv" class="btn-secondary" style="font-size:.8rem;" download>Export CSV</a>
+          </div>
+        </div>
+        <div id="vol-duplicates-panel" style="display:none;background:#fff8f0;border:1px solid #e0b060;border-radius:10px;padding:14px;margin-bottom:12px;">
+          <h4 style="font-size:.9rem;font-weight:600;color:#8a5000;margin-bottom:10px;">Emails with multiple signups</h4>
+          <div id="vol-duplicates-list"></div>
+        </div>
+        <div id="vol-status-pills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"></div>
+        <div id="vol-signups-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
+      </div>
     </div>
-    <!-- Signups section -->
-    <div id="vol-signups-section" style="margin-bottom:28px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-        <h3 id="vol-signups-title" style="font-size:1rem;font-weight:600;color:var(--charcoal);">All Volunteers <span id="vol-signups-count" style="background:var(--navy);color:#fff;border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">…</span></h3>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button class="btn-secondary" style="font-size:.8rem;" onclick="volToggleDuplicates()" id="vol-dup-btn">Show Duplicates</button>
-          <button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print List</button>
-          <a id="vol-export-link" href="/admin/api/export.csv" class="btn-secondary" style="font-size:.8rem;" download>Export CSV</a>
+
+    <!-- Ministry Roles management -->
+    <div id="vol-panel-mroles" style="display:none;">
+      <div id="vol-mroles-section" style="margin-bottom:28px;">
+        <div class="ev-master-detail">
+          <div class="ev-list-col" style="width:290px;">
+            <div class="ev-list-header"><h4>Ministry Roles <span id="vol-mroles-count" style="background:rgba(30,45,74,.08);color:#1E2D4A;border-radius:99px;padding:1px 8px;font-size:.7rem;font-family:var(--font-body);margin-left:2px;">…</span></h4></div>
+            <div class="ev-list-search"><input type="text" placeholder="Search roles…" oninput="volFilterMRoles(this.value)"></div>
+            <div class="ev-list-rows" id="vol-mroles-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
+            <div class="ev-list-footer"><button onclick="volNewMinistryRole()">Add role</button></div>
+          </div>
+          <div class="ev-detail-col" id="vol-mrole-detail" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
         </div>
       </div>
-      <div id="vol-duplicates-panel" style="display:none;background:#fff8f0;border:1px solid #e0b060;border-radius:10px;padding:14px;margin-bottom:12px;">
-        <h4 style="font-size:.9rem;font-weight:600;color:#8a5000;margin-bottom:10px;">Emails with multiple signups</h4>
-        <div id="vol-duplicates-list"></div>
-      </div>
-      <div id="vol-signups-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
     </div>
+
     <!-- Events management -->
-    <div id="vol-events-section" style="margin-bottom:28px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-        <h3 style="font-size:1rem;font-weight:600;color:var(--charcoal);">Community Events <span id="vol-events-count" style="background:var(--navy);color:#fff;border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">…</span></h3>
-        <button class="btn-primary" style="font-size:.82rem;" onclick="volShowAddEventForm()">+ Add Event</button>
-      </div>
-      <div id="vol-add-event-form" style="display:none;background:var(--white);border-radius:10px;border:1px solid var(--border);padding:16px;margin-bottom:12px;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
-          <div style="flex:1;min-width:180px;"><label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Event Name *</label><input type="text" id="vol-new-ev-name" name="vol-new-ev-name" class="form-input" style="width:100%;" placeholder="e.g. Easter Egg Hunt"></div>
-          <div style="flex:0 0 160px;"><label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Date</label><input type="date" id="vol-new-ev-date" name="vol-new-ev-date" class="form-input" style="width:100%;"></div>
+    <div id="vol-panel-events" style="display:none;">
+      <div id="vol-events-section" style="margin-bottom:28px;">
+        <div id="vol-add-event-form" style="display:none;background:var(--white);border-radius:10px;border:1px solid var(--border);padding:16px;margin-bottom:12px;">
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+            <div style="flex:1;min-width:180px;"><label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Event Name *</label><input type="text" id="vol-new-ev-name" name="vol-new-ev-name" class="form-input" style="width:100%;" placeholder="e.g. Easter Egg Hunt"></div>
+            <div style="flex:0 0 160px;"><label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Date</label><input type="date" id="vol-new-ev-date" name="vol-new-ev-date" class="form-input" style="width:100%;"></div>
+          </div>
+          <div style="margin-bottom:8px;"><label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Description</label><textarea id="vol-new-ev-desc" name="vol-new-ev-desc" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:.85rem;font-family:inherit;height:60px;resize:vertical;" placeholder="Brief description…"></textarea></div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;"><input type="checkbox" id="vol-new-ev-time-slots" checked style="width:auto;margin:0;"><label for="vol-new-ev-time-slots" style="font-size:.83rem;cursor:pointer;">Roles have scheduled time slots</label></div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn-primary" style="font-size:.82rem;" onclick="volSaveNewEvent()">Save Event</button>
+            <button class="btn-secondary" style="font-size:.82rem;" onclick="document.getElementById('vol-add-event-form').style.display='none'">Cancel</button>
+          </div>
         </div>
-        <div style="margin-bottom:8px;"><label style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--charcoal);display:block;margin-bottom:4px;">Description</label><textarea id="vol-new-ev-desc" name="vol-new-ev-desc" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:.85rem;font-family:inherit;height:60px;resize:vertical;" placeholder="Brief description…"></textarea></div>
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;"><input type="checkbox" id="vol-new-ev-time-slots" checked style="width:auto;margin:0;"><label for="vol-new-ev-time-slots" style="font-size:.83rem;cursor:pointer;">Roles have scheduled time slots</label></div>
-        <div style="display:flex;gap:6px;">
-          <button class="btn-primary" style="font-size:.82rem;" onclick="volSaveNewEvent()">Save Event</button>
-          <button class="btn-secondary" style="font-size:.82rem;" onclick="document.getElementById('vol-add-event-form').style.display='none'">Cancel</button>
+        <div class="ev-master-detail">
+          <div class="ev-list-col">
+            <div class="ev-list-header ev-list-header-row"><h4>Events <span id="vol-events-count" style="background:rgba(30,45,74,.08);color:#1E2D4A;border-radius:99px;padding:1px 8px;font-size:.7rem;font-family:var(--font-body);margin-left:2px;">…</span></h4><button class="ev-new-btn" onclick="volShowAddEventForm()">+ New</button></div>
+            <div class="ev-list-rows" id="vol-events-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
+          </div>
+          <div class="ev-detail-col" id="vol-event-detail" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
         </div>
       </div>
-      <div id="vol-events-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
     </div>
 
     <!-- Email Templates section -->
+    <div id="vol-panel-templates" style="display:none;">
     <div id="vol-templates-section">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
         <div>
@@ -754,12 +831,15 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
       </div>
     </div>
+    </div>
+      </div>
+    </div>
   </div>
 </div>
 
 <!-- ═══ VOLUNTEER: LINK PERSON MODAL ═══ -->
-<div id="vol-link-person-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeModal('vol-link-person-modal')">
-  <div class="modal-box" style="max-width:520px;width:95%;">
+<div id="vol-link-person-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('vol-link-person-modal')">
+  <div class="modal" style="max-width:520px;width:95%;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
       <h3 style="font-size:1rem;font-weight:700;color:var(--charcoal);">Link to Person Record</h3>
       <button onclick="closeModal('vol-link-person-modal')" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:var(--warm-gray);">✕</button>
@@ -784,8 +864,8 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 </div>
 
 <!-- ═══ VOLUNTEER: SEND EMAIL MODAL ═══ -->
-<div id="vol-send-email-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeModal('vol-send-email-modal')">
-  <div class="modal-box" style="max-width:580px;width:95%;">
+<div id="vol-send-email-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('vol-send-email-modal')">
+  <div class="modal" style="max-width:580px;width:95%;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
       <h3 style="font-size:1rem;font-weight:700;color:var(--charcoal);">Send Outreach Email</h3>
       <button onclick="closeModal('vol-send-email-modal')" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:var(--warm-gray);">✕</button>
@@ -817,6 +897,32 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
   </div>
 </div>
 
+<!-- ═══ VOLUNTEER: ADD/EDIT SHIFT MODAL ═══ -->
+<div id="vol-shift-modal" class="modal-overlay" style="background:rgba(30,45,74,.35);" onclick="if(event.target===this)closeModal('vol-shift-modal')">
+  <div class="modal ev-fields" style="max-width:440px;width:95%;padding:24px;gap:14px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h3 id="vol-shift-modal-title" style="font-family:'Lora',serif;font-weight:600;font-size:1.05rem;color:#1E2D4A;margin:0;">Edit shift</h3>
+      <span id="vol-shift-day-label" style="font-size:.72rem;color:#8A8898;"></span>
+    </div>
+    <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8A8898;display:block;margin-bottom:5px;">Shift name</label><input type="text" id="vol-shift-name"></div>
+    <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8A8898;display:block;margin-bottom:5px;">Description</label><textarea id="vol-shift-desc" style="min-height:52px;"></textarea></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+      <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8A8898;display:block;margin-bottom:5px;">Date</label><input type="date" id="vol-shift-date"></div>
+      <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8A8898;display:block;margin-bottom:5px;">Start</label><input type="time" id="vol-shift-start"></div>
+      <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8A8898;display:block;margin-bottom:5px;">End</label><input type="time" id="vol-shift-end"></div>
+    </div>
+    <div style="max-width:110px;"><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8A8898;display:block;margin-bottom:5px;">Spots</label><input type="number" id="vol-shift-slots" min="0"></div>
+    <div id="vol-shift-filled-hint" style="font-size:.72rem;color:#8A8898;margin:-6px 0 2px;"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
+      <a href="javascript:void(0)" id="vol-shift-delete" style="color:#c0392b;font-size:.78rem;font-weight:600;text-decoration:none;cursor:pointer;" onclick="volDeleteShift()">Delete shift</a>
+      <div style="display:flex;gap:8px;">
+        <button class="ev-btn-secondary" onclick="closeModal('vol-shift-modal')">Cancel</button>
+        <button class="ev-btn-primary" onclick="volSaveShift()">Save shift</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 `;
 
 export const HTML_TABS_2 = String.raw`
@@ -829,7 +935,6 @@ export const HTML_TABS_2 = String.raw`
     <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
       <div id="pv-status-actions" style="display:flex;gap:6px;align-items:center;"></div>
       <button class="btn-secondary" onclick="window.print()">Print</button>
-      <button class="btn-secondary require-edit" onclick="openPersonEdit(_currentPvPerson)">Edit</button>
     </div>
   </div>
   <div class="pv-body">
@@ -852,6 +957,7 @@ export const HTML_TABS_2 = String.raw`
           <span id="pv-role" class="pv-role-txt"></span>
         </div>
       </div>
+      <div class="pv-hdr-actions" id="pv-hdr-actions"></div>
     </div>
     <div class="pv-tabs">
       <div class="pv-tab active" data-ptab="info" onclick="showPvTab('info')">Information</div>
@@ -893,6 +999,32 @@ export const HTML_TABS_2 = String.raw`
         </div>
       </div>
       <div class="pv-aside" id="pv-aside"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ HOUSEHOLD VIEW ═══ -->
+<div id="household-view">
+  <div class="topbar">
+    <button class="hamburger" onclick="openSidebar()" aria-label="Menu"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+    <span class="topbar-back" onclick="closeHouseholdView()">&#8592; Households</span>
+    <span id="hv-topbar-name" style="font-size:15px;font-weight:500;color:var(--charcoal);margin-left:8px;"></span>
+    <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
+      <button class="btn-outline-cream require-edit" id="hv-edit-btn">Edit</button>
+    </div>
+  </div>
+  <div class="hv-body">
+    <div class="hv-hdr">
+      <div class="hv-icon-tile" id="hv-icon-tile">&#127968;</div>
+      <div style="flex:1;">
+        <div class="hv-name" id="hv-name"></div>
+        <div class="hv-addr" id="hv-addr"></div>
+      </div>
+    </div>
+    <div class="hv-main">
+      <div class="hv-section-title">Household Members</div>
+      <div id="hv-members"></div>
+      <div class="hv-summary" id="hv-summary" style="display:none;"></div>
     </div>
   </div>
 </div>
@@ -1119,17 +1251,6 @@ export const HTML_TABS_2 = String.raw`
       <button class="btn-secondary" onclick="closeModal('person-modal')">Cancel</button>
       <button class="btn-primary" onclick="savePerson()">Save</button>
     </div>
-  </div>
-</div>
-
-<!-- Household detail modal -->
-<div class="modal-overlay" id="hh-detail-modal" onclick="if(event.target===this)closeModal('hh-detail-modal')">
-  <div class="modal" style="max-width:480px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <h2 style="margin:0;">Household</h2>
-      <button class="btn-secondary" style="padding:4px 10px;font-size:.82rem;" onclick="closeModal('hh-detail-modal')">Close</button>
-    </div>
-    <div id="hh-detail-body"></div>
   </div>
 </div>
 

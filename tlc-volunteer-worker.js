@@ -15,7 +15,7 @@ import {
   handleSchedEmailSend, handleSchedRsvpStore, handleSchedRsvpSync,
   handleSchedRsvpPortal, handleSchedRsvp, handleSchedBreezeProxy,
 } from './src/api-scheduler.js';
-import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword } from './src/api-admin.js';
+import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
 import { handleIntakeApi } from './src/api-intake.js';
 import { LOGIN_HTML, PUBLIC_HTML, ADMIN_HTML } from './src/html-templates.js';
 import { CHMS_HTML, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML } from './src/html-chms.js';
@@ -179,6 +179,7 @@ async function _fetch(req, env) {
       return html(PUBLIC_HTML);
     }
     if (path === '/api/events' && method === 'GET') return handleApiEvents(env);
+    if (path === '/api/ministry-roles' && method === 'GET') return handleApiMinistryRoles(env, url);
     if (path === '/volunteer/signup' && method === 'POST') {
       try {
         return await handleSignup(req, env);

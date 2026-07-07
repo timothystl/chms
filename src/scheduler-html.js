@@ -291,10 +291,12 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
   .side-panel, .panel-overlay { display: none !important; }
   .btn-edit-readings { display: none !important; }
   /* Release overflow and fix sticky columns */
-  .table-wrapper { overflow: visible !important; }
+  .table-wrapper { overflow: visible !important; display: block !important; }
   thead th { background: #e0e0e0 !important; color: #000 !important; border: 1px solid #999 !important; }
   thead th.date-col, thead th.svc-col { position: static !important; }
   td.date-cell { position: static !important; background: #f0f0f0 !important; color: #000 !important; }
+  /* Focus Week is the on-screen UI only — print uses the full table above */
+  .fw-layout, .more-menu-wrap { display: none !important; }
 }
 
 /* ── Confirmation tracking ─────────────────── */
@@ -487,6 +489,102 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .role-override-table td:first-child { font-weight:700; color: var(--steel-anchor); text-align:left; padding-right:8px; white-space:nowrap; }
 .role-override-table input[type=checkbox] { width:14px; height:14px; cursor:pointer; }
 
+/* ── Toggle-chip treatment: hide native inputs, keep .checked class styling ── */
+.checkbox-group label, .radio-group label { position:relative; }
+.checkbox-group label input[type="checkbox"],
+.radio-group label input[type="radio"] { position:absolute; opacity:0; width:0; height:0; margin:0; pointer-events:none; }
+#primary-roles label { background:var(--white); color:var(--on-pale-sage); border-color:var(--soft-sage); }
+#primary-roles label:hover { background:var(--pale-sage); }
+#primary-roles label.checked { background:var(--sage); color:white; border-color:var(--sage); }
+
+/* ── Role-Sunday-override small toggle buttons ───────────────────────── */
+.sun-toggle { position:relative; display:inline-flex; align-items:center; justify-content:center; width:24px; height:22px; border:1px solid var(--sky-steel); border-radius:6px; font-size:.72rem; cursor:pointer; color:var(--sky-steel); background:var(--white); user-select:none; font-family: var(--font-body); }
+.sun-toggle input { position:absolute; opacity:0; width:0; height:0; pointer-events:none; }
+.sun-toggle.checked { background:var(--sky-steel); color:white; }
+
+/* ── Focus Week: week rail + detail pane ──────────────────────────────── */
+.fw-layout { display:flex; align-items:stretch; margin-top:14px; background:var(--white); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+.wr-rail { width:230px; flex-shrink:0; background:var(--linen); border-right:1px solid var(--border); padding:16px 10px; }
+.wr-header { font-size:.68rem; font-weight:700; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.05em; padding:0 8px 10px; font-family: var(--font-body); }
+.wr-btn { display:block; width:100%; text-align:left; border:none; border-radius:9px; padding:10px 12px; margin-bottom:6px; cursor:pointer; background:transparent; color:var(--charcoal); font-family: var(--font-body); }
+.wr-btn:hover:not(.active) { background:var(--blue-mist); }
+.wr-btn.active { background:var(--steel-anchor); color:white; }
+.wr-date { font-family: var(--font-head); font-weight:700; font-size:.95rem; display:block; }
+.wr-sub { font-size:.72rem; opacity:.8; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wr-badge { display:inline-block; margin-top:5px; font-size:.68rem; font-weight:700; background:var(--pale-gold); color:var(--on-pale-gold); border-radius:999px; padding:1px 8px; font-family: var(--font-body); }
+.fw-detail { flex:1; padding:24px 32px; min-width:0; }
+.fw-fill-status { font-size:.85rem; font-weight:700; white-space:nowrap; font-family: var(--font-body); }
+.fw-svc-label { font-size:.75rem; font-weight:700; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.05em; margin:18px 0 8px; font-family: var(--font-body); }
+.fw-svc-label:first-child { margin-top:0; }
+
+.role-row { display:flex; align-items:center; gap:12px; width:100%; text-align:left; border-radius:10px; padding:12px 16px; margin-bottom:8px; min-height:56px; cursor:pointer; font-family: var(--font-body); background:var(--pale-sage); border:1px solid var(--soft-sage); }
+.role-row.empty { background:var(--error-bg); border-color:var(--error-border); }
+.role-row:hover { filter:brightness(0.98); }
+.rr-avatar-el { flex-shrink:0; }
+.rr-text { flex:1; min-width:0; display:flex; flex-direction:column; }
+.rr-role { font-size:.72rem; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.03em; }
+.rr-name { font-size:.95rem; font-weight:700; color:var(--charcoal); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rr-name.placeholder { color:var(--warm-gray); font-weight:600; }
+.rr-star { color:var(--sage); flex-shrink:0; font-size:.95rem; }
+.rr-otherSvc { color:var(--amber); font-weight:700; font-size:.78rem; flex-shrink:0; white-space:nowrap; }
+.rr-conf { display:flex; align-items:center; gap:5px; font-size:.72rem; font-weight:700; flex-shrink:0; white-space:nowrap; padding:2px; border-radius:6px; }
+.rr-conf:hover { filter:brightness(0.9); }
+.rr-conf-dot { width:8px; height:8px; border-radius:50%; display:inline-block; flex-shrink:0; }
+
+.role-row-wrap { position:relative; }
+.role-picker { position:absolute; top:100%; left:0; right:0; z-index:60; background:var(--white); border:1px solid var(--border); border-radius:10px; box-shadow:0 14px 34px rgba(10,60,92,0.22); padding:6px; max-height:280px; overflow-y:auto; margin-bottom:8px; }
+.rp-item { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:8px; cursor:pointer; font-size:.88rem; }
+.rp-item:hover { background:var(--blue-mist); }
+.rp-unassign { color:var(--danger-btn); font-weight:700; }
+.rp-tag { font-size:.7rem; color:var(--amber); font-weight:700; margin-left:auto; white-space:nowrap; padding-left:6px; }
+.rp-tag-sunday { color:var(--warm-gray); }
+
+.more-menu-wrap { position:relative; display:inline-block; }
+.more-menu { position:absolute; top:100%; right:0; z-index:60; background:var(--white); border:1px solid var(--border); border-radius:10px; box-shadow:0 14px 34px rgba(10,60,92,0.18); padding:6px; min-width:230px; display:none; margin-top:4px; }
+.more-menu.open { display:block; }
+.more-menu .btn { display:flex; width:100%; margin-bottom:4px; justify-content:flex-start; }
+.more-menu .btn:last-child { margin-bottom:0; }
+
+@media (max-width: 760px) {
+  .fw-layout { flex-direction:column; }
+  .wr-rail { width:100%; border-right:none; border-bottom:1px solid var(--border); display:flex; overflow-x:auto; gap:8px; padding:10px; }
+  .wr-header { display:none; }
+  .wr-btn { width:auto; flex-shrink:0; min-width:112px; margin-bottom:0; }
+  .fw-detail { padding:16px; }
+}
+
+/* ── People tab: List / By Role / Availability switcher ───────────────── */
+.seg-switch { background:var(--linen); border-radius:999px; padding:3px; gap:2px; display:inline-flex; }
+.seg-btn { border:none; border-radius:999px; padding:6px 14px; font-size:.8rem; font-weight:700; cursor:pointer; background:transparent; color:var(--warm-gray); font-family: var(--font-body); }
+.seg-btn.active { background:var(--steel-anchor); color:white; }
+.role-filter-chip { background:var(--linen); color:var(--charcoal); border:none; border-radius:999px; padding:4px 11px; font-size:.76rem; font-weight:700; cursor:pointer; font-family: var(--font-body); }
+.role-filter-chip.active { background:var(--steel-anchor); color:white; }
+.pt-avail { font-size:.72rem; color:var(--warm-gray); margin-top:2px; }
+
+.br-section { margin-bottom:20px; }
+.br-hdr { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.br-title { font-family: var(--font-head); font-weight:700; font-size:.92rem; color:var(--steel-anchor); }
+.br-count { background:var(--pale-gold); color:var(--on-pale-gold); border:1px solid var(--honey); border-radius:999px; padding:1px 8px; font-size:.72rem; font-weight:700; font-family: var(--font-body); }
+.br-person { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:.85rem; font-family: var(--font-body); }
+.br-empty { font-size:.8rem; color:var(--warm-gray); font-style:italic; padding:2px 0 4px; }
+
+.av-cols { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0; }
+.av-col { padding:0 16px; }
+.av-col:first-child { padding-left:0; }
+.av-col:last-child { padding-right:0; }
+.av-col + .av-col { border-left:1px solid var(--border); }
+.av-col-hdr { font-weight:700; font-size:.82rem; margin-bottom:10px; font-family: var(--font-head); }
+.av-card { border-radius:9px; padding:8px 10px; margin-bottom:8px; font-size:.85rem; font-family: var(--font-body); }
+.av-card-name { font-weight:700; }
+.av-card-any { background:var(--pale-sage); border:1px solid var(--soft-sage); color:var(--on-pale-sage); }
+.av-card-limited { background:var(--pale-gold); border:1px solid var(--honey); color:var(--on-pale-gold); }
+.av-card-away { background:var(--error-bg); border:1px solid var(--error-border); color:var(--on-error-bg); }
+@media (max-width: 700px) {
+  .av-cols { grid-template-columns:1fr; }
+  .av-col + .av-col { border-left:none; border-top:1px solid var(--border); padding-top:12px; margin-top:4px; }
+  .av-col { padding-left:0; padding-right:0; }
+}
+
 /* ── Embedded mode (inside ChMS SPA iframe) ─────────────── */
 body.embedded header, body.embedded .tabs { display:none!important; }
 body.embedded { overflow-y:auto; }
@@ -524,15 +622,23 @@ body.embedded #app-content { display:block!important; }
 <!-- ══ PEOPLE TAB ══════════════════════════════════════════════════════════ -->
 <div id="tab-people" class="tab-content">
   <div class="card">
-    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;justify-content:space-between;">
       <h2 style="margin:0;">Volunteers (<span id="people-count">0</span>)</h2>
+      <div class="seg-switch" id="people-view-switch">
+        <button type="button" class="seg-btn active" data-view="list">List</button>
+        <button type="button" class="seg-btn" data-view="role">By Role</button>
+        <button type="button" class="seg-btn" data-view="availability">Availability</button>
+      </div>
+      <button class="btn btn-primary btn-sm" id="btn-open-person-panel">+ Add Person</button>
+    </div>
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
       <button class="btn btn-warning btn-sm" id="review-signups-btn" style="display:none;" onclick="openPanel('signups-panel');renderSignupsPanel();">&#128203; Scheduler Sign-Ups (<span id="review-signups-count">0</span>)</button>
       <button class="btn btn-success btn-sm" id="review-general-btn" style="display:none;" onclick="openPanel('general-panel');renderGeneralPanel();">&#128101; General Volunteers (<span id="review-general-count">0</span>)</button>
       <a href="/" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none;">&#128203; Volunteer Sign-Up Page</a>
-      <button class="btn btn-primary btn-sm" id="btn-open-person-panel" style="margin-left:auto;">+ Add Person</button>
-      <input type="search" id="people-search" placeholder="Filter by name, role, or service…"
-             style="max-width:240px;font-size:.85rem;" oninput="peopleSearchQuery=this.value;renderPeopleList();">
+      <input type="search" id="people-search" placeholder="Search by name…"
+             style="max-width:240px;font-size:.85rem;margin-left:auto;" oninput="peopleSearchQuery=this.value;renderPeopleList();">
     </div>
+    <div id="people-role-filters" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;"></div>
     <div id="people-list" style="overflow-x:auto;"></div>
   </div>
 </div>
@@ -554,30 +660,34 @@ body.embedded #app-content { display:block!important; }
   <div class="card" id="schedule-output" style="display:none;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
       <h2 style="margin:0; border:none; padding:0;">Schedule</h2>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-success btn-sm" id="btn-export-csv">Export CSV</button>
-        <button class="btn btn-outline btn-sm" id="btn-print">Print</button>
-        <button class="btn btn-outline btn-sm" id="btn-send-emails" style="background:var(--blue-mist);border-color:var(--sky-steel);color:var(--mid-steel);">&#9993; Email Assignments</button>
-        <button class="btn btn-outline btn-sm" id="btn-sync-confirmations" style="background:var(--pale-sage);border-color:var(--sage);color:var(--on-pale-sage);">&#8635; Sync Confirmations</button>
-        <button class="btn btn-outline btn-sm" id="btn-notify-volunteers" style="background:var(--pale-gold);border-color:var(--amber);color:var(--on-pale-gold);">&#128276; Request Volunteers</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <span id="email-send-status" style="font-size:0.82rem;color:var(--warm-gray);"></span>
         <button class="btn btn-outline btn-sm saved" id="btn-save-schedule">Saved &#10003;</button>
-        <button class="btn btn-outline btn-sm" id="btn-expand-all">&#9660; Expand All</button>
         <button class="btn btn-danger btn-sm" id="btn-clear-schedule">Clear Schedule</button>
+        <div class="more-menu-wrap">
+          <button class="btn btn-outline btn-sm" id="btn-more-menu" type="button">More &#9662;</button>
+          <div class="more-menu" id="more-menu-panel">
+            <button class="btn btn-success btn-sm" id="btn-export-csv">Export CSV</button>
+            <button class="btn btn-outline btn-sm" id="btn-print">Print</button>
+            <button class="btn btn-outline btn-sm" id="btn-send-emails" style="background:var(--blue-mist);border-color:var(--sky-steel);color:var(--mid-steel);">&#9993; Email Assignments</button>
+            <button class="btn btn-outline btn-sm" id="btn-sync-confirmations" style="background:var(--pale-sage);border-color:var(--sage);color:var(--on-pale-sage);">&#8635; Sync Confirmations</button>
+            <button class="btn btn-outline btn-sm" id="btn-notify-volunteers" style="background:var(--pale-gold);border-color:var(--amber);color:var(--on-pale-gold);">&#128276; Request Volunteers</button>
+          </div>
+        </div>
+        <button class="btn btn-outline btn-sm" id="btn-expand-all" style="display:none;">&#9660; Expand All</button>
       </div>
     </div>
     <div class="legend">
-      <div class="legend-item"><div class="legend-dot" style="background:var(--mid-steel);"></div> Per-service (8am / 10:45am)</div>
-      <div class="legend-item"><div class="legend-dot" style="background:var(--sage);"></div> Shared (both services)</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--error-bg);border:1px solid var(--error-border);"></div> Unfilled</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--pale-sage);border:1px solid var(--soft-sage);"></div> Filled</div>
+      <div class="legend-item">&#9733; Primary/Always-First &nbsp; <span style="color:var(--amber);font-weight:700;">other svc</span> cross-service fill</div>
     </div>
-    <div id="smv-nav" class="smv-nav">
-      <button class="smv-arrow" id="smv-prev" aria-label="Previous Sunday" type="button">&#8592;</button>
-      <select id="smv-picker" class="smv-picker" aria-label="Pick a Sunday"></select>
-      <button class="smv-arrow" id="smv-next" aria-label="Next Sunday" type="button">&#8594;</button>
+    <div class="fw-layout">
+      <div class="wr-rail" id="fw-rail"></div>
+      <div class="fw-detail" id="fw-detail"></div>
     </div>
-    <div class="table-wrapper">
+    <!-- Full table retained off-screen: feeds Print and CSV Export unchanged -->
+    <div class="table-wrapper" style="display:none;">
       <table id="schedule-table">
         <thead id="schedule-thead"></thead>
         <tbody id="schedule-tbody"></tbody>
@@ -1041,6 +1151,34 @@ var ROLE_ABBREVS = { 'Elder':'ELD', 'Acolyte':'ACO', 'PowerPoint':'PPT', 'Lector
 function roleAbbrev(r) { return ROLE_ABBREVS[r] || roleLabel(r); }
 var ALL_TABS = ['people','schedule','stats'];
 
+// ── Shared avatar / initials system (Focus Week schedule + People tab) ──
+var AVATAR_TINTS = [
+  { bg: 'var(--pale-gold)', fg: 'var(--on-pale-gold)', ring: 'var(--honey)' },
+  { bg: 'var(--ice-blue)',  fg: 'var(--steel-anchor)',  ring: 'var(--sky-steel)' },
+  { bg: 'var(--pale-sage)', fg: 'var(--on-pale-sage)',  ring: 'var(--soft-sage)' },
+  { bg: 'color-mix(in oklch, var(--danger-btn) 20%, white)', fg: 'var(--danger-btn)', ring: 'var(--danger-btn)' },
+  { bg: 'var(--linen)',     fg: 'var(--deep-steel)',    ring: 'var(--mid-steel)' }
+];
+function hashIdToIndex(id) {
+  var s = String(id||''), h = 0;
+  for (var i=0; i<s.length; i++) h = (h*31 + s.charCodeAt(i)) >>> 0;
+  return h % AVATAR_TINTS.length;
+}
+function avatarTint(id) { return AVATAR_TINTS[hashIdToIndex(id)]; }
+function personInitials(name) {
+  var parts = (name||'').trim().split(/\\s+/);
+  return ((parts[0]||'').charAt(0) + (parts.length>1 ? parts[parts.length-1].charAt(0) : '')).toUpperCase();
+}
+function avatarHtml(person, size) {
+  if (!person) return '';
+  size = size || 36;
+  var t = avatarTint(person.id);
+  return '<span class="rr-avatar-el" style="width:'+size+'px;height:'+size+'px;border-radius:50%;display:inline-flex;'
+    +'align-items:center;justify-content:center;font-weight:700;font-size:'+Math.round(size*0.4)+'px;flex-shrink:0;'
+    +'border:1.5px solid '+t.ring+';background:'+t.bg+';color:'+t.fg+';font-family:var(--font-body);">'
+    +esc(personInitials(person.name))+'</span>';
+}
+
 // ══════════════════════════════════════════════════════════════════
 // STORAGE
 // ══════════════════════════════════════════════════════════════════
@@ -1206,6 +1344,7 @@ function switchMonth(key) {
     setDirty(false);
   }
   currentMonthKey = key;
+  focusWeekSelectedIdx = 0;
   document.getElementById('current-month-label').textContent = monthKeyLabel(key);
   var found = loadMonthSchedule(key);
   if (found) {
@@ -1344,9 +1483,10 @@ function buildRoleOverrideTable(roles, existingOverrides) {
   roles.forEach(function(role) {
     var overrides = existingOverrides[role] || [];
     var cells = [1,2,3,4,5].map(function(n){
+      var checked = overrides.indexOf(n)>-1;
       return '<td style="text-align:center;padding:2px 4px;">'
-        +'<input type="checkbox" value="'+n+'"'+(overrides.indexOf(n)>-1?' checked':'')
-        +' title="'+n+ordSuffix(n)+' Sunday"></td>';
+        +'<label class="sun-toggle'+(checked?' checked':'')+'" title="'+n+ordSuffix(n)+' Sunday">'+n
+        +'<input type="checkbox" value="'+n+'"'+(checked?' checked':'')+'></label></td>';
     }).join('');
     var tr = document.createElement('tr');
     tr.setAttribute('data-role', role);
@@ -1354,6 +1494,12 @@ function buildRoleOverrideTable(roles, existingOverrides) {
     tbody.appendChild(tr);
   });
 }
+document.getElementById('role-override-body').addEventListener('change', function(e) {
+  var cb = e.target;
+  if (cb.type !== 'checkbox') return;
+  var lbl = cb.closest('.sun-toggle');
+  if (lbl) lbl.classList.toggle('checked', cb.checked);
+});
 
 document.getElementById('toggle-role-overrides').addEventListener('click', function() {
   var sec = document.getElementById('role-override-section');
@@ -1534,14 +1680,65 @@ function setPeopleSort(field) {
   renderPeopleList();
 }
 
+// ── Availability derivation (pure, no new storage beyond preferredSundays/absenceStart/absenceUntil) ──
+var ALL_ROLES_IN_ORDER = PER_ROLES.concat(SHARED_ROLES);
+function isoToMMDD(iso) { if (!iso) return ''; var parts = iso.split('-'); return parts[1]+'/'+parts[2]; }
+function personIsAnySunday(p)     { return (!p.preferredSundays || p.preferredSundays.length===0) && !p.absenceUntil; }
+function personIsLimitedSunday(p) { return (p.preferredSundays && p.preferredSundays.length>0) && !p.absenceUntil; }
+function personIsAway(p)          { return !!p.absenceUntil; }
+function personAvailabilityLine(p) {
+  if (!p.preferredSundays || p.preferredSundays.length===0) return 'Any Sunday';
+  return p.preferredSundays.map(function(n){ return n+ordSuffix(n); }).join(', ') + ' Sunday'+(p.preferredSundays.length>1?'s':'')+' only';
+}
+var peopleView = 'list';
+var peopleRoleFilter = 'all';
+
+document.getElementById('people-view-switch').addEventListener('click', function(e) {
+  var btn = e.target.closest('.seg-btn');
+  if (!btn) return;
+  peopleView = btn.getAttribute('data-view');
+  this.querySelectorAll('.seg-btn').forEach(function(b){ b.classList.toggle('active', b===btn); });
+  renderPeopleList();
+});
+
+function renderPeopleRoleFilters() {
+  var wrap = document.getElementById('people-role-filters');
+  if (!wrap) return;
+  if (peopleView !== 'list') { wrap.innerHTML = ''; return; }
+  var html = '<button type="button" class="role-filter-chip'+(peopleRoleFilter==='all'?' active':'')+'" data-role="all">All</button>';
+  ALL_ROLES_IN_ORDER.forEach(function(r) {
+    html += '<button type="button" class="role-filter-chip'+(peopleRoleFilter===r?' active':'')+'" data-role="'+esc(r)+'">'+esc(roleLabel(r))+'</button>';
+  });
+  wrap.innerHTML = html;
+}
+document.getElementById('people-role-filters').addEventListener('click', function(e) {
+  var btn = e.target.closest('.role-filter-chip');
+  if (!btn) return;
+  peopleRoleFilter = btn.getAttribute('data-role');
+  renderPeopleRoleFilters();
+  renderPeopleList();
+});
+
 function renderPeopleList() {
   var allPeople = getPeople().slice();
   var container = document.getElementById('people-list');
+  document.getElementById('people-count').textContent = allPeople.length;
+  renderPeopleRoleFilters();
 
-  // Filter
+  if (allPeople.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="icon">&#128101;</div><p>No people added yet. Use the form above to add volunteers.</p></div>';
+    return;
+  }
+
+  if (peopleView === 'role')         { container.innerHTML = renderPeopleByRoleHtml(allPeople); return; }
+  if (peopleView === 'availability')  { container.innerHTML = renderPeopleAvailabilityHtml(allPeople); return; }
+
+  // ── List view (default) ──
   var q = (peopleSearchQuery || '').trim().toLowerCase();
   var svcLabels = { '8am':'8am 8:00', 'both':'both', '10:45am':'10:45 10:45am' };
-  var people = q ? allPeople.filter(function(p) {
+  var people = allPeople;
+  if (peopleRoleFilter !== 'all') people = people.filter(function(p){ return p.roles.indexOf(peopleRoleFilter) > -1; });
+  people = q ? people.filter(function(p) {
     var haystack = [
       p.name,
       p.email || '',
@@ -1549,7 +1746,7 @@ function renderPeopleList() {
       svcLabels[p.servicePreference] || p.servicePreference
     ].join(' ').toLowerCase();
     return q.split(/\\s+/).every(function(word) { return haystack.indexOf(word) !== -1; });
-  }) : allPeople;
+  }) : people;
 
   // Sort
   var svcOrder = { '8am': 0, 'both': 1, '10:45am': 2 };
@@ -1570,14 +1767,8 @@ function renderPeopleList() {
     return cmp * dir;
   });
 
-  document.getElementById('people-count').textContent = allPeople.length;
-
-  if (allPeople.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="icon">&#128101;</div><p>No people added yet. Use the form above to add volunteers.</p></div>';
-    return;
-  }
   if (people.length === 0) {
-    container.innerHTML = '<div style="padding:16px;color:#7A6E60;font-size:.88rem;">No matches for &ldquo;'+esc(peopleSearchQuery)+'&rdquo;</div>';
+    container.innerHTML = '<div style="padding:16px;color:#7A6E60;font-size:.88rem;">No matches'+(q?' for &ldquo;'+esc(peopleSearchQuery)+'&rdquo;':'')+'</div>';
     return;
   }
 
@@ -1614,6 +1805,7 @@ function renderPeopleList() {
       +'<td><div class="pt-name">'+esc(p.name)+primary+breeze+'</div>'
       +(absenceBadge ? '<div style="margin-top:2px;">'+absenceBadge+'</div>' : '')
       +(p.email ? '<div class="pt-email">'+esc(p.email)+'</div>' : '')
+      +'<div class="pt-avail">'+esc(personAvailabilityLine(p))+'</div>'
       +'</td>'
       +'<td><div class="pt-roles">'+roleTags+'</div></td>'
       +'<td><span class="pt-svc">'+esc(svcMap[p.servicePreference]||p.servicePreference)+'</span></td>'
@@ -1625,6 +1817,52 @@ function renderPeopleList() {
   });
   html += '</tbody></table>';
   container.innerHTML = html;
+}
+
+// ── By Role view ──
+function renderPeopleByRoleHtml(allPeople) {
+  var html = '';
+  ALL_ROLES_IN_ORDER.forEach(function(role) {
+    var inRole = allPeople.filter(function(p){ return p.roles.indexOf(role) > -1; });
+    html += '<div class="br-section">'
+      + '<div class="br-hdr"><span class="br-title">'+esc(roleLabel(role))+'</span><span class="br-count">'+inRole.length+'</span></div>';
+    if (!inRole.length) {
+      html += '<div class="br-empty">No one assigned this role yet.</div>';
+    } else {
+      inRole.slice().sort(function(a,b){ return a.name.localeCompare(b.name); }).forEach(function(p) {
+        var isPrimary = (p.primaryFor||[]).indexOf(role) > -1;
+        html += '<div class="br-person">' + avatarHtml(p, 26)
+          + '<span>'+esc(p.name)+'</span>'
+          + (isPrimary ? '<span class="rr-star" title="Primary / Always-First">&#9733;</span>' : '')
+          + '</div>';
+      });
+    }
+    html += '</div>';
+  });
+  return html;
+}
+
+// ── Availability view: 3 columns ──
+function renderPeopleAvailabilityHtml(allPeople) {
+  var any = allPeople.filter(personIsAnySunday).sort(function(a,b){ return a.name.localeCompare(b.name); });
+  var limited = allPeople.filter(personIsLimitedSunday).sort(function(a,b){ return a.name.localeCompare(b.name); });
+  var away = allPeople.filter(personIsAway).sort(function(a,b){ return a.name.localeCompare(b.name); });
+
+  function col(title, cls, list, lineFn) {
+    var inner = list.length
+      ? list.map(function(p){
+          return '<div class="av-card '+cls+'"><div class="av-card-name">'+esc(p.name)+'</div>'
+            + (lineFn ? '<div>'+esc(lineFn(p))+'</div>' : '') + '</div>';
+        }).join('')
+      : '<div style="font-size:.82rem;color:var(--warm-gray);font-style:italic;">None</div>';
+    return '<div class="av-col"><div class="av-col-hdr">'+title+' ('+list.length+')</div>'+inner+'</div>';
+  }
+
+  return '<div class="av-cols">'
+    + col('Any Sunday', 'av-card-any', any, null)
+    + col('Limited Sundays', 'av-card-limited', limited, personAvailabilityLine)
+    + col('Currently Away', 'av-card-away', away, function(p){ return isoToMMDD(p.absenceStart||p.absenceUntil)+' – '+isoToMMDD(p.absenceUntil); })
+    + '</div>';
 }
 
 document.getElementById('people-list').addEventListener('click', function(e) {
@@ -2214,7 +2452,268 @@ function renderTable(people, counts) {
   document.getElementById('schedule-tbody').innerHTML = bodyHtml;
 
   initMobilePicker();
+  renderFocusWeek();
 }
+
+// ══════════════════════════════════════════════════════════════════
+// FOCUS WEEK — week rail + single-week detail pane
+// ══════════════════════════════════════════════════════════════════
+var focusWeekSelectedIdx = 0;
+
+function renderFocusWeek() {
+  renderFocusWeekRail();
+  renderFocusWeekDetail();
+}
+
+function focusWeekRowSubLabel(row, dateISO) {
+  if (row.type === 'special') return row.name || 'Special Service';
+  var existingLabel = getSundayLabels()[dateISO] || row.label || '';
+  if (existingLabel) return existingLabel;
+  var lectEntry = getLectEntry(row.date);
+  if (lectEntry) return lectEntry.sundayName;
+  return row.ordinal + ordSuffix(row.ordinal) + ' Sunday';
+}
+
+function focusWeekOpenCount(row, rowIdx, pMap, confs) {
+  if (row.type === 'special') {
+    var filled=0, total=0;
+    (row.services||[]).forEach(function(s){ (s.roles||[]).forEach(function(r){ total++; if((s.assignments||{})[r]) filled++; }); });
+    return total - filled;
+  }
+  return sundayStats(rowIdx, pMap, confs).open;
+}
+
+function renderFocusWeekRail() {
+  var rail = document.getElementById('fw-rail');
+  if (!rail) return;
+  if (focusWeekSelectedIdx >= currentSchedule.length) focusWeekSelectedIdx = 0;
+  var pMap = {}; getPeople().forEach(function(p){ pMap[p.id]=p; });
+  var confs = getConfirmations();
+  var html = '<div class="wr-header">UPCOMING SUNDAYS</div>';
+  currentSchedule.forEach(function(row, idx) {
+    var dateISO = row.date.toISOString().slice(0,10);
+    var isSel = idx === focusWeekSelectedIdx;
+    var open = focusWeekOpenCount(row, idx, pMap, confs);
+    html += '<button type="button" class="wr-btn'+(isSel?' active':'')+'" data-idx="'+idx+'">'
+      + '<span class="wr-date">'+esc(fmtDate(row.date))+'</span>'
+      + '<span class="wr-sub">'+esc(focusWeekRowSubLabel(row, dateISO))+'</span>'
+      + (open>0 ? '<span class="wr-badge">'+open+' open</span>' : '')
+      + '</button>';
+  });
+  rail.innerHTML = html;
+}
+
+function focusWeekFillStatusHtml(row, rowIdx, pMap) {
+  var open = focusWeekOpenCount(row, rowIdx, pMap, getConfirmations());
+  return open === 0
+    ? '<div class="fw-fill-status" style="color:var(--sage);">Fully staffed</div>'
+    : '<div class="fw-fill-status" style="color:var(--danger-btn);">'+open+' slot'+(open!==1?'s':'')+' still open</div>';
+}
+
+function renderFocusWeekDetail() {
+  var pane = document.getElementById('fw-detail');
+  if (!pane) return;
+  if (!currentSchedule.length) {
+    pane.innerHTML = '<div class="empty-state"><div class="icon">&#128197;</div><p>No schedule generated yet for this month.</p></div>';
+    return;
+  }
+  if (focusWeekSelectedIdx >= currentSchedule.length) focusWeekSelectedIdx = 0;
+  var rowIdx = focusWeekSelectedIdx;
+  var row = currentSchedule[rowIdx];
+  var pMap = {}; getPeople().forEach(function(p){ pMap[p.id]=p; });
+  var dateISO = row.date.toISOString().slice(0,10);
+
+  var html = '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px;">'
+    + '<div>'
+      + '<div style="font-family:var(--font-head);font-weight:700;font-size:1.3rem;color:var(--steel-anchor);">'+esc(fmtDate(row.date))+'</div>'
+      + '<div style="font-size:.85rem;color:var(--warm-gray);">'+esc(focusWeekRowSubLabel(row, dateISO))+'</div>'
+    + '</div>'
+    + focusWeekFillStatusHtml(row, rowIdx, pMap)
+    + '</div>';
+
+  if (row.type === 'special') {
+    (row.services||[]).forEach(function(svc, svcIdx) {
+      html += '<div class="fw-svc-label">'+esc(svc.time||'Service')+'</div>';
+      (svc.roles||[]).forEach(function(role) {
+        var pid = (svc.assignments||{})[role] || null;
+        html += buildRoleRowHtml(rowIdx, role, null, svcIdx, pid, pMap, dateISO, 0);
+      });
+    });
+  } else {
+    html += '<div class="fw-svc-label">8:00 AM</div>';
+    PER_ROLES.forEach(function(role) {
+      html += buildRoleRowHtml(rowIdx, role, '8am', null, row.assignments[role]['8am'], pMap, dateISO, row.ordinal);
+    });
+    html += '<div class="fw-svc-label">10:45 AM</div>';
+    PER_ROLES.forEach(function(role) {
+      html += buildRoleRowHtml(rowIdx, role, '10:45am', null, row.assignments[role]['10:45am'], pMap, dateISO, row.ordinal);
+    });
+    html += '<div class="fw-svc-label">BOTH SERVICES</div>';
+    SHARED_ROLES.forEach(function(role) {
+      html += buildRoleRowHtml(rowIdx, role, 'shared', null, row.assignments[role].shared, pMap, dateISO, row.ordinal);
+    });
+  }
+  pane.innerHTML = html;
+}
+
+function buildRoleRowHtml(rowIdx, role, svc, svcIdxOrNull, pid, pMap, dateISO, ordinal) {
+  var person = pid ? pMap[pid] : null;
+  var people = getPeople();
+  var primaryPerson = null;
+  people.forEach(function(p){ if ((p.primaryFor||[]).indexOf(role)>-1 && !primaryPerson) primaryPerson = p; });
+  var isPrimary = !!(person && primaryPerson && person.id === primaryPerson.id);
+  var crossSvc = !!(person && svc && svc !== 'shared' && person.servicePreference !== 'both' && person.servicePreference !== svc);
+
+  var confKey = svcIdxOrNull==null ? (dateISO+'|'+role+'|'+svc) : null;
+  var confStatus = (confKey && pid) ? (getConfirmations()[confKey] || 'pending') : null;
+  var confColors = { pending:'var(--amber)', confirmed:'var(--sage)', declined:'var(--danger-btn)', needs_changes:'var(--amber)' };
+  var confLabels = { pending:'Pending', confirmed:'Confirmed', declined:'Declined', needs_changes:'Needs Change' };
+
+  var avatar = avatarHtml(person, 36);
+  var nameHtml = person ? '<span class="rr-name">'+esc(person.name)+'</span>' : '<span class="rr-name placeholder">&mdash; assign &mdash;</span>';
+  var star = isPrimary ? '<span class="rr-star" title="Primary / Always-First">&#9733;</span>' : '';
+  var otherSvc = crossSvc ? '<span class="rr-otherSvc">other svc</span>' : '';
+  var confHtml = confStatus
+    ? '<span class="rr-conf" style="color:'+confColors[confStatus]+';" data-conf-key="'+esc(confKey)+'">'
+      +'<span class="rr-conf-dot" style="background:'+confColors[confStatus]+';"></span>'+confLabels[confStatus]+'</span>'
+    : '';
+
+  var attrs = 'data-row="'+rowIdx+'" data-role="'+esc(role)+'" data-svc="'+esc(svc||'')+'"'
+    + (svcIdxOrNull!=null ? ' data-svc-idx="'+svcIdxOrNull+'"' : '');
+
+  return '<div class="role-row-wrap">'
+    + '<button type="button" class="role-row'+(person?'':' empty')+'" '+attrs+'>'
+      + avatar
+      + '<span class="rr-text"><span class="rr-role">'+esc(roleLabel(role))+'</span>'+nameHtml+'</span>'
+      + star + otherSvc + confHtml
+    + '</button>'
+    + '</div>';
+}
+
+// ── Picker popover: broadens the pool beyond exact service/Sunday match, tags + sorts the stretch picks to the bottom ──
+function buildRolePickerCandidates(role, svc, dateISO, ordinal) {
+  var people = getPeople().filter(function(p) {
+    if (p.roles.indexOf(role) === -1) return false;
+    if ((p.blackoutDates||[]).indexOf(dateISO) !== -1) return false;
+    if (isOnAbsence(p, dateISO)) return false;
+    return true;
+  });
+  people.forEach(function(p) {
+    var sundays = (role && p.roleSundayOverrides && p.roleSundayOverrides[role] && p.roleSundayOverrides[role].length>0)
+      ? p.roleSundayOverrides[role] : (p.preferredSundays||[]);
+    p._offSunday = sundays.length>0 && sundays.indexOf(ordinal)===-1;
+    p._crossSvc  = svc !== 'shared' && svc && p.servicePreference !== 'both' && p.servicePreference !== svc;
+  });
+  people.sort(function(a,b) {
+    var wa = (a._crossSvc?1:0) + (a._offSunday?1:0);
+    var wb = (b._crossSvc?1:0) + (b._offSunday?1:0);
+    return (wa - wb) || a.name.localeCompare(b.name);
+  });
+  return people;
+}
+
+var openRolePickerKey = null;
+function closeRolePicker() {
+  document.querySelectorAll('.role-picker').forEach(function(el){ el.remove(); });
+  openRolePickerKey = null;
+}
+function openRolePicker(wrapEl, rowIdx, role, svc, svcIdxOrNull) {
+  var key = rowIdx+'|'+role+'|'+svc+'|'+(svcIdxOrNull==null?'':svcIdxOrNull);
+  var wasOpen = openRolePickerKey === key;
+  closeRolePicker();
+  if (wasOpen) return;
+  openRolePickerKey = key;
+
+  var row = currentSchedule[rowIdx];
+  var dateISO = row.date.toISOString().slice(0,10);
+  var ordinal = row.type==='special' ? 0 : row.ordinal;
+  var candidates = buildRolePickerCandidates(role, svc, dateISO, ordinal);
+
+  var html = '<div class="role-picker">'
+    + '<div class="rp-item rp-unassign" data-pid="">'
+      + '<span style="width:30px;text-align:center;">&times;</span><span>Unassigned</span>'
+    + '</div>';
+  candidates.forEach(function(p) {
+    var tags = '';
+    if (p._crossSvc)  tags += '<span class="rp-tag">other svc</span>';
+    if (p._offSunday) tags += '<span class="rp-tag rp-tag-sunday">off Sunday</span>';
+    html += '<div class="rp-item" data-pid="'+esc(p.id)+'">' + avatarHtml(p, 30) + '<span>'+esc(p.name)+'</span>' + tags + '</div>';
+  });
+  html += '</div>';
+
+  wrapEl.insertAdjacentHTML('beforeend', html);
+  wrapEl.querySelector('.role-picker').addEventListener('click', function(e) {
+    var item = e.target.closest('.rp-item');
+    if (!item) return;
+    e.stopPropagation();
+    assignRoleSlot(rowIdx, role, svc, svcIdxOrNull, item.getAttribute('data-pid') || null);
+    closeRolePicker();
+  });
+}
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.role-row') && !e.target.closest('.role-picker')) closeRolePicker();
+});
+
+function assignRoleSlot(rowIdx, role, svc, svcIdxOrNull, pid) {
+  var row = currentSchedule[rowIdx];
+  if (svcIdxOrNull != null) {
+    if (!row.services[svcIdxOrNull].assignments) row.services[svcIdxOrNull].assignments = {};
+    row.services[svcIdxOrNull].assignments[role] = pid;
+  } else {
+    if (svc === 'shared') row.assignments[role].shared = pid;
+    else row.assignments[role][svc] = pid;
+    var dateISO = row.date.toISOString().slice(0,10);
+    var overrideKey = dateISO+'|'+role+'|'+svc;
+    var overrides = getScheduleOverrides();
+    overrides[overrideKey] = pid || '';
+    saveScheduleOverrides(overrides);
+  }
+  setDirty(true);
+  renderTable(getPeople(), null);
+}
+
+function cycleConfirmation(confKey) {
+  if (!confKey) return;
+  var confs = getConfirmations();
+  var cycle = { pending:'confirmed', confirmed:'declined', declined:'needs_changes', needs_changes:'pending' };
+  confs[confKey] = cycle[confs[confKey] || 'pending'];
+  saveConfirmations(confs);
+  renderFocusWeekDetail();
+  renderFocusWeekRail();
+}
+
+document.getElementById('fw-rail').addEventListener('click', function(e) {
+  var btn = e.target.closest('.wr-btn');
+  if (!btn) return;
+  focusWeekSelectedIdx = parseInt(btn.getAttribute('data-idx'), 10);
+  closeRolePicker();
+  renderFocusWeekRail();
+  renderFocusWeekDetail();
+});
+
+document.getElementById('fw-detail').addEventListener('click', function(e) {
+  var confEl = e.target.closest('.rr-conf');
+  if (confEl) { e.stopPropagation(); cycleConfirmation(confEl.getAttribute('data-conf-key')); return; }
+  var rowBtn = e.target.closest('.role-row');
+  if (!rowBtn) return;
+  var rowIdx = parseInt(rowBtn.getAttribute('data-row'), 10);
+  var role = rowBtn.getAttribute('data-role');
+  var svc = rowBtn.getAttribute('data-svc');
+  var svcIdxAttr = rowBtn.getAttribute('data-svc-idx');
+  openRolePicker(rowBtn.parentElement, rowIdx, role, svc, svcIdxAttr!==null ? parseInt(svcIdxAttr,10) : null);
+});
+
+// ── "More ▾" toolbar menu ──
+document.getElementById('btn-more-menu').addEventListener('click', function(e) {
+  e.stopPropagation();
+  document.getElementById('more-menu-panel').classList.toggle('open');
+});
+document.getElementById('more-menu-panel').addEventListener('click', function(e) {
+  if (e.target.closest('button')) this.classList.remove('open');
+});
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.more-menu-wrap')) document.getElementById('more-menu-panel').classList.remove('open');
+});
 
 // ── Mobile single-Sunday picker ────────────────────────────────────────────
 // On mobile, only one Sunday card is shown at a time; this picker drives
@@ -2660,25 +3159,32 @@ function openBulletinSlide(rowIdx) {
 
 // ══════════════════════════════════════════════════════════════════
 // REMINDER EMAILS
-// ══════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════
+// REMINDER EMAIL — "Steel & Amber" redesign
+// Drop-in replacement for buildHtmlEmail() in scheduler/index.html
+// Signature and inputs are UNCHANGED from the original function —
+// only the markup/visual design changed. Table-based layout (no
+// flexbox) so it degrades safely in Outlook desktop.
+// ═════════════════════════════════════════════════════════════════
 function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
-  var th = 'padding:8px 12px;text-align:left;border-bottom:2px solid #E8E0D0;font-size:0.78rem;color:#0A3C5C;text-transform:uppercase;letter-spacing:0.05em;';
 
-  // Schedule table — always 3 columns, no confirm column (fits any screen width)
-  var rows = assignments.map(function(a) {
+  // ---- schedule rows ----
+  var accentColors = ['#6B8F71', '#5C8FA8', '#D4922A', '#9AB89E', '#3D627C'];
+  var scheduleRows = assignments.map(function(a, i) {
     var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
-    return '<tr>'
-      + '<td style="padding:8px 12px;border-bottom:1px solid #E8E0D0;white-space:nowrap;">' + esc(a.date) + '</td>'
-      + '<td style="padding:8px 12px;border-bottom:1px solid #E8E0D0;">' + esc(svcLabel) + '</td>'
-      + '<td style="padding:8px 12px;border-bottom:1px solid #E8E0D0;font-weight:600;">' + esc(roleLabel(a.role)) + '</td>'
-      + '</tr>';
+    var accent = accentColors[i % accentColors.length];
+    return ''
+      + '<tr><td style="padding-bottom:12px;">'
+      + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F8FA;border-radius:8px;">'
+      + '<tr><td style="width:4px;background:' + accent + ';border-radius:8px 0 0 8px;">&nbsp;</td>'
+      + '<td style="padding:14px 16px;">'
+      + '<div style="font-family:\'Source Sans 3\',Arial,sans-serif;font-weight:700;font-size:0.95rem;color:#3D3530;">' + esc(a.date) + ' &nbsp;&middot;&nbsp; ' + esc(svcLabel) + '</div>'
+      + '<div style="font-size:0.72rem;color:#7A6E60;text-transform:uppercase;letter-spacing:0.06em;margin-top:3px;">' + esc(roleLabel(a.role)) + '</div>'
+      + '</td></tr></table>'
+      + '</td></tr>';
   }).join('');
 
-  var replyLink = replyTo
-    ? '<a href="mailto:' + esc(replyTo) + '" style="color:#3D627C;">' + esc(replyTo) + '</a>'
-    : '';
-
-  // Readings section — Lectors get OT+Epistle, Liturgists get Gospel+Psalm
+  // ---- readings section (Lectors: OT+Epistle, Liturgists: Gospel+Psalm) ----
   var readingsItems = [];
   assignments.forEach(function(a) {
     var role = (a.role || '').toLowerCase();
@@ -2690,102 +3196,77 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
     var rdLines = [];
     if (isLector) {
       if (rd.ot)      rdLines.push({ label: 'OT',      ref: rd.ot });
-      if (rd.epistle) rdLines.push({ label: 'Epistle',  ref: rd.epistle });
+      if (rd.epistle) rdLines.push({ label: 'Epistle', ref: rd.epistle });
     } else {
       if (rd.gospel)  rdLines.push({ label: 'Gospel',  ref: rd.gospel });
       if (rd.psalm)   rdLines.push({ label: 'Psalm',   ref: rd.psalm });
     }
     if (!rdLines.length) return;
     var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
-    readingsItems.push({ header: a.date + ' \\u2014 ' + svcLabel + ' (' + roleLabel(a.role) + ')', lines: rdLines });
+    readingsItems.push({ header: a.date + ' \u2014 ' + roleLabel(a.role), lines: rdLines });
   });
+
   var readingsSection = '';
   if (readingsItems.length) {
-    var itemsHtml = readingsItems.map(function(item) {
-      var lineHtml = item.lines.map(function(l) {
-        var link = bibleLink(l.ref);
-        var refDisplay = link
-          ? '<a href="' + esc(link) + '" style="color:#3D627C;">' + esc(l.ref) + '</a>'
-          : esc(l.ref);
-        return '<div style="margin-top:4px;"><span style="color:#7A6E60;font-size:.85rem;font-weight:600;">' + esc(l.label) + ':</span> ' + refDisplay + '</div>';
-      }).join('');
-      return '<div style="margin-bottom:14px;">'
-        + '<div style="font-size:.75rem;font-weight:700;color:#7A6E60;text-transform:uppercase;letter-spacing:.04em;">' + esc(item.header) + '</div>'
-        + lineHtml
-        + '</div>';
+    var itemsHtml = readingsItems.map(function(item, idx) {
+      var refsHtml = item.lines.map(function(l) {
+        var link = bibleLink(l.ref); // swap for a BibleGateway ESV link if you don't already have one
+        var href = link || ('https://www.biblegateway.com/passage/?search=' + encodeURIComponent(l.ref) + '&version=ESV');
+        return '<a href="' + esc(href) + '" style="color:#3D627C;">' + esc(l.ref) + '</a>';
+      }).join(' &nbsp;&middot;&nbsp; ');
+      return ''
+        + '<tr><td style="' + (idx > 0 ? 'padding-top:8px;' : '') + '">'
+        + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">'
+        + '<tr><td style="width:2px;background:#9AB89E;">&nbsp;</td>'
+        + '<td style="padding-left:14px;">'
+        + '<div style="font-size:0.8rem;color:#7A6E60;">' + esc(item.header) + '</div>'
+        + '<div style="font-size:0.88rem;color:#3D3530;margin-top:2px;">' + refsHtml + '</div>'
+        + '</td></tr></table>'
+        + '</td></tr>';
     }).join('');
-    readingsSection = '<div style="background:#FAF7F0;border:1px solid #E8E0D0;border-radius:6px;padding:16px;margin-bottom:20px;">'
-      + '<div style="font-weight:700;color:#0A3C5C;margin-bottom:12px;font-size:.9rem;">&#128214; Your Readings</div>'
-      + itemsHtml
-      + '</div>';
+    readingsSection = ''
+      + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F8FA;border:1px solid #C4DDE8;border-radius:10px;margin-bottom:22px;">'
+      + '<tr><td style="padding:16px 18px;">'
+      + '<div style="font-size:0.72rem;font-weight:700;color:#3D627C;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Your Readings</div>'
+      + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">' + itemsHtml + '</table>'
+      + '</td></tr></table>';
   }
 
-  // RSVP section — separate block below the schedule table, mobile-safe 2-col layout
+  // ---- RSVP — simplified to one primary + one secondary action ----
   var rsvpSection = '';
   if (rsvpToken && workerUrl) {
     var confirmAllUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&status=confirmed';
-    var changesAllUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&status=needs_changes';
-    var portalUrl     = workerUrl + '/rsvp/portal?token=' + encodeURIComponent(rsvpToken);
-
-    // Per-assignment rows in a 2-column table: "Date — Role (svc)" | [✓ Yes] [⚠ Change] [✗ Decline]
-    // Two columns is easy on any phone; no 4-col overflow
-    var confirmRows = assignments.map(function(a, idx) {
-      var svcLabel = a.svc === 'both services' ? 'Both Svcs' : a.svc;
-      var cfUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&idx=' + idx + '&status=confirmed';
-      var ncUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&idx=' + idx + '&status=needs_changes';
-      var dcUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&idx=' + idx + '&status=declined';
-      return '<tr>'
-        + '<td style="padding:10px 12px;border-bottom:1px solid #eef;font-size:0.86rem;vertical-align:middle;">'
-        + '<strong>' + esc(a.date) + '</strong>'
-        + '<span style="color:#666;"> &mdash; ' + esc(roleLabel(a.role)) + '</span>'
-        + '<br><span style="font-size:0.78rem;color:#7A6E60;">' + esc(svcLabel) + '</span>'
-        + '</td>'
-        + '<td style="padding:10px 12px;border-bottom:1px solid #eef;vertical-align:middle;text-align:right;width:1%;white-space:nowrap;">'
-        + '<a href="' + esc(cfUrl) + '" style="display:inline-block;background:#6B8F71;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;margin-right:5px;">\\u2713 Yes</a>'
-        + '<a href="' + esc(ncUrl) + '" style="display:inline-block;background:#D4922A;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;margin-right:5px;">\\u26a0 Change</a>'
-        + '<a href="' + esc(dcUrl) + '" style="display:inline-block;background:#A93226;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;">\\u2717 Decline</a>'
-        + '</td>'
-        + '</tr>';
-    }).join('');
-
-    var declineAllUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&status=declined';
-
+    var portalUrl      = workerUrl + '/rsvp/portal?token=' + encodeURIComponent(rsvpToken);
     rsvpSection = ''
-      + '<div style="background:#f6f9ff;border:1px solid #c8d8f0;border-radius:8px;margin-bottom:20px;overflow:hidden;">'
-      + '<div style="background:#0A3C5C;padding:10px 14px;">'
-      + '<p style="margin:0;font-size:0.82rem;color:white;font-weight:600;">Can you serve on these Sundays? Please confirm each one:</p>'
-      + '</div>'
-      + '<table style="width:100%;border-collapse:collapse;">'
-      + confirmRows
-      + '</table>'
-      + '<div style="padding:12px 14px;background:#eef2fb;border-top:1px solid #c8d8f0;">'
-      + '<p style="margin:0 0 8px;font-size:0.78rem;color:#7A6E60;">Or respond to all at once:</p>'
-      + '<a href="' + esc(confirmAllUrl) + '" style="display:inline-block;background:#6B8F71;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\\u2713 Confirm All</a>'
-      + '<a href="' + esc(changesAllUrl) + '" style="display:inline-block;background:#D4922A;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\\u26a0 Change All</a>'
-      + '<a href="' + esc(declineAllUrl) + '" style="display:inline-block;background:#A93226;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\\u2717 Decline All</a>'
-      + '<a href="' + esc(portalUrl) + '" style="display:inline-block;background:white;color:#0A3C5C;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:600;font-size:0.82rem;border:1px solid #C4DDE8;margin:0 0 4px 0;">\\uD83D\\uDCC5 My Full Schedule</a>'
-      + '</div>'
-      + '</div>';
+      + '<a href="' + esc(confirmAllUrl) + '" style="display:block;text-align:center;background:#6B8F71;color:white;text-decoration:none;font-weight:700;font-size:0.92rem;padding:14px;border-radius:8px;margin-bottom:10px;">Confirm My Schedule</a>'
+      + '<a href="' + esc(portalUrl) + '" style="display:block;text-align:center;background:white;color:#B85C3A;text-decoration:none;font-weight:700;font-size:0.86rem;padding:11px;border-radius:8px;border:1.5px solid #D4726A;margin-bottom:20px;">Need a Change?</a>';
   }
 
-  return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"></head>'
+  var replyLink = replyTo
+    ? '<a href="mailto:' + esc(replyTo) + '" style="color:#3D627C;">' + esc(replyTo) + '</a>'
+    : '';
+
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
+    + '<meta name="viewport" content="width=device-width, initial-scale=1.0"></head>'
     + '<body style="margin:0;padding:0;background:#EDF5F8;font-family:Arial,Helvetica,sans-serif;color:#3D3530;">'
-    + '<div style="max-width:580px;margin:24px auto;">'
-    + '<div style="background:#0A3C5C;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">'
-    + '<div style="font-size:1.2rem;font-weight:700;">Timothy Lutheran Church</div>'
-    + '<div style="font-size:0.85rem;opacity:0.8;margin-top:3px;">Worship Service Volunteer Schedule</div>'
-    + '</div>'
-    + '<div style="background:white;padding:24px;border:1px solid #E8E0D0;border-top:none;border-radius:0 0 8px 8px;">'
-    + '<p style="margin:0 0 14px;">Hello ' + esc(person.name) + ',</p>'
-    + '<p style="margin:0 0 12px;color:#444;">Here are your upcoming worship service assignments:</p>'
-    + '<table style="width:100%;border-collapse:collapse;margin:0 0 20px;font-size:0.88rem;">'
-    + '<thead><tr style="background:#EDF5F8;">'
-    + '<th style="' + th + '">Date</th>'
-    + '<th style="' + th + '">Service</th>'
-    + '<th style="' + th + '">Role</th>'
-    + '</tr></thead>'
-    + '<tbody>' + rows + '</tbody>'
-    + '</table>'
+    + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EDF5F8;">'
+    + '<tr><td align="center" style="padding:28px 14px;">'
+    + '<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:white;border-radius:10px;overflow:hidden;">'
+
+    // header
+    + '<tr><td style="background:#3D627C;padding:22px 28px;border-bottom:4px solid #D4922A;">'
+    + '<table role="presentation" cellpadding="0" cellspacing="0"><tr>'
+    + '<td style="width:44px;height:44px;border-radius:50%;background:white;text-align:center;vertical-align:middle;font-family:\'Lora\',Georgia,serif;font-weight:700;color:#3D627C;font-size:0.95rem;">TLC</td>'
+    + '<td style="padding-left:14px;">'
+    + '<div style="font-family:\'Lora\',Georgia,serif;font-weight:700;font-size:1.1rem;color:white;">Timothy Lutheran Church</div>'
+    + '<div style="font-size:0.78rem;color:#E3F0F5;margin-top:2px;">Worship Volunteer Schedule</div>'
+    + '</td></tr></table>'
+    + '</td></tr>'
+
+    // body
+    + '<tr><td style="padding:26px 28px;">'
+    + '<p style="margin:0 0 18px;font-size:0.92rem;color:#3D3530;">Hello ' + esc(person.name) + ', here\'s your upcoming schedule:</p>'
+    + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;">' + scheduleRows + '</table>'
     + readingsSection
     + rsvpSection
     + (rsvpToken ? '' :
@@ -2793,13 +3274,15 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
       + '<strong style="color:#7a4800;">Unable to serve on one of these dates?</strong>'
       + '<p style="margin:6px 0 0;font-size:0.88rem;color:#5a3a00;">Simply <strong>reply to this email</strong> and we will work to find a substitute.</p>'
       + '</div>')
-    + '<p style="font-size:0.9rem;margin:0 0 6px;">Thank you for your faithful service to our congregation!</p>'
-    + '<p style="font-size:0.78rem;color:#7A6E60;margin:4px 0 0;">A calendar attachment (.ics) is included \\u2014 add it to your calendar to be reminded on each Sunday you serve.</p>'
-    + '<p style="font-size:0.8rem;color:#7A6E60;margin:20px 0 0;padding-top:14px;border-top:1px solid #E8E0D0;">'
-    + 'Timothy Lutheran Church'
+    + '<p style="font-size:0.85rem;margin:0 0 4px;color:#3D3530;">Thank you for serving!</p>'
+    + '<p style="font-size:0.74rem;color:#7A6E60;margin:4px 0 0;">A calendar attachment (.ics) is included &mdash; add it to your calendar to be reminded on each Sunday you serve.</p>'
+    + '<p style="font-size:0.74rem;color:#a39a8d;margin:18px 0 0;padding-top:12px;border-top:1px solid #E8E0D0;">Timothy Lutheran Church'
     + (replyLink ? ' &mdash; Questions? Contact us at ' + replyLink : '')
     + '</p>'
-    + '</div></div>'
+    + '</td></tr>'
+
+    + '</table>'
+    + '</td></tr></table>'
     + '</body></html>';
 }
 
@@ -2974,6 +3457,8 @@ function sendReminderEmails() {
               token:       token,
               name:        person.name,
               personId:    person.id,
+              email:       person.email || '',
+              notifyEmail: s.replyTo || '',
               assignments: assignments.map(function(a) {
                 return { date: a.date, dateISO: a.dateISO, svc: a.svc, role: a.role };
               }),
@@ -3312,6 +3797,7 @@ function _sendWeekReminders() {
             headers: Object.assign({ 'Content-Type': 'application/json' }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
             body: JSON.stringify({
               token: token, name: person.name, personId: person.id,
+              email: person.email || '', notifyEmail: s.replyTo || '',
               assignments: assignments.map(function(a){
                 return { date: a.date, dateISO: a.dateISO, svc: a.svc, role: a.role };
               }),
@@ -3769,33 +4255,52 @@ function renderNotifySlots(weekFilter) {
   actionsEl.style.display = '';
 }
 
+// ═════════════════════════════════════════════════════════════════
+// OPEN-SLOT REQUEST EMAIL — "Steel & Amber" redesign
+// Drop-in replacement for buildVolunteerRequestHtml() in scheduler/index.html
+// Signature unchanged — only the markup/visual design changed.
+// ═════════════════════════════════════════════════════════════════
 function buildVolunteerRequestHtml(person, slot, replyTo) {
   var svcLabel = slot.svc === 'both services' ? 'Both Services' : slot.svc;
   var replyLink = replyTo
     ? '<a href="mailto:' + esc(replyTo) + '" style="color:#3D627C;">' + esc(replyTo) + '</a>'
     : '';
-  return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"></head>'
+
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
+    + '<meta name="viewport" content="width=device-width, initial-scale=1.0"></head>'
     + '<body style="margin:0;padding:0;background:#EDF5F8;font-family:Arial,Helvetica,sans-serif;color:#3D3530;">'
-    + '<div style="max-width:560px;margin:24px auto;">'
-    + '<div style="background:#0A3C5C;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">'
-    + '<div style="font-size:1.2rem;font-weight:700;">Timothy Lutheran Church</div>'
-    + '<div style="font-size:0.85rem;opacity:0.8;margin-top:3px;">Worship Volunteer Request</div>'
-    + '</div>'
-    + '<div style="background:white;padding:24px;border:1px solid #E8E0D0;border-top:none;border-radius:0 0 8px 8px;">'
-    + '<p style="margin:0 0 14px;">Hello ' + esc(person.name) + ',</p>'
-    + '<p style="margin:0 0 16px;color:#444;">We still need a volunteer for the following worship service role and would love your help:</p>'
-    + '<div style="background:#EDF5F8;border-left:4px solid #D4922A;border-radius:0 6px 6px 0;padding:14px 18px;margin-bottom:20px;">'
-    + '<div style="font-size:1rem;font-weight:700;color:#0A3C5C;">' + esc(roleLabel(slot.role)) + '</div>'
-    + '<div style="font-size:0.9rem;color:#3D3530;margin-top:4px;">' + esc(slot.date) + ' &mdash; ' + esc(svcLabel) + '</div>'
-    + '</div>'
-    + '<p style="margin:0 0 10px;font-size:0.9rem;">If you\\'re available and willing to serve, please reply to this email to let us know.</p>'
-    + '<p style="margin:0 0 20px;font-size:0.9rem;">If this date doesn\\'t work, no worries \\u2014 we appreciate everything you do for our congregation!</p>'
-    + '<p style="font-size:0.9rem;margin:0 0 6px;">Thank you for your faithful service!</p>'
-    + '<p style="font-size:0.78rem;color:#7A6E60;margin:20px 0 0;padding-top:14px;border-top:1px solid #E8E0D0;">'
-    + 'Timothy Lutheran Church'
+    + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EDF5F8;">'
+    + '<tr><td align="center" style="padding:28px 14px;">'
+    + '<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:white;border-radius:10px;overflow:hidden;">'
+
+    // header
+    + '<tr><td style="background:#3D627C;padding:22px 28px;border-bottom:4px solid #D4922A;">'
+    + '<table role="presentation" cellpadding="0" cellspacing="0"><tr>'
+    + '<td style="width:44px;height:44px;border-radius:50%;background:white;text-align:center;vertical-align:middle;font-family:\'Lora\',Georgia,serif;font-weight:700;color:#3D627C;font-size:0.95rem;">TLC</td>'
+    + '<td style="padding-left:14px;">'
+    + '<div style="font-family:\'Lora\',Georgia,serif;font-weight:700;font-size:1.1rem;color:white;">Timothy Lutheran Church</div>'
+    + '<div style="font-size:0.78rem;color:#E3F0F5;margin-top:2px;">Worship Volunteer Request</div>'
+    + '</td></tr></table>'
+    + '</td></tr>'
+
+    // body
+    + '<tr><td style="padding:26px 28px;">'
+    + '<p style="margin:0 0 16px;font-size:0.92rem;color:#3D3530;">Hello ' + esc(person.name) + ' &mdash; we have an open slot and thought of you:</p>'
+    + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FDF3E2;border-radius:8px;margin-bottom:8px;"><tr><td style="padding:16px 20px;">'
+    + '<div style="font-size:0.7rem;font-weight:700;color:#C07D1E;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Volunteer Needed</div>'
+    + '<div style="font-family:\'Lora\',Georgia,serif;font-weight:700;font-size:1.1rem;color:#0A3C5C;">' + esc(roleLabel(slot.role)) + '</div>'
+    + '<div style="font-size:0.88rem;color:#3D3530;margin-top:2px;">' + esc(slot.date) + ' &nbsp;&middot;&nbsp; ' + esc(svcLabel) + ' Service</div>'
+    + '</td></tr></table>'
+    + '<a href="mailto:' + esc(replyTo || '') + '?subject=' + encodeURIComponent('Re: Volunteer needed \u2014 ' + roleLabel(slot.role) + ' on ' + slot.date) + '" style="display:block;text-align:center;background:#6B8F71;color:white;text-decoration:none;font-weight:700;font-size:0.92rem;padding:14px;border-radius:8px;margin:18px 0 8px;">I\u2019ll Serve</a>'
+    + '<div style="text-align:center;font-size:0.78rem;color:#7A6E60;margin-bottom:20px;">Not able to help this time? No reply needed.</div>'
+    + '<p style="font-size:0.74rem;color:#a39a8d;margin:18px 0 0;padding-top:12px;border-top:1px solid #E8E0D0;">Timothy Lutheran Church'
     + (replyLink ? ' &mdash; Reply to: ' + replyLink : '')
     + '</p>'
-    + '</div></div></body></html>';
+    + '</td></tr>'
+
+    + '</table>'
+    + '</td></tr></table>'
+    + '</body></html>';
 }
 
 function sendVolunteerNotifications() {
@@ -5493,4 +5998,4 @@ document.getElementById('btn-close-events-panel').addEventListener('click', clos
 
 </body>
 </html>
-`
+`;

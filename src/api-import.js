@@ -351,9 +351,9 @@ if (seg === 'config/member-type-map' && method === 'PUT') {
 
 if (seg === 'config/church' && method === 'GET') {
   // EIN is admin-only (PII). Non-admins get the rest of the config without it.
-  const keys = isAdmin
-    ? ['church_ein','church_from_name','church_from_email','giving_letter_template','church_name']
-    : ['church_from_name','church_from_email','giving_letter_template','church_name'];
+  const publicKeys = ['church_from_name','church_from_email','giving_letter_template','church_name',
+    'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
+  const keys = isAdmin ? ['church_ein', ...publicKeys] : publicKeys;
   const rows = (await db.prepare(`SELECT key, value FROM chms_config WHERE key IN (${keys.map(()=>'?').join(',')})`).bind(...keys).all()).results || [];
   const config = {};
   for (const r of rows) config[r.key] = r.value;
@@ -361,7 +361,8 @@ if (seg === 'config/church' && method === 'GET') {
 }
 if (seg === 'config/church' && method === 'PUT') {
   let b = {}; try { b = await req.json(); } catch {}
-  const allowed = ['church_ein','church_from_name','church_from_email','giving_letter_template','church_name'];
+  const allowed = ['church_ein','church_from_name','church_from_email','giving_letter_template','church_name',
+    'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
   for (const k of allowed) {
     // Only save non-empty values — preserves existing config if user saves with a blank field
     if (b[k]) {
@@ -3138,6 +3139,159 @@ if (seg === 'import/breeze' && method === 'POST') { try {
 } catch (importErr) {
   return json({ ok: false, error: 'Bulk import error: ' + importErr.message, _stack: (importErr.stack||'').slice(0, 500) }, 500);
 } }
+
+// ── Old System Comparison ─────────────────────────────────────────────────
+// Accepts an array of people from an old spreadsheet, matches them against the DB
+// by normalized full name, and returns a diff of 7 fields per person.
+if (seg === 'import/old-system-compare' && method === 'POST') {
+  if (!isStaff) return json({ error: 'Access denied' }, 403);
+  let b = {}; try { b = await req.json(); } catch {}
+  const rows = b.people;
+  if (!Array.isArray(rows) || !rows.length) return json({ error: 'No people provided' }, 400);
+  if (rows.length > 3000) return json({ error: 'Too many rows (max 3000)' }, 400);
+
+  const dbPeople = (await db.prepare(
+    `SELECT id, first_name, last_name, email, phone,
+            dob, baptism_date, confirmation_date, anniversary_date,
+            address1, city, state, zip
+     FROM people WHERE active=1`
+  ).all()).results || [];
+
+  const normName = (f, l) => ((String(f||'')+' '+String(l||'')).toLowerCase().replace(/\s+/g,' ').trim());
+  const nameIdx = new Map();
+  for (const p of dbPeople) {
+    const k = normName(p.first_name, p.last_name);
+    if (!nameIdx.has(k)) nameIdx.set(k, []);
+    nameIdx.get(k).push(p);
+  }
+
+  const normDate = s => {
+    if (!s) return '';
+    s = String(s).trim();
+    if (!s || /^(0|null|undefined|n\/a|none)$/i.test(s)) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const m1 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m1) return `${m1[3]}-${m1[1].padStart(2,'0')}-${m1[2].padStart(2,'0')}`;
+    const m2 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+    if (m2) { const y = parseInt(m2[3]) < 30 ? '20'+m2[3] : '19'+m2[3]; return `${y}-${m2[1].padStart(2,'0')}-${m2[2].padStart(2,'0')}`; }
+    const m3 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (m3) return `${m3[3]}-${m3[1].padStart(2,'0')}-${m3[2].padStart(2,'0')}`;
+    // "Aug 5, 1982" / "August 5, 1982" / "Aug 05 1982"
+    const MONTHS = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+    const m4 = s.match(/^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})$/);
+    if (m4) { const mo = MONTHS[m4[1].toLowerCase().slice(0,3)]; if (mo) return `${m4[3]}-${String(mo).padStart(2,'0')}-${m4[2].padStart(2,'0')}`; }
+    return s;
+  };
+  const normPhone = s => s ? String(s).replace(/\D/g,'').slice(-10) : '';
+  const normAddr  = s => s ? String(s).toLowerCase().replace(/[,.\s]+/g,' ').trim() : '';
+  const normEmail = s => s ? String(s).trim().toLowerCase() : '';
+
+  // Nickname alias groups for fuzzy first-name matching
+  const NICK_GROUPS = [
+    ['robert','bob','rob','bobby'],['william','bill','will','billy'],
+    ['james','jim','jimmy'],['john','johnny','jon'],['michael','mike','mick'],
+    ['richard','rick','rich','dick'],['charles','charlie','chuck'],
+    ['thomas','tom','tommy'],['joseph','joe','joey'],['david','dave'],
+    ['daniel','dan','danny'],['christopher','chris'],['timothy','tim','timmy'],
+    ['nicholas','nick'],['matthew','matt'],['anthony','tony'],
+    ['donald','don','donnie'],['edward','ed','eddie','ted'],
+    ['george','georgie'],['henry','hank','harry'],['kenneth','ken','kenny'],
+    ['lawrence','larry'],['gerald','jerry'],['steven','steve'],['stephen','steve'],
+    ['elizabeth','liz','beth','betty','eliza'],['margaret','maggie','peg','peggy','marge'],
+    ['patricia','pat','patty','tricia','trish'],['barbara','barb'],
+    ['katherine','kate','kathy','kat','katie'],['catherine','kate','kathy','cathy'],
+    ['judith','judy'],['carol','carrie'],['susan','sue','suzy','susie'],
+    ['dorothy','dot','dottie'],['deborah','debra','deb','debbie'],
+    ['jennifer','jen','jenny'],['cynthia','cindy'],['ann','anne'],
+    ['virginia','ginny'],['mary','marie','molly'],
+  ];
+  const nickMap = new Map();
+  for (const g of NICK_GROUPS) for (const n of g) { if (!nickMap.has(n)) nickMap.set(n, g); }
+
+  const results = [];
+  for (const row of rows) {
+    const key = normName(row.first_name, row.last_name);
+    if (!key || key.length < 2) continue;
+    let matches = nameIdx.get(key) || [];
+    let fuzzyMatch = false;
+    if (!matches.length) {
+      const fn = String(row.first_name||'').toLowerCase().trim();
+      const ln = String(row.last_name||'').toLowerCase().trim();
+      for (const alias of (nickMap.get(fn) || [])) {
+        if (alias === fn) continue;
+        const alt = nameIdx.get((alias+' '+ln).replace(/\s+/g,' ').trim()) || [];
+        if (alt.length) { matches = alt; fuzzyMatch = true; break; }
+      }
+    }
+
+    const oldData = {
+      first_name: String(row.first_name||'').trim(),
+      last_name:  String(row.last_name||'').trim(),
+      dob:               normDate(row.dob),
+      baptism_date:      normDate(row.baptism_date),
+      confirmation_date: normDate(row.confirmation_date),
+      anniversary_date:  normDate(row.anniversary_date),
+      phone:   String(row.phone||'').trim(),
+      email:   String(row.email||'').trim(),
+      address: String(row.address||'').trim(),
+      city:    String(row.city||'').trim(),
+      state:   String(row.state||'').trim(),
+      zip:     String(row.zip||'').trim(),
+    };
+
+    if (!matches.length) {
+      results.push({ old: oldData, match: null, status: 'not_found', diffs: {}, fuzzy_match: false });
+      continue;
+    }
+
+    const dbP = matches[0];
+    const dbAddr = [dbP.address1, dbP.city, [dbP.state, dbP.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    const matchData = {
+      id: dbP.id, first_name: dbP.first_name, last_name: dbP.last_name,
+      dob:               normDate(dbP.dob),
+      baptism_date:      normDate(dbP.baptism_date),
+      confirmation_date: normDate(dbP.confirmation_date),
+      anniversary_date:  normDate(dbP.anniversary_date),
+      phone:   dbP.phone||'',
+      email:   dbP.email||'',
+      address: dbP.address1||'',
+      city:    dbP.city||'',
+      state:   dbP.state||'',
+      zip:     dbP.zip||'',
+    };
+
+    const diffs = {};
+    for (const f of ['dob','baptism_date','confirmation_date','anniversary_date']) {
+      if (oldData[f] && normDate(oldData[f]) !== matchData[f]) diffs[f] = { old: oldData[f], db: matchData[f] };
+    }
+    if (oldData.phone && normPhone(oldData.phone) !== normPhone(matchData.phone)) diffs.phone = { old: oldData.phone, db: matchData.phone };
+    if (oldData.email && normEmail(oldData.email) !== normEmail(matchData.email)) diffs.email = { old: oldData.email, db: matchData.email };
+    if (oldData.address && normAddr(oldData.address) !== normAddr(matchData.address)) diffs.address = { old: oldData.address, db: matchData.address, db_blank: !matchData.address.trim() };
+    for (const f of ['city','state','zip']) {
+      if (oldData[f] && oldData[f].toLowerCase().trim() !== matchData[f].toLowerCase().trim()) {
+        diffs[f] = { old: oldData[f], db: matchData[f], db_blank: !matchData[f].trim() };
+      }
+    }
+
+    results.push({
+      old: oldData,
+      match: matchData,
+      status: matches.length > 1 ? 'multiple' : Object.keys(diffs).length ? 'diff' : 'match',
+      multiple_count: matches.length > 1 ? matches.length : undefined,
+      fuzzy_match: fuzzyMatch || undefined,
+      diffs,
+    });
+  }
+
+  const summary = {
+    total: results.length,
+    diff:      results.filter(r => r.status === 'diff').length,
+    not_found: results.filter(r => r.status === 'not_found').length,
+    multiple:  results.filter(r => r.status === 'multiple').length,
+    matched:   results.filter(r => r.status === 'match').length,
+  };
+  return json({ ok: true, results, summary });
+}
 
 return json({ error: 'Not found' }, 404);
 }

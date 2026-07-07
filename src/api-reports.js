@@ -233,6 +233,18 @@ if (seg === 'engagement/mark-reviewed' && method === 'POST') {
   return json({ ok: true });
 }
 
+// Bulk-mark ALL stale visitor/friend records as reviewed. Editors+ only.
+if (seg === 'engagement/mark-all-reviewed' && method === 'POST') {
+  if (!canEdit) return json({ error: 'Access denied' }, 403);
+  const result = await db.prepare(
+    `UPDATE people SET last_reviewed_at = date('now')
+     WHERE status='active'
+       AND LOWER(member_type) NOT IN ('member','organization','')
+       AND (last_reviewed_at = '' OR date(last_reviewed_at) < date('now','-365 days'))`
+  ).run();
+  return json({ ok: true, updated: result.meta?.changes ?? 0 });
+}
+
 // ── New-contact follow-up queue (FU2) ────────────────────────────────
 // Non-members with a first_contact_date set and followup_status != 'done',
 // newest-first. Feeds the dashboard "New Contacts" card.
