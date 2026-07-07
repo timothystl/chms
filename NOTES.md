@@ -129,14 +129,8 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
-### 2026-07-07 (v1.6.5)
-- **Scheduler calendar still not visible after v1.6.4**: The v1.6.4 fix set `schedule-output.style.display='block'` inside the `try` block of `d1Pull()` and the INIT block — meaning if `renderFocusWeek()` threw, the display set never ran (the catch silently swallowed it). Two-part fix: (1) In `_build()` in `src/scheduler-inline.js`, strip `style="display:none;"` from `#schedule-output` directly in the transformed HTML — the element is unconditionally visible from the moment the DOM is built, with zero JS dependency. (2) In `schedInitScheduler`, add a synchronous try/catch block (before any async fetch) that calls `renderFocusWeek()` and sets `schedule-output.style.display='block'` — so the empty state appears immediately when the user clicks the Scheduler tab. The `schedule-output` element is still revealed even if `renderFocusWeek()` throws. (`src/scheduler-inline.js`)
-
-### 2026-07-07 (v1.6.4)
-- **Scheduler calendar and people availability not loading**: `#schedule-output` (the card that wraps the focus-week rail + detail pane) starts `display:none` and was only revealed when `loadSchedule()` returned true — meaning D1 had schedule data for the current month. On a fresh install or with no schedule data, `schedule-output` stayed hidden indefinitely, making the calendar area invisible even though the month-nav buttons were functional. Fix: both `d1Pull()` and the INIT block now always show `#schedule-output` and call `renderFocusWeek()` even when `loadSchedule()` returns false, so the "No schedule generated yet for this month." empty-state message is always visible. (`src/scheduler-html.js`, `scheduler/index.html`)
-
-### 2026-07-07 (v1.6.3)
-- **Scheduler month label stuck at "Loading…"**: All three existing code paths (INIT block at page load, `schedInitScheduler` synchronous set, `d1Pull()` defensive set) have silent try/catch blocks that swallow errors. Root cause not identifiable via static analysis. Fix: `showTab('scheduler')` in `js-core.js` now directly sets `#sched-current-month-label` using `new Date().toLocaleDateString('en-US', ...)` — zero dependency on scheduler globals, runs in ChMS's own script context, no try/catch silencing. This executes synchronously every time the Scheduler tab is clicked, before `schedInitScheduler()` fires.
+### 2026-07-07 (v1.6.2)
+- **v1.6.2**: Synced `scheduler/index.html` (design-reference copy) with the "Church Mgmt"/"Volunteers" top-nav link removal that had already shipped in `src/scheduler-html.js` (v1.1.2) but never been mirrored into the reference file, per the sync warning in Phase 7 SC3.
 
 ### 2026-07-06 (v1.6.1 follow-up)
 - **v1.6.1**: Admin Ministry Roles list groups (added in v1.6.0) are now collapsible — clicking a ministry section header (Worship / Christian Ed / Acceptance / Outreach) toggles a chevron and collapses/expands that group's roles, instead of always showing all 21 roles at once. The group containing the currently-selected role always stays expanded (so selecting a role never hides it), and collapse state is bypassed entirely while searching so matches are never hidden inside a collapsed group. New `volToggleMRoleGroup()` in `src/frontend/js-volunteers.js`; chevron + collapsed-state styles in `html-head.js`.
