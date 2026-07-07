@@ -129,6 +129,9 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-07 (v1.6.3)
+- **Scheduler month label stuck at "Loading…"**: All three existing code paths (INIT block at page load, `schedInitScheduler` synchronous set, `d1Pull()` defensive set) have silent try/catch blocks that swallow errors. Root cause not identifiable via static analysis. Fix: `showTab('scheduler')` in `js-core.js` now directly sets `#sched-current-month-label` using `new Date().toLocaleDateString('en-US', ...)` — zero dependency on scheduler globals, runs in ChMS's own script context, no try/catch silencing. This executes synchronously every time the Scheduler tab is clicked, before `schedInitScheduler()` fires.
+
 ### 2026-07-06 (v1.6.1 follow-up)
 - **v1.6.1**: Admin Ministry Roles list groups (added in v1.6.0) are now collapsible — clicking a ministry section header (Worship / Christian Ed / Acceptance / Outreach) toggles a chevron and collapses/expands that group's roles, instead of always showing all 21 roles at once. The group containing the currently-selected role always stays expanded (so selecting a role never hides it), and collapse state is bypassed entirely while searching so matches are never hidden inside a collapsed group. New `volToggleMRoleGroup()` in `src/frontend/js-volunteers.js`; chevron + collapsed-state styles in `html-head.js`.
 
