@@ -794,7 +794,13 @@ function volAddRole(evId) {
 var _volMRolesCache = [];
 var _volActiveMRoleId = null; // number = editing that role, 'new' = blank add form, null = nothing selected
 var _volMRoleSearch = '';
+var _volMRoleCollapsed = {}; // ministry key -> true if that group's roles are collapsed
 var MR_MINISTRY_LABELS = {worship:'Worship',education:'Christian Ed',acceptance:'Acceptance',outreach:'Outreach',transportation:'Transportation',general:'General'};
+
+function volToggleMRoleGroup(key) {
+  _volMRoleCollapsed[key] = !_volMRoleCollapsed[key];
+  volRenderMRolesList();
+}
 
 function volLoadMinistryRoles() {
   api('/admin/api/ministry-roles?ministry=')
@@ -842,15 +848,19 @@ function volRenderMRolesList() {
   });
   var orderedKeys = order.filter(function(k) { return groups[k]; })
     .concat(Object.keys(groups).filter(function(k) { return order.indexOf(k) === -1; }));
+  // While searching, always show matches expanded regardless of collapsed state.
   listEl.innerHTML = orderedKeys.map(function(key) {
     var label = MR_MINISTRY_LABELS[key] || key || 'Other';
-    return '<div class="ev-list-group-hdr">' + esc(label) + '</div>'
-      + groups[key].map(function(r) {
+    var hasActive = groups[key].some(function(r) { return r.id === _volActiveMRoleId; });
+    var collapsed = !q && !hasActive && !!_volMRoleCollapsed[key];
+    return '<div class="ev-list-group-hdr' + (collapsed ? ' collapsed' : '') + '" onclick="volToggleMRoleGroup(' + volJsAttr(key) + ')">'
+      + '<span class="ev-list-group-chevron">&#9662;</span>' + esc(label) + '</div>'
+      + (collapsed ? '' : groups[key].map(function(r) {
           return '<div class="ev-list-row' + (r.id===_volActiveMRoleId?' active':'') + '" onclick="volSelectMRole(' + r.id + ')">'
             + '<div class="ev-list-name">' + esc(r.name) + '</div>'
             + '<div class="ev-list-meta">' + (r.active ? 'Open' : 'Hidden') + '</div>'
             + '</div>';
-        }).join('');
+        }).join(''));
   }).join('');
 }
 
