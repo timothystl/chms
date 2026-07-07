@@ -129,6 +129,9 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-07 (v1.6.4)
+- **Scheduler calendar and people availability not loading**: `#schedule-output` (the card that wraps the focus-week rail + detail pane) starts `display:none` and was only revealed when `loadSchedule()` returned true — meaning D1 had schedule data for the current month. On a fresh install or with no schedule data, `schedule-output` stayed hidden indefinitely, making the calendar area invisible even though the month-nav buttons were functional. Fix: both `d1Pull()` and the INIT block now always show `#schedule-output` and call `renderFocusWeek()` even when `loadSchedule()` returns false, so the "No schedule generated yet for this month." empty-state message is always visible. (`src/scheduler-html.js`, `scheduler/index.html`)
+
 ### 2026-07-07 (v1.6.3)
 - **Scheduler month label stuck at "Loading…"**: All three existing code paths (INIT block at page load, `schedInitScheduler` synchronous set, `d1Pull()` defensive set) have silent try/catch blocks that swallow errors. Root cause not identifiable via static analysis. Fix: `showTab('scheduler')` in `js-core.js` now directly sets `#sched-current-month-label` using `new Date().toLocaleDateString('en-US', ...)` — zero dependency on scheduler globals, runs in ChMS's own script context, no try/catch silencing. This executes synchronously every time the Scheduler tab is clicked, before `schedInitScheduler()` fires.
 
