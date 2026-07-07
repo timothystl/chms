@@ -470,6 +470,47 @@ export async function seedChmsDefaults(db) {
   } catch {}
 }
 
+// ── SEED MINISTRY ROLES FROM STATIC PAGE CONTENT ──────────────────────
+// The VUX5 redesign added the ministry_roles table + admin CRUD, but the roles that were
+// already hardcoded into each public ministry page's HTML (src/public/ministries/*.js) were
+// never migrated into it. This backfills them. Guarded per role (ministry+name) rather than
+// a single "table is empty" check, so it still runs even after an admin has already added or
+// edited unrelated roles by hand.
+export const MINISTRY_ROLES_SEED = [
+  { ministry: 'worship', name: 'Acolyte', description: 'Light the altar candles before the service begins and extinguish them at the close. A simple, meaningful act of service for all ages.', commitment: '1 Sunday per month', training: '15-minute walk-through' },
+  { ministry: 'worship', name: 'PowerPoint Operator', description: 'Advance worship slides so the congregation can follow along with hymns, liturgy, and announcements. No tech expertise required.', commitment: '1 Sunday per month', training: '30-min practice with worship team' },
+  { ministry: 'worship', name: 'Lector', description: 'Read the appointed Scripture lessons aloud from the lectern. Readings are emailed to you in advance so you can prepare.', commitment: '1 Sunday per month', training: 'Meeting with the pastor' },
+  { ministry: 'worship', name: 'Altar Guild', description: 'Prepare the sanctuary — flowers, altar linens, paraments, and banners for each liturgical season. A quiet ministry of beauty and care.', commitment: 'One month per year', training: 'Walk-through with coordinator' },
+  { ministry: 'worship', name: 'Adult Choir', description: "Enhance worship through choral music. Sing anthems and lead the congregation in song throughout the church year. Open to all voices, all parts.", commitment: 'Weekly rehearsals + Sundays', training: '' },
+  { ministry: 'worship', name: 'Handbells', description: "Ring with the handbell choir to add joyful, resonant music to worship. No prior handbell experience needed. Open to anyone who can count!", commitment: 'Weekly rehearsals (seasonal)', training: '' },
+  { ministry: 'worship', name: 'Youth Choir', description: 'Young singers who lead worship and grow in faith through music. Open to children and youth of the congregation.', commitment: 'Weekly rehearsals + Sundays', training: '' },
+  { ministry: 'education', name: 'Sunday School Teacher', description: "Lead a class through Bible stories and lessons each week. Curriculum provided; your heart for teaching matters most.", commitment: 'Weekly during the school year', training: 'Curriculum orientation provided' },
+  { ministry: 'education', name: 'Youth Group Leader', description: "Walk alongside middle and high school students through discussion, activities, and faith-building events. Open to adults 21+.", commitment: 'Monthly + events', training: '' },
+  { ministry: 'education', name: 'Confirmation Mentor', description: "Be paired with a confirmation student to meet, pray, and talk through what it means to affirm their faith. An investment that lasts a lifetime.", commitment: '1–2 years alongside a student', training: '' },
+  { ministry: 'education', name: 'Vacation Bible School', description: "Help during VBS week — leading groups, running stations, or helping behind the scenes. One of the most energizing weeks of the year.", commitment: 'One week each summer', training: '' },
+  { ministry: 'acceptance', name: 'Stephen Ministry', description: "Provide one-on-one Christian care to people experiencing grief, illness, loneliness, divorce, or job loss. Walk alongside someone through a difficult season.", commitment: 'Weekly meetings with a care receiver', training: 'Comprehensive Stephen Ministry training provided' },
+  { ministry: 'acceptance', name: 'Hospitality / Coffee Hour', description: "Set up and serve refreshments after Sunday worship. A warm space for conversation and connection. Open to individuals, families, or small groups.", commitment: 'Occasional Sundays', training: '' },
+  { ministry: 'acceptance', name: 'Caring Ministry', description: "Reach out to members who are homebound, recovering, or grieving. A friendly visit, a card, or a phone call can make a profound difference. Open to compassionate listeners.", commitment: 'As available; flexible', training: '' },
+  { ministry: 'acceptance', name: 'Advent & Lent Midweek Dinner', description: "Help prepare and serve dinner before midweek worship services during Advent and Lent. A meaningful way to nourish both body and spirit in these seasons of reflection and preparation. Open to anyone who loves to cook or serve.", commitment: 'Selected Wednesday evenings in Advent & Lent', training: '' },
+  { ministry: 'outreach', name: 'Community Pantry', description: "Help sort, stock, and distribute food and essentials to neighbors in need. A hands-on way to live out our faith in the community around us. Open to all ages (youth with adult).", commitment: 'Flexible volunteer shifts', training: '' },
+  { ministry: 'outreach', name: 'Service Projects', description: "Participate in organized community service days, mission trips, and collaborative events with partner organizations. Open to individuals, families, youth.", commitment: 'Occasional events', training: '' },
+  { ministry: 'outreach', name: 'Prayer Ministry', description: "Commit to praying regularly for congregation members, our community, and the world. Receive prayer requests and lift them up from anywhere. Open to all who feel called to pray.", commitment: 'Daily or weekly (self-directed)', training: '' },
+  { ministry: 'outreach', name: 'Bee Ministry', description: "Join our Bee Ministry and help create handmade quilts, blankets, and items for those in need — a labor of love that stitches our community together. Open to all skill levels.", commitment: 'Regular meeting times (flexible)', training: '' },
+  { ministry: 'outreach', name: 'Community Concerts', description: "Help bring our three annual community concerts to life. Opportunities include spreading the word through promotion, setting up and cleaning up the venue, and preparing hors d'oeuvres and refreshments for guests. Areas: Promotion, Setup/Cleanup, Hospitality & Refreshments.", commitment: 'Three concerts per year', training: '' },
+  { ministry: 'outreach', name: 'Neighboring Life Events', description: "Help plan and host fellowship gatherings that connect our congregation with neighbors and build community beyond our walls. Part of our Neighboring Life Ministry, these events are rooted in hospitality and a spirit of welcome. Open to all who love building community.", commitment: 'Occasional events throughout the year', training: '' },
+];
+
+async function seedMinistryRolesFromStatic(db) {
+  for (let i = 0; i < MINISTRY_ROLES_SEED.length; i++) {
+    const r = MINISTRY_ROLES_SEED[i];
+    await db.prepare(
+      `INSERT INTO ministry_roles (ministry,name,description,commitment,training,sort_order,active)
+       SELECT ?,?,?,?,?,?,1
+       WHERE NOT EXISTS (SELECT 1 FROM ministry_roles WHERE ministry=? AND name=?)`
+    ).bind(r.ministry, r.name, r.description, r.commitment || '', r.training || '', i, r.ministry, r.name).run().catch(() => {});
+  }
+}
+
 
 // Cache the init so it only runs once per Worker isolate (not on every request).
 // Resets to null on error so the next request retries.
@@ -612,5 +653,6 @@ async function _doInitDb(db) {
   await seedEvents(db);
   await migrateChristmasMarketRoles(db);
   await seedChmsDefaults(db);
+  await seedMinistryRolesFromStatic(db);
 }
 
