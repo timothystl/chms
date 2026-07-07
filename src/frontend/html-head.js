@@ -561,10 +561,21 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
    left-side navy menu column matching the design mockup's inner "TLC Admin"
    sidebar exactly, not a horizontal tab row. Sits inside the same shell card
    as the list+detail pane to its right (see vol-subnav markup in html-tabs.js). ── */
+.vol-subnav{width:170px;flex-shrink:0;background:#1E2D4A;padding:16px 10px;display:flex;flex-direction:column;gap:2px;align-self:stretch;}
 .vol-subtab-btn{text-align:left;background:none;border:none;color:rgba(255,255,255,.55);font-family:var(--font-body);font-size:12.5px;font-weight:600;padding:8px 10px;border-radius:6px;cursor:pointer;}
 .vol-subtab-btn.active{color:#fff;background:rgba(255,255,255,.12);}
 .vol-subtab-btn:hover:not(.active){color:#fff;background:rgba(255,255,255,.08);}
 .vol-subnav-divider{height:1px;background:rgba(255,255,255,.15);margin:6px 4px;}
+/* Below ~700px the fixed-width dark rail no longer fits next to the content
+   pane (it was squeezing everything else into a sliver) — stack it above
+   the content as a horizontal scrollable pill row instead. */
+@media(max-width:700px){
+  .vol-shell{flex-direction:column;}
+  .vol-subnav{width:100%;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:10px 12px;gap:6px;}
+  .vol-subtab-btn{white-space:nowrap;flex-shrink:0;}
+  .vol-subnav-divider{width:1px;height:24px;margin:0 4px;flex-shrink:0;}
+  .vol-content-pane{padding:16px !important;}
+}
 /* ── Events / Ministry Roles: master-detail — exact palette from the design
    handoff mockups (navy/teal/muted-gray-blue tokens defined in :root above),
    named .ev-* so it doesn't touch this app's existing warm navy/tan tokens
@@ -574,6 +585,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   display:flex;align-items:stretch;
 }
 .ev-list-col{width:250px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--ev-border);}
+.ev-list-col-wide{width:290px;}
 .ev-list-header{padding:16px 16px 10px;}
 .ev-list-header h4{font-family:'Lora',serif;font-weight:600;font-size:1rem;color:var(--ev-navy);margin:0 0 10px;}
 .ev-list-header-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;}
