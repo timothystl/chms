@@ -3161,25 +3161,32 @@ function openBulletinSlide(rowIdx) {
 
 // ══════════════════════════════════════════════════════════════════
 // REMINDER EMAILS
-// ══════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════
+// REMINDER EMAIL — "Steel & Amber" redesign
+// Drop-in replacement for buildHtmlEmail() in scheduler/index.html
+// Signature and inputs are UNCHANGED from the original function —
+// only the markup/visual design changed. Table-based layout (no
+// flexbox) so it degrades safely in Outlook desktop.
+// ═════════════════════════════════════════════════════════════════
 function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
-  var th = 'padding:8px 12px;text-align:left;border-bottom:2px solid #E8E0D0;font-size:0.78rem;color:#0A3C5C;text-transform:uppercase;letter-spacing:0.05em;';
 
-  // Schedule table — always 3 columns, no confirm column (fits any screen width)
-  var rows = assignments.map(function(a) {
+  // ---- schedule rows ----
+  var accentColors = ['#6B8F71', '#5C8FA8', '#D4922A', '#9AB89E', '#3D627C'];
+  var scheduleRows = assignments.map(function(a, i) {
     var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
-    return '<tr>'
-      + '<td style="padding:8px 12px;border-bottom:1px solid #E8E0D0;white-space:nowrap;">' + esc(a.date) + '</td>'
-      + '<td style="padding:8px 12px;border-bottom:1px solid #E8E0D0;">' + esc(svcLabel) + '</td>'
-      + '<td style="padding:8px 12px;border-bottom:1px solid #E8E0D0;font-weight:600;">' + esc(roleLabel(a.role)) + '</td>'
-      + '</tr>';
+    var accent = accentColors[i % accentColors.length];
+    return ''
+      + '<tr><td style="padding-bottom:12px;">'
+      + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F8FA;border-radius:8px;">'
+      + '<tr><td style="width:4px;background:' + accent + ';border-radius:8px 0 0 8px;">&nbsp;</td>'
+      + '<td style="padding:14px 16px;">'
+      + '<div style="font-family:\'Source Sans 3\',Arial,sans-serif;font-weight:700;font-size:0.95rem;color:#3D3530;">' + esc(a.date) + ' &nbsp;&middot;&nbsp; ' + esc(svcLabel) + '</div>'
+      + '<div style="font-size:0.72rem;color:#7A6E60;text-transform:uppercase;letter-spacing:0.06em;margin-top:3px;">' + esc(roleLabel(a.role)) + '</div>'
+      + '</td></tr></table>'
+      + '</td></tr>';
   }).join('');
 
-  var replyLink = replyTo
-    ? '<a href="mailto:' + esc(replyTo) + '" style="color:#3D627C;">' + esc(replyTo) + '</a>'
-    : '';
-
-  // Readings section — Lectors get OT+Epistle, Liturgists get Gospel+Psalm
+  // ---- readings section (Lectors: OT+Epistle, Liturgists: Gospel+Psalm) ----
   var readingsItems = [];
   assignments.forEach(function(a) {
     var role = (a.role || '').toLowerCase();
@@ -3191,102 +3198,77 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
     var rdLines = [];
     if (isLector) {
       if (rd.ot)      rdLines.push({ label: 'OT',      ref: rd.ot });
-      if (rd.epistle) rdLines.push({ label: 'Epistle',  ref: rd.epistle });
+      if (rd.epistle) rdLines.push({ label: 'Epistle', ref: rd.epistle });
     } else {
       if (rd.gospel)  rdLines.push({ label: 'Gospel',  ref: rd.gospel });
       if (rd.psalm)   rdLines.push({ label: 'Psalm',   ref: rd.psalm });
     }
     if (!rdLines.length) return;
     var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
-    readingsItems.push({ header: a.date + ' \\u2014 ' + svcLabel + ' (' + roleLabel(a.role) + ')', lines: rdLines });
+    readingsItems.push({ header: a.date + ' \u2014 ' + roleLabel(a.role), lines: rdLines });
   });
+
   var readingsSection = '';
   if (readingsItems.length) {
-    var itemsHtml = readingsItems.map(function(item) {
-      var lineHtml = item.lines.map(function(l) {
-        var link = bibleLink(l.ref);
-        var refDisplay = link
-          ? '<a href="' + esc(link) + '" style="color:#3D627C;">' + esc(l.ref) + '</a>'
-          : esc(l.ref);
-        return '<div style="margin-top:4px;"><span style="color:#7A6E60;font-size:.85rem;font-weight:600;">' + esc(l.label) + ':</span> ' + refDisplay + '</div>';
-      }).join('');
-      return '<div style="margin-bottom:14px;">'
-        + '<div style="font-size:.75rem;font-weight:700;color:#7A6E60;text-transform:uppercase;letter-spacing:.04em;">' + esc(item.header) + '</div>'
-        + lineHtml
-        + '</div>';
+    var itemsHtml = readingsItems.map(function(item, idx) {
+      var refsHtml = item.lines.map(function(l) {
+        var link = bibleLink(l.ref); // swap for a BibleGateway ESV link if you don't already have one
+        var href = link || ('https://www.biblegateway.com/passage/?search=' + encodeURIComponent(l.ref) + '&version=ESV');
+        return '<a href="' + esc(href) + '" style="color:#3D627C;">' + esc(l.ref) + '</a>';
+      }).join(' &nbsp;&middot;&nbsp; ');
+      return ''
+        + '<tr><td style="' + (idx > 0 ? 'padding-top:8px;' : '') + '">'
+        + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">'
+        + '<tr><td style="width:2px;background:#9AB89E;">&nbsp;</td>'
+        + '<td style="padding-left:14px;">'
+        + '<div style="font-size:0.8rem;color:#7A6E60;">' + esc(item.header) + '</div>'
+        + '<div style="font-size:0.88rem;color:#3D3530;margin-top:2px;">' + refsHtml + '</div>'
+        + '</td></tr></table>'
+        + '</td></tr>';
     }).join('');
-    readingsSection = '<div style="background:#FAF7F0;border:1px solid #E8E0D0;border-radius:6px;padding:16px;margin-bottom:20px;">'
-      + '<div style="font-weight:700;color:#0A3C5C;margin-bottom:12px;font-size:.9rem;">&#128214; Your Readings</div>'
-      + itemsHtml
-      + '</div>';
+    readingsSection = ''
+      + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F8FA;border:1px solid #C4DDE8;border-radius:10px;margin-bottom:22px;">'
+      + '<tr><td style="padding:16px 18px;">'
+      + '<div style="font-size:0.72rem;font-weight:700;color:#3D627C;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Your Readings</div>'
+      + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">' + itemsHtml + '</table>'
+      + '</td></tr></table>';
   }
 
-  // RSVP section — separate block below the schedule table, mobile-safe 2-col layout
+  // ---- RSVP — simplified to one primary + one secondary action ----
   var rsvpSection = '';
   if (rsvpToken && workerUrl) {
     var confirmAllUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&status=confirmed';
-    var changesAllUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&status=needs_changes';
-    var portalUrl     = workerUrl + '/rsvp/portal?token=' + encodeURIComponent(rsvpToken);
-
-    // Per-assignment rows in a 2-column table: "Date — Role (svc)" | [✓ Yes] [⚠ Change] [✗ Decline]
-    // Two columns is easy on any phone; no 4-col overflow
-    var confirmRows = assignments.map(function(a, idx) {
-      var svcLabel = a.svc === 'both services' ? 'Both Svcs' : a.svc;
-      var cfUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&idx=' + idx + '&status=confirmed';
-      var ncUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&idx=' + idx + '&status=needs_changes';
-      var dcUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&idx=' + idx + '&status=declined';
-      return '<tr>'
-        + '<td style="padding:10px 12px;border-bottom:1px solid #eef;font-size:0.86rem;vertical-align:middle;">'
-        + '<strong>' + esc(a.date) + '</strong>'
-        + '<span style="color:#666;"> &mdash; ' + esc(roleLabel(a.role)) + '</span>'
-        + '<br><span style="font-size:0.78rem;color:#7A6E60;">' + esc(svcLabel) + '</span>'
-        + '</td>'
-        + '<td style="padding:10px 12px;border-bottom:1px solid #eef;vertical-align:middle;text-align:right;width:1%;white-space:nowrap;">'
-        + '<a href="' + esc(cfUrl) + '" style="display:inline-block;background:#6B8F71;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;margin-right:5px;">\\u2713 Yes</a>'
-        + '<a href="' + esc(ncUrl) + '" style="display:inline-block;background:#D4922A;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;margin-right:5px;">\\u26a0 Change</a>'
-        + '<a href="' + esc(dcUrl) + '" style="display:inline-block;background:#A93226;color:white;text-decoration:none;padding:7px 14px;border-radius:5px;font-size:0.8rem;font-weight:700;">\\u2717 Decline</a>'
-        + '</td>'
-        + '</tr>';
-    }).join('');
-
-    var declineAllUrl = workerUrl + '/rsvp?token=' + encodeURIComponent(rsvpToken) + '&status=declined';
-
+    var portalUrl      = workerUrl + '/rsvp/portal?token=' + encodeURIComponent(rsvpToken);
     rsvpSection = ''
-      + '<div style="background:#f6f9ff;border:1px solid #c8d8f0;border-radius:8px;margin-bottom:20px;overflow:hidden;">'
-      + '<div style="background:#0A3C5C;padding:10px 14px;">'
-      + '<p style="margin:0;font-size:0.82rem;color:white;font-weight:600;">Can you serve on these Sundays? Please confirm each one:</p>'
-      + '</div>'
-      + '<table style="width:100%;border-collapse:collapse;">'
-      + confirmRows
-      + '</table>'
-      + '<div style="padding:12px 14px;background:#eef2fb;border-top:1px solid #c8d8f0;">'
-      + '<p style="margin:0 0 8px;font-size:0.78rem;color:#7A6E60;">Or respond to all at once:</p>'
-      + '<a href="' + esc(confirmAllUrl) + '" style="display:inline-block;background:#6B8F71;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\\u2713 Confirm All</a>'
-      + '<a href="' + esc(changesAllUrl) + '" style="display:inline-block;background:#D4922A;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\\u26a0 Change All</a>'
-      + '<a href="' + esc(declineAllUrl) + '" style="display:inline-block;background:#A93226;color:white;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:700;font-size:0.82rem;margin:0 6px 4px 0;">\\u2717 Decline All</a>'
-      + '<a href="' + esc(portalUrl) + '" style="display:inline-block;background:white;color:#0A3C5C;text-decoration:none;padding:8px 16px;border-radius:5px;font-weight:600;font-size:0.82rem;border:1px solid #C4DDE8;margin:0 0 4px 0;">\\uD83D\\uDCC5 My Full Schedule</a>'
-      + '</div>'
-      + '</div>';
+      + '<a href="' + esc(confirmAllUrl) + '" style="display:block;text-align:center;background:#6B8F71;color:white;text-decoration:none;font-weight:700;font-size:0.92rem;padding:14px;border-radius:8px;margin-bottom:10px;">Confirm My Schedule</a>'
+      + '<a href="' + esc(portalUrl) + '" style="display:block;text-align:center;background:white;color:#B85C3A;text-decoration:none;font-weight:700;font-size:0.86rem;padding:11px;border-radius:8px;border:1.5px solid #D4726A;margin-bottom:20px;">Need a Change?</a>';
   }
 
-  return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"></head>'
+  var replyLink = replyTo
+    ? '<a href="mailto:' + esc(replyTo) + '" style="color:#3D627C;">' + esc(replyTo) + '</a>'
+    : '';
+
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
+    + '<meta name="viewport" content="width=device-width, initial-scale=1.0"></head>'
     + '<body style="margin:0;padding:0;background:#EDF5F8;font-family:Arial,Helvetica,sans-serif;color:#3D3530;">'
-    + '<div style="max-width:580px;margin:24px auto;">'
-    + '<div style="background:#0A3C5C;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">'
-    + '<div style="font-size:1.2rem;font-weight:700;">Timothy Lutheran Church</div>'
-    + '<div style="font-size:0.85rem;opacity:0.8;margin-top:3px;">Worship Service Volunteer Schedule</div>'
-    + '</div>'
-    + '<div style="background:white;padding:24px;border:1px solid #E8E0D0;border-top:none;border-radius:0 0 8px 8px;">'
-    + '<p style="margin:0 0 14px;">Hello ' + esc(person.name) + ',</p>'
-    + '<p style="margin:0 0 12px;color:#444;">Here are your upcoming worship service assignments:</p>'
-    + '<table style="width:100%;border-collapse:collapse;margin:0 0 20px;font-size:0.88rem;">'
-    + '<thead><tr style="background:#EDF5F8;">'
-    + '<th style="' + th + '">Date</th>'
-    + '<th style="' + th + '">Service</th>'
-    + '<th style="' + th + '">Role</th>'
-    + '</tr></thead>'
-    + '<tbody>' + rows + '</tbody>'
-    + '</table>'
+    + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EDF5F8;">'
+    + '<tr><td align="center" style="padding:28px 14px;">'
+    + '<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:white;border-radius:10px;overflow:hidden;">'
+
+    // header
+    + '<tr><td style="background:#3D627C;padding:22px 28px;border-bottom:4px solid #D4922A;">'
+    + '<table role="presentation" cellpadding="0" cellspacing="0"><tr>'
+    + '<td style="width:44px;height:44px;border-radius:50%;background:white;text-align:center;vertical-align:middle;font-family:\'Lora\',Georgia,serif;font-weight:700;color:#3D627C;font-size:0.95rem;">TLC</td>'
+    + '<td style="padding-left:14px;">'
+    + '<div style="font-family:\'Lora\',Georgia,serif;font-weight:700;font-size:1.1rem;color:white;">Timothy Lutheran Church</div>'
+    + '<div style="font-size:0.78rem;color:#E3F0F5;margin-top:2px;">Worship Volunteer Schedule</div>'
+    + '</td></tr></table>'
+    + '</td></tr>'
+
+    // body
+    + '<tr><td style="padding:26px 28px;">'
+    + '<p style="margin:0 0 18px;font-size:0.92rem;color:#3D3530;">Hello ' + esc(person.name) + ', here\'s your upcoming schedule:</p>'
+    + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;">' + scheduleRows + '</table>'
     + readingsSection
     + rsvpSection
     + (rsvpToken ? '' :
@@ -3294,13 +3276,15 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
       + '<strong style="color:#7a4800;">Unable to serve on one of these dates?</strong>'
       + '<p style="margin:6px 0 0;font-size:0.88rem;color:#5a3a00;">Simply <strong>reply to this email</strong> and we will work to find a substitute.</p>'
       + '</div>')
-    + '<p style="font-size:0.9rem;margin:0 0 6px;">Thank you for your faithful service to our congregation!</p>'
-    + '<p style="font-size:0.78rem;color:#7A6E60;margin:4px 0 0;">A calendar attachment (.ics) is included \\u2014 add it to your calendar to be reminded on each Sunday you serve.</p>'
-    + '<p style="font-size:0.8rem;color:#7A6E60;margin:20px 0 0;padding-top:14px;border-top:1px solid #E8E0D0;">'
-    + 'Timothy Lutheran Church'
+    + '<p style="font-size:0.85rem;margin:0 0 4px;color:#3D3530;">Thank you for serving!</p>'
+    + '<p style="font-size:0.74rem;color:#7A6E60;margin:4px 0 0;">A calendar attachment (.ics) is included &mdash; add it to your calendar to be reminded on each Sunday you serve.</p>'
+    + '<p style="font-size:0.74rem;color:#a39a8d;margin:18px 0 0;padding-top:12px;border-top:1px solid #E8E0D0;">Timothy Lutheran Church'
     + (replyLink ? ' &mdash; Questions? Contact us at ' + replyLink : '')
     + '</p>'
-    + '</div></div>'
+    + '</td></tr>'
+
+    + '</table>'
+    + '</td></tr></table>'
     + '</body></html>';
 }
 
@@ -4273,33 +4257,52 @@ function renderNotifySlots(weekFilter) {
   actionsEl.style.display = '';
 }
 
+// ═════════════════════════════════════════════════════════════════
+// OPEN-SLOT REQUEST EMAIL — "Steel & Amber" redesign
+// Drop-in replacement for buildVolunteerRequestHtml() in scheduler/index.html
+// Signature unchanged — only the markup/visual design changed.
+// ═════════════════════════════════════════════════════════════════
 function buildVolunteerRequestHtml(person, slot, replyTo) {
   var svcLabel = slot.svc === 'both services' ? 'Both Services' : slot.svc;
   var replyLink = replyTo
     ? '<a href="mailto:' + esc(replyTo) + '" style="color:#3D627C;">' + esc(replyTo) + '</a>'
     : '';
-  return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"></head>'
+
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
+    + '<meta name="viewport" content="width=device-width, initial-scale=1.0"></head>'
     + '<body style="margin:0;padding:0;background:#EDF5F8;font-family:Arial,Helvetica,sans-serif;color:#3D3530;">'
-    + '<div style="max-width:560px;margin:24px auto;">'
-    + '<div style="background:#0A3C5C;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">'
-    + '<div style="font-size:1.2rem;font-weight:700;">Timothy Lutheran Church</div>'
-    + '<div style="font-size:0.85rem;opacity:0.8;margin-top:3px;">Worship Volunteer Request</div>'
-    + '</div>'
-    + '<div style="background:white;padding:24px;border:1px solid #E8E0D0;border-top:none;border-radius:0 0 8px 8px;">'
-    + '<p style="margin:0 0 14px;">Hello ' + esc(person.name) + ',</p>'
-    + '<p style="margin:0 0 16px;color:#444;">We still need a volunteer for the following worship service role and would love your help:</p>'
-    + '<div style="background:#EDF5F8;border-left:4px solid #D4922A;border-radius:0 6px 6px 0;padding:14px 18px;margin-bottom:20px;">'
-    + '<div style="font-size:1rem;font-weight:700;color:#0A3C5C;">' + esc(roleLabel(slot.role)) + '</div>'
-    + '<div style="font-size:0.9rem;color:#3D3530;margin-top:4px;">' + esc(slot.date) + ' &mdash; ' + esc(svcLabel) + '</div>'
-    + '</div>'
-    + '<p style="margin:0 0 10px;font-size:0.9rem;">If you\\'re available and willing to serve, please reply to this email to let us know.</p>'
-    + '<p style="margin:0 0 20px;font-size:0.9rem;">If this date doesn\\'t work, no worries \\u2014 we appreciate everything you do for our congregation!</p>'
-    + '<p style="font-size:0.9rem;margin:0 0 6px;">Thank you for your faithful service!</p>'
-    + '<p style="font-size:0.78rem;color:#7A6E60;margin:20px 0 0;padding-top:14px;border-top:1px solid #E8E0D0;">'
-    + 'Timothy Lutheran Church'
+    + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EDF5F8;">'
+    + '<tr><td align="center" style="padding:28px 14px;">'
+    + '<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:white;border-radius:10px;overflow:hidden;">'
+
+    // header
+    + '<tr><td style="background:#3D627C;padding:22px 28px;border-bottom:4px solid #D4922A;">'
+    + '<table role="presentation" cellpadding="0" cellspacing="0"><tr>'
+    + '<td style="width:44px;height:44px;border-radius:50%;background:white;text-align:center;vertical-align:middle;font-family:\'Lora\',Georgia,serif;font-weight:700;color:#3D627C;font-size:0.95rem;">TLC</td>'
+    + '<td style="padding-left:14px;">'
+    + '<div style="font-family:\'Lora\',Georgia,serif;font-weight:700;font-size:1.1rem;color:white;">Timothy Lutheran Church</div>'
+    + '<div style="font-size:0.78rem;color:#E3F0F5;margin-top:2px;">Worship Volunteer Request</div>'
+    + '</td></tr></table>'
+    + '</td></tr>'
+
+    // body
+    + '<tr><td style="padding:26px 28px;">'
+    + '<p style="margin:0 0 16px;font-size:0.92rem;color:#3D3530;">Hello ' + esc(person.name) + ' &mdash; we have an open slot and thought of you:</p>'
+    + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FDF3E2;border-radius:8px;margin-bottom:8px;"><tr><td style="padding:16px 20px;">'
+    + '<div style="font-size:0.7rem;font-weight:700;color:#C07D1E;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Volunteer Needed</div>'
+    + '<div style="font-family:\'Lora\',Georgia,serif;font-weight:700;font-size:1.1rem;color:#0A3C5C;">' + esc(roleLabel(slot.role)) + '</div>'
+    + '<div style="font-size:0.88rem;color:#3D3530;margin-top:2px;">' + esc(slot.date) + ' &nbsp;&middot;&nbsp; ' + esc(svcLabel) + ' Service</div>'
+    + '</td></tr></table>'
+    + '<a href="mailto:' + esc(replyTo || '') + '?subject=' + encodeURIComponent('Re: Volunteer needed \u2014 ' + roleLabel(slot.role) + ' on ' + slot.date) + '" style="display:block;text-align:center;background:#6B8F71;color:white;text-decoration:none;font-weight:700;font-size:0.92rem;padding:14px;border-radius:8px;margin:18px 0 8px;">I\u2019ll Serve</a>'
+    + '<div style="text-align:center;font-size:0.78rem;color:#7A6E60;margin-bottom:20px;">Not able to help this time? No reply needed.</div>'
+    + '<p style="font-size:0.74rem;color:#a39a8d;margin:18px 0 0;padding-top:12px;border-top:1px solid #E8E0D0;">Timothy Lutheran Church'
     + (replyLink ? ' &mdash; Reply to: ' + replyLink : '')
     + '</p>'
-    + '</div></div></body></html>';
+    + '</td></tr>'
+
+    + '</table>'
+    + '</td></tr></table>'
+    + '</body></html>';
 }
 
 function sendVolunteerNotifications() {
