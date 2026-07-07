@@ -129,6 +129,9 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-07 (v1.6.2)
+- **v1.6.2**: Synced `scheduler/index.html` (design-reference copy) with the "Church Mgmt"/"Volunteers" top-nav link removal that had already shipped in `src/scheduler-html.js` (v1.1.2) but never been mirrored into the reference file, per the sync warning in Phase 7 SC3.
+
 ### 2026-07-06 (v1.6.1 follow-up)
 - **v1.6.1**: Admin Ministry Roles list groups (added in v1.6.0) are now collapsible — clicking a ministry section header (Worship / Christian Ed / Acceptance / Outreach) toggles a chevron and collapses/expands that group's roles, instead of always showing all 21 roles at once. The group containing the currently-selected role always stays expanded (so selecting a role never hides it), and collapse state is bypassed entirely while searching so matches are never hidden inside a collapsed group. New `volToggleMRoleGroup()` in `src/frontend/js-volunteers.js`; chevron + collapsed-state styles in `html-head.js`.
 
