@@ -3191,7 +3191,7 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
       + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F8FA;border-radius:8px;">'
       + '<tr><td style="width:4px;background:' + accent + ';border-radius:8px 0 0 8px;">&nbsp;</td>'
       + '<td style="padding:14px 16px;">'
-      + '<div style="font-family:\\'Source Sans 3\\',Arial,sans-serif;font-weight:700;font-size:0.95rem;color:#3D3530;">' + esc(a.date) + ' &nbsp;&middot;&nbsp; ' + esc(svcLabel) + '</div>'
+      + '<div style="font-family:\'Source Sans 3\',Arial,sans-serif;font-weight:700;font-size:0.95rem;color:#3D3530;">' + esc(a.date) + ' &nbsp;&middot;&nbsp; ' + esc(svcLabel) + '</div>'
       + '<div style="font-size:0.72rem;color:#7A6E60;text-transform:uppercase;letter-spacing:0.06em;margin-top:3px;">' + esc(roleLabel(a.role)) + '</div>'
       + '</td></tr></table>'
       + '</td></tr>';
@@ -3269,16 +3269,16 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
     // header
     + '<tr><td style="background:#3D627C;padding:22px 28px;border-bottom:4px solid #D4922A;">'
     + '<table role="presentation" cellpadding="0" cellspacing="0"><tr>'
-    + '<td style="width:44px;height:44px;border-radius:50%;background:white;text-align:center;vertical-align:middle;font-family:\\'Lora\\',Georgia,serif;font-weight:700;color:#3D627C;font-size:0.95rem;">TLC</td>'
+    + '<td style="width:44px;height:44px;border-radius:50%;background:white;text-align:center;vertical-align:middle;font-family:\'Lora\',Georgia,serif;font-weight:700;color:#3D627C;font-size:0.95rem;">TLC</td>'
     + '<td style="padding-left:14px;">'
-    + '<div style="font-family:\\'Lora\\',Georgia,serif;font-weight:700;font-size:1.1rem;color:white;">Timothy Lutheran Church</div>'
+    + '<div style="font-family:\'Lora\',Georgia,serif;font-weight:700;font-size:1.1rem;color:white;">Timothy Lutheran Church</div>'
     + '<div style="font-size:0.78rem;color:#E3F0F5;margin-top:2px;">Worship Volunteer Schedule</div>'
     + '</td></tr></table>'
     + '</td></tr>'
 
     // body
     + '<tr><td style="padding:26px 28px;">'
-    + '<p style="margin:0 0 18px;font-size:0.92rem;color:#3D3530;">Hello ' + esc(person.name) + ', here\\'s your upcoming schedule:</p>'
+    + '<p style="margin:0 0 18px;font-size:0.92rem;color:#3D3530;">Hello ' + esc(person.name) + ', here\'s your upcoming schedule:</p>'
     + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;">' + scheduleRows + '</table>'
     + readingsSection
     + rsvpSection
@@ -4289,9 +4289,9 @@ function buildVolunteerRequestHtml(person, slot, replyTo) {
     // header
     + '<tr><td style="background:#3D627C;padding:22px 28px;border-bottom:4px solid #D4922A;">'
     + '<table role="presentation" cellpadding="0" cellspacing="0"><tr>'
-    + '<td style="width:44px;height:44px;border-radius:50%;background:white;text-align:center;vertical-align:middle;font-family:\\'Lora\\',Georgia,serif;font-weight:700;color:#3D627C;font-size:0.95rem;">TLC</td>'
+    + '<td style="width:44px;height:44px;border-radius:50%;background:white;text-align:center;vertical-align:middle;font-family:\'Lora\',Georgia,serif;font-weight:700;color:#3D627C;font-size:0.95rem;">TLC</td>'
     + '<td style="padding-left:14px;">'
-    + '<div style="font-family:\\'Lora\\',Georgia,serif;font-weight:700;font-size:1.1rem;color:white;">Timothy Lutheran Church</div>'
+    + '<div style="font-family:\'Lora\',Georgia,serif;font-weight:700;font-size:1.1rem;color:white;">Timothy Lutheran Church</div>'
     + '<div style="font-size:0.78rem;color:#E3F0F5;margin-top:2px;">Worship Volunteer Request</div>'
     + '</td></tr></table>'
     + '</td></tr>'
@@ -4301,7 +4301,7 @@ function buildVolunteerRequestHtml(person, slot, replyTo) {
     + '<p style="margin:0 0 16px;font-size:0.92rem;color:#3D3530;">Hello ' + esc(person.name) + ' &mdash; we have an open slot and thought of you:</p>'
     + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FDF3E2;border-radius:8px;margin-bottom:8px;"><tr><td style="padding:16px 20px;">'
     + '<div style="font-size:0.7rem;font-weight:700;color:#C07D1E;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Volunteer Needed</div>'
-    + '<div style="font-family:\\'Lora\\',Georgia,serif;font-weight:700;font-size:1.1rem;color:#0A3C5C;">' + esc(roleLabel(slot.role)) + '</div>'
+    + '<div style="font-family:\'Lora\',Georgia,serif;font-weight:700;font-size:1.1rem;color:#0A3C5C;">' + esc(roleLabel(slot.role)) + '</div>'
     + '<div style="font-size:0.88rem;color:#3D3530;margin-top:2px;">' + esc(slot.date) + ' &nbsp;&middot;&nbsp; ' + esc(svcLabel) + ' Service</div>'
     + '</td></tr></table>'
     + '<a href="mailto:' + esc(replyTo || '') + '?subject=' + encodeURIComponent('Re: Volunteer needed \u2014 ' + roleLabel(slot.role) + ' on ' + slot.date) + '" style="display:block;text-align:center;background:#6B8F71;color:white;text-decoration:none;font-weight:700;font-size:0.92rem;padding:14px;border-radius:8px;margin:18px 0 8px;">I\u2019ll Serve</a>'
