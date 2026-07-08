@@ -714,9 +714,9 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <h2 style="font-size:1.1rem;font-weight:700;color:var(--charcoal);">Volunteers</h2>
     </div>
 
-    <div style="display:flex;align-items:flex-start;gap:0;background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.14);overflow:hidden;margin-bottom:28px;">
+    <div class="vol-shell" style="display:flex;align-items:flex-start;gap:0;background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.14);overflow:hidden;margin-bottom:28px;">
       <!-- Sub-nav: Signups / Ministry Roles / Events -->
-      <div id="vol-subnav" style="width:170px;flex-shrink:0;background:#1E2D4A;padding:16px 10px;display:flex;flex-direction:column;gap:2px;align-self:stretch;">
+      <div id="vol-subnav" class="vol-subnav">
         <button class="vol-subtab-btn active" onclick="volShowSection('signups',this)">Signups</button>
         <button class="vol-subtab-btn" onclick="volShowSection('mroles',this)">Ministry Roles</button>
         <button class="vol-subtab-btn" onclick="volShowSection('events',this)">Events</button>
@@ -724,18 +724,8 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <button class="vol-subtab-btn" onclick="volShowSection('templates',this)">Templates</button>
       </div>
 
-      <div style="flex:1;min-width:0;padding:20px 24px;">
+      <div class="vol-content-pane" style="flex:1;min-width:0;padding:20px 24px;">
     <div id="vol-panel-signups">
-      <!-- Ministry filter tabs -->
-      <div id="vol-ministry-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);">
-        <button class="btn-secondary active" onclick="volSetTab('all',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">All</button>
-        <button class="btn-secondary" onclick="volSetTab('worship',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Worship</button>
-        <button class="btn-secondary" onclick="volSetTab('events',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Events</button>
-        <button class="btn-secondary" onclick="volSetTab('education',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Education</button>
-        <button class="btn-secondary" onclick="volSetTab('acceptance',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Acceptance</button>
-        <button class="btn-secondary" onclick="volSetTab('outreach',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">Outreach</button>
-        <button class="btn-secondary" onclick="volSetTab('general',this)" style="border-radius:99px;font-size:.82rem;padding:4px 14px;">General</button>
-      </div>
       <!-- Signups section -->
       <div id="vol-signups-section" style="margin-bottom:28px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
@@ -759,7 +749,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div id="vol-panel-mroles" style="display:none;">
       <div id="vol-mroles-section" style="margin-bottom:28px;">
         <div class="ev-master-detail">
-          <div class="ev-list-col" style="width:290px;">
+          <div class="ev-list-col ev-list-col-wide">
             <div class="ev-list-header"><h4>Ministry Roles <span id="vol-mroles-count" style="background:rgba(30,45,74,.08);color:#1E2D4A;border-radius:99px;padding:1px 8px;font-size:.7rem;font-family:var(--font-body);margin-left:2px;">…</span></h4></div>
             <div class="ev-list-search"><input type="text" placeholder="Search roles…" oninput="volFilterMRoles(this.value)"></div>
             <div class="ev-list-rows" id="vol-mroles-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
