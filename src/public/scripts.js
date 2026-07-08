@@ -63,6 +63,30 @@ window.addEventListener('popstate', function(e) {
   }
 })();
 
+// ── Menu drawer (hamburger nav) ────────────────────────────────────────
+function openDrawer() {
+  var d = document.getElementById('menu-drawer');
+  var b = document.getElementById('drawer-backdrop');
+  if (d) { d.classList.add('open'); d.setAttribute('aria-hidden', 'false'); }
+  if (b) b.classList.add('open');
+  document.body.classList.add('drawer-open');
+}
+function closeDrawer() {
+  var d = document.getElementById('menu-drawer');
+  var b = document.getElementById('drawer-backdrop');
+  if (d) { d.classList.remove('open'); d.setAttribute('aria-hidden', 'true'); }
+  if (b) b.classList.remove('open');
+  document.body.classList.remove('drawer-open');
+}
+document.addEventListener('click', function(e) {
+  if (e.target.closest('#hamburger-btn')) { openDrawer(); return; }
+  if (e.target.closest('#drawer-close-btn')) { closeDrawer(); return; }
+  if (e.target.id === 'drawer-backdrop') { closeDrawer(); return; }
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeDrawer();
+});
+
 // ── Role card checkbox toggle ────────────────────────────────────────
 document.addEventListener('change', function(e) {
   var t = e.target;
@@ -70,6 +94,10 @@ document.addEventListener('change', function(e) {
     var card = t.closest('.role-card');
     if (card) { card.classList.toggle('selected', t.checked); var chk = card.querySelector('.role-check'); if (chk) chk.textContent = t.checked ? '\\u2713' : ''; }
     updatePreviews();
+  }
+  if (t.type === 'checkbox' && t.name && t.name.indexOf('ev-role-') === 0) {
+    var evRoleCard = t.closest('.role-card');
+    if (evRoleCard) { evRoleCard.classList.toggle('selected', t.checked); var evChk = evRoleCard.querySelector('.role-check'); if (evChk) evChk.textContent = t.checked ? '\\u2713' : ''; }
   }
   if (t.type === 'radio' && t.name === 'svc') { document.querySelectorAll('#svc-chips .chip-label').forEach(function(l) { l.classList.toggle('checked', l.querySelector('input').checked); }); }
   if (t.type === 'checkbox' && t.name === 'sun') { t.closest('.chip-label').classList.toggle('checked', t.checked); }
@@ -416,16 +444,17 @@ function renderEventList(container) {
   _eventsData.forEach(function(ev) {
     var dateHtml = '';
     if (ev.event_date) { var p=ev.event_date.split('-'); var months=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; if(p.length>=2){dateHtml='<div class="ev-card-date"><span class="month">'+months[parseInt(p[1],10)]+'</span><span class="day">'+(p[2]?parseInt(p[2],10):'')+'</span></div>';} }
+    var simple = !isTimeSlotted(ev);
+    var headerOnclick = simple ? ('openSimpleEventPage('+ev.id+')') : ('toggleDynEvent('+ev.id+')');
     html += '<div class="ev-card" id="ev-card-'+ev.id+'">'
-      + '<button class="ev-card-header" onclick="toggleDynEvent('+ev.id+')" aria-expanded="false">'
+      + '<button class="ev-card-header" onclick="'+headerOnclick+'" aria-expanded="false">'
       + dateHtml
       + '<div class="ev-card-info"><h3>'+escH(ev.name)+'</h3>'+(ev.description?'<p>'+escH(ev.description)+'</p>':'')+'</div>'
       + '<div class="ev-card-cta"><span class="ev-volunteer-label">Volunteer for this</span>'
       + '<svg class="ev-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>'
       + '</button>'
-      + '<div class="ev-card-roles" id="ev-roles-dyn-'+ev.id+'" hidden>'
-      + renderEventExpanded(ev)
-      + '</div></div>';
+      + (simple ? '' : ('<div class="ev-card-roles" id="ev-roles-dyn-'+ev.id+'" hidden>' + renderEventExpanded(ev) + '</div>'))
+      + '</div>';
   });
   html += '</div>';
   container.innerHTML = html;
@@ -435,57 +464,85 @@ function isTimeSlotted(ev) {
   return ev.roles && ev.roles.some(function(r){ return r.start_time; });
 }
 
-function renderEventExpanded(ev) {
-  var contactForm = '<div style="margin-bottom:1.5rem;padding:1.25rem;background:var(--cream);border-radius:12px;border:1px solid var(--border);">'
+// Shared contact-info card, used both by the inline shift-picker (time-slotted events)
+// and the dedicated simple-event page.
+function buildContactCard(evId) {
+  return '<div style="margin-bottom:1.5rem;padding:1.25rem;background:var(--cream);border-radius:12px;border:1px solid var(--border);">'
     + '<h4 style="font-family:Lora,serif;font-size:1rem;font-weight:600;color:var(--navy);margin-bottom:1rem;">Your Contact Info</h4>'
-    + '<div class="form-row"><div class="form-field"><label class="form-label">Full Name *</label><input type="text" id="ev-name-'+ev.id+'" class="form-input" placeholder="Jane Smith" autocomplete="name"></div>'
-    + '<div class="form-field"><label class="form-label">Email *</label><input type="email" id="ev-email-'+ev.id+'" class="form-input" placeholder="jane@example.com" autocomplete="email"></div></div>'
-    + '<div class="form-field"><label class="form-label">Phone <span style="font-weight:400;">(optional)</span></label><input type="tel" id="ev-phone-'+ev.id+'" class="form-input" placeholder="(314) 555-0123" autocomplete="tel"></div>'
+    + '<div class="form-row"><div class="form-field"><label class="form-label">Full Name *</label><input type="text" id="ev-name-'+evId+'" class="form-input" placeholder="Jane Smith" autocomplete="name"></div>'
+    + '<div class="form-field"><label class="form-label">Email *</label><input type="email" id="ev-email-'+evId+'" class="form-input" placeholder="jane@example.com" autocomplete="email"></div></div>'
+    + '<div class="form-field"><label class="form-label">Phone <span style="font-weight:400;">(optional)</span></label><input type="tel" id="ev-phone-'+evId+'" class="form-input" placeholder="(314) 555-0123" autocomplete="tel"></div>'
     + '</div>';
+}
 
-  if (isTimeSlotted(ev)) {
-    // Time-slotted event: always-visible day toggle (defaults to the first day), contact card,
-    // sort toggle, then the shift grid for the active day — no gating step before the form shows.
-    var uniqueDates = getUniqueDates(ev);
-    var activeDate = _selectedDays[ev.id] || uniqueDates[0] || null;
-    _selectedDays[ev.id] = activeDate;
-    var dayToggleHtml = '';
-    if (uniqueDates.length > 1) {
-      var weekdays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-      var months = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      var dayBtns = uniqueDates.map(function(dateStr) {
-        var p = dateStr.split('-');
-        var d = new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
-        var label = weekdays[d.getDay()]+' '+months[parseInt(p[1])]+' '+parseInt(p[2]);
-        return '<div class="day-btn'+(dateStr===activeDate?' active':'')+'" data-ev="'+ev.id+'" data-date="'+dateStr+'" onclick="selectDay('+ev.id+',this.getAttribute(\\'data-date\\'))">'+label+'</div>';
-      }).join('');
-      dayToggleHtml = '<div class="day-toggle" data-ev="'+ev.id+'">'+dayBtns+'</div>';
-    }
-    var sortBar = '<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:1.25rem;flex-wrap:wrap;">'
-      + '<span style="font-size:.88rem;color:var(--text-muted);margin-right:.25rem;">Sort by:</span>'
-      + '<button id="sort-time-'+ev.id+'" onclick="setSort(\\'time\\','+ev.id+')" class="sort-btn sort-active">By Time</button>'
-      + '<button id="sort-role-'+ev.id+'" onclick="setSort(\\'role\\','+ev.id+')" class="sort-btn">By Role</button>'
-      + '<span id="shift-count-'+ev.id+'" style="margin-left:auto;font-size:.85rem;font-weight:600;color:var(--teal);"></span>'
-      + '</div>';
-    var grid = '<div id="slot-grid-'+ev.id+'">'+renderSlotsByTime(ev, activeDate)+'</div>';
-    var notes = '<div class="form-field" style="margin-top:1rem;"><label class="form-label">Notes <span style="font-weight:400;">(optional)</span></label><textarea id="ev-notes-'+ev.id+'" class="form-textarea" placeholder="Any questions or constraints?"></textarea></div>';
-    var submitBtn = '<button class="btn-submit" type="button" onclick="submitTimeSlottedEvent('+ev.id+',this)" style="margin-top:1rem;">Sign Up for Selected Shifts <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
-    return dayToggleHtml + contactForm + sortBar + grid + notes + submitBtn;
-  } else {
-    // Simple event: role checkboxes
-    var rolesHtml = '';
-    if (ev.roles && ev.roles.length) {
-      rolesHtml = '<h4 style="font-family:Lora,serif;font-size:1rem;font-weight:600;color:var(--navy);margin-bottom:.75rem;">Select roles (optional)</h4><div class="role-grid">';
-      ev.roles.forEach(function(role) {
-        var rid = 'r-ev-'+ev.id+'-'+role.id;
-        rolesHtml += '<label class="role-card" for="'+rid+'"><input type="checkbox" id="'+rid+'" name="ev-role-'+ev.id+'" value="'+escH(role.name)+'"><div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">'+escH(role.name)+'</span></div>'+(role.description?'<p class="role-desc">'+escH(role.description)+'</p>':'')+'</label>';
-      });
-      rolesHtml += '</div>';
-    }
-    var notes2 = '<div class="form-field" style="margin-top:1rem;"><label class="form-label">Notes <span style="font-weight:400;">(optional)</span></label><textarea id="ev-notes-'+ev.id+'" class="form-textarea" placeholder="Any questions?"></textarea></div>';
-    var submit2 = '<button class="btn-submit" type="button" onclick="submitSimpleEvent('+ev.id+',\\''+escH(ev.name)+'\\',this)" style="margin-top:1rem;">Sign Up <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
-    return contactForm + rolesHtml + notes2 + submit2;
+// Only ever called for time-slotted events now — simple events render on their own
+// dedicated page instead (see openSimpleEventPage).
+function renderEventExpanded(ev) {
+  var contactForm = buildContactCard(ev.id);
+
+  // Time-slotted event: always-visible day toggle (defaults to the first day), contact card,
+  // sort toggle, then the shift grid for the active day — no gating step before the form shows.
+  var uniqueDates = getUniqueDates(ev);
+  var activeDate = _selectedDays[ev.id] || uniqueDates[0] || null;
+  _selectedDays[ev.id] = activeDate;
+  var dayToggleHtml = '';
+  if (uniqueDates.length > 1) {
+    var weekdays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    var months = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var dayBtns = uniqueDates.map(function(dateStr) {
+      var p = dateStr.split('-');
+      var d = new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
+      var label = weekdays[d.getDay()]+' '+months[parseInt(p[1])]+' '+parseInt(p[2]);
+      return '<div class="day-btn'+(dateStr===activeDate?' active':'')+'" data-ev="'+ev.id+'" data-date="'+dateStr+'" onclick="selectDay('+ev.id+',this.getAttribute(\\'data-date\\'))">'+label+'</div>';
+    }).join('');
+    dayToggleHtml = '<div class="day-toggle" data-ev="'+ev.id+'">'+dayBtns+'</div>';
   }
+  var sortBar = '<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:1.25rem;flex-wrap:wrap;">'
+    + '<span style="font-size:.88rem;color:var(--text-muted);margin-right:.25rem;">Sort by:</span>'
+    + '<button id="sort-time-'+ev.id+'" onclick="setSort(\\'time\\','+ev.id+')" class="sort-btn sort-active">By Time</button>'
+    + '<button id="sort-role-'+ev.id+'" onclick="setSort(\\'role\\','+ev.id+')" class="sort-btn">By Role</button>'
+    + '<span id="shift-count-'+ev.id+'" style="margin-left:auto;font-size:.85rem;font-weight:600;color:var(--teal);"></span>'
+    + '</div>';
+  var grid = '<div id="slot-grid-'+ev.id+'">'+renderSlotsByTime(ev, activeDate)+'</div>';
+  var notes = '<div class="form-field" style="margin-top:1rem;"><label class="form-label">Notes <span style="font-weight:400;">(optional)</span></label><textarea id="ev-notes-'+ev.id+'" class="form-textarea" placeholder="Any questions or constraints?"></textarea></div>';
+  var submitBtn = '<button class="btn-submit" type="button" onclick="submitTimeSlottedEvent('+ev.id+',this)" style="margin-top:1rem;">Sign Up for Selected Shifts <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
+  return dayToggleHtml + contactForm + sortBar + grid + notes + submitBtn;
+}
+
+// ── Dedicated simple-event page (Easter Egg Hunt, VBS, etc. — no day/shift data) ──
+function formatFullDateLabel(dateStr) {
+  if (!dateStr) return '';
+  var months = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+  var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var p = dateStr.split('-');
+  var d = new Date(parseInt(p[0],10),parseInt(p[1],10)-1,parseInt(p[2],10));
+  return days[d.getDay()]+', '+months[parseInt(p[1],10)]+' '+parseInt(p[2],10);
+}
+
+function openSimpleEventPage(evId) {
+  var ev = _eventsData && _eventsData.find(function(e){ return e.id === evId; });
+  if (!ev) return;
+
+  document.getElementById('event-simple-eyebrow').textContent = formatFullDateLabel(ev.event_date) || 'Community Event';
+  document.getElementById('event-simple-title').textContent = ev.name;
+  document.getElementById('event-simple-desc').textContent = ev.description || '';
+
+  var rolesHtml = '';
+  if (ev.roles && ev.roles.length) {
+    rolesHtml = '<div class="form-section-label" style="margin-bottom:.75rem;">How would you like to help? <span style="font-weight:400;text-transform:none;letter-spacing:0;">(pick any)</span></div>'
+      + '<div class="simple-role-list">'
+      + ev.roles.map(function(role) {
+          var rid = 'r-simple-'+ev.id+'-'+role.id;
+          return '<label class="role-card compact-row" for="'+rid+'"><input type="checkbox" id="'+rid+'" name="ev-role-'+ev.id+'" value="'+escH(role.name)+'"><div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">'+escH(role.name)+'</span></div></label>';
+        }).join('')
+      + '</div>';
+  }
+  var submitBtn = '<button class="hero-scroll" type="button" onclick="submitSimpleEvent('+ev.id+',\\''+escH(ev.name)+'\\',this)" style="border:none;cursor:pointer;font-family:inherit;font-size:.95rem;">Sign Up <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
+
+  document.getElementById('event-simple-body').innerHTML =
+    '<div class="ev-card-roles" style="border-top:none;padding:0;">' + buildContactCard(ev.id) + rolesHtml + submitBtn + '</div>';
+
+  navigate('event-simple');
 }
 
 function parseTimeToMinutes(t) {
@@ -721,7 +778,19 @@ function submitSimpleEvent(evId, evName, btnEl) {
 // ── Navigation event delegation (CSP-safe: no inline onclick needed) ─────────
 document.addEventListener('click', function(e) {
   var el = e.target.closest('[data-nav-page]');
-  if (el) { e.preventDefault(); navigate(el.dataset.navPage); return; }
+  if (el) {
+    e.preventDefault();
+    closeDrawer();
+    navigate(el.dataset.navPage);
+    var scrollTo = el.dataset.scrollTo;
+    if (scrollTo) {
+      setTimeout(function() {
+        var target = document.getElementById(scrollTo);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 60);
+    }
+    return;
+  }
 });
 </script>
 </body>
