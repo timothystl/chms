@@ -27,18 +27,6 @@ function volShowSection(section, btn) {
   });
 }
 
-function volSetTab(tab, btn) {
-  _volCurrentTab = tab;
-  document.querySelectorAll('#vol-ministry-tabs .btn-secondary').forEach(function(b) {
-    b.classList.toggle('active', b === btn);
-    b.style.background = b === btn ? 'var(--navy)' : '';
-    b.style.color = b === btn ? '#fff' : '';
-  });
-  var exportLink = document.getElementById('vol-export-link');
-  if (exportLink) exportLink.href = '/admin/api/export.csv' + (tab !== 'all' ? '?ministry=' + tab : '');
-  volLoadSignups();
-}
-
 function volSetStatusFilter(status) {
   _volStatusFilter = status;
   volRenderSignupsList();
