@@ -518,11 +518,19 @@ function volRenderEventDetail() {
     + '<button class="ev-btn-primary" onclick="volSaveEvent(' + ev.id + ')">Save changes</button>'
     + '</div></div>';
 
+  var slugUrl = 'volunteer.timothystl.org/' + (ev.slug || '');
   var fields = '<div class="ev-field-row">'
     + '<div><label>Event name</label><input type="text" id="vol-ev-name" value="' + esc(ev.name) + '"></div>'
     + '<div><label>Date</label><input type="date" id="vol-ev-date" value="' + esc(ev.event_date||'') + '"></div>'
     + '</div>'
     + '<div class="ev-field-row" style="grid-template-columns:1fr;margin-bottom:10px;"><div><label>Description</label><textarea id="vol-ev-desc" style="min-height:56px;">' + esc(ev.description||'') + '</textarea></div></div>'
+    + '<div class="ev-field-row" style="grid-template-columns:1fr;margin-bottom:10px;"><div>'
+    + '<label>Short link <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional — e.g. "christmasmarket")</span></label>'
+    + '<div style="display:flex;align-items:center;gap:8px;">'
+    + '<span style="font-size:.82rem;color:var(--warm-gray);white-space:nowrap;">volunteer.timothystl.org/</span>'
+    + '<input type="text" id="vol-ev-slug" value="' + esc(ev.slug||'') + '" placeholder="christmasmarket" style="flex:1;min-width:0;">'
+    + (ev.slug ? '<button type="button" class="ev-btn-secondary" style="padding:6px 10px;font-size:.75rem;white-space:nowrap;" onclick="volCopyEventLink(this,\'' + slugUrl.replace(/'/g,'') + '\')">Copy link</button>' : '')
+    + '</div></div></div>'
     + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;"><input type="checkbox" id="vol-ev-ts"' + (useTs ? ' checked' : '') + ' style="width:auto;margin:0;" onchange="volSaveEvent(' + ev.id + ')"><label for="vol-ev-ts" style="font-size:.82rem;cursor:pointer;">Roles have scheduled time slots</label></div>';
 
   var body;
@@ -680,16 +688,31 @@ function volFromTimeInput(str) {
   return h + ':' + min + ' ' + ampm;
 }
 
+function volCopyEventLink(btnEl, url) {
+  var full = 'https://' + url;
+  var done = function() {
+    var orig = btnEl.textContent;
+    btnEl.textContent = 'Copied!';
+    setTimeout(function(){ btnEl.textContent = orig; }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(full).then(done).catch(function(){ prompt('Copy this link:', full); });
+  } else {
+    prompt('Copy this link:', full);
+  }
+}
+
 function volSaveEvent(evId) {
   var ev = _volEventsCache.find(function(e){ return e.id === evId; }) || {};
   var name = (document.getElementById('vol-ev-name')||{}).value || '';
   var date = (document.getElementById('vol-ev-date')||{}).value || '';
   var desc = (document.getElementById('vol-ev-desc')||{}).value || '';
+  var slug = (document.getElementById('vol-ev-slug')||{}).value || '';
   var tsEl = document.getElementById('vol-ev-ts');
   var useTimeSlots = tsEl ? (tsEl.checked?1:0) : 1;
   api('/admin/api/events/' + evId, {
     method:'PUT', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:name,event_date:date,description:desc,hidden:ev.hidden?1:0,sort_order:ev.sort_order||0,use_time_slots:useTimeSlots})
+    body:JSON.stringify({name:name,event_date:date,description:desc,slug:slug,hidden:ev.hidden?1:0,sort_order:ev.sort_order||0,use_time_slots:useTimeSlots})
   }).then(function(d) {
     if (!d.ok) { alert('Save failed: ' + (d.error || 'Unknown error')); return; }
     volLoadEvents(evId);
@@ -701,11 +724,12 @@ function volToggleEventVisibility(evId, hidden) {
   var name = (document.getElementById('vol-ev-name')||{}).value || ev.name || '';
   var date = (document.getElementById('vol-ev-date')||{}).value || ev.event_date || '';
   var desc = (document.getElementById('vol-ev-desc')||{}).value || ev.description || '';
+  var slug = (document.getElementById('vol-ev-slug')||{}).value || ev.slug || '';
   var tsEl = document.getElementById('vol-ev-ts');
   var useTimeSlots = tsEl ? (tsEl.checked?1:0) : 1;
   api('/admin/api/events/' + evId, {
     method:'PUT', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:name,event_date:date,description:desc,hidden:hidden,sort_order:ev.sort_order||0,use_time_slots:useTimeSlots})
+    body:JSON.stringify({name:name,event_date:date,description:desc,slug:slug,hidden:hidden,sort_order:ev.sort_order||0,use_time_slots:useTimeSlots})
   }).then(function(d) {
     if (!d.ok) { alert('Error: ' + (d.error || 'Unknown error')); return; }
     volLoadEvents(evId);
