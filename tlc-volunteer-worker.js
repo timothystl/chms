@@ -171,6 +171,12 @@ async function _fetch(req, env) {
         return new Response(fRes.ok ? fRes.body : '', { status: fRes.ok ? 200 : 404, headers: { 'Content-Type': ct, 'Cache-Control': 'public, max-age=86400' } });
       }
     }
+    // Public site header/drawer logo — proxied + cached the same way, instead of inlining
+    // ~115KB of base64 into every page's HTML.
+    if (path === '/header-logo.png' && method === 'GET') {
+      const fRes = await fetch('https://raw.githubusercontent.com/timothystl/chms/main/header-logo.png', { cf: { cacheEverything: true, cacheTtl: 86400 } });
+      return new Response(fRes.ok ? fRes.body : '', { status: fRes.ok ? 200 : 404, headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' } });
+    }
     if ((path === '/' || path === '/index.html') && method === 'GET') {
       if (isChmsHost) {
         if (!await isAuthed(req, env)) return html(LOGIN_HTML);

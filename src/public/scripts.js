@@ -28,7 +28,9 @@ function loadDynamicMinistryRoles(ministry) {
     .catch(function() {});
 }
 
-function navigate(pageId) {
+var _eventPageRe = /^event-(\\d+)$/;
+
+function showPageAndLoad(pageId) {
   document.querySelectorAll('.app-page').forEach(function(p) { p.hidden = true; });
   var target = document.getElementById('page-' + pageId);
   if (target) { target.hidden = false; }
@@ -37,26 +39,29 @@ function navigate(pageId) {
   if (pageId === 'worship' || pageId === 'education' || pageId === 'acceptance' || pageId === 'outreach') {
     loadDynamicMinistryRoles(pageId);
   }
+}
+
+function navigate(pageId) {
+  var m = pageId.match(_eventPageRe);
+  if (m) { openEventPage(parseInt(m[1], 10)); return; }
+  showPageAndLoad(pageId);
   history.pushState({ page: pageId }, '', pageId === 'landing' ? location.pathname : '#' + pageId);
 }
 
 window.addEventListener('popstate', function(e) {
   var pageId = (e.state && e.state.page) ? e.state.page : 'landing';
-  document.querySelectorAll('.app-page').forEach(function(p) { p.hidden = true; });
-  var target = document.getElementById('page-' + pageId);
-  if (target) { target.hidden = false; }
-  window.scrollTo({ top: 0, behavior: 'instant' });
-  if (pageId === 'events') { loadDynamicEvents(); }
-  if (pageId === 'worship' || pageId === 'education' || pageId === 'acceptance' || pageId === 'outreach') {
-    loadDynamicMinistryRoles(pageId);
-  }
+  var m = pageId.match(_eventPageRe);
+  if (m) { openEventPage(parseInt(m[1], 10), true); return; }
+  showPageAndLoad(pageId);
 });
 
 (function() {
   var hash = location.hash.replace('#', '');
-  if (hash && document.getElementById('page-' + hash)) {
-    document.querySelectorAll('.app-page').forEach(function(p) { p.hidden = true; });
-    document.getElementById('page-' + hash).hidden = false;
+  var m = hash.match(_eventPageRe);
+  if (m) {
+    openEventPage(parseInt(m[1], 10), true);
+  } else if (hash && document.getElementById('page-' + hash)) {
+    showPageAndLoad(hash);
     history.replaceState({ page: hash }, '', '#' + hash);
   } else {
     history.replaceState({ page: 'landing' }, '', location.pathname);
@@ -98,6 +103,11 @@ document.addEventListener('change', function(e) {
   if (t.type === 'checkbox' && t.name && t.name.indexOf('ev-role-') === 0) {
     var evRoleCard = t.closest('.role-card');
     if (evRoleCard) { evRoleCard.classList.toggle('selected', t.checked); var evChk = evRoleCard.querySelector('.role-check'); if (evChk) evChk.textContent = t.checked ? '\\u2713' : ''; }
+  }
+  if (t.type === 'checkbox' && t.name && t.name.indexOf('ev-slot-') === 0) {
+    var slotCard = t.closest('.role-card');
+    if (slotCard) { slotCard.classList.toggle('selected', t.checked); var slotChk = slotCard.querySelector('.role-check'); if (slotChk) slotChk.textContent = t.checked ? '\\u2713' : ''; }
+    updateShiftCount(t.name.slice('ev-slot-'.length));
   }
   if (t.type === 'radio' && t.name === 'svc') { document.querySelectorAll('#svc-chips .chip-label').forEach(function(l) { l.classList.toggle('checked', l.querySelector('input').checked); }); }
   if (t.type === 'checkbox' && t.name === 'sun') { t.closest('.chip-label').classList.toggle('checked', t.checked); }
@@ -414,29 +424,28 @@ var _currentDynEventId = null;
 
 function escH(str) { return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
+// Shared events fetch — used by the events list page and by direct event-page
+// links (openEventPage) so a fresh deep link doesn't require visiting the list first.
+function ensureEventsData() {
+  if (_eventsData) return Promise.resolve(_eventsData);
+  return fetch('/api/events')
+    .then(function(r){ return r.json(); })
+    .then(function(data){ _eventsData = data.events || []; _eventsLoaded = true; return _eventsData; });
+}
+
 function loadDynamicEvents() {
   if (_eventsLoaded) return;
   var container = document.getElementById('dynamic-events-container');
   if (!container) return;
-  fetch('/api/events')
-    .then(function(r){return r.json();})
-    .then(function(data){
-      _eventsLoaded = true;
-      if (!data.events || !data.events.length) {
+  ensureEventsData()
+    .then(function(events) {
+      if (!events.length) {
         container.innerHTML='<p style="color:var(--text-muted);text-align:center;padding:2rem;">No upcoming events posted yet \\u2014 check back soon!</p>';
         return;
       }
-      _eventsData = data.events;
       renderEventList(container);
-      container.addEventListener('change', function(e) {
-        if (e.target.type === 'checkbox' && e.target.name && e.target.name.startsWith('ev-slot-')) {
-          var card = e.target.closest('.role-card');
-          if (card) { card.classList.toggle('selected', e.target.checked); var chk = card.querySelector('.role-check'); if (chk) chk.textContent = e.target.checked ? '\\u2713' : ''; }
-          updateShiftCount(e.target.closest('[id^="ev-roles-dyn-"]'));
-        }
-      });
     })
-    .catch(function(){ document.getElementById('dynamic-events-container').innerHTML='<p style="color:var(--text-muted);text-align:center;padding:2rem;">Could not load events. Please refresh.</p>'; });
+    .catch(function(){ container.innerHTML='<p style="color:var(--text-muted);text-align:center;padding:2rem;">Could not load events. Please refresh.</p>'; });
 }
 
 function renderEventList(container) {
@@ -444,16 +453,15 @@ function renderEventList(container) {
   _eventsData.forEach(function(ev) {
     var dateHtml = '';
     if (ev.event_date) { var p=ev.event_date.split('-'); var months=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; if(p.length>=2){dateHtml='<div class="ev-card-date"><span class="month">'+months[parseInt(p[1],10)]+'</span><span class="day">'+(p[2]?parseInt(p[2],10):'')+'</span></div>';} }
-    var simple = !isTimeSlotted(ev);
-    var headerOnclick = simple ? ('openSimpleEventPage('+ev.id+')') : ('toggleDynEvent('+ev.id+')');
+    // Every event — shift-based or simple — is its own directly-linkable page now
+    // (see openEventPage), rather than expanding inline in this list.
     html += '<div class="ev-card" id="ev-card-'+ev.id+'">'
-      + '<button class="ev-card-header" onclick="'+headerOnclick+'" aria-expanded="false">'
+      + '<button class="ev-card-header" onclick="openEventPage('+ev.id+')">'
       + dateHtml
       + '<div class="ev-card-info"><h3>'+escH(ev.name)+'</h3>'+(ev.description?'<p>'+escH(ev.description)+'</p>':'')+'</div>'
       + '<div class="ev-card-cta"><span class="ev-volunteer-label">Volunteer for this</span>'
-      + '<svg class="ev-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>'
+      + '<svg class="ev-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></div>'
       + '</button>'
-      + (simple ? '' : ('<div class="ev-card-roles" id="ev-roles-dyn-'+ev.id+'" hidden>' + renderEventExpanded(ev) + '</div>'))
       + '</div>';
   });
   html += '</div>';
@@ -475,8 +483,8 @@ function buildContactCard(evId) {
     + '</div>';
 }
 
-// Only ever called for time-slotted events now — simple events render on their own
-// dedicated page instead (see openSimpleEventPage).
+// Only ever called for time-slotted events — see renderEventDetailPage, which
+// picks this vs. a simple role checklist based on isTimeSlotted(ev).
 function renderEventExpanded(ev) {
   var contactForm = buildContactCard(ev.id);
 
@@ -519,37 +527,67 @@ function formatFullDateLabel(dateStr) {
   return days[d.getDay()]+', '+months[parseInt(p[1],10)]+' '+parseInt(p[2],10);
 }
 
-function openSimpleEventPage(evId) {
-  var ev = _eventsData && _eventsData.find(function(e){ return e.id === evId; });
-  if (!ev) return;
-
+// Renders either event type (shift-based or simple) into the shared event-detail
+// page container. Shift events reuse the existing day-toggle/shift-grid picker
+// (renderEventExpanded); simple events get a compact role checklist.
+function renderEventDetailPage(ev) {
   document.getElementById('event-simple-eyebrow').textContent = formatFullDateLabel(ev.event_date) || 'Community Event';
   document.getElementById('event-simple-title').textContent = ev.name;
   document.getElementById('event-simple-desc').textContent = ev.description || '';
 
-  var rolesHtml = '';
-  if (ev.roles && ev.roles.length) {
-    rolesHtml = '<div class="form-section-label" style="margin-bottom:.75rem;">How would you like to help? <span style="font-weight:400;text-transform:none;letter-spacing:0;">(pick any)</span></div>'
-      + '<div class="simple-role-list">'
-      + ev.roles.map(function(role) {
-          var rid = 'r-simple-'+ev.id+'-'+role.id;
-          return '<label class="role-card compact-row" for="'+rid+'"><input type="checkbox" id="'+rid+'" name="ev-role-'+ev.id+'" value="'+escH(role.name)+'"><div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">'+escH(role.name)+'</span></div></label>';
-        }).join('')
-      + '</div>';
+  var bodyHtml;
+  if (isTimeSlotted(ev)) {
+    bodyHtml = '<div class="ev-card-roles" style="border-top:none;padding:0;">' + renderEventExpanded(ev) + '</div>';
+  } else {
+    var rolesHtml = '';
+    if (ev.roles && ev.roles.length) {
+      rolesHtml = '<div class="form-section-label" style="margin-bottom:.75rem;">How would you like to help? <span style="font-weight:400;text-transform:none;letter-spacing:0;">(pick any)</span></div>'
+        + '<div class="simple-role-list">'
+        + ev.roles.map(function(role) {
+            var rid = 'r-simple-'+ev.id+'-'+role.id;
+            return '<label class="role-card compact-row" for="'+rid+'"><input type="checkbox" id="'+rid+'" name="ev-role-'+ev.id+'" value="'+escH(role.name)+'"><div class="role-card-top"><div class="role-check" aria-hidden="true"></div><span class="role-name">'+escH(role.name)+'</span></div></label>';
+          }).join('')
+        + '</div>';
+    }
+    var submitBtn = '<button class="hero-scroll" type="button" onclick="submitSimpleEvent('+ev.id+',\\''+escH(ev.name)+'\\',this)" style="border:none;cursor:pointer;font-family:inherit;font-size:.95rem;">Sign Up <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
+    bodyHtml = '<div class="ev-card-roles" style="border-top:none;padding:0;">' + buildContactCard(ev.id) + rolesHtml + submitBtn + '</div>';
   }
-  var submitBtn = '<button class="hero-scroll" type="button" onclick="submitSimpleEvent('+ev.id+',\\''+escH(ev.name)+'\\',this)" style="border:none;cursor:pointer;font-family:inherit;font-size:.95rem;">Sign Up <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
+  document.getElementById('event-simple-body').innerHTML = bodyHtml;
+}
 
-  document.getElementById('event-simple-body').innerHTML =
-    '<div class="ev-card-roles" style="border-top:none;padding:0;">' + buildContactCard(ev.id) + rolesHtml + submitBtn + '</div>';
-
-  navigate('event-simple');
+// Opens a specific event's dedicated, directly-linkable page (#event-<id>) —
+// works both from a card click (data already loaded) and from a fresh page
+// load at that URL (fetches first). replaceHistory avoids pushing a duplicate
+// history entry when restoring from a hash on load or from popstate.
+function openEventPage(evId, replaceHistory) {
+  ensureEventsData().then(function(events) {
+    var ev = events.find(function(e){ return e.id === evId; });
+    document.querySelectorAll('.app-page').forEach(function(p) { p.hidden = true; });
+    if (!ev) {
+      // Bad/stale link (event removed) — fall back to the events list instead of a dead page.
+      var fallback = document.getElementById('page-events');
+      if (fallback) fallback.hidden = false;
+      loadDynamicEvents();
+      window.scrollTo({ top: 0, behavior: 'instant' });
+      history.replaceState({ page: 'events' }, '', '#events');
+      return;
+    }
+    renderEventDetailPage(ev);
+    document.getElementById('page-event-simple').hidden = false;
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    history[replaceHistory ? 'replaceState' : 'pushState']({ page: 'event-' + evId }, '', '#event-' + evId);
+  }).catch(function() {
+    document.getElementById('event-simple-body').innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem;">Could not load this event. Please refresh.</p>';
+    document.querySelectorAll('.app-page').forEach(function(p) { p.hidden = true; });
+    document.getElementById('page-event-simple').hidden = false;
+  });
 }
 
 function parseTimeToMinutes(t) {
   if (!t) return 0;
   var s = t.trim();
   // 12-hour: "9:00 AM", "9:00AM"
-  var m = s.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+  var m = s.match(/^(\\d{1,2}):(\\d{2})\\s*(am|pm)$/i);
   if (m) {
     var h = parseInt(m[1], 10), min = parseInt(m[2], 10);
     var isPm = m[3].toLowerCase() === 'pm';
@@ -558,7 +596,7 @@ function parseTimeToMinutes(t) {
     return h * 60 + min;
   }
   // 24-hour: "09:00", "13:30"
-  var m2 = s.match(/^(\d{1,2}):(\d{2})$/);
+  var m2 = s.match(/^(\\d{1,2}):(\\d{2})$/);
   if (m2) { return parseInt(m2[1], 10) * 60 + parseInt(m2[2], 10); }
   return 0;
 }
@@ -721,10 +759,8 @@ function restoreCheckedSlots(evId, dateStr, container) {
   });
 }
 
-function updateShiftCount(container) {
-  if (!container) return;
-  var evId = container.id.replace('ev-roles-dyn-','');
-  var checked = container.querySelectorAll('input[type="checkbox"][name^="ev-slot-"]:checked');
+function updateShiftCount(evId) {
+  var checked = document.querySelectorAll('input[type="checkbox"][name="ev-slot-'+evId+'"]:checked');
   var countEl = document.getElementById('shift-count-'+evId);
   if (countEl) countEl.textContent = checked.length > 0 ? checked.length+' shift'+(checked.length===1?'':'s')+' selected' : '';
   // Track checked for sort toggle restoration (flat list)
@@ -733,23 +769,6 @@ function updateShiftCount(container) {
   var activeDay = _selectedDays[evId];
   if (activeDay) {
     _checkedSlotsByDay[evId+'|'+activeDay] = _checkedSlots[evId].slice();
-  }
-}
-
-function toggleDynEvent(evId) {
-  var rolesEl = document.getElementById('ev-roles-dyn-'+evId);
-  if (!rolesEl) return;
-  var wasOpen = rolesEl.hidden === false;
-  document.querySelectorAll('[id^="ev-roles-dyn-"]').forEach(function(el){
-    el.hidden = true;
-    var c = document.getElementById(el.id.replace('ev-roles-dyn-','ev-card-'));
-    if (c) { var b = c.querySelector('.ev-card-header'); if (b) b.setAttribute('aria-expanded','false'); }
-  });
-  if (!wasOpen) {
-    rolesEl.hidden = false;
-    var card = document.getElementById('ev-card-'+evId);
-    if (card) { var btn = card.querySelector('.ev-card-header'); if (btn) btn.setAttribute('aria-expanded','true'); }
-    setTimeout(function(){ rolesEl.scrollIntoView({behavior:'smooth',block:'nearest'}); }, 50);
   }
 }
 
