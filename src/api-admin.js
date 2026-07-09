@@ -5,6 +5,12 @@ import { LOGIN_HTML } from './html-templates.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts } from './api-emails.js';
 import { applyXmasMarketDefaults, handleVolunteerTemplates, handleSignupLinkPerson, handleSignupSendEmail } from './api-scheduler.js';
 
+// Event short-link slug: lowercase, alphanumeric + hyphens only (matches the
+// worker's /<slug> route allowlist regex).
+function normalizeSlug(s) {
+  return String(s || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+}
+
 export const SCHEDULER_KEYS = [
   'ws_people','ws_schedule_v2','ws_history','ws_last_served',
   'ws_schedule_overrides','ws_confirmations','ws_rsvp_tokens',
@@ -408,9 +414,14 @@ export async function handleAdminApi(req, env, url, method) {
   if (seg === 'events' && method === 'POST') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const useTimeSlots = (b.use_time_slots === undefined || b.use_time_slots === null) ? 1 : (b.use_time_slots ? 1 : 0);
+    const slug = normalizeSlug(b.slug);
+    if (slug) {
+      const taken = await env.DB.prepare('SELECT id FROM serve_events WHERE slug=?').bind(slug).first();
+      if (taken) return json({ error: 'That short link is already used by another event' }, 409);
+    }
     const r = await env.DB.prepare(
-      'INSERT INTO serve_events (name,description,event_date,sort_order,use_time_slots) VALUES (?,?,?,?,?)'
-    ).bind(b.name||'New Event', b.description||'', b.event_date||'', b.sort_order||0, useTimeSlots).run();
+      'INSERT INTO serve_events (name,description,event_date,sort_order,use_time_slots,slug) VALUES (?,?,?,?,?,?)'
+    ).bind(b.name||'New Event', b.description||'', b.event_date||'', b.sort_order||0, useTimeSlots, slug).run();
     return json({ ok: true, id: r.meta?.last_row_id });
   }
 
@@ -418,9 +429,14 @@ export async function handleAdminApi(req, env, url, method) {
     const id = parseInt(seg.split('/')[1]);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const useTimeSlots = (b.use_time_slots === undefined || b.use_time_slots === null) ? 1 : (b.use_time_slots ? 1 : 0);
+    const slug = normalizeSlug(b.slug);
+    if (slug) {
+      const taken = await env.DB.prepare('SELECT id FROM serve_events WHERE slug=? AND id!=?').bind(slug, id).first();
+      if (taken) return json({ error: 'That short link is already used by another event' }, 409);
+    }
     await env.DB.prepare(
-      'UPDATE serve_events SET name=?,description=?,event_date=?,hidden=?,sort_order=?,use_time_slots=? WHERE id=?'
-    ).bind(b.name, b.description||'', b.event_date||'', b.hidden?1:0, b.sort_order||0, useTimeSlots, id).run();
+      'UPDATE serve_events SET name=?,description=?,event_date=?,hidden=?,sort_order=?,use_time_slots=?,slug=? WHERE id=?'
+    ).bind(b.name, b.description||'', b.event_date||'', b.hidden?1:0, b.sort_order||0, useTimeSlots, slug, id).run();
     return json({ ok: true });
   }
 

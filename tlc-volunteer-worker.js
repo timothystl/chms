@@ -359,6 +359,15 @@ async function _fetch(req, env) {
     if (path.startsWith('/rsvp/portal'))               return handleSchedRsvpPortal(req, env, url);
     if (path === '/rsvp')                              return handleSchedRsvp(req, env, url);
 
+    // ── Event short links (admin-managed, e.g. /christmasmarket) ──────────────
+    // Anything else that looks like a single bare path segment gets checked against
+    // serve_events.slug before falling through to the (auth-gated) routes below —
+    // this must stay a narrow allowlist-style match, not a general SPA catch-all.
+    if (!isChmsHost && method === 'GET' && /^\/[a-z0-9-]{1,64}$/.test(path)) {
+      const evRow = await env.DB.prepare('SELECT id FROM serve_events WHERE slug=? AND hidden=0').bind(path.slice(1)).first();
+      if (evRow) return new Response(null, { status: 302, headers: { 'Location': '/#event-' + evRow.id, 'Cache-Control': 'no-store' } });
+    }
+
     // ── Scheduler backend routes — require admin cookie OR WORKER_SECRET ──────
     // These endpoints expose volunteer PII and church database access; they must
     // never be publicly reachable without authentication.
