@@ -36,7 +36,7 @@ function showPageAndLoad(pageId) {
   if (target) { target.hidden = false; }
   window.scrollTo({ top: 0, behavior: 'instant' });
   if (pageId === 'events') { loadDynamicEvents(); }
-  if (pageId === 'worship' || pageId === 'education' || pageId === 'acceptance' || pageId === 'outreach') {
+  if (pageId === 'worship' || pageId === 'education' || pageId === 'acceptance' || pageId === 'outreach' || pageId === 'transportation') {
     loadDynamicMinistryRoles(pageId);
   }
 }
@@ -170,6 +170,7 @@ function updatePreviews() {
   syncPreview('input[name="roles"][data-ministry="education"]','edu-roles-preview',null,'rgba(201,151,58,0.08)','rgba(201,151,58,0.25)','No roles selected yet.',true);
   syncPreview('input[name="roles"][data-ministry="acceptance"]','acc-roles-preview',null,'rgba(74,94,58,0.08)','rgba(74,94,58,0.2)','No roles selected yet.',true);
   syncPreview('input[name="roles"][data-ministry="outreach"]','out-roles-preview',null,'rgba(58,78,92,0.08)','rgba(58,78,92,0.2)','No roles selected yet.',true);
+  syncPreview('input[name="roles"][data-ministry="transportation"]','trans-roles-preview',null,'rgba(91,163,196,0.08)','rgba(91,163,196,0.22)','No roles selected yet \\u2014 click a card above (optional).',true);
   syncPreview('input[name="roles"][data-ministry="lasm"]','lasm-roles-preview',null,'rgba(58,78,92,0.08)','rgba(58,78,92,0.2)','No roles selected yet.',true);
   syncPreview('input[name="roles"][data-ministry="wol"]','wol-roles-preview',null,'rgba(201,151,58,0.08)','rgba(201,151,58,0.25)','No roles selected yet.',true);
   syncPreview('input[name="roles"][data-ministry="cfna"]','cfna-roles-preview',null,'rgba(46,126,166,0.08)','rgba(46,126,166,0.2)','No roles selected yet.',true);
@@ -230,7 +231,7 @@ document.querySelector('#trans-volunteer-form .btn-submit').addEventListener('cl
   if (capEl && capEl.value) extra.push('Vehicle capacity: ' + capEl.value);
   var userNotes = document.getElementById('trans-notes').value || '';
   var notes = extra.join('\\n') + (userNotes ? '\\n\\n' + userNotes : '');
-  submitVolunteer({ ministry:'transportation', name:document.getElementById('trans-name').value, email:document.getElementById('trans-email').value, phone:document.getElementById('trans-phone').value, service:services.join(', '), sundays:availability, roles:[], notes:notes }, document.getElementById('trans-volunteer-form'), this);
+  submitVolunteer({ ministry:'transportation', name:document.getElementById('trans-name').value, email:document.getElementById('trans-email').value, phone:document.getElementById('trans-phone').value, service:services.join(', '), sundays:availability, roles:Array.from(document.querySelectorAll('#page-transportation [name=roles]:checked')).map(function(c){return c.value;}), notes:notes }, document.getElementById('trans-volunteer-form'), this);
 });
 // LASM
 document.querySelector('#lasm-volunteer-form .btn-submit').addEventListener('click', function() {
