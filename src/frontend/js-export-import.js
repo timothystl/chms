@@ -122,26 +122,6 @@ function openRegFromPeoplePrompt() {
     if (stat) stat.textContent = 'Error: ' + e.message;
   });
 }
-function generateRegisterFromPeople() {
-  var status = document.getElementById('reg-gen-status');
-  var cutoff = document.getElementById('reg-gen-cutoff').value || '1900-01-01';
-  var inclBaptism = document.getElementById('reg-gen-baptism').checked;
-  var inclConfirm = document.getElementById('reg-gen-confirm').checked;
-  if (!inclBaptism && !inclConfirm) { status.textContent = 'Select at least one type.'; status.className = 'import-status err'; return; }
-  status.textContent = 'Generating\u2026'; status.className = 'import-status';
-  var types = [];
-  if (inclBaptism) types.push('baptism');
-  if (inclConfirm) types.push('confirmation');
-  api('/admin/api/import/register-from-people', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({cutoff: cutoff, types: types})
-  }).then(function(d) {
-    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
-    status.textContent = 'Done. ' + d.imported + ' entries created, ' + d.skipped + ' already existed.';
-    status.className = 'import-status ok';
-  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
-}
 // ── CLEAR GIVING ──────────────────────────────────────────────────────
 function pruneEmptyBatches() {
   var status = document.getElementById('prune-batches-status');
@@ -219,22 +199,6 @@ function clearAllGiving() {
       status.textContent = 'All giving data cleared. You can now re-import.';
       status.className = 'import-status ok';
       loadBatches();
-    } else {
-      status.textContent = 'Error: ' + (d.error||'unknown');
-      status.className = 'import-status err';
-    }
-  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
-}
-
-function clearAllFunds() {
-  if (!confirm('This will PERMANENTLY DELETE all fund records. Funds will be recreated on next import. This cannot be undone.\\n\\nAre you absolutely sure?')) return;
-  var status = document.getElementById('clear-funds-status');
-  status.textContent = 'Deleting…'; status.className = 'import-status';
-  api('/admin/api/funds/all', {method:'DELETE'}).then(function(d) {
-    if (d.ok) {
-      status.textContent = 'All funds cleared (' + (d.deleted||0) + ' removed). Funds will be recreated on next import.';
-      status.className = 'import-status ok';
-      loadFunds();
     } else {
       status.textContent = 'Error: ' + (d.error||'unknown');
       status.className = 'import-status err';
@@ -732,18 +696,6 @@ function runBreezeImport() {
   }
   doPage(0);
 }
-function restoreBreezeActive() {
-  if (!confirm('Re-activate all Breeze-imported people? Use this after a deactivation bug. Then run a full sync to clean up.')) return;
-  var status = document.getElementById('breeze-status');
-  if (status) { status.textContent = 'Restoring…'; status.className = 'import-status'; }
-  api('/admin/api/import/restore-breeze-active', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
-    .then(function(d) {
-      if (status) { status.textContent = 'Restored ' + (d.restored || 0) + ' people to active. Now run a full Breeze sync.'; status.className = 'import-status ok'; }
-      loadPeople();
-    }).catch(function(e) {
-      if (status) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; }
-    });
-}
 function runBreezeTagSync(btnEl) {
   var btn = btnEl || null;
   var origLabel = btn ? btn.innerHTML : '';
@@ -852,67 +804,7 @@ function importGivingCSV(file) {
   };
   reader.readAsText(file);
 }
-function lookupPaymentId() {
-  var pid = (document.getElementById('pid-lookup-input').value || '').trim();
-  var out = document.getElementById('pid-lookup-result');
-  if (!pid) { out.innerHTML = '<span style="color:var(--warm-gray);">Enter a payment ID.</span>'; return; }
-  out.innerHTML = 'Looking up\u2026';
-  api('/admin/api/giving/by-payment-id?pid=' + encodeURIComponent(pid)).then(function(d) {
-    if (d.error) { out.innerHTML = '<span style="color:var(--red);">' + esc(d.error) + '</span>'; return; }
-    var rows = d.rows || [];
-    if (!rows.length) {
-      out.innerHTML = '<span style="color:var(--warm-gray);">No entries found for payment ID <strong>' + esc(pid) + '</strong>. It was not imported.</span>';
-      return;
-    }
-    var html = '<table style="width:100%;border-collapse:collapse;font-size:.83rem;">'
-      + '<thead><tr style="text-align:left;border-bottom:1px solid var(--border);">'
-      + '<th style="padding:3px 8px;">Breeze ID</th><th style="padding:3px 8px;">Date</th>'
-      + '<th style="padding:3px 8px;">Person</th><th style="padding:3px 8px;">Fund</th>'
-      + '<th style="padding:3px 8px;text-align:right;">Amount</th></tr></thead><tbody>';
-    rows.forEach(function(r) {
-      var person = r.first_name ? (esc(r.first_name) + ' ' + esc(r.last_name)) : '<em style="color:var(--warm-gray);">Unknown</em>';
-      html += '<tr style="border-bottom:1px solid var(--linen);">'
-        + '<td style="padding:3px 8px;font-family:monospace;">' + esc(r.breeze_id) + '</td>'
-        + '<td style="padding:3px 8px;">' + esc(r.contribution_date||'') + '</td>'
-        + '<td style="padding:3px 8px;">' + person + '</td>'
-        + '<td style="padding:3px 8px;">' + esc(r.fund_name||'') + '</td>'
-        + '<td style="padding:3px 8px;text-align:right;">' + fmtMoney(r.amount||0) + '</td></tr>';
-    });
-    html += '</tbody></table>';
-    out.innerHTML = html;
-  });
-}
-function importPeopleCSV() {
-  var file = document.getElementById('csv-people-file').files[0];
-  var status = document.getElementById('csv-people-status');
-  if (!file) { status.textContent = 'Please choose a CSV file.'; status.className = 'import-status err'; return; }
-  status.textContent = 'Uploading…'; status.className = 'import-status';
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    api('/admin/api/import/people-csv', {method:'POST', headers:{'Content-Type':'text/csv'}, body:e.target.result}).then(function(d) {
-      if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
-      status.textContent = 'Done. ' + (d.imported||0) + ' imported, ' + (d.updated||0) + ' updated.';
-      status.className = 'import-status ok';
-      loadPeople();
-    }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
-  };
-  reader.readAsText(file);
-}
 
-function syncBreezeAttendanceCounts() {
-  var status = document.getElementById('att-sync-status');
-  status.textContent = 'Syncing from Breeze…'; status.className = 'import-status';
-  api('/admin/api/import/breeze-attendance-sync', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({only_empty:true})}).then(function(d) {
-    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
-    if (d.message) { status.textContent = d.message; status.className = 'import-status err'; return; }
-    var msg = 'Done. ' + d.synced + ' services updated' + (d.failed ? ', ' + d.failed + ' failed' : '') + ' (of ' + d.total + ' total).';
-    if (d.errors && d.errors.length) {
-      msg += ' First errors: ' + d.errors.slice(0,3).map(function(e){return e.date+' '+e.time+': '+e.error;}).join('; ');
-    }
-    status.textContent = msg;
-    status.className = d.failed ? 'import-status' : 'import-status ok';
-  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
-}
 
 function importAttendanceSimple() {
   var text = document.getElementById('att-simple-text').value.trim();
@@ -930,23 +822,6 @@ function importAttendanceSimple() {
     status.textContent = msg;
     status.className = 'import-status ok';
   }).catch(function(e) { status.textContent = 'Error: ' + e; status.className = 'import-status err'; });
-}
-function importAttendanceTSV() {
-  var file = document.getElementById('att-tsv-file').files[0];
-  var status = document.getElementById('att-tsv-status');
-  if (!file) { status.textContent = 'Please choose a TSV file.'; status.className = 'import-status err'; return; }
-  status.textContent = 'Uploading…'; status.className = 'import-status';
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    api('/admin/api/import/attendance-tsv', {method:'POST', headers:{'Content-Type':'text/plain'}, body:e.target.result}).then(function(d) {
-      if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
-      var msg = 'Done. ' + d.imported + ' services imported, ' + d.skipped + ' skipped (duplicates/Vietnamese), ' + d.skippedFuture + ' future dates skipped. (' + d.total + ' data rows in file)';
-      if (d.sample) msg += ' | First row date parsed: "' + (d.sample.col3||'?') + '" → ' + (d.sample.parsed ? d.sample.parsed.date : 'FAILED');
-      status.textContent = msg;
-      status.className = d.imported > 0 ? 'import-status ok' : 'import-status err';
-    }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
-  };
-  reader.readAsText(file);
 }
 
 // ── Old System Comparison ────────────────────────────────────────────────

@@ -16,10 +16,6 @@ function refreshMemberTypeSelect() {
   }).join('');
   updatePersonNameMode();
 }
-function openMemberTypesManager() {
-  openModal('member-types-modal');
-  renderMemberTypesList();
-}
 function renderMemberTypesList() {
   document.getElementById('member-types-list').innerHTML = _memberTypes.map(function(t, i) {
     return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--linen);">'
