@@ -391,12 +391,12 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [x] **REV3** — Ministry Roles duplication: `_doInitDb` seeded before reclassifying transportation→acceptance, racing the seed's dedup check and leaving 6 rows instead of 3 on any DB that cold-started mid-migration (confirmed against a real local D1 instance). Reordered + added a self-healing one-time dedup DELETE; `migrations/0013_dedupe_transportation_acceptance_roles.sql` for the record. Done 2026-07-11 (v1.8.2). (`src/db.js`)
 - [x] **REV4** — Slug validation gaps closed: `normalizeSlug()` now caps at 64 chars to match the route matcher's regex; new `RESERVED_SLUGS` denylist (`scheduler`, `chms`, `portal`, `admin`, `api`, `rsvp`, `volunteer`, `email`, `member`) checked on create/update with a friendly 409. Done 2026-07-11 (v1.8.3). (`src/api-admin.js`)
 - [x] **REV5** — Slug uniqueness race now returns the same friendly 409 to the losing concurrent request instead of a generic 500 — event create/update writes are wrapped in a try/catch that recognizes the DB's own `UNIQUE constraint` failure. Verified against a real local D1 race. Done 2026-07-11 (v1.8.4). (`src/api-admin.js`)
-- [ ] **REV6** — Ministry Roles group-collapse (v1.8.1) can hide the actively-selected/edited role's row with no visual indicator its group is collapsed. (`src/frontend/js-volunteers.js`)
+- [x] **REV6** — Ministry Roles group-collapse: a collapsed group containing the actively-selected/edited role now shows a small teal dot + tooltip on its header, so the selection is never silently hidden. Done 2026-07-11 (v1.8.5). (`src/frontend/js-volunteers.js`, `html-head.js`)
 - [x] **REV7** — Stale `transportation` option removed from the Outreach Email Templates ministry filter dropdown. Done 2026-07-11 (v1.8.3). (`src/frontend/html-tabs.js`)
-- [ ] **REV8** — `npm audit`: 5 high-severity advisories, all in dev tooling (wrangler/vite/miniflare/undici/ws), no production runtime exposure. Routine `npm audit fix` pass when convenient.
+- [x] **REV8** — `npm audit fix` applied: routine `wrangler` bump within its existing `^4.84.1` range resolved all 6 dev-tooling advisories (esbuild/undici/vite/ws). `npm audit` now reports 0 vulnerabilities. Done 2026-07-11 (v1.8.5). (`package-lock.json`)
 - [ ] **REV9** — Reconfirms **SC5** (already tracked below): `scheduler/index.html` is still drifted from `src/scheduler-html.js`.
 
-**Done when:** REV6/REV8 each fixed or formally deferred with a reason; REV9 stays pointed at SC5.
+**Done when:** REV6/REV8 each fixed or formally deferred with a reason; REV9 stays pointed at SC5. ✅ REV1–REV8 complete 2026-07-11; only REV9/SC5 remains open, tracked in Queued Items below.
 
 ---
 

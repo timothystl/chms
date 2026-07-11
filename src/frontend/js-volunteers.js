@@ -871,8 +871,10 @@ function volRenderMRolesList() {
   listEl.innerHTML = orderedKeys.map(function(key) {
     var label = MR_MINISTRY_LABELS[key] || key || 'Other';
     var collapsed = !q && !!_volMRoleCollapsed[key];
-    return '<div class="ev-list-group-hdr' + (collapsed ? ' collapsed' : '') + '" onclick="volToggleMRoleGroup(' + volJsAttr(key) + ')">'
-      + '<span class="ev-list-group-chevron">&#9662;</span>' + esc(label) + '</div>'
+    var hasActive = collapsed && groups[key].some(function(r){ return r.id === _volActiveMRoleId; });
+    return '<div class="ev-list-group-hdr' + (collapsed ? ' collapsed' : '') + '" onclick="volToggleMRoleGroup(' + volJsAttr(key) + ')" title="' + (hasActive ? 'Contains the selected role' : '') + '">'
+      + '<span class="ev-list-group-chevron">&#9662;</span>' + esc(label)
+      + (hasActive ? '<span class="ev-list-group-active-dot" aria-label="Contains the selected role"></span>' : '') + '</div>'
       + (collapsed ? '' : groups[key].map(function(r) {
           return '<div class="ev-list-row' + (r.id===_volActiveMRoleId?' active':'') + '" onclick="volSelectMRole(' + r.id + ')">'
             + '<div class="ev-list-name">' + esc(r.name) + '</div>'
