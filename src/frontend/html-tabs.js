@@ -808,7 +808,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
               <option value="education">Education</option>
               <option value="acceptance">Acceptance</option>
               <option value="outreach">Outreach</option>
-              <option value="transportation">Transportation</option>
               <option value="general">General</option>
             </select>
           </div>

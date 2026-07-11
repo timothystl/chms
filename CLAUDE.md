@@ -389,14 +389,14 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [x] **REV1** — Stored XSS in the event short-link "Sign Up" button (`escH()`-then-`onclick` quote-context mismatch, same class as VUXBUG2). Fixed with the existing `data-*` + delegated-click pattern. Done 2026-07-11 (v1.8.2). (`src/public/scripts.js`)
 - [x] **REV2** — No role guard on event/ministry-role write endpoints (any authenticated role, including `member`, could create/edit events and roles — the reachability path for REV1). Added `admin`/`staff` guards to all 6 write routes; also dropped `transportation` from the `ministry-roles` POST allowlist. Done 2026-07-11 (v1.8.2). (`src/api-admin.js`)
 - [x] **REV3** — Ministry Roles duplication: `_doInitDb` seeded before reclassifying transportation→acceptance, racing the seed's dedup check and leaving 6 rows instead of 3 on any DB that cold-started mid-migration (confirmed against a real local D1 instance). Reordered + added a self-healing one-time dedup DELETE; `migrations/0013_dedupe_transportation_acceptance_roles.sql` for the record. Done 2026-07-11 (v1.8.2). (`src/db.js`)
-- [ ] **REV4** — Slug validation gaps: `normalizeSlug()` has no length cap (route matcher requires ≤64 chars, so an over-long slug saves but its short link silently 404s) and no reserved-word denylist (a slug of `scheduler` shadows the real `/scheduler` route on the public site). (`src/api-admin.js`, `tlc-volunteer-worker.js`)
+- [x] **REV4** — Slug validation gaps closed: `normalizeSlug()` now caps at 64 chars to match the route matcher's regex; new `RESERVED_SLUGS` denylist (`scheduler`, `chms`, `portal`, `admin`, `api`, `rsvp`, `volunteer`, `email`, `member`) checked on create/update with a friendly 409. Done 2026-07-11 (v1.8.3). (`src/api-admin.js`)
 - [ ] **REV5** — Slug uniqueness race returns a generic 500 to the losing concurrent request instead of the friendly 409 (the DB unique index is the real backstop; UX-only papercut).
 - [ ] **REV6** — Ministry Roles group-collapse (v1.8.1) can hide the actively-selected/edited role's row with no visual indicator its group is collapsed. (`src/frontend/js-volunteers.js`)
-- [ ] **REV7** — Stale `transportation` option still in the Outreach Email Templates ministry filter dropdown (harmless — old signups still carry that ministry value on historic rows — but confusing for new template creation). (`src/frontend/html-tabs.js`)
+- [x] **REV7** — Stale `transportation` option removed from the Outreach Email Templates ministry filter dropdown. Done 2026-07-11 (v1.8.3). (`src/frontend/html-tabs.js`)
 - [ ] **REV8** — `npm audit`: 5 high-severity advisories, all in dev tooling (wrangler/vite/miniflare/undici/ws), no production runtime exposure. Routine `npm audit fix` pass when convenient.
 - [ ] **REV9** — Reconfirms **SC5** (already tracked below): `scheduler/index.html` is still drifted from `src/scheduler-html.js`.
 
-**Done when:** REV4–REV8 each fixed or formally deferred with a reason; REV9 stays pointed at SC5.
+**Done when:** REV5/REV6/REV8 each fixed or formally deferred with a reason; REV9 stays pointed at SC5.
 
 ---
 
