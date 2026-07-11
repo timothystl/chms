@@ -2148,6 +2148,20 @@ function formatPhoneOnBlur(el) {
 }
 
 // ── USPS ADDRESS VALIDATION ───────────────────────────────────────────────
+// r.source is 'census' when no USPS/Lob key is configured and the server fell back to the
+// free Census geocoder (BUG2) — label results accordingly so a Census-sourced non-match
+// doesn't misleadingly read as "not found by USPS" when USPS was never actually queried.
+function validateAddrResultMsg(r) {
+  var dpv = r.dpvConfirmation;
+  var isCensus = r.source === 'census';
+  var note = isCensus ? ' (via Census geocoder — no USPS/Lob key configured; ask an admin to add one for confirmed deliverability)' : '';
+  if (dpv === 'Y') return '<span style="color:#27ae60;">&#10003; Confirmed deliverable' + note + '</span>';
+  if (dpv === 'S') return '<span style="color:#e67e22;">&#9888; Primary confirmed — apt/suite info needed' + note + '</span>';
+  if (dpv === 'D') return '<span style="color:#e67e22;">&#9888; Primary confirmed — secondary not matched' + note + '</span>';
+  return isCensus
+    ? '<span style="color:var(--danger);">&#10005; Address not matched by the Census geocoder' + note + '</span>'
+    : '<span style="color:var(--danger);">&#10005; Address not found by USPS</span>';
+}
 function validatePersonAddress() {
   var btn = document.getElementById('pm-addr-validate-btn');
   var status = document.getElementById('pm-addr-validate-status');
@@ -2176,12 +2190,7 @@ function validatePersonAddress() {
     document.getElementById('pm-city').value  = r.city;
     document.getElementById('pm-state').value = r.state;
     document.getElementById('pm-zip').value   = r.zip + (r.zip4 ? '-' + r.zip4 : '');
-    var dpv = r.dpvConfirmation;
-    var msg = dpv === 'Y' ? '<span style="color:#27ae60;">&#10003; Confirmed deliverable</span>'
-            : dpv === 'S' ? '<span style="color:#e67e22;">&#9888; Primary confirmed — apt/suite info needed</span>'
-            : dpv === 'D' ? '<span style="color:#e67e22;">&#9888; Primary confirmed — secondary not matched</span>'
-            : '<span style="color:var(--danger);">&#10005; Address not found by USPS</span>';
-    if (status) status.innerHTML = msg;
+    if (status) status.innerHTML = validateAddrResultMsg(r);
   }).catch(function(err) {
     if (btn) btn.disabled = false;
     var msg = err && err.message ? err.message : 'Request failed';
@@ -2218,12 +2227,7 @@ function validateContactAddress() {
     document.getElementById('pec-city').value  = r.city;
     document.getElementById('pec-state').value = r.state;
     document.getElementById('pec-zip').value   = r.zip + (r.zip4 ? '-' + r.zip4 : '');
-    var dpv = r.dpvConfirmation;
-    var msg = dpv === 'Y' ? '<span style="color:#27ae60;">&#10003; Confirmed deliverable</span>'
-            : dpv === 'S' ? '<span style="color:#e67e22;">&#9888; Primary confirmed — apt/suite info needed</span>'
-            : dpv === 'D' ? '<span style="color:#e67e22;">&#9888; Primary confirmed — secondary not matched</span>'
-            : '<span style="color:var(--danger);">&#10005; Address not found by USPS</span>';
-    if (status) status.innerHTML = msg;
+    if (status) status.innerHTML = validateAddrResultMsg(r);
   }).catch(function(err) {
     if (btn) btn.disabled = false;
     var msg = err && err.message ? err.message : 'Request failed';
