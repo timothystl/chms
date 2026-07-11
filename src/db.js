@@ -498,9 +498,10 @@ export const MINISTRY_ROLES_SEED = [
   { ministry: 'outreach', name: 'Bee Ministry', description: "Join our Bee Ministry and help create handmade quilts, blankets, and items for those in need — a labor of love that stitches our community together. Open to all skill levels.", commitment: 'Regular meeting times (flexible)', training: '' },
   { ministry: 'outreach', name: 'Community Concerts', description: "Help bring our three annual community concerts to life. Opportunities include spreading the word through promotion, setting up and cleaning up the venue, and preparing hors d'oeuvres and refreshments for guests. Areas: Promotion, Setup/Cleanup, Hospitality & Refreshments.", commitment: 'Three concerts per year', training: '' },
   { ministry: 'outreach', name: 'Neighboring Life Events', description: "Help plan and host fellowship gatherings that connect our congregation with neighbors and build community beyond our walls. Part of our Neighboring Life Ministry, these events are rooted in hospitality and a spirit of welcome. Open to all who love building community.", commitment: 'Occasional events throughout the year', training: '' },
-  { ministry: 'transportation', name: 'Regular Sunday Driver', description: "Give a member or neighbor a ride to Sunday worship on an ongoing basis. We'll match you with someone along your regular route.", commitment: 'Weekly or as scheduled', training: '' },
-  { ministry: 'transportation', name: 'Special-Occasion Driver', description: "Provide a one-time or occasional ride for Christmas Eve, Easter, a funeral, or another special service or event.", commitment: 'Occasional, as needed', training: '' },
-  { ministry: 'transportation', name: 'Ride Coordinator', description: "Help match volunteer drivers with riders who request a ride and keep the driving schedule organized. A behind-the-scenes way to keep this ministry running smoothly.", commitment: 'A few hours per month', training: '' },
+  // Transportation is a sub-category of Acceptance (Care Ministry), not its own top-level ministry.
+  { ministry: 'acceptance', name: 'Regular Sunday Driver', description: "Give a member or neighbor a ride to Sunday worship on an ongoing basis. We'll match you with someone along your regular route.", commitment: 'Weekly or as scheduled', training: '' },
+  { ministry: 'acceptance', name: 'Special-Occasion Driver', description: "Provide a one-time or occasional ride for Christmas Eve, Easter, a funeral, or another special service or event.", commitment: 'Occasional, as needed', training: '' },
+  { ministry: 'acceptance', name: 'Ride Coordinator', description: "Help match volunteer drivers with riders who request a ride and keep the driving schedule organized. A behind-the-scenes way to keep this ministry running smoothly.", commitment: 'A few hours per month', training: '' },
 ];
 
 async function seedMinistryRolesFromStatic(db) {
@@ -661,5 +662,10 @@ async function _doInitDb(db) {
   await migrateChristmasMarketRoles(db);
   await seedChmsDefaults(db);
   await seedMinistryRolesFromStatic(db);
+
+  // Transportation folded into Acceptance (Care Ministry) as a sub-category — re-tag any
+  // roles already seeded/added under the old 'transportation' ministry, since the seed
+  // function above only inserts rows that don't already exist and wouldn't fix these.
+  await db.prepare("UPDATE ministry_roles SET ministry='acceptance' WHERE ministry='transportation'").run().catch(() => {});
 }
 
