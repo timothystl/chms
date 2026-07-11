@@ -2864,6 +2864,33 @@ if (seg === 'import/breeze' && method === 'POST') { try {
   // Track breeze_ids seen this batch; accumulated across batches in chms_config
   // so we can deactivate people removed from Breeze on the final batch.
   const seenBreezeIds = new Set();
+  // SW12: bulk pre-load household + existing-person lookups instead of one SELECT per
+  // person (up to ~200 sequential D1 round trips per 100-row page). Household CREATION
+  // and the person INSERT/UPDATE stay per-row below — they're inherently ordered (a new
+  // household's id must exist before the person row that references it) and carry the
+  // detailed locally_edited-preservation logic, so batching those is a separate, riskier
+  // change; this targets exactly the read side the N+1 pattern was flagged for.
+  const IMPORT_CHUNK = 90;
+  const householdIdByBreezeId = {};
+  const familyIdsOnPage = [...new Set(
+    people.filter(p => Array.isArray(p.family) && p.family.length > 0)
+          .map(p => String(p.family[0].family_id || ''))
+          .filter(Boolean)
+  )];
+  for (let i = 0; i < familyIdsOnPage.length; i += IMPORT_CHUNK) {
+    const chunk = familyIdsOnPage.slice(i, i + IMPORT_CHUNK);
+    const ph = chunk.map(() => '?').join(',');
+    const rows = (await db.prepare(`SELECT id, breeze_id FROM households WHERE breeze_id IN (${ph})`).bind(...chunk).all()).results || [];
+    for (const r of rows) householdIdByBreezeId[r.breeze_id] = r.id;
+  }
+  const existingPersonIdByBreezeId = {};
+  const personBreezeIdsOnPage = people.map(p => String(p.id));
+  for (let i = 0; i < personBreezeIdsOnPage.length; i += IMPORT_CHUNK) {
+    const chunk = personBreezeIdsOnPage.slice(i, i + IMPORT_CHUNK);
+    const ph = chunk.map(() => '?').join(',');
+    const rows = (await db.prepare(`SELECT id, breeze_id FROM people WHERE breeze_id IN (${ph})`).bind(...chunk).all()).results || [];
+    for (const r of rows) existingPersonIdByBreezeId[r.breeze_id] = r.id;
+  }
   for (const p of people) {
     try {
       const fn = (p.first_name || '').trim();
@@ -2998,12 +3025,15 @@ if (seg === 'import/breeze' && method === 'POST') { try {
           else if (rn.includes('child') || rn.includes('son') || rn.includes('daughter')) familyRole = 'child';
           else if (rn) familyRole = 'other';
         }
-        // Household: keyed by Breeze family_id
+        // Household: keyed by Breeze family_id (SW12: pre-loaded map instead of a per-row
+        // SELECT — see householdIdByBreezeId above). Update the map immediately on create so
+        // a second family member later in this same page finds it too instead of racing a
+        // duplicate household insert (the old per-row-SELECT approach got this for free since
+        // every row re-queried the DB fresh; a static pre-load needs this explicit self-heal).
         const bFamilyId = String(p.family[0].family_id || '');
         if (bFamilyId) {
-          const hhRow = await db.prepare('SELECT id FROM households WHERE breeze_id=?').bind(bFamilyId).first();
-          if (hhRow) {
-            householdId = hhRow.id;
+          if (householdIdByBreezeId[bFamilyId]) {
+            householdId = householdIdByBreezeId[bFamilyId];
           } else {
             // Name from head of household's last name, fallback to this person's last name
             const head = p.family.find(m => (m.role_name||'').toLowerCase().includes('head'));
@@ -3012,6 +3042,7 @@ if (seg === 'import/breeze' && method === 'POST') { try {
               'INSERT INTO households (name, address1, city, state, zip, breeze_id) VALUES (?,?,?,?,?,?)'
             ).bind(hhName, addr.street, addr.city, addr.state, addr.zip, bFamilyId).run();
             householdId = r.meta?.last_row_id;
+            householdIdByBreezeId[bFamilyId] = householdId;
           }
         }
         // If this person is the head of household and has a photo, update the household photo.
@@ -3023,7 +3054,7 @@ if (seg === 'import/breeze' && method === 'POST') { try {
         }
       }
       seenBreezeIds.add(String(p.id));
-      const existing = await db.prepare('SELECT id FROM people WHERE breeze_id=?').bind(String(p.id)).first();
+      const existing = existingPersonIdByBreezeId[String(p.id)] ? { id: existingPersonIdByBreezeId[String(p.id)] } : null;
       if (existing) {
         // Use COALESCE(NULLIF(newVal,''),existingCol) for date + photo fields so that
         // manually-entered data and any values Breeze doesn't return are never wiped.
