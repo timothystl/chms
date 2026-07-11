@@ -103,10 +103,12 @@ if (entriesMatch) {
     if (batch.closed) return json({ error: 'Batch is closed.' }, 409);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const amtCents = Math.round(parseFloat(b.amount || 0) * 100);
+    if (!b.fund_id) return json({ error: 'fund_id required' }, 400);
+    if (amtCents <= 0) return json({ error: 'Amount must be positive' }, 400);
     const r = await db.prepare(
       `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes)
        VALUES (?,?,?,?,?,?,?)`
-    ).bind(bid,b.person_id||null,b.fund_id,amtCents,b.method||'cash',b.check_number||'',b.notes||'').run();
+    ).bind(bid,b.person_id||null,parseInt(b.fund_id),amtCents,b.method||'cash',b.check_number||'',b.notes||'').run();
     return json({ ok: true, id: r.meta?.last_row_id });
   }
 }
