@@ -5,11 +5,16 @@ import { LOGIN_HTML } from './html-templates.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts } from './api-emails.js';
 import { applyXmasMarketDefaults, handleVolunteerTemplates, handleSignupLinkPerson, handleSignupSendEmail } from './api-scheduler.js';
 
-// Event short-link slug: lowercase, alphanumeric + hyphens only (matches the
-// worker's /<slug> route allowlist regex).
+// Event short-link slug: lowercase, alphanumeric + hyphens only, capped at 64 chars
+// (matches the worker's /<slug> route allowlist regex — a longer slug would save fine
+// here but its short link would silently never match and 404).
 function normalizeSlug(s) {
-  return String(s || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+  return String(s || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 64);
 }
+
+// Bare single-segment routes the public worker already serves (or reserves for the
+// scheduler/admin/member surfaces) — a matching event slug would shadow the real route.
+const RESERVED_SLUGS = ['scheduler', 'chms', 'portal', 'admin', 'api', 'rsvp', 'volunteer', 'email', 'member'];
 
 export const SCHEDULER_KEYS = [
   'ws_people','ws_schedule_v2','ws_history','ws_last_served',
@@ -418,6 +423,7 @@ export async function handleAdminApi(req, env, url, method) {
     const useTimeSlots = (b.use_time_slots === undefined || b.use_time_slots === null) ? 1 : (b.use_time_slots ? 1 : 0);
     const slug = normalizeSlug(b.slug);
     if (slug) {
+      if (RESERVED_SLUGS.includes(slug)) return json({ error: 'That short link is reserved for site navigation' }, 409);
       const taken = await env.DB.prepare('SELECT id FROM serve_events WHERE slug=?').bind(slug).first();
       if (taken) return json({ error: 'That short link is already used by another event' }, 409);
     }
@@ -435,6 +441,7 @@ export async function handleAdminApi(req, env, url, method) {
     const useTimeSlots = (b.use_time_slots === undefined || b.use_time_slots === null) ? 1 : (b.use_time_slots ? 1 : 0);
     const slug = normalizeSlug(b.slug);
     if (slug) {
+      if (RESERVED_SLUGS.includes(slug)) return json({ error: 'That short link is reserved for site navigation' }, 409);
       const taken = await env.DB.prepare('SELECT id FROM serve_events WHERE slug=? AND id!=?').bind(slug, id).first();
       if (taken) return json({ error: 'That short link is already used by another event' }, 409);
     }
