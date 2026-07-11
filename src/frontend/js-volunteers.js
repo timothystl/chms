@@ -870,8 +870,7 @@ function volRenderMRolesList() {
   // While searching, always show matches expanded regardless of collapsed state.
   listEl.innerHTML = orderedKeys.map(function(key) {
     var label = MR_MINISTRY_LABELS[key] || key || 'Other';
-    var hasActive = groups[key].some(function(r) { return r.id === _volActiveMRoleId; });
-    var collapsed = !q && !hasActive && !!_volMRoleCollapsed[key];
+    var collapsed = !q && !!_volMRoleCollapsed[key];
     return '<div class="ev-list-group-hdr' + (collapsed ? ' collapsed' : '') + '" onclick="volToggleMRoleGroup(' + volJsAttr(key) + ')">'
       + '<span class="ev-list-group-chevron">&#9662;</span>' + esc(label) + '</div>'
       + (collapsed ? '' : groups[key].map(function(r) {
