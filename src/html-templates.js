@@ -9,7 +9,6 @@ import { PAGE_EVENTS } from './public/ministries/events.js';
 import { PAGE_EDUCATION } from './public/ministries/education.js';
 import { PAGE_ACCEPTANCE } from './public/ministries/acceptance.js';
 import { PAGE_OUTREACH } from './public/ministries/outreach.js';
-import { PAGE_TRANSPORTATION } from './public/ministries/transportation.js';
 import { PAGE_GENERAL } from './public/ministries/general.js';
 import { PAGE_LASM } from './public/ministries/lasm.js';
 import { PAGE_WOL } from './public/ministries/wol.js';
@@ -29,7 +28,6 @@ export const PUBLIC_HTML =
   PAGE_EDUCATION +
   PAGE_ACCEPTANCE +
   PAGE_OUTREACH +
-  PAGE_TRANSPORTATION +
   PAGE_GENERAL +
   PAGE_LASM +
   PAGE_WOL +

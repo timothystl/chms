@@ -814,7 +814,7 @@ var _volMRolesCache = [];
 var _volActiveMRoleId = null; // number = editing that role, 'new' = blank add form, null = nothing selected
 var _volMRoleSearch = '';
 var _volMRoleCollapsed = {}; // ministry key -> true if that group's roles are collapsed
-var MR_MINISTRY_LABELS = {worship:'Worship',education:'Christian Ed',acceptance:'Acceptance',outreach:'Outreach',transportation:'Transportation',general:'General'};
+var MR_MINISTRY_LABELS = {worship:'Worship',education:'Christian Ed',acceptance:'Acceptance',outreach:'Outreach',general:'General'};
 
 function volToggleMRoleGroup(key) {
   _volMRoleCollapsed[key] = !_volMRoleCollapsed[key];

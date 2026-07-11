@@ -36,7 +36,7 @@ function showPageAndLoad(pageId) {
   if (target) { target.hidden = false; }
   window.scrollTo({ top: 0, behavior: 'instant' });
   if (pageId === 'events') { loadDynamicEvents(); }
-  if (pageId === 'worship' || pageId === 'education' || pageId === 'acceptance' || pageId === 'outreach' || pageId === 'transportation') {
+  if (pageId === 'worship' || pageId === 'education' || pageId === 'acceptance' || pageId === 'outreach') {
     loadDynamicMinistryRoles(pageId);
   }
 }
@@ -111,8 +111,8 @@ document.addEventListener('change', function(e) {
   }
   if (t.type === 'radio' && t.name === 'svc') { document.querySelectorAll('#svc-chips .chip-label').forEach(function(l) { l.classList.toggle('checked', l.querySelector('input').checked); }); }
   if (t.type === 'checkbox' && t.name === 'sun') { t.closest('.chip-label').classList.toggle('checked', t.checked); }
-  if (t.type === 'checkbox' && (t.name === 'trans-svc' || t.name === 'trans-avail')) { t.closest('.chip-label').classList.toggle('checked', t.checked); }
-  if (t.type === 'radio' && t.name === 'trans-wc') { document.querySelectorAll('#trans-wc-chips .chip-label').forEach(function(l) { l.classList.toggle('checked', l.querySelector('input').checked); }); }
+  if (t.type === 'checkbox' && (t.name === 'acc-trans-svc' || t.name === 'acc-trans-avail')) { t.closest('.chip-label').classList.toggle('checked', t.checked); }
+  if (t.type === 'radio' && t.name === 'acc-trans-wc') { document.querySelectorAll('#acc-trans-wc-chips .chip-label').forEach(function(l) { l.classList.toggle('checked', l.querySelector('input').checked); }); }
   if (t.type === 'radio' && t.name === 'ff-time') { document.querySelectorAll('#ff-time-chips .chip-label').forEach(function(l) { l.classList.toggle('checked', l.querySelector('input').checked); }); }
 });
 
@@ -170,7 +170,6 @@ function updatePreviews() {
   syncPreview('input[name="roles"][data-ministry="education"]','edu-roles-preview',null,'rgba(201,151,58,0.08)','rgba(201,151,58,0.25)','No roles selected yet.',true);
   syncPreview('input[name="roles"][data-ministry="acceptance"]','acc-roles-preview',null,'rgba(74,94,58,0.08)','rgba(74,94,58,0.2)','No roles selected yet.',true);
   syncPreview('input[name="roles"][data-ministry="outreach"]','out-roles-preview',null,'rgba(58,78,92,0.08)','rgba(58,78,92,0.2)','No roles selected yet.',true);
-  syncPreview('input[name="roles"][data-ministry="transportation"]','trans-roles-preview',null,'rgba(91,163,196,0.08)','rgba(91,163,196,0.22)','No roles selected yet \\u2014 click a card above (optional).',true);
   syncPreview('input[name="roles"][data-ministry="lasm"]','lasm-roles-preview',null,'rgba(58,78,92,0.08)','rgba(58,78,92,0.2)','No roles selected yet.',true);
   syncPreview('input[name="roles"][data-ministry="wol"]','wol-roles-preview',null,'rgba(201,151,58,0.08)','rgba(201,151,58,0.25)','No roles selected yet.',true);
   syncPreview('input[name="roles"][data-ministry="cfna"]','cfna-roles-preview',null,'rgba(46,126,166,0.08)','rgba(46,126,166,0.2)','No roles selected yet.',true);
@@ -217,21 +216,6 @@ document.querySelector('#acc-volunteer-form .btn-submit').addEventListener('clic
 // Outreach
 document.querySelector('#out-volunteer-form .btn-submit').addEventListener('click', function() {
   submitVolunteer({ ministry:'outreach', name:document.getElementById('out-name').value, email:document.getElementById('out-email').value, roles:Array.from(document.querySelectorAll('#page-outreach [name=roles]:checked')).map(function(c){return c.value;}), notes:document.getElementById('out-notes').value }, document.getElementById('out-volunteer-form'), this);
-});
-// Transportation
-document.querySelector('#trans-volunteer-form .btn-submit').addEventListener('click', function() {
-  var wcEl = document.querySelector('[name=trans-wc]:checked');
-  var capEl = document.getElementById('trans-capacity');
-  var services = Array.from(document.querySelectorAll('[name=trans-svc]:checked')).map(function(c){return c.value;});
-  var availability = Array.from(document.querySelectorAll('[name=trans-avail]:checked')).map(function(c){return c.value;});
-  var extra = [];
-  if (services.length) extra.push('Services attended: ' + services.join(', '));
-  if (availability.length) extra.push('Availability: ' + availability.join(', '));
-  extra.push('Wheelchair-accessible: ' + (wcEl ? wcEl.value : 'no'));
-  if (capEl && capEl.value) extra.push('Vehicle capacity: ' + capEl.value);
-  var userNotes = document.getElementById('trans-notes').value || '';
-  var notes = extra.join('\\n') + (userNotes ? '\\n\\n' + userNotes : '');
-  submitVolunteer({ ministry:'transportation', name:document.getElementById('trans-name').value, email:document.getElementById('trans-email').value, phone:document.getElementById('trans-phone').value, service:services.join(', '), sundays:availability, roles:Array.from(document.querySelectorAll('#page-transportation [name=roles]:checked')).map(function(c){return c.value;}), notes:notes }, document.getElementById('trans-volunteer-form'), this);
 });
 // LASM
 document.querySelector('#lasm-volunteer-form .btn-submit').addEventListener('click', function() {
@@ -402,6 +386,18 @@ function initStepForms() {
         if (c.hasSundays) data.sundays = Array.from(document.querySelectorAll('[name=sun]:checked')).map(function(x){return x.value;});
         data.roles = Array.from(document.querySelectorAll('#page-'+m+' [name=roles]:checked')).map(function(x){return x.value;});
         data.sms_reminder_opt_in = (document.getElementById('step3-reminder-'+m)||{}).checked ? 1 : 0;
+        if (m === 'acceptance') {
+          var wcEl = document.querySelector('[name=acc-trans-wc]:checked');
+          var capEl = document.getElementById('acc-trans-capacity');
+          var services = Array.from(document.querySelectorAll('[name=acc-trans-svc]:checked')).map(function(x){return x.value;});
+          var availability = Array.from(document.querySelectorAll('[name=acc-trans-avail]:checked')).map(function(x){return x.value;});
+          var extra = [];
+          if (services.length) extra.push('Services attended: ' + services.join(', '));
+          if (availability.length) extra.push('Driving availability: ' + availability.join(', '));
+          if (wcEl && wcEl.value === 'yes') extra.push('Wheelchair-accessible vehicle: yes');
+          if (capEl && capEl.value) extra.push('Vehicle capacity: ' + capEl.value);
+          if (extra.length) data.notes = extra.join('\\n');
+        }
         submitVolunteer(data, document.getElementById('step3-'+m), cb);
       });
     })(cfg, ministry, confirmBtn);
