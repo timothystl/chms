@@ -1147,8 +1147,6 @@ var COMMUNITY_EVENTS = [
             'Christmas Market \\u2013 Kids\\u2019 Activities', 'Christmas Market \\u2013 Welcome Table'] }
 ];
 function roleLabel(r) { return SHARED_LABELS[r] || r; }
-var ROLE_ABBREVS = { 'Elder':'ELD', 'Acolyte':'ACO', 'PowerPoint':'PPT', 'Lector':'LCT', 'Liturgist':'LTG', 'Preacher':'PRCHR', 'Childrens Message':'CM' };
-function roleAbbrev(r) { return ROLE_ABBREVS[r] || roleLabel(r); }
 var ALL_TABS = ['people','schedule','stats'];
 
 // ── Shared avatar / initials system (Focus Week schedule + People tab) ──
@@ -1961,7 +1959,6 @@ function getSundays(start, end) {
   while (d <= endD) { sundays.push(new Date(d)); d.setDate(d.getDate()+7); }
   return sundays;
 }
-function getOrdinal(date) { return Math.ceil(date.getDate()/7); }
 function isOnAbsence(person, dateISO) {
   if (!person.absenceUntil || !dateISO) return false;
   var start = person.absenceStart || person.absenceUntil;
@@ -3986,80 +3983,6 @@ function syncConfirmations(silent) {
 document.getElementById('btn-sync-confirmations').addEventListener('click', syncConfirmations);
 
 // ══════════════════════════════════════════════════════════════════
-// RE-STORE TOKENS — push existing tokens to Worker KV without
-// re-sending any emails (use when KV was set up after first send)
-// ══════════════════════════════════════════════════════════════════
-function restoreRsvpTokens() {
-  var s = getBreezeSettings();
-  if (!_embedded && !s.workerUrl) { alert('Configure your Worker URL in Settings first.'); return; }
-  var rsvpTokens = getRsvpTokens();
-  var people = getPeople();
-  var pMap = {};
-  people.forEach(function(p) { pMap[p.id] = p; });
-
-  // Rebuild personAssignments from currentSchedule
-  var personAssignments = {};
-  currentSchedule.forEach(function(row) {
-    if (row.type !== 'sunday') return;
-    var dateStr = fmtDate(row.date);
-    var dateISO = row.date.toISOString().slice(0, 10);
-    PER_ROLES.forEach(function(role) {
-      ['8am','10:45am'].forEach(function(svc) {
-        var pid = row.assignments[role][svc];
-        if (!pid) return;
-        if (!personAssignments[pid]) personAssignments[pid] = [];
-        personAssignments[pid].push({ date: dateStr, dateISO: dateISO, svc: svc, role: role });
-      });
-    });
-    SHARED_ROLES.forEach(function(role) {
-      var pid = row.assignments[role].shared;
-      if (!pid) return;
-      if (!personAssignments[pid]) personAssignments[pid] = [];
-      personAssignments[pid].push({ date: dateStr, dateISO: dateISO, svc: 'both services', role: role });
-    });
-  });
-
-  var pids = Object.keys(rsvpTokens);
-  if (!pids.length) {
-    document.getElementById('email-send-status').textContent = 'No tokens found \\u2014 send reminder emails first.';
-    return;
-  }
-
-  var statusEl = document.getElementById('email-send-status');
-  statusEl.textContent = 'Re-storing tokens\\u2026';
-  var done = 0, errors = 0;
-
-  var chain = Promise.resolve();
-  pids.forEach(function(pid) {
-    var person = pMap[pid];
-    var token  = rsvpTokens[pid];
-    if (!person || !token) return;
-    chain = chain.then(function() {
-      return fetch(s.workerUrl + '/rsvp/store', {
-        method:  'POST',
-        headers: Object.assign({ 'Content-Type': 'application/json' }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
-        body: JSON.stringify({
-          token:       token,
-          name:        person.name,
-          personId:    person.id,
-          assignments: (personAssignments[pid] || []).map(function(a) {
-            return { date: a.date, dateISO: a.dateISO, svc: a.svc, role: a.role };
-          }),
-        }),
-      })
-        .then(function(r) { if (r.ok) done++; else errors++; })
-        .catch(function()  { errors++; });
-    });
-  });
-
-  chain.then(function() {
-    statusEl.textContent = errors
-      ? '\\u00d7 Re-stored ' + done + ', failed ' + errors + '. Check Worker KV binding in Cloudflare.'
-      : '\\u2713 Re-stored ' + done + ' token' + (done !== 1 ? 's' : '') + ' \\u2014 existing email links will now work.';
-  });
-}
-
-// ══════════════════════════════════════════════════════════════════
 // NOTIFY ELIGIBLE VOLUNTEERS — targeted emails for unfilled slots
 // ══════════════════════════════════════════════════════════════════
 function getOpenSlots() {
@@ -4562,34 +4485,6 @@ function breezePost(path, fields) {
     });
 }
 
-// Fetches a Breeze page as raw HTML through the proxy (used to scrape real UI role IDs)
-function breezeGetHtml(path) {
-  var s = getBreezeSettings();
-  if (!s.subdomain||!s.apiKey) return Promise.reject('No Breeze credentials configured.');
-  if (!s.workerUrl) return Promise.reject('No Cloudflare Worker URL configured.');
-  var url = s.workerUrl + path;
-  return fetch(url, {
-    method: 'GET',
-    headers: Object.assign({
-      'X-Breeze-Subdomain': s.subdomain,
-      'X-Breeze-Api-Key':   s.apiKey,
-    }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
-  }).then(function(r) {
-    if (!r.ok) throw 'HTTP '+r.status;
-    return r.text();
-  });
-}
-
-// ══════════════════════════════════════════════════════════════════
-// BREEZE SYNC TAB
-// ══════════════════════════════════════════════════════════════════
-function initBreezeTab() {
-  var s = getBreezeSettings();
-  document.getElementById('breeze-no-settings').style.display = (!s.subdomain||!s.apiKey) ? 'block' : 'none';
-  document.getElementById('breeze-no-schedule').style.display = (!currentSchedule.length) ? 'block' : 'none';
-  renderEventMapTable();
-}
-
 // ── Breeze import helpers (People tab) ──────────────────────────────────────
 function tagsToRoles(tags) {
   var matched = [];
@@ -5042,13 +4937,6 @@ function updateSyncStatus(msg, isError) {
   el.style.color = isError ? '#B85C3A' : (msg ? '#6B8F71' : '#7A6E60');
 }
 
-function updateLoginStatus(msg, isError) {
-  var el = document.getElementById('login-status');
-  if (!el) return;
-  el.textContent = msg;
-  el.style.color = isError ? '#B85C3A' : '#6B8F71';
-}
-
 function buildDataSnapshot() {
   return {
     ws_people:             getPeople(),
@@ -5336,61 +5224,6 @@ function autoFillSchedule() {
   renderTable(getPeople(), counts);
   saveSchedule();
   showAlert('schedule-alert', filled + ' slot' + (filled!==1?'s':'') + ' auto-filled using volunteer history.' + (filled===0?' (All slots already filled or no eligible volunteers found)':''), filled>0?'success':'warning');
-}
-
-// ══════════════════════════════════════════════════════════════════
-// ICAL EXPORT
-// ══════════════════════════════════════════════════════════════════
-function exportIcal() {
-  if (!currentSchedule.length) { alert('Generate a schedule first.'); return; }
-  var pMap = {};
-  getPeople().forEach(function(p){ pMap[p.id]=p; });
-  var lines = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Timothy Lutheran Church//Worship Scheduler//EN','CALSCALE:GREGORIAN'];
-  var serviceUTC = { '8am': '140000Z', '10:45am': '154500Z', 'shared': '140000Z' };
-  var serviceDur = { '8am': '010000', '10:45am': '010000', 'shared': '020000' };
-  function isoToYMD(d) {
-    var iso = d.toISOString().slice(0,10).replace(/-/g,'');
-    return iso;
-  }
-  function stamp() { return new Date().toISOString().replace(/[-:]/g,'').slice(0,15)+'Z'; }
-  var sunLabels = getSundayLabels();
-  currentSchedule.forEach(function(row) {
-    var ymd = isoToYMD(row.date);
-    var dateISO = row.date.toISOString().slice(0,10);
-    var lectEntryPrint = getLectEntry(row.date);
-    var dayLabel = sunLabels[dateISO] || row.label || (lectEntryPrint ? lectEntryPrint.sundayName : '');
-    var collect = [];
-    PER_ROLES.forEach(function(role) {
-      ['8am','10:45am'].forEach(function(svc) {
-        var pid = row.assignments[role][svc];
-        if (pid && pMap[pid]) collect.push({ pid:pid, role:role, svc:svc });
-      });
-    });
-    SHARED_ROLES.forEach(function(role) {
-      var pid = row.assignments[role].shared;
-      if (pid && pMap[pid]) collect.push({ pid:pid, role:role, svc:'shared' });
-    });
-    collect.forEach(function(item) {
-      var p = pMap[item.pid];
-      var svcLabel = item.svc==='8am' ? '8:00 AM' : (item.svc==='10:45am' ? '10:45 AM' : 'Both Services');
-      var summary = 'Worship: ' + roleLabel(item.role) + ' (' + svcLabel + ')' + (dayLabel ? ' — '+dayLabel : '');
-      lines.push('BEGIN:VEVENT');
-      lines.push('UID:' + item.pid + '-' + item.role.replace(/\\s/g,'-') + '-' + item.svc + '-' + ymd + '@tlc-scheduler');
-      lines.push('DTSTAMP:' + stamp());
-      lines.push('DTSTART:' + ymd + 'T' + serviceUTC[item.svc]);
-      lines.push('DURATION:PT' + serviceDur[item.svc]);
-      lines.push('SUMMARY:' + summary);
-      lines.push('DESCRIPTION:Volunteer: ' + p.name + '\\nRole: ' + roleLabel(item.role) + '\\nService: ' + svcLabel);
-      lines.push('LOCATION:Timothy Lutheran Church');
-      if (p.email) lines.push('ATTENDEE;CN="' + p.name + '":mailto:' + p.email);
-      lines.push('END:VEVENT');
-    });
-  });
-  lines.push('END:VCALENDAR');
-  var blob = new Blob([lines.join('\\r\\n')], {type:'text/calendar'});
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a'); a.href=url; a.download='worship-schedule.ics';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
 // ══════════════════════════════════════════════════════════════════
