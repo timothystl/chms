@@ -92,6 +92,45 @@ function centralDayOfWeek(d) {
   return ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 })[wd];
 }
 
+// Central Time YYYY-MM-DD for "today".
+function centralTodayISO() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const yyyy = parts.find(p => p.type === 'year').value;
+  const mm = parts.find(p => p.type === 'month').value;
+  const dd = parts.find(p => p.type === 'day').value;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// Central Time YYYY-MM-DD for a stored `ts` value (audit_log.ts is UTC datetime('now')).
+function centralDateOf(tsUtc) {
+  const d = new Date(tsUtc.replace(' ', 'T') + 'Z');
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(d);
+  const yyyy = parts.find(p => p.type === 'year').value;
+  const mm = parts.find(p => p.type === 'month').value;
+  const dd = parts.find(p => p.type === 'day').value;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// SW9: audit_log.ts is stored as UTC, but the dedup check needs "already sent today" in
+// Central time (matching the Central-time eligibility queries) — a plain `date(ts)=date('now')`
+// SQL comparison is UTC-vs-UTC and drifts a day off from Central once evening rolls past the
+// UTC date boundary (~6-7pm Central), which could let an admin's manual re-trigger duplicate
+// a send the 9am-Central cron already made earlier that day. Widen the SQL window (cheap, uses
+// the ts index) and do the exact Central-calendar-day match in JS, where DST is handled by Intl.
+async function alreadySentTodayCentral(db, action) {
+  const todayCentral = centralTodayISO();
+  const rows = ((await db.prepare(
+    `SELECT entity_id, ts FROM audit_log WHERE action=? AND ts >= datetime('now','-2 days')`
+  ).bind(action).all()).results || []);
+  return new Set(
+    rows.filter(r => centralDateOf(r.ts) === todayCentral).map(r => String(r.entity_id))
+  );
+}
+
 // Escape user-provided strings before embedding in email HTML (BG3 defense-in-depth).
 function esc(s) {
   return String(s || '').replace(/[&<>"']/g, c =>
@@ -191,11 +230,7 @@ async function sendTwilioSms(env, to, content) {
 export async function sendBirthdayTexts(env) {
   const db = env.DB;
   const todayMMDD = centralTodayMMDD();
-  const alreadySent = new Set(
-    ((await db.prepare(
-      `SELECT entity_id FROM audit_log WHERE action='birthday_sms_sent' AND date(ts)=date('now')`
-    ).all()).results || []).map(r => String(r.entity_id))
-  );
+  const alreadySent = await alreadySentTodayCentral(db, 'birthday_sms_sent');
   const people = (await db.prepare(
     `SELECT id, first_name, last_name, phone FROM people
      WHERE active=1 AND (status IS NULL OR status='active') AND (deceased=0 OR deceased IS NULL)
@@ -231,11 +266,7 @@ export async function sendBirthdayTexts(env) {
 export async function sendAnniversaryTexts(env) {
   const db = env.DB;
   const todayMMDD = centralTodayMMDD();
-  const alreadySent = new Set(
-    ((await db.prepare(
-      `SELECT entity_id FROM audit_log WHERE action='anniversary_sms_sent' AND date(ts)=date('now')`
-    ).all()).results || []).map(r => String(r.entity_id))
-  );
+  const alreadySent = await alreadySentTodayCentral(db, 'anniversary_sms_sent');
   const rows = (await db.prepare(
     `SELECT id, first_name, last_name, phone, anniversary_date, family_role, household_id FROM people
      WHERE active=1 AND (status IS NULL OR status='active') AND (deceased=0 OR deceased IS NULL)
@@ -300,11 +331,7 @@ export async function sendBirthdayEmails(env) {
   const todayMMDD = centralTodayMMDD();
 
   // Dedup: skip anyone already emailed today
-  const alreadySent = new Set(
-    ((await db.prepare(
-      `SELECT entity_id FROM audit_log WHERE action='birthday_email_sent' AND date(ts)=date('now')`
-    ).all()).results || []).map(r => String(r.entity_id))
-  );
+  const alreadySent = await alreadySentTodayCentral(db, 'birthday_email_sent');
 
   const people = (await db.prepare(
     `SELECT id, first_name, last_name, email FROM people
@@ -345,11 +372,7 @@ export async function sendAnniversaryEmails(env) {
   const todayMMDD = centralTodayMMDD();
 
   // Dedup keyed by household_id (couples) or person_id (solo)
-  const alreadySent = new Set(
-    ((await db.prepare(
-      `SELECT entity_id FROM audit_log WHERE action='anniversary_email_sent' AND date(ts)=date('now')`
-    ).all()).results || []).map(r => String(r.entity_id))
-  );
+  const alreadySent = await alreadySentTodayCentral(db, 'anniversary_email_sent');
 
   const rows = (await db.prepare(
     `SELECT id, first_name, last_name, email, anniversary_date, family_role, household_id FROM people

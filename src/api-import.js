@@ -1157,10 +1157,25 @@ if (seg === 'import/breeze-giving' && method === 'POST') { try {
   let entries1, entries2 = [], entries3 = [], entries4 = [], entries5 = [];
   try { entries1 = await logRes1.json(); } catch { return json({ error: 'Invalid JSON from Breeze log (contribution_added)' }, 502); }
   if (!Array.isArray(entries1)) return json({ error: 'Unexpected response format', raw: String(entries1).slice(0,200) }, 502);
-  if (logRes2.ok) { try { const r = await logRes2.json(); if (Array.isArray(r)) entries2 = r; } catch {} }
-  if (logRes3.ok) { try { const r = await logRes3.json(); if (Array.isArray(r)) entries3 = r; } catch {} }
-  if (logRes4.ok) { try { const r = await logRes4.json(); if (Array.isArray(r)) entries4 = r; } catch {} }
-  if (logRes5.ok) { try { const r = await logRes5.json(); if (Array.isArray(r)) entries5 = r; } catch {} }
+  // SW13: contribution_deleted / bulk_contributions_deleted directly gate correctness — if
+  // either fails we'd silently treat nothing as deleted, letting an already-deleted Breeze
+  // contribution quietly reappear in the DB. Abort the sync on failure here, same as logRes1,
+  // instead of falling back to an empty (and wrong) deletion set.
+  if (!logRes3.ok) return json({ error: `Breeze log API error (contribution_deleted): ${logRes3.status}` }, 502);
+  if (!logRes4.ok) return json({ error: `Breeze log API error (bulk_contributions_deleted): ${logRes4.status}` }, 502);
+  try { const r = await logRes3.json(); if (Array.isArray(r)) entries3 = r; else return json({ error: 'Unexpected response format from Breeze log (contribution_deleted)' }, 502); }
+  catch { return json({ error: 'Invalid JSON from Breeze log (contribution_deleted)' }, 502); }
+  try { const r = await logRes4.json(); if (Array.isArray(r)) entries4 = r; else return json({ error: 'Unexpected response format from Breeze log (bulk_contributions_deleted)' }, 502); }
+  catch { return json({ error: 'Invalid JSON from Breeze log (bulk_contributions_deleted)' }, 502); }
+  // bulk_import_contributions / contribution_updated are correctness-enhancing, not part of
+  // deletion detection — a transient failure here just means those get picked up on the next
+  // sync, so these stay best-effort, but the failure is now surfaced via diag.warnings below
+  // instead of being completely silent.
+  const logWarnings = [];
+  if (logRes2.ok) { try { const r = await logRes2.json(); if (Array.isArray(r)) entries2 = r; else logWarnings.push('bulk_import_contributions: unexpected response format'); } catch { logWarnings.push('bulk_import_contributions: invalid JSON'); } }
+  else logWarnings.push(`bulk_import_contributions: Breeze API error ${logRes2.status}`);
+  if (logRes5.ok) { try { const r = await logRes5.json(); if (Array.isArray(r)) entries5 = r; else logWarnings.push('contribution_updated: unexpected response format'); } catch { logWarnings.push('contribution_updated: invalid JSON'); } }
+  else logWarnings.push(`contribution_updated: Breeze API error ${logRes5.status}`);
   // Build set of payment IDs that were deleted in Breeze — never import these
   const deletedPaymentIds = new Set([...entries3, ...entries4].map(e => String(e.object_json || e.id)));
   // contribution_updated events — used after import to correct already-imported entries
@@ -1188,6 +1203,7 @@ if (seg === 'import/breeze-giving' && method === 'POST') { try {
     auditLogSample: [],
     breezeFundNamesAfterHarvest: null,
     unresolvedFundIds: [],
+    warnings: logWarnings,
   };
   let glRaw = [];
   try {
