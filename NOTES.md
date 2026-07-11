@@ -129,6 +129,9 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-10 (v1.8.1)
+- **Admin Ministry Roles group headers can now all be collapsed at once**: since v1.6.1, the group containing the currently-selected role was force-kept expanded (`!hasActive` guard in `volRenderMRolesList()`) so selecting a role never hid it — but that meant there was always at least one section you couldn't collapse. Removed that guard; every group (Worship, Christian Ed, Acceptance, Outreach, General) now collapses independently regardless of which role is selected. Search still force-expands matching groups as before. (`src/frontend/js-volunteers.js`)
+
 ### 2026-07-10 (v1.8.0 — Transportation folded into Acceptance)
 - **Transportation is no longer its own top-level ministry** — per request, it's now a sub-category of Acceptance (Care Ministry), since driving people to worship is fundamentally a form of welcoming/caring for them. Concretely:
   - The 3 Transportation roles (Regular Sunday Driver, Special-Occasion Driver, Ride Coordinator) are re-tagged `ministry='acceptance'` — both in `MINISTRY_ROLES_SEED` (`src/db.js`, for fresh installs) and via a new cold-start `UPDATE ministry_roles SET ministry='acceptance' WHERE ministry='transportation'` (same file, plus `migrations/0012_*.sql` for the historical record) so any already-deployed transportation roles get reclassified too, not just newly-seeded ones. They now show up mixed into the Acceptance page's role-grid alongside Stephen Ministry etc.
