@@ -129,6 +129,9 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-10 (v1.7.5)
+- **Short-link field placeholder now guesses from the event's own name** instead of always showing the same hardcoded "christmasmarket" example regardless of which event you're editing (confusing on a live screenshot — looked like a ghost value, not an example). New `volSuggestSlug(name)` lowercases and strips the event name to letters/digits only, matching the site's existing single-word slug convention (`christmasmarket`, `foodpantry`); falls back to an empty placeholder for an unnamed event. (`src/frontend/js-volunteers.js`)
+
 ### 2026-07-10 (v1.7.4)
 - **Footer logo restored too**: the v1.7.1 logo fix only covered the sticky top bar and the drawer's brand mark — the footer's generic circle+cross placeholder (pre-existing, present since before the v1.7.0 redesign, so it wasn't caught by that fix) was still there on every page. Swapped it for the same `/header-logo.png` image the header and drawer already use. (`src/public/footer.js`, `src/public/head.js`)
 
