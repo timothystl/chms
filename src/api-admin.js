@@ -412,6 +412,8 @@ export async function handleAdminApi(req, env, url, method) {
   }
 
   if (seg === 'events' && method === 'POST') {
+    const evRole = await getAuthRole(req, env);
+    if (evRole !== 'admin' && evRole !== 'staff') return json({ error: 'Access denied' }, 403);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const useTimeSlots = (b.use_time_slots === undefined || b.use_time_slots === null) ? 1 : (b.use_time_slots ? 1 : 0);
     const slug = normalizeSlug(b.slug);
@@ -426,6 +428,8 @@ export async function handleAdminApi(req, env, url, method) {
   }
 
   if (seg.startsWith('events/') && !seg.includes('/roles') && method === 'PUT') {
+    const evRole = await getAuthRole(req, env);
+    if (evRole !== 'admin' && evRole !== 'staff') return json({ error: 'Access denied' }, 403);
     const id = parseInt(seg.split('/')[1]);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const useTimeSlots = (b.use_time_slots === undefined || b.use_time_slots === null) ? 1 : (b.use_time_slots ? 1 : 0);
@@ -441,6 +445,8 @@ export async function handleAdminApi(req, env, url, method) {
   }
 
   if (seg.startsWith('events/') && !seg.includes('/roles') && method === 'DELETE') {
+    const evRole = await getAuthRole(req, env);
+    if (evRole !== 'admin' && evRole !== 'staff') return json({ error: 'Access denied' }, 403);
     const id = parseInt(seg.split('/')[1]);
     const roles = await env.DB.prepare('SELECT id FROM serve_roles WHERE event_id=?').bind(id).all();
     for (const r of (roles.results||[])) {
@@ -452,6 +458,8 @@ export async function handleAdminApi(req, env, url, method) {
   }
 
   if (seg.match(/^events\/\d+\/roles$/) && method === 'POST') {
+    const roleGuard = await getAuthRole(req, env);
+    if (roleGuard !== 'admin' && roleGuard !== 'staff') return json({ error: 'Access denied' }, 403);
     const evId = parseInt(seg.split('/')[1]);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const r = await env.DB.prepare(
@@ -462,6 +470,8 @@ export async function handleAdminApi(req, env, url, method) {
   }
 
   if (seg.match(/^events\/\d+\/roles\/\d+$/) && method === 'PUT') {
+    const roleGuard = await getAuthRole(req, env);
+    if (roleGuard !== 'admin' && roleGuard !== 'staff') return json({ error: 'Access denied' }, 403);
     const parts = seg.split('/'); const rid = parseInt(parts[3]);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     await env.DB.prepare(
@@ -472,6 +482,8 @@ export async function handleAdminApi(req, env, url, method) {
   }
 
   if (seg.match(/^events\/\d+\/roles\/\d+$/) && method === 'DELETE') {
+    const roleGuard = await getAuthRole(req, env);
+    if (roleGuard !== 'admin' && roleGuard !== 'staff') return json({ error: 'Access denied' }, 403);
     const parts = seg.split('/'); const rid = parseInt(parts[3]);
     await env.DB.prepare('DELETE FROM signup_slots WHERE role_id=?').bind(rid).run();
     await env.DB.prepare('DELETE FROM serve_roles WHERE id=?').bind(rid).run();
@@ -595,9 +607,11 @@ export async function handleAdminApi(req, env, url, method) {
   }
 
   if (seg === 'ministry-roles' && method === 'POST') {
+    const mrRole = await getAuthRole(req, env);
+    if (mrRole !== 'admin' && mrRole !== 'staff') return json({ error: 'Access denied' }, 403);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     if (!b.name || !b.ministry) return json({ error: 'name and ministry required' }, 400);
-    const VALID_MIN = ['worship','education','acceptance','outreach','transportation','general','lasm','wol','cfna'];
+    const VALID_MIN = ['worship','education','acceptance','outreach','general','lasm','wol','cfna'];
     if (!VALID_MIN.includes(b.ministry)) return json({ error: 'Invalid ministry' }, 400);
     const r = await env.DB.prepare(
       'INSERT INTO ministry_roles (ministry,name,description,commitment,training,sort_order,active) VALUES (?,?,?,?,?,?,1)'
@@ -606,6 +620,8 @@ export async function handleAdminApi(req, env, url, method) {
   }
 
   if (seg.match(/^ministry-roles\/\d+$/) && method === 'PUT') {
+    const mrRole = await getAuthRole(req, env);
+    if (mrRole !== 'admin' && mrRole !== 'staff') return json({ error: 'Access denied' }, 403);
     const id = parseInt(seg.split('/')[1]);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     await env.DB.prepare(
@@ -615,6 +631,8 @@ export async function handleAdminApi(req, env, url, method) {
   }
 
   if (seg.match(/^ministry-roles\/\d+$/) && method === 'DELETE') {
+    const mrRole = await getAuthRole(req, env);
+    if (mrRole !== 'admin' && mrRole !== 'staff') return json({ error: 'Access denied' }, 403);
     const id = parseInt(seg.split('/')[1]);
     await env.DB.prepare('DELETE FROM ministry_roles WHERE id=?').bind(id).run();
     return json({ ok: true });

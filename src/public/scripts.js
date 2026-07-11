@@ -546,7 +546,7 @@ function renderEventDetailPage(ev) {
           }).join('')
         + '</div>';
     }
-    var submitBtn = '<button class="hero-scroll" type="button" onclick="submitSimpleEvent('+ev.id+',\\''+escH(ev.name)+'\\',this)" style="border:none;cursor:pointer;font-family:inherit;font-size:.95rem;">Sign Up <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
+    var submitBtn = '<button class="hero-scroll" type="button" data-simple-event-submit data-event-id="'+ev.id+'" data-event-name="'+escH(ev.name)+'" style="border:none;cursor:pointer;font-family:inherit;font-size:.95rem;">Sign Up <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
     bodyHtml = '<div class="ev-card-roles" style="border-top:none;padding:0;">' + buildContactCard(ev.id) + rolesHtml + submitBtn + '</div>';
   }
   document.getElementById('event-simple-body').innerHTML = bodyHtml;
@@ -805,6 +805,11 @@ document.addEventListener('click', function(e) {
         if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 60);
     }
+    return;
+  }
+  var submitEl = e.target.closest('[data-simple-event-submit]');
+  if (submitEl) {
+    submitSimpleEvent(parseInt(submitEl.dataset.eventId, 10), submitEl.dataset.eventName, submitEl);
     return;
   }
 });
