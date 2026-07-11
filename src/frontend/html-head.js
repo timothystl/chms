@@ -600,6 +600,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .ev-list-group-hdr:hover{color:var(--ev-navy);}
 .ev-list-group-chevron{display:inline-block;font-size:.6rem;transition:transform .15s;}
 .ev-list-group-hdr.collapsed .ev-list-group-chevron{transform:rotate(-90deg);}
+.ev-list-group-active-dot{width:6px;height:6px;border-radius:50%;background:var(--ev-teal);flex-shrink:0;}
 .ev-list-row{padding:10px 16px;border-left:3px solid transparent;cursor:pointer;}
 .ev-list-row:hover{background:rgba(30,45,74,.03);}
 .ev-list-row.active{background:rgba(46,126,166,.08);border-left-color:var(--ev-teal);}
