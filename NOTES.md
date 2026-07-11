@@ -129,6 +129,13 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-11 (v1.9.1 — Phase 20 batch: SW10, SW11, SW14, SW15)
+- **SW10 — RSVP tokens now use a real CSPRNG.** Both token-generation sites in the scheduler (email invite send + weekly reminder send) built tokens from `Math.random()`, which is not cryptographically strong, to gate an unauthenticated public RSVP action. New shared `genRsvpToken()` uses `crypto.getRandomValues()` for a 160-bit token. `scheduler/index.html` resynced to match. (`src/scheduler-html.js`, `scheduler/index.html`)
+- **SW11 — Fixed HTML-attribute injection in Settings' member-type mapping dropdown.** The status-value escaping only handled single quotes (for the inline `onchange="..."` JS-string context) but not double quotes (the outer HTML attribute delimiter) — a Breeze status value containing `"` could break out of the attribute. Switched to the same `data-*` + delegated-listener pattern used elsewhere in the app (registered once at module load, not per-render, so it doesn't accumulate duplicate listeners). Verified the exploit is neutralized. (`src/frontend/js-settings.js`)
+- **SW14 — `POST giving/batches/:id/entries` now validates amount/fund**, matching its `PUT`/quick-entry siblings which already rejected a $0 amount or missing fund. The frontend already blocked this client-side; this closes the same gap server-side. (`src/api-giving.js`)
+- **SW15 — Excel-formula-injection guard on the giving-diagnose CSV export.** A cell value starting with `=`, `+`, `-`, or `@` (e.g. from a person/fund/batch name) is now prefixed with a leading `'` so spreadsheet apps read it as text instead of executing it as a formula. (`src/frontend/js-reports.js`)
+- Verified all served `CHMS_HTML`/`SCHEDULER_HTML` script blocks still parse; `npx vitest run` (37 tests) still passes.
+
 ### 2026-07-11 (v1.9.0 — ground-up code sweep: SW1–SW8)
 A full ground-up (not diff-based) code review was run across the entire codebase ahead of a planned cross-app UI/UX redesign — 8 parallel review passes covering every backend and frontend file, not just recent changes. Findings were catalogued with SW-codes; the 7 critical/high items plus SW8 (deceased/anniversary data quality) were fixed this session and verified against real local D1 instances or standalone logic tests, not just read-through. Remaining medium/low findings and redesign-readiness notes are tracked separately (see CLAUDE.md Phase 20).
 

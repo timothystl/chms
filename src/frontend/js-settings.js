@@ -328,11 +328,10 @@ function loadMemberTypeMap() {
     if (h) h.textContent = seen.length + ' distinct status value' + (seen.length !== 1 ? 's' : '') + ' seen from Breeze.';
     c.innerHTML = seen.map(function(status) {
       var mapped = _mtMapData[status] || '';
-      var safeStatus = status.replace(/'/g, "\\'");
       return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--linen);">'
         + '<span style="flex:1;font-size:.9rem;">'+esc(status)+'</span>'
         + '<svg viewBox="0 0 16 16" style="width:14px;height:14px;flex-shrink:0;fill:var(--warm-gray);"><path d="M8 1l7 7-7 7M1 8h14" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>'
-        + '<select onchange="markMtMapChange(\''+safeStatus+'\',this.value)" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;min-width:160px;">'
+        + '<select data-mt-status="'+esc(status)+'" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;min-width:160px;">'
         + '<option value="">— no mapping —</option>'
         + _memberTypes.map(function(t) { return '<option value="'+esc(t)+'"'+(mapped===t?' selected':'')+'>'+esc(t)+'</option>'; }).join('')
         + '</select>'
@@ -340,6 +339,15 @@ function loadMemberTypeMap() {
     }).join('');
   });
 }
+// Delegated (CSP-safe, injection-safe) change listener: a Breeze status value can contain
+// arbitrary characters, including a literal double-quote that would break out of an inline
+// onchange="..." attribute (data-mt-status is HTML-escaped and read back via .dataset, which
+// the browser decodes for us, never re-parsed as code). Registered once at module load, not
+// per-render, so it doesn't accumulate duplicate listeners across repeated Settings visits.
+document.addEventListener('change', function(e) {
+  var sel = e.target.closest('select[data-mt-status]');
+  if (sel) markMtMapChange(sel.dataset.mtStatus, sel.value);
+});
 function markMtMapChange(status, localType) {
   _mtMapData[status] = localType;
   var statusEl = document.getElementById('mt-map-status');

@@ -704,7 +704,14 @@ function exportGivingDiagnoseCsv() {
     return [r.id, r.fund_name, r.gift_date, r.contribution_date, r.person_id, r.person_name,
             (r.amount_cents/100).toFixed(2), r.breeze_id, r.classification, r.batch_desc,
             (r.twin_entry_ids||[]).join(';')]
-      .map(function(v){ var s = String(v==null?'':v); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; })
+      .map(function(v){
+        var s = String(v==null?'':v);
+        // Excel/Sheets formula-injection guard: a cell starting with =, +, -, or @ is
+        // interpreted as a formula when the CSV is opened in a spreadsheet app. Prefixing
+        // with a single quote forces it to be read as plain text.
+        if (/^[=+\-@]/.test(s)) s = "'" + s;
+        return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+      })
       .join(',');
   }).join('\n');
   var blob = new Blob([header + rows + '\n'], { type: 'text/csv' });

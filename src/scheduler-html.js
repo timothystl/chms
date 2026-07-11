@@ -1201,6 +1201,13 @@ function getConfirmations()  { try { return JSON.parse(localStorage.getItem('ws_
 function saveConfirmations(o){ localStorage.setItem('ws_confirmations', JSON.stringify(o)); }
 function getRsvpTokens()     { try { return JSON.parse(localStorage.getItem('ws_rsvp_tokens')  || '{}'); } catch(e) { return {}; } }
 function saveRsvpTokens(o)   { localStorage.setItem('ws_rsvp_tokens',   JSON.stringify(o)); }
+// RSVP tokens gate an unauthenticated public action (confirm/decline a shift) — use a real
+// CSPRNG (Web Crypto) rather than Math.random(), which is not cryptographically strong.
+function genRsvpToken() {
+  var bytes = new Uint8Array(20);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+}
 function getEmailSentLog()   { try { return JSON.parse(localStorage.getItem('ws_email_sent_log') || '{}'); } catch(e) { return {}; } }
 function saveEmailSentLog(o) { localStorage.setItem('ws_email_sent_log', JSON.stringify(o)); }
 
@@ -3393,9 +3400,7 @@ function sendReminderEmails() {
   var rsvpTokens = getRsvpTokens();
   pids.forEach(function(pid) {
     if (pMap[pid] && pMap[pid].email && !rsvpTokens[pid]) {
-      rsvpTokens[pid] = Math.random().toString(36).slice(2)
-                      + Math.random().toString(36).slice(2)
-                      + Date.now().toString(36);
+      rsvpTokens[pid] = genRsvpToken();
     }
   });
   saveRsvpTokens(rsvpTokens);
@@ -3748,9 +3753,7 @@ function _sendWeekReminders() {
   var rsvpTokens = getRsvpTokens();
   tasks.forEach(function(t) {
     if (!rsvpTokens[t.person.id]) {
-      rsvpTokens[t.person.id] = Math.random().toString(36).slice(2)
-                               + Math.random().toString(36).slice(2)
-                               + Date.now().toString(36);
+      rsvpTokens[t.person.id] = genRsvpToken();
     }
   });
   saveRsvpTokens(rsvpTokens);
