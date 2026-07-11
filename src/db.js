@@ -661,11 +661,31 @@ async function _doInitDb(db) {
   await seedEvents(db);
   await migrateChristmasMarketRoles(db);
   await seedChmsDefaults(db);
-  await seedMinistryRolesFromStatic(db);
 
   // Transportation folded into Acceptance (Care Ministry) as a sub-category — re-tag any
-  // roles already seeded/added under the old 'transportation' ministry, since the seed
-  // function above only inserts rows that don't already exist and wouldn't fix these.
+  // roles already seeded/added under the old 'transportation' ministry. This MUST run
+  // before seedMinistryRolesFromStatic: MINISTRY_ROLES_SEED now tags these 3 roles
+  // 'acceptance', so on a DB that still had them as 'transportation', seeding first would
+  // find no existing 'acceptance'-tagged row (the dedup check only NOT-EXISTS on the exact
+  // ministry+name pair) and insert a duplicate before this UPDATE reclassified the original.
   await db.prepare("UPDATE ministry_roles SET ministry='acceptance' WHERE ministry='transportation'").run().catch(() => {});
+
+  await seedMinistryRolesFromStatic(db);
+
+  // One-time self-heal: on any database that already cold-started between the
+  // Transportation-seed deploy and this ordering fix, the race above already ran once and
+  // left duplicate rows (identical ministry+name, one still carrying the pre-reclassification
+  // id). ministry_roles.id is never referenced as a foreign key elsewhere (signups store the
+  // role NAME as their checkbox value, not the id), so it's safe to collapse duplicates down
+  // to the earliest-created row per name.
+  await db.prepare(
+    `DELETE FROM ministry_roles WHERE ministry='acceptance'
+       AND name IN ('Regular Sunday Driver','Special-Occasion Driver','Ride Coordinator')
+       AND id NOT IN (
+         SELECT MIN(id) FROM ministry_roles WHERE ministry='acceptance'
+           AND name IN ('Regular Sunday Driver','Special-Occasion Driver','Ride Coordinator')
+         GROUP BY name
+       )`
+  ).run().catch(() => {});
 }
 
