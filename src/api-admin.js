@@ -427,10 +427,17 @@ export async function handleAdminApi(req, env, url, method) {
       const taken = await env.DB.prepare('SELECT id FROM serve_events WHERE slug=?').bind(slug).first();
       if (taken) return json({ error: 'That short link is already used by another event' }, 409);
     }
-    const r = await env.DB.prepare(
-      'INSERT INTO serve_events (name,description,event_date,sort_order,use_time_slots,slug) VALUES (?,?,?,?,?,?)'
-    ).bind(b.name||'New Event', b.description||'', b.event_date||'', b.sort_order||0, useTimeSlots, slug).run();
-    return json({ ok: true, id: r.meta?.last_row_id });
+    try {
+      const r = await env.DB.prepare(
+        'INSERT INTO serve_events (name,description,event_date,sort_order,use_time_slots,slug) VALUES (?,?,?,?,?,?)'
+      ).bind(b.name||'New Event', b.description||'', b.event_date||'', b.sort_order||0, useTimeSlots, slug).run();
+      return json({ ok: true, id: r.meta?.last_row_id });
+    } catch (e) {
+      if (slug && String(e?.message || '').includes('UNIQUE constraint')) {
+        return json({ error: 'That short link is already used by another event' }, 409);
+      }
+      throw e;
+    }
   }
 
   if (seg.startsWith('events/') && !seg.includes('/roles') && method === 'PUT') {
@@ -445,10 +452,17 @@ export async function handleAdminApi(req, env, url, method) {
       const taken = await env.DB.prepare('SELECT id FROM serve_events WHERE slug=? AND id!=?').bind(slug, id).first();
       if (taken) return json({ error: 'That short link is already used by another event' }, 409);
     }
-    await env.DB.prepare(
-      'UPDATE serve_events SET name=?,description=?,event_date=?,hidden=?,sort_order=?,use_time_slots=?,slug=? WHERE id=?'
-    ).bind(b.name, b.description||'', b.event_date||'', b.hidden?1:0, b.sort_order||0, useTimeSlots, slug, id).run();
-    return json({ ok: true });
+    try {
+      await env.DB.prepare(
+        'UPDATE serve_events SET name=?,description=?,event_date=?,hidden=?,sort_order=?,use_time_slots=?,slug=? WHERE id=?'
+      ).bind(b.name, b.description||'', b.event_date||'', b.hidden?1:0, b.sort_order||0, useTimeSlots, slug, id).run();
+      return json({ ok: true });
+    } catch (e) {
+      if (slug && String(e?.message || '').includes('UNIQUE constraint')) {
+        return json({ error: 'That short link is already used by another event' }, 409);
+      }
+      throw e;
+    }
   }
 
   if (seg.startsWith('events/') && !seg.includes('/roles') && method === 'DELETE') {
