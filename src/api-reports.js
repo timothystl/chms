@@ -718,13 +718,22 @@ if (seg === 'reports/giving-summary' && method === 'GET') {
   const from = url.searchParams.get('from') || new Date().getFullYear() + '-01-01';
   const to   = url.searchParams.get('to')   || new Date().getFullYear() + '-12-31';
   const [rowsResult, giverResult, txnResult, methodResult] = await Promise.all([
+    // Date range is filtered inside the subquery (not the outer WHERE) so an active fund
+    // with zero contributions in the period still appears as a $0 row via the LEFT JOIN,
+    // instead of being silently dropped — filtering on a LEFT-JOINed column in the outer
+    // WHERE turns the LEFT JOIN into an INNER JOIN for any fund with no matching rows.
     db.prepare(
-      `SELECT f.name as fund_name, COUNT(ge.id) as contributions, COALESCE(SUM(ge.amount),0) as total_cents
-       FROM funds f LEFT JOIN giving_entries ge ON ge.fund_id=f.id
-       LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+      `SELECT f.name as fund_name, COALESCE(ge2.contributions,0) as contributions, COALESCE(ge2.total_cents,0) as total_cents
+       FROM funds f
+       LEFT JOIN (
+         SELECT ge.fund_id, COUNT(ge.id) as contributions, SUM(ge.amount) as total_cents
+         FROM giving_entries ge
+         LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+         WHERE COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) BETWEEN ? AND ?
+         GROUP BY ge.fund_id
+       ) ge2 ON ge2.fund_id=f.id
        WHERE f.active=1
-         AND COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) BETWEEN ? AND ?
-       GROUP BY f.id ORDER BY f.sort_order, f.name`
+       ORDER BY f.sort_order, f.name`
     ).bind(from, to).all(),
     db.prepare(
       `SELECT COUNT(DISTINCT ge.person_id) as n

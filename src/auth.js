@@ -42,8 +42,21 @@ export async function getAuthInfo(req, env) {
                   : ts;
     const sigBytes = Uint8Array.from(atob(sig.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
     const valid = await crypto.subtle.verify('HMAC', key, sigBytes, new TextEncoder().encode(payload));
-    return valid ? { role, username } : null;
+    if (!valid) return null;
   } catch { return null; }
+  // Live-check DB-backed sessions on every request so a deactivation or role change takes
+  // effect immediately instead of only on next login — the cookie's `role` claim is only
+  // trusted as-signed for env-var/break-glass logins (no username, no DB row to check).
+  // Authorization always uses the CURRENT DB role, not the possibly-stale cookie value.
+  if (username && env.DB) {
+    const dbUser = await env.DB.prepare(
+      `SELECT active, role FROM app_users WHERE LOWER(username)=? LIMIT 1`
+    ).bind(username.toLowerCase()).first().catch(() => undefined);
+    if (dbUser === undefined) return null; // DB error — fail closed
+    if (!dbUser || !dbUser.active) return null;
+    return { role: dbUser.role, username };
+  }
+  return { role, username };
 }
 export async function getAuthRole(req, env) {
   const info = await getAuthInfo(req, env);

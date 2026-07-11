@@ -205,6 +205,52 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
          AND strftime('%m', baptism_date) = ?
        ORDER BY strftime('%d', baptism_date)`
     ).bind(dashMonthStr).all()).results || [];
+    // SW8: Anniversary data-quality/pastoral-care flags — people with an anniversary_date
+    // who would be silently skipped by the automated anniversary email/SMS sends (and left
+    // out of the DB4 anniversary card above) because no living, date-matched partner could
+    // be paired with them. Year-round (not month-scoped) so staff can review and fix/reach
+    // out at any time, not just when the date rolls around.
+    const annIssueCandidates = (await db.prepare(
+      `SELECT id, first_name, last_name, anniversary_date, family_role, household_id FROM people
+       WHERE active=1 AND (status IS NULL OR status='active') AND (deceased=0 OR deceased IS NULL)
+         AND anniversary_date != '' AND household_id IS NOT NULL AND household_id != ''
+         AND LOWER(member_type) NOT IN ('visitor','inactive','other','organization')
+         AND LOWER(marital_status) != 'widowed'`
+    ).all()).results || [];
+    let anniversaryIssues = [], anniversaryIssueTotal = 0;
+    if (annIssueCandidates.length) {
+      const issueHHIds = [...new Set(annIssueCandidates.map(p => p.household_id))];
+      const hhMembers = [];
+      const HH_CHUNK = 90;
+      for (let i = 0; i < issueHHIds.length; i += HH_CHUNK) {
+        const chunk = issueHHIds.slice(i, i + HH_CHUNK);
+        const ph2 = chunk.map(() => '?').join(',');
+        const rows = (await db.prepare(
+          `SELECT id, first_name, last_name, family_role, household_id, anniversary_date, deceased, status
+           FROM people WHERE household_id IN (${ph2})`
+        ).bind(...chunk).all()).results || [];
+        hhMembers.push(...rows);
+      }
+      const membersByHH = {};
+      for (const m of hhMembers) { (membersByHH[m.household_id] = membersByHH[m.household_id] || []).push(m); }
+      const flagged = [];
+      for (const p of annIssueCandidates) {
+        const partner = (membersByHH[p.household_id] || [])
+          .find(m => m.id !== p.id && (m.family_role === 'head' || m.family_role === 'spouse'));
+        let issue = null;
+        if (!partner) issue = 'no_partner';
+        else if (partner.deceased === 1 || partner.status === 'deceased') issue = 'deceased_partner';
+        else if (!partner.anniversary_date || partner.anniversary_date !== p.anniversary_date) issue = 'date_mismatch';
+        if (issue) flagged.push({
+          id: p.id, first_name: p.first_name, last_name: p.last_name,
+          anniversary_date: p.anniversary_date, household_id: p.household_id, issue,
+          partner_name: partner ? `${partner.first_name} ${partner.last_name}`.trim() : null,
+        });
+      }
+      flagged.sort((a, b) => a.anniversary_date.slice(5).localeCompare(b.anniversary_date.slice(5)));
+      anniversaryIssueTotal = flagged.length;
+      anniversaryIssues = flagged.slice(0, 20);
+    }
     // Recent additions
     const recentPeople = (await db.prepare(
       `SELECT p.id, p.first_name, p.last_name, p.member_type, p.created_at, h.name as household_name
@@ -344,6 +390,9 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       // new-contact follow-up queue (FU2/DB9)
       followupQueue:   canEdit ? followupQueueBatch : [],
       followupQueueTotal: canEdit ? followupQueueTotal : 0,
+      // SW8: anniversary data-quality/pastoral-care flags (deceased or no matching partner)
+      anniversaryIssues: canEdit ? anniversaryIssues : [],
+      anniversaryIssueTotal: canEdit ? anniversaryIssueTotal : 0,
       // weekly task checklist
       weeklyTasks, weeklyTasksWeek,
       // prayer requests (FU1)
@@ -374,7 +423,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // ── Households / Organizations / Tags / Funds → api-households.js ─────────
   if (seg.startsWith('households') || seg.startsWith('organizations') ||
       seg.startsWith('tags') || seg.startsWith('funds')) {
-    const result = await handleHouseholdsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit);
+    const result = await handleHouseholdsApi(req, env, url, method, seg, db, isAdmin, canEdit);
     if (result !== null) return result;
   }
 
