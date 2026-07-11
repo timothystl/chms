@@ -503,6 +503,13 @@ function volEventDayGroups(ev) {
   return order.map(function(dateStr){ return { date: dateStr, roles: groups[dateStr] }; });
 }
 
+// Short-link placeholder text: guess from the event's own name (matches the
+// site's existing single-word slug convention — "christmasmarket", "foodpantry")
+// instead of always showing the same hardcoded example regardless of event.
+function volSuggestSlug(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
 function volRenderEventDetail() {
   var detailEl = document.getElementById('vol-event-detail');
   if (!detailEl) return;
@@ -525,10 +532,10 @@ function volRenderEventDetail() {
     + '</div>'
     + '<div class="ev-field-row" style="grid-template-columns:1fr;margin-bottom:10px;"><div><label>Description</label><textarea id="vol-ev-desc" style="min-height:56px;">' + esc(ev.description||'') + '</textarea></div></div>'
     + '<div class="ev-field-row" style="grid-template-columns:1fr;margin-bottom:10px;"><div>'
-    + '<label>Short link <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional — e.g. "christmasmarket")</span></label>'
+    + '<label>Short link <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>'
     + '<div style="display:flex;align-items:center;gap:8px;">'
     + '<span style="font-size:.82rem;color:var(--warm-gray);white-space:nowrap;">volunteer.timothystl.org/</span>'
-    + '<input type="text" id="vol-ev-slug" value="' + esc(ev.slug||'') + '" placeholder="christmasmarket" style="flex:1;min-width:0;">'
+    + '<input type="text" id="vol-ev-slug" value="' + esc(ev.slug||'') + '" placeholder="' + esc(volSuggestSlug(ev.name)) + '" style="flex:1;min-width:0;">'
     + (ev.slug ? '<button type="button" class="ev-btn-secondary" style="padding:6px 10px;font-size:.75rem;white-space:nowrap;" onclick="volCopyEventLink(this,\'' + slugUrl.replace(/'/g,'') + '\')">Copy link</button>' : '')
     + '</div></div></div>'
     + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;"><input type="checkbox" id="vol-ev-ts"' + (useTs ? ' checked' : '') + ' style="width:auto;margin:0;" onchange="volSaveEvent(' + ev.id + ')"><label for="vol-ev-ts" style="font-size:.82rem;cursor:pointer;">Roles have scheduled time slots</label></div>';
