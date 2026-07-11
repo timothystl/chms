@@ -198,7 +198,8 @@ export async function sendBirthdayTexts(env) {
   );
   const people = (await db.prepare(
     `SELECT id, first_name, last_name, phone FROM people
-     WHERE active=1 AND (status IS NULL OR status='active') AND sms_opt_in=1 AND phone != '' AND dob != ''
+     WHERE active=1 AND (status IS NULL OR status='active') AND (deceased=0 OR deceased IS NULL)
+       AND sms_opt_in=1 AND phone != '' AND dob != ''
        AND LOWER(member_type) NOT IN ('visitor','inactive','other','organization')
        AND strftime('%m-%d', dob) = ?`
   ).bind(todayMMDD).all()).results || [];

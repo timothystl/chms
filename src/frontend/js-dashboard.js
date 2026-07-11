@@ -1,8 +1,8 @@
 export const JS_DASHBOARD = String.raw`// ── DASHBOARD ─────────────────────────────────────────────────────────
 var _dashData = null;
 var _dashMonth = new Date().getMonth() + 1; // 1-12, default current month
-var DASH_PREF_DEFAULTS = {weeklyTasks:true, prayers:true, followUp:true, newContacts:true, reviewQueue:false, firstGivers:true, notSeen:true, birthdays:true, anniversaries:true, baptismAnniversaries:true, membership:true};
-var DASH_PREF_LABELS = {weeklyTasks:'This Week\'s Tasks', prayers:'Prayer Requests', followUp:'Follow-up Queue', newContacts:'New Contacts', reviewQueue:'Visitor Review Batch', firstGivers:'First-Time Givers', notSeen:'Not Seen Recently', birthdays:'Birthdays', anniversaries:'Anniversaries', baptismAnniversaries:'Baptism Anniversaries', membership:'Membership by Type'};
+var DASH_PREF_DEFAULTS = {weeklyTasks:true, prayers:true, followUp:true, newContacts:true, reviewQueue:false, firstGivers:true, notSeen:true, birthdays:true, anniversaries:true, anniversaryIssues:true, baptismAnniversaries:true, membership:true};
+var DASH_PREF_LABELS = {weeklyTasks:'This Week\'s Tasks', prayers:'Prayer Requests', followUp:'Follow-up Queue', newContacts:'New Contacts', reviewQueue:'Visitor Review Batch', firstGivers:'First-Time Givers', notSeen:'Not Seen Recently', birthdays:'Birthdays', anniversaries:'Anniversaries', anniversaryIssues:'Anniversary Data Issues', baptismAnniversaries:'Baptism Anniversaries', membership:'Membership by Type'};
 function dashGetPrefs() {
   if (!_dashPrefs) {
     try { _dashPrefs = Object.assign({}, DASH_PREF_DEFAULTS, JSON.parse(localStorage.getItem('dashCardPrefs')||'{}')); }
@@ -685,6 +685,48 @@ function renderDashboard(d) {
           + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
           + '</div>';
       }).join('');
+    }
+    html += '</div></div>';
+  }
+
+  // ── Anniversary Data Issues (SW8) — editors+ only ──────────────────────
+  // People with an anniversary_date whose automated anniversary email/SMS would be
+  // silently skipped (deceased partner, no partner on file, or partner's date missing/
+  // mismatched) — surfaced year-round so staff can review, fix data, or reach out.
+  if (canEditRole && prefs.anniversaryIssues) {
+    var aiList  = d.anniversaryIssues || [];
+    var aiTotal = d.anniversaryIssueTotal || 0;
+    var aiLabels = {
+      deceased_partner: { text: 'Partner deceased', bg: 'rgba(201,151,58,.15)', fg: '#8a6a1f' },
+      no_partner:        { text: 'No partner on file', bg: 'rgba(154,138,120,.18)', fg: 'var(--warm-gray)' },
+      date_mismatch:     { text: "Partner's date missing/mismatched", bg: 'rgba(154,138,120,.18)', fg: 'var(--warm-gray)' }
+    };
+    html += '<div class="dash-section-hdr">'
+      + '<span>Anniversary Data Issues</span>'
+      + '<span style="font-size:12px;color:var(--warm-gray);font-weight:400;">'
+      + (aiTotal ? aiTotal + ' need review' : 'all clear') + '</span>'
+      + '</div>';
+    html += '<div class="dash-card" style="padding:0;"><div class="dash-card-body">';
+    if (aiList.length) {
+      html += aiList.map(function(p) {
+        var name = ((p.first_name||'') + ' ' + (p.last_name||'')).trim();
+        var tag = aiLabels[p.issue] || { text: p.issue, bg: 'rgba(154,138,120,.18)', fg: 'var(--warm-gray)' };
+        var parts = (p.anniversary_date||'').split('-');
+        var dateStr = parts.length >= 3 ? parseInt(parts[1]) + '/' + parseInt(parts[2]) : p.anniversary_date;
+        var meta = 'Anniversary ' + dateStr + (p.partner_name ? ' · linked to ' + esc(p.partner_name) : '');
+        return '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--linen);">'
+          + '<div style="flex:1;min-width:0;cursor:pointer;" onclick="openPersonDetail('+p.id+')">'
+          +   '<div style="font-weight:600;color:var(--steel-anchor);">' + esc(name) + '</div>'
+          +   '<div style="font-size:.75rem;color:var(--warm-gray);">' + meta + '</div>'
+          + '</div>'
+          + '<span style="font-size:.72rem;font-weight:600;padding:3px 10px;border-radius:99px;background:'+tag.bg+';color:'+tag.fg+';white-space:nowrap;">' + esc(tag.text) + '</span>'
+          + '</div>';
+      }).join('');
+      if (aiTotal > aiList.length) {
+        html += '<div style="padding:10px 14px;color:var(--warm-gray);font-size:.78rem;">+ ' + (aiTotal - aiList.length) + ' more — showing the ' + aiList.length + ' with the soonest anniversary date.</div>';
+      }
+    } else {
+      html += '<div style="padding:14px 16px;color:var(--warm-gray);font-size:.85rem;">No anniversary data issues found.</div>';
     }
     html += '</div></div>';
   }

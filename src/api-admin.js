@@ -22,6 +22,10 @@ export const SCHEDULER_KEYS = [
   'ws_sun_labels','ws_breeze_settings','ws_readings','ws_breeze_event_map'
 ];
 export async function handleSchedulerDataApi(req, env, url, method) {
+  // Guard the whole scheduler data surface — it holds raw Breeze/Resend/worker secrets
+  // (ws_breeze_settings) and can overwrite the entire schedule, not just read it.
+  const schedRole = await getAuthRole(req, env);
+  if (schedRole !== 'admin' && schedRole !== 'staff') return json({ error: 'Access denied' }, 403);
   const seg = url.pathname.replace('/admin/api/scheduler/', '').replace(/\/$/, '');
 
   // GET /admin/api/scheduler/export
@@ -365,6 +369,8 @@ export async function handleAdminApi(req, env, url, method) {
   }
 
   if (seg.startsWith('signups/') && method === 'DELETE') {
+    const sigRole = await getAuthRole(req, env);
+    if (sigRole !== 'admin' && sigRole !== 'staff') return json({ error: 'Access denied' }, 403);
     const id = parseInt(seg.split('/')[1]);
     await env.DB.prepare('DELETE FROM signup_slots WHERE signup_id=?').bind(id).run();
     await env.DB.prepare('DELETE FROM signups WHERE id=?').bind(id).run();
@@ -374,6 +380,8 @@ export async function handleAdminApi(req, env, url, method) {
   // PUT /admin/api/signups/:id/status — { status: 'new'|'contacted'|'confirmed'|'declined' }
   const statusMatch = seg.match(/^signups\/(\d+)\/status$/);
   if (statusMatch && method === 'PUT') {
+    const sigRole = await getAuthRole(req, env);
+    if (sigRole !== 'admin' && sigRole !== 'staff') return json({ error: 'Access denied' }, 403);
     const VALID_STATUS = ['new', 'contacted', 'confirmed', 'declined'];
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     if (!VALID_STATUS.includes(b.status)) return json({ error: 'Invalid status' }, 400);
@@ -560,6 +568,8 @@ export async function handleAdminApi(req, env, url, method) {
 
   // ── Push broadcast ────────────────────────────────────────────────
   if (seg === 'push-broadcast' && method === 'POST') {
+    const pbRole = await getAuthRole(req, env);
+    if (pbRole !== 'admin' && pbRole !== 'staff') return json({ error: 'Access denied' }, 403);
     const { broadcastWebPush } = await import('./push-sender.js');
     let body;
     try { body = await req.json(); } catch { return json({ error: 'Invalid request' }, 400); }
@@ -597,6 +607,7 @@ export async function handleAdminApi(req, env, url, method) {
   if (seg.startsWith('volunteer-templates')) {
     const role = await getAuthRole(req, env);
     if (!role) return json({ error: 'Access denied' }, 403);
+    if (method !== 'GET' && role !== 'admin' && role !== 'staff') return json({ error: 'Access denied' }, 403);
     return handleVolunteerTemplates(req, env, url, method);
   }
 
@@ -604,7 +615,7 @@ export async function handleAdminApi(req, env, url, method) {
   const linkMatch = seg.match(/^signups\/(\d+)\/link-person$/);
   if (linkMatch && method === 'POST') {
     const role = await getAuthRole(req, env);
-    if (!role) return json({ error: 'Access denied' }, 403);
+    if (role !== 'admin' && role !== 'staff') return json({ error: 'Access denied' }, 403);
     return handleSignupLinkPerson(req, env, parseInt(linkMatch[1]));
   }
 
@@ -612,7 +623,7 @@ export async function handleAdminApi(req, env, url, method) {
   const sendMatch = seg.match(/^signups\/(\d+)\/send-email$/);
   if (sendMatch && method === 'POST') {
     const role = await getAuthRole(req, env);
-    if (!role) return json({ error: 'Access denied' }, 403);
+    if (role !== 'admin' && role !== 'staff') return json({ error: 'Access denied' }, 403);
     return handleSignupSendEmail(req, env, parseInt(sendMatch[1]));
   }
 

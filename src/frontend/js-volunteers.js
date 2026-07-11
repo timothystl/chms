@@ -266,7 +266,7 @@ var _volSendSundays = '';
 var _volSendNotes = '';
 
 function volOpenSendEmail(btn) {
-  var signupId = btn.dataset.sigId;
+  var signupId = parseInt(btn.dataset.sigId, 10);
   var name     = btn.dataset.sigName;
   var email    = btn.dataset.sigEmail;
   var ministry = btn.dataset.sigMinistry;

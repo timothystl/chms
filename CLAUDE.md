@@ -400,6 +400,36 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ---
 
+### Phase 20 — Ground-Up Code Sweep (pre-redesign)
+**Goal:** A full ground-up (not diff-based) review of the entire codebase, requested ahead of a planned cross-app UI/UX redesign, so structural/correctness issues aren't baked around by a visual pass. 8 parallel review agents covered every backend and frontend file; findings got SW-codes (bugs/fixes) and RD-codes (redesign-readiness notes, not bugs). The 7 critical/high items plus SW8 are fixed and verified below; the rest are queued.
+
+- [x] **SW1** — Scheduler data/config endpoints (`/admin/api/scheduler/data`, `/config`) had no role check — any `member`-level account could read the scheduler's own raw Breeze/Resend/worker secrets (`ws_breeze_settings`) or overwrite the whole schedule. Added `admin`/`staff` guard. Done 2026-07-11 (v1.9.0). (`src/api-admin.js`)
+- [x] **SW2** — Same gap on signups DELETE/status, `push-broadcast`, `volunteer-templates` writes, signup link-person/send-email. Added `admin`/`staff` guards (reads stay open to any authenticated role). Done 2026-07-11 (v1.9.0). (`src/api-admin.js`)
+- [x] **SW3** — No session revocation: deactivating/demoting a user didn't invalidate their existing cookie. `getAuthInfo()` now live-checks `active`/`role` against `app_users` for any username-bearing cookie and returns the current DB role, not the cookie's stale claim; break-glass env-var sessions are unaffected (rotate `ADMIN_PASSWORD` per LP8). Verified with a mock-DB test. Done 2026-07-11 (v1.9.0). (`src/auth.js`)
+- [x] **SW4** — `api-chms.js` called `handleHouseholdsApi` with 10 args against an 8-arg signature, so `isFinance`'s value silently landed in the `canEdit` slot — staff users were wrongly denied on 2 household-photo endpoints. Fixed the call site. Done 2026-07-11 (v1.9.0). (`src/api-chms.js`)
+- [x] **SW5** — Volunteer outreach emails always sent blank `{{roles}}`/`{{service}}`/`{{sundays}}`/`{{notes}}` — a string-vs-number signup ID comparison never matched. Fixed. Done 2026-07-11 (v1.9.0). (`src/frontend/js-volunteers.js`)
+- [x] **SW6** — Giving by Fund report silently dropped active funds with $0 given in the period (LEFT JOIN downgraded to INNER by a WHERE-clause date filter). Moved the filter into a subquery. Verified against real local D1. Done 2026-07-11 (v1.9.0). (`src/api-reports.js`)
+- [x] **SW7** — Acceptance ministry's driving-availability answers were captured but never shown in the Confirm & submit read-back step. Added a summary block; extracted a shared `getAccTransFields()` helper. Done 2026-07-11 (v1.9.0). (`src/public/scripts.js`)
+- [x] **SW8** — `sendBirthdayTexts` was missing the deceased filter present on its 3 siblings — fixed. Also audited anniversary pairing: people whose spouse died or whose partner's anniversary_date is missing/mismatched get silently skipped by every send path with zero visibility. New year-round audit classifies these (`deceased_partner`/`no_partner`/`date_mismatch`) and a new "Anniversary Data Issues" dashboard card (editors+, on by default) surfaces them. Done 2026-07-11 (v1.9.0). (`src/api-emails.js`, `src/api-chms.js`, `src/frontend/js-dashboard.js`)
+- [ ] **SW9** — Birthday emails/SMS dedup mixes UTC (`audit_log.ts` default) and Central time (`date('now')` in the dedup check) — an admin manually re-triggering a send in the evening (roughly 6-7pm Central onward) could see a duplicate send since the UTC date has already rolled to "tomorrow."
+- [ ] **SW10** — RSVP tokens (scheduler) use `Math.random()` instead of a CSPRNG. Low practical risk but gates an unauthenticated action; swap for `crypto.getRandomValues()`.
+- [ ] **SW11** — HTML-attribute injection in Settings' member-type mapping dropdown (`js-settings.js`) — an unescaped `"` in a Breeze-sourced status string breaks out of an `onchange="..."` attribute.
+- [ ] **SW12** — N+1 query pattern in the main Breeze person-import loop (`api-import.js`) — the giving/tag sync paths were already fixed for this (PF3/PF4), this one wasn't. Bounded by 100-row pages so unlikely to hit the 30s ceiling today, but the slowest part of a full sync.
+- [ ] **SW13** — Silent partial-failure in Breeze giving-sync deletion detection (`api-import.js`) — only one of five Breeze log-fetch calls aborts the sync on error; the other four fall back to an empty array with no surfaced error, risking a deleted Breeze contribution quietly reappearing.
+- [ ] **SW14** — Giving entries can be created with a $0 amount or no fund via `POST giving/batches/:id/entries` (sibling endpoints validate this).
+- [ ] **SW15** — CSV exports (giving diagnose) lack Excel-formula-injection guards (leading `=`/`+`/`-`/`@` in cell values).
+- [ ] **SW16** — ~12 dead functions with zero call sites across `js-export-import.js`, `js-settings.js`, `scheduler-html.js` — safe deletes, found via repo-wide grep.
+- [ ] **SW17** — Giving Trend chart logic is duplicated (`js-reports.js` and `js-attendance.js`) and has already drifted (one has a hardcoded Christmas-marker year, the other derives it correctly).
+- [ ] **RD1** — Three separate CSS token systems coexist in the admin app (legacy `--steel-anchor`/`--linen`, newer `--warm-*`, and a distinct `--ev-*` palette for Volunteers/Events) — a redesign needs to reconcile all three.
+- [ ] **RD2** — Two incompatible theming mechanisms: `js-volunteers.js` uses real CSS classes; most other tabs (`js-giving.js`, `js-reports.js`, `js-attendance.js`, `js-settings.js`, most of `js-people.js`) build UI via inline `style="..."` strings.
+- [ ] **RD3** — The standalone `/scheduler` page still ships its own distinct "Steel & Amber" visual language (different fonts/palette) from the rest of the app — only looks consistent when embedded in the ChMS tab (which remaps the same-named CSS variables underneath it). Decide whether the standalone route stays or gets retired.
+- [ ] **RD4** — Hardcoded hex colors instead of design tokens are pervasive across chart code (`js-reports.js`/`js-attendance.js`) and public ministry pages — a brand-token change would need a manual find/replace, not a variable swap.
+- [ ] **RD5** — Several near-duplicate renderers exist (3 "render a person" implementations in `js-people.js`; 2 giving-chart copies, see SW17) that should be consolidated before a redesign touches them, or the redesign happens twice.
+
+**Done when:** SW9–SW17 each fixed or formally deferred with a reason; RD1–RD5 are decisions logged here for the redesign, not fix targets.
+
+---
+
 ## Queued Items (add new ones here during sessions)
 
 <!-- Add items here as they come up. Format: - [ ] Description (noted YYYY-MM-DD) -->

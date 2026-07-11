@@ -258,6 +258,20 @@ function goToStep2(ministry) {
   window.scrollTo({top:0, behavior:'instant'});
 }
 
+// Acceptance ministry's optional "Interested in driving?" fields — read once, shared
+// between the step-3 confirm summary (so the answers are actually shown back to the
+// user, not just silently folded into notes) and the final submit handler.
+function getAccTransFields() {
+  var wcEl = document.querySelector('[name=acc-trans-wc]:checked');
+  var capEl = document.getElementById('acc-trans-capacity');
+  return {
+    services: Array.from(document.querySelectorAll('[name=acc-trans-svc]:checked')).map(function(x){return x.value;}),
+    availability: Array.from(document.querySelectorAll('[name=acc-trans-avail]:checked')).map(function(x){return x.value;}),
+    wheelchair: !!(wcEl && wcEl.value === 'yes'),
+    capacity: capEl ? capEl.value : ''
+  };
+}
+
 function goToStep3(cfg, ministry) {
   var name  = ((document.getElementById(cfg.nameId)||{}).value||'');
   var email = ((document.getElementById(cfg.emailId)||{}).value||'');
@@ -265,6 +279,14 @@ function goToStep3(cfg, ministry) {
   var roles = Array.from(document.querySelectorAll('#page-'+ministry+' [name=roles]:checked')).map(function(x){ return x.value; });
   var rows = [['Name', name], ['Email', email]];
   if (phone) rows.push(['Phone', phone]);
+  var driving = [];
+  if (ministry === 'acceptance') {
+    var acc = getAccTransFields();
+    if (acc.services.length) driving.push(['Services attended', acc.services.join(', ')]);
+    if (acc.availability.length) driving.push(['Driving availability', acc.availability.join(', ')]);
+    if (acc.wheelchair) driving.push(['Wheelchair-accessible vehicle', 'Yes']);
+    if (acc.capacity) driving.push(['Vehicle capacity', acc.capacity]);
+  }
   var summaryEl = document.getElementById('step3-summary-'+ministry);
   if (summaryEl) {
     summaryEl.innerHTML = '<p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:1rem;">Here\\'s what a leader will see. Anything look off?</p>'
@@ -277,6 +299,15 @@ function goToStep3(cfg, ministry) {
       + (roles.length
           ? '<div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:.85rem;"><div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.5rem;">Roles selected</div>'
             + roles.map(function(r){ return '<span style="display:inline-block;background:rgba(30,45,74,.06);border-radius:6px;padding:.25rem .65rem;font-size:.82rem;margin:0 .3rem .3rem 0;">' + escH(r) + '</span>'; }).join('') + '</div>'
+          : '')
+      + (driving.length
+          ? '<div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:.85rem;">'
+            + '<div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.5rem;">Interested in driving?</div>'
+            + driving.map(function(r, i){
+                return (i > 0 ? '<div style="height:1px;background:var(--border);margin:.6rem 0;"></div>' : '')
+                  + '<div style="display:flex;justify-content:space-between;gap:1rem;align-items:baseline;"><span style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);">' + r[0] + '</span><span style="font-size:.9rem;color:var(--text-primary);font-weight:600;">' + escH(r[1]) + '</span></div>';
+              }).join('')
+            + '</div>'
           : '');
   }
   document.getElementById('step2-'+ministry).style.display = 'none';
@@ -387,15 +418,12 @@ function initStepForms() {
         data.roles = Array.from(document.querySelectorAll('#page-'+m+' [name=roles]:checked')).map(function(x){return x.value;});
         data.sms_reminder_opt_in = (document.getElementById('step3-reminder-'+m)||{}).checked ? 1 : 0;
         if (m === 'acceptance') {
-          var wcEl = document.querySelector('[name=acc-trans-wc]:checked');
-          var capEl = document.getElementById('acc-trans-capacity');
-          var services = Array.from(document.querySelectorAll('[name=acc-trans-svc]:checked')).map(function(x){return x.value;});
-          var availability = Array.from(document.querySelectorAll('[name=acc-trans-avail]:checked')).map(function(x){return x.value;});
+          var acc = getAccTransFields();
           var extra = [];
-          if (services.length) extra.push('Services attended: ' + services.join(', '));
-          if (availability.length) extra.push('Driving availability: ' + availability.join(', '));
-          if (wcEl && wcEl.value === 'yes') extra.push('Wheelchair-accessible vehicle: yes');
-          if (capEl && capEl.value) extra.push('Vehicle capacity: ' + capEl.value);
+          if (acc.services.length) extra.push('Services attended: ' + acc.services.join(', '));
+          if (acc.availability.length) extra.push('Driving availability: ' + acc.availability.join(', '));
+          if (acc.wheelchair) extra.push('Wheelchair-accessible vehicle: yes');
+          if (acc.capacity) extra.push('Vehicle capacity: ' + acc.capacity);
           if (extra.length) data.notes = extra.join('\\n');
         }
         submitVolunteer(data, document.getElementById('step3-'+m), cb);
