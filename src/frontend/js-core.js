@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '1.9.6';
+var DEPLOY_VERSION = '1.9.7';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirks — suppress these and don't show the error banner.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -9,7 +9,7 @@ window.onerror = function(msg, src, line, col, err) {
   if (msg && String(msg).indexOf('redefine property') !== -1) return true;
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
-    b.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#c0392b;color:#fff;padding:10px 16px;font-size:.82rem;z-index:99999;font-family:monospace;';
+    b.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#c0392b;color:var(--white);padding:10px 16px;font-size:.82rem;z-index:99999;font-family:monospace;';
     document.body.appendChild(b); }
   b.textContent = 'JS Error: ' + msg + ' (line ' + line + ')';
   return false;
@@ -113,8 +113,8 @@ function photoSrc(url) {
 }
 // ── SHARED AVATAR / STATUS-COLOR SYSTEM (People list, Person Profile, Household View) ──
 var AVATAR_TINTS = [
-  {bg:'#F5E0B0',fg:'#8A5A12'}, // gold
-  {bg:'#EAF4FA',fg:'#2E7EA6'}, // sky
+  {bg:'var(--pale-gold)',fg:'#8A5A12'}, // gold
+  {bg:'var(--blue-mist)',fg:'var(--color-teal)'}, // sky
   {bg:'#F0D7C4',fg:'#8A4A1E'}, // terracotta
   {bg:'#D9E8D3',fg:'#3F5E38'}, // sage
   {bg:'#F0C9B8',fg:'#7A3418'}  // blush
@@ -122,7 +122,9 @@ var AVATAR_TINTS = [
 function avatarTint(id) {
   return AVATAR_TINTS[Math.abs(id||0) % AVATAR_TINTS.length];
 }
-var TYPE_COLORS = { member:'#6B8F71', visitor:'#4D6BA0', associate:'#2E7EA6', friend:'#8A7A5C', inactive:'#C9973A', organization:'#5C4B2E' };
+// Matches the --status-* tokens in html-head.js :root exactly — same semantic
+// member-type color mapping, kept here since callers need a JS-computed value.
+var TYPE_COLORS = { member:'var(--status-member)', visitor:'var(--status-visitor)', associate:'var(--status-associate)', friend:'var(--status-friend)', inactive:'var(--status-inactive)', organization:'var(--status-organization)' };
 function typeColor(mt) {
   return TYPE_COLORS[(mt||'visitor').toLowerCase()] || 'var(--warm-meta)';
 }
@@ -482,7 +484,7 @@ function updateFilterBadge() {
   var badge = document.getElementById('p-filter-count');
   if (badge) { badge.textContent = count; badge.style.display = count > 0 ? 'inline-flex' : 'none'; }
   var mb = document.getElementById('p-members-btn');
-  if (mb) { mb.style.background = peopleFilter.mt === 'member' ? 'var(--teal)' : ''; mb.style.color = peopleFilter.mt === 'member' ? '#fff' : ''; }
+  if (mb) { mb.style.background = peopleFilter.mt === 'member' ? 'var(--teal)' : ''; mb.style.color = peopleFilter.mt === 'member' ? 'var(--white)' : ''; }
 }
 function toggleMemberFilter() {
   setFdMt(peopleFilter.mt === 'member' ? '' : 'member');
@@ -503,9 +505,9 @@ function renderActiveFilterChips() {
     var tag = allTags.find(function(t){ return String(t.id) === tid; });
     if (tag) chips.push(filterChip(tag.name, tag.color, "toggleFdTag('" + tid + "',false)"));
   });
-  if (peopleFilter.gender) chips.push(filterChip('Gender: ' + peopleFilter.gender, '#2E7EA6', "setFdGender('')"));
+  if (peopleFilter.gender) chips.push(filterChip('Gender: ' + peopleFilter.gender, 'var(--color-teal)', "setFdGender('')"));
   var _arLabels = { under_18:'Age: Under 18', '18_29':'Age: 18–29', '30_44':'Age: 30–44', '45_64':'Age: 45–64', '65_plus':'Age: 65+' };
-  if (peopleFilter.ageRange) chips.push(filterChip(_arLabels[peopleFilter.ageRange] || peopleFilter.ageRange, '#C9973A', "setFdAgeRange('')"));
+  if (peopleFilter.ageRange) chips.push(filterChip(_arLabels[peopleFilter.ageRange] || peopleFilter.ageRange, 'var(--color-gold)', "setFdAgeRange('')"));
   var _mfLabels = { dob:'No Birthday', gender:'No Gender', photo:'No Photo', anniversary:'No Anniversary', baptism:'No Baptism Date', confirmation:'No Confirmation Date', email:'No Email', phone:'No Phone', address:'No Address' };
   peopleFilter.missingFields.forEach(function(v) {
     chips.push(filterChip(_mfLabels[v] || ('No ' + v), 'var(--warm-gray)', "toggleFdMissing('" + v + "',false)"));
@@ -516,7 +518,7 @@ function renderActiveFilterChips() {
   c.style.display = chips.length ? 'flex' : 'none';
 }
 function filterChip(label, color, onclick) {
-  return '<span style="display:inline-flex;align-items:center;gap:5px;background:' + color + ';color:#fff;border-radius:99px;padding:3px 11px;font-size:.78rem;font-weight:600;">'
+  return '<span style="display:inline-flex;align-items:center;gap:5px;background:' + color + ';color:var(--white);border-radius:99px;padding:3px 11px;font-size:.78rem;font-weight:600;">'
     + esc(label)
     + '<span onclick="' + onclick + '" style="cursor:pointer;opacity:.75;font-size:13px;margin-left:2px;line-height:1;">&#215;</span>'
     + '</span>';

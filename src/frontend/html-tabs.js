@@ -14,7 +14,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <button class="btn-secondary" id="p-filter-btn" onclick="toggleFilterDrawer()" style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
       <svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;flex-shrink:0;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
       Filters
-      <span id="p-filter-count" style="display:none;background:var(--teal);color:#fff;border-radius:99px;padding:1px 7px;font-size:.72rem;font-weight:700;"></span>
+      <span id="p-filter-count" style="display:none;background:var(--teal);color:var(--white);border-radius:99px;padding:1px 7px;font-size:.72rem;font-weight:700;"></span>
     </button>
     <button class="btn-secondary" id="p-members-btn" onclick="toggleMemberFilter()" title="Toggle between Members only and all types" style="margin-left:auto;">Members</button>
     <button class="btn-secondary" id="p-select-btn" onclick="toggleSelectMode()">&#9745; Select</button>
@@ -25,17 +25,17 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
   <!-- Active filter chips -->
   <div id="p-active-filters" style="display:none;padding:0 16px 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;"></div>
   <!-- Bulk action bar (visible when Select mode is active) -->
-  <div id="p-bulk-bar" style="display:none;position:sticky;bottom:0;z-index:500;background:var(--steel-anchor);color:#fff;padding:10px 16px;display:none;align-items:center;gap:10px;flex-wrap:wrap;">
+  <div id="p-bulk-bar" style="display:none;position:sticky;bottom:0;z-index:500;background:var(--steel-anchor);color:var(--white);padding:10px 16px;display:none;align-items:center;gap:10px;flex-wrap:wrap;">
     <span id="p-bulk-count" style="font-size:.9rem;font-weight:700;">0 selected</span>
     <div style="flex:1;"></div>
-    <select id="p-bulk-mt" style="padding:5px 8px;border-radius:6px;border:none;font-size:.85rem;background:#fff;color:var(--charcoal);">
+    <select id="p-bulk-mt" style="padding:5px 8px;border-radius:6px;border:none;font-size:.85rem;background:var(--white);color:var(--charcoal);">
       <option value="">Change Member Type…</option>
     </select>
-    <button class="btn-sm" onclick="applyBulkMemberType()" style="background:#fff;color:var(--steel-anchor);">Apply</button>
-    <button class="btn-sm" onclick="openBulkTagsPanel()" style="background:#fff;color:var(--steel-anchor);">&#9881; Tags</button>
-    <button class="btn-sm" onclick="openBulkCommPanel()" style="background:#fff;color:var(--steel-anchor);">&#9993; Comms</button>
-    <button class="btn-sm" onclick="openBulkSacramentPanel()" style="background:#fff;color:var(--steel-anchor);">&#10010; Sacraments</button>
-    <button class="btn-sm" onclick="clearSelection()" style="background:rgba(255,255,255,.2);color:#fff;">Cancel</button>
+    <button class="btn-sm" onclick="applyBulkMemberType()" style="background:var(--white);color:var(--steel-anchor);">Apply</button>
+    <button class="btn-sm" onclick="openBulkTagsPanel()" style="background:var(--white);color:var(--steel-anchor);">&#9881; Tags</button>
+    <button class="btn-sm" onclick="openBulkCommPanel()" style="background:var(--white);color:var(--steel-anchor);">&#9993; Comms</button>
+    <button class="btn-sm" onclick="openBulkSacramentPanel()" style="background:var(--white);color:var(--steel-anchor);">&#10010; Sacraments</button>
+    <button class="btn-sm" onclick="clearSelection()" style="background:rgba(255,255,255,.2);color:var(--white);">Cancel</button>
   </div>
   <!-- Bulk sacrament-flag mini-panel -->
   <div id="p-bulk-sacrament-panel" style="display:none;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin:4px 0 8px;">
@@ -645,14 +645,14 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <p>Deletes all giving entries and batches for a single year. Use this to re-import one year without touching other years. <strong>This cannot be undone.</strong></p>
       <div style="display:flex;gap:8px;align-items:center;">
         <input type="number" id="clear-year-input" placeholder="e.g. 2026" min="2000" max="2099" style="width:110px;padding:6px 10px;border:1px solid #e74c3c;border-radius:6px;font-size:.88rem;">
-        <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearGivingByYear()">&#9888; Clear Year</button>
+        <button style="background:#e74c3c;color:var(--white);border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearGivingByYear()">&#9888; Clear Year</button>
       </div>
       <div class="import-status" id="clear-year-status" style="margin-top:8px;"></div>
     </div>
     <div class="import-card" style="border-color:#e74c3c;">
       <h3 style="color:#e74c3c;">&#9888; Clear All Giving Data</h3>
       <p>Permanently deletes <strong>all</strong> giving entries and batches across every year. Use this to fully reset giving data before a clean re-import. <strong>This cannot be undone.</strong></p>
-      <button style="background:#e74c3c;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearAllGiving()">&#9888; Clear All Giving Data</button>
+      <button style="background:#e74c3c;color:var(--white);border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearAllGiving()">&#9888; Clear All Giving Data</button>
       <div class="import-status" id="clear-giving-status"></div>
     </div>
   </div>
@@ -714,7 +714,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <h2 style="font-size:1.1rem;font-weight:700;color:var(--charcoal);">Volunteers</h2>
     </div>
 
-    <div class="vol-shell" style="display:flex;align-items:flex-start;gap:0;background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.14);overflow:hidden;margin-bottom:28px;">
+    <div class="vol-shell" style="display:flex;align-items:flex-start;gap:0;background:var(--white);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.14);overflow:hidden;margin-bottom:28px;">
       <!-- Sub-nav: Signups / Ministry Roles / Events -->
       <div id="vol-subnav" class="vol-subnav">
         <button class="vol-subtab-btn active" onclick="volShowSection('signups',this)">Signups</button>
@@ -729,7 +729,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <!-- Signups section -->
       <div id="vol-signups-section" style="margin-bottom:28px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-          <h3 id="vol-signups-title" style="font-size:1rem;font-weight:600;color:var(--charcoal);">All Volunteers <span id="vol-signups-count" style="background:var(--navy);color:#fff;border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">…</span></h3>
+          <h3 id="vol-signups-title" style="font-size:1rem;font-weight:600;color:var(--charcoal);">All Volunteers <span id="vol-signups-count" style="background:var(--navy);color:var(--white);border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">…</span></h3>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button class="btn-secondary" style="font-size:.8rem;" onclick="volToggleDuplicates()" id="vol-dup-btn">Show Duplicates</button>
             <button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print List</button>
@@ -750,7 +750,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div id="vol-mroles-section" style="margin-bottom:28px;">
         <div class="ev-master-detail">
           <div class="ev-list-col ev-list-col-wide">
-            <div class="ev-list-header"><h4>Ministry Roles <span id="vol-mroles-count" style="background:rgba(30,45,74,.08);color:#1E2D4A;border-radius:99px;padding:1px 8px;font-size:.7rem;font-family:var(--font-body);margin-left:2px;">…</span></h4></div>
+            <div class="ev-list-header"><h4>Ministry Roles <span id="vol-mroles-count" style="background:rgba(30,45,74,.08);color:var(--ev-navy);border-radius:99px;padding:1px 8px;font-size:.7rem;font-family:var(--font-body);margin-left:2px;">…</span></h4></div>
             <div class="ev-list-search"><input type="text" placeholder="Search roles…" oninput="volFilterMRoles(this.value)"></div>
             <div class="ev-list-rows" id="vol-mroles-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
             <div class="ev-list-footer"><button onclick="volNewMinistryRole()">Add role</button></div>
@@ -777,7 +777,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
         <div class="ev-master-detail">
           <div class="ev-list-col">
-            <div class="ev-list-header ev-list-header-row"><h4>Events <span id="vol-events-count" style="background:rgba(30,45,74,.08);color:#1E2D4A;border-radius:99px;padding:1px 8px;font-size:.7rem;font-family:var(--font-body);margin-left:2px;">…</span></h4><button class="ev-new-btn" onclick="volShowAddEventForm()">+ New</button></div>
+            <div class="ev-list-header ev-list-header-row"><h4>Events <span id="vol-events-count" style="background:rgba(30,45,74,.08);color:var(--ev-navy);border-radius:99px;padding:1px 8px;font-size:.7rem;font-family:var(--font-body);margin-left:2px;">…</span></h4><button class="ev-new-btn" onclick="volShowAddEventForm()">+ New</button></div>
             <div class="ev-list-rows" id="vol-events-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
           </div>
           <div class="ev-detail-col" id="vol-event-detail" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
@@ -890,18 +890,18 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 <div id="vol-shift-modal" class="modal-overlay" style="background:rgba(30,45,74,.35);" onclick="if(event.target===this)closeModal('vol-shift-modal')">
   <div class="modal ev-fields" style="max-width:440px;width:95%;padding:24px;gap:14px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <h3 id="vol-shift-modal-title" style="font-family:'Lora',serif;font-weight:600;font-size:1.05rem;color:#1E2D4A;margin:0;">Edit shift</h3>
-      <span id="vol-shift-day-label" style="font-size:.72rem;color:#8A8898;"></span>
+      <h3 id="vol-shift-modal-title" style="font-family:'Lora',serif;font-weight:600;font-size:1.05rem;color:var(--ev-navy);margin:0;">Edit shift</h3>
+      <span id="vol-shift-day-label" style="font-size:.72rem;color:var(--ev-muted);"></span>
     </div>
-    <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8A8898;display:block;margin-bottom:5px;">Shift name</label><input type="text" id="vol-shift-name"></div>
-    <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8A8898;display:block;margin-bottom:5px;">Description</label><textarea id="vol-shift-desc" style="min-height:52px;"></textarea></div>
+    <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">Shift name</label><input type="text" id="vol-shift-name"></div>
+    <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">Description</label><textarea id="vol-shift-desc" style="min-height:52px;"></textarea></div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
-      <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8A8898;display:block;margin-bottom:5px;">Date</label><input type="date" id="vol-shift-date"></div>
-      <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8A8898;display:block;margin-bottom:5px;">Start</label><input type="time" id="vol-shift-start"></div>
-      <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8A8898;display:block;margin-bottom:5px;">End</label><input type="time" id="vol-shift-end"></div>
+      <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">Date</label><input type="date" id="vol-shift-date"></div>
+      <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">Start</label><input type="time" id="vol-shift-start"></div>
+      <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">End</label><input type="time" id="vol-shift-end"></div>
     </div>
-    <div style="max-width:110px;"><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8A8898;display:block;margin-bottom:5px;">Spots</label><input type="number" id="vol-shift-slots" min="0"></div>
-    <div id="vol-shift-filled-hint" style="font-size:.72rem;color:#8A8898;margin:-6px 0 2px;"></div>
+    <div style="max-width:110px;"><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">Spots</label><input type="number" id="vol-shift-slots" min="0"></div>
+    <div id="vol-shift-filled-hint" style="font-size:.72rem;color:var(--ev-muted);margin:-6px 0 2px;"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
       <a href="javascript:void(0)" id="vol-shift-delete" style="color:#c0392b;font-size:.78rem;font-weight:600;text-decoration:none;cursor:pointer;" onclick="volDeleteShift()">Delete shift</a>
       <div style="display:flex;gap:8px;">
