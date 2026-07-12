@@ -8,7 +8,6 @@
 import { html, json, isAuthed, getAuthInfo, refreshAuthCookie, SCHED_CORS } from './src/auth.js';
 import { initDb } from './src/db.js';
 import { LCMS_CALENDAR_JSON } from './src/lectionary.js';
-import { SCHEDULER_HTML } from './src/scheduler-html.js';
 import {
   handleApiEvents, handleSignup, handleCalendar,
   handleVolunteerPending, handleVolunteerGeneralPending, handleVolunteerEventPending,
@@ -390,19 +389,18 @@ async function _fetch(req, env) {
 
     if (path.startsWith('/scheduler')) {
       if (!await isAuthed(req, env)) return html(LOGIN_HTML);
-      // /scheduler/lcms_calendar.json is served inline (bundled) for reliability.
+      // /scheduler/lcms_calendar.json is a live data endpoint the EMBEDDED scheduler tab
+      // fetches at runtime (see scheduler-inline.js) — keep this working regardless of the
+      // standalone-page retirement below.
       if (url.pathname === '/scheduler/lcms_calendar.json') {
         return new Response(LCMS_CALENDAR_JSON, { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
-      // scheduler/index.html is bundled inline to avoid stale-cache from GitHub raw CDN.
-      // When loaded with ?embedded=1 (inside the ChMS SPA iframe), inject the
-      // body.embedded class server-side so the login screen and outer chrome
-      // are hidden by CSS regardless of client-side JS execution.
-      let body = SCHEDULER_HTML;
-      if (url.searchParams.has('embedded')) {
-        body = body.replace('<body>', '<body class="embedded">');
-      }
-      return new Response(body, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store, no-cache, must-revalidate' } });
+      // The standalone scheduler page is retired — it carried its own pre-rebrand "Steel &
+      // Amber" visual identity that was never brought forward, and nothing in the live app
+      // links to it (confirmed: the only reference was in ADMIN_HTML, itself dead/unserved).
+      // The embedded Scheduler tab inside ChMS (src/scheduler-inline.js) is now the only
+      // supported way to use the scheduler — redirect any direct hit here into it.
+      return new Response(null, { status: 302, headers: { 'Location': 'https://chms.timothystl.org/#scheduler', 'Cache-Control': 'no-store' } });
     }
     return new Response('Not Found', { status: 404 });
 }

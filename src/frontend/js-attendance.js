@@ -112,38 +112,15 @@ var _rptResizeMoveH = function(e) {
     } else if (_rptResizeKey === 'givingTrend') {
       _givingTrendH = newH;
       var w = document.getElementById('giving-trend-svg-wrap');
+      // Redraw via the single shared renderer (js-reports.js) instead of a second hand-inlined
+      // copy of the same chart — the inlined copy had drifted (hardcoded Dec-25-marker year)
+      // before this fix. renderGivingTrendChart() returns a full card wrapper with its own
+      // #giving-trend-svg-wrap; re-target just the <svg> so the drag-resize keeps updating
+      // in place without replacing the wrapper element mid-drag.
       if (w && _lastGivingTrendData) {
-        var palette=['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E74C3C'];
-        var mShort=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        var W2=800,H2=newH,pL=60,pR=16,pT=16,pB=36,cW2=W2-pL-pR,cH2=H2-pT-pB;
-        var allV2=[];
-        (_lastGivingTrendData.years||[]).forEach(function(yr){(_lastGivingTrendData.monthly[yr]||[]).forEach(function(r){if(r.total_cents)allV2.push(r.total_cents);});});
-        var maxV2=Math.max.apply(null,allV2)*1.1||1;
-        var pxM2=function(i){return pL+i*(cW2/11);};
-        var pyV2=function(v){return pT+cH2-(v/maxV2)*cH2;};
-        var easterOf2=function(y){var a=y%19,b=Math.floor(y/100),c=y%100,e=Math.floor(b/4),ee=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-e-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*ee+2*i-h-k)%7,mm=Math.floor((a+11*h+22*l)/451);return{month:Math.floor((h+l-7*mm+114)/31),day:((h+l-7*mm+114)%31)+1};};
-        var xAtDate2=function(y,m,day){var db=[0,31,59,90,120,151,181,212,243,273,304,334],isLeap=(y%4===0&&y%100!==0)||y%400===0,doy=db[m-1]+day+((isLeap&&m>2)?1:0),total=isLeap?366:365;return pL+((doy-1)/(total-1))*(pxM2(11)-pL);};
-        var grid2='',ylbls2='',xlbls2='',lines2='',markers2='';
-        [0,Math.round(maxV2*0.25/1.1),Math.round(maxV2*0.5/1.1),Math.round(maxV2*0.75/1.1),Math.round(maxV2/1.1)].forEach(function(v){
-          var yy=pyV2(v);
-          grid2+='<line x1="'+pL+'" y1="'+yy.toFixed(1)+'" x2="'+(W2-pR)+'" y2="'+yy.toFixed(1)+'" stroke="#f0ece8" stroke-width="1"/>';
-          ylbls2+='<text x="'+(pL-4)+'" y="'+(yy+3).toFixed(1)+'" text-anchor="end" fill="#9A8A78" font-size="9">$'+Math.round(v/100).toLocaleString()+'</text>';
-        });
-        for(var xi2=0;xi2<12;xi2++) xlbls2+='<text x="'+pxM2(xi2).toFixed(1)+'" y="'+(H2-5)+'" text-anchor="middle" fill="#9A8A78" font-size="9">'+mShort[xi2]+'</text>';
-        (_lastGivingTrendData.years||[]).forEach(function(yr,yi){
-          var color=palette[yi%palette.length],pts2=[],yrInt=parseInt(yr,10);
-          for(var mo2=1;mo2<=12;mo2++){var ms2=mo2<10?'0'+mo2:''+mo2;var row2=(_lastGivingTrendData.monthly[yr]||[]).find(function(r){return r.month===ms2;});if(row2&&row2.total_cents)pts2.push({x:pxM2(mo2-1),y:pyV2(row2.total_cents),v:row2.total_cents,mi:mo2-1});}
-          if(!pts2.length)return;
-          lines2+='<path d="'+pts2.map(function(p,j){return(j?'L ':'M ')+p.x.toFixed(1)+','+p.y.toFixed(1);}).join(' ')+'" fill="none" stroke="'+color+'" stroke-width="2.5" stroke-linejoin="round"/>';
-          pts2.forEach(function(p){lines2+='<circle cx="'+p.x.toFixed(1)+'" cy="'+p.y.toFixed(1)+'" r="3.5" fill="'+color+'"><title>'+mShort[p.mi]+' '+yr+': $'+Math.round(p.v/100).toLocaleString()+'</title></circle>';});
-          var ed=easterOf2(yrInt),ex=xAtDate2(yrInt,ed.month,ed.day);
-          markers2+='<line x1="'+ex.toFixed(1)+'" y1="'+pT+'" x2="'+ex.toFixed(1)+'" y2="'+(H2-pB)+'" stroke="'+color+'" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"><title>Easter '+yr+': '+mShort[ed.month-1]+' '+ed.day+'</title></line>';
-          markers2+='<text x="'+ex.toFixed(1)+'" y="'+(pT+9)+'" text-anchor="middle" fill="'+color+'" font-size="9" font-weight="700" opacity="0.75">E</text>';
-        });
-        var _xmasYear=parseInt((_lastGivingTrendData.years||[]).slice(-1)[0]||new Date().getFullYear());var cx2=xAtDate2(_xmasYear,12,25);
-        markers2+='<line x1="'+cx2.toFixed(1)+'" y1="'+pT+'" x2="'+cx2.toFixed(1)+'" y2="'+(H2-pB)+'" stroke="#8a7968" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"><title>Christmas: Dec 25</title></line>';
-        markers2+='<text x="'+cx2.toFixed(1)+'" y="'+(pT+9)+'" text-anchor="middle" fill="#8a7968" font-size="9" font-weight="700" opacity="0.8">C</text>';
-        w.innerHTML='<svg viewBox="0 0 '+W2+' '+H2+'" style="width:100%;height:'+H2+'px;">'+grid2+markers2+lines2+xlbls2+ylbls2+'</svg>';
+        var fullCard = renderGivingTrendChart(_lastGivingTrendData, newH);
+        var svgMatch = fullCard.match(/<svg[\s\S]*?<\/svg>/);
+        if (svgMatch) w.innerHTML = svgMatch[0];
       }
     }
   });

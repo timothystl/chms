@@ -825,8 +825,11 @@ function renderGivingTrendChart(d, chartH) {
       + '<span style="display:inline-block;width:14px;height:14px;background:'+color+';border-radius:3px;flex-shrink:0;"></span>'
       + yr+' <span style="color:var(--warm-gray);">($'+Math.round(yearTotal/100).toLocaleString()+')</span></span>';
   });
-  // Shared Christmas marker (Dec 25) — gray dashed line, single instance
-  var cx = xAtDate(2026, 12, 25);
+  // Shared Christmas marker (Dec 25) — gray dashed line, single instance.
+  // Uses the most recent year in the dataset (not hardcoded) so the marker's
+  // leap-year day-of-year offset stays correct as years change.
+  var xmasYear = parseInt((d.years||[]).slice(-1)[0], 10) || new Date().getFullYear();
+  var cx = xAtDate(xmasYear, 12, 25);
   markers += '<line x1="'+cx.toFixed(1)+'" y1="'+pT+'" x2="'+cx.toFixed(1)+'" y2="'+(H-pB)+'" stroke="#8a7968" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"><title>Christmas: Dec 25</title></line>';
   markers += '<text x="'+cx.toFixed(1)+'" y="'+(pT+9)+'" text-anchor="middle" fill="#8a7968" font-size="9" font-weight="700" opacity="0.8">C</text>';
   legend += '<span style="display:flex;align-items:center;gap:10px;font-size:.75rem;color:var(--warm-gray);margin-left:8px;border-left:1px solid var(--border);padding-left:12px;"><span>E = Easter</span><span>C = Christmas</span></span>';
