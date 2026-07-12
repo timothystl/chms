@@ -99,7 +99,7 @@ a.s-item{text-decoration:none;color:inherit;}
 .s-item:hover{background:rgba(255,255,255,.08);}
 .s-item.active{background:rgba(46,126,166,.22);box-shadow:inset 3px 0 0 var(--color-teal);}
 .s-item svg{width:19px;height:19px;fill:none;stroke:rgba(255,255,255,.55);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
-.s-item.active svg{stroke:#fff;}
+.s-item.active svg{stroke:var(--white);}
 .s-divider{width:28px;height:1px;background:rgba(255,255,255,.15);margin:4px 0;flex-shrink:0;align-self:center;}
 .s-section-hdr{font-family:var(--font-body);font-size:10px;font-weight:500;letter-spacing:.3em;text-transform:uppercase;color:var(--color-gold);padding:10px 14px 4px;white-space:nowrap;}
 .s-bottom{margin-top:auto;display:flex;flex-direction:column;align-items:stretch;gap:4px;}
@@ -142,7 +142,7 @@ a.s-item{text-decoration:none;color:inherit;}
 .pill-tag.active{background:var(--sky-steel);color:var(--white);}
 .tag-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;}
 /* ── TLC Gather three-pill section identifiers ── */
-.pill-section{display:inline-flex;align-items:center;padding:3px 11px;border-radius:99px;font-family:var(--font-body);font-size:10px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:#fff;white-space:nowrap;line-height:1.4;}
+.pill-section{display:inline-flex;align-items:center;padding:3px 11px;border-radius:99px;font-family:var(--font-body);font-size:10px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--white);white-space:nowrap;line-height:1.4;}
 .pill-section.pill-people{background:var(--color-navy);}
 .pill-section.pill-ministry{background:var(--color-teal);}
 .pill-section.pill-giving{background:var(--color-gold);color:var(--color-navy);}
@@ -342,7 +342,7 @@ a.s-item{text-decoration:none;color:inherit;}
   .c-actions{display:flex;gap:8px;flex-wrap:wrap;}
   .c-btn{display:inline-flex;align-items:center;gap:6px;font-size:.85rem;font-weight:700;padding:8px 14px;border-radius:99px;min-height:36px;text-decoration:none;white-space:nowrap;box-sizing:border-box;}
   .c-btn svg{width:14px;height:14px;flex-shrink:0;}
-  .c-btn-call{background:var(--color-teal);color:#fff;}
+  .c-btn-call{background:var(--color-teal);color:var(--white);}
   .c-btn-outline{background:var(--warm-surface-header);border:1.5px solid var(--warm-border);color:var(--color-navy);}
 }
 /* ── MULTI-SELECT ── */
@@ -350,7 +350,7 @@ a.s-item{text-decoration:none;color:inherit;}
 .p-card.selectable:hover{box-shadow:0 0 0 2px var(--steel-anchor);}
 .p-card.selected{box-shadow:0 0 0 3px var(--steel-anchor);background:var(--blue-mist);}
 .p-select-cb{position:absolute;top:8px;left:8px;width:18px;height:18px;border:2px solid var(--border);border-radius:4px;background:var(--white);display:flex;align-items:center;justify-content:center;z-index:2;}
-.p-card.selected .p-select-cb{background:var(--steel-anchor);border-color:var(--steel-anchor);color:#fff;}
+.p-card.selected .p-select-cb{background:var(--steel-anchor);border-color:var(--steel-anchor);color:var(--white);}
 /* ── SETTINGS ── */
 code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;font-family:monospace;}
 /* ── PEOPLE DIRECTORY TABLE ── */
@@ -363,8 +363,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .dir-name-cell{display:flex;align-items:center;gap:11px;}
 .dir-avatar{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;}
 .dir-avatar-org{border-radius:8px!important;background:var(--linen);}
-.dir-avatar-0{background:#F5E0B0;color:#8A5A12;}
-.dir-avatar-1{background:#EAF4FA;color:#2E7EA6;}
+.dir-avatar-0{background:var(--pale-gold);color:#8A5A12;}
+.dir-avatar-1{background:var(--blue-mist);color:var(--color-teal);}
 .dir-avatar-2{background:#F0D7C4;color:#8A4A1E;}
 .dir-avatar-3{background:#D9E8D3;color:#3F5E38;}
 .dir-avatar-4{background:#F0C9B8;color:#7A3418;}
@@ -381,8 +381,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 #p-pager{position:sticky;bottom:0;background:var(--white);border-top:1px solid var(--border);padding:9px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
 /* ── PEOPLE LIST — VIEW TOGGLE + CARD VIEW (2a/2b) ── */
 .view-toggle{display:flex;border:1.5px solid var(--warm-border);border-radius:9px;overflow:hidden;flex-shrink:0;}
-.view-toggle button{padding:8px 14px;background:#fff;color:var(--warm-meta);font-size:.8rem;font-weight:700;border:none;cursor:pointer;font-family:var(--font-body);white-space:nowrap;}
-.view-toggle button.active{background:var(--color-navy);color:#fff;}
+.view-toggle button{padding:8px 14px;background:var(--white);color:var(--warm-meta);font-size:.8rem;font-weight:700;border:none;cursor:pointer;font-family:var(--font-body);white-space:nowrap;}
+.view-toggle button.active{background:var(--color-navy);color:var(--white);}
 .ppl-card-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:var(--warm-surface-card-page);padding:16px;border-radius:12px;}
 @media(max-width:1000px){.ppl-card-grid{grid-template-columns:1fr;}}
 .ppl-card{background:var(--warm-surface-card);border-radius:12px;border-left:4px solid var(--status-member);box-shadow:0 2px 10px rgba(120,90,30,.08);padding:14px 16px;cursor:pointer;position:relative;transition:box-shadow .15s;}
@@ -392,7 +392,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .ppl-card-name{font-weight:700;font-size:14px;color:var(--color-navy);line-height:1.2;}
 .ppl-card-phone{font-size:12.5px;color:var(--color-teal);margin-bottom:2px;}
 .ppl-card-email{font-size:12.5px;color:var(--warm-meta);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.ppl-card-cb{position:absolute;top:8px;right:8px;width:18px;height:18px;border:2px solid var(--warm-border);border-radius:4px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;}
+.ppl-card-cb{position:absolute;top:8px;right:8px;width:18px;height:18px;border:2px solid var(--warm-border);border-radius:4px;background:var(--white);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--white);}
 .ppl-card.selected .ppl-card-cb{background:var(--color-navy);border-color:var(--color-navy);}
 /* ── DASHBOARD ── */
 .dash-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px;}
@@ -449,7 +449,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .content-area.pv-mode > #profile-view{display:flex;}
 #profile-view{display:none;flex-direction:column;flex:1;overflow:hidden;background:var(--warm-surface-card);}
 .pv-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;}
-.pv-hdr{display:flex;align-items:flex-start;gap:18px;padding:22px 24px 18px;border-bottom:1px solid var(--warm-divider);flex-shrink:0;background:#fff;}
+.pv-hdr{display:flex;align-items:flex-start;gap:18px;padding:22px 24px 18px;border-bottom:1px solid var(--warm-divider);flex-shrink:0;background:var(--white);}
 .pv-photo{width:88px;height:88px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;flex-shrink:0;box-shadow:0 2px 8px rgba(120,90,30,.15);}
 .pv-photo-wrap{position:relative;flex-shrink:0;width:88px;height:88px;}
 .pv-photo-wrap .pv-photo{width:100%;height:100%;}
@@ -523,7 +523,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .topbar-back{font-size:13px;color:var(--color-teal);font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;}
 .topbar-back:hover{text-decoration:underline;}
 /* ── Shared pill buttons (Call / outlined-cream) used across People / Profile / Household ── */
-.btn-call{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;background:var(--color-teal);color:#fff;border:none;border-radius:9px;font-family:var(--font-body);font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;}
+.btn-call{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;background:var(--color-teal);color:var(--white);border:none;border-radius:9px;font-family:var(--font-body);font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;}
 .btn-call:hover{opacity:.92;}
 .btn-outline-cream{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;background:var(--warm-surface-header);border:1.5px solid var(--warm-border);color:var(--color-navy);border-radius:9px;font-family:var(--font-body);font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;}
 .btn-outline-cream:hover{background:var(--warm-surface-card-page);}
@@ -535,7 +535,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .content-area.hv-mode > #household-view{display:flex;}
 #household-view{display:none;flex-direction:column;flex:1;overflow:hidden;background:var(--warm-surface-card);}
 .hv-body{flex:1;overflow-y:auto;}
-.hv-hdr{display:flex;align-items:flex-start;gap:18px;padding:22px 24px;border-bottom:1px solid var(--warm-divider);background:#fff;}
+.hv-hdr{display:flex;align-items:flex-start;gap:18px;padding:22px 24px;border-bottom:1px solid var(--warm-divider);background:var(--white);}
 .hv-icon-tile{width:76px;height:76px;border-radius:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:26px;background:var(--warm-surface-header);border:1px solid var(--warm-divider);}
 .hv-name{font-family:var(--font-display);font-size:26px;font-weight:700;color:var(--color-navy);}
 .hv-addr{font-size:14px;color:var(--warm-meta);margin-top:6px;}
@@ -585,10 +585,10 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
    left-side navy menu column matching the design mockup's inner "TLC Admin"
    sidebar exactly, not a horizontal tab row. Sits inside the same shell card
    as the list+detail pane to its right (see vol-subnav markup in html-tabs.js). ── */
-.vol-subnav{width:170px;flex-shrink:0;background:#1E2D4A;padding:16px 10px;display:flex;flex-direction:column;gap:2px;align-self:stretch;}
+.vol-subnav{width:170px;flex-shrink:0;background:var(--color-navy);padding:16px 10px;display:flex;flex-direction:column;gap:2px;align-self:stretch;}
 .vol-subtab-btn{text-align:left;background:none;border:none;color:rgba(255,255,255,.55);font-family:var(--font-body);font-size:12.5px;font-weight:600;padding:8px 10px;border-radius:6px;cursor:pointer;}
-.vol-subtab-btn.active{color:#fff;background:rgba(255,255,255,.12);}
-.vol-subtab-btn:hover:not(.active){color:#fff;background:rgba(255,255,255,.08);}
+.vol-subtab-btn.active{color:var(--white);background:rgba(255,255,255,.12);}
+.vol-subtab-btn:hover:not(.active){color:var(--white);background:rgba(255,255,255,.08);}
 .vol-subnav-divider{height:1px;background:rgba(255,255,255,.15);margin:6px 4px;}
 /* Below ~700px the fixed-width dark rail no longer fits next to the content
    pane (it was squeezing everything else into a sliver) — stack it above
@@ -617,8 +617,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .ev-list-search input{background:var(--ev-cream);border:1px solid var(--ev-border);border-radius:8px;font-size:.82rem;color:var(--ev-muted);}
 .ev-list-rows{flex:1;overflow-y:auto;min-height:80px;}
 .ev-list-footer{padding:12px 16px;border-top:1px solid var(--ev-border);}
-.ev-list-footer button{width:100%;background:var(--ev-navy);color:#fff;border:none;border-radius:8px;padding:9px;font-size:.82rem;font-weight:600;cursor:pointer;}
-.ev-new-btn{background:var(--ev-navy);color:#fff;border:none;border-radius:7px;padding:6px 11px;font-size:.75rem;font-weight:600;cursor:pointer;flex-shrink:0;}
+.ev-list-footer button{width:100%;background:var(--ev-navy);color:var(--white);border:none;border-radius:8px;padding:9px;font-size:.82rem;font-weight:600;cursor:pointer;}
+.ev-new-btn{background:var(--ev-navy);color:var(--white);border:none;border-radius:7px;padding:6px 11px;font-size:.75rem;font-weight:600;cursor:pointer;flex-shrink:0;}
 .ev-list-group-hdr{padding:12px 16px 4px;font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ev-muted);cursor:pointer;display:flex;align-items:center;gap:5px;user-select:none;}
 .ev-list-group-hdr:first-child{padding-top:8px;}
 .ev-list-group-hdr:hover{color:var(--ev-navy);}
@@ -643,12 +643,12 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .ev-fields label,.ev-field-row label{display:block;font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);margin-bottom:5px;}
 .ev-fields input[type=text],.ev-fields input[type=date],.ev-fields select,.ev-fields textarea,
 .ev-field-row input[type=text],.ev-field-row input[type=date],.ev-field-row select,.ev-field-row textarea{
-  background:#fff;border:1.5px solid var(--ev-border2);border-radius:7px;padding:9px 12px;font-size:.85rem;color:var(--ev-ink);width:100%;font-family:inherit;
+  background:var(--white);border:1.5px solid var(--ev-border2);border-radius:7px;padding:9px 12px;font-size:.85rem;color:var(--ev-ink);width:100%;font-family:inherit;
 }
 .ev-fields textarea{min-height:64px;resize:vertical;}
 .ev-toggle-row{display:flex;align-items:center;gap:10px;background:var(--ev-cream);border-radius:8px;padding:10px 12px;}
 .ev-fields label.ev-toggle-row,.ev-field-row label.ev-toggle-row{display:flex;align-items:center;text-transform:none;font-size:.78rem;font-weight:600;letter-spacing:normal;color:var(--ev-navy);margin-bottom:0;}
-.ev-btn-primary{background:var(--ev-navy);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:.82rem;font-weight:600;cursor:pointer;}
+.ev-btn-primary{background:var(--ev-navy);color:var(--white);border:none;border-radius:8px;padding:10px 20px;font-size:.82rem;font-weight:600;cursor:pointer;}
 .ev-btn-secondary{background:transparent;border:1.5px solid var(--ev-border2);color:var(--ev-navy);border-radius:8px;padding:10px 16px;font-size:.82rem;font-weight:600;cursor:pointer;}
 .ev-day-header{display:flex;align-items:center;justify-content:space-between;margin:18px 0 8px;}
 .ev-day-header:first-of-type{margin-top:4px;}
@@ -666,8 +666,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .toggle-switch{display:inline-flex;align-items:center;gap:10px;cursor:pointer;}
 .toggle-switch input{display:none;}
 .toggle-track{width:34px;height:18px;border-radius:99px;background:var(--border);position:relative;flex-shrink:0;transition:background .15s;}
-.toggle-track::after{content:'';width:14px;height:14px;border-radius:50%;background:#fff;position:absolute;top:2px;left:2px;transition:left .15s;}
-.toggle-switch input:checked+.toggle-track{background:#4A5E3A;}
+.toggle-track::after{content:'';width:14px;height:14px;border-radius:50%;background:var(--white);position:absolute;top:2px;left:2px;transition:left .15s;}
+.toggle-switch input:checked+.toggle-track{background:var(--ev-moss);}
 .toggle-switch input:checked+.toggle-track::after{left:18px;}
 /* ── Status pills (Signups list, event roster) ── */
 .status-pill{font-size:.7rem;font-weight:700;padding:2px 9px;border-radius:99px;white-space:nowrap;border:none;cursor:pointer;font-family:var(--font-body);}
@@ -679,7 +679,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 </head>
 <body>
 <div id="offline-banner">You are offline — showing cached contacts</div>
-<div id="error-boundary" role="alert" aria-live="assertive" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;background:#c0392b;color:#fff;padding:11px 20px;border-radius:9px;font-size:.85rem;max-width:520px;width:90vw;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.3);"></div>
+<div id="error-boundary" role="alert" aria-live="assertive" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;background:#c0392b;color:var(--white);padding:11px 20px;border-radius:9px;font-size:.85rem;max-width:520px;width:90vw;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.3);"></div>
 <div class="app-shell">
 <nav class="sidebar" id="sidebar">
   <div class="s-logo" onclick="showTab('home')" title="Home"><svg viewBox="0 0 60 60" aria-label="TLC Gather"><circle cx="22" cy="25" r="11" fill="#4D6BA0"/><circle cx="38" cy="25" r="11" fill="#2E7EA6"/><circle cx="30" cy="38" r="11" fill="#C9973A"/><circle cx="30" cy="30" r="1.6" fill="#F8F4EE"/></svg></div>
