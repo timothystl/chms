@@ -14,6 +14,30 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
 <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500;1,600&family=DM+Sans:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet">
 <style>
+/* ── PAL1: Canonical Palette A token reference ──────────────────────────
+   Single source of truth for color tokens across all three surfaces
+   (admin app below, src/public/head.js, src/scheduler-html.js). Built by
+   deriving shades/tints from the 4 core brand colors. Legacy/--ev-* names
+   below are kept as aliases (zero visual change) so existing rules don't
+   need renaming yet — new code should reach for the semantic name.
+     Core:     --color-navy #1E2D4A · --color-teal #2E7EA6 · --color-gold
+               #C9973A · --color-cream #F8F4EE
+     Neutrals: --charcoal #1A1A2A (ink) · --warm-gray #7A6E60 (muted text)
+               · --white #FFFFFF · --linen #F2EDE2 · --border #E8E0D0
+     Navy:     --deep-steel #2A3F60 (mid) · --mid-steel #3D627C (soft)
+               · --ice-blue #C4DDE8 (pale)
+     Teal:     --sky-steel #5C8FA8 (soft) · --blue-mist #EAF4FA (pale)
+     Gold:     --deep-amber #A87B23 (deep) · --pale-gold #F5E0B0 (pale)
+     Status:   --sage #6B8F71 (success/positive — lighter green, used for
+               badges/status text) · --ev-moss #4A5E3A (a second, darker
+               green used for the Acceptance ministry identity + "open
+               slots" indicators — legitimately distinct from --sage, not
+               a duplicate to merge) · --danger #B85C3A (all error/delete
+               affordances; --ev-danger now aliases this — was a genuine
+               duplicate red, #c0392b, reconciled here)
+   See CLAUDE.md "Pre-Redesign Palette Consolidation" for the full sweep
+   plan (PAL2 admin usages, PAL3 public site, PAL4 scheduler, PAL5 inline
+   hex cleanup). ── */
 :root{
   /* ── TLC Gather brand tokens ── */
   --color-navy:#1E2D4A;--color-teal:#2E7EA6;--color-gold:#C9973A;
@@ -41,7 +65,7 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
      mockups pixel-for-pixel without altering the rest of the app) ── */
   --ev-navy:#1E2D4A;--ev-teal:#2E7EA6;--ev-muted:#8A8898;--ev-ink:#1A1A2A;
   --ev-border:rgba(30,45,74,.12);--ev-border2:rgba(30,45,74,.18);
-  --ev-cream:#F7F3EC;--ev-moss:#4A5E3A;--ev-danger:#c0392b;
+  --ev-cream:#F7F3EC;--ev-moss:#4A5E3A;--ev-danger:var(--danger);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;overflow:hidden;}

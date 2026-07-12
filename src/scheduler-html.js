@@ -12,28 +12,35 @@ export const SCHEDULER_HTML = `<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,700;1,400&family=Source+Sans+3:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 <style>
+/* PAL4: aligned to the admin app's Palette-A-derived legacy tokens
+   (src/frontend/html-head.js :root) — this whole block is stripped when
+   embedded (see _scopeCss in scheduler-inline.js), so the values here only
+   matter for the standalone page, which now just redirects into the
+   embedded tab. Kept in sync anyway so the source tokens stop implying
+   the old pre-rebrand "Steel & Amber" identity is still a real, separate
+   palette to maintain. */
 :root {
-  --steel-anchor: #0A3C5C;
-  --deep-steel:   #2A5470;
+  --steel-anchor: #1E2D4A;
+  --deep-steel:   #2A3F60;
   --mid-steel:    #3D627C;
   --sky-steel:    #5C8FA8;
   --ice-blue:     #C4DDE8;
-  --blue-mist:    #EDF5F8;
-  --amber:        #D4922A;
-  --deep-amber:   #C07D1E;
-  --honey:        #E8B86D;
+  --blue-mist:    #EAF4FA;
+  --amber:        #C9973A;
+  --deep-amber:   #A87B23;
+  --honey:        #E8C070;
   --pale-gold:    #F5E0B0;
   --sage:         #6B8F71;
   --soft-sage:    #9AB89E;
   --pale-sage:    #CDE0CF;
-  --warm-white:   #FAF7F0;
+  --warm-white:   #F8F4EE;
   --linen:        #F2EDE2;
   --white:        #FFFFFF;
   --border:       #E8E0D0;
-  --charcoal:     #3D3530;
+  --charcoal:     #1A1A2A;
   --warm-gray:    #7A6E60;
-  --font-head: 'Lora', Georgia, serif;
-  --font-body: 'Source Sans 3', Arial, sans-serif;
+  --font-head: 'DM Sans', 'Source Sans 3', Arial, sans-serif;
+  --font-body: 'DM Sans', 'Source Sans 3', Arial, sans-serif;
   /* Semantic text colors for status backgrounds */
   --on-pale-gold:  #5a3a00;
   --on-pale-sage:  #1a3d1f;
