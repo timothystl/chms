@@ -484,12 +484,15 @@ if (pmatch) {
       }
       await db.batch(tagStmts).catch(() => {});
     }
-    // Propagate anniversary_date to household spouse if they don't have one set
+    // Propagate anniversary_date to a household spouse who doesn't have one set.
+    // Only fills living partners who have NOT been locally edited, so a partner
+    // who deliberately cleared their own anniversary is never silently refilled.
     if (b.anniversary_date && b.household_id && ['head','spouse'].includes(b.family_role||'')) {
       try {
         await db.prepare(
           `UPDATE people SET anniversary_date=?
            WHERE household_id=? AND id!=? AND (anniversary_date='' OR anniversary_date IS NULL)
+             AND locally_edited=0 AND (deceased=0 OR deceased IS NULL)
              AND family_role IN ('head','spouse') AND active=1`
         ).bind(b.anniversary_date, b.household_id, pid).run();
       } catch {}

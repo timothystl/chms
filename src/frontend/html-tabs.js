@@ -1187,24 +1187,24 @@ export const HTML_TABS_2 = String.raw`
         <div class="field">
           <label>Date of Birth</label>
           <input type="date" id="pm-dob" name="pm-dob">
-          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.78rem;color:var(--warm-gray);margin-top:3px;"><input type="checkbox" id="pm-dob-noyear" onchange="pmYearUnknownChanged('pm-dob-noyear','pm-dob')"> Year unknown (just month/day)</label>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;"><label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.78rem;color:var(--warm-gray);"><input type="checkbox" id="pm-dob-noyear" onchange="pmYearUnknownChanged('pm-dob-noyear','pm-dob')"> Year unknown (just month/day)</label><button type="button" class="pm-date-clear" onclick="clearDateField('pm-dob','pm-dob-noyear')">Clear</button></div>
         </div>
         <div class="field">
           <label>Baptism</label>
           <input type="date" id="pm-baptism" name="pm-baptism">
-          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.78rem;color:var(--warm-gray);margin-top:3px;"><input type="checkbox" id="pm-baptism-noyear" onchange="pmYearUnknownChanged('pm-baptism-noyear','pm-baptism')"> Year unknown (just month/day)</label>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;"><label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.78rem;color:var(--warm-gray);"><input type="checkbox" id="pm-baptism-noyear" onchange="pmYearUnknownChanged('pm-baptism-noyear','pm-baptism')"> Year unknown (just month/day)</label><button type="button" class="pm-date-clear" onclick="clearDateField('pm-baptism','pm-baptism-noyear')">Clear</button></div>
         </div>
         <div class="field">
           <label>Confirmation</label>
           <input type="date" id="pm-confirm" name="pm-confirm">
-          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.78rem;color:var(--warm-gray);margin-top:3px;"><input type="checkbox" id="pm-confirm-noyear" onchange="pmYearUnknownChanged('pm-confirm-noyear','pm-confirm')"> Year unknown (just month/day)</label>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;"><label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.78rem;color:var(--warm-gray);"><input type="checkbox" id="pm-confirm-noyear" onchange="pmYearUnknownChanged('pm-confirm-noyear','pm-confirm')"> Year unknown (just month/day)</label><button type="button" class="pm-date-clear" onclick="clearDateField('pm-confirm','pm-confirm-noyear')">Clear</button></div>
         </div>
         <div class="field">
           <label>Anniversary</label>
           <input type="date" id="pm-anniv" name="pm-anniv">
-          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.78rem;color:var(--warm-gray);margin-top:3px;"><input type="checkbox" id="pm-anniv-noyear" onchange="pmYearUnknownChanged('pm-anniv-noyear','pm-anniv')"> Year unknown (just month/day)</label>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;"><label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.78rem;color:var(--warm-gray);"><input type="checkbox" id="pm-anniv-noyear" onchange="pmYearUnknownChanged('pm-anniv-noyear','pm-anniv')"> Year unknown (just month/day)</label><button type="button" class="pm-date-clear" onclick="clearDateField('pm-anniv','pm-anniv-noyear')">Clear</button></div>
         </div>
-        <div class="field"><label>Death Date</label><input type="date" id="pm-death" name="pm-death"></div>
+        <div class="field"><label>Death Date</label><input type="date" id="pm-death" name="pm-death"><div style="margin-top:3px;text-align:right;"><button type="button" class="pm-date-clear" onclick="clearDateField('pm-death')">Clear</button></div></div>
       </div>
       <div style="margin-bottom:10px;display:flex;gap:24px;flex-wrap:wrap;">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem;">

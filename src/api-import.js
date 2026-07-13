@@ -3168,14 +3168,17 @@ if (seg === 'import/breeze' && method === 'POST') { try {
          SELECT p2.anniversary_date FROM people p2
          WHERE p2.household_id=people.household_id AND p2.id!=people.id
            AND p2.anniversary_date!='' AND p2.family_role IN ('head','spouse')
+           AND (p2.deceased=0 OR p2.deceased IS NULL)
          LIMIT 1
        )
        WHERE active=1 AND (anniversary_date='' OR anniversary_date IS NULL)
+         AND locally_edited=0
          AND family_role IN ('head','spouse') AND household_id IS NOT NULL
          AND EXISTS (
            SELECT 1 FROM people p2 WHERE p2.household_id=people.household_id
              AND p2.id!=people.id AND p2.anniversary_date!=''
              AND p2.family_role IN ('head','spouse')
+             AND (p2.deceased=0 OR p2.deceased IS NULL)
          )`
     ).run();
     anniversaryPropagated = ar.meta?.changes ?? 0;
