@@ -215,6 +215,8 @@ a.s-item{text-decoration:none;color:inherit;}
 .field label{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);}
 .field input,.field select,.field textarea{padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-family:var(--font-body);font-size:.9rem;color:var(--charcoal);background:var(--warm-white);}
 .field input:focus,.field select:focus{outline:none;border-color:var(--steel-anchor);}
+.pm-date-clear{background:none;border:none;color:var(--teal,#2E7EA6);font-size:.72rem;font-weight:600;cursor:pointer;padding:0;text-decoration:underline;text-transform:none;letter-spacing:normal;white-space:nowrap;}
+.pm-date-clear:hover{color:var(--danger,#B85C3A);}
 .field-person{flex:1;min-width:180px;}
 .field-fund{flex:1;min-width:140px;}
 .field-amount{width:110px;}

@@ -416,6 +416,15 @@ function pmYearUnknownChanged(cbId, inputId) {
     inp.focus();
   }
 }
+// Explicitly clear a date field (and its paired "Year unknown" checkbox, if any).
+// Native <input type="date"> has no obvious "delete" affordance, so this gives
+// staff a reliable way to remove a date — e.g. an erroneous anniversary on a
+// person with no partner. Saving an empty date field stores '' server-side.
+function clearDateField(inputId, cbId) {
+  var inp = document.getElementById(inputId);
+  if (inp) inp.value = '';
+  if (cbId) { var cb = document.getElementById(cbId); if (cb) cb.checked = false; }
+}
 // Render a field-card date input with paired "Year unknown" checkbox.
 // Used by the inline Demographics editor on the profile page.
 function pedDateField(idBase, label, val) {
@@ -424,8 +433,11 @@ function pedDateField(idBase, label, val) {
   var inp = 'width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:13px;font-family:inherit;background:var(--white);';
   return '<div class="pv-field-card"><label for="' + idBase + '" class="pv-field-card-lbl">' + label + '</label>'
     + '<input type="date" id="' + idBase + '" value="' + esc(displayVal) + '" style="' + inp + '">'
-    + '<label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--warm-gray);margin-top:3px;cursor:pointer;">'
-    + '<input type="checkbox" id="' + idBase + '-noyear"' + (noYear ? ' checked' : '') + ' onchange="pmYearUnknownChanged(\'' + idBase + '-noyear\',\'' + idBase + '\')"> Year unknown</label></div>';
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;">'
+    + '<label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--warm-gray);cursor:pointer;">'
+    + '<input type="checkbox" id="' + idBase + '-noyear"' + (noYear ? ' checked' : '') + ' onchange="pmYearUnknownChanged(\'' + idBase + '-noyear\',\'' + idBase + '\')"> Year unknown</label>'
+    + '<button type="button" class="pv-date-clear" onclick="clearDateField(\'' + idBase + '\',\'' + idBase + '-noyear\')" style="background:none;border:none;color:var(--teal,#2E7EA6);font-size:11px;cursor:pointer;padding:0;text-decoration:underline;">Clear</button>'
+    + '</div></div>';
 }
 function calcAge(ds) {
   if (!ds) return '';
