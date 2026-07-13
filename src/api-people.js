@@ -70,6 +70,73 @@ function buildBreezeContactFields(fieldIds, person) {
   return fields;
 }
 
+// ── Reverse sync of date / sacramental fields (app → Breeze) ─────────────────
+// Local column → the Breeze profile-field name candidates used to discover the
+// writable field id. Names mirror the inbound sync's findFieldPS() lists so the
+// same Breeze field is read and written. Fallback substrings prefer a name that
+// also contains "date" (so we never write the boolean "Baptized"/"Confirmed"
+// companion field by mistake).
+const BREEZE_DATE_FIELD_SPECS = [
+  { key: 'dob',               names: ['birthdate','birth date','dob','date of birth','birthday','age and birthdate','age'], fallbacks: ['birth','birthday','age'] },
+  { key: 'baptism_date',      names: ['baptism date','baptismal date','date of baptism','baptized date','date baptized','baptism (date)','baptism (adult)','baptism (infant)','baptism_date','baptism','baptized'], fallbacks: ['baptism','baptized','baptismal'] },
+  { key: 'confirmation_date', names: ['confirmation date','affirmation date','date of confirmation','date affirmed','date confirmed','date of affirmation','affirmation of baptism','confirmation (date)','confirmation_date'], fallbacks: ['confirmation','confirmed','affirm'] },
+  { key: 'anniversary_date',  names: ['anniversary date','anniversary','anniversary_date','wedding anniversary','wedding date'], fallbacks: ['anniversary','wedding'] },
+];
+
+// Discover (and cache) the Breeze profile-field ids for the date fields above so
+// we can WRITE them back. Cache key is separate from the contact-field cache.
+async function getBreezeDateFieldIds(db, breeze) {
+  const cached = await db.prepare("SELECT value FROM chms_config WHERE key='breeze_date_field_ids'").first();
+  if (cached?.value) { try { return JSON.parse(cached.value); } catch {} }
+  const out = {};
+  let profileFields = [];
+  try { const pr = await breeze.profile(); if (pr.ok) profileFields = await pr.json(); } catch { return out; }
+  const allFields = [];
+  const flatten = (fields) => {
+    for (const f of (Array.isArray(fields) ? fields : [])) {
+      if (Array.isArray(f.fields) && f.fields.length > 0) flatten(f.fields);
+      else allFields.push(f);
+    }
+  };
+  for (const section of (Array.isArray(profileFields) ? profileFields : [])) flatten(section.fields || []);
+  if (!allFields.length) return out;
+  const findField = (names, fallbacks) => {
+    const ns = names.map(n => n.toLowerCase());
+    let found = allFields.find(f => ns.includes((f.name || '').toLowerCase()));
+    if (!found && fallbacks.length) {
+      found = allFields.find(f => { const fn = (f.name || '').toLowerCase(); return fallbacks.some(s => fn.includes(s)) && fn.includes('date'); });
+      if (!found) found = allFields.find(f => fallbacks.some(s => (f.name || '').toLowerCase().includes(s)));
+    }
+    return found;
+  };
+  for (const spec of BREEZE_DATE_FIELD_SPECS) {
+    const f = findField(spec.names, spec.fallbacks);
+    if (f) out[spec.key] = { id: String(f.field_id || f.id), type: f.field_type || 'date' };
+  }
+  if (Object.keys(out).length) {
+    await db.prepare("INSERT OR REPLACE INTO chms_config(key,value) VALUES('breeze_date_field_ids',?)").bind(JSON.stringify(out)).run();
+  }
+  return out;
+}
+
+// Build fields_json entries for the date fields that actually changed. An empty
+// value is sent as an empty response, which clears the field in Breeze — this is
+// format-agnostic and is the important path for propagating a deletion. Setting a
+// non-empty date sends YYYY-MM-DD (Breeze's ISO date format). Year-unknown
+// sentinels (0001-MM-DD) can't be represented in Breeze, so they're skipped.
+function buildBreezeDateFields(dateFieldIds, person, changedKeys) {
+  const fields = [];
+  for (const spec of BREEZE_DATE_FIELD_SPECS) {
+    if (!changedKeys.includes(spec.key)) continue;
+    const meta = dateFieldIds[spec.key];
+    if (!meta || !meta.id) continue; // never learned this field's id — don't guess
+    const val = String(person[spec.key] ?? '').slice(0, 10);
+    if (val && val.indexOf('0001-') === 0) continue; // year-unknown sentinel — leave Breeze untouched
+    fields.push({ field_id: meta.id, field_type: meta.type || 'date', response: val });
+  }
+  return fields;
+}
+
 // Push a newly-created local person to Breeze, then store the returned breeze_id.
 // Fire-and-forget: call with .catch(() => {}) — failures are silent.
 async function autoPushPersonToBreeze(env, db, personId, person) {
@@ -95,16 +162,29 @@ async function autoPushPersonToBreeze(env, db, personId, person) {
 
 // Push updated contact fields for an existing person to Breeze.
 // Fire-and-forget: call with .catch(() => {}) — failures are silent.
-async function autoUpdatePersonInBreeze(env, db, breezeId, person) {
+async function autoUpdatePersonInBreeze(env, db, breezeId, person, changedDateKeys = [], personId = 0) {
   const breeze = makeBreezeClient(env);
   if (!breeze) return;
   const fieldIds = await getBreezeFieldIds(db, breeze);
   const fields = buildBreezeContactFields(fieldIds, person);
-  await breeze.updatePerson(
+  if (changedDateKeys.length) {
+    const dateIds = await getBreezeDateFieldIds(db, breeze);
+    fields.push(...buildBreezeDateFields(dateIds, person, changedDateKeys));
+  }
+  const res = await breeze.updatePerson(
     breezeId,
     person.first_name || '', person.last_name || '',
     fields.length ? JSON.stringify(fields) : undefined
   );
+  // Record date/sacramental reverse-sync attempts so they can be verified in
+  // production (the exact Breeze date-field write format can't be tested here).
+  if (changedDateKeys.length) {
+    const name = [person.first_name, person.last_name].filter(Boolean).join(' ');
+    await db.prepare(
+      `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
+       VALUES('reverse_sync_breeze','person',?,?,?,?,?)`
+    ).bind(personId || 0, name, changedDateKeys.join(','), '', (res && res.ok) ? 'pushed' : 'failed').run().catch(() => {});
+  }
 }
 
 export async function handlePeopleApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
@@ -521,12 +601,18 @@ if (pmatch) {
     if (newEmail && newEmail !== oldEmail && (b.member_type || '').toLowerCase() === 'member') {
       brevoUpsertContact(env, b.email.trim(), b.first_name || '', b.last_name || '').catch(() => {});
     }
-    // Auto-update Breeze if name/contact info changed and person is already in Breeze
+    // Auto-update Breeze if name/contact or date/sacramental info changed and the
+    // person is already in Breeze. Date fields (incl. clears) are pushed too so a
+    // deletion in the app propagates back instead of being re-imported on next sync.
     const breezeId = oldPerson?.breeze_id || '';
     if (breezeId) {
       const breezeFields = ['first_name','last_name','email','phone','address1','address2','city','state','zip'];
-      const breezeChanged = breezeFields.some(f => String(oldPerson[f] ?? '') !== String(b[f] ?? ''));
-      if (breezeChanged) autoUpdatePersonInBreeze(env, db, breezeId, b).catch(() => {});
+      const contactChanged = breezeFields.some(f => String(oldPerson[f] ?? '') !== String(b[f] ?? ''));
+      const dateKeys = ['dob','baptism_date','confirmation_date','anniversary_date'];
+      const changedDateKeys = dateKeys.filter(f => String(oldPerson[f] ?? '') !== String(b[f] ?? ''));
+      if (contactChanged || changedDateKeys.length) {
+        autoUpdatePersonInBreeze(env, db, breezeId, b, changedDateKeys, pid).catch(() => {});
+      }
     }
     return json({ ok: true });
   }
@@ -583,6 +669,19 @@ if (pmatch) {
       if (ov !== nv) auditOps.push(auditStmt.bind('update','person',pid,personName,field,ov,nv));
     }
     if (auditOps.length) await db.batch(auditOps);
+    // Reverse-sync to Breeze any date/sacramental (or contact) fields present in
+    // this sparse update — mirrors the PUT path so a PATCH clear also propagates.
+    const patchBreezeId = oldPerson.breeze_id || '';
+    if (patchBreezeId) {
+      const dateKeys = ['dob','baptism_date','confirmation_date','anniversary_date'];
+      const changedDateKeys = dateKeys.filter(f => (f in b) && String(oldPerson[f] ?? '') !== String(b[f] ?? ''));
+      const contactFields = ['first_name','last_name','email','phone','address1','address2','city','state','zip'];
+      const contactChanged = contactFields.some(f => (f in b) && String(oldPerson[f] ?? '') !== String(b[f] ?? ''));
+      if (changedDateKeys.length || contactChanged) {
+        const person = { first_name: oldPerson.first_name, last_name: oldPerson.last_name, ...b };
+        autoUpdatePersonInBreeze(env, db, patchBreezeId, person, changedDateKeys, pid).catch(() => {});
+      }
+    }
     return json({ ok: true });
   }
   if (method === 'DELETE') {
