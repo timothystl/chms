@@ -107,8 +107,11 @@ function renderPeopleDesktop(people) {
     avClass = 'dir-avatar ' + (isOrg ? 'dir-avatar-org' : 'dir-avatar-' + (p.id % 5));
     clickHandler = _selectMode
       ? 'onclick="togglePersonSelect(' + p.id + ', this)"'
-      : 'onclick="openPersonDetail(' + p.id + ')"';
-    trCls = isSelected ? ' class="dir-row-selected"' : '';
+      : 'onclick="openPersonQuickView(' + p.id + ')"';
+    var rowClsList = [];
+    if (isSelected) rowClsList.push('dir-row-selected');
+    if (p.id === _qvPersonId) rowClsList.push('dir-row-qv');
+    trCls = rowClsList.length ? ' class="' + rowClsList.join(' ') + '"' : '';
     var statusPill = '';
     if (p.status === 'archived') statusPill = ' <span style="font-size:.68rem;padding:1px 6px;border-radius:99px;background:#8b735522;color:#8b7355;border:1px solid #8b735544;vertical-align:middle;">archived</span>';
     else if (p.status === 'deceased') statusPill = ' <span style="font-size:.68rem;padding:1px 6px;border-radius:99px;background:#6c757d22;color:#6c757d;border:1px solid #6c757d44;vertical-align:middle;">&#x271D; deceased</span>';
@@ -148,9 +151,10 @@ function renderPeopleCards(people) {
     var avInner = isOrg
       ? '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#888;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>'
       : (p.photo_url ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" style="width:42px;height:42px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">' : initials(p.first_name, p.last_name));
-    var clickHandler = _selectMode ? 'togglePersonSelect(' + p.id + ', this)' : 'openPersonDetail(' + p.id + ')';
+    var clickHandler = _selectMode ? 'togglePersonSelect(' + p.id + ', this)' : 'openPersonQuickView(' + p.id + ')';
     var cb = _selectMode ? '<div class="ppl-card-cb">' + (isSelected ? '&#10003;' : '') + '</div>' : '';
-    return '<div class="ppl-card' + (isSelected ? ' selected' : '') + '" style="border-left-color:' + typeColor(p.member_type) + ';" onclick="' + clickHandler + '">'
+    var cardCls = 'ppl-card' + (isSelected ? ' selected' : '') + (p.id === _qvPersonId ? ' qv-active' : '');
+    return '<div class="' + cardCls + '" style="border-left-color:' + typeColor(p.member_type) + ';" onclick="' + clickHandler + '">'
       + cb
       + '<div class="ppl-card-top"><div class="' + avClass + '" style="width:42px;height:42px;">' + avInner + '</div>'
       + '<div style="min-width:0;"><div class="ppl-card-name">' + displayName + '</div><div>' + typeDotHtml(p.member_type, 7) + '</div></div></div>'
@@ -182,6 +186,66 @@ function applyPeopleViewMode() {
   if (grid) grid.style.display = isCard ? 'none' : 'block';
   if (cardGrid) cardGrid.style.display = isCard ? 'block' : 'none';
 }
+// ── Quick-view panel (RDS2 master-detail) — right-side preview shown on
+// row/card click instead of navigating straight to the full Person Profile.
+// "Full Profile" inside the panel still calls the existing openPersonDetail().
+var _qvPersonId = null;
+var _QV_EMPTY_HTML = '<div class="ppl-qv-empty">'
+  + '<svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>'
+  + '<div>Select a person to view details</div></div>';
+function openPersonQuickView(id) {
+  _qvPersonId = id;
+  renderPeopleDesktop(_loadedPeople || []);
+  renderPeopleCards(_loadedPeople || []);
+  var el = document.getElementById('ppl-quickview');
+  if (!el) return;
+  el.innerHTML = '<div class="ppl-qv-empty">Loading&#8230;</div>';
+  api('/admin/api/people/' + id).then(function(p) {
+    if (_qvPersonId !== id) return; // selection changed while this was in flight
+    if (p && p.error) { el.innerHTML = '<div class="ppl-qv-empty">Could not load person.</div>'; return; }
+    renderPersonQuickView(p);
+  }).catch(function() {
+    if (_qvPersonId === id) el.innerHTML = '<div class="ppl-qv-empty">Could not load person.</div>';
+  });
+}
+function renderPersonQuickView(p) {
+  var el = document.getElementById('ppl-quickview');
+  if (!el) return;
+  var isOrg = (p.member_type||'').toLowerCase() === 'organization';
+  var name = isOrg ? esc(p.first_name || p.last_name) : (esc(p.first_name) + ' ' + esc(p.last_name)).trim();
+  var tint = avatarTint(p.id);
+  var avInner = p.photo_url
+    ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">'
+    : initials(p.first_name, p.last_name);
+  var hhLabel = p.household_display_name || p.household_name || 'Household';
+  var hhLink = p.household_id ? ' &middot; <a onclick="openHouseholdDetail(' + p.household_id + ')">' + esc(hhLabel) + '</a>' : '';
+  var contactRows = '';
+  if (p.phone) contactRows += '<div class="ppl-qv-row"><a href="tel:' + esc(p.phone.replace(/\\D/g,'')) + '">' + esc(p.phone) + '</a></div>';
+  if (p.email) contactRows += '<div class="ppl-qv-row"><a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a></div>';
+  if (!contactRows) contactRows = '<div class="ppl-qv-row" style="color:var(--faint);">No contact info on file</div>';
+  el.innerHTML = '<div class="ppl-qv-avatar" style="background:' + tint.bg + ';color:' + tint.fg + ';">' + avInner + '</div>'
+    + '<div class="ppl-qv-name">' + name + '</div>'
+    + '<div class="ppl-qv-meta">' + typeDotHtml(p.member_type) + hhLink + '</div>'
+    + '<div class="ppl-qv-actions">'
+    + (p.phone ? '<a href="tel:' + esc(p.phone.replace(/\\D/g,'')) + '" style="background:var(--color-teal);color:var(--white);">Call</a>' : '<span style="background:var(--linen);color:var(--faint);cursor:default;">Call</span>')
+    + '<div onclick="openPersonDetail(' + p.id + ')" style="background:var(--linen);color:var(--color-navy);">Full Profile</div>'
+    + '</div>'
+    + '<div class="ppl-qv-section"><div class="ppl-qv-section-lbl">Contact</div>' + contactRows + '</div>'
+    + (p.household_id ? '<div class="ppl-qv-section"><div class="ppl-qv-section-lbl">Household</div><div class="ppl-qv-hh-chips" id="ppl-qv-hh-chips">Loading&#8230;</div></div>' : '');
+  if (p.household_id) loadQuickViewHousehold(p.household_id, p.id);
+}
+function loadQuickViewHousehold(hhId, selfId) {
+  api('/admin/api/households/' + hhId).then(function(hh) {
+    var chipsEl = document.getElementById('ppl-qv-hh-chips');
+    if (!chipsEl || _qvPersonId !== selfId) return; // stale response, selection changed
+    var members = hh.members || [];
+    chipsEl.innerHTML = members.map(function(m) {
+      var tint = avatarTint(m.id);
+      var mName = ((m.first_name||'')+' '+(m.last_name||'')).trim();
+      return '<div class="ppl-qv-chip" style="background:' + tint.bg + ';color:' + tint.fg + ';" title="' + esc(mName) + '" onclick="openPersonQuickView(' + m.id + ')">' + initials(m.first_name, m.last_name) + '</div>';
+    }).join('') || '<span style="color:var(--faint);font-size:12px;">No other members</span>';
+  }).catch(function() {});
+}
 // ── MULTI-SELECT ──────────────────────────────────────────────────────
 function toggleSelectMode() {
   _selectMode = !_selectMode;
@@ -191,6 +255,9 @@ function toggleSelectMode() {
   var bar = document.getElementById('p-bulk-bar');
   if (bar) bar.style.display = _selectMode ? 'flex' : 'none';
   if (_selectMode) {
+    _qvPersonId = null;
+    var qvEl = document.getElementById('ppl-quickview');
+    if (qvEl) qvEl.innerHTML = _QV_EMPTY_HTML;
     // Populate member type dropdown
     var sel = document.getElementById('p-bulk-mt');
     if (sel) {

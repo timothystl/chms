@@ -400,6 +400,33 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .ppl-card-email{font-size:12.5px;color:var(--warm-meta);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .ppl-card-cb{position:absolute;top:8px;right:8px;width:18px;height:18px;border:2px solid var(--warm-border);border-radius:4px;background:var(--white);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--white);}
 .ppl-card.selected .ppl-card-cb{background:var(--color-navy);border-color:var(--color-navy);}
+/* ── PEOPLE — master-detail quick-view panel (RDS2) ──
+   List (table/card view, unchanged) on the left; a right-side preview panel
+   shows the selected person without navigating away. "Full Profile" inside
+   the panel still opens the existing full Person Profile page. ── */
+.ppl-master-detail{display:flex;flex:1;min-height:0;}
+.ppl-list-col{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;}
+.ppl-quickview{width:340px;flex-shrink:0;background:var(--white);border-left:1px solid var(--linen);padding:28px 26px;overflow-y:auto;display:flex;flex-direction:column;}
+.ppl-qv-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--warm-gray);gap:10px;padding:40px 20px;text-align:center;font-size:.9rem;margin:auto 0;}
+.ppl-qv-avatar{width:64px;height:64px;border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin-bottom:14px;flex-shrink:0;overflow:hidden;}
+.ppl-qv-avatar img{width:100%;height:100%;object-fit:cover;}
+.ppl-qv-name{font-size:19px;font-weight:800;color:var(--color-navy);}
+.ppl-qv-meta{font-size:12.5px;color:var(--warm-gray);margin:4px 0 18px;}
+.ppl-qv-meta a{color:var(--color-teal);font-weight:600;cursor:pointer;text-decoration:none;}
+.ppl-qv-meta a:hover{text-decoration:underline;}
+.ppl-qv-actions{display:flex;gap:8px;margin-bottom:20px;}
+.ppl-qv-actions>*{flex:1;text-align:center;padding:9px 0;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;text-decoration:none;}
+.ppl-qv-section{margin-bottom:20px;}
+.ppl-qv-section-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);margin-bottom:8px;}
+.ppl-qv-row{font-size:13.5px;color:var(--color-navy);margin-bottom:6px;}
+.ppl-qv-row a{color:inherit;text-decoration:none;}
+.ppl-qv-row a:hover{text-decoration:underline;}
+.ppl-qv-hh-chips{display:flex;flex-wrap:wrap;gap:8px;}
+.ppl-qv-chip{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;}
+.dir-table tbody tr.dir-row-qv td{background:var(--blue-mist)!important;box-shadow:inset 3px 0 0 var(--color-teal);}
+.ppl-card.qv-active{box-shadow:0 0 0 2px var(--color-teal);}
+@media(max-width:1000px){.ppl-quickview{width:280px;padding:22px 18px;}}
+@media(max-width:767px){.ppl-quickview{display:none!important;}}
 /* ── DASHBOARD ──
    Card spec follows the design-handoff mockup exactly: soft dual box-shadow,
    20px radius, no 1px border (replaces the old bordered/flat-shadow cards). ── */
