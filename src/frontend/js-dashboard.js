@@ -1,7 +1,7 @@
 export const JS_DASHBOARD = String.raw`// ── DASHBOARD ─────────────────────────────────────────────────────────
 var _dashData = null;
 var _dashMonth = new Date().getMonth() + 1; // 1-12, default current month
-var DASH_PREF_DEFAULTS = {weeklyTasks:true, prayers:true, followUp:true, newContacts:true, reviewQueue:false, firstGivers:true, notSeen:true, birthdays:true, anniversaries:true, anniversaryIssues:true, baptismAnniversaries:true, membership:true};
+var DASH_PREF_DEFAULTS = {weeklyTasks:true, prayers:true, followUp:true, newContacts:true, reviewQueue:false, firstGivers:true, notSeen:true, birthdays:true, anniversaries:true, anniversaryIssues:false, baptismAnniversaries:true, membership:true};
 var DASH_PREF_LABELS = {weeklyTasks:'This Week\'s Tasks', prayers:'Prayer Requests', followUp:'Follow-up Queue', newContacts:'New Contacts', reviewQueue:'Visitor Review Batch', firstGivers:'First-Time Givers', notSeen:'Not Seen Recently', birthdays:'Birthdays', anniversaries:'Anniversaries', anniversaryIssues:'Anniversary Data Issues', baptismAnniversaries:'Baptism Anniversaries', membership:'Membership by Type'};
 function dashGetPrefs() {
   if (!_dashPrefs) {
