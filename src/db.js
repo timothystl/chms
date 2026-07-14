@@ -524,6 +524,88 @@ export function initDb(db) {
   return _initPromise;
 }
 
+// Tuition Aid Planner: one-time seed of 2026-27 budgeted awards (Tuition_Awards_2026.xlsx)
+// so the tab isn't empty on first load. Guarded by a NOT-EXISTS check on tuition_config —
+// runs once per database. Rows are seeded with person_id/household_id left NULL; staff link
+// each row to a real People record via the planner's person picker at their own pace.
+const TUITION_SEED_K8 = [
+  // family, child, base_grade, outsideAidDollars, timothyAwardDollars, familyOwedDollars, tuitionDollars
+  ["Oschwald","Perrin","PK 4",0,0,8500,8500],
+  ["Elington","Teddy","PK 4",0,0,8500,8500],
+  ["Smithson","Garrett","K",0,4300,4200,8500],
+  ["Oschwald","Jadon","1",0,4600,3900,8500],
+  ["Oschwald","Liam","1",0,4600,3900,8500],
+  ["Weigand","Rebecca","1",0,4300,4200,8500],
+  ["Enderle","Charlotte","2",6000,2000,500,8500],
+  ["Dinger","Daniel","3",6900,1600,0,8500],
+  ["Smithson","Noel","3",0,4300,4200,8500],
+  ["Dinger","Jacob","5",6900,1600,0,8500],
+  ["Pozas","Hannah","5",1500,5500,1500,8500],
+  ["Lee","Olivia","6",1500,6150,850,8500],
+  ["Roden","Penny","6",0,4300,4200,8500],
+  ["Gonzalez","Alaya","7",2000,5000,1500,8500],
+  ["Poppitz","Emma","7",6000,2500,0,8500],
+  ["Knapp","Edmund","8",1500,6150,850,8500],
+  ["Dinger","John","8",6900,1600,0,8500],
+  ["Jermiya","Malidaya","8",3500,4000,1000,8500],
+  ["Poppitz","Olivia","8",6000,2500,0,8500],
+  ["Farrow","Axel","1",0,2000,6500,8500],
+];
+const TUITION_SEED_LHS = [
+  ["Scarlett","9"],["Michael","9"],["Ezra","10"],
+  ["Edward","11"],["Sammy","11"],["Eva","11"],["Lilly","11"],
+];
+const TUITION_SEED_CONFIG = {
+  base_school_year: '2026',
+  school_year_label: '2026–27',
+  as_of_note: 'Data as of budgeted awards, 26-27 term',
+  tuition_base_cents: '850000',
+  tuition_growth_pct: '6',
+  k8_budget_cents: '7500000',
+  lhs_standard_rate_cents: '120000',
+  lhs_max_award_cents: '250000',
+  timothy_min_award_cents: '200000',
+  family_share_cap_pct: '50',
+  default_pipeline_fam_pct: '50',
+};
+const TUITION_SEED_HISTORY = [
+  ['2019-20',6200,30.5],['2020-21',6350,19.9],['2021-22',6575,19.0],['2022-23',6825,15.3],
+  ['2023-24',7200,22.8],['2024-25',7560,19.4],['2025-26',8100,44.4],['2026-27',8500,30.3],
+];
+async function seedTuitionAid(db) {
+  const already = await db.prepare(`SELECT 1 FROM tuition_config LIMIT 1`).first();
+  if (already) return;
+  for (const [key, value] of Object.entries(TUITION_SEED_CONFIG)) {
+    await db.prepare(`INSERT INTO tuition_config (key,value) VALUES (?,?)`).bind(key, value).run();
+  }
+  let sort = 0;
+  for (const [family, child, baseGrade, outsideAid, timothyAward, familyOwed, tuition] of TUITION_SEED_K8) {
+    const famPct = tuition > 0 ? Math.round((1 - timothyAward / tuition) * 100) : 0;
+    await db.prepare(
+      `INSERT INTO tuition_students (family,child,is_pipeline,base_grade,outside_aid_cents,fam_pct,fam_pct_orig,
+        timothy_award_exact_cents,family_owed_exact_cents,lhs_award_cents,lhs_award_orig_cents,attends_lhs,sort_order)
+       VALUES (?,?,0,?,?,?,?,?,?,?,?,1,?)`
+    ).bind(family, child, baseGrade, Math.round(outsideAid*100), famPct, famPct,
+      Math.round(timothyAward*100), Math.round(familyOwed*100), 120000, 120000, sort++).run();
+  }
+  for (const [child, baseGrade] of TUITION_SEED_LHS) {
+    await db.prepare(
+      `INSERT INTO tuition_students (family,child,is_pipeline,base_grade,fam_pct,fam_pct_orig,lhs_award_cents,lhs_award_orig_cents,attends_lhs,sort_order)
+       VALUES ('—',?,0,?,0,0,120000,120000,1,?)`
+    ).bind(child, baseGrade, sort++).run();
+  }
+  await db.prepare(
+    `INSERT INTO tuition_students (family,child,is_pipeline,birth_year,fam_pct,fam_pct_orig,lhs_award_cents,lhs_award_orig_cents,attends_lhs,sort_order)
+     VALUES ('Knapp','Lawrence',1,2023,50,50,120000,120000,1,?)`
+  ).bind(sort++).run();
+  let hsort = 0;
+  for (const [schoolYear, tuitionDollars, familyPct] of TUITION_SEED_HISTORY) {
+    await db.prepare(
+      `INSERT INTO tuition_history (school_year,tuition_cents,family_pct,sort_order) VALUES (?,?,?,?)`
+    ).bind(schoolYear, Math.round(tuitionDollars*100), familyPct, hsort++).run();
+  }
+}
+
 async function _doInitDb(db) {
   for (const stmt of DB_INIT) {
     await db.prepare(stmt).run();
@@ -646,6 +728,42 @@ async function _doInitDb(db) {
     // linked/promoted at volunteer.timothystl.org/<slug> instead of a bare #event-<id>.
     'ALTER TABLE serve_events ADD COLUMN slug TEXT NOT NULL DEFAULT ""',
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_serve_events_slug ON serve_events(slug) WHERE slug != ''`,
+    // Tuition Aid Planner: K-8/LHS roster (money in integer cents), budget config, historical chart data
+    `CREATE TABLE IF NOT EXISTS tuition_students (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_id INTEGER REFERENCES people(id),
+      household_id INTEGER REFERENCES households(id),
+      family TEXT NOT NULL DEFAULT '',
+      child TEXT NOT NULL DEFAULT '',
+      is_pipeline INTEGER NOT NULL DEFAULT 0,
+      base_grade TEXT NOT NULL DEFAULT '',
+      birth_year INTEGER,
+      outside_aid_cents INTEGER NOT NULL DEFAULT 0,
+      fam_pct INTEGER NOT NULL DEFAULT 50,
+      fam_pct_orig INTEGER NOT NULL DEFAULT 50,
+      touched INTEGER NOT NULL DEFAULT 0,
+      lhs_award_cents INTEGER NOT NULL DEFAULT 120000,
+      lhs_award_orig_cents INTEGER NOT NULL DEFAULT 120000,
+      attends_lhs INTEGER NOT NULL DEFAULT 1,
+      timothy_award_exact_cents INTEGER,
+      family_owed_exact_cents INTEGER,
+      note TEXT NOT NULL DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS tuition_config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT ''
+    )`,
+    `CREATE TABLE IF NOT EXISTS tuition_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      school_year TEXT NOT NULL DEFAULT '',
+      tuition_cents INTEGER NOT NULL DEFAULT 0,
+      family_pct REAL NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    )`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
@@ -687,5 +805,7 @@ async function _doInitDb(db) {
          GROUP BY name
        )`
   ).run().catch(() => {});
+
+  await seedTuitionAid(db);
 }
 

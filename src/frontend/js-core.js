@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '1.11.1';
+var DEPLOY_VERSION = '1.12.0';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirks — suppress these and don't show the error banner.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -148,6 +148,7 @@ function showTab(name) {
   var isStaffPlus   = _userRole === 'admin' || _userRole === 'staff';
   var canEdit       = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff';
   if (name === 'giving'     && !isFinancePlus) return;
+  if (name === 'tuitionaid' && !isFinancePlus) return;
   if (name === 'attendance' && !isStaffPlus)   return;
   if (name === 'register'   && !isStaffPlus)   return;
   if (name === 'reports'    && !canEdit)        return;
@@ -155,9 +156,9 @@ function showTab(name) {
   if (name === 'settings'   && _userRole !== 'admin') return;
   if (name === 'volunteers' && _userRole !== 'admin') return;
   if (name === 'scheduler'  && _userRole !== 'admin') return;
-  var labels = {home:'Home',people:'People',households:'Households',organizations:'Organizations',giving:'Giving',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings',volunteers:'Volunteers',scheduler:'Scheduler'};
+  var labels = {home:'Home',people:'People',households:'Households',organizations:'Organizations',giving:'Giving',tuitionaid:'Tuition Aid Planner',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings',volunteers:'Volunteers',scheduler:'Scheduler'};
   // Three-pillar map: People (people data), Giving (financial), Ministry (engagement/admin)
-  var pillars = {people:'people',households:'people',organizations:'people',giving:'giving',attendance:'ministry',reports:'ministry',register:'ministry',volunteers:'ministry',scheduler:'ministry'};
+  var pillars = {people:'people',households:'people',organizations:'people',giving:'giving',tuitionaid:'giving',attendance:'ministry',reports:'ministry',register:'ministry',volunteers:'ministry',scheduler:'ministry'};
   // Push browser history so back button works (skip when responding to popstate)
   if (!_tabFromPopState) {
     history.pushState({ tab: name }, '', '#' + name);
@@ -186,6 +187,7 @@ function showTab(name) {
   if (name === 'households') loadHouseholds();
   if (name === 'organizations') loadOrganizations();
   if (name === 'giving') loadBatches();
+  if (name === 'tuitionaid') loadTuitionAid();
   if (name === 'reports') initReports();
   if (name === 'attendance') loadAttendance();
   if (name === 'register') loadRegister();
