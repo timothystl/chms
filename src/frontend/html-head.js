@@ -677,6 +677,53 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .status-pill.status-contacted{background:rgba(46,126,166,.12);color:var(--teal);}
 .status-pill.status-confirmed{background:rgba(107,143,113,.15);color:#3d5c42;}
 .status-pill.status-declined{background:rgba(184,92,58,.1);color:var(--danger);}
+/* ── Tuition Aid Planner ── */
+.tap-kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px;}
+.tap-kpi{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px 16px;}
+.tap-kpi.accent{background:linear-gradient(135deg,var(--navy),var(--deep-steel));border:none;}
+.tap-kpi .tap-lbl{font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);font-weight:700;}
+.tap-kpi.accent .tap-lbl{color:var(--ice-blue);}
+.tap-kpi .tap-val{font-size:1.5rem;font-weight:700;color:var(--navy);margin-top:2px;}
+.tap-kpi.accent .tap-val{color:var(--white);}
+.tap-kpi .tap-note{font-size:.72rem;color:var(--warm-gray);margin-top:2px;}
+.tap-kpi.accent .tap-note{color:var(--ice-blue);}
+.tap-pathway{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:18px;}
+.tap-path-track{display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding:6px 0 4px;}
+.tap-path-stage{flex:1 0 auto;min-width:100px;text-align:center;position:relative;padding:0 6px;}
+.tap-path-stage .tap-dot{width:12px;height:12px;border-radius:50%;background:var(--navy);margin:0 auto 6px;border:3px solid var(--pale-gold);}
+.tap-path-stage.hot .tap-dot{background:var(--gold-accent);border-color:var(--white);box-shadow:0 0 0 4px rgba(201,151,58,.25);}
+.tap-path-line{position:relative;top:6px;height:2px;background:var(--border);margin:0 -50%;z-index:-1;}
+.tap-path-stage:first-child .tap-path-line{display:none;}
+.tap-path-count{font-size:1.1rem;font-weight:700;color:var(--navy);}
+.tap-path-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.03em;color:var(--warm-gray);font-weight:600;}
+.tap-flags{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.tap-flag{font-size:.75rem;background:var(--pale-gold);color:#7A5C14;padding:5px 11px;border-radius:20px;border:1px solid #E9D9A8;}
+.tap-flag b{color:var(--navy);}
+.tap-grid2{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-bottom:16px;}
+.tap-grid2b{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+@media(max-width:820px){.tap-grid2,.tap-grid2b{grid-template-columns:1fr;}}
+.tap-gauge-track{width:100%;height:20px;background:var(--linen);border-radius:10px;overflow:hidden;}
+.tap-gauge-fill{height:100%;background:linear-gradient(90deg,var(--navy),var(--sky-steel));width:0%;transition:width .2s ease,background .2s ease;}
+.tap-gauge-fill.over{background:linear-gradient(90deg,var(--danger),#D9534F);}
+.tap-gauge-label{display:flex;justify-content:space-between;margin-top:6px;font-size:.82rem;color:var(--warm-gray);}
+.tap-gauge-label .tap-gauge-text{font-weight:700;color:var(--navy);}
+.tap-gauge-label .tap-over-text{color:var(--danger)!important;}
+.tap-slider-row{display:flex;align-items:center;gap:8px;}
+.tap-slider-row input[type=range]{flex:1 1 auto;min-width:70px;accent-color:var(--navy);cursor:pointer;}
+.tap-slider-row input[type=range].over{accent-color:var(--danger);}
+.tap-slider-row input[type=number]{width:56px;flex:0 0 auto;font-size:.78rem;text-align:right;border:1px solid var(--border);border-radius:6px;padding:3px 5px;color:var(--navy);font-weight:600;font-family:var(--font-body);}
+.tap-slider-caption{font-size:.68rem;color:var(--warm-gray);margin-top:2px;}
+.tap-award-cell{font-variant-numeric:tabular-nums;font-weight:700;color:var(--navy);text-align:right;white-space:nowrap;}
+.tap-pipeline-box{background:var(--pale-gold);border:1px solid #E9D9A8;border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+.tap-pipeline-box h4{margin:0 0 8px;font-size:.85rem;color:#7A5C14;}
+.tap-pipeline-form{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+.tap-pipeline-form input{font-size:.82rem;padding:6px 10px;border-radius:8px;border:1px solid #E9D9A8;background:var(--white);font-family:var(--font-body);}
+.tap-pipeline-chip{display:inline-flex;align-items:center;gap:6px;background:var(--white);border:1px solid #E9D9A8;border-radius:20px;padding:5px 10px;margin:0 8px 8px 0;font-size:.8rem;}
+.tap-pipeline-remove{border:none;background:none;color:var(--danger);font-size:15px;font-weight:700;cursor:pointer;line-height:1;padding:0 2px;}
+.tap-lhs-toggle{display:block;font-size:.68rem;font-weight:400;color:var(--warm-gray);margin-top:3px;text-align:right;cursor:pointer;white-space:nowrap;}
+.tap-lhs-toggle input{vertical-align:middle;margin-right:3px;cursor:pointer;}
+.tap-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;font-size:.85rem;}
+.tap-controls select{padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--white);color:var(--charcoal);font-family:var(--font-body);}
 </style>
 </head>
 <body>
@@ -692,6 +739,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div class="s-item" data-tab="organizations" onclick="showTab('organizations')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="1"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg><span class="s-tip">Organizations</span></div>
   <div class="s-section-hdr require-finance">Giving</div>
   <div class="s-item require-finance" data-tab="giving" onclick="showTab('giving')"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg><span class="s-tip">Giving</span></div>
+  <div class="s-item require-finance" data-tab="tuitionaid" onclick="showTab('tuitionaid')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 2 3 3 6 3s6-1 6-3v-5"/></svg><span class="s-tip">Tuition Aid</span></div>
   <div class="s-section-hdr no-member">Ministry</div>
   <div class="s-item require-staff" data-tab="attendance" onclick="showTab('attendance')"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg><span class="s-tip">Attendance</span></div>
   <div class="s-item no-member" data-tab="reports" onclick="showTab('reports')"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span class="s-tip">Reports</span></div>

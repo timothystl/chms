@@ -12,6 +12,7 @@ import { JS_GIVING } from './frontend/js-giving.js';
 import { JS_REPORTS } from './frontend/js-reports.js';
 import { JS_EXPORT_IMPORT } from './frontend/js-export-import.js';
 import { JS_ATTENDANCE } from './frontend/js-attendance.js';
+import { JS_TUITION_AID } from './frontend/js-tuition-aid.js';
 import { JS_VOLUNTEERS } from './frontend/js-volunteers.js';
 
 export const CHMS_MANIFEST_JSON = '{"name":"TLC Gather","short_name":"Gather","description":"Church management for Timothy Lutheran Church","start_url":"/","display":"standalone","theme_color":"#1E2D4A","background_color":"#F8F4EE","scope":"/","icons":[{"src":"/icons/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},{"src":"/icons/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"},{"src":"/icons/icon-512-maskable.png","sizes":"512x512","type":"image/png","purpose":"maskable"}]}';
@@ -85,6 +86,7 @@ export const CHMS_HTML = HTML_HEAD
   + JS_REPORTS
   + JS_EXPORT_IMPORT
   + JS_ATTENDANCE
+  + JS_TUITION_AID
   + JS_VOLUNTEERS;
 
 // ── Dev Board (Kanban) ──────────────────────────────────────────────

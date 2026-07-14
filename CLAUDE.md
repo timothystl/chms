@@ -432,6 +432,11 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### Tuition Aid Planner (2026-07-14)
+- [x] **TAP1** — New "Tuition Aid" tab (finance/admin only), built from an uploaded mockup and wired to real D1 tables (`tuition_students`, `tuition_config`, `tuition_history`; migration `0014`) instead of hardcoded session-only data. Roster rows can be linked to real People records via a search picker. Full planner algorithm ported (family-share-% sliders, $2,000/student floor, 50%-cap Apply Policy, Auto-Balance, pipeline birth-year tracking) with debounced auto-save. 4 charts (History, Composition, Projection, Enrollment) hand-rolled in SVG, no Chart.js dependency. Done 2026-07-14 (v1.12.0). See NOTES.md for full detail.
+- [ ] **TAP2** — No live-browser visual verification was done this session (backend/wiring verified via `node --check` on extracted `<script>` blocks + local D1 smoke tests + `npm test`, not a Playwright/manual render check). Do a visual pass on the sliders, gauges, and charts before presenting to council/board.
+- [ ] **TAP3** — Config knobs (K-8 budget, tuition base/growth rate, LHS standard rate, $2,000 floor, 50% cap) are only editable via direct API calls (`PATCH /admin/api/tuition-aid/config`) — no Settings UI yet. Add one if these need to change without a code deploy.
+
 <!-- Add items here as they come up. Format: - [ ] Description (noted YYYY-MM-DD) -->
 
 ### Pre-Redesign Palette Consolidation (2026-07-12)

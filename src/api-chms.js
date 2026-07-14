@@ -7,6 +7,7 @@ import { handleReportsApi } from './api-reports.js';
 import { handlePeopleApi } from './api-people.js';
 import { handleSendInvite } from './api-member.js';
 import { handleGivingApi } from './api-giving.js';
+import { handleTuitionAidApi } from './api-tuition-aid.js';
 
 export async function handleChmsApi(req, env, url, method, seg, role = 'admin') {
   const db = env.DB;
@@ -25,6 +26,10 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // Giving and giving reports — finance+ only
   if ((seg.startsWith('giving') || seg.startsWith('reports/giving')) && !isFinance) {
     return json({ error: 'Access denied: giving data requires finance access' }, 403);
+  }
+  // Tuition Aid Planner — finance+ only (admin + finance roles)
+  if (seg.startsWith('tuition-aid') && !isFinance) {
+    return json({ error: 'Access denied: tuition aid data requires finance access' }, 403);
   }
   // Attendance, register, follow-ups, audit — staff+ only (NOT finance)
   if ((seg.startsWith('attendance') || seg.startsWith('register') ||
@@ -430,6 +435,12 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // ── Giving Entries / Batches / Quick Entry → api-giving.js ─────────────────
   if (seg.startsWith('giving') || seg.startsWith('giving/')) {
     const result = await handleGivingApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit);
+    if (result !== null) return result;
+  }
+
+  // ── Tuition Aid Planner → api-tuition-aid.js ────────────────────────────
+  if (seg.startsWith('tuition-aid')) {
+    const result = await handleTuitionAidApi(req, env, url, method, seg, db, isFinance);
     if (result !== null) return result;
   }
 
