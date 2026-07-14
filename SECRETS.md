@@ -67,19 +67,25 @@ All secrets are stored as Cloudflare Worker secrets (`wrangler secret put <NAME>
 
 These are not required for the app to function but unlock additional capabilities.
 
+### `GOOGLE_ADDRESS_API_KEY`
+- **Purpose**: Google Address Validation API — first choice for address validation (used for both the single-person "Verify Address" button and bulk validation). No meaningful rate limit at church scale, unlike the USPS OAuth API's 60 req/hour cap. Falls back to USPS/Lob/Census if absent.
+- **Provision**: Google Cloud Console → create/select a project → enable billing → enable the "Address Validation API" → Credentials → Create API Key → restrict the key to the Address Validation API only. Free tier: 10,000 calls/month.
+- **Set**: `wrangler secret put GOOGLE_ADDRESS_API_KEY`.
+- **Risk if leaked**: Free-tier quota abuse; restrict the key server-side (API restriction) to limit blast radius.
+
 ### `USPS_CLIENT_ID` + `USPS_CLIENT_SECRET`
-- **Purpose**: USPS OAuth 2.0 address validation. Without these (or `USPS_USER_ID`/`LOB_API_KEY`), address validation falls back to the free Census Bureau geocoder, which is unreliable and often returns false positives.
+- **Purpose**: USPS OAuth 2.0 address validation. Used if `GOOGLE_ADDRESS_API_KEY` is absent. Note: as of the January 2026 Web Tools shutdown, this API is rate-limited to 60 requests/hour — fine for the single-person button, impractical for bulk validation at scale.
 - **Provision**: Register at https://developer.usps.com → create an app with the **Addresses (3.0)** API → copy Consumer Key and Consumer Secret.
 - **Set**: `wrangler secret put USPS_CLIENT_ID` then `wrangler secret put USPS_CLIENT_SECRET`.
 - **Risk if leaked**: Free-tier abuse of the church's USPS quota.
 
 ### `USPS_USER_ID`
-- **Purpose**: USPS Web Tools (legacy) — only used as a fallback if OAuth credentials are absent.
+- **Purpose**: USPS Web Tools (legacy) — only used as a fallback if Google and USPS OAuth credentials are both absent. Shut down January 2026; kept only for reference.
 - **Provision**: https://www.usps.com/business/web-tools-apis/ (legacy registration; new signups disabled).
 - **Set**: `wrangler secret put USPS_USER_ID`.
 
 ### `LOB_API_KEY`
-- **Purpose**: Lob address verification — secondary fallback if no USPS credentials present.
+- **Purpose**: Lob address verification — fallback if no Google/USPS credentials present.
 - **Provision**: https://dashboard.lob.com → API Keys → live secret key.
 - **Set**: `wrangler secret put LOB_API_KEY`.
 

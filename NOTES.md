@@ -129,6 +129,13 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-14 (v1.11.1 — Google Address Validation added as first-choice provider)
+- **Context**: USPS's legacy free Web Tools XML address-validation API shut down January 25, 2026; its replacement (USPS OAuth API) is free but rate-limited to 60 requests/hour, too low for bulk validation at scale.
+- Added `validateGoogle()` to `src/api-utils.js`, calling the Google Address Validation API (`addressvalidation.googleapis.com/v1:validateAddress`). New optional secret `GOOGLE_ADDRESS_API_KEY`.
+- `validateAddressCore()` priority order updated: **Google → USPS OAuth → USPS Web Tools (legacy) → Lob → Census** (was USPS OAuth → USPS Web Tools → Lob → Census). Existing USPS/Lob secrets are unchanged and still used as fallbacks if Google's key is absent or the church prefers not to enable it.
+- `SECRETS.md` updated with `GOOGLE_ADDRESS_API_KEY` provisioning steps (Google Cloud Console → enable billing → enable Address Validation API → restrict key) and clarified the USPS OAuth rate-limit caveat.
+- No schema/DB changes. `npm test` passes (37/37); all `<script>` blocks syntax-check clean.
+
 ### 2026-07-13 (v1.11.0 — Reverse sync of date/sacramental fields to Breeze)
 - **Extends the app→Breeze reverse sync (BR1) to cover date fields**, closing the loop from the v1.10.0 deletion fix: previously reverse sync only pushed **name/email/phone/address**, so clearing an anniversary (or DOB/baptism/confirmation) in the app left Breeze untouched and a later per-person "Sync Breeze" re-imported the old value. Now setting **or clearing** any of `dob` / `baptism_date` / `confirmation_date` / `anniversary_date` on a person who already has a `breeze_id` pushes that change to Breeze on save.
 - New `getBreezeDateFieldIds(db, breeze)` discovers the writable Breeze profile-field ids for those four fields using the same name-matching lists as the inbound sync (`breeze.profile()` → flatten → match, preferring names containing "date" so the boolean "Baptized"/"Confirmed" companion fields are never written). Cached in `chms_config` under `breeze_date_field_ids`.
