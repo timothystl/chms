@@ -130,7 +130,16 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
 <!-- ═══ GIVING TAB ═══ -->
 <div id="tab-giving" class="tab-panel">
-  <div class="giving-layout">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;flex-shrink:0;">
+    <span style="font-size:22px;font-weight:800;color:var(--color-navy);">Giving</span>
+    <div class="view-toggle" style="margin-left:auto;">
+      <button class="active" id="giv-view-batches-btn" onclick="givSetView('batches')">Batches</button>
+      <button id="giv-view-txns-btn" onclick="givSetView('transactions')">Transactions</button>
+    </div>
+  </div>
+  <div class="dash-stats" id="giv-stats" style="margin-bottom:20px;flex-shrink:0;"></div>
+
+  <div class="giving-layout" id="giv-view-batches">
     <!-- Batch list -->
     <div class="batch-list-panel">
       <div class="batch-list-hdr">
@@ -153,6 +162,21 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg>
         <div style="font-size:.9rem;">Select a batch to view entries</div>
       </div>
+    </div>
+  </div>
+
+  <div class="giv-txn-view" id="giv-view-transactions" style="display:none;">
+    <div class="giv-txn-filters">
+      <div class="field"><label>Fund</label><select id="giv-txn-fund" onchange="loadGivingTransactions()"><option value="">All Funds</option></select></div>
+      <div class="field"><label>From</label><input type="date" id="giv-txn-from" onchange="loadGivingTransactions()"></div>
+      <div class="field"><label>To</label><input type="date" id="giv-txn-to" onchange="loadGivingTransactions()"></div>
+      <button class="btn-secondary" onclick="givTxnClearFilters()">Clear Filters</button>
+    </div>
+    <div class="giv-txn-table-wrap">
+      <table class="entries-table">
+        <thead><tr><th>Donor</th><th>Fund</th><th>Method</th><th>Date</th><th class="amt-col">Amount</th></tr></thead>
+        <tbody id="giv-txn-tbody"></tbody>
+      </table>
     </div>
   </div>
 </div>

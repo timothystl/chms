@@ -1,5 +1,6 @@
 // ── Giving Entries, Batches, Quick Entry API handlers ──────────────────────
 import { json } from './auth.js';
+import { isoWeekKey } from './api-utils.js';
 
 export async function handleGivingApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -41,6 +42,57 @@ if (seg === 'giving/batches' && method === 'GET') {
   sql += ' GROUP BY gb.id ORDER BY gb.batch_date DESC, gb.id DESC LIMIT 100';
   const rows = (await db.prepare(sql).bind(...binds).all()).results || [];
   return json({ batches: rows });
+}
+
+// ── Giving tab overview stat tiles (This Week / This Month / YTD / Givers) ──
+if (seg === 'giving/stats' && method === 'GET') {
+  const weekStart  = isoWeekKey();
+  const monthStart = new Date().toISOString().slice(0, 7) + '-01';
+  const yearStart  = new Date().toISOString().slice(0, 4) + '-01-01';
+  const row = await db.prepare(`
+    SELECT
+      COALESCE(SUM(CASE WHEN d>=? THEN amount END),0) as week_total,
+      COALESCE(SUM(CASE WHEN d>=? THEN amount END),0) as month_total,
+      COALESCE(SUM(CASE WHEN d>=? THEN amount END),0) as ytd_total,
+      COUNT(DISTINCT CASE WHEN d>=? AND person_id IS NOT NULL THEN person_id END) as givers
+    FROM (
+      SELECT ge.amount as amount, ge.person_id as person_id,
+             COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) as d
+      FROM giving_entries ge JOIN giving_batches gb ON ge.batch_id=gb.id
+    )
+    WHERE d>=?`
+  ).bind(weekStart, monthStart, yearStart, yearStart, yearStart).first();
+  return json({
+    weekTotal: row?.week_total || 0,
+    monthTotal: row?.month_total || 0,
+    ytdTotal: row?.ytd_total || 0,
+    givers: row?.givers || 0
+  });
+}
+
+// ── Flat transaction view (Batches/Transactions toggle) — fund + date-range filterable ──
+if (seg === 'giving/transactions' && method === 'GET') {
+  const fundId = url.searchParams.get('fund_id');
+  const from   = url.searchParams.get('from') || '';
+  const to     = url.searchParams.get('to') || '';
+  const limit  = Math.min(parseInt(url.searchParams.get('limit') || '200'), 500);
+  let sql = `SELECT ge.id, ge.amount, ge.method, ge.check_number, ge.batch_id,
+              COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) as txn_date,
+              f.name as fund_name,
+              COALESCE(p.first_name||' '||p.last_name,'(anonymous)') as person_name
+             FROM giving_entries ge
+             JOIN funds f ON ge.fund_id=f.id
+             JOIN giving_batches gb ON ge.batch_id=gb.id
+             LEFT JOIN people p ON ge.person_id=p.id
+             WHERE 1=1`;
+  const binds = [];
+  if (fundId) { sql += ` AND ge.fund_id=?`; binds.push(parseInt(fundId)); }
+  if (from)   { sql += ` AND COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) >= ?`; binds.push(from); }
+  if (to)     { sql += ` AND COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) <= ?`; binds.push(to); }
+  sql += ` ORDER BY txn_date DESC, ge.id DESC LIMIT ?`;
+  binds.push(limit);
+  const transactions = (await db.prepare(sql).bind(...binds).all()).results || [];
+  return json({ transactions });
 }
 
 if (seg === 'giving/batches' && method === 'POST') {
