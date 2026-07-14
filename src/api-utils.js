@@ -85,10 +85,11 @@ export function normalizePhone(raw) {
 
 // ── ADDRESS VALIDATION HELPERS ───────────────────────────────────────────
 // Service priority:
-//   1. USPS OAuth API  (USPS_CLIENT_ID + USPS_CLIENT_SECRET) — new REST API
-//   2. USPS Web Tools  (USPS_USER_ID)                        — legacy XML API
-//   3. Lob             (LOB_API_KEY)
-//   4. Census Bureau   (free fallback, no key needed)
+//   1. Google Address Validation (GOOGLE_ADDRESS_API_KEY) — no rate-limit ceiling, best for bulk
+//   2. USPS OAuth API  (USPS_CLIENT_ID + USPS_CLIENT_SECRET) — new REST API, 60 req/hour cap
+//   3. USPS Web Tools  (USPS_USER_ID)                        — legacy XML API
+//   4. Lob             (LOB_API_KEY)
+//   5. Census Bureau   (free fallback, no key needed)
 // All helpers return a plain object: { ok, address1, address2, city, state, zip, zip4, dpvConfirmation, deliverable }
 // or { ok: false, error } on failure.
 
@@ -252,8 +253,50 @@ async function validateCensus(addr) {
   };
 }
 
+async function validateGoogle(addr, apiKey) {
+  const addressLines = [(addr.address1 || '').trim(), (addr.address2 || '').trim()].filter(Boolean);
+  const body = {
+    address: {
+      regionCode: 'US',
+      addressLines,
+      locality: (addr.city || '').trim() || undefined,
+      administrativeArea: (addr.state || '').trim() || undefined,
+      postalCode: (addr.zip || '').trim() || undefined,
+    },
+  };
+  const res = await fetch('https://addressvalidation.googleapis.com/v1:validateAddress?key=' + apiKey, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    return { ok: false, error: err.error?.message || ('Google error ' + res.status) };
+  }
+  const data = await res.json();
+  const result = data.result || {};
+  const postal = result.address?.postalAddress || {};
+  const usps = result.uspsData || {};
+  const dpvMap = { CONFIRMED: 'Y', UNCONFIRMED_BUT_MATCHABLE: 'S', UNCONFIRMED: 'N' };
+  const dpv = dpvMap[usps.dpvConfirmation] || (result.verdict?.addressComplete ? 'Y' : 'N');
+  return {
+    ok: true,
+    address1: (postal.addressLines || [])[0] || (addr.address1 || ''),
+    address2: (postal.addressLines || [])[1] || (addr.address2 || ''),
+    city: postal.locality || (addr.city || ''),
+    state: postal.administrativeArea || (addr.state || ''),
+    zip: (postal.postalCode || (addr.zip || '')).split('-')[0],
+    zip4: usps.zipPlus4 || '',
+    dpvConfirmation: dpv,
+    deliverable: dpv === 'Y' || dpv === 'S' || dpv === 'D',
+    deliverability: dpv === 'Y' ? 'deliverable' : dpv === 'S' ? 'deliverable_missing_unit' : 'undeliverable',
+    source: 'google',
+  };
+}
+
 async function validateAddressCore(addr, env, uspsToken) {
   const a = cleanAddr(addr);
+  if (env.GOOGLE_ADDRESS_API_KEY) return validateGoogle(a, env.GOOGLE_ADDRESS_API_KEY);
   if (env.USPS_CLIENT_ID && env.USPS_CLIENT_SECRET)
     return validateUspsOAuth(a, env.USPS_CLIENT_ID, env.USPS_CLIENT_SECRET, uspsToken);
   if (env.USPS_USER_ID)  return validateUspsWebTools(a, env.USPS_USER_ID);
