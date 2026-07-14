@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '1.12.0';
+var DEPLOY_VERSION = '1.13.0';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirks — suppress these and don't show the error banner.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -114,10 +114,11 @@ function photoSrc(url) {
 // ── SHARED AVATAR / STATUS-COLOR SYSTEM (People list, Person Profile, Household View) ──
 var AVATAR_TINTS = [
   {bg:'var(--pale-gold)',fg:'#8A5A12'}, // gold
-  {bg:'var(--blue-mist)',fg:'var(--color-teal)'}, // sky
-  {bg:'#F0D7C4',fg:'#8A4A1E'}, // terracotta
-  {bg:'#D9E8D3',fg:'#3F5E38'}, // sage
-  {bg:'#F0C9B8',fg:'#7A3418'}  // blush
+  {bg:'var(--blue-mist)',fg:'var(--color-teal)'}, // teal
+  {bg:'#F0D7C4',fg:'#8A4A1E'}, // clay
+  {bg:'#E6EEE6',fg:'#4E6E53'}, // sage
+  {bg:'#DDE8F5',fg:'#2E4E8A'}, // periwinkle
+  {bg:'#EFE0EF',fg:'#7A4A8A'}  // mauve
 ];
 function avatarTint(id) {
   return AVATAR_TINTS[Math.abs(id||0) % AVATAR_TINTS.length];

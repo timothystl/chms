@@ -324,7 +324,6 @@ function renderDashboard(d) {
   var body = document.getElementById('dash-body');
   if (!body) return;
   var prefs = dashGetPrefs();
-  var pvColors = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E87040'];
   var maxType = d.typeCounts && d.typeCounts.length ? d.typeCounts[0].n : 1;
   var yr = new Date().getFullYear();
   var html = '';
@@ -558,10 +557,10 @@ function renderDashboard(d) {
     html += '<div class="dash-card" style="padding:0;"><div class="dash-card-body">'
       + firstGivers.map(function(p) {
           var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-          var bg = pvColors[p.id % pvColors.length];
+          var tint = avatarTint(p.id);
           var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
           return '<div class="dash-row-item" id="fg-row-'+p.id+'" style="cursor:pointer;" onclick="openPersonDetail('+p.id+')">'
-            + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+            + '<div class="dash-avatar" style="background:'+tint.bg+';color:'+tint.fg+';">'+ini+'</div>'
             + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div>'
             + '<div class="dash-item-sub">First gift '+esc(p.first_gift_date||'')+'</div></div>'
             + '<button class="btn-secondary" style="font-size:.72rem;padding:3px 8px;margin-right:4px;" onclick="event.stopPropagation();addFollowUpForPerson('+p.id+',\''+esc(name)+'\',\'first_gift\')">Follow up</button>'
@@ -579,10 +578,10 @@ function renderDashboard(d) {
     html += '<div class="dash-card" style="padding:0;"><div class="dash-card-body">'
       + notSeen.map(function(p) {
           var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-          var bg = pvColors[p.id % pvColors.length];
+          var tint = avatarTint(p.id);
           var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
           return '<div class="dash-row-item" style="cursor:pointer;" onclick="openPersonDetail('+p.id+')">'
-            + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+            + '<div class="dash-avatar" style="background:'+tint.bg+';color:'+tint.fg+';">'+ini+'</div>'
             + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div>'
             + '<div class="dash-item-sub">Last seen: '+esc(p.last_seen_date||'unknown')+'</div></div>'
             + '<button class="btn-secondary" style="font-size:.72rem;padding:3px 8px;" onclick="event.stopPropagation();addFollowUpForPerson('+p.id+',\''+esc(name)+'\',\'not_seen\')">Call</button>'
@@ -618,11 +617,11 @@ function renderDashboard(d) {
       html += bdList.map(function(p) {
         var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
         var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-        var bg = pvColors[p.id % pvColors.length];
+        var tint = avatarTint(p.id);
         var parts = (p.dob||'').split('-');
         var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : esc(p.dob||'');
         return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
-          + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+          + '<div class="dash-avatar" style="background:'+tint.bg+';color:'+tint.fg+';">'+ini+'</div>'
           + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
           + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
           + '</div>';
@@ -647,11 +646,11 @@ function renderDashboard(d) {
       html += annList.map(function(p) {
         var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
         var ini = (p.first_name||'').split(' ').map(function(n){return n.charAt(0);}).join('').slice(0,2).toUpperCase() || (p.last_name||'').charAt(0).toUpperCase();
-        var bg = pvColors[p.id % pvColors.length];
+        var tint = avatarTint(p.id);
         var parts = (p.anniversary_date||'').split('-');
         var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : p.anniversary_date;
         return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
-          + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+          + '<div class="dash-avatar" style="background:'+tint.bg+';color:'+tint.fg+';">'+ini+'</div>'
           + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
           + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
           + '</div>';
@@ -676,11 +675,11 @@ function renderDashboard(d) {
       html += bapList.map(function(p) {
         var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
         var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-        var bg = pvColors[p.id % pvColors.length];
+        var tint = avatarTint(p.id);
         var parts = (p.baptism_date||'').split('-');
         var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : esc(p.baptism_date||'');
         return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
-          + '<div class="dash-avatar" style="background:'+bg+';">'+ini+'</div>'
+          + '<div class="dash-avatar" style="background:'+tint.bg+';color:'+tint.fg+';">'+ini+'</div>'
           + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
           + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
           + '</div>';
