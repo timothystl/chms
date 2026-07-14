@@ -1029,6 +1029,10 @@ export const HTML_TABS_2 = String.raw`
   </div>
   <div style="flex:1;overflow-y:auto;padding:16px 18px;">
     <div style="margin-bottom:20px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Sort By</div>
+      <div id="fd-sort"></div>
+    </div>
+    <div style="margin-bottom:20px;">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Member Type</div>
       <div id="fd-member-types"></div>
     </div>

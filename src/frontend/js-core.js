@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '1.13.1';
+var DEPLOY_VERSION = '1.14.0';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirks — suppress these and don't show the error banner.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -367,7 +367,35 @@ function closeFilterDrawer() {
   document.getElementById('people-filter-drawer').style.display = 'none';
   document.getElementById('people-filter-overlay').style.display = 'none';
 }
+var FD_SORT_FIELDS = [
+  { v: 'last_name', label: 'Last Name' },
+  { v: 'first_name', label: 'First Name' },
+  { v: 'member_type', label: 'Member Type' },
+  { v: 'household', label: 'Household' },
+  { v: 'created_at', label: 'Recently Added' },
+  { v: 'dob', label: 'Date of Birth', missing: 'dob' },
+  { v: 'baptism', label: 'Baptism Date', missing: 'baptism' },
+  { v: 'confirmation', label: 'Confirmation Date', missing: 'confirmation' },
+  { v: 'anniversary', label: 'Anniversary Date', missing: 'anniversary' }
+];
 function renderFilterDrawer() {
+  // Sort by
+  var sortEl = document.getElementById('fd-sort');
+  if (sortEl) {
+    sortEl.innerHTML = FD_SORT_FIELDS.map(function(f) {
+      var active = peopleFilter.sort === f.v;
+      var row = '<label onclick="setFdSort(\'' + f.v + '\')" style="display:flex;align-items:center;gap:9px;padding:6px 4px;cursor:pointer;font-size:.9rem;border-radius:6px;' + (active ? 'background:var(--linen);' : '') + '">'
+        + '<input type="radio" name="fd-sort" ' + (active ? 'checked' : '') + ' style="flex-shrink:0;pointer-events:none;" tabindex="-1">'
+        + '<span style="flex:1;">' + esc(f.label) + '</span>'
+        + (active ? '<span style="font-size:11px;color:var(--teal);">' + (peopleFilter.dir === 'asc' ? '&#9650;' : '&#9660;') + '</span>' : '');
+      if (f.missing) {
+        var checked = peopleFilter.missingFields.indexOf(f.missing) !== -1;
+        row += '<span onclick="event.stopPropagation();toggleFdMissing(\'' + f.missing + '\',' + (!checked) + ')" style="display:flex;align-items:center;gap:4px;font-size:.72rem;color:' + (checked ? 'var(--teal)' : 'var(--warm-gray)') + ';cursor:pointer;margin-left:8px;white-space:nowrap;" title="Only show people missing this field">'
+          + '<input type="checkbox" ' + (checked ? 'checked' : '') + ' style="pointer-events:none;width:13px;height:13px;">Not set</span>';
+      }
+      return row + '</label>';
+    }).join('');
+  }
   // Member types
   var mtEl = document.getElementById('fd-member-types');
   if (mtEl) {
@@ -408,9 +436,8 @@ function renderFilterDrawer() {
   var mfEl = document.getElementById('fd-missing');
   if (mfEl) {
     var mfCategories = [
-      { label: 'Main', fields: [{ v: 'dob', label: 'Birthday' }, { v: 'gender', label: 'Gender' }] },
+      { label: 'Main', fields: [{ v: 'gender', label: 'Gender' }] },
       { label: 'Family', fields: [{ v: 'photo', label: 'Photo' }] },
-      { label: 'Other', fields: [{ v: 'anniversary', label: 'Anniversary Date' }, { v: 'baptism', label: 'Baptism Date' }, { v: 'confirmation', label: 'Confirmation Date' }] },
       { label: 'Contact', fields: [{ v: 'email', label: 'Email' }, { v: 'phone', label: 'Phone' }, { v: 'address', label: 'Address' }] }
     ];
     mfEl.innerHTML = mfCategories.map(function(cat) {
@@ -453,9 +480,14 @@ function toggleFdMissing(v, on) {
   if (on && idx === -1) peopleFilter.missingFields.push(v);
   else if (!on && idx !== -1) peopleFilter.missingFields.splice(idx, 1);
   loadPeople(true);
+  renderFilterDrawer();
   renderActiveFilterChips();
   updateFilterBadge();
   updateFdCount();
+}
+function setFdSort(v) {
+  sortPeople(v);
+  renderFilterDrawer();
 }
 function setFdGender(v) {
   peopleFilter.gender = v;
