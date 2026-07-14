@@ -45,14 +45,14 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
   /* Legacy tokens (aliased to brand palette so older rules pick up the new look without renames) */
   --steel-anchor:#1E2D4A;--deep-steel:#2A3F60;--mid-steel:#3D627C;--sky-steel:#5C8FA8;
   --ice-blue:#C4DDE8;--blue-mist:#EAF4FA;--amber:#C9973A;--deep-amber:#A87B23;
-  --pale-gold:#F5E0B0;--sage:#6B8F71;--pale-sage:#CDE0CF;--warm-white:#F8F4EE;
-  --linen:#F2EDE2;--white:#FFFFFF;--border:#E8E0D0;--charcoal:#1A1A2A;--warm-gray:#7A6E60;
+  --pale-gold:#F5E0B0;--sage:#6B8F71;--pale-sage:#CDE0CF;--warm-white:#FAF9F6;
+  --linen:#F1EFE9;--white:#FFFFFF;--border:#E8E0D0;--charcoal:#1A1A2A;--warm-gray:#8A8377;
   --font-display:'Cormorant Garamond',Georgia,serif;
   --font-head:'DM Sans','Source Sans 3',Arial,sans-serif;
   --font-body:'DM Sans','Source Sans 3',Arial,sans-serif;
   --danger:#B85C3A;
   --navy:#1E2D4A;--teal:#2E7EA6;--gold-accent:#C9973A;
-  --bg:#F8F4EE;--muted:#6B7280;--faint:#9CA3AF;
+  --bg:#FAF9F6;--muted:#6B7280;--faint:#9CA3AF;
   /* ── Warm redesign tokens (People list / Person Profile / Household View) ── */
   --warm-ink-label:#5C4B2E;--warm-meta:#8A7A5C;
   --warm-border:#E5D9BE;--warm-divider:#EEE2C8;--warm-row-divider:#F1E7D2;
@@ -396,21 +396,23 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .ppl-card-email{font-size:12.5px;color:var(--warm-meta);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .ppl-card-cb{position:absolute;top:8px;right:8px;width:18px;height:18px;border:2px solid var(--warm-border);border-radius:4px;background:var(--white);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--white);}
 .ppl-card.selected .ppl-card-cb{background:var(--color-navy);border-color:var(--color-navy);}
-/* ── DASHBOARD ── */
-.dash-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px;}
+/* ── DASHBOARD ──
+   Card spec follows the design-handoff mockup exactly: soft dual box-shadow,
+   20px radius, no 1px border (replaces the old bordered/flat-shadow cards). ── */
+.dash-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-bottom:28px;}
 @media(max-width:900px){.dash-stats{grid-template-columns:repeat(2,1fr);}}
 @media(max-width:480px){.dash-stats{grid-template-columns:1fr 1fr;}}
-.dash-stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:4px;}
-.dash-stat-val{font-size:30px;font-weight:800;color:var(--charcoal);line-height:1;}
-.dash-stat-lbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);}
+.dash-stat{background:var(--white);border-radius:20px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:22px 24px;display:flex;flex-direction:column;gap:4px;}
+.dash-stat-val{font-size:30px;font-weight:800;color:var(--charcoal);line-height:1;letter-spacing:-.02em;}
+.dash-stat-lbl{font-size:12px;font-weight:500;color:var(--warm-gray);margin-top:1px;}
 .dash-stat-sub{font-size:11px;color:var(--teal);}
 .dash-stat-quad-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;}
 .dash-stat-quad-grid .dash-stat-val{font-size:22px;}
-.dash-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;}
+.dash-row{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;}
 @media(max-width:700px){.dash-row{grid-template-columns:1fr;}}
-.dash-card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
-.dash-card-hdr{padding:14px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:var(--charcoal);display:flex;align-items:center;gap:8px;}
-.dash-card-body{padding:0;}
+.dash-card{background:var(--white);border-radius:20px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);overflow:hidden;}
+.dash-card-hdr{padding:20px 24px 12px;font-size:15px;font-weight:700;color:var(--charcoal);display:flex;align-items:center;gap:8px;}
+.dash-card-body{padding:0 0 6px;}
 .dash-row-item{display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--linen);cursor:pointer;transition:background .1s;}
 .dash-row-item:last-child{border-bottom:none;}
 .dash-row-item:hover{background:var(--linen);}
