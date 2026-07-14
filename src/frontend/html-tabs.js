@@ -92,14 +92,25 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
   </div>
   <div id="p-status" class="status-msg"></div>
-  <!-- Desktop list (table) view -->
-  <div id="p-grid"></div>
-  <!-- Desktop card view -->
-  <div id="p-card-grid"></div>
+  <!-- Master-detail: list (List/Card view) on the left, quick-view panel on the right (RDS2) -->
+  <div class="ppl-master-detail">
+    <div class="ppl-list-col">
+      <!-- Desktop list (table) view -->
+      <div id="p-grid"></div>
+      <!-- Desktop card view -->
+      <div id="p-card-grid"></div>
+      <!-- Pagination -->
+      <div id="p-pager" style="display:flex;align-items:center;justify-content:center;padding:16px 0;gap:8px;"></div>
+    </div>
+    <div class="ppl-quickview" id="ppl-quickview">
+      <div class="ppl-qv-empty">
+        <svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+        <div>Select a person to view details</div>
+      </div>
+    </div>
+  </div>
   <!-- Mobile contact list -->
   <div class="contact-list" id="p-contact-list"></div>
-  <!-- Pagination -->
-  <div id="p-pager" style="display:flex;align-items:center;justify-content:center;padding:16px 0;gap:8px;"></div>
 </div>
 
 <!-- ═══ HOUSEHOLDS TAB ═══ -->
