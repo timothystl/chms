@@ -186,7 +186,7 @@ a.s-item{text-decoration:none;color:inherit;}
 .h-members{display:flex;flex-wrap:wrap;gap:6px;}
 .h-member-pill{font-size:.75rem;background:var(--blue-mist);border:1px solid var(--ice-blue);color:var(--steel-anchor);padding:2px 8px;border-radius:10px;}
 /* ── GIVING ── */
-.giving-layout{display:grid;grid-template-columns:300px 1fr;gap:0;flex:1;min-height:0;}
+.giving-layout{display:grid;grid-template-columns:300px 1fr;gap:0;flex:1;min-height:0;border-radius:20px;overflow:hidden;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);}
 @media(max-width:900px){.giving-layout{grid-template-columns:1fr;}}
 .batch-list-panel{background:var(--white);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
 .batch-list-hdr{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
@@ -232,6 +232,10 @@ a.s-item{text-decoration:none;color:inherit;}
 .entries-table tr:hover td{background:var(--linen);}
 .del-entry{background:none;border:none;color:var(--danger);cursor:pointer;font-size:1rem;padding:0 4px;opacity:.6;}
 .del-entry:hover{opacity:1;}
+/* ── Giving: Transactions view (RDS4 toggle alongside Batches) ── */
+.giv-txn-view{flex-direction:column;flex:1;min-height:0;}
+.giv-txn-filters{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px;flex-shrink:0;}
+.giv-txn-table-wrap{flex:1;min-height:0;overflow:auto;background:var(--white);border-radius:20px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);}
 /* ── CHURCH REGISTER ── */
 .reg-shell{display:flex;flex-direction:column;flex:1;overflow:hidden;}
 .reg-toolbar{display:flex;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--white);flex-shrink:0;flex-wrap:wrap;}
