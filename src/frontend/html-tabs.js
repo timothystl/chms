@@ -92,14 +92,25 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
   </div>
   <div id="p-status" class="status-msg"></div>
-  <!-- Desktop list (table) view -->
-  <div id="p-grid"></div>
-  <!-- Desktop card view -->
-  <div id="p-card-grid"></div>
+  <!-- Master-detail: list (List/Card view) on the left, quick-view panel on the right (RDS2) -->
+  <div class="ppl-master-detail">
+    <div class="ppl-list-col">
+      <!-- Desktop list (table) view -->
+      <div id="p-grid"></div>
+      <!-- Desktop card view -->
+      <div id="p-card-grid"></div>
+      <!-- Pagination -->
+      <div id="p-pager" style="display:flex;align-items:center;justify-content:center;padding:16px 0;gap:8px;"></div>
+    </div>
+    <div class="ppl-quickview" id="ppl-quickview">
+      <div class="ppl-qv-empty">
+        <svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+        <div>Select a person to view details</div>
+      </div>
+    </div>
+  </div>
   <!-- Mobile contact list -->
   <div class="contact-list" id="p-contact-list"></div>
-  <!-- Pagination -->
-  <div id="p-pager" style="display:flex;align-items:center;justify-content:center;padding:16px 0;gap:8px;"></div>
 </div>
 
 <!-- ═══ HOUSEHOLDS TAB ═══ -->
@@ -130,7 +141,16 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
 <!-- ═══ GIVING TAB ═══ -->
 <div id="tab-giving" class="tab-panel">
-  <div class="giving-layout">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;flex-shrink:0;">
+    <span style="font-size:22px;font-weight:800;color:var(--color-navy);">Giving</span>
+    <div class="view-toggle" style="margin-left:auto;">
+      <button class="active" id="giv-view-batches-btn" onclick="givSetView('batches')">Batches</button>
+      <button id="giv-view-txns-btn" onclick="givSetView('transactions')">Transactions</button>
+    </div>
+  </div>
+  <div class="dash-stats" id="giv-stats" style="margin-bottom:20px;flex-shrink:0;"></div>
+
+  <div class="giving-layout" id="giv-view-batches">
     <!-- Batch list -->
     <div class="batch-list-panel">
       <div class="batch-list-hdr">
@@ -153,6 +173,21 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg>
         <div style="font-size:.9rem;">Select a batch to view entries</div>
       </div>
+    </div>
+  </div>
+
+  <div class="giv-txn-view" id="giv-view-transactions" style="display:none;">
+    <div class="giv-txn-filters">
+      <div class="field"><label>Fund</label><select id="giv-txn-fund" onchange="loadGivingTransactions()"><option value="">All Funds</option></select></div>
+      <div class="field"><label>From</label><input type="date" id="giv-txn-from" onchange="loadGivingTransactions()"></div>
+      <div class="field"><label>To</label><input type="date" id="giv-txn-to" onchange="loadGivingTransactions()"></div>
+      <button class="btn-secondary" onclick="givTxnClearFilters()">Clear Filters</button>
+    </div>
+    <div class="giv-txn-table-wrap">
+      <table class="entries-table">
+        <thead><tr><th>Donor</th><th>Fund</th><th>Method</th><th>Date</th><th class="amt-col">Amount</th></tr></thead>
+        <tbody id="giv-txn-tbody"></tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -1059,6 +1094,153 @@ export const HTML_TABS_2 = String.raw`
   </div>
 </div>
 
+<!-- ═══ TUITION AID PLANNER TAB ═══ -->
+<div id="tab-tuitionaid" class="tab-panel">
+  <div style="padding:16px 20px 20px;">
+    <div id="tap-loading" style="color:var(--warm-gray);font-size:.85rem;">Loading…</div>
+    <div id="tap-root" style="display:none;">
+
+      <section class="tap-kpi-row" id="tap-kpi-row"></section>
+
+      <section class="tap-pathway">
+        <h3 style="margin:0 0 2px;font-size:1rem;color:var(--navy);">The Pathway — where this year's students stand</h3>
+        <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 10px;">PK4 &rarr; Kindergarten (aid begins) &rarr; grades 1&ndash;8 at Timothy &rarr; Lutheran High School South, grades 9&ndash;12</p>
+        <div class="tap-path-track" id="tap-path-track"></div>
+        <div class="tap-flags" id="tap-flags"></div>
+      </section>
+
+      <section class="tap-grid2">
+        <div class="dash-card">
+          <div class="dash-card-hdr">Tuition Rate &amp; Family Share by Year</div>
+          <div class="dash-card-body" style="padding:14px 18px;"><div id="tap-history-chart"></div></div>
+        </div>
+        <div class="dash-card">
+          <div class="dash-card-hdr">Aid Composition, Current Year</div>
+          <div class="dash-card-body" style="padding:14px 18px;"><div id="tap-composition-chart"></div></div>
+        </div>
+      </section>
+
+      <section class="tap-grid2b">
+        <div class="dash-card">
+          <div class="dash-card-hdr">Budget Projection</div>
+          <div class="dash-card-body" style="padding:14px 18px;"><div id="tap-projection-chart"></div></div>
+        </div>
+        <div class="dash-card">
+          <div class="dash-card-hdr">Enrollment Mix by Year</div>
+          <div class="dash-card-body" style="padding:14px 18px;"><div id="tap-enroll-chart"></div></div>
+        </div>
+      </section>
+
+      <section class="dash-card" style="margin-bottom:16px;">
+        <div class="dash-card-hdr">K-8 Family Detail, Current Year</div>
+        <div class="dash-card-body" style="padding:14px 18px;overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:.82rem;" id="tap-detail-table">
+            <thead>
+              <tr style="border-bottom:2px solid var(--navy);">
+                <th style="text-align:left;padding:6px 8px;">Family</th>
+                <th style="text-align:left;padding:6px 8px;">Child</th>
+                <th style="text-align:left;padding:6px 8px;">Grade</th>
+                <th style="text-align:right;padding:6px 8px;">Outside Aid</th>
+                <th style="text-align:right;padding:6px 8px;">Timothy Owes</th>
+                <th style="text-align:right;padding:6px 8px;">Family Owes</th>
+                <th style="text-align:left;padding:6px 8px;">Linked Person</th>
+              </tr>
+            </thead>
+            <tbody id="tap-detail-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="dash-card" style="margin-bottom:16px;">
+        <div class="dash-card-hdr">Student Aid Planner — keep Timothy's award under budget</div>
+        <div class="dash-card-body" style="padding:14px 18px;">
+          <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">Each slider sets the family's assigned share of the total tuition bill — outside scholarships apply against that share first. Timothy commits at least $2,000/student. Project a future year and the roster moves: grades advance, 8th graders graduate into the LHS planner, and 12th graders age out. Tuition grows 6%/yr, rounded to the nearest $100.</p>
+
+          <div class="tap-pipeline-box">
+            <h4>Kids in the Pipeline <span style="font-weight:400;font-size:.7rem;color:#8A7440;">— not yet enrolled, tracked by birth year</span></h4>
+            <div id="tap-pipeline-list"></div>
+            <div class="tap-pipeline-form">
+              <input type="text" id="tap-pipe-family" placeholder="Family name" style="width:150px;">
+              <input type="text" id="tap-pipe-child" placeholder="Child's name" style="width:150px;">
+              <input type="number" id="tap-pipe-birthyear" placeholder="Birth year" min="2010" max="2032" style="width:120px;">
+              <button class="btn-secondary" onclick="tapAddPipeline()">+ Add to Pipeline</button>
+            </div>
+            <div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="tap-pipeline-error"></div>
+          </div>
+
+          <div class="tap-controls">
+            <label>Project for: <select id="tap-year-select" onchange="tapSetYear(this.value)"></select></label>
+            <button class="btn-secondary" onclick="tapResetAwards()">Reset to Current Awards</button>
+            <button class="btn-primary" onclick="tapApplyPolicy()">Apply Aid Policy</button>
+            <button class="btn-secondary" onclick="tapAutoBalance()">Auto-Balance to Fit Budget</button>
+            <button class="btn-secondary" onclick="tapOpenAddStudent()">+ Add Student</button>
+          </div>
+          <p style="font-size:.72rem;color:var(--warm-gray);margin:-6px 0 12px;">
+            <b>Apply Aid Policy:</b> no family pays more than 50% of the bill, Timothy commits at least $2,000/student — and if budget room remains, it's given proportionally to whoever still owes something.
+          </p>
+
+          <div style="margin-bottom:14px;">
+            <div class="tap-gauge-track"><div class="tap-gauge-fill" id="tap-k8-gauge-fill"></div></div>
+            <div class="tap-gauge-label">
+              <span class="tap-gauge-text" id="tap-k8-gauge-text">–</span>
+              <span id="tap-k8-gauge-cap">Budget: –</span>
+            </div>
+          </div>
+
+          <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+            <thead>
+              <tr style="border-bottom:2px solid var(--navy);">
+                <th style="text-align:left;padding:6px 8px;">Family</th>
+                <th style="text-align:left;padding:6px 8px;">Child</th>
+                <th style="text-align:left;padding:6px 8px;">Grade</th>
+                <th style="text-align:right;padding:6px 8px;">Tuition</th>
+                <th style="text-align:right;padding:6px 8px;">Outside Aid</th>
+                <th style="text-align:left;padding:6px 8px;min-width:190px;">Family Share %</th>
+                <th style="text-align:right;padding:6px 8px;">Timothy Award $</th>
+                <th style="text-align:right;padding:6px 8px;">Family Owes $</th>
+                <th style="padding:6px 8px;"></th>
+              </tr>
+            </thead>
+            <tbody id="tap-k8-body"></tbody>
+          </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="dash-card" style="margin-bottom:16px;">
+        <div class="dash-card-hdr">LHS Aid Planner — scales with enrollment</div>
+        <div class="dash-card-body" style="padding:14px 18px;">
+          <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">Not a fixed pool — it waxes and wanes with how many Timothy graduates actually attend LHS that year. The bar compares against the standard $1,200/student rate for however many are enrolled, not a hard cap.</p>
+          <div style="margin-bottom:14px;">
+            <div class="tap-gauge-track"><div class="tap-gauge-fill" id="tap-lhs-gauge-fill"></div></div>
+            <div class="tap-gauge-label">
+              <span class="tap-gauge-text" id="tap-lhs-gauge-text">–</span>
+              <span id="tap-lhs-gauge-cap">Standard rate: –</span>
+            </div>
+          </div>
+          <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+            <thead>
+              <tr style="border-bottom:2px solid var(--navy);">
+                <th style="text-align:left;padding:6px 8px;">Family</th>
+                <th style="text-align:left;padding:6px 8px;">Child</th>
+                <th style="text-align:left;padding:6px 8px;">Grade</th>
+                <th style="text-align:left;padding:6px 8px;min-width:190px;">LHSA Award</th>
+                <th style="text-align:right;padding:6px 8px;">Award $</th>
+                <th style="padding:6px 8px;"></th>
+              </tr>
+            </thead>
+            <tbody id="tap-lhs-body"></tbody>
+          </table>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
 </div><!-- /app-shell -->
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
 
@@ -1531,153 +1713,6 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('push-broadcast-modal')">Cancel</button>
       <button class="btn-primary" id="push-broadcast-send-btn" onclick="sendPushBroadcast()">Send Notification</button>
-    </div>
-  </div>
-</div>
-
-<!-- ═══ TUITION AID PLANNER TAB ═══ -->
-<div id="tab-tuitionaid" class="tab-panel">
-  <div style="padding:16px 20px 20px;">
-    <div id="tap-loading" style="color:var(--warm-gray);font-size:.85rem;">Loading…</div>
-    <div id="tap-root" style="display:none;">
-
-      <section class="tap-kpi-row" id="tap-kpi-row"></section>
-
-      <section class="tap-pathway">
-        <h3 style="margin:0 0 2px;font-size:1rem;color:var(--navy);">The Pathway — where this year's students stand</h3>
-        <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 10px;">PK4 &rarr; Kindergarten (aid begins) &rarr; grades 1&ndash;8 at Timothy &rarr; Lutheran High School South, grades 9&ndash;12</p>
-        <div class="tap-path-track" id="tap-path-track"></div>
-        <div class="tap-flags" id="tap-flags"></div>
-      </section>
-
-      <section class="tap-grid2">
-        <div class="dash-card">
-          <div class="dash-card-hdr">Tuition Rate &amp; Family Share by Year</div>
-          <div class="dash-card-body" style="padding:14px 18px;"><div id="tap-history-chart"></div></div>
-        </div>
-        <div class="dash-card">
-          <div class="dash-card-hdr">Aid Composition, Current Year</div>
-          <div class="dash-card-body" style="padding:14px 18px;"><div id="tap-composition-chart"></div></div>
-        </div>
-      </section>
-
-      <section class="tap-grid2b">
-        <div class="dash-card">
-          <div class="dash-card-hdr">Budget Projection</div>
-          <div class="dash-card-body" style="padding:14px 18px;"><div id="tap-projection-chart"></div></div>
-        </div>
-        <div class="dash-card">
-          <div class="dash-card-hdr">Enrollment Mix by Year</div>
-          <div class="dash-card-body" style="padding:14px 18px;"><div id="tap-enroll-chart"></div></div>
-        </div>
-      </section>
-
-      <section class="dash-card" style="margin-bottom:16px;">
-        <div class="dash-card-hdr">K-8 Family Detail, Current Year</div>
-        <div class="dash-card-body" style="padding:14px 18px;overflow-x:auto;">
-          <table style="width:100%;border-collapse:collapse;font-size:.82rem;" id="tap-detail-table">
-            <thead>
-              <tr style="border-bottom:2px solid var(--navy);">
-                <th style="text-align:left;padding:6px 8px;">Family</th>
-                <th style="text-align:left;padding:6px 8px;">Child</th>
-                <th style="text-align:left;padding:6px 8px;">Grade</th>
-                <th style="text-align:right;padding:6px 8px;">Outside Aid</th>
-                <th style="text-align:right;padding:6px 8px;">Timothy Owes</th>
-                <th style="text-align:right;padding:6px 8px;">Family Owes</th>
-                <th style="text-align:left;padding:6px 8px;">Linked Person</th>
-              </tr>
-            </thead>
-            <tbody id="tap-detail-body"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="dash-card" style="margin-bottom:16px;">
-        <div class="dash-card-hdr">Student Aid Planner — keep Timothy's award under budget</div>
-        <div class="dash-card-body" style="padding:14px 18px;">
-          <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">Each slider sets the family's assigned share of the total tuition bill — outside scholarships apply against that share first. Timothy commits at least $2,000/student. Project a future year and the roster moves: grades advance, 8th graders graduate into the LHS planner, and 12th graders age out. Tuition grows 6%/yr, rounded to the nearest $100.</p>
-
-          <div class="tap-pipeline-box">
-            <h4>Kids in the Pipeline <span style="font-weight:400;font-size:.7rem;color:#8A7440;">— not yet enrolled, tracked by birth year</span></h4>
-            <div id="tap-pipeline-list"></div>
-            <div class="tap-pipeline-form">
-              <input type="text" id="tap-pipe-family" placeholder="Family name" style="width:150px;">
-              <input type="text" id="tap-pipe-child" placeholder="Child's name" style="width:150px;">
-              <input type="number" id="tap-pipe-birthyear" placeholder="Birth year" min="2010" max="2032" style="width:120px;">
-              <button class="btn-secondary" onclick="tapAddPipeline()">+ Add to Pipeline</button>
-            </div>
-            <div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="tap-pipeline-error"></div>
-          </div>
-
-          <div class="tap-controls">
-            <label>Project for: <select id="tap-year-select" onchange="tapSetYear(this.value)"></select></label>
-            <button class="btn-secondary" onclick="tapResetAwards()">Reset to Current Awards</button>
-            <button class="btn-primary" onclick="tapApplyPolicy()">Apply Aid Policy</button>
-            <button class="btn-secondary" onclick="tapAutoBalance()">Auto-Balance to Fit Budget</button>
-            <button class="btn-secondary" onclick="tapOpenAddStudent()">+ Add Student</button>
-          </div>
-          <p style="font-size:.72rem;color:var(--warm-gray);margin:-6px 0 12px;">
-            <b>Apply Aid Policy:</b> no family pays more than 50% of the bill, Timothy commits at least $2,000/student — and if budget room remains, it's given proportionally to whoever still owes something.
-          </p>
-
-          <div style="margin-bottom:14px;">
-            <div class="tap-gauge-track"><div class="tap-gauge-fill" id="tap-k8-gauge-fill"></div></div>
-            <div class="tap-gauge-label">
-              <span class="tap-gauge-text" id="tap-k8-gauge-text">–</span>
-              <span id="tap-k8-gauge-cap">Budget: –</span>
-            </div>
-          </div>
-
-          <div style="overflow-x:auto;">
-          <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
-            <thead>
-              <tr style="border-bottom:2px solid var(--navy);">
-                <th style="text-align:left;padding:6px 8px;">Family</th>
-                <th style="text-align:left;padding:6px 8px;">Child</th>
-                <th style="text-align:left;padding:6px 8px;">Grade</th>
-                <th style="text-align:right;padding:6px 8px;">Tuition</th>
-                <th style="text-align:right;padding:6px 8px;">Outside Aid</th>
-                <th style="text-align:left;padding:6px 8px;min-width:190px;">Family Share %</th>
-                <th style="text-align:right;padding:6px 8px;">Timothy Award $</th>
-                <th style="text-align:right;padding:6px 8px;">Family Owes $</th>
-                <th style="padding:6px 8px;"></th>
-              </tr>
-            </thead>
-            <tbody id="tap-k8-body"></tbody>
-          </table>
-          </div>
-        </div>
-      </section>
-
-      <section class="dash-card" style="margin-bottom:16px;">
-        <div class="dash-card-hdr">LHS Aid Planner — scales with enrollment</div>
-        <div class="dash-card-body" style="padding:14px 18px;">
-          <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">Not a fixed pool — it waxes and wanes with how many Timothy graduates actually attend LHS that year. The bar compares against the standard $1,200/student rate for however many are enrolled, not a hard cap.</p>
-          <div style="margin-bottom:14px;">
-            <div class="tap-gauge-track"><div class="tap-gauge-fill" id="tap-lhs-gauge-fill"></div></div>
-            <div class="tap-gauge-label">
-              <span class="tap-gauge-text" id="tap-lhs-gauge-text">–</span>
-              <span id="tap-lhs-gauge-cap">Standard rate: –</span>
-            </div>
-          </div>
-          <div style="overflow-x:auto;">
-          <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
-            <thead>
-              <tr style="border-bottom:2px solid var(--navy);">
-                <th style="text-align:left;padding:6px 8px;">Family</th>
-                <th style="text-align:left;padding:6px 8px;">Child</th>
-                <th style="text-align:left;padding:6px 8px;">Grade</th>
-                <th style="text-align:left;padding:6px 8px;min-width:190px;">LHSA Award</th>
-                <th style="text-align:right;padding:6px 8px;">Award $</th>
-                <th style="padding:6px 8px;"></th>
-              </tr>
-            </thead>
-            <tbody id="tap-lhs-body"></tbody>
-          </table>
-          </div>
-        </div>
-      </section>
-
     </div>
   </div>
 </div>

@@ -1,5 +1,68 @@
 export const JS_GIVING = String.raw`<script>
 // ── GIVING ────────────────────────────────────────────────────────────
+// ── Batches / Transactions view toggle (RDS4) ──────────────────────────
+var _givView = 'batches';
+function givSetView(view) {
+  _givView = view;
+  document.getElementById('giv-view-batches-btn').classList.toggle('active', view === 'batches');
+  document.getElementById('giv-view-txns-btn').classList.toggle('active', view === 'transactions');
+  document.getElementById('giv-view-batches').style.display = view === 'batches' ? 'grid' : 'none';
+  document.getElementById('giv-view-transactions').style.display = view === 'transactions' ? 'flex' : 'none';
+  if (view === 'transactions') {
+    givTxnPopulateFundOptions();
+    loadGivingTransactions();
+  }
+}
+function givTxnPopulateFundOptions() {
+  var sel = document.getElementById('giv-txn-fund');
+  if (!sel || sel.options.length > 1) return; // already populated
+  allFunds.forEach(function(f) { sel.appendChild(new Option(f.name, f.id)); });
+}
+function loadGivingStats() {
+  var el = document.getElementById('giv-stats');
+  if (!el) return;
+  api('/admin/api/giving/stats').then(function(d) {
+    if (d.error) return;
+    el.innerHTML = dashStat('$'+fmt$(d.weekTotal||0), 'This Week')
+      + dashStat('$'+fmt$(d.monthTotal||0), 'This Month')
+      + dashStat('$'+fmt$(d.ytdTotal||0), 'Year to Date')
+      + dashStat(String(d.givers||0), 'Givers YTD');
+  });
+}
+function loadGivingTransactions() {
+  var tbody = document.getElementById('giv-txn-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--warm-gray);">Loading&#8230;</td></tr>';
+  var fundId = document.getElementById('giv-txn-fund').value;
+  var from = document.getElementById('giv-txn-from').value;
+  var to = document.getElementById('giv-txn-to').value;
+  var qs = [];
+  if (fundId) qs.push('fund_id=' + encodeURIComponent(fundId));
+  if (from) qs.push('from=' + encodeURIComponent(from));
+  if (to) qs.push('to=' + encodeURIComponent(to));
+  api('/admin/api/giving/transactions' + (qs.length ? '?' + qs.join('&') : '')).then(function(d) {
+    var rows = d.transactions || [];
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--warm-gray);">No transactions match these filters.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(function(r) {
+      return '<tr onclick="goToBatch(' + r.batch_id + ')" style="cursor:pointer;">'
+        + '<td>' + esc(r.person_name) + '</td>'
+        + '<td>' + esc(r.fund_name) + '</td>'
+        + '<td>' + esc(r.method) + (r.check_number ? ' #'+esc(r.check_number) : '') + '</td>'
+        + '<td>' + fmtDate(r.txn_date) + '</td>'
+        + '<td class="amt-col">' + fmtMoney(r.amount) + '</td>'
+        + '</tr>';
+    }).join('');
+  });
+}
+function givTxnClearFilters() {
+  document.getElementById('giv-txn-fund').value = '';
+  document.getElementById('giv-txn-from').value = '';
+  document.getElementById('giv-txn-to').value = '';
+  loadGivingTransactions();
+}
 var _batchFilter = 'all';
 function setBatchFilter(btn, val) {
   document.querySelectorAll('[data-bs]').forEach(function(b) { b.classList.remove('active'); });
@@ -12,6 +75,7 @@ var _lastBatches = null;
 function goToBatch(batchId) {
   _pendingOpenBatchId = batchId;
   showTab('giving');
+  givSetView('batches');
 }
 function loadBatches() {
   var pendingId = _pendingOpenBatchId;
