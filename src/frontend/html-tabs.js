@@ -1052,47 +1052,6 @@ export const HTML_TABS_2 = String.raw`
     </div>
   </div>
 </div>
-</div><!-- /content-area -->
-
-<!-- ═══ PEOPLE FILTER DRAWER ═══ -->
-<div id="people-filter-overlay" onclick="closeFilterDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:1100;"></div>
-<div id="people-filter-drawer" style="display:none;position:fixed;right:0;top:0;bottom:0;width:300px;max-width:90vw;background:var(--white);box-shadow:-4px 0 24px rgba(0,0,0,.18);z-index:1101;flex-direction:column;overflow:hidden;">
-  <div style="display:flex;align-items:center;padding:16px 18px;border-bottom:1px solid var(--border);flex-shrink:0;">
-    <span style="font-size:16px;font-weight:700;flex:1;">Filters</span>
-    <button onclick="clearAllFilters()" style="font-size:.78rem;color:var(--teal);background:none;border:none;cursor:pointer;font-weight:600;padding:4px 8px;">Clear All</button>
-    <button onclick="closeFilterDrawer()" style="background:none;border:none;cursor:pointer;font-size:22px;color:var(--warm-gray);line-height:1;margin-left:4px;">&#215;</button>
-  </div>
-  <div style="flex:1;overflow-y:auto;padding:16px 18px;">
-    <div style="margin-bottom:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Sort By</div>
-      <div id="fd-sort"></div>
-    </div>
-    <div style="margin-bottom:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Member Type</div>
-      <div id="fd-member-types"></div>
-    </div>
-    <div>
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Tags</div>
-      <div id="fd-tags"></div>
-    </div>
-    <div style="margin-top:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Gender</div>
-      <div id="fd-gender"></div>
-    </div>
-    <div style="margin-top:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Age Range</div>
-      <div id="fd-age-range"></div>
-    </div>
-    <div style="margin-top:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Missing Field</div>
-      <div id="fd-missing"></div>
-    </div>
-  </div>
-  <div style="padding:14px 18px;border-top:1px solid var(--border);flex-shrink:0;">
-    <div id="fd-result-count" style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;text-align:center;"></div>
-    <button class="btn-primary" style="width:100%;padding:10px;" onclick="closeFilterDrawer()">Done</button>
-  </div>
-</div>
 
 <!-- ═══ TUITION AID PLANNER TAB ═══ -->
 <div id="tab-tuitionaid" class="tab-panel">
@@ -1238,6 +1197,48 @@ export const HTML_TABS_2 = String.raw`
       </section>
 
     </div>
+  </div>
+</div>
+
+</div><!-- /content-area -->
+
+<!-- ═══ PEOPLE FILTER DRAWER ═══ -->
+<div id="people-filter-overlay" onclick="closeFilterDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:1100;"></div>
+<div id="people-filter-drawer" style="display:none;position:fixed;right:0;top:0;bottom:0;width:300px;max-width:90vw;background:var(--white);box-shadow:-4px 0 24px rgba(0,0,0,.18);z-index:1101;flex-direction:column;overflow:hidden;">
+  <div style="display:flex;align-items:center;padding:16px 18px;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <span style="font-size:16px;font-weight:700;flex:1;">Filters</span>
+    <button onclick="clearAllFilters()" style="font-size:.78rem;color:var(--teal);background:none;border:none;cursor:pointer;font-weight:600;padding:4px 8px;">Clear All</button>
+    <button onclick="closeFilterDrawer()" style="background:none;border:none;cursor:pointer;font-size:22px;color:var(--warm-gray);line-height:1;margin-left:4px;">&#215;</button>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding:16px 18px;">
+    <div style="margin-bottom:20px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Sort By</div>
+      <div id="fd-sort"></div>
+    </div>
+    <div style="margin-bottom:20px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Member Type</div>
+      <div id="fd-member-types"></div>
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Tags</div>
+      <div id="fd-tags"></div>
+    </div>
+    <div style="margin-top:20px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Gender</div>
+      <div id="fd-gender"></div>
+    </div>
+    <div style="margin-top:20px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Age Range</div>
+      <div id="fd-age-range"></div>
+    </div>
+    <div style="margin-top:20px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Missing Field</div>
+      <div id="fd-missing"></div>
+    </div>
+  </div>
+  <div style="padding:14px 18px;border-top:1px solid var(--border);flex-shrink:0;">
+    <div id="fd-result-count" style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;text-align:center;"></div>
+    <button class="btn-primary" style="width:100%;padding:10px;" onclick="closeFilterDrawer()">Done</button>
   </div>
 </div>
 
