@@ -606,6 +606,19 @@ async function seedTuitionAid(db) {
   }
 }
 
+// Backfill tuition_year_rates from the known tuition_history figures (both are "the tuition
+// rate for a school year" — reusing the existing seed gives past-year views a correct rate
+// out of the box instead of an empty "no data" state). Idempotent (INSERT OR IGNORE) so it's
+// safe to call on every cold start, not just once.
+async function seedTuitionYearRates(db) {
+  const rows = (await db.prepare(`SELECT school_year, tuition_cents FROM tuition_history`).all()).results || [];
+  for (const r of rows) {
+    await db.prepare(
+      `INSERT OR IGNORE INTO tuition_year_rates (school_year, tuition_cents) VALUES (?,?)`
+    ).bind(r.school_year, r.tuition_cents).run();
+  }
+}
+
 async function _doInitDb(db) {
   for (const stmt of DB_INIT) {
     await db.prepare(stmt).run();
@@ -764,6 +777,29 @@ async function _doInitDb(db) {
       family_pct REAL NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL DEFAULT 0
     )`,
+    // Tuition Aid Planner: per-year tuition rate overrides + per-student per-year pins
+    // (see migrations/0015_tuition_year_history.sql for the full rationale)
+    `CREATE TABLE IF NOT EXISTS tuition_year_rates (
+      school_year TEXT PRIMARY KEY,
+      tuition_cents INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS tuition_student_years (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id INTEGER NOT NULL REFERENCES tuition_students(id),
+      school_year TEXT NOT NULL,
+      grade TEXT NOT NULL DEFAULT '',
+      outside_aid_cents INTEGER,
+      fam_pct INTEGER,
+      timothy_award_cents INTEGER,
+      family_owed_cents INTEGER,
+      lhs_award_cents INTEGER,
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_tsy_student_year ON tuition_student_years(student_id, school_year)`,
+    `CREATE INDEX IF NOT EXISTS idx_tsy_school_year ON tuition_student_years(school_year)`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
@@ -807,5 +843,6 @@ async function _doInitDb(db) {
   ).run().catch(() => {});
 
   await seedTuitionAid(db);
+  await seedTuitionYearRates(db);
 }
 

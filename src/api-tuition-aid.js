@@ -20,7 +20,7 @@ async function fillFromPerson(db, b) {
 export async function handleTuitionAidApi(req, env, url, method, seg, db, isFinance) {
   if (!isFinance) return json({ error: 'Access denied' }, 403);
 
-  // ── Full bundle: students + config + history ────────────────────────
+  // ── Full bundle: students + config + history + year rates + per-student year pins ──
   if (seg === 'tuition-aid/students' && method === 'GET') {
     const students = (await db.prepare(
       `SELECT * FROM tuition_students WHERE active=1 ORDER BY sort_order, id`
@@ -31,7 +31,17 @@ export async function handleTuitionAidApi(req, env, url, method, seg, db, isFina
     const history = (await db.prepare(
       `SELECT school_year, tuition_cents, family_pct FROM tuition_history ORDER BY sort_order, id`
     ).all()).results || [];
-    return json({ students, config, history });
+    const yearRates = (await db.prepare(
+      `SELECT school_year, tuition_cents FROM tuition_year_rates ORDER BY school_year`
+    ).all()).results || [];
+    // Joined against tuition_students (regardless of active) so a pin for a since-graduated
+    // or removed student still carries a family/child name for past-year/history display.
+    const studentYears = (await db.prepare(
+      `SELECT sy.*, s.family, s.child, s.is_pipeline, s.person_id
+       FROM tuition_student_years sy JOIN tuition_students s ON sy.student_id = s.id
+       ORDER BY sy.school_year, s.sort_order, s.id`
+    ).all()).results || [];
+    return json({ students, config, history, yearRates, studentYears });
   }
 
   // ── Create student / pipeline entrant ────────────────────────────────
@@ -126,6 +136,88 @@ export async function handleTuitionAidApi(req, env, url, method, seg, db, isFina
     );
     if (stmts.length) await db.batch(stmts);
     return json({ ok: true });
+  }
+
+  // ── Per-year tuition rate override (global — one rate applies to every student that year) ──
+  if (seg.match(/^tuition-aid\/year-rates\/[^/]+$/) && method === 'PUT') {
+    const schoolYear = decodeURIComponent(seg.slice('tuition-aid/year-rates/'.length));
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const cents = Math.round(b.tuition_cents);
+    if (!Number.isFinite(cents) || cents < 0) return json({ error: 'Invalid tuition_cents' }, 400);
+    await db.prepare(
+      `INSERT INTO tuition_year_rates (school_year,tuition_cents,updated_at) VALUES (?,?,datetime('now'))
+       ON CONFLICT(school_year) DO UPDATE SET tuition_cents=excluded.tuition_cents, updated_at=datetime('now')`
+    ).bind(schoolYear, cents).run();
+    return json({ ok: true });
+  }
+
+  const YEAR_PIN_FIELDS = ['grade', 'outside_aid_cents', 'fam_pct', 'timothy_award_cents', 'family_owed_cents', 'lhs_award_cents', 'note'];
+
+  // ── Per-student per-year pin (outside aid / awards that differ year to year) ────────
+  const ymatch = seg.match(/^tuition-aid\/students\/(\d+)\/years\/([^/]+)$/);
+  if (ymatch) {
+    const studentId = parseInt(ymatch[1]);
+    const schoolYear = decodeURIComponent(ymatch[2]);
+    if (method === 'PUT') {
+      let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+      const existing = await db.prepare(
+        `SELECT * FROM tuition_student_years WHERE student_id=? AND school_year=?`
+      ).bind(studentId, schoolYear).first();
+      const merged = {};
+      for (const f of YEAR_PIN_FIELDS) {
+        merged[f] = Object.prototype.hasOwnProperty.call(b, f) ? b[f] : (existing ? existing[f] : (f === 'grade' || f === 'note' ? '' : null));
+      }
+      await db.prepare(
+        `INSERT INTO tuition_student_years (student_id,school_year,grade,outside_aid_cents,fam_pct,timothy_award_cents,family_owed_cents,lhs_award_cents,note,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))
+         ON CONFLICT(student_id,school_year) DO UPDATE SET
+           grade=excluded.grade, outside_aid_cents=excluded.outside_aid_cents, fam_pct=excluded.fam_pct,
+           timothy_award_cents=excluded.timothy_award_cents, family_owed_cents=excluded.family_owed_cents,
+           lhs_award_cents=excluded.lhs_award_cents, note=excluded.note, updated_at=datetime('now')`
+      ).bind(studentId, schoolYear, merged.grade, merged.outside_aid_cents, merged.fam_pct,
+        merged.timothy_award_cents, merged.family_owed_cents, merged.lhs_award_cents, merged.note).run();
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      await db.prepare(`DELETE FROM tuition_student_years WHERE student_id=? AND school_year=?`).bind(studentId, schoolYear).run();
+      return json({ ok: true });
+    }
+  }
+
+  // ── Bulk per-year pin upsert (Apply Policy / Auto-Balance / Reset when viewing a
+  //    non-current year — one round trip instead of N) ────────────────────────────
+  if (seg === 'tuition-aid/year-pins/bulk' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const schoolYear = String(b.school_year || '');
+    const updates = Array.isArray(b.updates) ? b.updates : [];
+    if (!schoolYear || !updates.length) return json({ ok: true, updated: 0 });
+    const ids = updates.map(u => parseInt(u.student_id)).filter(Number.isInteger);
+    const existingRows = ids.length ? (await db.prepare(
+      `SELECT * FROM tuition_student_years WHERE school_year=? AND student_id IN (${ids.map(() => '?').join(',')})`
+    ).bind(schoolYear, ...ids).all()).results || [] : [];
+    const existingById = {};
+    for (const r of existingRows) existingById[r.student_id] = r;
+    const stmts = [];
+    for (const u of updates) {
+      const studentId = parseInt(u.student_id);
+      if (!Number.isInteger(studentId)) continue;
+      const existing = existingById[studentId];
+      const merged = {};
+      for (const f of YEAR_PIN_FIELDS) {
+        merged[f] = Object.prototype.hasOwnProperty.call(u, f) ? u[f] : (existing ? existing[f] : (f === 'grade' || f === 'note' ? '' : null));
+      }
+      stmts.push(db.prepare(
+        `INSERT INTO tuition_student_years (student_id,school_year,grade,outside_aid_cents,fam_pct,timothy_award_cents,family_owed_cents,lhs_award_cents,note,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))
+         ON CONFLICT(student_id,school_year) DO UPDATE SET
+           grade=excluded.grade, outside_aid_cents=excluded.outside_aid_cents, fam_pct=excluded.fam_pct,
+           timothy_award_cents=excluded.timothy_award_cents, family_owed_cents=excluded.family_owed_cents,
+           lhs_award_cents=excluded.lhs_award_cents, note=excluded.note, updated_at=datetime('now')`
+      ).bind(studentId, schoolYear, merged.grade, merged.outside_aid_cents, merged.fam_pct,
+        merged.timothy_award_cents, merged.family_owed_cents, merged.lhs_award_cents, merged.note));
+    }
+    if (stmts.length) await db.batch(stmts);
+    return json({ ok: true, updated: stmts.length });
   }
 
   // ── Historical chart data (replace-all) ─────────────────────────────────
