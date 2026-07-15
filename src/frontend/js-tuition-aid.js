@@ -5,8 +5,13 @@ var _tapHistory = [];
 var _tapRoster = [];
 var _tapYearIdx = 0;
 var _tapProjYears = [];
+var _tapAllYearOptions = [];
+var _tapYearRates = {};
+var _tapStudentYears = [];
+var _tapPinsByKey = {};
 var _tapSaveTimers = {};
 var _tapLinkTargetId = null;
+var _tapHistoryTargetId = null;
 
 function loadTuitionAid() {
   var loadingEl = document.getElementById('tap-loading');
@@ -18,6 +23,10 @@ function loadTuitionAid() {
     _tapConfig = d.config || {};
     _tapHistory = d.history || [];
     _tapRoster = (d.students || []).map(tapFromServerRow);
+    _tapYearRates = {};
+    (d.yearRates || []).forEach(function(r) { _tapYearRates[r.school_year] = r.tuition_cents; });
+    _tapStudentYears = d.studentYears || [];
+    tapIndexPins();
     _tapYearIdx = 0;
     tapBuildYearOptions();
     loadingEl.style.display = 'none';
@@ -27,6 +36,46 @@ function loadTuitionAid() {
     if (err && err.message === 'Unauthorized') return;
     loadingEl.textContent = 'Could not load tuition aid data.';
   });
+}
+
+// ── Per-year pin cache (outside aid / awards that differ year to year) ──────
+function tapSchoolYearLabel(y) {
+  var yy = (y + 1) % 100;
+  return y + '-' + (yy < 10 ? '0' + yy : yy);
+}
+function tapYearLabelForIdx(yearIdx) {
+  var baseYear = tapCfgNum('base_school_year', 2026);
+  return tapSchoolYearLabel(baseYear + yearIdx);
+}
+function tapIndexPins() {
+  _tapPinsByKey = {};
+  _tapStudentYears.forEach(function(row) { _tapPinsByKey[row.student_id + '|' + row.school_year] = row; });
+}
+function tapPinFor(studentId, yearIdx) {
+  return _tapPinsByKey[studentId + '|' + tapYearLabelForIdx(yearIdx)] || null;
+}
+function tapUpsertPinLocal(studentId, yearIdx, fields) {
+  var label = tapYearLabelForIdx(yearIdx);
+  var key = studentId + '|' + label;
+  var row = _tapPinsByKey[key];
+  if (!row) {
+    row = { student_id: studentId, school_year: label, grade: '', outside_aid_cents: null, fam_pct: null,
+      timothy_award_cents: null, family_owed_cents: null, lhs_award_cents: null, note: '' };
+    _tapPinsByKey[key] = row;
+    _tapStudentYears.push(row);
+  }
+  Object.keys(fields).forEach(function(k) { row[k] = fields[k]; });
+  return row;
+}
+function tapSavePinDebounced(studentId, yearIdx, fields) {
+  var timerKey = 'pin:' + studentId + ':' + yearIdx;
+  clearTimeout(_tapSaveTimers[timerKey]);
+  _tapSaveTimers[timerKey] = setTimeout(function() {
+    var label = tapYearLabelForIdx(yearIdx);
+    api('/admin/api/tuition-aid/students/' + studentId + '/years/' + encodeURIComponent(label), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields)
+    }).catch(function() {});
+  }, 500);
 }
 
 function tapCfgNum(key, def) {
@@ -92,10 +141,24 @@ function tapActiveForYear(yearIdx) {
 
 // ── Award math ─────────────────────────────────────────────────────
 function tapTuitionForYear(yearIdx) {
+  var override = _tapYearRates[tapYearLabelForIdx(yearIdx)];
+  if (override != null) return override / 100;
   var base = tapCfgNum('tuition_base_cents', 850000) / 100;
   var growth = tapCfgNum('tuition_growth_pct', 6) / 100;
   var raw = base * Math.pow(1 + growth, yearIdx);
   return Math.round(raw / 100) * 100;
+}
+function tapOutsideAidFor(s, yearIdx) {
+  var pin = yearIdx !== 0 ? tapPinFor(s.id, yearIdx) : null;
+  return (pin && pin.outside_aid_cents != null) ? pin.outside_aid_cents / 100 : s.outsideAid;
+}
+function tapFamPctFor(s, yearIdx) {
+  var pin = yearIdx !== 0 ? tapPinFor(s.id, yearIdx) : null;
+  return (pin && pin.fam_pct != null) ? pin.fam_pct : s.famPct;
+}
+function tapLhsAwardFor(s, yearIdx) {
+  var pin = yearIdx !== 0 ? tapPinFor(s.id, yearIdx) : null;
+  return (pin && pin.lhs_award_cents != null) ? pin.lhs_award_cents / 100 : s.lhsAward;
 }
 function tapComputeSplit(tuition, outsideAid, pct) {
   var familyRaw = tuition * (pct / 100);
@@ -113,11 +176,18 @@ function tapSplitAt(tuition, outsideAid, pct) {
   return r;
 }
 function tapSplitFor(s, yearIdx) {
+  var pin = yearIdx !== 0 ? tapPinFor(s.id, yearIdx) : null;
+  if (pin && (pin.timothy_award_cents != null || pin.family_owed_cents != null)) {
+    return {
+      timothyAward: (pin.timothy_award_cents != null ? pin.timothy_award_cents : 0) / 100,
+      familyOwed: (pin.family_owed_cents != null ? pin.family_owed_cents : 0) / 100
+    };
+  }
   if (yearIdx === 0 && !s.isPipeline && !s.touched && s.timothyAwardExact != null) {
     return { familyOwed: s.familyOwedExact, timothyAward: s.timothyAwardExact };
   }
   var tuition = tapTuitionForYear(yearIdx);
-  return tapSplitAt(tuition, s.outsideAid, s.famPct);
+  return tapSplitAt(tuition, tapOutsideAidFor(s, yearIdx), tapFamPctFor(s, yearIdx));
 }
 function tapPctFromFamilyOwed(tuition, outsideAid, familyOwed) {
   if (tuition <= 0) return 0;
@@ -129,17 +199,46 @@ function tapPctFromFamilyOwed(tuition, outsideAid, familyOwed) {
 function tapBuildYearOptions() {
   var baseYear = tapCfgNum('base_school_year', 2026);
   _tapProjYears = [];
-  for (var i = 0; i < 6; i++) {
-    var y = baseYear + i;
-    var yy = (y + 1) % 100;
-    _tapProjYears.push(y + '-' + (yy < 10 ? '0' + yy : yy));
+  for (var i = 0; i < 6; i++) _tapProjYears.push(tapSchoolYearLabel(baseYear + i));
+
+  _tapAllYearOptions = [];
+  for (var j = -5; j <= 5; j++) {
+    _tapAllYearOptions.push({ offset: j, label: tapSchoolYearLabel(baseYear + j) + (j === 0 ? ' (current)' : j < 0 ? ' (past)' : '') });
   }
   var sel = document.getElementById('tap-year-select');
-  sel.innerHTML = _tapProjYears.map(function(y, i) {
-    return '<option value="' + i + '"' + (i === _tapYearIdx ? ' selected' : '') + '>' + esc(y) + (i === 0 ? ' (current)' : '') + '</option>';
+  sel.innerHTML = _tapAllYearOptions.map(function(o) {
+    return '<option value="' + o.offset + '"' + (o.offset === _tapYearIdx ? ' selected' : '') + '>' + esc(o.label) + '</option>';
   }).join('');
 }
-function tapSetYear(idx) { _tapYearIdx = +idx; tapRenderPlannerTables(); }
+function tapSetYear(offset) {
+  _tapYearIdx = +offset;
+  var isPast = _tapYearIdx < 0;
+  document.getElementById('tap-planner-current').style.display = isPast ? 'none' : '';
+  document.getElementById('tap-planner-past').style.display = isPast ? '' : 'none';
+  tapRenderYearRateBox();
+  if (isPast) { tapRenderPastYearTable(); } else { tapRenderPlannerTables(); }
+}
+function tapRenderYearRateBox() {
+  var label = tapYearLabelForIdx(_tapYearIdx);
+  var resolved = tapTuitionForYear(_tapYearIdx);
+  var isOverride = _tapYearRates[label] != null;
+  document.getElementById('tap-year-rate-label').textContent = label;
+  document.getElementById('tap-year-rate-input').value = Math.round(resolved);
+  document.getElementById('tap-year-rate-note').textContent = isOverride ? 'Actual figure on file.' : 'Projected from ' + tapCfgNum('tuition_growth_pct', 6) + '%/yr growth — not yet finalized.';
+}
+function tapSaveYearRate() {
+  var label = tapYearLabelForIdx(_tapYearIdx);
+  var dollars = +document.getElementById('tap-year-rate-input').value;
+  if (!dollars || dollars <= 0) return;
+  var cents = Math.round(dollars * 100);
+  api('/admin/api/tuition-aid/year-rates/' + encodeURIComponent(label), {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tuition_cents: cents })
+  }).then(function() {
+    _tapYearRates[label] = cents;
+    tapRenderYearRateBox();
+    if (_tapYearIdx < 0) { tapRenderPastYearTable(); } else { tapRenderPlannerTables(); tapRenderKpis(); }
+  }).catch(function() {});
+}
 
 // ── Top-level render ───────────────────────────────────────────────
 function tapRenderAll() {
@@ -151,6 +250,7 @@ function tapRenderAll() {
   tapRenderEnrollChart();
   tapRenderDetailTable();
   tapRenderPipelineList();
+  tapRenderYearRateBox();
   tapRenderPlannerTables();
 }
 
@@ -371,42 +471,46 @@ function tapRenderPlannerTables() {
     if (bucket === 'K8') {
       if (grade === 'PK 3' || grade === 'PK 4') return;
       var sp = tapSplitFor(s, _tapYearIdx);
+      var famPctVal = tapFamPctFor(s, _tapYearIdx);
+      var outsideAidVal = tapOutsideAidFor(s, _tapYearIdx);
       var lhsToggle = grade === '8'
         ? '<label class="tap-lhs-toggle"><input type="checkbox" onchange="tapSetAttendsLHS(' + s.id + ',this.checked)" ' + (s.attendsLHS ? 'checked' : '') + '> Plans to attend LHS</label>' : '';
       var newFlag = justJoined ? ' <span class="status-pill status-confirmed">new</span>' : '';
       var linkBtn = s.personId ? '' : '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenLinkPerson(' + s.id + ')">Link</button> ';
+      var histBtn = '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenHistory(' + s.id + ')">History</button> ';
       k8Rows.push('<tr>'
         + '<td style="padding:6px 8px;">' + esc(s.family) + '</td>'
         + '<td style="padding:6px 8px;">' + esc(s.child) + newFlag + '</td>'
         + '<td style="padding:6px 8px;">' + esc(grade) + '</td>'
         + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(tuition * 100)) + '</td>'
-        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(s.outsideAid * 100)) + '</td>'
+        + '<td style="padding:6px 8px;text-align:right;"><input type="number" min="0" step="1" value="' + Math.round(outsideAidVal) + '" style="width:80px;text-align:right;" onchange="tapOutsideAidChange(this,' + s.id + ')"></td>'
         + '<td style="padding:6px 8px;">'
           + '<div class="tap-slider-row">'
-            + '<input type="range" min="0" max="100" step="1" value="' + s.famPct + '" oninput="tapSliderChange(this,' + s.id + ')">'
-            + '<input type="number" min="0" max="100" step="1" value="' + s.famPct + '" oninput="tapSliderChange(this,' + s.id + ')">%'
+            + '<input type="range" min="0" max="100" step="1" value="' + famPctVal + '" oninput="tapSliderChange(this,' + s.id + ')">'
+            + '<input type="number" min="0" max="100" step="1" value="' + famPctVal + '" oninput="tapSliderChange(this,' + s.id + ')">%'
           + '</div>'
           + '<div class="tap-slider-caption">Family share of $' + Math.round(tuition).toLocaleString() + ' bill</div>'
         + '</td>'
         + '<td class="tap-award-cell" id="tap-k8award-' + s.id + '">' + fmtMoney(Math.round(sp.timothyAward * 100)) + '</td>'
         + '<td style="padding:6px 8px;text-align:right;"><span id="tap-k8family-' + s.id + '">' + fmtMoney(Math.round(sp.familyOwed * 100)) + '</span>' + lhsToggle + '</td>'
-        + '<td style="padding:6px 8px;white-space:nowrap;">' + linkBtn + '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapRemoveStudent(' + s.id + ')">Remove</button></td>'
+        + '<td style="padding:6px 8px;white-space:nowrap;">' + histBtn + linkBtn + '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapRemoveStudent(' + s.id + ')">Remove</button></td>'
       + '</tr>');
     } else if (bucket === 'LHS') {
       var flag = justGraduated ? ' <span class="status-pill status-confirmed">new to LHS</span>' : '';
-      if (s.lhsAward > maxAward) s.lhsAward = maxAward;
+      var lhsVal = Math.min(tapLhsAwardFor(s, _tapYearIdx), maxAward);
+      if (_tapYearIdx === 0 && s.lhsAward > maxAward) s.lhsAward = maxAward;
       lhsRows.push('<tr>'
         + '<td style="padding:6px 8px;">' + esc(s.family) + '</td>'
         + '<td style="padding:6px 8px;">' + esc(s.child) + '</td>'
         + '<td style="padding:6px 8px;">' + esc(grade) + flag + '</td>'
         + '<td style="padding:6px 8px;">'
           + '<div class="tap-slider-row">'
-            + '<input type="range" min="0" max="' + maxAward + '" step="25" value="' + s.lhsAward + '" oninput="tapLhsSliderChange(this,' + s.id + ')">'
-            + '<input type="number" min="0" max="' + maxAward + '" step="25" value="' + s.lhsAward + '" oninput="tapLhsSliderChange(this,' + s.id + ')">'
+            + '<input type="range" min="0" max="' + maxAward + '" step="25" value="' + lhsVal + '" oninput="tapLhsSliderChange(this,' + s.id + ')">'
+            + '<input type="number" min="0" max="' + maxAward + '" step="25" value="' + lhsVal + '" oninput="tapLhsSliderChange(this,' + s.id + ')">'
           + '</div>'
         + '</td>'
-        + '<td class="tap-award-cell" id="tap-lhsaward-' + s.id + '">' + fmtMoney(Math.round(s.lhsAward * 100)) + '</td>'
-        + '<td style="padding:6px 8px;"><button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapRemoveStudent(' + s.id + ')">Remove</button></td>'
+        + '<td class="tap-award-cell" id="tap-lhsaward-' + s.id + '">' + fmtMoney(Math.round(lhsVal * 100)) + '</td>'
+        + '<td style="padding:6px 8px;white-space:nowrap;"><button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenHistory(' + s.id + ')">History</button> <button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapRemoveStudent(' + s.id + ')">Remove</button></td>'
       + '</tr>');
     }
   });
@@ -415,29 +519,52 @@ function tapRenderPlannerTables() {
   tapUpdateGauges();
 }
 
-function tapSliderChange(el, id) {
+function tapOutsideAidChange(el, id) {
   var s = tapById(id);
   if (!s) return;
-  var v = Math.min(100, Math.max(0, Math.round(+el.value || 0)));
-  s.famPct = v; s.touched = true;
-  var row = el.closest('tr');
-  var ranges = row.querySelectorAll('input[type=range]'), nums = row.querySelectorAll('input[type=number]');
-  if (ranges[0]) ranges[0].value = v;
-  if (nums[0]) nums[0].value = v;
+  var dollars = Math.max(0, Math.round(+el.value || 0));
+  var cents = dollars * 100;
+  if (_tapYearIdx === 0) {
+    s.outsideAid = dollars;
+    tapDebouncedSave(id, { outside_aid_cents: cents });
+  } else {
+    tapUpsertPinLocal(id, _tapYearIdx, { outside_aid_cents: cents });
+    tapSavePinDebounced(id, _tapYearIdx, { outside_aid_cents: cents });
+  }
   var sp = tapSplitFor(s, _tapYearIdx);
   var awardEl = document.getElementById('tap-k8award-' + id);
   var famEl = document.getElementById('tap-k8family-' + id);
   if (awardEl) awardEl.textContent = fmtMoney(Math.round(sp.timothyAward * 100));
   if (famEl) famEl.textContent = fmtMoney(Math.round(sp.familyOwed * 100));
   tapUpdateGauges();
-  tapDebouncedSave(id, { fam_pct: v, touched: 1 });
+}
+function tapSliderChange(el, id) {
+  var s = tapById(id);
+  if (!s) return;
+  var v = Math.min(100, Math.max(0, Math.round(+el.value || 0)));
+  var row = el.closest('tr');
+  var ranges = row.querySelectorAll('input[type=range]'), nums = row.querySelectorAll('input[type=number]');
+  if (ranges[0]) ranges[0].value = v;
+  if (nums[0]) nums[0].value = v;
+  if (_tapYearIdx === 0) {
+    s.famPct = v; s.touched = true;
+    tapDebouncedSave(id, { fam_pct: v, touched: 1 });
+  } else {
+    tapUpsertPinLocal(id, _tapYearIdx, { fam_pct: v, timothy_award_cents: null, family_owed_cents: null });
+    tapSavePinDebounced(id, _tapYearIdx, { fam_pct: v, timothy_award_cents: null, family_owed_cents: null });
+  }
+  var sp = tapSplitFor(s, _tapYearIdx);
+  var awardEl = document.getElementById('tap-k8award-' + id);
+  var famEl = document.getElementById('tap-k8family-' + id);
+  if (awardEl) awardEl.textContent = fmtMoney(Math.round(sp.timothyAward * 100));
+  if (famEl) famEl.textContent = fmtMoney(Math.round(sp.familyOwed * 100));
+  tapUpdateGauges();
 }
 function tapLhsSliderChange(el, id) {
   var s = tapById(id);
   if (!s) return;
   var maxAward = tapCfgNum('lhs_max_award_cents', 250000) / 100;
   var v = Math.min(maxAward, Math.max(0, Math.round(+el.value || 0)));
-  s.lhsAward = v;
   var row = el.closest('tr');
   var ranges = row.querySelectorAll('input[type=range]'), nums = row.querySelectorAll('input[type=number]');
   if (ranges[0]) ranges[0].value = v;
@@ -445,7 +572,13 @@ function tapLhsSliderChange(el, id) {
   var awardEl = document.getElementById('tap-lhsaward-' + id);
   if (awardEl) awardEl.textContent = fmtMoney(Math.round(v * 100));
   tapUpdateGauges();
-  tapDebouncedSave(id, { lhs_award_cents: Math.round(v * 100) });
+  if (_tapYearIdx === 0) {
+    s.lhsAward = v;
+    tapDebouncedSave(id, { lhs_award_cents: Math.round(v * 100) });
+  } else {
+    tapUpsertPinLocal(id, _tapYearIdx, { lhs_award_cents: Math.round(v * 100) });
+    tapSavePinDebounced(id, _tapYearIdx, { lhs_award_cents: Math.round(v * 100) });
+  }
 }
 function tapSetAttendsLHS(id, checked) {
   var s = tapById(id);
@@ -464,13 +597,38 @@ function tapBulkSave(updates) {
   if (!updates.length) return;
   api('/admin/api/tuition-aid/students/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates: updates }) }).catch(function() {});
 }
+// famPctUpdates: [{id, famPct}] — for the current year this mutates the master row (existing
+// behavior); for any other year it pins a per-year record instead, leaving the master
+// row (and therefore every OTHER year's rolling projection) untouched.
+function tapBulkSaveForYear(yearIdx, famPctUpdates) {
+  if (!famPctUpdates.length) return;
+  if (yearIdx === 0) {
+    famPctUpdates.forEach(function(u) { var s = tapById(u.id); if (s) { s.famPct = u.famPct; s.touched = true; } });
+    tapBulkSave(famPctUpdates.map(function(u) { return { id: u.id, fam_pct: u.famPct, touched: 1 }; }));
+  } else {
+    var label = tapYearLabelForIdx(yearIdx);
+    famPctUpdates.forEach(function(u) { tapUpsertPinLocal(u.id, yearIdx, { fam_pct: u.famPct, timothy_award_cents: null, family_owed_cents: null }); });
+    api('/admin/api/tuition-aid/year-pins/bulk', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ school_year: label, updates: famPctUpdates.map(function(u) { return { student_id: u.id, fam_pct: u.famPct }; }) })
+    }).catch(function() {});
+  }
+}
+function tapClearPinsForYear(yearIdx, studentIds) {
+  var label = tapYearLabelForIdx(yearIdx);
+  studentIds.forEach(function(id) {
+    delete _tapPinsByKey[id + '|' + label];
+    _tapStudentYears = _tapStudentYears.filter(function(r) { return !(r.student_id === id && r.school_year === label); });
+    api('/admin/api/tuition-aid/students/' + id + '/years/' + encodeURIComponent(label), { method: 'DELETE' }).catch(function() {});
+  });
+}
 
 function tapUpdateGauges() {
   var active = tapActiveForYear(_tapYearIdx).filter(function(x) { return !(x.bucket === 'K8' && (x.grade === 'PK 3' || x.grade === 'PK 4')); });
   var k8Active = active.filter(function(x) { return x.bucket === 'K8'; });
   var lhsActive = active.filter(function(x) { return x.bucket === 'LHS'; });
   var k8Total = k8Active.reduce(function(sum, x) { return sum + tapSplitFor(x.s, _tapYearIdx).timothyAward; }, 0);
-  var lhsTotal = lhsActive.reduce(function(sum, x) { return sum + x.s.lhsAward; }, 0);
+  var lhsTotal = lhsActive.reduce(function(sum, x) { return sum + tapLhsAwardFor(x.s, _tapYearIdx); }, 0);
   var lhsRate = tapCfgNum('lhs_standard_rate_cents', 120000) / 100;
   var lhsReference = lhsActive.length * lhsRate;
   var k8Budget = tapCfgNum('k8_budget_cents', 7500000) / 100;
@@ -497,14 +655,21 @@ function tapUpdateGauges() {
   document.getElementById('tap-lhs-gauge-cap').textContent = 'Standard rate: ' + lhsActive.length + ' × ' + fmtMoney(Math.round(lhsRate * 100)) + ' = ' + fmtMoney(Math.round(lhsReference * 100));
 }
 
-// ── Bulk actions ───────────────────────────────────────────────────
+// ── Bulk actions ─────────────────────────────────────────────────────
+// All three act on the currently-viewed year (_tapYearIdx): on the current year they mutate
+// the master row as before; on any other year they pin/clear per-year records instead, so
+// tuning next year's numbers never disturbs this year's (or another year's) figures.
 function tapResetAwards() {
-  var updates = [];
-  _tapRoster.forEach(function(s) {
-    s.famPct = s.famPctOrig; s.lhsAward = s.lhsAwardOrig; s.attendsLHS = true; s.touched = false;
-    updates.push({ id: s.id, fam_pct: s.famPctOrig, lhs_award_cents: Math.round(s.lhsAwardOrig * 100), attends_lhs: 1, touched: 0 });
-  });
-  tapBulkSave(updates);
+  if (_tapYearIdx === 0) {
+    var updates = [];
+    _tapRoster.forEach(function(s) {
+      s.famPct = s.famPctOrig; s.lhsAward = s.lhsAwardOrig; s.attendsLHS = true; s.touched = false;
+      updates.push({ id: s.id, fam_pct: s.famPctOrig, lhs_award_cents: Math.round(s.lhsAwardOrig * 100), attends_lhs: 1, touched: 0 });
+    });
+    tapBulkSave(updates);
+  } else {
+    tapClearPinsForYear(_tapYearIdx, _tapRoster.map(function(s) { return s.id; }));
+  }
   tapRenderPlannerTables();
 }
 function tapApplyPolicy() {
@@ -513,31 +678,28 @@ function tapApplyPolicy() {
   var tuition = tapTuitionForYear(_tapYearIdx);
   var capPct = tapCfgNum('family_share_cap_pct', 50);
   var k8Budget = tapCfgNum('k8_budget_cents', 7500000) / 100;
+  var outsideAidOf = function(s) { return tapOutsideAidFor(s, _tapYearIdx); };
 
   var alloc = active.map(function(x) {
-    var r = tapSplitAt(tuition, x.s.outsideAid, capPct);
+    var r = tapSplitAt(tuition, outsideAidOf(x.s), capPct);
     return { s: x.s, timothy: r.timothyAward, family: r.familyOwed };
   });
   var total = alloc.reduce(function(sum, a) { return sum + a.timothy; }, 0);
-  var updates = [];
 
   if (total > k8Budget) {
     var raw = active.map(function(x) {
-      var r = tapComputeSplit(tuition, x.s.outsideAid, capPct);
+      var r = tapComputeSplit(tuition, outsideAidOf(x.s), capPct);
       return { s: x.s, timothy: r.timothyAward, family: r.familyOwed };
     });
     var rawTotal = raw.reduce(function(sum, a) { return sum + a.timothy; }, 0);
     for (var pass = 0; pass < 12 && rawTotal > k8Budget; pass++) {
       var scale = k8Budget / rawTotal;
-      raw.forEach(function(a) { a.timothy = a.timothy * scale; a.family = Math.max(0, tuition - a.s.outsideAid - a.timothy); });
+      raw.forEach(function(a) { a.timothy = a.timothy * scale; a.family = Math.max(0, tuition - outsideAidOf(a.s) - a.timothy); });
       rawTotal = raw.reduce(function(sum, a) { return sum + a.timothy; }, 0);
     }
-    raw.forEach(function(a) {
-      a.s.famPct = tapPctFromFamilyOwed(tuition, a.s.outsideAid, a.family);
-      a.s.touched = true;
-      updates.push({ id: a.s.id, fam_pct: a.s.famPct, touched: 1 });
-    });
-    tapBulkSave(updates);
+    tapBulkSaveForYear(_tapYearIdx, raw.map(function(a) {
+      return { id: a.s.id, famPct: tapPctFromFamilyOwed(tuition, outsideAidOf(a.s), a.family) };
+    }));
     tapRenderPlannerTables();
     return;
   } else if (total < k8Budget) {
@@ -548,32 +710,123 @@ function tapApplyPolicy() {
       alloc.forEach(function(a) { var extra = a.family * give; a.timothy += extra; a.family -= extra; });
     }
   }
-  alloc.forEach(function(a) {
-    a.s.famPct = tapPctFromFamilyOwed(tuition, a.s.outsideAid, a.family);
-    a.s.touched = true;
-    updates.push({ id: a.s.id, fam_pct: a.s.famPct, touched: 1 });
-  });
-  tapBulkSave(updates);
+  tapBulkSaveForYear(_tapYearIdx, alloc.map(function(a) {
+    return { id: a.s.id, famPct: tapPctFromFamilyOwed(tuition, outsideAidOf(a.s), a.family) };
+  }));
   tapRenderPlannerTables();
 }
 function tapAutoBalance() {
   var active = tapActiveForYear(_tapYearIdx).filter(function(x) { return x.bucket === 'K8' && x.grade !== 'PK 3' && x.grade !== 'PK 4'; });
   var tuition = tapTuitionForYear(_tapYearIdx);
   var k8Budget = tapCfgNum('k8_budget_cents', 7500000) / 100;
+  var pctById = {};
+  active.forEach(function(x) { pctById[x.s.id] = tapFamPctFor(x.s, _tapYearIdx); });
   for (var pass = 0; pass < 12; pass++) {
-    var total = active.reduce(function(sum, x) { return sum + tapComputeSplit(tuition, x.s.outsideAid, x.s.famPct).timothyAward; }, 0);
+    var total = active.reduce(function(sum, x) { return sum + tapComputeSplit(tuition, tapOutsideAidFor(x.s, _tapYearIdx), pctById[x.s.id]).timothyAward; }, 0);
     if (total <= k8Budget) break;
     var scale = k8Budget / total;
     active.forEach(function(x) {
-      var oldShare = 1 - x.s.famPct / 100;
+      var oldShare = 1 - pctById[x.s.id] / 100;
       var newShare = oldShare * scale;
-      x.s.famPct = Math.min(100, Math.max(0, Math.round((1 - newShare) * 100)));
-      x.s.touched = true;
+      pctById[x.s.id] = Math.min(100, Math.max(0, Math.round((1 - newShare) * 100)));
     });
   }
-  var updates = active.map(function(x) { return { id: x.s.id, fam_pct: x.s.famPct, touched: 1 }; });
-  tapBulkSave(updates);
+  tapBulkSaveForYear(_tapYearIdx, active.map(function(x) { return { id: x.s.id, famPct: pctById[x.s.id] }; }));
   tapRenderPlannerTables();
+}
+
+// ── Past-year view (read/edit a school year that predates "today") ──────────
+// Past years aren't reconstructible from today's roster (a graduated or removed student
+// simply isn't in it anymore) — the ledger (_tapStudentYears) is the only source of truth,
+// so this renders whatever pins exist for that year rather than walking grade progression.
+function tapRenderPastYearTable() {
+  var label = tapYearLabelForIdx(_tapYearIdx);
+  var rows = _tapStudentYears.filter(function(r) { return r.school_year === label; });
+  var body = document.getElementById('tap-past-year-body');
+  if (!rows.length) {
+    body.innerHTML = '<div style="font-size:.82rem;color:var(--warm-gray);padding:10px 0;">No per-family records saved for ' + esc(label) + ' yet. Records accumulate automatically as each year is edited going forward — this view will fill in over time.</div>';
+    return;
+  }
+  var html = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr style="border-bottom:2px solid var(--navy);">'
+    + '<th style="text-align:left;padding:6px 8px;">Family</th><th style="text-align:left;padding:6px 8px;">Child</th>'
+    + '<th style="text-align:left;padding:6px 8px;">Grade</th><th style="text-align:right;padding:6px 8px;">Outside Aid</th>'
+    + '<th style="text-align:right;padding:6px 8px;">Timothy Award</th><th style="text-align:right;padding:6px 8px;">Family Owed</th>'
+    + '<th style="text-align:right;padding:6px 8px;">LHS Award</th><th style="padding:6px 8px;"></th></tr></thead><tbody>';
+  rows.forEach(function(r) {
+    html += '<tr>'
+      + '<td style="padding:6px 8px;">' + esc(r.family) + '</td>'
+      + '<td style="padding:6px 8px;">' + esc(r.child) + '</td>'
+      + '<td style="padding:6px 8px;">' + esc(r.grade || '—') + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;"><input type="number" min="0" step="1" value="' + (r.outside_aid_cents != null ? Math.round(r.outside_aid_cents / 100) : 0) + '" style="width:80px;text-align:right;" onchange="tapPastOutsideAidChange(this,' + r.student_id + ')"></td>'
+      + '<td style="padding:6px 8px;text-align:right;"><input type="number" min="0" step="1" value="' + (r.timothy_award_cents != null ? Math.round(r.timothy_award_cents / 100) : '') + '" placeholder="—" style="width:80px;text-align:right;" onchange="tapPastTimothyAwardChange(this,' + r.student_id + ')"></td>'
+      + '<td style="padding:6px 8px;text-align:right;"><input type="number" min="0" step="1" value="' + (r.family_owed_cents != null ? Math.round(r.family_owed_cents / 100) : '') + '" placeholder="—" style="width:80px;text-align:right;" onchange="tapPastFamilyOwedChange(this,' + r.student_id + ')"></td>'
+      + '<td style="padding:6px 8px;text-align:right;"><input type="number" min="0" step="1" value="' + (r.lhs_award_cents != null ? Math.round(r.lhs_award_cents / 100) : '') + '" placeholder="—" style="width:80px;text-align:right;" onchange="tapPastLhsAwardChange(this,' + r.student_id + ')"></td>'
+      + '<td style="padding:6px 8px;"><button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenHistory(' + r.student_id + ')">History</button></td>'
+      + '</tr>';
+  });
+  html += '</tbody></table></div>';
+  body.innerHTML = html;
+}
+function tapPastFieldChange(el, studentId, field) {
+  var dollars = el.value === '' ? null : Math.max(0, Math.round(+el.value || 0));
+  var cents = dollars == null ? null : dollars * 100;
+  var fields = {}; fields[field] = cents;
+  tapUpsertPinLocal(studentId, _tapYearIdx, fields);
+  tapSavePinDebounced(studentId, _tapYearIdx, fields);
+}
+function tapPastOutsideAidChange(el, studentId) { tapPastFieldChange(el, studentId, 'outside_aid_cents'); }
+function tapPastTimothyAwardChange(el, studentId) { tapPastFieldChange(el, studentId, 'timothy_award_cents'); }
+function tapPastFamilyOwedChange(el, studentId) { tapPastFieldChange(el, studentId, 'family_owed_cents'); }
+function tapPastLhsAwardChange(el, studentId) { tapPastFieldChange(el, studentId, 'lhs_award_cents'); }
+
+// ── Family / student history (all pinned years for one student) ─────────────
+function tapJumpToYear(offset) {
+  closeModal('tap-history-modal');
+  document.getElementById('tap-year-select').value = offset;
+  tapSetYear(offset);
+}
+function tapOpenHistory(id) {
+  _tapHistoryTargetId = id;
+  var rows = _tapStudentYears.filter(function(r) { return r.student_id === id; })
+    .slice().sort(function(a, b) { return a.school_year < b.school_year ? -1 : 1; });
+  var s = tapById(id);
+  var family = rows.length ? rows[0].family : (s ? s.family : '');
+  var child = rows.length ? rows[0].child : (s ? s.child : '');
+  document.getElementById('tap-history-title').textContent = (family ? family + ' — ' : '') + child;
+  var body = document.getElementById('tap-history-body');
+  var liveRow = '';
+  if (s) {
+    var sp = tapSplitFor(s, 0);
+    var label = tapYearLabelForIdx(0);
+    liveRow = '<tr style="background:var(--pale-gold);"><td style="padding:6px 8px;">' + esc(label) + ' (current)</td>'
+      + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(s.outsideAid * 100)) + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(sp.timothyAward * 100)) + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(sp.familyOwed * 100)) + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">' + (s.attendsLHS === false ? '—' : fmtMoney(Math.round(s.lhsAward * 100))) + '</td>'
+      + '<td></td></tr>';
+  }
+  if (!rows.length && !liveRow) {
+    body.innerHTML = '<div style="font-size:.82rem;color:var(--warm-gray);padding:10px 0;">No history recorded for this student yet.</div>';
+    openModal('tap-history-modal');
+    return;
+  }
+  var html = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr style="border-bottom:2px solid var(--navy);">'
+    + '<th style="text-align:left;padding:6px 8px;">School Year</th><th style="text-align:right;padding:6px 8px;">Outside Aid</th>'
+    + '<th style="text-align:right;padding:6px 8px;">Timothy Award</th><th style="text-align:right;padding:6px 8px;">Family Owed</th>'
+    + '<th style="text-align:right;padding:6px 8px;">LHS Award</th><th style="padding:6px 8px;"></th></tr></thead><tbody>';
+  rows.forEach(function(r) {
+    var baseYear = tapCfgNum('base_school_year', 2026);
+    var yearIdx = parseInt(r.school_year) - baseYear;
+    html += '<tr><td style="padding:6px 8px;">' + esc(r.school_year) + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">' + (r.outside_aid_cents != null ? fmtMoney(r.outside_aid_cents) : '—') + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">' + (r.timothy_award_cents != null ? fmtMoney(r.timothy_award_cents) : '—') + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">' + (r.family_owed_cents != null ? fmtMoney(r.family_owed_cents) : '—') + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">' + (r.lhs_award_cents != null ? fmtMoney(r.lhs_award_cents) : '—') + '</td>'
+      + '<td style="padding:6px 8px;"><button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapJumpToYear(' + yearIdx + ')">Jump</button></td></tr>';
+  });
+  html += '</tbody>' + (liveRow ? '<tfoot>' + liveRow + '</tfoot>' : '') + '</table></div>';
+  body.innerHTML = html;
+  openModal('tap-history-modal');
 }
 
 // ── Pipeline management ────────────────────────────────────────────

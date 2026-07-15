@@ -1111,9 +1111,24 @@ export const HTML_TABS_2 = String.raw`
       </section>
 
       <section class="dash-card" style="margin-bottom:16px;">
+        <div class="dash-card-hdr">Year Navigator</div>
+        <div class="dash-card-body" style="padding:14px 18px;">
+          <div class="tap-controls">
+            <label>View year: <select id="tap-year-select" onchange="tapSetYear(this.value)"></select></label>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;">
+              Actual tuition for <b id="tap-year-rate-label">–</b>: $<input type="number" id="tap-year-rate-input" min="0" step="1" style="width:90px;">
+              <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveYearRate()">Save</button>
+            </span>
+          </div>
+          <p style="font-size:.72rem;color:var(--warm-gray);margin:6px 0 0;" id="tap-year-rate-note"></p>
+        </div>
+      </section>
+
+      <div id="tap-planner-current">
+      <section class="dash-card" style="margin-bottom:16px;">
         <div class="dash-card-hdr">Student Aid Planner — keep Timothy's award under budget</div>
         <div class="dash-card-body" style="padding:14px 18px;">
-          <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">Each slider sets the family's assigned share of the total tuition bill — outside scholarships apply against that share first. Timothy commits at least $2,000/student. Project a future year and the roster moves: grades advance, 8th graders graduate into the LHS planner, and 12th graders age out. Tuition grows 6%/yr, rounded to the nearest $100.</p>
+          <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">Each slider sets the family's assigned share of the total tuition bill — outside scholarships apply against that share first. Timothy commits at least $2,000/student. Project a future year and the roster moves: grades advance, 8th graders graduate into the LHS planner, and 12th graders age out. Editing outside aid, family share, or LHS award while viewing a year other than the current one pins that year's numbers without touching any other year.</p>
 
           <div class="tap-pipeline-box">
             <h4>Kids in the Pipeline <span style="font-weight:400;font-size:.7rem;color:#8A7440;">— not yet enrolled, tracked by birth year</span></h4>
@@ -1128,7 +1143,6 @@ export const HTML_TABS_2 = String.raw`
           </div>
 
           <div class="tap-controls">
-            <label>Project for: <select id="tap-year-select" onchange="tapSetYear(this.value)"></select></label>
             <button class="btn-secondary" onclick="tapResetAwards()">Reset to Current Awards</button>
             <button class="btn-primary" onclick="tapApplyPolicy()">Apply Aid Policy</button>
             <button class="btn-secondary" onclick="tapAutoBalance()">Auto-Balance to Fit Budget</button>
@@ -1193,6 +1207,14 @@ export const HTML_TABS_2 = String.raw`
             <tbody id="tap-lhs-body"></tbody>
           </table>
           </div>
+        </div>
+      </section>
+      </div>
+
+      <section class="dash-card" id="tap-planner-past" style="display:none;margin-bottom:16px;">
+        <div class="dash-card-hdr">Past Year Record</div>
+        <div class="dash-card-body" style="padding:14px 18px;">
+          <div id="tap-past-year-body"></div>
         </div>
       </section>
 
@@ -1771,6 +1793,17 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('tap-link-modal')">Cancel</button>
       <button class="btn-primary" onclick="tapSaveLinkPerson()">Link</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tuition Aid: per-student year-over-year history -->
+<div class="modal-overlay" id="tap-history-modal">
+  <div class="modal" style="max-width:640px;width:95vw;">
+    <div class="modal-header"><span id="tap-history-title">History</span><button class="modal-close" onclick="closeModal('tap-history-modal')">&#10005;</button></div>
+    <div style="padding:4px 0;" id="tap-history-body"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('tap-history-modal')">Close</button>
     </div>
   </div>
 </div>
