@@ -60,10 +60,13 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
   --warm-surface-header:#FBF3E1;--warm-surface-card-page:#F4EFE2;
   --status-member:#6B8F71;--status-visitor:#4D6BA0;--status-associate:#2E7EA6;
   --status-friend:#8A7A5C;--status-inactive:#C9973A;--status-organization:#5C4B2E;
-  /* ── Volunteer/Events design-handoff palette (exact mockup values, kept
-     separate from the tokens above so this feature area can match its
-     mockups pixel-for-pixel without altering the rest of the app) ── */
-  --ev-navy:#1E2D4A;--ev-teal:#2E7EA6;--ev-muted:#8A8898;--ev-ink:#1A1A2A;
+  /* ── Volunteer/Events design-handoff palette. --ev-navy/--ev-teal/--ev-ink
+     turned out to be exact hex matches for --color-navy/--color-teal/--charcoal
+     (confirmed during the RDS5 redesign pass) and now alias them — same
+     dedup already done for --ev-danger. --ev-muted/--ev-cream/--ev-moss have
+     no matching token (--ev-moss is a second, deliberately distinct green
+     from --sage) and stay as their own literal values. ── */
+  --ev-navy:var(--color-navy);--ev-teal:var(--color-teal);--ev-muted:#8A8898;--ev-ink:var(--charcoal);
   --ev-border:rgba(30,45,74,.12);--ev-border2:rgba(30,45,74,.18);
   --ev-cream:#F7F3EC;--ev-moss:#4A5E3A;--ev-danger:var(--danger);
 }
