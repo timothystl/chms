@@ -749,7 +749,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <h2 style="font-size:1.1rem;font-weight:700;color:var(--charcoal);">Volunteers</h2>
     </div>
 
-    <div class="vol-shell" style="display:flex;align-items:flex-start;gap:0;background:var(--white);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.14);overflow:hidden;margin-bottom:28px;">
+    <div class="vol-shell" style="display:flex;align-items:flex-start;gap:0;background:var(--white);border-radius:20px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);overflow:hidden;margin-bottom:28px;">
       <!-- Sub-nav: Signups / Ministry Roles / Events -->
       <div id="vol-subnav" class="vol-subnav">
         <button class="vol-subtab-btn active" onclick="volShowSection('signups',this)">Signups</button>
