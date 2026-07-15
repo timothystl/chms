@@ -198,7 +198,7 @@ if (seg === 'people' && method === 'GET') {
   const archivedView = url.searchParams.get('archived') === '1';
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '100'), 200);
   const offset = parseInt(url.searchParams.get('offset') || '0');
-  const SORT_COLS = { last_name: 'p.last_name', first_name: 'p.first_name', member_type: 'p.member_type', created_at: 'p.created_at', household: 'h.name' };
+  const SORT_COLS = { last_name: 'p.last_name', first_name: 'p.first_name', member_type: 'p.member_type', created_at: 'p.created_at', household: 'h.name', dob: 'p.dob', baptism: 'p.baptism_date', confirmation: 'p.confirmation_date', anniversary: 'p.anniversary_date' };
   const sortCol = SORT_COLS[url.searchParams.get('sort') || ''] || 'p.last_name';
   const sortDir = url.searchParams.get('dir') === 'desc' ? 'DESC' : 'ASC';
   const like = '%' + q + '%';
