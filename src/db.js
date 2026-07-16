@@ -619,6 +619,30 @@ async function seedTuitionYearRates(db) {
   }
 }
 
+// The only genuine per-student prior-year figure available anywhere in the source workbooks:
+// the "Parent 2025-26" column on the K-8 Aid Detail sheet (actual family payment, for
+// students still enrolled this year). Everything else in those workbooks for years before
+// 2026-27 is class-wide aggregate only (already covered by TUITION_SEED_HISTORY) — this is
+// the one real per-family data point worth backfilling as a tuition_student_years pin.
+// Matched by (family, child) against the TUITION_SEED_K8 rows already seeded above.
+const TUITION_SEED_PARENT_2025_26 = [
+  ['Smithson','Garrett',8600], ['Oschwald','Jadon',3700], ['Oschwald','Liam',3700],
+  ['Weigand','Rebecca',4000], ['Enderle','Charlotte',300], ['Dinger','Daniel',0],
+  ['Smithson','Noel',4000], ['Dinger','Jacob',1600], ['Pozas','Hannah',4000],
+  ['Lee','Olivia',3000], ['Roden','Penny',4000], ['Gonzalez','Alaya',2900],
+  ['Poppitz','Emma',0], ['Knapp','Edmund',810], ['Dinger','John',1600],
+  ['Jermiya','Malidaya',3300], ['Poppitz','Olivia',0],
+];
+async function seedParent2025_26(db) {
+  for (const [family, child, familyOwedDollars] of TUITION_SEED_PARENT_2025_26) {
+    const s = await db.prepare(`SELECT id FROM tuition_students WHERE family=? AND child=?`).bind(family, child).first();
+    if (!s) continue;
+    await db.prepare(
+      `INSERT OR IGNORE INTO tuition_student_years (student_id,school_year,family_owed_cents) VALUES (?,'2025-26',?)`
+    ).bind(s.id, Math.round(familyOwedDollars * 100)).run();
+  }
+}
+
 async function _doInitDb(db) {
   for (const stmt of DB_INIT) {
     await db.prepare(stmt).run();
@@ -844,5 +868,6 @@ async function _doInitDb(db) {
 
   await seedTuitionAid(db);
   await seedTuitionYearRates(db);
+  await seedParent2025_26(db);
 }
 

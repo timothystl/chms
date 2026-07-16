@@ -57,13 +57,13 @@ export async function handleTuitionAidApi(req, env, url, method, seg, db, isFina
     const r = await db.prepare(
       `INSERT INTO tuition_students
         (person_id,household_id,family,child,is_pipeline,base_grade,birth_year,outside_aid_cents,
-         fam_pct,fam_pct_orig,lhs_award_cents,lhs_award_orig_cents,attends_lhs,note,sort_order)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+         fam_pct,fam_pct_orig,lhs_award_cents,lhs_award_orig_cents,attends_lhs,note,active,sort_order)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       b.person_id || null, b.household_id || null, b.family || '', b.child || '',
       b.is_pipeline ? 1 : 0, b.base_grade || '', b.birth_year || null,
       b.outside_aid_cents || 0, famPct, famPct, lhsAward, lhsAward,
-      b.attends_lhs === false ? 0 : 1, b.note || '', (maxSort?.m ?? -1) + 1
+      b.attends_lhs === false ? 0 : 1, b.note || '', b.active === false ? 0 : 1, (maxSort?.m ?? -1) + 1
     ).run();
     return json({ ok: true, id: r.meta?.last_row_id });
   }
