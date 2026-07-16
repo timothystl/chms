@@ -129,6 +129,11 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-16 (v1.24.3 — QuickBooks sync warnings now include the Fault error code)
+- **Context**: live sandbox testing (FIN2) hit a real QuickBooks error on Budget vs Actual — `Permission Denied Error: To access this, sign in again or contact an administrator` — after ruling out both obvious causes (a Budget for the requested year does exist; the connected user is the company's Primary Admin). QBO's structured `Fault.Error[]` response includes a specific numeric `code` classifying the error, which `fetchQboJson()` (v1.23.3) already captured in the server-side `console.error` log but never surfaced in the warning shown in the Finance tab UI.
+- **Fix**: the visible warning now includes `error code ###` alongside the HTTP status and `intuit_tid`, so the specific QBO error classification is visible without digging through Cloudflare logs.
+- **Verified**: `npm test` (37/37), `node --check`. Diagnosis of the underlying Permission Denied error itself is still open — needs the error code from a re-sync to pin down further.
+
 ### 2026-07-16 (v1.24.2 — FIX: daycare finance client sent requests to the wrong URL)
 - **Context**: the daycare app's Claude Code session finished building its finance endpoint and handed over the real values — `DAYCARE_API_URL` = a complete Supabase Edge Function URL (`https://<project-ref>.supabase.co/functions/v1/finance-summary`), `DAYCARE_API_KEY` = same value as that app's own `FINANCE_API_KEY`.
 - **Bug found while wiring it up**: `src/daycare.js`'s `makeDaycareClient()` treated `DAYCARE_API_URL` as a base domain and appended `/api/finance/summary` to it (matching the original SECRETS.md placeholder example, `https://daycare.timothystl.org`) — but the daycare app's actual endpoint is that complete, specific Supabase function path, not a fixed route on a conventional host. With the original code, every sync request would have gone to `.../finance-summary/api/finance/summary`, a 404. Fixed to fetch `DAYCARE_API_URL` directly with nothing appended.
