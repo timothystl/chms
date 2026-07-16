@@ -129,6 +129,9 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-16 (v1.19.1 — Remove "Person record" badge from Organization cards)
+- Removed the "Person record" pill badge shown on Organizations cards for entries synced from a Person record (`o.source === 'person'`). Cosmetic-only — the underlying click behavior for those entries (open the full Person Profile) is unchanged.
+
 ### 2026-07-16 (v1.19.0 — Organization View: mirrors Household View)
 - **Requested**: "make organization view be like household view."
 - **Before**: Organizations cards were unstyled (the `.hh-card` class they used had no CSS rules defined at all — likely a stale/typo'd class name from whenever this was built), and clicking a real organization jumped straight into the edit modal with no read-only view page (clicking a *person-sourced* "organization" — a synced Person record shown in this list — already correctly opened the full Person Profile; that path is unchanged).

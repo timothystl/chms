@@ -312,14 +312,12 @@ function loadOrganizations(reset) {
       return;
     }
     grid.innerHTML = orgs.map(function(o, idx) {
-      var isPerson = o.source === 'person';
       var typeBadge = o.type ? ' <span style="font-size:.68rem;background:var(--linen);color:var(--warm-gray);border-radius:99px;padding:1px 8px;font-weight:600;">'+esc(o.type)+'</span>' : '';
-      var personBadge = isPerson ? ' <span style="font-size:.68rem;background:var(--linen);color:var(--warm-gray);border:1px solid var(--border);border-radius:99px;padding:1px 7px;">Person record</span>' : '';
       var contact = o.contact_name ? esc(o.contact_name) : '';
       var info = [o.phone, o.email].filter(Boolean).map(esc).join(' &middot; ');
       var addr = [o.city, o.state].filter(Boolean).join(', ');
       return '<div class="h-card" onclick="openOrgRow(' + idx + ')">'
-        + '<div class="h-name">'+esc(o.name)+typeBadge+personBadge+'</div>'
+        + '<div class="h-name">'+esc(o.name)+typeBadge+'</div>'
         + (contact ? '<div class="h-addr">'+contact+'</div>' : '')
         + (info ? '<div class="h-addr">'+info+'</div>' : '')
         + (addr ? '<div class="h-addr">'+esc(addr)+'</div>' : '')
