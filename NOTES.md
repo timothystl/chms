@@ -129,6 +129,9 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-16 (v1.23.1 — Public Privacy Policy + Terms of Use pages)
+- **Requested** while setting up the QuickBooks Online Developer app for FIN1/FIN2 — Intuit's production-access form requires public Privacy Policy and Terms of Use URLs. New `src/legal-pages.js` (`PRIVACY_HTML`/`TERMS_HTML`), served unauthenticated at `/privacy` and `/terms`. Plain-language, honest about what TLC Gather actually does (internal staff tool; describes the Breeze/QuickBooks/daycare-app/Brevo/Resend integrations); not a substitute for the church's own legal review.
+
 ### 2026-07-16 (v1.23.0 — Finance Overview tab: QuickBooks Online sync + daycare app integration)
 - **Requested**: a single place to see the church's finances instead of QuickBooks' large/cluttered reports — specifically Budget vs Actual and account balances — plus the daycare app's financial data (a separate Claude-Code-built app). Scoped like the Tuition Aid Planner: its own finance-gated tab (`admin`/`finance` roles).
 - **QuickBooks Online** (`src/quickbooks.js`, `src/api-finance.js`): real OAuth 2.0 Authorization Code flow — admin clicks "Connect QuickBooks" in the Finance tab, completes Intuit's consent screen, callback exchanges the code for access/refresh tokens stored in a new `finance_qb_connection` table (not a Worker secret, since it's per-connection and rotates). "Sync Now" pulls the `BudgetVsActual` report and account balances (`Account` query) via QBO's Reports/Query API, caching the raw JSON in `finance_qb_snapshot`. The Budget vs Actual table renders QBO's own Columns/Rows report structure generically (recursing through Section/Data rows) rather than assuming fixed column semantics, since that varies by report params — this is the standard way to consume QBO's Reports API.

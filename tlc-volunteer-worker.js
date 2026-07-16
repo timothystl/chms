@@ -19,6 +19,7 @@ import { handleIntakeApi } from './src/api-intake.js';
 import { LOGIN_HTML, PUBLIC_HTML, ADMIN_HTML } from './src/html-templates.js';
 import { CHMS_HTML, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML } from './src/html-chms.js';
 import { PORTAL_HTML, PORTAL_MANIFEST_JSON } from './src/portal-html.js';
+import { PRIVACY_HTML, TERMS_HTML } from './src/legal-pages.js';
 import { PORTAL_SW_JS } from './src/portal-sw-js.js';
 import { handleMemberApi, getMemberAuth } from './src/api-member.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts, centralDayOfWeek } from './src/api-emails.js';
@@ -176,6 +177,10 @@ async function _fetch(req, env) {
       const fRes = await fetch('https://raw.githubusercontent.com/timothystl/chms/main/header-logo.png', { cf: { cacheEverything: true, cacheTtl: 86400 } });
       return new Response(fRes.ok ? fRes.body : '', { status: fRes.ok ? 200 : 404, headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' } });
     }
+    // Public privacy policy / terms of use — no auth required. Referenced from third-party
+    // integration setup (e.g. QuickBooks Online's app registration form requires these URLs).
+    if (path === '/privacy' && method === 'GET') return html(PRIVACY_HTML);
+    if (path === '/terms' && method === 'GET') return html(TERMS_HTML);
     if ((path === '/' || path === '/index.html') && method === 'GET') {
       if (isChmsHost) {
         if (!await isAuthed(req, env)) return html(LOGIN_HTML);
