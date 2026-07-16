@@ -338,7 +338,6 @@ a.s-item{text-decoration:none;color:inherit;}
 /* ── MOBILE CONTACT CARDS ── */
 .contact-list{display:none;}
 @media(max-width:767px){
-  .card-grid{display:none;}
   #p-grid,#p-card-grid,.view-toggle{display:none!important;}
   .contact-list{display:flex;flex-direction:column;background:var(--warm-surface-card);}
   .toolbar .filter-pills{display:none;}
