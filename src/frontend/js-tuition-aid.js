@@ -13,6 +13,7 @@ var _tapSaveTimers = {};
 var _tapLinkTargetId = null;
 var _tapHistoryTargetId = null;
 var _tapImportRecords = [];
+var _tapImportUnresolved = [];
 
 function tapApplyBundle(d) {
   _tapConfig = d.config || {};
@@ -1399,8 +1400,205 @@ function tapExtractHistoryRecords(grid, currentSchoolYear) {
   return records;
 }
 
+// ── Raw award-workbook parser ────────────────────────────────────────────
+// Reads the school's actual working workbook (one sheet per year, e.g. "26-27",
+// "2025-26", "Timothy Member Tuition 2023-24") directly - no reformatting needed.
+// Only sheets with the clean, single-child-per-row layout (exact "Last Name" /
+// "Grade" / "Child" / "Parent Portion" headers) are recognized; older sheets that
+// use a different shape (one row per family with multiple children, or a
+// different scholarship vocabulary) are skipped and listed for the user rather
+// than guessed at.
+function tapXlsxListSheetNames(workbookXml) {
+  var out = [];
+  var sheetRe = /<sheet\b[^>]*\bname="([^"]*)"[^>]*\/>/g;
+  var sm;
+  while ((sm = sheetRe.exec(workbookXml))) out.push(tapXmlUnescape(sm[1]));
+  return out;
+}
+function tapParseWorkbookAllSheets(arrayBuffer) {
+  var bytes = new Uint8Array(arrayBuffer);
+  var entries = tapZipReadEntries(bytes);
+  var dec = new TextDecoder('utf-8');
+  return Promise.all([
+    tapZipReadEntryBytes(bytes, entries, 'xl/workbook.xml'),
+    tapZipReadEntryBytes(bytes, entries, 'xl/_rels/workbook.xml.rels'),
+    tapZipReadEntryBytes(bytes, entries, 'xl/sharedStrings.xml')
+  ]).then(function(res) {
+    var workbookXml = dec.decode(res[0]);
+    var relsXml = dec.decode(res[1]);
+    var sharedStrings = res[2] ? tapXlsxParseSharedStrings(dec.decode(res[2])) : [];
+    var names = tapXlsxListSheetNames(workbookXml);
+    return names.reduce(function(chain, name) {
+      return chain.then(function(acc) {
+        var sheetPath = tapXlsxFindSheetPath(workbookXml, relsXml, name);
+        if (!sheetPath) { acc.push({ name: name, grid: null }); return acc; }
+        return tapZipReadEntryBytes(bytes, entries, sheetPath).then(function(sheetBytes) {
+          acc.push({ name: name, grid: sheetBytes ? tapXlsxParseSheetGrid(dec.decode(sheetBytes), sharedStrings) : null });
+          return acc;
+        });
+      });
+    }, Promise.resolve([]));
+  });
+}
+function tapYearLabelFromSheetName(name) {
+  var s = (name || '').trim();
+  var m = /^(\d{2})-(\d{2})$/.exec(s);
+  if (m) return '20' + m[1] + '-' + m[2];
+  m = /(\d{4})-(\d{2,4})$/.exec(s);
+  if (m) return m[1] + '-' + (m[2].length === 4 ? m[2].slice(2) : m[2]);
+  return null;
+}
+function tapNormHeader(v) {
+  return (typeof v === 'string' ? v : '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+var TAP_OUTSIDE_AID_HEADERS = ['today & tomorrow', 'building blocks', 'cfna', 'other', 'mo scholars', 'lase scholarship', 'ace'];
+var TAP_TIMOTHY_AWARD_HEADERS = ['partnership grant', 'access grant', 'soldiers of the cross'];
+function tapDetectAwardSheetLayout(grid) {
+  for (var r = 0; r < grid.length; r++) {
+    var row = grid[r];
+    if (!row) continue;
+    var familyCol = -1, gradeCol = -1, childCol = -1, parentPortionCol = -1, partnershipCol = -1;
+    var outsideCols = [], timothyCols = [];
+    for (var c = 0; c < row.length; c++) {
+      var h = tapNormHeader(row[c]);
+      if (h === 'last name') familyCol = c;
+      else if (h === 'grade') gradeCol = c;
+      else if (h === 'child') childCol = c;
+      else if (h.indexOf('parent portion') === 0) parentPortionCol = c;
+      else if (TAP_OUTSIDE_AID_HEADERS.indexOf(h) !== -1) outsideCols.push(c);
+      else if (TAP_TIMOTHY_AWARD_HEADERS.indexOf(h) !== -1) { timothyCols.push(c); if (h === 'partnership grant') partnershipCol = c; }
+    }
+    if (familyCol !== -1 && gradeCol !== -1 && childCol !== -1 && parentPortionCol !== -1) {
+      return { headerRow: r, familyCol: familyCol, gradeCol: gradeCol, childCol: childCol,
+        parentPortionCol: parentPortionCol, outsideCols: outsideCols, timothyCols: timothyCols, partnershipCol: partnershipCol };
+    }
+  }
+  return null;
+}
+function tapExtractAwardSheetK8(grid, layout, schoolYear) {
+  var records = [];
+  for (var r = layout.headerRow + 1; r < grid.length; r++) {
+    var row = grid[r];
+    if (!row) continue;
+    var family = row[layout.familyCol], child = row[layout.childCol];
+    var parentPortion = row[layout.parentPortionCol];
+    if (typeof child !== 'string' || !child.trim()) continue;
+    if (typeof parentPortion !== 'number') continue;
+    var gradeRaw = row[layout.gradeCol];
+    var outsideAid = 0;
+    for (var i = 0; i < layout.outsideCols.length; i++) { var v = row[layout.outsideCols[i]]; if (typeof v === 'number') outsideAid += v; }
+    var timothyAward = 0;
+    for (var j = 0; j < layout.timothyCols.length; j++) { var v2 = row[layout.timothyCols[j]]; if (typeof v2 === 'number') timothyAward += v2; }
+    records.push({
+      family: (typeof family === 'string' ? family : '').trim(),
+      child: child.trim(),
+      grade: gradeRaw == null ? '' : String(gradeRaw).trim(),
+      outside_aid_cents: Math.round(outsideAid * 100),
+      timothy_award_cents: Math.round(timothyAward * 100),
+      family_owed_cents: Math.round(parentPortion * 100),
+      school_year: schoolYear
+    });
+  }
+  return records;
+}
+function tapExtractAwardSheetLhs(grid, layout, schoolYear) {
+  if (layout.partnershipCol === -1) return [];
+  var anchorIdx = -1;
+  for (var r = 0; r < grid.length && anchorIdx === -1; r++) {
+    var row = grid[r];
+    if (!row) continue;
+    for (var c = 0; c < row.length; c++) {
+      if (typeof row[c] === 'string' && /^lhsa\s*aid$/i.test(row[c].trim())) { anchorIdx = r; break; }
+    }
+  }
+  if (anchorIdx === -1) return [];
+  var out = [];
+  for (var r2 = anchorIdx - 1; r2 >= 0; r2--) {
+    var row2 = grid[r2];
+    if (!row2) break;
+    var gradeNum = parseInt(row2[layout.gradeCol], 10);
+    var childVal = row2[layout.childCol];
+    var awardVal = row2[layout.partnershipCol];
+    if (!(gradeNum >= 9 && gradeNum <= 12) || typeof childVal !== 'string' || !childVal.trim() || typeof awardVal !== 'number') break;
+    out.push({ rawName: childVal.trim(), grade: String(gradeNum), lhs_award_cents: Math.round(awardVal * 100), school_year: schoolYear });
+  }
+  out.reverse();
+  return out;
+}
+function tapExtractFromRawWorkbook(sheets, currentSchoolYear) {
+  var k8Records = [], lhsRaw = [], skippedSheets = [];
+  for (var i = 0; i < sheets.length; i++) {
+    var sheet = sheets[i];
+    if (!sheet.grid) continue;
+    var yearLabel = tapYearLabelFromSheetName(sheet.name);
+    var layout = tapDetectAwardSheetLayout(sheet.grid);
+    if (!yearLabel || !layout) { skippedSheets.push(sheet.name); continue; }
+    if (yearLabel === currentSchoolYear) continue;
+    k8Records = k8Records.concat(tapExtractAwardSheetK8(sheet.grid, layout, yearLabel));
+    lhsRaw = lhsRaw.concat(tapExtractAwardSheetLhs(sheet.grid, layout, yearLabel));
+  }
+  return { k8Records: k8Records, lhsRaw: lhsRaw, skippedSheets: skippedSheets };
+}
+function tapMatchLhsName(rawName, roster) {
+  var norm = rawName.trim().toLowerCase().replace(/\s+/g, ' ');
+  var tokens = norm.split(' ');
+  var fullMatches = roster.filter(function(s) {
+    var a = (s.child + ' ' + s.family).trim().toLowerCase().replace(/\s+/g, ' ');
+    var b = (s.family + ' ' + s.child).trim().toLowerCase().replace(/\s+/g, ' ');
+    return a === norm || b === norm;
+  });
+  if (fullMatches.length === 1) return { status: 'ok', student: fullMatches[0] };
+  if (fullMatches.length > 1) return { status: 'ambiguous', candidates: fullMatches };
+  var firstTok = tokens[0];
+  var firstMatches = roster.filter(function(s) { return s.child.trim().toLowerCase() === firstTok; });
+  if (firstMatches.length === 1) return { status: 'ok', student: firstMatches[0] };
+  if (firstMatches.length > 1) return { status: 'ambiguous', candidates: firstMatches };
+  return { status: 'notfound' };
+}
+function tapBuildImportRecords(k8Records, lhsRaw, roster) {
+  var map = {};
+  function keyOf(family, child) { return family.trim().toLowerCase() + '|' + child.trim().toLowerCase(); }
+  k8Records.forEach(function(r) {
+    var k = keyOf(r.family, r.child);
+    if (!map[k]) map[k] = { family: r.family, child: r.child, entries: [] };
+    map[k].entries.push({ school_year: r.school_year, grade: r.grade, outside_aid_cents: r.outside_aid_cents,
+      timothy_award_cents: r.timothy_award_cents, family_owed_cents: r.family_owed_cents });
+  });
+  var lhsUnresolved = [];
+  lhsRaw.forEach(function(r) {
+    var m = tapMatchLhsName(r.rawName, roster);
+    if (m.status !== 'ok') {
+      lhsUnresolved.push({ rawName: r.rawName, grade: r.grade, school_year: r.school_year, status: m.status,
+        candidates: (m.candidates || []).map(function(c) { return c.family + ' ' + c.child; }) });
+      return;
+    }
+    var k = keyOf(m.student.family, m.student.child);
+    if (!map[k]) map[k] = { family: m.student.family, child: m.student.child, entries: [] };
+    map[k].entries.push({ school_year: r.school_year, grade: r.grade, lhs_award_cents: r.lhs_award_cents });
+  });
+  var records = Object.keys(map).map(function(k) { return map[k]; });
+  records.sort(function(a, b) { return (a.family + a.child).localeCompare(b.family + b.child); });
+  // A K-8 entry and an LHS entry landing on the SAME school year for the SAME family+child name
+  // means two different real students share an identical name — matching only has the name
+  // string to go on, so this can't be told apart automatically. Flag it instead of silently
+  // merging two people's histories into one record.
+  var collisionWarnings = [];
+  records.forEach(function(rec) {
+    var yearsSeen = {};
+    var collided = false;
+    rec.entries.forEach(function(e) {
+      var kind = e.lhs_award_cents != null ? 'lhs' : 'k8';
+      if (yearsSeen[e.school_year] && yearsSeen[e.school_year] !== kind) collided = true;
+      yearsSeen[e.school_year] = kind;
+    });
+    if (collided) collisionWarnings.push({ family: rec.family, child: rec.child });
+  });
+  return { records: records, lhsUnresolved: lhsUnresolved, collisionWarnings: collisionWarnings };
+}
+
 function tapOpenImportHistory() {
   _tapImportRecords = [];
+  _tapImportUnresolved = [];
   document.getElementById('tap-import-file').value = '';
   document.getElementById('tap-import-status').textContent = '';
   document.getElementById('tap-import-preview').innerHTML = '';
@@ -1415,41 +1613,93 @@ function tapImportFileSelected(input) {
   statusEl.textContent = 'Reading ' + file.name + '…';
   previewEl.innerHTML = '';
   document.getElementById('tap-import-confirm-btn').style.display = 'none';
+  var currentYear = tapYearLabelForIdx(0);
   file.arrayBuffer().then(function(buf) {
-    return tapParseXlsxSheet(buf, 'Student Tuition History');
-  }).then(function(grid) {
-    var currentYear = tapYearLabelForIdx(0);
-    var records = tapExtractHistoryRecords(grid, currentYear);
-    _tapImportRecords = records;
-    var totalEntries = records.reduce(function(s, r) { return s + r.entries.length; }, 0);
-    if (!records.length) {
-      statusEl.textContent = 'No importable records found in this file.';
+    return tapParseWorkbookAllSheets(buf);
+  }).then(function(sheets) {
+    var simpleSheet = null;
+    for (var i = 0; i < sheets.length; i++) { if (sheets[i].name === 'Student Tuition History') { simpleSheet = sheets[i]; break; } }
+    if (simpleSheet) {
+      var records = tapExtractHistoryRecords(simpleSheet.grid, currentYear);
+      _tapImportRecords = records;
+      _tapImportUnresolved = [];
+      var totalEntries = records.reduce(function(s, r) { return s + r.entries.length; }, 0);
+      if (!records.length) { statusEl.textContent = 'No importable records found in this file.'; return; }
+      statusEl.textContent = 'Found ' + records.length + ' student' + (records.length === 1 ? '' : 's') + ', ' + totalEntries + ' year' + (totalEntries === 1 ? '' : 's') + ' of history. Review below, then Import.';
+      tapRenderImportPreview(records, [], []);
+      document.getElementById('tap-import-confirm-btn').style.display = '';
       return;
     }
-    statusEl.textContent = 'Found ' + records.length + ' student' + (records.length === 1 ? '' : 's') + ', ' + totalEntries + ' year' + (totalEntries === 1 ? '' : 's') + ' of history. Review below, then Import.';
-    tapRenderImportPreview(records);
-    document.getElementById('tap-import-confirm-btn').style.display = '';
+    var extracted = tapExtractFromRawWorkbook(sheets, currentYear);
+    var built = tapBuildImportRecords(extracted.k8Records, extracted.lhsRaw, _tapRoster);
+    _tapImportRecords = built.records;
+    _tapImportUnresolved = built.lhsUnresolved;
+    var totalEntries = built.records.reduce(function(s, r) { return s + r.entries.length; }, 0);
+    if (!built.records.length && !built.lhsUnresolved.length) {
+      statusEl.textContent = 'No importable records found in this file'
+        + (extracted.skippedSheets.length ? ' (skipped: ' + extracted.skippedSheets.join(', ') + ' — different layout).' : '.');
+      return;
+    }
+    var msg = 'Found ' + built.records.length + ' student' + (built.records.length === 1 ? '' : 's') + ', ' + totalEntries + ' year' + (totalEntries === 1 ? '' : 's') + ' of history.';
+    if (built.lhsUnresolved.length) msg += ' ' + built.lhsUnresolved.length + ' LHS award row' + (built.lhsUnresolved.length === 1 ? '' : 's') + ' could not be matched — see below.';
+    if (built.collisionWarnings.length) msg += ' ' + built.collisionWarnings.length + ' name' + (built.collisionWarnings.length === 1 ? '' : 's') + ' may belong to two different students — flagged below, unchecked by default.';
+    if (extracted.skippedSheets.length) msg += ' Skipped (different layout, not imported): ' + extracted.skippedSheets.join(', ') + '.';
+    msg += ' Review below, then Import.';
+    statusEl.textContent = msg;
+    tapRenderImportPreview(built.records, built.lhsUnresolved, built.collisionWarnings);
+    document.getElementById('tap-import-confirm-btn').style.display = built.records.length ? '' : 'none';
   }).catch(function(err) {
     statusEl.textContent = (err && err.message) || 'Could not read this file.';
   });
 }
-function tapRenderImportPreview(records) {
+function tapRenderImportPreview(records, unresolved, collisionWarnings) {
+  var anyRich = records.some(function(rec) { return rec.entries.some(function(e) { return e.lhs_award_cents != null || e.outside_aid_cents != null; }); });
+  var collisionKeys = {};
+  (collisionWarnings || []).forEach(function(w) { collisionKeys[w.family.trim().toLowerCase() + '|' + w.child.trim().toLowerCase()] = true; });
   var html = '<div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">'
     + '<table style="width:100%;border-collapse:collapse;font-size:.8rem;"><thead><tr style="border-bottom:2px solid var(--navy);position:sticky;top:0;background:var(--white);">'
     + '<th style="padding:5px 8px;"></th><th style="text-align:left;padding:5px 8px;">Family</th><th style="text-align:left;padding:5px 8px;">Child</th>'
-    + '<th style="text-align:left;padding:5px 8px;">Year</th><th style="text-align:right;padding:5px 8px;">Family Owed</th></tr></thead><tbody>';
+    + '<th style="text-align:left;padding:5px 8px;">Year</th>'
+    + (anyRich ? '<th style="text-align:left;padding:5px 8px;">Grade</th><th style="text-align:right;padding:5px 8px;">Outside Aid</th><th style="text-align:right;padding:5px 8px;">Timothy Award</th>' : '')
+    + '<th style="text-align:right;padding:5px 8px;">Family Owed</th>'
+    + (anyRich ? '<th style="text-align:right;padding:5px 8px;">LHS Award</th>' : '')
+    + '</tr></thead><tbody>';
   for (var r = 0; r < records.length; r++) {
     var rec = records[r];
+    var isCollision = !!collisionKeys[rec.family.trim().toLowerCase() + '|' + rec.child.trim().toLowerCase()];
     for (var e = 0; e < rec.entries.length; e++) {
       var entry = rec.entries[e];
-      html += '<tr><td style="padding:4px 8px;"><input type="checkbox" checked id="tap-import-cb-' + r + '-' + e + '"></td>'
-        + '<td style="padding:4px 8px;">' + esc(rec.family) + '</td><td style="padding:4px 8px;">' + esc(rec.child) + '</td>'
+      var isLhs = entry.lhs_award_cents != null;
+      html += '<tr' + (isCollision ? ' style="background:#FBEAEA;"' : '') + '><td style="padding:4px 8px;"><input type="checkbox"' + (isCollision ? '' : ' checked') + ' id="tap-import-cb-' + r + '-' + e + '"></td>'
+        + '<td style="padding:4px 8px;">' + esc(rec.family) + (isCollision ? ' ⚠' : '') + '</td><td style="padding:4px 8px;">' + esc(rec.child) + '</td>'
         + '<td style="padding:4px 8px;">' + esc(entry.school_year) + '</td>'
-        + '<td style="padding:4px 8px;text-align:right;">' + fmtMoney(entry.family_owed_cents) + '</td></tr>';
+        + (anyRich ? '<td style="padding:4px 8px;">' + esc(entry.grade || '') + '</td>'
+            + '<td style="padding:4px 8px;text-align:right;">' + (isLhs ? '—' : fmtMoney(entry.outside_aid_cents || 0)) + '</td>'
+            + '<td style="padding:4px 8px;text-align:right;">' + (isLhs ? '—' : fmtMoney(entry.timothy_award_cents || 0)) + '</td>' : '')
+        + '<td style="padding:4px 8px;text-align:right;">' + (isLhs ? '—' : (entry.family_owed_cents != null ? fmtMoney(entry.family_owed_cents) : '—')) + '</td>'
+        + (anyRich ? '<td style="padding:4px 8px;text-align:right;">' + (isLhs ? fmtMoney(entry.lhs_award_cents) : '—') + '</td>' : '')
+        + '</tr>';
     }
   }
   html += '</tbody></table></div>'
     + '<p style="font-size:.72rem;color:var(--warm-gray);margin:8px 0 0;">Uncheck any row you don’t want imported — for example a figure your source file itself flags as an estimate or unreconciled. A family/child not already in the roster gets a history-only record (won’t appear in the current planner).</p>';
+  if (collisionWarnings && collisionWarnings.length) {
+    html += '<div style="margin-top:10px;padding:8px 10px;background:#FBEAEA;border-radius:8px;font-size:.75rem;">'
+      + '<strong>⚠ ' + collisionWarnings.length + ' name' + (collisionWarnings.length === 1 ? '' : 's') + ' matched both a K-8 record and an LHS award in the same school year</strong> — that means two different students almost certainly share this exact name. Their rows above are unchecked by default; review carefully (a middle name, DOB, or household would help tell them apart) before checking either one:'
+      + '<ul style="margin:6px 0 0;padding-left:18px;">'
+      + collisionWarnings.map(function(w) { return '<li>' + esc(w.family) + ' / ' + esc(w.child) + '</li>'; }).join('')
+      + '</ul></div>';
+  }
+  if (unresolved && unresolved.length) {
+    html += '<div style="margin-top:10px;padding:8px 10px;background:var(--linen);border-radius:8px;font-size:.75rem;">'
+      + '<strong>' + unresolved.length + ' LHS award row' + (unresolved.length === 1 ? '' : 's') + ' not imported — could not match to a student:</strong>'
+      + '<ul style="margin:6px 0 0;padding-left:18px;">'
+      + unresolved.map(function(u) {
+          var reason = u.status === 'ambiguous' ? ('matches multiple students on the roster: ' + u.candidates.map(esc).join(', ')) : 'no matching student found on the current roster';
+          return '<li>' + esc(u.rawName) + ' (grade ' + esc(u.grade) + ', ' + esc(u.school_year) + ') — ' + reason + '</li>';
+        }).join('')
+      + '</ul></div>';
+  }
   document.getElementById('tap-import-preview').innerHTML = html;
 }
 function tapConfirmImportHistory() {

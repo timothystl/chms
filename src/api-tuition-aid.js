@@ -221,6 +221,11 @@ export async function handleTuitionAidApi(req, env, url, method, seg, db, isFina
   }
 
   // ── Bulk import of per-student history from an uploaded workbook (parsed client-side) ──
+  // Each entry may carry any subset of YEAR_PIN_FIELDS (a K-8 year sets grade/outside_aid/
+  // timothy_award/family_owed; an LHS year sets grade/lhs_award only) — fields not present in
+  // a given entry are left as whatever already exists for that (student, year), same merge
+  // semantics as the year-pins/bulk endpoint, so a K-8-only re-import can't blow away an
+  // LHS award pinned for the same student in a different year, and vice versa.
   if (seg === 'tuition-aid/import-history' && method === 'POST') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const records = Array.isArray(b.records) ? b.records.slice(0, 500) : [];
@@ -243,17 +248,31 @@ export async function handleTuitionAidApi(req, env, url, method, seg, db, isFina
       }
       for (const entry of entries) {
         const schoolYear = String(entry?.school_year || '').trim().slice(0, 20);
-        const cents = Math.round(entry?.family_owed_cents);
-        if (!schoolYear || !Number.isFinite(cents)) continue;
+        if (!schoolYear) continue;
         const existing = await db.prepare(
-          `SELECT family_owed_cents FROM tuition_student_years WHERE student_id=? AND school_year=?`
+          `SELECT * FROM tuition_student_years WHERE student_id=? AND school_year=?`
         ).bind(s.id, schoolYear).first();
+        const merged = {};
+        let changed = !existing;
+        for (const f of YEAR_PIN_FIELDS) {
+          if (Object.prototype.hasOwnProperty.call(entry, f)) {
+            merged[f] = entry[f];
+            if (existing && existing[f] !== entry[f]) changed = true;
+          } else {
+            merged[f] = existing ? existing[f] : (f === 'grade' || f === 'note' ? '' : null);
+          }
+        }
         await db.prepare(
-          `INSERT INTO tuition_student_years (student_id,school_year,family_owed_cents,updated_at) VALUES (?,?,?,datetime('now'))
-           ON CONFLICT(student_id,school_year) DO UPDATE SET family_owed_cents=excluded.family_owed_cents, updated_at=datetime('now')`
-        ).bind(s.id, schoolYear, cents).run();
+          `INSERT INTO tuition_student_years (student_id,school_year,grade,outside_aid_cents,fam_pct,timothy_award_cents,family_owed_cents,lhs_award_cents,note,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))
+           ON CONFLICT(student_id,school_year) DO UPDATE SET
+             grade=excluded.grade, outside_aid_cents=excluded.outside_aid_cents, fam_pct=excluded.fam_pct,
+             timothy_award_cents=excluded.timothy_award_cents, family_owed_cents=excluded.family_owed_cents,
+             lhs_award_cents=excluded.lhs_award_cents, note=excluded.note, updated_at=datetime('now')`
+        ).bind(s.id, schoolYear, merged.grade, merged.outside_aid_cents, merged.fam_pct,
+          merged.timothy_award_cents, merged.family_owed_cents, merged.lhs_award_cents, merged.note).run();
         if (!existing) created++;
-        else if (existing.family_owed_cents !== cents) updated++;
+        else if (changed) updated++;
         else unchanged++;
       }
     }
