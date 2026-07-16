@@ -862,14 +862,30 @@ function tapOpenHistory(id) {
   var body = document.getElementById('tap-history-body');
   var liveRow = '';
   if (s) {
-    var sp = tapSplitFor(s, 0);
+    // LHS Award only applies to LHS (grade 9-12) students; K-8/WOL students never have one
+    // (attendsLHS defaults true for everyone and just means "still planning to attend LHS
+    // once they get there" — it's not a signal that a K-8 student is currently in LHS).
+    // Likewise Timothy Award/Family Owed/Outside Aid are K-8-only concepts — tapSplitFor()
+    // isn't meaningful for an LHS-bucket student, whose tuition_students row has no real
+    // outside_aid/fam_pct data (LHS aid is tracked as a flat lhs_award_cents instead).
+    var bucket0 = tapBucketFor(s, tapGradeAt(s, 0));
     var label = tapYearLabelForIdx(0);
-    liveRow = '<tr style="background:var(--pale-gold);"><td style="padding:6px 8px;">' + esc(label) + ' (current)</td>'
-      + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(s.outsideAid * 100)) + '</td>'
-      + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(sp.timothyAward * 100)) + '</td>'
-      + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(sp.familyOwed * 100)) + '</td>'
-      + '<td style="padding:6px 8px;text-align:right;">' + (s.attendsLHS === false ? '—' : fmtMoney(Math.round(s.lhsAward * 100))) + '</td>'
-      + '<td></td></tr>';
+    if (bucket0 === 'K8') {
+      var sp = tapSplitFor(s, 0);
+      liveRow = '<tr style="background:var(--pale-gold);"><td style="padding:6px 8px;">' + esc(label) + ' (current)</td>'
+        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(s.outsideAid * 100)) + '</td>'
+        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(sp.timothyAward * 100)) + '</td>'
+        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(sp.familyOwed * 100)) + '</td>'
+        + '<td style="padding:6px 8px;text-align:right;">—</td>'
+        + '<td></td></tr>';
+    } else if (bucket0 === 'LHS') {
+      liveRow = '<tr style="background:var(--pale-gold);"><td style="padding:6px 8px;">' + esc(label) + ' (current)</td>'
+        + '<td style="padding:6px 8px;text-align:right;">—</td>'
+        + '<td style="padding:6px 8px;text-align:right;">—</td>'
+        + '<td style="padding:6px 8px;text-align:right;">—</td>'
+        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(s.lhsAward * 100)) + '</td>'
+        + '<td></td></tr>';
+    }
   }
   if (!rows.length && !liveRow) {
     body.innerHTML = '<div style="font-size:.82rem;color:var(--warm-gray);padding:10px 0;">No history recorded for this student yet.</div>';
