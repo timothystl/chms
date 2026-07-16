@@ -129,6 +129,10 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-16 (v1.23.2 — QuickBooks OAuth endpoints resolved from Intuit's discovery document)
+- **Requested** while filling out QuickBooks' Developer app production-access questionnaire — one question asks whether the app uses Intuit's OAuth2.0 discovery document to get the latest endpoint URLs rather than hardcoding them. `src/quickbooks.js` now fetches `https://developer.api.intuit.com/.well-known/openid_configuration` (or the `_sandbox_` variant per `QB_ENVIRONMENT`) once per Worker isolate (24hr in-memory cache) and resolves `authorization_endpoint`/`token_endpoint`/`revocation_endpoint` from it. The previously-hardcoded URLs are kept only as a fallback if that fetch fails, so a transient outage on Intuit's discovery endpoint can't break the OAuth flow. `getAuthorizeUrl()` is now async (its one call site in `src/api-finance.js` updated to `await` it) — `exchangeCodeForTokens`/`refreshTokens`/`revokeToken` were already async, no signature change needed there.
+- **Verified**: the discovery document's actual published values were confirmed to match what was previously hardcoded, so this is a pure robustness improvement with no behavior change today. `npm test` (37/37), `node --check`.
+
 ### 2026-07-16 (v1.23.1 — Public Privacy Policy + Terms of Use pages)
 - **Requested** while setting up the QuickBooks Online Developer app for FIN1/FIN2 — Intuit's production-access form requires public Privacy Policy and Terms of Use URLs. New `src/legal-pages.js` (`PRIVACY_HTML`/`TERMS_HTML`), served unauthenticated at `/privacy` and `/terms`. Plain-language, honest about what TLC Gather actually does (internal staff tool; describes the Breeze/QuickBooks/daycare-app/Brevo/Resend integrations); not a substitute for the church's own legal review.
 

@@ -64,7 +64,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const redirectUri = new URL(CALLBACK_PATH, url.origin).toString();
     const state = crypto.randomUUID();
     if (env.RSVP_STORE) await env.RSVP_STORE.put(`qb_oauth_state:${state}`, '1', { expirationTtl: 600 });
-    return new Response(null, { status: 302, headers: { Location: getAuthorizeUrl(env, redirectUri, state) } });
+    return new Response(null, { status: 302, headers: { Location: await getAuthorizeUrl(env, redirectUri, state) } });
   }
 
   // ── OAuth callback: Intuit redirects here with ?code&realmId&state ────

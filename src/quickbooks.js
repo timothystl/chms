@@ -4,11 +4,50 @@
 // per-connection OAuth tokens obtained via user consent and refreshed over time, so those
 // live in the finance_qb_connection D1 table rather than as a Worker secret — only
 // QB_CLIENT_ID/QB_CLIENT_SECRET (the Intuit Developer app credentials) are env secrets.
-const AUTH_URL   = 'https://appcenter.intuit.com/connect/oauth2';
-const TOKEN_URL  = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
-const REVOKE_URL = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke';
-const SCOPE      = 'com.intuit.quickbooks.accounting';
+const SCOPE = 'com.intuit.quickbooks.accounting';
 const MINOR_VERSION = '65';
+
+// OAuth/OpenID endpoints are resolved from Intuit's own discovery documents rather than
+// hardcoded, per Intuit's recommendation — this keeps the app correct automatically if Intuit
+// ever rotates these URLs. See https://developer.intuit.com/.../oauth-2.0/discovery-documents.
+const DISCOVERY_URL_PROD    = 'https://developer.api.intuit.com/.well-known/openid_configuration';
+const DISCOVERY_URL_SANDBOX = 'https://developer.api.intuit.com/.well-known/openid_sandbox_configuration';
+
+// Only used if the discovery document fetch itself fails (network hiccup) — these are the
+// same values Intuit's discovery document currently returns, kept as a last-resort fallback
+// so a transient outage on Intuit's discovery endpoint doesn't take down the whole OAuth flow.
+const FALLBACK_ENDPOINTS = {
+  authorization_endpoint: 'https://appcenter.intuit.com/connect/oauth2',
+  token_endpoint: 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer',
+  revocation_endpoint: 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke',
+};
+
+// Cached per-Worker-isolate (reset on cold start) — the discovery document is effectively
+// static, so there's no need to refetch it on every OAuth call.
+let _discoveryCache = null; // { endpoints, environment, fetchedAt }
+const DISCOVERY_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function getDiscoveryEndpoints(env) {
+  const environment = env.QB_ENVIRONMENT === 'sandbox' ? 'sandbox' : 'production';
+  if (_discoveryCache && _discoveryCache.environment === environment && (Date.now() - _discoveryCache.fetchedAt) < DISCOVERY_TTL_MS) {
+    return _discoveryCache.endpoints;
+  }
+  const url = environment === 'sandbox' ? DISCOVERY_URL_SANDBOX : DISCOVERY_URL_PROD;
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`discovery document fetch failed (${res.status})`);
+    const doc = await res.json();
+    const endpoints = {
+      authorization_endpoint: doc.authorization_endpoint || FALLBACK_ENDPOINTS.authorization_endpoint,
+      token_endpoint: doc.token_endpoint || FALLBACK_ENDPOINTS.token_endpoint,
+      revocation_endpoint: doc.revocation_endpoint || FALLBACK_ENDPOINTS.revocation_endpoint,
+    };
+    _discoveryCache = { endpoints, environment, fetchedAt: Date.now() };
+    return endpoints;
+  } catch {
+    return FALLBACK_ENDPOINTS;
+  }
+}
 
 export function qboConfigured(env) {
   return !!(env.QB_CLIENT_ID && env.QB_CLIENT_SECRET);
@@ -24,7 +63,8 @@ function basicAuthHeader(env) {
 }
 
 // Step 1 of the OAuth Authorization Code flow — send the admin's browser here.
-export function getAuthorizeUrl(env, redirectUri, state) {
+export async function getAuthorizeUrl(env, redirectUri, state) {
+  const { authorization_endpoint } = await getDiscoveryEndpoints(env);
   const params = new URLSearchParams({
     client_id: env.QB_CLIENT_ID,
     response_type: 'code',
@@ -32,11 +72,12 @@ export function getAuthorizeUrl(env, redirectUri, state) {
     redirect_uri: redirectUri,
     state,
   });
-  return `${AUTH_URL}?${params.toString()}`;
+  return `${authorization_endpoint}?${params.toString()}`;
 }
 
 async function tokenRequest(env, bodyParams) {
-  const res = await fetch(TOKEN_URL, {
+  const { token_endpoint } = await getDiscoveryEndpoints(env);
+  const res = await fetch(token_endpoint, {
     method: 'POST',
     headers: {
       'Authorization': basicAuthHeader(env),
@@ -63,7 +104,8 @@ export function refreshTokens(env, refreshToken) {
 // Best-effort revoke on disconnect — failures are non-fatal since we delete our copy either way.
 export async function revokeToken(env, token) {
   if (!token) return;
-  await fetch(REVOKE_URL, {
+  const { revocation_endpoint } = await getDiscoveryEndpoints(env);
+  await fetch(revocation_endpoint, {
     method: 'POST',
     headers: { 'Authorization': basicAuthHeader(env), 'Content-Type': 'application/json', 'Accept': 'application/json' },
     body: JSON.stringify({ token }),
