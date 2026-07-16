@@ -46,17 +46,18 @@ function renderHouseholds(rows, targetId) {
   c.innerHTML = rows.map(function(h) {
     var addr = [h.address1, h.city, h.state].filter(Boolean).join(', ');
     var photo = h.photo_url
-      ? '<div style="height:80px;overflow:hidden;background:var(--linen);border-radius:12px 12px 0 0;">'
-        + '<img src="'+esc(photoSrc(h.photo_url))+'" alt="" style="width:100%;height:80px;object-fit:cover;display:block;" onerror="this.parentNode.style.display=\'none\'">'
+      ? '<div style="width:64px;height:64px;border-radius:12px;overflow:hidden;background:var(--linen);flex-shrink:0;">'
+        + '<img src="'+esc(photoSrc(h.photo_url))+'" alt="" style="width:100%;height:100%;object-fit:cover;display:block;" onerror="this.parentNode.style.display=\'none\'">'
         + '</div>'
       : '';
-    return '<div class="h-card" onclick="openHouseholdDetail(' + h.id + ')" style="padding:0;overflow:hidden;cursor:pointer;">'
-      + photo
-      + '<div style="padding:10px 12px;">'
+    return '<div class="h-card" onclick="openHouseholdDetail(' + h.id + ')" style="display:flex;align-items:center;gap:14px;">'
+      + '<div style="flex:1;min-width:0;">'
       + '<div class="h-name">' + esc(h.display_name || h.name) + '</div>'
       + (addr ? '<div class="h-addr">' + esc(addr) + '</div>' : '')
       + '<div style="font-size:.78rem;color:var(--warm-gray);">' + (h.member_count||0) + ' member' + (h.member_count !== 1 ? 's' : '') + '</div>'
-      + '</div></div>';
+      + '</div>'
+      + photo
+      + '</div>';
   }).join('');
 }
 var _currentHousehold = null;
