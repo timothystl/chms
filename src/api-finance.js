@@ -59,7 +59,7 @@ async function fetchQboJson(label, resPromise, warnings, hint) {
   const detail = [faultError?.Message, faultError?.Detail].filter(Boolean).join(' — ');
   console.error(`[QuickBooks sync] ${label} failed:`, { status: r.status, intuit_tid: tid, code: faultError?.code, message: faultError?.Message, detail: faultError?.Detail });
   warnings.push(
-    `${label} (HTTP ${r.status}${tid ? `, intuit_tid ${tid}` : ''})`
+    `${label} (HTTP ${r.status}${tid ? `, intuit_tid ${tid}` : ''}${faultError?.code ? `, error code ${faultError.code}` : ''})`
     + (detail ? `: ${detail}` : '')
     + (hint ? ` — ${hint}` : '')
   );
