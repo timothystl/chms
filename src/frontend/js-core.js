@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '1.22.0';
+var DEPLOY_VERSION = '1.22.1';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirks — suppress these and don't show the error banner.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -147,11 +147,12 @@ function showTab(name) {
   // Enforce role-based tab access
   var isFinancePlus = _userRole === 'admin' || _userRole === 'finance';
   var isStaffPlus   = _userRole === 'admin' || _userRole === 'staff';
+  var canRegister   = _userRole === 'admin' || _userRole === 'staff' || _userRole === 'office';
   var canEdit       = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff';
   if (name === 'giving'     && !isFinancePlus) return;
   if (name === 'tuitionaid' && !isFinancePlus) return;
   if (name === 'attendance' && !isStaffPlus)   return;
-  if (name === 'register'   && !isStaffPlus)   return;
+  if (name === 'register'   && !canRegister)   return;
   if (name === 'reports'    && !canEdit)        return;
   if (name === 'import'     && _userRole !== 'admin') return;
   if (name === 'settings'   && _userRole !== 'admin') return;
@@ -320,7 +321,7 @@ window.addEventListener('load', function() {
 function applyRoleUI(role, displayName) {
   _userRole = role || 'admin';
   if (_userRole === 'unknown') { location.href = '/chms'; return; }
-  document.body.classList.remove('role-admin','role-finance','role-staff','role-member');
+  document.body.classList.remove('role-admin','role-finance','role-staff','role-office','role-member');
   document.body.classList.add('role-' + _userRole);
   var badge = document.getElementById('topbar-role');
   if (badge) {

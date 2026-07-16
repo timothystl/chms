@@ -332,7 +332,8 @@ function renderDashboard(d) {
   // ── Quick actions ──────────────────────────────────────────────
   var isFinanceRole = _userRole === 'admin' || _userRole === 'finance';
   var isStaffRole   = _userRole === 'admin' || _userRole === 'staff';
-  var canEditRole   = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff';
+  var canEditRole   = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff' || _userRole === 'office';
+  var canViewReports = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff'; // office has no reporting access
   html += '<div style="display:flex;justify-content:flex-end;margin-bottom:4px;">'
     + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;" onclick="openDashCustomize()">&#9881; Customize</button>'
     + '</div>';
@@ -340,7 +341,7 @@ function renderDashboard(d) {
     + (canEditRole ? dashQBtn('<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>', 'Add Person', "openPersonEdit(null);showTab('people')") : '')
     + (isFinanceRole ? dashQBtn('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/>', 'Record Giving', "showTab('giving')") : '')
     + (isStaffRole ? dashQBtn('<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/>', 'Attendance', "showTab('attendance')") : '')
-    + (canEditRole ? dashQBtn('<path d="M18 20V10M12 20V4M6 20v-6"/>', 'Reports', "showTab('reports')") : '')
+    + (canViewReports ? dashQBtn('<path d="M18 20V10M12 20V4M6 20v-6"/>', 'Reports', "showTab('reports')") : '')
     + '</div>';
 
   // ── Stat strip ─────────────────────────────────────────────────
