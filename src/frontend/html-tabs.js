@@ -7,9 +7,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 <div id="tab-people" class="tab-panel">
   <div class="toolbar">
     <div class="search-wrap"><input type="search" id="p-search" placeholder="Search name, email, phone…" oninput="debouncePeople()"></div>
-    <div class="view-toggle" title="Switch between list and card view">
+    <div class="view-toggle" title="Switch between list, card, and household view">
       <button id="p-view-list-btn" class="active" onclick="setPeopleViewMode('list')">&#9776; List</button>
       <button id="p-view-card-btn" onclick="setPeopleViewMode('card')">&#9638; Card</button>
+      <button id="p-view-household-btn" onclick="setPeopleViewMode('household')">&#8962; Household</button>
     </div>
     <button class="btn-secondary" id="p-filter-btn" onclick="toggleFilterDrawer()" style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
       <svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;flex-shrink:0;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
@@ -99,6 +100,11 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div id="p-grid"></div>
       <!-- Desktop card view -->
       <div id="p-card-grid"></div>
+      <!-- Household view (RDS2b) — reuses the Households tab's card grid -->
+      <div id="p-hh-view" style="display:none;flex-direction:column;flex:1;min-height:0;">
+        <div id="p-hh-grid" class="card-grid" style="flex:1;min-height:0;overflow-y:auto;padding:2px 2px 0;"></div>
+        <div id="p-hh-pager" style="display:flex;align-items:center;justify-content:center;padding:16px 0;gap:8px;flex-shrink:0;"></div>
+      </div>
       <!-- Pagination -->
       <div id="p-pager" style="display:flex;align-items:center;justify-content:center;padding:16px 0;gap:8px;"></div>
     </div>

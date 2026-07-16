@@ -39,8 +39,9 @@ function hhPage(dir) {
   _hhOffset = Math.max(0, _hhOffset + dir * 50);
   loadHouseholds();
 }
-function renderHouseholds(rows) {
-  var c = document.getElementById('h-grid');
+function renderHouseholds(rows, targetId) {
+  var c = document.getElementById(targetId || 'h-grid');
+  if (!c) return;
   if (!rows.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">&#127968;</div>No households found</div>'; return; }
   c.innerHTML = rows.map(function(h) {
     var addr = [h.address1, h.city, h.state].filter(Boolean).join(', ');

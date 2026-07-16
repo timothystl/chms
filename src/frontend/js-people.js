@@ -47,6 +47,7 @@ function loadPeople(resetPage) {
     updateFdCount();
     renderActiveFilterChips();
     updateFilterBadge();
+    if (_peopleViewMode === 'household') loadPeopleHouseholdView(resetPage);
   }).catch(function() {
     _peopleTotal = 0;
     renderPeopleDesktop([]);
@@ -163,8 +164,40 @@ function renderPeopleCards(people) {
       + '</div>';
   }).join('') + '</div>';
 }
-// List/Card toggle — persists the user's choice and re-renders the already-loaded
-// dataset in the other layout, no refetch.
+// ── Household view (RDS2b) — reuses the Households tab's card rendering
+// (renderHouseholds) and API, filtered by the People tab's own search box
+// and Members/All toggle. Paginated separately from List/Card since it's a
+// different dataset (households, not people).
+var _pHhOffset = 0, _pHhTotal = 0;
+function loadPeopleHouseholdView(resetPage) {
+  if (resetPage) _pHhOffset = 0;
+  var q = peopleFilter.q || '';
+  var mtParam = peopleFilter.mt === 'member' ? '&member_type=member' : '';
+  api('/admin/api/households?q=' + encodeURIComponent(q) + '&sort=name&limit=24&offset=' + _pHhOffset + mtParam).then(function(d) {
+    _pHhTotal = d.total || 0;
+    renderHouseholds(d.households || [], 'p-hh-grid');
+    renderPeopleHouseholdPager();
+  }).catch(function() {
+    var c = document.getElementById('p-hh-grid');
+    if (c) c.innerHTML = '<div class="empty"><div class="empty-icon">&#127968;</div>Error loading households.</div>';
+  });
+}
+function renderPeopleHouseholdPager() {
+  var el = document.getElementById('p-hh-pager');
+  if (!el) return;
+  var limit = 24, offset = _pHhOffset, total = _pHhTotal;
+  if (total <= limit) { el.innerHTML = '<span style="color:var(--warm-gray);font-size:.82rem;">' + total + ' household' + (total !== 1 ? 's' : '') + '</span>'; return; }
+  var from = offset + 1, to = Math.min(offset + limit, total);
+  el.innerHTML = '<button class="btn-secondary" style="padding:4px 10px;font-size:.8rem;" onclick="peopleHhPage(-1)" ' + (offset===0?'disabled':'') + '>&#8592; Prev</button>'
+    + '<span style="font-size:.82rem;color:var(--warm-gray);margin:0 10px;">' + from + '–' + to + ' of ' + total + '</span>'
+    + '<button class="btn-secondary" style="padding:4px 10px;font-size:.8rem;" onclick="peopleHhPage(1)" ' + (to>=total?'disabled':'') + '>Next &#8594;</button>';
+}
+function peopleHhPage(dir) {
+  _pHhOffset = Math.max(0, _pHhOffset + dir * 24);
+  loadPeopleHouseholdView();
+}
+// List/Card/Household toggle — persists the user's choice. List/Card re-render the
+// already-loaded person dataset (no refetch); Household fetches its own dataset.
 var _peopleViewMode = 'list';
 function initPeopleViewMode() {
   try { _peopleViewMode = localStorage.getItem('peopleViewMode') || 'list'; } catch (e) {}
@@ -178,13 +211,23 @@ function setPeopleViewMode(mode) {
 function applyPeopleViewMode() {
   var listBtn = document.getElementById('p-view-list-btn');
   var cardBtn = document.getElementById('p-view-card-btn');
+  var hhBtn = document.getElementById('p-view-household-btn');
   var grid = document.getElementById('p-grid');
   var cardGrid = document.getElementById('p-card-grid');
+  var hhView = document.getElementById('p-hh-view');
+  var pager = document.getElementById('p-pager');
+  var quickview = document.getElementById('ppl-quickview');
   var isCard = _peopleViewMode === 'card';
-  if (listBtn) listBtn.classList.toggle('active', !isCard);
+  var isHousehold = _peopleViewMode === 'household';
+  if (listBtn) listBtn.classList.toggle('active', !isCard && !isHousehold);
   if (cardBtn) cardBtn.classList.toggle('active', isCard);
-  if (grid) grid.style.display = isCard ? 'none' : 'block';
+  if (hhBtn) hhBtn.classList.toggle('active', isHousehold);
+  if (grid) grid.style.display = (isCard || isHousehold) ? 'none' : 'block';
   if (cardGrid) cardGrid.style.display = isCard ? 'block' : 'none';
+  if (hhView) hhView.style.display = isHousehold ? 'flex' : 'none';
+  if (pager) pager.style.display = isHousehold ? 'none' : 'flex';
+  if (quickview) quickview.style.display = isHousehold ? 'none' : 'flex';
+  if (isHousehold) loadPeopleHouseholdView(true);
 }
 // ── Quick-view panel (RDS2 master-detail) — right-side preview shown on
 // row/card click instead of navigating straight to the full Person Profile.
