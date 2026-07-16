@@ -129,6 +129,9 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-16 (v1.23.4 — Finance tab: "Need help?" contact link)
+- **Requested** while filling out QuickBooks' Developer app questionnaire — one question asks whether the app provides a way for users to contact support from within it. Added a small "Need help with this tab? Contact the office." line (mailto link) at the top of the Finance tab.
+
 ### 2026-07-16 (v1.23.3 — QuickBooks sync: intuit_tid capture + structured error detail + logging)
 - **Requested** while filling out QuickBooks' Developer app questionnaire (error-handling section: does the app capture `intuit_tid`, log errors for support, handle syntax/validation errors). New shared `fetchQboJson()` helper in `src/api-finance.js` wraps every Accounting API call in the sync handler: captures the `intuit_tid` response header (Intuit's own recommended field for support tickets), parses the structured `Fault.Error[]` body QBO returns on failure (message/detail/code) instead of surfacing a bare HTTP status, and `console.error`-logs the full detail server-side (visible via `wrangler tail`/Cloudflare dashboard) so a real failure can be diagnosed without reproducing it live. Warnings shown in the Finance tab UI now include the `intuit_tid` and the actual QuickBooks error message, not just an HTTP status code.
 - **Verified**: `npm test` (37/37), `node --check` on `src/api-finance.js` and all 3 built `<script>` blocks. No live QuickBooks error response was available to test this against directly (same environment limitation as FIN2) — the Fault-parsing shape follows Intuit's documented error response format.

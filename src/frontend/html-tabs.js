@@ -1261,6 +1261,8 @@ export const HTML_TABS_2 = String.raw`
     <div id="fin-loading" style="color:var(--warm-gray);font-size:.85rem;">Loading…</div>
     <div id="fin-root" style="display:none;">
 
+      <div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:14px;">Need help with this tab? <a href="mailto:office@timothystl.org">Contact the office</a>.</div>
+
       <section class="dash-card" style="margin-bottom:16px;">
         <div class="dash-card-hdr">QuickBooks Connection</div>
         <div class="dash-card-body" style="padding:14px 18px;" id="fin-connection"></div>
