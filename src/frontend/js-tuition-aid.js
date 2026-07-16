@@ -13,6 +13,15 @@ var _tapSaveTimers = {};
 var _tapLinkTargetId = null;
 var _tapHistoryTargetId = null;
 
+function tapApplyBundle(d) {
+  _tapConfig = d.config || {};
+  _tapHistory = d.history || [];
+  _tapRoster = (d.students || []).map(tapFromServerRow);
+  _tapYearRates = {};
+  (d.yearRates || []).forEach(function(r) { _tapYearRates[r.school_year] = r.tuition_cents; });
+  _tapStudentYears = d.studentYears || [];
+  tapIndexPins();
+}
 function loadTuitionAid() {
   var loadingEl = document.getElementById('tap-loading');
   var rootEl = document.getElementById('tap-root');
@@ -20,13 +29,7 @@ function loadTuitionAid() {
   loadingEl.textContent = 'Loading…';
   rootEl.style.display = 'none';
   api('/admin/api/tuition-aid/students').then(function(d) {
-    _tapConfig = d.config || {};
-    _tapHistory = d.history || [];
-    _tapRoster = (d.students || []).map(tapFromServerRow);
-    _tapYearRates = {};
-    (d.yearRates || []).forEach(function(r) { _tapYearRates[r.school_year] = r.tuition_cents; });
-    _tapStudentYears = d.studentYears || [];
-    tapIndexPins();
+    tapApplyBundle(d);
     _tapYearIdx = 0;
     tapBuildYearOptions();
     loadingEl.style.display = 'none';
@@ -35,6 +38,16 @@ function loadTuitionAid() {
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
     loadingEl.textContent = 'Could not load tuition aid data.';
+  });
+}
+// Re-fetches the bundle without resetting the currently-viewed year (unlike loadTuitionAid,
+// which always jumps back to "today" — used after adding a historical record so the admin
+// stays on the past year they were just working in).
+function tapReloadKeepingYear() {
+  return api('/admin/api/tuition-aid/students').then(function(d) {
+    tapApplyBundle(d);
+    tapBuildYearOptions();
+    if (_tapYearIdx < 0) { tapRenderPastYearTable(); } else { tapRenderAll(); }
   });
 }
 
@@ -743,11 +756,12 @@ function tapRenderPastYearTable() {
   var label = tapYearLabelForIdx(_tapYearIdx);
   var rows = _tapStudentYears.filter(function(r) { return r.school_year === label; });
   var body = document.getElementById('tap-past-year-body');
+  var addBtn = '<button class="btn-secondary" style="margin-bottom:10px;" onclick="tapOpenPastAdd()">+ Add Family Record</button>';
   if (!rows.length) {
-    body.innerHTML = '<div style="font-size:.82rem;color:var(--warm-gray);padding:10px 0;">No per-family records saved for ' + esc(label) + ' yet. Records accumulate automatically as each year is edited going forward — this view will fill in over time.</div>';
+    body.innerHTML = addBtn + '<div style="font-size:.82rem;color:var(--warm-gray);padding:10px 0;">No per-family records saved for ' + esc(label) + ' yet. This tool has no historical per-family data to draw on for years before it existed — use "+ Add Family Record" to enter what you know, or records accumulate automatically as each year is edited going forward.</div>';
     return;
   }
-  var html = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr style="border-bottom:2px solid var(--navy);">'
+  var html = addBtn + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr style="border-bottom:2px solid var(--navy);">'
     + '<th style="text-align:left;padding:6px 8px;">Family</th><th style="text-align:left;padding:6px 8px;">Child</th>'
     + '<th style="text-align:left;padding:6px 8px;">Grade</th><th style="text-align:right;padding:6px 8px;">Outside Aid</th>'
     + '<th style="text-align:right;padding:6px 8px;">Timothy Award</th><th style="text-align:right;padding:6px 8px;">Family Owed</th>'
@@ -778,6 +792,58 @@ function tapPastOutsideAidChange(el, studentId) { tapPastFieldChange(el, student
 function tapPastTimothyAwardChange(el, studentId) { tapPastFieldChange(el, studentId, 'timothy_award_cents'); }
 function tapPastFamilyOwedChange(el, studentId) { tapPastFieldChange(el, studentId, 'family_owed_cents'); }
 function tapPastLhsAwardChange(el, studentId) { tapPastFieldChange(el, studentId, 'lhs_award_cents'); }
+
+// ── Add a historical family record to a past year ────────────────────────
+// Creates an *inactive* tuition_students row (so it never appears in the current/future
+// roster) purely to anchor a tuition_student_years pin for the year being viewed.
+function tapOpenPastAdd() {
+  document.getElementById('tap-past-add-person-search').value = '';
+  document.getElementById('tap-past-add-person-id').value = '';
+  document.getElementById('tap-past-add-family').value = '';
+  document.getElementById('tap-past-add-child').value = '';
+  document.getElementById('tap-past-add-grade').value = '';
+  document.getElementById('tap-past-add-outside').value = '';
+  document.getElementById('tap-past-add-timothy').value = '';
+  document.getElementById('tap-past-add-family-owed').value = '';
+  document.getElementById('tap-past-add-lhs').value = '';
+  document.getElementById('tap-past-add-error').textContent = '';
+  document.getElementById('tap-past-add-year-label').textContent = tapYearLabelForIdx(_tapYearIdx);
+  openModal('tap-past-add-modal');
+}
+function tapSavePastAdd() {
+  var errEl = document.getElementById('tap-past-add-error');
+  var personId = document.getElementById('tap-past-add-person-id').value;
+  var family = document.getElementById('tap-past-add-family').value.trim();
+  var child = document.getElementById('tap-past-add-child').value.trim();
+  var grade = document.getElementById('tap-past-add-grade').value.trim();
+  if (!family && !personId) { errEl.textContent = 'Enter a family name or link a person.'; return; }
+  var outside = +document.getElementById('tap-past-add-outside').value || 0;
+  var timothyRaw = document.getElementById('tap-past-add-timothy').value;
+  var familyOwedRaw = document.getElementById('tap-past-add-family-owed').value;
+  var lhsRaw = document.getElementById('tap-past-add-lhs').value;
+  errEl.textContent = '';
+  var label = tapYearLabelForIdx(_tapYearIdx);
+  api('/admin/api/tuition-aid/students', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ person_id: personId ? +personId : null, family: family, child: child, base_grade: grade, active: false })
+  }).then(function(d) {
+    if (d && d.error) { errEl.textContent = d.error; return; }
+    var studentId = d.id;
+    return api('/admin/api/tuition-aid/students/' + studentId + '/years/' + encodeURIComponent(label), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grade: grade,
+        outside_aid_cents: Math.round(outside * 100),
+        timothy_award_cents: timothyRaw === '' ? null : Math.round(+timothyRaw * 100),
+        family_owed_cents: familyOwedRaw === '' ? null : Math.round(+familyOwedRaw * 100),
+        lhs_award_cents: lhsRaw === '' ? null : Math.round(+lhsRaw * 100)
+      })
+    });
+  }).then(function() {
+    closeModal('tap-past-add-modal');
+    return tapReloadKeepingYear();
+  }).catch(function(err) { errEl.textContent = err && err.message || 'Could not add.'; });
+}
 
 // ── Family / student history (all pinned years for one student) ─────────────
 function tapJumpToYear(offset) {

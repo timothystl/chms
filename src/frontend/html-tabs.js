@@ -1839,4 +1839,36 @@ export const HTML_TABS_2 = String.raw`
     </div>
   </div>
 </div>
+
+<!-- Tuition Aid: add a historical family record to a past year -->
+<div class="modal-overlay" id="tap-past-add-modal">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-header"><span>Add Record for <span id="tap-past-add-year-label">–</span></span><button class="modal-close" onclick="closeModal('tap-past-add-modal')">&#10005;</button></div>
+    <div style="padding:4px 0;">
+      <div class="field" style="margin-bottom:10px;">
+        <label>Link to a person (optional)</label>
+        <div class="ac-wrap">
+          <input type="text" id="tap-past-add-person-search" placeholder="Search people…" oninput="acSearch(this,'tap-past-add-person-ac','tap-past-add-person-id')" autocomplete="off">
+          <div class="ac-dropdown" id="tap-past-add-person-ac"></div>
+        </div>
+        <input type="hidden" id="tap-past-add-person-id" value="">
+      </div>
+      <div class="field" style="margin-bottom:10px;"><label>Family name</label><input type="text" id="tap-past-add-family"></div>
+      <div class="field" style="margin-bottom:10px;"><label>Child's first name</label><input type="text" id="tap-past-add-child"></div>
+      <div class="field" style="margin-bottom:10px;"><label>Grade that year</label><input type="text" id="tap-past-add-grade" placeholder="e.g. 5 or 10"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="field" style="margin-bottom:10px;"><label>Outside Aid $</label><input type="number" id="tap-past-add-outside" min="0" step="1"></div>
+        <div class="field" style="margin-bottom:10px;"><label>LHS Award $</label><input type="number" id="tap-past-add-lhs" min="0" step="1"></div>
+        <div class="field" style="margin-bottom:10px;"><label>Timothy Award $</label><input type="number" id="tap-past-add-timothy" min="0" step="1"></div>
+        <div class="field" style="margin-bottom:10px;"><label>Family Owed $</label><input type="number" id="tap-past-add-family-owed" min="0" step="1"></div>
+      </div>
+      <p style="font-size:.72rem;color:var(--warm-gray);margin:-4px 0 10px;">Leave Timothy Award / Family Owed / LHS Award blank if unknown — only fields you fill in are saved.</p>
+      <div style="font-size:.75rem;color:var(--danger);min-height:14px;" id="tap-past-add-error"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('tap-past-add-modal')">Cancel</button>
+      <button class="btn-primary" onclick="tapSavePastAdd()">Add</button>
+    </div>
+  </div>
+</div>
 `;
