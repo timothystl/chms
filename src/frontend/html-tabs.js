@@ -1813,6 +1813,7 @@ export const HTML_TABS_2 = String.raw`
     <div style="padding:4px 0;">
       <div class="field" style="margin-bottom:10px;">
         <label>Search people</label>
+        <div id="tap-link-suggestions" style="margin-bottom:6px;"></div>
         <div class="ac-wrap">
           <input type="text" id="tap-link-person-search" placeholder="Search people…" oninput="acSearch(this,'tap-link-person-ac','tap-link-person-id')" autocomplete="off">
           <div class="ac-dropdown" id="tap-link-person-ac"></div>

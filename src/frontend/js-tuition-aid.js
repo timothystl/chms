@@ -917,7 +917,44 @@ function tapOpenLinkPerson(id) {
   document.getElementById('tap-link-person-search').value = '';
   document.getElementById('tap-link-person-id').value = '';
   document.getElementById('tap-link-error').textContent = '';
+  document.getElementById('tap-link-suggestions').innerHTML = '';
   openModal('tap-link-modal');
+  var s = tapById(id);
+  if (s && (s.family || s.child)) tapLoadLinkSuggestions(s.family, s.child);
+}
+function tapLoadLinkSuggestions(family, child) {
+  var box = document.getElementById('tap-link-suggestions');
+  var q = (family || child || '').trim();
+  if (q.length < 2) return;
+  box.innerHTML = '<div style="font-size:.75rem;color:var(--warm-gray);">Looking for a match…</div>';
+  var famLc = (family || '').trim().toLowerCase();
+  var childLc = (child || '').trim().toLowerCase();
+  api('/admin/api/people?q=' + encodeURIComponent(q)).then(function(d) {
+    var scored = (d.people || []).map(function(p) {
+      var fn = (p.first_name || '').toLowerCase(), ln = (p.last_name || '').toLowerCase();
+      var score = 0;
+      if (famLc && ln === famLc) score += 2; else if (famLc && ln.indexOf(famLc) !== -1) score += 1;
+      if (childLc && fn === childLc) score += 2; else if (childLc && fn.indexOf(childLc) !== -1) score += 1;
+      return { p: p, score: score };
+    }).filter(function(x) { return x.score > 0; })
+      .sort(function(a, b) { return b.score - a.score; })
+      .slice(0, 4);
+    if (!scored.length) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div style="font-size:.75rem;color:var(--warm-gray);margin-bottom:4px;">Suggested match' + (scored.length > 1 ? 'es' : '') + ' — click to select, or search below if none fit:</div>'
+      + scored.map(function(x) {
+        var p = x.p, best = x.score >= 4;
+        var n = esc(p.first_name) + ' ' + esc(p.last_name);
+        var hh = p.household_name ? ' <span style="color:var(--warm-gray);font-size:.78rem;">(' + esc(p.household_name) + ')</span>' : '';
+        return '<div class="ac-item" style="border:1px solid var(--border);border-radius:8px;margin-bottom:4px;padding:6px 8px;cursor:pointer;' + (best ? 'background:var(--linen);' : '') + '" onclick="tapPickSuggestion(' + p.id + ',&#39;' + n.replace(/'/g, '&#39;') + '&#39;)">'
+          + (best ? '&#9733; ' : '') + n + hh + '</div>';
+      }).join('');
+  }).catch(function() { box.innerHTML = ''; });
+}
+function tapPickSuggestion(id, name) {
+  document.getElementById('tap-link-person-id').value = id;
+  document.getElementById('tap-link-person-search').value = name;
+  document.getElementById('tap-link-person-ac').classList.remove('open');
+  document.getElementById('tap-link-suggestions').innerHTML = '<div style="font-size:.78rem;color:var(--sage);">&#10003; ' + esc(name) + ' selected — click Link to confirm, or search below to change.</div>';
 }
 function tapSaveLinkPerson() {
   var personId = document.getElementById('tap-link-person-id').value;
