@@ -152,6 +152,16 @@ function tapActiveForYear(yearIdx) {
     return { s: s, grade: grade, bucket: tapBucketFor(s, grade) };
   }).filter(function(x) { return x.bucket !== 'Graduated' && x.bucket !== 'Departed' && x.bucket !== 'NotYet'; });
 }
+// Like tapActiveForYear, but excludes pipeline entrants entirely — even ones whose birth year
+// says they're now old enough for K. Being old enough isn't the same as being enrolled; a
+// pipeline kid only becomes a real student via the explicit "Enroll" action (tapEnrollPipeline),
+// which flips is_pipeline off. Used everywhere that reflects ACTUAL current enrollment/awards
+// (planner tables, budget gauges, KPIs). The Budget Projection / Enrollment Mix charts keep
+// using tapActiveForYear directly — those are deliberately forward-looking and are the whole
+// reason pipeline entrants get tracked by birth year in the first place.
+function tapEnrolledActiveForYear(yearIdx) {
+  return tapActiveForYear(yearIdx).filter(function(x) { return !x.s.isPipeline; });
+}
 
 // ── Award math ─────────────────────────────────────────────────────
 function tapTuitionForYear(yearIdx) {
@@ -273,7 +283,7 @@ function tapKpiHtml(lbl, val, note, accent) {
     + '<div class="tap-val">' + esc(String(val)) + '</div><div class="tap-note">' + esc(note) + '</div></div>';
 }
 function tapRenderKpis() {
-  var active0 = tapActiveForYear(0);
+  var active0 = tapEnrolledActiveForYear(0);
   var k8Active = active0.filter(function(x) { return x.bucket === 'K8' && x.grade !== 'PK 3' && x.grade !== 'PK 4'; });
   var lhsActive = active0.filter(function(x) { return x.bucket === 'LHS'; });
   var tuition0 = tapTuitionForYear(0);
@@ -294,7 +304,7 @@ function tapRenderKpis() {
 }
 
 function tapRenderPathway() {
-  var active0 = tapActiveForYear(0);
+  var active0 = tapEnrolledActiveForYear(0);
   function countGrades(list) { return active0.filter(function(x) { return list.indexOf(x.grade) !== -1; }).length; }
   var stages = [
     { label: 'PK 3-4', count: countGrades(['PK 3','PK 4']), hot: false },
@@ -387,7 +397,7 @@ function tapRenderHistoryChart() {
   document.getElementById('tap-history-chart').innerHTML = labels.length ? tapBarLineChart(labels, bars, line) : '<div style="color:var(--warm-gray);font-size:.85rem;">No history data.</div>';
 }
 function tapRenderCompositionChart() {
-  var active0 = tapActiveForYear(0).filter(function(x) { return x.bucket === 'K8' && x.grade !== 'PK 3' && x.grade !== 'PK 4'; });
+  var active0 = tapEnrolledActiveForYear(0).filter(function(x) { return x.bucket === 'K8' && x.grade !== 'PK 3' && x.grade !== 'PK 4'; });
   var outsideTotal = 0, familyTotal = 0, timothyTotal = 0;
   active0.forEach(function(x) {
     var sp = tapSplitFor(x.s, 0);
@@ -452,7 +462,7 @@ function tapRenderEnrollChart() {
 }
 
 function tapRenderDetailTable() {
-  var active0 = tapActiveForYear(0).filter(function(x) { return x.bucket === 'K8' && x.grade !== 'PK 3' && x.grade !== 'PK 4'; });
+  var active0 = tapEnrolledActiveForYear(0).filter(function(x) { return x.bucket === 'K8' && x.grade !== 'PK 3' && x.grade !== 'PK 4'; });
   var rows = active0.map(function(x) {
     var sp = tapSplitFor(x.s, 0);
     var linked = x.s.personId ? '<span style="color:var(--sage);">&#10003; linked</span>' : '<span style="color:var(--warm-gray);">not linked</span>';
@@ -466,71 +476,170 @@ function tapRenderDetailTable() {
 }
 
 // ── Planner tables ─────────────────────────────────────────────────
+var _tapK8Sort = { col: null, dir: 1 };
+var _tapLhsSort = { col: null, dir: 1 };
+function tapCompareForSort(a, b) {
+  if (typeof a === 'string' || typeof b === 'string') return String(a).toLowerCase().localeCompare(String(b).toLowerCase());
+  return (a || 0) - (b || 0);
+}
+function tapSortRows(rows, sortState, keyFn) {
+  if (!sortState.col) return rows;
+  var withKeys = rows.map(function(r) { return { r: r, k: keyFn(r, sortState.col) }; });
+  withKeys.sort(function(a, b) { return tapCompareForSort(a.k, b.k) * sortState.dir; });
+  return withKeys.map(function(x) { return x.r; });
+}
+function tapSortIndicator(sortState, col) {
+  if (sortState.col !== col) return '';
+  return sortState.dir === 1 ? ' &#9650;' : ' &#9660;';
+}
+function tapSortK8(col) {
+  if (_tapK8Sort.col === col) _tapK8Sort.dir = -_tapK8Sort.dir; else { _tapK8Sort.col = col; _tapK8Sort.dir = 1; }
+  tapRenderPlannerTables();
+}
+function tapSortLhs(col) {
+  if (_tapLhsSort.col === col) _tapLhsSort.dir = -_tapLhsSort.dir; else { _tapLhsSort.col = col; _tapLhsSort.dir = 1; }
+  tapRenderPlannerTables();
+}
+// Dedicated wrappers (no string argument embedded in the onclick HTML attribute) — avoids any
+// quote-escaping risk in generated markup, same pattern used elsewhere in this file.
+function tapSortK8Family() { tapSortK8('family'); }
+function tapSortK8Child() { tapSortK8('child'); }
+function tapSortK8Grade() { tapSortK8('grade'); }
+function tapSortK8Outside() { tapSortK8('outside'); }
+function tapSortK8Pct() { tapSortK8('pct'); }
+function tapSortK8Timothy() { tapSortK8('timothy'); }
+function tapSortK8FamilyOwes() { tapSortK8('family_owes'); }
+function tapSortLhsFamily() { tapSortLhs('family'); }
+function tapSortLhsChild() { tapSortLhs('child'); }
+function tapSortLhsGrade() { tapSortLhs('grade'); }
+function tapSortLhsAward() { tapSortLhs('award'); }
+
 function tapRenderPlannerTables() {
-  var k8Rows = [], lhsRows = [];
+  var k8List = [], lhsList = [];
   var tuition = tapTuitionForYear(_tapYearIdx);
   var maxAward = tapCfgNum('lhs_max_award_cents', 250000) / 100;
 
   _tapRoster.forEach(function(s) {
+    // Pipeline entrants never auto-appear here just because their birth year says they're
+    // old enough — that's tracked separately for budget projection (Enrollment Mix / Budget
+    // Projection charts), but assigning an actual award requires explicitly clicking Enroll
+    // in the Pipeline list (tapEnrollPipeline), which flips is_pipeline off.
+    if (s.isPipeline) return;
     var grade = tapGradeAt(s, _tapYearIdx);
     var bucket = tapBucketFor(s, grade);
     var prevGrade = _tapYearIdx > 0 ? tapGradeAt(s, _tapYearIdx - 1) : null;
     var justGraduated = (bucket === 'LHS' && prevGrade === '8');
-    var isPK = function(g) { return g === 'PK 3' || g === 'PK 4'; };
-    var wasVisibleBefore = prevGrade && !isPK(prevGrade) && prevGrade !== 'Graduated';
-    var justJoined = s.isPipeline && grade !== null && !isPK(grade) && !wasVisibleBefore;
 
     if (bucket === 'Graduated' || bucket === 'Departed' || bucket === 'NotYet') return;
 
     if (bucket === 'K8') {
       if (grade === 'PK 3' || grade === 'PK 4') return;
       var sp = tapSplitFor(s, _tapYearIdx);
-      var famPctVal = tapFamPctFor(s, _tapYearIdx);
-      var outsideAidVal = tapOutsideAidFor(s, _tapYearIdx);
-      var lhsToggle = grade === '8'
-        ? '<label class="tap-lhs-toggle"><input type="checkbox" onchange="tapSetAttendsLHS(' + s.id + ',this.checked)" ' + (s.attendsLHS ? 'checked' : '') + '> Plans to attend LHS</label>' : '';
-      var newFlag = justJoined ? ' <span class="status-pill status-confirmed">new</span>' : '';
-      var linkBtn = s.personId ? '' : '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenLinkPerson(' + s.id + ')">Link</button> ';
-      var histBtn = '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenHistory(' + s.id + ')">History</button> ';
-      k8Rows.push('<tr>'
-        + '<td style="padding:6px 8px;">' + esc(s.family) + '</td>'
-        + '<td style="padding:6px 8px;">' + esc(s.child) + newFlag + '</td>'
-        + '<td style="padding:6px 8px;">' + esc(grade) + '</td>'
-        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(tuition * 100)) + '</td>'
-        + '<td style="padding:6px 8px;text-align:right;"><input type="number" min="0" step="1" value="' + Math.round(outsideAidVal) + '" style="width:80px;text-align:right;" onchange="tapOutsideAidChange(this,' + s.id + ')"></td>'
-        + '<td style="padding:6px 8px;">'
-          + '<div class="tap-slider-row">'
-            + '<input type="range" min="0" max="100" step="1" value="' + famPctVal + '" oninput="tapSliderChange(this,' + s.id + ')">'
-            + '<input type="number" min="0" max="100" step="1" value="' + famPctVal + '" oninput="tapSliderChange(this,' + s.id + ')">%'
-          + '</div>'
-          + '<div class="tap-slider-caption">Family share of $' + Math.round(tuition).toLocaleString() + ' bill</div>'
-        + '</td>'
-        + '<td class="tap-award-cell" id="tap-k8award-' + s.id + '">' + fmtMoney(Math.round(sp.timothyAward * 100)) + '</td>'
-        + '<td style="padding:6px 8px;text-align:right;"><span id="tap-k8family-' + s.id + '">' + fmtMoney(Math.round(sp.familyOwed * 100)) + '</span>' + lhsToggle + '</td>'
-        + '<td style="padding:6px 8px;white-space:nowrap;">' + histBtn + linkBtn + '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapRemoveStudent(' + s.id + ')">Remove</button></td>'
-      + '</tr>');
+      k8List.push({
+        s: s, grade: grade, sp: sp,
+        famPctVal: tapFamPctFor(s, _tapYearIdx), outsideAidVal: tapOutsideAidFor(s, _tapYearIdx)
+      });
     } else if (bucket === 'LHS') {
-      var flag = justGraduated ? ' <span class="status-pill status-confirmed">new to LHS</span>' : '';
       var lhsVal = Math.min(tapLhsAwardFor(s, _tapYearIdx), maxAward);
       if (_tapYearIdx === 0 && s.lhsAward > maxAward) s.lhsAward = maxAward;
-      lhsRows.push('<tr>'
-        + '<td style="padding:6px 8px;">' + esc(s.family) + '</td>'
-        + '<td style="padding:6px 8px;">' + esc(s.child) + '</td>'
-        + '<td style="padding:6px 8px;">' + esc(grade) + flag + '</td>'
-        + '<td style="padding:6px 8px;">'
-          + '<div class="tap-slider-row">'
-            + '<input type="range" min="0" max="' + maxAward + '" step="25" value="' + lhsVal + '" oninput="tapLhsSliderChange(this,' + s.id + ')">'
-            + '<input type="number" min="0" max="' + maxAward + '" step="25" value="' + lhsVal + '" oninput="tapLhsSliderChange(this,' + s.id + ')">'
-          + '</div>'
-        + '</td>'
-        + '<td class="tap-award-cell" id="tap-lhsaward-' + s.id + '">' + fmtMoney(Math.round(lhsVal * 100)) + '</td>'
-        + '<td style="padding:6px 8px;white-space:nowrap;"><button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenHistory(' + s.id + ')">History</button> <button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapRemoveStudent(' + s.id + ')">Remove</button></td>'
-      + '</tr>');
+      lhsList.push({ s: s, grade: grade, lhsVal: lhsVal, justGraduated: justGraduated });
     }
   });
+
+  var k8KeyFn = function(row, col) {
+    if (col === 'family') return row.s.family;
+    if (col === 'child') return row.s.child;
+    if (col === 'grade') return row.grade;
+    if (col === 'outside') return row.outsideAidVal;
+    if (col === 'pct') return row.famPctVal;
+    if (col === 'timothy') return row.sp.timothyAward;
+    if (col === 'family_owes') return row.sp.familyOwed;
+    return '';
+  };
+  k8List = tapSortRows(k8List, _tapK8Sort, k8KeyFn);
+
+  var k8Rows = k8List.map(function(row) {
+    var s = row.s, grade = row.grade, sp = row.sp, famPctVal = row.famPctVal, outsideAidVal = row.outsideAidVal;
+    var lhsToggle = grade === '8'
+      ? '<label class="tap-lhs-toggle"><input type="checkbox" onchange="tapSetAttendsLHS(' + s.id + ',this.checked)" ' + (s.attendsLHS ? 'checked' : '') + '> Plans to attend LHS</label>' : '';
+    var linkBtn = s.personId ? '' : '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenLinkPerson(' + s.id + ')">Link</button> ';
+    var histBtn = '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenHistory(' + s.id + ')">History</button> ';
+    return '<tr>'
+      + '<td style="padding:6px 8px;">' + esc(s.family) + '</td>'
+      + '<td style="padding:6px 8px;">' + esc(s.child) + '</td>'
+      + '<td style="padding:6px 8px;">' + esc(grade) + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(tuition * 100)) + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;"><input type="number" min="0" step="1" value="' + Math.round(outsideAidVal) + '" style="width:80px;text-align:right;" onchange="tapOutsideAidChange(this,' + s.id + ')"></td>'
+      + '<td style="padding:6px 8px;">'
+        + '<div class="tap-slider-row">'
+          + '<input type="range" min="0" max="100" step="1" value="' + famPctVal + '" oninput="tapSliderChange(this,' + s.id + ')">'
+          + '<input type="number" min="0" max="100" step="1" value="' + famPctVal + '" oninput="tapSliderChange(this,' + s.id + ')">%'
+        + '</div>'
+        + '<div class="tap-slider-caption">Family share of $' + Math.round(tuition).toLocaleString() + ' bill</div>'
+      + '</td>'
+      + '<td class="tap-award-cell" id="tap-k8award-' + s.id + '">' + fmtMoney(Math.round(sp.timothyAward * 100)) + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;"><span id="tap-k8family-' + s.id + '">' + fmtMoney(Math.round(sp.familyOwed * 100)) + '</span>' + lhsToggle + '</td>'
+      + '<td style="padding:6px 8px;white-space:nowrap;">' + histBtn + linkBtn + '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapRemoveStudent(' + s.id + ')">Remove</button></td>'
+    + '</tr>';
+  });
+
+  var lhsKeyFn = function(row, col) {
+    if (col === 'family') return row.s.family;
+    if (col === 'child') return row.s.child;
+    if (col === 'grade') return row.grade;
+    if (col === 'award') return row.lhsVal;
+    return '';
+  };
+  lhsList = tapSortRows(lhsList, _tapLhsSort, lhsKeyFn);
+
+  var lhsRows = lhsList.map(function(row) {
+    var s = row.s, grade = row.grade, lhsVal = row.lhsVal;
+    var flag = row.justGraduated ? ' <span class="status-pill status-confirmed">new to LHS</span>' : '';
+    var lhsLinkBtn = s.personId ? '' : '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenLinkPerson(' + s.id + ')">Link</button> ';
+    return '<tr>'
+      + '<td style="padding:6px 8px;">' + esc(s.family) + '</td>'
+      + '<td style="padding:6px 8px;">' + esc(s.child) + '</td>'
+      + '<td style="padding:6px 8px;">' + esc(grade) + flag + '</td>'
+      + '<td style="padding:6px 8px;">'
+        + '<div class="tap-slider-row">'
+          + '<input type="range" min="0" max="' + maxAward + '" step="25" value="' + lhsVal + '" oninput="tapLhsSliderChange(this,' + s.id + ')">'
+          + '<input type="number" min="0" max="' + maxAward + '" step="25" value="' + lhsVal + '" oninput="tapLhsSliderChange(this,' + s.id + ')">'
+        + '</div>'
+      + '</td>'
+      + '<td class="tap-award-cell" id="tap-lhsaward-' + s.id + '">' + fmtMoney(Math.round(lhsVal * 100)) + '</td>'
+      + '<td style="padding:6px 8px;white-space:nowrap;"><button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenHistory(' + s.id + ')">History</button> ' + lhsLinkBtn + '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapRemoveStudent(' + s.id + ')">Remove</button></td>'
+    + '</tr>';
+  });
+
   document.getElementById('tap-k8-body').innerHTML = k8Rows.join('') || '<tr><td colspan="9" style="padding:10px;color:var(--warm-gray);">No K-8 students this year.</td></tr>';
   document.getElementById('tap-lhs-body').innerHTML = lhsRows.join('') || '<tr><td colspan="6" style="padding:10px;color:var(--warm-gray);">No LHS students this year.</td></tr>';
+  tapRenderPlannerHeaders();
   tapUpdateGauges();
+}
+function tapRenderPlannerHeaders() {
+  var k8Head = document.getElementById('tap-k8-thead');
+  if (k8Head) {
+    k8Head.innerHTML = '<tr style="border-bottom:2px solid var(--navy);">'
+      + '<th style="text-align:left;padding:6px 8px;cursor:pointer;" onclick="tapSortK8Family()">Family' + tapSortIndicator(_tapK8Sort, 'family') + '</th>'
+      + '<th style="text-align:left;padding:6px 8px;cursor:pointer;" onclick="tapSortK8Child()">Child' + tapSortIndicator(_tapK8Sort, 'child') + '</th>'
+      + '<th style="text-align:left;padding:6px 8px;cursor:pointer;" onclick="tapSortK8Grade()">Grade' + tapSortIndicator(_tapK8Sort, 'grade') + '</th>'
+      + '<th style="text-align:right;padding:6px 8px;">Tuition</th>'
+      + '<th style="text-align:right;padding:6px 8px;cursor:pointer;" onclick="tapSortK8Outside()">Outside Aid' + tapSortIndicator(_tapK8Sort, 'outside') + '</th>'
+      + '<th style="text-align:left;padding:6px 8px;min-width:190px;cursor:pointer;" onclick="tapSortK8Pct()">Family Share %' + tapSortIndicator(_tapK8Sort, 'pct') + '</th>'
+      + '<th style="text-align:right;padding:6px 8px;cursor:pointer;" onclick="tapSortK8Timothy()">Timothy Award $' + tapSortIndicator(_tapK8Sort, 'timothy') + '</th>'
+      + '<th style="text-align:right;padding:6px 8px;cursor:pointer;" onclick="tapSortK8FamilyOwes()">Family Owes $' + tapSortIndicator(_tapK8Sort, 'family_owes') + '</th>'
+      + '<th style="padding:6px 8px;"></th></tr>';
+  }
+  var lhsHead = document.getElementById('tap-lhs-thead');
+  if (lhsHead) {
+    lhsHead.innerHTML = '<tr style="border-bottom:2px solid var(--navy);">'
+      + '<th style="text-align:left;padding:6px 8px;cursor:pointer;" onclick="tapSortLhsFamily()">Family' + tapSortIndicator(_tapLhsSort, 'family') + '</th>'
+      + '<th style="text-align:left;padding:6px 8px;cursor:pointer;" onclick="tapSortLhsChild()">Child' + tapSortIndicator(_tapLhsSort, 'child') + '</th>'
+      + '<th style="text-align:left;padding:6px 8px;cursor:pointer;" onclick="tapSortLhsGrade()">Grade' + tapSortIndicator(_tapLhsSort, 'grade') + '</th>'
+      + '<th style="text-align:left;padding:6px 8px;min-width:190px;">LHSA Award</th>'
+      + '<th style="text-align:right;padding:6px 8px;cursor:pointer;" onclick="tapSortLhsAward()">Award $' + tapSortIndicator(_tapLhsSort, 'award') + '</th>'
+      + '<th style="padding:6px 8px;"></th></tr>';
+  }
 }
 
 function tapOutsideAidChange(el, id) {
@@ -638,7 +747,7 @@ function tapClearPinsForYear(yearIdx, studentIds) {
 }
 
 function tapUpdateGauges() {
-  var active = tapActiveForYear(_tapYearIdx).filter(function(x) { return !(x.bucket === 'K8' && (x.grade === 'PK 3' || x.grade === 'PK 4')); });
+  var active = tapEnrolledActiveForYear(_tapYearIdx).filter(function(x) { return !(x.bucket === 'K8' && (x.grade === 'PK 3' || x.grade === 'PK 4')); });
   var k8Active = active.filter(function(x) { return x.bucket === 'K8'; });
   var lhsActive = active.filter(function(x) { return x.bucket === 'LHS'; });
   var k8Total = k8Active.reduce(function(sum, x) { return sum + tapSplitFor(x.s, _tapYearIdx).timothyAward; }, 0);
@@ -687,7 +796,7 @@ function tapResetAwards() {
   tapRenderPlannerTables();
 }
 function tapApplyPolicy() {
-  var active = tapActiveForYear(_tapYearIdx).filter(function(x) { return x.bucket === 'K8' && x.grade !== 'PK 3' && x.grade !== 'PK 4'; });
+  var active = tapEnrolledActiveForYear(_tapYearIdx).filter(function(x) { return x.bucket === 'K8' && x.grade !== 'PK 3' && x.grade !== 'PK 4'; });
   if (!active.length) return;
   var tuition = tapTuitionForYear(_tapYearIdx);
   var capPct = tapCfgNum('family_share_cap_pct', 50);
@@ -730,7 +839,7 @@ function tapApplyPolicy() {
   tapRenderPlannerTables();
 }
 function tapAutoBalance() {
-  var active = tapActiveForYear(_tapYearIdx).filter(function(x) { return x.bucket === 'K8' && x.grade !== 'PK 3' && x.grade !== 'PK 4'; });
+  var active = tapEnrolledActiveForYear(_tapYearIdx).filter(function(x) { return x.bucket === 'K8' && x.grade !== 'PK 3' && x.grade !== 'PK 4'; });
   var tuition = tapTuitionForYear(_tapYearIdx);
   var k8Budget = tapCfgNum('k8_budget_cents', 7500000) / 100;
   var pctById = {};
@@ -921,10 +1030,28 @@ function tapRenderPipelineList() {
     var kCalYear = p.birthYear + 5;
     var kk = (kCalYear + 1) % 100;
     var kSchoolYear = kCalYear + '-' + (kk < 10 ? '0' + kk : kk);
+    // Being old enough by birth year isn't the same as being actually enrolled — this button
+    // only appears once they're age-eligible, and is the only thing that moves a pipeline
+    // entrant into the real K-8/LHS planner tables (tapEnrollPipeline).
+    var grade0 = tapGradeAt(p, 0);
+    var enrollBtn = (grade0 !== null && grade0 !== 'Graduated')
+      ? ' <button class="tap-pipeline-remove" style="color:var(--sage);" onclick="tapEnrollPipeline(' + p.id + ')" title="Enroll now">&#10003; Enroll</button>' : '';
     return '<div class="tap-pipeline-chip">' + esc(p.family) + ' ' + esc(p.child)
       + ' <span style="color:var(--warm-gray);font-size:.72rem;">(b. ' + p.birthYear + ' — K expected ' + kSchoolYear + ')</span>'
+      + enrollBtn
       + ' <button class="tap-pipeline-remove" onclick="tapRemoveStudent(' + p.id + ')" title="Remove">&times;</button></div>';
   }).join('');
+}
+function tapEnrollPipeline(id) {
+  var s = tapById(id);
+  if (!s) return;
+  var grade0 = tapGradeAt(s, 0);
+  if (grade0 === null || grade0 === 'Graduated') return;
+  if (!confirm('Enroll ' + s.child + ' as a current ' + grade0 + '-grade student for ' + tapYearLabelForIdx(0) + '?')) return;
+  api('/admin/api/tuition-aid/students/' + id, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_pipeline: false, base_grade: grade0 })
+  }).then(function() { loadTuitionAid(); }).catch(function() {});
 }
 function tapAddPipeline() {
   var errEl = document.getElementById('tap-pipeline-error');

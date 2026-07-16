@@ -1194,7 +1194,7 @@ export const HTML_TABS_2 = String.raw`
 
           <div style="overflow-x:auto;">
           <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
-            <thead>
+            <thead id="tap-k8-thead">
               <tr style="border-bottom:2px solid var(--navy);">
                 <th style="text-align:left;padding:6px 8px;">Family</th>
                 <th style="text-align:left;padding:6px 8px;">Child</th>
@@ -1226,7 +1226,7 @@ export const HTML_TABS_2 = String.raw`
           </div>
           <div style="overflow-x:auto;">
           <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
-            <thead>
+            <thead id="tap-lhs-thead">
               <tr style="border-bottom:2px solid var(--navy);">
                 <th style="text-align:left;padding:6px 8px;">Family</th>
                 <th style="text-align:left;padding:6px 8px;">Child</th>
