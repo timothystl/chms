@@ -220,6 +220,46 @@ export async function handleTuitionAidApi(req, env, url, method, seg, db, isFina
     return json({ ok: true, updated: stmts.length });
   }
 
+  // ── Bulk import of per-student history from an uploaded workbook (parsed client-side) ──
+  if (seg === 'tuition-aid/import-history' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const records = Array.isArray(b.records) ? b.records.slice(0, 500) : [];
+    let created = 0, updated = 0, unchanged = 0, newStudents = 0;
+    for (const rec of records) {
+      const family = String(rec?.family || '').trim().slice(0, 100);
+      const child = String(rec?.child || '').trim().slice(0, 100);
+      if (!family && !child) continue;
+      const entries = Array.isArray(rec.entries) ? rec.entries.slice(0, 20) : [];
+      if (!entries.length) continue;
+      let s = await db.prepare(`SELECT id FROM tuition_students WHERE family=? AND child=?`).bind(family, child).first();
+      if (!s) {
+        const maxSort = await db.prepare(`SELECT COALESCE(MAX(sort_order),-1) as m FROM tuition_students`).first();
+        const r = await db.prepare(
+          `INSERT INTO tuition_students (family,child,is_pipeline,fam_pct,fam_pct_orig,lhs_award_cents,lhs_award_orig_cents,attends_lhs,active,sort_order)
+           VALUES (?,?,0,50,50,120000,120000,1,0,?)`
+        ).bind(family, child, (maxSort?.m ?? -1) + 1).run();
+        s = { id: r.meta?.last_row_id };
+        newStudents++;
+      }
+      for (const entry of entries) {
+        const schoolYear = String(entry?.school_year || '').trim().slice(0, 20);
+        const cents = Math.round(entry?.family_owed_cents);
+        if (!schoolYear || !Number.isFinite(cents)) continue;
+        const existing = await db.prepare(
+          `SELECT family_owed_cents FROM tuition_student_years WHERE student_id=? AND school_year=?`
+        ).bind(s.id, schoolYear).first();
+        await db.prepare(
+          `INSERT INTO tuition_student_years (student_id,school_year,family_owed_cents,updated_at) VALUES (?,?,?,datetime('now'))
+           ON CONFLICT(student_id,school_year) DO UPDATE SET family_owed_cents=excluded.family_owed_cents, updated_at=datetime('now')`
+        ).bind(s.id, schoolYear, cents).run();
+        if (!existing) created++;
+        else if (existing.family_owed_cents !== cents) updated++;
+        else unchanged++;
+      }
+    }
+    return json({ ok: true, created, updated, unchanged, newStudents });
+  }
+
   // ── Historical chart data (replace-all) ─────────────────────────────────
   if (seg === 'tuition-aid/history' && method === 'PUT') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }

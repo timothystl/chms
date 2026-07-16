@@ -1150,6 +1150,7 @@ export const HTML_TABS_2 = String.raw`
               Actual tuition for <b id="tap-year-rate-label">–</b>: $<input type="number" id="tap-year-rate-input" min="0" step="1" style="width:90px;">
               <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveYearRate()">Save</button>
             </span>
+            <button class="btn-secondary" onclick="tapOpenImportHistory()">Import History from Excel&hellip;</button>
           </div>
           <p style="font-size:.72rem;color:var(--warm-gray);margin:6px 0 0;" id="tap-year-rate-note"></p>
         </div>
@@ -1868,6 +1869,23 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('tap-past-add-modal')">Cancel</button>
       <button class="btn-primary" onclick="tapSavePastAdd()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tuition Aid: import per-student history from an uploaded Excel workbook -->
+<div class="modal-overlay" id="tap-import-modal">
+  <div class="modal" style="max-width:640px;width:95vw;">
+    <div class="modal-header"><span>Import History from Excel</span><button class="modal-close" onclick="closeModal('tap-import-modal')">&#10005;</button></div>
+    <div style="padding:4px 0;">
+      <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload an updated copy of the tuition workbook — it's read entirely in your browser, nothing is sent anywhere until you confirm. Looks for a "Student Tuition History" sheet with Family/Child columns and one "Parent YYYY-YY" column per year.</p>
+      <input type="file" id="tap-import-file" accept=".xlsx" onchange="tapImportFileSelected(this)">
+      <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="tap-import-status"></div>
+      <div id="tap-import-preview"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('tap-import-modal')">Close</button>
+      <button class="btn-primary" id="tap-import-confirm-btn" style="display:none;" onclick="tapConfirmImportHistory()">Import Selected</button>
     </div>
   </div>
 </div>
