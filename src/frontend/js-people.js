@@ -752,7 +752,7 @@ function showProfile(p) {
     });
   }
   var ca = document.querySelector('.content-area');
-  if (ca) { ca.classList.remove('hv-mode'); ca.classList.add('pv-mode'); }
+  if (ca) { ca.classList.remove('hv-mode', 'ov-mode'); ca.classList.add('pv-mode'); }
   showPvTab('info');
 }
 function pvRow(key, val) {

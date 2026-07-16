@@ -122,7 +122,7 @@ function showHouseholdView(h) {
     summaryEl.style.display = tiles ? 'flex' : 'none';
   }
   var ca = document.querySelector('.content-area');
-  if (ca) { ca.classList.remove('pv-mode'); ca.classList.add('hv-mode'); }
+  if (ca) { ca.classList.remove('pv-mode', 'ov-mode'); ca.classList.add('hv-mode'); }
 }
 function editHouseholdById(id) {
   api('/admin/api/households/' + id).then(function(h) { openHouseholdEdit(h); });
@@ -313,18 +313,17 @@ function loadOrganizations(reset) {
     }
     grid.innerHTML = orgs.map(function(o, idx) {
       var isPerson = o.source === 'person';
-      var typeBadge = o.type ? '<span style="font-size:.7rem;background:var(--steel-anchor);color:#fff;border-radius:99px;padding:1px 7px;margin-left:6px;">'+esc(o.type)+'</span>' : '';
-      var personBadge = isPerson ? '<span style="font-size:.7rem;background:var(--linen);color:var(--warm-gray);border:1px solid var(--border);border-radius:99px;padding:1px 7px;margin-left:6px;">Person record</span>' : '';
-      var contact = o.contact_name ? '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:2px;">'+esc(o.contact_name)+'</div>' : '';
+      var typeBadge = o.type ? ' <span style="font-size:.68rem;background:var(--linen);color:var(--warm-gray);border-radius:99px;padding:1px 8px;font-weight:600;">'+esc(o.type)+'</span>' : '';
+      var personBadge = isPerson ? ' <span style="font-size:.68rem;background:var(--linen);color:var(--warm-gray);border:1px solid var(--border);border-radius:99px;padding:1px 7px;">Person record</span>' : '';
+      var contact = o.contact_name ? esc(o.contact_name) : '';
       var info = [o.phone, o.email].filter(Boolean).map(esc).join(' &middot; ');
       var addr = [o.city, o.state].filter(Boolean).join(', ');
-      return '<div class="hh-card" onclick="openOrgRow(' + idx + ')" style="cursor:pointer;">'
-        +'<div style="font-weight:600;">'+esc(o.name)+typeBadge+personBadge+'</div>'
-        +contact
-        +(info ? '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:2px;">'+info+'</div>' : '')
-        +(addr ? '<div style="font-size:.75rem;color:var(--warm-gray);margin-top:2px;">'+esc(addr)+'</div>' : '')
-        +(o.website && /^https?:\/\//i.test(o.website) ? '<div style="font-size:.75rem;margin-top:2px;"><a href="'+esc(o.website)+'" target="_blank" onclick="event.stopPropagation();" style="color:var(--steel-anchor);">'+esc(o.website.replace(/^https?:\/\//,''))+'</a></div>' : '')
-        +'</div>';
+      return '<div class="h-card" onclick="openOrgRow(' + idx + ')">'
+        + '<div class="h-name">'+esc(o.name)+typeBadge+personBadge+'</div>'
+        + (contact ? '<div class="h-addr">'+contact+'</div>' : '')
+        + (info ? '<div class="h-addr">'+info+'</div>' : '')
+        + (addr ? '<div class="h-addr">'+esc(addr)+'</div>' : '')
+        + '</div>';
     }).join('');
     // Pager
     if (pager) {
@@ -348,7 +347,41 @@ function openOrgRow(idx) {
     });
     return;
   }
-  openOrgEdit(o);
+  showOrganizationView(o, idx);
+}
+// ── ORGANIZATION VIEW (full page, mirrors Household View) ──────────────
+function closeOrganizationView() {
+  var ca = document.querySelector('.content-area');
+  if (ca) ca.classList.remove('ov-mode');
+}
+function showOrganizationView(o, idx) {
+  var addr = [o.address1, o.city, o.state].filter(Boolean).join(', ');
+  var tn = document.getElementById('ov-topbar-name');
+  if (tn) tn.textContent = o.name;
+  var nameEl = document.getElementById('ov-name');
+  if (nameEl) nameEl.textContent = o.name;
+  var addrEl = document.getElementById('ov-addr');
+  if (addrEl) addrEl.textContent = addr;
+  var editBtn = document.getElementById('ov-edit-btn');
+  if (editBtn) editBtn.setAttribute('onclick', 'openOrgEdit(_orgRows[' + idx + '])');
+  var detailsEl = document.getElementById('ov-details');
+  if (detailsEl) {
+    function row(key, valHtml) {
+      if (!valHtml) return '';
+      return '<div class="pv-row"><div class="pv-row-key">' + esc(key) + '</div><div class="pv-row-val">' + valHtml + '</div></div>';
+    }
+    var website = (o.website && /^https?:\/\//i.test(o.website))
+      ? '<a href="' + esc(o.website) + '" target="_blank">' + esc(o.website.replace(/^https?:\/\//, '')) + '</a>' : '';
+    var html = row('Type', o.type ? esc(o.type) : '')
+      + row('Contact', o.contact_name ? esc(o.contact_name) : '')
+      + row('Phone', o.phone ? '<a href="tel:' + esc(o.phone.replace(/\D/g, '')) + '">' + esc(o.phone) + '</a>' : '')
+      + row('Email', o.email ? '<a href="mailto:' + esc(o.email) + '">' + esc(o.email) + '</a>' : '')
+      + row('Website', website)
+      + row('Notes', o.notes ? esc(o.notes) : '');
+    detailsEl.innerHTML = html || '<div style="color:var(--warm-meta);font-size:.88rem;padding:10px 0;">No details on file</div>';
+  }
+  var ca = document.querySelector('.content-area');
+  if (ca) { ca.classList.remove('pv-mode', 'hv-mode'); ca.classList.add('ov-mode'); }
 }
 function openOrgEdit(o) {
   var isNew = !o || !o.id;
