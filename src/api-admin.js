@@ -263,7 +263,7 @@ export async function handleAdminApi(req, env, url, method) {
       const username = (b.username || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
       if (!username) return json({ error: 'Username is required' }, 400);
       if (!b.password || b.password.length < 8) return json({ error: 'Password must be at least 8 characters' }, 400);
-      const validRoles = ['admin', 'finance', 'staff', 'member'];
+      const validRoles = ['admin', 'finance', 'staff', 'office', 'member'];
       const role = validRoles.includes(b.role) ? b.role : 'staff';
       const email = (b.email || '').trim().toLowerCase();
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'Invalid email address' }, 400);
@@ -281,7 +281,7 @@ export async function handleAdminApi(req, env, url, method) {
     if (umatch && method === 'PUT') {
       const uid = parseInt(umatch[1]);
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-      const validRoles = ['admin', 'finance', 'staff', 'member'];
+      const validRoles = ['admin', 'finance', 'staff', 'office', 'member'];
       const role = validRoles.includes(b.role) ? b.role : undefined;
       // Build update
       const fields = [];

@@ -108,19 +108,27 @@ a.s-item{text-decoration:none;color:inherit;}
 .s-bottom{margin-top:auto;display:flex;flex-direction:column;align-items:stretch;gap:4px;}
 .s-tip{position:static;transform:none;background:transparent;border:none;padding:0;font-size:13px;color:rgba(255,255,255,.7);white-space:nowrap;pointer-events:none;z-index:auto;}
 /* ── ROLE-BASED VISIBILITY ── */
-/* .require-finance = visible only for admin + finance */
-/* .require-staff   = visible only for admin + staff   */
-/* .require-edit    = visible for admin + finance + staff (not member) */
-/* .require-admin   = admin only */
-/* .no-member       = hidden for member role */
+/* .require-finance  = visible only for admin + finance */
+/* .require-staff    = visible only for admin + staff (not office) */
+/* .require-register = visible for admin + staff + office (data-entry) */
+/* .require-edit     = visible for admin + finance + staff + office (not member) */
+/* .require-admin    = admin only */
+/* .no-member        = hidden for member role */
+/* .no-office        = hidden for the office (data-entry) role */
 .role-staff  .require-finance{display:none!important;}
+.role-office .require-finance{display:none!important;}
 .role-member .require-finance{display:none!important;}
 .role-finance .require-staff{display:none!important;}
+.role-office  .require-staff{display:none!important;}
 .role-member .require-staff{display:none!important;}
+.role-finance .require-register{display:none!important;}
+.role-member  .require-register{display:none!important;}
 .role-member .require-edit{display:none!important;}
 .role-member .no-member{display:none!important;}
+.role-office .no-office{display:none!important;}
 .role-finance .require-admin{display:none!important;}
 .role-staff   .require-admin{display:none!important;}
+.role-office  .require-admin{display:none!important;}
 .role-member  .require-admin{display:none!important;}
 /* ── CONTENT AREA ── */
 .content-area{flex:1;display:flex;flex-direction:column;overflow:hidden;margin-left:0;}
@@ -600,18 +608,26 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 }
 /* ── ROLE-BASED VISIBILITY ── */
 /* .require-finance  = visible only for admin + finance */
-/* .require-staff    = visible only for admin + staff   */
-/* .require-edit     = visible for admin + finance + staff (not member) */
+/* .require-staff    = visible only for admin + staff (not office) */
+/* .require-register = visible for admin + staff + office (data-entry) */
+/* .require-edit     = visible for admin + finance + staff + office (not member) */
 /* .require-admin    = admin only */
 /* .no-member        = hidden for member role */
+/* .no-office        = hidden for the office (data-entry) role */
 .role-staff  .require-finance{display:none!important;}
+.role-office .require-finance{display:none!important;}
 .role-member .require-finance{display:none!important;}
 .role-finance .require-staff{display:none!important;}
+.role-office  .require-staff{display:none!important;}
 .role-member .require-staff{display:none!important;}
+.role-finance .require-register{display:none!important;}
+.role-member  .require-register{display:none!important;}
 .role-member .require-edit{display:none!important;}
 .role-member .no-member{display:none!important;}
+.role-office .no-office{display:none!important;}
 .role-finance .require-admin{display:none!important;}
 .role-staff   .require-admin{display:none!important;}
+.role-office  .require-admin{display:none!important;}
 .role-member  .require-admin{display:none!important;}
 /* ── PRINT ── */
 @media print{
@@ -782,8 +798,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div class="s-item require-finance" data-tab="tuitionaid" onclick="showTab('tuitionaid')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 2 3 3 6 3s6-1 6-3v-5"/></svg><span class="s-tip">Tuition Aid</span></div>
   <div class="s-section-hdr no-member">Ministry</div>
   <div class="s-item require-staff" data-tab="attendance" onclick="showTab('attendance')"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg><span class="s-tip">Attendance</span></div>
-  <div class="s-item no-member" data-tab="reports" onclick="showTab('reports')"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span class="s-tip">Reports</span></div>
-  <div class="s-item require-staff" data-tab="register" onclick="showTab('register')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="9" y1="7" x2="17" y2="7"/><line x1="9" y1="11" x2="14" y2="11"/></svg><span class="s-tip">Register</span></div>
+  <div class="s-item no-member no-office" data-tab="reports" onclick="showTab('reports')"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span class="s-tip">Reports</span></div>
+  <div class="s-item require-register" data-tab="register" onclick="showTab('register')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="9" y1="7" x2="17" y2="7"/><line x1="9" y1="11" x2="14" y2="11"/></svg><span class="s-tip">Register</span></div>
   <div class="s-section-hdr require-admin">Admin</div>
   <div class="s-item require-admin" data-tab="volunteers" onclick="showTab('volunteers')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg><span class="s-tip">Volunteers</span></div>
   <div class="s-item require-admin" data-tab="scheduler" onclick="showTab('scheduler')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg><span class="s-tip">Scheduler</span></div>

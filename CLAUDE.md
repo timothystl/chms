@@ -512,6 +512,7 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
 
 ### Settings
 - [x] **ST1** — Hide testing sections in Settings tab from non-admin users (birthday/anniversary/SMS test buttons, etc.) — done 2026-05-01 (v165). Added `require-admin` class to EM2 and SMS1 import-cards.
+- [x] **ST2** — New "Office" role (data-entry): full People/Households/Register CRUD, no Giving/Reports/Settings/Attendance/Volunteers/Scheduler/Imports. Added to the existing Settings → Users role dropdown alongside admin/finance/staff/member. Done 2026-07-16 (v1.21.0) — see NOTES.md for full detail. Bulk people actions (bulk-tag/bulk-member-type/bulk-sacrament/bulk-comm-opt) and marking someone deceased stayed `staff`-only by design (narrower than staff); revisit if that becomes a real limitation for office users.
 
 ### People List
 - [x] **PL1** — Members-first people list: default view shows Members only; "Members" toggle button in toolbar switches to all-types view. Done 2026-04-20 (v82).

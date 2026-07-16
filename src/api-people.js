@@ -187,7 +187,7 @@ async function autoUpdatePersonInBreeze(env, db, breezeId, person, changedDateKe
   }
 }
 
-export async function handlePeopleApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
+export async function handlePeopleApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit, canRegister = isStaff) {
 
 // ── People ──────────────────────────────────────────────────────
 if (seg === 'people' && method === 'GET') {
@@ -827,7 +827,7 @@ if (pushToBreezeMatch && method === 'POST') {
 // ── Person photo upload ──────────────────────────────────────────
 const photoMatch = seg.match(/^people\/(\d+)\/photo$/);
 if (photoMatch && method === 'POST') {
-  if (!isStaff) return json({ error: 'Insufficient permissions' }, 403);
+  if (!canRegister) return json({ error: 'Insufficient permissions' }, 403);
   if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket tlc-chms-photos' }, 503);
   const pid = parseInt(photoMatch[1]);
   let file;
@@ -844,7 +844,7 @@ if (photoMatch && method === 'POST') {
 // picker to apply a household member's photo or the household photo to this
 // person without re-uploading. Sets locally_edited=1.
 if (photoMatch && method === 'PUT') {
-  if (!isStaff) return json({ error: 'Insufficient permissions' }, 403);
+  if (!canRegister) return json({ error: 'Insufficient permissions' }, 403);
   const pid = parseInt(photoMatch[1]);
   let body = {}; try { body = await req.json(); } catch {}
   const newUrl = String(body.photo_url || '').trim();
@@ -860,7 +860,7 @@ if (photoMatch && method === 'PUT') {
 // people/{pid}/ and people/breeze_*/ for this person. Sync no longer
 // re-populates because locally_edited=1 is set on every profile save.
 if (photoMatch && method === 'DELETE') {
-  if (!isStaff) return json({ error: 'Insufficient permissions' }, 403);
+  if (!canRegister) return json({ error: 'Insufficient permissions' }, 403);
   const pid = parseInt(photoMatch[1]);
   const row = await db.prepare('SELECT photo_url, breeze_id FROM people WHERE id=?').bind(pid).first();
   if (!row) return json({ error: 'Person not found' }, 404);

@@ -13,15 +13,18 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   const db = env.DB;
 
   // ── Role-based access control ────────────────────────────────────
-  // Roles: admin | finance | staff | member
+  // Roles: admin | finance | staff | office | member
   //   admin   — full access
   //   finance — people CRUD + full giving; no attendance/register/followups
   //   staff   — people CRUD + attendance/register/followups/tags; no giving
+  //   office  — data-entry: people/households/register CRUD only; no giving,
+  //             attendance, follow-ups/audit, reports, settings, or imports
   //   member  — GET people filtered to member_type='member' only
-  const isAdmin   = role === 'admin';
-  const isFinance = role === 'admin' || role === 'finance';
-  const isStaff   = role === 'admin' || role === 'staff';
-  const canEdit   = role === 'admin' || role === 'finance' || role === 'staff';
+  const isAdmin    = role === 'admin';
+  const isFinance  = role === 'admin' || role === 'finance';
+  const isStaff    = role === 'admin' || role === 'staff';
+  const canRegister = role === 'admin' || role === 'staff' || role === 'office';
+  const canEdit    = role === 'admin' || role === 'finance' || role === 'staff' || role === 'office';
 
   // Giving and giving reports — finance+ only
   if ((seg.startsWith('giving') || seg.startsWith('reports/giving')) && !isFinance) {
@@ -31,12 +34,22 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   if (seg.startsWith('tuition-aid') && !isFinance) {
     return json({ error: 'Access denied: tuition aid data requires finance access' }, 403);
   }
-  // Attendance, register, follow-ups, audit — staff+ only (NOT finance)
-  if ((seg.startsWith('attendance') || seg.startsWith('register') ||
-       seg.startsWith('followup') || seg.startsWith('audit')) && !isStaff) {
+  // Attendance, follow-ups, audit — staff+ only (NOT finance, NOT office)
+  if ((seg.startsWith('attendance') || seg.startsWith('followup') || seg.startsWith('audit')) && !isStaff) {
     return json({ error: 'Access denied' }, 403);
   }
-  // Config (settings) — reads blocked for member; writes admin only
+  // Register — staff or office (the data-entry role's one core job)
+  if (seg.startsWith('register') && !canRegister) {
+    return json({ error: 'Access denied' }, 403);
+  }
+  // Reports — office (data-entry) role has no reporting access. (Engagement/
+  // review-queue endpoints stay open — they back Dashboard widgets, not the
+  // Reports tab, and the dashboard already omits that data for non-staff roles.)
+  if (seg.startsWith('reports') && role === 'office') {
+    return json({ error: 'Access denied' }, 403);
+  }
+  // Config (settings) — reads open to any logged-in role (needed for e.g. the
+  // member-types dropdown used everywhere); writes admin only
   if (seg.startsWith('config') && method !== 'GET' && !isAdmin) {
     return json({ error: 'Access denied: changing settings requires admin access' }, 403);
   }
@@ -59,7 +72,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       (seg.startsWith('people') || seg.startsWith('households') || seg.startsWith('tags') ||
        seg.startsWith('attendance') || seg.startsWith('register') || seg.startsWith('funds') ||
        seg.startsWith('organizations'))) {
-    return json({ error: 'Access denied: editing requires staff or finance access' }, 403);
+    return json({ error: 'Access denied: editing requires staff, office, or finance access' }, 403);
   }
 
   // ── Dashboard ────────────────────────────────────────────────────
@@ -421,7 +434,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // ── People / Archive / Brevo / Photos / Follow-ups → api-people.js ────────
   if (seg.startsWith('people') || seg === 'member-types' ||
       seg.startsWith('brevo/') || seg.startsWith('followup') || seg === 'audit' || seg === 'audit/undo') {
-    const result = await handlePeopleApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit);
+    const result = await handlePeopleApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit, canRegister);
     if (result !== null) return result;
   }
 
