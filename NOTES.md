@@ -129,6 +129,11 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-16 (v1.19.2 — Fix: household photos cropped/skewed on card grid)
+- **Reported bug**: household photos on the Households card grid rendered as a full-width 80px-tall banner strip with `object-fit:cover` — for portrait-oriented photos (typical family/individual photos), this produced extreme, unusable crops (e.g. an eyes-only close-up, or letterboxing), shown in a reporter screenshot.
+- **Fix**: moved the photo to a fixed 64×64 square thumbnail on the right side of the card (text stays on the left, `flex:1`), matching the Person Profile/Household View pattern of using a proper square container for `object-fit:cover` — a square crop handles arbitrary source aspect ratios far more gracefully than a short-wide banner. `.h-card`'s default padding/cursor now apply normally (the old banner layout had overridden them to `padding:0`).
+- **Verified**: `npm test` (37/37); `node --check` on all 3 built `<script>` blocks; Playwright render with a portrait-oriented mock photo confirms the square thumbnail renders correctly, positioned to the right, with no skewing.
+
 ### 2026-07-16 (v1.19.1 — Remove "Person record" badge from Organization cards)
 - Removed the "Person record" pill badge shown on Organizations cards for entries synced from a Person record (`o.source === 'person'`). Cosmetic-only — the underlying click behavior for those entries (open the full Person Profile) is unchanged.
 
