@@ -619,27 +619,69 @@ async function seedTuitionYearRates(db) {
   }
 }
 
-// The only genuine per-student prior-year figure available anywhere in the source workbooks:
-// the "Parent 2025-26" column on the K-8 Aid Detail sheet (actual family payment, for
-// students still enrolled this year). Everything else in those workbooks for years before
-// 2026-27 is class-wide aggregate only (already covered by TUITION_SEED_HISTORY) — this is
-// the one real per-family data point worth backfilling as a tuition_student_years pin.
-// Matched by (family, child) against the TUITION_SEED_K8 rows already seeded above.
-const TUITION_SEED_PARENT_2025_26 = [
-  ['Smithson','Garrett',8600], ['Oschwald','Jadon',3700], ['Oschwald','Liam',3700],
-  ['Weigand','Rebecca',4000], ['Enderle','Charlotte',300], ['Dinger','Daniel',0],
-  ['Smithson','Noel',4000], ['Dinger','Jacob',1600], ['Pozas','Hannah',4000],
-  ['Lee','Olivia',3000], ['Roden','Penny',4000], ['Gonzalez','Alaya',2900],
-  ['Poppitz','Emma',0], ['Knapp','Edmund',810], ['Dinger','John',1600],
-  ['Jermiya','Malidaya',3300], ['Poppitz','Olivia',0],
+// Genuine per-student, per-year family-payment history from the "Student Tuition History"
+// sheet (added to the source workbook after the first pass only covered 2025-26). Values are
+// dollars-paid-that-year (family_owed_cents), cross-referenced by the source workbook against
+// original records — not editable via formula there, so treated as historical fact. The
+// 2026-27 column is intentionally excluded: that's the current year, already represented by
+// the tuition_students master row (offset-0 reads bypass the pin layer — see TAP6), so a pin
+// for it would just be ignored. Cells marked '?' (unreconciled — Michael Hawkins 2024-25,
+// Annette/Evelyn Crim) are excluded rather than guessed at.
+// ACTIVE: matched by (family, child) against the currently-enrolled TUITION_SEED_K8 rows.
+const TUITION_SEED_STUDENT_HISTORY_ACTIVE = [
+  ['Dinger','Daniel',[['2023-24',100000],['2024-25',0],['2025-26',0]]],
+  ['Dinger','Jacob',[['2021-22',60000],['2022-23',68000],['2023-24',100000],['2024-25',118000],['2025-26',160000]]],
+  ['Dinger','John',[['2019-20',155000],['2020-21',87500],['2021-22',60000],['2022-23',68000],['2023-24',100000],['2024-25',118000],['2025-26',160000]]],
+  ['Elington','Teddy',[['2025-26',860000]]],
+  ['Enderle','Charlotte',[['2024-25',0],['2025-26',30000]]],
+  ['Gonzalez','Alaya',[['2019-20',155000],['2020-21',117500],['2021-22',120000],['2022-23',175000],['2023-24',200000],['2024-25',218000],['2025-26',290000]]],
+  ['Jermiya','Malidaya',[['2019-20',125000],['2020-21',87500],['2021-22',95000],['2022-23',68000],['2023-24',90000],['2024-25',156000],['2025-26',330000]]],
+  ['Knapp','Edmund',[['2022-23',68000],['2023-24',90000],['2024-25',75600],['2025-26',81000]]],
+  ['Lee','Olivia',[['2025-26',300000]]],
+  ['Oschwald','Perrin',[['2025-26',860000]]],
+  ['Oschwald','Jadon',[['2024-25',294840],['2025-26',370000]]],
+  ['Oschwald','Liam',[['2024-25',294840],['2025-26',370000]]],
+  ['Poppitz','Emma',[['2019-20',0],['2022-23',0],['2023-24',0],['2024-25',0],['2025-26',0]]],
+  ['Poppitz','Olivia',[['2019-20',0],['2022-23',0],['2023-24',0],['2024-25',0],['2025-26',0]]],
+  ['Pozas','Hannah',[['2021-22',127500],['2022-23',175000],['2023-24',230000],['2024-25',248000],['2025-26',400000]]],
+  ['Roden','Penny',[['2025-26',400000]]],
+  ['Smithson','Garrett',[['2025-26',860000]]],
+  ['Smithson','Noel',[['2023-24',360000],['2024-25',378000],['2025-26',400000]]],
+  ['Weigand','Rebecca',[['2025-26',400000]]],
 ];
-async function seedParent2025_26(db) {
-  for (const [family, child, familyOwedDollars] of TUITION_SEED_PARENT_2025_26) {
+// INACTIVE: no longer enrolled — no tuition_students row exists yet, so one is created here
+// with active=0 (never appears in the live current/future roster) purely to anchor the pins,
+// same pattern as the "+ Add Family Record" UI flow.
+const TUITION_SEED_STUDENT_HISTORY_INACTIVE = [
+  ['Flemming','LJ',[['2025-26',860000]]],
+  ['Hawkins','John',[['2021-22',320000],['2022-23',340000],['2023-24',360000],['2024-25',378000],['2025-26',400000]]],
+  ['Pyne','Bridget',[['2022-23',68000],['2023-24',90000],['2024-25',108000],['2025-26',120000]]],
+];
+async function seedStudentTuitionHistory(db) {
+  for (const [family, child, entries] of TUITION_SEED_STUDENT_HISTORY_ACTIVE) {
     const s = await db.prepare(`SELECT id FROM tuition_students WHERE family=? AND child=?`).bind(family, child).first();
     if (!s) continue;
-    await db.prepare(
-      `INSERT OR IGNORE INTO tuition_student_years (student_id,school_year,family_owed_cents) VALUES (?,'2025-26',?)`
-    ).bind(s.id, Math.round(familyOwedDollars * 100)).run();
+    for (const [schoolYear, cents] of entries) {
+      await db.prepare(
+        `INSERT OR IGNORE INTO tuition_student_years (student_id,school_year,family_owed_cents) VALUES (?,?,?)`
+      ).bind(s.id, schoolYear, cents).run();
+    }
+  }
+  for (const [family, child, entries] of TUITION_SEED_STUDENT_HISTORY_INACTIVE) {
+    let s = await db.prepare(`SELECT id FROM tuition_students WHERE family=? AND child=?`).bind(family, child).first();
+    if (!s) {
+      const maxSort = await db.prepare(`SELECT COALESCE(MAX(sort_order),-1) as m FROM tuition_students`).first();
+      const r = await db.prepare(
+        `INSERT INTO tuition_students (family,child,is_pipeline,fam_pct,fam_pct_orig,lhs_award_cents,lhs_award_orig_cents,attends_lhs,active,sort_order)
+         VALUES (?,?,0,50,50,120000,120000,1,0,?)`
+      ).bind(family, child, (maxSort?.m ?? -1) + 1).run();
+      s = { id: r.meta?.last_row_id };
+    }
+    for (const [schoolYear, cents] of entries) {
+      await db.prepare(
+        `INSERT OR IGNORE INTO tuition_student_years (student_id,school_year,family_owed_cents) VALUES (?,?,?)`
+      ).bind(s.id, schoolYear, cents).run();
+    }
   }
 }
 
@@ -868,6 +910,6 @@ async function _doInitDb(db) {
 
   await seedTuitionAid(db);
   await seedTuitionYearRates(db);
-  await seedParent2025_26(db);
+  await seedStudentTuitionHistory(db);
 }
 
