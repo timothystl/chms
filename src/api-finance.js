@@ -38,6 +38,34 @@ function redirectToApp(url, qsParam, qsValue) {
   return new Response(null, { status: 302, headers: { Location: `${url.origin}/?${qsParam}=${encodeURIComponent(qsValue)}#finance` } });
 }
 
+// Wraps a QuickBooks Accounting API call with the error-handling Intuit's own developer
+// questionnaire asks about: captures the `intuit_tid` response header (Intuit's recommended
+// field for support tickets), parses the structured Fault.Error[] body QBO returns on failure
+// instead of just surfacing a bare HTTP status, and logs the full detail server-side (visible
+// via `wrangler tail`/the Cloudflare dashboard) so a failure can be diagnosed without needing
+// to reproduce it live.
+async function fetchQboJson(label, resPromise, warnings, hint) {
+  let r;
+  try { r = await resPromise; }
+  catch (e) {
+    console.error(`[QuickBooks sync] ${label} request failed:`, e);
+    warnings.push(`${label}: ${e.message}`);
+    return null;
+  }
+  const tid = r.headers.get('intuit_tid') || '';
+  if (r.ok) return await r.json();
+  const fault = await r.json().catch(() => null);
+  const faultError = fault?.Fault?.Error?.[0];
+  const detail = [faultError?.Message, faultError?.Detail].filter(Boolean).join(' — ');
+  console.error(`[QuickBooks sync] ${label} failed:`, { status: r.status, intuit_tid: tid, code: faultError?.code, message: faultError?.Message, detail: faultError?.Detail });
+  warnings.push(
+    `${label} (HTTP ${r.status}${tid ? `, intuit_tid ${tid}` : ''})`
+    + (detail ? `: ${detail}` : '')
+    + (hint ? ` — ${hint}` : '')
+  );
+  return null;
+}
+
 export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, isFinance) {
   if (!isFinance) return json({ error: 'Access denied: finance data requires finance access' }, 403);
 
@@ -126,17 +154,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const client = makeQboClient(env, fresh);
     const year = new Date().getFullYear();
     const warnings = [];
-    let budgetVsActual = null, accounts = null;
-    try {
-      const r = await client.budgetVsActual({ start_date: `${year}-01-01`, end_date: `${year}-12-31` });
-      if (r.ok) budgetVsActual = await r.json();
-      else warnings.push(`Budget vs Actual (HTTP ${r.status}) — make sure a Budget for ${year} exists in QuickBooks under Settings > Budgeting.`);
-    } catch (e) { warnings.push('Budget vs Actual: ' + e.message); }
-    try {
-      const r = await client.accounts();
-      if (r.ok) accounts = await r.json();
-      else warnings.push(`Account balances (HTTP ${r.status}).`);
-    } catch (e) { warnings.push('Account balances: ' + e.message); }
+    const budgetVsActual = await fetchQboJson(
+      'Budget vs Actual',
+      client.budgetVsActual({ start_date: `${year}-01-01`, end_date: `${year}-12-31` }),
+      warnings,
+      `make sure a Budget for ${year} exists in QuickBooks under Settings > Budgeting`
+    );
+    const accounts = await fetchQboJson('Account balances', client.accounts(), warnings);
     const syncedAt = new Date().toISOString();
     const ops = [];
     if (budgetVsActual) ops.push(db.prepare(
