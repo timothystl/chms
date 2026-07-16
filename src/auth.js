@@ -79,7 +79,12 @@ export async function authCookieHeader(env, role = 'admin', username = '') {
     .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const cookieVal = safeUser ? `${ts}.${role}.${safeUser}.${b64url}` : `${ts}.${role}.${b64url}`;
   // Session cookie (no Expires/Max-Age) — browser discards on close.
-  return `vol_auth=${cookieVal}; Path=/; HttpOnly; Secure; SameSite=Strict`;
+  // SameSite=Lax (not Strict): the QuickBooks OAuth callback (FIN1) lands back on this app via
+  // a cross-site-initiated top-level GET redirect from Intuit's consent screen — SameSite=Strict
+  // silently drops the cookie on exactly that kind of request, breaking the whole connect flow.
+  // Lax still blocks the cookie on cross-site subresource/POST requests (the real CSRF risk);
+  // the OAuth flow itself is separately CSRF-protected via the single-use `state` parameter.
+  return `vol_auth=${cookieVal}; Path=/; HttpOnly; Secure; SameSite=Lax`;
 }
 
 // Wrap an authenticated response with a refreshed Set-Cookie so the idle
