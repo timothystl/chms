@@ -93,6 +93,36 @@ These are not required for the app to function but unlock additional capabilitie
 - **Purpose**: Overrides the `office@timothystl.org` default used in Resend `reply_to` for scheduler and ChMS emails.
 - **Set**: `wrangler secret put REPLY_TO_EMAIL`.
 
+### `QB_CLIENT_ID` + `QB_CLIENT_SECRET`
+- **Purpose**: QuickBooks Online OAuth 2.0 — powers the Finance tab's live Budget vs Actual + account balance sync. Unlike other integrations here, these are the *app's* credentials, not a per-connection token — the actual connection (which QuickBooks company, access/refresh tokens) is established by an admin clicking "Connect QuickBooks" in Settings and completing Intuit's consent screen, then stored in the `finance_qb_connection` D1 table (not a Worker secret, since it's obtained via OAuth and rotates over time).
+- **Provision**: Register at https://developer.intuit.com → create an app → enable the **Accounting** scope → under Keys, copy the Client ID and Client Secret (use the Production keys, not Sandbox, unless testing) → under Redirect URIs, add `https://chms.timothystl.org/admin/api/finance/qb/callback` exactly.
+- **Set**: `wrangler secret put QB_CLIENT_ID` then `wrangler secret put QB_CLIENT_SECRET`.
+- **Risk if leaked**: Alone, these can't access church financial data (a real OAuth consent + this Worker's session cookie are also required) — but rotate if the Intuit app itself is compromised.
+- **⚠ Needs live verification**: this app's QuickBooks Reports API and OAuth flow were built against Intuit's public API documentation; there is no live QuickBooks account in this environment to test against. Verify the full connect → sync → disconnect flow in production before relying on it, and check the Budget vs Actual report renders sensibly (it requires a Budget to already exist in QuickBooks under Settings > Budgeting).
+
+### `QB_ENVIRONMENT`
+- **Purpose**: `sandbox` or `production` (default `production` if unset). Only matters for testing against an Intuit Developer sandbox company before connecting the real one.
+- **Set**: `wrangler secret put QB_ENVIRONMENT` (value `sandbox` or `production`).
+
+### `DAYCARE_API_URL` + `DAYCARE_API_KEY`
+- **Purpose**: Pulls account balances and budget/actual line items from the daycare app's own finance API into the Finance tab (`POST /admin/api/finance/daycare/sync`). Optional — the Finance tab's daycare section works with hand-entered rows regardless of whether this is configured.
+- **Contract the daycare app must implement**: `GET {DAYCARE_API_URL}/api/finance/summary`, header `X-Api-Key: <DAYCARE_API_KEY>`, returning:
+  ```json
+  {
+    "updated_at": "2026-07-16T14:32:00Z",
+    "accounts": [
+      { "name": "Daycare Operating Checking", "balance_cents": 4523100 }
+    ],
+    "budget": [
+      { "period": "2026-07", "category": "Tuition Income", "type": "actual", "amount_cents": 8850000 },
+      { "period": "2026-07", "category": "Tuition Income", "type": "budget", "amount_cents": 9000000 }
+    ]
+  }
+  ```
+  `period` is `YYYY-MM`. `type` is exactly `"actual"` or `"budget"`. All money in integer **cents**, not dollars. Return 401 for a missing/wrong key. Include as much history as reasonably available (at least the current + ~12 prior months) so trends are visible, not just the current month.
+- **Set**: `wrangler secret put DAYCARE_API_URL` (e.g. `https://daycare.timothystl.org`, no trailing slash) then `wrangler secret put DAYCARE_API_KEY` (any strong random string ≥32 chars — give the same value to whoever builds the daycare app's endpoint).
+- **Risk if leaked**: Read-only access to the daycare app's financial summary endpoint (as scoped by whatever the daycare app itself enforces on that key).
+
 ---
 
 ## Bindings (not secrets — configured in `wrangler.toml`)

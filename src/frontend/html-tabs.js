@@ -1254,6 +1254,65 @@ export const HTML_TABS_2 = String.raw`
   </div>
 </div>
 
+<!-- ═══ FINANCE OVERVIEW TAB ═══ -->
+<div id="tab-finance" class="tab-panel">
+  <div style="padding:16px 20px 20px;">
+    <div id="fin-toast" style="display:none;background:var(--navy);color:var(--white);padding:8px 14px;border-radius:6px;font-size:.82rem;margin-bottom:12px;"></div>
+    <div id="fin-loading" style="color:var(--warm-gray);font-size:.85rem;">Loading…</div>
+    <div id="fin-root" style="display:none;">
+
+      <section class="dash-card" style="margin-bottom:16px;">
+        <div class="dash-card-hdr">QuickBooks Connection</div>
+        <div class="dash-card-body" style="padding:14px 18px;" id="fin-connection"></div>
+      </section>
+
+      <section class="dash-card" style="margin-bottom:16px;">
+        <div class="dash-card-hdr">Budget vs. Actual</div>
+        <div class="dash-card-body" style="padding:14px 18px;" id="fin-budget"></div>
+      </section>
+
+      <section class="dash-card" style="margin-bottom:16px;">
+        <div class="dash-card-hdr">Account Balances</div>
+        <div class="dash-card-body" style="padding:14px 18px;" id="fin-accounts"></div>
+      </section>
+
+      <section class="dash-card" style="margin-bottom:16px;">
+        <div class="dash-card-hdr">Daycare</div>
+        <div class="dash-card-body" style="padding:14px 18px;">
+          <div id="fin-daycare-sync" style="margin-bottom:12px;"></div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+              <thead>
+                <tr style="border-bottom:2px solid var(--navy);">
+                  <th style="text-align:left;padding:6px 8px;">Period</th>
+                  <th style="text-align:left;padding:6px 8px;">Category</th>
+                  <th style="text-align:left;padding:6px 8px;">Type</th>
+                  <th style="text-align:right;padding:6px 8px;">Amount</th>
+                  <th style="text-align:left;padding:6px 8px;">Notes / Source</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="fin-daycare-body"></tbody>
+            </table>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:14px;">
+            <label style="font-size:.75rem;color:var(--warm-gray);">Period<br><input type="text" id="fin-dc-period" placeholder="2026-07" style="width:100px;"></label>
+            <label style="font-size:.75rem;color:var(--warm-gray);">Category<br><input type="text" id="fin-dc-category" placeholder="Tuition Income" style="width:160px;"></label>
+            <label style="font-size:.75rem;color:var(--warm-gray);">Type<br>
+              <select id="fin-dc-type"><option value="actual">Actual</option><option value="budget">Budget</option></select>
+            </label>
+            <label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-dc-amount" step="0.01" style="width:110px;"></label>
+            <label style="font-size:.75rem;color:var(--warm-gray);">Notes<br><input type="text" id="fin-dc-notes" style="width:160px;"></label>
+            <button class="btn-primary" onclick="finAddDaycare()">+ Add Entry</button>
+          </div>
+          <div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="fin-dc-error"></div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
 </div><!-- /content-area -->
 
 <!-- ═══ PEOPLE FILTER DRAWER ═══ -->
