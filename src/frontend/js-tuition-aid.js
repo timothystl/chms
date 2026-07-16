@@ -12,6 +12,7 @@ var _tapPinsByKey = {};
 var _tapSaveTimers = {};
 var _tapLinkTargetId = null;
 var _tapHistoryTargetId = null;
+var _tapImportRecords = [];
 
 function tapApplyBundle(d) {
   _tapConfig = d.config || {};
@@ -1047,5 +1048,306 @@ function tapSaveLinkPerson() {
     closeModal('tap-link-modal');
     loadTuitionAid();
   }).catch(function(err) { errEl.textContent = err && err.message || 'Could not link.'; });
+}
+
+// ── Import per-student history from an uploaded Excel workbook ──────────────
+// Dependency-free XLSX reader: no external library (this app hand-rolls everything, and a
+// bundled parser would be the only third-party JS dependency in the whole codebase). Reads
+// the ZIP container directly (XLSX is a ZIP of XML files) using the browser's native
+// DecompressionStream for the DEFLATE payloads, and a tag-scanning text extractor for the XML
+// (no DOMParser dependency either — keeps this testable outside a browser too).
+function tapXmlUnescape(s) {
+  return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'").replace(/&#(\d+);/g, function(m, d) { return String.fromCharCode(+d); })
+    .replace(/&#x([0-9a-fA-F]+);/g, function(m, h) { return String.fromCharCode(parseInt(h, 16)); })
+    .replace(/&amp;/g, '&');
+}
+function tapZipReadEntries(bytes) {
+  var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  var eocdOffset = -1;
+  var searchStart = Math.max(0, bytes.length - 66000);
+  for (var i = bytes.length - 22; i >= searchStart; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocdOffset = i; break; }
+  }
+  if (eocdOffset === -1) throw new Error('Not a valid Excel (.xlsx) file.');
+  var totalEntries = dv.getUint16(eocdOffset + 10, true);
+  var cdOffset = dv.getUint32(eocdOffset + 16, true);
+  var entries = [];
+  var p = cdOffset;
+  for (var e = 0; e < totalEntries; e++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('This Excel file is not in the expected format.');
+    var compressionMethod = dv.getUint16(p + 10, true);
+    var compressedSize = dv.getUint32(p + 20, true);
+    var filenameLen = dv.getUint16(p + 28, true);
+    var extraLen = dv.getUint16(p + 30, true);
+    var commentLen = dv.getUint16(p + 32, true);
+    var localHeaderOffset = dv.getUint32(p + 42, true);
+    var filename = new TextDecoder('utf-8').decode(bytes.subarray(p + 46, p + 46 + filenameLen));
+    entries.push({ filename: filename, compressionMethod: compressionMethod, compressedSize: compressedSize, localHeaderOffset: localHeaderOffset });
+    p += 46 + filenameLen + extraLen + commentLen;
+  }
+  return entries;
+}
+function tapZipLocalFileDataOffset(bytes, localHeaderOffset) {
+  var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (dv.getUint32(localHeaderOffset, true) !== 0x04034b50) throw new Error('This Excel file is not in the expected format.');
+  var filenameLen = dv.getUint16(localHeaderOffset + 26, true);
+  var extraLen = dv.getUint16(localHeaderOffset + 28, true);
+  return localHeaderOffset + 30 + filenameLen + extraLen;
+}
+function tapInflateRaw(chunk) {
+  var ds = new DecompressionStream('deflate-raw');
+  var writer = ds.writable.getWriter();
+  writer.write(chunk);
+  writer.close();
+  var out = [];
+  var reader = ds.readable.getReader();
+  function pump() {
+    return reader.read().then(function(res) {
+      if (res.done) return;
+      out.push(res.value);
+      return pump();
+    });
+  }
+  return pump().then(function() {
+    var total = out.reduce(function(s, a) { return s + a.length; }, 0);
+    var result = new Uint8Array(total);
+    var off = 0;
+    for (var i = 0; i < out.length; i++) { result.set(out[i], off); off += out[i].length; }
+    return result;
+  });
+}
+function tapZipReadEntryBytes(bytes, entries, filename) {
+  var entry = null;
+  for (var i = 0; i < entries.length; i++) { if (entries[i].filename === filename) { entry = entries[i]; break; } }
+  if (!entry) return Promise.resolve(null);
+  var dataOffset = tapZipLocalFileDataOffset(bytes, entry.localHeaderOffset);
+  var compressed = bytes.subarray(dataOffset, dataOffset + entry.compressedSize);
+  if (entry.compressionMethod === 0) return Promise.resolve(compressed);
+  if (entry.compressionMethod === 8) return tapInflateRaw(compressed);
+  return Promise.reject(new Error('Unsupported compression in this Excel file.'));
+}
+function tapXlsxParseSharedStrings(xml) {
+  var out = [];
+  var siRe = /<si>([\s\S]*?)<\/si>/g;
+  var m;
+  while ((m = siRe.exec(xml))) {
+    var block = m[1];
+    var text = '';
+    var tRe = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g;
+    var tm;
+    while ((tm = tRe.exec(block))) text += tapXmlUnescape(tm[1]);
+    out.push(text);
+  }
+  return out;
+}
+function tapXlsxColToIndex(letters) {
+  var n = 0;
+  for (var i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
+  return n - 1;
+}
+function tapXlsxParseSheetGrid(xml, sharedStrings) {
+  var grid = [];
+  var rowRe = /<row\b[^>]*\br="(\d+)"[^>]*>([\s\S]*?)<\/row>/g;
+  var rm;
+  while ((rm = rowRe.exec(xml))) {
+    var rowNum = parseInt(rm[1], 10);
+    var rowXml = rm[2];
+    var rowArr = grid[rowNum - 1] || (grid[rowNum - 1] = []);
+    var cellRe = /<c\b([^>]*)\/>|<c\b([^>]*)>([\s\S]*?)<\/c>/g;
+    var cm;
+    while ((cm = cellRe.exec(rowXml))) {
+      var attrs = cm[1] != null ? cm[1] : cm[2];
+      var inner = cm[3] || '';
+      var refM = /\br="([A-Z]+)\d+"/.exec(attrs);
+      if (!refM) continue;
+      var colIdx = tapXlsxColToIndex(refM[1]);
+      var typeM = /\bt="([a-zA-Z]+)"/.exec(attrs);
+      var type = typeM ? typeM[1] : 'n';
+      var value = null;
+      if (type === 's') {
+        var vM = /<v>([\s\S]*?)<\/v>/.exec(inner);
+        if (vM) value = sharedStrings[parseInt(vM[1], 10)];
+      } else if (type === 'inlineStr') {
+        var tM = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/.exec(inner);
+        if (tM) value = tapXmlUnescape(tM[1]);
+      } else if (type === 'str' || type === 'b') {
+        var vM2 = /<v>([\s\S]*?)<\/v>/.exec(inner);
+        if (vM2) value = type === 'b' ? (vM2[1] === '1') : tapXmlUnescape(vM2[1]);
+      } else {
+        var vM3 = /<v>([\s\S]*?)<\/v>/.exec(inner);
+        if (vM3 && vM3[1] !== '') value = parseFloat(vM3[1]);
+      }
+      rowArr[colIdx] = value;
+    }
+  }
+  var dense = [];
+  for (var r = 0; r < grid.length; r++) {
+    var row = grid[r];
+    if (!row) { dense.push([]); continue; }
+    var denseRow = [];
+    for (var c = 0; c < row.length; c++) denseRow.push(row[c] === undefined ? null : row[c]);
+    dense.push(denseRow);
+  }
+  return dense;
+}
+function tapXlsxFindSheetPath(workbookXml, relsXml, sheetName) {
+  var sheetRe = /<sheet\b[^>]*\bname="([^"]*)"[^>]*\br:id="(rId\d+)"[^>]*\/>/g;
+  var sm, rId = null;
+  while ((sm = sheetRe.exec(workbookXml))) {
+    if (tapXmlUnescape(sm[1]) === sheetName) { rId = sm[2]; break; }
+  }
+  if (!rId) return null;
+  var relMap = {};
+  var relRe = /<Relationship\b[^>]*\/>/g;
+  var rm;
+  while ((rm = relRe.exec(relsXml))) {
+    var tag = rm[0];
+    var idM = /\bId="([^"]*)"/.exec(tag);
+    var targetM = /\bTarget="([^"]*)"/.exec(tag);
+    if (idM && targetM) relMap[idM[1]] = targetM[1];
+  }
+  var target = relMap[rId];
+  if (!target) return null;
+  return 'xl/' + target;
+}
+function tapParseXlsxSheet(arrayBuffer, sheetName) {
+  var bytes = new Uint8Array(arrayBuffer);
+  var entries = tapZipReadEntries(bytes);
+  var dec = new TextDecoder('utf-8');
+  return Promise.all([
+    tapZipReadEntryBytes(bytes, entries, 'xl/workbook.xml'),
+    tapZipReadEntryBytes(bytes, entries, 'xl/_rels/workbook.xml.rels'),
+    tapZipReadEntryBytes(bytes, entries, 'xl/sharedStrings.xml')
+  ]).then(function(res) {
+    var workbookXml = dec.decode(res[0]);
+    var relsXml = dec.decode(res[1]);
+    var sheetPath = tapXlsxFindSheetPath(workbookXml, relsXml, sheetName);
+    if (!sheetPath) throw new Error('Could not find a "' + sheetName + '" sheet in this file.');
+    var sharedStrings = res[2] ? tapXlsxParseSharedStrings(dec.decode(res[2])) : [];
+    return tapZipReadEntryBytes(bytes, entries, sheetPath).then(function(sheetBytes) {
+      return tapXlsxParseSheetGrid(dec.decode(sheetBytes), sharedStrings);
+    });
+  });
+}
+function tapFindHistoryHeaderRow(grid) {
+  for (var r = 0; r < grid.length; r++) {
+    var row = grid[r];
+    if (row && row[0] === 'Family' && row[1] === 'Child') return r;
+  }
+  return -1;
+}
+function tapYearColumnsFromHeader(headerRow) {
+  var out = [];
+  for (var c = 2; c < headerRow.length; c++) {
+    var cell = headerRow[c];
+    if (typeof cell !== 'string') continue;
+    var m = /Parent\s*\n?\s*(\d{4}-\d{2})/.exec(cell);
+    if (m) out.push({ col: c, year: m[1] });
+  }
+  return out;
+}
+function tapExtractHistoryRecords(grid, currentSchoolYear) {
+  var headerIdx = tapFindHistoryHeaderRow(grid);
+  if (headerIdx === -1) throw new Error('Could not find the header row (expected "Family"/"Child" columns).');
+  var yearCols = tapYearColumnsFromHeader(grid[headerIdx]);
+  if (!yearCols.length) throw new Error('Could not find any "Parent YYYY-YY" year columns in the header row.');
+  var records = [];
+  for (var r = headerIdx + 1; r < grid.length; r++) {
+    var row = grid[r];
+    if (!row) continue;
+    var family = row[0], child = row[1];
+    if (family == null || typeof family !== 'string') continue;
+    if (family.indexOf('▸') === 0 || family.indexOf('📋') === 0) continue;
+    var entries = [];
+    for (var i = 0; i < yearCols.length; i++) {
+      var yc = yearCols[i];
+      if (yc.year === currentSchoolYear) continue;
+      var val = row[yc.col];
+      if (val == null || typeof val !== 'number') continue;
+      entries.push({ school_year: yc.year, family_owed_cents: Math.round(val * 100) });
+    }
+    if (entries.length) records.push({ family: family, child: child || '', entries: entries });
+  }
+  return records;
+}
+
+function tapOpenImportHistory() {
+  _tapImportRecords = [];
+  document.getElementById('tap-import-file').value = '';
+  document.getElementById('tap-import-status').textContent = '';
+  document.getElementById('tap-import-preview').innerHTML = '';
+  document.getElementById('tap-import-confirm-btn').style.display = 'none';
+  openModal('tap-import-modal');
+}
+function tapImportFileSelected(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  var statusEl = document.getElementById('tap-import-status');
+  var previewEl = document.getElementById('tap-import-preview');
+  statusEl.textContent = 'Reading ' + file.name + '…';
+  previewEl.innerHTML = '';
+  document.getElementById('tap-import-confirm-btn').style.display = 'none';
+  file.arrayBuffer().then(function(buf) {
+    return tapParseXlsxSheet(buf, 'Student Tuition History');
+  }).then(function(grid) {
+    var currentYear = tapYearLabelForIdx(0);
+    var records = tapExtractHistoryRecords(grid, currentYear);
+    _tapImportRecords = records;
+    var totalEntries = records.reduce(function(s, r) { return s + r.entries.length; }, 0);
+    if (!records.length) {
+      statusEl.textContent = 'No importable records found in this file.';
+      return;
+    }
+    statusEl.textContent = 'Found ' + records.length + ' student' + (records.length === 1 ? '' : 's') + ', ' + totalEntries + ' year' + (totalEntries === 1 ? '' : 's') + ' of history. Review below, then Import.';
+    tapRenderImportPreview(records);
+    document.getElementById('tap-import-confirm-btn').style.display = '';
+  }).catch(function(err) {
+    statusEl.textContent = (err && err.message) || 'Could not read this file.';
+  });
+}
+function tapRenderImportPreview(records) {
+  var html = '<div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">'
+    + '<table style="width:100%;border-collapse:collapse;font-size:.8rem;"><thead><tr style="border-bottom:2px solid var(--navy);position:sticky;top:0;background:var(--white);">'
+    + '<th style="padding:5px 8px;"></th><th style="text-align:left;padding:5px 8px;">Family</th><th style="text-align:left;padding:5px 8px;">Child</th>'
+    + '<th style="text-align:left;padding:5px 8px;">Year</th><th style="text-align:right;padding:5px 8px;">Family Owed</th></tr></thead><tbody>';
+  for (var r = 0; r < records.length; r++) {
+    var rec = records[r];
+    for (var e = 0; e < rec.entries.length; e++) {
+      var entry = rec.entries[e];
+      html += '<tr><td style="padding:4px 8px;"><input type="checkbox" checked id="tap-import-cb-' + r + '-' + e + '"></td>'
+        + '<td style="padding:4px 8px;">' + esc(rec.family) + '</td><td style="padding:4px 8px;">' + esc(rec.child) + '</td>'
+        + '<td style="padding:4px 8px;">' + esc(entry.school_year) + '</td>'
+        + '<td style="padding:4px 8px;text-align:right;">' + fmtMoney(entry.family_owed_cents) + '</td></tr>';
+    }
+  }
+  html += '</tbody></table></div>'
+    + '<p style="font-size:.72rem;color:var(--warm-gray);margin:8px 0 0;">Uncheck any row you don’t want imported — for example a figure your source file itself flags as an estimate or unreconciled. A family/child not already in the roster gets a history-only record (won’t appear in the current planner).</p>';
+  document.getElementById('tap-import-preview').innerHTML = html;
+}
+function tapConfirmImportHistory() {
+  var statusEl = document.getElementById('tap-import-status');
+  var payload = [];
+  for (var r = 0; r < _tapImportRecords.length; r++) {
+    var rec = _tapImportRecords[r];
+    var entries = [];
+    for (var e = 0; e < rec.entries.length; e++) {
+      var cb = document.getElementById('tap-import-cb-' + r + '-' + e);
+      if (cb && cb.checked) entries.push(rec.entries[e]);
+    }
+    if (entries.length) payload.push({ family: rec.family, child: rec.child, entries: entries });
+  }
+  if (!payload.length) { statusEl.textContent = 'Nothing selected to import.'; return; }
+  statusEl.textContent = 'Importing…';
+  api('/admin/api/tuition-aid/import-history', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ records: payload })
+  }).then(function(d) {
+    if (d && d.error) { statusEl.textContent = d.error; return; }
+    statusEl.textContent = 'Imported: ' + (d.created || 0) + ' new, ' + (d.updated || 0) + ' updated, ' + (d.unchanged || 0) + ' unchanged'
+      + (d.newStudents ? ', ' + d.newStudents + ' new history-only record' + (d.newStudents === 1 ? '' : 's') + ' created' : '') + '.';
+    return tapReloadKeepingYear();
+  }).catch(function(err) {
+    statusEl.textContent = (err && err.message) || 'Import failed.';
+  });
 }
 `;
