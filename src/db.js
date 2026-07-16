@@ -866,6 +866,40 @@ async function _doInitDb(db) {
     )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_tsy_student_year ON tuition_student_years(student_id, school_year)`,
     `CREATE INDEX IF NOT EXISTS idx_tsy_school_year ON tuition_student_years(school_year)`,
+    // Finance Overview: QuickBooks Online OAuth connection + cached report snapshots,
+    // plus manual daycare entries (see migrations/0016_finance.sql)
+    `CREATE TABLE IF NOT EXISTS finance_qb_connection (
+      id                       INTEGER PRIMARY KEY CHECK (id = 1),
+      realm_id                 TEXT    NOT NULL DEFAULT '',
+      company_name             TEXT    NOT NULL DEFAULT '',
+      access_token             TEXT    NOT NULL DEFAULT '',
+      refresh_token            TEXT    NOT NULL DEFAULT '',
+      access_token_expires_at  TEXT    NOT NULL DEFAULT '',
+      refresh_token_expires_at TEXT    NOT NULL DEFAULT '',
+      environment              TEXT    NOT NULL DEFAULT 'production',
+      connected_at             TEXT    NOT NULL DEFAULT '',
+      last_synced_at           TEXT    NOT NULL DEFAULT ''
+    )`,
+    `CREATE TABLE IF NOT EXISTS finance_qb_snapshot (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL DEFAULT '',
+      synced_at  TEXT NOT NULL DEFAULT ''
+    )`,
+    `CREATE TABLE IF NOT EXISTS finance_daycare_entries (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      period       TEXT    NOT NULL DEFAULT '',
+      category     TEXT    NOT NULL DEFAULT '',
+      entry_type   TEXT    NOT NULL DEFAULT 'actual',
+      amount_cents INTEGER NOT NULL DEFAULT 0,
+      notes        TEXT    NOT NULL DEFAULT '',
+      source       TEXT    NOT NULL DEFAULT 'manual',
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_finance_daycare_period ON finance_daycare_entries(period)`,
+    // Daycare API sync (finance/daycare/sync) writes source='daycare_api' rows wholesale;
+    // this column lets manual entries coexist without being clobbered. Added after the table
+    // itself for databases that cold-started between the two.
+    `ALTER TABLE finance_daycare_entries ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

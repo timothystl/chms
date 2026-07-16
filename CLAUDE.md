@@ -432,6 +432,12 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### Finance Overview (2026-07-16)
+- [x] **FIN1** — New "Finance" tab (finance/admin only): unified view of QuickBooks Online (Budget vs Actual + account balances, real OAuth sync) and daycare app financials, so staff don't have to dig through QuickBooks' full report set for the two numbers they actually check. Scoped like the Tuition Aid Planner. Done 2026-07-16 (v1.23.0). See NOTES.md for full detail. `src/quickbooks.js`, `src/daycare.js`, `src/api-finance.js`, `src/frontend/js-finance.js`, `migrations/0016_finance.sql`.
+- [ ] **FIN2** — Needs live QuickBooks verification (no live account in this environment) — same caveat pattern as BR3. Verify connect → sync → disconnect once `QB_CLIENT_ID`/`QB_CLIENT_SECRET` are set (see SECRETS.md for provisioning), and confirm the Budget vs Actual report renders sensibly (requires a Budget already configured in QuickBooks under Settings > Budgeting).
+- [ ] **FIN3** — Daycare app integration is spec'd but not yet live: the daycare app (a separate Claude-Code-built app) needs to implement `GET /api/finance/summary` per the contract in SECRETS.md before `DAYCARE_API_URL`/`DAYCARE_API_KEY` can be set. Manual daycare entry in the Finance tab works today regardless and needs no daycare-app changes.
+- [ ] **FIN4** — No Settings UI for QB_CLIENT_ID/QB_CLIENT_SECRET/DAYCARE_API_URL/DAYCARE_API_KEY (Worker secrets only, same as Breeze/Brevo/Resend) — consistent with how every other integration in this app is configured, but flagging in case that changes.
+
 ### App Visual Redesign — Design Handoff (2026-07-14)
 Design package delivered (`ChMS Redesign.dc.html` + `README.md`, Turn 3/#3a + Turn 4/#4a are the agreed direction) proposing one unified visual language across Dashboard/People/Households/Person Profile/Giving/Reports/Scheduler/Volunteers. Per the handoff's own README, this is **visual/UI restyle only** — no functionality, data flow, API, or routing changes. Three structural decisions were confirmed with the user rather than guessed (the handoff explicitly asks for this):
 - **Sidebar**: stays hamburger-everywhere (no persistent desktop icon rail, which the mockup shows but which would partially reverse VUX10). Retheme colors/spacing only.

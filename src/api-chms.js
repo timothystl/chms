@@ -8,6 +8,7 @@ import { handlePeopleApi } from './api-people.js';
 import { handleSendInvite } from './api-member.js';
 import { handleGivingApi } from './api-giving.js';
 import { handleTuitionAidApi } from './api-tuition-aid.js';
+import { handleFinanceApi } from './api-finance.js';
 
 export async function handleChmsApi(req, env, url, method, seg, role = 'admin') {
   const db = env.DB;
@@ -33,6 +34,11 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // Tuition Aid Planner — finance+ only (admin + finance roles)
   if (seg.startsWith('tuition-aid') && !isFinance) {
     return json({ error: 'Access denied: tuition aid data requires finance access' }, 403);
+  }
+  // Finance Overview (QuickBooks + daycare) — finance+ only (admin + finance roles);
+  // connecting/disconnecting QuickBooks is further restricted to admin inside api-finance.js
+  if (seg.startsWith('finance') && !isFinance) {
+    return json({ error: 'Access denied: finance data requires finance access' }, 403);
   }
   // Attendance, follow-ups, audit — staff+ only (NOT finance, NOT office)
   if ((seg.startsWith('attendance') || seg.startsWith('followup') || seg.startsWith('audit')) && !isStaff) {
@@ -454,6 +460,12 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // ── Tuition Aid Planner → api-tuition-aid.js ────────────────────────────
   if (seg.startsWith('tuition-aid')) {
     const result = await handleTuitionAidApi(req, env, url, method, seg, db, isFinance);
+    if (result !== null) return result;
+  }
+
+  // ── Finance Overview (QuickBooks + daycare) → api-finance.js ───────────
+  if (seg.startsWith('finance')) {
+    const result = await handleFinanceApi(req, env, url, method, seg, db, isAdmin, isFinance);
     if (result !== null) return result;
   }
 
