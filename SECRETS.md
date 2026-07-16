@@ -105,22 +105,24 @@ These are not required for the app to function but unlock additional capabilitie
 - **Set**: `wrangler secret put QB_ENVIRONMENT` (value `sandbox` or `production`).
 
 ### `DAYCARE_API_URL` + `DAYCARE_API_KEY`
-- **Purpose**: Pulls account balances and budget/actual line items from the daycare app's own finance API into the Finance tab (`POST /admin/api/finance/daycare/sync`). Optional — the Finance tab's daycare section works with hand-entered rows regardless of whether this is configured.
-- **Contract the daycare app must implement**: `GET {DAYCARE_API_URL}/api/finance/summary`, header `X-Api-Key: <DAYCARE_API_KEY>`, returning:
+- **Purpose**: Pulls budget/actual line items from the daycare app's own finance API into the Finance tab (`POST /admin/api/finance/daycare/sync`). Optional — the Finance tab's daycare section works with hand-entered rows regardless of whether this is configured.
+- **`DAYCARE_API_URL` is the COMPLETE endpoint URL**, not a base domain — the daycare app's actual implementation is a Supabase Edge Function at its own specific path, e.g. `https://<project-ref>.supabase.co/functions/v1/finance-summary`. `src/daycare.js` fetches this URL directly with no path appended.
+- **Live contract** (as actually implemented by the daycare app, 2026-07-16): `GET {DAYCARE_API_URL}`, header `X-Api-Key: <DAYCARE_API_KEY>` (the daycare app calls this same value `FINANCE_API_KEY` on its own side — same secret, different name), returning:
   ```json
   {
     "updated_at": "2026-07-16T14:32:00Z",
-    "accounts": [
-      { "name": "Daycare Operating Checking", "balance_cents": 4523100 }
-    ],
+    "accounts": [],
     "budget": [
       { "period": "2026-07", "category": "Tuition Income", "type": "actual", "amount_cents": 8850000 },
       { "period": "2026-07", "category": "Tuition Income", "type": "budget", "amount_cents": 9000000 }
     ]
   }
   ```
-  `period` is `YYYY-MM`. `type` is exactly `"actual"` or `"budget"`. All money in integer **cents**, not dollars. Return 401 for a missing/wrong key. Include as much history as reasonably available (at least the current + ~12 prior months) so trends are visible, not just the current month.
-- **Set**: `wrangler secret put DAYCARE_API_URL` (e.g. `https://daycare.timothystl.org`, no trailing slash) then `wrangler secret put DAYCARE_API_KEY` (any strong random string ≥32 chars — give the same value to whoever builds the daycare app's endpoint).
+  `period` is `YYYY-MM`, covering the current month + 12 prior (13 months). `type` is exactly `"actual"` or `"budget"`. All money in integer **cents**, not dollars. Return 401 for a missing/wrong key.
+  - `accounts` is always `[]` — the daycare app has no bank/checking balance data; that stays manual-entry only.
+  - Categories: Tuition Income, Payroll, Payroll Taxes, Workers Comp, Other Payroll Expenses, Other Expenses. Tuition Income/Payroll actuals are computed live from real billing/payroll data; everything else (all budget figures, and actuals for the last four categories) is an annual figure divided by 12, since the daycare app has no monthly-granular budget.
+  - **Known limitation**: Payroll actual can't account for staff who left mid-window (no termination date tracked on the daycare side), so it may run slightly high for months after someone departs.
+- **Set**: `wrangler secret put DAYCARE_API_URL` (the full Supabase function URL above) then `wrangler secret put DAYCARE_API_KEY` (same value as the daycare app's `FINANCE_API_KEY`).
 - **Risk if leaked**: Read-only access to the daycare app's financial summary endpoint (as scoped by whatever the daycare app itself enforces on that key).
 
 ---
