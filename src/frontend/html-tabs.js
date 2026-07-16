@@ -1059,6 +1059,31 @@ export const HTML_TABS_2 = String.raw`
   </div>
 </div>
 
+<!-- ═══ ORGANIZATION VIEW (full page, mirrors Household View) ═══ -->
+<div id="organization-view">
+  <div class="topbar">
+    <button class="hamburger" onclick="openSidebar()" aria-label="Menu"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+    <span class="topbar-back" onclick="closeOrganizationView()">&#8592; Organizations</span>
+    <span id="ov-topbar-name" style="font-size:15px;font-weight:500;color:var(--charcoal);margin-left:8px;"></span>
+    <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
+      <button class="btn-outline-cream require-edit" id="ov-edit-btn">Edit</button>
+    </div>
+  </div>
+  <div class="hv-body">
+    <div class="hv-hdr">
+      <div class="hv-icon-tile" id="ov-icon-tile">&#127970;</div>
+      <div style="flex:1;">
+        <div class="hv-name" id="ov-name"></div>
+        <div class="hv-addr" id="ov-addr"></div>
+      </div>
+    </div>
+    <div class="hv-main">
+      <div class="hv-section-title">Details</div>
+      <div id="ov-details"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ TUITION AID PLANNER TAB ═══ -->
 <div id="tab-tuitionaid" class="tab-panel">
   <div style="padding:16px 20px 20px;">

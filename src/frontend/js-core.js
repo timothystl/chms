@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '1.18.1';
+var DEPLOY_VERSION = '1.19.0';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirks — suppress these and don't show the error banner.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -164,9 +164,9 @@ function showTab(name) {
   if (!_tabFromPopState) {
     history.pushState({ tab: name }, '', '#' + name);
   }
-  // Exit person-profile / household views if active
+  // Exit person-profile / household / organization views if active
   var ca = document.querySelector('.content-area');
-  if (ca) ca.classList.remove('pv-mode', 'hv-mode');
+  if (ca) ca.classList.remove('pv-mode', 'hv-mode', 'ov-mode');
   document.querySelectorAll('.s-item[data-tab]').forEach(function(b) {
     b.classList.toggle('active', b.dataset.tab === name);
   });

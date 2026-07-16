@@ -570,6 +570,11 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .content-area.hv-mode > .topbar{display:none;}
 .content-area.hv-mode > .tab-panel{display:none!important;}
 .content-area.hv-mode > #household-view{display:flex;}
+/* ── ORGANIZATION VIEW (full page, mirrors Household View) ── */
+.content-area.ov-mode > .topbar{display:none;}
+.content-area.ov-mode > .tab-panel{display:none!important;}
+.content-area.ov-mode > #organization-view{display:flex;}
+#organization-view{display:none;flex-direction:column;flex:1;overflow:hidden;background:var(--warm-surface-card);}
 #household-view{display:none;flex-direction:column;flex:1;overflow:hidden;background:var(--warm-surface-card);}
 .hv-body{flex:1;overflow-y:auto;}
 .hv-hdr{display:flex;align-items:flex-start;gap:18px;padding:22px 24px;border-bottom:1px solid var(--warm-divider);background:var(--white);}
