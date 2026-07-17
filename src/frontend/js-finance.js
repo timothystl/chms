@@ -36,15 +36,27 @@ function loadFinance() {
   });
 }
 
-// ── Sub-nav: Overview / Church Report / Daycare Report ────────────────
-function finShowSection(section, btn) {
-  ['overview', 'church', 'daycare'].forEach(function(s) {
+// ── Sub-nav: Overview / Church Report / Daycare Report / Giving Reports ───────────────
+// Button active-state is handled by the shared renderFinanceSubnav() (js-core.js) re-render,
+// driven by showTab()'s _finActiveNavId — this only toggles panel visibility.
+function finShowSection(section) {
+  ['overview', 'church', 'daycare', 'givingreports'].forEach(function(s) {
     var panel = document.getElementById('fin-panel-' + s);
     if (panel) panel.style.display = (s === section) ? '' : 'none';
   });
-  document.querySelectorAll('#fin-subnav .vol-subtab-btn').forEach(function(b) {
-    b.classList.toggle('active', b === btn);
-  });
+  if (section === 'givingreports') finInitGivingReports();
+}
+// Lazy-init for the giving-report tiles relocated here from the Reports tab (nav consolidation)
+// — mirrors initReportTrendYears()'s own idempotent guard, safe to call every time this section
+// is shown. initReportTrendYears() is defined in js-reports.js (loaded earlier in the module
+// concatenation order) and already no-ops harmlessly if its target element isn't found.
+function finInitGivingReports() {
+  initReportTrendYears();
+  var curY = new Date().getFullYear();
+  var yoyEl = document.getElementById('rpt-yoy-year');
+  if (yoyEl && !yoyEl.value) yoyEl.value = curY;
+  var insightsEl = document.getElementById('rpt-insights-year');
+  if (insightsEl && !insightsEl.value) insightsEl.value = curY;
 }
 
 // QuickBooks redirects back to '/?qb_connected=1#finance' (or qb_error=...) after the OAuth
@@ -552,8 +564,35 @@ function finRenderYoyBlock(yoy) {
       + '</div>';
   }
   var monthLbl = MONTH_NAMES[yoy.throughMonth - 1];
+  // Chart shows YTD-so-far vs. the projection; "Last Year (Full)" stays table-only since a bar
+  // for it would visually compete with "Last Year YTD" for the same category without adding
+  // insight the table doesn't already give. NOTE: like the Attendance chart this is built on,
+  // renderGroupedBarChart doesn't support negative bars — a deficit (negative Net Income) will
+  // render as a near-invisible sliver rather than a below-the-axis bar. Acceptable for now since
+  // the table above always shows the real signed number regardless.
+  var chart = renderGroupedBarChart({
+    chartH: 200,
+    groups: [{ key: 'income', label: 'Income' }, { key: 'expenses', label: 'Expenses' }, { key: 'net', label: 'Net Income' }],
+    series: [
+      { key: 'cur', label: 'This Year YTD', color: '#2E7EA6' },
+      { key: 'prior', label: 'Last Year YTD', color: '#C9973A' },
+      { key: 'proj', label: 'Projected Full Year', color: '#5A9E6F' },
+    ],
+    value: function(g, s) {
+      var row = g === 'income' ? yoy.income : g === 'expenses' ? yoy.expenses : yoy.net;
+      var cents = s === 'cur' ? row.currentYtdCents : s === 'prior' ? row.priorYtdCents : row.projectedFullYearCents;
+      return cents / 100;
+    },
+    tooltip: function(g, s, v) {
+      var gLbl = g === 'income' ? 'Income' : g === 'expenses' ? 'Expenses' : 'Net Income';
+      var sLbl = s === 'cur' ? 'This Year YTD' : s === 'prior' ? 'Last Year YTD' : 'Projected Full Year';
+      return sLbl + ' — ' + gLbl + ': $' + finFmtMoney(v);
+    },
+    barLabel: function(v) { return '$' + Math.round(v / 1000) + 'k'; },
+  });
   return '<div style="margin-bottom:18px;">'
     + '<h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">This year vs. last year (through ' + monthLbl + ')</h4>'
+    + chart
     + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
     + '<thead><tr style="border-bottom:2px solid var(--navy);">'
     + '<th style="text-align:left;padding:6px 8px;"></th>'
@@ -637,7 +676,32 @@ function finRenderChurchMultiYear(d) {
   var netRow = '<tr style="font-weight:700;border-top:2px solid var(--navy);"><td style="padding:5px 8px;">Net Income</td>'
     + years.map(function(y) { return '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(d.byYear[y].netIncome.actualCents / 100) + '</td>'; }).join('')
     + '</tr>';
-  var html = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+  // Same negative-bar caveat as the This-Year-vs-Last-Year chart: a deficit year's Net Income
+  // bar will render as a near-invisible sliver rather than dip below the axis. The table above
+  // always shows the real signed number regardless.
+  var chart = renderGroupedBarChart({
+    chartH: 220,
+    groups: years.map(function(y) { return { key: y, label: String(y) }; }),
+    series: [
+      { key: 'income', label: 'Income', color: '#2E7EA6' },
+      { key: 'expenses', label: 'Expenses', color: '#C9973A' },
+      { key: 'net', label: 'Net Income', color: '#5A9E6F' },
+    ],
+    value: function(y, s) {
+      var yd = d.byYear[y];
+      var cents = s === 'income' ? (yd.classificationTotals['Income'] || { actualCents: 0 }).actualCents
+        : s === 'expenses' ? (yd.classificationTotals['Expenses'] || { actualCents: 0 }).actualCents
+        : yd.netIncome.actualCents;
+      return cents / 100;
+    },
+    tooltip: function(y, s, v) {
+      var sLbl = s === 'income' ? 'Income' : s === 'expenses' ? 'Expenses' : 'Net Income';
+      return y + ' ' + sLbl + ': $' + finFmtMoney(v);
+    },
+    barLabel: function(v) { return '$' + Math.round(v / 1000) + 'k'; },
+  });
+  var html = chart
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
     + '<thead style="border-bottom:2px solid var(--navy);"><tr>' + theadCells + '</tr></thead>'
     + '<tbody>' + bodyRows + netRow + '</tbody></table></div>';
 

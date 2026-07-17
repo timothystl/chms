@@ -1,24 +1,20 @@
 export const JS_REPORTS = String.raw`// ── REPORTS ────────────────────────────────────────────────────────────
 
 // ── Report tile customize ────────────────────────────────────────────────
+// The 8 giving-related tiles (giving-by-fund/giving-by-method/giving-statement/giving-trend/
+// giving-insights/giving-yoy/giving-vs-attendance/batch-send-statements) moved to the Finance
+// tab's "Giving Reports" section as part of the nav consolidation — they no longer live in
+// #rpt-tiles-grid, so they're intentionally not in this list. rptGetPrefs()'s own filter
+// (stored.order.filter(id => !!RPT_TILE_LABELS[id])) already drops any of those 8 ids that
+// might still be sitting in a returning user's localStorage, so no migration code is needed.
 var RPT_TILE_DEFAULTS = [
-  'membership','contact-completeness','people-insights','attendance-summary',
-  'giving-by-fund','giving-by-method','giving-statement','giving-trend',
-  'giving-insights','giving-yoy','giving-vs-attendance','batch-send-statements'
+  'membership','contact-completeness','people-insights','attendance-summary'
 ];
 var RPT_TILE_LABELS = {
   'membership':            'Membership Summary',
   'contact-completeness':  'Contact Completeness',
   'people-insights':       'People Insights',
-  'attendance-summary':    'Attendance Summary',
-  'giving-by-fund':        'Giving by Fund',
-  'giving-by-method':      'Giving by Method',
-  'giving-statement':      'Giving Statement',
-  'giving-trend':          'Giving Trend',
-  'giving-insights':       'Giving Insights',
-  'giving-yoy':            'Giving Trends (YoY)',
-  'giving-vs-attendance':  'Giving \xd7 Attendance',
-  'batch-send-statements': 'Batch Send Statements'
+  'attendance-summary':    'Attendance Summary'
 };
 var _rptPrefs = null;
 function rptGetPrefs() {
@@ -132,11 +128,22 @@ function initReports() {
   if (yoyEl && !yoyEl.value) yoyEl.value = curY;
   applyRptPrefs();
 }
+// Writes to both possible output targets: '#rpt-output' (Reports tab — Membership/Contact
+// Completeness/People Insights/Attendance Summary, and any tile before the nav consolidation
+// moved the giving ones out) and '#fin-giving-rpt-output' (the relocated Giving Reports section
+// under Finance). Every report-tile function calls this same helper regardless of which tab it
+// now lives in, so broadcasting to whichever target(s) exist is simpler and safer than threading
+// "which tab am I in" through every single run* function. Only the one inside the currently
+// active tab-panel is actually visible; the other just holds harmless stale content.
 function showRptOutput(html) {
-  var o = document.getElementById('rpt-output');
-  o.innerHTML = html;
-  o.classList.add('visible');
-  o.scrollIntoView({behavior:'smooth',block:'nearest'});
+  ['rpt-output', 'fin-giving-rpt-output'].forEach(function(id) {
+    var o = document.getElementById(id);
+    if (!o) return;
+    o.innerHTML = html;
+    o.classList.add('visible');
+  });
+  var visible = document.querySelector('.tab-panel.active #rpt-output, .tab-panel.active #fin-giving-rpt-output');
+  if (visible) visible.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 function showAttRptOutput(html) {
   var o = document.getElementById('att-rpt-output');
