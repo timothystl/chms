@@ -1161,7 +1161,7 @@ export const HTML_TABS_2 = String.raw`
       <section class="dash-card" style="margin-bottom:16px;">
         <div class="dash-card-hdr">Total Timothy Aid — K-8 (WOL) + LHS combined</div>
         <div class="dash-card-body" style="padding:14px 18px;">
-          <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">Everything Timothy commits across both the K-8 budget and LHS awards, tracked against one combined pool — separate from the two individual budgets tracked below.</p>
+          <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">One shared pool, not two separate budgets: LHS awards come off the top first (LHS enrollment isn't something set directly, it just is what it is each year), and whatever's left over becomes the K-8 budget below.</p>
           <div style="margin-bottom:10px;">
             <div class="tap-gauge-track"><div class="tap-gauge-fill" id="tap-total-gauge-fill"></div></div>
             <div class="tap-gauge-label">
@@ -1189,6 +1189,20 @@ export const HTML_TABS_2 = String.raw`
               <input type="text" id="tap-pipe-family" placeholder="Family name" style="width:150px;">
               <input type="text" id="tap-pipe-child" placeholder="Child's name" style="width:150px;">
               <input type="number" id="tap-pipe-birthyear" placeholder="Birth year" min="2010" max="2032" style="width:120px;">
+              <select id="tap-pipe-grade" title="Only needed if birth year alone would guess wrong — e.g. a kid close to the cutoff date, or one being held back a year">
+                <option value="">Grade (auto by birth year)</option>
+                <option value="PK 3">PK 3</option>
+                <option value="PK 4">PK 4</option>
+                <option value="K">K</option>
+                <option value="1">1st</option>
+                <option value="2">2nd</option>
+                <option value="3">3rd</option>
+                <option value="4">4th</option>
+                <option value="5">5th</option>
+                <option value="6">6th</option>
+                <option value="7">7th</option>
+                <option value="8">8th</option>
+              </select>
               <button class="btn-secondary" onclick="tapAddPipeline()">+ Add to Pipeline</button>
             </div>
             <div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="tap-pipeline-error"></div>

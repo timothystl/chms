@@ -10,6 +10,7 @@ var _tapYearRates = {};
 var _tapStudentYears = [];
 var _tapPinsByKey = {};
 var _tapSaveTimers = {};
+var _tapPendingFields = {};
 var _tapLinkTargetId = null;
 var _tapHistoryTargetId = null;
 var _tapImportRecords = [];
@@ -84,11 +85,17 @@ function tapUpsertPinLocal(studentId, yearIdx, fields) {
 }
 function tapSavePinDebounced(studentId, yearIdx, fields) {
   var timerKey = 'pin:' + studentId + ':' + yearIdx;
+  // Merge into whatever's still pending for this (student, year) instead of replacing it —
+  // otherwise editing two different fields (e.g. outside aid then family %) within the
+  // debounce window silently drops the first field's save (see tapDebouncedSave below).
+  _tapPendingFields[timerKey] = Object.assign(_tapPendingFields[timerKey] || {}, fields);
   clearTimeout(_tapSaveTimers[timerKey]);
   _tapSaveTimers[timerKey] = setTimeout(function() {
+    var toSave = _tapPendingFields[timerKey];
+    delete _tapPendingFields[timerKey];
     var label = tapYearLabelForIdx(yearIdx);
     api('/admin/api/tuition-aid/students/' + studentId + '/years/' + encodeURIComponent(label), {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields)
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(toSave)
     }).catch(function() {});
   }, 500);
 }
@@ -129,6 +136,10 @@ function tapGradeAtYear(baseGrade, yearIdx) {
 }
 function tapGradeAt(s, yearIdx) {
   if (s.isPipeline) {
+    // An explicitly-entered grade (meaning "this grade as of the current school year") always
+    // wins over the birth-year formula — birth year alone assumes a fixed age cutoff, which
+    // breaks down for a kid close to that cutoff date or one being intentionally held back.
+    if (s.baseGrade) return tapGradeAtYear(s.baseGrade, yearIdx);
     var baseYear = tapCfgNum('base_school_year', 2026);
     var calYear = baseYear + yearIdx;
     var seqIdx = calYear - (s.birthYear + 3);
@@ -291,7 +302,7 @@ function tapRenderAll() {
 function tapRenderTotalBudgetBox() {
   var el = document.getElementById('tap-total-budget-input');
   if (!el) return;
-  el.value = _tapConfig.timothy_total_budget_cents != null ? Math.round(tapCfgNum('timothy_total_budget_cents', 0)) : '';
+  el.value = _tapConfig.timothy_total_budget_cents != null ? Math.round(tapCfgNum('timothy_total_budget_cents', 0) / 100) : '';
 }
 function tapSaveTotalBudget() {
   var dollars = +document.getElementById('tap-total-budget-input').value;
@@ -503,8 +514,8 @@ function tapRenderDetailTable() {
 }
 
 // ── Planner tables ─────────────────────────────────────────────────
-var _tapK8Sort = { col: null, dir: 1 };
-var _tapLhsSort = { col: null, dir: 1 };
+var _tapK8Sort = { col: 'grade', dir: 1 };
+var _tapLhsSort = { col: 'grade', dir: 1 };
 function tapCompareForSort(a, b) {
   if (typeof a === 'string' || typeof b === 'string') return String(a).toLowerCase().localeCompare(String(b).toLowerCase());
   return (a || 0) - (b || 0);
@@ -578,7 +589,9 @@ function tapRenderPlannerTables() {
   var k8KeyFn = function(row, col) {
     if (col === 'family') return row.s.family;
     if (col === 'child') return row.s.child;
-    if (col === 'grade') return row.grade;
+    // Natural grade order (K, 1, 2, ...), not alphabetical — a plain string sort would put
+    // "K" after "8" (letters sort after digits) and misorder any double-digit grade.
+    if (col === 'grade') return TAP_GRADE_SEQ.indexOf(row.grade);
     if (col === 'outside') return row.outsideAidVal;
     if (col === 'pct') return row.famPctVal;
     if (col === 'timothy') return row.sp.timothyAward;
@@ -618,7 +631,8 @@ function tapRenderPlannerTables() {
   var lhsKeyFn = function(row, col) {
     if (col === 'family') return row.s.family;
     if (col === 'child') return row.s.child;
-    if (col === 'grade') return row.grade;
+    // Natural grade order (9, 10, 11, 12) — a plain string sort puts "10" before "9".
+    if (col === 'grade') return TAP_GRADE_SEQ.indexOf(row.grade);
     if (col === 'award') return row.lhsVal;
     return '';
   };
@@ -792,9 +806,16 @@ function tapSetAttendsLHS(id, checked) {
   tapRenderPlannerTables();
 }
 function tapDebouncedSave(id, fields) {
+  // Merge into whatever's still pending for this student instead of replacing it — otherwise
+  // e.g. unchecking "Plans to attend LHS" then editing outside aid within the same 500ms
+  // window would silently drop the attends_lhs save (it would look fine locally — the UI
+  // state is set immediately by the caller — but never actually reach the database).
+  _tapPendingFields[id] = Object.assign(_tapPendingFields[id] || {}, fields);
   clearTimeout(_tapSaveTimers[id]);
   _tapSaveTimers[id] = setTimeout(function() {
-    api('/admin/api/tuition-aid/students/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields) }).catch(function() {});
+    var toSave = _tapPendingFields[id];
+    delete _tapPendingFields[id];
+    api('/admin/api/tuition-aid/students/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(toSave) }).catch(function() {});
   }, 500);
 }
 function tapBulkSave(updates) {
@@ -835,6 +856,17 @@ function tapClearPinsForYear(yearIdx, studentIds) {
   });
 }
 
+// One shared pool ("Total Timothy Aid"), not two independent budgets: LHS awards draw from it
+// first (LHS enrollment isn't something staff set directly, it just is what it is each year),
+// and whatever's left over is what's actually available for K-8 aid. Falls back to the old
+// standalone k8_budget_cents figure when no total pool has been configured yet, so nothing
+// changes for anyone who hasn't set the new field.
+function tapK8BudgetFor(lhsTotal) {
+  if (_tapConfig.timothy_total_budget_cents != null) {
+    return Math.max(0, tapCfgNum('timothy_total_budget_cents', 0) / 100 - lhsTotal);
+  }
+  return tapCfgNum('k8_budget_cents', 7500000) / 100;
+}
 function tapUpdateGauges() {
   var active = tapEnrolledActiveForYear(_tapYearIdx).filter(function(x) { return !(x.bucket === 'K8' && (x.grade === 'PK 3' || x.grade === 'PK 4')); });
   var k8Active = active.filter(function(x) { return x.bucket === 'K8'; });
@@ -843,7 +875,9 @@ function tapUpdateGauges() {
   var lhsTotal = lhsActive.reduce(function(sum, x) { return sum + tapLhsAwardFor(x.s, _tapYearIdx); }, 0);
   var lhsRate = tapCfgNum('lhs_standard_rate_cents', 120000) / 100;
   var lhsReference = lhsActive.length * lhsRate;
-  var k8Budget = tapCfgNum('k8_budget_cents', 7500000) / 100;
+  var hasTotalBudget = _tapConfig.timothy_total_budget_cents != null;
+  var totalBudget = tapCfgNum('timothy_total_budget_cents', 0) / 100;
+  var k8Budget = tapK8BudgetFor(lhsTotal);
 
   var k8Fill = document.getElementById('tap-k8-gauge-fill');
   var k8Text = document.getElementById('tap-k8-gauge-text');
@@ -853,7 +887,9 @@ function tapUpdateGauges() {
   document.querySelectorAll('#tap-k8-body input[type=range]').forEach(function(sl) { sl.classList.toggle('over', k8Over); });
   k8Text.textContent = fmtMoney(Math.round(k8Total * 100)) + (k8Over ? '  (over by ' + fmtMoney(Math.round((k8Total - k8Budget) * 100)) + ')' : ' of ' + fmtMoney(Math.round(k8Budget * 100)));
   k8Text.classList.toggle('tap-over-text', k8Over);
-  document.getElementById('tap-k8-gauge-cap').textContent = 'Budget: ' + fmtMoney(Math.round(k8Budget * 100));
+  document.getElementById('tap-k8-gauge-cap').textContent = hasTotalBudget
+    ? 'Budget: ' + fmtMoney(Math.round(k8Budget * 100)) + ' (Total Timothy Aid ' + fmtMoney(Math.round(totalBudget * 100)) + ' − LHS ' + fmtMoney(Math.round(lhsTotal * 100)) + ' first)'
+    : 'Budget: ' + fmtMoney(Math.round(k8Budget * 100));
 
   var lhsFill = document.getElementById('tap-lhs-gauge-fill');
   var lhsText = document.getElementById('tap-lhs-gauge-text');
@@ -871,8 +907,6 @@ function tapUpdateGauges() {
   var totalCap = document.getElementById('tap-total-gauge-cap');
   if (totalFill && totalText && totalCap) {
     var combinedTotal = k8Total + lhsTotal;
-    var hasTotalBudget = _tapConfig.timothy_total_budget_cents != null;
-    var totalBudget = tapCfgNum('timothy_total_budget_cents', 0);
     if (!hasTotalBudget) {
       totalFill.style.width = '0%';
       totalFill.classList.remove('over');
@@ -885,7 +919,7 @@ function tapUpdateGauges() {
       totalFill.classList.toggle('over', totalOver);
       totalText.textContent = fmtMoney(Math.round(combinedTotal * 100)) + (totalOver ? '  (over by ' + fmtMoney(Math.round((combinedTotal - totalBudget) * 100)) + ')' : ' of ' + fmtMoney(Math.round(totalBudget * 100)));
       totalText.classList.toggle('tap-over-text', totalOver);
-      totalCap.textContent = 'K-8 ' + fmtMoney(Math.round(k8Total * 100)) + ' + LHS ' + fmtMoney(Math.round(lhsTotal * 100)) + ' = ' + fmtMoney(Math.round(combinedTotal * 100));
+      totalCap.textContent = 'LHS ' + fmtMoney(Math.round(lhsTotal * 100)) + ' comes off first, leaving ' + fmtMoney(Math.round(k8Budget * 100)) + ' for K-8 (using ' + fmtMoney(Math.round(k8Total * 100)) + ')';
     }
   }
 }
@@ -914,7 +948,9 @@ function tapApplyPolicy() {
   if (!active.length) return;
   var tuition = tapTuitionForYear(_tapYearIdx);
   var capPct = tapCfgNum('family_share_cap_pct', 50);
-  var k8Budget = tapCfgNum('k8_budget_cents', 7500000) / 100;
+  var lhsForBudget = tapEnrolledActiveForYear(_tapYearIdx).filter(function(x) { return x.bucket === 'LHS'; });
+  var lhsTotalForBudget = lhsForBudget.reduce(function(sum, x) { return sum + tapLhsAwardFor(x.s, _tapYearIdx); }, 0);
+  var k8Budget = tapK8BudgetFor(lhsTotalForBudget);
   var outsideAidOf = function(s) { return tapOutsideAidFor(s, _tapYearIdx); };
 
   var alloc = active.map(function(x) {
@@ -955,7 +991,9 @@ function tapApplyPolicy() {
 function tapAutoBalance() {
   var active = tapEnrolledActiveForYear(_tapYearIdx).filter(function(x) { return x.bucket === 'K8' && x.grade !== 'PK 3' && x.grade !== 'PK 4'; });
   var tuition = tapTuitionForYear(_tapYearIdx);
-  var k8Budget = tapCfgNum('k8_budget_cents', 7500000) / 100;
+  var lhsForBudget = tapEnrolledActiveForYear(_tapYearIdx).filter(function(x) { return x.bucket === 'LHS'; });
+  var lhsTotalForBudget = lhsForBudget.reduce(function(sum, x) { return sum + tapLhsAwardFor(x.s, _tapYearIdx); }, 0);
+  var k8Budget = tapK8BudgetFor(lhsTotalForBudget);
   var pctById = {};
   active.forEach(function(x) { pctById[x.s.id] = tapFamPctFor(x.s, _tapYearIdx); });
   for (var pass = 0; pass < 12; pass++) {
@@ -1150,8 +1188,11 @@ function tapRenderPipelineList() {
     var grade0 = tapGradeAt(p, 0);
     var enrollBtn = (grade0 !== null && grade0 !== 'Graduated')
       ? ' <button class="tap-pipeline-remove" style="color:var(--sage);" onclick="tapEnrollPipeline(' + p.id + ')" title="Enroll now">&#10003; Enroll</button>' : '';
+    // A manually-entered grade overrides the birth-year projection (see tapGradeAt) — say so
+    // instead of showing the now-superseded "K expected" birth-year math.
+    var gradeCaption = p.baseGrade ? ('grade ' + esc(p.baseGrade) + ' now') : ('K expected ' + kSchoolYear);
     return '<div class="tap-pipeline-chip">' + esc(p.family) + ' ' + esc(p.child)
-      + ' <span style="color:var(--warm-gray);font-size:.72rem;">(b. ' + p.birthYear + ' — K expected ' + kSchoolYear + ')</span>'
+      + ' <span style="color:var(--warm-gray);font-size:.72rem;">(b. ' + p.birthYear + ' — ' + gradeCaption + ')</span>'
       + enrollBtn
       + ' <button class="tap-pipeline-remove" onclick="tapRemoveStudent(' + p.id + ')" title="Remove">&times;</button></div>';
   }).join('');
@@ -1172,18 +1213,25 @@ function tapAddPipeline() {
   var family = document.getElementById('tap-pipe-family').value.trim();
   var child = document.getElementById('tap-pipe-child').value.trim();
   var birthYear = +document.getElementById('tap-pipe-birthyear').value;
+  var grade = document.getElementById('tap-pipe-grade').value;
   var baseYear = tapCfgNum('base_school_year', 2026);
   if (!family || !child) { errEl.textContent = "Enter both a family name and a child's name."; return; }
   if (!birthYear || birthYear < baseYear - 6 || birthYear > baseYear + 1) { errEl.textContent = 'Enter a birth year between ' + (baseYear - 6) + ' and ' + (baseYear + 1) + '.'; return; }
   errEl.textContent = '';
-  api('/admin/api/tuition-aid/students', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+  var body = {
     family: family, child: child, is_pipeline: true, birth_year: birthYear,
     fam_pct: tapCfgNum('default_pipeline_fam_pct', 50), lhs_award_cents: tapCfgNum('lhs_standard_rate_cents', 120000)
-  }) }).then(function(d) {
+  };
+  // Optional: birth year alone assumes a fixed age-based cutoff, which doesn't hold for a kid
+  // close to the cutoff date or one a family is intentionally holding back a year — an explicit
+  // grade (meaning "this grade as of the current school year") overrides that assumption.
+  if (grade) body.base_grade = grade;
+  api('/admin/api/tuition-aid/students', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function(d) {
     if (d && d.error) { errEl.textContent = d.error; return; }
     document.getElementById('tap-pipe-family').value = '';
     document.getElementById('tap-pipe-child').value = '';
     document.getElementById('tap-pipe-birthyear').value = '';
+    document.getElementById('tap-pipe-grade').value = '';
     loadTuitionAid();
   }).catch(function(err) { errEl.textContent = err && err.message || 'Could not add.'; });
 }
