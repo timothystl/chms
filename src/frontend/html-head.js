@@ -401,6 +401,16 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .view-toggle{display:flex;border:1.5px solid var(--warm-border);border-radius:9px;overflow:hidden;flex-shrink:0;}
 .view-toggle button{padding:8px 14px;background:var(--white);color:var(--warm-meta);font-size:.8rem;font-weight:700;border:none;cursor:pointer;font-family:var(--font-body);white-space:nowrap;}
 .view-toggle button.active{background:var(--color-navy);color:var(--white);}
+/* ── Finance/Giving/Tuition-Aid shared sub-nav — one flat horizontal bar (not a rail),
+   shown at the top of all three tab-panels, so the collapsed single sidebar entry still
+   reaches all seven sections. Deliberately NOT the Volunteers-tab .vol-subnav vertical rail —
+   this needs to sit above Giving's own flex/grid master-detail layout without joining its
+   height chain, and a flat bar was the user's own stated preference for this nav anyway. ── */
+.fin-subnav{display:flex;align-items:center;gap:2px;margin-bottom:16px;flex-shrink:0;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;border-bottom:1px solid var(--warm-border);}
+.fin-subnav-btn{background:none;border:none;padding:9px 14px;font-size:.83rem;font-weight:700;color:var(--warm-meta);cursor:pointer;font-family:var(--font-body);white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px;}
+.fin-subnav-btn.active{color:var(--color-navy);border-bottom-color:var(--color-navy);}
+.fin-subnav-btn:hover:not(.active){color:var(--color-navy);}
+.fin-subnav-divider{width:1px;height:18px;background:var(--warm-border);margin:0 6px;flex-shrink:0;}
 .ppl-card-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:var(--warm-surface-card-page);padding:16px;border-radius:12px;}
 @media(max-width:1000px){.ppl-card-grid{grid-template-columns:1fr;}}
 .ppl-card{background:var(--warm-surface-card);border-radius:12px;border-left:4px solid var(--status-member);box-shadow:0 2px 10px rgba(120,90,30,.08);padding:14px 16px;cursor:pointer;position:relative;transition:box-shadow .15s;}
@@ -640,10 +650,10 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .report-output{border:none;padding:0;}
   .report-tiles{display:none;}
   button{display:none!important;}
-  /* Finance tab reuses the Volunteers sub-nav shell; only the active report
-     section (Church/Daycare, toggled via finShowSection) should print — the
-     nav rail itself and any inactive panel (already display:none inline) hide. */
-  .vol-subnav{display:none!important;}
+  /* Finance tab: only the active report section (Church/Daycare, toggled via finShowSection)
+     should print — the flat sub-nav bar and any inactive panel (already display:none inline
+     for Church/Daycare/Giving Reports) hide. Overview has no print button so it never prints. */
+  .fin-subnav{display:none!important;}
   #fin-panel-overview{display:none!important;}
 }
 /* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) — a
@@ -800,10 +810,11 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div class="s-item" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
   <div class="s-item" data-tab="households" onclick="showTab('households')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Households</span></div>
   <div class="s-item" data-tab="organizations" onclick="showTab('organizations')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="1"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg><span class="s-tip">Organizations</span></div>
-  <div class="s-section-hdr require-finance">Giving</div>
-  <div class="s-item require-finance" data-tab="giving" onclick="showTab('giving')"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg><span class="s-tip">Giving</span></div>
-  <div class="s-item require-finance" data-tab="tuitionaid" onclick="showTab('tuitionaid')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 2 3 3 6 3s6-1 6-3v-5"/></svg><span class="s-tip">Tuition Aid</span></div>
-  <div class="s-item require-finance" data-tab="finance" onclick="showTab('finance')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.34-2.5-3-2.5s-3 1-3 2.25S10.34 11.5 12 11.5s3 1.1 3 2.25S13.66 16 12 16s-3-1.1-3-2.5"/></svg><span class="s-tip">Finance</span></div>
+  <div class="s-section-hdr require-finance">Finance</div>
+  <!-- Giving/Tuition Aid/Finance collapsed into one nav consolidation; the shared flat
+       sub-nav rendered at the top of each of those three tab-panels (renderFinanceSubnav(),
+       js-core.js) is what actually reaches all seven sections. Defaults to Giving. -->
+  <div class="s-item require-finance" data-tab="finance" onclick="finNavGo('giving')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.34-2.5-3-2.5s-3 1-3 2.25S10.34 11.5 12 11.5s3 1.1 3 2.25S13.66 16 12 16s-3-1.1-3-2.5"/></svg><span class="s-tip">Finance</span></div>
   <div class="s-section-hdr no-member">Ministry</div>
   <div class="s-item require-staff" data-tab="attendance" onclick="showTab('attendance')"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg><span class="s-tip">Attendance</span></div>
   <div class="s-item no-member no-office" data-tab="reports" onclick="showTab('reports')"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span class="s-tip">Reports</span></div>

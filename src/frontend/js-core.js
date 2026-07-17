@@ -141,9 +141,45 @@ function typeDotHtml(mt, size) {
   return '<span class="type-dot" style="width:'+size+'px;height:'+size+'px;background:'+c+';"></span><span class="type-label" style="color:'+c+';">'+esc(label)+'</span>';
 }
 
+// ── Finance/Giving/Tuition-Aid shared sub-nav ─────────────────────────
+// The sidebar collapses all three into one "Finance" entry; this flat bar (rendered at the
+// top of all three tab-panels via mount divs) is what actually reaches all seven sections.
+// finSection is only meaningful for tab:'finance' — the other two tabs are 1:1 with their id.
+var FIN_TOPNAV_ITEMS = [
+  { id: 'giving', label: 'Giving', tab: 'giving' },
+  { id: 'tuitionaid', label: 'Tuition Aid', tab: 'tuitionaid' },
+  { id: 'givingreports', label: 'Giving Reports', tab: 'finance', finSection: 'givingreports' },
+  { divider: true },
+  { id: 'overview', label: 'Overview', tab: 'finance', finSection: 'overview' },
+  { id: 'church', label: 'Church Report', tab: 'finance', finSection: 'church' },
+  { id: 'daycare', label: 'Daycare Report', tab: 'finance', finSection: 'daycare' },
+];
+var _finActiveNavId = 'giving';
+function renderFinanceSubnav() {
+  return FIN_TOPNAV_ITEMS.map(function(item) {
+    if (item.divider) return '<span class="fin-subnav-divider"></span>';
+    return '<button class="fin-subnav-btn' + (item.id === _finActiveNavId ? ' active' : '') + '" onclick="finNavGo(\'' + item.id + '\')">' + item.label + '</button>';
+  }).join('');
+}
+function finRenderSubnavMounts() {
+  ['fin-subnav-mount-giving', 'fin-subnav-mount-tuitionaid', 'fin-subnav-mount-finance'].forEach(function(mid) {
+    var el = document.getElementById(mid);
+    if (el) el.innerHTML = renderFinanceSubnav();
+  });
+}
+function finNavGo(id) {
+  var item = FIN_TOPNAV_ITEMS.filter(function(i) { return i.id === id; })[0];
+  if (!item) return;
+  showTab(item.tab, item.finSection);
+}
+
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
 var _tabFromPopState = false;
-function showTab(name) {
+// finSection is only used when name === 'finance' (which of Overview/Church Report/Daycare
+// Report/Giving Reports to show) — omit it to keep whatever finance section was last active
+// (e.g. browser back/forward, or a bare '#finance' hash on reload), defaulting to 'overview'
+// the first time. See FIN_TOPNAV_ITEMS/finNavGo above.
+function showTab(name, finSection) {
   // Enforce role-based tab access
   var isFinancePlus = _userRole === 'admin' || _userRole === 'finance';
   var isStaffPlus   = _userRole === 'admin' || _userRole === 'staff';
@@ -169,8 +205,13 @@ function showTab(name) {
   // Exit person-profile / household / organization views if active
   var ca = document.querySelector('.content-area');
   if (ca) ca.classList.remove('pv-mode', 'hv-mode', 'ov-mode');
+  // The single collapsed sidebar entry (data-tab="finance") stays highlighted for any of the
+  // three Giving/Tuition-Aid/Finance tabs, not just an exact name match.
+  var FIN_FAMILY_TABS = ['giving', 'tuitionaid', 'finance'];
   document.querySelectorAll('.s-item[data-tab]').forEach(function(b) {
-    b.classList.toggle('active', b.dataset.tab === name);
+    var bt = b.dataset.tab;
+    var active = (bt === name) || (bt === 'finance' && FIN_FAMILY_TABS.indexOf(name) >= 0);
+    b.classList.toggle('active', active);
   });
   document.querySelectorAll('.tab-panel').forEach(function(p) {
     p.classList.toggle('active', p.id === 'tab-' + name);
@@ -189,9 +230,17 @@ function showTab(name) {
   if (name === 'people') loadPeople();
   if (name === 'households') loadHouseholds();
   if (name === 'organizations') loadOrganizations();
-  if (name === 'giving') { loadBatches(); loadGivingStats(); }
-  if (name === 'tuitionaid') loadTuitionAid();
-  if (name === 'finance') loadFinance();
+  if (name === 'giving') { _finActiveNavId = 'giving'; loadBatches(); loadGivingStats(); }
+  if (name === 'tuitionaid') { _finActiveNavId = 'tuitionaid'; loadTuitionAid(); }
+  if (name === 'finance') {
+    if (finSection) _finActiveNavId = finSection;
+    else if (['overview', 'church', 'daycare', 'givingreports'].indexOf(_finActiveNavId) < 0) _finActiveNavId = 'overview';
+    loadFinance();
+  }
+  if (name === 'giving' || name === 'tuitionaid' || name === 'finance') {
+    finRenderSubnavMounts();
+    if (name === 'finance' && typeof finShowSection === 'function') finShowSection(_finActiveNavId);
+  }
   if (name === 'reports') initReports();
   if (name === 'attendance') loadAttendance();
   if (name === 'register') loadRegister();

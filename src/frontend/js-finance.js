@@ -36,15 +36,27 @@ function loadFinance() {
   });
 }
 
-// ── Sub-nav: Overview / Church Report / Daycare Report ────────────────
-function finShowSection(section, btn) {
-  ['overview', 'church', 'daycare'].forEach(function(s) {
+// ── Sub-nav: Overview / Church Report / Daycare Report / Giving Reports ───────────────
+// Button active-state is handled by the shared renderFinanceSubnav() (js-core.js) re-render,
+// driven by showTab()'s _finActiveNavId — this only toggles panel visibility.
+function finShowSection(section) {
+  ['overview', 'church', 'daycare', 'givingreports'].forEach(function(s) {
     var panel = document.getElementById('fin-panel-' + s);
     if (panel) panel.style.display = (s === section) ? '' : 'none';
   });
-  document.querySelectorAll('#fin-subnav .vol-subtab-btn').forEach(function(b) {
-    b.classList.toggle('active', b === btn);
-  });
+  if (section === 'givingreports') finInitGivingReports();
+}
+// Lazy-init for the giving-report tiles relocated here from the Reports tab (nav consolidation)
+// — mirrors initReportTrendYears()'s own idempotent guard, safe to call every time this section
+// is shown. initReportTrendYears() is defined in js-reports.js (loaded earlier in the module
+// concatenation order) and already no-ops harmlessly if its target element isn't found.
+function finInitGivingReports() {
+  initReportTrendYears();
+  var curY = new Date().getFullYear();
+  var yoyEl = document.getElementById('rpt-yoy-year');
+  if (yoyEl && !yoyEl.value) yoyEl.value = curY;
+  var insightsEl = document.getElementById('rpt-insights-year');
+  if (insightsEl && !insightsEl.value) insightsEl.value = curY;
 }
 
 // QuickBooks redirects back to '/?qb_connected=1#finance' (or qb_error=...) after the OAuth

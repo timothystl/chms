@@ -147,6 +147,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
 <!-- ═══ GIVING TAB ═══ -->
 <div id="tab-giving" class="tab-panel">
+  <div id="fin-subnav-mount-giving" class="fin-subnav"></div>
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;flex-shrink:0;">
     <span style="font-size:22px;font-weight:800;color:var(--color-navy);">Giving</span>
     <div class="view-toggle" style="margin-left:auto;">
@@ -226,96 +227,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year Sunday attendance comparison.</div>
         <div id="rpts-att-years" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
         <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runAttendanceRpt()">Run Report</button>
-      </div>
-    </div>
-    <div class="report-tile require-finance" data-tile-id="giving-by-fund">
-      <div class="tile-icon">&#128200;</div>
-      <div class="tile-title">Giving by Fund</div>
-      <div class="tile-desc">
-        <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-from" name="rpt-from" style="font-size:.82rem;padding:4px 8px;"></div>
-        <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-to" name="rpt-to" style="font-size:.82rem;padding:4px 8px;"></div>
-        <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingSummary()">Run Report</button>
-      </div>
-    </div>
-    <div class="report-tile require-finance" data-tile-id="giving-by-method">
-      <div class="tile-icon">&#128179;</div>
-      <div class="tile-title">Giving by Method</div>
-      <div class="tile-desc">
-        <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-method-from" name="rpt-method-from" style="font-size:.82rem;padding:4px 8px;"></div>
-        <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-method-to" name="rpt-method-to" style="font-size:.82rem;padding:4px 8px;"></div>
-        <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingByMethod()">Run Report</button>
-      </div>
-    </div>
-    <div class="report-tile require-finance" data-tile-id="giving-statement">
-      <div class="tile-icon">&#128196;</div>
-      <div class="tile-title">Giving Statement</div>
-      <div class="tile-desc">
-        <div style="display:flex;gap:6px;margin-bottom:6px;">
-          <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer;"><input type="radio" name="rpt-stmt-mode" value="person" checked onchange="toggleStmtMode()"> Person</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer;"><input type="radio" name="rpt-stmt-mode" value="household" onchange="toggleStmtMode()"> Household</label>
-        </div>
-        <div id="rpt-stmt-person-row" class="field" style="margin:4px 0;">
-          <div class="ac-wrap"><input type="text" id="rpt-person-search" name="rpt-person-search" placeholder="Search person…" style="font-size:.82rem;padding:4px 8px;" oninput="acSearch(this,&#39;rpt-person-ac&#39;,&#39;rpt-person-id&#39;)"><div class="ac-dropdown" id="rpt-person-ac"></div></div>
-          <input type="hidden" id="rpt-person-id" name="rpt-person-id">
-        </div>
-        <div id="rpt-stmt-hh-row" class="field" style="margin:4px 0;display:none;">
-          <div class="ac-wrap"><input type="text" id="rpt-hh-search" name="rpt-hh-search" placeholder="Search household…" style="font-size:.82rem;padding:4px 8px;" oninput="acSearchHH(this)"><div class="ac-dropdown" id="rpt-hh-ac"></div></div>
-          <input type="hidden" id="rpt-hh-id" name="rpt-hh-id">
-        </div>
-        <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-year" name="rpt-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatement()">View Statement</button>
-          <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatementLetter()">View Letter</button>
-          <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="downloadStatement()">CSV</button>
-        </div>
-      </div>
-    </div>
-    <div class="report-tile require-finance" data-tile-id="giving-trend">
-      <div class="tile-icon">&#128200;</div>
-      <div class="tile-title">Giving Trend</div>
-      <div class="tile-desc">
-        <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year giving comparison by month.</div>
-        <div id="rpt-trend-years" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
-        <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingTrend()">Run Report</button>
-      </div>
-    </div>
-    <div class="report-tile require-finance" data-tile-id="giving-insights">
-      <div class="tile-icon">&#128202;</div>
-      <div class="tile-title">Giving Insights</div>
-      <div class="tile-desc">
-        <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Top givers, lapsed givers, frequency, and average gift trends.</div>
-        <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-insights-year" name="rpt-insights-year" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-        <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingInsights()">Run Report</button>
-      </div>
-    </div>
-    <div class="report-tile require-finance" data-tile-id="giving-yoy">
-      <div class="tile-icon">&#128200;</div>
-      <div class="tile-title">Giving Trends</div>
-      <div class="tile-desc">
-        <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year giving changes per person — who increased, decreased, or lapsed.</div>
-        <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-yoy-year" name="rpt-yoy-year" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-        <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingYoy()">Run Report</button>
-      </div>
-    </div>
-    <div class="report-tile require-finance" data-tile-id="giving-vs-attendance">
-      <div class="tile-icon">&#128202;</div>
-      <div class="tile-title">Giving &times; Attendance</div>
-      <div class="tile-desc">
-        <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Weekly giving vs. weekly attendance &mdash; see correlation between engagement and giving.</div>
-        <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-gva-from" name="rpt-gva-from" style="font-size:.82rem;padding:4px 8px;"></div>
-        <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-gva-to" name="rpt-gva-to" style="font-size:.82rem;padding:4px 8px;"></div>
-        <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingVsAttendance()">Run Report</button>
-      </div>
-    </div>
-    <div class="report-tile require-finance" data-tile-id="batch-send-statements">
-      <div class="tile-icon">&#128140;</div>
-      <div class="tile-title">Batch Send Statements</div>
-      <div class="tile-desc">
-        <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Send year-end giving letters via email to all givers for a year.</div>
-        <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-stmt-year" name="batch-stmt-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-        <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchStatementGivers()">Load Givers</button>
-        <div id="batch-stmt-status" class="import-status" style="margin-top:6px;"></div>
-        <div id="batch-stmt-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
       </div>
     </div>
   </div>
@@ -1095,6 +1006,7 @@ export const HTML_TABS_2 = String.raw`
 <!-- ═══ TUITION AID PLANNER TAB ═══ -->
 <div id="tab-tuitionaid" class="tab-panel">
   <div style="padding:16px 20px 20px;">
+    <div id="fin-subnav-mount-tuitionaid" class="fin-subnav"></div>
     <div id="tap-loading" style="color:var(--warm-gray);font-size:.85rem;">Loading…</div>
     <div id="tap-root" style="display:none;">
 
@@ -1302,104 +1214,191 @@ export const HTML_TABS_2 = String.raw`
     <div id="fin-loading" style="color:var(--warm-gray);font-size:.85rem;">Loading…</div>
     <div id="fin-root" style="display:none;">
 
+      <div id="fin-subnav-mount-finance" class="fin-subnav"></div>
+
       <div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:14px;">Need help with this tab? <a href="mailto:office@timothystl.org">Contact the office</a>.</div>
 
-      <div class="vol-shell" style="display:flex;align-items:flex-start;gap:0;background:var(--white);border-radius:20px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);overflow:hidden;margin-bottom:28px;">
-        <div id="fin-subnav" class="vol-subnav">
-          <button class="vol-subtab-btn active" onclick="finShowSection('overview',this)">Overview</button>
-          <button class="vol-subtab-btn" onclick="finShowSection('church',this)">Church Report</button>
-          <button class="vol-subtab-btn" onclick="finShowSection('daycare',this)">Daycare Report</button>
+      <div id="fin-panel-overview">
+
+        <section class="dash-card" style="margin-bottom:16px;">
+          <div class="dash-card-hdr">QuickBooks Connection</div>
+          <div class="dash-card-body" style="padding:14px 18px;" id="fin-connection"></div>
+        </section>
+
+        <section class="dash-card" style="margin-bottom:16px;">
+          <div class="dash-card-hdr">Budget vs. Actual</div>
+          <div class="dash-card-body" style="padding:14px 18px;" id="fin-budget"></div>
+        </section>
+
+        <section class="dash-card" style="margin-bottom:16px;">
+          <div class="dash-card-hdr">Account Balances</div>
+          <div class="dash-card-body" style="padding:14px 18px;" id="fin-accounts"></div>
+        </section>
+
+        <section class="dash-card" style="margin-bottom:16px;">
+          <div class="dash-card-hdr">Daycare Sync</div>
+          <div class="dash-card-body" style="padding:14px 18px;">
+            <div id="fin-daycare-sync" style="margin-bottom:12px;"></div>
+            <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">The full period-by-period breakdown pulled from the daycare app lives in the <b>Daycare Report</b> tab (year-by-year summary) — this card is just the sync control and hand-entered adjustments.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+              <label style="font-size:.75rem;color:var(--warm-gray);">Period<br><input type="text" id="fin-dc-period" placeholder="2026-07" style="width:100px;"></label>
+              <label style="font-size:.75rem;color:var(--warm-gray);">Category<br><input type="text" id="fin-dc-category" placeholder="Tuition Income" style="width:160px;"></label>
+              <label style="font-size:.75rem;color:var(--warm-gray);">Type<br>
+                <select id="fin-dc-type"><option value="actual">Actual</option><option value="budget">Budget</option></select>
+              </label>
+              <label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-dc-amount" step="0.01" style="width:110px;"></label>
+              <label style="font-size:.75rem;color:var(--warm-gray);">Notes<br><input type="text" id="fin-dc-notes" style="width:160px;"></label>
+              <button class="btn-primary" onclick="finAddDaycare()">+ Add Entry</button>
+            </div>
+            <div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="fin-dc-error"></div>
+            <details style="margin-top:14px;">
+              <summary style="font-size:.78rem;color:var(--warm-gray);cursor:pointer;">Show all synced line items (<span id="fin-daycare-count">0</span> rows)</summary>
+              <div style="overflow-x:auto;margin-top:8px;">
+                <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                  <thead>
+                    <tr style="border-bottom:2px solid var(--navy);">
+                      <th style="text-align:left;padding:6px 8px;">Period</th>
+                      <th style="text-align:left;padding:6px 8px;">Category</th>
+                      <th style="text-align:left;padding:6px 8px;">Type</th>
+                      <th style="text-align:right;padding:6px 8px;">Amount</th>
+                      <th style="text-align:left;padding:6px 8px;">Notes / Source</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="fin-daycare-body"></tbody>
+                </table>
+              </div>
+            </details>
+          </div>
+        </section>
+
+      </div>
+
+      <div id="fin-panel-church" style="display:none;">
+        <section class="dash-card fin-printable" style="margin-bottom:16px;">
+          <div class="dash-card-hdr" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <span>Church Report</span>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button id="fin-church-mode-year" class="btn-secondary active" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('year')">This Year</button>
+              <button id="fin-church-mode-multiyear" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('multiyear')">Multi-Year</button>
+              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportChurchCsv()">Export CSV</button>
+              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
+            </div>
+          </div>
+          <div class="dash-card-body" style="padding:14px 18px;">
+            <div id="fin-church-year-view"></div>
+            <div id="fin-church-multiyear-view" style="display:none;"></div>
+          </div>
+        </section>
+      </div>
+
+      <div id="fin-panel-daycare" style="display:none;">
+        <section class="dash-card fin-printable" style="margin-bottom:16px;">
+          <div class="dash-card-hdr" style="display:flex;align-items:center;justify-content:space-between;">
+            <span>Daycare Report — Year by Year</span>
+            <div style="display:flex;gap:8px;">
+              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportDaycareCsv()">Export CSV</button>
+              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
+            </div>
+          </div>
+          <div class="dash-card-body" style="padding:14px 18px;" id="fin-daycare-report"></div>
+        </section>
+      </div>
+
+      <div id="fin-panel-givingreports" style="display:none;">
+        <div class="report-tiles" id="fin-giving-tiles-grid">
+          <div class="report-tile require-finance" data-tile-id="giving-by-fund">
+            <div class="tile-icon">&#128200;</div>
+            <div class="tile-title">Giving by Fund</div>
+            <div class="tile-desc">
+              <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-from" name="rpt-from" style="font-size:.82rem;padding:4px 8px;"></div>
+              <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-to" name="rpt-to" style="font-size:.82rem;padding:4px 8px;"></div>
+              <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingSummary()">Run Report</button>
+            </div>
+          </div>
+          <div class="report-tile require-finance" data-tile-id="giving-by-method">
+            <div class="tile-icon">&#128179;</div>
+            <div class="tile-title">Giving by Method</div>
+            <div class="tile-desc">
+              <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-method-from" name="rpt-method-from" style="font-size:.82rem;padding:4px 8px;"></div>
+              <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-method-to" name="rpt-method-to" style="font-size:.82rem;padding:4px 8px;"></div>
+              <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingByMethod()">Run Report</button>
+            </div>
+          </div>
+          <div class="report-tile require-finance" data-tile-id="giving-statement">
+            <div class="tile-icon">&#128196;</div>
+            <div class="tile-title">Giving Statement</div>
+            <div class="tile-desc">
+              <div style="display:flex;gap:6px;margin-bottom:6px;">
+                <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer;"><input type="radio" name="rpt-stmt-mode" value="person" checked onchange="toggleStmtMode()"> Person</label>
+                <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer;"><input type="radio" name="rpt-stmt-mode" value="household" onchange="toggleStmtMode()"> Household</label>
+              </div>
+              <div id="rpt-stmt-person-row" class="field" style="margin:4px 0;">
+                <div class="ac-wrap"><input type="text" id="rpt-person-search" name="rpt-person-search" placeholder="Search person…" style="font-size:.82rem;padding:4px 8px;" oninput="acSearch(this,&#39;rpt-person-ac&#39;,&#39;rpt-person-id&#39;)"><div class="ac-dropdown" id="rpt-person-ac"></div></div>
+                <input type="hidden" id="rpt-person-id" name="rpt-person-id">
+              </div>
+              <div id="rpt-stmt-hh-row" class="field" style="margin:4px 0;display:none;">
+                <div class="ac-wrap"><input type="text" id="rpt-hh-search" name="rpt-hh-search" placeholder="Search household…" style="font-size:.82rem;padding:4px 8px;" oninput="acSearchHH(this)"><div class="ac-dropdown" id="rpt-hh-ac"></div></div>
+                <input type="hidden" id="rpt-hh-id" name="rpt-hh-id">
+              </div>
+              <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-year" name="rpt-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+              <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+                <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatement()">View Statement</button>
+                <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatementLetter()">View Letter</button>
+                <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="downloadStatement()">CSV</button>
+              </div>
+            </div>
+          </div>
+          <div class="report-tile require-finance" data-tile-id="giving-trend">
+            <div class="tile-icon">&#128200;</div>
+            <div class="tile-title">Giving Trend</div>
+            <div class="tile-desc">
+              <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year giving comparison by month.</div>
+              <div id="rpt-trend-years" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
+              <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingTrend()">Run Report</button>
+            </div>
+          </div>
+          <div class="report-tile require-finance" data-tile-id="giving-insights">
+            <div class="tile-icon">&#128202;</div>
+            <div class="tile-title">Giving Insights</div>
+            <div class="tile-desc">
+              <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Top givers, lapsed givers, frequency, and average gift trends.</div>
+              <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-insights-year" name="rpt-insights-year" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+              <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingInsights()">Run Report</button>
+            </div>
+          </div>
+          <div class="report-tile require-finance" data-tile-id="giving-yoy">
+            <div class="tile-icon">&#128200;</div>
+            <div class="tile-title">Giving Trends</div>
+            <div class="tile-desc">
+              <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year giving changes per person — who increased, decreased, or lapsed.</div>
+              <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-yoy-year" name="rpt-yoy-year" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+              <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingYoy()">Run Report</button>
+            </div>
+          </div>
+          <div class="report-tile require-finance" data-tile-id="giving-vs-attendance">
+            <div class="tile-icon">&#128202;</div>
+            <div class="tile-title">Giving &times; Attendance</div>
+            <div class="tile-desc">
+              <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Weekly giving vs. weekly attendance &mdash; see correlation between engagement and giving.</div>
+              <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-gva-from" name="rpt-gva-from" style="font-size:.82rem;padding:4px 8px;"></div>
+              <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-gva-to" name="rpt-gva-to" style="font-size:.82rem;padding:4px 8px;"></div>
+              <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingVsAttendance()">Run Report</button>
+            </div>
+          </div>
+          <div class="report-tile require-finance" data-tile-id="batch-send-statements">
+            <div class="tile-icon">&#128140;</div>
+            <div class="tile-title">Batch Send Statements</div>
+            <div class="tile-desc">
+              <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Send year-end giving letters via email to all givers for a year.</div>
+              <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-stmt-year" name="batch-stmt-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+              <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchStatementGivers()">Load Givers</button>
+              <div id="batch-stmt-status" class="import-status" style="margin-top:6px;"></div>
+              <div id="batch-stmt-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
+            </div>
+          </div>
         </div>
-        <div class="vol-content-pane" style="flex:1;min-width:0;padding:20px 24px;">
-
-          <div id="fin-panel-overview">
-
-            <section class="dash-card" style="margin-bottom:16px;">
-              <div class="dash-card-hdr">QuickBooks Connection</div>
-              <div class="dash-card-body" style="padding:14px 18px;" id="fin-connection"></div>
-            </section>
-
-            <section class="dash-card" style="margin-bottom:16px;">
-              <div class="dash-card-hdr">Budget vs. Actual</div>
-              <div class="dash-card-body" style="padding:14px 18px;" id="fin-budget"></div>
-            </section>
-
-            <section class="dash-card" style="margin-bottom:16px;">
-              <div class="dash-card-hdr">Account Balances</div>
-              <div class="dash-card-body" style="padding:14px 18px;" id="fin-accounts"></div>
-            </section>
-
-            <section class="dash-card" style="margin-bottom:16px;">
-              <div class="dash-card-hdr">Daycare Sync</div>
-              <div class="dash-card-body" style="padding:14px 18px;">
-                <div id="fin-daycare-sync" style="margin-bottom:12px;"></div>
-                <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">The full period-by-period breakdown pulled from the daycare app lives in the <b>Daycare Report</b> tab (year-by-year summary) — this card is just the sync control and hand-entered adjustments.</p>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-                  <label style="font-size:.75rem;color:var(--warm-gray);">Period<br><input type="text" id="fin-dc-period" placeholder="2026-07" style="width:100px;"></label>
-                  <label style="font-size:.75rem;color:var(--warm-gray);">Category<br><input type="text" id="fin-dc-category" placeholder="Tuition Income" style="width:160px;"></label>
-                  <label style="font-size:.75rem;color:var(--warm-gray);">Type<br>
-                    <select id="fin-dc-type"><option value="actual">Actual</option><option value="budget">Budget</option></select>
-                  </label>
-                  <label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-dc-amount" step="0.01" style="width:110px;"></label>
-                  <label style="font-size:.75rem;color:var(--warm-gray);">Notes<br><input type="text" id="fin-dc-notes" style="width:160px;"></label>
-                  <button class="btn-primary" onclick="finAddDaycare()">+ Add Entry</button>
-                </div>
-                <div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="fin-dc-error"></div>
-                <details style="margin-top:14px;">
-                  <summary style="font-size:.78rem;color:var(--warm-gray);cursor:pointer;">Show all synced line items (<span id="fin-daycare-count">0</span> rows)</summary>
-                  <div style="overflow-x:auto;margin-top:8px;">
-                    <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
-                      <thead>
-                        <tr style="border-bottom:2px solid var(--navy);">
-                          <th style="text-align:left;padding:6px 8px;">Period</th>
-                          <th style="text-align:left;padding:6px 8px;">Category</th>
-                          <th style="text-align:left;padding:6px 8px;">Type</th>
-                          <th style="text-align:right;padding:6px 8px;">Amount</th>
-                          <th style="text-align:left;padding:6px 8px;">Notes / Source</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody id="fin-daycare-body"></tbody>
-                    </table>
-                  </div>
-                </details>
-              </div>
-            </section>
-
-          </div>
-
-          <div id="fin-panel-church" style="display:none;">
-            <section class="dash-card fin-printable" style="margin-bottom:16px;">
-              <div class="dash-card-hdr" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-                <span>Church Report</span>
-                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                  <button id="fin-church-mode-year" class="btn-secondary active" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('year')">This Year</button>
-                  <button id="fin-church-mode-multiyear" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('multiyear')">Multi-Year</button>
-                  <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportChurchCsv()">Export CSV</button>
-                  <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
-                </div>
-              </div>
-              <div class="dash-card-body" style="padding:14px 18px;">
-                <div id="fin-church-year-view"></div>
-                <div id="fin-church-multiyear-view" style="display:none;"></div>
-              </div>
-            </section>
-          </div>
-
-          <div id="fin-panel-daycare" style="display:none;">
-            <section class="dash-card fin-printable" style="margin-bottom:16px;">
-              <div class="dash-card-hdr" style="display:flex;align-items:center;justify-content:space-between;">
-                <span>Daycare Report — Year by Year</span>
-                <div style="display:flex;gap:8px;">
-                  <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportDaycareCsv()">Export CSV</button>
-                  <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
-                </div>
-              </div>
-              <div class="dash-card-body" style="padding:14px 18px;" id="fin-daycare-report"></div>
-            </section>
-          </div>
-
-        </div>
+        <div id="fin-giving-rpt-output" class="report-output"></div>
       </div>
 
     </div>
