@@ -801,6 +801,66 @@ function runAttendanceByTime() {
     });
   }
 }
+// Generic grouped-bar-chart renderer, shared across Attendance and Finance. One call renders
+// N series (colored bars) across M groups (x-axis categories) — e.g. one bar per year within
+// each service-time group (Attendance), or one bar per This-Year/Last-Year/Projected within
+// each Income/Expenses/Net group (Finance). Returns '' when there's no data to plot, same as
+// the chart functions built on it always did.
+//   opts.groups:  [{key, label}]                — x-axis categories, in display order
+//   opts.series:  [{key, label, color}]          — one bar per series within every group
+//   opts.value(groupKey, seriesKey)              — returns the numeric value, or null/undefined to skip that bar
+//   opts.tooltip(groupKey, seriesKey, value)      — optional; defaults to "<seriesLabel> <groupLabel>: <value>"
+//   opts.chartH, opts.title, opts.barLabel(v)     — optional height/title/on-bar-label formatter
+function renderGroupedBarChart(opts) {
+  var groups = opts.groups || [], series = opts.series || [];
+  if (!groups.length || !series.length) return '';
+  var W = 800, H = opts.chartH || 180, pL = 40, pR = 16, pT = 12, pB = 40;
+  var cW = W - pL - pR, cH = H - pT - pB;
+  var maxV = 0;
+  groups.forEach(function(g) {
+    series.forEach(function(s) {
+      var v = opts.value(g.key, s.key);
+      if (v != null && v > maxV) maxV = v;
+    });
+  });
+  if (!maxV) return '';
+  maxV = maxV * 1.15;
+  var groupW = cW / groups.length;
+  var barW = Math.max(4, Math.min(30, (groupW * 0.8) / series.length));
+  var groupGap = (groupW - barW * series.length) / 2;
+  var pyV = function(v) { return pT + cH - (v / maxV) * cH; };
+  var grid = '', ylbls = '', xlbls = '', bars = '';
+  [0, Math.round(maxV * 0.5 / 1.15), Math.round(maxV / 1.15)].forEach(function(v) {
+    var yy = pyV(v);
+    grid += '<line x1="'+pL+'" y1="'+yy.toFixed(1)+'" x2="'+(W-pR)+'" y2="'+yy.toFixed(1)+'" stroke="#f0ece8" stroke-width="1"/>';
+    ylbls += '<text x="'+(pL-4)+'" y="'+(yy+3).toFixed(1)+'" text-anchor="end" fill="#9A8A78" font-size="9">'+(opts.barLabel ? opts.barLabel(v) : Math.round(v))+'</text>';
+  });
+  groups.forEach(function(g, gi) {
+    var cx = pL + gi * groupW + groupW / 2;
+    xlbls += '<text x="'+cx.toFixed(1)+'" y="'+(H-5)+'" text-anchor="middle" fill="#9A8A78" font-size="10">'+g.label+'</text>';
+  });
+  series.forEach(function(s, si) {
+    groups.forEach(function(g, gi) {
+      var v = opts.value(g.key, s.key);
+      if (v == null) return;
+      var x = pL + gi * groupW + groupGap + si * barW;
+      var bH = Math.max(1, (v / maxV) * cH);
+      var barY = pT + cH - bH;
+      var tip = opts.tooltip ? opts.tooltip(g.key, s.key, v) : (s.label + ' ' + g.label + ': ' + v);
+      bars += '<rect x="'+x.toFixed(1)+'" y="'+barY.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bH.toFixed(1)+'" fill="'+s.color+'" rx="2"><title>'+tip+'</title></rect>';
+      var lbl = opts.barLabel ? opts.barLabel(v) : Math.round(v);
+      if (bH > 14) bars += '<text x="'+(x+barW/2).toFixed(1)+'" y="'+(barY+bH-3).toFixed(1)+'" text-anchor="middle" fill="#fff" font-size="8">'+lbl+'</text>';
+    });
+  });
+  var legend = '<div style="display:flex;gap:12px;margin-top:6px;justify-content:center;flex-wrap:wrap;">';
+  series.forEach(function(s) {
+    legend += '<span style="display:flex;align-items:center;gap:5px;font-size:.8rem;"><span style="display:inline-block;width:14px;height:14px;background:'+s.color+';border-radius:3px;flex-shrink:0;"></span>'+s.label+'</span>';
+  });
+  legend += '</div>';
+  var svg = '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:'+H+'px;">'+grid+bars+xlbls+ylbls+'</svg>';
+  var titleHtml = opts.title ? '<div style="font-weight:700;color:var(--steel-anchor);font-size:.9rem;margin-bottom:8px;">'+opts.title+'</div>' : '';
+  return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 16px 8px;margin-bottom:16px;">'+titleHtml+svg+legend+'</div>';
+}
 function renderMultiYearServiceChart(d, chartH) {
   var years = d.years || [];
   var palette = ['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E74C3C'];
@@ -812,53 +872,23 @@ function renderMultiYearServiceChart(d, chartH) {
   });
   var times = Object.keys(timesSet).sort();
   if (!years.length || !times.length) return '';
-  var W = 800, H = chartH || 180, pL = 40, pR = 16, pT = 12, pB = 40;
-  var cW = W - pL - pR, cH = H - pT - pB;
-  var maxV = 0;
+  var byTimeYear = {};
   years.forEach(function(yr) {
-    (d.by_time_years[yr] || []).forEach(function(r) {
-      if (r.service_type === 'sunday' && r.avg_attendance > maxV) maxV = r.avg_attendance;
-    });
+    byTimeYear[yr] = {};
+    (d.by_time_years[yr] || []).forEach(function(r) { if (r.service_type === 'sunday') byTimeYear[yr][r.service_time] = r; });
   });
-  if (!maxV) return '';
-  maxV = maxV * 1.15;
-  var groupW = cW / times.length;
-  var barW = Math.max(4, Math.min(30, (groupW * 0.8) / years.length));
-  var groupGap = (groupW - barW * years.length) / 2;
-  var pyV = function(v) { return pT + cH - (v / maxV) * cH; };
-  var grid = '', ylbls = '', xlbls = '', bars = '';
-  [0, Math.round(maxV * 0.5 / 1.15), Math.round(maxV / 1.15)].forEach(function(v) {
-    var yy = pyV(v);
-    grid += '<line x1="'+pL+'" y1="'+yy.toFixed(1)+'" x2="'+(W-pR)+'" y2="'+yy.toFixed(1)+'" stroke="#f0ece8" stroke-width="1"/>';
-    ylbls += '<text x="'+(pL-4)+'" y="'+(yy+3).toFixed(1)+'" text-anchor="end" fill="#9A8A78" font-size="9">'+Math.round(v)+'</text>';
+  function timeLabel(t) { return t === '08:00' ? '8am' : t === '10:45' ? '10:45am' : t; }
+  return renderGroupedBarChart({
+    title: 'Avg Attendance by Service Time',
+    chartH: chartH,
+    groups: times.map(function(t) { return { key: t, label: timeLabel(t) }; }),
+    series: years.map(function(yr, yi) { return { key: yr, label: String(yr), color: palette[yi % palette.length] }; }),
+    value: function(t, yr) { var r = byTimeYear[yr][t]; return r ? r.avg_attendance : null; },
+    tooltip: function(t, yr, v) {
+      var r = byTimeYear[yr][t];
+      return yr + ' ' + timeLabel(t) + ': avg ' + v + ', total ' + r.total + ', ' + r.services + ' services';
+    },
   });
-  times.forEach(function(t, ti) {
-    var cx = pL + ti * groupW + groupW / 2;
-    var lbl = t === '08:00' ? '8am' : t === '10:45' ? '10:45am' : t;
-    xlbls += '<text x="'+cx.toFixed(1)+'" y="'+(H-5)+'" text-anchor="middle" fill="#9A8A78" font-size="10">'+lbl+'</text>';
-  });
-  years.forEach(function(yr, yi) {
-    var color = palette[yi % palette.length];
-    var byTime = {};
-    (d.by_time_years[yr] || []).forEach(function(r) { if (r.service_type === 'sunday') byTime[r.service_time] = r; });
-    times.forEach(function(t, ti) {
-      var r = byTime[t];
-      if (!r) return;
-      var tlbl = t === '08:00' ? '8am' : t === '10:45' ? '10:45am' : t;
-      var x = pL + ti * groupW + groupGap + yi * barW;
-      var bH = Math.max(1, (r.avg_attendance / maxV) * cH);
-      var barY = pT + cH - bH;
-      bars += '<rect x="'+x.toFixed(1)+'" y="'+barY.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bH.toFixed(1)+'" fill="'+color+'" rx="2"><title>'+yr+' '+tlbl+': avg '+r.avg_attendance+', total '+r.total+', '+r.services+' services</title></rect>';
-      if (bH > 14) bars += '<text x="'+(x+barW/2).toFixed(1)+'" y="'+(barY+bH-3).toFixed(1)+'" text-anchor="middle" fill="#fff" font-size="8">'+Math.round(r.avg_attendance)+'</text>';
-    });
-  });
-  var legend = '<div style="display:flex;gap:12px;margin-top:6px;justify-content:center;flex-wrap:wrap;">';
-  years.forEach(function(yr, yi) {
-    legend += '<span style="display:flex;align-items:center;gap:5px;font-size:.8rem;"><span style="display:inline-block;width:14px;height:14px;background:'+palette[yi % palette.length]+';border-radius:3px;flex-shrink:0;"></span>'+yr+'</span>';
-  });
-  legend += '</div>';
-  var svg = '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:'+H+'px;">'+grid+bars+xlbls+ylbls+'</svg>';
-  return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 16px 8px;margin-bottom:16px;"><div style="font-weight:700;color:var(--steel-anchor);font-size:.9rem;margin-bottom:8px;">Avg Attendance by Service Time</div>'+svg+legend+'</div>';
 }
 function _buildAttByServiceMultiYearHtml(d, h) {
   var years = d.years || [];
