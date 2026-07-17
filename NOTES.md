@@ -129,6 +129,11 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-17 (v1.29.4 — BUG: Find Duplicate Funds group name showed lowercased)
+- **Reported**: the duplicate-fund group header showed the name lowercased (e.g. "25004 building fund") instead of the real "25004 Building Fund" casing.
+- **Root cause**: `GET /admin/api/funds/duplicates` groups funds by a normalized dedup key (`name.trim().toLowerCase()`), which is correct for matching — but the endpoint was also using that same lowercased key as the group's *display* name in the response instead of pulling the real-cased name off one of the actual fund rows.
+- **Fix**: after sorting each group's funds by total (highest first, already done for radio-picker default), use the top fund's real `name` for the group header instead of the map key. `npm test` (65/65), `node --check`. Done 2026-07-17 (v1.29.4). (`src/api-households.js`)
+
 ### 2026-07-17 (v1.29.3 — BUG: Find Duplicate Funds 500 error — wrong column name)
 - **Reported**: "Internal server error" clicking Find Duplicate Funds in Settings, immediately after G21 shipped (v1.29.0).
 - **Root cause**: the new `GET /admin/api/funds/duplicates` query summed `giving_entries.amount_cents`, a column that doesn't exist — the real column storing integer-cents gift amounts is just `amount` (per this file's own Data Integrity checklist, which G21 didn't actually check against before shipping). The bad column name caused a SQL error on every call, surfaced to the browser as a generic Internal Server Error.
