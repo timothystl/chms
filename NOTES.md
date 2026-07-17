@@ -129,6 +129,11 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-17 (v1.29.3 — BUG: Find Duplicate Funds 500 error — wrong column name)
+- **Reported**: "Internal server error" clicking Find Duplicate Funds in Settings, immediately after G21 shipped (v1.29.0).
+- **Root cause**: the new `GET /admin/api/funds/duplicates` query summed `giving_entries.amount_cents`, a column that doesn't exist — the real column storing integer-cents gift amounts is just `amount` (per this file's own Data Integrity checklist, which G21 didn't actually check against before shipping). The bad column name caused a SQL error on every call, surfaced to the browser as a generic Internal Server Error.
+- **Fix**: query `SUM(amount)` instead of `SUM(amount_cents)`. The merge endpoint (`POST /admin/api/funds/merge`) was unaffected — it never referenced that column. `npm test` (65/65), `node --check`. Done 2026-07-17 (v1.29.3). (`src/api-households.js`)
+
 ### 2026-07-17 (CI — recreated .github/workflows/auto-merge-claude.yml, which had never actually existed)
 - **Reported**: "the branches are not auto merging anymore, i have 4 waiting PRs that are now in conflict." Investigation found something more surprising than a regression: `auto-merge-claude.yml` does not exist anywhere in this repo's full git history (checked with `git log --all -- .github/workflows/auto-merge-claude.yml` after unshallowing the clone) — only `deploy.yml` has ever been committed. Every prior "auto-merge" this project's own changelog describes must have actually been a manual merge someone did by hand; the file itself was never real, despite being documented as live infrastructure.
 - **Unblocked the immediate backlog**: of the (then) 3 open PRs, #590 had already been merged manually before this investigation started; #578 ("Office" role) turned out to be fully redundant — its entire diff was already present on `main` through some other path, confirmed by rebasing it onto `main` and watching the commit drop out as a pure no-op — closed without merging rather than risk reverting ~3,000 lines of everything that shipped since; #588 (this session's own Church Report v2 follow-up) had one real conflict (the usual `DEPLOY_VERSION`/changelog-insertion-point pair), rebased, resolved, retested, and merged.
