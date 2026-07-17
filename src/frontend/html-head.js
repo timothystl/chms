@@ -633,11 +633,16 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 @media print{
   .sidebar,.topbar,.toolbar,.modal-overlay,#offline-banner{display:none!important;}
   .tab-panel{display:block!important;padding:0;}
-  .tab-panel:not(#tab-reports){display:none!important;}
+  .tab-panel:not(#tab-reports):not(#tab-finance){display:none!important;}
   body{background:white;}
   .report-output{border:none;padding:0;}
   .report-tiles{display:none;}
   button{display:none!important;}
+  /* Finance tab reuses the Volunteers sub-nav shell; only the active report
+     section (Church/Daycare, toggled via finShowSection) should print — the
+     nav rail itself and any inactive panel (already display:none inline) hide. */
+  .vol-subnav{display:none!important;}
+  #fin-panel-overview{display:none!important;}
 }
 /* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) — a
    left-side navy menu column matching the design mockup's inner "TLC Admin"

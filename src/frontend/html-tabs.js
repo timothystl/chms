@@ -1263,53 +1263,98 @@ export const HTML_TABS_2 = String.raw`
 
       <div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:14px;">Need help with this tab? <a href="mailto:office@timothystl.org">Contact the office</a>.</div>
 
-      <section class="dash-card" style="margin-bottom:16px;">
-        <div class="dash-card-hdr">QuickBooks Connection</div>
-        <div class="dash-card-body" style="padding:14px 18px;" id="fin-connection"></div>
-      </section>
-
-      <section class="dash-card" style="margin-bottom:16px;">
-        <div class="dash-card-hdr">Budget vs. Actual</div>
-        <div class="dash-card-body" style="padding:14px 18px;" id="fin-budget"></div>
-      </section>
-
-      <section class="dash-card" style="margin-bottom:16px;">
-        <div class="dash-card-hdr">Account Balances</div>
-        <div class="dash-card-body" style="padding:14px 18px;" id="fin-accounts"></div>
-      </section>
-
-      <section class="dash-card" style="margin-bottom:16px;">
-        <div class="dash-card-hdr">Daycare</div>
-        <div class="dash-card-body" style="padding:14px 18px;">
-          <div id="fin-daycare-sync" style="margin-bottom:12px;"></div>
-          <div style="overflow-x:auto;">
-            <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
-              <thead>
-                <tr style="border-bottom:2px solid var(--navy);">
-                  <th style="text-align:left;padding:6px 8px;">Period</th>
-                  <th style="text-align:left;padding:6px 8px;">Category</th>
-                  <th style="text-align:left;padding:6px 8px;">Type</th>
-                  <th style="text-align:right;padding:6px 8px;">Amount</th>
-                  <th style="text-align:left;padding:6px 8px;">Notes / Source</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="fin-daycare-body"></tbody>
-            </table>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:14px;">
-            <label style="font-size:.75rem;color:var(--warm-gray);">Period<br><input type="text" id="fin-dc-period" placeholder="2026-07" style="width:100px;"></label>
-            <label style="font-size:.75rem;color:var(--warm-gray);">Category<br><input type="text" id="fin-dc-category" placeholder="Tuition Income" style="width:160px;"></label>
-            <label style="font-size:.75rem;color:var(--warm-gray);">Type<br>
-              <select id="fin-dc-type"><option value="actual">Actual</option><option value="budget">Budget</option></select>
-            </label>
-            <label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-dc-amount" step="0.01" style="width:110px;"></label>
-            <label style="font-size:.75rem;color:var(--warm-gray);">Notes<br><input type="text" id="fin-dc-notes" style="width:160px;"></label>
-            <button class="btn-primary" onclick="finAddDaycare()">+ Add Entry</button>
-          </div>
-          <div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="fin-dc-error"></div>
+      <div class="vol-shell" style="display:flex;align-items:flex-start;gap:0;background:var(--white);border-radius:20px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);overflow:hidden;margin-bottom:28px;">
+        <div id="fin-subnav" class="vol-subnav">
+          <button class="vol-subtab-btn active" onclick="finShowSection('overview',this)">Overview</button>
+          <button class="vol-subtab-btn" onclick="finShowSection('church',this)">Church Report</button>
+          <button class="vol-subtab-btn" onclick="finShowSection('daycare',this)">Daycare Report</button>
         </div>
-      </section>
+        <div class="vol-content-pane" style="flex:1;min-width:0;padding:20px 24px;">
+
+          <div id="fin-panel-overview">
+
+            <section class="dash-card" style="margin-bottom:16px;">
+              <div class="dash-card-hdr">QuickBooks Connection</div>
+              <div class="dash-card-body" style="padding:14px 18px;" id="fin-connection"></div>
+            </section>
+
+            <section class="dash-card" style="margin-bottom:16px;">
+              <div class="dash-card-hdr">Budget vs. Actual</div>
+              <div class="dash-card-body" style="padding:14px 18px;" id="fin-budget"></div>
+            </section>
+
+            <section class="dash-card" style="margin-bottom:16px;">
+              <div class="dash-card-hdr">Account Balances</div>
+              <div class="dash-card-body" style="padding:14px 18px;" id="fin-accounts"></div>
+            </section>
+
+            <section class="dash-card" style="margin-bottom:16px;">
+              <div class="dash-card-hdr">Daycare Sync</div>
+              <div class="dash-card-body" style="padding:14px 18px;">
+                <div id="fin-daycare-sync" style="margin-bottom:12px;"></div>
+                <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">The full period-by-period breakdown pulled from the daycare app lives in the <b>Daycare Report</b> tab (year-by-year summary) — this card is just the sync control and hand-entered adjustments.</p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+                  <label style="font-size:.75rem;color:var(--warm-gray);">Period<br><input type="text" id="fin-dc-period" placeholder="2026-07" style="width:100px;"></label>
+                  <label style="font-size:.75rem;color:var(--warm-gray);">Category<br><input type="text" id="fin-dc-category" placeholder="Tuition Income" style="width:160px;"></label>
+                  <label style="font-size:.75rem;color:var(--warm-gray);">Type<br>
+                    <select id="fin-dc-type"><option value="actual">Actual</option><option value="budget">Budget</option></select>
+                  </label>
+                  <label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-dc-amount" step="0.01" style="width:110px;"></label>
+                  <label style="font-size:.75rem;color:var(--warm-gray);">Notes<br><input type="text" id="fin-dc-notes" style="width:160px;"></label>
+                  <button class="btn-primary" onclick="finAddDaycare()">+ Add Entry</button>
+                </div>
+                <div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="fin-dc-error"></div>
+                <details style="margin-top:14px;">
+                  <summary style="font-size:.78rem;color:var(--warm-gray);cursor:pointer;">Show all synced line items (<span id="fin-daycare-count">0</span> rows)</summary>
+                  <div style="overflow-x:auto;margin-top:8px;">
+                    <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                      <thead>
+                        <tr style="border-bottom:2px solid var(--navy);">
+                          <th style="text-align:left;padding:6px 8px;">Period</th>
+                          <th style="text-align:left;padding:6px 8px;">Category</th>
+                          <th style="text-align:left;padding:6px 8px;">Type</th>
+                          <th style="text-align:right;padding:6px 8px;">Amount</th>
+                          <th style="text-align:left;padding:6px 8px;">Notes / Source</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody id="fin-daycare-body"></tbody>
+                    </table>
+                  </div>
+                </details>
+              </div>
+            </section>
+
+          </div>
+
+          <div id="fin-panel-church" style="display:none;">
+            <section class="dash-card fin-printable" style="margin-bottom:16px;">
+              <div class="dash-card-hdr" style="display:flex;align-items:center;justify-content:space-between;">
+                <span>Church Report — Year by Year</span>
+                <div style="display:flex;gap:8px;">
+                  <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportChurchCsv()">Export CSV</button>
+                  <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
+                </div>
+              </div>
+              <div class="dash-card-body" style="padding:14px 18px;" id="fin-church-report"></div>
+            </section>
+          </div>
+
+          <div id="fin-panel-daycare" style="display:none;">
+            <section class="dash-card fin-printable" style="margin-bottom:16px;">
+              <div class="dash-card-hdr" style="display:flex;align-items:center;justify-content:space-between;">
+                <span>Daycare Report — Year by Year</span>
+                <div style="display:flex;gap:8px;">
+                  <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportDaycareCsv()">Export CSV</button>
+                  <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
+                </div>
+              </div>
+              <div class="dash-card-body" style="padding:14px 18px;" id="fin-daycare-report"></div>
+            </section>
+          </div>
+
+        </div>
+      </div>
 
     </div>
   </div>
