@@ -245,6 +245,15 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       }
     }
     const accounts = await fetchQboJson('Account balances', client.accounts(), warnings);
+    // Board-level "Church Report": one P&L column per calendar year over a 5-year trailing
+    // window (matches the app's existing 5-year convention, e.g. AT6's multi-year attendance
+    // comparison). No Budget setup required — P&L is actuals-only.
+    const PNL_YEARS_BACK = 4;
+    const profitAndLoss = await fetchQboJson(
+      'Profit & Loss (multi-year)',
+      client.profitAndLoss({ start_date: `${year - PNL_YEARS_BACK}-01-01`, end_date: `${year}-12-31`, summarize_column_by: 'Year' }),
+      warnings
+    );
     const syncedAt = new Date().toISOString();
     const ops = [];
     if (budgetVsActual) ops.push(db.prepare(
@@ -255,9 +264,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       `INSERT INTO finance_qb_snapshot (key,value,synced_at) VALUES ('accounts',?,?)
        ON CONFLICT(key) DO UPDATE SET value=excluded.value, synced_at=excluded.synced_at`
     ).bind(JSON.stringify(accounts), syncedAt));
+    if (profitAndLoss) ops.push(db.prepare(
+      `INSERT INTO finance_qb_snapshot (key,value,synced_at) VALUES ('profit_and_loss_by_year',?,?)
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value, synced_at=excluded.synced_at`
+    ).bind(JSON.stringify(profitAndLoss), syncedAt));
     if (ops.length) await db.batch(ops);
     await db.prepare('UPDATE finance_qb_connection SET last_synced_at=? WHERE id=1').bind(syncedAt).run();
-    return json({ ok: true, syncedAt, warnings, fetched: { budgetVsActual: !!budgetVsActual, accounts: !!accounts } });
+    return json({ ok: true, syncedAt, warnings, fetched: { budgetVsActual: !!budgetVsActual, accounts: !!accounts, profitAndLoss: !!profitAndLoss } });
   }
 
   // ── Overview: cached QBO data + daycare summary, for the Finance tab ──
@@ -276,6 +289,8 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       accountsSyncedAt: snaps.accounts?.syncedAt || '',
       daycareAccounts: snaps.daycare_accounts?.data || null,
       daycareAccountsSyncedAt: snaps.daycare_accounts?.syncedAt || '',
+      profitAndLoss: snaps.profit_and_loss_by_year?.data || null,
+      profitAndLossSyncedAt: snaps.profit_and_loss_by_year?.syncedAt || '',
     });
   }
 

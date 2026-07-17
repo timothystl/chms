@@ -149,6 +149,11 @@ export function makeQboClient(env, conn) {
     // Query API calls and the standard ProfitAndLoss report sometimes have different permission
     // enforcement than the BudgetVsActual report specifically, so these may succeed where it fails.
     budgets: () => get(`/query?query=${encodeURIComponent('SELECT * FROM Budget')}&minorversion=${MINOR_VERSION}`),
+
+    // Standard Profit & Loss report — also used with summarize_column_by=Year and a multi-year
+    // date range so QBO returns one column per calendar year in a single call, for the
+    // board-level "Church Report" year-over-year view (see finance/qb/sync). Same generic
+    // Columns/Rows shape as budgetVsActual; no Budget setup required (P&L is actuals-only).
     profitAndLoss: (params) => get(`/reports/ProfitAndLoss?${new URLSearchParams(params)}&minorversion=${MINOR_VERSION}`),
   };
 }
