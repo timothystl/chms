@@ -384,7 +384,7 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
     if (!isAdmin) return json({ error: 'Access denied' }, 403);
     const funds = (await db.prepare('SELECT * FROM funds ORDER BY name,id').all()).results || [];
     const stats = (await db.prepare(
-      `SELECT fund_id, COUNT(*) cnt, COALESCE(SUM(amount_cents),0) total_cents
+      `SELECT fund_id, COUNT(*) cnt, COALESCE(SUM(amount),0) total_cents
        FROM giving_entries GROUP BY fund_id`
     ).all()).results || [];
     const statMap = new Map(stats.map(s => [s.fund_id, s]));
