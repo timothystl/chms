@@ -142,5 +142,13 @@ export function makeQboClient(env, conn) {
     // generically on the frontend rather than assuming fixed column semantics, since QBO's
     // exact column set for this report can vary by account/report params.
     budgetVsActual: (params) => get(`/reports/BudgetVsActual?${new URLSearchParams(params)}&minorversion=${MINOR_VERSION}`),
+
+    // Fallback data sources for when budgetVsActual itself is blocked (hit a persistent 5020
+    // Permission Denied on the report endpoint during live testing even with a verified Budget
+    // and Company Admin access — see FIN2/api-finance.js buildBudgetVsActualFallback). Entity
+    // Query API calls and the standard ProfitAndLoss report sometimes have different permission
+    // enforcement than the BudgetVsActual report specifically, so these may succeed where it fails.
+    budgets: () => get(`/query?query=${encodeURIComponent('SELECT * FROM Budget')}&minorversion=${MINOR_VERSION}`),
+    profitAndLoss: (params) => get(`/reports/ProfitAndLoss?${new URLSearchParams(params)}&minorversion=${MINOR_VERSION}`),
   };
 }

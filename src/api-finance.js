@@ -38,6 +38,83 @@ function redirectToApp(url, qsParam, qsValue) {
   return new Response(null, { status: 302, headers: { Location: `${url.origin}/?${qsParam}=${encodeURIComponent(qsValue)}#finance` } });
 }
 
+// Fallback for when the BudgetVsActual REPORT endpoint itself is blocked (hit a persistent
+// "5020 Permission Denied" error during live testing even with a verified Budget and Company
+// Admin access) but entity-level/other-report access still works. Pulls the raw Budget entity
+// (budgeted amounts) and the ProfitAndLoss report (actuals) separately, matches rows by account
+// name, and synthesizes the same Columns/Rows report shape the frontend already renders
+// generically — so no frontend changes are needed to display it.
+// ⚠ The exact Budget entity field names (BudgetDetail/AccountRef/Amount) are based on Intuit's
+// published schema but could not be confirmed against a live response while building this (docs
+// site blocked automated fetches) — if this returns no usable data, check the real shape of a
+// `SELECT * FROM Budget` response against what's read below and adjust field names accordingly.
+async function buildBudgetVsActualFallback(client, year, warnings) {
+  const budgetsData = await fetchQboJson('Budget entity (fallback)', client.budgets(), warnings);
+  if (!budgetsData) return null;
+  const budgetList = budgetsData?.QueryResponse?.Budget || [];
+  const budget = budgetList.find(b => (b.StartDate || '').startsWith(String(year))) || budgetList[0];
+  if (!budget) { warnings.push(`Budget entity (fallback): no Budget found for ${year}`); return null; }
+
+  const plData = await fetchQboJson(
+    'Profit and Loss (fallback)',
+    client.profitAndLoss({ start_date: `${year}-01-01`, end_date: `${year}-12-31` }),
+    warnings
+  );
+  if (!plData) return null;
+
+  const budgetByAccount = new Map();
+  for (const line of (budget.BudgetDetail || [])) {
+    const name = line?.AccountRef?.name;
+    const amt = Number(line?.Amount);
+    if (!name || !Number.isFinite(amt)) continue;
+    budgetByAccount.set(name, (budgetByAccount.get(name) || 0) + amt);
+  }
+  if (!budgetByAccount.size) { warnings.push('Budget entity (fallback): found a Budget but no usable BudgetDetail line items'); return null; }
+
+  // Flatten ProfitAndLoss's nested Section/Data rows into {accountName: total} — the last
+  // ColData column is the period total when no summarize_column_by is requested.
+  const actualByAccount = new Map();
+  const walk = (rows) => {
+    for (const row of (rows || [])) {
+      if (row.type === 'Section') {
+        const cells = row.Header?.ColData || [];
+        if (cells[0]?.value && cells.length > 1) {
+          const amt = Number(cells[cells.length - 1].value);
+          if (Number.isFinite(amt)) actualByAccount.set(cells[0].value, amt);
+        }
+        walk(row.Rows?.Row);
+      } else {
+        const cells = row.ColData || [];
+        if (cells[0]?.value && cells.length > 1) {
+          const amt = Number(cells[cells.length - 1].value);
+          if (Number.isFinite(amt)) actualByAccount.set(cells[0].value, amt);
+        }
+      }
+    }
+  };
+  walk(plData?.Rows?.Row);
+
+  const names = [...new Set([...budgetByAccount.keys(), ...actualByAccount.keys()])].sort();
+  const rows = names.map(name => {
+    const budgetAmt = budgetByAccount.get(name) || 0;
+    const actualAmt = actualByAccount.get(name) || 0;
+    return {
+      ColData: [
+        { value: name },
+        { value: actualAmt.toFixed(2) },
+        { value: budgetAmt.toFixed(2) },
+        { value: (actualAmt - budgetAmt).toFixed(2) },
+      ],
+    };
+  });
+
+  return {
+    Columns: { Column: [{ ColTitle: 'Account' }, { ColTitle: 'Actual' }, { ColTitle: 'Budget' }, { ColTitle: 'Over Budget By' }] },
+    Rows: { Row: rows },
+    _synthesized: true,
+  };
+}
+
 // Wraps a QuickBooks Accounting API call with the error-handling Intuit's own developer
 // questionnaire asks about: captures the `intuit_tid` response header (Intuit's recommended
 // field for support tickets), parses the structured Fault.Error[] body QBO returns on failure
@@ -154,12 +231,19 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const client = makeQboClient(env, fresh);
     const year = new Date().getFullYear();
     const warnings = [];
-    const budgetVsActual = await fetchQboJson(
+    let budgetVsActual = await fetchQboJson(
       'Budget vs Actual',
       client.budgetVsActual({ start_date: `${year}-01-01`, end_date: `${year}-12-31` }),
       warnings,
       `make sure a Budget for ${year} exists in QuickBooks under Settings > Budgeting`
     );
+    if (!budgetVsActual) {
+      const fallback = await buildBudgetVsActualFallback(client, year, warnings);
+      if (fallback) {
+        budgetVsActual = fallback;
+        warnings.push('Budget vs Actual: showing data reconstructed from the raw Budget entity + Profit and Loss report instead, since the standard report endpoint failed above.');
+      }
+    }
     const accounts = await fetchQboJson('Account balances', client.accounts(), warnings);
     const syncedAt = new Date().toISOString();
     const ops = [];
