@@ -46,7 +46,7 @@ function redirectToApp(url, qsParam, qsValue) {
 // sub-account both named "Plants and Soil" — confirmed against a real QuickBooks P&L export).
 // Only merge when the name unambiguously maps to one account; otherwise leave it at $0 and flag
 // it, rather than silently attributing one account's budget to a different account.
-function mergeLeafCells(cells, ctx) {
+export function mergeLeafCells(cells, ctx) {
   const name = cells[0]?.value || '';
   const actual = Number(cells[cells.length - 1]?.value);
   const actualAmt = Number.isFinite(actual) ? actual : 0;
@@ -65,7 +65,7 @@ function mergeLeafCells(cells, ctx) {
 // Materials" sub-section) PLUS every descendant's budget, summed bottom-up — this reproduces
 // QBO's own "Total for X" math without needing to name-match the subtotal row itself (whose
 // label, e.g. "Total for Job Materials", never appears verbatim in the Budget entity).
-function mergeSection(row, ctx) {
+export function mergeSection(row, ctx) {
   const child = mergeTree(row.Rows?.Row, ctx);
   let ownBudget = 0;
   let newHeaderCells = row.Header?.ColData;
@@ -91,7 +91,7 @@ function mergeSection(row, ctx) {
   };
 }
 // Recursively merges budget amounts into an arbitrarily-nested Section/Data row tree.
-function mergeTree(rows, ctx) {
+export function mergeTree(rows, ctx) {
   let budgetSum = 0;
   const out = (rows || []).map(row => {
     if (row.type === 'Section') {
@@ -112,7 +112,7 @@ function mergeTree(rows, ctx) {
 // running-subtotal rows (Gross Profit / Net Operating Income / Net Other Income / Net Income).
 // "Other Income" starts a second, independent running total that only merges back in at "Net
 // Income" — this is standard P&L structure, confirmed against a real exported QuickBooks report.
-function mergeProfitAndLossTree(rows, ctx) {
+export function mergeProfitAndLossTree(rows, ctx) {
   let mainBudget = 0, otherBudget = 0, inOtherThread = false;
   return (rows || []).map(row => {
     if (row.type === 'Section') {
@@ -131,27 +131,123 @@ function mergeProfitAndLossTree(rows, ctx) {
   });
 }
 
-// Fallback for when the BudgetVsActual REPORT endpoint itself is blocked (hit a persistent
-// "5020 Permission Denied" error during live testing even with a verified Budget and Company
-// Admin access) but entity-level/other-report access still works. Pulls the raw Budget entity
-// (budgeted amounts) and the ProfitAndLoss report (actuals) separately and merges budget figures
-// INTO the real ProfitAndLoss tree (rather than flattening both into an alphabetized list) —
-// this reproduces QuickBooks' own Income/Cost of Goods Sold/Expenses categorization, nesting,
-// and subtotals exactly, and returns the same Columns/Rows report shape the frontend already
-// renders generically, so no frontend changes are needed to display it.
+// Rows whose label is one of these are QuickBooks' own computed running subtotals (Gross
+// Profit, Net Operating Income, etc.) rather than a real account — flattenReportTree() skips
+// them, since they're always re-derivable from the classification totals at query time.
+const RUNNING_SUBTOTAL_LABELS = new Set(['Gross Profit', 'Net Operating Income', 'Net Other Income', 'Net Income']);
+
+function dollarsToCents(v) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? Math.round(n * 100) : 0;
+}
+
+// extractAmounts(cells) => array of {fiscal_year, own_actual_cents, own_budget_cents} — an array
+// (not a single value) so the SAME tree-walk works for both a single-year budget-merged tree
+// (1 result per node, cells = [Account,Actual,Budget,OverBudget]) and a multi-year actuals-only
+// tree (N results per node, one per year column, cells = [Account,Year1,...,YearN]).
+export function makeCurrentYearExtractor(year) {
+  return (cells) => [{ fiscal_year: year, own_actual_cents: dollarsToCents(cells[1]?.value), own_budget_cents: dollarsToCents(cells[2]?.value) }];
+}
+// `colYears[i]` is the fiscal year for cells[i] (cells[0] is always the account name) — pass
+// `null` for any column that isn't a real year (e.g. a trailing "Total" column) to skip it.
+export function makeMultiYearExtractor(colYears) {
+  return (cells) => colYears.map((year, i) => year == null ? null : {
+    fiscal_year: year,
+    own_actual_cents: dollarsToCents(cells[i + 1]?.value),
+    own_budget_cents: null,
+  }).filter(Boolean);
+}
+
+// Flattens a merged/plain QuickBooks Columns/Rows report tree into flat rows ready for
+// finance_church_entries — one row per (real account node, fiscal year), holding only that
+// node's own non-cumulative amount. Never emits a "Total for X" subtotal row (there isn't one in
+// the tree to begin with — those live in row.Summary, which this deliberately never reads) or a
+// running-subtotal row (Gross Profit et al, filtered via RUNNING_SUBTOTAL_LABELS) — both are
+// always re-derivable from the stored per-account rows at query time.
+export function flattenReportTree(rows, pathPrefix, classification, extractAmounts, out) {
+  out = out || [];
+  pathPrefix = pathPrefix || [];
+  for (const row of (rows || [])) {
+    if (row.type === 'Section') {
+      const label = row.Header?.ColData?.[0]?.value || '';
+      const newClass = classification || label; // a top-level Section IS the classification
+      const newPath = pathPrefix.concat(label);
+      const children = row.Rows?.Row || [];
+      const headerCells = row.Header?.ColData;
+      if (headerCells && headerCells.length >= 2) {
+        for (const amt of extractAmounts(headerCells)) out.push(makeFlatRow(newPath, newClass, children.length > 0, amt));
+      }
+      flattenReportTree(children, newPath, newClass, extractAmounts, out);
+    } else {
+      const cells = row.ColData;
+      if (!cells || cells.length < 2) continue; // bare label row, e.g. an empty "Other Income"
+      const label = cells[0]?.value || '';
+      if (RUNNING_SUBTOTAL_LABELS.has(label)) continue;
+      const newPath = pathPrefix.concat(label);
+      for (const amt of extractAmounts(cells)) out.push(makeFlatRow(newPath, classification, false, amt));
+    }
+  }
+  return out;
+}
+function makeFlatRow(path, classification, hasChildren, amt) {
+  return {
+    fiscal_year: amt.fiscal_year,
+    classification,
+    category_path: path.join(':'),
+    account_name: path[path.length - 1],
+    depth: path.length - 1,
+    has_children: hasChildren ? 1 : 0,
+    own_actual_cents: amt.own_actual_cents,
+    own_budget_cents: amt.own_budget_cents,
+  };
+}
+
+// Wholesale-replaces source='qbo_sync' rows for exactly the fiscal years present in `rows`
+// (mirrors the finance_daycare_entries sync's per-period delete+insert pattern), scoped to only
+// the years actually being rewritten so a partial sync failure never wipes years an earlier,
+// separate flatten pass already wrote correctly. `rows` should already be in the desired
+// write-order — when two rows share a (fiscal_year, category_path) key (e.g. a multi-year
+// actuals-only row and a richer current-year budget-merge row for the same year), the one
+// inserted LATER in the array wins via ON CONFLICT DO UPDATE.
+export async function persistChurchEntries(db, rows, syncedAt) {
+  if (!rows.length) return;
+  const years = [...new Set(rows.map(r => r.fiscal_year))];
+  const ops = years.map(y => db.prepare(`DELETE FROM finance_church_entries WHERE source='qbo_sync' AND fiscal_year=?`).bind(y));
+  for (const r of rows) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_church_entries
+         (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+       VALUES (?,0,?,?,?,?,?,?,?,'qbo_sync',?)
+       ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
+         classification=excluded.classification, account_name=excluded.account_name, depth=excluded.depth,
+         has_children=excluded.has_children, own_actual_cents=excluded.own_actual_cents,
+         own_budget_cents=excluded.own_budget_cents, synced_at=excluded.synced_at`
+    ).bind(r.fiscal_year, r.classification, r.category_path, r.account_name, r.depth, r.has_children, r.own_actual_cents, r.own_budget_cents, syncedAt));
+  }
+  await db.batch(ops);
+}
+
+// Fetches the Budget entity + a single current-year ProfitAndLoss report and merges them into
+// one tree, via the same collision-safe mergeProfitAndLossTree() used everywhere else in this
+// file. This is the one trusted place that produces a current-year Budget+Actual merged tree —
+// used both by buildBudgetVsActualFallback() (when QuickBooks' own BudgetVsActual REPORT
+// endpoint fails) and by the finance/qb/sync handler to populate finance_church_entries
+// (always, regardless of whether the real report succeeded — its own column shape isn't
+// guaranteed to match what this function's known 4-column Account/Actual/Budget/OverBudget
+// shape assumes, so persistence never flattens it directly).
 // ⚠ The exact Budget entity field names (BudgetDetail/AccountRef/Amount) are based on Intuit's
 // published schema but could not be confirmed against a live response while building this (docs
 // site blocked automated fetches) — if this returns no usable data, check the real shape of a
 // `SELECT * FROM Budget` response against what's read below and adjust field names accordingly.
-async function buildBudgetVsActualFallback(client, year, warnings) {
-  const budgetsData = await fetchQboJson('Budget entity (fallback)', client.budgets(), warnings);
+async function mergeCurrentYearBudgetAndActual(client, year, warnings) {
+  const budgetsData = await fetchQboJson('Budget entity', client.budgets(), warnings);
   if (!budgetsData) return null;
   const budgetList = budgetsData?.QueryResponse?.Budget || [];
   const budget = budgetList.find(b => (b.StartDate || '').startsWith(String(year))) || budgetList[0];
-  if (!budget) { warnings.push(`Budget entity (fallback): no Budget found for ${year}`); return null; }
+  if (!budget) { warnings.push(`Budget entity: no Budget found for ${year}`); return null; }
 
   const plData = await fetchQboJson(
-    'Profit and Loss (fallback)',
+    'Profit and Loss (current year)',
     client.profitAndLoss({ start_date: `${year}-01-01`, end_date: `${year}-12-31` }),
     warnings
   );
@@ -171,19 +267,29 @@ async function buildBudgetVsActualFallback(client, year, warnings) {
     if (!budgetIdsByName.has(name)) budgetIdsByName.set(name, new Set());
     if (id != null) budgetIdsByName.get(name).add(id);
   }
-  if (!budgetByName.size) { warnings.push('Budget entity (fallback): found a Budget but no usable BudgetDetail line items'); return null; }
+  if (!budgetByName.size) { warnings.push('Budget entity: found a Budget but no usable BudgetDetail line items'); return null; }
 
   const ambiguousNames = new Set();
   const rows = mergeProfitAndLossTree(plData.Rows.Row, { budgetByName, budgetIdsByName, ambiguousNames });
   if (ambiguousNames.size) {
     warnings.push(
-      `Budget vs Actual (fallback): ${ambiguousNames.size} account name(s) appear on more than one account in different categories (e.g. sub-accounts sharing a name across Income and Expenses) — shown as $0 budget rather than guessed which one: ${[...ambiguousNames].slice(0, 5).join(', ')}${ambiguousNames.size > 5 ? '…' : ''}`
+      `Budget vs Actual: ${ambiguousNames.size} account name(s) appear on more than one account in different categories (e.g. sub-accounts sharing a name across Income and Expenses) — shown as $0 budget rather than guessed which one: ${[...ambiguousNames].slice(0, 5).join(', ')}${ambiguousNames.size > 5 ? '…' : ''}`
     );
   }
+  return { rows };
+}
 
+// Fallback for when the BudgetVsActual REPORT endpoint itself is blocked (hit a persistent
+// "5020 Permission Denied" error during live testing even with a verified Budget and Company
+// Admin access) but entity-level/other-report access still works. Wraps
+// mergeCurrentYearBudgetAndActual()'s merged tree in the same Columns/Rows report shape the
+// frontend already renders generically, so no frontend changes are needed to display it.
+async function buildBudgetVsActualFallback(client, year, warnings) {
+  const merged = await mergeCurrentYearBudgetAndActual(client, year, warnings);
+  if (!merged) return null;
   return {
     Columns: { Column: [{ ColTitle: 'Account' }, { ColTitle: 'Actual' }, { ColTitle: 'Budget' }, { ColTitle: 'Over Budget By' }] },
-    Rows: { Row: rows },
+    Rows: { Row: merged.rows },
     _synthesized: true,
   };
 }
@@ -214,6 +320,50 @@ async function fetchQboJson(label, resPromise, warnings, hint) {
     + (hint ? ` — ${hint}` : '')
   );
   return null;
+}
+
+// Given all finance_church_entries rows for a set of years (any source), resolves per-year
+// source precedence: a year with any 'import' or 'manual' row uses ONLY those rows (an import is
+// always a deliberate override/backfill — see migrations/0018_finance_church_entries.sql); a
+// year with only 'qbo_sync' rows uses those. One bulk query + JS grouping, not a correlated
+// subquery per year, matching this app's existing performance conventions.
+export function resolveChurchYearPrecedence(rows) {
+  const bySourceThenYear = new Map(); // year -> { hasOverride, rows }
+  for (const r of rows) {
+    if (!bySourceThenYear.has(r.fiscal_year)) bySourceThenYear.set(r.fiscal_year, { hasOverride: false, rows: [] });
+    const bucket = bySourceThenYear.get(r.fiscal_year);
+    if (r.source !== 'qbo_sync') bucket.hasOverride = true;
+    bucket.rows.push(r);
+  }
+  const out = [];
+  for (const { hasOverride, rows: yearRows } of bySourceThenYear.values()) {
+    out.push(...(hasOverride ? yearRows.filter(r => r.source !== 'qbo_sync') : yearRows.filter(r => r.source === 'qbo_sync')));
+  }
+  return out;
+}
+
+// Rolls a year's precedence-resolved flat rows up into per-classification actual/budget totals
+// plus the derived running-subtotal figures (Gross Profit, Net Operating Income, Net Other
+// Income, Net Income) — the same arithmetic mergeProfitAndLossTree() computes over a live tree,
+// now computed over persisted rows instead. own_budget_cents is null when no budget is known for
+// an account (as opposed to a real $0) — hasBudgetData is true only if at least one row in the
+// year has a non-null budget, so the caller can show "no budget data" honestly instead of $0.
+export function computeYearSummary(rows) {
+  const byClass = {};
+  let hasBudgetData = false;
+  for (const r of rows) {
+    if (!byClass[r.classification]) byClass[r.classification] = { actualCents: 0, budgetCents: 0 };
+    byClass[r.classification].actualCents += r.own_actual_cents;
+    if (r.own_budget_cents != null) { byClass[r.classification].budgetCents += r.own_budget_cents; hasBudgetData = true; }
+  }
+  const get = c => byClass[c] || { actualCents: 0, budgetCents: 0 };
+  const income = get('Income'), cogs = get('Cost of Goods Sold'), expenses = get('Expenses'),
+        otherIncome = get('Other Income'), otherExpenses = get('Other Expenses');
+  const grossProfit = { actualCents: income.actualCents - cogs.actualCents, budgetCents: income.budgetCents - cogs.budgetCents };
+  const netOperatingIncome = { actualCents: grossProfit.actualCents - expenses.actualCents, budgetCents: grossProfit.budgetCents - expenses.budgetCents };
+  const netOtherIncome = { actualCents: otherIncome.actualCents - otherExpenses.actualCents, budgetCents: otherIncome.budgetCents - otherExpenses.budgetCents };
+  const netIncome = { actualCents: netOperatingIncome.actualCents + netOtherIncome.actualCents, budgetCents: netOperatingIncome.budgetCents + netOtherIncome.budgetCents };
+  return { classificationTotals: byClass, grossProfit, netOperatingIncome, netOtherIncome, netIncome, hasBudgetData };
 }
 
 export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, isFinance) {
@@ -304,18 +454,27 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const client = makeQboClient(env, fresh);
     const year = new Date().getFullYear();
     const warnings = [];
+
+    // Built once via our own trusted merge pipeline (known, tested Columns shape) — used both
+    // to persist finance_church_entries below (always) and as the Overview tab's fallback
+    // display when QuickBooks' own BudgetVsActual report call fails. Never flatten the real
+    // budgetVsActual report itself into finance_church_entries: its exact column layout isn't
+    // guaranteed to match this function's known 4-column shape.
+    const currentYearMerge = await mergeCurrentYearBudgetAndActual(client, year, warnings);
+
     let budgetVsActual = await fetchQboJson(
       'Budget vs Actual',
       client.budgetVsActual({ start_date: `${year}-01-01`, end_date: `${year}-12-31` }),
       warnings,
       `make sure a Budget for ${year} exists in QuickBooks under Settings > Budgeting`
     );
-    if (!budgetVsActual) {
-      const fallback = await buildBudgetVsActualFallback(client, year, warnings);
-      if (fallback) {
-        budgetVsActual = fallback;
-        warnings.push('Budget vs Actual: showing data reconstructed from the raw Budget entity + Profit and Loss report instead, since the standard report endpoint failed above.');
-      }
+    if (!budgetVsActual && currentYearMerge) {
+      budgetVsActual = {
+        Columns: { Column: [{ ColTitle: 'Account' }, { ColTitle: 'Actual' }, { ColTitle: 'Budget' }, { ColTitle: 'Over Budget By' }] },
+        Rows: { Row: currentYearMerge.rows },
+        _synthesized: true,
+      };
+      warnings.push('Budget vs Actual: showing data reconstructed from the raw Budget entity + Profit and Loss report instead, since the standard report endpoint failed above.');
     }
     const accounts = await fetchQboJson('Account balances', client.accounts(), warnings);
     // Board-level "Church Report": one P&L column per calendar year over a 5-year trailing
@@ -337,13 +496,26 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       `INSERT INTO finance_qb_snapshot (key,value,synced_at) VALUES ('accounts',?,?)
        ON CONFLICT(key) DO UPDATE SET value=excluded.value, synced_at=excluded.synced_at`
     ).bind(JSON.stringify(accounts), syncedAt));
-    if (profitAndLoss) ops.push(db.prepare(
-      `INSERT INTO finance_qb_snapshot (key,value,synced_at) VALUES ('profit_and_loss_by_year',?,?)
-       ON CONFLICT(key) DO UPDATE SET value=excluded.value, synced_at=excluded.synced_at`
-    ).bind(JSON.stringify(profitAndLoss), syncedAt));
     if (ops.length) await db.batch(ops);
+
+    // ── Persist into finance_church_entries ────────────────────────────
+    // Order matters: multi-year (actuals-only) rows are flattened FIRST, then the current-year
+    // budget-merge rows SECOND, so the richer current-year row's ON CONFLICT DO UPDATE
+    // overwrites whatever the multi-year pass just wrote for that same year — see
+    // migrations/0018_finance_church_entries.sql for the full design rationale.
+    const churchRows = [];
+    if (profitAndLoss && profitAndLoss.Rows) {
+      const cols = (profitAndLoss.Columns && profitAndLoss.Columns.Column) || [];
+      const colYears = cols.map(c => { const m = /(\d{4})/.exec(c.ColTitle || ''); return m ? parseInt(m[1], 10) : null; });
+      flattenReportTree(profitAndLoss.Rows.Row, [], null, makeMultiYearExtractor(colYears), churchRows);
+    }
+    if (currentYearMerge) {
+      flattenReportTree(currentYearMerge.rows, [], null, makeCurrentYearExtractor(year), churchRows);
+    }
+    await persistChurchEntries(db, churchRows, syncedAt);
+
     await db.prepare('UPDATE finance_qb_connection SET last_synced_at=? WHERE id=1').bind(syncedAt).run();
-    return json({ ok: true, syncedAt, warnings, fetched: { budgetVsActual: !!budgetVsActual, accounts: !!accounts, profitAndLoss: !!profitAndLoss } });
+    return json({ ok: true, syncedAt, warnings, fetched: { budgetVsActual: !!budgetVsActual, accounts: !!accounts, profitAndLoss: !!profitAndLoss }, churchEntriesSynced: churchRows.length });
   }
 
   // ── Overview: cached QBO data + daycare summary, for the Finance tab ──
@@ -362,8 +534,6 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       accountsSyncedAt: snaps.accounts?.syncedAt || '',
       daycareAccounts: snaps.daycare_accounts?.data || null,
       daycareAccountsSyncedAt: snaps.daycare_accounts?.syncedAt || '',
-      profitAndLoss: snaps.profit_and_loss_by_year?.data || null,
-      profitAndLossSyncedAt: snaps.profit_and_loss_by_year?.syncedAt || '',
     });
   }
 
@@ -452,6 +622,39 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (dcMatch && method === 'DELETE') {
     await db.prepare('DELETE FROM finance_daycare_entries WHERE id=?').bind(parseInt(dcMatch[1], 10)).run();
     return json({ ok: true });
+  }
+
+  // ── Church Report v2: This Year — persisted-table read, no live QuickBooks call ────────
+  if (seg === 'finance/church/this-year' && method === 'GET') {
+    const year = parseInt(url.searchParams.get('year'), 10) || new Date().getFullYear();
+    const allRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year).all()).results || [];
+    const entries = resolveChurchYearPrecedence(allRows);
+    const summary = computeYearSummary(entries);
+    const givingRow = await db.prepare(
+      `SELECT COALESCE(SUM(amount),0) AS total FROM giving_entries WHERE contribution_date BETWEEN ? AND ?`
+    ).bind(`${year}-01-01`, `${year}-12-31`).first();
+    return json({
+      year,
+      entries,
+      ...summary,
+      givingCents: givingRow?.total || 0,
+    });
+  }
+
+  // ── Church Report v2: Multi-Year — persisted-table read, one bulk query + JS grouping ──
+  if (seg === 'finance/church/multi-year' && method === 'GET') {
+    const yearsParam = url.searchParams.get('years');
+    const currentYear = new Date().getFullYear();
+    const years = yearsParam
+      ? yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite)
+      : [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
+    if (!years.length) return json({ error: 'No valid years requested' }, 400);
+    const placeholders = years.map(() => '?').join(',');
+    const allRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${placeholders})`).bind(...years).all()).results || [];
+    const resolved = resolveChurchYearPrecedence(allRows);
+    const byYear = {};
+    years.forEach(y => { byYear[y] = computeYearSummary(resolved.filter(r => r.fiscal_year === y)); });
+    return json({ years, byYear });
   }
 
   return null;

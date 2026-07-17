@@ -1348,14 +1348,19 @@ export const HTML_TABS_2 = String.raw`
 
           <div id="fin-panel-church" style="display:none;">
             <section class="dash-card fin-printable" style="margin-bottom:16px;">
-              <div class="dash-card-hdr" style="display:flex;align-items:center;justify-content:space-between;">
-                <span>Church Report — Year by Year</span>
-                <div style="display:flex;gap:8px;">
+              <div class="dash-card-hdr" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                <span>Church Report</span>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                  <button id="fin-church-mode-year" class="btn-secondary active" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('year')">This Year</button>
+                  <button id="fin-church-mode-multiyear" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('multiyear')">Multi-Year</button>
                   <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportChurchCsv()">Export CSV</button>
                   <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
                 </div>
               </div>
-              <div class="dash-card-body" style="padding:14px 18px;" id="fin-church-report"></div>
+              <div class="dash-card-body" style="padding:14px 18px;">
+                <div id="fin-church-year-view"></div>
+                <div id="fin-church-multiyear-view" style="display:none;"></div>
+              </div>
             </section>
           </div>
 

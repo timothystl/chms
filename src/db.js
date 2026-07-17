@@ -906,6 +906,30 @@ async function _doInitDb(db) {
     // this column lets manual entries coexist without being clobbered. Added after the table
     // itself for databases that cold-started between the two.
     `ALTER TABLE finance_daycare_entries ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`,
+    // Persisted Church financial data (see migrations/0018_finance_church_entries.sql for the
+    // full design rationale — never stores QuickBooks' own subtotal rows, only each account's
+    // own non-cumulative amount, keyed by a colon-joined category_path).
+    `CREATE TABLE IF NOT EXISTS finance_church_entries (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      fiscal_year       INTEGER NOT NULL,
+      period_month      INTEGER NOT NULL DEFAULT 0,
+      classification    TEXT    NOT NULL,
+      category_path     TEXT    NOT NULL,
+      account_name      TEXT    NOT NULL,
+      depth             INTEGER NOT NULL DEFAULT 0,
+      has_children      INTEGER NOT NULL DEFAULT 0,
+      own_actual_cents  INTEGER NOT NULL DEFAULT 0,
+      own_budget_cents  INTEGER,
+      account_qbo_id    TEXT    NOT NULL DEFAULT '',
+      source            TEXT    NOT NULL DEFAULT 'qbo_sync',
+      notes             TEXT    NOT NULL DEFAULT '',
+      synced_at         TEXT    NOT NULL DEFAULT '',
+      created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(fiscal_year, period_month, category_path, source)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_church_entries_year       ON finance_church_entries(fiscal_year)`,
+    `CREATE INDEX IF NOT EXISTS idx_church_entries_year_class ON finance_church_entries(fiscal_year, classification)`,
+    `CREATE INDEX IF NOT EXISTS idx_church_entries_path        ON finance_church_entries(category_path)`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
