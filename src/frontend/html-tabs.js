@@ -588,6 +588,13 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <div class="import-status" id="fund-map-status"></div>
     </div>
+    <div class="import-card require-admin">
+      <h3>&#128203; Find Duplicate Funds</h3>
+      <p>Finds fund records that share the exact same name (e.g. two "40085 General Fund" rows) — common when a Breeze fund was re-created or is no longer in Breeze at all. Lets you pick which one to keep; all contributions from the others are reassigned to it and the duplicate rows are deleted.</p>
+      <button class="btn-secondary" onclick="loadDuplicateFunds()" style="margin-bottom:10px;">Find Duplicate Funds</button>
+      <div id="dup-funds-area"></div>
+      <div class="import-status" id="dup-funds-status"></div>
+    </div>
     <div class="import-card">
       <h3>&#128197; Import Attendance (Simple CSV)</h3>
       <p>Paste or upload a 3-column file: <code>date, service_name, attendance</code>. Date must be YYYY-MM-DD. One row per service. Header row optional. Existing records for the same date+time are updated; new ones are inserted.</p>

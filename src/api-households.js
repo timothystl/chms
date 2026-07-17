@@ -379,5 +379,54 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
     }
   }
 
+  // ── Duplicate fund finder + merge (admin only) ──────────────────────
+  if (seg === 'funds/duplicates' && method === 'GET') {
+    if (!isAdmin) return json({ error: 'Access denied' }, 403);
+    const funds = (await db.prepare('SELECT * FROM funds ORDER BY name,id').all()).results || [];
+    const stats = (await db.prepare(
+      `SELECT fund_id, COUNT(*) cnt, COALESCE(SUM(amount_cents),0) total_cents
+       FROM giving_entries GROUP BY fund_id`
+    ).all()).results || [];
+    const statMap = new Map(stats.map(s => [s.fund_id, s]));
+    const groups = new Map();
+    for (const f of funds) {
+      const key = (f.name || '').trim().toLowerCase();
+      if (!key) continue;
+      if (!groups.has(key)) groups.set(key, []);
+      const s = statMap.get(f.id) || { cnt: 0, total_cents: 0 };
+      groups.get(key).push({
+        id: f.id, name: f.name, description: f.description, active: !!f.active,
+        breeze_id: f.breeze_id || '', sort_order: f.sort_order,
+        entry_count: s.cnt, total_cents: s.total_cents
+      });
+    }
+    const duplicates = [...groups.entries()]
+      .filter(([, rows]) => rows.length > 1)
+      .map(([name, rows]) => ({ name, funds: rows.sort((a, b) => b.total_cents - a.total_cents) }));
+    return json({ duplicates });
+  }
+  if (seg === 'funds/merge' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied' }, 403);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const keepId = parseInt(b.keep_id);
+    const removeIds = Array.isArray(b.remove_ids) ? b.remove_ids.map(x => parseInt(x)).filter(Number.isInteger) : [];
+    if (!Number.isInteger(keepId) || !removeIds.length || removeIds.includes(keepId)) {
+      return json({ error: 'Invalid keep_id/remove_ids' }, 400);
+    }
+    const keepFund = await db.prepare('SELECT id FROM funds WHERE id=?').bind(keepId).first();
+    if (!keepFund) return json({ error: 'keep_id fund not found' }, 404);
+    let movedEntries = 0;
+    for (const rid of removeIds) {
+      const r = await db.prepare('UPDATE giving_entries SET fund_id=? WHERE fund_id=?').bind(keepId, rid).run();
+      movedEntries += r.meta?.changes || 0;
+      await db.prepare('DELETE FROM funds WHERE id=?').bind(rid).run();
+    }
+    await db.prepare(
+      `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value) VALUES(?,?,?,?,?,?,?)`
+    ).bind('merge_funds', 'fund', keepId, '', 'merged_from',
+           JSON.stringify(removeIds), String(movedEntries)).run();
+    return json({ ok: true, moved_entries: movedEntries });
+  }
+
   return null; // not handled — caller should return 404
 }
