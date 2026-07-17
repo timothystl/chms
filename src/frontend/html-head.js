@@ -269,6 +269,8 @@ a.s-item{text-decoration:none;color:inherit;}
 .reg-person-chip:hover{background:var(--blue-mist);}
 .reg-edit-btn{background:none;border:none;color:var(--sky-steel);cursor:pointer;font-size:.78rem;padding:2px 6px;border-radius:4px;opacity:.7;}
 .reg-edit-btn:hover{opacity:1;background:var(--blue-mist);}
+.reg-del-btn{background:none;border:none;color:var(--danger);cursor:pointer;font-size:.78rem;padding:2px 6px;border-radius:4px;opacity:.7;margin-left:2px;}
+.reg-del-btn:hover{opacity:1;background:var(--linen);}
 @media(max-width:700px){.reg-form-panel{display:none;}.reg-body{flex-direction:column;}.reg-add-toggle{display:inline-flex !important;}}
 /* ── REPORTS ── */
 .report-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-bottom:20px;}
