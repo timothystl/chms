@@ -1400,6 +1400,69 @@ function tapExtractHistoryRecords(grid, currentSchoolYear) {
   return records;
 }
 
+// ── Wide multi-year-group "Student Tuition History" layout ────────────────
+// A richer variant of the simple ledger: instead of one "Parent YYYY-YY" column
+// per year, each year gets a 5-column group (Grade / Tuition Billed / Outside Aid /
+// Timothy Aid / Family Owed), with the year label merged across the group one row
+// above the column headers. Tried first on a "Student Tuition History" sheet;
+// falls back to the simple single-column-per-year format if this isn't found.
+function tapDetectMultiYearHistoryLayout(grid) {
+  var headerIdx = tapFindHistoryHeaderRow(grid);
+  if (headerIdx <= 0) return null;
+  var yearRow = grid[headerIdx - 1], headerRow = grid[headerIdx];
+  if (!yearRow || !headerRow) return null;
+  var groups = [];
+  for (var c = 2; c < yearRow.length; c++) {
+    var cell = yearRow[c];
+    if (typeof cell !== 'string') continue;
+    var m = /^(\d{4})-(\d{2,4})$/.exec(cell.trim());
+    if (!m) continue;
+    var year = m[1] + '-' + (m[2].length === 4 ? m[2].slice(2) : m[2]);
+    if (tapNormHeader(headerRow[c]) !== 'grade') continue;
+    if (tapNormHeader(headerRow[c + 2]).indexOf('outside') !== 0) continue;
+    if (tapNormHeader(headerRow[c + 3]).indexOf('timothy') !== 0) continue;
+    if (tapNormHeader(headerRow[c + 4]).indexOf('family') !== 0) continue;
+    groups.push({ year: year, gradeCol: c, tuitionCol: c + 1, outsideCol: c + 2, timothyCol: c + 3, familyOwedCol: c + 4 });
+  }
+  return groups.length ? { headerRow: headerIdx, groups: groups } : null;
+}
+function tapExtractMultiYearHistory(grid, layout, currentSchoolYear) {
+  var records = [], reconcileWarnings = [];
+  for (var r = layout.headerRow + 1; r < grid.length; r++) {
+    var row = grid[r];
+    if (!row) continue;
+    var family = row[0], child = row[1];
+    if (typeof family !== 'string' || !family.trim()) continue;
+    if (family.indexOf('▸') === 0 || family.indexOf('📋') === 0) continue;
+    if (typeof child !== 'string' || !child.trim()) continue;
+    var entries = [];
+    for (var i = 0; i < layout.groups.length; i++) {
+      var g = layout.groups[i];
+      if (g.year === currentSchoolYear) continue;
+      var gradeRaw = row[g.gradeCol], tuitionRaw = row[g.tuitionCol], outsideRaw = row[g.outsideCol],
+        timothyRaw = row[g.timothyCol], familyRaw = row[g.familyOwedCol];
+      var hasGrade = gradeRaw != null && String(gradeRaw).trim() !== '';
+      var hasAny = hasGrade || typeof outsideRaw === 'number' || typeof timothyRaw === 'number' || typeof familyRaw === 'number';
+      if (!hasAny) continue;
+      var entry = { school_year: g.year };
+      if (hasGrade) entry.grade = String(gradeRaw).trim();
+      if (typeof outsideRaw === 'number') entry.outside_aid_cents = Math.round(outsideRaw * 100);
+      if (typeof timothyRaw === 'number') entry.timothy_award_cents = Math.round(timothyRaw * 100);
+      if (typeof familyRaw === 'number') entry.family_owed_cents = Math.round(familyRaw * 100);
+      entries.push(entry);
+      if (typeof tuitionRaw === 'number' && typeof outsideRaw === 'number' && typeof timothyRaw === 'number' && typeof familyRaw === 'number') {
+        var computed = tuitionRaw - outsideRaw - timothyRaw;
+        if (Math.abs(computed - familyRaw) > 1) {
+          reconcileWarnings.push({ family: family.trim(), child: child.trim(), school_year: g.year,
+            tuition: tuitionRaw, outside: outsideRaw, timothy: timothyRaw, familyOwed: familyRaw, computed: computed });
+        }
+      }
+    }
+    if (entries.length) records.push({ family: family.trim(), child: child.trim(), entries: entries });
+  }
+  return { records: records, reconcileWarnings: reconcileWarnings };
+}
+
 // ── Raw award-workbook parser ────────────────────────────────────────────
 // Reads the school's actual working workbook (one sheet per year, e.g. "26-27",
 // "2025-26", "Timothy Member Tuition 2023-24") directly - no reformatting needed.
@@ -1620,13 +1683,24 @@ function tapImportFileSelected(input) {
     var simpleSheet = null;
     for (var i = 0; i < sheets.length; i++) { if (sheets[i].name === 'Student Tuition History') { simpleSheet = sheets[i]; break; } }
     if (simpleSheet) {
-      var records = tapExtractHistoryRecords(simpleSheet.grid, currentYear);
+      var multiLayout = tapDetectMultiYearHistoryLayout(simpleSheet.grid);
+      var records, reconcileWarnings = [];
+      if (multiLayout) {
+        var multiResult = tapExtractMultiYearHistory(simpleSheet.grid, multiLayout, currentYear);
+        records = multiResult.records;
+        reconcileWarnings = multiResult.reconcileWarnings;
+      } else {
+        records = tapExtractHistoryRecords(simpleSheet.grid, currentYear);
+      }
       _tapImportRecords = records;
       _tapImportUnresolved = [];
       var totalEntries = records.reduce(function(s, r) { return s + r.entries.length; }, 0);
       if (!records.length) { statusEl.textContent = 'No importable records found in this file.'; return; }
-      statusEl.textContent = 'Found ' + records.length + ' student' + (records.length === 1 ? '' : 's') + ', ' + totalEntries + ' year' + (totalEntries === 1 ? '' : 's') + ' of history. Review below, then Import.';
-      tapRenderImportPreview(records, [], []);
+      var simpleMsg = 'Found ' + records.length + ' student' + (records.length === 1 ? '' : 's') + ', ' + totalEntries + ' year' + (totalEntries === 1 ? '' : 's') + ' of history.';
+      if (reconcileWarnings.length) simpleMsg += ' ' + reconcileWarnings.length + ' entr' + (reconcileWarnings.length === 1 ? 'y' : 'ies') + " don't add up (tuition − outside aid − Timothy award ≠ family owed) — flagged below, still checked (your call whether to trust family owed or the aid split).";
+      simpleMsg += ' Review below, then Import.';
+      statusEl.textContent = simpleMsg;
+      tapRenderImportPreview(records, [], [], reconcileWarnings);
       document.getElementById('tap-import-confirm-btn').style.display = '';
       return;
     }
@@ -1646,16 +1720,18 @@ function tapImportFileSelected(input) {
     if (extracted.skippedSheets.length) msg += ' Skipped (different layout, not imported): ' + extracted.skippedSheets.join(', ') + '.';
     msg += ' Review below, then Import.';
     statusEl.textContent = msg;
-    tapRenderImportPreview(built.records, built.lhsUnresolved, built.collisionWarnings);
+    tapRenderImportPreview(built.records, built.lhsUnresolved, built.collisionWarnings, []);
     document.getElementById('tap-import-confirm-btn').style.display = built.records.length ? '' : 'none';
   }).catch(function(err) {
     statusEl.textContent = (err && err.message) || 'Could not read this file.';
   });
 }
-function tapRenderImportPreview(records, unresolved, collisionWarnings) {
+function tapRenderImportPreview(records, unresolved, collisionWarnings, reconcileWarnings) {
   var anyRich = records.some(function(rec) { return rec.entries.some(function(e) { return e.lhs_award_cents != null || e.outside_aid_cents != null; }); });
   var collisionKeys = {};
   (collisionWarnings || []).forEach(function(w) { collisionKeys[w.family.trim().toLowerCase() + '|' + w.child.trim().toLowerCase()] = true; });
+  var mismatchKeys = {};
+  (reconcileWarnings || []).forEach(function(w) { mismatchKeys[w.family.trim().toLowerCase() + '|' + w.child.trim().toLowerCase() + '|' + w.school_year] = true; });
   var html = '<div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">'
     + '<table style="width:100%;border-collapse:collapse;font-size:.8rem;"><thead><tr style="border-bottom:2px solid var(--navy);position:sticky;top:0;background:var(--white);">'
     + '<th style="padding:5px 8px;"></th><th style="text-align:left;padding:5px 8px;">Family</th><th style="text-align:left;padding:5px 8px;">Child</th>'
@@ -1670,9 +1746,10 @@ function tapRenderImportPreview(records, unresolved, collisionWarnings) {
     for (var e = 0; e < rec.entries.length; e++) {
       var entry = rec.entries[e];
       var isLhs = entry.lhs_award_cents != null;
-      html += '<tr' + (isCollision ? ' style="background:#FBEAEA;"' : '') + '><td style="padding:4px 8px;"><input type="checkbox"' + (isCollision ? '' : ' checked') + ' id="tap-import-cb-' + r + '-' + e + '"></td>'
+      var isMismatch = !isCollision && !!mismatchKeys[rec.family.trim().toLowerCase() + '|' + rec.child.trim().toLowerCase() + '|' + entry.school_year];
+      html += '<tr' + (isCollision ? ' style="background:#FBEAEA;"' : (isMismatch ? ' style="background:#FDF3E3;"' : '')) + '><td style="padding:4px 8px;"><input type="checkbox"' + (isCollision ? '' : ' checked') + ' id="tap-import-cb-' + r + '-' + e + '"></td>'
         + '<td style="padding:4px 8px;">' + esc(rec.family) + (isCollision ? ' ⚠' : '') + '</td><td style="padding:4px 8px;">' + esc(rec.child) + '</td>'
-        + '<td style="padding:4px 8px;">' + esc(entry.school_year) + '</td>'
+        + '<td style="padding:4px 8px;">' + esc(entry.school_year) + (isMismatch ? ' ≈' : '') + '</td>'
         + (anyRich ? '<td style="padding:4px 8px;">' + esc(entry.grade || '') + '</td>'
             + '<td style="padding:4px 8px;text-align:right;">' + (isLhs ? '—' : fmtMoney(entry.outside_aid_cents || 0)) + '</td>'
             + '<td style="padding:4px 8px;text-align:right;">' + (isLhs ? '—' : fmtMoney(entry.timothy_award_cents || 0)) + '</td>' : '')
@@ -1688,6 +1765,17 @@ function tapRenderImportPreview(records, unresolved, collisionWarnings) {
       + '<strong>⚠ ' + collisionWarnings.length + ' name' + (collisionWarnings.length === 1 ? '' : 's') + ' matched both a K-8 record and an LHS award in the same school year</strong> — that means two different students almost certainly share this exact name. Their rows above are unchecked by default; review carefully (a middle name, DOB, or household would help tell them apart) before checking either one:'
       + '<ul style="margin:6px 0 0;padding-left:18px;">'
       + collisionWarnings.map(function(w) { return '<li>' + esc(w.family) + ' / ' + esc(w.child) + '</li>'; }).join('')
+      + '</ul></div>';
+  }
+  if (reconcileWarnings && reconcileWarnings.length) {
+    html += '<div style="margin-top:10px;padding:8px 10px;background:#FDF3E3;border-radius:8px;font-size:.75rem;">'
+      + '<strong>≈ ' + reconcileWarnings.length + ' entr' + (reconcileWarnings.length === 1 ? 'y' : 'ies') + " don't add up</strong> — tuition minus outside aid minus Timothy award doesn't equal family owed for these, so one of the figures is likely off in the source file. Still checked for import (family owed is probably the more reliable number), but worth a look:"
+      + '<ul style="margin:6px 0 0;padding-left:18px;">'
+      + reconcileWarnings.map(function(w) {
+          return '<li>' + esc(w.family) + ' / ' + esc(w.child) + ' (' + esc(w.school_year) + '): tuition ' + fmtMoney(Math.round(w.tuition * 100))
+            + ' − outside ' + fmtMoney(Math.round(w.outside * 100)) + ' − Timothy ' + fmtMoney(Math.round(w.timothy * 100))
+            + ' = ' + fmtMoney(Math.round(w.computed * 100)) + ', but family owed shows ' + fmtMoney(Math.round(w.familyOwed * 100)) + '</li>';
+        }).join('')
       + '</ul></div>';
   }
   if (unresolved && unresolved.length) {
