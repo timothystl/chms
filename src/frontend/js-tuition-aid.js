@@ -108,6 +108,8 @@ function tapFromServerRow(r) {
     attendsLHS: r.attends_lhs !== 0,
     timothyAwardExact: r.timothy_award_exact_cents != null ? r.timothy_award_exact_cents / 100 : null,
     familyOwedExact: r.family_owed_exact_cents != null ? r.family_owed_exact_cents / 100 : null,
+    timothyAwardOverride: r.timothy_award_override_cents != null ? r.timothy_award_override_cents / 100 : null,
+    familyOwedOverride: r.family_owed_override_cents != null ? r.family_owed_override_cents / 100 : null,
     note: r.note || ''
   };
 }
@@ -208,6 +210,13 @@ function tapSplitFor(s, yearIdx) {
       familyOwed: (pin.family_owed_cents != null ? pin.family_owed_cents : 0) / 100
     };
   }
+  // Manual exact-dollar override (typed directly into the Timothy Award field) always wins for
+  // the current year once set — regardless of touched — until the Family Share % slider is
+  // dragged again, which clears it (see tapSliderChange). Distinct from timothyAwardExact below,
+  // which is the original Breeze/manual seed snapshot and only applies pre-touch.
+  if (yearIdx === 0 && !s.isPipeline && s.timothyAwardOverride != null) {
+    return { familyOwed: s.familyOwedOverride || 0, timothyAward: s.timothyAwardOverride };
+  }
   if (yearIdx === 0 && !s.isPipeline && !s.touched && s.timothyAwardExact != null) {
     return { familyOwed: s.familyOwedExact, timothyAward: s.timothyAwardExact };
   }
@@ -276,7 +285,24 @@ function tapRenderAll() {
   tapRenderDetailTable();
   tapRenderPipelineList();
   tapRenderYearRateBox();
+  tapRenderTotalBudgetBox();
   tapRenderPlannerTables();
+}
+function tapRenderTotalBudgetBox() {
+  var el = document.getElementById('tap-total-budget-input');
+  if (!el) return;
+  el.value = _tapConfig.timothy_total_budget_cents != null ? Math.round(tapCfgNum('timothy_total_budget_cents', 0)) : '';
+}
+function tapSaveTotalBudget() {
+  var dollars = +document.getElementById('tap-total-budget-input').value;
+  if (!dollars || dollars < 0) return;
+  var cents = Math.round(dollars * 100);
+  api('/admin/api/tuition-aid/config', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: { timothy_total_budget_cents: cents } })
+  }).then(function() {
+    _tapConfig.timothy_total_budget_cents = String(cents);
+    tapUpdateGauges();
+  }).catch(function() {});
 }
 
 function tapKpiHtml(lbl, val, note, accent) {
@@ -536,8 +562,10 @@ function tapRenderPlannerTables() {
     if (bucket === 'K8') {
       if (grade === 'PK 3' || grade === 'PK 4') return;
       var sp = tapSplitFor(s, _tapYearIdx);
+      var pinForOverride = _tapYearIdx !== 0 ? tapPinFor(s.id, _tapYearIdx) : null;
+      var isOverridden = _tapYearIdx === 0 ? (s.timothyAwardOverride != null) : !!(pinForOverride && pinForOverride.timothy_award_cents != null);
       k8List.push({
-        s: s, grade: grade, sp: sp,
+        s: s, grade: grade, sp: sp, isOverridden: isOverridden,
         famPctVal: tapFamPctFor(s, _tapYearIdx), outsideAidVal: tapOutsideAidFor(s, _tapYearIdx)
       });
     } else if (bucket === 'LHS') {
@@ -560,7 +588,7 @@ function tapRenderPlannerTables() {
   k8List = tapSortRows(k8List, _tapK8Sort, k8KeyFn);
 
   var k8Rows = k8List.map(function(row) {
-    var s = row.s, grade = row.grade, sp = row.sp, famPctVal = row.famPctVal, outsideAidVal = row.outsideAidVal;
+    var s = row.s, grade = row.grade, sp = row.sp, famPctVal = row.famPctVal, outsideAidVal = row.outsideAidVal, isOverridden = row.isOverridden;
     var lhsToggle = grade === '8'
       ? '<label class="tap-lhs-toggle"><input type="checkbox" onchange="tapSetAttendsLHS(' + s.id + ',this.checked)" ' + (s.attendsLHS ? 'checked' : '') + '> Plans to attend LHS</label>' : '';
     var linkBtn = s.personId ? '' : '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenLinkPerson(' + s.id + ')">Link</button> ';
@@ -578,7 +606,10 @@ function tapRenderPlannerTables() {
         + '</div>'
         + '<div class="tap-slider-caption">Family share of $' + Math.round(tuition).toLocaleString() + ' bill</div>'
       + '</td>'
-      + '<td class="tap-award-cell" id="tap-k8award-' + s.id + '">' + fmtMoney(Math.round(sp.timothyAward * 100)) + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">'
+        + '<input type="number" min="0" step="1" value="' + Math.round(sp.timothyAward) + '" style="width:80px;text-align:right;" id="tap-k8award-' + s.id + '" onchange="tapTimothyAwardChange(this,' + s.id + ')">'
+        + (isOverridden ? ' <a href="javascript:void(0)" style="font-size:.68rem;white-space:nowrap;" onclick="tapClearTimothyOverride(' + s.id + ')" title="Clear the manual amount, go back to Family Share %">↺ auto</a>' : '')
+      + '</td>'
       + '<td style="padding:6px 8px;text-align:right;"><span id="tap-k8family-' + s.id + '">' + fmtMoney(Math.round(sp.familyOwed * 100)) + '</span>' + lhsToggle + '</td>'
       + '<td style="padding:6px 8px;white-space:nowrap;">' + histBtn + linkBtn + '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapRemoveStudent(' + s.id + ')">Remove</button></td>'
     + '</tr>';
@@ -650,7 +681,14 @@ function tapOutsideAidChange(el, id) {
   var cents = dollars * 100;
   if (_tapYearIdx === 0) {
     s.outsideAid = dollars;
-    tapDebouncedSave(id, { outside_aid_cents: cents });
+    if (s.timothyAwardOverride != null) {
+      // Keep the manually-typed Timothy Award fixed; only family owed shifts with outside aid.
+      var tuition0 = tapTuitionForYear(0);
+      s.familyOwedOverride = Math.max(0, tuition0 - dollars - s.timothyAwardOverride);
+      tapDebouncedSave(id, { outside_aid_cents: cents, family_owed_override_cents: Math.round(s.familyOwedOverride * 100) });
+    } else {
+      tapDebouncedSave(id, { outside_aid_cents: cents });
+    }
   } else {
     tapUpsertPinLocal(id, _tapYearIdx, { outside_aid_cents: cents });
     tapSavePinDebounced(id, _tapYearIdx, { outside_aid_cents: cents });
@@ -658,21 +696,60 @@ function tapOutsideAidChange(el, id) {
   var sp = tapSplitFor(s, _tapYearIdx);
   var awardEl = document.getElementById('tap-k8award-' + id);
   var famEl = document.getElementById('tap-k8family-' + id);
-  if (awardEl) awardEl.textContent = fmtMoney(Math.round(sp.timothyAward * 100));
+  if (awardEl) awardEl.value = Math.round(sp.timothyAward);
   if (famEl) famEl.textContent = fmtMoney(Math.round(sp.familyOwed * 100));
   tapUpdateGauges();
+}
+function tapTimothyAwardChange(el, id) {
+  var s = tapById(id);
+  if (!s || s.isPipeline) return;
+  var dollars = Math.max(0, Math.round(+el.value || 0));
+  var tuition = tapTuitionForYear(_tapYearIdx);
+  var outsideAid = tapOutsideAidFor(s, _tapYearIdx);
+  var familyOwed = Math.max(0, tuition - outsideAid - dollars);
+  if (_tapYearIdx === 0) {
+    s.timothyAwardOverride = dollars;
+    s.familyOwedOverride = familyOwed;
+    tapDebouncedSave(id, {
+      timothy_award_override_cents: Math.round(dollars * 100),
+      family_owed_override_cents: Math.round(familyOwed * 100)
+    });
+  } else {
+    var cents = Math.round(dollars * 100), famCents = Math.round(familyOwed * 100);
+    tapUpsertPinLocal(id, _tapYearIdx, { timothy_award_cents: cents, family_owed_cents: famCents });
+    tapSavePinDebounced(id, _tapYearIdx, { timothy_award_cents: cents, family_owed_cents: famCents });
+  }
+  var famEl = document.getElementById('tap-k8family-' + id);
+  if (famEl) famEl.textContent = fmtMoney(Math.round(familyOwed * 100));
+  tapUpdateGauges();
+  tapRenderPlannerTables();
+}
+function tapClearTimothyOverride(id) {
+  var s = tapById(id);
+  if (!s) return;
+  if (_tapYearIdx === 0) {
+    s.timothyAwardOverride = null;
+    s.familyOwedOverride = null;
+    tapDebouncedSave(id, { timothy_award_override_cents: null, family_owed_override_cents: null });
+  } else {
+    tapUpsertPinLocal(id, _tapYearIdx, { timothy_award_cents: null, family_owed_cents: null });
+    tapSavePinDebounced(id, _tapYearIdx, { timothy_award_cents: null, family_owed_cents: null });
+  }
+  tapRenderPlannerTables();
 }
 function tapSliderChange(el, id) {
   var s = tapById(id);
   if (!s) return;
   var v = Math.min(100, Math.max(0, Math.round(+el.value || 0)));
-  var row = el.closest('tr');
-  var ranges = row.querySelectorAll('input[type=range]'), nums = row.querySelectorAll('input[type=number]');
+  var pairRow = el.closest('.tap-slider-row') || el.closest('tr');
+  var ranges = pairRow.querySelectorAll('input[type=range]'), nums = pairRow.querySelectorAll('input[type=number]');
   if (ranges[0]) ranges[0].value = v;
   if (nums[0]) nums[0].value = v;
+  var hadOverride = s.timothyAwardOverride != null;
   if (_tapYearIdx === 0) {
     s.famPct = v; s.touched = true;
-    tapDebouncedSave(id, { fam_pct: v, touched: 1 });
+    s.timothyAwardOverride = null; s.familyOwedOverride = null;
+    tapDebouncedSave(id, { fam_pct: v, touched: 1, timothy_award_override_cents: null, family_owed_override_cents: null });
   } else {
     tapUpsertPinLocal(id, _tapYearIdx, { fam_pct: v, timothy_award_cents: null, family_owed_cents: null });
     tapSavePinDebounced(id, _tapYearIdx, { fam_pct: v, timothy_award_cents: null, family_owed_cents: null });
@@ -680,9 +757,12 @@ function tapSliderChange(el, id) {
   var sp = tapSplitFor(s, _tapYearIdx);
   var awardEl = document.getElementById('tap-k8award-' + id);
   var famEl = document.getElementById('tap-k8family-' + id);
-  if (awardEl) awardEl.textContent = fmtMoney(Math.round(sp.timothyAward * 100));
+  if (awardEl) awardEl.value = Math.round(sp.timothyAward);
   if (famEl) famEl.textContent = fmtMoney(Math.round(sp.familyOwed * 100));
   tapUpdateGauges();
+  // Dragging the slider clears any manual Timothy Award override — the "↺ auto" link needs
+  // to disappear, which requires a full row re-render (its DOM isn't otherwise touched here).
+  if (hadOverride) tapRenderPlannerTables();
 }
 function tapLhsSliderChange(el, id) {
   var s = tapById(id);
@@ -727,8 +807,16 @@ function tapBulkSave(updates) {
 function tapBulkSaveForYear(yearIdx, famPctUpdates) {
   if (!famPctUpdates.length) return;
   if (yearIdx === 0) {
-    famPctUpdates.forEach(function(u) { var s = tapById(u.id); if (s) { s.famPct = u.famPct; s.touched = true; } });
-    tapBulkSave(famPctUpdates.map(function(u) { return { id: u.id, fam_pct: u.famPct, touched: 1 }; }));
+    // Also clear any manually-typed Timothy Award override — otherwise a previously-overridden
+    // student would silently ignore the freshly-computed Family Share % from Apply Policy/
+    // Auto-Balance (tapSplitFor gives the override top priority).
+    famPctUpdates.forEach(function(u) {
+      var s = tapById(u.id);
+      if (s) { s.famPct = u.famPct; s.touched = true; s.timothyAwardOverride = null; s.familyOwedOverride = null; }
+    });
+    tapBulkSave(famPctUpdates.map(function(u) {
+      return { id: u.id, fam_pct: u.famPct, touched: 1, timothy_award_override_cents: null, family_owed_override_cents: null };
+    }));
   } else {
     var label = tapYearLabelForIdx(yearIdx);
     famPctUpdates.forEach(function(u) { tapUpsertPinLocal(u.id, yearIdx, { fam_pct: u.famPct, timothy_award_cents: null, family_owed_cents: null }); });
@@ -777,6 +865,29 @@ function tapUpdateGauges() {
   lhsText.textContent = fmtMoney(Math.round(lhsTotal * 100)) + (lhsOver ? '  (' + fmtMoney(Math.round((lhsTotal - lhsReference) * 100)) + ' above standard rate)' : ' — ' + lhsActive.length + ' student' + (lhsActive.length === 1 ? '' : 's') + ' at standard rate');
   lhsText.classList.toggle('tap-over-text', lhsOver);
   document.getElementById('tap-lhs-gauge-cap').textContent = 'Standard rate: ' + lhsActive.length + ' × ' + fmtMoney(Math.round(lhsRate * 100)) + ' = ' + fmtMoney(Math.round(lhsReference * 100));
+
+  var totalFill = document.getElementById('tap-total-gauge-fill');
+  var totalText = document.getElementById('tap-total-gauge-text');
+  var totalCap = document.getElementById('tap-total-gauge-cap');
+  if (totalFill && totalText && totalCap) {
+    var combinedTotal = k8Total + lhsTotal;
+    var hasTotalBudget = _tapConfig.timothy_total_budget_cents != null;
+    var totalBudget = tapCfgNum('timothy_total_budget_cents', 0);
+    if (!hasTotalBudget) {
+      totalFill.style.width = '0%';
+      totalFill.classList.remove('over');
+      totalText.textContent = fmtMoney(Math.round(combinedTotal * 100));
+      totalText.classList.remove('tap-over-text');
+      totalCap.textContent = 'Set a Total Timothy Aid Budget below to track against it';
+    } else {
+      var totalOver = combinedTotal > totalBudget;
+      totalFill.style.width = Math.min(100, totalBudget ? (combinedTotal / totalBudget) * 100 : 0) + '%';
+      totalFill.classList.toggle('over', totalOver);
+      totalText.textContent = fmtMoney(Math.round(combinedTotal * 100)) + (totalOver ? '  (over by ' + fmtMoney(Math.round((combinedTotal - totalBudget) * 100)) + ')' : ' of ' + fmtMoney(Math.round(totalBudget * 100)));
+      totalText.classList.toggle('tap-over-text', totalOver);
+      totalCap.textContent = 'K-8 ' + fmtMoney(Math.round(k8Total * 100)) + ' + LHS ' + fmtMoney(Math.round(lhsTotal * 100)) + ' = ' + fmtMoney(Math.round(combinedTotal * 100));
+    }
+  }
 }
 
 // ── Bulk actions ─────────────────────────────────────────────────────
@@ -788,7 +899,9 @@ function tapResetAwards() {
     var updates = [];
     _tapRoster.forEach(function(s) {
       s.famPct = s.famPctOrig; s.lhsAward = s.lhsAwardOrig; s.attendsLHS = true; s.touched = false;
-      updates.push({ id: s.id, fam_pct: s.famPctOrig, lhs_award_cents: Math.round(s.lhsAwardOrig * 100), attends_lhs: 1, touched: 0 });
+      s.timothyAwardOverride = null; s.familyOwedOverride = null;
+      updates.push({ id: s.id, fam_pct: s.famPctOrig, lhs_award_cents: Math.round(s.lhsAwardOrig * 100), attends_lhs: 1, touched: 0,
+        timothy_award_override_cents: null, family_owed_override_cents: null });
     });
     tapBulkSave(updates);
   } else {

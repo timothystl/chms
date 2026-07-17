@@ -7,6 +7,7 @@ const STUDENT_FIELDS = [
   'person_id', 'household_id', 'family', 'child', 'is_pipeline', 'base_grade', 'birth_year',
   'outside_aid_cents', 'fam_pct', 'fam_pct_orig', 'touched', 'lhs_award_cents',
   'lhs_award_orig_cents', 'attends_lhs', 'timothy_award_exact_cents', 'family_owed_exact_cents',
+  'timothy_award_override_cents', 'family_owed_override_cents',
   'note', 'active', 'sort_order',
 ];
 
