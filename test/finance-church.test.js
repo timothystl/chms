@@ -1,0 +1,300 @@
+import { describe, it, expect } from 'vitest';
+import { DatabaseSync } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
+import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, mergeProfitAndLossTree, persistChurchEntries, resolveChurchYearPrecedence, computeYearSummary } from '../src/api-finance.js';
+
+// ── Minimal D1-shaped wrapper around node:sqlite, so persistChurchEntries() runs against real
+// SQL (real UNIQUE/ON CONFLICT semantics) instead of a hand-rolled re-implementation of what the
+// real D1 binding would do. ──
+function makeTestDb() {
+  const sqlite = new DatabaseSync(':memory:');
+  sqlite.exec(readFileSync(new URL('../migrations/0018_finance_church_entries.sql', import.meta.url), 'utf8'));
+  return {
+    prepare(sql) {
+      return {
+        bind(...args) {
+          return {
+            async run() { sqlite.prepare(sql).run(...args); },
+            async first() { return sqlite.prepare(sql).get(...args); },
+            async all() { return { results: sqlite.prepare(sql).all(...args) }; },
+          };
+        },
+      };
+    },
+    async batch(stmts) { for (const s of stmts) await s.run(); },
+    _raw: sqlite,
+  };
+}
+function allChurchRows(db) {
+  return db._raw.prepare('SELECT * FROM finance_church_entries ORDER BY fiscal_year, category_path, source').all();
+}
+
+// ── Fixtures shaped exactly like the real QuickBooks sandbox export that surfaced the
+// Budget-vs-Actual double-counting bug (FIN2/v1.26.1) — same tree used to verify that fix,
+// reused here so flattenReportTree() is checked against the same real-world shape. ──
+
+function leaf(name, actual) { return { ColData: [{ value: name }, { value: String(actual) }] }; }
+function section(label, headerAmt, children, hasSummary) {
+  return {
+    type: 'Section',
+    Header: headerAmt != null ? { ColData: [{ value: label }, { value: String(headerAmt) }] } : { ColData: [{ value: label }] },
+    Rows: { Row: children },
+    Summary: hasSummary ? { ColData: [{ value: 'Total for ' + label }, { value: '0' }] } : undefined,
+  };
+}
+
+// A minimal but real double-nesting case: "Job Expenses" has BOTH its own direct posting
+// (155.07) AND a nested "Job Materials" section with its own children — this is the exact
+// shape that broke the old flat/alphabetized reconstruction.
+const plRows = [
+  section('Income', null, [
+    leaf('Design income', 2250.00),
+  ], true),
+  section('Cost of Goods Sold', null, [
+    leaf('Cost of Goods Sold', 405.00),
+  ], true),
+  leaf('Gross Profit', 1845.00),
+  section('Expenses', null, [
+    section('Job Expenses', 155.07, [
+      section('Job Materials', null, [
+        leaf('Decks and Patios', 234.04),
+        leaf('Plants and Soil', 353.12),
+      ], true),
+    ], true),
+  ], true),
+  leaf('Net Operating Income', 1102.86),
+  section('Other Income', null, [], true),
+  section('Other Expenses', null, [
+    leaf('Miscellaneous', 100.00),
+  ], true),
+  leaf('Net Other Income', -100.00),
+  leaf('Net Income', 1002.86),
+];
+
+describe('flattenReportTree — current-year (single-value) extractor', () => {
+  const rows = flattenReportTree(plRows, [], null, makeCurrentYearExtractor(2026));
+
+  it('includes the Income section itself (the exact bug being regression-tested)', () => {
+    const income = rows.find(r => r.category_path === 'Income');
+    expect(income).toBeUndefined(); // bare "Income" header has no own amount — correctly NOT emitted
+    const designIncome = rows.find(r => r.category_path === 'Income:Design income');
+    expect(designIncome).toBeDefined();
+    expect(designIncome.classification).toBe('Income');
+    expect(designIncome.own_actual_cents).toBe(225000);
+  });
+
+  it('never emits a "Total for X" row', () => {
+    expect(rows.some(r => r.account_name.startsWith('Total for'))).toBe(false);
+  });
+
+  it('never emits a running-subtotal row (Gross Profit, Net Income, etc.)', () => {
+    ['Gross Profit', 'Net Operating Income', 'Net Other Income', 'Net Income'].forEach(label => {
+      expect(rows.some(r => r.account_name === label)).toBe(false);
+    });
+  });
+
+  it('emits a row for a Section that owns a direct posting AND has children ("Job Expenses")', () => {
+    const jobExpenses = rows.find(r => r.category_path === 'Expenses:Job Expenses');
+    expect(jobExpenses).toBeDefined();
+    expect(jobExpenses.own_actual_cents).toBe(15507);
+    expect(jobExpenses.has_children).toBe(1);
+    expect(jobExpenses.classification).toBe('Expenses');
+  });
+
+  it('emits its nested children at the correct depth/path without double-counting the parent', () => {
+    const decks = rows.find(r => r.category_path === 'Expenses:Job Expenses:Job Materials:Decks and Patios');
+    expect(decks).toBeDefined();
+    expect(decks.own_actual_cents).toBe(23404);
+    expect(decks.depth).toBe(3);
+    expect(decks.has_children).toBe(0);
+    // Summing every stored row under "Expenses" reproduces the real total without any stored subtotal.
+    const expensesRows = rows.filter(r => r.category_path === 'Expenses' || r.category_path.startsWith('Expenses:'));
+    const total = expensesRows.reduce((s, r) => s + r.own_actual_cents, 0);
+    expect(total).toBe(15507 + 23404 + 35312); // Job Expenses(own) + Decks + Plants and Soil
+  });
+
+  it('skips a bare empty Section with no children and no own amount ("Other Income")', () => {
+    expect(rows.some(r => r.account_name === 'Other Income')).toBe(false);
+  });
+
+  it('applies budget too, when merged in first via mergeProfitAndLossTree', () => {
+    const budgetByName = new Map([['Design income', 2000]]);
+    const budgetIdsByName = new Map([['Design income', new Set(['acct-1'])]]);
+    const merged = mergeProfitAndLossTree(plRows, { budgetByName, budgetIdsByName, ambiguousNames: new Set() });
+    const flat = flattenReportTree(merged, [], null, makeCurrentYearExtractor(2026));
+    const designIncome = flat.find(r => r.category_path === 'Income:Design income');
+    expect(designIncome.own_actual_cents).toBe(225000);
+    expect(designIncome.own_budget_cents).toBe(200000);
+  });
+});
+
+describe('flattenReportTree — multi-year extractor', () => {
+  // Multi-year report shape: cells are [Account, Year1Value, Year2Value, ...], no budget.
+  const multiYearRows = [
+    section('Income', null, [
+      { ColData: [{ value: 'Design income' }, { value: '1000.00' }, { value: '1200.00' }] },
+    ], true),
+  ];
+  const extractor = makeMultiYearExtractor([2024, 2025]);
+  const rows = flattenReportTree(multiYearRows, [], null, extractor);
+
+  it('emits one row per year for the same account', () => {
+    const forYear = y => rows.find(r => r.category_path === 'Income:Design income' && r.fiscal_year === y);
+    expect(forYear(2024).own_actual_cents).toBe(100000);
+    expect(forYear(2025).own_actual_cents).toBe(120000);
+  });
+
+  it('leaves own_budget_cents null (multi-year report has no budget data)', () => {
+    expect(rows[0].own_budget_cents).toBeNull();
+  });
+
+  it('skips a null year column (e.g. a trailing "Total" column)', () => {
+    const extractorWithTotal = makeMultiYearExtractor([2024, 2025, null]);
+    const withTotalCol = flattenReportTree([
+      { ColData: [{ value: 'Design income' }, { value: '1000.00' }, { value: '1200.00' }, { value: '2200.00' }] },
+    ], [], 'Income', extractorWithTotal);
+    expect(withTotalCol.length).toBe(2);
+  });
+});
+
+describe('persistChurchEntries — real SQL against the actual migration', () => {
+  it('inserts rows and they are readable back', async () => {
+    const db = makeTestDb();
+    await persistChurchEntries(db, [
+      { fiscal_year: 2025, classification: 'Income', category_path: 'Income:Design income', account_name: 'Design income', depth: 1, has_children: 0, own_actual_cents: 100000, own_budget_cents: null },
+    ], '2026-07-17T00:00:00Z');
+    const rows = allChurchRows(db);
+    expect(rows.length).toBe(1);
+    expect(rows[0].own_actual_cents).toBe(100000);
+    expect(rows[0].own_budget_cents).toBeNull();
+  });
+
+  it('a later row for the same (fiscal_year, category_path, source) wins over an earlier one — the ordering the sync handler relies on', async () => {
+    const db = makeTestDb();
+    // Simulates the sync handler's write order: multi-year (actuals-only) row first, then the
+    // richer current-year budget-merge row second, for the SAME year/category.
+    await persistChurchEntries(db, [
+      { fiscal_year: 2026, classification: 'Income', category_path: 'Income:Design income', account_name: 'Design income', depth: 1, has_children: 0, own_actual_cents: 100000, own_budget_cents: null },
+      { fiscal_year: 2026, classification: 'Income', category_path: 'Income:Design income', account_name: 'Design income', depth: 1, has_children: 0, own_actual_cents: 100000, own_budget_cents: 90000 },
+    ], '2026-07-17T00:00:00Z');
+    const rows = allChurchRows(db);
+    expect(rows.length).toBe(1); // upserted into one row, not two
+    expect(rows[0].own_budget_cents).toBe(90000);
+  });
+
+  it('scopes the wholesale-replace to only the fiscal years present in the new rows, leaving other years untouched', async () => {
+    const db = makeTestDb();
+    await persistChurchEntries(db, [
+      { fiscal_year: 2024, classification: 'Income', category_path: 'Income:Old Account', account_name: 'Old Account', depth: 1, has_children: 0, own_actual_cents: 5000, own_budget_cents: null },
+      { fiscal_year: 2026, classification: 'Income', category_path: 'Income:Design income', account_name: 'Design income', depth: 1, has_children: 0, own_actual_cents: 100000, own_budget_cents: null },
+    ], '2026-07-17T00:00:00Z');
+    // Re-sync only 2026 with different data.
+    await persistChurchEntries(db, [
+      { fiscal_year: 2026, classification: 'Income', category_path: 'Income:Design income', account_name: 'Design income', depth: 1, has_children: 0, own_actual_cents: 999999, own_budget_cents: null },
+    ], '2026-08-01T00:00:00Z');
+    const rows = allChurchRows(db);
+    const y2024 = rows.filter(r => r.fiscal_year === 2024);
+    const y2026 = rows.filter(r => r.fiscal_year === 2026);
+    expect(y2024.length).toBe(1);
+    expect(y2024[0].own_actual_cents).toBe(5000); // untouched by the 2026-only re-sync
+    expect(y2026.length).toBe(1);
+    expect(y2026[0].own_actual_cents).toBe(999999);
+  });
+
+  it('never deletes source=\'import\' rows when a qbo_sync re-sync runs for the same year', async () => {
+    const db = makeTestDb();
+    await db.prepare(
+      `INSERT INTO finance_church_entries (fiscal_year, classification, category_path, account_name, depth, own_actual_cents, own_budget_cents, source)
+       VALUES (2026, 'Income', 'Income:Hand Entered', 'Hand Entered', 1, 42000, 40000, 'import')`
+    ).bind().run();
+    await persistChurchEntries(db, [
+      { fiscal_year: 2026, classification: 'Income', category_path: 'Income:Design income', account_name: 'Design income', depth: 1, has_children: 0, own_actual_cents: 100000, own_budget_cents: null },
+    ], '2026-07-17T00:00:00Z');
+    const rows = allChurchRows(db);
+    const importRow = rows.find(r => r.source === 'import');
+    expect(importRow).toBeDefined();
+    expect(importRow.own_actual_cents).toBe(42000);
+    const syncRow = rows.find(r => r.source === 'qbo_sync');
+    expect(syncRow).toBeDefined();
+  });
+
+  it('does nothing when given an empty rows array (no-op, no DELETE fired)', async () => {
+    const db = makeTestDb();
+    await db.prepare(
+      `INSERT INTO finance_church_entries (fiscal_year, classification, category_path, account_name, depth, own_actual_cents, source)
+       VALUES (2026, 'Income', 'Income:Existing', 'Existing', 1, 100, 'qbo_sync')`
+    ).bind().run();
+    await persistChurchEntries(db, [], '2026-07-17T00:00:00Z');
+    expect(allChurchRows(db).length).toBe(1);
+  });
+});
+
+describe('resolveChurchYearPrecedence', () => {
+  it('uses qbo_sync rows for a year with no import/manual rows', () => {
+    const rows = [
+      { fiscal_year: 2026, source: 'qbo_sync', category_path: 'Income:A', own_actual_cents: 100 },
+      { fiscal_year: 2026, source: 'qbo_sync', category_path: 'Income:B', own_actual_cents: 200 },
+    ];
+    const resolved = resolveChurchYearPrecedence(rows);
+    expect(resolved.length).toBe(2);
+  });
+
+  it('uses ONLY import rows for a year that has any import/manual row, discarding qbo_sync rows for that year', () => {
+    const rows = [
+      { fiscal_year: 2026, source: 'qbo_sync', category_path: 'Income:A', own_actual_cents: 100 },
+      { fiscal_year: 2026, source: 'import', category_path: 'Income:A', own_actual_cents: 999 },
+    ];
+    const resolved = resolveChurchYearPrecedence(rows);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].source).toBe('import');
+    expect(resolved[0].own_actual_cents).toBe(999);
+  });
+
+  it('resolves precedence independently per year', () => {
+    const rows = [
+      { fiscal_year: 2025, source: 'import', category_path: 'Income:A', own_actual_cents: 1 },
+      { fiscal_year: 2026, source: 'qbo_sync', category_path: 'Income:A', own_actual_cents: 2 },
+    ];
+    const resolved = resolveChurchYearPrecedence(rows);
+    expect(resolved.length).toBe(2);
+    expect(resolved.find(r => r.fiscal_year === 2025).source).toBe('import');
+    expect(resolved.find(r => r.fiscal_year === 2026).source).toBe('qbo_sync');
+  });
+});
+
+describe('computeYearSummary', () => {
+  it('derives Gross Profit / Net Operating Income / Net Other Income / Net Income from classification totals, matching the real export figures', () => {
+    // Same totals as the real uploaded QuickBooks export used to verify the Budget-vs-Actual fix:
+    // Income 10200.77, COGS 405.00, Expenses 5237.31, Other Expenses 2916.00 -> Net Income 1642.46.
+    const rows = [
+      { classification: 'Income', own_actual_cents: 1020077, own_budget_cents: 1020077 },
+      { classification: 'Cost of Goods Sold', own_actual_cents: 40500, own_budget_cents: 40500 },
+      { classification: 'Expenses', own_actual_cents: 523731, own_budget_cents: 523731 },
+      { classification: 'Other Expenses', own_actual_cents: 291600, own_budget_cents: 291600 },
+    ];
+    const summary = computeYearSummary(rows);
+    expect(summary.grossProfit.actualCents).toBe(1020077 - 40500);
+    expect(summary.netOperatingIncome.actualCents).toBe(1020077 - 40500 - 523731);
+    expect(summary.netOtherIncome.actualCents).toBe(0 - 291600);
+    expect(summary.netIncome.actualCents).toBe(1020077 - 40500 - 523731 - 291600);
+    expect(summary.hasBudgetData).toBe(true);
+  });
+
+  it('reports hasBudgetData=false when no row in the year has a known budget (e.g. a plain multi-year actuals-only sync)', () => {
+    const rows = [
+      { classification: 'Income', own_actual_cents: 100000, own_budget_cents: null },
+      { classification: 'Expenses', own_actual_cents: 50000, own_budget_cents: null },
+    ];
+    const summary = computeYearSummary(rows);
+    expect(summary.hasBudgetData).toBe(false);
+    expect(summary.netIncome.actualCents).toBe(50000);
+    expect(summary.netIncome.budgetCents).toBe(0);
+  });
+
+  it('handles a classification with zero rows gracefully (e.g. no Other Income/Other Expenses this year)', () => {
+    const rows = [{ classification: 'Income', own_actual_cents: 100000, own_budget_cents: 90000 }];
+    const summary = computeYearSummary(rows);
+    expect(summary.netIncome.actualCents).toBe(100000);
+    expect(summary.netIncome.budgetCents).toBe(90000);
+  });
+});

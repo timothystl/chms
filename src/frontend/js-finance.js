@@ -383,43 +383,228 @@ function finExportDaycareCsv() {
   finDownloadCsv('daycare-report-' + agg.years[0] + '-to-' + agg.years[agg.years.length - 1] + '.csv', rows);
 }
 
-// ── Church Report (board-level, year by year) ──────────────────────────
-// QuickBooks' own Profit & Loss report (summarize_column_by=Year, synced in
-// finance/qb/sync) rendered with the same generic Columns/Rows tree-walker as
-// Budget vs Actual, plus a few reference-only lines pulled from the daycare
-// aggregation above (income total, wages, total expenses) so the board sees
-// the MDO daycare's contribution alongside the church's own QuickBooks figures
-// without those numbers being merged into QuickBooks' own totals.
+// ── Church Report v2: rebuild a nested tree from the flat finance_church_entries rows ──
+// This is the client-side mirror of mergeSection()'s in-memory bottom-up summing (src/
+// api-finance.js) — needed because the persisted table deliberately never stores a "Total for
+// X" subtotal row (see migrations/0018_finance_church_entries.sql), only each account's own
+// non-cumulative amount. A node's own_budget_cents can be null (no budget known for that
+// account/year) — hasBudgetInfo tracks whether ANY node in a subtree has real budget data, so
+// the renderer can show "—" instead of a misleading $0.00 for a subtree with none at all.
+function finBuildTreeFromFlatRows(rows) {
+  var nodeByPath = {};
+  var roots = [];
+  (rows || []).forEach(function(r) {
+    nodeByPath[r.category_path] = {
+      path: r.category_path,
+      label: r.account_name,
+      classification: r.classification,
+      depth: r.depth,
+      ownActualCents: r.own_actual_cents || 0,
+      ownBudgetCents: r.own_budget_cents,
+      totalActualCents: 0,
+      totalBudgetCents: 0,
+      hasBudgetInfo: r.own_budget_cents != null,
+      children: [],
+    };
+  });
+  (rows || []).forEach(function(r) {
+    var node = nodeByPath[r.category_path];
+    // Walk up ALL ancestor path prefixes (not just the immediate parent) to find the nearest
+    // one with a stored row — a pure grouping label with no own posting (e.g. "Job Materials")
+    // never gets its own row (see flattenReportTree), so the immediate parent path is often a
+    // gap; skipping straight to the immediate parent would wrongly treat this node as a root
+    // and silently drop it out of every ancestor's rollup total.
+    var segments = r.category_path.split(':');
+    var parent = null;
+    for (var i = segments.length - 1; i > 0; i--) {
+      var candidate = nodeByPath[segments.slice(0, i).join(':')];
+      if (candidate) { parent = candidate; break; }
+    }
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  });
+  function computeTotals(node) {
+    var totalActual = node.ownActualCents;
+    var totalBudget = node.ownBudgetCents || 0;
+    var hasBudgetInfo = node.hasBudgetInfo;
+    node.children.forEach(function(c) {
+      computeTotals(c);
+      totalActual += c.totalActualCents;
+      totalBudget += c.totalBudgetCents;
+      if (c.hasBudgetInfo) hasBudgetInfo = true;
+    });
+    node.totalActualCents = totalActual;
+    node.totalBudgetCents = totalBudget;
+    node.hasBudgetInfo = hasBudgetInfo;
+  }
+  roots.forEach(computeTotals);
+  return roots;
+}
+// Renders finBuildTreeFromFlatRows()'s output as an indented HTML table body (Account | Actual
+// | Budget | Remaining), including each node's own-plus-descendants total (matching what a
+// QuickBooks "Total for X" row would show, recomputed rather than stored).
+function finRenderDetailTreeRows(nodes, html) {
+  html = html || [];
+  (nodes || []).forEach(function(node) {
+    var bold = node.children.length > 0;
+    var budgetCell = node.hasBudgetInfo
+      ? '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(node.totalBudgetCents / 100) + '</td>'
+        + '<td style="text-align:right;padding:5px 8px;' + (node.totalActualCents > node.totalBudgetCents ? 'color:var(--danger);' : 'color:var(--sage);') + '">$' + finFmtMoney((node.totalBudgetCents - node.totalActualCents) / 100) + '</td>'
+      : '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">—</td><td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">—</td>';
+    html.push('<tr' + (bold ? ' style="font-weight:600;"' : '') + '>'
+      + '<td style="padding:5px 8px 5px ' + (10 + node.depth * 16) + 'px;">' + esc(node.label) + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(node.totalActualCents / 100) + '</td>'
+      + budgetCell + '</tr>');
+    finRenderDetailTreeRows(node.children, html);
+  });
+  return html;
+}
+
+// ── Church Report v2 (board-level): This Year / Multi-Year toggle ───────────
+// Both views read from the persisted finance_church_entries table (finance/church/this-year,
+// finance/church/multi-year) rather than the live QuickBooks blob cache — see
+// migrations/0018_finance_church_entries.sql for why. Mirrors the This-Year/Multi-Year toggle
+// pattern already used for Attendance by Service (setAttByServiceMode in js-attendance.js).
+var _finChurchMode = 'year';
+var _finChurchThisYearData = null;
+var _finChurchMultiYearData = null;
+
+function finSetChurchReportMode(mode) {
+  _finChurchMode = mode;
+  var yearEl = document.getElementById('fin-church-year-view');
+  var multiEl = document.getElementById('fin-church-multiyear-view');
+  if (yearEl) yearEl.style.display = mode === 'year' ? '' : 'none';
+  if (multiEl) multiEl.style.display = mode === 'multiyear' ? '' : 'none';
+  var yearBtn = document.getElementById('fin-church-mode-year');
+  var multiBtn = document.getElementById('fin-church-mode-multiyear');
+  if (yearBtn) yearBtn.classList.toggle('active', mode === 'year');
+  if (multiBtn) multiBtn.classList.toggle('active', mode === 'multiyear');
+  if (mode === 'year' && !_finChurchThisYearData) finLoadChurchThisYear();
+  if (mode === 'multiyear' && !_finChurchMultiYearData) finLoadChurchMultiYear();
+}
+
+// Called from loadFinance() on every tab load AND after every "Sync Now" — always invalidates
+// the cached church-report data first so a fresh sync's results actually show up, rather than
+// the stale data finSetChurchReportMode's cache-guard would otherwise keep serving (that guard
+// exists only to avoid a redundant re-fetch when the user merely clicks the This Year/Multi-Year
+// toggle back and forth, which calls finSetChurchReportMode directly, not through here).
 function finRenderChurchReport() {
-  var el = document.getElementById('fin-church-report');
+  _finChurchThisYearData = null;
+  _finChurchMultiYearData = null;
+  finSetChurchReportMode(_finChurchMode);
+}
+
+function finLoadChurchThisYear(year) {
+  year = year || new Date().getFullYear();
+  var el = document.getElementById('fin-church-year-view');
   if (!el) return;
-  var report = _finOverview.profitAndLoss;
-  var agg = finAggregateDaycareByYear(_finDaycare);
-  if (!report || !report.Rows) {
-    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No church report data yet. Connect QuickBooks in the Overview tab and click "Sync Now".</p>';
+  el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
+  api('/admin/api/finance/church/this-year?year=' + year).then(function(d) {
+    _finChurchThisYearData = d;
+    finRenderChurchThisYear(d);
+  }).catch(function(err) {
+    if (err && err.message === 'Unauthorized') return;
+    el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load this year’s church data.</p>';
+  });
+}
+
+function finMoneyClass(cents) {
+  return cents < 0 ? 'color:var(--danger);' : 'color:var(--sage);';
+}
+// One This Year summary card: actual figure, plus (only if any budget is known for the year)
+// the annual budget, remaining amount, and a simple over/under progress bar.
+function finChurchSummaryCard(label, totals, hasBudget) {
+  var actual = totals.actualCents, budget = totals.budgetCents;
+  var remaining = budget - actual;
+  var pct = budget > 0 ? Math.round(actual * 100 / budget) : null;
+  var html = '<div style="flex:1;min-width:170px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">'
+    + '<div style="font-size:.7rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">' + label + '</div>'
+    + '<div style="font-size:1.3rem;font-weight:700;color:var(--steel-anchor);">$' + finFmtMoney(actual / 100) + '</div>';
+  if (hasBudget) {
+    html += '<div style="font-size:.76rem;color:var(--warm-gray);margin-top:2px;">Budget: $' + finFmtMoney(budget / 100) + '</div>'
+      + '<div style="font-size:.76rem;' + finMoneyClass(remaining) + '">' + (remaining < 0 ? 'Over by $' + finFmtMoney(-remaining / 100) : '$' + finFmtMoney(remaining / 100) + ' remaining') + '</div>';
+    if (pct != null) {
+      var barColor = pct > 100 ? 'var(--danger)' : pct > 85 ? 'var(--color-gold)' : 'var(--sage)';
+      html += '<div style="height:6px;background:var(--linen);border-radius:3px;margin-top:6px;overflow:hidden;">'
+        + '<div style="height:100%;width:' + Math.min(100, pct) + '%;background:' + barColor + ';"></div></div>';
+    }
+  } else {
+    html += '<div style="font-size:.76rem;color:var(--warm-gray);margin-top:2px;">No budget data for this year</div>';
+  }
+  return html + '</div>';
+}
+function finRenderChurchThisYear(d) {
+  var el = document.getElementById('fin-church-year-view');
+  if (!el) return;
+  if (!d || !d.entries || !d.entries.length) {
+    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No church report data yet for ' + d.year + '. Connect QuickBooks in the Overview tab and click "Sync Now".</p>';
     return;
   }
-  var cols = (report.Columns && report.Columns.Column) || [];
-  var theadCells = cols.map(function(c, i) {
-    return '<th style="text-align:' + (i === 0 ? 'left' : 'right') + ';padding:6px 8px;">' + esc(c.ColTitle || '') + '</th>';
-  }).join('');
-  var rowsHtml = finRenderReportRows((report.Rows && report.Rows.Row) || [], 0);
-  var html =
-    '<div style="font-size:.72rem;color:var(--warm-gray);margin-bottom:8px;">Synced ' + esc(_finOverview.profitAndLossSyncedAt ? finFmtTs(_finOverview.profitAndLossSyncedAt) : 'never') + '</div>'
-    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
-    + '<thead style="border-bottom:2px solid var(--navy);"><tr>' + theadCells + '</tr></thead>'
-    + '<tbody>' + rowsHtml + '</tbody></table></div>';
+  var income = d.classificationTotals['Income'] || { actualCents: 0, budgetCents: 0 };
+  var expenses = d.classificationTotals['Expenses'] || { actualCents: 0, budgetCents: 0 };
+  var html = '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:12px;">' + d.year + '</div>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px;">'
+    + finChurchSummaryCard('Total Income', income, d.hasBudgetData)
+    + finChurchSummaryCard('Total Expenses', expenses, d.hasBudgetData)
+    + finChurchSummaryCard('Net Income', d.netIncome, d.hasBudgetData)
+    + '</div>'
+    + '<div style="font-size:.82rem;color:var(--warm-gray);background:var(--linen);border-radius:8px;padding:10px 14px;margin-bottom:18px;">'
+    + '<b>Giving (ChMS records):</b> $' + finFmtMoney(d.givingCents / 100)
+    + ' <span style="font-size:.75rem;">— shown for reference only. QuickBooks’ Income figure above reflects what has cleared the bank and been fully recorded, so timing differences from ChMS’s own recorded giving are expected, not a discrepancy to chase.</span>'
+    + '</div>';
 
+  var tree = finBuildTreeFromFlatRows(d.entries);
+  html += '<details><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail</summary>'
+    + '<div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead><tr style="border-bottom:2px solid var(--navy);"><th style="text-align:left;padding:6px 8px;">Account</th><th style="text-align:right;padding:6px 8px;">Actual</th><th style="text-align:right;padding:6px 8px;">Budget</th><th style="text-align:right;padding:6px 8px;">Remaining</th></tr></thead>'
+    + '<tbody>' + finRenderDetailTreeRows(tree).join('') + '</tbody></table></div></details>';
+  el.innerHTML = html;
+}
+
+function finLoadChurchMultiYear() {
+  var el = document.getElementById('fin-church-multiyear-view');
+  if (!el) return;
+  el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
+  api('/admin/api/finance/church/multi-year').then(function(d) {
+    _finChurchMultiYearData = d;
+    finRenderChurchMultiYear(d);
+  }).catch(function(err) {
+    if (err && err.message === 'Unauthorized') return;
+    el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load multi-year church data.</p>';
+  });
+}
+function finRenderChurchMultiYear(d) {
+  var el = document.getElementById('fin-church-multiyear-view');
+  if (!el) return;
+  var years = d.years || [];
+  var anyData = years.some(function(y) { var s = d.byYear[y]; return s && Object.keys(s.classificationTotals).length; });
+  if (!anyData) {
+    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No multi-year church data yet. Connect QuickBooks in the Overview tab and click "Sync Now".</p>';
+    return;
+  }
+  var rowsDef = [{ label: 'Total Income', key: 'Income' }, { label: 'Cost of Goods Sold', key: 'Cost of Goods Sold' }, { label: 'Total Expenses', key: 'Expenses' }];
+  var theadCells = '<th style="text-align:left;padding:6px 8px;"></th>' + years.map(function(y) { return '<th style="text-align:right;padding:6px 8px;">' + y + '</th>'; }).join('');
+  var bodyRows = rowsDef.map(function(rd) {
+    var cells = years.map(function(y) {
+      var c = (d.byYear[y].classificationTotals[rd.key]) || { actualCents: 0 };
+      return '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(c.actualCents / 100) + '</td>';
+    }).join('');
+    return '<tr><td style="padding:5px 8px;">' + rd.label + '</td>' + cells + '</tr>';
+  }).join('');
+  var netRow = '<tr style="font-weight:700;border-top:2px solid var(--navy);"><td style="padding:5px 8px;">Net Income</td>'
+    + years.map(function(y) { return '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(d.byYear[y].netIncome.actualCents / 100) + '</td>'; }).join('')
+    + '</tr>';
+  var html = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr>' + theadCells + '</tr></thead>'
+    + '<tbody>' + bodyRows + netRow + '</tbody></table></div>';
+
+  // Daycare tie-in lines — same "for reference, not part of QuickBooks totals" pattern already
+  // shipped; year alignment is direct now (the years list here), no QBO column-title parsing needed.
+  var agg = finAggregateDaycareByYear(_finDaycare);
   if (agg.years.length) {
-    // Match each QBO column to a calendar year by pulling the 4-digit year out of its
-    // title (e.g. "Jan - Dec 2025"); columns with no year in the title (e.g. a "Total"
-    // column) get a blank daycare cell rather than a guess.
-    var colYears = cols.map(function(c) { var m = /(\d{4})/.exec(c.ColTitle || ''); return m ? m[1] : null; });
     function tieRow(label, getter) {
-      var cells = cols.map(function(c, i) {
-        if (i === 0) return '';
-        var y = colYears[i];
-        var v = y ? getter(y) : null;
+      var cells = years.map(function(y) {
+        var v = getter(String(y));
         return v == null ? '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">—</td>' : '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(v) + '</td>';
       }).join('');
       return '<tr><td style="padding:5px 8px;padding-left:26px;font-style:italic;color:var(--warm-gray);">' + label + '</td>' + cells + '</tr>';
@@ -434,52 +619,30 @@ function finRenderChurchReport() {
   }
   el.innerHTML = html;
 }
-// Flattens QBO's Columns/Rows report tree into CSV rows, indenting nested labels with
-// leading dashes so the hierarchy survives in plain text.
-function finReportTreeToCsvRows(rows, depth) {
-  var out = [];
-  (rows || []).forEach(function(row) {
-    if (row.type === 'Section') {
-      var headerCells = (row.Header && row.Header.ColData) || [];
-      if (headerCells.length) out.push(finReportRowToCsvCells(headerCells, depth));
-      if (row.Rows && row.Rows.Row) out = out.concat(finReportTreeToCsvRows(row.Rows.Row, depth + 1));
-      var summaryCells = (row.Summary && row.Summary.ColData) || [];
-      if (summaryCells.length) out.push(finReportRowToCsvCells(summaryCells, depth));
-    } else {
-      var cells = row.ColData || [];
-      if (cells.length) out.push(finReportRowToCsvCells(cells, depth));
-    }
-  });
-  return out;
-}
-function finReportRowToCsvCells(cells, depth) {
-  return cells.map(function(c, i) {
-    return i === 0 ? (new Array(depth + 1).join('- ') + (c.value || '')) : (c.value || '');
-  });
-}
 function finExportChurchCsv() {
-  var report = _finOverview.profitAndLoss;
-  if (!report || !report.Rows) { finToast('No church report data to export.'); return; }
-  var cols = (report.Columns && report.Columns.Column) || [];
-  var header = cols.map(function(c) { return c.ColTitle || ''; });
-  var rows = [header].concat(finReportTreeToCsvRows((report.Rows && report.Rows.Row) || [], 0));
-  var agg = finAggregateDaycareByYear(_finDaycare);
-  if (agg.years.length) {
-    var colYears = cols.map(function(c) { var m = /(\d{4})/.exec(c.ColTitle || ''); return m ? m[1] : null; });
-    function tieRowCsv(label, getter) {
-      return [label].concat(cols.slice(1).map(function(c, i) {
-        var y = colYears[i + 1];
-        var v = y ? getter(y) : null;
-        return v == null ? '' : v.toFixed(2);
-      }));
-    }
+  var rows = [];
+  if (_finChurchMode === 'year' && _finChurchThisYearData) {
+    var d = _finChurchThisYearData;
+    rows.push(['Account', 'Actual', 'Budget']);
+    finBuildTreeFromFlatRows(d.entries).forEach(function pushNode(node) {
+      rows.push([new Array(node.depth + 1).join('  ') + node.label, (node.totalActualCents / 100).toFixed(2), node.hasBudgetInfo ? (node.totalBudgetCents / 100).toFixed(2) : '']);
+      node.children.forEach(pushNode);
+    });
     rows.push([]);
-    rows.push(['Daycare (MDO) — for reference, not part of QuickBooks totals above']);
-    rows.push(tieRowCsv('Daycare Tuition Income', function(y) { return agg.byYear[y] ? agg.byYear[y].incomeActual : null; }));
-    rows.push(tieRowCsv('Daycare Payroll (Wages)', function(y) { var b = agg.byYear[y]; return (b && b.categories['Payroll']) ? b.categories['Payroll'].actual : null; }));
-    rows.push(tieRowCsv('Daycare Total Expenses', function(y) { return agg.byYear[y] ? agg.byYear[y].expenseActual : null; }));
+    rows.push(['Giving (ChMS records, reference only)', (d.givingCents / 100).toFixed(2)]);
+  } else if (_finChurchMode === 'multiyear' && _finChurchMultiYearData) {
+    var md = _finChurchMultiYearData;
+    var years = md.years || [];
+    rows.push(['Category'].concat(years));
+    [['Total Income', 'Income'], ['Cost of Goods Sold', 'Cost of Goods Sold'], ['Total Expenses', 'Expenses']].forEach(function(rd) {
+      rows.push([rd[0]].concat(years.map(function(y) { return ((md.byYear[y].classificationTotals[rd[1]] || { actualCents: 0 }).actualCents / 100).toFixed(2); })));
+    });
+    rows.push(['Net Income'].concat(years.map(function(y) { return (md.byYear[y].netIncome.actualCents / 100).toFixed(2); })));
+  } else {
+    finToast('No church report data to export.');
+    return;
   }
-  finDownloadCsv('church-report.csv', rows);
+  finDownloadCsv('church-report-' + _finChurchMode + '.csv', rows);
 }
 
 // ── Shared CSV download helper (Excel/Sheets formula-injection guarded) ─
