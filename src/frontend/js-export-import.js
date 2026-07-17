@@ -464,6 +464,61 @@ function applyFundMapping() {
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
+function loadDuplicateFunds() {
+  var status = document.getElementById('dup-funds-status');
+  var area = document.getElementById('dup-funds-area');
+  status.textContent = 'Loading…'; status.className = 'import-status';
+  area.innerHTML = '';
+  api('/admin/api/funds/duplicates').then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    var groups = d.duplicates || [];
+    if (!groups.length) {
+      status.textContent = 'No duplicate fund names found.';
+      status.className = 'import-status ok';
+      return;
+    }
+    area.innerHTML = groups.map(function(g, gi) {
+      var rows = g.funds.map(function(f, fi) {
+        var amt = '$' + (f.total_cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+        return '<tr style="border-bottom:1px solid #eee;">'
+          + '<td style="padding:6px 8px;"><label style="font-size:.82rem;"><input type="radio" name="dup-keep-' + gi + '" value="' + f.id + '"' + (fi === 0 ? ' checked' : '') + '> Keep this one</label></td>'
+          + '<td style="padding:6px 8px;font-size:.82rem;">#' + f.id + (f.breeze_id ? ' &bull; breeze_id ' + esc(f.breeze_id) : ' &bull; no breeze_id') + (f.active ? '' : ' &bull; <span style="color:#999;">inactive</span>') + '</td>'
+          + '<td style="padding:6px 8px;font-size:.82rem;">' + f.entry_count + ' gifts &bull; ' + amt + '</td></tr>';
+      }).join('');
+      return '<div style="margin:10px 0;padding:8px;border:1px solid var(--border);border-radius:8px;">'
+        + '<div style="font-weight:600;font-size:.9rem;margin-bottom:6px;">' + esc(g.name) + ' <span style="font-weight:400;color:var(--warm-gray);font-size:.8rem;">(' + g.funds.length + ' duplicate rows)</span></div>'
+        + '<table style="width:100%;border-collapse:collapse;" data-dup-group="' + gi + '">' + rows + '</table>'
+        + '<button class="btn-secondary" style="margin-top:6px;font-size:.82rem;" onclick="mergeDuplicateFundGroup(' + gi + ')">Merge into selected</button>'
+        + '</div>';
+    }).join('');
+    status.textContent = groups.length + ' duplicate fund name group(s) found. Pick which row to keep in each, then merge.';
+    status.className = 'import-status';
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
+function mergeDuplicateFundGroup(gi) {
+  var status = document.getElementById('dup-funds-status');
+  var table = document.querySelector('table[data-dup-group="' + gi + '"]');
+  if (!table) return;
+  var radios = table.querySelectorAll('input[type=radio]');
+  var keepId = null, allIds = [];
+  radios.forEach(function(r) {
+    allIds.push(parseInt(r.value));
+    if (r.checked) keepId = parseInt(r.value);
+  });
+  if (!keepId) { status.textContent = 'Pick which fund to keep first.'; status.className = 'import-status err'; return; }
+  var removeIds = allIds.filter(function(id) { return id !== keepId; });
+  if (!removeIds.length) return;
+  if (!confirm('Merge ' + removeIds.length + ' duplicate fund(s) into fund #' + keepId + '? Their gifts will be reassigned and the duplicate rows deleted. This cannot be undone.')) return;
+  status.textContent = 'Merging…'; status.className = 'import-status';
+  api('/admin/api/funds/merge', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({keep_id:keepId, remove_ids:removeIds})}).then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    status.textContent = 'Merged. ' + (d.moved_entries||0) + ' gift(s) reassigned to fund #' + keepId + '.';
+    status.className = 'import-status ok';
+    loadDuplicateFunds();
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
 function downloadBreezeAuditLog() {
   var from = document.getElementById('giving-sync-from').value;
   var to = document.getElementById('giving-sync-to').value;
