@@ -158,6 +158,30 @@ export function makeMultiYearExtractor(colYears) {
   }).filter(Boolean);
 }
 
+// QBO's monthly-column ColTitle format is "Jan 2026", "Feb 2026", etc. Returns null for any
+// title that doesn't match (e.g. a trailing "Total" column), so callers can skip it the same
+// way makeMultiYearExtractor skips non-year columns.
+const MONTH_ABBR = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+export function parseMonthColTitle(title) {
+  const m = /^([A-Za-z]{3})\w*\s+(\d{4})$/.exec((title || '').trim());
+  if (!m) return null;
+  const month = MONTH_ABBR[m[1]];
+  if (!month) return null;
+  return { year: parseInt(m[2], 10), month };
+}
+
+// `colPeriods[i]` is the {year, month} for cells[i] (or null to skip, e.g. a trailing "Total"
+// column) — only current + prior year are ever requested (see the sync handler), to bound sync
+// cost, so this never runs against a full multi-year window.
+export function makeMonthlyExtractor(colPeriods) {
+  return (cells) => colPeriods.map((p, i) => p == null ? null : {
+    fiscal_year: p.year,
+    period_month: p.month,
+    own_actual_cents: dollarsToCents(cells[i + 1]?.value),
+    own_budget_cents: null,
+  }).filter(Boolean);
+}
+
 // Flattens a merged/plain QuickBooks Columns/Rows report tree into flat rows ready for
 // finance_church_entries — one row per (real account node, fiscal year), holding only that
 // node's own non-cumulative amount. Never emits a "Total for X" subtotal row (there isn't one in
@@ -192,6 +216,7 @@ export function flattenReportTree(rows, pathPrefix, classification, extractAmoun
 function makeFlatRow(path, classification, hasChildren, amt) {
   return {
     fiscal_year: amt.fiscal_year,
+    period_month: amt.period_month || 0, // 0 = annual (see migrations/0018_finance_church_entries.sql)
     classification,
     category_path: path.join(':'),
     account_name: path[path.length - 1],
@@ -217,12 +242,12 @@ export async function persistChurchEntries(db, rows, syncedAt) {
     ops.push(db.prepare(
       `INSERT INTO finance_church_entries
          (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
-       VALUES (?,0,?,?,?,?,?,?,?,'qbo_sync',?)
+       VALUES (?,?,?,?,?,?,?,?,?,'qbo_sync',?)
        ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
          classification=excluded.classification, account_name=excluded.account_name, depth=excluded.depth,
          has_children=excluded.has_children, own_actual_cents=excluded.own_actual_cents,
          own_budget_cents=excluded.own_budget_cents, synced_at=excluded.synced_at`
-    ).bind(r.fiscal_year, r.classification, r.category_path, r.account_name, r.depth, r.has_children, r.own_actual_cents, r.own_budget_cents, syncedAt));
+    ).bind(r.fiscal_year, r.period_month || 0, r.classification, r.category_path, r.account_name, r.depth, r.has_children, r.own_actual_cents, r.own_budget_cents, syncedAt));
   }
   await db.batch(ops);
 }
@@ -366,6 +391,43 @@ export function computeYearSummary(rows) {
   return { classificationTotals: byClass, grossProfit, netOperatingIncome, netOtherIncome, netIncome, hasBudgetData };
 }
 
+// This-year-vs-last-year-to-date comparison + a year-end projection, computed purely from
+// already-fetched rows (no DB access) so it's independently unit-testable. `currentMonthlyRows`/
+// `priorMonthlyRows` must already be filtered to period_month <= throughMonth by the caller;
+// `priorAnnualRows` is the FULL prior year (any source, precedence-resolved here) since the
+// projection ratio needs the prior year's whole-year total, not just its YTD slice.
+// Returns { available: false } when either year has no monthly data yet — deliberately never
+// fabricates a comparison from annual-only rows (see migrations/0018_finance_church_entries.sql).
+export function computeYtdComparison(currentMonthlyRows, priorMonthlyRows, priorAnnualRows, throughMonth) {
+  if (!currentMonthlyRows.length || !priorMonthlyRows.length) return { available: false };
+  const curYtd = computeYearSummary(currentMonthlyRows);
+  const priorYtd = computeYearSummary(priorMonthlyRows);
+  const priorAnnual = computeYearSummary(resolveChurchYearPrecedence(priorAnnualRows));
+
+  // Prior-year-ratio projection (captures seasonality a straight-line extrapolation would miss);
+  // falls back to straight-line only when the prior year's YTD-at-this-point was exactly zero
+  // (so the ratio is undefined) — e.g. a fund with no activity yet this time last year.
+  function series(curCents, priorYtdCents, priorFullCents) {
+    let projectedCents, method;
+    if (priorYtdCents !== 0) {
+      projectedCents = Math.round(curCents * (priorFullCents / priorYtdCents));
+      method = 'prior-year-ratio';
+    } else {
+      projectedCents = Math.round(curCents * (12 / throughMonth));
+      method = 'straight-line';
+    }
+    return { currentYtdCents: curCents, priorYtdCents, priorFullYearCents: priorFullCents, projectedFullYearCents: projectedCents, method };
+  }
+  const get = (s, c) => (s.classificationTotals[c] || { actualCents: 0 }).actualCents;
+  return {
+    available: true,
+    throughMonth,
+    income: series(get(curYtd, 'Income'), get(priorYtd, 'Income'), get(priorAnnual, 'Income')),
+    expenses: series(get(curYtd, 'Expenses'), get(priorYtd, 'Expenses'), get(priorAnnual, 'Expenses')),
+    net: series(curYtd.netIncome.actualCents, priorYtd.netIncome.actualCents, priorAnnual.netIncome.actualCents),
+  };
+}
+
 export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, isFinance) {
   if (!isFinance) return json({ error: 'Access denied: finance data requires finance access' }, 403);
 
@@ -486,6 +548,14 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       client.profitAndLoss({ start_date: `${year - PNL_YEARS_BACK}-01-01`, end_date: `${year}-12-31`, summarize_column_by: 'Year' }),
       warnings
     );
+    // Monthly granularity, current + prior year ONLY (not the full 5-year window, to bound sync/
+    // storage cost) — this is what makes the This Year view's YoY-to-date comparison and
+    // year-end projection possible; annual-only rows can't support a same-period comparison.
+    const profitAndLossMonthly = await fetchQboJson(
+      'Profit & Loss (monthly, current + prior year)',
+      client.profitAndLoss({ start_date: `${year - 1}-01-01`, end_date: `${year}-12-31`, summarize_column_by: 'Month' }),
+      warnings
+    );
     const syncedAt = new Date().toISOString();
     const ops = [];
     if (budgetVsActual) ops.push(db.prepare(
@@ -512,10 +582,18 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     if (currentYearMerge) {
       flattenReportTree(currentYearMerge.rows, [], null, makeCurrentYearExtractor(year), churchRows);
     }
+    // Monthly rows use period_month 1-12 (vs. 0 for the annual rows above), so they don't
+    // collide in the UNIQUE(fiscal_year, period_month, category_path, source) constraint —
+    // order relative to the annual flattens above doesn't matter for that reason.
+    if (profitAndLossMonthly && profitAndLossMonthly.Rows) {
+      const monthCols = (profitAndLossMonthly.Columns && profitAndLossMonthly.Columns.Column) || [];
+      const colPeriods = monthCols.map(c => parseMonthColTitle(c.ColTitle || ''));
+      flattenReportTree(profitAndLossMonthly.Rows.Row, [], null, makeMonthlyExtractor(colPeriods), churchRows);
+    }
     await persistChurchEntries(db, churchRows, syncedAt);
 
     await db.prepare('UPDATE finance_qb_connection SET last_synced_at=? WHERE id=1').bind(syncedAt).run();
-    return json({ ok: true, syncedAt, warnings, fetched: { budgetVsActual: !!budgetVsActual, accounts: !!accounts, profitAndLoss: !!profitAndLoss }, churchEntriesSynced: churchRows.length });
+    return json({ ok: true, syncedAt, warnings, fetched: { budgetVsActual: !!budgetVsActual, accounts: !!accounts, profitAndLoss: !!profitAndLoss, profitAndLossMonthly: !!profitAndLossMonthly }, churchEntriesSynced: churchRows.length });
   }
 
   // ── Overview: cached QBO data + daycare summary, for the Finance tab ──
@@ -630,14 +708,38 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const allRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year).all()).results || [];
     const entries = resolveChurchYearPrecedence(allRows);
     const summary = computeYearSummary(entries);
-    const givingRow = await db.prepare(
-      `SELECT COALESCE(SUM(amount),0) AS total FROM giving_entries WHERE contribution_date BETWEEN ? AND ?`
-    ).bind(`${year}-01-01`, `${year}-12-31`).first();
+    const givingByFundRows = (await db.prepare(
+      `SELECT f.name AS fund_name, COALESCE(SUM(ge.amount),0) AS total
+       FROM giving_entries ge JOIN funds f ON f.id = ge.fund_id
+       WHERE ge.contribution_date BETWEEN ? AND ?
+       GROUP BY ge.fund_id ORDER BY total DESC`
+    ).bind(`${year}-01-01`, `${year}-12-31`).all()).results || [];
+    const givingByFund = givingByFundRows.map(r => ({ fundName: r.fund_name, cents: r.total || 0 }));
+    const givingCents = givingByFund.reduce((sum, r) => sum + r.cents, 0);
+
+    // YoY-to-date + year-end projection — only meaningful for the current year (a past year's
+    // "as of today" comparison doesn't mean anything); needs monthly-granularity rows, which the
+    // sync only populates for current + prior year (see the sync handler below).
+    const now = new Date();
+    let yoy = { available: false };
+    if (year === now.getFullYear()) {
+      const throughMonth = now.getMonth() + 1;
+      const monthlyRows = (await db.prepare(
+        `SELECT * FROM finance_church_entries WHERE source='qbo_sync' AND period_month BETWEEN 1 AND 12 AND fiscal_year IN (?,?)`
+      ).bind(year, year - 1).all()).results || [];
+      const curMonthly = monthlyRows.filter(r => r.fiscal_year === year && r.period_month <= throughMonth);
+      const priorMonthly = monthlyRows.filter(r => r.fiscal_year === year - 1 && r.period_month <= throughMonth);
+      const priorAnnualRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year - 1).all()).results || [];
+      yoy = computeYtdComparison(curMonthly, priorMonthly, priorAnnualRows, throughMonth);
+    }
+
     return json({
       year,
       entries,
       ...summary,
-      givingCents: givingRow?.total || 0,
+      givingCents,
+      givingByFund,
+      yoy,
     });
   }
 

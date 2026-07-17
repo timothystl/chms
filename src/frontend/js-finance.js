@@ -533,6 +533,43 @@ function finChurchSummaryCard(label, totals, hasBudget) {
   }
   return html + '</div>';
 }
+// This-year-vs-last-year-to-date + a year-end projection. yoy.available is false when
+// monthly-granularity data hasn't been synced yet (needs a QuickBooks sync after this feature
+// shipped — see the sync handler) — shown as an honest "not yet available" note rather than a
+// misleading number computed from annual-only data.
+function finRenderYoyRow(label, s) {
+  return '<tr><td style="padding:5px 8px;">' + label + '</td>'
+    + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(s.currentYtdCents / 100) + '</td>'
+    + '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">$' + finFmtMoney(s.priorYtdCents / 100) + '</td>'
+    + '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">$' + finFmtMoney(s.priorFullYearCents / 100) + '</td>'
+    + '<td style="text-align:right;padding:5px 8px;font-weight:600;">$' + finFmtMoney(s.projectedFullYearCents / 100) + '</td>'
+    + '</tr>';
+}
+function finRenderYoyBlock(yoy) {
+  if (!yoy || !yoy.available) {
+    return '<div style="font-size:.8rem;color:var(--warm-gray);background:var(--linen);border-radius:8px;padding:10px 14px;margin-bottom:18px;">'
+      + 'Year-over-year comparison and a year-end projection aren’t available yet — they need a monthly-granularity QuickBooks sync (current + prior year). Click "Sync Now" in the Overview tab to enable this.'
+      + '</div>';
+  }
+  var monthLbl = MONTH_NAMES[yoy.throughMonth - 1];
+  return '<div style="margin-bottom:18px;">'
+    + '<h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">This year vs. last year (through ' + monthLbl + ')</h4>'
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead><tr style="border-bottom:2px solid var(--navy);">'
+    + '<th style="text-align:left;padding:6px 8px;"></th>'
+    + '<th style="text-align:right;padding:6px 8px;">This Year YTD</th>'
+    + '<th style="text-align:right;padding:6px 8px;">Last Year YTD</th>'
+    + '<th style="text-align:right;padding:6px 8px;">Last Year (Full)</th>'
+    + '<th style="text-align:right;padding:6px 8px;">Projected Full Year</th>'
+    + '</tr></thead><tbody>'
+    + finRenderYoyRow('Income', yoy.income)
+    + finRenderYoyRow('Expenses', yoy.expenses)
+    + finRenderYoyRow('Net Income', yoy.net)
+    + '</tbody></table></div>'
+    + '<p style="font-size:.72rem;color:var(--warm-gray);margin-top:6px;">'
+    + 'Projection assumes this year follows a similar month-to-month pattern as last year — an estimate for planning, not a guarantee; a single large one-time gift or expense can shift it substantially.'
+    + '</p></div>';
+}
 function finRenderChurchThisYear(d) {
   var el = document.getElementById('fin-church-year-view');
   if (!el) return;
@@ -551,7 +588,13 @@ function finRenderChurchThisYear(d) {
     + '<div style="font-size:.82rem;color:var(--warm-gray);background:var(--linen);border-radius:8px;padding:10px 14px;margin-bottom:18px;">'
     + '<b>Giving (ChMS records):</b> $' + finFmtMoney(d.givingCents / 100)
     + ' <span style="font-size:.75rem;">— shown for reference only. QuickBooks’ Income figure above reflects what has cleared the bank and been fully recorded, so timing differences from ChMS’s own recorded giving are expected, not a discrepancy to chase.</span>'
-    + '</div>';
+    + (d.givingByFund && d.givingByFund.length ? '<table style="width:100%;border-collapse:collapse;font-size:.78rem;margin-top:8px;">'
+        + d.givingByFund.map(function(f) {
+            return '<tr><td style="padding:2px 8px 2px 0;">' + esc(f.fundName) + '</td><td style="padding:2px 0;text-align:right;">$' + finFmtMoney(f.cents / 100) + '</td></tr>';
+          }).join('')
+        + '</table>' : '')
+    + '</div>'
+    + finRenderYoyBlock(d.yoy);
 
   var tree = finBuildTreeFromFlatRows(d.entries);
   html += '<details><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail</summary>'
@@ -630,6 +673,9 @@ function finExportChurchCsv() {
     });
     rows.push([]);
     rows.push(['Giving (ChMS records, reference only)', (d.givingCents / 100).toFixed(2)]);
+    (d.givingByFund || []).forEach(function(f) {
+      rows.push(['  ' + f.fundName, (f.cents / 100).toFixed(2)]);
+    });
   } else if (_finChurchMode === 'multiyear' && _finChurchMultiYearData) {
     var md = _finChurchMultiYearData;
     var years = md.years || [];

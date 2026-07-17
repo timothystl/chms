@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, mergeProfitAndLossTree, persistChurchEntries, resolveChurchYearPrecedence, computeYearSummary } from '../src/api-finance.js';
+import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, persistChurchEntries, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison } from '../src/api-finance.js';
 
 // ── Minimal D1-shaped wrapper around node:sqlite, so persistChurchEntries() runs against real
 // SQL (real UNIQUE/ON CONFLICT semantics) instead of a hand-rolled re-implementation of what the
@@ -154,6 +154,81 @@ describe('flattenReportTree — multi-year extractor', () => {
       { ColData: [{ value: 'Design income' }, { value: '1000.00' }, { value: '1200.00' }, { value: '2200.00' }] },
     ], [], 'Income', extractorWithTotal);
     expect(withTotalCol.length).toBe(2);
+  });
+});
+
+describe('parseMonthColTitle', () => {
+  it('parses QBO\'s "Mon YYYY" monthly column format', () => {
+    expect(parseMonthColTitle('Jan 2026')).toEqual({ year: 2026, month: 1 });
+    expect(parseMonthColTitle('Dec 2025')).toEqual({ year: 2025, month: 12 });
+  });
+  it('returns null for a non-matching title (e.g. a trailing "Total" column)', () => {
+    expect(parseMonthColTitle('Total')).toBeNull();
+    expect(parseMonthColTitle('')).toBeNull();
+  });
+});
+
+describe('flattenReportTree — monthly extractor', () => {
+  const monthlyRows = [
+    section('Income', null, [
+      { ColData: [{ value: 'Design income' }, { value: '500.00' }, { value: '700.00' }, { value: '1200.00' }] },
+    ], true),
+  ];
+  // Columns: Account, Jan 2026, Feb 2026, Total (skipped via null)
+  const colPeriods = [{ year: 2026, month: 1 }, { year: 2026, month: 2 }, null];
+  const rows = flattenReportTree(monthlyRows, [], null, makeMonthlyExtractor(colPeriods));
+
+  it('emits one row per month, tagged with the right period_month', () => {
+    const jan = rows.find(r => r.period_month === 1);
+    const feb = rows.find(r => r.period_month === 2);
+    expect(jan.own_actual_cents).toBe(50000);
+    expect(feb.own_actual_cents).toBe(70000);
+    expect(jan.fiscal_year).toBe(2026);
+  });
+  it('skips the null (Total) column', () => {
+    expect(rows.length).toBe(2);
+  });
+});
+
+describe('computeYtdComparison', () => {
+  it('returns available:false when either year has no monthly rows yet', () => {
+    expect(computeYtdComparison([], [], [], 6).available).toBe(false);
+    expect(computeYtdComparison([{ classification: 'Income', own_actual_cents: 100 }], [], [], 6).available).toBe(false);
+  });
+
+  it('computes YTD-to-date and a prior-year-ratio projection', () => {
+    // This year, Jan-Jun: Income 60000 cents. Last year same window: Income 50000 cents.
+    // Last year full year: Income 120000 cents -> ratio 120000/50000 = 2.4 -> projected 60000*2.4=144000.
+    const curMonthly = [
+      { classification: 'Income', own_actual_cents: 60000 },
+      { classification: 'Expenses', own_actual_cents: 30000 },
+    ];
+    const priorMonthly = [
+      { classification: 'Income', own_actual_cents: 50000 },
+      { classification: 'Expenses', own_actual_cents: 25000 },
+    ];
+    const priorAnnual = [
+      { fiscal_year: 2025, source: 'qbo_sync', classification: 'Income', own_actual_cents: 120000 },
+      { fiscal_year: 2025, source: 'qbo_sync', classification: 'Expenses', own_actual_cents: 60000 },
+    ];
+    const result = computeYtdComparison(curMonthly, priorMonthly, priorAnnual, 6);
+    expect(result.available).toBe(true);
+    expect(result.income.currentYtdCents).toBe(60000);
+    expect(result.income.priorYtdCents).toBe(50000);
+    expect(result.income.priorFullYearCents).toBe(120000);
+    expect(result.income.projectedFullYearCents).toBe(144000);
+    expect(result.income.method).toBe('prior-year-ratio');
+    expect(result.expenses.projectedFullYearCents).toBe(72000); // 30000 * (60000/25000)
+    expect(result.net.currentYtdCents).toBe(30000); // 60000 income - 30000 expenses
+  });
+
+  it('falls back to straight-line when prior-year YTD-at-this-point was exactly zero', () => {
+    const curMonthly = [{ classification: 'Income', own_actual_cents: 60000 }];
+    const priorMonthly = [{ classification: 'Income', own_actual_cents: 0 }];
+    const priorAnnual = [{ fiscal_year: 2025, source: 'qbo_sync', classification: 'Income', own_actual_cents: 100000 }];
+    const result = computeYtdComparison(curMonthly, priorMonthly, priorAnnual, 6);
+    expect(result.income.method).toBe('straight-line');
+    expect(result.income.projectedFullYearCents).toBe(120000); // 60000 * (12/6)
   });
 });
 
