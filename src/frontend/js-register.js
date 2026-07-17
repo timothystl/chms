@@ -22,7 +22,7 @@ function showRegisterTab(type) {
   loadRegister();
 }
 function clearRegForm() {
-  ['reg-date','reg-name','reg-dob','reg-place-of-birth','reg-baptism-place','reg-father','reg-mother','reg-sponsors','reg-officiant','reg-notes'].forEach(function(id) {
+  ['reg-date','reg-name','reg-dob','reg-place-of-birth','reg-baptism-place','reg-father','reg-mother','reg-sponsors','reg-officiant','reg-notes','reg-record-type'].forEach(function(id) {
     var el = document.getElementById(id); if (el) el.value = '';
   });
 }
@@ -127,7 +127,7 @@ function renderRegisterList(entries) {
         + '<td style="font-size:.85rem;">'+rtBadge+officPart+pdfPart+'</td>'
         + '<td style="white-space:nowrap;text-align:right;">'
         + '<button class="reg-edit-btn" onclick="openRegisterEdit('+e.id+')" title="Edit">Edit</button>'
-        + '<button class="del-entry" onclick="deleteRegisterEntry('+e.id+')" title="Delete">&#215;</button>'
+        + '<button class="reg-del-btn" onclick="deleteRegisterEntry('+e.id+')" title="Delete">Delete</button>'
         + '</td>'
         + '</tr>';
     }).join('');
@@ -152,11 +152,12 @@ function saveRegisterEntry() {
   var sponsors      = document.getElementById('reg-sponsors').value.trim();
   var officiant     = document.getElementById('reg-officiant').value.trim();
   var notes         = document.getElementById('reg-notes').value.trim();
+  var recordType    = document.getElementById('reg-record-type').value.trim();
   if (!name) { alert('Name is required.'); return; }
   var isEdit = !!_regEditId;
   var url    = isEdit ? '/admin/api/register/' + _regEditId : '/admin/api/register';
   var method = isEdit ? 'PUT' : 'POST';
-  var body   = {event_date: date, name: name, dob: dob, place_of_birth: placeOfBirth, baptism_place: baptismPlace, father: father, mother: mother, sponsors: sponsors, officiant: officiant, notes: notes};
+  var body   = {event_date: date, name: name, dob: dob, place_of_birth: placeOfBirth, baptism_place: baptismPlace, father: father, mother: mother, sponsors: sponsors, officiant: officiant, notes: notes, record_type: recordType};
   if (!isEdit) body.type = _regType;
   api(url, {method: method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)}).then(function(r) {
     if (r.ok) {
@@ -183,6 +184,7 @@ function openRegisterEdit(id) {
   document.getElementById('reg-sponsors').value       = entry.sponsors || entry.name2 || '';
   document.getElementById('reg-officiant').value      = entry.officiant || '';
   document.getElementById('reg-notes').value          = entry.notes || '';
+  document.getElementById('reg-record-type').value    = entry.record_type || '';
   var ft = document.getElementById('reg-form-title'); if (ft) ft.textContent = 'Edit Entry';
   var sb = document.getElementById('reg-save-btn');   if (sb) sb.textContent = 'Save Changes';
   var cb = document.getElementById('reg-cancel-btn'); if (cb) cb.style.display = '';
