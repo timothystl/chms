@@ -826,6 +826,8 @@ async function _doInitDb(db) {
       attends_lhs INTEGER NOT NULL DEFAULT 1,
       timothy_award_exact_cents INTEGER,
       family_owed_exact_cents INTEGER,
+      timothy_award_override_cents INTEGER,
+      family_owed_override_cents INTEGER,
       note TEXT NOT NULL DEFAULT '',
       active INTEGER NOT NULL DEFAULT 1,
       sort_order INTEGER NOT NULL DEFAULT 0,
@@ -866,6 +868,10 @@ async function _doInitDb(db) {
     )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_tsy_student_year ON tuition_student_years(student_id, school_year)`,
     `CREATE INDEX IF NOT EXISTS idx_tsy_school_year ON tuition_student_years(school_year)`,
+    // Tuition Aid Planner: exact-dollar Timothy Award override for the current year, alongside
+    // Outside Aid (see migrations/0017_tuition_timothy_override.sql)
+    'ALTER TABLE tuition_students ADD COLUMN timothy_award_override_cents INTEGER',
+    'ALTER TABLE tuition_students ADD COLUMN family_owed_override_cents INTEGER',
     // Finance Overview: QuickBooks Online OAuth connection + cached report snapshots,
     // plus manual daycare entries (see migrations/0016_finance.sql)
     `CREATE TABLE IF NOT EXISTS finance_qb_connection (

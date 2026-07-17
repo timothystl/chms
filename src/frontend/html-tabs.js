@@ -1158,6 +1158,25 @@ export const HTML_TABS_2 = String.raw`
 
       <div id="tap-planner-current">
       <section class="dash-card" style="margin-bottom:16px;">
+        <div class="dash-card-hdr">Total Timothy Aid — K-8 (WOL) + LHS combined</div>
+        <div class="dash-card-body" style="padding:14px 18px;">
+          <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">Everything Timothy commits across both the K-8 budget and LHS awards, tracked against one combined pool — separate from the two individual budgets tracked below.</p>
+          <div style="margin-bottom:10px;">
+            <div class="tap-gauge-track"><div class="tap-gauge-fill" id="tap-total-gauge-fill"></div></div>
+            <div class="tap-gauge-label">
+              <span class="tap-gauge-text" id="tap-total-gauge-text">–</span>
+              <span id="tap-total-gauge-cap">Total Timothy Aid Budget: –</span>
+            </div>
+          </div>
+          <div class="tap-controls">
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;">
+              Total Timothy Aid Budget: $<input type="number" id="tap-total-budget-input" min="0" step="1" style="width:110px;">
+              <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveTotalBudget()">Save</button>
+            </span>
+          </div>
+        </div>
+      </section>
+      <section class="dash-card" style="margin-bottom:16px;">
         <div class="dash-card-hdr">Student Aid Planner — keep Timothy's award under budget</div>
         <div class="dash-card-body" style="padding:14px 18px;">
           <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">Each slider sets the family's assigned share of the total tuition bill — outside scholarships apply against that share first. Timothy commits at least $2,000/student. Project a future year and the roster moves: grades advance, 8th graders graduate into the LHS planner, and 12th graders age out. Editing outside aid, family share, or LHS award while viewing a year other than the current one pins that year's numbers without touching any other year.</p>
