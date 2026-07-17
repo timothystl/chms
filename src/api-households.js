@@ -402,7 +402,10 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
     }
     const duplicates = [...groups.entries()]
       .filter(([, rows]) => rows.length > 1)
-      .map(([name, rows]) => ({ name, funds: rows.sort((a, b) => b.total_cents - a.total_cents) }));
+      .map(([, rows]) => {
+        const sorted = rows.sort((a, b) => b.total_cents - a.total_cents);
+        return { name: sorted[0].name, funds: sorted };
+      });
     return json({ duplicates });
   }
   if (seg === 'funds/merge' && method === 'POST') {
