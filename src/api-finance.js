@@ -38,12 +38,107 @@ function redirectToApp(url, qsParam, qsValue) {
   return new Response(null, { status: 302, headers: { Location: `${url.origin}/?${qsParam}=${encodeURIComponent(qsValue)}#finance` } });
 }
 
+// Merges a single leaf/subtotal row's budget amount in, by exact account-name match against
+// the Budget entity. `ctx.budgetIdsByName` tracks how many DISTINCT account IDs share a given
+// display name — the same account legitimately appears many times (one BudgetDetail line per
+// month), which is NOT a collision, but two genuinely different accounts in different parent
+// categories can share a bare name (e.g. an Income sub-account and an unrelated Expense
+// sub-account both named "Plants and Soil" — confirmed against a real QuickBooks P&L export).
+// Only merge when the name unambiguously maps to one account; otherwise leave it at $0 and flag
+// it, rather than silently attributing one account's budget to a different account.
+function mergeLeafCells(cells, ctx) {
+  const name = cells[0]?.value || '';
+  const actual = Number(cells[cells.length - 1]?.value);
+  const actualAmt = Number.isFinite(actual) ? actual : 0;
+  const ids = ctx.budgetIdsByName.get(name);
+  let budgetAmt = 0;
+  if (ids && ids.size > 1) ctx.ambiguousNames.add(name);
+  else if (ctx.budgetByName.has(name)) budgetAmt = ctx.budgetByName.get(name);
+  return {
+    cells: [{ value: name }, { value: actualAmt.toFixed(2) }, { value: budgetAmt.toFixed(2) }, { value: (actualAmt - budgetAmt).toFixed(2) }],
+    budget: budgetAmt,
+  };
+}
+// Merges one Section row (recursing into its children first), then derives the section's own
+// subtotal (Summary row) as its own direct-posting amount (a parent account can carry postings
+// of its own in addition to its sub-accounts, e.g. "Job Expenses" itself plus a nested "Job
+// Materials" sub-section) PLUS every descendant's budget, summed bottom-up — this reproduces
+// QBO's own "Total for X" math without needing to name-match the subtotal row itself (whose
+// label, e.g. "Total for Job Materials", never appears verbatim in the Budget entity).
+function mergeSection(row, ctx) {
+  const child = mergeTree(row.Rows?.Row, ctx);
+  let ownBudget = 0;
+  let newHeaderCells = row.Header?.ColData;
+  if (newHeaderCells && newHeaderCells.length >= 2) {
+    const m = mergeLeafCells(newHeaderCells, ctx);
+    newHeaderCells = m.cells;
+    ownBudget = m.budget;
+  }
+  const sectionBudget = ownBudget + child.budgetSum;
+  let newSummaryCells = row.Summary?.ColData;
+  if (newSummaryCells && newSummaryCells.length >= 2) {
+    const actual = Number(newSummaryCells[newSummaryCells.length - 1]?.value) || 0;
+    newSummaryCells = [newSummaryCells[0], { value: actual.toFixed(2) }, { value: sectionBudget.toFixed(2) }, { value: (actual - sectionBudget).toFixed(2) }];
+  }
+  return {
+    row: {
+      type: 'Section',
+      Header: newHeaderCells ? { ColData: newHeaderCells } : row.Header,
+      Rows: { Row: child.rows },
+      Summary: newSummaryCells ? { ColData: newSummaryCells } : row.Summary,
+    },
+    budget: sectionBudget,
+  };
+}
+// Recursively merges budget amounts into an arbitrarily-nested Section/Data row tree.
+function mergeTree(rows, ctx) {
+  let budgetSum = 0;
+  const out = (rows || []).map(row => {
+    if (row.type === 'Section') {
+      const { row: newRow, budget } = mergeSection(row, ctx);
+      budgetSum += budget;
+      return newRow;
+    }
+    const cells = row.ColData;
+    if (!cells || cells.length < 2) return row; // label-only row with no amount column — leave untouched
+    const m = mergeLeafCells(cells, ctx);
+    budgetSum += m.budget;
+    return { ColData: m.cells };
+  });
+  return { rows: out, budgetSum };
+}
+// Top-level P&L rows alternate Sections (Income / Cost of Goods Sold / Expenses / Other Income
+// / Other Expenses — QBO's fixed, universal classification names, not custom labels) with flat
+// running-subtotal rows (Gross Profit / Net Operating Income / Net Other Income / Net Income).
+// "Other Income" starts a second, independent running total that only merges back in at "Net
+// Income" — this is standard P&L structure, confirmed against a real exported QuickBooks report.
+function mergeProfitAndLossTree(rows, ctx) {
+  let mainBudget = 0, otherBudget = 0, inOtherThread = false;
+  return (rows || []).map(row => {
+    if (row.type === 'Section') {
+      const label = row.Header?.ColData?.[0]?.value || '';
+      if (label === 'Other Income') inOtherThread = true;
+      const { row: newRow, budget } = mergeSection(row, ctx);
+      if (inOtherThread) otherBudget += budget; else mainBudget += budget;
+      return newRow;
+    }
+    const cells = row.ColData;
+    if (!cells || cells.length < 2) return row;
+    const label = cells[0]?.value || '';
+    const actual = Number(cells[cells.length - 1]?.value) || 0;
+    const budgetVal = label === 'Net Income' ? (mainBudget + otherBudget) : (inOtherThread ? otherBudget : mainBudget);
+    return { ColData: [{ value: label }, { value: actual.toFixed(2) }, { value: budgetVal.toFixed(2) }, { value: (actual - budgetVal).toFixed(2) }] };
+  });
+}
+
 // Fallback for when the BudgetVsActual REPORT endpoint itself is blocked (hit a persistent
 // "5020 Permission Denied" error during live testing even with a verified Budget and Company
 // Admin access) but entity-level/other-report access still works. Pulls the raw Budget entity
-// (budgeted amounts) and the ProfitAndLoss report (actuals) separately, matches rows by account
-// name, and synthesizes the same Columns/Rows report shape the frontend already renders
-// generically — so no frontend changes are needed to display it.
+// (budgeted amounts) and the ProfitAndLoss report (actuals) separately and merges budget figures
+// INTO the real ProfitAndLoss tree (rather than flattening both into an alphabetized list) —
+// this reproduces QuickBooks' own Income/Cost of Goods Sold/Expenses categorization, nesting,
+// and subtotals exactly, and returns the same Columns/Rows report shape the frontend already
+// renders generically, so no frontend changes are needed to display it.
 // ⚠ The exact Budget entity field names (BudgetDetail/AccountRef/Amount) are based on Intuit's
 // published schema but could not be confirmed against a live response while building this (docs
 // site blocked automated fetches) — if this returns no usable data, check the real shape of a
@@ -60,53 +155,31 @@ async function buildBudgetVsActualFallback(client, year, warnings) {
     client.profitAndLoss({ start_date: `${year}-01-01`, end_date: `${year}-12-31` }),
     warnings
   );
-  if (!plData) return null;
+  if (!plData || !plData.Rows) return null;
 
-  const budgetByAccount = new Map();
+  // Sum by name (a single account legitimately has one BudgetDetail line per month), but also
+  // track distinct account IDs per name so a genuine name collision across different accounts
+  // can be told apart from ordinary multi-month lines for the same account.
+  const budgetByName = new Map();
+  const budgetIdsByName = new Map();
   for (const line of (budget.BudgetDetail || [])) {
     const name = line?.AccountRef?.name;
+    const id = line?.AccountRef?.value;
     const amt = Number(line?.Amount);
     if (!name || !Number.isFinite(amt)) continue;
-    budgetByAccount.set(name, (budgetByAccount.get(name) || 0) + amt);
+    budgetByName.set(name, (budgetByName.get(name) || 0) + amt);
+    if (!budgetIdsByName.has(name)) budgetIdsByName.set(name, new Set());
+    if (id != null) budgetIdsByName.get(name).add(id);
   }
-  if (!budgetByAccount.size) { warnings.push('Budget entity (fallback): found a Budget but no usable BudgetDetail line items'); return null; }
+  if (!budgetByName.size) { warnings.push('Budget entity (fallback): found a Budget but no usable BudgetDetail line items'); return null; }
 
-  // Flatten ProfitAndLoss's nested Section/Data rows into {accountName: total} — the last
-  // ColData column is the period total when no summarize_column_by is requested.
-  const actualByAccount = new Map();
-  const walk = (rows) => {
-    for (const row of (rows || [])) {
-      if (row.type === 'Section') {
-        const cells = row.Header?.ColData || [];
-        if (cells[0]?.value && cells.length > 1) {
-          const amt = Number(cells[cells.length - 1].value);
-          if (Number.isFinite(amt)) actualByAccount.set(cells[0].value, amt);
-        }
-        walk(row.Rows?.Row);
-      } else {
-        const cells = row.ColData || [];
-        if (cells[0]?.value && cells.length > 1) {
-          const amt = Number(cells[cells.length - 1].value);
-          if (Number.isFinite(amt)) actualByAccount.set(cells[0].value, amt);
-        }
-      }
-    }
-  };
-  walk(plData?.Rows?.Row);
-
-  const names = [...new Set([...budgetByAccount.keys(), ...actualByAccount.keys()])].sort();
-  const rows = names.map(name => {
-    const budgetAmt = budgetByAccount.get(name) || 0;
-    const actualAmt = actualByAccount.get(name) || 0;
-    return {
-      ColData: [
-        { value: name },
-        { value: actualAmt.toFixed(2) },
-        { value: budgetAmt.toFixed(2) },
-        { value: (actualAmt - budgetAmt).toFixed(2) },
-      ],
-    };
-  });
+  const ambiguousNames = new Set();
+  const rows = mergeProfitAndLossTree(plData.Rows.Row, { budgetByName, budgetIdsByName, ambiguousNames });
+  if (ambiguousNames.size) {
+    warnings.push(
+      `Budget vs Actual (fallback): ${ambiguousNames.size} account name(s) appear on more than one account in different categories (e.g. sub-accounts sharing a name across Income and Expenses) — shown as $0 budget rather than guessed which one: ${[...ambiguousNames].slice(0, 5).join(', ')}${ambiguousNames.size > 5 ? '…' : ''}`
+    );
+  }
 
   return {
     Columns: { Column: [{ ColTitle: 'Account' }, { ColTitle: 'Actual' }, { ColTitle: 'Budget' }, { ColTitle: 'Over Budget By' }] },
