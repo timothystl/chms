@@ -1248,7 +1248,8 @@ export const HTML_TABS_2 = String.raw`
               </label>
               <label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-dc-amount" step="0.01" style="width:110px;"></label>
               <label style="font-size:.75rem;color:var(--warm-gray);">Notes<br><input type="text" id="fin-dc-notes" style="width:160px;"></label>
-              <button class="btn-primary" onclick="finAddDaycare()">+ Add Entry</button>
+              <button class="btn-primary" id="fin-dc-submit-btn" onclick="finSaveDaycare()">+ Add Entry</button>
+              <button class="btn-secondary" id="fin-dc-cancel-btn" style="display:none;" onclick="finCancelEditDaycare()">Cancel</button>
             </div>
             <div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="fin-dc-error"></div>
             <details style="margin-top:14px;">

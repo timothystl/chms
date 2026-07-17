@@ -249,17 +249,49 @@ function finRenderDaycare() {
     return;
   }
   el.innerHTML = _finDaycare.map(function(e) {
+    var actions = '<button class="btn-secondary" style="font-size:.72rem;padding:3px 8px;margin-right:4px;" onclick="finEditDaycare(' + e.id + ')">Edit</button>'
+      + (e.source === 'daycare_api' ? '' : '<button class="btn-secondary" style="font-size:.72rem;padding:3px 8px;" onclick="finDeleteDaycare(' + e.id + ')">Delete</button>');
     return '<tr>'
       + '<td style="padding:5px 8px;">' + esc(e.period) + '</td>'
       + '<td style="padding:5px 8px;">' + esc(e.category) + '</td>'
       + '<td style="padding:5px 8px;">' + (e.entry_type === 'budget' ? 'Budget' : 'Actual') + '</td>'
       + '<td style="padding:5px 8px;text-align:right;">$' + finFmtMoney(e.amount_cents / 100) + '</td>'
       + '<td style="padding:5px 8px;color:var(--warm-gray);font-size:.78rem;">' + (e.source === 'daycare_api' ? 'Daycare App' : esc(e.notes || '')) + '</td>'
-      + '<td style="padding:5px 8px;text-align:right;">' + (e.source === 'daycare_api' ? '' : '<button class="btn-secondary" style="font-size:.72rem;padding:3px 8px;" onclick="finDeleteDaycare(' + e.id + ')">Delete</button>') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + actions + '</td>'
       + '</tr>';
   }).join('');
 }
-function finAddDaycare() {
+// Add/Edit share one form + one submit handler. Editing a daycare_api-sourced row is allowed
+// (the backend PUT doesn't restrict by source) — Delete stays manual-only above since a
+// deleted synced row would just reappear on the next sync of that period, but an edited one
+// only gets overwritten if that same period is re-synced again, which in practice mostly
+// happens for the current/recent period, not old closed-out years.
+var _finEditingDaycareId = null;
+function finEditDaycare(id) {
+  var e = _finDaycare.filter(function(x) { return x.id === id; })[0];
+  if (!e) return;
+  _finEditingDaycareId = id;
+  document.getElementById('fin-dc-period').value = e.period;
+  document.getElementById('fin-dc-category').value = e.category;
+  document.getElementById('fin-dc-type').value = e.entry_type === 'budget' ? 'budget' : 'actual';
+  document.getElementById('fin-dc-amount').value = (e.amount_cents / 100).toFixed(2);
+  document.getElementById('fin-dc-notes').value = e.source === 'daycare_api' ? '' : (e.notes || '');
+  document.getElementById('fin-dc-error').textContent = '';
+  document.getElementById('fin-dc-submit-btn').textContent = 'Update Entry';
+  document.getElementById('fin-dc-cancel-btn').style.display = '';
+  document.getElementById('fin-dc-period').scrollIntoView({behavior:'smooth', block:'center'});
+}
+function finCancelEditDaycare() {
+  _finEditingDaycareId = null;
+  document.getElementById('fin-dc-period').value = '';
+  document.getElementById('fin-dc-category').value = '';
+  document.getElementById('fin-dc-amount').value = '';
+  document.getElementById('fin-dc-notes').value = '';
+  document.getElementById('fin-dc-error').textContent = '';
+  document.getElementById('fin-dc-submit-btn').textContent = '+ Add Entry';
+  document.getElementById('fin-dc-cancel-btn').style.display = 'none';
+}
+function finSaveDaycare() {
   var period = document.getElementById('fin-dc-period').value.trim();
   var category = document.getElementById('fin-dc-category').value.trim();
   var type = document.getElementById('fin-dc-type').value;
@@ -270,15 +302,14 @@ function finAddDaycare() {
   if (!/^\d{4}(-\d{2})?$/.test(period)) { errEl.textContent = 'Period must be YYYY or YYYY-MM.'; return; }
   if (!category) { errEl.textContent = 'Category is required.'; return; }
   if (!isFinite(amount)) { errEl.textContent = 'Enter a valid amount.'; return; }
-  api('/admin/api/finance/daycare', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ period: period, category: category, entry_type: type, amount_cents: Math.round(amount * 100), notes: notes })
-  }).then(function(d) {
+  var body = { period: period, category: category, entry_type: type, amount_cents: Math.round(amount * 100), notes: notes };
+  var editingId = _finEditingDaycareId;
+  var req = editingId
+    ? api('/admin/api/finance/daycare/' + editingId, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) })
+    : api('/admin/api/finance/daycare', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  req.then(function(d) {
     if (d && d.error) { errEl.textContent = d.error; return; }
-    document.getElementById('fin-dc-period').value = '';
-    document.getElementById('fin-dc-category').value = '';
-    document.getElementById('fin-dc-amount').value = '';
-    document.getElementById('fin-dc-notes').value = '';
+    finCancelEditDaycare();
     return api('/admin/api/finance/daycare').then(function(d2) { _finDaycare = d2.entries || []; finRenderDaycare(); });
   }).catch(function(err) { errEl.textContent = err && err.message || 'Could not save entry.'; });
 }
