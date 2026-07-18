@@ -141,6 +141,190 @@ function dollarsToCents(v) {
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
+// ── Server-side .xlsx reader for Church Report budget import ────────────────
+// XLSX is a ZIP of XML files. Reads the ZIP container directly (central directory + local
+// file headers) and decompresses DEFLATE payloads with the standard Web Streams
+// DecompressionStream — both available in the Workers runtime, no third-party library (this
+// app hand-rolls all its parsing, same reasoning as Tuition Aid's client-side XLSX reader,
+// which this ports from — see js-tuition-aid.js). Runs server-side (not in the browser) since
+// the endpoint receives the raw uploaded file directly; kept as plain functions over
+// ArrayBuffer/Uint8Array with zero DOM dependency, so it is directly unit-testable in Node too.
+function finXmlUnescape(s) {
+  return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'").replace(/&#(\d+);/g, (m, d) => String.fromCharCode(+d))
+    .replace(/&#x([0-9a-fA-F]+);/g, (m, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&amp;/g, '&');
+}
+function finZipReadEntries(bytes) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let eocdOffset = -1;
+  const searchStart = Math.max(0, bytes.length - 66000);
+  for (let i = bytes.length - 22; i >= searchStart; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocdOffset = i; break; }
+  }
+  if (eocdOffset === -1) throw new Error('Not a valid Excel (.xlsx) file.');
+  const totalEntries = dv.getUint16(eocdOffset + 10, true);
+  const cdOffset = dv.getUint32(eocdOffset + 16, true);
+  const entries = [];
+  let p = cdOffset;
+  for (let e = 0; e < totalEntries; e++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('This Excel file is not in the expected format.');
+    const compressionMethod = dv.getUint16(p + 10, true);
+    const compressedSize = dv.getUint32(p + 20, true);
+    const filenameLen = dv.getUint16(p + 28, true);
+    const extraLen = dv.getUint16(p + 30, true);
+    const commentLen = dv.getUint16(p + 32, true);
+    const localHeaderOffset = dv.getUint32(p + 42, true);
+    const filename = new TextDecoder('utf-8').decode(bytes.subarray(p + 46, p + 46 + filenameLen));
+    entries.push({ filename, compressionMethod, compressedSize, localHeaderOffset });
+    p += 46 + filenameLen + extraLen + commentLen;
+  }
+  return entries;
+}
+function finZipLocalFileDataOffset(bytes, localHeaderOffset) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (dv.getUint32(localHeaderOffset, true) !== 0x04034b50) throw new Error('This Excel file is not in the expected format.');
+  const filenameLen = dv.getUint16(localHeaderOffset + 26, true);
+  const extraLen = dv.getUint16(localHeaderOffset + 28, true);
+  return localHeaderOffset + 30 + filenameLen + extraLen;
+}
+async function finInflateRaw(chunk) {
+  const ds = new DecompressionStream('deflate-raw');
+  const writer = ds.writable.getWriter();
+  writer.write(chunk);
+  writer.close();
+  const out = [];
+  const reader = ds.readable.getReader();
+  for (;;) {
+    const res = await reader.read();
+    if (res.done) break;
+    out.push(res.value);
+  }
+  const total = out.reduce((s, a) => s + a.length, 0);
+  const result = new Uint8Array(total);
+  let off = 0;
+  for (const chunkBytes of out) { result.set(chunkBytes, off); off += chunkBytes.length; }
+  return result;
+}
+async function finZipReadEntryBytes(bytes, entries, filename) {
+  const entry = entries.find(e => e.filename === filename);
+  if (!entry) return null;
+  const dataOffset = finZipLocalFileDataOffset(bytes, entry.localHeaderOffset);
+  const compressed = bytes.subarray(dataOffset, dataOffset + entry.compressedSize);
+  if (entry.compressionMethod === 0) return compressed;
+  if (entry.compressionMethod === 8) return finInflateRaw(compressed);
+  throw new Error('Unsupported compression in this Excel file.');
+}
+function finXlsxParseSharedStrings(xml) {
+  const out = [];
+  const siRe = /<si>([\s\S]*?)<\/si>/g;
+  let m;
+  while ((m = siRe.exec(xml))) {
+    const block = m[1];
+    let text = '';
+    const tRe = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g;
+    let tm;
+    while ((tm = tRe.exec(block))) text += finXmlUnescape(tm[1]);
+    out.push(text);
+  }
+  return out;
+}
+function finXlsxColToIndex(letters) {
+  let n = 0;
+  for (let i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
+  return n - 1;
+}
+function finXlsxParseSheetGrid(xml, sharedStrings) {
+  const grid = [];
+  const rowRe = /<row\b[^>]*\br="(\d+)"[^>]*>([\s\S]*?)<\/row>/g;
+  let rm;
+  while ((rm = rowRe.exec(xml))) {
+    const rowNum = parseInt(rm[1], 10);
+    const rowXml = rm[2];
+    if (!grid[rowNum - 1]) grid[rowNum - 1] = [];
+    const rowArr = grid[rowNum - 1];
+    const cellRe = /<c\b([^>]*)\/>|<c\b([^>]*)>([\s\S]*?)<\/c>/g;
+    let cm;
+    while ((cm = cellRe.exec(rowXml))) {
+      const attrs = cm[1] != null ? cm[1] : cm[2];
+      const inner = cm[3] || '';
+      const refM = /\br="([A-Z]+)\d+"/.exec(attrs);
+      if (!refM) continue;
+      const colIdx = finXlsxColToIndex(refM[1]);
+      const typeM = /\bt="([a-zA-Z]+)"/.exec(attrs);
+      const type = typeM ? typeM[1] : 'n';
+      let value = null;
+      if (type === 's') {
+        const vM = /<v>([\s\S]*?)<\/v>/.exec(inner);
+        if (vM) value = sharedStrings[parseInt(vM[1], 10)];
+      } else if (type === 'inlineStr') {
+        const tM = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/.exec(inner);
+        if (tM) value = finXmlUnescape(tM[1]);
+      } else if (type === 'str' || type === 'b') {
+        const vM2 = /<v>([\s\S]*?)<\/v>/.exec(inner);
+        if (vM2) value = type === 'b' ? (vM2[1] === '1') : finXmlUnescape(vM2[1]);
+      } else {
+        const vM3 = /<v>([\s\S]*?)<\/v>/.exec(inner);
+        if (vM3 && vM3[1] !== '') value = parseFloat(vM3[1]);
+      }
+      rowArr[colIdx] = value;
+    }
+  }
+  const dense = [];
+  for (const row of grid) {
+    if (!row) { dense.push([]); continue; }
+    const denseRow = [];
+    for (let c = 0; c < row.length; c++) denseRow.push(row[c] === undefined ? null : row[c]);
+    dense.push(denseRow);
+  }
+  return dense;
+}
+function finXlsxListSheetNames(workbookXml) {
+  const out = [];
+  const sheetRe = /<sheet\b[^>]*\bname="([^"]*)"[^>]*\/>/g;
+  let sm;
+  while ((sm = sheetRe.exec(workbookXml))) out.push(finXmlUnescape(sm[1]));
+  return out;
+}
+function finXlsxFindSheetPath(workbookXml, relsXml, sheetName) {
+  const sheetRe = /<sheet\b[^>]*\bname="([^"]*)"[^>]*\br:id="(rId\d+)"[^>]*\/>/g;
+  let sm, rId = null;
+  while ((sm = sheetRe.exec(workbookXml))) {
+    if (finXmlUnescape(sm[1]) === sheetName) { rId = sm[2]; break; }
+  }
+  if (!rId) return null;
+  const relMap = {};
+  const relRe = /<Relationship\b[^>]*\/>/g;
+  let rm;
+  while ((rm = relRe.exec(relsXml))) {
+    const tag = rm[0];
+    const idM = /\bId="([^"]*)"/.exec(tag);
+    const targetM = /\bTarget="([^"]*)"/.exec(tag);
+    if (idM && targetM) relMap[idM[1]] = targetM[1];
+  }
+  const target = relMap[rId];
+  return target ? 'xl/' + target : null;
+}
+// Parses every sheet in an uploaded .xlsx into a { name, grid } list — grid is a dense 2D array
+// of cell values (row-major, 0-indexed), matching the shape parseBudgetVsActualsGrid() expects.
+export async function parseXlsxAllSheets(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const entries = finZipReadEntries(bytes);
+  const dec = new TextDecoder('utf-8');
+  const workbookXml = dec.decode(await finZipReadEntryBytes(bytes, entries, 'xl/workbook.xml'));
+  const relsXml = dec.decode(await finZipReadEntryBytes(bytes, entries, 'xl/_rels/workbook.xml.rels'));
+  const sharedStringsRaw = await finZipReadEntryBytes(bytes, entries, 'xl/sharedStrings.xml');
+  const sharedStrings = sharedStringsRaw ? finXlsxParseSharedStrings(dec.decode(sharedStringsRaw)) : [];
+  const names = finXlsxListSheetNames(workbookXml);
+  const sheets = [];
+  for (const name of names) {
+    const sheetPath = finXlsxFindSheetPath(workbookXml, relsXml, name);
+    const sheetBytes = sheetPath ? await finZipReadEntryBytes(bytes, entries, sheetPath) : null;
+    sheets.push({ name, grid: sheetBytes ? finXlsxParseSheetGrid(dec.decode(sheetBytes), sharedStrings) : null });
+  }
+  return sheets;
+}
+
 // extractAmounts(cells) => array of {fiscal_year, own_actual_cents, own_budget_cents} — an array
 // (not a single value) so the SAME tree-walk works for both a single-year budget-merged tree
 // (1 result per node, cells = [Account,Actual,Budget,OverBudget]) and a multi-year actuals-only
@@ -227,6 +411,100 @@ function makeFlatRow(path, classification, hasChildren, amt) {
   };
 }
 
+// ── Church Report budget import: "Budget vs. Actuals" Excel export parser ───────────────────
+// This report's exported shape is fundamentally different from the live QuickBooks API's
+// Columns/Rows JSON tree that flattenReportTree() reads: hierarchy is encoded as literal leading
+// spaces in column A (no cell-level indent metadata — confirmed against a real export), subtotal
+// rows are labeled "Total <name>" and are never stored (always re-derivable from their children,
+// same principle as flattenReportTree), and the exporting company's own report-style names the
+// top-level sections rather than QuickBooks' fixed internal names — a real export from this
+// exact church uses "Revenue"/"Expenditures", not "Income"/"Expenses" — so those must be
+// normalized back to the canonical names computeYearSummary() expects, or every dollar would
+// silently vanish from the This Year/Multi-Year rollups (a wrong-but-plausible bug, not a crash).
+const CHURCH_CLASSIFICATION_SYNONYMS = {
+  revenue: 'Income', income: 'Income',
+  expenditures: 'Expenses', expenses: 'Expenses',
+  'cost of goods sold': 'Cost of Goods Sold', cogs: 'Cost of Goods Sold',
+  'other income': 'Other Income',
+  'other expenses': 'Other Expenses', 'other expenditures': 'Other Expenses',
+};
+export function normalizeChurchClassification(label) {
+  const key = (label || '').trim().toLowerCase();
+  return CHURCH_CLASSIFICATION_SYNONYMS[key] || (label || '').trim();
+}
+// Rows matching this are QuickBooks' own computed running subtotals under this report's own
+// wording variants (e.g. "Net Operating Revenue" instead of the live-API's "Net Operating
+// Income") — never a real account, always skipped (re-derivable at query time, same as
+// RUNNING_SUBTOTAL_LABELS above).
+const IMPORT_SKIP_LABEL_RE = /^(Gross Profit|Net Operating (Income|Revenue)|Net Other Income|Net (Income|Revenue))$/i;
+function indentDepthOf(raw) {
+  const stripped = raw.replace(/^ +/, '');
+  return Math.round((raw.length - stripped.length) / 3);
+}
+function nextNonBlankLabel(grid, i) {
+  for (let j = i + 1; j < grid.length; j++) {
+    const v = grid[j] && grid[j][0];
+    if (typeof v === 'string' && v.trim()) return v;
+  }
+  return null;
+}
+// Parses one sheet's grid (a dense 2D array from parseXlsxAllSheets) into flat rows ready for
+// finance_church_entries, plus any depth-0 lines that couldn't be classified (report title,
+// date-range line, the trailing "Accrual Basis" timestamp footer) so the caller can show them
+// for transparency rather than silently misreading one as a bogus classification. A depth-0 row
+// is only ever treated as a real classification opener when a genuinely nested row follows it —
+// this report's structure never has a bare top-level leaf account, so anything else at depth 0
+// (no children following) is noise, not a account.
+export function parseBudgetVsActualsGrid(grid) {
+  const headerIdx = grid.findIndex(r => r && r[1] === 'Actual' && r[2] === 'Budget');
+  if (headerIdx === -1) throw new Error('Could not find the Actual/Budget header row in this sheet.');
+  let fiscalYear = null;
+  for (let i = 0; i < headerIdx; i++) {
+    const cell = grid[i] && grid[i][0];
+    if (typeof cell === 'string') { const m = /(\d{4})/.exec(cell); if (m) fiscalYear = parseInt(m[1], 10); }
+  }
+  const stack = [];
+  let classification = null;
+  const rows = [], skipped = [];
+  for (let i = headerIdx + 1; i < grid.length; i++) {
+    const raw = grid[i] && grid[i][0];
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const label = raw.trim();
+    if (/^Total\s/i.test(label)) continue; // closing subtotal, re-derivable
+    if (IMPORT_SKIP_LABEL_RE.test(label)) continue; // running subtotal
+    const depth = indentDepthOf(raw);
+    const nextLabel = nextNonBlankLabel(grid, i);
+    const hasChildren = nextLabel != null && indentDepthOf(nextLabel) > depth;
+    if (depth === 0 && !hasChildren) { skipped.push(raw); continue; }
+    while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
+    let path;
+    if (depth === 0) {
+      classification = normalizeChurchClassification(label);
+      path = [classification];
+    } else {
+      const parent = stack.length ? stack[stack.length - 1] : { path: [classification || 'Income'] };
+      path = parent.path.concat(label);
+    }
+    stack.push({ depth, path });
+    rows.push(makeFlatRow(path, classification, hasChildren, {
+      fiscal_year: fiscalYear,
+      own_actual_cents: dollarsToCents((grid[i] || [])[1]),
+      own_budget_cents: dollarsToCents((grid[i] || [])[2]),
+    }));
+  }
+  return { fiscalYear, rows, skipped };
+}
+// Tries every sheet in the workbook until one has the Actual/Budget header signature — sheet
+// names vary (e.g. "Budget vs. Actuals FY26") so this doesn't hardcode a name, mirroring how
+// Tuition Aid's importers scan for a recognizable layout rather than an exact sheet name.
+export function findBudgetVsActualsSheet(sheets) {
+  for (const s of sheets) {
+    if (!s.grid) continue;
+    if (s.grid.some(r => r && r[1] === 'Actual' && r[2] === 'Budget')) return s;
+  }
+  return null;
+}
+
 // Wholesale-replaces source='qbo_sync' rows for exactly the fiscal years present in `rows`
 // (mirrors the finance_daycare_entries sync's per-period delete+insert pattern), scoped to only
 // the years actually being rewritten so a partial sync failure never wipes years an earlier,
@@ -248,6 +526,27 @@ export async function persistChurchEntries(db, rows, syncedAt) {
          has_children=excluded.has_children, own_actual_cents=excluded.own_actual_cents,
          own_budget_cents=excluded.own_budget_cents, synced_at=excluded.synced_at`
     ).bind(r.fiscal_year, r.period_month || 0, r.classification, r.category_path, r.account_name, r.depth, r.has_children, r.own_actual_cents, r.own_budget_cents, syncedAt));
+  }
+  await db.batch(ops);
+}
+
+// Wholesale-replaces source='import' rows for exactly one fiscal year (an import is always a
+// single-year Budget-vs-Actuals sheet, unlike the sync's multi-year sweep) — same delete-then-
+// insert pattern as persistChurchEntries, scoped to 'import' so it can never touch qbo_sync rows
+// (source precedence is resolved at read time in resolveChurchYearPrecedence(), not by deleting
+// the other source — removing an import later silently falls back to live-synced data again).
+export async function persistChurchEntriesImport(db, rows, fiscalYear, importedAt) {
+  const ops = [db.prepare(`DELETE FROM finance_church_entries WHERE source='import' AND fiscal_year=?`).bind(fiscalYear)];
+  for (const r of rows) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_church_entries
+         (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+       VALUES (?,?,?,?,?,?,?,?,?,'import',?)
+       ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
+         classification=excluded.classification, account_name=excluded.account_name, depth=excluded.depth,
+         has_children=excluded.has_children, own_actual_cents=excluded.own_actual_cents,
+         own_budget_cents=excluded.own_budget_cents, synced_at=excluded.synced_at`
+    ).bind(fiscalYear, r.period_month || 0, r.classification, r.category_path, r.account_name, r.depth, r.has_children ? 1 : 0, r.own_actual_cents, r.own_budget_cents, importedAt));
   }
   await db.batch(ops);
 }
@@ -757,6 +1056,45 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const byYear = {};
     years.forEach(y => { byYear[y] = computeYearSummary(resolved.filter(r => r.fiscal_year === y)); });
     return json({ years, byYear });
+  }
+
+  // ── Church Report v2: Budget import (backfill/resilience path when live QuickBooks sync
+  // isn't available — see FIN2 — or to correct a bad sync) ─────────────────────────────────
+  // Preview step: parse the uploaded "Budget vs. Actuals" .xlsx server-side and return the flat
+  // rows for review — no DB write yet. The file never needs to round-trip through the browser
+  // beyond the initial upload; the frontend renders a checkbox-per-row preview (same
+  // pattern as Tuition Aid's TAP10 import) and only the checked rows get sent to the commit
+  // step below.
+  if (seg === 'finance/church/import-preview' && method === 'POST') {
+    const form = await req.formData().catch(() => null);
+    const file = form && form.get('file');
+    if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
+    if (file.size > 15 * 1024 * 1024) return json({ error: 'File too large (max 15 MB)' }, 413);
+    let sheets;
+    try { sheets = await parseXlsxAllSheets(await file.arrayBuffer()); }
+    catch (e) { return json({ error: 'Could not read this file as an Excel workbook: ' + e.message }, 400); }
+    const sheet = findBudgetVsActualsSheet(sheets);
+    if (!sheet) return json({ error: 'Could not find a "Budget vs. Actuals" sheet (a sheet with Actual/Budget columns) in this file.' }, 400);
+    let parsed;
+    try { parsed = parseBudgetVsActualsGrid(sheet.grid); }
+    catch (e) { return json({ error: e.message }, 400); }
+    if (!parsed.fiscalYear) return json({ error: 'Could not determine the fiscal year from this sheet — expected a date-range line like "January - December 2026" above the header row.' }, 400);
+    return json({ sheetName: sheet.name, fiscalYear: parsed.fiscalYear, rows: parsed.rows, skipped: parsed.skipped });
+  }
+
+  // Commit step: persist the (possibly-filtered, per the preview's checkboxes) rows for one
+  // fiscal year — wholesale-replaces any existing source='import' rows for that year only.
+  if (seg === 'finance/church/import' && method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    const fiscalYear = parseInt(b.fiscal_year, 10);
+    if (!Number.isFinite(fiscalYear)) return json({ error: 'fiscal_year is required' }, 400);
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) return json({ error: 'No rows to import' }, 400);
+    const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number'
+      || !Number.isFinite(r.own_actual_cents) || !Number.isFinite(r.own_budget_cents));
+    if (bad) return json({ error: 'Malformed row in import payload' }, 400);
+    await persistChurchEntriesImport(db, rows, fiscalYear, new Date().toISOString());
+    return json({ ok: true, fiscalYear, imported: rows.length });
   }
 
   return null;

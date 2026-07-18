@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, persistChurchEntries, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison } from '../src/api-finance.js';
+import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, parseBudgetVsActualsGrid, normalizeChurchClassification } from '../src/api-finance.js';
 
 // ── Minimal D1-shaped wrapper around node:sqlite, so persistChurchEntries() runs against real
 // SQL (real UNIQUE/ON CONFLICT semantics) instead of a hand-rolled re-implementation of what the
@@ -371,5 +371,119 @@ describe('computeYearSummary', () => {
     const summary = computeYearSummary(rows);
     expect(summary.netIncome.actualCents).toBe(100000);
     expect(summary.netIncome.budgetCents).toBe(90000);
+  });
+});
+
+// ── Budget import: the "Budget vs. Actuals" Excel export shape ──────────────────────────────
+// Fixture mirrors the real uploaded export exactly (indentation via literal leading spaces,
+// no cell-level indent metadata; "Total X" closing rows; a running-subtotal thread using this
+// report's own wording — "Net Operating Revenue"/"Net Revenue" instead of the live API's
+// "Net Operating Income"/"Net Income"; a trailing "Accrual Basis" timestamp footer line) but
+// with non-zero, internally-consistent dollar amounts (the real uploaded file was all-zero test
+// data) so the rollup arithmetic is actually exercised, and a group ("40 Donor Income") that
+// carries both its own direct posting AND nested children — the exact case that caused the
+// FIN2/v1.26.1 double-counting bug, now covered against the import path too.
+function budgetVsActualsFixtureGrid() {
+  return [
+    ['Timothy Evangelical Lutheran Church', null, null, null, null],
+    ['Budget vs. Actuals: Budget_FY27_P&L - FY27 P&L ', null, null, null, null],
+    ['January - December 2027', null, null, null, null],
+    [null, null, null, null, null],
+    [null, 'Total', null, null, null],
+    [null, 'Actual', 'Budget', 'over Budget', '% of Budget'],
+    ['Revenue', null, null, null, null],
+    ['   40 Donor Income', 500, 400, 100, 125],
+    ['      40085 Sunday Offering', 1000, 900, 100, 111],
+    ['   Total 40 Donor Income', 1500, 1300, 200, 115],
+    ['   42 Passive Income', null, null, 0, 0],
+    ['      42010 Interest', 200, 150, 50, 133],
+    ['   Total 42 Passive Income', 200, 150, 50, 133],
+    ['Total Revenue', 1700, 1450, 250, 117],
+    ['Gross Profit', 1700, 1450, 250, 117],
+    ['Expenditures', null, null, null, null],
+    ['   50 Program Expenses', null, null, 0, 0],
+    ['      50110 Something', 300, 250, 50, 120],
+    ['   Total 50 Program Expenses', 300, 250, 50, 120],
+    ['Total Expenditures', 300, 250, 50, 120],
+    ['Net Operating Revenue', 1400, 1200, 200, 117],
+    ['Net Revenue', 1400, 1200, 200, 117],
+    [null, null, null, null, null],
+    ['Friday, Jul 17, 2026 09:20:20 PM GMT-7 - Accrual Basis', null, null, null, null],
+  ];
+}
+
+describe('normalizeChurchClassification', () => {
+  it('maps this report style\'s custom top-level labels to the canonical names computeYearSummary expects', () => {
+    expect(normalizeChurchClassification('Revenue')).toBe('Income');
+    expect(normalizeChurchClassification('Expenditures')).toBe('Expenses');
+    expect(normalizeChurchClassification('Income')).toBe('Income');
+    expect(normalizeChurchClassification('Expenses')).toBe('Expenses');
+    expect(normalizeChurchClassification('Other Income')).toBe('Other Income');
+    expect(normalizeChurchClassification('Other Expenditures')).toBe('Other Expenses');
+  });
+});
+
+describe('parseBudgetVsActualsGrid', () => {
+  it('extracts fiscal year from the date-range line above the header row', () => {
+    const { fiscalYear } = parseBudgetVsActualsGrid(budgetVsActualsFixtureGrid());
+    expect(fiscalYear).toBe(2027);
+  });
+
+  it('skips Total-X closing rows, the running-subtotal thread, and the trailing date-stamp footer', () => {
+    const { rows, skipped } = parseBudgetVsActualsGrid(budgetVsActualsFixtureGrid());
+    expect(skipped).toEqual(['Friday, Jul 17, 2026 09:20:20 PM GMT-7 - Accrual Basis']);
+    const labels = rows.map(r => r.account_name);
+    expect(labels).not.toContain('Total 40 Donor Income');
+    expect(labels).not.toContain('Gross Profit');
+    expect(labels).not.toContain('Net Operating Revenue');
+    expect(labels).not.toContain('Net Revenue');
+    expect(labels).not.toContain('Total Revenue');
+    expect(labels).not.toContain('Total Expenditures');
+  });
+
+  it('normalizes classification labels and stores the group-with-own-posting-and-children row correctly', () => {
+    const { rows } = parseBudgetVsActualsGrid(budgetVsActualsFixtureGrid());
+    const donorIncome = rows.find(r => r.account_name === '40 Donor Income');
+    expect(donorIncome.classification).toBe('Income');
+    expect(donorIncome.category_path).toBe('Income:40 Donor Income');
+    expect(donorIncome.has_children).toBe(1);
+    expect(donorIncome.own_actual_cents).toBe(50000);
+    expect(donorIncome.own_budget_cents).toBe(40000);
+    const sundayOffering = rows.find(r => r.account_name === '40085 Sunday Offering');
+    expect(sundayOffering.category_path).toBe('Income:40 Donor Income:40085 Sunday Offering');
+    expect(sundayOffering.own_actual_cents).toBe(100000);
+    expect(sundayOffering.has_children).toBe(0);
+    const expensesHeader = rows.find(r => r.depth === 0 && r.classification === 'Expenses');
+    expect(expensesHeader).toBeTruthy();
+    expect(expensesHeader.category_path).toBe('Expenses');
+  });
+
+  it('resolves to the correct classification-level rollups end to end, including via persistChurchEntriesImport + resolveChurchYearPrecedence', async () => {
+    const db = makeTestDb();
+    const { fiscalYear, rows } = parseBudgetVsActualsGrid(budgetVsActualsFixtureGrid());
+    await persistChurchEntriesImport(db, rows, fiscalYear, '2026-07-18T00:00:00Z');
+    const stored = allChurchRows(db);
+    expect(stored.every(r => r.source === 'import')).toBe(true);
+    const resolved = resolveChurchYearPrecedence(stored);
+    const summary = computeYearSummary(resolved);
+    expect(summary.classificationTotals.Income.actualCents).toBe(170000); // $1,700 = the real "Total Revenue"
+    expect(summary.classificationTotals.Income.budgetCents).toBe(145000);
+    expect(summary.classificationTotals.Expenses.actualCents).toBe(30000); // $300 = the real "Total Expenditures"
+    expect(summary.classificationTotals.Expenses.budgetCents).toBe(25000);
+    expect(summary.netOperatingIncome.actualCents).toBe(140000); // $1,400 = the real "Net Operating Revenue"
+    expect(summary.netOperatingIncome.budgetCents).toBe(120000);
+  });
+
+  it('re-import (a second parse+persist for the same year) replaces rather than duplicates', async () => {
+    const db = makeTestDb();
+    const parsed = parseBudgetVsActualsGrid(budgetVsActualsFixtureGrid());
+    await persistChurchEntriesImport(db, parsed.rows, parsed.fiscalYear, '2026-07-18T00:00:00Z');
+    await persistChurchEntriesImport(db, parsed.rows, parsed.fiscalYear, '2026-07-18T01:00:00Z');
+    const stored = allChurchRows(db);
+    expect(stored.length).toBe(parsed.rows.length);
+  });
+
+  it('throws a clear error when the sheet has no Actual/Budget header row (not a Budget vs. Actuals export)', () => {
+    expect(() => parseBudgetVsActualsGrid([['not', 'a', 'budget', 'report']])).toThrow(/Actual\/Budget header/);
   });
 });
