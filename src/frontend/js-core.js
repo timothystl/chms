@@ -141,12 +141,11 @@ function typeDotHtml(mt, size) {
   return '<span class="type-dot" style="width:'+size+'px;height:'+size+'px;background:'+c+';"></span><span class="type-label" style="color:'+c+';">'+esc(label)+'</span>';
 }
 
-// ── Financial Reports sub-nav (Overview / Church Report / Daycare Report / Giving Reports) ──
+// ── Financial Reports sub-nav (Overview / Church Report / Daycare Report) ──────────────
 // Giving/Tuition Aid/Financial Reports are each their own top-level sidebar item (not
-// collapsed) — this sub-nav bar only covers the 4 sections *within* the Financial Reports tab.
+// collapsed) — this sub-nav bar only covers the 3 sections *within* the Financial Reports tab.
+// (Giving Reports lives inside the Giving tab itself — see givSetView() in js-giving.js.)
 var FIN_TOPNAV_ITEMS = [
-  { id: 'givingreports', label: 'Giving Reports', finSection: 'givingreports' },
-  { divider: true },
   { id: 'overview', label: 'Overview', finSection: 'overview' },
   { id: 'church', label: 'Church Report', finSection: 'church' },
   { id: 'daycare', label: 'Daycare Report', finSection: 'daycare' },
@@ -171,9 +170,9 @@ function finNavGo(id) {
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
 var _tabFromPopState = false;
 // finSection is only used when name === 'finance' (which of Overview/Church Report/Daycare
-// Report/Giving Reports to show) — omit it to keep whatever finance section was last active
-// (e.g. browser back/forward, or a bare '#finance' hash on reload), defaulting to 'overview'
-// the first time. See FIN_TOPNAV_ITEMS/finNavGo above.
+// Report to show) — omit it to keep whatever finance section was last active (e.g. browser
+// back/forward, or a bare '#finance' hash on reload), defaulting to 'overview' the first time.
+// See FIN_TOPNAV_ITEMS/finNavGo above.
 function showTab(name, finSection) {
   // Enforce role-based tab access
   var isFinancePlus = _userRole === 'admin' || _userRole === 'finance';

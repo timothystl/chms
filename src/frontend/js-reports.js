@@ -129,20 +129,19 @@ function initReports() {
   applyRptPrefs();
 }
 // Writes to both possible output targets: '#rpt-output' (Reports tab — Membership/Contact
-// Completeness/People Insights/Attendance Summary, and any tile before the nav consolidation
-// moved the giving ones out) and '#fin-giving-rpt-output' (the relocated Giving Reports section
-// under Finance). Every report-tile function calls this same helper regardless of which tab it
-// now lives in, so broadcasting to whichever target(s) exist is simpler and safer than threading
+// Completeness/People Insights/Attendance Summary) and '#giv-rpt-output' (the Giving tab's
+// Reports view). Every report-tile function calls this same helper regardless of which tab it
+// lives in, so broadcasting to whichever target(s) exist is simpler and safer than threading
 // "which tab am I in" through every single run* function. Only the one inside the currently
 // active tab-panel is actually visible; the other just holds harmless stale content.
 function showRptOutput(html) {
-  ['rpt-output', 'fin-giving-rpt-output'].forEach(function(id) {
+  ['rpt-output', 'giv-rpt-output'].forEach(function(id) {
     var o = document.getElementById(id);
     if (!o) return;
     o.innerHTML = html;
     o.classList.add('visible');
   });
-  var visible = document.querySelector('.tab-panel.active #rpt-output, .tab-panel.active #fin-giving-rpt-output');
+  var visible = document.querySelector('.tab-panel.active #rpt-output, .tab-panel.active #giv-rpt-output');
   if (visible) visible.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 function showAttRptOutput(html) {

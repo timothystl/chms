@@ -152,6 +152,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div class="view-toggle" style="margin-left:auto;">
       <button class="active" id="giv-view-batches-btn" onclick="givSetView('batches')">Batches</button>
       <button id="giv-view-txns-btn" onclick="givSetView('transactions')">Transactions</button>
+      <button id="giv-view-reports-btn" onclick="givSetView('reports')">Reports</button>
     </div>
   </div>
   <div class="dash-stats" id="giv-stats" style="margin-bottom:20px;flex-shrink:0;"></div>
@@ -195,6 +196,102 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <tbody id="giv-txn-tbody"></tbody>
       </table>
     </div>
+  </div>
+
+  <div id="giv-view-reports" style="display:none;">
+    <div class="report-tiles" id="giv-rpt-tiles-grid">
+      <div class="report-tile require-finance" data-tile-id="giving-by-fund">
+        <div class="tile-icon">&#128200;</div>
+        <div class="tile-title">Giving by Fund</div>
+        <div class="tile-desc">
+          <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-from" name="rpt-from" style="font-size:.82rem;padding:4px 8px;"></div>
+          <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-to" name="rpt-to" style="font-size:.82rem;padding:4px 8px;"></div>
+          <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingSummary()">Run Report</button>
+        </div>
+      </div>
+      <div class="report-tile require-finance" data-tile-id="giving-by-method">
+        <div class="tile-icon">&#128179;</div>
+        <div class="tile-title">Giving by Method</div>
+        <div class="tile-desc">
+          <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-method-from" name="rpt-method-from" style="font-size:.82rem;padding:4px 8px;"></div>
+          <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-method-to" name="rpt-method-to" style="font-size:.82rem;padding:4px 8px;"></div>
+          <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingByMethod()">Run Report</button>
+        </div>
+      </div>
+      <div class="report-tile require-finance" data-tile-id="giving-statement">
+        <div class="tile-icon">&#128196;</div>
+        <div class="tile-title">Giving Statement</div>
+        <div class="tile-desc">
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer;"><input type="radio" name="rpt-stmt-mode" value="person" checked onchange="toggleStmtMode()"> Person</label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer;"><input type="radio" name="rpt-stmt-mode" value="household" onchange="toggleStmtMode()"> Household</label>
+          </div>
+          <div id="rpt-stmt-person-row" class="field" style="margin:4px 0;">
+            <div class="ac-wrap"><input type="text" id="rpt-person-search" name="rpt-person-search" placeholder="Search person…" style="font-size:.82rem;padding:4px 8px;" oninput="acSearch(this,&#39;rpt-person-ac&#39;,&#39;rpt-person-id&#39;)"><div class="ac-dropdown" id="rpt-person-ac"></div></div>
+            <input type="hidden" id="rpt-person-id" name="rpt-person-id">
+          </div>
+          <div id="rpt-stmt-hh-row" class="field" style="margin:4px 0;display:none;">
+            <div class="ac-wrap"><input type="text" id="rpt-hh-search" name="rpt-hh-search" placeholder="Search household…" style="font-size:.82rem;padding:4px 8px;" oninput="acSearchHH(this)"><div class="ac-dropdown" id="rpt-hh-ac"></div></div>
+            <input type="hidden" id="rpt-hh-id" name="rpt-hh-id">
+          </div>
+          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-year" name="rpt-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+            <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatement()">View Statement</button>
+            <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatementLetter()">View Letter</button>
+            <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="downloadStatement()">CSV</button>
+          </div>
+        </div>
+      </div>
+      <div class="report-tile require-finance" data-tile-id="giving-trend">
+        <div class="tile-icon">&#128200;</div>
+        <div class="tile-title">Giving Trend</div>
+        <div class="tile-desc">
+          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year giving comparison by month.</div>
+          <div id="rpt-trend-years" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingTrend()">Run Report</button>
+        </div>
+      </div>
+      <div class="report-tile require-finance" data-tile-id="giving-insights">
+        <div class="tile-icon">&#128202;</div>
+        <div class="tile-title">Giving Insights</div>
+        <div class="tile-desc">
+          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Top givers, lapsed givers, frequency, and average gift trends.</div>
+          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-insights-year" name="rpt-insights-year" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingInsights()">Run Report</button>
+        </div>
+      </div>
+      <div class="report-tile require-finance" data-tile-id="giving-yoy">
+        <div class="tile-icon">&#128200;</div>
+        <div class="tile-title">Giving Trends</div>
+        <div class="tile-desc">
+          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year giving changes per person — who increased, decreased, or lapsed.</div>
+          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-yoy-year" name="rpt-yoy-year" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingYoy()">Run Report</button>
+        </div>
+      </div>
+      <div class="report-tile require-finance" data-tile-id="giving-vs-attendance">
+        <div class="tile-icon">&#128202;</div>
+        <div class="tile-title">Giving &times; Attendance</div>
+        <div class="tile-desc">
+          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Weekly giving vs. weekly attendance &mdash; see correlation between engagement and giving.</div>
+          <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-gva-from" name="rpt-gva-from" style="font-size:.82rem;padding:4px 8px;"></div>
+          <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-gva-to" name="rpt-gva-to" style="font-size:.82rem;padding:4px 8px;"></div>
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingVsAttendance()">Run Report</button>
+        </div>
+      </div>
+      <div class="report-tile require-finance" data-tile-id="batch-send-statements">
+        <div class="tile-icon">&#128140;</div>
+        <div class="tile-title">Batch Send Statements</div>
+        <div class="tile-desc">
+          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Send year-end giving letters via email to all givers for a year.</div>
+          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-stmt-year" name="batch-stmt-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchStatementGivers()">Load Givers</button>
+          <div id="batch-stmt-status" class="import-status" style="margin-top:6px;"></div>
+          <div id="batch-stmt-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
+        </div>
+      </div>
+    </div>
+    <div id="giv-rpt-output" class="report-output"></div>
   </div>
 </div>
 
@@ -1302,102 +1399,6 @@ export const HTML_TABS_2 = String.raw`
           </div>
           <div class="dash-card-body" style="padding:14px 18px;" id="fin-daycare-report"></div>
         </section>
-      </div>
-
-      <div id="fin-panel-givingreports" style="display:none;">
-        <div class="report-tiles" id="fin-giving-tiles-grid">
-          <div class="report-tile require-finance" data-tile-id="giving-by-fund">
-            <div class="tile-icon">&#128200;</div>
-            <div class="tile-title">Giving by Fund</div>
-            <div class="tile-desc">
-              <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-from" name="rpt-from" style="font-size:.82rem;padding:4px 8px;"></div>
-              <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-to" name="rpt-to" style="font-size:.82rem;padding:4px 8px;"></div>
-              <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingSummary()">Run Report</button>
-            </div>
-          </div>
-          <div class="report-tile require-finance" data-tile-id="giving-by-method">
-            <div class="tile-icon">&#128179;</div>
-            <div class="tile-title">Giving by Method</div>
-            <div class="tile-desc">
-              <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-method-from" name="rpt-method-from" style="font-size:.82rem;padding:4px 8px;"></div>
-              <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-method-to" name="rpt-method-to" style="font-size:.82rem;padding:4px 8px;"></div>
-              <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingByMethod()">Run Report</button>
-            </div>
-          </div>
-          <div class="report-tile require-finance" data-tile-id="giving-statement">
-            <div class="tile-icon">&#128196;</div>
-            <div class="tile-title">Giving Statement</div>
-            <div class="tile-desc">
-              <div style="display:flex;gap:6px;margin-bottom:6px;">
-                <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer;"><input type="radio" name="rpt-stmt-mode" value="person" checked onchange="toggleStmtMode()"> Person</label>
-                <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer;"><input type="radio" name="rpt-stmt-mode" value="household" onchange="toggleStmtMode()"> Household</label>
-              </div>
-              <div id="rpt-stmt-person-row" class="field" style="margin:4px 0;">
-                <div class="ac-wrap"><input type="text" id="rpt-person-search" name="rpt-person-search" placeholder="Search person…" style="font-size:.82rem;padding:4px 8px;" oninput="acSearch(this,&#39;rpt-person-ac&#39;,&#39;rpt-person-id&#39;)"><div class="ac-dropdown" id="rpt-person-ac"></div></div>
-                <input type="hidden" id="rpt-person-id" name="rpt-person-id">
-              </div>
-              <div id="rpt-stmt-hh-row" class="field" style="margin:4px 0;display:none;">
-                <div class="ac-wrap"><input type="text" id="rpt-hh-search" name="rpt-hh-search" placeholder="Search household…" style="font-size:.82rem;padding:4px 8px;" oninput="acSearchHH(this)"><div class="ac-dropdown" id="rpt-hh-ac"></div></div>
-                <input type="hidden" id="rpt-hh-id" name="rpt-hh-id">
-              </div>
-              <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-year" name="rpt-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-              <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-                <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatement()">View Statement</button>
-                <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatementLetter()">View Letter</button>
-                <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="downloadStatement()">CSV</button>
-              </div>
-            </div>
-          </div>
-          <div class="report-tile require-finance" data-tile-id="giving-trend">
-            <div class="tile-icon">&#128200;</div>
-            <div class="tile-title">Giving Trend</div>
-            <div class="tile-desc">
-              <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year giving comparison by month.</div>
-              <div id="rpt-trend-years" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
-              <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingTrend()">Run Report</button>
-            </div>
-          </div>
-          <div class="report-tile require-finance" data-tile-id="giving-insights">
-            <div class="tile-icon">&#128202;</div>
-            <div class="tile-title">Giving Insights</div>
-            <div class="tile-desc">
-              <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Top givers, lapsed givers, frequency, and average gift trends.</div>
-              <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-insights-year" name="rpt-insights-year" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-              <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingInsights()">Run Report</button>
-            </div>
-          </div>
-          <div class="report-tile require-finance" data-tile-id="giving-yoy">
-            <div class="tile-icon">&#128200;</div>
-            <div class="tile-title">Giving Trends</div>
-            <div class="tile-desc">
-              <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year giving changes per person — who increased, decreased, or lapsed.</div>
-              <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-yoy-year" name="rpt-yoy-year" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-              <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingYoy()">Run Report</button>
-            </div>
-          </div>
-          <div class="report-tile require-finance" data-tile-id="giving-vs-attendance">
-            <div class="tile-icon">&#128202;</div>
-            <div class="tile-title">Giving &times; Attendance</div>
-            <div class="tile-desc">
-              <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Weekly giving vs. weekly attendance &mdash; see correlation between engagement and giving.</div>
-              <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-gva-from" name="rpt-gva-from" style="font-size:.82rem;padding:4px 8px;"></div>
-              <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-gva-to" name="rpt-gva-to" style="font-size:.82rem;padding:4px 8px;"></div>
-              <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingVsAttendance()">Run Report</button>
-            </div>
-          </div>
-          <div class="report-tile require-finance" data-tile-id="batch-send-statements">
-            <div class="tile-icon">&#128140;</div>
-            <div class="tile-title">Batch Send Statements</div>
-            <div class="tile-desc">
-              <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Send year-end giving letters via email to all givers for a year.</div>
-              <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-stmt-year" name="batch-stmt-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-              <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchStatementGivers()">Load Givers</button>
-              <div id="batch-stmt-status" class="import-status" style="margin-top:6px;"></div>
-              <div id="batch-stmt-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
-            </div>
-          </div>
-        </div>
-        <div id="fin-giving-rpt-output" class="report-output"></div>
       </div>
 
     </div>
