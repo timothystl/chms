@@ -359,7 +359,7 @@ a.s-item{text-decoration:none;color:inherit;}
 /* ── MOBILE CONTACT CARDS ── */
 .contact-list{display:none;}
 @media(max-width:767px){
-  #p-grid,#p-card-grid,.view-toggle{display:none!important;}
+  #p-grid,#p-card-grid,#tab-people .view-toggle{display:none!important;}
   .contact-list{display:flex;flex-direction:column;background:var(--warm-surface-card);}
   .toolbar .filter-pills{display:none;}
   .c-card{display:flex;align-items:center;gap:14px;padding:14px 16px;border-bottom:1px solid var(--warm-row-divider);background:var(--warm-surface-card);cursor:pointer;}
