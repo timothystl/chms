@@ -1179,4 +1179,28 @@ function finDownloadCsv(filename, rows) {
   a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
+
+// ── Board Packet export ──────────────────────────────────────────────────────────────────────
+// Downloads one clean JSON file bundling everything a board finance summary would need — meant
+// to be handed to a separate Claude session (or any analyst) to write the actual narrative
+// commentary. This app deliberately does no anomaly detection itself; it just packages already-
+// computed, already-verified figures (the exact same server-side functions the on-screen views
+// render from) plus 5 years of trend context, so a follow-up question rarely needs a re-export.
+function finExportBoardPacket(year) {
+  year = year || new Date().getFullYear();
+  var btn = document.getElementById('fin-board-packet-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Preparing…'; }
+  api('/admin/api/finance/board-packet?year=' + year).then(function(d) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Export Board Packet'; }
+    if (d && d.error) { finToast('Export failed: ' + d.error); return; }
+    var blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'board-packet-' + year + '.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Export Board Packet'; }
+    if (err && err.message !== 'Unauthorized') finToast('Export failed: ' + (err.message || 'Unknown error'));
+  });
+}
 `;

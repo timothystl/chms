@@ -1314,6 +1314,14 @@ export const HTML_TABS_2 = String.raw`
       <div id="fin-panel-overview">
 
         <section class="dash-card" style="margin-bottom:16px;">
+          <div class="dash-card-hdr">Board Packet</div>
+          <div class="dash-card-body" style="padding:14px 18px;">
+            <p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 12px;">Downloads one JSON file with this year's Income Statement, Balance Sheet, 5-year trends, and the full daycare ledger — hand it to a Claude session (or any analyst) each month and ask it to write the board's finance summary, flagging anything unusual. This app doesn't write the narrative itself; it just packages the numbers.</p>
+            <button class="btn-primary" id="fin-board-packet-btn" onclick="finExportBoardPacket()">Export Board Packet</button>
+          </div>
+        </section>
+
+        <section class="dash-card" style="margin-bottom:16px;">
           <div class="dash-card-hdr">QuickBooks Connection</div>
           <div class="dash-card-body" style="padding:14px 18px;" id="fin-connection"></div>
         </section>

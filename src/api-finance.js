@@ -1366,5 +1366,63 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ years, byYear });
   }
 
+  // ── Board Packet export — a single clean JSON snapshot of the numbers a board would need for
+  // a monthly finance summary, meant to be handed to a separate Claude session (or any other
+  // analyst) to write the actual narrative: this endpoint deliberately does no anomaly detection
+  // or commentary itself, just bundles already-computed figures (reusing the exact same pure
+  // functions the This Year/Multi-Year/Balance Sheet views render from, so the packet can never
+  // disagree with what's on screen) plus 5 years of trend context and the full raw daycare
+  // ledger, so nothing needs a second export to answer a follow-up question.
+  if (seg === 'finance/board-packet' && method === 'GET') {
+    const year = parseInt(url.searchParams.get('year'), 10) || new Date().getFullYear();
+    const trendYears = [year - 4, year - 3, year - 2, year - 1, year];
+    const trendPlaceholders = trendYears.map(() => '?').join(',');
+
+    const thisYearEntriesRaw = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year).all()).results || [];
+    const thisYearEntries = resolveChurchYearPrecedence(thisYearEntriesRaw);
+    const thisYearSummary = computeYearSummary(thisYearEntries);
+    const givingByFundRows = (await db.prepare(
+      `SELECT f.name AS fund_name, COALESCE(SUM(ge.amount),0) AS total
+       FROM giving_entries ge JOIN funds f ON f.id = ge.fund_id
+       WHERE ge.contribution_date BETWEEN ? AND ?
+       GROUP BY ge.fund_id ORDER BY total DESC`
+    ).bind(`${year}-01-01`, `${year}-12-31`).all()).results || [];
+    const givingByFund = givingByFundRows.map(r => ({ fundName: r.fund_name, cents: r.total || 0 }));
+    const givingCents = givingByFund.reduce((sum, r) => sum + r.cents, 0);
+
+    const trendIncomeRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${trendPlaceholders})`).bind(...trendYears).all()).results || [];
+    const trendIncomeResolved = resolveChurchYearPrecedence(trendIncomeRows);
+    const incomeStatementByYear = {};
+    trendYears.forEach(y => { incomeStatementByYear[y] = computeYearSummary(trendIncomeResolved.filter(r => r.fiscal_year === y)); });
+
+    const balanceRows = (await db.prepare('SELECT * FROM finance_church_balances WHERE fiscal_year=? ORDER BY category_path').bind(year).all()).results || [];
+    const balanceSheet = balanceRows.length
+      ? { asOfDate: balanceRows[0].as_of_date || '', rows: balanceRows, summary: computeBalanceSummary(balanceRows) }
+      : { asOfDate: '', rows: [], summary: null };
+
+    const trendBalanceRows = (await db.prepare(`SELECT * FROM finance_church_balances WHERE fiscal_year IN (${trendPlaceholders})`).bind(...trendYears).all()).results || [];
+    const balanceSheetByYear = {};
+    trendYears.forEach(y => {
+      const rowsY = trendBalanceRows.filter(r => r.fiscal_year === y);
+      balanceSheetByYear[y] = rowsY.length ? computeBalanceSummary(rowsY) : null;
+    });
+
+    const daycareEntries = (await db.prepare(
+      'SELECT period, category, entry_type, amount_cents, notes, source FROM finance_daycare_entries ORDER BY period ASC, category ASC'
+    ).all()).results || [];
+
+    return json({
+      generated_at: new Date().toISOString(),
+      year,
+      church: {
+        income_statement_this_year: { year, ...thisYearSummary, giving_reference_cents: givingCents, giving_by_fund: givingByFund, accounts: thisYearEntries },
+        income_statement_5yr_trend: { years: trendYears, by_year: incomeStatementByYear },
+        balance_sheet_this_year: { year, ...balanceSheet },
+        balance_sheet_5yr_trend: { years: trendYears, by_year: balanceSheetByYear },
+      },
+      daycare: { entries: daycareEntries },
+    });
+  }
+
   return null;
 }
