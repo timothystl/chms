@@ -141,20 +141,17 @@ function typeDotHtml(mt, size) {
   return '<span class="type-dot" style="width:'+size+'px;height:'+size+'px;background:'+c+';"></span><span class="type-label" style="color:'+c+';">'+esc(label)+'</span>';
 }
 
-// ── Finance/Giving/Tuition-Aid shared sub-nav ─────────────────────────
-// The sidebar collapses all three into one "Finance" entry; this flat bar (rendered at the
-// top of all three tab-panels via mount divs) is what actually reaches all seven sections.
-// finSection is only meaningful for tab:'finance' — the other two tabs are 1:1 with their id.
+// ── Financial Reports sub-nav (Overview / Church Report / Daycare Report / Giving Reports) ──
+// Giving/Tuition Aid/Financial Reports are each their own top-level sidebar item (not
+// collapsed) — this sub-nav bar only covers the 4 sections *within* the Financial Reports tab.
 var FIN_TOPNAV_ITEMS = [
-  { id: 'giving', label: 'Giving', tab: 'giving' },
-  { id: 'tuitionaid', label: 'Tuition Aid', tab: 'tuitionaid' },
-  { id: 'givingreports', label: 'Giving Reports', tab: 'finance', finSection: 'givingreports' },
+  { id: 'givingreports', label: 'Giving Reports', finSection: 'givingreports' },
   { divider: true },
-  { id: 'overview', label: 'Overview', tab: 'finance', finSection: 'overview' },
-  { id: 'church', label: 'Church Report', tab: 'finance', finSection: 'church' },
-  { id: 'daycare', label: 'Daycare Report', tab: 'finance', finSection: 'daycare' },
+  { id: 'overview', label: 'Overview', finSection: 'overview' },
+  { id: 'church', label: 'Church Report', finSection: 'church' },
+  { id: 'daycare', label: 'Daycare Report', finSection: 'daycare' },
 ];
-var _finActiveNavId = 'giving';
+var _finActiveNavId = 'overview';
 function renderFinanceSubnav() {
   return FIN_TOPNAV_ITEMS.map(function(item) {
     if (item.divider) return '<span class="fin-subnav-divider"></span>';
@@ -162,15 +159,13 @@ function renderFinanceSubnav() {
   }).join('');
 }
 function finRenderSubnavMounts() {
-  ['fin-subnav-mount-giving', 'fin-subnav-mount-tuitionaid', 'fin-subnav-mount-finance'].forEach(function(mid) {
-    var el = document.getElementById(mid);
-    if (el) el.innerHTML = renderFinanceSubnav();
-  });
+  var el = document.getElementById('fin-subnav-mount-finance');
+  if (el) el.innerHTML = renderFinanceSubnav();
 }
 function finNavGo(id) {
   var item = FIN_TOPNAV_ITEMS.filter(function(i) { return i.id === id; })[0];
   if (!item) return;
-  showTab(item.tab, item.finSection);
+  showTab('finance', item.finSection);
 }
 
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
@@ -195,7 +190,7 @@ function showTab(name, finSection) {
   if (name === 'settings'   && _userRole !== 'admin') return;
   if (name === 'volunteers' && _userRole !== 'admin') return;
   if (name === 'scheduler'  && _userRole !== 'admin') return;
-  var labels = {home:'Home',people:'People',households:'Households',organizations:'Organizations',giving:'Giving',tuitionaid:'Tuition Aid Planner',finance:'Finance',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings',volunteers:'Volunteers',scheduler:'Scheduler'};
+  var labels = {home:'Home',people:'People',households:'Households',organizations:'Organizations',giving:'Giving',tuitionaid:'Tuition Aid Planner',finance:'Financial Reports',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings',volunteers:'Volunteers',scheduler:'Scheduler'};
   // Three-pillar map: People (people data), Giving (financial), Ministry (engagement/admin)
   var pillars = {people:'people',households:'people',organizations:'people',giving:'giving',tuitionaid:'giving',finance:'giving',attendance:'ministry',reports:'ministry',register:'ministry',volunteers:'ministry',scheduler:'ministry'};
   // Push browser history so back button works (skip when responding to popstate)
@@ -205,13 +200,8 @@ function showTab(name, finSection) {
   // Exit person-profile / household / organization views if active
   var ca = document.querySelector('.content-area');
   if (ca) ca.classList.remove('pv-mode', 'hv-mode', 'ov-mode');
-  // The single collapsed sidebar entry (data-tab="finance") stays highlighted for any of the
-  // three Giving/Tuition-Aid/Finance tabs, not just an exact name match.
-  var FIN_FAMILY_TABS = ['giving', 'tuitionaid', 'finance'];
   document.querySelectorAll('.s-item[data-tab]').forEach(function(b) {
-    var bt = b.dataset.tab;
-    var active = (bt === name) || (bt === 'finance' && FIN_FAMILY_TABS.indexOf(name) >= 0);
-    b.classList.toggle('active', active);
+    b.classList.toggle('active', b.dataset.tab === name);
   });
   document.querySelectorAll('.tab-panel').forEach(function(p) {
     p.classList.toggle('active', p.id === 'tab-' + name);
@@ -230,16 +220,13 @@ function showTab(name, finSection) {
   if (name === 'people') loadPeople();
   if (name === 'households') loadHouseholds();
   if (name === 'organizations') loadOrganizations();
-  if (name === 'giving') { _finActiveNavId = 'giving'; loadBatches(); loadGivingStats(); }
-  if (name === 'tuitionaid') { _finActiveNavId = 'tuitionaid'; loadTuitionAid(); }
+  if (name === 'giving') { loadBatches(); loadGivingStats(); }
+  if (name === 'tuitionaid') loadTuitionAid();
   if (name === 'finance') {
     if (finSection) _finActiveNavId = finSection;
-    else if (['overview', 'church', 'daycare', 'givingreports'].indexOf(_finActiveNavId) < 0) _finActiveNavId = 'overview';
     loadFinance();
-  }
-  if (name === 'giving' || name === 'tuitionaid' || name === 'finance') {
     finRenderSubnavMounts();
-    if (name === 'finance' && typeof finShowSection === 'function') finShowSection(_finActiveNavId);
+    if (typeof finShowSection === 'function') finShowSection(_finActiveNavId);
   }
   if (name === 'reports') initReports();
   if (name === 'attendance') loadAttendance();

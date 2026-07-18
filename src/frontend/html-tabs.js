@@ -147,7 +147,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
 <!-- ═══ GIVING TAB ═══ -->
 <div id="tab-giving" class="tab-panel">
-  <div id="fin-subnav-mount-giving" class="fin-subnav"></div>
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;flex-shrink:0;">
     <span style="font-size:22px;font-weight:800;color:var(--color-navy);">Giving</span>
     <div class="view-toggle" style="margin-left:auto;">
@@ -1006,7 +1005,6 @@ export const HTML_TABS_2 = String.raw`
 <!-- ═══ TUITION AID PLANNER TAB ═══ -->
 <div id="tab-tuitionaid" class="tab-panel">
   <div style="padding:16px 20px 20px;">
-    <div id="fin-subnav-mount-tuitionaid" class="fin-subnav"></div>
     <div id="tap-loading" style="color:var(--warm-gray);font-size:.85rem;">Loading…</div>
     <div id="tap-root" style="display:none;">
 
