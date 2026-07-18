@@ -198,7 +198,18 @@ a.s-item{text-decoration:none;color:inherit;}
 .h-member-pill{font-size:.75rem;background:var(--blue-mist);border:1px solid var(--ice-blue);color:var(--steel-anchor);padding:2px 8px;border-radius:10px;}
 /* ── GIVING ── */
 .giving-layout{display:grid;grid-template-columns:300px 1fr;gap:0;flex:1;min-height:0;border-radius:20px;overflow:hidden;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);}
-@media(max-width:900px){.giving-layout{grid-template-columns:1fr;}}
+/* On mobile the list and detail panels stack into two grid rows instead of sitting
+   side-by-side in one row — .giving-layout's flex:1/overflow:hidden (correct for the
+   desktop single-row layout, where both panels' own internal overflow-y:auto scrolls
+   within a shared row height) then clips the second stacked row entirely, since the grid
+   container never grows past its flex-assigned height. Let the whole thing flow with the
+   page instead — the outer .tab-panel.active already provides the actual scroll. */
+@media(max-width:900px){
+  .giving-layout{grid-template-columns:1fr;flex:none;overflow:visible;}
+  .batch-list-panel{overflow:visible;border-right:none;border-bottom:1px solid var(--border);}
+  .batch-detail-panel{overflow:visible;}
+  #batch-list{overflow:visible;}
+}
 .batch-list-panel{background:var(--white);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
 .batch-list-hdr{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
 .batch-list-hdr h3{font-family:var(--font-head);font-size:.92rem;color:var(--steel-anchor);}
