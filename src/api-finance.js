@@ -1350,5 +1350,21 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ year, rows, summary: computeBalanceSummary(rows), asOfDate: rows[0].as_of_date || '' });
   }
 
+  // Multi-year trend: one bulk query + JS grouping (matches this app's existing performance
+  // conventions, same pattern as finance/church/multi-year for the Income Statement side).
+  if (seg === 'finance/church/balances/multi-year' && method === 'GET') {
+    const yearsParam = url.searchParams.get('years');
+    const currentYear = new Date().getFullYear();
+    const years = yearsParam
+      ? yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite)
+      : [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
+    if (!years.length) return json({ error: 'No valid years requested' }, 400);
+    const placeholders = years.map(() => '?').join(',');
+    const allRows = (await db.prepare(`SELECT * FROM finance_church_balances WHERE fiscal_year IN (${placeholders})`).bind(...years).all()).results || [];
+    const byYear = {};
+    years.forEach(y => { byYear[y] = computeBalanceSummary(allRows.filter(r => r.fiscal_year === y)); });
+    return json({ years, byYear });
+  }
+
   return null;
 }
