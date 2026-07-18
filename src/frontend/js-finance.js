@@ -757,6 +757,108 @@ function finRenderChurchMultiYear(d) {
   }
   el.innerHTML = html;
 }
+// ── Budget import: preview-then-commit (mirrors Tuition Aid's TAP10 pattern) ────────────────
+// Parsing happens server-side (POST /finance/church/import-preview) rather than in the browser
+// like Tuition Aid's importer, since the XLSX ZIP/inflate reader was ported to api-finance.js —
+// the file is uploaded once for preview, reviewed with per-row checkboxes, then only the
+// checked rows are sent to the commit endpoint as plain JSON (no re-upload of the file itself).
+var _finChurchImportPreview = null;
+var _finChurchImportChecked = null;
+
+function finOpenChurchImport() {
+  _finChurchImportPreview = null;
+  _finChurchImportChecked = null;
+  var fileEl = document.getElementById('fin-church-import-file');
+  if (fileEl) fileEl.value = '';
+  var statusEl = document.getElementById('fin-church-import-status');
+  if (statusEl) statusEl.textContent = '';
+  var previewEl = document.getElementById('fin-church-import-preview');
+  if (previewEl) previewEl.innerHTML = '';
+  var confirmBtn = document.getElementById('fin-church-import-confirm-btn');
+  if (confirmBtn) confirmBtn.style.display = 'none';
+  openModal('fin-church-import-modal');
+}
+
+function finChurchImportFileSelected(inputEl) {
+  var file = inputEl.files && inputEl.files[0];
+  if (!file) return;
+  var statusEl = document.getElementById('fin-church-import-status');
+  var previewEl = document.getElementById('fin-church-import-preview');
+  var confirmBtn = document.getElementById('fin-church-import-confirm-btn');
+  statusEl.textContent = 'Reading file…';
+  previewEl.innerHTML = '';
+  confirmBtn.style.display = 'none';
+  _finChurchImportPreview = null;
+  var fd = new FormData();
+  fd.append('file', file);
+  fetch('/admin/api/finance/church/import-preview', { method: 'POST', body: fd, credentials: 'include' })
+    .then(function(r) {
+      return r.json().then(function(d) {
+        if (r.status === 401) { location.href = '/chms'; throw new Error('Unauthorized'); }
+        if (!r.ok) throw new Error(d.error || 'Could not read this file.');
+        return d;
+      });
+    })
+    .then(function(d) {
+      _finChurchImportPreview = d;
+      _finChurchImportChecked = d.rows.map(function() { return true; });
+      statusEl.textContent = 'Parsed "' + d.sheetName + '" — fiscal year ' + d.fiscalYear + ', ' + d.rows.length + ' account row(s).'
+        + (d.skipped.length ? ' ' + d.skipped.length + ' line(s) not recognized as accounts (shown below).' : '');
+      previewEl.innerHTML = finChurchRenderImportPreview(d);
+      confirmBtn.style.display = '';
+    })
+    .catch(function(err) {
+      if (err.message !== 'Unauthorized') statusEl.textContent = 'Error: ' + err.message;
+    });
+}
+
+function finChurchRenderImportPreview(d) {
+  var rowsHtml = d.rows.map(function(r, i) {
+    return '<tr>'
+      + '<td style="padding:3px 6px;"><input type="checkbox" checked onchange="finChurchImportToggleRow(' + i + ',this.checked)"></td>'
+      + '<td style="padding:3px 6px 3px ' + (8 + 14 * r.depth) + 'px;">' + esc(r.account_name) + '</td>'
+      + '<td style="padding:3px 6px;color:var(--warm-gray);">' + esc(r.classification) + '</td>'
+      + '<td style="padding:3px 6px;text-align:right;">$' + finFmtMoney(r.own_actual_cents / 100) + '</td>'
+      + '<td style="padding:3px 6px;text-align:right;">$' + finFmtMoney(r.own_budget_cents / 100) + '</td>'
+      + '</tr>';
+  }).join('');
+  var skippedHtml = d.skipped.length
+    ? '<p style="font-size:.76rem;color:var(--warm-gray);margin-top:10px;">Ignored (not recognized as accounts): ' + d.skipped.map(esc).join('; ') + '</p>'
+    : '';
+  return '<div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">'
+    + '<table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
+    + '<thead style="position:sticky;top:0;background:var(--white);"><tr style="border-bottom:1px solid var(--border);">'
+    + '<th style="padding:4px 6px;"></th><th style="text-align:left;padding:4px 6px;">Account</th>'
+    + '<th style="text-align:left;padding:4px 6px;">Classification</th><th style="text-align:right;padding:4px 6px;">Actual</th>'
+    + '<th style="text-align:right;padding:4px 6px;">Budget</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+    + skippedHtml;
+}
+
+function finChurchImportToggleRow(i, checked) {
+  if (_finChurchImportChecked) _finChurchImportChecked[i] = checked;
+}
+
+function finChurchConfirmImport() {
+  if (!_finChurchImportPreview) return;
+  var rows = _finChurchImportPreview.rows.filter(function(r, i) { return _finChurchImportChecked[i]; });
+  if (!rows.length) { alert('No rows selected.'); return; }
+  var btn = document.getElementById('fin-church-import-confirm-btn');
+  btn.disabled = true;
+  api('/admin/api/finance/church/import', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fiscal_year: _finChurchImportPreview.fiscalYear, rows: rows }),
+  }).then(function(d) {
+    btn.disabled = false;
+    if (d && d.error) { finToast('Import failed: ' + d.error); return; }
+    closeModal('fin-church-import-modal');
+    finToast('Imported ' + d.imported + ' account row(s) for ' + d.fiscalYear + '.');
+    finRenderChurchReport();
+  }).catch(function(err) {
+    btn.disabled = false;
+    if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
+  });
+}
+
 function finExportChurchCsv() {
   var rows = [];
   if (_finChurchMode === 'year' && _finChurchThisYearData) {

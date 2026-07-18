@@ -1375,6 +1375,7 @@ export const HTML_TABS_2 = String.raw`
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <button id="fin-church-mode-year" class="btn-secondary active" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('year')">This Year</button>
               <button id="fin-church-mode-multiyear" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('multiyear')">Multi-Year</button>
+              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchImport()">Import Budget</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportChurchCsv()">Export CSV</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
             </div>
@@ -2035,6 +2036,24 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('tap-import-modal')">Close</button>
       <button class="btn-primary" id="tap-import-confirm-btn" style="display:none;" onclick="tapConfirmImportHistory()">Import Selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Church Report: import a "Budget vs. Actuals" Excel export (backfill/resilience path when a
+     live QuickBooks sync isn't available or returns wrong data — see FIN2/FIN6) -->
+<div class="modal-overlay" id="fin-church-import-modal">
+  <div class="modal" style="max-width:640px;width:95vw;">
+    <div class="modal-header"><span>Import Budget from Excel</span><button class="modal-close" onclick="closeModal('fin-church-import-modal')">&#10005;</button></div>
+    <div style="padding:4px 0;">
+      <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload a QuickBooks "Budget vs. Actuals" export (.xlsx) for one fiscal year. The file is parsed on the server, then you'll get a preview to review and uncheck anything before it's saved — nothing is written until you click Import Selected. Importing a year replaces any previously-imported data for that same year; a live QuickBooks sync for the same year always defers to an import.</p>
+      <input type="file" id="fin-church-import-file" accept=".xlsx" onchange="finChurchImportFileSelected(this)">
+      <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="fin-church-import-status"></div>
+      <div id="fin-church-import-preview"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('fin-church-import-modal')">Close</button>
+      <button class="btn-primary" id="fin-church-import-confirm-btn" style="display:none;" onclick="finChurchConfirmImport()">Import Selected</button>
     </div>
   </div>
 </div>
