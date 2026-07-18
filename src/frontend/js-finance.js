@@ -36,20 +36,20 @@ function loadFinance() {
   });
 }
 
-// ── Sub-nav: Overview / Church Report / Daycare Report / Giving Reports ───────────────
+// ── Sub-nav: Overview / Church Report / Daycare Report ─────────────────────────────────
 // Button active-state is handled by the shared renderFinanceSubnav() (js-core.js) re-render,
 // driven by showTab()'s _finActiveNavId — this only toggles panel visibility.
 function finShowSection(section) {
-  ['overview', 'church', 'daycare', 'givingreports'].forEach(function(s) {
+  ['overview', 'church', 'daycare'].forEach(function(s) {
     var panel = document.getElementById('fin-panel-' + s);
     if (panel) panel.style.display = (s === section) ? '' : 'none';
   });
-  if (section === 'givingreports') finInitGivingReports();
 }
-// Lazy-init for the giving-report tiles relocated here from the Reports tab (nav consolidation)
-// — mirrors initReportTrendYears()'s own idempotent guard, safe to call every time this section
-// is shown. initReportTrendYears() is defined in js-reports.js (loaded earlier in the module
-// concatenation order) and already no-ops harmlessly if its target element isn't found.
+// Lazy-init for the Giving tab's Reports view (moved there from the Finance tab — see
+// givSetView() in js-giving.js) — mirrors initReportTrendYears()'s own idempotent guard, safe
+// to call every time this view is shown. initReportTrendYears() is defined in js-reports.js
+// (loaded earlier in the module concatenation order) and already no-ops harmlessly if its
+// target element isn't found.
 function finInitGivingReports() {
   initReportTrendYears();
   var curY = new Date().getFullYear();
