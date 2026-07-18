@@ -511,19 +511,25 @@ function finRenderDetailTreeRows(nodes, html) {
 var _finChurchMode = 'year';
 var _finChurchThisYearData = null;
 var _finChurchMultiYearData = null;
+var _finChurchBalancesData = null;
 
 function finSetChurchReportMode(mode) {
   _finChurchMode = mode;
   var yearEl = document.getElementById('fin-church-year-view');
   var multiEl = document.getElementById('fin-church-multiyear-view');
+  var balEl = document.getElementById('fin-church-balances-view');
   if (yearEl) yearEl.style.display = mode === 'year' ? '' : 'none';
   if (multiEl) multiEl.style.display = mode === 'multiyear' ? '' : 'none';
+  if (balEl) balEl.style.display = mode === 'balances' ? '' : 'none';
   var yearBtn = document.getElementById('fin-church-mode-year');
   var multiBtn = document.getElementById('fin-church-mode-multiyear');
+  var balBtn = document.getElementById('fin-church-mode-balances');
   if (yearBtn) yearBtn.classList.toggle('active', mode === 'year');
   if (multiBtn) multiBtn.classList.toggle('active', mode === 'multiyear');
+  if (balBtn) balBtn.classList.toggle('active', mode === 'balances');
   if (mode === 'year' && !_finChurchThisYearData) finLoadChurchThisYear();
   if (mode === 'multiyear' && !_finChurchMultiYearData) finLoadChurchMultiYear();
+  if (mode === 'balances' && !_finChurchBalancesData) finLoadChurchBalances();
 }
 
 // Called from loadFinance() on every tab load AND after every "Sync Now" — always invalidates
@@ -534,6 +540,7 @@ function finSetChurchReportMode(mode) {
 function finRenderChurchReport() {
   _finChurchThisYearData = null;
   _finChurchMultiYearData = null;
+  _finChurchBalancesData = null;
   finSetChurchReportMode(_finChurchMode);
 }
 
@@ -757,6 +764,205 @@ function finRenderChurchMultiYear(d) {
   }
   el.innerHTML = html;
 }
+// ── Balance Sheet view (point-in-time Assets/Liabilities/Equity) ────────────────────────────
+// A structurally different report from This Year/Multi-Year (no actual-vs-budget split, no
+// period — a single as-of-date snapshot), so it gets its own small tree-builder rather than
+// forcing finBuildTreeFromFlatRows() (which is tightly coupled to own_actual_cents/
+// own_budget_cents) to also handle own_balance_cents.
+function finBuildBalanceTreeFromFlatRows(rows) {
+  var nodeByPath = {};
+  var roots = [];
+  (rows || []).forEach(function(r) {
+    nodeByPath[r.category_path] = {
+      path: r.category_path, label: r.account_name, classification: r.classification, depth: r.depth,
+      ownBalanceCents: r.own_balance_cents || 0, totalBalanceCents: 0, children: [],
+    };
+  });
+  (rows || []).forEach(function(r) {
+    var node = nodeByPath[r.category_path];
+    var segments = r.category_path.split(':');
+    var parent = null;
+    for (var i = segments.length - 1; i > 0; i--) {
+      var candidate = nodeByPath[segments.slice(0, i).join(':')];
+      if (candidate) { parent = candidate; break; }
+    }
+    if (parent) parent.children.push(node); else roots.push(node);
+  });
+  function computeTotals(node) {
+    var total = node.ownBalanceCents;
+    node.children.forEach(function(c) { computeTotals(c); total += c.totalBalanceCents; });
+    node.totalBalanceCents = total;
+  }
+  roots.forEach(computeTotals);
+  return roots;
+}
+function finRenderBalanceTreeRows(nodes, html) {
+  html = html || [];
+  (nodes || []).forEach(function(node) {
+    var bold = node.children.length > 0;
+    html.push('<tr' + (bold ? ' style="font-weight:600;"' : '') + '>'
+      + '<td style="padding:5px 8px 5px ' + (10 + node.depth * 16) + 'px;">' + esc(node.label) + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(node.totalBalanceCents / 100) + '</td>'
+      + '</tr>');
+    finRenderBalanceTreeRows(node.children, html);
+  });
+  return html;
+}
+function finLoadChurchBalances(year) {
+  year = year || new Date().getFullYear();
+  var el = document.getElementById('fin-church-balances-view');
+  if (!el) return;
+  el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
+  api('/admin/api/finance/church/balances?year=' + year).then(function(d) {
+    _finChurchBalancesData = d;
+    finRenderChurchBalances(d);
+  }).catch(function(err) {
+    if (err && err.message === 'Unauthorized') return;
+    el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load balance sheet data.</p>';
+  });
+}
+function finRenderChurchBalances(d) {
+  var el = document.getElementById('fin-church-balances-view');
+  if (!el) return;
+  if (!d || !d.rows || !d.rows.length) {
+    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No balance sheet imported yet for ' + d.year + '. Click "Import Balance Sheet" above to upload one.</p>';
+    return;
+  }
+  var s = d.summary;
+  var offCents = s.balancedCents;
+  var checkHtml = Math.abs(offCents) < 1
+    ? '<span style="color:var(--sage);">✓ Balances (Assets = Liabilities + Equity)</span>'
+    : '<span style="color:var(--danger);">⚠ Off by $' + finFmtMoney(Math.abs(offCents) / 100) + ' — check the import for a missing or misclassified account.</span>';
+  var html = '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:12px;">As of ' + esc(d.asOfDate || d.year) + '</div>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;">'
+    + '<div style="flex:1;min-width:170px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">'
+    + '<div style="font-size:.7rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Assets</div>'
+    + '<div style="font-size:1.3rem;font-weight:700;color:var(--steel-anchor);">$' + finFmtMoney(s.assetsCents / 100) + '</div></div>'
+    + '<div style="flex:1;min-width:170px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">'
+    + '<div style="font-size:.7rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Liabilities</div>'
+    + '<div style="font-size:1.3rem;font-weight:700;color:var(--steel-anchor);">$' + finFmtMoney(s.liabilitiesCents / 100) + '</div></div>'
+    + '<div style="flex:1;min-width:170px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">'
+    + '<div style="font-size:.7rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Equity</div>'
+    + '<div style="font-size:1.3rem;font-weight:700;color:var(--steel-anchor);">$' + finFmtMoney(s.equityCents / 100) + '</div></div>'
+    + '</div>'
+    + '<div style="font-size:.82rem;margin-bottom:18px;">' + checkHtml + '</div>';
+  var tree = finBuildBalanceTreeFromFlatRows(d.rows);
+  html += '<details open><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail</summary>'
+    + '<div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead><tr style="border-bottom:2px solid var(--navy);"><th style="text-align:left;padding:6px 8px;">Account</th><th style="text-align:right;padding:6px 8px;">Balance</th></tr></thead>'
+    + '<tbody>' + finRenderBalanceTreeRows(tree).join('') + '</tbody></table></div></details>';
+  el.innerHTML = html;
+}
+
+// ── Balance Sheet import: preview-then-commit (same pattern as the Budget import below) ─────
+var _finChurchBalanceImportPreview = null;
+var _finChurchBalanceImportChecked = null;
+
+function finOpenChurchBalanceImport() {
+  _finChurchBalanceImportPreview = null;
+  _finChurchBalanceImportChecked = null;
+  var fileEl = document.getElementById('fin-church-balance-import-file');
+  if (fileEl) fileEl.value = '';
+  var statusEl = document.getElementById('fin-church-balance-import-status');
+  if (statusEl) statusEl.textContent = '';
+  var previewEl = document.getElementById('fin-church-balance-import-preview');
+  if (previewEl) previewEl.innerHTML = '';
+  var confirmBtn = document.getElementById('fin-church-balance-import-confirm-btn');
+  if (confirmBtn) confirmBtn.style.display = 'none';
+  openModal('fin-church-balance-import-modal');
+}
+
+function finChurchBalanceImportFileSelected(inputEl) {
+  var file = inputEl.files && inputEl.files[0];
+  if (!file) return;
+  var statusEl = document.getElementById('fin-church-balance-import-status');
+  var previewEl = document.getElementById('fin-church-balance-import-preview');
+  var confirmBtn = document.getElementById('fin-church-balance-import-confirm-btn');
+  statusEl.textContent = 'Reading file…';
+  previewEl.innerHTML = '';
+  confirmBtn.style.display = 'none';
+  _finChurchBalanceImportPreview = null;
+  var fd = new FormData();
+  fd.append('file', file);
+  fetch('/admin/api/finance/church/balances/import-preview', { method: 'POST', body: fd, credentials: 'include' })
+    .then(function(r) {
+      return r.json().then(function(d) {
+        if (r.status === 401) { location.href = '/chms'; throw new Error('Unauthorized'); }
+        if (!r.ok) throw new Error(d.error || 'Could not read this file.');
+        return d;
+      });
+    })
+    .then(function(d) {
+      _finChurchBalanceImportPreview = d;
+      _finChurchBalanceImportChecked = d.rows.map(function() { return true; });
+      var summary = computeBalanceSheetPreviewSummary(d.rows);
+      statusEl.textContent = 'Parsed "' + d.sheetName + '" — as of ' + d.asOfDate + ' (fiscal year ' + d.fiscalYear + '), ' + d.rows.length + ' account row(s).'
+        + (d.skipped.length ? ' ' + d.skipped.length + ' line(s) not recognized as accounts (shown below).' : '')
+        + ' Assets $' + finFmtMoney(summary.assetsCents / 100) + ' vs. Liabilities + Equity $' + finFmtMoney(summary.liabilitiesPlusEquityCents / 100) + '.';
+      previewEl.innerHTML = finChurchRenderBalanceImportPreview(d);
+      confirmBtn.style.display = '';
+    })
+    .catch(function(err) {
+      if (err.message !== 'Unauthorized') statusEl.textContent = 'Error: ' + err.message;
+    });
+}
+
+// Small standalone summary (not computeBalanceSummary, which is a backend-only export) purely
+// for the status line's Assets-vs-Liabilities+Equity sanity check before commit.
+function computeBalanceSheetPreviewSummary(rows) {
+  var byClass = {};
+  rows.forEach(function(r) { byClass[r.classification] = (byClass[r.classification] || 0) + r.own_balance_cents; });
+  var assets = byClass.Assets || 0, liabilities = byClass.Liabilities || 0, equity = byClass.Equity || 0;
+  return { assetsCents: assets, liabilitiesPlusEquityCents: liabilities + equity };
+}
+
+function finChurchRenderBalanceImportPreview(d) {
+  var rowsHtml = d.rows.map(function(r, i) {
+    return '<tr>'
+      + '<td style="padding:3px 6px;"><input type="checkbox" checked onchange="finChurchBalanceImportToggleRow(' + i + ',this.checked)"></td>'
+      + '<td style="padding:3px 6px 3px ' + (8 + 14 * r.depth) + 'px;">' + esc(r.account_name) + '</td>'
+      + '<td style="padding:3px 6px;color:var(--warm-gray);">' + esc(r.classification) + '</td>'
+      + '<td style="padding:3px 6px;text-align:right;">$' + finFmtMoney(r.own_balance_cents / 100) + '</td>'
+      + '</tr>';
+  }).join('');
+  var skippedHtml = d.skipped.length
+    ? '<p style="font-size:.76rem;color:var(--warm-gray);margin-top:10px;">Ignored (not recognized as accounts): ' + d.skipped.map(esc).join('; ') + '</p>'
+    : '';
+  return '<div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">'
+    + '<table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
+    + '<thead style="position:sticky;top:0;background:var(--white);"><tr style="border-bottom:1px solid var(--border);">'
+    + '<th style="padding:4px 6px;"></th><th style="text-align:left;padding:4px 6px;">Account</th>'
+    + '<th style="text-align:left;padding:4px 6px;">Classification</th><th style="text-align:right;padding:4px 6px;">Balance</th>'
+    + '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+    + skippedHtml;
+}
+
+function finChurchBalanceImportToggleRow(i, checked) {
+  if (_finChurchBalanceImportChecked) _finChurchBalanceImportChecked[i] = checked;
+}
+
+function finChurchConfirmBalanceImport() {
+  if (!_finChurchBalanceImportPreview) return;
+  var rows = _finChurchBalanceImportPreview.rows.filter(function(r, i) { return _finChurchBalanceImportChecked[i]; });
+  if (!rows.length) { alert('No rows selected.'); return; }
+  var btn = document.getElementById('fin-church-balance-import-confirm-btn');
+  btn.disabled = true;
+  api('/admin/api/finance/church/balances/import', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fiscal_year: _finChurchBalanceImportPreview.fiscalYear, as_of_date: _finChurchBalanceImportPreview.asOfDate, rows: rows }),
+  }).then(function(d) {
+    btn.disabled = false;
+    if (d && d.error) { finToast('Import failed: ' + d.error); return; }
+    closeModal('fin-church-balance-import-modal');
+    finToast('Imported ' + d.imported + ' account row(s) as of ' + _finChurchBalanceImportPreview.asOfDate + '.');
+    _finChurchBalancesData = null;
+    if (_finChurchMode === 'balances') finLoadChurchBalances();
+  }).catch(function(err) {
+    btn.disabled = false;
+    if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
+  });
+}
+
 // ── Budget import: preview-then-commit (mirrors Tuition Aid's TAP10 pattern) ────────────────
 // Parsing happens server-side (POST /finance/church/import-preview) rather than in the browser
 // like Tuition Aid's importer, since the XLSX ZIP/inflate reader was ported to api-finance.js —

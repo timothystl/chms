@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, parseBudgetVsActualsGrid, normalizeChurchClassification } from '../src/api-finance.js';
+import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport } from '../src/api-finance.js';
 
 // ── Minimal D1-shaped wrapper around node:sqlite, so persistChurchEntries() runs against real
 // SQL (real UNIQUE/ON CONFLICT semantics) instead of a hand-rolled re-implementation of what the
@@ -9,6 +9,7 @@ import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, ma
 function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec(readFileSync(new URL('../migrations/0018_finance_church_entries.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0019_finance_church_balances.sql', import.meta.url), 'utf8'));
   return {
     prepare(sql) {
       return {
@@ -485,5 +486,151 @@ describe('parseBudgetVsActualsGrid', () => {
 
   it('throws a clear error when the sheet has no Actual/Budget header row (not a Budget vs. Actuals export)', () => {
     expect(() => parseBudgetVsActualsGrid([['not', 'a', 'budget', 'report']])).toThrow(/Actual\/Budget header/);
+  });
+});
+
+// ── Balance Sheet import: two real, genuinely different export conventions from this exact
+// church confirmed the two fixtures below (indent-metadata + "Total for X", vs. leading-space +
+// "Total X" — the latter matching the Budget report's own convention). Both fixtures mirror the
+// real files' structure, including the "Liabilities and Equity" combined wrapper heading (whose
+// two real children, Liabilities and Equity, sit one level deeper than Assets) and a trailing
+// timestamp footer line confirmed present in both real exports.
+function balanceSheetIndentFixture() {
+  const grid = [
+    ['Timothy Evangelical Lutheran Church', null],
+    ['Statement of Financial Position', null],
+    ['As of Jul 17, 2026', null],
+    [null, null],
+    ['', 'Total'],
+    ['Assets', null],
+    ['Current Assets', null],
+    ['Bank Accounts', null],
+    ['11025 Petty Cash', 200],
+    ['11027 Lindell Checking', 1000],
+    ['Total for Bank Accounts', 1200],
+    ['Total for Current Assets', 1200],
+    ['Total for Assets', 1200],
+    ['Liabilities and Equity', null],
+    ['Liabilities', null],
+    ['Current Liabilities', null],
+    ['21000 Accounts Payable', 300],
+    ['Total for Current Liabilities', 300],
+    ['Total for Liabilities', 300],
+    ['Equity', null],
+    ['31000 Unrestricted Net Assets', 900],
+    ['Total for Equity', 900],
+    ['Total for Liabilities and Equity', 1200],
+  ];
+  const colAIndent = [0, 0, 0, 0, 0, 0, 1, 2, 3, 3, 2, 1, 0, 0, 1, 2, 3, 2, 1, 1, 2, 1, 0];
+  return { grid, colAIndent };
+}
+function balanceSheetLeadingSpaceFixture() {
+  const grid = [
+    ['Timothy Evangelical Lutheran Church', null],
+    ['Balance Sheet', null],
+    ['As of December 31, 2026', null],
+    [null, null],
+    [null, 'Total'],
+    ['ASSETS', null],
+    ['   Current Assets', null],
+    ['      Bank Accounts', null],
+    ['         11025 Petty Cash', 500],
+    ['      Total Bank Accounts', 500],
+    ['   Total Current Assets', 500],
+    ['TOTAL ASSETS', 500],
+    ['LIABILITIES AND EQUITY', null],
+    ['   Liabilities', null],
+    ['      Current Liabilities', null],
+    ['         21000 Accounts Payable', 100],
+    ['      Total Current Liabilities', 100],
+    ['   Total Liabilities', 100],
+    ['   Equity', null],
+    ['      31000 Unrestricted Net Assets', 400],
+    ['   Total Equity', 400],
+    ['Total Liabilities and Equity', 500],
+    [null, null],
+    ['Friday, Jul 17, 2026 09:28:23 PM GMT-7', null],
+  ];
+  return { grid };
+}
+
+describe('normalizeBalanceClassification', () => {
+  it('maps Assets/Liabilities/Equity case-insensitively and rejects the combined wrapper heading', () => {
+    expect(normalizeBalanceClassification('Assets')).toBe('Assets');
+    expect(normalizeBalanceClassification('ASSETS')).toBe('Assets');
+    expect(normalizeBalanceClassification('Liabilities')).toBe('Liabilities');
+    expect(normalizeBalanceClassification('Equity')).toBe('Equity');
+    expect(normalizeBalanceClassification('Liabilities and Equity')).toBe(null);
+    expect(normalizeBalanceClassification('LIABILITIES AND EQUITY')).toBe(null);
+  });
+});
+
+describe('parseBalanceSheetGrid', () => {
+  it('reads the indent-metadata convention (Statement of Financial Position) correctly', () => {
+    const { grid, colAIndent } = balanceSheetIndentFixture();
+    const { fiscalYear, asOfDate, rows, skipped } = parseBalanceSheetGrid(grid, colAIndent);
+    expect(fiscalYear).toBe(2026);
+    expect(asOfDate).toBe('Jul 17, 2026');
+    expect(skipped).toEqual([]);
+    const labels = rows.map(r => r.account_name);
+    expect(labels).not.toContain('Total for Bank Accounts');
+    expect(labels).not.toContain('Liabilities and Equity');
+    const pettyCash = rows.find(r => r.account_name === '11025 Petty Cash');
+    expect(pettyCash.category_path).toBe('Assets:Current Assets:Bank Accounts:11025 Petty Cash');
+    expect(pettyCash.own_balance_cents).toBe(20000);
+    const equityHeader = rows.find(r => r.depth === 0 && r.classification === 'Equity');
+    expect(equityHeader.category_path).toBe('Equity');
+    const summary = computeBalanceSummary(rows);
+    expect(summary.assetsCents).toBe(120000);
+    expect(summary.liabilitiesCents).toBe(30000);
+    expect(summary.equityCents).toBe(90000);
+    expect(summary.balancedCents).toBe(0);
+  });
+
+  it('reads the leading-space convention (Balance Sheet, matching the Budget report style) and skips the trailing timestamp footer', () => {
+    const { grid } = balanceSheetLeadingSpaceFixture();
+    const { fiscalYear, asOfDate, rows, skipped } = parseBalanceSheetGrid(grid);
+    expect(fiscalYear).toBe(2026);
+    expect(asOfDate).toBe('December 31, 2026');
+    expect(skipped).toEqual(['Friday, Jul 17, 2026 09:28:23 PM GMT-7']);
+    const labels = rows.map(r => r.account_name);
+    expect(labels).not.toContain('TOTAL ASSETS');
+    expect(labels).not.toContain('Total Liabilities and Equity');
+    const summary = computeBalanceSummary(rows);
+    expect(summary.assetsCents).toBe(50000);
+    expect(summary.liabilitiesCents).toBe(10000);
+    expect(summary.equityCents).toBe(40000);
+    expect(summary.balancedCents).toBe(0);
+  });
+
+  it('persists via persistChurchBalancesImport and round-trips through the DB unchanged', async () => {
+    const db = makeTestDb();
+    const { grid, colAIndent } = balanceSheetIndentFixture();
+    const { fiscalYear, asOfDate, rows } = parseBalanceSheetGrid(grid, colAIndent);
+    await persistChurchBalancesImport(db, rows, fiscalYear, asOfDate, '2026-07-18T00:00:00Z');
+    const stored = db._raw.prepare('SELECT * FROM finance_church_balances ORDER BY category_path').all();
+    expect(stored.length).toBe(rows.length);
+    expect(stored.every(r => r.source === 'import' && r.as_of_date === 'Jul 17, 2026')).toBe(true);
+    const summary = computeBalanceSummary(stored);
+    expect(summary.balancedCents).toBe(0);
+  });
+
+  it('re-import for the same year replaces rather than duplicates', async () => {
+    const db = makeTestDb();
+    const { grid, colAIndent } = balanceSheetIndentFixture();
+    const parsed = parseBalanceSheetGrid(grid, colAIndent);
+    await persistChurchBalancesImport(db, parsed.rows, parsed.fiscalYear, parsed.asOfDate, '2026-07-18T00:00:00Z');
+    await persistChurchBalancesImport(db, parsed.rows, parsed.fiscalYear, parsed.asOfDate, '2026-07-18T01:00:00Z');
+    const stored = db._raw.prepare('SELECT * FROM finance_church_balances').all();
+    expect(stored.length).toBe(parsed.rows.length);
+  });
+
+  it('throws a clear error when the sheet has no balance-sheet header row', () => {
+    expect(() => parseBalanceSheetGrid([['not', 'a', 'balance', 'sheet']])).toThrow(/balance sheet header/);
+  });
+
+  it('does not mistake a Budget vs. Actuals sheet\'s decorative "Total"-only row for its own header', () => {
+    const budgetGrid = budgetVsActualsFixtureGrid();
+    expect(() => parseBalanceSheetGrid(budgetGrid)).toThrow(/balance sheet header/);
   });
 });
