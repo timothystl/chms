@@ -512,6 +512,27 @@ var _finChurchMode = 'year';
 var _finChurchThisYearData = null;
 var _finChurchMultiYearData = null;
 var _finChurchBalancesData = null;
+var _finChurchBalancesMultiYearData = null;
+
+// Shared palette for the category pie charts below (Income sources / Expense categories /
+// Asset composition) — cycles by category rank (largest first) rather than a fixed per-category
+// mapping, since the actual category set varies church-to-church.
+var CHURCH_PIE_PALETTE = ['#2E7EA6', '#C9973A', '#5A9E6F', '#9B59B6', '#8A7968', '#B85C3A', '#4A6FA5', '#D4A574'];
+// Builds pie-chart {label,value,color} items from a classification's immediate depth-1
+// subcategories (e.g. "40 Donor Income", "42 Passive Income" under Income) — falls back to the
+// classification root itself if it has no subcategories (a flat chart of accounts with no
+// grouping). Zero/negative totals are dropped (a pie slice can't represent them meaningfully);
+// sorted largest-first so the legend and color assignment are stable and readable. Takes an
+// already-built tree (from finBuildTreeFromFlatRows/finBuildBalanceTreeFromFlatRows) rather than
+// raw rows, since both callers already build that tree for the full-detail table below.
+function finPieItemsFromTree(tree, classification, totalField) {
+  var root = tree.filter(function(n) { return n.classification === classification && n.depth === 0; })[0];
+  if (!root) return [];
+  var cats = root.children.length ? root.children : [root];
+  return cats.filter(function(c) { return c[totalField] > 0; })
+    .sort(function(a, b) { return b[totalField] - a[totalField]; })
+    .map(function(c, i) { return { label: c.label, value: c[totalField], color: CHURCH_PIE_PALETTE[i % CHURCH_PIE_PALETTE.length] }; });
+}
 
 function finSetChurchReportMode(mode) {
   _finChurchMode = mode;
@@ -541,6 +562,7 @@ function finRenderChurchReport() {
   _finChurchThisYearData = null;
   _finChurchMultiYearData = null;
   _finChurchBalancesData = null;
+  _finChurchBalancesMultiYearData = null;
   finSetChurchReportMode(_finChurchMode);
 }
 
@@ -674,6 +696,16 @@ function finRenderChurchThisYear(d) {
     + finRenderYoyBlock(d.yoy);
 
   var tree = finBuildTreeFromFlatRows(d.entries);
+  var incomePie = finPieItemsFromTree(tree, 'Income', 'totalActualCents');
+  var expensePie = finPieItemsFromTree(tree, 'Expenses', 'totalActualCents');
+  if (incomePie.length || expensePie.length) {
+    html += '<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px;">'
+      + '<div style="flex:1;min-width:280px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Income Sources</h4>'
+      + (incomePie.length ? renderPieChart(incomePie, 170) : '<p style="font-size:.82rem;color:var(--warm-gray);">No income data yet.</p>') + '</div>'
+      + '<div style="flex:1;min-width:280px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Expense Categories</h4>'
+      + (expensePie.length ? renderPieChart(expensePie, 170) : '<p style="font-size:.82rem;color:var(--warm-gray);">No expense data yet.</p>') + '</div>'
+      + '</div>';
+  }
   html += '<details><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail</summary>'
     + '<div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
     + '<thead><tr style="border-bottom:2px solid var(--navy);"><th style="text-align:left;padding:6px 8px;">Account</th><th style="text-align:right;padding:6px 8px;">Actual</th><th style="text-align:right;padding:6px 8px;">Budget</th><th style="text-align:right;padding:6px 8px;">Remaining</th></tr></thead>'
@@ -813,15 +845,49 @@ function finLoadChurchBalances(year) {
   var el = document.getElementById('fin-church-balances-view');
   if (!el) return;
   el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
-  api('/admin/api/finance/church/balances?year=' + year).then(function(d) {
-    _finChurchBalancesData = d;
-    finRenderChurchBalances(d);
+  Promise.all([
+    api('/admin/api/finance/church/balances?year=' + year),
+    api('/admin/api/finance/church/balances/multi-year'),
+  ]).then(function(results) {
+    _finChurchBalancesData = results[0];
+    _finChurchBalancesMultiYearData = results[1];
+    finRenderChurchBalances(_finChurchBalancesData, _finChurchBalancesMultiYearData);
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
     el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load balance sheet data.</p>';
   });
 }
-function finRenderChurchBalances(d) {
+// Assets/Liabilities/Equity across every year with an imported balance sheet, so a board can see
+// the trend rather than only a single point-in-time snapshot. Same negative-bar caveat as the
+// Income Statement multi-year chart this is modeled on — not a concern in practice here, since a
+// real balance sheet's classification totals are essentially never negative.
+function finRenderBalanceMultiYearChart(multiYear) {
+  if (!multiYear || !multiYear.years || !multiYear.years.length) return '';
+  var years = multiYear.years;
+  var anyData = years.some(function(y) { var s = multiYear.byYear[y]; return s && (s.assetsCents || s.liabilitiesCents || s.equityCents); });
+  if (!anyData) return '';
+  var chart = renderGroupedBarChart({
+    chartH: 200,
+    groups: years.map(function(y) { return { key: y, label: String(y) }; }),
+    series: [
+      { key: 'assets', label: 'Assets', color: '#2E7EA6' },
+      { key: 'liabilities', label: 'Liabilities', color: '#C9973A' },
+      { key: 'equity', label: 'Equity', color: '#5A9E6F' },
+    ],
+    value: function(y, s) {
+      var yd = multiYear.byYear[y] || {};
+      var cents = s === 'assets' ? (yd.assetsCents || 0) : s === 'liabilities' ? (yd.liabilitiesCents || 0) : (yd.equityCents || 0);
+      return cents / 100;
+    },
+    tooltip: function(y, s, v) {
+      var sLbl = s === 'assets' ? 'Assets' : s === 'liabilities' ? 'Liabilities' : 'Equity';
+      return sLbl + ' ' + y + ': $' + finFmtMoney(v);
+    },
+    barLabel: function(v) { return '$' + Math.round(v / 1000) + 'k'; },
+  });
+  return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Multi-Year Trend</h4>' + chart + '</div>';
+}
+function finRenderChurchBalances(d, multiYear) {
   var el = document.getElementById('fin-church-balances-view');
   if (!el) return;
   if (!d || !d.rows || !d.rows.length) {
@@ -847,6 +913,11 @@ function finRenderChurchBalances(d) {
     + '</div>'
     + '<div style="font-size:.82rem;margin-bottom:18px;">' + checkHtml + '</div>';
   var tree = finBuildBalanceTreeFromFlatRows(d.rows);
+  var assetPie = finPieItemsFromTree(tree, 'Assets', 'totalBalanceCents');
+  if (assetPie.length) {
+    html += '<div style="margin-bottom:18px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Asset Composition</h4>' + renderPieChart(assetPie, 170) + '</div>';
+  }
+  html += finRenderBalanceMultiYearChart(multiYear);
   html += '<details open><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail</summary>'
     + '<div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
     + '<thead><tr style="border-bottom:2px solid var(--navy);"><th style="text-align:left;padding:6px 8px;">Account</th><th style="text-align:right;padding:6px 8px;">Balance</th></tr></thead>'
