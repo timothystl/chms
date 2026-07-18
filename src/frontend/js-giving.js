@@ -21,17 +21,6 @@ function givTxnPopulateFundOptions() {
   if (!sel || sel.options.length > 1) return; // already populated
   allFunds.forEach(function(f) { sel.appendChild(new Option(f.name, f.id)); });
 }
-function loadGivingStats() {
-  var el = document.getElementById('giv-stats');
-  if (!el) return;
-  api('/admin/api/giving/stats').then(function(d) {
-    if (d.error) return;
-    el.innerHTML = dashStat('$'+fmt$(d.weekTotal||0), 'This Week')
-      + dashStat('$'+fmt$(d.monthTotal||0), 'This Month')
-      + dashStat('$'+fmt$(d.ytdTotal||0), 'Year to Date')
-      + dashStat(String(d.givers||0), 'Givers YTD');
-  });
-}
 function loadGivingTransactions() {
   var tbody = document.getElementById('giv-txn-tbody');
   if (!tbody) return;

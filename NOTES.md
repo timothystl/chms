@@ -129,6 +129,9 @@ Added 2026-04-15, phased 2026-04-15.
 
 ## Recent Changes (newest first)
 
+### 2026-07-18 (v1.30.3 — Giving tab: removed the 4 stat tiles)
+Removed the This Week / This Month / Year to Date / Givers YTD stat-tile row from the top of the Giving tab per request. Deleted `#giv-stats` markup, `loadGivingStats()`, and its call from `showTab()`. Backend `GET /admin/api/giving/stats` endpoint left in place (harmless, unused) — not part of the request. `npm test` (65/65), `node --check`, built-`<script>`-block check all pass. **Not verified**: an actual browser. (`src/frontend/html-tabs.js`, `src/frontend/js-giving.js`, `src/frontend/js-core.js`)
+
 ### 2026-07-18 (v1.30.2 — Mobile: Giving tab's Batches/Transactions/Reports toggle was invisible)
 User reported (screenshot, mobile Safari) seeing only the stat tiles + Batches panel — no way to switch to Transactions or Reports. Root cause: the Giving tab's 3-way view toggle shares the `.view-toggle` CSS class with the People tab's List/Card/Household toggle, and a global `@media(max-width:767px){...,.view-toggle{display:none!important;}}` rule (from the People-tab mobile contact-list redesign) hides `.view-toggle` everywhere, not just on People — where it's correct (People switches to a dedicated mobile contact-list layout instead) but Giving has no such fallback, so its toggle just vanished with no other way to reach Transactions/Reports. Fixed by scoping the hide rule to `#tab-people .view-toggle` only. `npm test` (65/65), `node --check`, built-`<script>`-block check all pass. **Not verified**: an actual mobile browser. (`src/frontend/html-head.js`)
 
