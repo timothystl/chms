@@ -21,6 +21,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: auto-merge-claude
@@ -91,3 +92,17 @@ jobs:
         run: git push origin HEAD:main
         # Nothing is pushed if any earlier step (conflict resolution, tests, script-parse check)
         # failed — the runner's local checkout is simply discarded, main is never touched.
+
+      - name: Trigger deploy.yml
+        if: steps.precheck.outputs.skip == 'false'
+        # GitHub does NOT fire other on:push workflows for a push made with the default
+        # GITHUB_TOKEN (an anti-recursion safeguard) — deploy.yml's own `on: push: [main]`
+        # trigger silently never fires for the push above, so main can accumulate merged
+        # commits indefinitely with nothing actually deployed to Cloudflare. Found the hard
+        # way: several real commits sat merged-but-undeployed for ~2 hours before this was
+        # diagnosed. Explicitly dispatching deploy.yml (which already has workflow_dispatch:
+        # as a trigger) works around the restriction — workflow_dispatch fired via the API
+        # with GITHUB_TOKEN is allowed, unlike an implicit push-triggered run.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref main
