@@ -155,8 +155,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <button id="giv-view-reports-btn" onclick="givSetView('reports')">Reports</button>
     </div>
   </div>
-  <div class="dash-stats" id="giv-stats" style="margin-bottom:20px;flex-shrink:0;"></div>
-
   <div class="giving-layout" id="giv-view-batches">
     <!-- Batch list -->
     <div class="batch-list-panel">

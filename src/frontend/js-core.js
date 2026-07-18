@@ -1,6 +1,6 @@
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '1.30.2';
+var DEPLOY_VERSION = '1.30.3';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirks — suppress these and don't show the error banner.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -219,7 +219,7 @@ function showTab(name, finSection) {
   if (name === 'people') loadPeople();
   if (name === 'households') loadHouseholds();
   if (name === 'organizations') loadOrganizations();
-  if (name === 'giving') { loadBatches(); loadGivingStats(); }
+  if (name === 'giving') loadBatches();
   if (name === 'tuitionaid') loadTuitionAid();
   if (name === 'finance') {
     if (finSection) _finActiveNavId = finSection;
