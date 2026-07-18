@@ -305,8 +305,58 @@ function finXlsxFindSheetPath(workbookXml, relsXml, sheetName) {
   const target = relMap[rId];
   return target ? 'xl/' + target : null;
 }
-// Parses every sheet in an uploaded .xlsx into a { name, grid } list — grid is a dense 2D array
-// of cell values (row-major, 0-indexed), matching the shape parseBudgetVsActualsGrid() expects.
+// Reads xl/styles.xml's cellXfs list (in document order, so array index === the style index a
+// cell's s="N" attribute references) and returns just each entry's alignment indent (default 0)
+// — the "Statement of Financial Position" export style conveys hierarchy via real cell-level
+// indent metadata rather than literal leading spaces in the text (confirmed against a real
+// export; verified this regex-based extraction reproduces openpyxl's parsed indent values
+// exactly, row for row, against that file).
+function finXlsxParseCellXfsIndents(stylesXml) {
+  const block = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(stylesXml);
+  if (!block) return [];
+  const xfRe = /<xf\b([^>]*?)(?:\/>|>([\s\S]*?)<\/xf>)/g;
+  const out = [];
+  let m;
+  while ((m = xfRe.exec(block[1]))) {
+    const inner = m[2] || '';
+    const alignM = /<alignment\b([^>]*)\/?>/.exec(inner);
+    let indent = 0;
+    if (alignM) {
+      const indentM = /\bindent="(\d+)"/.exec(alignM[1]);
+      if (indentM) indent = parseInt(indentM[1], 10);
+    }
+    out.push(indent);
+  }
+  return out;
+}
+// Column-A-only indent-per-row, using the workbook's cellXfs indent table — a parallel array to
+// the value grid (colAIndent[i] is the indent for row i+1, i.e. the same 0-indexed row a grid
+// value at grid[i] represents). Column A is the only column any parser here reads indentation
+// from (it's the account-label column in every report this app reads).
+function finXlsxParseColAIndents(sheetXml, cellXfsIndents) {
+  const indents = [];
+  const rowRe = /<row\b[^>]*\br="(\d+)"[^>]*>([\s\S]*?)<\/row>/g;
+  let rm;
+  while ((rm = rowRe.exec(sheetXml))) {
+    const rowNum = parseInt(rm[1], 10);
+    const cellRe = /<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g;
+    let cm;
+    while ((cm = cellRe.exec(rm[2]))) {
+      const refM = /\br="([A-Z]+)\d+"/.exec(cm[1]);
+      if (!refM || refM[1] !== 'A') continue;
+      const sM = /\bs="(\d+)"/.exec(cm[1]);
+      const styleIdx = sM ? parseInt(sM[1], 10) : 0;
+      indents[rowNum - 1] = cellXfsIndents[styleIdx] != null ? cellXfsIndents[styleIdx] : 0;
+      break;
+    }
+  }
+  return indents;
+}
+// Parses every sheet in an uploaded .xlsx into a { name, grid, colAIndent } list — grid is a
+// dense 2D array of cell values (row-major, 0-indexed), matching the shape
+// parseBudgetVsActualsGrid()/parseBalanceSheetGrid() expect; colAIndent is the parallel
+// column-A style-indent array parseBalanceSheetGrid() falls back to when a row has no literal
+// leading-space indentation (see finXlsxParseColAIndents() above).
 export async function parseXlsxAllSheets(arrayBuffer) {
   const bytes = new Uint8Array(arrayBuffer);
   const entries = finZipReadEntries(bytes);
@@ -315,12 +365,20 @@ export async function parseXlsxAllSheets(arrayBuffer) {
   const relsXml = dec.decode(await finZipReadEntryBytes(bytes, entries, 'xl/_rels/workbook.xml.rels'));
   const sharedStringsRaw = await finZipReadEntryBytes(bytes, entries, 'xl/sharedStrings.xml');
   const sharedStrings = sharedStringsRaw ? finXlsxParseSharedStrings(dec.decode(sharedStringsRaw)) : [];
+  const stylesRaw = await finZipReadEntryBytes(bytes, entries, 'xl/styles.xml');
+  const cellXfsIndents = stylesRaw ? finXlsxParseCellXfsIndents(dec.decode(stylesRaw)) : [];
   const names = finXlsxListSheetNames(workbookXml);
   const sheets = [];
   for (const name of names) {
     const sheetPath = finXlsxFindSheetPath(workbookXml, relsXml, name);
     const sheetBytes = sheetPath ? await finZipReadEntryBytes(bytes, entries, sheetPath) : null;
-    sheets.push({ name, grid: sheetBytes ? finXlsxParseSheetGrid(dec.decode(sheetBytes), sharedStrings) : null });
+    if (!sheetBytes) { sheets.push({ name, grid: null, colAIndent: [] }); continue; }
+    const sheetXml = dec.decode(sheetBytes);
+    sheets.push({
+      name,
+      grid: finXlsxParseSheetGrid(sheetXml, sharedStrings),
+      colAIndent: finXlsxParseColAIndents(sheetXml, cellXfsIndents),
+    });
   }
   return sheets;
 }
@@ -503,6 +561,159 @@ export function findBudgetVsActualsSheet(sheets) {
     if (s.grid.some(r => r && r[1] === 'Actual' && r[2] === 'Budget')) return s;
   }
   return null;
+}
+
+// ── Church Report: Balance Sheet / Statement of Financial Position import ───────────────────
+// A structurally different report from Budget vs. Actuals — point-in-time account balances
+// (Assets/Liabilities/Equity), one "Total" column, no Actual/Budget split. Two real exports from
+// this exact church were used to build this parser and turned out to use two genuinely different
+// export conventions (confirmed, not assumed): one carries real cell-level indent metadata (no
+// leading spaces in the label text at all) and closes subtotals as "Total for X"; the other uses
+// literal leading spaces (same convention as the Budget vs. Actuals export) and closes subtotals
+// as "Total X" (no "for"). balanceRowDepth() tries the leading-space convention first, falling
+// back to the workbook's own style-indent metadata (colAIndent, from finXlsxParseColAIndents())
+// when a row has no leading spaces — so either convention (or a mix) is read correctly.
+const BALANCE_CLASSIFICATION_MAP = { assets: 'Assets', liabilities: 'Liabilities', equity: 'Equity' };
+// Returns null for "Liabilities and Equity" (and unrecognized labels) — that combined heading is
+// a non-storable grouping wrapper in both real exports, not a real account. Its two real
+// children, "Liabilities" and "Equity", are what actually anchor those two classifications —
+// they sit one level deeper than "Assets" in the source file's own indentation, which is why the
+// parser below fully resets its path stack on every classification match rather than trusting
+// each report's literal indent number to stay consistent across classifications.
+export function normalizeBalanceClassification(label) {
+  const key = (label || '').trim().toLowerCase();
+  return BALANCE_CLASSIFICATION_MAP[key] || null;
+}
+function balanceRowDepth(raw, styleIndent) {
+  const stripped = raw.replace(/^ +/, '');
+  const spaceIndent = raw.length - stripped.length;
+  if (spaceIndent > 0) return Math.round(spaceIndent / 3);
+  return styleIndent != null ? styleIndent : 0;
+}
+function nextNonBlankRowIndex(grid, i) {
+  for (let j = i + 1; j < grid.length; j++) {
+    const v = grid[j] && grid[j][0];
+    if (typeof v === 'string' && v.trim()) return j;
+  }
+  return -1;
+}
+function makeBalanceRow(path, classification, hasChildren, fiscalYear, ownBalanceCents) {
+  return {
+    fiscal_year: fiscalYear,
+    classification,
+    category_path: path.join(':'),
+    account_name: path[path.length - 1],
+    depth: path.length - 1,
+    has_children: hasChildren ? 1 : 0,
+    own_balance_cents: ownBalanceCents,
+  };
+}
+// Header row is blank-label / "Total" in column B (both real exports use this, with no
+// Actual/Budget columns at all) — explicitly rejects a match immediately followed by a real
+// Actual/Budget header row, which would mean this is actually a Budget vs. Actuals sheet (that
+// report has its own "Total"-only decorative row one line above its real header).
+export function parseBalanceSheetGrid(grid, colAIndent) {
+  colAIndent = colAIndent || [];
+  let headerIdx = -1;
+  for (let i = 0; i < grid.length; i++) {
+    const r = grid[i];
+    if (r && r[1] === 'Total' && (r[0] == null || r[0] === '')) {
+      const next = grid[i + 1];
+      if (next && next[1] === 'Actual' && next[2] === 'Budget') continue;
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx === -1) throw new Error('Could not find the balance sheet header row in this sheet.');
+  let fiscalYear = null, asOfDate = '';
+  for (let i = 0; i < headerIdx; i++) {
+    const cell = grid[i] && grid[i][0];
+    if (typeof cell === 'string') {
+      const asOfM = /as of\s+(.+)/i.exec(cell);
+      if (asOfM) asOfDate = asOfM[1].trim();
+      const yearM = /(\d{4})/.exec(cell);
+      if (yearM) fiscalYear = parseInt(yearM[1], 10);
+    }
+  }
+  const stack = [];
+  let classification = null;
+  const rows = [], skipped = [];
+  for (let i = headerIdx + 1; i < grid.length; i++) {
+    const raw = grid[i] && grid[i][0];
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const label = raw.trim();
+    if (/^Total\s/i.test(label)) continue; // closing subtotal, re-derivable
+    if (/^Liabilities and Equity$/i.test(label)) continue; // grouping wrapper, not a real account
+    const depth = balanceRowDepth(raw, colAIndent[i]);
+    const nextIdx = nextNonBlankRowIndex(grid, i);
+    const hasChildren = nextIdx !== -1 && balanceRowDepth(grid[nextIdx][0], colAIndent[nextIdx]) > depth;
+    const norm = normalizeBalanceClassification(label);
+    if (norm) {
+      classification = norm;
+      stack.length = 0;
+      stack.push({ depth, path: [classification] });
+      rows.push(makeBalanceRow([classification], classification, hasChildren, fiscalYear, dollarsToCents((grid[i] || [])[1])));
+      continue;
+    }
+    // A depth-0 line with no children following isn't a real account in this report's structure
+    // (Assets/Liabilities/Equity always have children) — it's noise: a stray title line before
+    // Assets is ever seen, or the trailing "Accrual Basis ..." timestamp footer confirmed present
+    // in the real export (which, unlike the Budget report's footer, sits right after the LAST
+    // real account row — so `classification` is already set and this must be checked before the
+    // generic nested-row logic below, or it silently gets misfiled as a bogus account under
+    // whatever classification happened to be open last).
+    if (depth === 0 && !hasChildren) { skipped.push(raw); continue; }
+    if (!classification) { skipped.push(raw); continue; } // stray line before Assets is ever seen
+    while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
+    const parent = stack.length ? stack[stack.length - 1] : { path: [classification] };
+    const path = parent.path.concat(label);
+    stack.push({ depth, path });
+    rows.push(makeBalanceRow(path, classification, hasChildren, fiscalYear, dollarsToCents((grid[i] || [])[1])));
+  }
+  return { fiscalYear, asOfDate, rows, skipped };
+}
+export function findBalanceSheetSheet(sheets) {
+  for (const s of sheets) {
+    if (!s.grid) continue;
+    const hasHeader = s.grid.some((r, i) => {
+      if (!r || r[1] !== 'Total' || (r[0] != null && r[0] !== '')) return false;
+      const next = s.grid[i + 1];
+      return !(next && next[1] === 'Actual' && next[2] === 'Budget');
+    });
+    if (hasHeader) return s;
+  }
+  return null;
+}
+// Wholesale-replaces source='import' rows for exactly one fiscal year (a Balance Sheet export is
+// always a single as-of-date snapshot) — same pattern as persistChurchEntriesImport.
+export async function persistChurchBalancesImport(db, rows, fiscalYear, asOfDate, importedAt) {
+  const ops = [db.prepare(`DELETE FROM finance_church_balances WHERE source='import' AND fiscal_year=?`).bind(fiscalYear)];
+  for (const r of rows) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_church_balances
+         (fiscal_year, as_of_date, classification, category_path, account_name, depth, has_children, own_balance_cents, source, synced_at)
+       VALUES (?,?,?,?,?,?,?,?,'import',?)
+       ON CONFLICT(fiscal_year, category_path, source) DO UPDATE SET
+         as_of_date=excluded.as_of_date, classification=excluded.classification, account_name=excluded.account_name,
+         depth=excluded.depth, has_children=excluded.has_children, own_balance_cents=excluded.own_balance_cents,
+         synced_at=excluded.synced_at`
+    ).bind(fiscalYear, asOfDate, r.classification, r.category_path, r.account_name, r.depth, r.has_children ? 1 : 0, r.own_balance_cents, importedAt));
+  }
+  await db.batch(ops);
+}
+// Rolls a set of (already fiscal-year-filtered) balance rows into per-classification totals —
+// mirrors computeYearSummary()'s shape for the Income Statement side, so the frontend can reuse
+// the same summary-card rendering pattern. Assets should equal Liabilities + Equity in a correct
+// export; this is exposed so the UI can show that check rather than silently trusting the import.
+export function computeBalanceSummary(rows) {
+  const byClass = {};
+  for (const r of rows) {
+    if (!byClass[r.classification]) byClass[r.classification] = 0;
+    byClass[r.classification] += r.own_balance_cents;
+  }
+  const assets = byClass.Assets || 0, liabilities = byClass.Liabilities || 0, equity = byClass.Equity || 0;
+  return { classificationTotals: byClass, assetsCents: assets, liabilitiesCents: liabilities, equityCents: equity,
+    liabilitiesPlusEquityCents: liabilities + equity, balancedCents: assets - (liabilities + equity) };
 }
 
 // Wholesale-replaces source='qbo_sync' rows for exactly the fiscal years present in `rows`
@@ -1095,6 +1306,48 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
     await persistChurchEntriesImport(db, rows, fiscalYear, new Date().toISOString());
     return json({ ok: true, fiscalYear, imported: rows.length });
+  }
+
+  // ── Church Report: Balance Sheet / Statement of Financial Position import ───────────────────
+  // Same preview-then-commit shape as the Budget import above; a separate parser/table since a
+  // balance sheet is a fundamentally different report (point-in-time Assets/Liabilities/Equity,
+  // no actual-vs-budget split) — see migrations/0019_finance_church_balances.sql.
+  if (seg === 'finance/church/balances/import-preview' && method === 'POST') {
+    const form = await req.formData().catch(() => null);
+    const file = form && form.get('file');
+    if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
+    if (file.size > 15 * 1024 * 1024) return json({ error: 'File too large (max 15 MB)' }, 413);
+    let sheets;
+    try { sheets = await parseXlsxAllSheets(await file.arrayBuffer()); }
+    catch (e) { return json({ error: 'Could not read this file as an Excel workbook: ' + e.message }, 400); }
+    const sheet = findBalanceSheetSheet(sheets);
+    if (!sheet) return json({ error: 'Could not find a Balance Sheet / Statement of Financial Position sheet in this file.' }, 400);
+    let parsed;
+    try { parsed = parseBalanceSheetGrid(sheet.grid, sheet.colAIndent); }
+    catch (e) { return json({ error: e.message }, 400); }
+    if (!parsed.fiscalYear) return json({ error: 'Could not determine the fiscal year from this sheet — expected an "As of ..." date line above the header row.' }, 400);
+    return json({ sheetName: sheet.name, fiscalYear: parsed.fiscalYear, asOfDate: parsed.asOfDate, rows: parsed.rows, skipped: parsed.skipped });
+  }
+
+  if (seg === 'finance/church/balances/import' && method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    const fiscalYear = parseInt(b.fiscal_year, 10);
+    if (!Number.isFinite(fiscalYear)) return json({ error: 'fiscal_year is required' }, 400);
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) return json({ error: 'No rows to import' }, 400);
+    const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number' || !Number.isFinite(r.own_balance_cents));
+    if (bad) return json({ error: 'Malformed row in import payload' }, 400);
+    await persistChurchBalancesImport(db, rows, fiscalYear, String(b.as_of_date || ''), new Date().toISOString());
+    return json({ ok: true, fiscalYear, imported: rows.length });
+  }
+
+  // Read: the latest imported balance sheet for a given year (defaults to current year) — a
+  // fresh import for the same year wholesale-replaces the prior one, so there's only ever one.
+  if (seg === 'finance/church/balances' && method === 'GET') {
+    const year = parseInt(url.searchParams.get('year'), 10) || new Date().getFullYear();
+    const rows = (await db.prepare('SELECT * FROM finance_church_balances WHERE fiscal_year=? ORDER BY category_path').bind(year).all()).results || [];
+    if (!rows.length) return json({ year, rows: [], summary: null, asOfDate: '' });
+    return json({ year, rows, summary: computeBalanceSummary(rows), asOfDate: rows[0].as_of_date || '' });
   }
 
   return null;
