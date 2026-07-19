@@ -1,6 +1,13 @@
+// Single source of truth for the app version — used both for the on-page display below (via
+// interpolation into the served script) and as the cache-busting query param on the external
+// app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
+// automatically invalidates the long-lived browser cache on those files, with nowhere else that
+// needs updating in step.
+export const DEPLOY_VERSION = '1.35.0';
+
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
-var DEPLOY_VERSION = '1.34.0';
+var DEPLOY_VERSION = '${DEPLOY_VERSION}';
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirks — suppress these and don't show the error banner.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;

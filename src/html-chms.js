@@ -2,7 +2,7 @@
 import { getSchedulerInline } from './scheduler-inline.js';
 import { HTML_HEAD } from './frontend/html-head.js';
 import { HTML_TABS_1, HTML_TABS_2 } from './frontend/html-tabs.js';
-import { JS_CORE } from './frontend/js-core.js';
+import { JS_CORE, DEPLOY_VERSION } from './frontend/js-core.js';
 import { JS_SETTINGS } from './frontend/js-settings.js';
 import { JS_DASHBOARD } from './frontend/js-dashboard.js';
 import { JS_PEOPLE } from './frontend/js-people.js';
@@ -72,24 +72,29 @@ self.addEventListener('fetch', function(event) {
 });
 `;
 
+// ── App JS, split out of the page into two long-cached external files ───────────────────────
+// Previously these two chunks were inlined straight into CHMS_HTML, which is served with
+// Cache-Control: no-store — meaning every single page load re-downloaded and re-parsed ~968KB
+// of JS from scratch, even for the same staff member reloading the same page repeatedly in one
+// session. Serving them as their own routes (see tlc-volunteer-worker.js) with a long, immutable
+// Cache-Control lets the browser cache them across visits; the ?v= query param (DEPLOY_VERSION)
+// busts that cache automatically on every version bump, with no separate step to remember.
+// Split point is arbitrary (wherever the historical inline <script> tags happened to fall, see
+// each module's own `<script>`/`</script>` wrapper) — not a functional boundary, kept exactly
+// where it was to minimize risk; both files execute in the same global scope in the same order
+// as before, so no function/variable visibility changes for either half.
+const APP_CORE_JS_RAW = JS_CORE + JS_SETTINGS + JS_DASHBOARD + JS_PEOPLE + JS_REGISTER + JS_HOUSEHOLDS;
+const APP_EXT_JS_RAW = JS_GIVING + JS_REPORTS + JS_EXPORT_IMPORT + JS_ATTENDANCE + JS_TUITION_AID + JS_FINANCE + JS_VOLUNTEERS;
+export const CHMS_APP_CORE_JS = APP_CORE_JS_RAW.replace(/^<script>\n/, '').replace(/<\/script>\n$/, '');
+export const CHMS_APP_EXT_JS = APP_EXT_JS_RAW.replace(/^<script>\n/, '').replace(/<\/script>\n$/, '');
+
 // ── ChMS ADMIN HTML ────────────────────────────────────────────────
 export const CHMS_HTML = HTML_HEAD
   + HTML_TABS_1
   + '<div id="tab-scheduler" class="tab-panel">\n' + getSchedulerInline() + '\n</div>\n'
   + HTML_TABS_2
-  + JS_CORE
-  + JS_SETTINGS
-  + JS_DASHBOARD
-  + JS_PEOPLE
-  + JS_REGISTER
-  + JS_HOUSEHOLDS
-  + JS_GIVING
-  + JS_REPORTS
-  + JS_EXPORT_IMPORT
-  + JS_ATTENDANCE
-  + JS_TUITION_AID
-  + JS_FINANCE
-  + JS_VOLUNTEERS;
+  + `<script src="/admin/app-core.js?v=${DEPLOY_VERSION}"></script>\n`
+  + `<script src="/admin/app-ext.js?v=${DEPLOY_VERSION}"></script>\n`;
 
 // ── Dev Board (Kanban) ──────────────────────────────────────────────
 export const BACKLOG_HTML = `<!DOCTYPE html>
