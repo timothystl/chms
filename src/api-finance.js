@@ -716,6 +716,61 @@ export function computeBalanceSummary(rows) {
     liabilitiesPlusEquityCents: liabilities + equity, balancedCents: assets - (liabilities + equity) };
 }
 
+// ── Daycare data from an already-imported Church Budget year ────────────────────────────────
+// The church's own chart of accounts already carries the daycare's (MDO — Mother's Day Out)
+// income and expenses inside whichever year's Budget vs. Actuals has been imported (confirmed
+// against a real export: "47 Mother's Day Out"/"47020 MDO Tuition" under Income, "57 MDO
+// Expenses" with several "57160"/"57161"/etc. children under Expenses — the exact numeric codes
+// aren't stable year to year, so matching is done by the "MDO"/"Mother's Day Out" text itself,
+// not a hardcoded account number). This reads already-persisted finance_church_entries rows
+// (no re-parsing of the original Excel file needed) and reshapes them into finance_daycare_entries
+// rows using the Daycare Report's own existing category taxonomy (FIN_KNOWN_CATEGORY_ORDER in
+// js-finance.js), so a past year's daycare figures — which the daycare app itself may have no
+// record of — can be backfilled straight from the church's own budget.
+const MDO_MATCH_RE = /mdo|mother'?s day out/i;
+const MDO_CATEGORY_RULES = [
+  { re: /tuition/i, category: 'Tuition Income' },
+  { re: /payroll tax/i, category: 'Payroll Taxes' },
+  { re: /workers?\s*comp/i, category: 'Workers Comp' },
+  { re: /payroll processing/i, category: 'Other Payroll Expenses' },
+  { re: /wage/i, category: 'Payroll' },
+];
+// Anything MDO-tagged that isn't wages/payroll-taxes/workers-comp/payroll-processing/tuition
+// (e.g. "MDO Supplies") falls to 'Other Expenses' — matches the Daycare Report's own catch-all.
+export function classifyMdoAccountCategory(accountName) {
+  for (const rule of MDO_CATEGORY_RULES) if (rule.re.test(accountName)) return rule.category;
+  return 'Other Expenses';
+}
+// `entries` should already be precedence-resolved (resolveChurchYearPrecedence) for the target
+// year. Each matching account can produce up to 2 daycare entries (actual + budget) — zero/null
+// amounts are skipped rather than written as $0 clutter. No has_children filtering: every stored
+// finance_church_entries row already holds only its own non-cumulative amount (never a rolled-up
+// "Total for X"), so a grouping header like "57 MDO Expenses" contributes nothing extra unless it
+// genuinely has its own direct posting, which can't double-count against its children.
+export function extractMdoDaycareEntries(entries, year) {
+  const out = [];
+  for (const r of entries) {
+    if (!MDO_MATCH_RE.test(r.category_path) && !MDO_MATCH_RE.test(r.account_name)) continue;
+    const category = classifyMdoAccountCategory(r.account_name);
+    const notes = `Imported from Budget vs Actuals FY${year} (${r.account_name})`;
+    if (r.own_actual_cents) out.push({ period: String(year), category, entry_type: 'actual', amount_cents: r.own_actual_cents, notes, source: 'church_budget_import' });
+    if (r.own_budget_cents) out.push({ period: String(year), category, entry_type: 'budget', amount_cents: r.own_budget_cents, notes, source: 'church_budget_import' });
+  }
+  return out;
+}
+// Wholesale-replaces source='church_budget_import' rows for exactly one year — re-running the
+// import (e.g. after correcting the underlying Budget import) replaces rather than duplicates;
+// manual entries and any real 'daycare_api' sync rows for that same year are untouched.
+export async function persistDaycareEntriesFromChurchBudget(db, entries, year) {
+  const ops = [db.prepare(`DELETE FROM finance_daycare_entries WHERE source='church_budget_import' AND period=?`).bind(String(year))];
+  for (const e of entries) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_daycare_entries (period, category, entry_type, amount_cents, notes, source) VALUES (?,?,?,?,?,?)`
+    ).bind(e.period, e.category, e.entry_type, e.amount_cents, e.notes, e.source));
+  }
+  await db.batch(ops);
+}
+
 // Wholesale-replaces source='qbo_sync' rows for exactly the fiscal years present in `rows`
 // (mirrors the finance_daycare_entries sync's per-period delete+insert pattern), scoped to only
 // the years actually being rewritten so a partial sync failure never wipes years an earlier,
@@ -1173,6 +1228,40 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/daycare' && method === 'GET') {
     const rows = (await db.prepare('SELECT * FROM finance_daycare_entries ORDER BY period DESC, category ASC, id DESC').all()).results || [];
     return json({ entries: rows });
+  }
+
+  // ── Daycare from an already-imported Church Budget year ──────────────────────────────────
+  // Preview step: no DB write. Reads finance_church_entries for the requested year (source-
+  // precedence resolved, same as the Church Report views), extracts MDO-tagged accounts, and
+  // returns the per-category actual/budget totals for review before commit.
+  if (seg === 'finance/daycare/church-budget-preview' && method === 'GET') {
+    const year = parseInt(url.searchParams.get('year'), 10);
+    if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
+    const rows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year).all()).results || [];
+    if (!rows.length) return json({ error: `No imported Church Budget found for ${year} — import that year's Budget vs. Actuals first (Church Report → Import Budget).` }, 400);
+    const resolved = resolveChurchYearPrecedence(rows);
+    const entries = extractMdoDaycareEntries(resolved, year);
+    if (!entries.length) return json({ year, found: 0, by_category: {}, entries: [] });
+    const byCategory = {};
+    for (const e of entries) {
+      if (!byCategory[e.category]) byCategory[e.category] = { actual_cents: 0, budget_cents: 0 };
+      byCategory[e.category][e.entry_type === 'actual' ? 'actual_cents' : 'budget_cents'] += e.amount_cents;
+    }
+    return json({ year, found: entries.length, by_category: byCategory, entries });
+  }
+
+  // Commit step: same extraction, then wholesale-replace this year's church_budget_import rows.
+  if (seg === 'finance/daycare/church-budget-import' && method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    const year = parseInt(b.year, 10);
+    if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
+    const rows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year).all()).results || [];
+    if (!rows.length) return json({ error: `No imported Church Budget found for ${year}.` }, 400);
+    const resolved = resolveChurchYearPrecedence(rows);
+    const entries = extractMdoDaycareEntries(resolved, year);
+    if (!entries.length) return json({ error: `No MDO-tagged accounts found in the imported budget for ${year}.` }, 400);
+    await persistDaycareEntriesFromChurchBudget(db, entries, year);
+    return json({ ok: true, year, imported: entries.length });
   }
 
   if (seg === 'finance/daycare' && method === 'POST') {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport } from '../src/api-finance.js';
+import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport, classifyMdoAccountCategory, extractMdoDaycareEntries, persistDaycareEntriesFromChurchBudget } from '../src/api-finance.js';
 
 // ── Minimal D1-shaped wrapper around node:sqlite, so persistChurchEntries() runs against real
 // SQL (real UNIQUE/ON CONFLICT semantics) instead of a hand-rolled re-implementation of what the
@@ -10,6 +10,16 @@ function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec(readFileSync(new URL('../migrations/0018_finance_church_entries.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0019_finance_church_balances.sql', import.meta.url), 'utf8'));
+  sqlite.exec(`CREATE TABLE IF NOT EXISTS finance_daycare_entries (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    period       TEXT    NOT NULL DEFAULT '',
+    category     TEXT    NOT NULL DEFAULT '',
+    entry_type   TEXT    NOT NULL DEFAULT 'actual',
+    amount_cents INTEGER NOT NULL DEFAULT 0,
+    notes        TEXT    NOT NULL DEFAULT '',
+    source       TEXT    NOT NULL DEFAULT 'manual',
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`);
   return {
     prepare(sql) {
       return {
@@ -632,5 +642,85 @@ describe('parseBalanceSheetGrid', () => {
   it('does not mistake a Budget vs. Actuals sheet\'s decorative "Total"-only row for its own header', () => {
     const budgetGrid = budgetVsActualsFixtureGrid();
     expect(() => parseBalanceSheetGrid(budgetGrid)).toThrow(/balance sheet header/);
+  });
+});
+
+// ── Daycare data from an already-imported Church Budget year ────────────────────────────────
+// Account names below are copied verbatim from the real uploaded Budget vs. Actuals export —
+// note the real file's own inconsistent numbering/hyphenation ("50160 MDO Supplies" alongside
+// "57160 MDO - Supplies", "57161 MDO -  Wages" with a double space) confirms matching must go
+// by the "MDO" text itself, not a fixed account-number scheme.
+describe('classifyMdoAccountCategory', () => {
+  it('maps the real MDO account names from the actual uploaded export to the Daycare Report categories', () => {
+    expect(classifyMdoAccountCategory('47020 MDO Tuition')).toBe('Tuition Income');
+    expect(classifyMdoAccountCategory('50161 MDO Wages')).toBe('Payroll');
+    expect(classifyMdoAccountCategory('57161 MDO -  Wages')).toBe('Payroll');
+    expect(classifyMdoAccountCategory('57162 MDO Payroll Taxes')).toBe('Payroll Taxes');
+    expect(classifyMdoAccountCategory('57163 Workers Comp')).toBe('Workers Comp');
+    expect(classifyMdoAccountCategory('57175 MDO Payroll Processing')).toBe('Other Payroll Expenses');
+    expect(classifyMdoAccountCategory('50160 MDO Supplies')).toBe('Other Expenses');
+    expect(classifyMdoAccountCategory('57160 MDO - Supplies')).toBe('Other Expenses');
+  });
+});
+
+describe('extractMdoDaycareEntries', () => {
+  // Mirrors the real file's shape: a classification-header row (own amount 0, blank), a group
+  // header ("57 MDO Expenses", also 0), and real leaf accounts with non-zero actual/budget — plus
+  // a non-MDO account that must NOT be picked up.
+  function mdoFixtureRows() {
+    return [
+      { category_path: 'Income:47 Mother\'s Day Out', account_name: '47 Mother\'s Day Out', classification: 'Income', depth: 1, has_children: 1, own_actual_cents: 0, own_budget_cents: 0 },
+      { category_path: 'Income:47 Mother\'s Day Out:47020 MDO Tuition', account_name: '47020 MDO Tuition', classification: 'Income', depth: 2, has_children: 0, own_actual_cents: 500000, own_budget_cents: 450000 },
+      { category_path: 'Expenses:57 MDO Expenses', account_name: '57 MDO Expenses', classification: 'Expenses', depth: 1, has_children: 1, own_actual_cents: 0, own_budget_cents: 0 },
+      { category_path: 'Expenses:57 MDO Expenses:57161 MDO -  Wages', account_name: '57161 MDO -  Wages', classification: 'Expenses', depth: 2, has_children: 0, own_actual_cents: 300000, own_budget_cents: 280000 },
+      { category_path: 'Expenses:57 MDO Expenses:57163 Workers Comp', account_name: '57163 Workers Comp', classification: 'Expenses', depth: 2, has_children: 0, own_actual_cents: 12000, own_budget_cents: null },
+      { category_path: 'Income:40 Donor Income (Unrestricted):40085 Sunday Offering', account_name: '40085 Sunday Offering', classification: 'Income', depth: 2, has_children: 0, own_actual_cents: 999999, own_budget_cents: 999999 },
+    ];
+  }
+
+  it('picks up only MDO-tagged accounts and skips zero/blank amounts', () => {
+    const entries = extractMdoDaycareEntries(mdoFixtureRows(), 2026);
+    const nonMdo = entries.find(e => e.notes.indexOf('Sunday Offering') !== -1);
+    expect(nonMdo).toBeUndefined();
+    const groupHeaders = entries.filter(e => e.notes.indexOf('47 Mother\'s Day Out)') !== -1 || e.notes.indexOf('57 MDO Expenses)') !== -1);
+    expect(groupHeaders.length).toBe(0); // own amount was 0/blank on both group headers
+  });
+
+  it('produces both an actual and a budget entry per account when both are known', () => {
+    const entries = extractMdoDaycareEntries(mdoFixtureRows(), 2026);
+    const tuition = entries.filter(e => e.category === 'Tuition Income');
+    expect(tuition.length).toBe(2);
+    expect(tuition.find(e => e.entry_type === 'actual').amount_cents).toBe(500000);
+    expect(tuition.find(e => e.entry_type === 'budget').amount_cents).toBe(450000);
+  });
+
+  it('omits the budget entry when budget is null (no budget known for that account)', () => {
+    const entries = extractMdoDaycareEntries(mdoFixtureRows(), 2026);
+    const workersComp = entries.filter(e => e.category === 'Workers Comp');
+    expect(workersComp.length).toBe(1);
+    expect(workersComp[0].entry_type).toBe('actual');
+  });
+
+  it('tags every entry with source church_budget_import and the correct period', () => {
+    const entries = extractMdoDaycareEntries(mdoFixtureRows(), 2026);
+    expect(entries.every(e => e.source === 'church_budget_import')).toBe(true);
+    expect(entries.every(e => e.period === '2026')).toBe(true);
+  });
+
+  it('persists via persistDaycareEntriesFromChurchBudget and re-import replaces rather than duplicates', async () => {
+    const db = makeTestDb();
+    const entries = extractMdoDaycareEntries(mdoFixtureRows(), 2026);
+    await persistDaycareEntriesFromChurchBudget(db, entries, 2026);
+    let stored = db._raw.prepare("SELECT * FROM finance_daycare_entries WHERE source='church_budget_import'").all();
+    expect(stored.length).toBe(entries.length);
+    await persistDaycareEntriesFromChurchBudget(db, entries, 2026);
+    stored = db._raw.prepare("SELECT * FROM finance_daycare_entries WHERE source='church_budget_import'").all();
+    expect(stored.length).toBe(entries.length); // replaced, not doubled
+
+    // A manual entry for the same period must survive an MDO re-import untouched.
+    db._raw.prepare("INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,notes,source) VALUES ('2026','Other Expenses','actual',1000,'hand-entered','manual')").run();
+    await persistDaycareEntriesFromChurchBudget(db, entries, 2026);
+    const manualRow = db._raw.prepare("SELECT * FROM finance_daycare_entries WHERE source='manual'").all();
+    expect(manualRow.length).toBe(1);
   });
 });
