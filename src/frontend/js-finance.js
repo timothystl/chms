@@ -321,6 +321,57 @@ function finDeleteDaycare(id) {
   });
 }
 
+// ── Import Daycare (MDO) data from an already-imported Church Budget year ──
+function finDaycareChurchBudgetPreview() {
+  var year = document.getElementById('fin-dc-cb-year').value.trim();
+  var out = document.getElementById('fin-dc-cb-preview');
+  if (!/^\d{4}$/.test(year)) { out.innerHTML = '<div style="color:var(--danger);font-size:.78rem;">Enter a 4-digit year.</div>'; return; }
+  out.innerHTML = '<div style="font-size:.78rem;color:var(--warm-gray);">Loading…</div>';
+  api('/admin/api/finance/daycare/church-budget-preview?year=' + encodeURIComponent(year)).then(function(d) {
+    if (d && d.error) { out.innerHTML = '<div style="color:var(--danger);font-size:.78rem;">' + esc(d.error) + '</div>'; return; }
+    var entries = (d && d.entries) || [];
+    if (!entries.length) {
+      out.innerHTML = '<div style="font-size:.78rem;color:var(--warm-gray);">No MDO-tagged accounts found in the ' + esc(year) + ' Church Budget import. Make sure that year has been imported under Church Report first.</div>';
+      return;
+    }
+    var byCategory = (d && d.by_category) || {};
+    var catRows = Object.keys(byCategory).sort().map(function(cat) {
+      var c = byCategory[cat];
+      return '<tr><td style="padding:4px 8px;">' + esc(cat) + '</td>'
+        + '<td style="padding:4px 8px;text-align:right;">' + finFmtMoney((c.actual_cents || 0) / 100) + '</td>'
+        + '<td style="padding:4px 8px;text-align:right;">' + finFmtMoney((c.budget_cents || 0) / 100) + '</td></tr>';
+    }).join('');
+    var lineRows = entries.map(function(e) {
+      return '<tr><td style="padding:3px 8px;">' + esc(e.category) + '</td>'
+        + '<td style="padding:3px 8px;">' + esc(e.entry_type) + '</td>'
+        + '<td style="padding:3px 8px;text-align:right;">' + finFmtMoney((e.amount_cents || 0) / 100) + '</td>'
+        + '<td style="padding:3px 8px;color:var(--warm-gray);">' + esc(e.notes || '') + '</td></tr>';
+    }).join('');
+    out.innerHTML = ''
+      + '<table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-bottom:8px;">'
+      + '<thead><tr style="border-bottom:2px solid var(--navy);"><th style="text-align:left;padding:4px 8px;">Category</th><th style="text-align:right;padding:4px 8px;">Actual</th><th style="text-align:right;padding:4px 8px;">Budget</th></tr></thead>'
+      + '<tbody>' + catRows + '</tbody></table>'
+      + '<details style="margin-bottom:10px;"><summary style="font-size:.75rem;color:var(--warm-gray);cursor:pointer;">Show ' + entries.length + ' individual line items</summary>'
+      + '<div style="overflow-x:auto;margin-top:6px;"><table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
+      + '<thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:3px 8px;">Category</th><th style="text-align:left;padding:3px 8px;">Type</th><th style="text-align:right;padding:3px 8px;">Amount</th><th style="text-align:left;padding:3px 8px;">Notes</th></tr></thead>'
+      + '<tbody>' + lineRows + '</tbody></table></div></details>'
+      + '<button class="btn-primary" onclick="finDaycareChurchBudgetImport(\'' + esc(year) + '\')">Import These ' + entries.length + ' Line Items</button>'
+      + ' <span style="font-size:.72rem;color:var(--warm-gray);">Re-importing the same year replaces its previously imported church-budget rows — it will not duplicate them.</span>';
+  }).catch(function(err) {
+    out.innerHTML = '<div style="color:var(--danger);font-size:.78rem;">' + esc(err && err.message || 'Could not load preview.') + '</div>';
+  });
+}
+function finDaycareChurchBudgetImport(year) {
+  api('/admin/api/finance/daycare/church-budget-import', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ year: year })
+  }).then(function(d) {
+    if (d && d.error) { finToast(d.error); return; }
+    finToast('Imported ' + (d && d.imported || 0) + ' daycare line item(s) from the ' + year + ' Church Budget.');
+    document.getElementById('fin-dc-cb-preview').innerHTML = '';
+    return api('/admin/api/finance/daycare').then(function(d2) { _finDaycare = d2.entries || []; finRenderDaycare(); });
+  }).catch(function(err) { finToast(err && err.message || 'Import failed.'); });
+}
+
 // ── Daycare Report (board-level, year by year) ─────────────────────────
 // Groups the flat period×category×type rows (the same ones behind the Overview
 // sync table) into calendar-year totals per category, plus Income/Expense/Net

@@ -1353,6 +1353,17 @@ export const HTML_TABS_2 = String.raw`
               <button class="btn-secondary" id="fin-dc-cancel-btn" style="display:none;" onclick="finCancelEditDaycare()">Cancel</button>
             </div>
             <div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="fin-dc-error"></div>
+
+            <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+              <div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Import from Church Budget (MDO accounts)</div>
+              <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 10px;">Pulls the Mother's Day Out line items (any account with "MDO" or "Mother's Day Out" in its name) out of a Church Report Budget you've already imported for a given year, and categorizes them into the Daycare Report's categories automatically.</p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+                <label style="font-size:.75rem;color:var(--warm-gray);">Church Budget Year<br><input type="number" id="fin-dc-cb-year" placeholder="2025" style="width:100px;"></label>
+                <button class="btn-secondary" onclick="finDaycareChurchBudgetPreview()">Preview</button>
+              </div>
+              <div id="fin-dc-cb-preview" style="margin-top:10px;"></div>
+            </div>
+
             <details style="margin-top:14px;">
               <summary style="font-size:.78rem;color:var(--warm-gray);cursor:pointer;">Show all synced line items (<span id="fin-daycare-count">0</span> rows)</summary>
               <div style="overflow-x:auto;margin-top:8px;">
