@@ -17,7 +17,7 @@ import {
 import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
 import { handleIntakeApi } from './src/api-intake.js';
 import { LOGIN_HTML, PUBLIC_HTML, ADMIN_HTML } from './src/html-templates.js';
-import { CHMS_HTML, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML } from './src/html-chms.js';
+import { CHMS_HTML, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from './src/html-chms.js';
 import { PORTAL_HTML, PORTAL_MANIFEST_JSON } from './src/portal-html.js';
 import { PRIVACY_HTML, TERMS_HTML } from './src/legal-pages.js';
 import { PORTAL_SW_JS } from './src/portal-sw-js.js';
@@ -290,6 +290,23 @@ async function _fetch(req, env) {
     if (path === '/chms.webmanifest') {
       return new Response(CHMS_MANIFEST_JSON, {
         headers: { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=86400' }
+      });
+    }
+    // ── ChMS app JS — split out of CHMS_HTML so the browser can cache it across page loads
+    // instead of re-downloading ~968KB on every single visit (CHMS_HTML itself stays
+    // no-store, since it's the auth-gated per-user shell). No auth check needed: this is
+    // client-side UI code only, no secrets or data — same security model as the manifest and
+    // service worker above. The ?v= query param is DEPLOY_VERSION, so a version bump busts this
+    // cache automatically; `immutable` tells the browser to skip revalidation entirely for the
+    // life of that version.
+    if (path === '/admin/app-core.js') {
+      return new Response(CHMS_APP_CORE_JS, {
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=31536000, immutable' }
+      });
+    }
+    if (path === '/admin/app-ext.js') {
+      return new Response(CHMS_APP_EXT_JS, {
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=31536000, immutable' }
       });
     }
     if (path === '/admin/backlog' && method === 'GET') {
