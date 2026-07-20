@@ -519,6 +519,122 @@ function mergeDuplicateFundGroup(gi) {
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
+// ── SCHEDULER VOLUNTEER MIGRATION (SC6 Phase 2) ───────────────────────
+// Matches the old Scheduler's client-side "ws_people" list to real ChMS People records
+// and lets an admin/staff review and commit the link — no auto-guessing, always a human
+// picks before anything is written.
+var _svMigPending = [];
+function svMigConfidenceLabel(c) {
+  var labels = {
+    breeze_id: 'Matched by Breeze ID', exact_name: 'Exact name match',
+    fuzzy: 'Possible match', ambiguous_name: 'Multiple people share this name',
+    none: 'No match found'
+  };
+  return labels[c] || c;
+}
+function svMigConfidenceColor(c) {
+  var colors = { breeze_id: '#2e7d32', exact_name: '#2e7d32', fuzzy: '#c9973a', ambiguous_name: '#c0392b', none: '#999' };
+  return colors[c] || '#999';
+}
+function svMigRowHtml(p, i) {
+  var rowName = 'sv-mig-row-' + i;
+  var m = p.match || { confidence: 'none', suggested: null, candidates: [] };
+  var options = '';
+  var pickedSomething = false;
+  if (m.suggested) {
+    options += '<label style="display:block;font-size:.85rem;margin:2px 0;"><input type="radio" name="' + rowName + '" value="link:' + m.suggested.id + '" checked> Link to ' + esc(m.suggested.first_name + ' ' + m.suggested.last_name) + ' (' + esc(m.suggested.email || 'no email') + ')</label>';
+    pickedSomething = true;
+  }
+  (m.candidates || []).forEach(function(c) {
+    if (m.suggested && c.id === m.suggested.id) return;
+    options += '<label style="display:block;font-size:.85rem;margin:2px 0;"><input type="radio" name="' + rowName + '" value="link:' + c.id + '"> Link to ' + esc(c.first_name + ' ' + c.last_name) + ' (' + esc(c.email || 'no email') + ')</label>';
+  });
+  options += '<label style="display:block;font-size:.85rem;margin:2px 0;"><input type="radio" name="' + rowName + '" value="create"' + (!pickedSomething ? ' checked' : '') + '> Create a new person named ' + esc(p.name || '(no name)') + '</label>';
+  options += '<label style="display:block;font-size:.85rem;margin:2px 0;"><input type="radio" name="' + rowName + '" value="skip"> Skip for now</label>';
+  options += '<div style="margin:4px 0;position:relative;">'
+    + '<input type="text" placeholder="Search a different person..." id="sv-mig-search-' + i + '" oninput="svMigSearch(' + i + ')" style="font-size:.8rem;padding:4px 6px;border:1px solid var(--border);border-radius:6px;width:240px;">'
+    + '<div id="sv-mig-search-results-' + i + '" style="position:absolute;background:var(--white);border:1px solid var(--border);border-radius:6px;z-index:20;max-width:280px;"></div>'
+    + '</div>';
+
+  return '<div class="sv-mig-row" data-legacy-id="' + esc(p.legacy_id) + '" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;">'
+    + '<div style="font-weight:600;font-size:.9rem;">' + esc(p.name || '(no name)')
+    + '<span style="font-weight:400;color:var(--warm-gray);font-size:.78rem;"> — ' + esc((p.roles || []).join(', ') || 'no roles') + '</span></div>'
+    + '<div style="font-size:.75rem;color:' + svMigConfidenceColor(m.confidence) + ';font-weight:600;margin-bottom:4px;">' + svMigConfidenceLabel(m.confidence) + '</div>'
+    + options
+    + '</div>';
+}
+function loadSchedulerVolunteerMigration() {
+  var status = document.getElementById('sv-mig-status');
+  var area = document.getElementById('sv-mig-area');
+  status.textContent = 'Loading…'; status.className = 'import-status';
+  area.innerHTML = '';
+  api('/admin/api/scheduler/volunteers/migration-preview').then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    _svMigPending = d.pending || [];
+    if (!_svMigPending.length) {
+      status.textContent = 'Nothing to migrate. ' + (d.already_migrated_count || 0) + ' already migrated, ' + (d.total_legacy || 0) + ' total legacy volunteer(s).';
+      status.className = 'import-status ok';
+      return;
+    }
+    area.innerHTML = _svMigPending.map(function(p, i) { return svMigRowHtml(p, i); }).join('')
+      + '<button class="btn-primary" onclick="svMigCommitAll()">Commit Selected</button>';
+    status.textContent = _svMigPending.length + ' legacy volunteer(s) to review. ' + (d.already_migrated_count || 0) + ' already migrated.';
+    status.className = 'import-status';
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+function svMigSearch(i) {
+  var inp = document.getElementById('sv-mig-search-' + i);
+  var resultsEl = document.getElementById('sv-mig-search-results-' + i);
+  var q = inp.value;
+  if (q.length < 2) { resultsEl.innerHTML = ''; return; }
+  api('/admin/api/people?q=' + encodeURIComponent(q)).then(function(d) {
+    var rows = (d.people || []).slice(0, 8);
+    resultsEl.innerHTML = rows.map(function(p) {
+      var name = esc(p.first_name + ' ' + p.last_name);
+      return '<div style="cursor:pointer;padding:3px 6px;font-size:.8rem;" onclick="svMigPickSearchResult(' + i + ',' + p.id + ',&#39;' + name.replace(/'/g, '&#39;') + '&#39;)">'
+        + esc(p.last_name) + ', ' + esc(p.first_name) + (p.email ? ' — ' + esc(p.email) : '') + '</div>';
+    }).join('');
+  });
+}
+function svMigPickSearchResult(i, personId, name) {
+  var rows = document.querySelectorAll('.sv-mig-row');
+  var row = rows[i];
+  if (!row) return;
+  var rowName = 'sv-mig-row-' + i;
+  var existing = row.querySelector('input[value="link:' + personId + '"]');
+  if (existing) {
+    existing.checked = true;
+  } else {
+    var label = document.createElement('label');
+    label.style.display = 'block'; label.style.fontSize = '.85rem'; label.style.margin = '2px 0';
+    label.innerHTML = '<input type="radio" name="' + rowName + '" value="link:' + personId + '" checked> Link to ' + esc(name);
+    var searchWrap = row.querySelector('input[type=text]').parentNode;
+    row.insertBefore(label, searchWrap);
+    label.querySelector('input').checked = true;
+  }
+  document.getElementById('sv-mig-search-results-' + i).innerHTML = '';
+  document.getElementById('sv-mig-search-' + i).value = '';
+}
+function svMigCommitAll() {
+  var status = document.getElementById('sv-mig-status');
+  var mappings = _svMigPending.map(function(p, i) {
+    var checked = document.querySelector('input[name="sv-mig-row-' + i + '"]:checked');
+    var val = checked ? checked.value : 'skip';
+    if (val === 'create') return { legacy_id: p.legacy_id, action: 'create' };
+    if (val.indexOf('link:') === 0) return { legacy_id: p.legacy_id, action: 'link', person_id: parseInt(val.slice(5), 10) };
+    return { legacy_id: p.legacy_id, action: 'skip' };
+  });
+  status.textContent = 'Committing…'; status.className = 'import-status';
+  api('/admin/api/scheduler/volunteers/migration-commit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mappings: mappings }) }).then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    var msg = d.linked + ' linked, ' + d.created + ' created, ' + d.skipped + ' skipped.';
+    if (d.errors && d.errors.length) msg += ' ' + d.errors.length + ' error(s): ' + d.errors.map(function(e) { return e.error; }).join('; ');
+    status.textContent = msg;
+    status.className = (d.errors && d.errors.length) ? 'import-status err' : 'import-status ok';
+    loadSchedulerVolunteerMigration();
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
 function downloadBreezeAuditLog() {
   var from = document.getElementById('giving-sync-from').value;
   var to = document.getElementById('giving-sync-to').value;

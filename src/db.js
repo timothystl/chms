@@ -965,6 +965,10 @@ async function _doInitDb(db) {
       updated_at            TEXT    NOT NULL DEFAULT (datetime('now'))
     )`,
     `CREATE INDEX IF NOT EXISTS idx_scheduler_volunteers_active ON scheduler_volunteers(active)`,
+    // SC6 Phase 2: legacy ws_people id this row was migrated from (see
+    // migrations/0021_scheduler_volunteers_legacy_id.sql).
+    `ALTER TABLE scheduler_volunteers ADD COLUMN migrated_from_legacy_id TEXT NOT NULL DEFAULT ''`,
+    `CREATE INDEX IF NOT EXISTS idx_scheduler_volunteers_legacy_id ON scheduler_volunteers(migrated_from_legacy_id)`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
