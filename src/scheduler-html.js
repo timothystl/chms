@@ -719,17 +719,19 @@ body.embedded #app-content { display:block!important; }
     <button class="panel-close" id="btn-close-person-panel">&times;</button>
   </div>
   <div class="panel-body">
-    <div id="breeze-import-section" style="background:var(--blue-mist);border:1px solid var(--ice-blue);border-radius:8px;padding:12px 14px;margin-bottom:16px;">
-      <label style="font-weight:600;margin-bottom:6px;display:block;">&#128269; Search Breeze to Import</label>
+    <div id="person-search-section" style="background:var(--blue-mist);border:1px solid var(--ice-blue);border-radius:8px;padding:12px 14px;margin-bottom:16px;">
+      <label style="font-weight:600;margin-bottom:6px;display:block;">&#128269; Search ChMS People</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <input type="text" id="breeze-import-query" placeholder="Type a name…" style="max-width:220px;">
-        <button class="btn btn-outline btn-sm" id="btn-breeze-import-search">Search</button>
+        <input type="text" id="person-search-query" placeholder="Type a name…" style="max-width:220px;">
+        <button class="btn btn-outline btn-sm" id="btn-person-search">Search</button>
       </div>
-      <div id="breeze-import-results" style="margin-top:8px;font-size:0.82rem;"></div>
+      <div id="person-search-results" style="margin-top:8px;font-size:0.82rem;"></div>
     </div>
 
+    <span id="btn-relink-person" style="display:none;font-size:0.82rem;color:var(--steel-anchor);cursor:pointer;text-decoration:underline;margin-bottom:12px;">Link to a different person</span>
+
     <input type="hidden" id="edit-id">
-    <input type="hidden" id="breeze-import-id">
+    <input type="hidden" id="linked-person-id">
     <label for="person-name">Name</label>
     <input type="text" id="person-name" placeholder="Full name">
 
@@ -1191,6 +1193,45 @@ function avatarHtml(person, size) {
 function getPeople()  { try { return JSON.parse(localStorage.getItem('ws_people')  || '[]'); } catch(e) { return []; } }
 function savePeople(a){ localStorage.setItem('ws_people', JSON.stringify(a)); }
 
+// ── SC6: relational scheduler_volunteers bridge ─────────────────────
+// getPeople()/savePeople() stay a plain synchronous localStorage array — every existing
+// call site (schedule generation, Focus Week, stats, reminders, ...) keeps working
+// unchanged. syncRelationalVolunteers() just keeps that array's content in sync with the
+// real people-backed table, called once per pull (see d1Pull()).
+function relationalVolunteerToWsPerson(row) {
+  return {
+    id: row.migrated_from_legacy_id || ('p' + row.person_id),
+    personId: row.person_id,
+    name: ((row.first_name || '') + ' ' + (row.last_name || '')).trim(),
+    email: row.reminder_email || row.email || '',
+    preferredSundays: row.preferred_sundays || [],
+    servicePreference: row.service_preference || 'both',
+    roles: row.roles || [],
+    primaryFor: row.primary_for || [],
+    roleSundayOverrides: row.role_sunday_overrides || {},
+    breezePersonId: null,
+    blackoutDates: row.blackout_dates || [],
+    absenceStart: row.absence_start || '',
+    absenceUntil: row.absence_until || ''
+  };
+}
+async function syncRelationalVolunteers() {
+  try {
+    var resp = await fetch('/admin/api/scheduler/volunteers', { credentials: 'include' });
+    if (!resp.ok) return;
+    var data = await resp.json();
+    var relational = (data.volunteers || []).map(relationalVolunteerToWsPerson);
+    // A migrated row keeps its original legacy id (so every existing schedule/history
+    // reference to that id keeps resolving); a brand-new relational-only volunteer gets
+    // a derived 'p<personId>' id instead. Either way, the relational row always wins over
+    // a same-id legacy entry — it is the newer, authoritative copy of that person's data.
+    var relationalIds = {};
+    relational.forEach(function(entry) { relationalIds[entry.id] = true; });
+    var legacy = getPeople().filter(function(p) { return !relationalIds[p.id]; });
+    savePeople(relational.concat(legacy));
+  } catch (e) { /* best-effort — leaves whatever was already in localStorage untouched */ }
+}
+
 function getBreezeSettings() { try { return JSON.parse(localStorage.getItem('ws_breeze_settings') || '{}'); } catch(e) { return {}; } }
 function saveBreezeSettings(o){ localStorage.setItem('ws_breeze_settings', JSON.stringify(o)); }
 function getScheduleOverrides() { try { return JSON.parse(localStorage.getItem('ws_schedule_overrides')||'{}'); } catch(e){ return {}; } }
@@ -1606,8 +1647,9 @@ document.getElementById('btn-add-blackout').addEventListener('click', function()
 // ══════════════════════════════════════════════════════════════════
 function clearForm() {
   document.getElementById('edit-id').value = '';
-  document.getElementById('breeze-import-id').value = '';
+  document.getElementById('linked-person-id').value = '';
   document.getElementById('person-name').value = '';
+  document.getElementById('person-name').removeAttribute('readonly');
   document.getElementById('person-email').value = '';
   document.getElementById('pref-sundays').querySelectorAll('input').forEach(function(cb){ cb.checked = false; });
   document.getElementById('pref-service').querySelector('input[value="both"]').checked = true;
@@ -1617,8 +1659,10 @@ function clearForm() {
   syncLabels('pref-service');
   syncLabels('pref-roles');
   syncLabels('primary-roles');
-  document.getElementById('breeze-import-query').value = '';
-  document.getElementById('breeze-import-results').innerHTML = '';
+  document.getElementById('person-search-query').value = '';
+  document.getElementById('person-search-results').innerHTML = '';
+  document.getElementById('person-search-section').style.display = '';
+  document.getElementById('btn-relink-person').style.display = 'none';
   currentBlackouts = [];
   renderBlackoutChips();
   document.getElementById('absence-start').value = '';
@@ -1659,20 +1703,68 @@ function savePerson() {
     if (checked.length) roleSundayOverrides[roleKey] = checked;
   });
 
-  var importedBreezeId = document.getElementById('breeze-import-id').value || null;
   var absenceStart = document.getElementById('absence-start').value || '';
   var absenceUntil = document.getElementById('absence-until').value || '';
   var people = getPeople();
   var editId = document.getElementById('edit-id').value;
-  if (editId) {
-    for (var i = 0; i < people.length; i++) {
-      if (people[i].id === editId) {
-        people[i] = { id: editId, name: name, email: email, preferredSundays: preferredSundays, servicePreference: servicePreference, roles: roles, primaryFor: primaryFor, roleSundayOverrides: roleSundayOverrides, breezePersonId: importedBreezeId || people[i].breezePersonId || null, blackoutDates: currentBlackouts.slice(), absenceStart: absenceStart, absenceUntil: absenceUntil };
-        break;
-      }
+  var existing = editId ? people.find(function(p){ return p.id === editId; }) : null;
+  var linkedPersonId = parseInt(document.getElementById('linked-person-id').value, 10) || null;
+  // A fresh link from the search box always wins; otherwise fall back to whatever this
+  // entry is already linked to (a normal edit of an already-relational volunteer).
+  var effectivePersonId = linkedPersonId || (existing && existing.personId) || null;
+
+  if (!editId && !effectivePersonId) {
+    alert('Please search for and link a real ChMS person above before adding a new volunteer. If they do not have a People record yet, add them in the People tab first.');
+    return;
+  }
+
+  if (effectivePersonId) {
+    // SC6 Phase 3: relational volunteer — write through to the real API, then refresh
+    // the local getPeople() cache so every other reader (schedule generation, Focus
+    // Week, stats...) sees the change immediately without a full reload.
+    var fields = {
+      person_id: effectivePersonId,
+      reminder_email: email,
+      roles: roles,
+      primary_for: primaryFor,
+      preferred_sundays: preferredSundays,
+      service_preference: servicePreference,
+      role_sunday_overrides: roleSundayOverrides,
+      blackout_dates: currentBlackouts.slice(),
+      absence_start: absenceStart,
+      absence_until: absenceUntil
+    };
+    fetch('/admin/api/scheduler/volunteers', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields)
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.error) { alert('Error saving: ' + d.error); return; }
+      var derivedId = (existing && existing.id) || ('p' + effectivePersonId);
+      var entry = {
+        id: derivedId, personId: effectivePersonId, name: name, email: email,
+        preferredSundays: preferredSundays, servicePreference: servicePreference,
+        roles: roles, primaryFor: primaryFor, roleSundayOverrides: roleSundayOverrides,
+        breezePersonId: existing ? (existing.breezePersonId || null) : null,
+        blackoutDates: currentBlackouts.slice(), absenceStart: absenceStart, absenceUntil: absenceUntil
+      };
+      var idx = people.findIndex(function(p) { return p.id === derivedId; });
+      if (idx > -1) people[idx] = entry; else people.push(entry);
+      savePeople(people);
+      clearForm();
+      closeAllPanels();
+      renderPeopleList();
+      queueD1Push();
+    }).catch(function(e) { alert('Error saving: ' + e.message); });
+    return;
+  }
+
+  // Legacy path — a not-yet-migrated volunteer being edited without re-linking.
+  // Unchanged from before SC6: still writes straight to the localStorage/blob array.
+  for (var i = 0; i < people.length; i++) {
+    if (people[i].id === editId) {
+      people[i] = { id: editId, name: name, email: email, preferredSundays: preferredSundays, servicePreference: servicePreference, roles: roles, primaryFor: primaryFor, roleSundayOverrides: roleSundayOverrides, breezePersonId: people[i].breezePersonId || null, blackoutDates: currentBlackouts.slice(), absenceStart: absenceStart, absenceUntil: absenceUntil };
+      break;
     }
-  } else {
-    people.push({ id: makeId(), name: name, email: email, preferredSundays: preferredSundays, servicePreference: servicePreference, roles: roles, primaryFor: primaryFor, roleSundayOverrides: roleSundayOverrides, breezePersonId: importedBreezeId, blackoutDates: currentBlackouts.slice(), absenceStart: absenceStart, absenceUntil: absenceUntil });
   }
   savePeople(people);
   clearForm();
@@ -1906,8 +1998,18 @@ function editPerson(id) {
   for (var i = 0; i < people.length; i++) { if (people[i].id === id) { person = people[i]; break; } }
   if (!person) return;
   document.getElementById('edit-id').value = person.id;
+  document.getElementById('linked-person-id').value = person.personId || '';
   document.getElementById('person-name').value = person.name;
+  document.getElementById('person-name').toggleAttribute('readonly', !!person.personId);
   document.getElementById('person-email').value = person.email || '';
+  document.getElementById('person-search-query').value = '';
+  document.getElementById('person-search-results').innerHTML = '';
+  // Already linked to a real person — the search box is only for re-linking, so tuck it
+  // behind a "Link to a different person" toggle by default; a not-yet-migrated
+  // volunteer still gets it front-and-center, same as before SC6, so linking them for
+  // the first time works from right here.
+  document.getElementById('person-search-section').style.display = person.personId ? 'none' : '';
+  document.getElementById('btn-relink-person').style.display = person.personId ? 'inline-block' : 'none';
   document.getElementById('pref-sundays').querySelectorAll('input').forEach(function(cb){
     cb.checked = (person.preferredSundays || []).indexOf(parseInt(cb.value,10)) > -1;
   });
@@ -1941,7 +2043,12 @@ function editPerson(id) {
 
 function deletePerson(id) {
   if (!confirm('Remove this person? They will also be removed from the current schedule.')) return;
+  var target = getPeople().find(function(p){ return p.id === id; });
   savePeople(getPeople().filter(function(p){ return p.id !== id; }));
+  if (target && target.personId) {
+    // Soft-deletes the relational link (people record itself is never touched).
+    fetch('/admin/api/scheduler/volunteers/' + target.personId, { method: 'DELETE', credentials: 'include' }).catch(function(){});
+  }
   // Remove from current schedule assignments
   var scheduleChanged = false;
   currentSchedule.forEach(function(row) {
@@ -4562,139 +4669,51 @@ function breezePost(path, fields) {
     });
 }
 
-// ── Breeze import helpers (People tab) ──────────────────────────────────────
-function tagsToRoles(tags) {
-  var matched = [];
-  var all = PER_ROLES.concat(SHARED_ROLES);
-  (tags || []).forEach(function(tag) {
-    var t = (tag.name || '').toLowerCase();
-    all.forEach(function(role) {
-      var r = role.toLowerCase();
-      if (t.indexOf(r) !== -1 || r.indexOf(t) !== -1) {
-        if (matched.indexOf(role) === -1) matched.push(role);
-      }
-    });
-  });
-  return matched;
+// SC6 Phase 3: linking a real ChMS person into the volunteer form — replaces the old
+// per-person Breeze search+import (still used elsewhere for the bulk roster sync in
+// syncToBreeze(); this is only the single-person add/edit flow). Searches the internal
+// people table directly (GET /admin/api/people?q=), same endpoint the rest of the admin
+// app already uses for person pickers — no Breeze round-trip needed to find someone.
+function linkChmsPersonToForm(personId, name, email) {
+  document.getElementById('linked-person-id').value = personId;
+  document.getElementById('person-name').value = name;
+  document.getElementById('person-name').setAttribute('readonly', 'readonly');
+  if (email) document.getElementById('person-email').value = email;
+  document.getElementById('person-search-results').innerHTML =
+    '<span style="color:#6B8F71;">\\u2713 Linked to ' + esc(name) + '.</span> <span style="color:#7A6E60;">Set roles, Sunday preferences &amp; service preference, then Save.</span>';
 }
-
-// Recursively scan any object/array for the first email-like string.
-// Prioritizes keys whose names contain 'email', then scans everything.
-function deepFindEmail(obj) {
-  var found = '';
-  function isEmail(s) { return typeof s === 'string' && s.indexOf('@') !== -1 && s.indexOf('.') !== -1 && s.length > 5; }
-  function scanPriority(o) {
-    if (found) return;
-    if (isEmail(o)) { found = o; return; }
-    if (!o || typeof o !== 'object') return;
-    var keys = Array.isArray(o) ? Object.keys(o) : Object.keys(o);
-    // First pass: keys mentioning email
-    keys.forEach(function(k) {
-      if (found) return;
-      if (String(k).toLowerCase().indexOf('email') !== -1 || String(k).toLowerCase().indexOf('mail') !== -1) {
-        var v = o[k];
-        if (isEmail(v)) { found = v; return; }
-        if (v && typeof v === 'object') {
-          // Check .address or .value sub-keys first
-          if (isEmail(v.address)) { found = v.address; return; }
-          if (isEmail(v.value))   { found = v.value;   return; }
-          scanPriority(v);
-        }
-      }
-    });
-    // Second pass: everything else
-    if (!found) keys.forEach(function(k) { if (!found) scanPriority(o[k]); });
-  }
-  scanPriority(obj);
-  return found;
-}
-
-function importBreezePersonToForm(breezeId) {
-  var resultsEl = document.getElementById('breeze-import-results');
-  resultsEl.innerHTML = '<span style="color:#888;">Loading\\u2026</span>';
-  breezeGet('/api/people/' + breezeId, { details: 1 })
-    .then(function(p) {
-      // Name
-      document.getElementById('person-name').value = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-
-      // Email — deep recursive scan of entire response; handles all known Breeze API structures
-      var email = deepFindEmail(p);
-      document.getElementById('person-email').value = email;
-
-      // Roles from tags
-      var roles = tagsToRoles(p.tags || []);
-      document.getElementById('pref-roles').querySelectorAll('input[type=checkbox]').forEach(function(cb) {
-        cb.checked = roles.indexOf(cb.value) !== -1;
-      });
-      syncLabels('pref-roles');
-
-      // Store Breeze ID so savePerson() links it automatically
-      document.getElementById('breeze-import-id').value = breezeId;
-
-      var roleNote = roles.length ? ' Roles pre-checked: ' + roles.join(', ') + '.' : ' No matching role tags \\u2014 check roles manually.';
-      var emailNote = email ? '' : ' <strong>No email found in Breeze \\u2014 enter manually.</strong>';
-      resultsEl.innerHTML = '<span style="color:#6B8F71;">\\u2713 Filled in from Breeze.' + esc(roleNote) + '</span>' + emailNote + ' <span style="color:#7A6E60;">Set Sunday preferences &amp; service preference, then Save.</span>';
-    })
-    .catch(function(e) {
-      resultsEl.innerHTML = '<span style="color:#B85C3A;">Error: ' + esc(String(e)) + '</span>';
-    });
-}
-
-document.getElementById('btn-breeze-import-search').addEventListener('click', function() {
-  var query = document.getElementById('breeze-import-query').value.trim();
+document.getElementById('btn-person-search').addEventListener('click', function() {
+  var query = document.getElementById('person-search-query').value.trim();
   if (!query) { alert('Enter a name to search.'); return; }
-  var resultsEl = document.getElementById('breeze-import-results');
+  var resultsEl = document.getElementById('person-search-results');
   resultsEl.innerHTML = '<span style="color:#888;">Searching\\u2026</span>';
-
-  var s = getBreezeSettings();
-
-  // Build fetch promises for each configured tag ID
-  var fetches = [];
-  (s.tagIds || []).forEach(function(id) {
-    if (id) fetches.push(breezeGet('/api/people', { details: 0, limit: 500, filter_json: JSON.stringify({ tag_contains: 'y_' + id }) }));
-  });
-  if (!fetches.length) {
-    // No tag filter — search all
-    fetches.push(breezeGet('/api/people', { details: 0, limit: 500 }));
-  }
-
-  Promise.all(fetches)
-    .then(function(results) {
-      // Merge and deduplicate by person id
-      var seen = {};
-      var merged = [];
-      results.forEach(function(data) {
-        (data || []).forEach(function(bp) {
-          if (!seen[bp.id]) { seen[bp.id] = true; merged.push(bp); }
-        });
-      });
-      var parts = query.toLowerCase().split(/\\s+/).filter(Boolean);
-      var filtered = merged.filter(function(bp) {
-        var first = (bp.first_name||'').toLowerCase();
-        var last  = (bp.last_name||'').toLowerCase();
-        return parts.every(function(p) { return first.indexOf(p) !== -1 || last.indexOf(p) !== -1; });
-      });
-      if (!filtered.length) {
-        resultsEl.innerHTML = '<span style="color:#888;">No results found.</span>';
-        return;
-      }
-      filtered.sort(function(a,b){ return ((a.last_name||'')+(a.first_name||'')).localeCompare((b.last_name||'')+(b.first_name||'')); });
-      var html = '<select id="breeze-import-select" style="max-width:240px;margin-right:6px;font-size:0.82rem;">'
+  fetch('/admin/api/people?q=' + encodeURIComponent(query), { credentials: 'include' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var rows = (d.people || []).slice(0, 20);
+      if (!rows.length) { resultsEl.innerHTML = '<span style="color:#888;">No results found.</span>'; return; }
+      var html = '<select id="person-search-select" style="max-width:240px;margin-right:6px;font-size:0.82rem;">'
         + '<option value="">-- Select person --</option>';
-      filtered.forEach(function(bp) {
-        html += '<option value="'+esc(bp.id)+'">'+esc(((bp.first_name||'')+' '+(bp.last_name||'')).trim())+'</option>';
+      rows.forEach(function(p) {
+        var name = ((p.first_name || '') + ' ' + (p.last_name || '')).trim();
+        html += '<option value="' + p.id + '" data-email="' + esc(p.email || '') + '" data-name="' + esc(name) + '">' + esc(p.last_name) + ', ' + esc(p.first_name) + '</option>';
       });
-      html += '</select><button class="btn btn-primary btn-sm" id="btn-breeze-import-fill">Import</button>';
+      html += '</select><button class="btn btn-primary btn-sm" id="btn-person-search-fill">Link</button>';
       resultsEl.innerHTML = html;
-      document.getElementById('btn-breeze-import-fill').addEventListener('click', function() {
-        var sel = document.getElementById('breeze-import-select');
+      document.getElementById('btn-person-search-fill').addEventListener('click', function() {
+        var sel = document.getElementById('person-search-select');
         if (!sel || !sel.value) { alert('Select a person first.'); return; }
-        importBreezePersonToForm(sel.value);
+        var opt = sel.options[sel.selectedIndex];
+        linkChmsPersonToForm(parseInt(sel.value, 10), opt.getAttribute('data-name'), opt.getAttribute('data-email'));
       });
     })
     .catch(function(e) {
       resultsEl.innerHTML = '<span style="color:#B85C3A;">Error: ' + esc(String(e)) + '</span>';
     });
+});
+document.getElementById('btn-relink-person').addEventListener('click', function() {
+  document.getElementById('person-search-section').style.display = '';
+  document.getElementById('btn-relink-person').style.display = 'none';
 });
 
 // ── Event mapping ─────────────────────────────────────────
@@ -5054,6 +5073,7 @@ async function d1Pull() {
     keys.forEach(function(k) {
       if (data[k] !== undefined) localStorage.setItem(k, JSON.stringify(data[k]));
     });
+    await syncRelationalVolunteers();
     updateSyncStatus('Loaded \\u2713 ' + new Date().toLocaleTimeString());
     // Ensure month label is always set after a successful pull (belt-and-suspenders).
     try {
