@@ -11,8 +11,8 @@ Read this at the start of every session. Update NOTES.md (and this file if neede
 The same Worker also serves the **public volunteer signup site**, branded **Serve** at `serve.timothystl.org`, assembled from per-ministry modules under `src/public/`.
 
 **Live at:**
-- `https://chms.timothystl.org` — admin app (old `volunteer.timothystl.org/chms` redirects here)
-- `https://serve.timothystl.org` — public ministry signup, branded "Serve". Renamed 2026-07-20 from `volunteer.timothystl.org`, which now 301-redirects browser page views (root + event short-links) to the new hostname; every non-page route (API, intake, RSVP, etc.) still answers identically on both hostnames since it's the same Worker — see `tlc-volunteer-worker.js`'s `isLegacyServeHost` handling.
+- `https://chms.timothystl.org` — admin app
+- `https://serve.timothystl.org` — public ministry signup, branded "Serve". Renamed 2026-07-20 from `volunteer.timothystl.org` as a full cutover (not a redirect) — the old hostname's Cloudflare route was renamed in place rather than kept alongside the new one, since nothing was publicized under it yet. `volunteer.timothystl.org` no longer resolves at all.
 - Brand: **Timothy ChMS** (was "TLC Gather" — renamed 2026-07-20 as part of the same pass, since "Gather" wasn't a name anyone but the admin actually knew and nothing about the app was public yet). Navy/teal/gold three-pillar system: People / Ministry / Giving. PWA icons under `icons/` (icon files themselves not renamed, just the manifest name/short_name and page titles).
 
 ---

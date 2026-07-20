@@ -1,5 +1,6 @@
 // Timothy Lutheran Church — Volunteer Sign-Up Worker
-// Deploy to: serve.timothystl.org (legacy volunteer.timothystl.org 301-redirects here)
+// Deploy to: serve.timothystl.org (renamed 2026-07-20 from volunteer.timothystl.org — full
+// cutover, old hostname no longer resolves)
 // Admin at: chms.timothystl.org
 // Admin password is set via ADMIN_PASSWORD environment variable in Cloudflare Dashboard.
 // v2 — modular build (src/)
@@ -154,11 +155,6 @@ async function _fetch(req, env) {
     const method = req.method.toUpperCase();
     const host = url.hostname;
     const isChmsHost = host === 'chms.timothystl.org';
-    // Rebranded 2026-07-20: volunteer.timothystl.org → serve.timothystl.org. The old
-    // hostname stays routed to this same Worker (see wrangler.toml) purely so it can
-    // 301-redirect browser page views to the new hostname — every non-page route (API,
-    // intake, RSVP, etc.) keeps answering identically on both hostnames.
-    const isLegacyServeHost = host === 'volunteer.timothystl.org';
 
     // CORS preflight for scheduler backend routes
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: SCHED_CORS });
@@ -186,10 +182,6 @@ async function _fetch(req, env) {
     // integration setup (e.g. QuickBooks Online's app registration form requires these URLs).
     if (path === '/privacy' && method === 'GET') return html(PRIVACY_HTML);
     if (path === '/terms' && method === 'GET') return html(TERMS_HTML);
-    // Legacy hostname → new brand: redirect real browser page views, not API/asset requests.
-    if (isLegacyServeHost && method === 'GET' && (path === '/' || path === '/index.html')) {
-      return new Response(null, { status: 301, headers: { 'Location': 'https://serve.timothystl.org' + url.search } });
-    }
     if ((path === '/' || path === '/index.html') && method === 'GET') {
       if (isChmsHost) {
         if (!await isAuthed(req, env)) return html(LOGIN_HTML);
@@ -400,11 +392,6 @@ async function _fetch(req, env) {
     if (!isChmsHost && method === 'GET' && /^\/[a-z0-9-]{1,64}$/.test(path)) {
       const evRow = await env.DB.prepare('SELECT id FROM serve_events WHERE slug=? AND hidden=0').bind(path.slice(1)).first();
       if (evRow) {
-        // Flyer/shortlink hit on the legacy hostname: send it to the new brand's event
-        // page directly (301) rather than a 302 into an old-hostname URL fragment.
-        if (isLegacyServeHost) {
-          return new Response(null, { status: 301, headers: { 'Location': 'https://serve.timothystl.org/#event-' + evRow.id } });
-        }
         return new Response(null, { status: 302, headers: { 'Location': '/#event-' + evRow.id, 'Cache-Control': 'no-store' } });
       }
     }
