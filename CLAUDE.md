@@ -433,6 +433,9 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### Scheduler (2026-07-20)
+- [ ] **SC7** — Scheduler print view (the plain "Schedule" table shown when printing the embedded Scheduler tab) is not useful as-is — no real print layout/styling, just a raw HTML table. Handed off to design for a redesign pass rather than guessing at a layout in-session. (noted 2026-07-20)
+
 ### People / Households (2026-07-20)
 - [x] **PN1** — Added `middle_name`/`preferred_name` fields to People (create/edit modal, PATCH/PUT/POST API, profile header + demographics display, search). Added a "Hyphenate from members' last names" helper button to the household edit modal for households where spouses keep separate surnames (`households.name` was already free text, so no schema change was needed there — the button just auto-fills it from the household's actual member last names). Done 2026-07-20 (v1.38.0). Not verified in a live browser. (`src/db.js`, `migrations/0021_person_middle_preferred_name.sql`, `src/api-people.js`, `src/frontend/js-people.js`, `src/frontend/js-households.js`, `src/frontend/html-tabs.js`)
 
