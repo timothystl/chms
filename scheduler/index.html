@@ -316,6 +316,52 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
   .fw-layout, .more-menu-wrap { display: none !important; }
 }
 
+/* ── Print Preview (SC7): Single Sunday / Full Month / Bulletin Insert ──
+   Clicking Print no longer prints the on-screen grid directly — it opens this
+   overlay so staff can pick a purpose-built layout first. The old grid-based
+   @media print rules above stay in place as a harmless fallback for a raw
+   Ctrl+P outside this flow. Per-mode @page sizing (portrait letter for Single
+   Sunday, landscape letter for Full Month, a fixed 7in×8.5in half-sheet for
+   Bulletin Insert) is applied by rewriting #pp-page-size-style's content in
+   JS rather than with CSS custom properties — @page does not reliably accept
+   var() for the size property across browsers. */
+#print-preview-overlay { display: none; }
+#print-preview-overlay.pp-open {
+  display: block; position: fixed; inset: 0; z-index: 400; overflow-y: auto;
+  background: #EDE7DA; font-family: 'DM Sans','Source Sans 3',Arial,sans-serif;
+}
+.pp-toolbar-wrap { max-width: 900px; margin: 0 auto; padding: 22px 24px 0; }
+.pp-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;
+  background: #1E2D4A; border-radius: 12px; padding: 14px 20px; box-shadow: 0 2px 12px rgba(10,60,92,0.15); }
+.pp-toolbar-left { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.pp-eyebrow { color: #C9973A; font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.pp-seg { background: #F2EDE2; border-radius: 999px; padding: 3px; display: inline-flex; gap: 2px; }
+.pp-seg-btn { border: none; border-radius: 999px; padding: 7px 16px; font-size: .82rem; font-weight: 700;
+  cursor: pointer; font-family: inherit; background: transparent; color: #7A6E60; }
+.pp-seg-btn.active { background: #1E2D4A; color: #fff; }
+.pp-sunday-select { padding: 7px 12px; border-radius: 8px; border: none; font-size: .85rem; font-family: inherit; font-weight: 600; color: #1E2D4A; }
+.pp-print-btn { background: #C9973A; color: #1E2D4A; border: none; border-radius: 8px; padding: 9px 20px; font-size: .88rem; font-weight: 800; cursor: pointer; font-family: inherit; }
+.pp-close-btn { background: none; border: none; color: rgba(255,255,255,.75); font-size: 1.3rem; cursor: pointer; padding: 0 6px; line-height: 1; }
+.pp-close-btn:hover { color: #fff; }
+.pp-hint { text-align: center; color: #7A6E60; font-size: .8rem; margin: 10px 0 0; }
+.pp-page-wrap { display: flex; justify-content: center; padding: 24px 24px 60px; }
+.pp-page { background: #fff; box-shadow: 0 4px 24px rgba(10,60,92,.18); box-sizing: border-box; }
+.pp-page-single { width: 8.5in; min-height: 11in; padding: 0.85in; }
+.pp-page-month { width: 11in; min-height: 8.5in; padding: 0.6in; }
+.pp-page-bulletin { width: 7in; height: 8.5in; padding: 0.35in; }
+@media (max-width: 900px) {
+  .pp-page-single, .pp-page-month, .pp-page-bulletin { width: 100%; min-width: 0; }
+}
+@media print {
+  .pp-toolbar-wrap, .pp-hint { display: none !important; }
+  #print-preview-overlay.pp-open {
+    position: static !important; inset: auto !important; overflow: visible !important;
+    background: #fff !important; z-index: auto !important;
+  }
+  .pp-page-wrap { display: block !important; padding: 0 !important; }
+  .pp-page { box-shadow: none !important; width: auto !important; min-height: 0 !important; height: auto !important; padding: 0 !important; margin: 0 !important; }
+}
+
 /* ── Confirmation tracking ─────────────────── */
 .conf-pill { font-size:0.68rem; font-weight:700; padding:2px 7px; border-radius:10px; cursor:pointer; border:none; margin-top:3px; display:block; width:100%; text-align:center; user-select:none; text-transform:uppercase; letter-spacing:0.04em; transition:opacity 0.1s; }
 .conf-pill:hover { opacity:0.8; }
@@ -1109,6 +1155,12 @@ body.embedded #app-content { display:block!important; }
     <div id="readings-alert" style="margin-top:8px;"></div>
   </div>
 </div>
+
+<!-- ══ PRINT PREVIEW (SC7) ═══════════════════════════════════════════════════
+     Content is rendered entirely by JS (renderPrintPreview / ppBuildPageHtml) —
+     see openPrintPreview() near the schedule-tab print button handler. -->
+<div id="print-preview-overlay"></div>
+<style id="pp-page-size-style"></style>
 
 </div><!-- /#app-content -->
 
@@ -3239,7 +3291,282 @@ document.getElementById('btn-export-csv').addEventListener('click', function() {
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 });
 
-document.getElementById('btn-print').addEventListener('click', function(){ window.print(); });
+document.getElementById('btn-print').addEventListener('click', openPrintPreview);
+
+// ══════════════════════════════════════════════════════════════════
+// PRINT PREVIEW (SC7) — Single Sunday / Full Month / Bulletin Insert
+// ══════════════════════════════════════════════════════════════════
+var ppMode = 'single';        // 'single' | 'month' | 'bulletin'
+var ppSelectedIdx = 0;        // index into ppSundayRows
+var ppSundayRows = [];        // currentSchedule filtered to type==='sunday'
+
+function ppFmtDateLong(d) {
+  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+function ppFmtMonthDay(d) {
+  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+}
+
+// Builds the same per-Sunday view shape (dates, ordinal/lectionary label,
+// per-service role assignments, shared-role assignments) used by all three
+// print layouts, from the same currentSchedule row data the on-screen table renders.
+function ppSundayData(row) {
+  var pMap = {};
+  getPeople().forEach(function(p) { pMap[p.id] = p; });
+  var dateISO = row.date.toISOString().slice(0, 10);
+  var existingLabel = getSundayLabels()[dateISO] || row.label || '';
+  var lectEntry = getLectEntry(row.date);
+  var ordinalLabel = lectEntry ? lectEntry.sundayName : (row.ordinal + ordSuffix(row.ordinal) + ' Sunday');
+  function nameFor(pid) { return (pid && pMap[pid]) ? pMap[pid].name : ''; }
+  var services = [
+    { key: '8am', time: '8:00 AM' },
+    { key: '10:45am', time: '10:45 AM' }
+  ].map(function(s) {
+    return {
+      time: s.time,
+      roles: PER_ROLES.map(function(role) {
+        return { role: role, name: nameFor(row.assignments[role][s.key]) };
+      })
+    };
+  });
+  var shared = SHARED_ROLES.map(function(role) {
+    return { role: roleLabel(role), name: nameFor(row.assignments[role].shared) };
+  });
+  return {
+    dateISO: dateISO,
+    dateLong: ppFmtDateLong(row.date),
+    dateMonthDay: ppFmtMonthDay(row.date),
+    ordinalLabel: ordinalLabel,
+    label: existingLabel,
+    services: services,
+    shared: shared
+  };
+}
+
+function ppUpdatePageSize() {
+  var el = document.getElementById('pp-page-size-style');
+  if (!el) return;
+  var rule = ppMode === 'month'
+    ? '@page { size: letter landscape; margin: 0.6in; }'
+    : ppMode === 'bulletin'
+      ? '@page { size: 7in 8.5in; margin: 0.35in; }'
+      : '@page { size: letter portrait; margin: 0.85in; }';
+  el.textContent = rule;
+}
+
+function ppBuildSingleHtml(d) {
+  var html = '<div class="pp-page pp-page-single">'
+    + '<div style="text-align:center;border-bottom:2px solid #C9973A;padding-bottom:16px;margin-bottom:28px;">'
+    +   '<div style="font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#C9973A;margin-bottom:10px;">Timothy Lutheran Church &middot; Serving This Week</div>'
+    +   '<div style="font-size:36.8px;font-weight:800;color:#1E2D4A;line-height:1.1;">' + esc(d.dateLong) + '</div>'
+    +   '<div style="font-size:16.8px;color:#7A6E60;margin-top:6px;">' + esc(d.ordinalLabel) + '</div>'
+    +   (d.label ? '<div style="display:inline-block;margin-top:8px;font-size:12.5px;font-weight:700;color:#A87B23;background:#F5E0B0;border-radius:999px;padding:3px 12px;">' + esc(d.label) + '</div>' : '')
+    + '</div>';
+  d.services.forEach(function(svc) {
+    html += '<div style="margin-bottom:26px;">'
+      + '<div style="font-size:16px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#1E2D4A;border-bottom:1px solid #E8E0D0;padding-bottom:6px;margin-bottom:4px;">' + esc(svc.time) + ' Service</div>';
+    svc.roles.forEach(function(r) {
+      html += '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:20px;padding:10px 2px;border-bottom:1px solid #F2EDE2;">'
+        +   '<div style="font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#7A6E60;width:150px;flex-shrink:0;">' + esc(r.role) + '</div>'
+        +   '<div style="font-size:21.6px;font-weight:700;color:#1A1A2A;text-align:right;flex:1;">' + esc(r.name) + '</div>'
+        + '</div>';
+    });
+    html += '</div>';
+  });
+  html += '<div>'
+    + '<div style="font-size:16px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#6B8F71;border-bottom:1px solid #E8E0D0;padding-bottom:6px;margin-bottom:4px;">Both Services</div>';
+  d.shared.forEach(function(r) {
+    html += '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:20px;padding:10px 2px;border-bottom:1px solid #F2EDE2;">'
+      +   '<div style="font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#7A6E60;width:150px;flex-shrink:0;">' + esc(r.role) + '</div>'
+      +   '<div style="font-size:21.6px;font-weight:700;color:#1A1A2A;text-align:right;flex:1;">' + esc(r.name) + '</div>'
+      + '</div>';
+  });
+  html += '</div></div>';
+  return html;
+}
+
+function ppBuildMonthHtml() {
+  var rows = ppSundayRows.map(ppSundayData);
+  var html = '<div class="pp-page pp-page-month">'
+    + '<div style="text-align:center;margin-bottom:14px;">'
+    +   '<div style="font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#7A6E60;">Timothy Lutheran Church</div>'
+    +   '<div style="font-size:20.8px;font-weight:800;color:#1E2D4A;">Serving Schedule &mdash; ' + esc(monthKeyLabel(currentMonthKey)) + '</div>'
+    + '</div>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:12.5px;">'
+    + '<thead><tr>'
+    +   '<th style="background:#1E2D4A;color:#fff;padding:7px 8px;text-align:left;border:1px solid #1E2D4A;">Date</th>'
+    +   '<th style="background:#1E2D4A;color:#fff;padding:7px 8px;border:1px solid #1E2D4A;"></th>';
+  PER_ROLES.forEach(function(role) {
+    html += '<th style="background:#3D627C;color:#fff;padding:7px 8px;border:1px solid #1E2D4A;">' + esc(role) + '</th>';
+  });
+  html += '<th style="background:#6B8F71;color:#fff;padding:7px 8px;border:1px solid #1E2D4A;width:90px;">Preacher</th>'
+    +   '<th style="background:#6B8F71;color:#fff;padding:7px 8px;border:1px solid #1E2D4A;width:90px;">' + esc("Children's Msg") + '</th>'
+    + '</tr></thead><tbody>';
+  rows.forEach(function(d) {
+    var preacher = (d.shared.filter(function(r) { return r.role === 'Preacher'; })[0] || {}).name || '\u2014';
+    var cm = (d.shared.filter(function(r) { return r.role !== 'Preacher'; })[0] || {}).name || '\u2014';
+    d.services.forEach(function(svc, svcIdx) {
+      html += '<tr>';
+      if (svcIdx === 0) {
+        html += '<td rowspan="2" style="padding:7px 8px;border:1px solid #E8E0D0;font-weight:700;color:#1E2D4A;vertical-align:middle;background:#F2EDE2;width:115px;">'
+          + esc(d.dateMonthDay) + '<br><span style="font-weight:400;color:#7A6E60;font-size:11.5px;">' + esc(d.ordinalLabel) + '</span></td>';
+      }
+      html += '<td style="padding:7px 8px;border:1px solid #E8E0D0;font-weight:700;color:#7A6E60;font-size:11.48px;width:53px;">' + esc(svc.time) + '</td>';
+      svc.roles.forEach(function(r) {
+        html += '<td style="padding:7px 8px;border:1px solid #E8E0D0;width:85px;">' + esc(r.name || '\u2014') + '</td>';
+      });
+      if (svcIdx === 0) {
+        html += '<td rowspan="2" style="padding:7px 8px;border:1px solid #E8E0D0;vertical-align:middle;width:90px;">' + esc(preacher) + '</td>'
+          +   '<td rowspan="2" style="padding:7px 8px;border:1px solid #E8E0D0;vertical-align:middle;width:90px;">' + esc(cm) + '</td>';
+      }
+      html += '</tr>';
+    });
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function ppBuildBulletinHtml(d) {
+  var colWidths = ['14%', '17.2%', '17.2%', '17.2%', '17.2%', '17.2%'];
+  var html = '<div class="pp-page pp-page-bulletin">'
+    + '<div style="text-align:center;margin-bottom:10px;">'
+    +   '<div style="font-size:11.2px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#000;">Timothy Lutheran Church</div>'
+    +   '<div style="font-size:18.4px;font-weight:800;color:#000;">' + esc(d.dateLong) + '</div>'
+    +   '<div style="font-size:13.6px;color:#333;">' + esc(d.ordinalLabel) + '</div>'
+    + '</div>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed;">'
+    + '<colgroup>' + colWidths.map(function(w) { return '<col style="width:' + w + ';">'; }).join('') + '</colgroup>'
+    + '<thead><tr><th style="background:#000;color:#fff;padding:6px 4px;text-align:left;border:1px solid #000;"></th>';
+  PER_ROLES.forEach(function(role) {
+    html += '<th style="background:#000;color:#fff;padding:6px 4px;border:1px solid #000;">' + esc(role) + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+  d.services.forEach(function(svc) {
+    html += '<tr><td style="padding:6px 4px;border:1px solid #000;font-weight:700;color:#000;">' + esc(svc.time) + '</td>';
+    svc.roles.forEach(function(r) {
+      html += '<td style="padding:6px 4px;border:1px solid #000;color:#000;word-break:break-word;line-height:1.2;">' + esc(r.name) + '</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>'
+    + '<div style="margin-top:14px;">'
+    +   '<div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#000;border-bottom:1px solid #000;padding-bottom:4px;margin-bottom:6px;">Both Services</div>';
+  d.shared.forEach(function(r) {
+    html += '<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 2px;border-bottom:1px solid #ccc;font-size:13.1px;">'
+      +   '<span style="font-weight:700;color:#000;">' + esc(r.role) + '</span>'
+      +   '<span style="color:#000;">' + esc(r.name) + '</span>'
+      + '</div>';
+  });
+  html += '</div></div>';
+  return html;
+}
+
+function ppBuildPageHtml() {
+  if (ppMode === 'month') return ppBuildMonthHtml();
+  var row = ppSundayRows[ppSelectedIdx] || ppSundayRows[0];
+  var d = ppSundayData(row);
+  return ppMode === 'bulletin' ? ppBuildBulletinHtml(d) : ppBuildSingleHtml(d);
+}
+
+function renderPrintPreview() {
+  var overlay = document.getElementById('print-preview-overlay');
+  if (!overlay) return;
+  ppUpdatePageSize();
+  var showPicker = ppMode === 'single' || ppMode === 'bulletin';
+  var sundayOptions = ppSundayRows.map(function(row, i) {
+    var d = ppSundayData(row);
+    return '<option value="' + i + '"' + (i === ppSelectedIdx ? ' selected' : '') + '>' + esc(d.dateLong) + ' &mdash; ' + esc(d.ordinalLabel) + '</option>';
+  }).join('');
+
+  overlay.innerHTML =
+    '<div class="pp-toolbar-wrap">'
+      + '<div class="pp-toolbar">'
+        + '<div class="pp-toolbar-left">'
+          +   '<span class="pp-eyebrow">Print Preview</span>'
+          +   '<div class="pp-seg">'
+          +     '<button type="button" class="pp-seg-btn' + (ppMode === 'single' ? ' active' : '') + '" data-pp-mode="single">Single Sunday</button>'
+          +     '<button type="button" class="pp-seg-btn' + (ppMode === 'month' ? ' active' : '') + '" data-pp-mode="month">Full Month</button>'
+          +     '<button type="button" class="pp-seg-btn' + (ppMode === 'bulletin' ? ' active' : '') + '" data-pp-mode="bulletin">Bulletin Insert</button>'
+          +   '</div>'
+          +   (showPicker ? '<select class="pp-sunday-select" id="pp-sunday-select">' + sundayOptions + '</select>' : '')
+          + '</div>'
+        + '<div style="display:flex;align-items:center;gap:10px;">'
+          +   '<button type="button" class="pp-print-btn" id="pp-print-btn">Print</button>'
+          +   '<button type="button" class="pp-close-btn" id="pp-close-btn" title="Close print preview">&times;</button>'
+        + '</div>'
+      + '</div>'
+      + '<p class="pp-hint">This toolbar is hidden when printing &mdash; only the sheet below prints.</p>'
+    + '</div>'
+    + '<div class="pp-page-wrap">' + ppBuildPageHtml() + '</div>';
+
+  var sel = document.getElementById('pp-sunday-select');
+  if (sel) sel.addEventListener('change', function(e) {
+    ppSelectedIdx = parseInt(e.target.value, 10) || 0;
+    renderPrintPreview();
+  });
+  overlay.querySelectorAll('[data-pp-mode]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      ppMode = btn.getAttribute('data-pp-mode');
+      renderPrintPreview();
+    });
+  });
+  var printBtn = document.getElementById('pp-print-btn');
+  if (printBtn) printBtn.addEventListener('click', ppDoPrint);
+  var closeBtn = document.getElementById('pp-close-btn');
+  if (closeBtn) closeBtn.addEventListener('click', closePrintPreview);
+}
+
+function ppDoPrint() { window.print(); }
+
+// Imperatively hides every other sibling in the app-content wrapper for the
+// duration of printing, then restores them. Done in JS via real beforeprint/
+// afterprint events (not a body.pp-printing CSS class, and not just wrapping
+// the window.print() call above) for two reasons: (1) in embedded mode
+// (scheduler-inline.js) this script's document.body is the whole ChMS page,
+// not the .sched-root wrapper, so a body-scoped selector would silently
+// never match there; (2) window.print() is not guaranteed synchronous across
+// browsers (Safari in particular can return before the dialog closes), so
+// restoring right after the call risks un-hiding content before it prints.
+var _ppHiddenEls = [];
+window.addEventListener('beforeprint', function() {
+  var overlay = document.getElementById('print-preview-overlay');
+  if (!overlay || !overlay.classList.contains('pp-open')) return;
+  var appContent = document.getElementById('sched-app-content') || document.getElementById('app-content');
+  if (!appContent) return;
+  _ppHiddenEls = [];
+  Array.prototype.forEach.call(appContent.children, function(child) {
+    if (child !== overlay && child.style.display !== 'none') {
+      _ppHiddenEls.push(child);
+      child.setAttribute('data-pp-hidden', '1');
+      child.style.setProperty('display', 'none', 'important');
+    }
+  });
+});
+window.addEventListener('afterprint', function() {
+  _ppHiddenEls.forEach(function(child) {
+    child.style.removeProperty('display');
+    child.removeAttribute('data-pp-hidden');
+  });
+  _ppHiddenEls = [];
+});
+
+function openPrintPreview() {
+  ppSundayRows = currentSchedule.filter(function(r) { return r.type === 'sunday'; });
+  if (!ppSundayRows.length) {
+    alert('No schedule to print for ' + monthKeyLabel(currentMonthKey) + ' yet. Generate a schedule first.');
+    return;
+  }
+  var fwRow = currentSchedule[focusWeekSelectedIdx];
+  var idx = fwRow ? ppSundayRows.indexOf(fwRow) : -1;
+  ppSelectedIdx = idx > -1 ? idx : 0;
+  ppMode = 'single';
+  renderPrintPreview();
+  document.getElementById('print-preview-overlay').classList.add('pp-open');
+}
+function closePrintPreview() {
+  var overlay = document.getElementById('print-preview-overlay');
+  if (overlay) overlay.classList.remove('pp-open');
+}
 
 // Swap dropdowns for plain text before printing, restore after
 window.addEventListener('beforeprint', function() {
