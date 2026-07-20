@@ -761,15 +761,90 @@ const FINANCE_PROPERTY_IVANHOE_META = {
   },
   loan: {
     lender: 'LCEF',
-    balance_cents: 29733600,
-    balance_as_of_date: '2025-11-20',
+    balance_cents: 27969113,
+    balance_as_of_date: '2026-07-20',
+    interest_rate_pct: 0.06375,
     confirmed_by: 'Andrew (pastor), 2026-07-20',
-    note: 'A conflicting figure of $92,322.68 appeared on the Mar 2026 MRI-format balance sheet — confirmed to be a data artifact from AHRA’s Appfolio-to-MRI migration and should be disregarded. $297,336 is the correct current balance.',
+    note: 'Prior confirmed balance was $297,336 as of 2025-11-20; normal paydown since then brought it to $279,691.13. A separate conflicting figure of $92,322.68 appeared on the Mar 2026 MRI-format balance sheet — confirmed to be a data artifact from AHRA’s Appfolio-to-MRI migration and should still be disregarded. Equity/LTV below mix this newer loan balance with an older (2025-11-20) valuation, which is normal since valuations don’t update monthly.',
     monthly_payment_cents: 428303,
     monthly_payment_note: 'Increased per the Dec 2025 report.',
     annual_debt_service_cents: 4539636,
+    balance_history: [
+      { balance_cents: 29733600, as_of_date: '2025-11-20' },
+      { balance_cents: 27969113, as_of_date: '2026-07-20', interest_rate_pct: 0.06375 },
+    ],
   },
   annual_notes: FINANCE_PROPERTY_IVANHOE_ANNUAL_NOTES,
+  capital_improvements: {
+    projects_summary: [
+      { project: '1st-floor apartment renovation (bathroom, kitchen, granite countertop)', started: '2023-12', completed: '2024-12', total_capitalized_cents: 1816075, note: 'Slow-moving project across 2024; contractor delays noted repeatedly in monthly reports.' },
+      { project: 'HVAC system replacement (new heater)', started: '2025-10', completed: '2025-10', total_capitalized_cents: 778700, note: 'Martin Jetco Heating & Air Conditioning installed a new heater; capitalized rather than expensed given the scope.' },
+      { project: 'Washer/dryer hookup installation, 1st floor apartment', started: '2025-11', completed: '2026-02', total_capitalized_cents: 800000, note: 'New amenity add (not a replacement). Paid in two $4,000 installments (deposit Dec 2025, balance Apr 2026); completion confirmed in the Feb 2026 report.' },
+      { project: 'Tuckpointing (exterior masonry)', started: '2025-07', completed: '2025-08', total_capitalized_cents: 0, note: 'Expensed as repairs & maintenance ($1,350), not capitalized — a judgment call AHRA made; worth revisiting with your accountant if it materially extended the building’s life.' },
+    ],
+    separate_paint_asphalt_concrete_reserve_note: 'Starting with the Jan 2026 MRI-format reports, AHRA added a second, separate reserve line labeled "Capital Improvements — Estimated Cost of (Paint, Asphalt and Concrete)". As of the May 2026 report both the estimated cost and the reserve balance are $0.00 — the mechanism exists in the report template but has not yet been funded or given a target estimate. Worth asking AHRA whether/when they intend to start funding this, since exterior paint/asphalt/concrete work is a real, foreseeable capital need not otherwise reserved for.',
+  },
+  insurance: {
+    source: 'GuideOne Insurance Company / Lutheran Trust, Inc. (agent: Kip Starnes) — ACORD Commercial Insurance Application, policy #147414150, effective 04/12/2025-2026, plus prior-year renewal comparison. Confirmed by Andrew (2026-07-20) that both the "Apartments" and "Lessors Risk Gym" TIV line items refer to 3277 Ivanhoe (the "Gym" label appears to be a legacy/mislabeled name in the agency’s tracking spreadsheet for the office/warehouse portion; the underlying policy classification is "Lessors Risk - Commercial Rental Building").',
+    policy_structure_note: 'This is a single church-wide Commercial Package Policy (GuideOne, policy #147414150) covering three locations: Location #1 = 6704 Fyler Avenue (the church + daycare), Location #3 = 3275-3283 Ivanhoe Ave (3277 Ivanhoe — split into a "Commercial Office" building value and an "Apartments" building value, both part of the same physical structure), and Locations #901/#902 = two parking lots on Fyler Avenue. There is no separate bill for 3277 Ivanhoe — any cost attributed to it here is an allocation off the master policy, not an actual separate invoice.',
+    insured_building_values: {
+      as_of_expiring_2025: { church_6704_fyler_cents: 718422400, ivanhoe_commercial_office_warehouse_cents: 242175300, ivanhoe_apartments_cents: 76900000, ivanhoe_total_cents: 319075300, grand_total_cents: 1037497700 },
+      as_of_renewal_2025_2026: { church_6704_fyler_cents: 775900000, ivanhoe_commercial_office_warehouse_cents: 261500000, ivanhoe_apartments_cents: 83100000, ivanhoe_total_cents: 344600000, grand_total_cents: 1120500000 },
+      note: 'Renewal values ran about 8% above expiring across the board — a real, recent data point for projecting insurance cost growth rather than assuming a flat rate.',
+    },
+    square_footage: {
+      church_6704_fyler_sqft: 28480,
+      ivanhoe_building_sqft: 16692,
+      ivanhoe_sqft_breakdown: '13,692 sq ft ground floor / 1,500 sq ft basement / 1,500 sq ft second floor (all connected: office, warehouse, and apartments are one physical structure)',
+      ivanhoe_share_of_combined_sqft_pct: 0.36952094217656956,
+      note: 'Useful as a second, independent allocation basis (e.g. for utilities or other shared costs where value isn’t the right basis) — it lands close to, but not identical to, the value-based share below, which is expected.',
+    },
+    premiums_2025_2026_renewal: {
+      commercial_package_policy_cpp_cents: 4912800,
+      commercial_auto_bap_cents: 35400,
+      umbrella_umb_cents: 50000,
+      workers_comp_wc_cents: 0,
+      total_cents: 4998200,
+      note: 'CPP is the property/liability policy and is the right one to allocate by building value. BAP (auto) is excluded from the property allocation — it covers vehicles, not real estate. UMB (umbrella) is prorated the same way as CPP since it follows the whole schedule.',
+    },
+    ivanhoe_allocation: {
+      method: 'Building value (TIV) share of the CPP + umbrella premium, using the renewal (2025-2026) values.',
+      ivanhoe_share_of_total_insured_value_pct: 0.307541276215975,
+      allocated_cpp_premium_cents: 1510889,
+      allocated_umbrella_premium_cents: 15377,
+      allocated_total_annual_cents: 1526266,
+      is_estimate: true,
+      estimate_note: 'This is a defensible allocation off the church’s actual insured-value schedule, not a guess — but it is still an allocation, since the church receives one bill and pays it centrally. Present as "allocated share of church insurance" rather than as an actual invoice paid by or to the property.',
+    },
+    correction_log: [
+      'An earlier pass allocated only the "Apartments" ($831,000) TIV bucket to 3277 Ivanhoe and computed roughly $3,681/year. That undercounted the property — the "Lessors Risk Gym" bucket ($2,615,000) is also 3277 Ivanhoe (the office/warehouse portion of the same connected building), confirmed by Andrew 2026-07-20 and by an exact dollar match to the ACORD property section. Corrected allocation uses both buckets ($3,446,000 total) and comes to roughly $15,263/year.',
+    ],
+    open_items: [
+      'Confirm with agent Kip Starnes (Lutheran Trust, Inc., 800-200-7257) that "Lessors Risk Gym" is in fact a legacy label for the Ivanhoe office/warehouse building and not a distinct property — the dollar match makes this very likely but it’s worth a one-line confirmation for the record.',
+      'MDO / daycare’s own share of building use and utilities at the church (Location #1, 6704 Fyler) is a separate, parallel allocation problem — see church_building_shared_costs (not shown in the Commercial Property section since it belongs to the church building, not this rental property).',
+    ],
+  },
+  // NOT about 3277 Ivanhoe — cost-sharing at the church's own building (6704 Fyler), where MDO
+  // and an evening gym renter also use the space. Kept here only because it's the same kind of
+  // shared-cost-allocation problem as the insurance split above; deliberately NOT surfaced in the
+  // Commercial Property UI. See CLAUDE.md queued items for where this should eventually live.
+  church_building_shared_costs: {
+    scope_note: "This section is NOT about 3277 Ivanhoe. It covers cost-sharing at the church's own building (6704 Fyler Avenue), where MDO (the daycare/preschool program) and an evening gym renter also use the space.",
+    mdo_utility_allocation: {
+      estimated_mdo_share_pct: 0.6,
+      is_estimate: true,
+      basis_given_by_andrew: 'MDO is in the building 5 days a week. The church itself uses the building for Sunday programming and an occasional weeknight. There is also an evening gym renter in the fall and winter.',
+      estimate_note: 'This is Andrew’s own judgment-call estimate, not a metered or invoiced split. A day-count-only calculation (5 weekday days out of 7) would suggest something closer to 71%; worth revisiting if the church ever gets real usage-hours or metered data.',
+      other_building_users_considered: [
+        { user: 'MDO (daycare/preschool)', schedule: '5 days/week, daytime' },
+        { user: 'Church (Sunday worship/programming)', schedule: 'Weekly, Sunday' },
+        { user: 'Church (occasional weeknight programming)', schedule: 'Occasional, one weeknight' },
+        { user: 'Evening gym renter', schedule: 'Fall and winter only, evenings' },
+      ],
+      remaining_share_pct_implied: 0.4,
+      remaining_share_note: 'The implied 40% remainder is not further split between the church’s own programming and the seasonal evening gym renter — worth deciding whether the gym renter should be broken out as its own line.',
+    },
+  },
 };
 async function seedIvanhoeProperty(db) {
   const existing = await db.prepare("SELECT COUNT(*) as n FROM finance_property_monthly WHERE property_key='ivanhoe'").first();
@@ -791,6 +866,128 @@ async function seedIvanhoeProperty(db) {
   ops.push(db.prepare(
     `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   ).bind(JSON.stringify(FINANCE_PROPERTY_IVANHOE_META)));
+  await db.batch(ops);
+}
+
+// FIN — 3277 Ivanhoe reserve schedules / capital ledger / repairs, delivered 2026-07-20 as a
+// follow-up to the initial export above (same source: AHRA monthly reports, cross-checked
+// against the general ledger detail for accounts 1640/4120/4129/4133/7510). Answers the gap the
+// user flagged after the first Commercial Property build shipped: "doesn't have the places for
+// reserves for property taxes, and capital expenses". Guarded by a one-time marker (not by row
+// count like seedIvanhoeProperty above) since this runs as a follow-up delta against a DB that
+// may already have the original property data seeded.
+// [report_month, tax_year_estimated, estimated_tax_cents, reserve_before_cents, contribution_cents, reserve_after_cents, note]
+const FINANCE_PROPERTY_TAX_RESERVE_SCHEDULE = [
+  ['2023-12', 2024, 1160000, 0, 96667, 96667, ''],
+  ['2024-03', 2024, 1160000, 290000, 96667, 386667, ''],
+  ['2024-04', 2024, 1160000, 386667, 96667, 483333, ''],
+  ['2024-05', 2024, 1160000, 483333, 96667, 580000, ''],
+  ['2024-06', 2024, 1160000, 580000, 96667, 676667, ''],
+  ['2024-07', 2024, 1160000, 676667, 96667, 773333, ''],
+  ['2024-08', 2024, 1160000, 773333, 96667, 870000, ''],
+  ['2024-09', 2024, 1160000, 870000, 96667, 966667, ''],
+  ['2024-10', 2024, 1160000, 966667, 96667, 1063333, ''],
+  ['2024-11', 2024, 0, 0, 0, 0, '2024 tax paid in November; reserve zeroed out.'],
+  ['2024-12', 2025, 1200000, 0, 100000, 100000, ''],
+  ['2025-01', 2025, 1200000, 100000, 100000, 200000, ''],
+  ['2025-02', 2025, 1200000, 200000, 100000, 300000, ''],
+  ['2025-03', 2025, 1200000, 300000, 100000, 400000, ''],
+  ['2025-04', 2025, 1200000, 400000, 100000, 500000, ''],
+  ['2025-05', 2025, 1200000, 500000, 100000, 600000, ''],
+  ['2025-06', 2025, 1200000, 600000, 100000, 700000, ''],
+  ['2025-07', 2025, 1200000, 700000, 100000, 800000, ''],
+  ['2025-08', 2025, 1200000, 800000, 100000, 900000, ''],
+  ['2025-09', 2025, 1200000, 900000, 100000, 1000000, ''],
+  ['2025-10', 2025, 1134839, 1000000, 67420, 1067420, 'Estimate revised down to actual 2025 tax amount.'],
+  ['2025-11', 2025, 0, 0, 0, 0, '2025 tax paid in November; reserve zeroed out.'],
+  ['2025-12', 2026, 1140000, 0, 95000, 95000, ''],
+  ['2026-01', 2026, 1140000, 95000, 95000, 190000, ''],
+  ['2026-02', 2026, 1140000, 190000, 95000, 285000, ''],
+  ['2026-03', 2026, 1140000, 285000, 95000, 380000, ''],
+  ['2026-04', 2026, 1140000, 380000, 95000, 475000, ''],
+  ['2026-05', 2026, 1140000, 380000, 95000, 475000, 'Same figures as April report; likely a report carryover rather than a missed contribution — worth confirming with AHRA.'],
+];
+// [tax_year, amount_paid_cents|null, paid_via_report_month|'', note]
+const FINANCE_PROPERTY_TAX_PAID_BY_YEAR = [
+  [2023, 1116456, '2023-12', 'Appears as a lump-sum expense line in the Dec 2023 report; predates the reserve-building mechanism seen from 2024 on.'],
+  [2024, 1164731, '2024-11', 'Reserve (built up to $10,633.33 through Oct) applied against actual bill; reserve zeroed in Nov 2024 report.'],
+  [2025, 1134964, '2025-11', 'Reserve (built up to $10,674.20 through Oct) applied against actual bill; reserve zeroed in Nov 2025 report.'],
+  [2026, null, '', 'Not yet paid as of the May 2026 report. Reserve is accumulating at $950/month against an $11,400 estimate; balance was $4,750.00 as of the May 2026 report.'],
+];
+// [entry_date|'', amount_cents, payee, description, check_ref, project]
+const FINANCE_PROPERTY_CAPITAL_LEDGER = [
+  ['', 988700, 'Unknown (predates available reports)', "Opening balance of the Capital Improvements account as of the earliest available report (Mar 2024). Likely early apartment renovation costs, per Best Roofing and Exteriors' 'Apartment Conversion' project that began Dec 2023. Jan/Feb 2024 reports are missing, so the itemized buildup to this figure isn't available.", '', '1st-floor apartment renovation (bathroom, kitchen, granite countertop)'],
+  ['2024-10-07', 540000, 'Vail Contracting LLC', '1st-floor apartment renovation - contracting work', 'Check #5088', '1st-floor apartment renovation (bathroom, kitchen, granite countertop)'],
+  ['2024-10-19', 230225, 'SS Stone & Design LLC', '1st-floor apartment renovation - granite countertop installation', 'Check #5091', '1st-floor apartment renovation (bathroom, kitchen, granite countertop)'],
+  ['2024-12-02', 57150, 'Vail Contracting LLC', '1st-floor apartment renovation - finishing work', 'Check #5097', '1st-floor apartment renovation (bathroom, kitchen, granite countertop)'],
+  ['2025-10-26', 778700, 'Martin Jetco Heating & Air Conditioning, Inc', 'Install new heater (HVAC system replacement)', 'Check #5146', 'HVAC system replacement (new heater)'],
+  ['2025-12-17', 400000, 'Vail Contracting LLC', 'Washer/dryer hookup installation, 1st floor apartment (deposit / first half)', 'eCheck 8350-13C0', 'Washer/dryer hookup installation, 1st floor apartment'],
+  ['2026-04-08', 400000, 'Vail Contracting LLC (inferred; same project)', 'Washer/dryer hookup installation, 1st floor apartment (final half; project completed per Feb 2026 report note)', 'Invoice 2954 / AP 000184', 'Washer/dryer hookup installation, 1st floor apartment'],
+];
+// [entry_date, category, description, amount_cents|null, payee, capitalized]
+const FINANCE_PROPERTY_REPAIRS = [
+  ['2023-12-27', 'Roof', 'Roof leak repair', null, '', 0],
+  ['2024-11', 'Roof', 'Roof leak during heavy rains; Innovative Roofing dispatched to make repairs', null, 'Innovative Roofing', 0],
+  ['2024-09-11', 'Appliance', 'Appliance replacement (1st floor apartment)', 77598, 'Slyman Bros', 0],
+  ['2025-01-23', 'Roof', 'Structure & roof repair', 15000, 'Innovative Construction & Roofing', 0],
+  ['2025-02-12', 'HVAC', 'HVAC repair', 8900, 'Heating Cooling', 0],
+  ['2025-02-18', 'HVAC', 'Replaced inducer motor and wheel on the Reznor gas heater (3283 unit)', 113500, 'Sigman Indoor Climate Solutions, LLC', 0],
+  ['2025-04-03', 'HVAC', 'Diagnosed short-cycling issue', 42000, 'Sigman Indoor Climate Solutions, LLC', 0],
+  ['2025-04-03', 'HVAC', 'Replaced thermostat', 31900, 'Sigman Indoor Climate Solutions, LLC', 0],
+  ['2025-07', 'Exterior / Masonry', 'Tuckpointing', 135000, 'Tough Enough Construction (billed via Innovative Construction & Roofing check)', 0],
+  ['2025-08', 'Roof / Ceiling', 'Ceiling leak repair (1st floor tenant reported ceiling damage)', 81107, 'Jim Taylor, Inc.', 0],
+  ['2026-03', 'Roof', 'Roof-related structure repair', 61179, '', 0],
+  ['2026-05', 'HVAC', 'Air-conditioning repair; cooling restored (1st floor apt)', null, '', 0],
+  ['2026-05-11', 'Roof', 'Roof-leak inspection in response to tenant report', null, '', 0],
+];
+async function seedIvanhoePropertyReservesV2(db) {
+  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_reserves_v2_seeded'").first();
+  if (marker) return;
+  const ops = [];
+  let sortOrder = 0;
+  for (const [reportMonth, taxYear, est, before, contrib, after, note] of FINANCE_PROPERTY_TAX_RESERVE_SCHEDULE) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_property_reserves (property_key,reserve_key,report_month,tax_year,target_estimate_cents,reserve_before_cents,contribution_cents,reserve_after_cents,note)
+       VALUES ('ivanhoe','property_tax',?,?,?,?,?,?,?)
+       ON CONFLICT(property_key,reserve_key,report_month) DO NOTHING`
+    ).bind(reportMonth, taxYear, est, before, contrib, after, note));
+  }
+  for (const [taxYear, amountCents, paidVia, note] of FINANCE_PROPERTY_TAX_PAID_BY_YEAR) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_property_reserve_disbursements (property_key,reserve_key,period_key,amount_cents,paid_via_report_month,note)
+       VALUES ('ivanhoe','property_tax',?,?,?,?)
+       ON CONFLICT(property_key,reserve_key,period_key) DO NOTHING`
+    ).bind(String(taxYear), amountCents, paidVia, note));
+  }
+  for (const [entryDate, amountCents, payee, description, checkRef, project] of FINANCE_PROPERTY_CAPITAL_LEDGER) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_property_capital_ledger (property_key,entry_date,amount_cents,payee,description,check_ref,project,sort_order)
+       VALUES ('ivanhoe',?,?,?,?,?,?,?)`
+    ).bind(entryDate, amountCents, payee, description, checkRef, project, sortOrder++));
+  }
+  for (const [entryDate, category, description, amountCents, payee, capitalized] of FINANCE_PROPERTY_REPAIRS) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_property_repairs (property_key,entry_date,category,description,amount_cents,payee,capitalized)
+       VALUES ('ivanhoe',?,?,?,?,?,?)`
+    ).bind(entryDate, category, description, amountCents, payee, capitalized));
+  }
+  // Correct/refresh the loan section (mortgage paydown) and add the new meta sections
+  // (capital_improvements/insurance/church_building_shared_costs) on an existing DB that already
+  // seeded the original (now-stale) meta blob — a shallow merge so any admin edits to other
+  // sections (property/valuation) survive.
+  const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_meta'").first();
+  let meta = {};
+  if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
+  meta.loan = FINANCE_PROPERTY_IVANHOE_META.loan;
+  meta.capital_improvements = FINANCE_PROPERTY_IVANHOE_META.capital_improvements;
+  meta.insurance = FINANCE_PROPERTY_IVANHOE_META.insurance;
+  meta.church_building_shared_costs = FINANCE_PROPERTY_IVANHOE_META.church_building_shared_costs;
+  ops.push(db.prepare(
+    `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(JSON.stringify(meta)));
+  ops.push(db.prepare(
+    `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_reserves_v2_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ));
   await db.batch(ops);
 }
 
@@ -1104,6 +1301,53 @@ async function _doInitDb(db) {
       UNIQUE(property_key, period)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_finance_property_dist_key ON finance_property_distributions(property_key)`,
+    // Finance tab — Commercial Property reserves/capital/repairs (see
+    // migrations/0023_finance_property_reserves.sql).
+    `CREATE TABLE IF NOT EXISTS finance_property_reserves (
+      property_key           TEXT    NOT NULL DEFAULT 'ivanhoe',
+      reserve_key            TEXT    NOT NULL,
+      report_month           TEXT    NOT NULL,
+      tax_year               INTEGER,
+      target_estimate_cents  INTEGER,
+      reserve_before_cents   INTEGER,
+      contribution_cents     INTEGER,
+      reserve_after_cents    INTEGER,
+      note                   TEXT    NOT NULL DEFAULT '',
+      PRIMARY KEY (property_key, reserve_key, report_month)
+    )`,
+    `CREATE TABLE IF NOT EXISTS finance_property_reserve_disbursements (
+      id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+      property_key           TEXT    NOT NULL DEFAULT 'ivanhoe',
+      reserve_key            TEXT    NOT NULL,
+      period_key             TEXT    NOT NULL,
+      amount_cents           INTEGER,
+      paid_via_report_month  TEXT    NOT NULL DEFAULT '',
+      note                   TEXT    NOT NULL DEFAULT '',
+      UNIQUE(property_key, reserve_key, period_key)
+    )`,
+    `CREATE TABLE IF NOT EXISTS finance_property_capital_ledger (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      property_key  TEXT    NOT NULL DEFAULT 'ivanhoe',
+      entry_date    TEXT    NOT NULL DEFAULT '',
+      amount_cents  INTEGER NOT NULL DEFAULT 0,
+      payee         TEXT    NOT NULL DEFAULT '',
+      description   TEXT    NOT NULL DEFAULT '',
+      check_ref     TEXT    NOT NULL DEFAULT '',
+      project       TEXT    NOT NULL DEFAULT '',
+      sort_order    INTEGER NOT NULL DEFAULT 0
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_finance_property_capital_ledger_key ON finance_property_capital_ledger(property_key)`,
+    `CREATE TABLE IF NOT EXISTS finance_property_repairs (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      property_key  TEXT    NOT NULL DEFAULT 'ivanhoe',
+      entry_date    TEXT    NOT NULL DEFAULT '',
+      category      TEXT    NOT NULL DEFAULT '',
+      description   TEXT    NOT NULL DEFAULT '',
+      amount_cents  INTEGER,
+      payee         TEXT    NOT NULL DEFAULT '',
+      capitalized   INTEGER NOT NULL DEFAULT 0
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_finance_property_repairs_key ON finance_property_repairs(property_key)`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
@@ -1150,5 +1394,6 @@ async function _doInitDb(db) {
   await seedTuitionYearRates(db);
   await seedStudentTuitionHistory(db);
   await seedIvanhoeProperty(db);
+  await seedIvanhoePropertyReservesV2(db);
 }
 

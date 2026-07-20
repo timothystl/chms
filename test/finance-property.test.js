@@ -9,6 +9,7 @@ function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   sqlite.exec(readFileSync(new URL('../migrations/0022_finance_property.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0023_finance_property_reserves.sql', import.meta.url), 'utf8'));
   return {
     prepare(sql) {
       return {
@@ -139,6 +140,100 @@ describe('handleFinanceApi — commercial property routes', () => {
   it('denies all property access to a non-finance role', async () => {
     const db = makeTestDb();
     const res = await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/property/ivanhoe', db, false, false);
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('handleFinanceApi — reserve schedules (property tax, capital, ...)', () => {
+  it('auto-computes reserve_before from the prior month and carries the running balance forward', async () => {
+    const db = makeTestDb();
+    const jan = await handleFinanceApi(makeReq({ report_month: '2026-01', tax_year: 2026, target_estimate: '11400', contribution: '950' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/reserves/property_tax/monthly', db, true, true);
+    expect(jan.status).toBe(200);
+    const janBody = await jan.json();
+    expect(janBody.reserve_before_cents).toBe(0);
+    expect(janBody.reserve_after_cents).toBe(95000);
+
+    const feb = await handleFinanceApi(makeReq({ report_month: '2026-02', tax_year: 2026, target_estimate: '11400', contribution: '950' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/reserves/property_tax/monthly', db, true, true);
+    const febBody = await feb.json();
+    expect(febBody.reserve_before_cents).toBe(95000); // carried from January's reserve_after
+    expect(febBody.reserve_after_cents).toBe(190000);
+
+    const getRes = await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/property/ivanhoe', db, true, true);
+    const body = await getRes.json();
+    expect(body.reserves.property_tax).toHaveLength(2);
+  });
+
+  it('a zero-contribution "paid" month can be recorded, and a disbursement logged separately', async () => {
+    const db = makeTestDb();
+    await handleFinanceApi(makeReq({ report_month: '2025-10', contribution: '674.20' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/reserves/property_tax/monthly', db, true, true);
+    const paidRes = await handleFinanceApi(makeReq({ report_month: '2025-11', tax_year: 2025, target_estimate: '0', contribution: '0', reserve_before: '0', note: 'tax paid, reserve zeroed' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/reserves/property_tax/monthly', db, true, true);
+    expect((await paidRes.json()).reserve_after_cents).toBe(0);
+
+    const disRes = await handleFinanceApi(makeReq({ period_key: '2025', amount: '11349.64', paid_via_report_month: '2025-11', note: 'annual tax bill' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/reserves/property_tax/disbursements', db, true, true);
+    expect(disRes.status).toBe(200);
+
+    const getRes = await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/property/ivanhoe', db, true, true);
+    const body = await getRes.json();
+    expect(body.reserveDisbursements.property_tax[0].amount_cents).toBe(1134964);
+  });
+
+  it('deletes a reserve month and a disbursement', async () => {
+    const db = makeTestDb();
+    await handleFinanceApi(makeReq({ report_month: '2026-01', contribution: '950' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/reserves/property_tax/monthly', db, true, true);
+    await handleFinanceApi(makeReq({ period_key: '2025', amount: '100' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/reserves/property_tax/disbursements', db, true, true);
+
+    await handleFinanceApi({}, {}, new URL('https://x/'), 'DELETE', 'finance/property/ivanhoe/reserves/property_tax/monthly/2026-01', db, true, true);
+    await handleFinanceApi({}, {}, new URL('https://x/'), 'DELETE', 'finance/property/ivanhoe/reserves/property_tax/disbursements/2025', db, true, true);
+
+    const body = await (await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/property/ivanhoe', db, true, true)).json();
+    expect(body.reserves.property_tax).toBeUndefined();
+    expect(body.reserveDisbursements.property_tax).toBeUndefined();
+  });
+});
+
+describe('handleFinanceApi — capital improvements ledger', () => {
+  it('adds ledger entries, assigns increasing sort_order, and totals them', async () => {
+    const db = makeTestDb();
+    const r1 = await handleFinanceApi(makeReq({ entry_date: '2024-10-07', amount: '5400', payee: 'Vail Contracting LLC', description: 'renovation', project: 'Apartment renovation' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/capital-ledger', db, true, true);
+    expect(r1.status).toBe(200);
+    await handleFinanceApi(makeReq({ entry_date: '2024-10-19', amount: '2302.25', payee: 'SS Stone', description: 'countertop', project: 'Apartment renovation' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/capital-ledger', db, true, true);
+
+    const body = await (await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/property/ivanhoe', db, true, true)).json();
+    expect(body.capitalLedger).toHaveLength(2);
+    expect(body.capitalLedger[0].sort_order).toBe(0);
+    expect(body.capitalLedger[1].sort_order).toBe(1);
+    expect(body.capitalLedgerTotalCents).toBe(540000 + 230225);
+  });
+
+  it('deletes a ledger entry by id', async () => {
+    const db = makeTestDb();
+    const addRes = await handleFinanceApi(makeReq({ entry_date: '2024-10-07', amount: '5400' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/capital-ledger', db, true, true);
+    const { id } = await addRes.json();
+    await handleFinanceApi({}, {}, new URL('https://x/'), 'DELETE', 'finance/property/ivanhoe/capital-ledger/' + id, db, true, true);
+    const body = await (await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/property/ivanhoe', db, true, true)).json();
+    expect(body.capitalLedger).toHaveLength(0);
+  });
+});
+
+describe('handleFinanceApi — repairs & maintenance log', () => {
+  it('adds and deletes a repair entry, tolerating a null amount', async () => {
+    const db = makeTestDb();
+    const addRes = await handleFinanceApi(makeReq({ entry_date: '2026-05', category: 'HVAC', description: 'AC repair' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/repairs', db, true, true);
+    expect(addRes.status).toBe(200);
+    const { id } = await addRes.json();
+
+    let body = await (await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/property/ivanhoe', db, true, true)).json();
+    expect(body.repairs).toHaveLength(1);
+    expect(body.repairs[0].amount_cents).toBeNull();
+
+    await handleFinanceApi({}, {}, new URL('https://x/'), 'DELETE', 'finance/property/ivanhoe/repairs/' + id, db, true, true);
+    body = await (await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/property/ivanhoe', db, true, true)).json();
+    expect(body.repairs).toHaveLength(0);
+  });
+
+  it('rejects writes from a non-admin', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ category: 'HVAC' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/repairs', db, false, true);
     expect(res.status).toBe(403);
   });
 });
