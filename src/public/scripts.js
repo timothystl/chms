@@ -177,7 +177,7 @@ function updatePreviews() {
 
 // ── Volunteer form submission ─────────────────────────────────────────
 function showThankYou(formEl, signupId) {
-  var calBtn = signupId ? '<a href="/volunteer/calendar/'+signupId+'" download style="display:inline-flex;align-items:center;gap:.5rem;background:var(--teal);color:#fff;text-decoration:none;padding:.65rem 1.25rem;border-radius:8px;font-weight:600;font-size:.95rem;margin-top:1rem;">\\uD83D\\uDCC5 Add to Calendar (.ics)</a>' : '';
+  var calBtn = signupId ? '<a href="/serve/calendar/'+signupId+'" download style="display:inline-flex;align-items:center;gap:.5rem;background:var(--teal);color:#fff;text-decoration:none;padding:.65rem 1.25rem;border-radius:8px;font-weight:600;font-size:.95rem;margin-top:1rem;">\\uD83D\\uDCC5 Add to Calendar (.ics)</a>' : '';
   formEl.innerHTML = '<div style="text-align:center;padding:2.5rem 1rem;">'
     + '<div style="font-size:2.5rem;margin-bottom:.75rem;color:var(--gold);">\\u2713</div>'
     + '<h3 style="margin-bottom:.5rem;">Thank you!</h3>'
@@ -191,7 +191,7 @@ function submitVolunteer(data, formEl, btnEl) {
   if (!data.email || !data.email.trim()) { alert('Please enter your email address.'); return; }
   if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(data.email.trim())) { alert('Please enter a valid email address.'); return; }
   var origHtml = btnEl.innerHTML; btnEl.disabled = true; btnEl.textContent = 'Sending\\u2026';
-  fetch('/volunteer/signup', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) })
+  fetch('/serve/signup', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) })
     .then(function(r){return r.json().then(function(res){return {ok:r.ok,body:res};});})
     .then(function(r){
       if (r.body.ok) { showThankYou(formEl, r.body.signup_id); }

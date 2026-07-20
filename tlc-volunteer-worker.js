@@ -199,7 +199,11 @@ async function _fetch(req, env) {
     }
     if (path === '/api/events' && method === 'GET') return handleApiEvents(env);
     if (path === '/api/ministry-roles' && method === 'GET') return handleApiMinistryRoles(env, url);
-    if (path === '/volunteer/signup' && method === 'POST') {
+    // Renamed 2026-07-20 to /serve/* (matching the serve.timothystl.org brand); the old
+    // /volunteer/* paths are kept working indefinitely as aliases — nothing shared them
+    // externally, but there's no reason to break an already-open browser tab that hasn't
+    // refetched PUBLIC_HTML/the scheduler bundle yet.
+    if ((path === '/serve/signup' || path === '/volunteer/signup') && method === 'POST') {
       try {
         return await handleSignup(req, env);
       } catch (e) {
@@ -207,7 +211,7 @@ async function _fetch(req, env) {
         return json({ ok: false, error: 'Server error. Please try again or contact the church office.' }, 500);
       }
     }
-    if (path.match(/^\/volunteer\/calendar\/\d+$/) && method === 'GET') return handleCalendar(env, path);
+    if ((path.match(/^\/serve\/calendar\/\d+$/) || path.match(/^\/volunteer\/calendar\/\d+$/)) && method === 'GET') return handleCalendar(env, path);
     if (path === '/admin/login' && method === 'POST') return handleAdminLogin(req, env);
     if (path === '/admin/forgot-password' && method === 'POST') return handleForgotPassword(req, env);
     if (path === '/admin/reset' && (method === 'GET' || method === 'POST')) return handleResetPassword(req, env, url);
@@ -414,9 +418,9 @@ async function _fetch(req, env) {
                          || await isAuthed(req, env);
     if (!schedAuthed) return json({ error: 'Unauthorized' }, 401);
 
-    if (path === '/volunteer/pending'         && method === 'GET') return handleVolunteerPending(env);
-    if (path === '/volunteer/general-pending' && method === 'GET') return handleVolunteerGeneralPending(env);
-    if (path === '/volunteer/event-pending'   && method === 'GET') return handleVolunteerEventPending(env);
+    if ((path === '/serve/pending'         || path === '/volunteer/pending')         && method === 'GET') return handleVolunteerPending(env);
+    if ((path === '/serve/general-pending' || path === '/volunteer/general-pending') && method === 'GET') return handleVolunteerGeneralPending(env);
+    if ((path === '/serve/event-pending'   || path === '/volunteer/event-pending')   && method === 'GET') return handleVolunteerEventPending(env);
     if (path === '/email/send'   && method === 'POST') return handleSchedEmailSend(req, env);
     if (path === '/rsvp/store'   && method === 'POST') return handleSchedRsvpStore(req, env);
     if (path === '/rsvp/sync'    && method === 'POST') return handleSchedRsvpSync(req, env);

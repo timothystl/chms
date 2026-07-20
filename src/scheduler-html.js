@@ -5612,7 +5612,7 @@ async function fetchPendingSignups() {
   // Primary: fetch from worker KV endpoint
   if (s.workerUrl) {
     try {
-      var r = await fetch(s.workerUrl + '/volunteer/pending', { headers: _workerHeaders() });
+      var r = await fetch(s.workerUrl + '/serve/pending', { headers: _workerHeaders() });
       var data = await r.json();
       var result = (data.volunteers || []).map(function(v) {
         return {
@@ -5734,7 +5734,7 @@ async function fetchGeneralVolunteers() {
   var s = getBreezeSettings();
   if (!s.workerUrl) { _generalVolunteers = getGeneralVolunteers(); updateGeneralBadge(); return; }
   try {
-    var r = await fetch(s.workerUrl + '/volunteer/general-pending', { headers: _workerHeaders() });
+    var r = await fetch(s.workerUrl + '/serve/general-pending', { headers: _workerHeaders() });
     var data = await r.json();
     var result = (data.volunteers || []).sort(function(a, b) {
       return (b.submittedAt || '').localeCompare(a.submittedAt || '');
@@ -5817,7 +5817,7 @@ async function fetchEventVolunteers() {
   var s = getBreezeSettings();
   if (!s.workerUrl) { _eventVolunteers = getEventVolunteers(); updateEventBadge(); return; }
   try {
-    var r = await fetch(s.workerUrl + '/volunteer/event-pending', { headers: _workerHeaders() });
+    var r = await fetch(s.workerUrl + '/serve/event-pending', { headers: _workerHeaders() });
     var data = await r.json();
     var result = (data.volunteers || []).sort(function(a, b) {
       return (b.submittedAt || '').localeCompare(a.submittedAt || '');
