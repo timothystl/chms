@@ -30,6 +30,7 @@ function loadFinance() {
     finRenderDaycare();
     finRenderChurchReport();
     finRenderDaycareReport();
+    finLoadProperty();
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
     loadingEl.textContent = 'Could not load finance data.';
@@ -40,7 +41,7 @@ function loadFinance() {
 // Button active-state is handled by the shared renderFinanceSubnav() (js-core.js) re-render,
 // driven by showTab()'s _finActiveNavId — this only toggles panel visibility.
 function finShowSection(section) {
-  ['overview', 'church', 'daycare'].forEach(function(s) {
+  ['overview', 'church', 'daycare', 'property'].forEach(function(s) {
     var panel = document.getElementById('fin-panel-' + s);
     if (panel) panel.style.display = (s === section) ? '' : 'none';
   });
@@ -1252,6 +1253,162 @@ function finExportBoardPacket(year) {
   }).catch(function(err) {
     if (btn) { btn.disabled = false; btn.textContent = 'Export Board Packet'; }
     if (err && err.message !== 'Unauthorized') finToast('Export failed: ' + (err.message || 'Unknown error'));
+  });
+}
+
+// ── Commercial Property (3277 Ivanhoe) ───────────────────────────────────────────────────────
+// Only one property exists today ('ivanhoe'); propertyKey is hardcoded here to match the
+// backend's single-property route (see handlePropertyApi in src/api-finance.js). Figures come
+// straight from the 2026-07-20 AHRA data export — see CLAUDE.md's Finance Overview queued items.
+var _finProperty = null;
+var FIN_PROPERTY_KEY = 'ivanhoe';
+function finLoadProperty() {
+  var el = document.getElementById('fin-property-root');
+  if (!el) return;
+  el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY).then(function(d) {
+    _finProperty = d;
+    finRenderProperty(d);
+  }).catch(function(err) {
+    if (err && err.message === 'Unauthorized') return;
+    el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load property data.</p>';
+  });
+}
+function finRenderProperty(d) {
+  var el = document.getElementById('fin-property-root');
+  if (!el || !d) return;
+  var meta = d.meta || {};
+  var prop = meta.property || {};
+  var val = meta.valuation || {};
+  var loan = meta.loan || {};
+  var eq = d.equity || {};
+  var isAdminUI = (_userRole === 'admin');
+
+  var statsHtml = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((val.capitalized_value_cents||0)/100) + '</div><div class="rpt-stat-lbl">Valuation</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((loan.balance_cents||0)/100) + '</div><div class="rpt-stat-lbl">Mortgage Balance</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((eq.equity_cents||0)/100) + '</div><div class="rpt-stat-lbl">Equity</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">' + (eq.loan_to_value_pct != null ? (eq.loan_to_value_pct*100).toFixed(1) + '%' : '—') + '</div><div class="rpt-stat-lbl">Loan-to-Value</div></div>'
+    + '</div>';
+
+  var infoHtml = '<p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 4px;"><b>' + esc(prop.name || '3277 Ivanhoe') + '</b> — ' + esc(prop.type || '') + '. Owned by ' + esc(prop.owner || 'Timothy Lutheran Church') + '. Managed by ' + esc(prop.property_manager || '') + '.</p>'
+    + (val.as_of_date ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 2px;">Valuation as of ' + esc(val.as_of_date) + ' (' + esc(val.method || '') + ').</p>' : '')
+    + (loan.note ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 2px;"><i>' + esc(loan.note) + '</i></p>' : '')
+    + ((prop.known_data_gaps && prop.known_data_gaps.length) ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 2px;">Known data gaps: ' + prop.known_data_gaps.map(esc).join(', ') + '.</p>' : '')
+    + (prop.pre_ahra_history_note ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:8px 0 0;">' + esc(prop.pre_ahra_history_note) + '</p>' : '');
+
+  // Annual summary
+  var years = (d.annualSummary || []).slice().sort(function(a,b){ return b.year - a.year; });
+  var annualRows = years.map(function(y) {
+    return '<tr><td style="padding:6px 8px;font-weight:600;">' + y.year + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">$' + finFmtMoney(y.total_revenue_cents/100) + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">$' + finFmtMoney(y.total_expenses_cents/100) + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">$' + finFmtMoney(y.net_income_cents/100) + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">' + (y.avg_occupancy_pct != null ? (y.avg_occupancy_pct*100).toFixed(1)+'%' : '—') + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;">$' + finFmtMoney(y.confirmed_distributions_cents/100) + '</td>'
+      + '<td style="padding:6px 8px;font-size:.78rem;color:var(--warm-gray);">' + esc(y.notes || '') + '</td></tr>';
+  }).join('');
+  var annualHtml = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:6px 8px;">Year</th><th style="text-align:right;padding:6px 8px;">Revenue</th><th style="text-align:right;padding:6px 8px;">Expenses</th><th style="text-align:right;padding:6px 8px;">Net Income</th><th style="text-align:right;padding:6px 8px;">Avg Occ.</th><th style="text-align:right;padding:6px 8px;">Distributions to Church</th><th style="text-align:left;padding:6px 8px;">Notes</th></tr></thead>'
+    + '<tbody>' + (annualRows || '<tr><td colspan="7" style="padding:10px;color:var(--warm-gray);">No data yet.</td></tr>') + '</tbody>'
+    + '</table></div>';
+
+  // Monthly financials
+  var monthly = (d.monthly || []).slice().sort(function(a,b){ return a.period < b.period ? 1 : -1; });
+  function cell(cents) { return cents == null ? '<span style="color:var(--warm-gray);">—</span>' : '$' + finFmtMoney(cents/100); }
+  var monthRows = monthly.map(function(m) {
+    return '<tr><td style="padding:5px 8px;font-weight:600;">' + esc(m.period) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + (m.occupancy_pct != null ? (m.occupancy_pct*100).toFixed(1)+'%' : '—') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + cell(m.total_revenue_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + cell(m.total_expenses_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + cell(m.net_income_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + cell(m.net_operating_income_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + cell(m.reserve_balance_cents) + '</td>'
+      + (isAdminUI ? '<td style="padding:5px 8px;white-space:nowrap;"><button class="btn-secondary" style="font-size:.72rem;padding:2px 6px;" onclick="finPropertyOpenMonthModal(\'' + esc(m.period) + '\')">Edit</button> <button class="btn-secondary" style="font-size:.72rem;padding:2px 6px;color:var(--danger);" onclick="finPropertyDeleteMonth(\'' + esc(m.period) + '\')">Delete</button></td>' : '') + '</tr>';
+  }).join('');
+  var monthlyHtml = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:5px 8px;">Period</th><th style="text-align:right;padding:5px 8px;">Occ.</th><th style="text-align:right;padding:5px 8px;">Revenue</th><th style="text-align:right;padding:5px 8px;">Expenses</th><th style="text-align:right;padding:5px 8px;">Net Income</th><th style="text-align:right;padding:5px 8px;">NOI</th><th style="text-align:right;padding:5px 8px;">Reserve</th>' + (isAdminUI ? '<th></th>' : '') + '</tr></thead>'
+    + '<tbody>' + (monthRows || '<tr><td colspan="8" style="padding:10px;color:var(--warm-gray);">No months recorded yet.</td></tr>') + '</tbody>'
+    + '</table></div>';
+
+  // Distributions to church
+  var dists = (d.distributions || []).slice().sort(function(a,b){ return a.period < b.period ? 1 : -1; });
+  var distRows = dists.map(function(dd) {
+    return '<tr><td style="padding:5px 8px;">' + esc(dd.period) + '</td><td style="padding:5px 8px;text-align:right;">$' + finFmtMoney(dd.amount_cents/100) + '</td>'
+      + (isAdminUI ? '<td style="padding:5px 8px;"><button class="btn-secondary" style="font-size:.72rem;padding:2px 6px;color:var(--danger);" onclick="finPropertyDeleteDistribution(\'' + esc(dd.period) + '\')">Delete</button></td>' : '') + '</tr>';
+  }).join('');
+  var distHtml = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:6px 8px;">Period</th><th style="text-align:right;padding:6px 8px;">Amount</th>' + (isAdminUI ? '<th></th>' : '') + '</tr></thead>'
+    + '<tbody>' + (distRows || '<tr><td colspan="3" style="padding:10px;color:var(--warm-gray);">No distributions recorded yet.</td></tr>') + '</tbody>'
+    + '</table></div>'
+    + (isAdminUI ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Period<br><input type="text" id="fin-prop-dist-period" placeholder="2026-07" style="width:100px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-prop-dist-amount" step="0.01" style="width:110px;"></label>'
+      + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finPropertyAddDistribution()">+ Add</button>'
+      + '</div>' : '');
+
+  el.innerHTML = statsHtml
+    + '<div style="margin-bottom:16px;">' + infoHtml + '</div>'
+    + '<h4 style="margin:0 0 8px;font-size:.9rem;">Annual Summary</h4>' + annualHtml
+    + '<h4 style="margin:18px 0 8px;display:flex;align-items:center;justify-content:space-between;font-size:.9rem;"><span>Monthly Financials</span>' + (isAdminUI ? '<button class="btn-primary" style="font-size:.78rem;padding:4px 10px;" onclick="finPropertyOpenMonthModal()">+ Add Month</button>' : '') + '</h4>' + monthlyHtml
+    + '<h4 style="margin:18px 0 8px;font-size:.9rem;">Distributions to Church</h4>' + distHtml;
+}
+function finPropertyOpenMonthModal(period) {
+  var m = period ? (_finProperty.monthly || []).filter(function(r){ return r.period === period; })[0] : null;
+  document.getElementById('fpm-period').value = m ? m.period : '';
+  document.getElementById('fpm-period').disabled = !!m;
+  document.getElementById('fpm-occupancy').value = m && m.occupancy_pct != null ? (m.occupancy_pct*100) : '';
+  document.getElementById('fpm-revenue').value = m && m.total_revenue_cents != null ? (m.total_revenue_cents/100) : '';
+  document.getElementById('fpm-expenses').value = m && m.total_expenses_cents != null ? (m.total_expenses_cents/100) : '';
+  document.getElementById('fpm-net-income').value = m && m.net_income_cents != null ? (m.net_income_cents/100) : '';
+  document.getElementById('fpm-noi').value = m && m.net_operating_income_cents != null ? (m.net_operating_income_cents/100) : '';
+  document.getElementById('fpm-afd').value = m && m.available_for_distribution_cents != null ? (m.available_for_distribution_cents/100) : '';
+  document.getElementById('fpm-reserve').value = m && m.reserve_balance_cents != null ? (m.reserve_balance_cents/100) : '';
+  document.getElementById('fpm-source').value = m ? (m.source_report || '') : '';
+  document.getElementById('fpm-error').textContent = '';
+  openModal('fin-property-month-modal');
+}
+function finPropertySaveMonth() {
+  var period = document.getElementById('fpm-period').value.trim();
+  var errEl = document.getElementById('fpm-error');
+  if (!/^\d{4}-\d{2}$/.test(period)) { errEl.textContent = 'Period must be in YYYY-MM format.'; return; }
+  function numOrEmpty(id) { var v = document.getElementById(id).value; return v === '' ? '' : v; }
+  var body = {
+    period: period,
+    occupancy_pct: numOrEmpty('fpm-occupancy') === '' ? '' : Number(document.getElementById('fpm-occupancy').value) / 100,
+    total_revenue: numOrEmpty('fpm-revenue'),
+    total_expenses: numOrEmpty('fpm-expenses'),
+    net_income: numOrEmpty('fpm-net-income'),
+    net_operating_income: numOrEmpty('fpm-noi'),
+    available_for_distribution: numOrEmpty('fpm-afd'),
+    reserve_balance: numOrEmpty('fpm-reserve'),
+    source_report: document.getElementById('fpm-source').value.trim(),
+  };
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/monthly', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
+    if (d && d.error) { errEl.textContent = d.error; return; }
+    closeModal('fin-property-month-modal');
+    finLoadProperty();
+  }).catch(function(err) { errEl.textContent = err && err.message ? err.message : 'Save failed.'; });
+}
+function finPropertyDeleteMonth(period) {
+  if (!confirm('Delete the ' + period + ' entry? This cannot be undone.')) return;
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/monthly/' + encodeURIComponent(period), { method: 'DELETE' }).then(function() {
+    finLoadProperty();
+  });
+}
+function finPropertyAddDistribution() {
+  var period = document.getElementById('fin-prop-dist-period').value.trim();
+  var amount = document.getElementById('fin-prop-dist-amount').value;
+  if (!/^\d{4}-\d{2}$/.test(period) || amount === '') { finToast('Enter a valid period (YYYY-MM) and amount.'); return; }
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/distributions', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ period: period, amount: amount }) }).then(function(d) {
+    if (d && d.error) { finToast(d.error); return; }
+    finLoadProperty();
+  });
+}
+function finPropertyDeleteDistribution(period) {
+  if (!confirm('Delete the distribution recorded for ' + period + '?')) return;
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/distributions/' + encodeURIComponent(period), { method: 'DELETE' }).then(function() {
+    finLoadProperty();
   });
 }
 `;

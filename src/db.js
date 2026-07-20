@@ -685,6 +685,115 @@ async function seedStudentTuitionHistory(db) {
   }
 }
 
+// FIN — 3277 Ivanhoe commercial property data, delivered 2026-07-20 as a structured export from
+// AHRA's (property manager) monthly reports Dec 2023-May 2026, cross-checked against the
+// user's already-verified analysis workbook. Dollar figures converted to integer cents here (the
+// export itself uses dollars) per this app's Data Integrity convention. 2024-01/2024-02 are a
+// known gap (not sent by AHRA / not found in the mailbox export) — intentionally absent, not
+// zero. `null` fields (total_expenses for several 2026 months, net_operating_income/
+// available_for_distribution/reserve_balance before the Jan 2026 MRI-format switch) reflect real
+// gaps in what a given month's report format broke out, not missing extraction.
+const FINANCE_PROPERTY_IVANHOE_MONTHLY = [
+  ['2023-12', 0.893, 817676, 1547322, -729646, null, null, null, '2023-12 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2024-03', 0.893, 847450, 351860, 495590, null, null, null, '2024-03 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2024-04', 0.893, 946476, 318823, 627653, null, null, null, '2024-04 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2024-05', 0.893, 855320, 501098, 354222, null, null, null, '2024-05 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2024-06', 0.893, 843679, 290198, 553481, null, null, null, '2024-06 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2024-07', 0.893, 835610, 510125, 325485, null, null, null, '2024-07 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2024-08', 0.893, 766909, 225404, 541505, null, null, null, '2024-08 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2024-09', 0.893, 843382, 276435, 566947, null, null, null, '2024-09 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2024-10', 0.893, 847942, 405657, 442285, null, null, null, '2024-10 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2024-11', 0.893, 787743, 298577, 489166, null, null, null, '2024-11 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2024-12', 0.893, 914212, 1604136, -689924, null, null, null, '2024-12 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2025-01', 0.893, 806292, 356510, 449782, null, null, null, '2025-01 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2025-02', 0.893, 731000, 748483, -17483, null, null, null, '2025-02 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2025-03', 1.0, 847450, 351860, 495590, null, null, null, '2025-03 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2025-04', 1.0, 1100695, 471629, 629066, null, null, null, '2025-04 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2025-05', 1.0, 1037544, 624793, 412751, null, null, null, '2025-05 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2025-06', 1.0, 1047869, 298370, 749499, null, null, null, '2025-06 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2025-07', 1.0, 960017, 452290, 507727, null, null, null, '2025-07 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2025-08', 1.0, 932142, 1246913, -314771, null, null, null, '2025-08 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2025-09', 1.0, 964407, 1207963, -243556, null, null, null, '2025-09 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2025-10', 1.0, 1057918, 407087, 650831, null, null, null, '2025-10 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2025-11', 1.0, 1026584, 288207, 738377, null, null, null, '2025-11 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2025-12', 1.0, 1041355, 1463143, -421788, null, null, null, '2025-12 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2026-01', 1.0, 932721, null, 509994, 610165, null, 640000, '2026-01 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2026-02', 1.0, 1049520, null, 637333, 736514, 251528, 735000, '2026-02 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2026-03', 1.0, 859000, 576665, 282335, 381027, 411482, null, '2026-03 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2026-04', 1.0, 1318497, null, 975000, 1072700, 451066, 925000, '2026-04 - 3277 Ivanhoe Property Management Report.pdf'],
+  ['2026-05', 0.8892, 927063, null, 448614, 545318, null, null, '2026-05 - 3277 Ivanhoe Property Management Report.pdf'],
+];
+const FINANCE_PROPERTY_IVANHOE_DISTRIBUTIONS = [
+  ['2024-05', 700000],
+  ['2024-07', 1100000],
+  ['2024-11', 800000],
+  ['2024-12', 800000],
+  ['2025-05', 800000],
+  ['2026-04', 400000],
+];
+// Board-facing notes per year — hand-written context that can't be derived from the monthly
+// rows (kept alongside the recomputed revenue/expenses/net income/occupancy/distributions
+// totals, not duplicating them, so there's one source of truth for the numbers themselves).
+const FINANCE_PROPERTY_IVANHOE_ANNUAL_NOTES = {
+  2023: 'Partial year (Dec only, per this data set); FYE 2023 statements available separately.',
+  2024: 'Distributions: May ($7K), Jul ($11K), Nov ($8K), Dec ($8K). Bathroom/kitchen renovation and roofing delays throughout the year.',
+  2025: '1st-floor apartment leased (reached 100% occupancy from Mar 2025 on); HVAC replacement; tuckpointing; mortgage payment increased late in year.',
+  2026: 'New MRI reporting system; YTD through May. Most 2026 months report net_income directly without a separate expenses line in this dataset.',
+};
+const FINANCE_PROPERTY_IVANHOE_META = {
+  property: {
+    name: '3277 Ivanhoe',
+    owner: 'Timothy Lutheran Church',
+    type: 'Commercial rental property (mixed apartment units)',
+    property_manager: 'AHRA (contacts: Christian Andrade, Lorenzo Andrade)',
+    known_data_gaps: ['2024-01', '2024-02'],
+    pre_ahra_history_note: "Records before AHRA's management are essentially nonexistent. A house was originally rolled into the same loan and later sold; there is also a parking lot associated with the property. This history is captured as a note rather than structured ledger data.",
+  },
+  valuation: {
+    as_of_date: '2025-11-20',
+    method: 'Income capitalization, 8% cap rate',
+    source: '3277 Ivanhoe Valuation.xlsx, attached to AHRA’s Oct 2025 report email; figure verbally confirmed by AHRA (Christian/Lorenzo Andrade) 11/20/2025',
+    gross_rental_income_cents: 11905585,
+    total_operating_costs_incl_mgmt_fee_cents: 6415066,
+    net_operating_income_cents: 5490519,
+    cap_rate: 0.08,
+    capitalized_value_cents: 68631486,
+  },
+  loan: {
+    lender: 'LCEF',
+    balance_cents: 29733600,
+    balance_as_of_date: '2025-11-20',
+    confirmed_by: 'Andrew (pastor), 2026-07-20',
+    note: 'A conflicting figure of $92,322.68 appeared on the Mar 2026 MRI-format balance sheet — confirmed to be a data artifact from AHRA’s Appfolio-to-MRI migration and should be disregarded. $297,336 is the correct current balance.',
+    monthly_payment_cents: 428303,
+    monthly_payment_note: 'Increased per the Dec 2025 report.',
+    annual_debt_service_cents: 4539636,
+  },
+  annual_notes: FINANCE_PROPERTY_IVANHOE_ANNUAL_NOTES,
+};
+async function seedIvanhoeProperty(db) {
+  const existing = await db.prepare("SELECT COUNT(*) as n FROM finance_property_monthly WHERE property_key='ivanhoe'").first();
+  if (!existing || existing.n > 0) return;
+  const ops = [];
+  for (const row of FINANCE_PROPERTY_IVANHOE_MONTHLY) {
+    const [period, occ, rev, exp, net, noi, afd, reserve, source] = row;
+    ops.push(db.prepare(
+      `INSERT INTO finance_property_monthly
+         (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,source_report)
+       VALUES ('ivanhoe',?,?,?,?,?,?,?,?,?)`
+    ).bind(period, occ, rev, exp, net, noi, afd, reserve, source));
+  }
+  for (const [period, cents] of FINANCE_PROPERTY_IVANHOE_DISTRIBUTIONS) {
+    ops.push(db.prepare(
+      `INSERT OR IGNORE INTO finance_property_distributions (property_key,period,amount_cents) VALUES ('ivanhoe',?,?)`
+    ).bind(period, cents));
+  }
+  ops.push(db.prepare(
+    `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(JSON.stringify(FINANCE_PROPERTY_IVANHOE_META)));
+  await db.batch(ops);
+}
+
 async function _doInitDb(db) {
   for (const stmt of DB_INIT) {
     await db.prepare(stmt).run();
@@ -972,6 +1081,29 @@ async function _doInitDb(db) {
     // migrations/0021_scheduler_volunteers_legacy_id.sql).
     `ALTER TABLE scheduler_volunteers ADD COLUMN migrated_from_legacy_id TEXT NOT NULL DEFAULT ''`,
     `CREATE INDEX IF NOT EXISTS idx_scheduler_volunteers_legacy_id ON scheduler_volunteers(migrated_from_legacy_id)`,
+    // Finance tab — Commercial Property section (see migrations/0022_finance_property.sql).
+    `CREATE TABLE IF NOT EXISTS finance_property_monthly (
+      property_key                     TEXT    NOT NULL DEFAULT 'ivanhoe',
+      period                           TEXT    NOT NULL,
+      occupancy_pct                    REAL,
+      total_revenue_cents              INTEGER,
+      total_expenses_cents             INTEGER,
+      net_income_cents                 INTEGER,
+      net_operating_income_cents       INTEGER,
+      available_for_distribution_cents INTEGER,
+      reserve_balance_cents            INTEGER,
+      source_report                    TEXT    NOT NULL DEFAULT '',
+      updated_at                       TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (property_key, period)
+    )`,
+    `CREATE TABLE IF NOT EXISTS finance_property_distributions (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      property_key  TEXT    NOT NULL DEFAULT 'ivanhoe',
+      period        TEXT    NOT NULL,
+      amount_cents  INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(property_key, period)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_finance_property_dist_key ON finance_property_distributions(property_key)`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
@@ -1017,5 +1149,6 @@ async function _doInitDb(db) {
   await seedTuitionAid(db);
   await seedTuitionYearRates(db);
   await seedStudentTuitionHistory(db);
+  await seedIvanhoeProperty(db);
 }
 

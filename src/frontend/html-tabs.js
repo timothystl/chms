@@ -1412,6 +1412,16 @@ export const HTML_TABS_2 = String.raw`
         </section>
       </div>
 
+      <div id="fin-panel-property" style="display:none;">
+        <section class="dash-card fin-printable" style="margin-bottom:16px;">
+          <div class="dash-card-hdr" style="display:flex;align-items:center;justify-content:space-between;">
+            <span>Commercial Property — 3277 Ivanhoe</span>
+            <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
+          </div>
+          <div class="dash-card-body" style="padding:14px 18px;" id="fin-property-root"></div>
+        </section>
+      </div>
+
     </div>
   </div>
 </div>
@@ -2089,6 +2099,37 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('fin-church-balance-import-modal')">Close</button>
       <button class="btn-primary" id="fin-church-balance-import-confirm-btn" style="display:none;" onclick="finChurchConfirmBalanceImport()">Import Selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Commercial Property: add/edit one month's financials -->
+<div class="modal-overlay" id="fin-property-month-modal">
+  <div class="modal" style="max-width:520px;width:95vw;">
+    <div class="modal-header"><span>Property — Month Financials</span><button class="modal-close" onclick="closeModal('fin-property-month-modal')">&#10005;</button></div>
+    <div style="padding:4px 0;">
+      <div class="modal-2col">
+        <div class="field"><label>Period (YYYY-MM)</label><input type="text" id="fpm-period" placeholder="2026-06"></div>
+        <div class="field"><label>Occupancy %</label><input type="number" id="fpm-occupancy" step="0.1" placeholder="100"></div>
+      </div>
+      <div class="modal-2col">
+        <div class="field"><label>Total Revenue ($)</label><input type="number" id="fpm-revenue" step="0.01"></div>
+        <div class="field"><label>Total Expenses ($)</label><input type="number" id="fpm-expenses" step="0.01"></div>
+      </div>
+      <div class="modal-2col">
+        <div class="field"><label>Net Income ($)</label><input type="number" id="fpm-net-income" step="0.01"></div>
+        <div class="field"><label>Net Operating Income ($)</label><input type="number" id="fpm-noi" step="0.01"></div>
+      </div>
+      <div class="modal-2col">
+        <div class="field"><label>Available for Distribution ($)</label><input type="number" id="fpm-afd" step="0.01"></div>
+        <div class="field"><label>Reserve Balance ($)</label><input type="number" id="fpm-reserve" step="0.01"></div>
+      </div>
+      <div class="field"><label>Source Report</label><input type="text" id="fpm-source" placeholder="2026-06 - 3277 Ivanhoe Property Management Report.pdf" style="width:100%;"></div>
+      <div style="font-size:.78rem;color:var(--danger);margin-top:6px;" id="fpm-error"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('fin-property-month-modal')">Cancel</button>
+      <button class="btn-primary" onclick="finPropertySaveMonth()">Save</button>
     </div>
   </div>
 </div>
