@@ -1,5 +1,5 @@
 // ── Scheduler & Volunteer API handlers ────────────────────────────────────────
-import { json, SCHED_CORS } from './auth.js';
+import { json, SCHED_CORS, getAuthRole } from './auth.js';
 import { XMAS_MARKET_ROLES } from './db.js';
 
 // Centralized office reply-to so it can be overridden via env.
@@ -642,4 +642,145 @@ export async function handleSignupSendEmail(req, env, signupId) {
   ).bind(signupId, JSON.stringify({ to: email, subject })).run().catch(() => {});
 
   return json({ ok: true });
+}
+
+// ── SCHEDULER VOLUNTEERS (SC6 Phase 1) ────────────────────────────────────
+// Relationalized replacement for the scheduler_data blob's 'ws_people' key — a Scheduler
+// volunteer IS a real `people` row (person_id), not a separate client-generated identity.
+// Phase 1 is additive only: this table is not yet read/written by the Scheduler UI, so
+// shipping it changes no live behavior. Person search for linking reuses the existing
+// GET /admin/api/people?q= endpoint — no Breeze lookup involved.
+function parseJsonArray(v, fallback) {
+  if (v === undefined) return fallback;
+  if (Array.isArray(v)) return v;
+  return fallback;
+}
+function parseJsonObject(v, fallback) {
+  if (v === undefined) return fallback;
+  if (v && typeof v === 'object' && !Array.isArray(v)) return v;
+  return fallback;
+}
+const SCHED_SERVICE_PREFS = ['both', '8am', '10:45am'];
+
+function volunteerRowOut(row) {
+  return {
+    person_id: row.person_id,
+    first_name: row.first_name,
+    last_name: row.last_name,
+    email: row.email,
+    photo_url: row.photo_url,
+    reminder_email: row.reminder_email,
+    roles: JSON.parse(row.roles || '[]'),
+    primary_for: JSON.parse(row.primary_for || '[]'),
+    preferred_sundays: JSON.parse(row.preferred_sundays || '[]'),
+    service_preference: row.service_preference,
+    role_sunday_overrides: JSON.parse(row.role_sunday_overrides || '{}'),
+    blackout_dates: JSON.parse(row.blackout_dates || '[]'),
+    absence_start: row.absence_start,
+    absence_until: row.absence_until,
+    active: !!row.active,
+  };
+}
+
+const VOLUNTEER_SELECT = `SELECT sv.*, p.first_name, p.last_name, p.email, p.photo_url
+  FROM scheduler_volunteers sv JOIN people p ON p.id = sv.person_id`;
+
+export async function handleSchedulerVolunteersApi(req, env, url, method) {
+  // Same guard as the rest of the scheduler admin surface (SW1) — this links/edits real
+  // people records for scheduling purposes, not a read-only report.
+  const role = await getAuthRole(req, env);
+  if (role !== 'admin' && role !== 'staff') return json({ error: 'Access denied' }, 403);
+
+  const db = env.DB;
+  const seg = url.pathname.replace('/admin/api/scheduler/volunteers', '').replace(/^\//, '').replace(/\/$/, '');
+  const personId = seg ? parseInt(seg, 10) : 0;
+
+  // GET /admin/api/scheduler/volunteers[?active=0]  (default: active only)
+  if (!seg && method === 'GET') {
+    const includeInactive = url.searchParams.get('active') === '0' || url.searchParams.get('active') === 'all';
+    const rows = (await db.prepare(
+      VOLUNTEER_SELECT + (includeInactive ? '' : ' WHERE sv.active=1') + ' ORDER BY p.last_name, p.first_name'
+    ).all()).results || [];
+    return json({ volunteers: rows.map(volunteerRowOut) });
+  }
+
+  // POST /admin/api/scheduler/volunteers  { person_id, roles?, primary_for?, ... }
+  // Creates the link if it doesn't exist, or reactivates + updates it if it does.
+  if (!seg && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const pid = parseInt(b.person_id, 10);
+    if (!pid) return json({ error: 'person_id is required' }, 400);
+    const person = await db.prepare('SELECT id FROM people WHERE id=?').bind(pid).first();
+    if (!person) return json({ error: 'Person not found' }, 404);
+
+    const roles = parseJsonArray(b.roles, []);
+    const primaryFor = parseJsonArray(b.primary_for, []);
+    const preferredSundays = parseJsonArray(b.preferred_sundays, []);
+    const roleSundayOverrides = parseJsonObject(b.role_sunday_overrides, {});
+    const blackoutDates = parseJsonArray(b.blackout_dates, []);
+    const servicePreference = SCHED_SERVICE_PREFS.includes(b.service_preference) ? b.service_preference : 'both';
+
+    await db.prepare(
+      `INSERT INTO scheduler_volunteers
+        (person_id, reminder_email, roles, primary_for, preferred_sundays, service_preference,
+         role_sunday_overrides, blackout_dates, absence_start, absence_until, active, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))
+       ON CONFLICT(person_id) DO UPDATE SET
+         reminder_email=excluded.reminder_email, roles=excluded.roles, primary_for=excluded.primary_for,
+         preferred_sundays=excluded.preferred_sundays, service_preference=excluded.service_preference,
+         role_sunday_overrides=excluded.role_sunday_overrides, blackout_dates=excluded.blackout_dates,
+         absence_start=excluded.absence_start, absence_until=excluded.absence_until,
+         active=1, updated_at=datetime('now')`
+    ).bind(
+      pid, b.reminder_email || '', JSON.stringify(roles), JSON.stringify(primaryFor),
+      JSON.stringify(preferredSundays), servicePreference, JSON.stringify(roleSundayOverrides),
+      JSON.stringify(blackoutDates), b.absence_start || '', b.absence_until || ''
+    ).run();
+
+    const row = await db.prepare(VOLUNTEER_SELECT + ' WHERE sv.person_id=?').bind(pid).first();
+    return json({ ok: true, volunteer: volunteerRowOut(row) });
+  }
+
+  // PATCH /admin/api/scheduler/volunteers/:personId  — sparse update, only touches fields present
+  if (personId && method === 'PATCH') {
+    const existing = await db.prepare('SELECT * FROM scheduler_volunteers WHERE person_id=?').bind(personId).first();
+    if (!existing) return json({ error: 'Volunteer not found' }, 404);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+
+    const fields = [];
+    const binds = [];
+    function set(col, val) { fields.push(col + '=?'); binds.push(val); }
+    if (b.reminder_email !== undefined) set('reminder_email', b.reminder_email || '');
+    if (b.roles !== undefined) set('roles', JSON.stringify(parseJsonArray(b.roles, [])));
+    if (b.primary_for !== undefined) set('primary_for', JSON.stringify(parseJsonArray(b.primary_for, [])));
+    if (b.preferred_sundays !== undefined) set('preferred_sundays', JSON.stringify(parseJsonArray(b.preferred_sundays, [])));
+    if (b.service_preference !== undefined) {
+      set('service_preference', SCHED_SERVICE_PREFS.includes(b.service_preference) ? b.service_preference : 'both');
+    }
+    if (b.role_sunday_overrides !== undefined) set('role_sunday_overrides', JSON.stringify(parseJsonObject(b.role_sunday_overrides, {})));
+    if (b.blackout_dates !== undefined) set('blackout_dates', JSON.stringify(parseJsonArray(b.blackout_dates, [])));
+    if (b.absence_start !== undefined) set('absence_start', b.absence_start || '');
+    if (b.absence_until !== undefined) set('absence_until', b.absence_until || '');
+    if (b.active !== undefined) set('active', b.active ? 1 : 0);
+    if (!fields.length) return json({ error: 'No fields to update' }, 400);
+
+    fields.push("updated_at=datetime('now')");
+    binds.push(personId);
+    await db.prepare(`UPDATE scheduler_volunteers SET ${fields.join(', ')} WHERE person_id=?`).bind(...binds).run();
+
+    const row = await db.prepare(VOLUNTEER_SELECT + ' WHERE sv.person_id=?').bind(personId).first();
+    return json({ ok: true, volunteer: volunteerRowOut(row) });
+  }
+
+  // DELETE /admin/api/scheduler/volunteers/:personId — soft delete (removes from the active
+  // volunteer pool but keeps the row, so historical schedule rows keyed by person_id still
+  // resolve to a real name instead of an orphaned reference).
+  if (personId && method === 'DELETE') {
+    const existing = await db.prepare('SELECT person_id FROM scheduler_volunteers WHERE person_id=?').bind(personId).first();
+    if (!existing) return json({ error: 'Volunteer not found' }, 404);
+    await db.prepare("UPDATE scheduler_volunteers SET active=0, updated_at=datetime('now') WHERE person_id=?").bind(personId).run();
+    return json({ ok: true });
+  }
+
+  return json({ error: 'Not found' }, 404);
 }
