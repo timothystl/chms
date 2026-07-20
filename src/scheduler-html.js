@@ -2564,6 +2564,9 @@ function focusWeekFillStatusHtml(row, rowIdx, pMap) {
 function renderFocusWeekDetail() {
   var pane = document.getElementById('fw-detail');
   if (!pane) return;
+  // Re-rendering replaces every .role-row-wrap, so any open picker's anchor is about to
+  // become detached — close it now rather than leaving a dangling reference around.
+  closeRolePicker();
   if (!currentSchedule.length) {
     pane.innerHTML = '<div class="empty-state"><div class="icon">&#128197;</div><p>No schedule generated yet for this month.</p></div>';
     return;
@@ -2662,9 +2665,11 @@ function buildRolePickerCandidates(role, svc, dateISO, ordinal) {
 }
 
 var openRolePickerKey = null;
+var openRolePickerAnchor = null;
 function closeRolePicker() {
   document.querySelectorAll('.role-picker').forEach(function(el){ el.remove(); });
   openRolePickerKey = null;
+  openRolePickerAnchor = null;
 }
 function openRolePicker(wrapEl, rowIdx, role, svc, svcIdxOrNull) {
   var key = rowIdx+'|'+role+'|'+svc+'|'+(svcIdxOrNull==null?'':svcIdxOrNull);
@@ -2672,6 +2677,7 @@ function openRolePicker(wrapEl, rowIdx, role, svc, svcIdxOrNull) {
   closeRolePicker();
   if (wasOpen) return;
   openRolePickerKey = key;
+  openRolePickerAnchor = wrapEl;
 
   var row = currentSchedule[rowIdx];
   var dateISO = row.date.toISOString().slice(0,10);
@@ -2724,8 +2730,18 @@ function positionRolePicker(pickerEl, anchorEl) {
 document.addEventListener('click', function(e) {
   if (!e.target.closest('.role-row') && !e.target.closest('.role-picker')) closeRolePicker();
 });
-window.addEventListener('scroll', function(){ closeRolePicker(); }, true);
-window.addEventListener('resize', function(){ closeRolePicker(); });
+// Reposition (not close) on scroll/resize — the anchor row can move (its own container
+// scrolling, or the browser auto-scrolling the clicked button into view on focus) without
+// the user having asked to dismiss the picker. Only close if the anchor is no longer attached
+// (e.g. the panel was re-rendered out from under it).
+function repositionOrCloseRolePicker() {
+  if (!openRolePickerAnchor) return;
+  var pickerEl = document.body.querySelector('.role-picker');
+  if (!pickerEl || !document.body.contains(openRolePickerAnchor)) { closeRolePicker(); return; }
+  positionRolePicker(pickerEl, openRolePickerAnchor);
+}
+window.addEventListener('scroll', repositionOrCloseRolePicker, true);
+window.addEventListener('resize', repositionOrCloseRolePicker);
 
 function assignRoleSlot(rowIdx, role, svc, svcIdxOrNull, pid) {
   var row = currentSchedule[rowIdx];
