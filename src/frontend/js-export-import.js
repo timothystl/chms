@@ -1242,7 +1242,7 @@ function _oldSysReRender(filter) {
           + '</tr>';
       }).join('');
       diffRows = '<table style="width:100%;border-collapse:collapse;margin-top:6px;">'
-        + '<thead><tr><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">Field</th><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">Old System</th><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">TLC Gather</th><th></th></tr></thead>'
+        + '<thead><tr><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">Field</th><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">Old System</th><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">Timothy ChMS</th><th></th></tr></thead>'
         + '<tbody>'+diffRows+'</tbody></table>';
     }
     var borderColor = r.status==='diff' ? 'var(--gold)' : r.status==='not_found' ? '#e74c3c' : r.status==='multiple' ? 'var(--teal)' : 'var(--soft-sage)';

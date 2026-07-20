@@ -6,14 +6,14 @@ Read this at the start of every session. Update NOTES.md (and this file if neede
 
 ## What This App Is
 
-**TLC Gather** — the Church Management System (ChMS) for Timothy Lutheran Church. Built on **Cloudflare Workers + D1 (SQLite)**. Single-page admin app assembled from per-tab modules under `src/frontend/` (shell in `src/html-chms.js`). API routes live in domain modules under `src/` — all delegated from `src/api-chms.js` — plus `src/api-admin.js` (auth, users, scheduler).
+**Timothy ChMS** — the Church Management System (ChMS) for Timothy Lutheran Church. Built on **Cloudflare Workers + D1 (SQLite)**. Single-page admin app assembled from per-tab modules under `src/frontend/` (shell in `src/html-chms.js`). API routes live in domain modules under `src/` — all delegated from `src/api-chms.js` — plus `src/api-admin.js` (auth, users, scheduler).
 
-The same Worker also serves the **public volunteer signup site** at `volunteer.timothystl.org`, assembled from per-ministry modules under `src/public/`.
+The same Worker also serves the **public volunteer signup site**, branded **Serve** at `serve.timothystl.org`, assembled from per-ministry modules under `src/public/`.
 
 **Live at:**
 - `https://chms.timothystl.org` — admin app (old `volunteer.timothystl.org/chms` redirects here)
-- `https://volunteer.timothystl.org` — public ministry signup
-- Brand: TLC Gather (navy/teal/gold three-pillar system: People / Ministry / Giving). PWA icons under `icons/`.
+- `https://serve.timothystl.org` — public ministry signup, branded "Serve". Renamed 2026-07-20 from `volunteer.timothystl.org`, which now 301-redirects browser page views (root + event short-links) to the new hostname; every non-page route (API, intake, RSVP, etc.) still answers identically on both hostnames since it's the same Worker — see `tlc-volunteer-worker.js`'s `isLegacyServeHost` handling.
+- Brand: **Timothy ChMS** (was "TLC Gather" — renamed 2026-07-20 as part of the same pass, since "Gather" wasn't a name anyone but the admin actually knew and nothing about the app was public yet). Navy/teal/gold three-pillar system: People / Ministry / Giving. PWA icons under `icons/` (icon files themselves not renamed, just the manifest name/short_name and page titles).
 
 ---
 
@@ -33,7 +33,7 @@ The same Worker also serves the **public volunteer signup site** at `volunteer.t
 | `src/api-utils.js` | Shared utilities (disambiguateHHName, isoWeekKey) |
 | `src/html-chms.js` | Admin SPA shell (~300 lines) — imports & concatenates the per-tab modules below |
 | `src/frontend/*.js` | Per-tab admin modules: `html-head.js`, `html-tabs.js`, `js-core.js`, `js-{settings,dashboard,people,register,households,giving,reports,export-import,attendance,volunteers}.js` |
-| `src/html-templates.js` | Login page HTML + assembly of `PUBLIC_HTML` (volunteer.timothystl.org) from `src/public/` modules |
+| `src/html-templates.js` | Login page HTML + assembly of `PUBLIC_HTML` (serve.timothystl.org) from `src/public/` modules |
 | `src/public/{head,landing,footer,scripts}.js` | Public site shell: head/CSS, landing card grid, footer, JS |
 | `src/public/ministries/*.js` | One file per ministry detail page (worship, education, acceptance, outreach, wol, lasm, cfna, transportation, events, general) |
 | `src/auth.js` | Cookie auth, PBKDF2 password hashing, helpers |
@@ -433,6 +433,29 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### Branding — App Family Rename (2026-07-20)
+Prompted by a design review of a proposed "app family" branding concept across the church's
+digital properties (website, ChMS, volunteer site). Full fragmentation into 7 separate
+subdomains was scoped down to two concrete, low-risk moves since nothing about these apps
+is widely known publicly yet: (1) rename the public volunteer/ministry signup site from
+`volunteer.timothystl.org` to `serve.timothystl.org`, with the old hostname 301-redirecting
+browser page views (root + event short-links) to the new one — every non-page route (API,
+intake, RSVP, Breeze proxy, etc.) still answers identically on both hostnames since it's the
+same Worker (`tlc-volunteer-worker.js`'s new `isLegacyServeHost` check), so nothing server-to-
+server broke. (2) Dropped the internal "TLC Gather" brand — not known to anyone outside the
+admin — in favor of "Timothy ChMS" everywhere: login page, page titles, PWA manifest
+name/short_name, password-reset emails, legal pages, and the handful of admin-UI strings that
+said "TLC Gather" by name. Also added `serve` to `RESERVED_SLUGS` (`api-admin.js`) so a future
+event short-link can't collide with the new brand word. Icon files themselves were not
+renamed (`icons/tlc-gather-icon.svg` etc. stay as filenames — only user-visible text changed).
+Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/html-templates.js`,
+`src/html-chms.js`, `src/legal-pages.js`, `src/api-admin.js`, `src/db.js`,
+`src/frontend/html-head.js`, `src/frontend/html-tabs.js`, `src/frontend/js-export-import.js`,
+`src/frontend/js-volunteers.js`, `manual.html`)
+- [ ] **BRND1** — Companion website-repo change needed in the same pass: `/volunteer` redirect
+  and the contact/prayer intake form targets should point at `serve.timothystl.org` (see that
+  repo's own CLAUDE.md queued items).
+
 ### People / Households (2026-07-20)
 - [x] **PN1** — Added `middle_name`/`preferred_name` fields to People (create/edit modal, PATCH/PUT/POST API, profile header + demographics display, search). Added a "Hyphenate from members' last names" helper button to the household edit modal for households where spouses keep separate surnames (`households.name` was already free text, so no schema change was needed there — the button just auto-fills it from the household's actual member last names). Done 2026-07-20 (v1.38.0). Not verified in a live browser. (`src/db.js`, `migrations/0021_person_middle_preferred_name.sql`, `src/api-people.js`, `src/frontend/js-people.js`, `src/frontend/js-households.js`, `src/frontend/html-tabs.js`)
 
@@ -785,8 +808,8 @@ Run through this at the end of any session before pushing, or at the start of a 
 - `api()` helper in frontend handles 401→redirect. Always use it instead of raw `fetch` for `/admin/api/*` calls.
 - All modals have specific IDs (e.g. `person-modal`, `hh-modal`). There is no generic `modal-overlay`. Use `openModal(id)` / `closeModal(id)`.
 - DEPLOY_VERSION is at the top of `src/frontend/js-core.js` (moved from `html-chms.js` after IN3 split; now a plain `export const` since v1.35.0, not just a string inside the served script — see the app-JS-caching Architecture Note above). Bump it on every commit that changes the frontend. Format: `major.minor.patch` semver — patch for fixes, minor for new features, major for breaking changes. Started at `1.0.0` (2026-06-01, formerly v233). **Since v1.35.0 this bump is load-bearing, not just cosmetic**: it's the cache-busting query param on `/admin/app-core.js`/`/admin/app-ext.js`, so forgetting it means a JS-only change won't actually reach returning visitors' browsers even though the deploy succeeds.
-- **Editing volunteer.timothystl.org**: do NOT search/edit `src/html-templates.js` for ministry copy — the public page is assembled from `src/public/` modules. To tweak a ministry, edit `src/public/ministries/<name>.js` directly. Global CSS lives in `src/public/head.js`; all JS (form handlers, routing) in `src/public/scripts.js`.
-- **Brand tokens** (TLC Gather): `--color-navy:#1E2D4A`, `--color-teal:#2E7EA6`, `--color-gold:#C9973A`, `--color-cream:#F8F4EE`. Fonts: Cormorant Garamond (display) + DM Sans (head/body). Three-pillar pill system in topbar driven by `pillars` map in `js-core.js` `showTab()`.
+- **Editing serve.timothystl.org** (formerly volunteer.timothystl.org): do NOT search/edit `src/html-templates.js` for ministry copy — the public page is assembled from `src/public/` modules. To tweak a ministry, edit `src/public/ministries/<name>.js` directly. Global CSS lives in `src/public/head.js`; all JS (form handlers, routing) in `src/public/scripts.js`.
+- **Brand tokens** (Timothy ChMS): `--color-navy:#1E2D4A`, `--color-teal:#2E7EA6`, `--color-gold:#C9973A`, `--color-cream:#F8F4EE`. Fonts: Cormorant Garamond (display) + DM Sans (head/body). Three-pillar pill system in topbar driven by `pillars` map in `js-core.js` `showTab()`.
 - **member_type** is stored lowercased. Both Breeze write paths (per-person at line ~2442, bulk at line ~2777 of `api-import.js`) call `.toLowerCase()` before binding; a defensive `UPDATE … SET member_type=LOWER(member_type)` runs at end of each sync batch as a safety net. Frontend filters use `LOWER()` comparison.
 
 ---

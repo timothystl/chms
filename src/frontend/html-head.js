@@ -3,12 +3,12 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>TLC Gather — Timothy Lutheran</title>
+<title>Timothy ChMS</title>
 <link rel="manifest" href="/chms.webmanifest">
 <meta name="theme-color" content="#1E2D4A">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Gather">
+<meta name="apple-mobile-web-app-title" content="ChMS">
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png">
@@ -39,7 +39,7 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
    plan (PAL2 admin usages, PAL3 public site, PAL4 scheduler, PAL5 inline
    hex cleanup). ── */
 :root{
-  /* ── TLC Gather brand tokens ── */
+  /* ── Timothy ChMS brand tokens ── */
   --color-navy:#1E2D4A;--color-teal:#2E7EA6;--color-gold:#C9973A;
   --color-cream:#F8F4EE;--color-light-teal:#EAF4FA;
   /* Legacy tokens (aliased to brand palette so older rules pick up the new look without renames) */
@@ -152,7 +152,7 @@ a.s-item{text-decoration:none;color:inherit;}
 .pill-tag{border-color:var(--sky-steel);color:var(--sky-steel);}
 .pill-tag.active{background:var(--sky-steel);color:var(--white);}
 .tag-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;}
-/* ── TLC Gather three-pill section identifiers ── */
+/* ── Timothy ChMS three-pill section identifiers ── */
 .pill-section{display:inline-flex;align-items:center;padding:3px 11px;border-radius:99px;font-family:var(--font-body);font-size:10px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--white);white-space:nowrap;line-height:1.4;}
 .pill-section.pill-people{background:var(--color-navy);}
 .pill-section.pill-ministry{background:var(--color-teal);}
@@ -815,7 +815,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 <div id="error-boundary" role="alert" aria-live="assertive" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;background:#c0392b;color:var(--white);padding:11px 20px;border-radius:9px;font-size:.85rem;max-width:520px;width:90vw;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.3);"></div>
 <div class="app-shell">
 <nav class="sidebar" id="sidebar">
-  <div class="s-logo" onclick="showTab('home')" title="Home"><svg viewBox="0 0 60 60" aria-label="TLC Gather"><circle cx="22" cy="25" r="11" fill="#4D6BA0"/><circle cx="38" cy="25" r="11" fill="#2E7EA6"/><circle cx="30" cy="38" r="11" fill="#C9973A"/><circle cx="30" cy="30" r="1.6" fill="#F8F4EE"/></svg></div>
+  <div class="s-logo" onclick="showTab('home')" title="Home"><svg viewBox="0 0 60 60" aria-label="Timothy ChMS"><circle cx="22" cy="25" r="11" fill="#4D6BA0"/><circle cx="38" cy="25" r="11" fill="#2E7EA6"/><circle cx="30" cy="38" r="11" fill="#C9973A"/><circle cx="30" cy="30" r="1.6" fill="#F8F4EE"/></svg></div>
   <div class="s-item active" data-tab="home" onclick="showTab('home')"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg><span class="s-tip">Home</span></div>
   <div class="s-section-hdr">People</div>
   <div class="s-item" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>

@@ -1,7 +1,7 @@
 // ── Privacy Policy & Terms of Service ──────────────────────────────────────
 // Public, unauthenticated static pages. Written specifically to satisfy third-party
 // integration requirements (e.g. QuickBooks Online's app-registration form asks for these
-// URLs) for TLC Gather, an internal tool used only by authorized Timothy Lutheran Church
+// URLs) for Timothy ChMS, an internal tool used only by authorized Timothy Lutheran Church
 // staff — not a public consumer product. Plain-language and honest about what the system
 // actually does; not a substitute for review by the church's own legal counsel if desired.
 const STYLE = `<style>
@@ -23,11 +23,11 @@ const HEAD = `<meta charset="UTF-8"><meta name="viewport" content="width=device-
   `<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,300&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">` +
   STYLE;
 
-export const PRIVACY_HTML = `<!DOCTYPE html><html lang="en"><head>${HEAD}<title>Privacy Policy — TLC Gather</title></head><body><div class="wrap">
+export const PRIVACY_HTML = `<!DOCTYPE html><html lang="en"><head>${HEAD}<title>Privacy Policy — Timothy ChMS</title></head><body><div class="wrap">
 <h1>Privacy Policy</h1>
-<div class="updated">TLC Gather — Timothy Lutheran Church Management System &middot; Last updated 2026-07-16</div>
+<div class="updated">Timothy ChMS — Timothy Lutheran Church Management System &middot; Last updated 2026-07-20</div>
 
-<p>TLC Gather ("the system") is an internal administrative tool used by Timothy Lutheran Church staff to manage membership records, giving, attendance, volunteer scheduling, and financial reporting. It is not a public-facing product, and it is not offered to or used by the general public — access is limited to authorized church staff with individual login credentials.</p>
+<p>Timothy ChMS ("the system") is an internal administrative tool used by Timothy Lutheran Church staff to manage membership records, giving, attendance, volunteer scheduling, and financial reporting. It is not a public-facing product, and it is not offered to or used by the general public — access is limited to authorized church staff with individual login credentials.</p>
 
 <h2>What information the system holds</h2>
 <ul>
@@ -54,14 +54,14 @@ export const PRIVACY_HTML = `<!DOCTYPE html><html lang="en"><head>${HEAD}<title>
 <h2>Questions</h2>
 <p>Contact the church office at <a href="mailto:office@timothystl.org">office@timothystl.org</a> with any questions about this policy or your information.</p>
 
-<div class="foot">This page describes TLC Gather's actual data practices in plain language and is not a substitute for review by legal counsel.</div>
+<div class="foot">This page describes Timothy ChMS's actual data practices in plain language and is not a substitute for review by legal counsel.</div>
 </div></body></html>`;
 
-export const TERMS_HTML = `<!DOCTYPE html><html lang="en"><head>${HEAD}<title>Terms of Use — TLC Gather</title></head><body><div class="wrap">
+export const TERMS_HTML = `<!DOCTYPE html><html lang="en"><head>${HEAD}<title>Terms of Use — Timothy ChMS</title></head><body><div class="wrap">
 <h1>Terms of Use</h1>
-<div class="updated">TLC Gather — Timothy Lutheran Church Management System &middot; Last updated 2026-07-16</div>
+<div class="updated">Timothy ChMS — Timothy Lutheran Church Management System &middot; Last updated 2026-07-20</div>
 
-<p>TLC Gather is an internal administrative tool provided by Timothy Lutheran Church solely for use by staff and volunteers who have been granted login credentials by the church. It is not available to, and is not intended for use by, the general public.</p>
+<p>Timothy ChMS is an internal administrative tool provided by Timothy Lutheran Church solely for use by staff and volunteers who have been granted login credentials by the church. It is not available to, and is not intended for use by, the general public.</p>
 
 <h2>Authorized use</h2>
 <ul>
