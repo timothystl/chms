@@ -2696,8 +2696,13 @@ function openRolePicker(wrapEl, rowIdx, role, svc, svcIdxOrNull) {
   });
   html += '</div>';
 
-  document.body.insertAdjacentHTML('beforeend', html);
-  var pickerEl = document.body.querySelector('.role-picker');
+  // Append inside .sched-root when embedded in the ChMS SPA (scheduler-inline.js scopes
+  // this file's CSS selectors under .sched-root, so appending to the raw document.body
+  // there would put the popover outside its own stylesheet's reach — invisible/unstyled).
+  // Standalone /scheduler has no .sched-root, so this falls back to document.body.
+  var pickerContainer = document.querySelector('.sched-root') || document.body;
+  pickerContainer.insertAdjacentHTML('beforeend', html);
+  var pickerEl = pickerContainer.querySelector('.role-picker');
   positionRolePicker(pickerEl, wrapEl);
   pickerEl.addEventListener('click', function(e) {
     var item = e.target.closest('.rp-item');
