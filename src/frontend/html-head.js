@@ -656,7 +656,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 @media print{
   .sidebar,.topbar,.toolbar,.modal-overlay,#offline-banner{display:none!important;}
   .tab-panel{display:block!important;padding:0;}
-  .tab-panel:not(#tab-reports):not(#tab-finance){display:none!important;}
+  .tab-panel:not(#tab-reports):not(#tab-finance):not(#tab-scheduler){display:none!important;}
   body{background:white;}
   .report-output{border:none;padding:0;}
   .report-tiles{display:none;}

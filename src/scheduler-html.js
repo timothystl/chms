@@ -275,12 +275,17 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 /* ── Print styles ──────────────────────────────────────── */
 @page { size: landscape; margin: 0.5in; }
 @media print {
+  /* [id$="..."] instead of a plain #id — when embedded in the ChMS SPA these ids get a
+     'sched-' prefix (scheduler-inline.js, to avoid colliding with ChMS's own tab ids), so a
+     literal #tab-schedule selector matches nothing there. A suffix match works unrenamed
+     (standalone /scheduler) and renamed (embedded) alike, with no extra transform-pipeline
+     rule needed. */
   header, .tabs, .schedule-controls, .legend, .summary-bar,
-  #schedule-alert, #tab-people, #tab-settings, #tab-breeze,
+  #schedule-alert, [id$="tab-people"], [id$="tab-settings"], #tab-breeze,
   .btn, #assignment-summary { display: none !important; }
   body { background: white; }
   .tab-content { display: block !important; padding: 0; }
-  #tab-schedule { display: block !important; }
+  [id$="tab-schedule"] { display: block !important; }
   .card { box-shadow: none; padding: 8px 0; }
   table { font-size: 0.75rem; border-collapse: collapse !important; }
   td, th { padding: 4px 6px; border: 1px solid #999 !important; }
@@ -294,7 +299,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
     background: #fff !important; color: #000 !important; box-shadow: none !important;
   }
   .sunday-summary td { background: #f0f0f0 !important; color: #000 !important; }
-  #tab-stats { display: none !important; }
+  [id$="tab-stats"] { display: none !important; }
   /* Hide fixed-position side panels and overlay (they ignore translateX in print) */
   .side-panel, .panel-overlay { display: none !important; }
   .btn-edit-readings { display: none !important; }
