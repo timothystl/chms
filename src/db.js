@@ -913,7 +913,7 @@ async function _doInitDb(db) {
     // Public sign-up: opt-in flag for a manual staff reminder before the volunteer's shift
     'ALTER TABLE signups ADD COLUMN sms_reminder_opt_in INTEGER NOT NULL DEFAULT 0',
     // Events: optional short URL slug (e.g. "christmasmarket") so an event can be
-    // linked/promoted at volunteer.timothystl.org/<slug> instead of a bare #event-<id>.
+    // linked/promoted at serve.timothystl.org/<slug> instead of a bare #event-<id>.
     'ALTER TABLE serve_events ADD COLUMN slug TEXT NOT NULL DEFAULT ""',
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_serve_events_slug ON serve_events(slug) WHERE slug != ''`,
     // Tuition Aid Planner: K-8/LHS roster (money in integer cents), budget config, historical chart data

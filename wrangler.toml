@@ -3,7 +3,7 @@ main = "tlc-volunteer-worker.js"
 compatibility_date = "2024-01-01"
 
 [vars]
-EMAIL_FROM     = "TLC Gather <noreply@notify.timothystl.org>"
+EMAIL_FROM     = "Timothy ChMS <noreply@notify.timothystl.org>"
 REPLY_TO_EMAIL = "dinger@timothystl.org"
 
 [observability]
@@ -12,6 +12,15 @@ enabled = true
 [observability.logs]
 enabled = true
 invocation_logs = true
+
+# Public volunteer/ministry signup site. Rebranded 2026-07-20 from
+# volunteer.timothystl.org to serve.timothystl.org; the old hostname stays routed to this
+# same Worker so it can 301-redirect (see tlc-volunteer-worker.js) instead of breaking
+# existing links/bookmarks/flyers.
+[[routes]]
+pattern = "serve.timothystl.org/*"
+zone_name = "timothystl.org"
+custom_domain = false
 
 [[routes]]
 pattern = "volunteer.timothystl.org/*"

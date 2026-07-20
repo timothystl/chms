@@ -525,7 +525,7 @@ function volRenderEventDetail() {
     + '<button class="ev-btn-primary" onclick="volSaveEvent(' + ev.id + ')">Save changes</button>'
     + '</div></div>';
 
-  var slugUrl = 'volunteer.timothystl.org/' + (ev.slug || '');
+  var slugUrl = 'serve.timothystl.org/' + (ev.slug || '');
   var fields = '<div class="ev-field-row">'
     + '<div><label>Event name</label><input type="text" id="vol-ev-name" value="' + esc(ev.name) + '"></div>'
     + '<div><label>Date</label><input type="date" id="vol-ev-date" value="' + esc(ev.event_date||'') + '"></div>'
@@ -534,7 +534,7 @@ function volRenderEventDetail() {
     + '<div class="ev-field-row" style="grid-template-columns:1fr;margin-bottom:10px;"><div>'
     + '<label>Short link <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>'
     + '<div style="display:flex;align-items:center;gap:8px;">'
-    + '<span style="font-size:.82rem;color:var(--warm-gray);white-space:nowrap;">volunteer.timothystl.org/</span>'
+    + '<span style="font-size:.82rem;color:var(--warm-gray);white-space:nowrap;">serve.timothystl.org/</span>'
     + '<input type="text" id="vol-ev-slug" value="' + esc(ev.slug||'') + '" placeholder="' + esc(volSuggestSlug(ev.name)) + '" style="flex:1;min-width:0;">'
     + (ev.slug ? '<button type="button" class="ev-btn-secondary" style="padding:6px 10px;font-size:.75rem;white-space:nowrap;" onclick="volCopyEventLink(this,\'' + slugUrl.replace(/'/g,'') + '\')">Copy link</button>' : '')
     + '</div></div></div>'
