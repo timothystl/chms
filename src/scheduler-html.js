@@ -2246,8 +2246,11 @@ function generateSchedule() {
 
   renderTable(people, null);
   document.getElementById('schedule-output').style.display = 'block';
-  saveCurrentMonth();
-  setDirty(false);
+  // Same reasoning as autoFillSchedule(): a generated month is real, reviewable content
+  // (it can overwrite a partially-filled month via preserveOverrides), not a background
+  // sync — mark dirty and require an explicit "Save Changes" click instead of persisting
+  // it immediately.
+  setDirty(true);
 }
 
 document.getElementById('btn-generate').addEventListener('click', generateSchedule);
@@ -5730,8 +5733,12 @@ function autoFillSchedule() {
     });
   });
   renderTable(getPeople(), counts);
-  saveSchedule();
-  showAlert('schedule-alert', filled + ' slot' + (filled!==1?'s':'') + ' auto-filled using volunteer history.' + (filled===0?' (All slots already filled or no eligible volunteers found)':''), filled>0?'success':'warning');
+  // Mark dirty rather than saving immediately (unlike deletePerson()'s cleanup pass
+  // above, which is system-triggered, not an active edit) — Auto-Fill changes real
+  // assignments and should be reviewable/undoable via "Save Changes" like any manual
+  // edit, not committed the instant it runs.
+  setDirty(true);
+  showAlert('schedule-alert', filled + ' slot' + (filled!==1?'s':'') + ' auto-filled using volunteer history. Click "Save Changes" to keep them.' + (filled===0?' (All slots already filled or no eligible volunteers found)':''), filled>0?'success':'warning');
 }
 
 // ══════════════════════════════════════════════════════════════════
