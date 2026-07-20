@@ -86,6 +86,7 @@ select.form-select { width: 100%; padding: 10px 14px; border: 1px solid var(--bo
 .radio-group { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
 .radio-group label { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 0.85rem; letter-spacing: 0; text-transform: none; cursor: pointer; background: var(--linen); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; margin: 0; transition: all 0.1s; user-select: none; color: var(--charcoal); }
 .radio-group label:hover { background: var(--blue-mist); }
+.radio-group label.checked { background: var(--steel-anchor); color: white; border-color: var(--steel-anchor); }
 
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 20px; border-radius: 6px; border: none; font-size: 0.88rem; font-weight: 700; font-family: var(--font-body); cursor: pointer; transition: all 0.15s; }
 .btn-primary { background: var(--steel-anchor); color: white; }
@@ -1481,11 +1482,12 @@ function syncLabels(groupId) {
   var g = document.getElementById(groupId);
   if (!g) return;
   g.querySelectorAll('label').forEach(function(lbl) {
-    var cb = lbl.querySelector('input[type="checkbox"]');
+    var cb = lbl.querySelector('input[type="checkbox"], input[type="radio"]');
     if (cb) lbl.classList.toggle('checked', cb.checked);
   });
 }
 document.getElementById('pref-sundays').addEventListener('change',  function() { syncLabels('pref-sundays'); });
+document.getElementById('pref-service').addEventListener('change',  function() { syncLabels('pref-service'); });
 document.getElementById('pref-roles').addEventListener('change',    function() { syncLabels('pref-roles'); });
 document.getElementById('primary-roles').addEventListener('change', function() { syncLabels('primary-roles'); });
 
@@ -1502,9 +1504,11 @@ function buildRoleOverrideTable(roles, existingOverrides) {
         +'<label class="sun-toggle'+(checked?' checked':'')+'" title="'+n+ordSuffix(n)+' Sunday">'+n
         +'<input type="checkbox" value="'+n+'"'+(checked?' checked':'')+'></label></td>';
     }).join('');
+    var anyNote = overrides.length === 0
+      ? '<br><span class="ro-any-note" style="font-weight:normal;color:var(--warm-gray);font-size:.68rem;">(any Sunday)</span>' : '';
     var tr = document.createElement('tr');
     tr.setAttribute('data-role', role);
-    tr.innerHTML = '<td style="padding:3px 6px;font-size:.78rem;">'+esc(roleLabel(role))+'</td>'+cells;
+    tr.innerHTML = '<td class="ro-role-cell" style="padding:3px 6px;font-size:.78rem;">'+esc(roleLabel(role))+anyNote+'</td>'+cells;
     tbody.appendChild(tr);
   });
 }
@@ -1513,6 +1517,15 @@ document.getElementById('role-override-body').addEventListener('change', functio
   if (cb.type !== 'checkbox') return;
   var lbl = cb.closest('.sun-toggle');
   if (lbl) lbl.classList.toggle('checked', cb.checked);
+  var tr = cb.closest('tr[data-role]');
+  if (!tr) return;
+  var anyChecked = tr.querySelectorAll('input:checked').length > 0;
+  var roleCell = tr.querySelector('.ro-role-cell');
+  var note = roleCell ? roleCell.querySelector('.ro-any-note') : null;
+  if (anyChecked && note) { note.parentNode.removeChild(note.previousSibling); note.parentNode.removeChild(note); }
+  else if (!anyChecked && !note && roleCell) {
+    roleCell.insertAdjacentHTML('beforeend', '<br><span class="ro-any-note" style="font-weight:normal;color:var(--warm-gray);font-size:.68rem;">(any Sunday)</span>');
+  }
 });
 
 document.getElementById('toggle-role-overrides').addEventListener('click', function() {
@@ -1601,6 +1614,7 @@ function clearForm() {
   document.getElementById('pref-roles').querySelectorAll('input').forEach(function(cb){ cb.checked = false; });
   document.getElementById('primary-roles').querySelectorAll('input').forEach(function(cb){ cb.checked = false; });
   syncLabels('pref-sundays');
+  syncLabels('pref-service');
   syncLabels('pref-roles');
   syncLabels('primary-roles');
   document.getElementById('breeze-import-query').value = '';
@@ -1905,7 +1919,7 @@ function editPerson(id) {
   document.getElementById('primary-roles').querySelectorAll('input').forEach(function(cb){
     cb.checked = (person.primaryFor || []).indexOf(cb.value) > -1;
   });
-  syncLabels('pref-sundays'); syncLabels('pref-roles'); syncLabels('primary-roles');
+  syncLabels('pref-sundays'); syncLabels('pref-service'); syncLabels('pref-roles'); syncLabels('primary-roles');
   currentBlackouts = (person.blackoutDates || []).slice();
   renderBlackoutChips();
   document.getElementById('absence-start').value = person.absenceStart || '';
@@ -2038,6 +2052,10 @@ function generateSchedule() {
   var sundayRows = sundayDates.map(function(s) {
     var ordinal = s.ordinal, assignments = {};
     var dateISO = s.date.toISOString().slice(0,10);
+    // Tracks who's already serving at each service time, across ALL roles (not just
+    // within one role) — a person shouldn't be double-booked for two different roles
+    // (e.g. Lector and PowerPoint) at the same service.
+    var usedThisService = {'8am':{}, '10:45am':{}};
 
     SHARED_ROLES.forEach(function(role) {
       var primary = primaryMap[role];
@@ -2049,7 +2067,13 @@ function generateSchedule() {
         picked = pickBest(pool, counts);
       }
       assignments[role] = {shared: picked ? picked.id : null};
-      if (picked) counts[picked.id]++;
+      if (picked) {
+        counts[picked.id]++;
+        // Shared roles (Preacher, Children's Message) cover both services, so that
+        // person can't also be double-booked into a per-service role either time.
+        usedThisService['8am'][picked.id] = true;
+        usedThisService['10:45am'][picked.id] = true;
+      }
     });
 
     PER_ROLES.forEach(function(role) {
@@ -2061,15 +2085,16 @@ function generateSchedule() {
         if (primary) {
           var blacked = (primary.blackoutDates||[]).indexOf(dateISO)!==-1 || isOnAbsence(primary,dateISO);
           var svcOk = primary.servicePreference==='both'||primary.servicePreference===svc;
-          picked = (!blacked&&svcOk) ? primary : null;
+          var alreadyServing = !!usedThisService[svc][primary.id];
+          picked = (!blacked&&svcOk&&!alreadyServing) ? primary : null;
         } else {
           var pool = people.filter(function(p){
-            return p.roles.indexOf(role)>-1 && eligible(p,ordinal,svc,dateISO,role) && !usedIds[p.id];
+            return p.roles.indexOf(role)>-1 && eligible(p,ordinal,svc,dateISO,role) && !usedIds[p.id] && !usedThisService[svc][p.id];
           });
           picked = pickBest(pool, counts);
         }
         assignments[role][svc] = picked ? picked.id : null;
-        if (picked) { counts[picked.id]++; usedIds[picked.id]=true; }
+        if (picked) { counts[picked.id]++; usedIds[picked.id]=true; usedThisService[svc][picked.id]=true; }
       });
     });
 
@@ -5236,19 +5261,43 @@ function autoFillSchedule() {
   currentSchedule.forEach(function(row) {
     var ordinal = row.ordinal;
     var dateISO = row.date.toISOString().slice(0,10);
+    // Tracks who's already serving at each service time, across ALL roles (not just
+    // within one role) — a person shouldn't be double-booked for two different roles
+    // (e.g. Lector and PowerPoint) at the same service. Seed from any pre-existing
+    // assignments in this row (manual or from a prior fill pass) before adding new ones.
+    var usedThisService = {'8am':{}, '10:45am':{}};
+    SHARED_ROLES.forEach(function(role) {
+      var pid = row.assignments[role].shared;
+      if (pid) { usedThisService['8am'][pid] = true; usedThisService['10:45am'][pid] = true; }
+    });
+    PER_ROLES.forEach(function(role) {
+      ['8am','10:45am'].forEach(function(svc) {
+        var pid = row.assignments[role][svc];
+        if (pid) usedThisService[svc][pid] = true;
+      });
+    });
+
     SHARED_ROLES.forEach(function(role) {
       if (row.assignments[role].shared) return;
       var pool = people.filter(function(p){ return p.roles.indexOf(role)>-1 && eligible(p,ordinal,'shared',dateISO); });
       var picked = pickBestWithHistory(pool, counts, lastServed, role);
-      if (picked) { row.assignments[role].shared = picked.id; counts[picked.id]++; filled++; }
+      if (picked) {
+        row.assignments[role].shared = picked.id; counts[picked.id]++; filled++;
+        usedThisService['8am'][picked.id] = true; usedThisService['10:45am'][picked.id] = true;
+      }
     });
     PER_ROLES.forEach(function(role) {
-      var usedIds = {};
+      var usedForRole = {};
       ['8am','10:45am'].forEach(function(svc) {
-        if (row.assignments[role][svc]) { usedIds[row.assignments[role][svc]] = true; return; }
-        var pool = people.filter(function(p){ return p.roles.indexOf(role)>-1 && eligible(p,ordinal,svc,dateISO) && !usedIds[p.id]; });
+        if (row.assignments[role][svc]) { usedForRole[row.assignments[role][svc]] = true; return; }
+        var pool = people.filter(function(p){
+          return p.roles.indexOf(role)>-1 && eligible(p,ordinal,svc,dateISO) && !usedForRole[p.id] && !usedThisService[svc][p.id];
+        });
         var picked = pickBestWithHistory(pool, counts, lastServed, role);
-        if (picked) { row.assignments[role][svc] = picked.id; counts[picked.id]++; usedIds[picked.id]=true; filled++; }
+        if (picked) {
+          row.assignments[role][svc] = picked.id; counts[picked.id]++; filled++;
+          usedForRole[picked.id] = true; usedThisService[svc][picked.id] = true;
+        }
       });
     });
   });
