@@ -1004,8 +1004,140 @@ export function computeYtdComparison(currentMonthlyRows, priorMonthlyRows, prior
   };
 }
 
+// ── Commercial Property (Finance tab) ────────────────────────────────────────────────────
+// Groups a property's monthly rows + distributions by calendar year (the "period" field is
+// always 'YYYY-MM') into the same annual shape the 2026-07-20 data export used, plus each
+// year's hand-written note — kept as the single source of truth so the numbers can never drift
+// from what's on screen in the monthly table.
+export function computePropertyAnnualSummary(monthlyRows, distributionRows, annualNotes) {
+  const byYear = {};
+  for (const r of monthlyRows) {
+    const year = parseInt(String(r.period || '').slice(0, 4), 10);
+    if (!Number.isFinite(year)) continue;
+    if (!byYear[year]) byYear[year] = { year, total_revenue_cents: 0, total_expenses_cents: 0, net_income_cents: 0, occ_sum: 0, occ_count: 0, confirmed_distributions_cents: 0, notes: annualNotes?.[year] || '' };
+    const y = byYear[year];
+    if (Number.isFinite(r.total_revenue_cents)) y.total_revenue_cents += r.total_revenue_cents;
+    if (Number.isFinite(r.total_expenses_cents)) y.total_expenses_cents += r.total_expenses_cents;
+    if (Number.isFinite(r.net_income_cents)) y.net_income_cents += r.net_income_cents;
+    if (Number.isFinite(r.occupancy_pct)) { y.occ_sum += r.occupancy_pct; y.occ_count++; }
+  }
+  for (const d of distributionRows) {
+    const year = parseInt(String(d.period || '').slice(0, 4), 10);
+    if (byYear[year]) byYear[year].confirmed_distributions_cents += d.amount_cents;
+  }
+  return Object.values(byYear)
+    .map(y => ({
+      year: y.year,
+      total_revenue_cents: y.total_revenue_cents,
+      total_expenses_cents: y.total_expenses_cents,
+      net_income_cents: y.net_income_cents,
+      avg_occupancy_pct: y.occ_count ? y.occ_sum / y.occ_count : null,
+      confirmed_distributions_cents: y.confirmed_distributions_cents,
+      notes: y.notes,
+    }))
+    .sort((a, b) => a.year - b.year);
+}
+
+async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey) {
+  if (seg === `finance/property/${propertyKey}` && method === 'GET') {
+    const monthly = (await db.prepare('SELECT * FROM finance_property_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
+    const distributions = (await db.prepare('SELECT period, amount_cents FROM finance_property_distributions WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
+    const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(`finance_property_${propertyKey}_meta`).first();
+    let meta = null;
+    if (metaRow) { try { meta = JSON.parse(metaRow.value); } catch { meta = null; } }
+    const annualSummary = computePropertyAnnualSummary(monthly, distributions, meta?.annual_notes);
+    let equity = null;
+    if (meta?.valuation?.capitalized_value_cents != null && meta?.loan?.balance_cents != null) {
+      const value = meta.valuation.capitalized_value_cents;
+      const balance = meta.loan.balance_cents;
+      equity = { market_value_cents: value, mortgage_balance_cents: balance, equity_cents: value - balance, loan_to_value_pct: value ? balance / value : null };
+    }
+    return json({ propertyKey, meta, monthly, distributions, annualSummary, equity });
+  }
+
+  if (seg === `finance/property/${propertyKey}/monthly` && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    if (!b.period || !/^\d{4}-\d{2}$/.test(b.period)) return json({ error: 'period must be YYYY-MM' }, 400);
+    const toCents = v => (v === '' || v === null || v === undefined) ? null : Math.round(Number(v) * 100);
+    const occ = (b.occupancy_pct === '' || b.occupancy_pct === null || b.occupancy_pct === undefined) ? null : Number(b.occupancy_pct);
+    if (occ !== null && !Number.isFinite(occ)) return json({ error: 'Invalid occupancy_pct' }, 400);
+    const cents = {
+      total_revenue_cents: toCents(b.total_revenue),
+      total_expenses_cents: toCents(b.total_expenses),
+      net_income_cents: toCents(b.net_income),
+      net_operating_income_cents: toCents(b.net_operating_income),
+      available_for_distribution_cents: toCents(b.available_for_distribution),
+      reserve_balance_cents: toCents(b.reserve_balance),
+    };
+    for (const [k, v] of Object.entries(cents)) { if (v !== null && !Number.isFinite(v)) return json({ error: `Invalid ${k}` }, 400); }
+    await db.prepare(
+      `INSERT INTO finance_property_monthly
+         (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,source_report,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))
+       ON CONFLICT(property_key,period) DO UPDATE SET
+         occupancy_pct=excluded.occupancy_pct, total_revenue_cents=excluded.total_revenue_cents, total_expenses_cents=excluded.total_expenses_cents,
+         net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
+         available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
+         source_report=excluded.source_report, updated_at=excluded.updated_at`
+    ).bind(propertyKey, b.period, occ, cents.total_revenue_cents, cents.total_expenses_cents, cents.net_income_cents, cents.net_operating_income_cents, cents.available_for_distribution_cents, cents.reserve_balance_cents, b.source_report || '').run();
+    return json({ ok: true });
+  }
+
+  const monthMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/monthly/(\\d{4}-\\d{2})$`));
+  if (monthMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_property_monthly WHERE property_key=? AND period=?').bind(propertyKey, monthMatch[1]).run();
+    return json({ ok: true });
+  }
+
+  if (seg === `finance/property/${propertyKey}/distributions` && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    if (!b.period || !/^\d{4}-\d{2}$/.test(b.period)) return json({ error: 'period must be YYYY-MM' }, 400);
+    const amountCents = Math.round(Number(b.amount) * 100);
+    if (!Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
+    await db.prepare(
+      `INSERT INTO finance_property_distributions (property_key,period,amount_cents) VALUES (?,?,?)
+       ON CONFLICT(property_key,period) DO UPDATE SET amount_cents=excluded.amount_cents`
+    ).bind(propertyKey, b.period, amountCents).run();
+    return json({ ok: true });
+  }
+
+  const distMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/distributions/(\\d{4}-\\d{2})$`));
+  if (distMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_property_distributions WHERE property_key=? AND period=?').bind(propertyKey, distMatch[1]).run();
+    return json({ ok: true });
+  }
+
+  if (seg === `finance/property/${propertyKey}/meta` && method === 'PATCH') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(`finance_property_${propertyKey}_meta`).first();
+    let meta = {};
+    if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
+    for (const section of ['property', 'valuation', 'loan']) {
+      if (b[section] && typeof b[section] === 'object') meta[section] = { ...(meta[section] || {}), ...b[section] };
+    }
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(`finance_property_${propertyKey}_meta`, JSON.stringify(meta)).run();
+    return json({ ok: true, meta });
+  }
+
+  return undefined;
+}
+
 export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, isFinance) {
   if (!isFinance) return json({ error: 'Access denied: finance data requires finance access' }, 403);
+
+  // ── Commercial Property (only 'ivanhoe' exists today; propertyKey is threaded through so a
+  // second property could be added later without a route/schema change) ──────────────────
+  if (seg.startsWith('finance/property/ivanhoe')) {
+    const propRes = await handlePropertyApi(req, url, method, seg, db, isAdmin, 'ivanhoe');
+    if (propRes !== undefined) return propRes;
+  }
 
   // ── QuickBooks connection status ─────────────────────────────────────
   if (seg === 'finance/status' && method === 'GET') {
