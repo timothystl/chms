@@ -525,8 +525,11 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div id="old-sys-results" style="margin-top:18px;"></div>
     </div>
     <div class="import-card">
-      <h3>&#9729; Sync People from Breeze</h3>
-      <p>Pull people records directly from the Breeze API. Existing records (matched by Breeze ID) are updated; new people are added. Dates and photos already in the system are preserved if Breeze doesn't return a value.</p>
+      <h3>&#9729; Breeze Sync</h3>
+      <p>All direct syncing with the Breeze API, in one place — people, giving, and fund names.</p>
+
+      <h4 style="font-size:.9rem;margin:0 0 6px;">People</h4>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">Existing records (matched by Breeze ID) are updated; new people are added. Dates and photos already in the system are preserved if Breeze doesn't return a value.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
         <button class="btn-primary" onclick="runBreezeImport()">Sync People from Breeze</button>
         <button class="btn-secondary" onclick="runBreezeTagSync(this)">&#127991; Sync Tags Only</button>
@@ -535,10 +538,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div class="import-status" id="breeze-status"></div>
       <div class="import-status" id="breeze-tag-status" style="margin-top:4px;"></div>
       <div id="breeze-diag" style="display:none;margin-top:10px;font-size:.78rem;font-family:monospace;background:var(--linen);padding:10px;border-radius:6px;white-space:pre-wrap;"></div>
-    </div>
-    <div class="import-card">
-      <h3>&#128181; Sync Giving from Breeze</h3>
-      <p>Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed in Giving &rarr; Funds after import.</p>
+
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
+      <h4 style="font-size:.9rem;margin:0 0 6px;">Giving</h4>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed below after import.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
         <div class="field" style="margin:0;"><label>From</label><input type="date" id="giving-sync-from" name="giving-sync-from" style="font-size:.85rem;padding:4px 8px;"></div>
         <div class="field" style="margin:0;"><label>To</label><input type="date" id="giving-sync-to" name="giving-sync-to" style="font-size:.85rem;padding:4px 8px;"></div>
@@ -546,16 +549,38 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Date Range</button>
       <div class="import-status" id="giving-sync-status"></div>
       <pre id="giving-sync-diagnostics" style="display:none;margin-top:10px;padding:10px;background:#f4f0ea;border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
-      <hr style="margin:14px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
-      <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
-      <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
-        <div class="field" style="margin:0;"><label>Start Year</label><input type="number" id="giving-sync-start-year" name="giving-sync-start-year" value="2020" min="2000" max="2099" style="width:90px;font-size:.85rem;padding:4px 8px;"></div>
+      <div style="margin-top:12px;">
+        <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+          <div class="field" style="margin:0;"><label>Start Year</label><input type="number" id="giving-sync-start-year" name="giving-sync-start-year" value="2020" min="2000" max="2099" style="width:90px;font-size:.85rem;padding:4px 8px;"></div>
+        </div>
+        <button class="btn-primary" id="giving-all-btn" onclick="runBreezeGivingAll()">Sync All History</button>
+        <div class="import-status" id="giving-all-status"></div>
       </div>
-      <button class="btn-primary" id="giving-all-btn" onclick="runBreezeGivingAll()">Sync All History</button>
-      <div class="import-status" id="giving-all-status"></div>
-      <hr style="margin:14px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
-      <p style="margin:0 0 8px;"><strong>Breeze Audit Log Export</strong> — Download every contribution-related event from Breeze (added, updated, deleted) as a CSV for reconciliation. Uses the same date range as the sync above.</p>
-      <button class="btn-secondary" onclick="downloadBreezeAuditLog()">&#128229; Download Audit Log CSV</button>
+      <div style="margin-top:12px;">
+        <p style="margin:0 0 8px;"><strong>Breeze Audit Log Export</strong> — Download every contribution-related event from Breeze (added, updated, deleted) as a CSV for reconciliation. Uses the same date range as the sync above.</p>
+        <button class="btn-secondary" onclick="downloadBreezeAuditLog()">&#128229; Download Audit Log CSV</button>
+      </div>
+
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
+      <h4 style="font-size:.9rem;margin:0 0 6px;">Fund Names</h4>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">After the giving sync, imported funds may show as "Breeze Fund XXXXXXX". Use <strong>Auto-Fix from Breeze</strong> to look up the real names directly from Breeze and rename them automatically. If any funds still have placeholder names after that, use the manual mapping tool below.</p>
+      <button class="btn-primary" onclick="fixFundNames()" style="margin-bottom:8px;">&#128260; Auto-Fix Fund Names from Breeze</button>
+      <div class="import-status" id="fix-fund-names-status" style="margin-bottom:10px;"></div>
+      <div id="manual-fund-rename-area" style="display:none;margin-bottom:12px;">
+        <table style="width:100%;border-collapse:collapse;" id="manual-fund-rename-table"></table>
+        <button class="btn-primary" onclick="applyManualFundRenames()" style="margin-top:8px;">Save Fund Names</button>
+      </div>
+      <p style="margin:10px 0 8px;font-size:.88rem;color:var(--warm-gray);">Manual mapping — reassign contributions from a placeholder fund to a real fund name:</p>
+      <button class="btn-secondary" onclick="loadFundMapping()" style="margin-bottom:10px;">Load Fund Mapping</button>
+      <div id="fund-map-area" style="display:none;">
+        <table style="width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:10px;" id="fund-map-table">
+          <thead><tr style="text-align:left;border-bottom:1px solid #ccc;"><th style="padding:4px 8px;">Breeze Fund</th><th style="padding:4px 8px;">Gifts</th><th style="padding:4px 8px;">Total</th><th style="padding:4px 8px;">Map to &rarr;</th></tr></thead>
+          <tbody id="fund-map-rows"></tbody>
+        </table>
+        <button class="btn-primary" onclick="applyFundMapping()">Apply Mapping</button>
+      </div>
+      <div class="import-status" id="fund-map-status"></div>
     </div>
     <div class="import-card">
       <h3>&#128181; Import Giving from Breeze CSV Export</h3>
@@ -571,27 +596,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <input type="file" id="giving-csv-file" accept=".csv,.txt" style="display:none;" onchange="importGivingCSV(this.files[0]);">
       <div class="import-status" id="giving-csv-status"></div>
-    </div>
-    <div class="import-card">
-      <h3>&#128260; Map Breeze Funds to Real Fund Names</h3>
-      <p>After the giving sync, imported funds may show as "Breeze Fund XXXXXXX". Use <strong>Auto-Fix from Breeze</strong> to look up the real names directly from Breeze and rename them automatically. If any funds still have placeholder names after that, use the manual mapping tool below.</p>
-      <button class="btn-primary" onclick="fixFundNames()" style="margin-bottom:8px;">&#128260; Auto-Fix Fund Names from Breeze</button>
-      <div class="import-status" id="fix-fund-names-status" style="margin-bottom:10px;"></div>
-      <div id="manual-fund-rename-area" style="display:none;margin-bottom:12px;">
-        <table style="width:100%;border-collapse:collapse;" id="manual-fund-rename-table"></table>
-        <button class="btn-primary" onclick="applyManualFundRenames()" style="margin-top:8px;">Save Fund Names</button>
-      </div>
-      <hr style="margin:10px 0;border:none;border-top:1px solid var(--border);">
-      <p style="margin:0 0 8px;font-size:.88rem;color:var(--warm-gray);">Manual mapping — reassign contributions from a placeholder fund to a real fund name:</p>
-      <button class="btn-secondary" onclick="loadFundMapping()" style="margin-bottom:10px;">Load Fund Mapping</button>
-      <div id="fund-map-area" style="display:none;">
-        <table style="width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:10px;" id="fund-map-table">
-          <thead><tr style="text-align:left;border-bottom:1px solid #ccc;"><th style="padding:4px 8px;">Breeze Fund</th><th style="padding:4px 8px;">Gifts</th><th style="padding:4px 8px;">Total</th><th style="padding:4px 8px;">Map to &rarr;</th></tr></thead>
-          <tbody id="fund-map-rows"></tbody>
-        </table>
-        <button class="btn-primary" onclick="applyFundMapping()">Apply Mapping</button>
-      </div>
-      <div class="import-status" id="fund-map-status"></div>
     </div>
     <div class="import-card require-admin">
       <h3>&#128203; Find Duplicate Funds</h3>
@@ -613,12 +617,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <textarea id="att-simple-text" name="att-simple-text" rows="6" style="width:100%;font-family:monospace;font-size:.8rem;padding:6px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;" placeholder="2024-03-10&#9;Sunday 8am&#9;112&#10;2024-03-10&#9;Sunday 10:45am&#9;187"></textarea>
       <button class="btn-primary" onclick="importAttendanceSimple()">Import</button>
       <div class="import-status" id="att-simple-status"></div>
-    </div>
-    <div class="import-card">
-      <h3>&#128465; Prune Empty Batches</h3>
-      <p>Remove any giving batches that have no entries (can be left behind by failed or partial imports). Safe to run at any time.</p>
-      <button class="btn-secondary" onclick="pruneEmptyBatches()">Delete Empty Batches</button>
-      <div class="import-status" id="prune-batches-status"></div>
     </div>
     <div class="import-card">
       <h3>&#128229; Export Data</h3>
@@ -699,21 +697,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <p>Runs every active person with a street address through USPS address validation and standardizes the format. Undeliverable addresses are left unchanged. Uses USPS Web Tools if configured, otherwise falls back to Census Bureau geocoding (free, no key needed).</p>
       <button class="btn-secondary" onclick="bulkValidateAddresses()" id="bulk-validate-addr-btn" style="font-size:.88rem;">Validate All Addresses</button>
       <div class="import-status" id="bulk-validate-addr-status"></div>
-    </div>
-    <div class="import-card" style="border-color:#e74c3c;">
-      <h3 style="color:#e74c3c;">&#9888; Clear Giving Data for One Year</h3>
-      <p>Deletes all giving entries and batches for a single year. Use this to re-import one year without touching other years. <strong>This cannot be undone.</strong></p>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <input type="number" id="clear-year-input" placeholder="e.g. 2026" min="2000" max="2099" style="width:110px;padding:6px 10px;border:1px solid #e74c3c;border-radius:6px;font-size:.88rem;">
-        <button style="background:#e74c3c;color:var(--white);border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearGivingByYear()">&#9888; Clear Year</button>
-      </div>
-      <div class="import-status" id="clear-year-status" style="margin-top:8px;"></div>
-    </div>
-    <div class="import-card" style="border-color:#e74c3c;">
-      <h3 style="color:#e74c3c;">&#9888; Clear All Giving Data</h3>
-      <p>Permanently deletes <strong>all</strong> giving entries and batches across every year. Use this to fully reset giving data before a clean re-import. <strong>This cannot be undone.</strong></p>
-      <button style="background:#e74c3c;color:var(--white);border:none;padding:8px 18px;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;" onclick="clearAllGiving()">&#9888; Clear All Giving Data</button>
-      <div class="import-status" id="clear-giving-status"></div>
     </div>
   </div>
 </div>
