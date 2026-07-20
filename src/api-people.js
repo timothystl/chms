@@ -209,8 +209,8 @@ if (seg === 'people' && method === 'GET') {
   // still be NULL) get silently dropped from totals, causing membership
   // counts to disagree with reports.
   const binds = [];
-  const searchClause = q ? ` AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)` : '';
-  if (q) binds.push(like, like, like, like);
+  const searchClause = q ? ` AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.preferred_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)` : '';
+  if (q) binds.push(like, like, like, like, like);
   if (archivedView) {
     where = `p.status IN ('archived','deceased') AND LOWER(p.member_type) != 'organization'` + searchClause;
   } else {
@@ -343,11 +343,11 @@ if (seg === 'people' && method === 'POST') {
     firstContactDate = b.breeze_id ? '' : new Date().toISOString().slice(0,10);
   }
   const r = await db.prepare(
-    `INSERT INTO people (first_name,last_name,email,phone,address1,address2,city,state,zip,
+    `INSERT INTO people (first_name,last_name,middle_name,preferred_name,email,phone,address1,address2,city,state,zip,
      member_type,dob,baptism_date,confirmation_date,anniversary_date,death_date,deceased,
      household_id,family_role,photo_url,notes,breeze_id,gender,marital_status,first_contact_date,sms_opt_in)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).bind(b.first_name||'',b.last_name||'',b.email||'',normalizePhone(b.phone||''),
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(b.first_name||'',b.last_name||'',b.middle_name||'',b.preferred_name||'',b.email||'',normalizePhone(b.phone||''),
          b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
          (b.member_type||'visitor').toLowerCase(),b.dob||'',b.baptism_date||'',
          b.confirmation_date||'',b.anniversary_date||'',b.death_date||'',b.deceased?1:0,
@@ -540,13 +540,13 @@ if (pmatch) {
     // Capture old values for audit log
     const oldPerson = await db.prepare('SELECT * FROM people WHERE id=?').bind(pid).first();
     await db.prepare(
-      `UPDATE people SET first_name=?,last_name=?,email=?,phone=?,address1=?,address2=?,
+      `UPDATE people SET first_name=?,last_name=?,middle_name=?,preferred_name=?,email=?,phone=?,address1=?,address2=?,
        city=?,state=?,zip=?,member_type=?,dob=?,baptism_date=?,confirmation_date=?,
        anniversary_date=?,death_date=?,deceased=?,household_id=?,family_role=?,photo_url=?,notes=?,
        public_directory=?,envelope_number=?,last_seen_date=?,gender=?,marital_status=?,
        dir_hide_address=?,dir_hide_phone=?,dir_hide_email=?,dir_hide_dob=?,dir_hide_anniversary=?,
        baptized=?,confirmed=?,sms_opt_in=?,locally_edited=1 WHERE id=?`
-    ).bind(b.first_name||'',b.last_name||'',b.email||'',normalizePhone(b.phone||''),
+    ).bind(b.first_name||'',b.last_name||'',b.middle_name||'',b.preferred_name||'',b.email||'',normalizePhone(b.phone||''),
            b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
            (b.member_type||'visitor').toLowerCase(),b.dob||'',b.baptism_date||'',
            b.confirmation_date||'',b.anniversary_date||'',b.death_date||'',b.deceased?1:0,
@@ -580,7 +580,7 @@ if (pmatch) {
     // Write audit log entries for changed fields
     if (oldPerson) {
       const personName = [(oldPerson.first_name||b.first_name||''), (oldPerson.last_name||b.last_name||'')].filter(Boolean).join(' ');
-      const auditFields = ['first_name','last_name','email','phone','address1','address2','city','state','zip',
+      const auditFields = ['first_name','last_name','middle_name','preferred_name','email','phone','address1','address2','city','state','zip',
         'member_type','dob','baptism_date','confirmation_date','anniversary_date','death_date','deceased',
         'household_id','family_role','notes','public_directory','envelope_number','last_seen_date',
         'gender','marital_status'];
@@ -625,7 +625,7 @@ if (pmatch) {
     const oldPerson = await db.prepare('SELECT * FROM people WHERE id=?').bind(pid).first();
     if (!oldPerson) return json({ error: 'Person not found' }, 404);
     const allowed = {
-      first_name:'s', last_name:'s', email:'s', phone:'phone', address1:'s', address2:'s',
+      first_name:'s', last_name:'s', middle_name:'s', preferred_name:'s', email:'s', phone:'phone', address1:'s', address2:'s',
       city:'s', state:'s', zip:'s', member_type:'lower', dob:'s', baptism_date:'s',
       confirmation_date:'s', anniversary_date:'s', death_date:'s', deceased:'bool',
       household_id:'int_or_null', family_role:'s', photo_url:'s', notes:'s',

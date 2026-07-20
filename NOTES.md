@@ -127,6 +127,15 @@ Added 2026-04-15, phased 2026-04-15.
 
 ---
 
+### 2026-07-20 (v1.38.0 — People: middle name + preferred name fields; Households: hyphenated-name helper)
+User request: People tab was missing middle name and preferred/goes-by name fields; also wanted a way to build hyphenated household last names for spouses who each keep their own surname.
+- New `people.middle_name` / `people.preferred_name` TEXT columns (migration `0021_person_middle_preferred_name.sql` + `db.js` runtime safety net). Wired through `POST /people` (create), `PUT /people/:id` (full update + its audit-field diff list), and the sparse `PATCH /people/:id` allowlist — same 3-endpoint pattern as every other person field. `preferred_name` also added to the people-list search clause (`q=` now matches against it too).
+- Person edit modal (`html-tabs.js`/`js-people.js`): new "Middle Name" / "Preferred Name (goes by)" row under First/Last Name, hidden for Organization-type records same as the existing name fields.
+- Person profile header (`showProfile()`) now renders `First "Preferred" Last` when a preferred name is set; both fields also show as read-only rows in the Demographics section (edit via the full person modal, not inline — consistent with other name-shaped fields that aren't in `pvEditDemo`'s scope).
+- Households: since `households.name` was already free text with no format constraints, no schema change was needed for hyphenation itself — added a "Hyphenate from members' last names" button to the household edit modal (shown only when the household's members have 2+ distinct last names) that fills the Family Name field with `LastName1-LastName2 Family` from the household's actual member last names, so staff don't have to type it by hand or guess the convention.
+- `npm test` (94/94), `node --check` on all touched files and both built `CHMS_APP_CORE_JS`/`CHMS_APP_EXT_JS` bundles. Not verified in a live browser.
+
+---
 ### 2026-07-20 (SC6 Phase 2 — v1.38.0 — Scheduler volunteer migration/reconciliation tool)
 Second slice of relationalizing Scheduler volunteers onto real ChMS `people` rows (see Phase 1 below). This phase builds the actual migration tool — nothing in the live Scheduler UI changes yet, but this is the first native-UI surface for the migration, and admin/staff can now use it to start linking real legacy volunteers.
 - New migration `0021_scheduler_volunteers_legacy_id.sql`: adds `migrated_from_legacy_id` to `scheduler_volunteers`, tracking which old `ws_people` client-side id a row came from (set once on initial insert, never touched again — so a later manual edit through the plain CRUD endpoint can't accidentally erase provenance). Indexed so the preview endpoint can cheaply exclude already-migrated legacy volunteers on repeat visits.

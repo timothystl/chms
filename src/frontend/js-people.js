@@ -561,7 +561,8 @@ function calcAge(ds) {
 function showProfile(p) {
   _currentPvPerson = p;
   var isOrg = (p.member_type||'').toLowerCase() === 'organization';
-  var displayName = isOrg ? (p.first_name||p.last_name||'Unnamed') : ((p.first_name||'')+' '+(p.last_name||'')).trim();
+  var displayName = isOrg ? (p.first_name||p.last_name||'Unnamed')
+    : ((p.first_name||'')+(p.preferred_name ? ' "'+p.preferred_name+'"' : '')+' '+(p.last_name||'')).trim();
   var tn = document.getElementById('pv-topbar-name');
   if (tn) tn.textContent = displayName;
   var photoEl = document.getElementById('pv-photo');
@@ -691,6 +692,8 @@ function showProfile(p) {
       + (p.breeze_id ? '<button class="btn-secondary role-admin" style="font-size:.7rem;padding:2px 8px;" onclick="syncPersonFromBreeze(\''+esc(p.breeze_id)+'\','+p.id+')">&#8635; Sync Breeze</button>' : '<button class="btn-secondary role-admin role-staff" style="font-size:.7rem;padding:2px 8px;" onclick="pushPersonToBreeze('+p.id+')">&#8679; Push to Breeze</button>')
       + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditDemo()">Edit</button></div></div>'
       + '<div class="pv-field-grid">'
+      + pvField('middle name', p.middle_name)
+      + pvField('preferred name', p.preferred_name)
       + pvField('gender', p.gender)
       + pvField('marital status', p.marital_status)
       + pvField('birthday', p.dob ? fmtDate(p.dob)+calcAge(p.dob) : '')
@@ -2068,6 +2071,8 @@ function openPersonEdit(p) {
   document.getElementById('pm-id').value = isNew ? '' : p.id;
   document.getElementById('pm-first').value = isNew ? '' : (p.first_name||'');
   document.getElementById('pm-last').value = isNew ? '' : (p.last_name||'');
+  document.getElementById('pm-middle').value = isNew ? '' : (p.middle_name||'');
+  document.getElementById('pm-preferred').value = isNew ? '' : (p.preferred_name||'');
   document.getElementById('pm-email').value = isNew ? '' : (p.email||'');
   document.getElementById('pm-phone').value = isNew ? '' : (p.phone||'');
   document.getElementById('pm-sms-opt-in').checked = !isNew && !!p.sms_opt_in;
@@ -2161,6 +2166,7 @@ function updatePersonNameMode() {
   var isOrg = (document.getElementById('pm-type').value||'').toLowerCase() === 'organization';
   document.getElementById('pm-name-2col').style.display = isOrg ? 'none' : '';
   document.getElementById('pm-name-1col').style.display = isOrg ? '' : 'none';
+  document.getElementById('pm-name-2col-b').style.display = isOrg ? 'none' : '';
   document.getElementById('pm-role-field').style.display = isOrg ? 'none' : '';
   document.getElementById('pm-hh-field').style.display = isOrg ? 'none' : '';
   document.getElementById('pm-dates-section').style.display = isOrg ? 'none' : '';
@@ -2175,6 +2181,8 @@ function savePerson() {
   var data = {
     first_name: first_name,
     last_name: last_name,
+    middle_name: isOrg ? '' : document.getElementById('pm-middle').value.trim(),
+    preferred_name: isOrg ? '' : document.getElementById('pm-preferred').value.trim(),
     email: document.getElementById('pm-email').value.trim(),
     phone: document.getElementById('pm-phone').value.trim(),
     address1: document.getElementById('pm-addr1').value.trim(),
