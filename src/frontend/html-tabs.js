@@ -601,6 +601,13 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div class="import-status" id="dup-funds-status"></div>
     </div>
     <div class="import-card">
+      <h3>&#128101; Migrate Scheduler Volunteers to People</h3>
+      <p>Links each of the Scheduler's existing volunteers to a real ChMS person record (instead of a separate, disconnected list). For each legacy volunteer this suggests a match against real People — by Breeze ID first, then by name — but never links anyone automatically; review and confirm (or search for someone else, or create a new person) before committing.</p>
+      <button class="btn-secondary" onclick="loadSchedulerVolunteerMigration()" style="margin-bottom:10px;">Load Volunteers to Migrate</button>
+      <div id="sv-mig-area"></div>
+      <div class="import-status" id="sv-mig-status"></div>
+    </div>
+    <div class="import-card">
       <h3>&#128197; Import Attendance (Simple CSV)</h3>
       <p>Paste or upload a 3-column file: <code>date, service_name, attendance</code>. Date must be YYYY-MM-DD. One row per service. Header row optional. Existing records for the same date+time are updated; new ones are inserted.</p>
       <textarea id="att-simple-text" name="att-simple-text" rows="6" style="width:100%;font-family:monospace;font-size:.8rem;padding:6px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;" placeholder="2024-03-10&#9;Sunday 8am&#9;112&#10;2024-03-10&#9;Sunday 10:45am&#9;187"></textarea>
