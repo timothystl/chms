@@ -1052,7 +1052,17 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
       const balance = meta.loan.balance_cents;
       equity = { market_value_cents: value, mortgage_balance_cents: balance, equity_cents: value - balance, loan_to_value_pct: value ? balance / value : null };
     }
-    return json({ propertyKey, meta, monthly, distributions, annualSummary, equity });
+    const reserveRows = (await db.prepare('SELECT * FROM finance_property_reserves WHERE property_key=? ORDER BY reserve_key ASC, report_month ASC').bind(propertyKey).all()).results || [];
+    const reserves = {};
+    for (const r of reserveRows) { (reserves[r.reserve_key] || (reserves[r.reserve_key] = [])).push(r); }
+    const disbursementRows = (await db.prepare('SELECT * FROM finance_property_reserve_disbursements WHERE property_key=? ORDER BY reserve_key ASC, period_key ASC').bind(propertyKey).all()).results || [];
+    const reserveDisbursements = {};
+    for (const d of disbursementRows) { (reserveDisbursements[d.reserve_key] || (reserveDisbursements[d.reserve_key] = [])).push(d); }
+    const capitalLedger = (await db.prepare('SELECT * FROM finance_property_capital_ledger WHERE property_key=? ORDER BY sort_order ASC, entry_date ASC, id ASC').bind(propertyKey).all()).results || [];
+    const capitalLedgerTotalCents = capitalLedger.reduce((sum, r) => sum + (r.amount_cents || 0), 0);
+    const repairs = (await db.prepare('SELECT * FROM finance_property_repairs WHERE property_key=? ORDER BY entry_date ASC, id ASC').bind(propertyKey).all()).results || [];
+
+    return json({ propertyKey, meta, monthly, distributions, annualSummary, equity, reserves, reserveDisbursements, capitalLedger, capitalLedgerTotalCents, repairs });
   }
 
   if (seg === `finance/property/${propertyKey}/monthly` && method === 'POST') {
@@ -1124,6 +1134,111 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
       `INSERT INTO chms_config (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(`finance_property_${propertyKey}_meta`, JSON.stringify(meta)).run();
     return json({ ok: true, meta });
+  }
+
+  // ── Named reserve schedules (property tax, capital paint/asphalt/concrete, ...) ────────────
+  const reserveMonthlyMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/monthly$`));
+  if (reserveMonthlyMatch && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const reserveKey = reserveMonthlyMatch[1];
+    const b = await req.json().catch(() => ({}));
+    if (!b.report_month || !/^\d{4}-\d{2}$/.test(b.report_month)) return json({ error: 'report_month must be YYYY-MM' }, 400);
+    const toCents = v => (v === '' || v === null || v === undefined) ? null : Math.round(Number(v) * 100);
+    const targetEstimateCents = toCents(b.target_estimate);
+    const contributionCents = toCents(b.contribution) ?? 0;
+    if (targetEstimateCents !== null && !Number.isFinite(targetEstimateCents)) return json({ error: 'Invalid target_estimate' }, 400);
+    if (!Number.isFinite(contributionCents)) return json({ error: 'Invalid contribution' }, 400);
+    const taxYear = (b.tax_year === '' || b.tax_year === null || b.tax_year === undefined) ? null : parseInt(b.tax_year, 10);
+    // reserve_before defaults to the latest prior month's reserve_after for this bucket (0 if
+    // none exists yet) — matches how AHRA's own monthly schedule carries a running balance.
+    let reserveBeforeCents = toCents(b.reserve_before);
+    if (reserveBeforeCents === null) {
+      const prior = await db.prepare(
+        `SELECT reserve_after_cents FROM finance_property_reserves WHERE property_key=? AND reserve_key=? AND report_month<? ORDER BY report_month DESC LIMIT 1`
+      ).bind(propertyKey, reserveKey, b.report_month).first();
+      reserveBeforeCents = prior?.reserve_after_cents ?? 0;
+    }
+    const reserveAfterCents = reserveBeforeCents + contributionCents;
+    await db.prepare(
+      `INSERT INTO finance_property_reserves (property_key,reserve_key,report_month,tax_year,target_estimate_cents,reserve_before_cents,contribution_cents,reserve_after_cents,note)
+       VALUES (?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(property_key,reserve_key,report_month) DO UPDATE SET
+         tax_year=excluded.tax_year, target_estimate_cents=excluded.target_estimate_cents, reserve_before_cents=excluded.reserve_before_cents,
+         contribution_cents=excluded.contribution_cents, reserve_after_cents=excluded.reserve_after_cents, note=excluded.note`
+    ).bind(propertyKey, reserveKey, b.report_month, taxYear, targetEstimateCents, reserveBeforeCents, contributionCents, reserveAfterCents, b.note || '').run();
+    return json({ ok: true, reserve_before_cents: reserveBeforeCents, reserve_after_cents: reserveAfterCents });
+  }
+
+  const reserveMonthDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/monthly/(\\d{4}-\\d{2})$`));
+  if (reserveMonthDeleteMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_property_reserves WHERE property_key=? AND reserve_key=? AND report_month=?')
+      .bind(propertyKey, reserveMonthDeleteMatch[1], reserveMonthDeleteMatch[2]).run();
+    return json({ ok: true });
+  }
+
+  const reserveDisbursementMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/disbursements$`));
+  if (reserveDisbursementMatch && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const reserveKey = reserveDisbursementMatch[1];
+    const b = await req.json().catch(() => ({}));
+    if (!b.period_key || !String(b.period_key).trim()) return json({ error: 'period_key is required' }, 400);
+    const amountCents = (b.amount === '' || b.amount === null || b.amount === undefined) ? null : Math.round(Number(b.amount) * 100);
+    if (amountCents !== null && !Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
+    await db.prepare(
+      `INSERT INTO finance_property_reserve_disbursements (property_key,reserve_key,period_key,amount_cents,paid_via_report_month,note)
+       VALUES (?,?,?,?,?,?)
+       ON CONFLICT(property_key,reserve_key,period_key) DO UPDATE SET amount_cents=excluded.amount_cents, paid_via_report_month=excluded.paid_via_report_month, note=excluded.note`
+    ).bind(propertyKey, reserveKey, String(b.period_key).trim(), amountCents, b.paid_via_report_month || '', b.note || '').run();
+    return json({ ok: true });
+  }
+
+  const reserveDisbursementDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/disbursements/(.+)$`));
+  if (reserveDisbursementDeleteMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_property_reserve_disbursements WHERE property_key=? AND reserve_key=? AND period_key=?')
+      .bind(propertyKey, reserveDisbursementDeleteMatch[1], decodeURIComponent(reserveDisbursementDeleteMatch[2])).run();
+    return json({ ok: true });
+  }
+
+  // ── Capital improvements ledger ────────────────────────────────────────────────────────────
+  if (seg === `finance/property/${propertyKey}/capital-ledger` && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const amountCents = Math.round(Number(b.amount) * 100);
+    if (!Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
+    if (b.entry_date && !/^\d{4}(-\d{2}(-\d{2})?)?$/.test(b.entry_date)) return json({ error: 'entry_date must be YYYY, YYYY-MM, or YYYY-MM-DD' }, 400);
+    const maxSort = await db.prepare('SELECT COALESCE(MAX(sort_order),-1) as m FROM finance_property_capital_ledger WHERE property_key=?').bind(propertyKey).first();
+    const r = await db.prepare(
+      `INSERT INTO finance_property_capital_ledger (property_key,entry_date,amount_cents,payee,description,check_ref,project,sort_order) VALUES (?,?,?,?,?,?,?,?)`
+    ).bind(propertyKey, b.entry_date || '', amountCents, b.payee || '', b.description || '', b.check_ref || '', b.project || '', (maxSort?.m ?? -1) + 1).run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+
+  const capitalLedgerDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/capital-ledger/(\\d+)$`));
+  if (capitalLedgerDeleteMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_property_capital_ledger WHERE property_key=? AND id=?').bind(propertyKey, parseInt(capitalLedgerDeleteMatch[1], 10)).run();
+    return json({ ok: true });
+  }
+
+  // ── Repairs & maintenance log ──────────────────────────────────────────────────────────────
+  if (seg === `finance/property/${propertyKey}/repairs` && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const amountCents = (b.amount === '' || b.amount === null || b.amount === undefined) ? null : Math.round(Number(b.amount) * 100);
+    if (amountCents !== null && !Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
+    const r = await db.prepare(
+      `INSERT INTO finance_property_repairs (property_key,entry_date,category,description,amount_cents,payee,capitalized) VALUES (?,?,?,?,?,?,?)`
+    ).bind(propertyKey, b.entry_date || '', b.category || '', b.description || '', amountCents, b.payee || '', b.capitalized ? 1 : 0).run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+
+  const repairsDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/repairs/(\\d+)$`));
+  if (repairsDeleteMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_property_repairs WHERE property_key=? AND id=?').bind(propertyKey, parseInt(repairsDeleteMatch[1], 10)).run();
+    return json({ ok: true });
   }
 
   return undefined;

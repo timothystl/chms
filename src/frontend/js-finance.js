@@ -1351,7 +1351,206 @@ function finRenderProperty(d) {
     + '<div style="margin-bottom:16px;">' + infoHtml + '</div>'
     + '<h4 style="margin:0 0 8px;font-size:.9rem;">Annual Summary</h4>' + annualHtml
     + '<h4 style="margin:18px 0 8px;display:flex;align-items:center;justify-content:space-between;font-size:.9rem;"><span>Monthly Financials</span>' + (isAdminUI ? '<button class="btn-primary" style="font-size:.78rem;padding:4px 10px;" onclick="finPropertyOpenMonthModal()">+ Add Month</button>' : '') + '</h4>' + monthlyHtml
-    + '<h4 style="margin:18px 0 8px;font-size:.9rem;">Distributions to Church</h4>' + distHtml;
+    + '<h4 style="margin:18px 0 8px;font-size:.9rem;">Distributions to Church</h4>' + distHtml
+    + finRenderPropertyTaxReserve(d, isAdminUI)
+    + finRenderCapitalImprovements(d, isAdminUI)
+    + finRenderRepairs(d, isAdminUI)
+    + finRenderInsuranceAllocation(d);
+}
+
+// ── Property Tax Reserve ─────────────────────────────────────────────────────────────────────
+// AHRA maintains a running monthly reserve toward the annual property tax bill — the schedule
+// zeroes out each November when the actual bill is paid, then rebuilds at a revised monthly rate.
+function finRenderPropertyTaxReserve(d, isAdminUI) {
+  var rows = ((d.reserves && d.reserves.property_tax) || []).slice().sort(function(a,b){ return a.report_month < b.report_month ? 1 : -1; });
+  var paid = ((d.reserveDisbursements && d.reserveDisbursements.property_tax) || []).slice().sort(function(a,b){ return b.period_key - a.period_key; });
+  function c(cents) { return cents == null ? '<span style="color:var(--warm-gray);">—</span>' : '$' + finFmtMoney(cents/100); }
+  var scheduleRows = rows.map(function(r) {
+    return '<tr><td style="padding:5px 8px;font-weight:600;">' + esc(r.report_month) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + (r.tax_year || '—') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + c(r.target_estimate_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + c(r.reserve_before_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + c(r.contribution_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;font-weight:600;">' + c(r.reserve_after_cents) + '</td>'
+      + '<td style="padding:5px 8px;font-size:.75rem;color:var(--warm-gray);">' + esc(r.note || '') + '</td>'
+      + (isAdminUI ? '<td style="padding:5px 8px;"><button class="btn-secondary" style="font-size:.72rem;padding:2px 6px;color:var(--danger);" onclick="finPropertyDeleteReserveMonth(\'property_tax\',\'' + esc(r.report_month) + '\')">Delete</button></td>' : '') + '</tr>';
+  }).join('');
+  var scheduleHtml = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:5px 8px;">Report Month</th><th style="text-align:right;padding:5px 8px;">Tax Year</th><th style="text-align:right;padding:5px 8px;">Est. Tax</th><th style="text-align:right;padding:5px 8px;">Before</th><th style="text-align:right;padding:5px 8px;">Contribution</th><th style="text-align:right;padding:5px 8px;">After</th><th style="text-align:left;padding:5px 8px;">Note</th>' + (isAdminUI ? '<th></th>' : '') + '</tr></thead>'
+    + '<tbody>' + (scheduleRows || '<tr><td colspan="8" style="padding:10px;color:var(--warm-gray);">No reserve schedule recorded yet.</td></tr>') + '</tbody>'
+    + '</table></div>';
+  var paidRows = paid.map(function(p) {
+    return '<tr><td style="padding:5px 8px;">' + esc(p.period_key) + '</td><td style="padding:5px 8px;text-align:right;">' + c(p.amount_cents) + '</td><td style="padding:5px 8px;">' + esc(p.paid_via_report_month || '') + '</td><td style="padding:5px 8px;font-size:.75rem;color:var(--warm-gray);">' + esc(p.note || '') + '</td>'
+      + (isAdminUI ? '<td style="padding:5px 8px;"><button class="btn-secondary" style="font-size:.72rem;padding:2px 6px;color:var(--danger);" onclick="finPropertyDeleteReserveDisbursement(\'property_tax\',\'' + esc(p.period_key) + '\')">Delete</button></td>' : '') + '</tr>';
+  }).join('');
+  var paidHtml = '<div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:5px 8px;">Tax Year</th><th style="text-align:right;padding:5px 8px;">Amount Paid</th><th style="text-align:left;padding:5px 8px;">Paid Via Report</th><th style="text-align:left;padding:5px 8px;">Note</th>' + (isAdminUI ? '<th></th>' : '') + '</tr></thead>'
+    + '<tbody>' + (paidRows || '<tr><td colspan="5" style="padding:8px;color:var(--warm-gray);">No tax bills recorded as paid yet.</td></tr>') + '</tbody>'
+    + '</table></div>';
+  var addFormHtml = isAdminUI
+    ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Report Month<br><input type="text" id="fin-ptr-month" placeholder="2026-06" style="width:100px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Tax Year<br><input type="number" id="fin-ptr-taxyear" placeholder="2026" style="width:90px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Estimated Tax ($)<br><input type="number" id="fin-ptr-estimate" step="0.01" style="width:110px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Contribution ($)<br><input type="number" id="fin-ptr-contribution" step="0.01" style="width:110px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Note<br><input type="text" id="fin-ptr-note" style="width:180px;"></label>'
+      + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finPropertyAddReserveMonth()">+ Add Month</button>'
+      + '</div>'
+      + '<p style="font-size:.72rem;color:var(--warm-gray);margin:6px 0 0;">"Before" carries forward automatically from the prior month’s "After" — leave Estimated Tax/Contribution at 0 the month the bill is paid to zero the reserve out.</p>'
+    : '';
+  var pacNote = (d.meta && d.meta.capital_improvements && d.meta.capital_improvements.separate_paint_asphalt_concrete_reserve_note) || '';
+  return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Property Tax Reserve</h4>'
+    + scheduleHtml + paidHtml + addFormHtml
+    + (pacNote ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:12px 0 0;"><i>' + esc(pacNote) + '</i></p>' : '');
+}
+function finPropertyAddReserveMonth() {
+  var month = document.getElementById('fin-ptr-month').value.trim();
+  if (!/^\d{4}-\d{2}$/.test(month)) { finToast('Report month must be YYYY-MM.'); return; }
+  var body = {
+    report_month: month,
+    tax_year: document.getElementById('fin-ptr-taxyear').value || '',
+    target_estimate: document.getElementById('fin-ptr-estimate').value,
+    contribution: document.getElementById('fin-ptr-contribution').value || '0',
+    note: document.getElementById('fin-ptr-note').value.trim(),
+  };
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/reserves/property_tax/monthly', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
+    if (d && d.error) { finToast(d.error); return; }
+    finLoadProperty();
+  });
+}
+function finPropertyDeleteReserveMonth(reserveKey, month) {
+  if (!confirm('Delete the ' + month + ' reserve entry? This cannot be undone.')) return;
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/reserves/' + reserveKey + '/monthly/' + encodeURIComponent(month), { method: 'DELETE' }).then(function() { finLoadProperty(); });
+}
+function finPropertyDeleteReserveDisbursement(reserveKey, periodKey) {
+  if (!confirm('Delete the recorded payment for ' + periodKey + '?')) return;
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/reserves/' + reserveKey + '/disbursements/' + encodeURIComponent(periodKey), { method: 'DELETE' }).then(function() { finLoadProperty(); });
+}
+
+// ── Capital Improvements ─────────────────────────────────────────────────────────────────────
+function finRenderCapitalImprovements(d, isAdminUI) {
+  var ledger = (d.capitalLedger || []).slice().sort(function(a,b){ return (a.entry_date||'') < (b.entry_date||'') ? -1 : 1; });
+  var ledgerRows = ledger.map(function(r) {
+    return '<tr><td style="padding:5px 8px;">' + esc(r.entry_date || '(unknown)') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">$' + finFmtMoney(r.amount_cents/100) + '</td>'
+      + '<td style="padding:5px 8px;">' + esc(r.payee || '') + '</td>'
+      + '<td style="padding:5px 8px;font-size:.78rem;">' + esc(r.description || '') + '</td>'
+      + '<td style="padding:5px 8px;font-size:.75rem;color:var(--warm-gray);">' + esc(r.check_ref || '') + '</td>'
+      + '<td style="padding:5px 8px;font-size:.75rem;color:var(--warm-gray);">' + esc(r.project || '') + '</td>'
+      + (isAdminUI ? '<td style="padding:5px 8px;"><button class="btn-secondary" style="font-size:.72rem;padding:2px 6px;color:var(--danger);" onclick="finPropertyDeleteCapitalLedger(' + r.id + ')">Delete</button></td>' : '') + '</tr>';
+  }).join('');
+  var totalCents = d.capitalLedgerTotalCents || 0;
+  var ledgerHtml = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:5px 8px;">Date</th><th style="text-align:right;padding:5px 8px;">Amount</th><th style="text-align:left;padding:5px 8px;">Payee</th><th style="text-align:left;padding:5px 8px;">Description</th><th style="text-align:left;padding:5px 8px;">Check/Ref</th><th style="text-align:left;padding:5px 8px;">Project</th>' + (isAdminUI ? '<th></th>' : '') + '</tr></thead>'
+    + '<tbody>' + (ledgerRows || '<tr><td colspan="7" style="padding:10px;color:var(--warm-gray);">No capital improvements recorded yet.</td></tr>') + '</tbody>'
+    + '<tfoot><tr style="font-weight:600;border-top:2px solid var(--navy);"><td style="padding:5px 8px;" colspan="1">Total</td><td style="padding:5px 8px;text-align:right;">$' + finFmtMoney(totalCents/100) + '</td><td colspan="' + (isAdminUI ? 5 : 4) + '"></td></tr></tfoot>'
+    + '</table></div>';
+
+  var projects = (d.meta && d.meta.capital_improvements && d.meta.capital_improvements.projects_summary) || [];
+  var projRows = projects.map(function(p) {
+    return '<tr><td style="padding:5px 8px;font-weight:600;">' + esc(p.project) + '</td>'
+      + '<td style="padding:5px 8px;">' + esc(p.started || '') + '</td>'
+      + '<td style="padding:5px 8px;">' + esc(p.completed || '') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">$' + finFmtMoney((p.total_capitalized_cents||0)/100) + '</td>'
+      + '<td style="padding:5px 8px;font-size:.75rem;color:var(--warm-gray);">' + esc(p.note || '') + '</td></tr>';
+  }).join('');
+  var projHtml = projects.length ? ('<div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:5px 8px;">Project</th><th style="text-align:left;padding:5px 8px;">Started</th><th style="text-align:left;padding:5px 8px;">Completed</th><th style="text-align:right;padding:5px 8px;">Capitalized</th><th style="text-align:left;padding:5px 8px;">Note</th></tr></thead>'
+    + '<tbody>' + projRows + '</tbody></table></div>') : '';
+
+  var addFormHtml = isAdminUI
+    ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Date<br><input type="text" id="fin-cap-date" placeholder="2026-06-15" style="width:110px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-cap-amount" step="0.01" style="width:100px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Payee<br><input type="text" id="fin-cap-payee" style="width:150px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Description<br><input type="text" id="fin-cap-description" style="width:200px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Check/Ref<br><input type="text" id="fin-cap-checkref" style="width:120px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Project<br><input type="text" id="fin-cap-project" style="width:180px;"></label>'
+      + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finPropertyAddCapitalLedger()">+ Add</button>'
+      + '</div>'
+    : '';
+
+  return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Capital Improvements</h4>' + ledgerHtml + projHtml + addFormHtml;
+}
+function finPropertyAddCapitalLedger() {
+  var amount = document.getElementById('fin-cap-amount').value;
+  if (amount === '') { finToast('Enter an amount.'); return; }
+  var body = {
+    entry_date: document.getElementById('fin-cap-date').value.trim(),
+    amount: amount,
+    payee: document.getElementById('fin-cap-payee').value.trim(),
+    description: document.getElementById('fin-cap-description').value.trim(),
+    check_ref: document.getElementById('fin-cap-checkref').value.trim(),
+    project: document.getElementById('fin-cap-project').value.trim(),
+  };
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/capital-ledger', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
+    if (d && d.error) { finToast(d.error); return; }
+    finLoadProperty();
+  });
+}
+function finPropertyDeleteCapitalLedger(id) {
+  if (!confirm('Delete this capital improvement entry? This cannot be undone.')) return;
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/capital-ledger/' + id, { method: 'DELETE' }).then(function() { finLoadProperty(); });
+}
+
+// ── Repairs & Maintenance ────────────────────────────────────────────────────────────────────
+function finRenderRepairs(d, isAdminUI) {
+  var rows = (d.repairs || []).slice().sort(function(a,b){ return (a.entry_date||'') < (b.entry_date||'') ? -1 : 1; });
+  var repairRows = rows.map(function(r) {
+    return '<tr><td style="padding:5px 8px;">' + esc(r.entry_date || '') + '</td>'
+      + '<td style="padding:5px 8px;">' + esc(r.category || '') + '</td>'
+      + '<td style="padding:5px 8px;font-size:.78rem;">' + esc(r.description || '') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + (r.amount_cents == null ? '<span style="color:var(--warm-gray);">—</span>' : '$' + finFmtMoney(r.amount_cents/100)) + '</td>'
+      + '<td style="padding:5px 8px;font-size:.75rem;color:var(--warm-gray);">' + esc(r.payee || '') + '</td>'
+      + (isAdminUI ? '<td style="padding:5px 8px;"><button class="btn-secondary" style="font-size:.72rem;padding:2px 6px;color:var(--danger);" onclick="finPropertyDeleteRepair(' + r.id + ')">Delete</button></td>' : '') + '</tr>';
+  }).join('');
+  var html = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:5px 8px;">Date</th><th style="text-align:left;padding:5px 8px;">Category</th><th style="text-align:left;padding:5px 8px;">Description</th><th style="text-align:right;padding:5px 8px;">Amount</th><th style="text-align:left;padding:5px 8px;">Payee</th>' + (isAdminUI ? '<th></th>' : '') + '</tr></thead>'
+    + '<tbody>' + (repairRows || '<tr><td colspan="6" style="padding:10px;color:var(--warm-gray);">No repairs recorded yet.</td></tr>') + '</tbody>'
+    + '</table></div>';
+  var addFormHtml = isAdminUI
+    ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Date<br><input type="text" id="fin-rep-date" placeholder="2026-06-15" style="width:110px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Category<br><input type="text" id="fin-rep-category" placeholder="HVAC" style="width:110px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Description<br><input type="text" id="fin-rep-description" style="width:200px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-rep-amount" step="0.01" style="width:100px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Payee<br><input type="text" id="fin-rep-payee" style="width:150px;"></label>'
+      + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finPropertyAddRepair()">+ Add</button>'
+      + '</div>'
+    : '';
+  return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Repairs &amp; Maintenance</h4>' + html + addFormHtml;
+}
+function finPropertyAddRepair() {
+  var body = {
+    entry_date: document.getElementById('fin-rep-date').value.trim(),
+    category: document.getElementById('fin-rep-category').value.trim(),
+    description: document.getElementById('fin-rep-description').value.trim(),
+    amount: document.getElementById('fin-rep-amount').value,
+    payee: document.getElementById('fin-rep-payee').value.trim(),
+  };
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/repairs', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
+    if (d && d.error) { finToast(d.error); return; }
+    finLoadProperty();
+  });
+}
+function finPropertyDeleteRepair(id) {
+  if (!confirm('Delete this repair entry? This cannot be undone.')) return;
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/repairs/' + id, { method: 'DELETE' }).then(function() { finLoadProperty(); });
+}
+
+// ── Insurance Allocation (read-only reference — GuideOne church-wide policy, allocated by
+// building value share; see meta.insurance in the backend) ──────────────────────────────────
+function finRenderInsuranceAllocation(d) {
+  var ins = (d.meta && d.meta.insurance) || null;
+  if (!ins) return '';
+  var alloc = ins.ivanhoe_allocation || {};
+  var html = '<p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 8px;">' + esc(ins.policy_structure_note || '') + '</p>'
+    + '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">' + ((alloc.ivanhoe_share_of_total_insured_value_pct||0)*100).toFixed(1) + '%</div><div class="rpt-stat-lbl">Share of Insured Value</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((alloc.allocated_total_annual_cents||0)/100) + '</div><div class="rpt-stat-lbl">Allocated Annual Premium</div></div>'
+    + '</div>'
+    + (alloc.estimate_note ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;"><i>' + esc(alloc.estimate_note) + '</i></p>' : '');
+  return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Insurance Allocation (Estimate)</h4>' + html;
 }
 function finPropertyOpenMonthModal(period) {
   var m = period ? (_finProperty.monthly || []).filter(function(r){ return r.period === period; })[0] : null;
