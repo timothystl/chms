@@ -452,6 +452,25 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
 `src/html-chms.js`, `src/legal-pages.js`, `src/api-admin.js`, `src/db.js`,
 `src/frontend/html-head.js`, `src/frontend/html-tabs.js`, `src/frontend/js-export-import.js`,
 `src/frontend/js-volunteers.js`, `manual.html`)
+- [x] **BRND1** — Companion website-repo change: `/volunteer` nav links, the links.timothystl.org
+  card, and the contact/prayer intake form targets now point at `serve.timothystl.org`. Done
+  2026-07-20 (`timothystl/website` PR #315, merged).
+- [x] **BRND2** — Internal API paths renamed to match: `/volunteer/signup`, `/volunteer/calendar/:id`,
+  `/volunteer/pending`, `/volunteer/general-pending`, `/volunteer/event-pending` are now
+  `/serve/signup`, `/serve/calendar/:id`, `/serve/pending`, `/serve/general-pending`,
+  `/serve/event-pending` — old paths kept working as aliases (same handlers), so nothing
+  breaks for an already-open tab running stale cached JS. `PUBLIC_HTML` (`scripts.js`) and the
+  embedded Scheduler tab (`scheduler-html.js`) both call the new paths now; `scheduler/index.html`
+  resynced. The pre-existing dead `/volunteer/claim`/`general-claim`/`event-claim` calls in
+  `scheduler-html.js` (calling a route that hasn't existed since the old `breeze-proxy-worker`
+  was deleted — unrelated to this rename) were left as-is. Done 2026-07-20 (v1.40.1).
+  (`tlc-volunteer-worker.js`, `src/api-scheduler.js`, `src/public/scripts.js`, `src/scheduler-html.js`)
+- [ ] **BRND3** — Two manual follow-ups outside code, flagged for an admin: (1) create a
+  `serve.timothystl.org` DNS record in the Cloudflare zone (Type "Worker", same target as the
+  existing `volunteer` record) so the hostname actually resolves — the Worker route added to
+  `wrangler.toml` alone doesn't create DNS. (2) Update the `/volunteer` short-URL redirect's
+  target in the website's Redirects admin tab from `volunteer.timothystl.org` to
+  `serve.timothystl.org` — that's D1 data, not code, so it can't be changed from this repo.
 - [ ] **BRND1** — Companion website-repo change needed in the same pass: `/volunteer` redirect
   and the contact/prayer intake form targets should point at `serve.timothystl.org` (see that
   repo's own CLAUDE.md queued items).

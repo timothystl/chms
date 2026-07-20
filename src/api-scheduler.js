@@ -76,7 +76,7 @@ export async function checkSignupRateLimit(env, req) {
   }
 }
 
-// ── PUBLIC API: POST /volunteer/signup ────────────────────────────────
+// ── PUBLIC API: POST /serve/signup (was /volunteer/signup — old path still aliased) ──
 export async function handleSignup(req, env) {
   if (!await checkSignupRateLimit(env, req)) {
     return json({ ok: false, error: 'Too many submissions. Please try again later.' }, 429);
@@ -167,7 +167,7 @@ export async function handleSignup(req, env) {
   return json({ ok: true, signup_id: signupId });
 }
 
-// ── ICAL DOWNLOAD: GET /volunteer/calendar/:id ────────────────────────
+// ── ICAL DOWNLOAD: GET /serve/calendar/:id (was /volunteer/calendar/:id — aliased) ──
 export async function handleCalendar(env, path) {
   const signupId = parseInt(path.split('/').pop());
   const signup = await env.DB.prepare('SELECT * FROM signups WHERE id=?').bind(signupId).first();
@@ -335,7 +335,7 @@ export async function handleSchedRsvpSync(req, env) {
   return schedJson(results);
 }
 
-// ── /volunteer/pending ────────────────────────────────────────────────────────
+// ── /serve/pending (was /volunteer/pending — aliased) ──────────────────────────
 // Returns worship-role signups (ministry='worship', no specific event)
 export async function handleVolunteerPending(env) {
   try {
@@ -360,7 +360,7 @@ export async function handleVolunteerPending(env) {
   }
 }
 
-// ── /volunteer/general-pending ────────────────────────────────────────────────
+// ── /serve/general-pending (was /volunteer/general-pending — aliased) ──────────
 // Returns general/ministry signups (not worship, no specific event)
 export async function handleVolunteerGeneralPending(env) {
   try {
@@ -384,7 +384,7 @@ export async function handleVolunteerGeneralPending(env) {
   }
 }
 
-// ── /volunteer/event-pending ─────────────────────────────────────────────────
+// ── /serve/event-pending (was /volunteer/event-pending — aliased) ──────────────
 // Returns event-specific signups (event_id > 0)
 export async function handleVolunteerEventPending(env) {
   try {
