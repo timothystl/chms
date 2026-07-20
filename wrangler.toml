@@ -13,17 +13,12 @@ enabled = true
 enabled = true
 invocation_logs = true
 
-# Public volunteer/ministry signup site. Rebranded 2026-07-20 from
-# volunteer.timothystl.org to serve.timothystl.org; the old hostname stays routed to this
-# same Worker so it can 301-redirect (see tlc-volunteer-worker.js) instead of breaking
-# existing links/bookmarks/flyers.
+# Public volunteer/ministry signup site. Renamed 2026-07-20 from volunteer.timothystl.org —
+# full cutover (not a redirect): nothing was publicized under the old hostname yet, so the
+# route was renamed in place in the Cloudflare dashboard rather than kept as a second route.
+# volunteer.timothystl.org no longer resolves at all.
 [[routes]]
 pattern = "serve.timothystl.org/*"
-zone_name = "timothystl.org"
-custom_domain = false
-
-[[routes]]
-pattern = "volunteer.timothystl.org/*"
 zone_name = "timothystl.org"
 custom_domain = false
 
