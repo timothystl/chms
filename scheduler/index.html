@@ -537,7 +537,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .rr-conf-dot { width:8px; height:8px; border-radius:50%; display:inline-block; flex-shrink:0; }
 
 .role-row-wrap { position:relative; }
-.role-picker { position:absolute; top:100%; left:0; right:0; z-index:60; background:var(--white); border:1px solid var(--border); border-radius:10px; box-shadow:0 14px 34px rgba(10,60,92,0.22); padding:6px; max-height:280px; overflow-y:auto; margin-bottom:8px; }
+.role-picker { position:fixed; z-index:60; background:var(--white); border:1px solid var(--border); border-radius:10px; box-shadow:0 14px 34px rgba(10,60,92,0.22); padding:6px; max-height:280px; overflow-y:auto; }
 .rp-item { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:8px; cursor:pointer; font-size:.88rem; }
 .rp-item:hover { background:var(--blue-mist); }
 .rp-unassign { color:var(--danger-btn); font-weight:700; }
@@ -2663,8 +2663,10 @@ function openRolePicker(wrapEl, rowIdx, role, svc, svcIdxOrNull) {
   });
   html += '</div>';
 
-  wrapEl.insertAdjacentHTML('beforeend', html);
-  wrapEl.querySelector('.role-picker').addEventListener('click', function(e) {
+  document.body.insertAdjacentHTML('beforeend', html);
+  var pickerEl = document.body.querySelector('.role-picker');
+  positionRolePicker(pickerEl, wrapEl);
+  pickerEl.addEventListener('click', function(e) {
     var item = e.target.closest('.rp-item');
     if (!item) return;
     e.stopPropagation();
@@ -2672,9 +2674,31 @@ function openRolePicker(wrapEl, rowIdx, role, svc, svcIdxOrNull) {
     closeRolePicker();
   });
 }
+// Appended to <body> as position:fixed (not the role row itself) so it can never be clipped
+// by an ancestor's overflow:hidden (e.g. .fw-layout) — flips above the row when there isn't
+// enough viewport space below, and is always fully scrollable to its last item.
+function positionRolePicker(pickerEl, anchorEl) {
+  var rect = anchorEl.getBoundingClientRect();
+  var margin = 8;
+  var maxH = Math.min(280, window.innerHeight - margin*2);
+  pickerEl.style.maxHeight = maxH+'px';
+  pickerEl.style.width = rect.width+'px';
+  pickerEl.style.left = Math.max(margin, Math.min(rect.left, window.innerWidth - rect.width - margin))+'px';
+  var spaceBelow = window.innerHeight - rect.bottom - margin;
+  var spaceAbove = rect.top - margin;
+  if (spaceBelow >= Math.min(maxH, 160) || spaceBelow >= spaceAbove) {
+    pickerEl.style.top = rect.bottom+'px';
+    pickerEl.style.maxHeight = Math.min(maxH, spaceBelow)+'px';
+  } else {
+    pickerEl.style.maxHeight = Math.min(maxH, spaceAbove)+'px';
+    pickerEl.style.top = (rect.top - Math.min(maxH, spaceAbove))+'px';
+  }
+}
 document.addEventListener('click', function(e) {
   if (!e.target.closest('.role-row') && !e.target.closest('.role-picker')) closeRolePicker();
 });
+window.addEventListener('scroll', function(){ closeRolePicker(); }, true);
+window.addEventListener('resize', function(){ closeRolePicker(); });
 
 function assignRoleSlot(rowIdx, role, svc, svcIdxOrNull, pid) {
   var row = currentSchedule[rowIdx];
