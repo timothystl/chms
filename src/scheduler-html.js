@@ -676,7 +676,7 @@ body.embedded #app-content { display:block!important; }
       <span class="month-nav-label" id="current-month-label">Loading…</span>
       <button class="btn btn-outline btn-sm" id="btn-next-month">&#8594;</button>
       <button class="btn btn-primary btn-sm" id="btn-generate">Generate Month</button>
-      <button class="btn btn-outline btn-sm" id="btn-autofill" title="Auto-fill empty slots using volunteer history">&#9889; Auto-Fill</button>
+      <button class="btn btn-outline btn-sm" id="btn-autofill" title="Auto-fill empty slots based on each volunteer's set availability">&#9889; Auto-Fill</button>
       <button class="btn btn-outline btn-sm" id="btn-add-special">+ Special Service</button>
     </div>
     <div id="schedule-alert"></div>
@@ -5656,23 +5656,10 @@ function updateLastServedFromRows(rows) {
 // ══════════════════════════════════════════════════════════════════
 // AUTO-FILL SCHEDULE
 // ══════════════════════════════════════════════════════════════════
-function pickBestWithHistory(pool, counts, lastServed, role) {
-  if (!pool.length) return null;
-  pool.sort(function(a, b) {
-    var aLast = (lastServed[a.id] && lastServed[a.id][role]) || '0000-00-00';
-    var bLast = (lastServed[b.id] && lastServed[b.id][role]) || '0000-00-00';
-    if (aLast < bLast) return -1;
-    if (aLast > bLast) return 1;
-    return (counts[a.id]||0) - (counts[b.id]||0);
-  });
-  return pool[0];
-}
-
 function autoFillSchedule() {
   if (!currentSchedule.length) { showAlert('schedule-alert','Generate a schedule first, then use Auto-Fill to populate empty slots.','warning'); return; }
   var people = getPeople();
   if (!people.length) { showAlert('schedule-alert','No people added yet.','warning'); return; }
-  var lastServed = getLastServed();
   var counts = {};
   people.forEach(function(p){ counts[p.id] = 0; });
   // Seed counts from existing assignments
@@ -5711,7 +5698,7 @@ function autoFillSchedule() {
     SHARED_ROLES.forEach(function(role) {
       if (row.assignments[role].shared) return;
       var pool = people.filter(function(p){ return p.roles.indexOf(role)>-1 && eligible(p,ordinal,'shared',dateISO); });
-      var picked = pickBestWithHistory(pool, counts, lastServed, role);
+      var picked = pickBest(pool, counts);
       if (picked) {
         row.assignments[role].shared = picked.id; counts[picked.id]++; filled++;
         usedThisService['8am'][picked.id] = true; usedThisService['10:45am'][picked.id] = true;
@@ -5724,7 +5711,7 @@ function autoFillSchedule() {
         var pool = people.filter(function(p){
           return p.roles.indexOf(role)>-1 && eligible(p,ordinal,svc,dateISO) && !usedForRole[p.id] && !usedThisService[svc][p.id];
         });
-        var picked = pickBestWithHistory(pool, counts, lastServed, role);
+        var picked = pickBest(pool, counts);
         if (picked) {
           row.assignments[role][svc] = picked.id; counts[picked.id]++; filled++;
           usedForRole[picked.id] = true; usedThisService[svc][picked.id] = true;
@@ -5738,7 +5725,7 @@ function autoFillSchedule() {
   // assignments and should be reviewable/undoable via "Save Changes" like any manual
   // edit, not committed the instant it runs.
   setDirty(true);
-  showAlert('schedule-alert', filled + ' slot' + (filled!==1?'s':'') + ' auto-filled using volunteer history. Click "Save Changes" to keep them.' + (filled===0?' (All slots already filled or no eligible volunteers found)':''), filled>0?'success':'warning');
+  showAlert('schedule-alert', filled + ' slot' + (filled!==1?'s':'') + ' auto-filled based on volunteer availability. Click "Save Changes" to keep them.' + (filled===0?' (All slots already filled or no eligible volunteers found)':''), filled>0?'success':'warning');
 }
 
 // ══════════════════════════════════════════════════════════════════
