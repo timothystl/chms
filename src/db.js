@@ -965,6 +965,9 @@ async function _doInitDb(db) {
       updated_at            TEXT    NOT NULL DEFAULT (datetime('now'))
     )`,
     `CREATE INDEX IF NOT EXISTS idx_scheduler_volunteers_active ON scheduler_volunteers(active)`,
+    // people: middle name and preferred/goes-by name
+    `ALTER TABLE people ADD COLUMN middle_name TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE people ADD COLUMN preferred_name TEXT NOT NULL DEFAULT ''`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

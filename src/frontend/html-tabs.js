@@ -1543,6 +1543,10 @@ export const HTML_TABS_2 = String.raw`
     <div id="pm-name-1col" style="display:none;">
       <div class="field"><label>Name</label><input type="text" id="pm-org-name" name="pm-org-name" style="width:100%;"></div>
     </div>
+    <div id="pm-name-2col-b" class="modal-2col">
+      <div class="field"><label>Middle Name</label><input type="text" id="pm-middle" name="pm-middle"></div>
+      <div class="field"><label>Preferred Name (goes by)</label><input type="text" id="pm-preferred" name="pm-preferred" placeholder="e.g. Jack"></div>
+    </div>
     <div class="modal-section">Contact</div>
     <div class="modal-2col">
       <div class="field"><label>Email</label><input type="email" id="pm-email" name="pm-email"></div>
@@ -1680,7 +1684,9 @@ export const HTML_TABS_2 = String.raw`
   <div class="modal">
     <h2 id="hh-modal-title">New Household</h2>
     <input type="hidden" id="hm-id">
-    <div class="field" style="margin-bottom:10px;"><label>Family Name</label><input type="text" id="hm-name" name="hm-name" placeholder="e.g. Smith Family"></div>
+    <div class="field" style="margin-bottom:10px;"><label>Family Name</label><input type="text" id="hm-name" name="hm-name" placeholder="e.g. Smith Family">
+      <button type="button" class="btn-secondary" id="hm-hyphenate-btn" style="display:none;margin-top:6px;font-size:.75rem;padding:3px 9px;" onclick="hhHyphenateName()">Hyphenate from members' last names</button>
+    </div>
     <div class="field" style="margin-bottom:8px;"><label>Street Address</label><input type="text" id="hm-addr1" name="hm-addr1"></div>
     <div class="field" style="margin-bottom:8px;"><label>Address Line 2</label><input type="text" id="hm-addr2" name="hm-addr2"></div>
     <div class="modal-2col">

@@ -156,6 +156,13 @@ function openHouseholdEdit(h) {
   if (applyBtn) applyBtn.style.display = isNew ? 'none' : 'inline-flex';
   // Stash members with photos so the picker can render without a refetch
   _hhEditMembers = (h && h.members) ? h.members : [];
+  var hyphBtn = document.getElementById('hm-hyphenate-btn');
+  if (hyphBtn) {
+    var distinctLastNames = Array.from(new Set((_hhEditMembers||[])
+      .map(function(m) { return (m.last_name||'').trim(); })
+      .filter(Boolean)));
+    hyphBtn.style.display = distinctLastNames.length >= 2 ? 'inline-flex' : 'none';
+  }
   document.getElementById('hm-del-btn').style.display = isNew ? 'none' : 'inline-flex';
   document.getElementById('hm-push-addr-row').style.display = isNew ? 'none' : '';
   var mc = document.getElementById('hm-members');
@@ -168,6 +175,13 @@ function openHouseholdEdit(h) {
       }).join('') + '</div>';
   } else { mc.innerHTML = ''; }
   openModal('hh-modal');
+}
+function hhHyphenateName() {
+  var distinctLastNames = Array.from(new Set((_hhEditMembers||[])
+    .map(function(m) { return (m.last_name||'').trim(); })
+    .filter(Boolean)));
+  if (distinctLastNames.length < 2) { alert("Need at least two different last names among this household's members to hyphenate."); return; }
+  document.getElementById('hm-name').value = distinctLastNames.join('-') + ' Family';
 }
 function saveHousehold() {
   var id = document.getElementById('hm-id').value;
