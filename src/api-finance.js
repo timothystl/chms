@@ -234,7 +234,7 @@ function finXlsxColToIndex(letters) {
   for (let i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
   return n - 1;
 }
-function finXlsxParseSheetGrid(xml, sharedStrings) {
+export function finXlsxParseSheetGrid(xml, sharedStrings) {
   const grid = [];
   const rowRe = /<row\b[^>]*\br="(\d+)"[^>]*>([\s\S]*?)<\/row>/g;
   let rm;
@@ -264,8 +264,19 @@ function finXlsxParseSheetGrid(xml, sharedStrings) {
         const vM2 = /<v>([\s\S]*?)<\/v>/.exec(inner);
         if (vM2) value = type === 'b' ? (vM2[1] === '1') : finXmlUnescape(vM2[1]);
       } else {
-        const vM3 = /<v>([\s\S]*?)<\/v>/.exec(inner);
-        if (vM3 && vM3[1] !== '') value = parseFloat(vM3[1]);
+        // Some real QuickBooks exports write a leaf cell's value as a *literal number* inside
+        // the <f> (formula) tag — e.g. <f>115605.47</f><v>0.0</v> — with a stale, never-
+        // recalculated <v> cache stuck at 0.0 (confirmed against a real "Balance Sheet without
+        // zero acct" export, where every single leaf account read as $0 before this fix). Real
+        // subtotal formulas (e.g. <f>(B10)+(B11)</f>) aren't plain numbers and fall through to
+        // the normal <v> read below — harmless, since those rows are discarded/re-derived anyway.
+        const fM = /<f(?:\s[^>]*)?>([\s\S]*?)<\/f>/.exec(inner);
+        if (fM && /^-?\d+(\.\d+)?$/.test(fM[1].trim())) {
+          value = parseFloat(fM[1].trim());
+        } else {
+          const vM3 = /<v>([\s\S]*?)<\/v>/.exec(inner);
+          if (vM3 && vM3[1] !== '') value = parseFloat(vM3[1]);
+        }
       }
       rowArr[colIdx] = value;
     }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport, classifyMdoAccountCategory, extractMdoDaycareEntries, persistDaycareEntriesFromChurchBudget } from '../src/api-finance.js';
+import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport, classifyMdoAccountCategory, extractMdoDaycareEntries, persistDaycareEntriesFromChurchBudget, finXlsxParseSheetGrid } from '../src/api-finance.js';
 
 // ── Minimal D1-shaped wrapper around node:sqlite, so persistChurchEntries() runs against real
 // SQL (real UNIQUE/ON CONFLICT semantics) instead of a hand-rolled re-implementation of what the
@@ -642,6 +642,38 @@ describe('parseBalanceSheetGrid', () => {
   it('does not mistake a Budget vs. Actuals sheet\'s decorative "Total"-only row for its own header', () => {
     const budgetGrid = budgetVsActualsFixtureGrid();
     expect(() => parseBalanceSheetGrid(budgetGrid)).toThrow(/balance sheet header/);
+  });
+});
+
+describe('finXlsxParseSheetGrid — literal-number formula cells', () => {
+  // Real bug (reported after v1.32.0 shipped): a "Balance Sheet without zero acct" export writes
+  // every leaf account's dollar amount as plain text inside the <f> (formula) tag — e.g.
+  // <f>115605.47</f><v>0.0</v> — with the cached <v> stuck at a stale 0.0 that was never
+  // recalculated before the file was saved. Reading only <v> (as before this fix) silently
+  // imported every account as $0. Real subtotal rows use actual cell-reference formulas
+  // (<f>(B10)+(B11)</f>) whose <v> is also stale 0.0 — those rows are discarded/re-derived by
+  // parseBalanceSheetGrid anyway, so leaving their <v> alone (rather than trying to evaluate the
+  // formula) is fine.
+  function sheetXmlFrom(rows) {
+    const rowsXml = rows.map(([r, cells]) =>
+      `<row r="${r}">${cells.map(c => c).join('')}</row>`).join('');
+    return `<worksheet><sheetData>${rowsXml}</sheetData></worksheet>`;
+  }
+  it('prefers a plain-numeric <f> over a stale cached <v>', () => {
+    const xml = sheetXmlFrom([
+      [1, ['<c r="A1" t="s"><v>0</v></c>', '<c r="B1" t="n"><f>115605.47</f><v>0.0</v></c>']],
+      [2, ['<c r="A2" t="s"><v>1</v></c>', '<c r="B2" t="n"><f>-1002.00</f><v>0.0</v></c>']],
+      [3, ['<c r="A3" t="s"><v>2</v></c>', '<c r="B3" t="n"><f>0.00</f><v>0.0</v></c>']],
+      [4, ['<c r="A4" t="s"><v>3</v></c>', '<c r="B4" t="n"><f>((B10)+(B11))+(B12)</f><v>0.0</v></c>']],
+      [5, ['<c r="A5" t="s"><v>4</v></c>', '<c r="B5" t="n"><v>42.5</v></c>']],
+    ]);
+    const sharedStrings = ['Cash Account', 'Some Other Account', 'Zero Account', 'Total Row', 'Plain Value Row'];
+    const grid = finXlsxParseSheetGrid(xml, sharedStrings);
+    expect(grid[0]).toEqual(['Cash Account', 115605.47]);
+    expect(grid[1]).toEqual(['Some Other Account', -1002]);
+    expect(grid[2]).toEqual(['Zero Account', 0]);
+    expect(grid[3][1]).toBe(0); // real subtotal formula: stale <v> passed through, unused by callers
+    expect(grid[4]).toEqual(['Plain Value Row', 42.5]); // no <f> at all — unaffected by this fix
   });
 });
 
