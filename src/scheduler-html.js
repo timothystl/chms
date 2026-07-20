@@ -279,13 +279,19 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
      'sched-' prefix (scheduler-inline.js, to avoid colliding with ChMS's own tab ids), so a
      literal #tab-schedule selector matches nothing there. A suffix match works unrenamed
      (standalone /scheduler) and renamed (embedded) alike, with no extra transform-pipeline
-     rule needed. */
+     rule needed. IMPORTANT: an attribute selector like [id$="..."] has the same (class-level)
+     specificity as .tab-content below, NOT an id selector's higher specificity — so any rule
+     hiding a .tab-content element by [id$=...] must come AFTER the ".tab-content{display:
+     block!important}" rule to actually win (equal specificity + !important -> last one in
+     the stylesheet wins). #tab-breeze isn't renamed when embedded, so it keeps a plain #id
+     and doesn't have this problem. */
   header, .tabs, .schedule-controls, .legend, .summary-bar,
-  #schedule-alert, [id$="tab-people"], [id$="tab-settings"], #tab-breeze,
+  #schedule-alert, #tab-breeze,
   .btn, #assignment-summary { display: none !important; }
   body { background: white; }
   .tab-content { display: block !important; padding: 0; }
   [id$="tab-schedule"] { display: block !important; }
+  [id$="tab-people"], [id$="tab-settings"] { display: none !important; }
   .card { box-shadow: none; padding: 8px 0; }
   table { font-size: 0.75rem; border-collapse: collapse !important; }
   td, th { padding: 4px 6px; border: 1px solid #999 !important; }
