@@ -968,6 +968,10 @@ async function _doInitDb(db) {
     // people: middle name and preferred/goes-by name
     `ALTER TABLE people ADD COLUMN middle_name TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE people ADD COLUMN preferred_name TEXT NOT NULL DEFAULT ''`,
+    // SC6 Phase 2: legacy ws_people id this row was migrated from (see
+    // migrations/0021_scheduler_volunteers_legacy_id.sql).
+    `ALTER TABLE scheduler_volunteers ADD COLUMN migrated_from_legacy_id TEXT NOT NULL DEFAULT ''`,
+    `CREATE INDEX IF NOT EXISTS idx_scheduler_volunteers_legacy_id ON scheduler_volunteers(migrated_from_legacy_id)`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

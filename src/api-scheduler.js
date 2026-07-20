@@ -679,11 +679,68 @@ function volunteerRowOut(row) {
     absence_start: row.absence_start,
     absence_until: row.absence_until,
     active: !!row.active,
+    migrated_from_legacy_id: row.migrated_from_legacy_id || '',
   };
 }
 
 const VOLUNTEER_SELECT = `SELECT sv.*, p.first_name, p.last_name, p.email, p.photo_url
   FROM scheduler_volunteers sv JOIN people p ON p.id = sv.person_id`;
+
+// Shared upsert used by both the direct POST endpoint and the migration-commit flow.
+// migrated_from_legacy_id is only ever written on the initial INSERT — a later re-POST/PATCH
+// of the same person never touches it, so provenance of a migrated row is permanent.
+async function upsertVolunteer(db, personId, fields, legacyId) {
+  await db.prepare(
+    `INSERT INTO scheduler_volunteers
+      (person_id, reminder_email, roles, primary_for, preferred_sundays, service_preference,
+       role_sunday_overrides, blackout_dates, absence_start, absence_until, active,
+       migrated_from_legacy_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, datetime('now'))
+     ON CONFLICT(person_id) DO UPDATE SET
+       reminder_email=excluded.reminder_email, roles=excluded.roles, primary_for=excluded.primary_for,
+       preferred_sundays=excluded.preferred_sundays, service_preference=excluded.service_preference,
+       role_sunday_overrides=excluded.role_sunday_overrides, blackout_dates=excluded.blackout_dates,
+       absence_start=excluded.absence_start, absence_until=excluded.absence_until,
+       active=1, updated_at=datetime('now')`
+  ).bind(
+    personId, fields.reminder_email || '', JSON.stringify(fields.roles || []), JSON.stringify(fields.primary_for || []),
+    JSON.stringify(fields.preferred_sundays || []), SCHED_SERVICE_PREFS.includes(fields.service_preference) ? fields.service_preference : 'both',
+    JSON.stringify(fields.role_sunday_overrides || {}), JSON.stringify(fields.blackout_dates || []),
+    fields.absence_start || '', fields.absence_until || '', legacyId || ''
+  ).run();
+}
+
+// Splits "First Last" the same way handleSignupLinkPerson does — anything after the first
+// word becomes the last name.
+function splitLegacyName(name) {
+  const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+  return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') };
+}
+
+// Suggests a real `people` match for one legacy ws_people entry. Never picks silently for the
+// admin — 'ambiguous_name'/'fuzzy' with multiple candidates leave `suggested` null so the UI
+// must ask a human. `people` rows: {id, first_name, last_name, email, breeze_id, photo_url}.
+export function matchLegacyVolunteer(legacy, people) {
+  if (legacy.breezePersonId) {
+    const exact = people.filter(function(p) { return p.breeze_id && p.breeze_id === String(legacy.breezePersonId); });
+    if (exact.length) return { confidence: 'breeze_id', suggested: exact[0], candidates: exact };
+  }
+  const { firstName, lastName } = splitLegacyName(legacy.name);
+  const fnLower = firstName.toLowerCase(), lnLower = lastName.toLowerCase();
+  const exactName = people.filter(function(p) {
+    return p.first_name.toLowerCase() === fnLower && p.last_name.toLowerCase() === lnLower;
+  });
+  if (exactName.length === 1) return { confidence: 'exact_name', suggested: exactName[0], candidates: exactName };
+  if (exactName.length > 1) return { confidence: 'ambiguous_name', suggested: null, candidates: exactName };
+
+  const emailLower = (legacy.email || '').toLowerCase();
+  const fuzzy = people.filter(function(p) {
+    return (lnLower && p.last_name.toLowerCase() === lnLower) || (emailLower && p.email.toLowerCase() === emailLower);
+  });
+  if (fuzzy.length) return { confidence: 'fuzzy', suggested: fuzzy.length === 1 ? fuzzy[0] : null, candidates: fuzzy.slice(0, 5) };
+
+  return { confidence: 'none', suggested: null, candidates: [] };
+}
 
 export async function handleSchedulerVolunteersApi(req, env, url, method) {
   // Same guard as the rest of the scheduler admin surface (SW1) — this links/edits real
@@ -713,29 +770,17 @@ export async function handleSchedulerVolunteersApi(req, env, url, method) {
     const person = await db.prepare('SELECT id FROM people WHERE id=?').bind(pid).first();
     if (!person) return json({ error: 'Person not found' }, 404);
 
-    const roles = parseJsonArray(b.roles, []);
-    const primaryFor = parseJsonArray(b.primary_for, []);
-    const preferredSundays = parseJsonArray(b.preferred_sundays, []);
-    const roleSundayOverrides = parseJsonObject(b.role_sunday_overrides, {});
-    const blackoutDates = parseJsonArray(b.blackout_dates, []);
-    const servicePreference = SCHED_SERVICE_PREFS.includes(b.service_preference) ? b.service_preference : 'both';
-
-    await db.prepare(
-      `INSERT INTO scheduler_volunteers
-        (person_id, reminder_email, roles, primary_for, preferred_sundays, service_preference,
-         role_sunday_overrides, blackout_dates, absence_start, absence_until, active, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))
-       ON CONFLICT(person_id) DO UPDATE SET
-         reminder_email=excluded.reminder_email, roles=excluded.roles, primary_for=excluded.primary_for,
-         preferred_sundays=excluded.preferred_sundays, service_preference=excluded.service_preference,
-         role_sunday_overrides=excluded.role_sunday_overrides, blackout_dates=excluded.blackout_dates,
-         absence_start=excluded.absence_start, absence_until=excluded.absence_until,
-         active=1, updated_at=datetime('now')`
-    ).bind(
-      pid, b.reminder_email || '', JSON.stringify(roles), JSON.stringify(primaryFor),
-      JSON.stringify(preferredSundays), servicePreference, JSON.stringify(roleSundayOverrides),
-      JSON.stringify(blackoutDates), b.absence_start || '', b.absence_until || ''
-    ).run();
+    await upsertVolunteer(db, pid, {
+      reminder_email: b.reminder_email,
+      roles: parseJsonArray(b.roles, []),
+      primary_for: parseJsonArray(b.primary_for, []),
+      preferred_sundays: parseJsonArray(b.preferred_sundays, []),
+      service_preference: b.service_preference,
+      role_sunday_overrides: parseJsonObject(b.role_sunday_overrides, {}),
+      blackout_dates: parseJsonArray(b.blackout_dates, []),
+      absence_start: b.absence_start,
+      absence_until: b.absence_until,
+    }, '');
 
     const row = await db.prepare(VOLUNTEER_SELECT + ' WHERE sv.person_id=?').bind(pid).first();
     return json({ ok: true, volunteer: volunteerRowOut(row) });
@@ -780,6 +825,116 @@ export async function handleSchedulerVolunteersApi(req, env, url, method) {
     if (!existing) return json({ error: 'Volunteer not found' }, 404);
     await db.prepare("UPDATE scheduler_volunteers SET active=0, updated_at=datetime('now') WHERE person_id=?").bind(personId).run();
     return json({ ok: true });
+  }
+
+  // GET /admin/api/scheduler/volunteers/migration-preview
+  // Reads the legacy scheduler_data 'ws_people' blob and, for each entry not already migrated,
+  // suggests a real people-table match — never auto-commits anything.
+  if (seg === 'migration-preview' && method === 'GET') {
+    const legacyRow = await db.prepare(`SELECT value FROM scheduler_data WHERE key='ws_people'`).first();
+    let legacyPeople = [];
+    try { legacyPeople = JSON.parse(legacyRow?.value || '[]'); } catch { legacyPeople = []; }
+    if (!Array.isArray(legacyPeople)) legacyPeople = [];
+
+    const migratedRows = (await db.prepare(
+      `SELECT migrated_from_legacy_id FROM scheduler_volunteers WHERE migrated_from_legacy_id != ''`
+    ).all()).results || [];
+    const migratedIds = new Set(migratedRows.map(function(r) { return r.migrated_from_legacy_id; }));
+
+    const pendingLegacy = legacyPeople.filter(function(lp) { return lp && lp.id && !migratedIds.has(String(lp.id)); });
+
+    const people = (await db.prepare(
+      `SELECT id, first_name, last_name, email, breeze_id, photo_url FROM people WHERE active=1`
+    ).all()).results || [];
+
+    const pending = pendingLegacy.map(function(lp) {
+      const match = matchLegacyVolunteer(lp, people);
+      return {
+        legacy_id: String(lp.id),
+        name: lp.name || '',
+        email: lp.email || '',
+        breeze_person_id: lp.breezePersonId || '',
+        roles: Array.isArray(lp.roles) ? lp.roles : [],
+        primary_for: Array.isArray(lp.primaryFor) ? lp.primaryFor : [],
+        match: match,
+      };
+    });
+
+    return json({
+      pending: pending,
+      already_migrated_count: migratedIds.size,
+      total_legacy: legacyPeople.length,
+    });
+  }
+
+  // POST /admin/api/scheduler/volunteers/migration-commit
+  // Body: { mappings: [ { legacy_id, action: 'link'|'create'|'skip', person_id? } ] }
+  // Client only supplies the per-legacy-id decision — roles/preferences/etc. are always
+  // re-read from the legacy blob server-side, never trusted from the request body.
+  if (seg === 'migration-commit' && method === 'POST') {
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const mappings = Array.isArray(b.mappings) ? b.mappings : [];
+    if (!mappings.length) return json({ error: 'mappings is required' }, 400);
+
+    const legacyRow = await db.prepare(`SELECT value FROM scheduler_data WHERE key='ws_people'`).first();
+    let legacyPeople = [];
+    try { legacyPeople = JSON.parse(legacyRow?.value || '[]'); } catch { legacyPeople = []; }
+    if (!Array.isArray(legacyPeople)) legacyPeople = [];
+    const legacyById = {};
+    legacyPeople.forEach(function(lp) { if (lp && lp.id) legacyById[String(lp.id)] = lp; });
+
+    let linked = 0, created = 0, skipped = 0;
+    const errors = [];
+
+    for (const m of mappings) {
+      const legacyId = String(m.legacy_id || '');
+      const legacy = legacyById[legacyId];
+      if (!legacy) { errors.push({ legacy_id: legacyId, error: 'Legacy entry not found' }); continue; }
+      if (m.action === 'skip' || !m.action) { skipped++; continue; }
+
+      const fields = {
+        roles: Array.isArray(legacy.roles) ? legacy.roles : [],
+        primary_for: Array.isArray(legacy.primaryFor) ? legacy.primaryFor : [],
+        preferred_sundays: Array.isArray(legacy.preferredSundays) ? legacy.preferredSundays : [],
+        service_preference: SCHED_SERVICE_PREFS.includes(legacy.servicePreference) ? legacy.servicePreference : 'both',
+        role_sunday_overrides: (legacy.roleSundayOverrides && typeof legacy.roleSundayOverrides === 'object') ? legacy.roleSundayOverrides : {},
+        blackout_dates: Array.isArray(legacy.blackoutDates) ? legacy.blackoutDates : [],
+        absence_start: legacy.absenceStart || '',
+        absence_until: legacy.absenceUntil || '',
+        reminder_email: legacy.email || '',
+      };
+
+      let personId;
+      if (m.action === 'link') {
+        personId = parseInt(m.person_id, 10);
+        if (!personId) { errors.push({ legacy_id: legacyId, error: 'person_id is required for link' }); continue; }
+        const person = await db.prepare('SELECT id FROM people WHERE id=?').bind(personId).first();
+        if (!person) { errors.push({ legacy_id: legacyId, error: 'Person not found' }); continue; }
+        // Refuse to silently overwrite a different legacy migration already linked to this person.
+        const already = await db.prepare(
+          'SELECT migrated_from_legacy_id FROM scheduler_volunteers WHERE person_id=?'
+        ).bind(personId).first();
+        if (already && already.migrated_from_legacy_id && already.migrated_from_legacy_id !== legacyId) {
+          errors.push({ legacy_id: legacyId, error: 'Person is already linked from a different legacy volunteer (#' + already.migrated_from_legacy_id + ')' });
+          continue;
+        }
+      } else if (m.action === 'create') {
+        const { firstName, lastName } = splitLegacyName(legacy.name);
+        const r = await db.prepare(
+          `INSERT INTO people (first_name, last_name, email, member_type, first_contact_date)
+           VALUES (?, ?, ?, 'visitor', date('now'))`
+        ).bind(firstName, lastName, legacy.email || '').run();
+        personId = r.meta?.last_row_id;
+      } else {
+        errors.push({ legacy_id: legacyId, error: 'Unknown action: ' + m.action });
+        continue;
+      }
+
+      await upsertVolunteer(db, personId, fields, legacyId);
+      if (m.action === 'create') created++; else linked++;
+    }
+
+    return json({ ok: true, linked: linked, created: created, skipped: skipped, errors: errors });
   }
 
   return json({ error: 'Not found' }, 404);
