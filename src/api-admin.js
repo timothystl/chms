@@ -3,7 +3,7 @@ import { html, json, isAuthed, authCookieHeader, getAuthRole, getAuthInfo, hashP
 import { handleChmsApi } from './api-chms.js';
 import { LOGIN_HTML } from './html-templates.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts } from './api-emails.js';
-import { applyXmasMarketDefaults, handleVolunteerTemplates, handleSignupLinkPerson, handleSignupSendEmail } from './api-scheduler.js';
+import { applyXmasMarketDefaults, handleVolunteerTemplates, handleSignupLinkPerson, handleSignupSendEmail, handleSchedulerVolunteersApi } from './api-scheduler.js';
 
 // Event short-link slug: lowercase, alphanumeric + hyphens only, capped at 64 chars
 // (matches the worker's /<slug> route allowlist regex — a longer slug would save fine
@@ -214,6 +214,9 @@ export async function handleAdminApi(req, env, url, method) {
     return json({ role: role || 'unknown', username, display_name: displayName });
   }
 
+  // SC6 Phase 1: relationalized scheduler volunteers (real people rows) — must be checked
+  // before the generic 'scheduler/' blob-store dispatch below, which would otherwise swallow it.
+  if (seg.startsWith('scheduler/volunteers')) return handleSchedulerVolunteersApi(req, env, url, method);
   if (seg.startsWith('scheduler/')) return handleSchedulerDataApi(req, env, url, method);
 
   // ── Email triggers (admin only) — manual test / emergency resend ──────────

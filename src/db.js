@@ -947,6 +947,24 @@ async function _doInitDb(db) {
       UNIQUE(fiscal_year, category_path, source)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_church_balances_year ON finance_church_balances(fiscal_year)`,
+    // SC6 Phase 1: relationalize Scheduler volunteers onto real people rows (see
+    // migrations/0020_scheduler_volunteers.sql for the full rationale).
+    `CREATE TABLE IF NOT EXISTS scheduler_volunteers (
+      person_id             INTEGER PRIMARY KEY REFERENCES people(id),
+      reminder_email        TEXT    NOT NULL DEFAULT '',
+      roles                 TEXT    NOT NULL DEFAULT '[]',
+      primary_for           TEXT    NOT NULL DEFAULT '[]',
+      preferred_sundays     TEXT    NOT NULL DEFAULT '[]',
+      service_preference    TEXT    NOT NULL DEFAULT 'both',
+      role_sunday_overrides TEXT    NOT NULL DEFAULT '{}',
+      blackout_dates        TEXT    NOT NULL DEFAULT '[]',
+      absence_start         TEXT    NOT NULL DEFAULT '',
+      absence_until         TEXT    NOT NULL DEFAULT '',
+      active                INTEGER NOT NULL DEFAULT 1,
+      created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at            TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_scheduler_volunteers_active ON scheduler_volunteers(active)`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
