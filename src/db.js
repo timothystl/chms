@@ -1388,6 +1388,20 @@ async function _doInitDb(db) {
       capitalized   INTEGER NOT NULL DEFAULT 0
     )`,
     `CREATE INDEX IF NOT EXISTS idx_finance_property_repairs_key ON finance_property_repairs(property_key)`,
+    // Church Budget Planning (see migrations/0024_finance_budget_plan.sql).
+    `CREATE TABLE IF NOT EXISTS finance_budget_plan (
+      category             TEXT    NOT NULL,
+      classification        TEXT    NOT NULL DEFAULT 'Expenses',
+      fiscal_year           INTEGER NOT NULL,
+      planned_amount_cents  INTEGER NOT NULL DEFAULT 0,
+      basis                 TEXT    NOT NULL DEFAULT 'manual',
+      growth_pct            REAL,
+      base_amount_cents     INTEGER,
+      notes                 TEXT    NOT NULL DEFAULT '',
+      updated_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (category, fiscal_year)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_finance_budget_plan_year ON finance_budget_plan(fiscal_year)`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

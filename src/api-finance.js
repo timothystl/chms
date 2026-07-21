@@ -928,17 +928,24 @@ async function fetchQboJson(label, resPromise, warnings, hint) {
 // always a deliberate override/backfill — see migrations/0018_finance_church_entries.sql); a
 // year with only 'qbo_sync' rows uses those. One bulk query + JS grouping, not a correlated
 // subquery per year, matching this app's existing performance conventions.
+// Highest to lowest priority. 'import' (a hand-uploaded Excel export) always wins over a live
+// QBO sync, same as before this list existed. 'plan_committed' (a forward Budget Planning
+// projection committed to a future year — see FIN12) is deliberately LOWEST priority: it's a
+// placeholder for a year with no real data yet, and must get out of the way the moment either a
+// live sync or a real import exists for that year, rather than permanently overriding them.
+const CHURCH_SOURCE_PRIORITY = ['import', 'qbo_sync', 'plan_committed'];
 export function resolveChurchYearPrecedence(rows) {
-  const bySourceThenYear = new Map(); // year -> { hasOverride, rows }
+  const byYear = new Map();
   for (const r of rows) {
-    if (!bySourceThenYear.has(r.fiscal_year)) bySourceThenYear.set(r.fiscal_year, { hasOverride: false, rows: [] });
-    const bucket = bySourceThenYear.get(r.fiscal_year);
-    if (r.source !== 'qbo_sync') bucket.hasOverride = true;
-    bucket.rows.push(r);
+    if (!byYear.has(r.fiscal_year)) byYear.set(r.fiscal_year, []);
+    byYear.get(r.fiscal_year).push(r);
   }
   const out = [];
-  for (const { hasOverride, rows: yearRows } of bySourceThenYear.values()) {
-    out.push(...(hasOverride ? yearRows.filter(r => r.source !== 'qbo_sync') : yearRows.filter(r => r.source === 'qbo_sync')));
+  for (const yearRows of byYear.values()) {
+    for (const src of CHURCH_SOURCE_PRIORITY) {
+      const matching = yearRows.filter(r => r.source === src);
+      if (matching.length) { out.push(...matching); break; }
+    }
   }
   return out;
 }
@@ -1732,6 +1739,97 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const byYear = {};
     years.forEach(y => { byYear[y] = computeBalanceSummary(allRows.filter(r => r.fiscal_year === y)); });
     return json({ years, byYear });
+  }
+
+  // ── Church Budget Planning — forward multi-year what-if planning (Property Expenses,
+  // Salaries & Benefits, Utilities, Insurance, or any freeform category), independent of any
+  // QuickBooks import/sync. A plan can be "committed" into a future fiscal year's real budget
+  // (finance_church_entries, source='plan_committed') — resolveChurchYearPrecedence() ranks that
+  // source lowest, so it's a placeholder only until real synced/imported data exists. ──────────
+  if (seg === 'finance/planning/church' && method === 'GET') {
+    const rows = (await db.prepare('SELECT * FROM finance_budget_plan ORDER BY category ASC, fiscal_year ASC').all()).results || [];
+    return json({ rows });
+  }
+
+  // Generates a compounding multi-year projection from a base dollar amount + a flat growth
+  // rate, upserting one row per target year (basis='grown'). A later manual override on any of
+  // those years replaces just that year's row (basis='manual') without touching the others.
+  if (seg === 'finance/planning/church/generate' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const category = String(b.category || '').trim();
+    if (!category) return json({ error: 'category is required' }, 400);
+    const classification = b.classification || 'Expenses';
+    const baseAmountCents = Math.round(Number(b.base_amount) * 100);
+    if (!Number.isFinite(baseAmountCents)) return json({ error: 'Invalid base_amount' }, 400);
+    const growthPct = Number(b.growth_pct);
+    if (!Number.isFinite(growthPct)) return json({ error: 'Invalid growth_pct' }, 400);
+    const targetYears = Array.isArray(b.target_years) ? b.target_years.map(y => parseInt(y, 10)).filter(Number.isFinite) : [];
+    if (!targetYears.length) return json({ error: 'target_years is required' }, 400);
+    const ops = targetYears.map((year, i) => {
+      const cents = Math.round(baseAmountCents * Math.pow(1 + growthPct, i + 1));
+      return db.prepare(
+        `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,growth_pct,base_amount_cents,notes,updated_at)
+         VALUES (?,?,?,?,'grown',?,?,?,datetime('now'))
+         ON CONFLICT(category,fiscal_year) DO UPDATE SET
+           classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis=excluded.basis,
+           growth_pct=excluded.growth_pct, base_amount_cents=excluded.base_amount_cents, notes=excluded.notes, updated_at=excluded.updated_at`
+      ).bind(category, classification, year, cents, growthPct, baseAmountCents, b.notes || '');
+    });
+    await db.batch(ops);
+    return json({ ok: true, years: targetYears });
+  }
+
+  // Manual override for a single category/year — always wins over whatever finance/planning/
+  // church/generate previously computed for that one year.
+  if (seg === 'finance/planning/church/override' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const category = String(b.category || '').trim();
+    const fiscalYear = parseInt(b.fiscal_year, 10);
+    if (!category || !Number.isFinite(fiscalYear)) return json({ error: 'category and fiscal_year are required' }, 400);
+    const amountCents = Math.round(Number(b.planned_amount) * 100);
+    if (!Number.isFinite(amountCents)) return json({ error: 'Invalid planned_amount' }, 400);
+    await db.prepare(
+      `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,notes,updated_at)
+       VALUES (?,?,?,?,'manual',?,datetime('now'))
+       ON CONFLICT(category,fiscal_year) DO UPDATE SET
+         classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis='manual',
+         growth_pct=NULL, base_amount_cents=NULL, notes=excluded.notes, updated_at=excluded.updated_at`
+    ).bind(category, b.classification || 'Expenses', fiscalYear, amountCents, b.notes || '').run();
+    return json({ ok: true });
+  }
+
+  const planDeleteMatch = seg.match(/^finance\/planning\/church\/([^/]+)\/(\d{4})$/);
+  if (planDeleteMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_budget_plan WHERE category=? AND fiscal_year=?')
+      .bind(decodeURIComponent(planDeleteMatch[1]), parseInt(planDeleteMatch[2], 10)).run();
+    return json({ ok: true });
+  }
+
+  // Commits every planned category for one fiscal year into finance_church_entries as a
+  // placeholder budget (source='plan_committed', own_actual_cents=0 — there's no actual yet,
+  // that's the whole point). Wholesale-replaces prior plan_committed rows for that year only, so
+  // re-committing after editing the plan doesn't leave stale categories behind.
+  if (seg === 'finance/planning/church/commit' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: committing a budget plan requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const fiscalYear = parseInt(b.fiscal_year, 10);
+    if (!Number.isFinite(fiscalYear)) return json({ error: 'fiscal_year is required' }, 400);
+    const planRows = (await db.prepare('SELECT * FROM finance_budget_plan WHERE fiscal_year=?').bind(fiscalYear).all()).results || [];
+    if (!planRows.length) return json({ error: `No plan rows exist for ${fiscalYear}` }, 400);
+    const syncedAt = new Date().toISOString();
+    const ops = [db.prepare(`DELETE FROM finance_church_entries WHERE source='plan_committed' AND fiscal_year=?`).bind(fiscalYear)];
+    for (const r of planRows) {
+      ops.push(db.prepare(
+        `INSERT INTO finance_church_entries
+           (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+         VALUES (?,0,?,?,?,0,0,0,?,'plan_committed',?)`
+      ).bind(fiscalYear, r.classification, r.category, r.category, r.planned_amount_cents, syncedAt));
+    }
+    await db.batch(ops);
+    return json({ ok: true, fiscalYear, committed: planRows.length });
   }
 
   // ── Board Packet export — a single clean JSON snapshot of the numbers a board would need for
