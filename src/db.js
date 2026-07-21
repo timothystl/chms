@@ -758,6 +758,27 @@ const FINANCE_PROPERTY_IVANHOE_META = {
     net_operating_income_cents: 5490519,
     cap_rate: 0.08,
     capitalized_value_cents: 68631486,
+    // Real per-tenant rent roll + itemized operating costs from AHRA's actual valuation
+    // worksheet (3277_Ivanhoe_Valuation_2.xlsx, delivered 2026-07-20) — reconciles exactly to
+    // the summary figures above. Applied via seedIvanhoePropertyValuationV3().
+    rent_roll: [
+      { tenant: 'Apartment 1', sqft: 1500, annual_rent_cents: 1938000 },
+      { tenant: 'Apartment 2', sqft: 1450, annual_rent_cents: 1499300 },
+      { tenant: 'RJBJ - Crossfit', sqft: 3066, annual_rent_cents: 2759400 },
+      { tenant: 'Magnatone', sqft: 7519, annual_rent_cents: 4082817 },
+    ],
+    utility_reimbursement_cents: 1626068,
+    vacancy_rate_pct: 0,
+    operating_costs: {
+      utilities_cents: 1961363,
+      trash_cents: 310668,
+      maintenance_repairs_cents: 828700,
+      landscaping_snow_cents: 400000,
+      legal_cents: 0,
+      taxes_cents: 1200000,
+      insurance_cents: 1000000,
+    },
+    management_fee_pct: 0.06,
   },
   loan: {
     lender: 'LCEF',
@@ -989,6 +1010,25 @@ async function seedIvanhoePropertyReservesV2(db) {
     `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_reserves_v2_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   ));
   await db.batch(ops);
+}
+
+// FIN — the actual AHRA valuation worksheet (3277_Ivanhoe_Valuation_2.xlsx) was uploaded
+// 2026-07-20, after the original export had already summarized it into one lump
+// gross_rental_income/total_operating_costs figure. Replaces that lump total with the real
+// per-tenant rent roll + itemized operating costs it reconciles to exactly (see the
+// FINANCE_PROPERTY_IVANHOE_META.valuation literal above). Its own marker, separate from the v2
+// reserves marker, since it can land independently of that upgrade.
+async function seedIvanhoePropertyValuationV3(db) {
+  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_valuation_v3_seeded'").first();
+  if (marker) return;
+  const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_meta'").first();
+  let meta = {};
+  if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
+  meta.valuation = FINANCE_PROPERTY_IVANHOE_META.valuation;
+  await db.batch([
+    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify(meta)),
+    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_valuation_v3_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`),
+  ]);
 }
 
 async function _doInitDb(db) {
@@ -1395,5 +1435,6 @@ async function _doInitDb(db) {
   await seedStudentTuitionHistory(db);
   await seedIvanhoeProperty(db);
   await seedIvanhoePropertyReservesV2(db);
+  await seedIvanhoePropertyValuationV3(db);
 }
 

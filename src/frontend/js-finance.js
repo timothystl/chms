@@ -1428,51 +1428,152 @@ function finRenderPropertyForecast(d) {
   return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Cash Flow &amp; Mortgage Payoff Forecast</h4>' + statsHtml + note;
 }
 
-// ── Editable Valuation Calculator (income-capitalization method — the same formula AHRA's own
-// worksheet uses: NOI = gross rental income − operating costs; value = NOI ÷ cap rate). No
-// separate raw worksheet was ever uploaded to this session, just the rebuilt analysis workbook
-// with the same numbers baked in — this calculator lets staff update the figures themselves
-// going forward without needing AHRA's spreadsheet. Saves via the existing meta PATCH route. ──
+// ── Editable Valuation Calculator (income-capitalization method — the same formula and
+// itemization as AHRA's actual valuation worksheet, 3277_Ivanhoe_Valuation_2.xlsx: a per-tenant
+// rent roll + itemized operating costs, reconciled exactly against that worksheet). Lets staff
+// update rents, costs, vacancy, management fee %, and cap rate themselves going forward without
+// needing AHRA's spreadsheet — saves via the existing meta PATCH route (no new backend route). ──
+var FIN_VAL_OP_COST_FIELDS = [
+  ['utilities_cents', 'Utilities'],
+  ['trash_cents', 'Trash'],
+  ['maintenance_repairs_cents', 'Maintenance/Repairs'],
+  ['landscaping_snow_cents', 'Landscaping/Snow'],
+  ['legal_cents', 'Legal'],
+  ['taxes_cents', 'Taxes'],
+  ['insurance_cents', 'Insurance'],
+];
+// Pure — no DOM — so it's directly unit-testable (see test/finance-property-forecast.test.js).
+// Mirrors AHRA's worksheet exactly: Gross Rental Income = rent roll + utility reimbursement,
+// less vacancy = Effective Rental Income; Total Operating Costs = itemized costs + a management
+// fee computed as a % of Effective Rental Income; NOI = Effective Rental Income − Total
+// Operating Costs; Capitalized Value = NOI ÷ Cap Rate.
+function finComputePropertyValuation(inputs) {
+  var rentRoll = inputs.rentRoll || [];
+  var totalAnnualRentCents = rentRoll.reduce(function(sum, r) { return sum + (Number(r.annual_rent_cents) || 0); }, 0);
+  var utilityReimbCents = Number(inputs.utility_reimbursement_cents) || 0;
+  var grossRentalIncomeCents = totalAnnualRentCents + utilityReimbCents;
+  var vacancyRatePct = Number(inputs.vacancy_rate_pct) || 0;
+  var vacancyCents = Math.round(grossRentalIncomeCents * vacancyRatePct);
+  var effectiveRentalIncomeCents = grossRentalIncomeCents - vacancyCents;
+  var opCosts = inputs.operating_costs || {};
+  var itemizedOpCostsCents = FIN_VAL_OP_COST_FIELDS.reduce(function(sum, f) { return sum + (Number(opCosts[f[0]]) || 0); }, 0);
+  var managementFeePct = Number(inputs.management_fee_pct) || 0;
+  var managementFeeCents = Math.round(effectiveRentalIncomeCents * managementFeePct);
+  var totalOperatingCostsCents = itemizedOpCostsCents + managementFeeCents;
+  var noiCents = effectiveRentalIncomeCents - totalOperatingCostsCents;
+  var capRate = Number(inputs.cap_rate) || 0;
+  var capitalizedValueCents = capRate ? Math.round(noiCents / capRate) : 0;
+  return {
+    totalAnnualRentCents: totalAnnualRentCents, grossRentalIncomeCents: grossRentalIncomeCents, vacancyCents: vacancyCents,
+    effectiveRentalIncomeCents: effectiveRentalIncomeCents, itemizedOpCostsCents: itemizedOpCostsCents,
+    managementFeeCents: managementFeeCents, totalOperatingCostsCents: totalOperatingCostsCents,
+    noiCents: noiCents, capitalizedValueCents: capitalizedValueCents,
+  };
+}
+var _finValRentRoll = [];
 function finRenderValuationCalculator(d, isAdminUI) {
   var val = (d.meta && d.meta.valuation) || {};
-  var inputsHtml = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px;">'
-    + '<label style="font-size:.75rem;color:var(--warm-gray);">Gross Rental Income ($/yr)<br><input type="number" id="fin-val-gross" step="0.01" value="' + ((val.gross_rental_income_cents||0)/100) + '" oninput="finValRecompute()" ' + (isAdminUI ? '' : 'disabled') + ' style="width:140px;"></label>'
-    + '<label style="font-size:.75rem;color:var(--warm-gray);">Total Operating Costs incl. Mgmt Fee ($/yr)<br><input type="number" id="fin-val-costs" step="0.01" value="' + ((val.total_operating_costs_incl_mgmt_fee_cents||0)/100) + '" oninput="finValRecompute()" ' + (isAdminUI ? '' : 'disabled') + ' style="width:170px;"></label>'
-    + '<label style="font-size:.75rem;color:var(--warm-gray);">Cap Rate<br><input type="number" id="fin-val-caprate" step="0.001" value="' + (val.cap_rate||0) + '" oninput="finValRecompute()" ' + (isAdminUI ? '' : 'disabled') + ' style="width:90px;"></label>'
+  _finValRentRoll = (val.rent_roll || []).map(function(r) { return { tenant: r.tenant || '', sqft: r.sqft || 0, annual_rent_cents: r.annual_rent_cents || 0 }; });
+  var opCosts = val.operating_costs || {};
+  var dis = isAdminUI ? '' : 'disabled';
+
+  var opCostInputs = FIN_VAL_OP_COST_FIELDS.map(function(f) {
+    return '<label style="font-size:.75rem;color:var(--warm-gray);">' + f[1] + ' ($/yr)<br><input type="number" id="fin-val-oc-' + f[0] + '" step="0.01" value="' + ((opCosts[f[0]]||0)/100) + '" oninput="finValRecompute()" ' + dis + ' style="width:110px;"></label>';
+  }).join('');
+
+  var assumptionsHtml = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:10px 0;">'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Utility Reimbursement ($/yr)<br><input type="number" id="fin-val-utilreimb" step="0.01" value="' + ((val.utility_reimbursement_cents||0)/100) + '" oninput="finValRecompute()" ' + dis + ' style="width:140px;"></label>'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Vacancy Rate %<br><input type="number" id="fin-val-vacancy" step="0.1" value="' + ((val.vacancy_rate_pct||0)*100) + '" oninput="finValRecompute()" ' + dis + ' style="width:90px;"></label>'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Management Fee %<br><input type="number" id="fin-val-mgmtfee" step="0.1" value="' + ((val.management_fee_pct||0)*100) + '" oninput="finValRecompute()" ' + dis + ' style="width:100px;"></label>'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Cap Rate<br><input type="number" id="fin-val-caprate" step="0.001" value="' + (val.cap_rate||0) + '" oninput="finValRecompute()" ' + dis + ' style="width:90px;"></label>'
     + '</div>';
-  var statsHtml = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;" id="fin-val-output">'
+
+  var statsHtml = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin:10px 0;" id="fin-val-output">'
+    + '<div class="rpt-stat"><div class="rpt-stat-num" id="fin-val-gross">$' + finFmtMoney((val.gross_rental_income_cents||0)/100) + '</div><div class="rpt-stat-lbl">Gross Rental Income</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num" id="fin-val-costs">$' + finFmtMoney((val.total_operating_costs_incl_mgmt_fee_cents||0)/100) + '</div><div class="rpt-stat-lbl">Total Operating Costs</div></div>'
     + '<div class="rpt-stat"><div class="rpt-stat-num" id="fin-val-noi">$' + finFmtMoney((val.net_operating_income_cents||0)/100) + '</div><div class="rpt-stat-lbl">Net Operating Income</div></div>'
     + '<div class="rpt-stat"><div class="rpt-stat-num" id="fin-val-cv">$' + finFmtMoney((val.capitalized_value_cents||0)/100) + '</div><div class="rpt-stat-lbl">Capitalized Value</div></div>'
     + '</div>';
+
   var actionsHtml = isAdminUI
     ? '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finValSave()">Save Valuation</button> <span id="fin-val-save-msg" style="font-size:.75rem;color:var(--warm-gray);margin-left:8px;"></span>'
     : '';
   var asOf = val.as_of_date ? '<p style="font-size:.72rem;color:var(--warm-gray);margin:0 0 8px;">As of ' + esc(val.as_of_date) + '.</p>' : '';
-  return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Valuation Calculator</h4>' + asOf + inputsHtml + statsHtml + actionsHtml;
+
+  return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Valuation Calculator</h4>' + asOf
+    + '<div style="font-weight:600;font-size:.82rem;margin:0 0 6px;">Rent Roll</div>'
+    + finRenderRentRollTable(isAdminUI)
+    + (isAdminUI ? '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;margin-top:6px;" onclick="finValAddTenant()">+ Add Tenant</button>' : '')
+    + '<div style="font-weight:600;font-size:.82rem;margin:14px 0 6px;">Operating Costs</div>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">' + opCostInputs + '</div>'
+    + assumptionsHtml + statsHtml + actionsHtml;
+}
+function finRenderRentRollTable(isAdminUI) {
+  var rows = _finValRentRoll.map(function(r, i) {
+    return '<tr>'
+      + '<td style="padding:3px 6px;"><input type="text" id="fin-val-rr-' + i + '-tenant" value="' + esc(r.tenant) + '" oninput="finValRentRollFieldChange(' + i + ',\'tenant\',this.value)" ' + (isAdminUI ? '' : 'disabled') + ' style="width:160px;"></td>'
+      + '<td style="padding:3px 6px;"><input type="number" id="fin-val-rr-' + i + '-sqft" value="' + r.sqft + '" oninput="finValRentRollFieldChange(' + i + ',\'sqft\',this.value)" ' + (isAdminUI ? '' : 'disabled') + ' style="width:90px;"></td>'
+      + '<td style="padding:3px 6px;"><input type="number" id="fin-val-rr-' + i + '-rent" step="0.01" value="' + (r.annual_rent_cents/100) + '" oninput="finValRentRollFieldChange(' + i + ',\'annual_rent_cents\',this.value)" ' + (isAdminUI ? '' : 'disabled') + ' style="width:120px;"></td>'
+      + (isAdminUI ? '<td style="padding:3px 6px;"><button class="btn-secondary" style="font-size:.7rem;padding:2px 6px;color:var(--danger);" onclick="finValRemoveTenant(' + i + ')">Remove</button></td>' : '')
+      + '</tr>';
+  }).join('');
+  return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;" id="fin-val-rentroll-table">'
+    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:4px 6px;">Tenant</th><th style="text-align:left;padding:4px 6px;">SF</th><th style="text-align:left;padding:4px 6px;">Annual Rent ($)</th>' + (isAdminUI ? '<th></th>' : '') + '</tr></thead>'
+    + '<tbody id="fin-val-rentroll-body">' + (rows || '<tr><td colspan="4" style="padding:6px;color:var(--warm-gray);">No tenants recorded yet.</td></tr>') + '</tbody></table></div>';
+}
+function finValRentRollFieldChange(i, field, value) {
+  if (!_finValRentRoll[i]) return;
+  _finValRentRoll[i][field] = field === 'tenant' ? value : (field === 'annual_rent_cents' ? Math.round((parseFloat(value)||0) * 100) : (parseInt(value, 10) || 0));
+  finValRecompute();
+}
+function finValAddTenant() {
+  _finValRentRoll.push({ tenant: '', sqft: 0, annual_rent_cents: 0 });
+  document.getElementById('fin-val-rentroll-body').outerHTML = finRenderRentRollTable(true).match(/<tbody[\s\S]*<\/tbody>/)[0];
+  finValRecompute();
+}
+function finValRemoveTenant(i) {
+  _finValRentRoll.splice(i, 1);
+  document.getElementById('fin-val-rentroll-body').outerHTML = finRenderRentRollTable(true).match(/<tbody[\s\S]*<\/tbody>/)[0];
+  finValRecompute();
+}
+function finValReadInputs() {
+  var opCosts = {};
+  FIN_VAL_OP_COST_FIELDS.forEach(function(f) {
+    var el = document.getElementById('fin-val-oc-' + f[0]);
+    opCosts[f[0]] = el ? Math.round((parseFloat(el.value)||0) * 100) : 0;
+  });
+  return {
+    rentRoll: _finValRentRoll,
+    utility_reimbursement_cents: Math.round((parseFloat(document.getElementById('fin-val-utilreimb').value)||0) * 100),
+    vacancy_rate_pct: (parseFloat(document.getElementById('fin-val-vacancy').value)||0) / 100,
+    operating_costs: opCosts,
+    management_fee_pct: (parseFloat(document.getElementById('fin-val-mgmtfee').value)||0) / 100,
+    cap_rate: parseFloat(document.getElementById('fin-val-caprate').value) || 0,
+  };
 }
 function finValRecompute() {
-  var gross = parseFloat(document.getElementById('fin-val-gross').value) || 0;
-  var costs = parseFloat(document.getElementById('fin-val-costs').value) || 0;
-  var capRate = parseFloat(document.getElementById('fin-val-caprate').value) || 0;
-  var noi = gross - costs;
-  var value = capRate ? noi / capRate : 0;
-  document.getElementById('fin-val-noi').textContent = '$' + finFmtMoney(noi);
-  document.getElementById('fin-val-cv').textContent = '$' + finFmtMoney(value);
+  var out = finComputePropertyValuation(finValReadInputs());
+  document.getElementById('fin-val-gross').textContent = '$' + finFmtMoney(out.grossRentalIncomeCents/100);
+  document.getElementById('fin-val-costs').textContent = '$' + finFmtMoney(out.totalOperatingCostsCents/100);
+  document.getElementById('fin-val-noi').textContent = '$' + finFmtMoney(out.noiCents/100);
+  document.getElementById('fin-val-cv').textContent = '$' + finFmtMoney(out.capitalizedValueCents/100);
 }
 function finValSave() {
-  var gross = parseFloat(document.getElementById('fin-val-gross').value);
-  var costs = parseFloat(document.getElementById('fin-val-costs').value);
-  var capRate = parseFloat(document.getElementById('fin-val-caprate').value);
   var msgEl = document.getElementById('fin-val-save-msg');
-  if (!isFinite(gross) || !isFinite(costs) || !isFinite(capRate) || capRate <= 0) { msgEl.textContent = 'Enter valid numbers.'; return; }
-  var noi = gross - costs;
-  var value = noi / capRate;
+  var inputs = finValReadInputs();
+  if (!inputs.cap_rate || inputs.cap_rate <= 0) { msgEl.textContent = 'Enter a valid cap rate.'; return; }
+  var out = finComputePropertyValuation(inputs);
   var body = { valuation: {
-    gross_rental_income_cents: Math.round(gross * 100),
-    total_operating_costs_incl_mgmt_fee_cents: Math.round(costs * 100),
-    net_operating_income_cents: Math.round(noi * 100),
-    cap_rate: capRate,
-    capitalized_value_cents: Math.round(value * 100),
+    rent_roll: _finValRentRoll,
+    utility_reimbursement_cents: inputs.utility_reimbursement_cents,
+    vacancy_rate_pct: inputs.vacancy_rate_pct,
+    operating_costs: inputs.operating_costs,
+    management_fee_pct: inputs.management_fee_pct,
+    cap_rate: inputs.cap_rate,
+    gross_rental_income_cents: out.grossRentalIncomeCents,
+    total_operating_costs_incl_mgmt_fee_cents: out.totalOperatingCostsCents,
+    net_operating_income_cents: out.noiCents,
+    capitalized_value_cents: out.capitalizedValueCents,
     as_of_date: new Date().toISOString().slice(0, 10),
   } };
   msgEl.textContent = 'Saving…';
