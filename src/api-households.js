@@ -406,7 +406,30 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
         const sorted = rows.sort((a, b) => b.total_cents - a.total_cents);
         return { name: sorted[0].name, funds: sorted };
       });
-    return json({ duplicates });
+    // Possible duplicates: different names, same leading numeric fund code (e.g.
+    // "25010 Concordia Children's Services" / "25010 Concordia Children – Distribution Check").
+    // Grouped separately (not auto-merged) since the names genuinely differ and a human
+    // needs to confirm they're really the same fund before merging.
+    const prefixGroups = new Map();
+    for (const f of funds) {
+      const m = /^(\d{4,})\b/.exec((f.name || '').trim());
+      if (!m) continue;
+      const prefix = m[1];
+      if (!prefixGroups.has(prefix)) prefixGroups.set(prefix, []);
+      const s = statMap.get(f.id) || { cnt: 0, total_cents: 0 };
+      prefixGroups.get(prefix).push({
+        id: f.id, name: f.name, description: f.description, active: !!f.active,
+        breeze_id: f.breeze_id || '', sort_order: f.sort_order,
+        entry_count: s.cnt, total_cents: s.total_cents
+      });
+    }
+    const possible_duplicates = [...prefixGroups.entries()]
+      .filter(([, rows]) => rows.length > 1 && new Set(rows.map(r => r.name.trim().toLowerCase())).size > 1)
+      .map(([prefix, rows]) => {
+        const sorted = rows.sort((a, b) => b.total_cents - a.total_cents);
+        return { prefix, funds: sorted };
+      });
+    return json({ duplicates, possible_duplicates });
   }
   if (seg === 'funds/merge' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied' }, 403);
