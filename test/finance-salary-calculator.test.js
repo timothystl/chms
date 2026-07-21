@@ -14,22 +14,33 @@ function loadSalaryCalculator() {
     if (!m) throw new Error(`${name} not found in built script`);
     return m[0];
   });
-  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputeHealthPlanTotalCents'];
-  const fnSrcs = fnNames.map(name => {
-    const m = CHMS_APP_EXT_JS.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
-    if (!m) throw new Error(`${name} not found in built script`);
-    return m[0];
-  });
+  // Brace-counting extractor (not a non-greedy regex) — some of these functions (e.g. the health
+  // plan breakeven finder) declare an inner nested function, whose own closing brace would
+  // prematurely satisfy a naive `[\s\S]*?\n\}` match and truncate the outer function.
+  function extractFunction(name) {
+    const startMatch = CHMS_APP_EXT_JS.match(new RegExp(`function ${name}\\([^)]*\\) \\{`));
+    if (!startMatch) throw new Error(`${name} not found in built script`);
+    const start = startMatch.index;
+    let depth = 0, i = start;
+    for (; i < CHMS_APP_EXT_JS.length; i++) {
+      const ch = CHMS_APP_EXT_JS[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) { i++; break; } }
+    }
+    return CHMS_APP_EXT_JS.slice(start, i);
+  }
+  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
+  const fnSrcs = fnNames.map(extractFunction);
   const ficaRateM = CHMS_APP_EXT_JS.match(/var LCMS_EMPLOYER_FICA_RATE = [^\n]*\n/);
   if (!ficaRateM) throw new Error('LCMS_EMPLOYER_FICA_RATE not found in built script');
   const healthPlanM = CHMS_APP_EXT_JS.match(/var HEALTH_PLAN_QUOTE_2027 = [\s\S]*?\n};\n/);
   if (!healthPlanM) throw new Error('HEALTH_PLAN_QUOTE_2027 not found in built script');
   // eslint-disable-next-line no-eval
-  return eval(`(function() { ${varSrcs.join('\n')} ${ficaRateM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, LCMS_EMPLOYER_FICA_RATE, finComputeHealthPlanTotalCents }; })()`);
+  return eval(`(function() { ${varSrcs.join('\n')} ${ficaRateM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, LCMS_EMPLOYER_FICA_RATE, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents }; })()`);
 }
 
 describe('LCMS Missouri District salary calculator', () => {
-  const { finLcmsBaseSalaryCents, finComputeLcmsSalary, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, LCMS_EMPLOYER_FICA_RATE, finComputeHealthPlanTotalCents } = loadSalaryCalculator();
+  const { finLcmsBaseSalaryCents, finComputeLcmsSalary, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, LCMS_EMPLOYER_FICA_RATE, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents } = loadSalaryCalculator();
 
   it('looks up the exact published base salary for a known year', () => {
     expect(finLcmsBaseSalaryCents(2027)).toMatchObject({ dollars: 51529, exact: true });
@@ -154,6 +165,45 @@ describe('LCMS Missouri District salary calculator', () => {
 
     it('returns null for an unrecognized option key', () => {
       expect(finComputeHealthPlanTotalCents('nonexistent')).toBeNull();
+    });
+  });
+
+  // "Is it worth it?" breakeven analysis (Renewal -> Option B), worked out by hand and cross-checked
+  // here: per-household premium diff is $1,648.20/yr (half the doubled $3,296.40/yr quote total,
+  // since HEALTH_PLAN_QUOTE_2027 totals cover both of the church's 2 Family contracts combined).
+  describe('Health plan "is it worth it?" breakeven', () => {
+    it('computes plain deductible-then-coinsurance-to-OOP-max out-of-pocket cost', () => {
+      // Renewal: $4,000 deductible, 20% coinsurance, $8,000 OOP max
+      expect(finComputePlanOOPCents(400000, 800000, 0.20, 200000)).toBe(200000); // below deductible: pays it all
+      expect(finComputePlanOOPCents(400000, 800000, 0.20, 1000000)).toBe(520000); // $4,000 + 20% of $6,000 = $5,200
+      expect(finComputePlanOOPCents(400000, 800000, 0.20, 5000000)).toBe(800000); // saturates at OOP max
+    });
+
+    it('a single family member alone accounts for all costs: Option B never breaks even vs. Renewal, worst case $500 more', () => {
+      // Renewal (embedded): lone claimant capped at the individual OOP max, $8,000.
+      // Option B (non-embedded): a lone claimant must clear the FAMILY OOP max, $8,500, since
+      // there's no smaller individual sub-limit on a family contract.
+      const worstCase = finComputeHealthPlanSingleClaimantDeltaCents('renewal', 'option2', 100000000);
+      expect(worstCase).toBe(50000); // Option B costs $500 more in the worst case for a lone claimant
+      // Confirmed via the moderate-claim example worked out with the user: $10,000 in costs for
+      // one person costs $5,200 under Renewal vs. $6,800 under Option B — a $1,600 gap, worse
+      // than the eventual $500 worst-case gap since neither plan's OOP max is reached yet.
+      const moderate = finComputeHealthPlanSingleClaimantDeltaCents('renewal', 'option2', 1000000);
+      expect(moderate).toBe(160000);
+    });
+
+    it('reproduces the hand-computed $18,741 family-wide breakeven for Renewal -> Option B', () => {
+      // Per-household premium diff: ($52,520.40 - $49,224.00) / 2 = $1,648.20/yr = 164820 cents
+      const breakeven = finComputeHealthPlanFamilyBreakevenCents('renewal', 'option2', 164820);
+      expect(breakeven).toBe(1874100); // $18,741.00 — solved algebraically by hand, confirmed here
+    });
+
+    it('spread across 2+ family members, Option B saves money above the breakeven and up to $7,500/yr at saturation', () => {
+      const rate = 0.20;
+      const belowBreakevenSavings = finComputePlanOOPCents(800000, 1600000, rate, 1000000) - finComputePlanOOPCents(600000, 850000, rate, 1000000);
+      expect(belowBreakevenSavings).toBeLessThan(164820); // not yet worth it at $10,000 family-wide
+      const highSpendSavings = finComputePlanOOPCents(800000, 1600000, rate, 10000000) - finComputePlanOOPCents(600000, 850000, rate, 10000000);
+      expect(highSpendSavings).toBe(750000); // $7,500/yr once both plans are fully saturated
     });
   });
 });
