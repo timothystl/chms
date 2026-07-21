@@ -2322,12 +2322,39 @@ function finComputeEmployerFicaCents(salaryCents, selfEmployedFica) {
   return Math.round((salaryCents || 0) * LCMS_EMPLOYER_FICA_RATE);
 }
 
+// Real rates from the church's own "Overview of your Concordia Plans Participation" statement
+// (as of July 2026) — both apply to every salaried worker uniformly (not conditioned on FICA
+// self-employment status, unlike the FICA/SECA split above), and both change annually, so each
+// is a small by-year table with the same flat-fallback pattern as LCMS_MO_BASE_SALARY_BY_YEAR.
+var CONCORDIA_PENSION_RATE_BY_YEAR = { 2026: 0.1070, 2027: 0.1170 }; // Concordia Retirement Plan, Traditional Option
+var CONCORDIA_DISABILITY_RATE_BY_YEAR = { // Concordia Disability and Survivor Plan — rate depends on the worker's dependent status
+  2026: { withoutDependents: 0.0120, withDependents: 0.0175 },
+  2027: { withoutDependents: 0.0120, withDependents: 0.0175 }
+};
+function finConcordiaPensionRateFor(year) {
+  var years = Object.keys(CONCORDIA_PENSION_RATE_BY_YEAR).map(Number).sort(function(a,b){return a-b;});
+  var found = CONCORDIA_PENSION_RATE_BY_YEAR[year];
+  if (found != null) return { rate: found, exact: true, sourceYear: year };
+  var candidates = years.filter(function(y) { return y <= year; });
+  var sourceYear = candidates.length ? candidates[candidates.length - 1] : years[0];
+  return { rate: CONCORDIA_PENSION_RATE_BY_YEAR[sourceYear], exact: false, sourceYear: sourceYear };
+}
+function finConcordiaDisabilityRateFor(year, hasDependents) {
+  var years = Object.keys(CONCORDIA_DISABILITY_RATE_BY_YEAR).map(Number).sort(function(a,b){return a-b;});
+  var key = hasDependents ? 'withDependents' : 'withoutDependents';
+  var found = CONCORDIA_DISABILITY_RATE_BY_YEAR[year];
+  if (found != null) return { rate: found[key], exact: true, sourceYear: year };
+  var candidates = years.filter(function(y) { return y <= year; });
+  var sourceYear = candidates.length ? candidates[candidates.length - 1] : years[0];
+  return { rate: CONCORDIA_DISABILITY_RATE_BY_YEAR[sourceYear][key], exact: false, sourceYear: sourceYear };
+}
+
 var _finSalaryRoster = [];
 var _finSalaryColaPct = 0; // growth-rate assumption, used only when the target year has no published district base salary yet
 var _finSalaryColaSource = 'none'; // 'none' | 'lcms' | 'ssa' | 'custom' — which of the 3 reference options (or a hand-typed figure) is currently picked
-var _finSalaryPensionPct = 0; // Concordia Retirement Plan pension contribution % of salary — Concordia sets this rate annually, so it's always admin-entered, never hardcoded
-// Pure — no DOM — employer pension contribution cost, a straight percentage of salary (same shape
-// as employer FICA, but the % itself is set by Concordia Plan Services each year, not a fixed rate).
+var _finSalaryPensionPct = null; // null = use the looked-up Concordia rate for the target year (below); a number = an explicit admin override
+// Pure — no DOM — a straight percentage-of-salary employer cost (shared math for both Pension and
+// Disability & Survivor — same shape as employer FICA, just with rates set by Concordia yearly).
 function finComputePensionCents(salaryCents, pensionPct) {
   return Math.round((salaryCents || 0) * (Number(pensionPct) || 0));
 }
@@ -2337,13 +2364,17 @@ function finSalaryComputeAll(colaPct, pensionPct) {
     var employerFicaCents = calc ? finComputeEmployerFicaCents(calc.salaryCents, w.selfEmployedFica) : 0;
     var hypotheticalFicaCents = calc ? finComputeEmployerFicaCents(calc.salaryCents, false) : 0;
     var pensionCents = calc ? finComputePensionCents(calc.salaryCents, pensionPct) : 0;
-    return { calc: calc, employerFicaCents: employerFicaCents, hypotheticalFicaCents: hypotheticalFicaCents, pensionCents: pensionCents };
+    var disabilityRate = finConcordiaDisabilityRateFor(_finPlanTargetYear, w.hasDependents).rate;
+    var disabilityCents = calc ? finComputePensionCents(calc.salaryCents, disabilityRate) : 0;
+    return { calc: calc, employerFicaCents: employerFicaCents, hypotheticalFicaCents: hypotheticalFicaCents, pensionCents: pensionCents, disabilityCents: disabilityCents };
   });
 }
 function finRenderSalaryCalculator(isAdminUI) {
-  var computed = finSalaryComputeAll(_finSalaryColaPct, _finSalaryPensionPct);
+  var pensionRateInfo = finConcordiaPensionRateFor(_finPlanTargetYear);
+  var pensionPctUsed = _finSalaryPensionPct != null ? _finSalaryPensionPct : pensionRateInfo.rate;
+  var computed = finSalaryComputeAll(_finSalaryColaPct, pensionPctUsed);
   var rows = _finSalaryRoster.map(function(w, i) {
-    var calc = computed[i].calc, ficaCents = computed[i].employerFicaCents, hypotheticalFicaCents = computed[i].hypotheticalFicaCents, pensionCents = computed[i].pensionCents;
+    var calc = computed[i].calc, ficaCents = computed[i].employerFicaCents, hypotheticalFicaCents = computed[i].hypotheticalFicaCents, pensionCents = computed[i].pensionCents, disabilityCents = computed[i].disabilityCents;
     var trackOptions = w.role === 'commissioned' ? LCMS_COMMISSIONED_TRACKS : w.role === 'other' ? LCMS_OTHER_WORKER_TRACKS : null;
     var trackSelect = trackOptions
       ? '<select onchange="finSalaryFieldChange(' + i + ',\'trackKey\',this.value)">' + Object.keys(trackOptions).map(function(k) { return '<option value="' + k + '"' + (k === w.trackKey ? ' selected' : '') + '>' + esc(trackOptions[k].label) + '</option>'; }).join('') + '</select>'
@@ -2372,6 +2403,8 @@ function finRenderSalaryCalculator(isAdminUI) {
       + '<td style="padding:3px 6px;text-align:center;"><input type="checkbox" onchange="finSalaryFicaToggle(' + i + ',this.checked)"' + (w.selfEmployedFica ? ' checked' : '') + ' title="Self-employed for Social Security (SECA) — church pays no employer FICA for this worker"></td>'
       + '<td style="padding:3px 6px;text-align:right;">' + ficaCell + '</td>'
       + '<td style="padding:3px 6px;text-align:right;">' + (calc ? '$' + finFmtMoney(pensionCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
+      + '<td style="padding:3px 6px;text-align:center;"><input type="checkbox" onchange="finSalaryDependentsToggle(' + i + ',this.checked)"' + (w.hasDependents ? ' checked' : '') + ' title="Affects the Disability & Survivor rate"></td>'
+      + '<td style="padding:3px 6px;text-align:right;">' + (calc ? '$' + finFmtMoney(disabilityCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
       + '<td style="padding:3px 6px;text-align:right;font-weight:600;">' + (calc ? '$' + finFmtMoney(calc.salaryCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
       + '<td style="padding:3px 6px;"><button class="btn-secondary" style="font-size:.7rem;padding:2px 6px;color:var(--danger);" onclick="finSalaryRemoveWorker(' + i + ')">Remove</button></td>'
       + '</tr>';
@@ -2379,6 +2412,7 @@ function finRenderSalaryCalculator(isAdminUI) {
   var totalSalaryCents = computed.reduce(function(sum, c) { return sum + (c.calc ? c.calc.salaryCents : 0); }, 0);
   var totalFicaCents = computed.reduce(function(sum, c) { return sum + c.employerFicaCents; }, 0);
   var totalPensionCents = computed.reduce(function(sum, c) { return sum + c.pensionCents; }, 0);
+  var totalDisabilityCents = computed.reduce(function(sum, c) { return sum + c.disabilityCents; }, 0);
   var totalWorkerPaidSecaCents = _finSalaryRoster.reduce(function(sum, w, i) { return sum + (w.selfEmployedFica ? computed[i].hypotheticalFicaCents : 0); }, 0);
   var baseInfo = finLcmsBaseSalaryCents(_finPlanTargetYear, _finSalaryColaPct);
   var expenseLeaves = [];
@@ -2400,7 +2434,7 @@ function finRenderSalaryCalculator(isAdminUI) {
   return '<div style="background:var(--linen);border-radius:8px;padding:12px 14px;margin-top:16px;">'
     + '<div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Salary &amp; Benefits Calculator <span style="font-weight:400;font-size:.72rem;color:var(--warm-gray);">(LCMS Missouri District Compensation Guidelines FY2026–2027)</span></div>'
     + lastYearHtml
-    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">Base salary for FY' + _finPlanTargetYear + ': $' + finFmtMoney(baseInfo.dollars) + (baseInfo.exact ? '' : (baseInfo.colaApplied ? ' <i>(no published base for ' + _finPlanTargetYear + ' yet — grown from ' + baseInfo.sourceYear + ' at the growth rate below)</i>' : ' <i>(no published base for ' + _finPlanTargetYear + " yet — using the district's most recent known year, " + baseInfo.sourceYear + ' flat; pick a growth method below to grow it instead, or update LCMS_MO_BASE_SALARY_BY_YEAR once a new guideline document is out)</i>')) + '. Benefits (health/retirement via Concordia Plan Services) have no published formula in the district guidelines — CPS quotes those directly per congregation via their own tool — so Benefits below is a plain entered figure, not computed. Pastors and Commissioned Ministers are self-employed for Social Security by default (the church pays no employer FICA share for them — they pay their own SECA themselves, shown for reference); uncheck "Self-Employed (SECA)" for any worker actually treated as a regular employee at this church, where the church\'s ' + (LCMS_EMPLOYER_FICA_RATE*100).toFixed(2) + '% employer FICA payment shows as a compensation benefit that a self-employed worker doesn\'t get.</p>'
+    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">Base salary for FY' + _finPlanTargetYear + ': $' + finFmtMoney(baseInfo.dollars) + (baseInfo.exact ? '' : (baseInfo.colaApplied ? ' <i>(no published base for ' + _finPlanTargetYear + ' yet — grown from ' + baseInfo.sourceYear + ' at the growth rate below)</i>' : ' <i>(no published base for ' + _finPlanTargetYear + " yet — using the district's most recent known year, " + baseInfo.sourceYear + ' flat; pick a growth method below to grow it instead, or update LCMS_MO_BASE_SALARY_BY_YEAR once a new guideline document is out)</i>')) + '. Benefits (health/retirement via Concordia Plan Services) have no published formula in the district guidelines — CPS quotes those directly per congregation via their own tool — so Benefits below is a plain entered figure, not computed. Pastors and Commissioned Ministers are self-employed for Social Security by default (the church pays no employer FICA share for them — they pay their own SECA themselves, shown for reference); uncheck "Self-Employed (SECA)" for any worker actually treated as a regular employee at this church, where the church\'s ' + (LCMS_EMPLOYER_FICA_RATE*100).toFixed(2) + '% employer FICA payment shows as a compensation benefit that a self-employed worker doesn\'t get. Pension and Disability &amp; Survivor (below) apply to every salaried worker the same way, regardless of FICA status — real rates from the church\'s own Concordia Plans Participation overview (as of July 2026).</p>'
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">'
     + '<label style="font-size:.72rem;color:var(--warm-gray);">Base Salary Growth Method <span style="font-weight:400;">(used only for a year with no published base salary yet — pick one to see it, or type a custom % on the right)</span><br><select id="fin-salary-cola-source" onchange="finSalaryColaSourceChange(this.value)">'
       + '<option value="none"' + (_finSalaryColaSource==='none'?' selected':'') + '>None (flat, default)</option>'
@@ -2409,18 +2443,18 @@ function finRenderSalaryCalculator(isAdminUI) {
       + '<option value="custom"' + (_finSalaryColaSource==='custom'?' selected':'') + '>Custom / Concordia Plans figure</option>'
       + '</select></label>'
     + '<label style="font-size:.72rem;color:var(--warm-gray);">% used<br><input type="number" id="fin-salary-cola" step="0.01" value="' + (_finSalaryColaPct ? (_finSalaryColaPct*100).toFixed(2) : '') + '" oninput="finSalaryColaChange(this.value)" style="width:90px;">%</label>'
-    + '<label style="font-size:.72rem;color:var(--warm-gray);">Pension Contribution % <span style="font-weight:400;">(Concordia Retirement Plan — set annually by Concordia, enter this year\'s rate)</span><br><input type="number" id="fin-salary-pension" step="0.01" value="' + (_finSalaryPensionPct ? (_finSalaryPensionPct*100).toFixed(2) : '') + '" oninput="finSalaryPensionChange(this.value)" style="width:90px;">%</label>'
+    + '<label style="font-size:.72rem;color:var(--warm-gray);">Pension Contribution % <span style="font-weight:400;">(Concordia Retirement Plan, Traditional Option — defaults to the real FY' + _finPlanTargetYear + ' rate' + (pensionRateInfo.exact ? '' : ', carried flat from ' + pensionRateInfo.sourceYear + ' since ' + _finPlanTargetYear + ' isn\'t published yet') + ')</span><br><input type="number" id="fin-salary-pension" step="0.01" value="' + (pensionPctUsed*100).toFixed(2) + '" oninput="finSalaryPensionChange(this.value)" style="width:90px;">%' + (_finSalaryPensionPct != null ? ' <a href="#" onclick="finSalaryPensionReset();return false;" style="font-size:.68rem;">↺ use Concordia rate</a>' : '') + '</label>'
     + '</div>'
     + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
-    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th><th style="text-align:left;padding:3px 6px;">Role</th><th style="text-align:left;padding:3px 6px;">Yrs Exp</th><th style="text-align:left;padding:3px 6px;">Education / Type</th><th style="text-align:left;padding:3px 6px;">Responsibility Stipend</th><th style="text-align:left;padding:3px 6px;">Attendance Bonus</th><th style="text-align:center;padding:3px 6px;">Self-Employed (SECA)</th><th style="text-align:right;padding:3px 6px;">Employer FICA</th><th style="text-align:right;padding:3px 6px;">Pension</th><th style="text-align:right;padding:3px 6px;">Salary</th><th></th></tr></thead>'
-    + '<tbody>' + (rows || '<tr><td colspan="11" style="padding:6px;color:var(--warm-gray);">No workers added yet.</td></tr>') + '</tbody>'
-    + '<tfoot><tr style="font-weight:700;border-top:2px solid var(--navy);"><td colspan="6" style="padding:5px 6px;">Total</td><td></td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalFicaCents/100) + '</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalPensionCents/100) + '</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalSalaryCents/100) + '</td><td></td></tr></tfoot>'
+    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th><th style="text-align:left;padding:3px 6px;">Role</th><th style="text-align:left;padding:3px 6px;">Yrs Exp</th><th style="text-align:left;padding:3px 6px;">Education / Type</th><th style="text-align:left;padding:3px 6px;">Responsibility Stipend</th><th style="text-align:left;padding:3px 6px;">Attendance Bonus</th><th style="text-align:center;padding:3px 6px;">Self-Employed (SECA)</th><th style="text-align:right;padding:3px 6px;">Employer FICA</th><th style="text-align:right;padding:3px 6px;">Pension</th><th style="text-align:center;padding:3px 6px;">Has Dependents</th><th style="text-align:right;padding:3px 6px;">Disability</th><th style="text-align:right;padding:3px 6px;">Salary</th><th></th></tr></thead>'
+    + '<tbody>' + (rows || '<tr><td colspan="13" style="padding:6px;color:var(--warm-gray);">No workers added yet.</td></tr>') + '</tbody>'
+    + '<tfoot><tr style="font-weight:700;border-top:2px solid var(--navy);"><td colspan="6" style="padding:5px 6px;">Total</td><td></td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalFicaCents/100) + '</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalPensionCents/100) + '</td><td></td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalDisabilityCents/100) + '</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalSalaryCents/100) + '</td><td></td></tr></tfoot>'
     + '</table></div>'
     + (totalWorkerPaidSecaCents ? '<p style="font-size:.7rem;color:var(--warm-gray);margin:4px 0 0;">Total self-paid SECA across self-employed workers (not a church cost, shown for reference): $' + finFmtMoney(totalWorkerPaidSecaCents/100) + '</p>' : '')
     + (isAdminUI ? '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;margin-top:8px;" onclick="finSalaryAddWorker()">+ Add Worker</button>' : '')
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
     + '<label style="font-size:.72rem;color:var(--warm-gray);">Benefits Total ($/yr, entered)<br><input type="number" id="fin-salary-benefits" step="0.01" value="' + (_finSalaryBenefitsDollars || '') + '" oninput="finSalaryBenefitsChange(this.value)" style="width:120px;"></label>'
-    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((totalSalaryCents/100) + (totalFicaCents/100) + (totalPensionCents/100) + (_finSalaryBenefitsDollars || 0)) + '</div><div class="rpt-stat-lbl">Total Salary &amp; Benefits</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((totalSalaryCents/100) + (totalFicaCents/100) + (totalPensionCents/100) + (totalDisabilityCents/100) + (_finSalaryBenefitsDollars || 0)) + '</div><div class="rpt-stat-lbl">Total Salary &amp; Benefits</div></div>'
     + '</div>'
     + (isAdminUI && expenseLeaves.length ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
       + '<label style="font-size:.72rem;color:var(--warm-gray);">Apply total to account<br><select id="fin-salary-target-category">' + categoryOptions + '</select></label>'
@@ -2429,7 +2463,11 @@ function finRenderSalaryCalculator(isAdminUI) {
     + '</div>';
 }
 function finSalaryAddWorker() {
-  _finSalaryRoster.push({ name: '', role: 'pastor', trackKey: '', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: finDefaultSelfEmployedFica('pastor') });
+  _finSalaryRoster.push({ name: '', role: 'pastor', trackKey: '', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: finDefaultSelfEmployedFica('pastor'), hasDependents: false });
+  finRerenderPlanningPreserveFocus();
+}
+function finSalaryDependentsToggle(i, checked) {
+  _finSalaryRoster[i].hasDependents = !!checked;
   finRerenderPlanningPreserveFocus();
 }
 function finSalaryRemoveWorker(i) {
@@ -2476,6 +2514,10 @@ function finSalaryPensionChange(value) {
   _finSalaryPensionPct = (parseFloat(value) || 0) / 100;
   finRerenderPlanningPreserveFocus();
 }
+function finSalaryPensionReset() {
+  _finSalaryPensionPct = null;
+  finRerenderPlanningPreserveFocus();
+}
 var _finSalaryBenefitsDollars = 0;
 function finSalaryBenefitsChange(value) {
   _finSalaryBenefitsDollars = parseFloat(value) || 0;
@@ -2486,11 +2528,13 @@ function finSalaryApplyToPlan() {
   var sel = document.getElementById('fin-salary-target-category');
   if (!sel) return;
   _finSalaryTargetCategory = sel.value;
-  var computed = finSalaryComputeAll(_finSalaryColaPct, _finSalaryPensionPct);
+  var pensionPctUsed = _finSalaryPensionPct != null ? _finSalaryPensionPct : finConcordiaPensionRateFor(_finPlanTargetYear).rate;
+  var computed = finSalaryComputeAll(_finSalaryColaPct, pensionPctUsed);
   var totalSalaryCents = computed.reduce(function(sum, c) { return sum + (c.calc ? c.calc.salaryCents : 0); }, 0);
   var totalFicaCents = computed.reduce(function(sum, c) { return sum + c.employerFicaCents; }, 0);
   var totalPensionCents = computed.reduce(function(sum, c) { return sum + c.pensionCents; }, 0);
-  var totalCents = totalSalaryCents + totalFicaCents + totalPensionCents + Math.round((_finSalaryBenefitsDollars || 0) * 100);
+  var totalDisabilityCents = computed.reduce(function(sum, c) { return sum + c.disabilityCents; }, 0);
+  var totalCents = totalSalaryCents + totalFicaCents + totalPensionCents + totalDisabilityCents + Math.round((_finSalaryBenefitsDollars || 0) * 100);
   _finPlanEdits[_finSalaryTargetCategory] = (totalCents / 100).toFixed(2);
   finToast('Applied $' + finFmtMoney(totalCents/100) + ' to the FY' + _finPlanTargetYear + ' Projected column — click Save Changes to keep it.');
   finRerenderPlanningPreserveFocus();

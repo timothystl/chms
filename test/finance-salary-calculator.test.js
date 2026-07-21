@@ -29,20 +29,24 @@ function loadSalaryCalculator() {
     }
     return CHMS_APP_EXT_JS.slice(start, i);
   }
-  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finLcmsHistoricalAvgGrowthPct', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputePensionCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
+  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finLcmsHistoricalAvgGrowthPct', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputePensionCents', 'finConcordiaPensionRateFor', 'finConcordiaDisabilityRateFor', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
   const fnSrcs = fnNames.map(extractFunction);
   const ficaRateM = CHMS_APP_EXT_JS.match(/var LCMS_EMPLOYER_FICA_RATE = [^\n]*\n/);
   if (!ficaRateM) throw new Error('LCMS_EMPLOYER_FICA_RATE not found in built script');
   const ssaColaM = CHMS_APP_EXT_JS.match(/var SSA_COLA_REFERENCE_PCT = [^\n]*\n/);
   if (!ssaColaM) throw new Error('SSA_COLA_REFERENCE_PCT not found in built script');
+  const pensionRateM = CHMS_APP_EXT_JS.match(/var CONCORDIA_PENSION_RATE_BY_YEAR = [^\n]*\n/);
+  if (!pensionRateM) throw new Error('CONCORDIA_PENSION_RATE_BY_YEAR not found in built script');
+  const disabilityRateM = CHMS_APP_EXT_JS.match(/var CONCORDIA_DISABILITY_RATE_BY_YEAR = [\s\S]*?\n};\n/);
+  if (!disabilityRateM) throw new Error('CONCORDIA_DISABILITY_RATE_BY_YEAR not found in built script');
   const healthPlanM = CHMS_APP_EXT_JS.match(/var HEALTH_PLAN_QUOTE_2027 = [\s\S]*?\n};\n/);
   if (!healthPlanM) throw new Error('HEALTH_PLAN_QUOTE_2027 not found in built script');
   // eslint-disable-next-line no-eval
-  return eval(`(function() { ${varSrcs.join('\n')} ${ficaRateM[0]} ${ssaColaM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finLcmsHistoricalAvgGrowthPct, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, finComputePensionCents, LCMS_EMPLOYER_FICA_RATE, SSA_COLA_REFERENCE_PCT, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents }; })()`);
+  return eval(`(function() { ${varSrcs.join('\n')} ${ficaRateM[0]} ${ssaColaM[0]} ${pensionRateM[0]} ${disabilityRateM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finLcmsHistoricalAvgGrowthPct, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, finComputePensionCents, finConcordiaPensionRateFor, finConcordiaDisabilityRateFor, LCMS_EMPLOYER_FICA_RATE, SSA_COLA_REFERENCE_PCT, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents }; })()`);
 }
 
 describe('LCMS Missouri District salary calculator', () => {
-  const { finLcmsBaseSalaryCents, finComputeLcmsSalary, finLcmsHistoricalAvgGrowthPct, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, finComputePensionCents, LCMS_EMPLOYER_FICA_RATE, SSA_COLA_REFERENCE_PCT, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents } = loadSalaryCalculator();
+  const { finLcmsBaseSalaryCents, finComputeLcmsSalary, finLcmsHistoricalAvgGrowthPct, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, finComputePensionCents, finConcordiaPensionRateFor, finConcordiaDisabilityRateFor, LCMS_EMPLOYER_FICA_RATE, SSA_COLA_REFERENCE_PCT, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents } = loadSalaryCalculator();
 
   it('looks up the exact published base salary for a known year', () => {
     expect(finLcmsBaseSalaryCents(2027)).toMatchObject({ dollars: 51529, exact: true });
@@ -84,6 +88,41 @@ describe('LCMS Missouri District salary calculator', () => {
     expect(finComputePensionCents(10000000, 0.10)).toBe(1000000); // 10% of $100,000 = $10,000
     expect(finComputePensionCents(10000000, 0)).toBe(0);
     expect(finComputePensionCents(0, 0.10)).toBe(0);
+  });
+
+  // Real rates from the church's own "Overview of your Concordia Plans Participation" statement
+  // (Traditional Option pension: 10.70% for 2026, 11.70% for 2027; Disability and Survivor:
+  // 1.20% without dependents / 1.75% with dependents, unchanged between 2026 and 2027).
+  describe('Real Concordia Plans rates (Pension + Disability & Survivor)', () => {
+    it('looks up the exact published pension rate for a known year', () => {
+      expect(finConcordiaPensionRateFor(2026)).toMatchObject({ rate: 0.1070, exact: true, sourceYear: 2026 });
+      expect(finConcordiaPensionRateFor(2027)).toMatchObject({ rate: 0.1170, exact: true, sourceYear: 2027 });
+    });
+
+    it('falls back to the most recent known pension rate for an unpublished year, rather than fabricating one', () => {
+      const r = finConcordiaPensionRateFor(2028);
+      expect(r).toMatchObject({ rate: 0.1170, exact: false, sourceYear: 2027 });
+    });
+
+    it('looks up the disability rate by year AND dependent status', () => {
+      expect(finConcordiaDisabilityRateFor(2026, false)).toMatchObject({ rate: 0.0120, exact: true, sourceYear: 2026 });
+      expect(finConcordiaDisabilityRateFor(2026, true)).toMatchObject({ rate: 0.0175, exact: true, sourceYear: 2026 });
+      expect(finConcordiaDisabilityRateFor(2027, false)).toMatchObject({ rate: 0.0120, exact: true, sourceYear: 2027 });
+      expect(finConcordiaDisabilityRateFor(2027, true)).toMatchObject({ rate: 0.0175, exact: true, sourceYear: 2027 });
+    });
+
+    it('falls back to the most recent known disability rate for an unpublished year', () => {
+      const r = finConcordiaDisabilityRateFor(2028, true);
+      expect(r).toMatchObject({ rate: 0.0175, exact: false, sourceYear: 2027 });
+    });
+
+    it('computes the real dollar cost for a $73,473.75 salary (the Director of Parish Music example from earlier)', () => {
+      const salaryCents = 7347375;
+      const pension2027 = finConcordiaPensionRateFor(2027).rate;
+      const disabilityWithDeps2027 = finConcordiaDisabilityRateFor(2027, true).rate;
+      expect(finComputePensionCents(salaryCents, pension2027)).toBe(Math.round(salaryCents * 0.1170));
+      expect(finComputePensionCents(salaryCents, disabilityWithDeps2027)).toBe(Math.round(salaryCents * 0.0175));
+    });
   });
 
   it('does not apply COLA growth for an exactly-published year, even if a colaPct is supplied', () => {
