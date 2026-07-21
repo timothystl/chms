@@ -52,6 +52,23 @@ describe('LCMS Missouri District salary calculator', () => {
     expect(r.exact).toBe(false);
     expect(r.sourceYear).toBe(2027);
     expect(r.dollars).toBe(51529);
+    expect(r.colaApplied).toBe(false);
+  });
+
+  it('grows the base salary forward with a COLA % instead of freezing flat, when one is supplied', () => {
+    const flat = finLcmsBaseSalaryCents(2030); // no colaPct arg — flat fallback, unchanged
+    expect(flat.dollars).toBe(51529);
+    const withCola = finLcmsBaseSalaryCents(2030, 0.025); // 2.5% COLA, compounded 3 years past 2027
+    expect(withCola.exact).toBe(false);
+    expect(withCola.sourceYear).toBe(2027);
+    expect(withCola.colaApplied).toBe(true);
+    expect(withCola.dollars).toBeCloseTo(51529 * Math.pow(1.025, 3), 2);
+    expect(withCola.dollars).toBeGreaterThan(flat.dollars);
+  });
+
+  it('does not apply COLA growth for an exactly-published year, even if a colaPct is supplied', () => {
+    const r = finLcmsBaseSalaryCents(2027, 0.025);
+    expect(r).toMatchObject({ dollars: 51529, exact: true, colaApplied: false });
   });
 
   it('reproduces the published Pastor compensation scale exactly (Section 1.1, base year 2027)', () => {
