@@ -508,7 +508,12 @@ function runGivingSummary() {
         var gi = grpIdx++;
         var grpCents = grp.reduce(function(s,r){ return s+(r.total_cents||0); }, 0);
         var grpGifts = grp.reduce(function(s,r){ return s+(r.contributions||0); }, 0);
-        rows += '<tr class="rpt-group-hdr" style="cursor:pointer;" onclick="rptToggleFundGroup(' + gi + ')"><td colspan="' + hdrColspan + '"><span id="rpt-grp-chevron-' + gi + '">&#9656;</span> ' + esc(key) + ' <span style="font-weight:400;text-transform:none;">(' + grp.length + ' funds — click to expand)</span></td></tr>';
+        // Label the group with a real fund name (the highest-total member, or the first
+        // alphabetically if all are $0) instead of the bare numeric code — "25010 Concordia
+        // Children's Services", not just "25010".
+        var repFund = grp.slice().sort(function(a,b){ return (b.total_cents||0)-(a.total_cents||0); })[0];
+        var grpLabel = repFund ? repFund.fund_name : key;
+        rows += '<tr class="rpt-group-hdr" style="cursor:pointer;" onclick="rptToggleFundGroup(' + gi + ')"><td colspan="' + hdrColspan + '"><span id="rpt-grp-chevron-' + gi + '">&#9656;</span> ' + esc(grpLabel) + ' <span style="font-weight:400;text-transform:none;">(' + grp.length + ' funds — click to expand)</span></td></tr>';
         grp.forEach(function(r) {
           rows += '<tr class="rpt-grp-row" data-grp="' + gi + '" style="display:none;"><td style="padding-left:22px;">' + esc(r.fund_name) + '</td><td style="text-align:right;">' + (r.contributions||0) + '</td><td style="text-align:right;">' + fmtMoney(r.total_cents||0) + '</td>' + bzCell(r.fund_name) + deltaCell(r.total_cents, r.fund_name) + '</tr>';
         });

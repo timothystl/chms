@@ -688,6 +688,49 @@ function finRenderDetailTreeRows(nodes, html) {
   });
   return html;
 }
+// A bold "Total X" row for one top-level classification node (Revenue/Expenses/etc), styled to
+// read as a subtotal beneath its own account lines rather than a header above them.
+function finRenderChurchTotalRow(node, label) {
+  var budgetCell = node.hasBudgetInfo
+    ? '<td style="text-align:right;padding:6px 8px;">$' + finFmtMoney(node.totalBudgetCents / 100) + '</td>'
+      + '<td style="text-align:right;padding:6px 8px;' + (node.totalActualCents > node.totalBudgetCents ? 'color:var(--danger);' : 'color:var(--sage);') + '">$' + finFmtMoney((node.totalBudgetCents - node.totalActualCents) / 100) + '</td>'
+    : '<td style="text-align:right;padding:6px 8px;color:var(--warm-gray);">—</td><td style="text-align:right;padding:6px 8px;color:var(--warm-gray);">—</td>';
+  return '<tr style="font-weight:700;border-top:2px solid var(--border);"><td style="padding:6px 8px;">' + esc(label) + '</td>'
+    + '<td style="text-align:right;padding:6px 8px;">$' + finFmtMoney(node.totalActualCents / 100) + '</td>'
+    + budgetCell + '</tr>';
+}
+// Full account-detail table body for the Church Report: each top-level classification's own
+// account lines first, with its "Total X" subtotal moved to the END of that section (not a
+// header row above it, per the board's preferred reading order), followed by one grand-total
+// Net Income row summing every section — mirrors the same actual/budget/remaining figure already
+// shown in the Net Income summary card above, so the two can never disagree.
+function finRenderChurchDetailBody(tree, netIncome, hasBudgetData) {
+  var html = [];
+  (tree || []).forEach(function(root) {
+    html = html.concat(finRenderDetailTreeRows(root.children));
+    html.push(finRenderChurchTotalRow(root, 'Total ' + root.label));
+  });
+  if (netIncome) {
+    var remaining = (netIncome.budgetCents || 0) - (netIncome.actualCents || 0);
+    var budgetCell = hasBudgetData
+      ? '<td style="text-align:right;padding:6px 8px;">$' + finFmtMoney(netIncome.budgetCents / 100) + '</td>'
+        + '<td style="text-align:right;padding:6px 8px;' + finMoneyClass(remaining) + '">$' + finFmtMoney(remaining / 100) + '</td>'
+      : '<td style="text-align:right;padding:6px 8px;color:var(--warm-gray);">—</td><td style="text-align:right;padding:6px 8px;color:var(--warm-gray);">—</td>';
+    html.push('<tr style="font-weight:700;border-top:3px double var(--navy);"><td style="padding:6px 8px;">Net Income</td>'
+      + '<td style="text-align:right;padding:6px 8px;">$' + finFmtMoney(netIncome.actualCents / 100) + '</td>'
+      + budgetCell + '</tr>');
+  }
+  return html.join('');
+}
+// The report's "as of" date: the most recent sync/import timestamp among this year's entries.
+function finChurchAsOfDate(entries) {
+  var latest = '';
+  (entries || []).forEach(function(e) { if (e.synced_at && e.synced_at > latest) latest = e.synced_at; });
+  if (!latest) return '';
+  var dt = new Date(latest);
+  if (isNaN(dt.getTime())) return '';
+  return dt.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+}
 
 // ── Church Report v2 (board-level): This Year / Multi-Year toggle ───────────
 // Both views read from the persisted finance_church_entries table (finance/church/this-year,
@@ -864,7 +907,8 @@ function finRenderChurchThisYear(d) {
   }
   var income = d.classificationTotals['Income'] || { actualCents: 0, budgetCents: 0 };
   var expenses = d.classificationTotals['Expenses'] || { actualCents: 0, budgetCents: 0 };
-  var html = '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:12px;">' + d.year + '</div>'
+  var asOfDate = finChurchAsOfDate(d.entries);
+  var html = '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:12px;">' + d.year + (asOfDate ? ' &bull; YTD actuals as of ' + asOfDate : '') + '</div>'
     + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px;">'
     + finChurchSummaryCard('Total Revenue', income, d.hasBudgetData)
     + finChurchSummaryCard('Total Expenses', expenses, d.hasBudgetData)
@@ -892,10 +936,10 @@ function finRenderChurchThisYear(d) {
       + (expensePie.length ? renderPieChart(expensePie, 170) : '<p style="font-size:.82rem;color:var(--warm-gray);">No expense data yet.</p>') + '</div>'
       + '</div>';
   }
-  html += '<details><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail</summary>'
+  html += '<details><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail' + (asOfDate ? ' <span style="font-weight:400;">— YTD as of ' + esc(asOfDate) + '</span>' : '') + '</summary>'
     + '<div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
-    + '<thead><tr style="border-bottom:2px solid var(--navy);"><th style="text-align:left;padding:6px 8px;">Account</th><th style="text-align:right;padding:6px 8px;">Actual</th><th style="text-align:right;padding:6px 8px;">Budget</th><th style="text-align:right;padding:6px 8px;">Remaining</th></tr></thead>'
-    + '<tbody>' + finRenderDetailTreeRows(tree).join('') + '</tbody></table></div></details>';
+    + '<thead><tr style="border-bottom:2px solid var(--navy);"><th style="text-align:left;padding:6px 8px;">Account</th><th style="text-align:right;padding:6px 8px;">YTD Actual</th><th style="text-align:right;padding:6px 8px;">Budget</th><th style="text-align:right;padding:6px 8px;">Remaining</th></tr></thead>'
+    + '<tbody>' + finRenderChurchDetailBody(tree, d.netIncome, d.hasBudgetData) + '</tbody></table></div></details>';
   el.innerHTML = html;
 }
 

@@ -360,9 +360,20 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
   // ── Funds ────────────────────────────────────────────────────────
   if (seg === 'funds' && method === 'GET') {
     const rows = (await db.prepare('SELECT * FROM funds ORDER BY sort_order,name').all()).results || [];
-    return json({ funds: rows });
+    // Gift count/total per fund — lets the Manage Funds screen show which funds are actually
+    // safe to deactivate (0 gifts, e.g. leftover placeholder Breeze funds) vs. ones with history.
+    const stats = (await db.prepare(
+      `SELECT fund_id, COUNT(*) cnt, COALESCE(SUM(amount),0) total_cents FROM giving_entries GROUP BY fund_id`
+    ).all()).results || [];
+    const statMap = new Map(stats.map(s => [s.fund_id, s]));
+    const funds = rows.map(f => {
+      const s = statMap.get(f.id) || { cnt: 0, total_cents: 0 };
+      return { ...f, entry_count: s.cnt, total_cents: s.total_cents };
+    });
+    return json({ funds });
   }
   if (seg === 'funds' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied' }, 403);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const r = await db.prepare(
       `INSERT INTO funds (name,description,active,sort_order) VALUES (?,?,?,?)`
@@ -372,6 +383,7 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
   const fundmatch = seg.match(/^funds\/(\d+)$/);
   if (fundmatch) {
     if (method === 'PUT') {
+      if (!isAdmin) return json({ error: 'Access denied' }, 403);
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
       await db.prepare(`UPDATE funds SET name=?,description=?,active=?,sort_order=? WHERE id=?`)
         .bind(b.name||'',b.description||'',b.active?1:0,b.sort_order||0,parseInt(fundmatch[1])).run();

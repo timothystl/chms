@@ -604,6 +604,13 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div id="dup-funds-area"></div>
       <div class="import-status" id="dup-funds-status"></div>
     </div>
+    <div class="import-card require-admin">
+      <h3>&#128203; Manage Funds</h3>
+      <p>List of every fund on file. Uncheck "Active" for placeholder/unused funds (e.g. leftover "Breeze Fund 12345" rows with 0 gifts) to hide them from the Giving by Fund report and every other fund picker — this does not delete the fund or touch any gifts already recorded against it, so it's safe even for a fund that turns out to still be needed later.</p>
+      <button class="btn-secondary" onclick="loadManageFunds()" style="margin-bottom:10px;">Load Funds</button>
+      <div id="manage-funds-area"></div>
+      <div class="import-status" id="manage-funds-status"></div>
+    </div>
     <div class="import-card">
       <h3>&#128101; Migrate Scheduler Volunteers to People</h3>
       <p>Links each of the Scheduler's existing volunteers to a real ChMS person record (instead of a separate, disconnected list). For each legacy volunteer this suggests a match against real People — by Breeze ID first, then by name — but never links anyone automatically; review and confirm (or search for someone else, or create a new person) before committing.</p>
