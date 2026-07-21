@@ -205,5 +205,28 @@ describe('LCMS Missouri District salary calculator', () => {
       const highSpendSavings = finComputePlanOOPCents(800000, 1600000, rate, 10000000) - finComputePlanOOPCents(600000, 850000, rate, 10000000);
       expect(highSpendSavings).toBe(750000); // $7,500/yr once both plans are fully saturated
     });
+
+    it('Option A (Renewal -> Option 1): costs $4,045.80/yr more per household, breaks even at $28,229 family-wide, ties Renewal in the single-claimant worst case', () => {
+      const perHouseholdDiffCents = 404580; // ($57,315.60 - $49,224.00) / 2
+      const breakeven = finComputeHealthPlanFamilyBreakevenCents('renewal', 'option1', perHouseholdDiffCents);
+      expect(breakeven).toBe(2822900); // $28,229.00
+      // Renewal's individual OOP max ($8,000) exactly equals Option 1's family OOP max ($8,000),
+      // so a lone claimant ends up paying the same worst-case amount under either plan.
+      expect(finComputeHealthPlanSingleClaimantDeltaCents('renewal', 'option1', 100000000)).toBe(0);
+    });
+
+    it('Option D (Renewal -> Option 3): saves $2,545.68/yr per household in premium, but costs up to $500 more for a lone claimant in a worst-case year', () => {
+      const calc3 = finComputeHealthPlanTotalCents('option3');
+      const baseline = finComputeHealthPlanTotalCents('renewal');
+      const perHouseholdDiffCents = Math.round((calc3.totalCents - baseline.totalCents) / 2);
+      expect(perHouseholdDiffCents).toBe(-254568); // saves $2,545.68/yr — cheaper premium, not costlier
+      expect(finComputeHealthPlanSingleClaimantDeltaCents('renewal', 'option3', 100000000)).toBe(50000); // $500 worse worst-case (embedded $8,500 vs $8,000)
+      // Family-wide worst case: Option 3's $17,000 family OOP max vs. Renewal's $16,000 — $1,000
+      // worse at saturation, which is still smaller than the $2,545.68 guaranteed premium
+      // savings, so Option 3 comes out ahead overall even in a fully-saturated bad year.
+      const familyWorstCase = finComputePlanOOPCents(1100000, 1700000, 0.20, 100000000) - finComputePlanOOPCents(800000, 1600000, 0.20, 100000000);
+      expect(familyWorstCase).toBe(100000); // $1,000
+      expect(Math.abs(familyWorstCase)).toBeLessThan(Math.abs(perHouseholdDiffCents));
+    });
   });
 });
