@@ -733,7 +733,7 @@ if (seg === 'reports/giving-summary' && method === 'GET') {
          GROUP BY ge.fund_id
        ) ge2 ON ge2.fund_id=f.id
        WHERE f.active=1
-       ORDER BY f.sort_order, f.name`
+       ORDER BY (CASE WHEN COALESCE(ge2.total_cents,0)=0 THEN 1 ELSE 0 END), f.sort_order, f.name`
     ).bind(from, to).all(),
     db.prepare(
       `SELECT COUNT(DISTINCT ge.person_id) as n
