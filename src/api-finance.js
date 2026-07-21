@@ -1751,6 +1751,71 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ rows });
   }
 
+  // Generates a plan row for EVERY real account line in a base year's resolved Church Budget
+  // (same rows Church Report itself shows — category_path is used as the plan's category key,
+  // so the planner always mirrors the real chart of accounts instead of a hand-typed list).
+  // base amount = that account's own actual for the base year, falling back to its own budget
+  // if there's no actual yet (e.g. a mid-year base year); accounts with neither are skipped —
+  // there's nothing real to grow from. A single flat growth rate applies to every line; use
+  // override-bulk afterward to hand-correct individual lines (e.g. Salary & Benefits).
+  if (seg === 'finance/planning/church/generate-all' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const baseYear = parseInt(b.base_year, 10);
+    const targetYear = parseInt(b.target_year, 10);
+    const growthPct = Number(b.growth_pct);
+    if (!Number.isFinite(baseYear) || !Number.isFinite(targetYear)) return json({ error: 'base_year and target_year are required' }, 400);
+    if (!Number.isFinite(growthPct)) return json({ error: 'Invalid growth_pct' }, 400);
+    const baseRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(baseYear).all()).results || [];
+    if (!baseRows.length) return json({ error: `No Church Budget data found for ${baseYear} — sync or import that year first.` }, 400);
+    const resolved = resolveChurchYearPrecedence(baseRows);
+    const ops = [];
+    let generated = 0;
+    for (const r of resolved) {
+      const baseAmountCents = r.own_actual_cents || r.own_budget_cents || 0;
+      if (!baseAmountCents) continue;
+      const plannedCents = Math.round(baseAmountCents * (1 + growthPct));
+      ops.push(db.prepare(
+        `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,growth_pct,base_amount_cents,notes,updated_at)
+         VALUES (?,?,?,?,'grown',?,?,?,datetime('now'))
+         ON CONFLICT(category,fiscal_year) DO UPDATE SET
+           classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis='grown',
+           growth_pct=excluded.growth_pct, base_amount_cents=excluded.base_amount_cents, notes=excluded.notes, updated_at=excluded.updated_at`
+      ).bind(r.category_path, r.classification, targetYear, plannedCents, growthPct, baseAmountCents, r.account_name));
+      generated++;
+    }
+    if (!ops.length) return json({ error: `No account had an actual or budget figure in ${baseYear} to grow from.` }, 400);
+    await db.batch(ops);
+    return json({ ok: true, generated, baseYear, targetYear });
+  }
+
+  // Bulk manual save — commits a whole edited table of Projected values in one round trip
+  // (each row keeps its own fiscal_year, e.g. all rows for the same target year), rather than
+  // one request per edited line.
+  if (seg === 'finance/planning/church/override-bulk' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) return json({ error: 'No rows to save' }, 400);
+    const ops = [];
+    for (const r of rows) {
+      const category = String(r.category || '').trim();
+      const fiscalYear = parseInt(r.fiscal_year, 10);
+      if (!category || !Number.isFinite(fiscalYear)) return json({ error: 'Every row needs a category and fiscal_year' }, 400);
+      const amountCents = Math.round(Number(r.planned_amount) * 100);
+      if (!Number.isFinite(amountCents)) return json({ error: `Invalid amount for ${category}` }, 400);
+      ops.push(db.prepare(
+        `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,notes,updated_at)
+         VALUES (?,?,?,?,'manual',?,datetime('now'))
+         ON CONFLICT(category,fiscal_year) DO UPDATE SET
+           classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis='manual',
+           growth_pct=NULL, base_amount_cents=NULL, notes=excluded.notes, updated_at=excluded.updated_at`
+      ).bind(category, r.classification || 'Expenses', fiscalYear, amountCents, r.notes || ''));
+    }
+    await db.batch(ops);
+    return json({ ok: true, saved: ops.length });
+  }
+
   // Generates a compounding multi-year projection from a base dollar amount + a flat growth
   // rate, upserting one row per target year (basis='grown'). A later manual override on any of
   // those years replaces just that year's row (basis='manual') without touching the others.
