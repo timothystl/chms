@@ -445,6 +445,14 @@ function runGivingByMethod() {
     );
   });
 }
+function rptToggleFundGroup(gi) {
+  var rows = document.querySelectorAll('tr.rpt-grp-row[data-grp="' + gi + '"]');
+  var chevron = document.getElementById('rpt-grp-chevron-' + gi);
+  if (!rows.length) return;
+  var expanded = rows[0].style.display !== 'none';
+  rows.forEach(function(r) { r.style.display = expanded ? 'none' : ''; });
+  if (chevron) chevron.innerHTML = expanded ? '&#9656;' : '&#9662;';
+}
 var _lastBreezeFundCompare = null;
 function compareBreezeFundTotals(from, to) {
   var btn = document.getElementById('rpt-breeze-compare-btn');
@@ -492,15 +500,17 @@ function runGivingSummary() {
     });
     var rows = '';
     var hdrColspan = bz ? 5 : 3;
+    var grpIdx = 0;
     order.forEach(function(key) {
       var grp = groups[key];
       var multipleInGroup = key && grp.length > 1;
       if (multipleInGroup) {
+        var gi = grpIdx++;
         var grpCents = grp.reduce(function(s,r){ return s+(r.total_cents||0); }, 0);
         var grpGifts = grp.reduce(function(s,r){ return s+(r.contributions||0); }, 0);
-        rows += '<tr class="rpt-group-hdr"><td colspan="' + hdrColspan + '">' + esc(key) + '</td></tr>';
+        rows += '<tr class="rpt-group-hdr" style="cursor:pointer;" onclick="rptToggleFundGroup(' + gi + ')"><td colspan="' + hdrColspan + '"><span id="rpt-grp-chevron-' + gi + '">&#9656;</span> ' + esc(key) + ' <span style="font-weight:400;text-transform:none;">(' + grp.length + ' funds — click to expand)</span></td></tr>';
         grp.forEach(function(r) {
-          rows += '<tr><td style="padding-left:22px;">' + esc(r.fund_name) + '</td><td style="text-align:right;">' + (r.contributions||0) + '</td><td style="text-align:right;">' + fmtMoney(r.total_cents||0) + '</td>' + bzCell(r.fund_name) + deltaCell(r.total_cents, r.fund_name) + '</tr>';
+          rows += '<tr class="rpt-grp-row" data-grp="' + gi + '" style="display:none;"><td style="padding-left:22px;">' + esc(r.fund_name) + '</td><td style="text-align:right;">' + (r.contributions||0) + '</td><td style="text-align:right;">' + fmtMoney(r.total_cents||0) + '</td>' + bzCell(r.fund_name) + deltaCell(r.total_cents, r.fund_name) + '</tr>';
         });
         rows += '<tr class="rpt-group-sub"><td style="padding-left:22px;">Subtotal</td><td style="text-align:right;">' + grpGifts + '</td><td style="text-align:right;">' + fmtMoney(grpCents) + '</td>' + (bz ? '<td></td><td></td>' : '') + '</tr>';
       } else {
