@@ -2420,7 +2420,7 @@ function finComputeHealthPlanTotalCents(optionKey) {
   return { label: opt.label, medicalCents: opt.medicalCents, dentalCents: opt.dentalCents, visionCents: opt.visionCents, totalCents: totalCents };
 }
 
-var _finHealthPlanSelectedOption = 'renewal';
+var _finHealthPlanSelectedOption = 'renewal'; // Stay on Current/Renewal (Healthy Me HSA-C) — per the 2026-07-21 cost/benefit review, Option B's protection mostly targets high-utilization years neither current employee's household has historically approached (neither has hit the $8,000 individual OOP max under the current plan), so the guaranteed $3,296.40/yr premium increase isn't clearly worth it; revisit if a near-term high-cost event is anticipated
 var _finHealthPlanTargetCategory = '';
 function finRenderHealthInsuranceCalculator(isAdminUI) {
   var calc = finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption);
