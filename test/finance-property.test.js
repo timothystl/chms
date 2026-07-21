@@ -10,6 +10,16 @@ function makeTestDb() {
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   sqlite.exec(readFileSync(new URL('../migrations/0022_finance_property.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0023_finance_property_reserves.sql', import.meta.url), 'utf8'));
+  sqlite.exec(`CREATE TABLE finance_daycare_entries (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    period       TEXT    NOT NULL DEFAULT '',
+    category     TEXT    NOT NULL DEFAULT '',
+    entry_type   TEXT    NOT NULL DEFAULT 'actual',
+    amount_cents INTEGER NOT NULL DEFAULT 0,
+    notes        TEXT    NOT NULL DEFAULT '',
+    source       TEXT    NOT NULL DEFAULT 'manual',
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`);
   return {
     prepare(sql) {
       return {
@@ -235,5 +245,31 @@ describe('handleFinanceApi — repairs & maintenance log', () => {
     const db = makeTestDb();
     const res = await handleFinanceApi(makeReq({ category: 'HVAC' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/repairs', db, false, true);
     expect(res.status).toBe(403);
+  });
+});
+
+describe('handleFinanceApi — daycare bulk past-year import', () => {
+  it('imports multiple rows in one call', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ rows: [
+      { period: '2023', category: 'Tuition Income', entry_type: 'actual', amount_cents: 28500000 },
+      { period: '2023', category: 'Payroll', entry_type: 'actual', amount_cents: 19000000 },
+    ] }), {}, new URL('https://x/'), 'POST', 'finance/daycare/bulk', db, true, true);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.imported).toBe(2);
+    const rows = db._raw.prepare('SELECT * FROM finance_daycare_entries').all();
+    expect(rows).toHaveLength(2);
+  });
+
+  it('rejects the whole batch if one row is malformed', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ rows: [
+      { period: '2023', category: 'Tuition Income', amount_cents: 100 },
+      { period: 'not-a-period', category: 'Payroll', amount_cents: 100 },
+    ] }), {}, new URL('https://x/'), 'POST', 'finance/daycare/bulk', db, true, true);
+    expect(res.status).toBe(400);
+    const rows = db._raw.prepare('SELECT * FROM finance_daycare_entries').all();
+    expect(rows).toHaveLength(0); // nothing committed from the bad batch
   });
 });

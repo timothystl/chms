@@ -373,6 +373,68 @@ function finDaycareChurchBudgetImport(year) {
   }).catch(function(err) { finToast(err && err.message || 'Import failed.'); });
 }
 
+// ── Bulk-enter past years (paste-in, since the daycare app has no historical API — FIN3) ────
+var _finDcBulkRows = null;
+function finDaycareParseBulkText(text) {
+  return text.split('\n').map(function(line) { return line.trim(); }).filter(Boolean).map(function(line) {
+    var parts = line.split(',').map(function(p) { return p.trim(); });
+    return { period: parts[0] || '', category: parts[1] || '', entry_type: (parts[2] || 'actual').toLowerCase(), amount: parts[3] || '', notes: parts[4] || '' };
+  });
+}
+function finDaycareBulkPreview() {
+  var text = document.getElementById('fin-dc-bulk-text').value;
+  var errEl = document.getElementById('fin-dc-bulk-error');
+  var out = document.getElementById('fin-dc-bulk-preview');
+  errEl.textContent = '';
+  var rows = finDaycareParseBulkText(text);
+  if (!rows.length) { errEl.textContent = 'Paste at least one row.'; out.innerHTML = ''; return; }
+  var bad = [];
+  rows.forEach(function(r, i) {
+    if (!/^\d{4}(-\d{2})?$/.test(r.period)) bad.push('Row ' + (i+1) + ': period must be YYYY or YYYY-MM');
+    else if (!r.category) bad.push('Row ' + (i+1) + ': category is required');
+    else if (!isFinite(parseFloat(r.amount))) bad.push('Row ' + (i+1) + ': invalid amount');
+    else if (r.entry_type !== 'actual' && r.entry_type !== 'budget') bad.push('Row ' + (i+1) + ': type must be actual or budget');
+  });
+  if (bad.length) { errEl.innerHTML = bad.map(esc).join('<br>'); out.innerHTML = ''; return; }
+  _finDcBulkRows = rows;
+  var rowsHtml = rows.map(function(r) {
+    return '<tr><td style="padding:3px 8px;">' + esc(r.period) + '</td><td style="padding:3px 8px;">' + esc(r.category) + '</td><td style="padding:3px 8px;">' + esc(r.entry_type) + '</td><td style="padding:3px 8px;text-align:right;">$' + finFmtMoney(parseFloat(r.amount)) + '</td><td style="padding:3px 8px;color:var(--warm-gray);">' + esc(r.notes) + '</td></tr>';
+  }).join('');
+  out.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
+    + '<thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:3px 8px;">Period</th><th style="text-align:left;padding:3px 8px;">Category</th><th style="text-align:left;padding:3px 8px;">Type</th><th style="text-align:right;padding:3px 8px;">Amount</th><th style="text-align:left;padding:3px 8px;">Notes</th></tr></thead>'
+    + '<tbody>' + rowsHtml + '</tbody></table></div>'
+    + '<button class="btn-primary" style="margin-top:8px;" onclick="finDaycareBulkImport()">Import These ' + rows.length + ' Rows</button>';
+}
+function finDaycareBulkImport() {
+  if (!_finDcBulkRows || !_finDcBulkRows.length) return;
+  var body = { rows: _finDcBulkRows.map(function(r) {
+    return { period: r.period, category: r.category, entry_type: r.entry_type, amount_cents: Math.round(parseFloat(r.amount) * 100), notes: r.notes };
+  }) };
+  api('/admin/api/finance/daycare/bulk', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
+    if (d && d.error) { finToast(d.error); return; }
+    finToast('Imported ' + (d && d.imported || 0) + ' row(s).');
+    document.getElementById('fin-dc-bulk-text').value = '';
+    document.getElementById('fin-dc-bulk-preview').innerHTML = '';
+    _finDcBulkRows = null;
+    return api('/admin/api/finance/daycare').then(function(d2) { _finDaycare = d2.entries || []; finRenderDaycare(); });
+  }).catch(function(err) { finToast(err && err.message || 'Import failed.'); });
+}
+
+// ── MDO utility cost-share note (from the 3277 Ivanhoe data export's church_building_shared_
+// costs section — NOT about the rental property itself, so it's surfaced here instead of in
+// Commercial Property; see CLAUDE.md queued items). Populated once property data loads. ──────
+function finRenderDaycareMdoNote() {
+  var el = document.getElementById('fin-daycare-mdo-note');
+  if (!el) return;
+  var shared = _finProperty && _finProperty.meta && _finProperty.meta.church_building_shared_costs;
+  var mdo = shared && shared.mdo_utility_allocation;
+  if (!mdo) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div style="background:var(--linen);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.8rem;">'
+    + '<b>MDO Utility Cost Share (estimate): ' + ((mdo.estimated_mdo_share_pct||0)*100).toFixed(0) + '%</b>'
+    + '<p style="margin:6px 0 0;color:var(--warm-gray);">' + esc(mdo.basis_given_by_andrew || '') + ' ' + esc(mdo.estimate_note || '') + '</p>'
+    + '</div>';
+}
+
 // ── Daycare Report (board-level, year by year) ─────────────────────────
 // Groups the flat period×category×type rows (the same ones behind the Overview
 // sync table) into calendar-year totals per category, plus Income/Expense/Net
@@ -1269,11 +1331,259 @@ function finLoadProperty() {
   api('/admin/api/finance/property/' + FIN_PROPERTY_KEY).then(function(d) {
     _finProperty = d;
     finRenderProperty(d);
+    finRenderDaycareMdoNote();
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
     el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load property data.</p>';
   });
 }
+// ── Charts (Revenue vs Expenses, Occupancy, Property Tax Reserve trend) ─────────────────────
+// renderGroupedBarChart (js-attendance.js) doesn't render negative bars visibly — Net Income
+// is left out of the bar chart for that reason (it stays in the Monthly Financials table below,
+// which always shows the real signed number) and only non-negative series go in these charts.
+function finRenderPropertyCharts(d) {
+  var monthly = (d.monthly || []).slice().sort(function(a,b){ return a.period < b.period ? -1 : 1; }).slice(-24);
+  if (!monthly.length) return '';
+  var revExpChart = renderGroupedBarChart({
+    chartH: 200,
+    title: 'Monthly Revenue vs. Expenses (last ' + monthly.length + ' months)',
+    groups: monthly.map(function(m) { return { key: m.period, label: m.period.slice(2) }; }),
+    series: [{ key: 'rev', label: 'Revenue', color: '#2E7EA6' }, { key: 'exp', label: 'Expenses', color: '#C9973A' }],
+    value: function(g, s) {
+      var m = monthly.filter(function(x) { return x.period === g; })[0];
+      var cents = s === 'rev' ? m.total_revenue_cents : m.total_expenses_cents;
+      return cents == null ? null : cents / 100;
+    },
+    tooltip: function(g, s, v) { return (s === 'rev' ? 'Revenue' : 'Expenses') + ' ' + g + ': $' + finFmtMoney(v); },
+  });
+  var occChart = renderGroupedBarChart({
+    chartH: 160,
+    title: 'Occupancy % (last ' + monthly.length + ' months)',
+    groups: monthly.map(function(m) { return { key: m.period, label: m.period.slice(2) }; }),
+    series: [{ key: 'occ', label: 'Occupancy', color: '#5A9E6F' }],
+    value: function(g) {
+      var m = monthly.filter(function(x) { return x.period === g; })[0];
+      return m.occupancy_pct == null ? null : m.occupancy_pct * 100;
+    },
+    barLabel: function(v) { return Math.round(v) + '%'; },
+    tooltip: function(g, s, v) { return g + ': ' + v.toFixed(1) + '%'; },
+  });
+  var taxRows = ((d.reserves && d.reserves.property_tax) || []).slice().sort(function(a,b){ return a.report_month < b.report_month ? -1 : 1; }).slice(-24);
+  var reserveChart = taxRows.length ? renderGroupedBarChart({
+    chartH: 160,
+    title: 'Property Tax Reserve Balance (last ' + taxRows.length + ' months)',
+    groups: taxRows.map(function(r) { return { key: r.report_month, label: r.report_month.slice(2) }; }),
+    series: [{ key: 'bal', label: 'Reserve Balance', color: '#9B59B6' }],
+    value: function(g) {
+      var r = taxRows.filter(function(x) { return x.report_month === g; })[0];
+      return r.reserve_after_cents == null ? null : r.reserve_after_cents / 100;
+    },
+    tooltip: function(g, s, v) { return g + ': $' + finFmtMoney(v); },
+  }) : '';
+  return revExpChart + occChart + reserveChart;
+}
+
+// ── Cash Flow & Mortgage Payoff Forecast ─────────────────────────────────────────────────────
+// Amortizes the loan forward from its current balance/rate/payment to estimate a payoff date,
+// then projects post-payoff annual cash flow using the trailing-12-month average net income.
+// The "post-payoff" figure ASSUMES the mortgage payment is already being subtracted somewhere
+// in AHRA's reported Net Income — that assumption is stated in the UI rather than hidden,
+// since it wasn't independently confirmed against AHRA's own bookkeeping.
+function finComputeMortgageAmortization(loan) {
+  if (!loan || !loan.balance_cents || !loan.interest_rate_pct || !loan.monthly_payment_cents) return null;
+  var balance = loan.balance_cents, monthlyRate = loan.interest_rate_pct / 12, payment = loan.monthly_payment_cents;
+  var months = 0, totalInterestCents = 0;
+  while (balance > 0 && months < 600) {
+    var interest = balance * monthlyRate;
+    var principal = payment - interest;
+    if (principal <= 0) return null; // payment doesn't cover interest — can't project a payoff
+    balance -= principal;
+    totalInterestCents += interest;
+    months++;
+  }
+  var payoffDate = new Date();
+  payoffDate.setMonth(payoffDate.getMonth() + months);
+  return { months: months, totalInterestCents: Math.round(totalInterestCents), payoffDate: payoffDate };
+}
+function finRenderPropertyForecast(d) {
+  var loan = (d.meta && d.meta.loan) || {};
+  var monthly = (d.monthly || []).slice().sort(function(a,b){ return a.period < b.period ? -1 : 1; }).slice(-12);
+  var withNet = monthly.filter(function(m) { return m.net_income_cents != null || m.net_operating_income_cents != null; });
+  var avgMonthlyCents = withNet.length
+    ? withNet.reduce(function(sum, m) { return sum + (m.net_income_cents != null ? m.net_income_cents : m.net_operating_income_cents); }, 0) / withNet.length
+    : 0;
+  var avgAnnualCents = avgMonthlyCents * 12;
+  var amort = finComputeMortgageAmortization(loan);
+  var statsHtml = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin:10px 0;">'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney(avgAnnualCents/100) + '</div><div class="rpt-stat-lbl">Avg. Annual Net Income (trailing 12mo)</div></div>'
+    + (amort
+      ? '<div class="rpt-stat"><div class="rpt-stat-num">' + amort.payoffDate.toLocaleDateString('en-US', {month:'short', year:'numeric'}) + '</div><div class="rpt-stat-lbl">Projected Mortgage Payoff (~' + amort.months + ' mo)</div></div>'
+        + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney(amort.totalInterestCents/100) + '</div><div class="rpt-stat-lbl">Remaining Interest</div></div>'
+        + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((avgAnnualCents + (loan.annual_debt_service_cents||0))/100) + '</div><div class="rpt-stat-lbl">Potential Annual Net Income After Payoff</div></div>'
+      : '')
+    + '</div>';
+  var note = amort
+    ? '<p style="font-size:.72rem;color:var(--warm-gray);margin:0 0 4px;"><i>"Potential Annual Net Income After Payoff" assumes the current annual debt service ($' + finFmtMoney((loan.annual_debt_service_cents||0)/100) + ') is already being paid out of the reported Net Income above — that hasn’t been independently confirmed against AHRA’s bookkeeping, so treat this as a planning estimate, not a guarantee.</i></p>'
+    : '<p style="font-size:.72rem;color:var(--warm-gray);margin:0 0 4px;">Mortgage payoff can’t be projected — the loan balance, interest rate, or monthly payment isn’t set (or the payment doesn’t cover the interest).</p>';
+  return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Cash Flow &amp; Mortgage Payoff Forecast</h4>' + statsHtml + note;
+}
+
+// ── Editable Valuation Calculator (income-capitalization method — the same formula and
+// itemization as AHRA's actual valuation worksheet, 3277_Ivanhoe_Valuation_2.xlsx: a per-tenant
+// rent roll + itemized operating costs, reconciled exactly against that worksheet). Lets staff
+// update rents, costs, vacancy, management fee %, and cap rate themselves going forward without
+// needing AHRA's spreadsheet — saves via the existing meta PATCH route (no new backend route). ──
+var FIN_VAL_OP_COST_FIELDS = [
+  ['utilities_cents', 'Utilities'],
+  ['trash_cents', 'Trash'],
+  ['maintenance_repairs_cents', 'Maintenance/Repairs'],
+  ['landscaping_snow_cents', 'Landscaping/Snow'],
+  ['legal_cents', 'Legal'],
+  ['taxes_cents', 'Taxes'],
+  ['insurance_cents', 'Insurance'],
+];
+// Pure — no DOM — so it's directly unit-testable (see test/finance-property-forecast.test.js).
+// Mirrors AHRA's worksheet exactly: Gross Rental Income = rent roll + utility reimbursement,
+// less vacancy = Effective Rental Income; Total Operating Costs = itemized costs + a management
+// fee computed as a % of Effective Rental Income; NOI = Effective Rental Income − Total
+// Operating Costs; Capitalized Value = NOI ÷ Cap Rate.
+function finComputePropertyValuation(inputs) {
+  var rentRoll = inputs.rentRoll || [];
+  var totalAnnualRentCents = rentRoll.reduce(function(sum, r) { return sum + (Number(r.annual_rent_cents) || 0); }, 0);
+  var utilityReimbCents = Number(inputs.utility_reimbursement_cents) || 0;
+  var grossRentalIncomeCents = totalAnnualRentCents + utilityReimbCents;
+  var vacancyRatePct = Number(inputs.vacancy_rate_pct) || 0;
+  var vacancyCents = Math.round(grossRentalIncomeCents * vacancyRatePct);
+  var effectiveRentalIncomeCents = grossRentalIncomeCents - vacancyCents;
+  var opCosts = inputs.operating_costs || {};
+  var itemizedOpCostsCents = FIN_VAL_OP_COST_FIELDS.reduce(function(sum, f) { return sum + (Number(opCosts[f[0]]) || 0); }, 0);
+  var managementFeePct = Number(inputs.management_fee_pct) || 0;
+  var managementFeeCents = Math.round(effectiveRentalIncomeCents * managementFeePct);
+  var totalOperatingCostsCents = itemizedOpCostsCents + managementFeeCents;
+  var noiCents = effectiveRentalIncomeCents - totalOperatingCostsCents;
+  var capRate = Number(inputs.cap_rate) || 0;
+  var capitalizedValueCents = capRate ? Math.round(noiCents / capRate) : 0;
+  return {
+    totalAnnualRentCents: totalAnnualRentCents, grossRentalIncomeCents: grossRentalIncomeCents, vacancyCents: vacancyCents,
+    effectiveRentalIncomeCents: effectiveRentalIncomeCents, itemizedOpCostsCents: itemizedOpCostsCents,
+    managementFeeCents: managementFeeCents, totalOperatingCostsCents: totalOperatingCostsCents,
+    noiCents: noiCents, capitalizedValueCents: capitalizedValueCents,
+  };
+}
+var _finValRentRoll = [];
+function finRenderValuationCalculator(d, isAdminUI) {
+  var val = (d.meta && d.meta.valuation) || {};
+  _finValRentRoll = (val.rent_roll || []).map(function(r) { return { tenant: r.tenant || '', sqft: r.sqft || 0, annual_rent_cents: r.annual_rent_cents || 0 }; });
+  var opCosts = val.operating_costs || {};
+  var dis = isAdminUI ? '' : 'disabled';
+
+  var opCostInputs = FIN_VAL_OP_COST_FIELDS.map(function(f) {
+    return '<label style="font-size:.75rem;color:var(--warm-gray);">' + f[1] + ' ($/yr)<br><input type="number" id="fin-val-oc-' + f[0] + '" step="0.01" value="' + ((opCosts[f[0]]||0)/100) + '" oninput="finValRecompute()" ' + dis + ' style="width:110px;"></label>';
+  }).join('');
+
+  var assumptionsHtml = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:10px 0;">'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Utility Reimbursement ($/yr)<br><input type="number" id="fin-val-utilreimb" step="0.01" value="' + ((val.utility_reimbursement_cents||0)/100) + '" oninput="finValRecompute()" ' + dis + ' style="width:140px;"></label>'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Vacancy Rate %<br><input type="number" id="fin-val-vacancy" step="0.1" value="' + ((val.vacancy_rate_pct||0)*100) + '" oninput="finValRecompute()" ' + dis + ' style="width:90px;"></label>'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Management Fee %<br><input type="number" id="fin-val-mgmtfee" step="0.1" value="' + ((val.management_fee_pct||0)*100) + '" oninput="finValRecompute()" ' + dis + ' style="width:100px;"></label>'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Cap Rate<br><input type="number" id="fin-val-caprate" step="0.001" value="' + (val.cap_rate||0) + '" oninput="finValRecompute()" ' + dis + ' style="width:90px;"></label>'
+    + '</div>';
+
+  var statsHtml = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin:10px 0;" id="fin-val-output">'
+    + '<div class="rpt-stat"><div class="rpt-stat-num" id="fin-val-gross">$' + finFmtMoney((val.gross_rental_income_cents||0)/100) + '</div><div class="rpt-stat-lbl">Gross Rental Income</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num" id="fin-val-costs">$' + finFmtMoney((val.total_operating_costs_incl_mgmt_fee_cents||0)/100) + '</div><div class="rpt-stat-lbl">Total Operating Costs</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num" id="fin-val-noi">$' + finFmtMoney((val.net_operating_income_cents||0)/100) + '</div><div class="rpt-stat-lbl">Net Operating Income</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num" id="fin-val-cv">$' + finFmtMoney((val.capitalized_value_cents||0)/100) + '</div><div class="rpt-stat-lbl">Capitalized Value</div></div>'
+    + '</div>';
+
+  var actionsHtml = isAdminUI
+    ? '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finValSave()">Save Valuation</button> <span id="fin-val-save-msg" style="font-size:.75rem;color:var(--warm-gray);margin-left:8px;"></span>'
+    : '';
+  var asOf = val.as_of_date ? '<p style="font-size:.72rem;color:var(--warm-gray);margin:0 0 8px;">As of ' + esc(val.as_of_date) + '.</p>' : '';
+
+  return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Valuation Calculator</h4>' + asOf
+    + '<div style="font-weight:600;font-size:.82rem;margin:0 0 6px;">Rent Roll</div>'
+    + finRenderRentRollTable(isAdminUI)
+    + (isAdminUI ? '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;margin-top:6px;" onclick="finValAddTenant()">+ Add Tenant</button>' : '')
+    + '<div style="font-weight:600;font-size:.82rem;margin:14px 0 6px;">Operating Costs</div>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">' + opCostInputs + '</div>'
+    + assumptionsHtml + statsHtml + actionsHtml;
+}
+function finRenderRentRollTable(isAdminUI) {
+  var rows = _finValRentRoll.map(function(r, i) {
+    return '<tr>'
+      + '<td style="padding:3px 6px;"><input type="text" id="fin-val-rr-' + i + '-tenant" value="' + esc(r.tenant) + '" oninput="finValRentRollFieldChange(' + i + ',\'tenant\',this.value)" ' + (isAdminUI ? '' : 'disabled') + ' style="width:160px;"></td>'
+      + '<td style="padding:3px 6px;"><input type="number" id="fin-val-rr-' + i + '-sqft" value="' + r.sqft + '" oninput="finValRentRollFieldChange(' + i + ',\'sqft\',this.value)" ' + (isAdminUI ? '' : 'disabled') + ' style="width:90px;"></td>'
+      + '<td style="padding:3px 6px;"><input type="number" id="fin-val-rr-' + i + '-rent" step="0.01" value="' + (r.annual_rent_cents/100) + '" oninput="finValRentRollFieldChange(' + i + ',\'annual_rent_cents\',this.value)" ' + (isAdminUI ? '' : 'disabled') + ' style="width:120px;"></td>'
+      + (isAdminUI ? '<td style="padding:3px 6px;"><button class="btn-secondary" style="font-size:.7rem;padding:2px 6px;color:var(--danger);" onclick="finValRemoveTenant(' + i + ')">Remove</button></td>' : '')
+      + '</tr>';
+  }).join('');
+  return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;" id="fin-val-rentroll-table">'
+    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:4px 6px;">Tenant</th><th style="text-align:left;padding:4px 6px;">SF</th><th style="text-align:left;padding:4px 6px;">Annual Rent ($)</th>' + (isAdminUI ? '<th></th>' : '') + '</tr></thead>'
+    + '<tbody id="fin-val-rentroll-body">' + (rows || '<tr><td colspan="4" style="padding:6px;color:var(--warm-gray);">No tenants recorded yet.</td></tr>') + '</tbody></table></div>';
+}
+function finValRentRollFieldChange(i, field, value) {
+  if (!_finValRentRoll[i]) return;
+  _finValRentRoll[i][field] = field === 'tenant' ? value : (field === 'annual_rent_cents' ? Math.round((parseFloat(value)||0) * 100) : (parseInt(value, 10) || 0));
+  finValRecompute();
+}
+function finValAddTenant() {
+  _finValRentRoll.push({ tenant: '', sqft: 0, annual_rent_cents: 0 });
+  document.getElementById('fin-val-rentroll-body').outerHTML = finRenderRentRollTable(true).match(/<tbody[\s\S]*<\/tbody>/)[0];
+  finValRecompute();
+}
+function finValRemoveTenant(i) {
+  _finValRentRoll.splice(i, 1);
+  document.getElementById('fin-val-rentroll-body').outerHTML = finRenderRentRollTable(true).match(/<tbody[\s\S]*<\/tbody>/)[0];
+  finValRecompute();
+}
+function finValReadInputs() {
+  var opCosts = {};
+  FIN_VAL_OP_COST_FIELDS.forEach(function(f) {
+    var el = document.getElementById('fin-val-oc-' + f[0]);
+    opCosts[f[0]] = el ? Math.round((parseFloat(el.value)||0) * 100) : 0;
+  });
+  return {
+    rentRoll: _finValRentRoll,
+    utility_reimbursement_cents: Math.round((parseFloat(document.getElementById('fin-val-utilreimb').value)||0) * 100),
+    vacancy_rate_pct: (parseFloat(document.getElementById('fin-val-vacancy').value)||0) / 100,
+    operating_costs: opCosts,
+    management_fee_pct: (parseFloat(document.getElementById('fin-val-mgmtfee').value)||0) / 100,
+    cap_rate: parseFloat(document.getElementById('fin-val-caprate').value) || 0,
+  };
+}
+function finValRecompute() {
+  var out = finComputePropertyValuation(finValReadInputs());
+  document.getElementById('fin-val-gross').textContent = '$' + finFmtMoney(out.grossRentalIncomeCents/100);
+  document.getElementById('fin-val-costs').textContent = '$' + finFmtMoney(out.totalOperatingCostsCents/100);
+  document.getElementById('fin-val-noi').textContent = '$' + finFmtMoney(out.noiCents/100);
+  document.getElementById('fin-val-cv').textContent = '$' + finFmtMoney(out.capitalizedValueCents/100);
+}
+function finValSave() {
+  var msgEl = document.getElementById('fin-val-save-msg');
+  var inputs = finValReadInputs();
+  if (!inputs.cap_rate || inputs.cap_rate <= 0) { msgEl.textContent = 'Enter a valid cap rate.'; return; }
+  var out = finComputePropertyValuation(inputs);
+  var body = { valuation: {
+    rent_roll: _finValRentRoll,
+    utility_reimbursement_cents: inputs.utility_reimbursement_cents,
+    vacancy_rate_pct: inputs.vacancy_rate_pct,
+    operating_costs: inputs.operating_costs,
+    management_fee_pct: inputs.management_fee_pct,
+    cap_rate: inputs.cap_rate,
+    gross_rental_income_cents: out.grossRentalIncomeCents,
+    total_operating_costs_incl_mgmt_fee_cents: out.totalOperatingCostsCents,
+    net_operating_income_cents: out.noiCents,
+    capitalized_value_cents: out.capitalizedValueCents,
+    as_of_date: new Date().toISOString().slice(0, 10),
+  } };
+  msgEl.textContent = 'Saving…';
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/meta', { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
+    if (d && d.error) { msgEl.textContent = d.error; return; }
+    msgEl.textContent = 'Saved.';
+    finLoadProperty();
+  }).catch(function(err) { msgEl.textContent = err && err.message || 'Save failed.'; });
+}
+
 function finRenderProperty(d) {
   var el = document.getElementById('fin-property-root');
   if (!el || !d) return;
@@ -1349,6 +1659,9 @@ function finRenderProperty(d) {
 
   el.innerHTML = statsHtml
     + '<div style="margin-bottom:16px;">' + infoHtml + '</div>'
+    + finRenderPropertyCharts(d)
+    + finRenderPropertyForecast(d)
+    + finRenderValuationCalculator(d, isAdminUI)
     + '<h4 style="margin:0 0 8px;font-size:.9rem;">Annual Summary</h4>' + annualHtml
     + '<h4 style="margin:18px 0 8px;display:flex;align-items:center;justify-content:space-between;font-size:.9rem;"><span>Monthly Financials</span>' + (isAdminUI ? '<button class="btn-primary" style="font-size:.78rem;padding:4px 10px;" onclick="finPropertyOpenMonthModal()">+ Add Month</button>' : '') + '</h4>' + monthlyHtml
     + '<h4 style="margin:18px 0 8px;font-size:.9rem;">Distributions to Church</h4>' + distHtml

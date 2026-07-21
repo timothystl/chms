@@ -1535,6 +1535,27 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ ok: true, id: r.meta?.last_row_id });
   }
 
+  // Bulk-enter past years — a paste-in alternative to the one-row-at-a-time form above, since
+  // the daycare app has no historical API (see FIN3) and past years must be hand-entered.
+  if (seg === 'finance/daycare/bulk' && method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) return json({ error: 'No rows to import' }, 400);
+    const ops = [];
+    for (const r of rows) {
+      if (!r.period || !/^\d{4}(-\d{2})?$/.test(r.period)) return json({ error: `Invalid period: ${r.period}` }, 400);
+      if (!r.category || !String(r.category).trim()) return json({ error: 'Category is required for every row' }, 400);
+      const amountCents = Math.round(Number(r.amount_cents));
+      if (!Number.isFinite(amountCents)) return json({ error: `Invalid amount for ${r.period} / ${r.category}` }, 400);
+      const entryType = r.entry_type === 'budget' ? 'budget' : 'actual';
+      ops.push(db.prepare(
+        `INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,notes) VALUES (?,?,?,?,?)`
+      ).bind(r.period, String(r.category).trim(), entryType, amountCents, r.notes || ''));
+    }
+    await db.batch(ops);
+    return json({ ok: true, imported: ops.length });
+  }
+
   const dcMatch = seg.match(/^finance\/daycare\/(\d+)$/);
   if (dcMatch && method === 'PUT') {
     const id = parseInt(dcMatch[1], 10);
