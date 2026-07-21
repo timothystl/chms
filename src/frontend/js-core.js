@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.42.2';
+export const DEPLOY_VERSION = '1.43.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -157,6 +157,7 @@ var FIN_TOPNAV_ITEMS = [
   { id: 'church', label: 'Church Report', finSection: 'church' },
   { id: 'daycare', label: 'Daycare Report', finSection: 'daycare' },
   { id: 'property', label: 'Commercial Property', finSection: 'property' },
+  { id: 'planning', label: 'Planning', finSection: 'planning' },
 ];
 var _finActiveNavId = 'overview';
 function renderFinanceSubnav() {

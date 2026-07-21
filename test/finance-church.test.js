@@ -346,6 +346,37 @@ describe('resolveChurchYearPrecedence', () => {
     expect(resolved.find(r => r.fiscal_year === 2025).source).toBe('import');
     expect(resolved.find(r => r.fiscal_year === 2026).source).toBe('qbo_sync');
   });
+
+  // FIN12 — Budget Planning can commit a placeholder budget into a future year
+  // (source='plan_committed'). It must be the LOWEST priority: a real sync or import for that
+  // same year should always win once one exists, so a stale plan never masks real data.
+  it('uses a plan_committed row only when no qbo_sync/import row exists for that year', () => {
+    const rows = [{ fiscal_year: 2027, source: 'plan_committed', category_path: 'Utilities', own_actual_cents: 0, own_budget_cents: 500000 }];
+    const resolved = resolveChurchYearPrecedence(rows);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].source).toBe('plan_committed');
+  });
+
+  it('a qbo_sync row for the same year overrides a plan_committed placeholder', () => {
+    const rows = [
+      { fiscal_year: 2027, source: 'plan_committed', category_path: 'Utilities', own_budget_cents: 500000 },
+      { fiscal_year: 2027, source: 'qbo_sync', category_path: 'Utilities', own_actual_cents: 480000 },
+    ];
+    const resolved = resolveChurchYearPrecedence(rows);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].source).toBe('qbo_sync');
+  });
+
+  it('an import row still wins over both qbo_sync and plan_committed for the same year', () => {
+    const rows = [
+      { fiscal_year: 2027, source: 'plan_committed', category_path: 'Utilities', own_budget_cents: 500000 },
+      { fiscal_year: 2027, source: 'qbo_sync', category_path: 'Utilities', own_actual_cents: 480000 },
+      { fiscal_year: 2027, source: 'import', category_path: 'Utilities', own_actual_cents: 490000 },
+    ];
+    const resolved = resolveChurchYearPrecedence(rows);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].source).toBe('import');
+  });
 });
 
 describe('computeYearSummary', () => {

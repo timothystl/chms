@@ -1436,6 +1436,20 @@ export const HTML_TABS_2 = String.raw`
         </section>
       </div>
 
+      <div id="fin-panel-planning" style="display:none;">
+        <section class="dash-card fin-printable" style="margin-bottom:16px;">
+          <div class="dash-card-hdr">Church Budget Planning</div>
+          <div class="dash-card-body" style="padding:14px 18px;">
+            <p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 12px;">Forward multi-year what-if planning for categories like Property Expenses, Salaries &amp; Benefits, Utilities, and Insurance — independent of QuickBooks. Generate a projection from a starting amount and a growth rate, hand-adjust any year, then commit a year's plan into the real Church Budget once you're ready (it shows up as a placeholder budget until real synced or imported data for that year takes over).</p>
+            <div id="fin-plan-root"></div>
+          </div>
+        </section>
+        <section class="dash-card fin-printable" style="margin-bottom:16px;">
+          <div class="dash-card-hdr">3277 Ivanhoe — Multi-Year Forecast</div>
+          <div class="dash-card-body" style="padding:14px 18px;" id="fin-plan-property-root"></div>
+        </section>
+      </div>
+
     </div>
   </div>
 </div>
