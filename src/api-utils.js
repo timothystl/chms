@@ -320,6 +320,28 @@ export async function handleUtilsApi(req, env, url, method, seg, db, isAdmin, ca
     }
   }
 
+  // GET /admin/api/utils/static-map?address=... — server-side Google Static Maps proxy.
+  // Keeps GOOGLE_ADDRESS_API_KEY off the client entirely (it's a server-side key with no
+  // HTTP-referrer restriction, unlike a typical embed/JS-API key, so it must never be exposed
+  // in page source). Returns the map image bytes directly.
+  if (seg === 'utils/static-map' && method === 'GET') {
+    if (!canEdit) return json({ error: 'Access denied' }, 403);
+    if (!env.GOOGLE_ADDRESS_API_KEY) return json({ error: 'Maps not configured' }, 501);
+    const address = (url.searchParams.get('address') || '').trim();
+    if (!address) return json({ error: 'address is required' }, 400);
+    const mapUrl = 'https://maps.googleapis.com/maps/api/staticmap?' + new URLSearchParams({
+      center: address,
+      zoom: '15',
+      size: '600x260',
+      scale: '2',
+      markers: 'color:0x1E2D4A|' + address,
+      key: env.GOOGLE_ADDRESS_API_KEY,
+    });
+    const r = await fetch(mapUrl);
+    if (!r.ok) return json({ error: 'Map lookup failed' }, 502);
+    return new Response(r.body, { headers: { 'Content-Type': r.headers.get('Content-Type') || 'image/png', 'Cache-Control': 'private, max-age=3600' } });
+  }
+
   // POST /admin/api/utils/bulk-validate-addresses — validate + standardize active people with an address.
   // Processes 45 addresses per call to stay under Cloudflare's 50-subrequest limit
   // (1 USPS token fetch + up to 45 address calls = 46 max per invocation).
