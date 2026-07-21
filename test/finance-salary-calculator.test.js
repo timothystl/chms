@@ -29,7 +29,7 @@ function loadSalaryCalculator() {
     }
     return CHMS_APP_EXT_JS.slice(start, i);
   }
-  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
+  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
   const fnSrcs = fnNames.map(extractFunction);
   const ficaRateM = CHMS_APP_EXT_JS.match(/var LCMS_EMPLOYER_FICA_RATE = [^\n]*\n/);
   if (!ficaRateM) throw new Error('LCMS_EMPLOYER_FICA_RATE not found in built script');

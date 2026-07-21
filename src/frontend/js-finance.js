@@ -2440,14 +2440,21 @@ function finComputePlanOOPCents(deductibleCents, oopMaxCents, coinsuranceRate, s
 // toKey costs the family more at that spend level; this is the worst-case comparison, not the
 // typical one — see finComputeHealthPlanFamilyBreakevenCents for the multi-member case.
 function finComputeHealthPlanSingleClaimantDeltaCents(fromKey, toKey, spendCents) {
-  var from = HEALTH_PLAN_QUOTE_2027.options[fromKey], to = HEALTH_PLAN_QUOTE_2027.options[toKey];
-  if (!from || !to) return null;
+  var fromTerms = finHealthPlanEffectiveLoneClaimantTermsCents(fromKey), toTerms = finHealthPlanEffectiveLoneClaimantTermsCents(toKey);
+  if (!fromTerms || !toTerms) return null;
   var rate = HEALTH_PLAN_QUOTE_2027.coinsuranceRate;
-  var fromDed = from.embedded ? from.deductibleIndividualCents : from.deductibleFamilyCents;
-  var fromCap = from.embedded ? from.oopMaxIndividualCents : from.oopMaxFamilyCents;
-  var toDed = to.embedded ? to.deductibleIndividualCents : to.deductibleFamilyCents;
-  var toCap = to.embedded ? to.oopMaxIndividualCents : to.oopMaxFamilyCents;
-  return finComputePlanOOPCents(toDed, toCap, rate, spendCents) - finComputePlanOOPCents(fromDed, fromCap, rate, spendCents);
+  return finComputePlanOOPCents(toTerms.deductibleCents, toTerms.oopMaxCents, rate, spendCents) - finComputePlanOOPCents(fromTerms.deductibleCents, fromTerms.oopMaxCents, rate, spendCents);
+}
+// Pure — no DOM — the deductible/OOP-max that actually applies to ONE family member who alone
+// accounts for all of a family contract's costs: the plan's own individual figures if it's
+// embedded (each person protected separately), or its family figures if not (no individual
+// sub-limit — a lone claimant has to clear the same aggregate threshold as the whole family).
+function finHealthPlanEffectiveLoneClaimantTermsCents(optionKey) {
+  var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
+  if (!opt) return null;
+  return opt.embedded
+    ? { deductibleCents: opt.deductibleIndividualCents, oopMaxCents: opt.oopMaxIndividualCents }
+    : { deductibleCents: opt.deductibleFamilyCents, oopMaxCents: opt.oopMaxFamilyCents };
 }
 // Pure — no DOM — the total family-wide annual medical spend (in cents, assumed spread across 2+
 // family members so the FAMILY deductible/OOP-max apply, not a single person's) at which moving
@@ -2501,22 +2508,44 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
     var rate = HEALTH_PLAN_QUOTE_2027.coinsuranceRate;
     var familyWorstCaseCents = finComputePlanOOPCents(selOpt.deductibleFamilyCents, selOpt.oopMaxFamilyCents, rate, 100000000)
                               - finComputePlanOOPCents(renewalOpt.deductibleFamilyCents, renewalOpt.oopMaxFamilyCents, rate, 100000000);
+    var renewalLoneTerms = finHealthPlanEffectiveLoneClaimantTermsCents('renewal'), selLoneTerms = finHealthPlanEffectiveLoneClaimantTermsCents(_finHealthPlanSelectedOption);
+    var renewalLoneWorstCents = renewalLoneTerms.oopMaxCents, selLoneWorstCents = selLoneTerms.oopMaxCents;
+    var renewalFamilyWorstCents = renewalOpt.oopMaxFamilyCents, selFamilyWorstCents = selOpt.oopMaxFamilyCents;
+    function actualSpendRow(label, renewalCents, selCents) {
+      return '<tr><td style="padding:2px 6px;">' + label + '</td><td style="text-align:right;padding:2px 6px;">$' + finFmtMoney(renewalCents/100) + '</td><td style="text-align:right;padding:2px 6px;">$' + finFmtMoney(selCents/100) + '</td></tr>';
+    }
     if (perHouseholdDiffCents > 0) {
       var breakevenCents = finComputeHealthPlanFamilyBreakevenCents('renewal', _finHealthPlanSelectedOption, perHouseholdDiffCents);
+      var actualSpendTableRows = '';
+      if (breakevenCents != null) {
+        var oopAtBreakevenRenewal = finComputePlanOOPCents(renewalOpt.deductibleFamilyCents, renewalOpt.oopMaxFamilyCents, rate, breakevenCents);
+        var oopAtBreakevenSelected = finComputePlanOOPCents(selOpt.deductibleFamilyCents, selOpt.oopMaxFamilyCents, rate, breakevenCents);
+        actualSpendTableRows += actualSpendRow('At the breakeven ($' + finFmtMoney(breakevenCents/100) + ' total cost of care, spread across the family)', oopAtBreakevenRenewal, oopAtBreakevenSelected);
+      }
+      actualSpendTableRows += actualSpendRow('Worst case, costs spread across the family', renewalFamilyWorstCents, selFamilyWorstCents);
+      actualSpendTableRows += actualSpendRow('Worst case, one family member alone', renewalLoneWorstCents, selLoneWorstCents);
+      var actualSpendTable = '<table style="width:100%;border-collapse:collapse;font-size:.72rem;margin-top:8px;max-width:480px;">'
+        + '<thead><tr><th style="text-align:left;padding:2px 6px;">What the family would actually pay</th><th style="text-align:right;padding:2px 6px;">Renewal</th><th style="text-align:right;padding:2px 6px;">' + esc(selOpt.label) + '</th></tr></thead>'
+        + '<tbody>' + actualSpendTableRows + '</tbody></table>';
       breakevenHtml = '<div style="margin-top:10px;padding:8px 10px;background:var(--white);border-radius:6px;font-size:.75rem;color:var(--warm-gray);">'
         + '<b style="color:var(--charcoal);">Is it worth it?</b> This option costs $' + finFmtMoney(perHouseholdDiffCents/100) + '/yr more per household than staying on Renewal. '
         + (breakevenCents != null
           ? 'If a household\'s medical costs are spread across 2+ family members, the extra premium pays for itself once that household\'s <i>total cost of care for the year</i> (what providers bill in total — not what the family pays out of pocket, which stays capped well below this) reaches about <b>$' + finFmtMoney(breakevenCents/100) + '</b> — below that, the extra premium is a net cost; above it, the lower deductible/out-of-pocket max saves more than the premium costs.'
           : 'It never fully pays for itself in reduced out-of-pocket costs at any level of care, even spread across the whole family.')
         + (singleClaimantWorstCaseCents != null ? ' If one family member alone accounts for all the costs (not spread across the family), this option ' + (singleClaimantWorstCaseCents > 0 ? 'never breaks even — it costs up to $' + finFmtMoney(singleClaimantWorstCaseCents/100) + ' more even in a worst-case year' : (singleClaimantWorstCaseCents < 0 ? 'still comes out ahead by up to $' + finFmtMoney(Math.abs(singleClaimantWorstCaseCents)/100) + ' in a worst-case year' : 'comes out exactly even in a worst-case year')) + ', since a lone claimant is held to the same family-size threshold a non-embedded plan uses instead of a smaller individual cap.' : '')
+        + actualSpendTable
         + '</div>';
     } else if (perHouseholdDiffCents < 0) {
+      var cheaperSpendTable = '<table style="width:100%;border-collapse:collapse;font-size:.72rem;margin-top:8px;max-width:480px;">'
+        + '<thead><tr><th style="text-align:left;padding:2px 6px;">What the family would actually pay</th><th style="text-align:right;padding:2px 6px;">Renewal</th><th style="text-align:right;padding:2px 6px;">' + esc(selOpt.label) + '</th></tr></thead>'
+        + '<tbody>' + actualSpendRow('Worst case, costs spread across the family', renewalFamilyWorstCents, selFamilyWorstCents) + actualSpendRow('Worst case, one family member alone', renewalLoneWorstCents, selLoneWorstCents) + '</tbody></table>';
       breakevenHtml = '<div style="margin-top:10px;padding:8px 10px;background:var(--white);border-radius:6px;font-size:.75rem;color:var(--warm-gray);">'
         + '<b style="color:var(--charcoal);">Is it worth it?</b> This option saves $' + finFmtMoney(Math.abs(perHouseholdDiffCents)/100) + '/yr per household in premium compared to staying on Renewal — guaranteed, whether or not anyone has a claim. '
         + 'The tradeoff is a higher deductible/out-of-pocket max: in a worst-case year with costs spread across the family, this option could cost up to <b>$' + finFmtMoney(Math.abs(familyWorstCaseCents)/100) + (familyWorstCaseCents > 0 ? ' more' : ' less') + '</b> out-of-pocket than Renewal'
         + (Math.abs(familyWorstCaseCents) < Math.abs(perHouseholdDiffCents)
           ? ', which is smaller than the guaranteed premium savings — so even in the worst realistic year, this option comes out ahead overall.'
           : ', which is larger than the guaranteed premium savings — so a genuinely bad year could cost more overall than staying on Renewal.')
+        + cheaperSpendTable
         + '</div>';
     }
   }
