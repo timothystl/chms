@@ -2104,7 +2104,7 @@ function finRenderPlanning() {
       + '<div id="fin-plan-msg" style="font-size:.75rem;color:var(--warm-gray);margin-top:6px;"></div>'
     : '';
 
-  el.innerHTML = yearPickerHtml + tableHtml + actionsHtml + finRenderSalaryCalculator(isAdminUI);
+  el.innerHTML = yearPickerHtml + tableHtml + actionsHtml + finRenderSalaryCalculator(isAdminUI) + finRenderHealthInsuranceCalculator(isAdminUI);
 }
 function finPlanChangeTargetYear() {
   var y = parseInt(document.getElementById('fin-plan-target-year').value, 10);
@@ -2392,6 +2392,79 @@ function finSalaryApplyToPlan() {
   var totalCents = totalSalaryCents + totalFicaCents + Math.round((_finSalaryBenefitsDollars || 0) * 100);
   _finPlanEdits[_finSalaryTargetCategory] = (totalCents / 100).toFixed(2);
   finToast('Applied $' + finFmtMoney(totalCents/100) + ' to the FY' + _finPlanTargetYear + ' Projected column — click Save Changes to keep it.');
+  finRenderPlanning();
+}
+
+// ── Health Insurance Renewal Options (Concordia Plans quote #0560500326, effective 2027) ──────
+// One congregation-wide group enrollment, not a per-worker figure like the salary roster above —
+// Medical/Dental/Vision premiums for the church's actual Current plan, its Renewal (same plan
+// design, new rates), and 3 alternate medical plan options Concordia offered alongside it. Dental
+// and Vision are the same across Renewal/Option 1/2/3 (only Current has the old, lower Dental
+// rate) — this is a real quirk of the source quote, not a data-entry simplification.
+var HEALTH_PLAN_QUOTE_2027 = {
+  effectiveYear: 2027,
+  options: {
+    current: { label: 'Current — Healthy Me HSA-C (BCBS)', medicalCents: 4529664, dentalCents: 289464, visionCents: 147168 },
+    renewal: { label: 'Renewal — Stay in Current Plan (Healthy Me HSA-C)', medicalCents: 4922400, dentalCents: 304680, visionCents: 147168 },
+    option1: { label: 'Option 1 — Healthy Me HSA-A (BCBS)', medicalCents: 5731560, dentalCents: 304680, visionCents: 147168 },
+    option2: { label: 'Option 2 — Healthy Me HSA-B (BCBS)', medicalCents: 5252040, dentalCents: 304680, visionCents: 147168 },
+    option3: { label: 'Option 3 — Healthy Me HSA-D (BCBS)', medicalCents: 4413264, dentalCents: 304680, visionCents: 147168 }
+  }
+};
+// Pure — no DOM — returns the Medical/Dental/Vision breakdown + total annual employer cost in
+// cents for one of the HEALTH_PLAN_QUOTE_2027 options, or null for an unrecognized key.
+function finComputeHealthPlanTotalCents(optionKey) {
+  var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
+  if (!opt) return null;
+  var totalCents = opt.medicalCents + opt.dentalCents + opt.visionCents;
+  return { label: opt.label, medicalCents: opt.medicalCents, dentalCents: opt.dentalCents, visionCents: opt.visionCents, totalCents: totalCents };
+}
+
+var _finHealthPlanSelectedOption = 'renewal';
+var _finHealthPlanTargetCategory = '';
+function finRenderHealthInsuranceCalculator(isAdminUI) {
+  var calc = finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption);
+  var optionSelect = '<select onchange="finHealthPlanOptionChange(this.value)">' + Object.keys(HEALTH_PLAN_QUOTE_2027.options).map(function(k) {
+    return '<option value="' + k + '"' + (k === _finHealthPlanSelectedOption ? ' selected' : '') + '>' + esc(HEALTH_PLAN_QUOTE_2027.options[k].label) + '</option>';
+  }).join('') + '</select>';
+
+  var breakdownHtml = calc ? ('<table style="width:100%;border-collapse:collapse;font-size:.78rem;max-width:420px;">'
+    + '<tr><td style="padding:3px 6px;">Medical Annual Premium</td><td style="text-align:right;padding:3px 6px;">$' + finFmtMoney(calc.medicalCents/100) + '</td></tr>'
+    + '<tr><td style="padding:3px 6px;">Dental Annual Premium</td><td style="text-align:right;padding:3px 6px;">$' + finFmtMoney(calc.dentalCents/100) + '</td></tr>'
+    + '<tr><td style="padding:3px 6px;">Vision Annual Premium</td><td style="text-align:right;padding:3px 6px;">$' + finFmtMoney(calc.visionCents/100) + '</td></tr>'
+    + '<tr style="font-weight:700;border-top:2px solid var(--navy);"><td style="padding:5px 6px;">Total Annual Premium</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(calc.totalCents/100) + '</td></tr>'
+    + '</table>') : '<p style="font-size:.8rem;color:var(--warm-gray);">Unknown option.</p>';
+
+  var expenseLeaves = [];
+  (function walk(nodes) { (nodes || []).forEach(function(n) { if (!n.children.length && n.classification !== 'Income') expenseLeaves.push(n); walk(n.children); }); })(_finPlanBaseTree);
+  var categoryOptions = expenseLeaves.map(function(n) {
+    var guess = /health|insurance|medical|benefit/i.test(n.label);
+    return '<option value="' + esc(n.path) + '"' + (guess && !_finHealthPlanTargetCategory ? ' selected' : (n.path === _finHealthPlanTargetCategory ? ' selected' : '')) + '>' + esc(n.label) + '</option>';
+  }).join('');
+
+  return '<div style="background:var(--linen);border-radius:8px;padding:12px 14px;margin-top:16px;">'
+    + '<div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Health Insurance Renewal Options <span style="font-weight:400;font-size:.72rem;color:var(--warm-gray);">(Concordia Plans quote #0560500326, effective ' + HEALTH_PLAN_QUOTE_2027.effectiveYear + ')</span></div>'
+    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">One group premium for the whole congregation, not a per-worker figure — Medical varies by plan option; Dental and Vision are the same across Renewal/Option 1/2/3 (only the old Current plan has a lower Dental rate).</p>'
+    + '<label style="font-size:.72rem;color:var(--warm-gray);display:block;margin-bottom:8px;">Plan Option<br>' + optionSelect + '</label>'
+    + breakdownHtml
+    + (isAdminUI && expenseLeaves.length ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
+      + '<label style="font-size:.72rem;color:var(--warm-gray);">Apply total to account<br><select id="fin-healthplan-target-category">' + categoryOptions + '</select></label>'
+      + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finHealthPlanApplyToPlan()">Use as FY' + _finPlanTargetYear + ' Projected</button>'
+      + '</div>' : '')
+    + '</div>';
+}
+function finHealthPlanOptionChange(value) {
+  _finHealthPlanSelectedOption = value;
+  finRenderPlanning();
+}
+function finHealthPlanApplyToPlan() {
+  var sel = document.getElementById('fin-healthplan-target-category');
+  if (!sel) return;
+  _finHealthPlanTargetCategory = sel.value;
+  var calc = finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption);
+  if (!calc) return;
+  _finPlanEdits[_finHealthPlanTargetCategory] = (calc.totalCents / 100).toFixed(2);
+  finToast('Applied $' + finFmtMoney(calc.totalCents/100) + ' to the FY' + _finPlanTargetYear + ' Projected column — click Save Changes to keep it.');
   finRenderPlanning();
 }
 
