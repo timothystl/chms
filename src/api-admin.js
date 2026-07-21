@@ -14,7 +14,7 @@ function normalizeSlug(s) {
 
 // Bare single-segment routes the public worker already serves (or reserves for the
 // scheduler/admin/member surfaces) — a matching event slug would shadow the real route.
-const RESERVED_SLUGS = ['scheduler', 'chms', 'portal', 'admin', 'api', 'rsvp', 'volunteer', 'serve', 'email', 'member'];
+const RESERVED_SLUGS = ['scheduler', 'chms', 'portal', 'admin', 'api', 'rsvp', 'volunteer', 'serve', 'connect', 'email', 'member'];
 
 export const SCHEDULER_KEYS = [
   'ws_people','ws_schedule_v2','ws_history','ws_last_served',

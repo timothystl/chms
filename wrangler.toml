@@ -26,6 +26,15 @@ custom_domain = false
 pattern = "chms.timothystl.org"
 custom_domain = true
 
+# Member-facing tiered login (Connect) — Phase 1 (2026-07-20). Same Worker, same
+# CHMS_HTML shell and login as chms.timothystl.org; role='member' accounts are
+# host-gated here instead of a separate standalone app. See tlc-volunteer-worker.js's
+# isConnectHost handling.
+[[routes]]
+pattern = "connect.timothystl.org/*"
+zone_name = "timothystl.org"
+custom_domain = false
+
 [[d1_databases]]
 binding = "DB"
 database_name = "tlc-volunteer-db"

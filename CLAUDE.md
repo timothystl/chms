@@ -433,6 +433,52 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### Connect — Tiered Member Login (2026-07-20, in progress, phased)
+Follow-up to the App Family Rename below. Two different member-facing mechanisms existed
+in this codebase: (1) a standalone `/portal` mini-app with its own `tlc-member` cookie,
+own minimal UI, no tab/permission tiers; (2) `app_users.role='member'` — a role tier
+*inside the real ChMS admin app* that already does exactly the Breeze-style "level of
+user opens up more tabs" model (filtered, read-only People/directory view, all writes
+blocked, other tabs hidden via a `role-member` CSS class) — this already existed in the
+code but nothing populated real accounts into it. **Decision: build on (2), retire (1).**
+No small standalone app — Connect is a tiered login into the same app, not a separate product.
+- [x] **CONN1 — Phase 1: Foundation.** Added `connect.timothystl.org` as a new route on
+  the same Worker (`wrangler.toml`). New `isConnectHost` check in `tlc-volunteer-worker.js`:
+  the root path and `/chms` alias now look up the caller's real role and enforce the
+  split — a `role='member'` account hitting `chms.timothystl.org` gets redirected to
+  `connect.timothystl.org`, and any non-member role hitting `connect.timothystl.org` gets
+  redirected back to `chms.timothystl.org`. Both hostnames serve the exact same
+  `CHMS_HTML`/login shell; the existing `role-member` tab-hiding in the frontend is what
+  actually restricts what a member sees, unchanged. Retired the standalone `/portal`
+  system: removed all its routes (`/portal`, `/portal/verify/*`, `/portal.webmanifest`,
+  `/portal-sw.js`, `/member/*`, `/member/r2photo/*`) and the "Invite to Portal" trigger
+  (`people/:id/invite` endpoint + the People-tab button that called it) — that whole flow
+  pointed at the now-unrouted `/portal/verify/` and would have silently sent broken invite
+  emails otherwise. Its source (`src/api-member.js`, `src/portal-html.js`,
+  `src/portal-sw-js.js`) was deliberately **not deleted** — left unimported/unrouted so
+  its invite-token/email-verification logic can be adapted for the real Phase 2 invite
+  flow instead of rewritten from scratch. One known side effect: the scheduler's
+  "you're serving tomorrow" push-notification reminder (`tlc-volunteer-worker.js`,
+  queries `app_users.push_subscription`) will silently stop finding any subscribers,
+  since the only push-subscription flow lived in the now-retired portal's service worker
+  — this was never populated in practice (portal was never publicly launched), so nothing
+  regresses for a real user; just flagging it so it isn't mysterious later. Added `connect`
+  to `RESERVED_SLUGS`. Done 2026-07-20 (v1.41.0). (`wrangler.toml`, `tlc-volunteer-worker.js`,
+  `src/api-chms.js`, `src/api-admin.js`, `src/frontend/js-people.js`)
+- [ ] **CONN2 — Phase 2: Real invite flow.** Nothing populates `role='member'` accounts
+  today. Build the actual invite: staff-initiated, linked to a real `people` row, member
+  sets a password, account activates as `role='member'`. Adapt `api-member.js`'s existing
+  invite-token/email-verification code rather than starting over.
+- [ ] **CONN3 — Phase 2: Security pass on the member-role People view.** Before real
+  members see it, double-check the frontend doesn't leak anything beyond what the backend
+  already filters (giving, tags, pastoral follow-up notes, non-member visitor records).
+- [ ] **CONN4 — Phase 3: Branding differentiation.** Give the `connect.timothystl.org`
+  login/shell its own identity distinct from "Timothy ChMS" staff branding, so a member
+  checking the directory doesn't feel like they've wandered into a staff tool.
+- [ ] **CONN5 — Manual follow-up outside code, flagged for an admin**: create the
+  `connect.timothystl.org` DNS/Worker route in the Cloudflare dashboard (same steps as
+  `serve.timothystl.org` — a "Worker" type route/record, same Worker target).
+
 ### Branding — App Family Rename (2026-07-20)
 Prompted by a design review of a proposed "app family" branding concept across the church's
 digital properties (website, ChMS, volunteer site). Full fragmentation into 7 separate
