@@ -2104,11 +2104,7 @@ function finRenderPlanning() {
       + '<div id="fin-plan-msg" style="font-size:.75rem;color:var(--warm-gray);margin-top:6px;"></div>'
     : '';
 
-  el.innerHTML = yearPickerHtml + tableHtml + actionsHtml
-    + '<div style="background:var(--linen);border-radius:8px;padding:12px 14px;margin-top:16px;">'
-    + '<div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Salary &amp; Benefits Planning</div>'
-    + '<p style="font-size:.78rem;color:var(--warm-gray);margin:0;">Salary &amp; Benefits shows up like any other account line above for now. A dedicated formula-driven projection (plus a comparison against Concordia Plan Services rates) is planned — bring the formula and comparison details whenever you\'re ready and this section will use them instead of a flat growth rate.</p>'
-    + '</div>';
+  el.innerHTML = yearPickerHtml + tableHtml + actionsHtml + finRenderSalaryCalculator(isAdminUI);
 }
 function finPlanChangeTargetYear() {
   var y = parseInt(document.getElementById('fin-plan-target-year').value, 10);
@@ -2162,6 +2158,241 @@ function finPlanCommit() {
     if (d && d.error) { msgEl.textContent = d.error; return; }
     msgEl.textContent = 'Committed ' + d.committed + ' line(s) for FY' + year + '.';
   }).catch(function(err) { msgEl.textContent = err && err.message || 'Commit failed.'; });
+}
+
+// ── Salary & Benefits Calculator (LCMS Missouri District Compensation Guidelines FY2026-2027) ──
+// Base salary × role/education/experience multiplier, per the district's own published tables —
+// verbatim from the PDF the user provided, not approximated. Extend LCMS_MO_BASE_SALARY_BY_YEAR
+// with next year's base figure when a new guideline document comes out (Base Salary History
+// table, page 2 of the PDF). Benefits (health/retirement via Concordia Plan Services) have no
+// published $ or % formula in this document — CPS quotes those directly per congregation via
+// their own (login-gated) tool — so Benefits here is a plain user-entered figure, not computed.
+var LCMS_MO_BASE_SALARY_BY_YEAR = { 2016: 39900, 2017: 40000, 2018: 40250, 2019: 40900, 2020: 41718, 2021: 42625, 2022: 43515, 2023: 45475, 2024: 47066, 2025: 48713, 2026: 50028, 2027: 51529 };
+// Section 1.1 — Annual Compensation Scale for Pastors, years of experience 0-30; the district
+// recommends +0.02/year of additional multiplier for service beyond 30 years (no hard cap).
+var LCMS_PASTOR_MULTIPLIERS = [1.45,1.47,1.49,1.51,1.54,1.57,1.60,1.63,1.66,1.69,1.72,1.75,1.78,1.81,1.84,1.87,1.90,1.93,1.96,1.99,2.01,2.03,2.05,2.07,2.09,2.11,2.13,2.15,2.17,2.19,2.21];
+// Section 1.2 — Annual Compensation Scale for Commissioned Workers (educators/DCE/DCO/Deaconess/
+// etc). Each education track's multiplier caps at the printed table's last year (the district's
+// own footnote: reaching the end of a column stops further years-of-service increases, to
+// encourage further formal education) EXCEPT the three degree tracks at/above a Master's, which
+// the district recommends growing +0.02/year beyond year 25 instead of capping.
+var LCMS_COMMISSIONED_TRACKS = {
+  bs:      { label: 'B.S., no further hours', multipliers: [1.00,1.02,1.04,1.06,1.08,1.10,1.12,1.14,1.16,1.18,1.20], capped: true },
+  bs10:    { label: 'B.S. + 10 hrs (working toward MA)', multipliers: [1.03,1.05,1.07,1.09,1.12,1.15,1.18,1.20,1.22,1.24,1.26,1.28,1.30], capped: true },
+  bs20:    { label: 'B.S. + 20 hrs (working toward MA)', multipliers: [1.06,1.08,1.10,1.12,1.15,1.18,1.21,1.24,1.27,1.30,1.33,1.35,1.37,1.39,1.41,1.43], capped: true },
+  ma:      { label: 'M.A.', multipliers: [1.12,1.14,1.16,1.18,1.21,1.24,1.27,1.30,1.33,1.36,1.39,1.42,1.45,1.48,1.51,1.53,1.55,1.57,1.59,1.61,1.63,1.65,1.67,1.69,1.71,1.73], growBeyond: 0.02 },
+  ma10phd: { label: 'M.A. + 10 hrs (working toward PhD)', multipliers: [1.16,1.18,1.20,1.22,1.25,1.28,1.31,1.34,1.37,1.40,1.43,1.46,1.49,1.52,1.55,1.58,1.61,1.64,1.66,1.68,1.70,1.72,1.74,1.76,1.78,1.80], growBeyond: 0.02 },
+  ma20phd: { label: 'M.A. + 20 hrs (working toward PhD)', multipliers: [1.20,1.22,1.24,1.26,1.29,1.32,1.35,1.38,1.41,1.44,1.47,1.50,1.53,1.56,1.59,1.62,1.65,1.68,1.71,1.74,1.77,1.79,1.81,1.83,1.85,1.87], growBeyond: 0.02 },
+};
+// Section 1.3 — Annual Compensation Scale for Other Church Workers, years 0-20; the district
+// recommends +0.02/year beyond year 20 for all four of these (no cap, unlike the B.S.-only
+// commissioned tracks above).
+var LCMS_OTHER_WORKER_TRACKS = {
+  custodian:              { label: 'Custodian', multipliers: [0.65,0.67,0.69,0.72,0.75,0.78,0.81,0.84,0.87,0.90,0.93,0.96,0.99,1.02,1.05,1.08,1.11,1.14,1.17,1.19,1.21], growBeyond: 0.02 },
+  secretary:              { label: 'Secretary', multipliers: [0.75,0.77,0.79,0.82,0.85,0.88,0.91,0.94,0.97,1.00,1.03,1.06,1.09,1.12,1.15,1.18,1.21,1.24,1.27,1.29,1.31], growBeyond: 0.02 },
+  childcare_director:     { label: 'Child Care Director', multipliers: [1.05,1.07,1.09,1.12,1.15,1.18,1.21,1.24,1.27,1.30,1.33,1.36,1.39,1.42,1.45,1.48,1.51,1.54,1.57,1.59,1.61], growBeyond: 0.02 },
+  business_manager_music: { label: 'Business Manager / Director of Music', multipliers: [1.10,1.12,1.14,1.17,1.20,1.23,1.26,1.29,1.32,1.35,1.38,1.41,1.44,1.47,1.50,1.53,1.56,1.59,1.62,1.65,1.68], growBeyond: 0.02 },
+};
+// Section 1.6 — additional multiplier for extra responsibility, added on top of the base
+// education/experience multiplier (e.g. a teacher who is also Principal). Ranges as published;
+// the calculator uses the midpoint as a starting default, hand-adjustable per worker.
+var LCMS_RESPONSIBILITY_STIPENDS = [
+  { key: 'none', label: 'None', range: [0, 0] },
+  { key: 'exec_director', label: 'Executive Director', range: [0.25, 0.45] },
+  { key: 'principal', label: 'Principal', range: [0.20, 0.40] },
+  { key: 'early_childhood_director', label: 'Early Childhood Director', range: [0.10, 0.20] },
+  { key: 'assistant_principal', label: 'Assistant Principal', range: [0.10, 0.20] },
+  { key: 'dce', label: 'Director of Christian Education', range: [0.10, 0.20] },
+  { key: 'music_director', label: 'Director of Music for Congregation', range: [0.05, 0.15] },
+  { key: 'youth_director', label: 'Director of Youth', range: [0.05, 0.15] },
+  { key: 'part_time_admin', label: 'Administrator for Part-Time Agencies', range: [0.05, 0.15] },
+  { key: 'athletic_director', label: 'Athletic Director', range: [0.05, 0.15] },
+  { key: 'tech_coordinator', label: 'Technology Coordinator', range: [0.05, 0.15] },
+];
+// Section 1.4 — additional multiplier for a sole/senior pastor, based on worship attendance.
+var LCMS_ATTENDANCE_BONUS_BANDS = [
+  { key: 'none', label: 'Not applicable / under 150', range: [0, 0] },
+  { key: 'band1', label: '150–350 average attendance', range: [0.05, 0.10] },
+  { key: 'band2', label: '351–750 average attendance', range: [0.10, 0.15] },
+  { key: 'band3', label: '750+ average attendance', range: [0.15, 0.25] },
+];
+function finLcmsBaseSalaryCents(year) {
+  var years = Object.keys(LCMS_MO_BASE_SALARY_BY_YEAR).map(Number).sort(function(a,b){return a-b;});
+  var found = LCMS_MO_BASE_SALARY_BY_YEAR[year];
+  if (found != null) return { dollars: found, exact: true, sourceYear: year };
+  // Fall back to the most recent known year at or before the requested one (or the earliest
+  // known year, if the request predates the whole table) rather than fabricating a number.
+  var candidates = years.filter(function(y) { return y <= year; });
+  var sourceYear = candidates.length ? candidates[candidates.length - 1] : years[0];
+  return { dollars: LCMS_MO_BASE_SALARY_BY_YEAR[sourceYear], exact: false, sourceYear: sourceYear };
+}
+// Looks up (or extrapolates) a multiplier from one of the tables above. growBeyond extends the
+// scale past its last published year; capped freezes at the last published value instead
+// (matches the district's own distinction between the B.S.-only commissioned tracks, which cap
+// to encourage further education, and every other track, which the district recommends growing).
+function finLcmsMultiplierFor(track, yearsExperience) {
+  var years = Math.max(0, Math.floor(Number(yearsExperience) || 0));
+  var multipliers = track.multipliers;
+  if (years < multipliers.length) return multipliers[years];
+  var last = multipliers[multipliers.length - 1];
+  if (track.capped || !track.growBeyond) return last;
+  return Math.round((last + track.growBeyond * (years - (multipliers.length - 1))) * 100) / 100;
+}
+// Pure — no DOM — computes one worker's salary per the LCMS MO District formula: base salary (by
+// year) × (role/education/experience multiplier + any responsibility stipend + any attendance
+// bonus, the latter only meaningful for a sole/senior pastor per Section 1.4).
+function finComputeLcmsSalary(opts) {
+  var base = finLcmsBaseSalaryCents(opts.year);
+  var track;
+  if (opts.role === 'pastor') track = { multipliers: LCMS_PASTOR_MULTIPLIERS, growBeyond: 0.02 };
+  else if (opts.role === 'commissioned') track = LCMS_COMMISSIONED_TRACKS[opts.trackKey];
+  else track = LCMS_OTHER_WORKER_TRACKS[opts.trackKey];
+  if (!track) return null;
+  var multiplier = finLcmsMultiplierFor(track, opts.yearsExperience) + (Number(opts.responsibilityStipend) || 0) + (Number(opts.attendanceBonus) || 0);
+  var salaryCents = Math.round(base.dollars * 100 * multiplier);
+  return { baseDollars: base.dollars, baseExact: base.exact, baseSourceYear: base.sourceYear, multiplier: multiplier, salaryCents: salaryCents };
+}
+
+// Pastors and Commissioned Ministers (e.g. DCEs) are classified by the IRS as self-employed for
+// Social Security purposes ("Ministers of Religion") — the church does not pay the employer half
+// of FICA for them, the worker pays the full SECA amount themselves. Other Church Workers are
+// regular W-2 employees, so the church does pay the standard employer share. This default can be
+// wrong for a specific real worker (e.g. a Director of Parish Music who is treated as a regular
+// employee at a given congregation despite nominally qualifying for minister tax treatment
+// elsewhere), so it's a per-worker override, not a hardcoded role rule.
+function finDefaultSelfEmployedFica(role) {
+  return role === 'pastor' || role === 'commissioned';
+}
+var LCMS_EMPLOYER_FICA_RATE = 0.0765; // combined employer OASDI (6.2%) + Medicare (1.45%)
+// Employer-side FICA cost to the church — $0 for a self-employed (SECA) worker, since the church
+// has no employer-FICA obligation for them at all; the worker pays their own full SECA share
+// outside of what the church budgets here.
+function finComputeEmployerFicaCents(salaryCents, selfEmployedFica) {
+  if (selfEmployedFica) return 0;
+  return Math.round((salaryCents || 0) * LCMS_EMPLOYER_FICA_RATE);
+}
+
+var _finSalaryRoster = [];
+function finRenderSalaryCalculator(isAdminUI) {
+  var rows = _finSalaryRoster.map(function(w, i) {
+    var opts = { year: _finPlanTargetYear, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus };
+    var calc = finComputeLcmsSalary(opts);
+    var ficaCents = calc ? finComputeEmployerFicaCents(calc.salaryCents, w.selfEmployedFica) : 0;
+    var trackOptions = w.role === 'commissioned' ? LCMS_COMMISSIONED_TRACKS : w.role === 'other' ? LCMS_OTHER_WORKER_TRACKS : null;
+    var trackSelect = trackOptions
+      ? '<select onchange="finSalaryFieldChange(' + i + ',\'trackKey\',this.value)">' + Object.keys(trackOptions).map(function(k) { return '<option value="' + k + '"' + (k === w.trackKey ? ' selected' : '') + '>' + esc(trackOptions[k].label) + '</option>'; }).join('') + '</select>'
+      : '<span style="color:var(--warm-gray);">—</span>';
+    var stipendSelect = '<select onchange="finSalaryStipendChange(' + i + ',this.value)">' + LCMS_RESPONSIBILITY_STIPENDS.map(function(s) {
+      var mid = (s.range[0] + s.range[1]) / 2;
+      return '<option value="' + mid + '"' + (Math.abs(mid - w.responsibilityStipend) < 0.001 && s.key !== 'none' ? ' selected' : (s.key === 'none' && !w.responsibilityStipend ? ' selected' : '')) + '>' + esc(s.label) + (s.key !== 'none' ? ' (+' + (s.range[0]*100).toFixed(0) + '–' + (s.range[1]*100).toFixed(0) + '%)' : '') + '</option>';
+    }).join('') + '</select>';
+    var attendanceSelect = w.role === 'pastor'
+      ? '<select onchange="finSalaryAttendanceChange(' + i + ',this.value)">' + LCMS_ATTENDANCE_BONUS_BANDS.map(function(b) {
+          var mid = (b.range[0] + b.range[1]) / 2;
+          return '<option value="' + mid + '"' + (Math.abs(mid - w.attendanceBonus) < 0.001 && b.key !== 'none' ? ' selected' : (b.key === 'none' && !w.attendanceBonus ? ' selected' : '')) + '>' + esc(b.label) + '</option>';
+        }).join('') + '</select>'
+      : '<span style="color:var(--warm-gray);">—</span>';
+    return '<tr>'
+      + '<td style="padding:3px 6px;"><input type="text" value="' + esc(w.name) + '" oninput="finSalaryFieldChange(' + i + ',\'name\',this.value)" style="width:120px;"></td>'
+      + '<td style="padding:3px 6px;"><select onchange="finSalaryRoleChange(' + i + ',this.value)"><option value="pastor"' + (w.role==='pastor'?' selected':'') + '>Pastor</option><option value="commissioned"' + (w.role==='commissioned'?' selected':'') + '>Commissioned Worker</option><option value="other"' + (w.role==='other'?' selected':'') + '>Other Church Worker</option></select></td>'
+      + '<td style="padding:3px 6px;"><input type="number" value="' + w.yearsExperience + '" oninput="finSalaryFieldChange(' + i + ',\'yearsExperience\',this.value)" style="width:60px;"></td>'
+      + '<td style="padding:3px 6px;">' + trackSelect + '</td>'
+      + '<td style="padding:3px 6px;">' + stipendSelect + '</td>'
+      + '<td style="padding:3px 6px;">' + attendanceSelect + '</td>'
+      + '<td style="padding:3px 6px;text-align:center;"><input type="checkbox" onchange="finSalaryFicaToggle(' + i + ',this.checked)"' + (w.selfEmployedFica ? ' checked' : '') + ' title="Self-employed for Social Security (SECA) — church pays no employer FICA for this worker"></td>'
+      + '<td style="padding:3px 6px;text-align:right;">' + (calc ? (w.selfEmployedFica ? '<span style="color:var(--warm-gray);">$0 (SECA)</span>' : '$' + finFmtMoney(ficaCents/100)) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
+      + '<td style="padding:3px 6px;text-align:right;font-weight:600;">' + (calc ? '$' + finFmtMoney(calc.salaryCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
+      + '<td style="padding:3px 6px;"><button class="btn-secondary" style="font-size:.7rem;padding:2px 6px;color:var(--danger);" onclick="finSalaryRemoveWorker(' + i + ')">Remove</button></td>'
+      + '</tr>';
+  }).join('');
+  var totalSalaryCents = _finSalaryRoster.reduce(function(sum, w) {
+    var calc = finComputeLcmsSalary({ year: _finPlanTargetYear, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus });
+    return sum + (calc ? calc.salaryCents : 0);
+  }, 0);
+  var totalFicaCents = _finSalaryRoster.reduce(function(sum, w) {
+    var calc = finComputeLcmsSalary({ year: _finPlanTargetYear, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus });
+    return sum + (calc ? finComputeEmployerFicaCents(calc.salaryCents, w.selfEmployedFica) : 0);
+  }, 0);
+  var baseInfo = finLcmsBaseSalaryCents(_finPlanTargetYear);
+  var expenseLeaves = [];
+  (function walk(nodes) { (nodes || []).forEach(function(n) { if (!n.children.length && n.classification !== 'Income') expenseLeaves.push(n); walk(n.children); }); })(_finPlanBaseTree);
+  var categoryOptions = expenseLeaves.map(function(n) {
+    var guess = /salar|payroll|compensation|wages/i.test(n.label);
+    return '<option value="' + esc(n.path) + '"' + (guess && !_finSalaryTargetCategory ? ' selected' : (n.path === _finSalaryTargetCategory ? ' selected' : '')) + '>' + esc(n.label) + '</option>';
+  }).join('');
+
+  return '<div style="background:var(--linen);border-radius:8px;padding:12px 14px;margin-top:16px;">'
+    + '<div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Salary &amp; Benefits Calculator <span style="font-weight:400;font-size:.72rem;color:var(--warm-gray);">(LCMS Missouri District Compensation Guidelines FY2026–2027)</span></div>'
+    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">Base salary for FY' + _finPlanTargetYear + ': $' + finFmtMoney(baseInfo.dollars) + (baseInfo.exact ? '' : ' <i>(no published base for ' + _finPlanTargetYear + " yet — using the district's most recent known year, " + baseInfo.sourceYear + '; update LCMS_MO_BASE_SALARY_BY_YEAR once a new guideline document is out)</i>') + '. Benefits (health/retirement via Concordia Plan Services) have no published formula in the district guidelines — CPS quotes those directly per congregation via their own tool — so Benefits below is a plain entered figure, not computed. Pastors and Commissioned Ministers are self-employed for Social Security by default (the church pays no employer FICA share for them — they pay their own SECA); uncheck "Self-Employed (SECA)" for any worker actually treated as a regular employee at this church, which adds the standard ' + (LCMS_EMPLOYER_FICA_RATE*100).toFixed(2) + '% employer FICA cost.</p>'
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
+    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th><th style="text-align:left;padding:3px 6px;">Role</th><th style="text-align:left;padding:3px 6px;">Yrs Exp</th><th style="text-align:left;padding:3px 6px;">Education / Type</th><th style="text-align:left;padding:3px 6px;">Responsibility Stipend</th><th style="text-align:left;padding:3px 6px;">Attendance Bonus</th><th style="text-align:center;padding:3px 6px;">Self-Employed (SECA)</th><th style="text-align:right;padding:3px 6px;">Employer FICA</th><th style="text-align:right;padding:3px 6px;">Salary</th><th></th></tr></thead>'
+    + '<tbody>' + (rows || '<tr><td colspan="10" style="padding:6px;color:var(--warm-gray);">No workers added yet.</td></tr>') + '</tbody>'
+    + '<tfoot><tr style="font-weight:700;border-top:2px solid var(--navy);"><td colspan="6" style="padding:5px 6px;">Total</td><td></td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalFicaCents/100) + '</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalSalaryCents/100) + '</td><td></td></tr></tfoot>'
+    + '</table></div>'
+    + (isAdminUI ? '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;margin-top:8px;" onclick="finSalaryAddWorker()">+ Add Worker</button>' : '')
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
+    + '<label style="font-size:.72rem;color:var(--warm-gray);">Benefits Total ($/yr, entered)<br><input type="number" id="fin-salary-benefits" step="0.01" value="' + (_finSalaryBenefitsDollars || '') + '" oninput="finSalaryBenefitsChange(this.value)" style="width:120px;"></label>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((totalSalaryCents/100) + (totalFicaCents/100) + (_finSalaryBenefitsDollars || 0)) + '</div><div class="rpt-stat-lbl">Total Salary &amp; Benefits</div></div>'
+    + '</div>'
+    + (isAdminUI && expenseLeaves.length ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
+      + '<label style="font-size:.72rem;color:var(--warm-gray);">Apply total to account<br><select id="fin-salary-target-category">' + categoryOptions + '</select></label>'
+      + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finSalaryApplyToPlan()">Use as FY' + _finPlanTargetYear + ' Projected</button>'
+      + '</div>' : '')
+    + '</div>';
+}
+function finSalaryAddWorker() {
+  _finSalaryRoster.push({ name: '', role: 'pastor', trackKey: '', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: finDefaultSelfEmployedFica('pastor') });
+  finRenderPlanning();
+}
+function finSalaryRemoveWorker(i) {
+  _finSalaryRoster.splice(i, 1);
+  finRenderPlanning();
+}
+function finSalaryFieldChange(i, field, value) {
+  _finSalaryRoster[i][field] = field === 'yearsExperience' ? (parseFloat(value) || 0) : value;
+  finRenderPlanning();
+}
+function finSalaryRoleChange(i, role) {
+  _finSalaryRoster[i].role = role;
+  _finSalaryRoster[i].trackKey = role === 'commissioned' ? 'ma' : role === 'other' ? 'secretary' : '';
+  if (role !== 'pastor') _finSalaryRoster[i].attendanceBonus = 0;
+  _finSalaryRoster[i].selfEmployedFica = finDefaultSelfEmployedFica(role);
+  finRenderPlanning();
+}
+function finSalaryFicaToggle(i, checked) {
+  _finSalaryRoster[i].selfEmployedFica = !!checked;
+  finRenderPlanning();
+}
+function finSalaryStipendChange(i, value) {
+  _finSalaryRoster[i].responsibilityStipend = parseFloat(value) || 0;
+  finRenderPlanning();
+}
+function finSalaryAttendanceChange(i, value) {
+  _finSalaryRoster[i].attendanceBonus = parseFloat(value) || 0;
+  finRenderPlanning();
+}
+var _finSalaryBenefitsDollars = 0;
+function finSalaryBenefitsChange(value) {
+  _finSalaryBenefitsDollars = parseFloat(value) || 0;
+  finRenderPlanning();
+}
+var _finSalaryTargetCategory = '';
+function finSalaryApplyToPlan() {
+  var sel = document.getElementById('fin-salary-target-category');
+  if (!sel) return;
+  _finSalaryTargetCategory = sel.value;
+  var totalSalaryCents = _finSalaryRoster.reduce(function(sum, w) {
+    var calc = finComputeLcmsSalary({ year: _finPlanTargetYear, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus });
+    return sum + (calc ? calc.salaryCents : 0);
+  }, 0);
+  var totalFicaCents = _finSalaryRoster.reduce(function(sum, w) {
+    var calc = finComputeLcmsSalary({ year: _finPlanTargetYear, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus });
+    return sum + (calc ? finComputeEmployerFicaCents(calc.salaryCents, w.selfEmployedFica) : 0);
+  }, 0);
+  var totalCents = totalSalaryCents + totalFicaCents + Math.round((_finSalaryBenefitsDollars || 0) * 100);
+  _finPlanEdits[_finSalaryTargetCategory] = (totalCents / 100).toFixed(2);
+  finToast('Applied $' + finFmtMoney(totalCents/100) + ' to the FY' + _finPlanTargetYear + ' Projected column — click Save Changes to keep it.');
+  finRenderPlanning();
 }
 
 // ── 3277 Ivanhoe Multi-Year Forecast (kept separate from Church Budget Planning — the property
