@@ -464,6 +464,16 @@ function applyFundMapping() {
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
+function dupFundRowsHtml(funds, groupAttr, gi) {
+  return funds.map(function(f, fi) {
+    var amt = '$' + (f.total_cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    return '<tr style="border-bottom:1px solid #eee;">'
+      + '<td style="padding:6px 8px;"><label style="font-size:.82rem;"><input type="radio" name="' + groupAttr + '-keep-' + gi + '" value="' + f.id + '"' + (fi === 0 ? ' checked' : '') + '> Keep this one</label></td>'
+      + '<td style="padding:6px 8px;font-size:.82rem;">' + esc(f.name) + ' &bull; #' + f.id + (f.breeze_id ? ' &bull; breeze_id ' + esc(f.breeze_id) : ' &bull; no breeze_id') + (f.active ? '' : ' &bull; <span style="color:#999;">inactive</span>') + '</td>'
+      + '<td style="padding:6px 8px;font-size:.82rem;">' + f.entry_count + ' gifts &bull; ' + amt + '</td></tr>';
+  }).join('');
+}
+
 function loadDuplicateFunds() {
   var status = document.getElementById('dup-funds-status');
   var area = document.getElementById('dup-funds-area');
@@ -472,33 +482,42 @@ function loadDuplicateFunds() {
   api('/admin/api/funds/duplicates').then(function(d) {
     if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
     var groups = d.duplicates || [];
-    if (!groups.length) {
-      status.textContent = 'No duplicate fund names found.';
+    var possible = d.possible_duplicates || [];
+    var html = '';
+    if (groups.length) {
+      html += '<div style="font-weight:600;font-size:.85rem;margin:4px 0;">Exact name matches</div>';
+      html += groups.map(function(g, gi) {
+        return '<div style="margin:10px 0;padding:8px;border:1px solid var(--border);border-radius:8px;">'
+          + '<div style="font-weight:600;font-size:.9rem;margin-bottom:6px;">' + esc(g.name) + ' <span style="font-weight:400;color:var(--warm-gray);font-size:.8rem;">(' + g.funds.length + ' duplicate rows)</span></div>'
+          + '<table style="width:100%;border-collapse:collapse;" data-dup-group="' + gi + '">' + dupFundRowsHtml(g.funds, 'dup', gi) + '</table>'
+          + '<button class="btn-secondary" style="margin-top:6px;font-size:.82rem;" onclick="mergeDuplicateFundGroup(' + gi + ')">Merge into selected</button>'
+          + '</div>';
+      }).join('');
+    }
+    if (possible.length) {
+      html += '<div style="font-weight:600;font-size:.85rem;margin:14px 0 4px;">Possible duplicates — same fund code, different names <span style="font-weight:400;color:var(--warm-gray);font-size:.8rem;">(review before merging)</span></div>';
+      html += possible.map(function(g, gi) {
+        return '<div style="margin:10px 0;padding:8px;border:1px solid var(--border);border-radius:8px;">'
+          + '<div style="font-weight:600;font-size:.9rem;margin-bottom:6px;">Fund code ' + esc(g.prefix) + ' <span style="font-weight:400;color:var(--warm-gray);font-size:.8rem;">(' + g.funds.length + ' rows)</span></div>'
+          + '<table style="width:100%;border-collapse:collapse;" data-posdup-group="' + gi + '">' + dupFundRowsHtml(g.funds, 'posdup', gi) + '</table>'
+          + '<button class="btn-secondary" style="margin-top:6px;font-size:.82rem;" onclick="mergePossibleDuplicateFundGroup(' + gi + ')">Merge into selected</button>'
+          + '</div>';
+      }).join('');
+    }
+    if (!groups.length && !possible.length) {
+      status.textContent = 'No duplicate funds found.';
       status.className = 'import-status ok';
       return;
     }
-    area.innerHTML = groups.map(function(g, gi) {
-      var rows = g.funds.map(function(f, fi) {
-        var amt = '$' + (f.total_cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-        return '<tr style="border-bottom:1px solid #eee;">'
-          + '<td style="padding:6px 8px;"><label style="font-size:.82rem;"><input type="radio" name="dup-keep-' + gi + '" value="' + f.id + '"' + (fi === 0 ? ' checked' : '') + '> Keep this one</label></td>'
-          + '<td style="padding:6px 8px;font-size:.82rem;">#' + f.id + (f.breeze_id ? ' &bull; breeze_id ' + esc(f.breeze_id) : ' &bull; no breeze_id') + (f.active ? '' : ' &bull; <span style="color:#999;">inactive</span>') + '</td>'
-          + '<td style="padding:6px 8px;font-size:.82rem;">' + f.entry_count + ' gifts &bull; ' + amt + '</td></tr>';
-      }).join('');
-      return '<div style="margin:10px 0;padding:8px;border:1px solid var(--border);border-radius:8px;">'
-        + '<div style="font-weight:600;font-size:.9rem;margin-bottom:6px;">' + esc(g.name) + ' <span style="font-weight:400;color:var(--warm-gray);font-size:.8rem;">(' + g.funds.length + ' duplicate rows)</span></div>'
-        + '<table style="width:100%;border-collapse:collapse;" data-dup-group="' + gi + '">' + rows + '</table>'
-        + '<button class="btn-secondary" style="margin-top:6px;font-size:.82rem;" onclick="mergeDuplicateFundGroup(' + gi + ')">Merge into selected</button>'
-        + '</div>';
-    }).join('');
-    status.textContent = groups.length + ' duplicate fund name group(s) found. Pick which row to keep in each, then merge.';
+    area.innerHTML = html;
+    status.textContent = groups.length + ' exact duplicate group(s), ' + possible.length + ' possible duplicate group(s) found. Pick which row to keep in each, then merge.';
     status.className = 'import-status';
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
-function mergeDuplicateFundGroup(gi) {
+function mergeDupFundGroupByAttr(attr, gi) {
   var status = document.getElementById('dup-funds-status');
-  var table = document.querySelector('table[data-dup-group="' + gi + '"]');
+  var table = document.querySelector('table[data-' + attr + '-group="' + gi + '"]');
   if (!table) return;
   var radios = table.querySelectorAll('input[type=radio]');
   var keepId = null, allIds = [];
@@ -518,6 +537,9 @@ function mergeDuplicateFundGroup(gi) {
     loadDuplicateFunds();
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
+
+function mergeDuplicateFundGroup(gi) { mergeDupFundGroupByAttr('dup', gi); }
+function mergePossibleDuplicateFundGroup(gi) { mergeDupFundGroupByAttr('posdup', gi); }
 
 // ── SCHEDULER VOLUNTEER MIGRATION (SC6 Phase 2) ───────────────────────
 // Matches the old Scheduler's client-side "ws_people" list to real ChMS People records
