@@ -1354,6 +1354,17 @@ export const HTML_TABS_2 = String.raw`
               <div id="fin-dc-cb-preview" style="margin-top:10px;"></div>
             </div>
 
+            <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+              <div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Bulk-Enter Past Years</div>
+              <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 8px;">Paste one entry per line: <code>period, category, type, amount, notes</code> — period is <code>YYYY</code> or <code>YYYY-MM</code>, type is <code>actual</code> or <code>budget</code> (defaults to actual if omitted), notes is optional. Example: <code>2023, Tuition Income, actual, 285000</code></p>
+              <textarea id="fin-dc-bulk-text" rows="5" style="width:100%;font-family:monospace;font-size:.8rem;padding:8px;border:1px solid var(--border);border-radius:6px;" placeholder="2023, Tuition Income, actual, 285000&#10;2023, Payroll, actual, 190000&#10;2023, Payroll, budget, 200000"></textarea>
+              <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
+                <button class="btn-secondary" onclick="finDaycareBulkPreview()">Preview</button>
+                <span id="fin-dc-bulk-error" style="font-size:.78rem;color:var(--danger);"></span>
+              </div>
+              <div id="fin-dc-bulk-preview" style="margin-top:8px;"></div>
+            </div>
+
             <details style="margin-top:14px;">
               <summary style="font-size:.78rem;color:var(--warm-gray);cursor:pointer;">Show all synced line items (<span id="fin-daycare-count">0</span> rows)</summary>
               <div style="overflow-x:auto;margin-top:8px;">
@@ -1408,7 +1419,10 @@ export const HTML_TABS_2 = String.raw`
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
             </div>
           </div>
-          <div class="dash-card-body" style="padding:14px 18px;" id="fin-daycare-report"></div>
+          <div class="dash-card-body" style="padding:14px 18px;">
+            <div id="fin-daycare-mdo-note"></div>
+            <div id="fin-daycare-report"></div>
+          </div>
         </section>
       </div>
 
