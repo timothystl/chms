@@ -111,3 +111,68 @@ describe('handleFinanceApi — Church Budget Planning', () => {
     expect(body.rows).toHaveLength(1);
   });
 });
+
+describe('handleFinanceApi — generate-all (plan mirrors the real chart of accounts)', () => {
+  function seedBaseYearAccounts(db) {
+    db._raw.prepare(
+      `INSERT INTO finance_church_entries (fiscal_year,period_month,classification,category_path,account_name,depth,has_children,own_actual_cents,own_budget_cents,source,synced_at)
+       VALUES (2026,0,'Expenses','Expenses:Utilities','Utilities',0,0,2000000,1900000,'qbo_sync','2026-01-01')`
+    ).run();
+    db._raw.prepare(
+      `INSERT INTO finance_church_entries (fiscal_year,period_month,classification,category_path,account_name,depth,has_children,own_actual_cents,own_budget_cents,source,synced_at)
+       VALUES (2026,0,'Expenses','Expenses:Salaries & Benefits','Salaries & Benefits',0,0,25000000,25000000,'qbo_sync','2026-01-01')`
+    ).run();
+    // An account with no actual AND no budget yet this year — nothing real to grow from.
+    db._raw.prepare(
+      `INSERT INTO finance_church_entries (fiscal_year,period_month,classification,category_path,account_name,depth,has_children,own_actual_cents,own_budget_cents,source,synced_at)
+       VALUES (2026,0,'Expenses','Expenses:New Line','New Line',0,0,0,NULL,'qbo_sync','2026-01-01')`
+    ).run();
+  }
+
+  it('generates one plan row per real account, using actual (falling back to budget) as the base', async () => {
+    const db = makeTestDb();
+    seedBaseYearAccounts(db);
+    const res = await handleFinanceApi(makeReq({ base_year: 2026, target_year: 2027, growth_pct: 0.03 }), {}, new URL('https://x/'), 'POST', 'finance/planning/church/generate-all', db, true, true);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.generated).toBe(2); // "New Line" skipped — nothing to grow from
+    const rows = db._raw.prepare("SELECT * FROM finance_budget_plan WHERE fiscal_year=2027 ORDER BY category").all();
+    expect(rows).toHaveLength(2);
+    const utilities = rows.find(r => r.category === 'Expenses:Utilities');
+    expect(utilities.planned_amount_cents).toBe(Math.round(2000000 * 1.03));
+    expect(utilities.base_amount_cents).toBe(2000000); // used actual, not budget
+  });
+
+  it('fails cleanly when the base year has no Church Budget data at all', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ base_year: 2099, target_year: 2100, growth_pct: 0.03 }), {}, new URL('https://x/'), 'POST', 'finance/planning/church/generate-all', db, true, true);
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('handleFinanceApi — override-bulk', () => {
+  it('saves multiple edited rows in one call', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ rows: [
+      { category: 'Expenses:Utilities', classification: 'Expenses', fiscal_year: 2027, planned_amount: '20600' },
+      { category: 'Expenses:Salaries & Benefits', classification: 'Expenses', fiscal_year: 2027, planned_amount: '257500' },
+    ] }), {}, new URL('https://x/'), 'POST', 'finance/planning/church/override-bulk', db, true, true);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.saved).toBe(2);
+    const rows = db._raw.prepare('SELECT * FROM finance_budget_plan ORDER BY category').all();
+    expect(rows).toHaveLength(2);
+    rows.forEach(r => expect(r.basis).toBe('manual'));
+  });
+
+  it('rejects the whole batch if one row is malformed, saving nothing', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ rows: [
+      { category: 'Expenses:Utilities', fiscal_year: 2027, planned_amount: '20600' },
+      { category: '', fiscal_year: 2027, planned_amount: '100' },
+    ] }), {}, new URL('https://x/'), 'POST', 'finance/planning/church/override-bulk', db, true, true);
+    expect(res.status).toBe(400);
+    const rows = db._raw.prepare('SELECT * FROM finance_budget_plan').all();
+    expect(rows).toHaveLength(0);
+  });
+});

@@ -1926,15 +1926,31 @@ function finPropertyDeleteDistribution(period) {
 }
 
 // ── Church Budget Planning ────────────────────────────────────────────────────────────────
-// Forward multi-year what-if planning, independent of QuickBooks — see src/api-finance.js for
-// generate()/override()/commit() semantics and why plan_committed is the lowest-priority source.
+// Mirrors the real chart of accounts (same tree Church Report shows — finBuildTreeFromFlatRows,
+// reused as-is) instead of freeform category names: Current Year Budget | Current Year Actual |
+// Projected {target year}. "Generate All" auto-fills the Projected column for every real account
+// by compounding a flat growth rate off that account's current-year actual; any line can then be
+// hand-corrected before Save. Salary & Benefits gets its own callout — the app doesn't yet know
+// the formula/Concordia Plan Services comparison the user described; it's a placeholder until
+// that's provided, not a guess. See src/api-finance.js for generate-all()/override-bulk()/
+// commit() semantics and why plan_committed is the lowest-priority resolveChurchYearPrecedence
+// source.
 var _finPlanRows = [];
+var _finPlanBaseYear = new Date().getFullYear();
+var _finPlanTargetYear = _finPlanBaseYear + 1;
+var _finPlanBaseTree = null;
+var _finPlanEdits = {}; // category_path -> dollars string, for cells the user has typed into
 function finLoadPlanning() {
   var el = document.getElementById('fin-plan-root');
   if (!el) return;
   el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
-  api('/admin/api/finance/planning/church').then(function(d) {
-    _finPlanRows = (d && d.rows) || [];
+  Promise.all([
+    api('/admin/api/finance/planning/church'),
+    api('/admin/api/finance/church/this-year?year=' + _finPlanBaseYear),
+  ]).then(function(results) {
+    _finPlanRows = (results[0] && results[0].rows) || [];
+    _finPlanBaseTree = finBuildTreeFromFlatRows((results[1] && results[1].entries) || []);
+    _finPlanEdits = {};
     finRenderPlanning();
     finRenderPropertyMultiYearForecast();
   }).catch(function(err) {
@@ -1942,108 +1958,117 @@ function finLoadPlanning() {
     el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load budget plan.</p>';
   });
 }
+function finPlanChangeBaseYear() {
+  var y = parseInt(document.getElementById('fin-plan-base-year').value, 10);
+  if (!isFinite(y)) return;
+  _finPlanBaseYear = y;
+  _finPlanTargetYear = y + 1;
+  finLoadPlanning();
+}
+function finPlanFindRow(categoryPath) {
+  return _finPlanRows.filter(function(r) { return r.category === categoryPath && r.fiscal_year === _finPlanTargetYear; })[0];
+}
 function finRenderPlanning() {
   var el = document.getElementById('fin-plan-root');
   if (!el) return;
   var isAdminUI = (_userRole === 'admin');
-  var byCategory = {};
-  _finPlanRows.forEach(function(r) { (byCategory[r.category] || (byCategory[r.category] = [])).push(r); });
-  var categories = Object.keys(byCategory).sort();
 
-  var catBlocks = categories.map(function(cat) {
-    var rows = byCategory[cat].slice().sort(function(a,b){ return a.fiscal_year - b.fiscal_year; });
-    var yearCells = rows.map(function(r) {
-      return '<td style="padding:5px 8px;text-align:center;">'
-        + '<div style="font-weight:600;">' + r.fiscal_year + '</div>'
-        + '<div>$' + finFmtMoney(r.planned_amount_cents/100) + '</div>'
-        + '<div style="font-size:.68rem;color:var(--warm-gray);">' + esc(r.basis) + (r.growth_pct != null ? ' (' + (r.growth_pct*100).toFixed(1) + '%)' : '') + '</div>'
-        + (isAdminUI ? '<button class="btn-secondary" style="font-size:.68rem;padding:1px 5px;margin-top:3px;color:var(--danger);" onclick="finPlanDeleteYear(' + volJsAttr(cat) + ',' + r.fiscal_year + ')">Delete</button>' : '')
-        + '</td>';
-    }).join('');
-    return '<div style="margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);">'
-      + '<div style="font-weight:600;font-size:.85rem;margin-bottom:6px;">' + esc(cat) + ' <span style="font-weight:400;color:var(--warm-gray);font-size:.75rem;">(' + esc(rows[0].classification) + ')</span></div>'
-      + '<table style="border-collapse:collapse;font-size:.78rem;"><tr>' + yearCells + '</tr></table>'
-      + (isAdminUI ? '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-top:8px;">'
-        + '<label style="font-size:.72rem;color:var(--warm-gray);">Override Year<br><input type="number" id="fin-plan-ov-year-' + esc(cat) + '" style="width:80px;"></label>'
-        + '<label style="font-size:.72rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-plan-ov-amt-' + esc(cat) + '" step="0.01" style="width:100px;"></label>'
-        + '<button class="btn-secondary" style="font-size:.72rem;padding:3px 8px;" onclick="finPlanOverride(' + volJsAttr(cat) + ',' + volJsAttr(rows[0].classification) + ')">Set</button>'
-        + '</div>' : '');
-  }).join('');
+  var yearPickerHtml = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">'
+    + '<label style="font-size:.72rem;color:var(--warm-gray);">Base Year (actual/budget source)<br><input type="number" id="fin-plan-base-year" value="' + _finPlanBaseYear + '" onchange="finPlanChangeBaseYear()" style="width:100px;"></label>'
+    + '<label style="font-size:.72rem;color:var(--warm-gray);">Projecting For<br><input type="number" id="fin-plan-target-year" value="' + _finPlanTargetYear + '" onchange="finPlanChangeTargetYear()" style="width:100px;"></label>'
+    + '</div>';
 
-  var newFormHtml = isAdminUI
-    ? '<div style="background:var(--linen);border-radius:8px;padding:12px 14px;margin-top:14px;">'
-      + '<div style="font-weight:600;font-size:.85rem;margin-bottom:8px;">Generate a New Category Projection</div>'
-      + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);">Category<br><input type="text" id="fin-plan-new-category" placeholder="Property Expenses" style="width:170px;"></label>'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);">Classification<br><select id="fin-plan-new-classification"><option value="Expenses">Expenses</option><option value="Income">Income</option></select></label>'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);">Starting Amount ($/yr)<br><input type="number" id="fin-plan-new-base" step="0.01" style="width:120px;"></label>'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);">Annual Growth %<br><input type="number" id="fin-plan-new-growth" step="0.1" placeholder="3" style="width:90px;"></label>'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);">First Year<br><input type="number" id="fin-plan-new-fromyear" value="' + (new Date().getFullYear()+1) + '" style="width:90px;"></label>'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);"># Years<br><input type="number" id="fin-plan-new-numyears" value="3" min="1" max="10" style="width:70px;"></label>'
-      + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finPlanGenerate()">Generate</button>'
+  var rowsHtml = [];
+  function walk(nodes) {
+    (nodes || []).forEach(function(node) {
+      var planRow = finPlanFindRow(node.path);
+      var editedVal = _finPlanEdits[node.path];
+      var cellVal = editedVal !== undefined ? editedVal : (planRow ? (planRow.planned_amount_cents/100).toFixed(2) : '');
+      var bold = node.children.length > 0;
+      rowsHtml.push('<tr' + (bold ? ' style="font-weight:600;"' : '') + '>'
+        + '<td style="padding:4px 8px 4px ' + (10 + node.depth * 16) + 'px;">' + esc(node.label) + '</td>'
+        + '<td style="text-align:right;padding:4px 8px;">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
+        + '<td style="text-align:right;padding:4px 8px;">$' + finFmtMoney(node.totalActualCents/100) + '</td>'
+        + '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
+          ? '<input type="number" step="0.01" value="' + cellVal + '" style="width:100px;text-align:right;" oninput="finPlanEditCell(' + volJsAttr(node.path) + ',this.value)">'
+          : (cellVal !== '' ? '$' + finFmtMoney(parseFloat(cellVal)) : '<span style="color:var(--warm-gray);">—</span>')) + '</td>'
+        + '</tr>');
+      walk(node.children);
+    });
+  }
+  walk(_finPlanBaseTree);
+
+  var tableHtml = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:5px 8px;">Account</th><th style="text-align:right;padding:5px 8px;">FY' + _finPlanBaseYear + ' Budget</th><th style="text-align:right;padding:5px 8px;">FY' + _finPlanBaseYear + ' Actual</th><th style="text-align:right;padding:5px 8px;">FY' + _finPlanTargetYear + ' Projected</th></tr></thead>'
+    + '<tbody>' + (rowsHtml.join('') || '<tr><td colspan="4" style="padding:10px;color:var(--warm-gray);">No Church Budget data found for ' + _finPlanBaseYear + ' — sync or import that year first (Church Report tab).</td></tr>') + '</tbody></table></div>';
+
+  var actionsHtml = isAdminUI
+    ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:12px;">'
+      + '<label style="font-size:.72rem;color:var(--warm-gray);">Growth Assumption %<br><input type="number" id="fin-plan-growth" step="0.1" placeholder="3" style="width:100px;"></label>'
+      + '<button class="btn-secondary" style="font-size:.78rem;padding:5px 12px;" onclick="finPlanGenerateAll()">Generate All (fills every blank line)</button>'
+      + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finPlanSaveAll()">Save Changes</button>'
+      + '<button class="btn-secondary" style="font-size:.78rem;padding:5px 12px;" onclick="finPlanCommit()">Commit FY' + _finPlanTargetYear + ' to Real Budget</button>'
       + '</div>'
-      + '<div id="fin-plan-new-error" style="font-size:.75rem;color:var(--danger);margin-top:6px;"></div>'
-      + '</div>'
+      + '<div id="fin-plan-msg" style="font-size:.75rem;color:var(--warm-gray);margin-top:6px;"></div>'
     : '';
 
-  var commitHtml = isAdminUI
-    ? '<div style="display:flex;gap:8px;align-items:flex-end;margin-top:14px;">'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);">Commit Fiscal Year<br><input type="number" id="fin-plan-commit-year" style="width:90px;"></label>'
-      + '<button class="btn-secondary" style="font-size:.78rem;padding:5px 12px;" onclick="finPlanCommit()">Commit to Real Budget</button>'
-      + '<span id="fin-plan-commit-msg" style="font-size:.75rem;color:var(--warm-gray);"></span>'
-      + '</div>'
-    : '';
-
-  el.innerHTML = (catBlocks || '<p style="font-size:.85rem;color:var(--warm-gray);">No budget plans yet.</p>') + newFormHtml + commitHtml;
+  el.innerHTML = yearPickerHtml + tableHtml + actionsHtml
+    + '<div style="background:var(--linen);border-radius:8px;padding:12px 14px;margin-top:16px;">'
+    + '<div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Salary &amp; Benefits Planning</div>'
+    + '<p style="font-size:.78rem;color:var(--warm-gray);margin:0;">Salary &amp; Benefits shows up like any other account line above for now. A dedicated formula-driven projection (plus a comparison against Concordia Plan Services rates) is planned — bring the formula and comparison details whenever you\'re ready and this section will use them instead of a flat growth rate.</p>'
+    + '</div>';
 }
-function finPlanGenerate() {
-  var errEl = document.getElementById('fin-plan-new-error');
-  errEl.textContent = '';
-  var category = document.getElementById('fin-plan-new-category').value.trim();
-  var classification = document.getElementById('fin-plan-new-classification').value;
-  var base = document.getElementById('fin-plan-new-base').value;
-  var growthPct = parseFloat(document.getElementById('fin-plan-new-growth').value);
-  var fromYear = parseInt(document.getElementById('fin-plan-new-fromyear').value, 10);
-  var numYears = parseInt(document.getElementById('fin-plan-new-numyears').value, 10);
-  if (!category) { errEl.textContent = 'Category is required.'; return; }
-  if (base === '' || !isFinite(parseFloat(base))) { errEl.textContent = 'Enter a valid starting amount.'; return; }
-  if (!isFinite(growthPct)) { errEl.textContent = 'Enter a valid growth %.'; return; }
-  if (!isFinite(fromYear) || !isFinite(numYears) || numYears < 1) { errEl.textContent = 'Enter a valid year range.'; return; }
-  var targetYears = [];
-  for (var i = 0; i < numYears; i++) targetYears.push(fromYear + i);
-  var body = { category: category, classification: classification, base_amount: base, growth_pct: growthPct / 100, target_years: targetYears };
-  api('/admin/api/finance/planning/church/generate', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
-    if (d && d.error) { errEl.textContent = d.error; return; }
-    finLoadPlanning();
-  }).catch(function(err) { errEl.textContent = err && err.message || 'Could not generate.'; });
+function finPlanChangeTargetYear() {
+  var y = parseInt(document.getElementById('fin-plan-target-year').value, 10);
+  if (!isFinite(y)) return;
+  _finPlanTargetYear = y;
+  _finPlanEdits = {};
+  finRenderPlanning();
 }
-function finPlanOverride(category, classification) {
-  var yearEl = document.getElementById('fin-plan-ov-year-' + category);
-  var amtEl = document.getElementById('fin-plan-ov-amt-' + category);
-  var year = parseInt(yearEl.value, 10);
-  var amt = amtEl.value;
-  if (!isFinite(year) || amt === '' || !isFinite(parseFloat(amt))) { finToast('Enter a valid year and amount.'); return; }
-  var body = { category: category, classification: classification, fiscal_year: year, planned_amount: amt };
-  api('/admin/api/finance/planning/church/override', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
-    if (d && d.error) { finToast(d.error); return; }
-    finLoadPlanning();
-  });
+function finPlanEditCell(categoryPath, value) {
+  _finPlanEdits[categoryPath] = value;
 }
-function finPlanDeleteYear(category, fiscalYear) {
-  if (!confirm('Delete the ' + fiscalYear + ' plan for ' + category + '?')) return;
-  api('/admin/api/finance/planning/church/' + encodeURIComponent(category) + '/' + fiscalYear, { method: 'DELETE' }).then(function() {
+function finPlanGenerateAll() {
+  var growthPct = parseFloat(document.getElementById('fin-plan-growth').value);
+  var msgEl = document.getElementById('fin-plan-msg');
+  if (!isFinite(growthPct)) { msgEl.textContent = 'Enter a growth % first.'; return; }
+  msgEl.textContent = 'Generating…';
+  var body = { base_year: _finPlanBaseYear, target_year: _finPlanTargetYear, growth_pct: growthPct / 100 };
+  api('/admin/api/finance/planning/church/generate-all', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
+    if (d && d.error) { msgEl.textContent = d.error; return; }
+    msgEl.textContent = 'Generated ' + d.generated + ' line(s).';
     finLoadPlanning();
-  });
+  }).catch(function(err) { msgEl.textContent = err && err.message || 'Generate failed.'; });
+}
+function finPlanSaveAll() {
+  var msgEl = document.getElementById('fin-plan-msg');
+  var rows = [];
+  function collect(nodes) {
+    (nodes || []).forEach(function(node) {
+      var v = _finPlanEdits[node.path];
+      if (v !== undefined && v !== '' && isFinite(parseFloat(v))) {
+        rows.push({ category: node.path, classification: node.classification, fiscal_year: _finPlanTargetYear, planned_amount: v });
+      }
+      collect(node.children);
+    });
+  }
+  collect(_finPlanBaseTree);
+  if (!rows.length) { msgEl.textContent = 'No changes to save.'; return; }
+  msgEl.textContent = 'Saving…';
+  api('/admin/api/finance/planning/church/override-bulk', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ rows: rows }) }).then(function(d) {
+    if (d && d.error) { msgEl.textContent = d.error; return; }
+    msgEl.textContent = 'Saved ' + d.saved + ' line(s).';
+    finLoadPlanning();
+  }).catch(function(err) { msgEl.textContent = err && err.message || 'Save failed.'; });
 }
 function finPlanCommit() {
-  var year = parseInt(document.getElementById('fin-plan-commit-year').value, 10);
-  var msgEl = document.getElementById('fin-plan-commit-msg');
-  if (!isFinite(year)) { msgEl.textContent = 'Enter a valid year.'; return; }
-  if (!confirm('Commit all planned categories for ' + year + ' into the real Church Budget as a placeholder? This replaces any previously committed plan for that year, and will itself be overridden the moment a real sync or import exists for ' + year + '.')) return;
+  var msgEl = document.getElementById('fin-plan-msg');
+  var year = _finPlanTargetYear;
+  if (!confirm('Commit all planned lines for FY' + year + ' into the real Church Budget as a placeholder? This replaces any previously committed plan for that year, and will itself be overridden the moment a real sync or import exists for ' + year + '.')) return;
   msgEl.textContent = 'Committing…';
   api('/admin/api/finance/planning/church/commit', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ fiscal_year: year }) }).then(function(d) {
     if (d && d.error) { msgEl.textContent = d.error; return; }
-    msgEl.textContent = 'Committed ' + d.committed + ' categor' + (d.committed === 1 ? 'y' : 'ies') + ' for ' + year + '.';
+    msgEl.textContent = 'Committed ' + d.committed + ' line(s) for FY' + year + '.';
   }).catch(function(err) { msgEl.textContent = err && err.message || 'Commit failed.'; });
 }
 
