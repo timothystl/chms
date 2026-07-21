@@ -29,18 +29,20 @@ function loadSalaryCalculator() {
     }
     return CHMS_APP_EXT_JS.slice(start, i);
   }
-  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
+  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finLcmsHistoricalAvgGrowthPct', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputePensionCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
   const fnSrcs = fnNames.map(extractFunction);
   const ficaRateM = CHMS_APP_EXT_JS.match(/var LCMS_EMPLOYER_FICA_RATE = [^\n]*\n/);
   if (!ficaRateM) throw new Error('LCMS_EMPLOYER_FICA_RATE not found in built script');
+  const ssaColaM = CHMS_APP_EXT_JS.match(/var SSA_COLA_REFERENCE_PCT = [^\n]*\n/);
+  if (!ssaColaM) throw new Error('SSA_COLA_REFERENCE_PCT not found in built script');
   const healthPlanM = CHMS_APP_EXT_JS.match(/var HEALTH_PLAN_QUOTE_2027 = [\s\S]*?\n};\n/);
   if (!healthPlanM) throw new Error('HEALTH_PLAN_QUOTE_2027 not found in built script');
   // eslint-disable-next-line no-eval
-  return eval(`(function() { ${varSrcs.join('\n')} ${ficaRateM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, LCMS_EMPLOYER_FICA_RATE, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents }; })()`);
+  return eval(`(function() { ${varSrcs.join('\n')} ${ficaRateM[0]} ${ssaColaM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finLcmsHistoricalAvgGrowthPct, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, finComputePensionCents, LCMS_EMPLOYER_FICA_RATE, SSA_COLA_REFERENCE_PCT, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents }; })()`);
 }
 
 describe('LCMS Missouri District salary calculator', () => {
-  const { finLcmsBaseSalaryCents, finComputeLcmsSalary, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, LCMS_EMPLOYER_FICA_RATE, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents } = loadSalaryCalculator();
+  const { finLcmsBaseSalaryCents, finComputeLcmsSalary, finLcmsHistoricalAvgGrowthPct, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, finComputePensionCents, LCMS_EMPLOYER_FICA_RATE, SSA_COLA_REFERENCE_PCT, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents } = loadSalaryCalculator();
 
   it('looks up the exact published base salary for a known year', () => {
     expect(finLcmsBaseSalaryCents(2027)).toMatchObject({ dollars: 51529, exact: true });
@@ -64,6 +66,24 @@ describe('LCMS Missouri District salary calculator', () => {
     expect(withCola.colaApplied).toBe(true);
     expect(withCola.dollars).toBeCloseTo(51529 * Math.pow(1.025, 3), 2);
     expect(withCola.dollars).toBeGreaterThan(flat.dollars);
+  });
+
+  it('computes the LCMS district historical average growth rate from the published base salary table itself (2016-2027)', () => {
+    // (51529/39900)^(1/11) - 1, computed independently here to lock in the derived figure
+    const expected = Math.pow(51529 / 39900, 1 / 11) - 1;
+    expect(finLcmsHistoricalAvgGrowthPct()).toBeCloseTo(expected, 10);
+    expect(finLcmsHistoricalAvgGrowthPct()).toBeCloseTo(0.0235, 4); // ~2.35%/yr
+  });
+
+  it('exposes a Social Security COLA reference rate as a real constant', () => {
+    expect(SSA_COLA_REFERENCE_PCT).toBeGreaterThan(0);
+    expect(SSA_COLA_REFERENCE_PCT).toBeLessThan(0.10); // sanity bound — COLA is never double digits in practice
+  });
+
+  it('computes employer pension contribution as a straight percentage of salary, same shape as FICA', () => {
+    expect(finComputePensionCents(10000000, 0.10)).toBe(1000000); // 10% of $100,000 = $10,000
+    expect(finComputePensionCents(10000000, 0)).toBe(0);
+    expect(finComputePensionCents(0, 0.10)).toBe(0);
   });
 
   it('does not apply COLA growth for an exactly-published year, even if a colaPct is supplied', () => {
