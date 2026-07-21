@@ -598,6 +598,77 @@ function finBuildTreeFromFlatRows(rows) {
   roots.forEach(computeTotals);
   return roots;
 }
+// ── Display-only chart-of-accounts reorganization ───────────────────────────────────────────
+// Requested reshaping of how the real QuickBooks account tree is PRESENTED — no stored data or
+// backend totals (stat cards still come from the server's own classificationTotals) are touched:
+// (1) the "Income" classification root is relabeled "Revenue" and sorted before Expenses,
+// (2) Facility Rental/Fundraisers/MDO are grouped under a new "Earned Income" heading,
+// (3) Altar Guild is grouped under a new "Restricted Income" heading,
+// (4) any account named "Sales" is hidden from this tree (note: the Church Report's own
+//     Total Revenue stat card is computed server-side from ALL rows including Sales, so that
+//     one figure and this detail tree can disagree by whatever Sales posted — say so if Sales
+//     should be excluded from the real total too, not just hidden here).
+// Applied to a cloned copy so the original tree (and any cached totals elsewhere) is untouched.
+function finSetNodeDepth(node, depth) {
+  node.depth = depth;
+  (node.children || []).forEach(function(c) { finSetNodeDepth(c, depth + 1); });
+}
+function finRemoveNodesByLabel(nodes, labelRe) {
+  for (var i = nodes.length - 1; i >= 0; i--) {
+    if (labelRe.test(nodes[i].label)) { nodes.splice(i, 1); }
+    else { finRemoveNodesByLabel(nodes[i].children, labelRe); }
+  }
+}
+function finExtractNodesByLabel(nodes, labelRe) {
+  var found = [];
+  for (var i = nodes.length - 1; i >= 0; i--) {
+    if (labelRe.test(nodes[i].label)) { found.unshift(nodes.splice(i, 1)[0]); }
+    else { found = finExtractNodesByLabel(nodes[i].children, labelRe).concat(found); }
+  }
+  return found;
+}
+function finMakeGroupNode(label, classification, children) {
+  return { path: '__group:' + label, label: label, classification: classification, depth: 0, ownActualCents: 0, ownBudgetCents: null, totalActualCents: 0, totalBudgetCents: 0, hasBudgetInfo: false, children: children };
+}
+// Recomputes every node's total (own + all descendants) bottom-up from each node's OWN figures
+// — safe to call after moving nodes around, unlike patching totals incrementally, since a
+// node's stored total is a point-in-time sum that doesn't auto-update when its children change.
+function finRecomputeTreeTotals(nodes) {
+  (nodes || []).forEach(function(node) {
+    finRecomputeTreeTotals(node.children);
+    var totalActual = node.ownActualCents || 0;
+    var totalBudget = node.ownBudgetCents || 0;
+    var hasBudgetInfo = node.ownBudgetCents != null;
+    (node.children || []).forEach(function(c) {
+      totalActual += c.totalActualCents;
+      totalBudget += c.totalBudgetCents;
+      if (c.hasBudgetInfo) hasBudgetInfo = true;
+    });
+    node.totalActualCents = totalActual;
+    node.totalBudgetCents = totalBudget;
+    node.hasBudgetInfo = hasBudgetInfo;
+  });
+}
+var FIN_CHURCH_CLASS_ORDER = { 'Income': 0, 'Cost of Goods Sold': 1, 'Expenses': 2, 'Other Income': 3, 'Other Expenses': 4 };
+function finReorganizeChurchTree(roots) {
+  var cloned = JSON.parse(JSON.stringify(roots || []));
+  finRemoveNodesByLabel(cloned, /^sales$/i);
+  var earnedChildren = finExtractNodesByLabel(cloned, /^(facility rental|fundraisers|mdo)$/i);
+  var restrictedChildren = finExtractNodesByLabel(cloned, /^altar guild$/i);
+  var incomeRoot = cloned.filter(function(n) { return n.classification === 'Income'; })[0];
+  if (incomeRoot) {
+    if (earnedChildren.length) incomeRoot.children.push(finMakeGroupNode('Earned Income', 'Income', earnedChildren));
+    if (restrictedChildren.length) incomeRoot.children.push(finMakeGroupNode('Restricted Income', 'Income', restrictedChildren));
+    incomeRoot.label = 'Revenue';
+  }
+  finSetNodeDepth({ depth: -1, children: cloned }, -1);
+  finRecomputeTreeTotals(cloned);
+  cloned.sort(function(a, b) {
+    var oa = FIN_CHURCH_CLASS_ORDER[a.classification]; var ob = FIN_CHURCH_CLASS_ORDER[b.classification];
+    return (oa === undefined ? 9 : oa) - (ob === undefined ? 9 : ob);
+  });
+  return cloned;
+}
 // Renders finBuildTreeFromFlatRows()'s output as an indented HTML table body (Account | Actual
 // | Budget | Remaining), including each node's own-plus-descendants total (matching what a
 // QuickBooks "Total for X" row would show, recomputed rather than stored).
@@ -747,7 +818,7 @@ function finRenderYoyBlock(yoy) {
   // the table above always shows the real signed number regardless.
   var chart = renderGroupedBarChart({
     chartH: 200,
-    groups: [{ key: 'income', label: 'Income' }, { key: 'expenses', label: 'Expenses' }, { key: 'net', label: 'Net Income' }],
+    groups: [{ key: 'income', label: 'Revenue' }, { key: 'expenses', label: 'Expenses' }, { key: 'net', label: 'Net Income' }],
     series: [
       { key: 'cur', label: 'This Year YTD', color: '#2E7EA6' },
       { key: 'prior', label: 'Last Year YTD', color: '#C9973A' },
@@ -759,7 +830,7 @@ function finRenderYoyBlock(yoy) {
       return cents / 100;
     },
     tooltip: function(g, s, v) {
-      var gLbl = g === 'income' ? 'Income' : g === 'expenses' ? 'Expenses' : 'Net Income';
+      var gLbl = g === 'income' ? 'Revenue' : g === 'expenses' ? 'Expenses' : 'Net Income';
       var sLbl = s === 'cur' ? 'This Year YTD' : s === 'prior' ? 'Last Year YTD' : 'Projected Full Year';
       return sLbl + ' — ' + gLbl + ': $' + finFmtMoney(v);
     },
@@ -776,7 +847,7 @@ function finRenderYoyBlock(yoy) {
     + '<th style="text-align:right;padding:6px 8px;">Last Year (Full)</th>'
     + '<th style="text-align:right;padding:6px 8px;">Projected Full Year</th>'
     + '</tr></thead><tbody>'
-    + finRenderYoyRow('Income', yoy.income)
+    + finRenderYoyRow('Revenue', yoy.income)
     + finRenderYoyRow('Expenses', yoy.expenses)
     + finRenderYoyRow('Net Income', yoy.net)
     + '</tbody></table></div>'
@@ -795,13 +866,13 @@ function finRenderChurchThisYear(d) {
   var expenses = d.classificationTotals['Expenses'] || { actualCents: 0, budgetCents: 0 };
   var html = '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:12px;">' + d.year + '</div>'
     + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px;">'
-    + finChurchSummaryCard('Total Income', income, d.hasBudgetData)
+    + finChurchSummaryCard('Total Revenue', income, d.hasBudgetData)
     + finChurchSummaryCard('Total Expenses', expenses, d.hasBudgetData)
     + finChurchSummaryCard('Net Income', d.netIncome, d.hasBudgetData)
     + '</div>'
     + '<div style="font-size:.82rem;color:var(--warm-gray);background:var(--linen);border-radius:8px;padding:10px 14px;margin-bottom:18px;">'
     + '<b>Giving (ChMS records):</b> $' + finFmtMoney(d.givingCents / 100)
-    + ' <span style="font-size:.75rem;">— shown for reference only. QuickBooks’ Income figure above reflects what has cleared the bank and been fully recorded, so timing differences from ChMS’s own recorded giving are expected, not a discrepancy to chase.</span>'
+    + ' <span style="font-size:.75rem;">— shown for reference only. QuickBooks’ Revenue figure above reflects what has cleared the bank and been fully recorded, so timing differences from ChMS’s own recorded giving are expected, not a discrepancy to chase.</span>'
     + (d.givingByFund && d.givingByFund.length ? '<table style="width:100%;border-collapse:collapse;font-size:.78rem;margin-top:8px;">'
         + d.givingByFund.map(function(f) {
             return '<tr><td style="padding:2px 8px 2px 0;">' + esc(f.fundName) + '</td><td style="padding:2px 0;text-align:right;">$' + finFmtMoney(f.cents / 100) + '</td></tr>';
@@ -810,13 +881,13 @@ function finRenderChurchThisYear(d) {
     + '</div>'
     + finRenderYoyBlock(d.yoy);
 
-  var tree = finBuildTreeFromFlatRows(d.entries);
+  var tree = finReorganizeChurchTree(finBuildTreeFromFlatRows(d.entries));
   var incomePie = finPieItemsFromTree(tree, 'Income', 'totalActualCents');
   var expensePie = finPieItemsFromTree(tree, 'Expenses', 'totalActualCents');
   if (incomePie.length || expensePie.length) {
     html += '<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px;">'
-      + '<div style="flex:1;min-width:280px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Income Sources</h4>'
-      + (incomePie.length ? renderPieChart(incomePie, 170) : '<p style="font-size:.82rem;color:var(--warm-gray);">No income data yet.</p>') + '</div>'
+      + '<div style="flex:1;min-width:280px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Revenue Sources</h4>'
+      + (incomePie.length ? renderPieChart(incomePie, 170) : '<p style="font-size:.82rem;color:var(--warm-gray);">No revenue data yet.</p>') + '</div>'
       + '<div style="flex:1;min-width:280px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Expense Categories</h4>'
       + (expensePie.length ? renderPieChart(expensePie, 170) : '<p style="font-size:.82rem;color:var(--warm-gray);">No expense data yet.</p>') + '</div>'
       + '</div>';
@@ -849,7 +920,7 @@ function finRenderChurchMultiYear(d) {
     el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No multi-year church data yet. Connect QuickBooks in the Overview tab and click "Sync Now".</p>';
     return;
   }
-  var rowsDef = [{ label: 'Total Income', key: 'Income' }, { label: 'Cost of Goods Sold', key: 'Cost of Goods Sold' }, { label: 'Total Expenses', key: 'Expenses' }];
+  var rowsDef = [{ label: 'Total Revenue', key: 'Income' }, { label: 'Cost of Goods Sold', key: 'Cost of Goods Sold' }, { label: 'Total Expenses', key: 'Expenses' }];
   var theadCells = '<th style="text-align:left;padding:6px 8px;"></th>' + years.map(function(y) { return '<th style="text-align:right;padding:6px 8px;">' + y + '</th>'; }).join('');
   var bodyRows = rowsDef.map(function(rd) {
     var cells = years.map(function(y) {
@@ -868,7 +939,7 @@ function finRenderChurchMultiYear(d) {
     chartH: 220,
     groups: years.map(function(y) { return { key: y, label: String(y) }; }),
     series: [
-      { key: 'income', label: 'Income', color: '#2E7EA6' },
+      { key: 'income', label: 'Revenue', color: '#2E7EA6' },
       { key: 'expenses', label: 'Expenses', color: '#C9973A' },
       { key: 'net', label: 'Net Income', color: '#5A9E6F' },
     ],
@@ -1256,7 +1327,7 @@ function finExportChurchCsv() {
   if (_finChurchMode === 'year' && _finChurchThisYearData) {
     var d = _finChurchThisYearData;
     rows.push(['Account', 'Actual', 'Budget']);
-    finBuildTreeFromFlatRows(d.entries).forEach(function pushNode(node) {
+    finReorganizeChurchTree(finBuildTreeFromFlatRows(d.entries)).forEach(function pushNode(node) {
       rows.push([new Array(node.depth + 1).join('  ') + node.label, (node.totalActualCents / 100).toFixed(2), node.hasBudgetInfo ? (node.totalBudgetCents / 100).toFixed(2) : '']);
       node.children.forEach(pushNode);
     });
@@ -1269,7 +1340,7 @@ function finExportChurchCsv() {
     var md = _finChurchMultiYearData;
     var years = md.years || [];
     rows.push(['Category'].concat(years));
-    [['Total Income', 'Income'], ['Cost of Goods Sold', 'Cost of Goods Sold'], ['Total Expenses', 'Expenses']].forEach(function(rd) {
+    [['Total Revenue', 'Income'], ['Cost of Goods Sold', 'Cost of Goods Sold'], ['Total Expenses', 'Expenses']].forEach(function(rd) {
       rows.push([rd[0]].concat(years.map(function(y) { return ((md.byYear[y].classificationTotals[rd[1]] || { actualCents: 0 }).actualCents / 100).toFixed(2); })));
     });
     rows.push(['Net Income'].concat(years.map(function(y) { return (md.byYear[y].netIncome.actualCents / 100).toFixed(2); })));
@@ -1939,6 +2010,7 @@ var _finPlanRows = [];
 var _finPlanBaseYear = new Date().getFullYear();
 var _finPlanTargetYear = _finPlanBaseYear + 1;
 var _finPlanBaseTree = null;
+var _finPlanBaseNet = { actualCents: 0, budgetCents: 0 };
 var _finPlanEdits = {}; // category_path -> dollars string, for cells the user has typed into
 function finLoadPlanning() {
   var el = document.getElementById('fin-plan-root');
@@ -1949,7 +2021,8 @@ function finLoadPlanning() {
     api('/admin/api/finance/church/this-year?year=' + _finPlanBaseYear),
   ]).then(function(results) {
     _finPlanRows = (results[0] && results[0].rows) || [];
-    _finPlanBaseTree = finBuildTreeFromFlatRows((results[1] && results[1].entries) || []);
+    _finPlanBaseTree = finReorganizeChurchTree(finBuildTreeFromFlatRows((results[1] && results[1].entries) || []));
+    _finPlanBaseNet = (results[1] && results[1].netIncome) || { actualCents: 0, budgetCents: 0 };
     _finPlanEdits = {};
     finRenderPlanning();
     finRenderPropertyMultiYearForecast();
@@ -1979,12 +2052,21 @@ function finRenderPlanning() {
     + '</div>';
 
   var rowsHtml = [];
+  // Projected totals are summed only across LEAF accounts (no children) — mirrors how the real
+  // FY base totals are already rolled up (own postings only, never double-counting a subtotal),
+  // so a value typed directly onto a group/branch row (allowed, but unusual) doesn't inflate it.
+  var projectedRevenueCents = 0, projectedExpenseCents = 0;
   function walk(nodes) {
     (nodes || []).forEach(function(node) {
       var planRow = finPlanFindRow(node.path);
       var editedVal = _finPlanEdits[node.path];
       var cellVal = editedVal !== undefined ? editedVal : (planRow ? (planRow.planned_amount_cents/100).toFixed(2) : '');
       var bold = node.children.length > 0;
+      if (!bold && cellVal !== '' && isFinite(parseFloat(cellVal))) {
+        var cents = Math.round(parseFloat(cellVal) * 100);
+        if (node.classification === 'Income' || node.classification === 'Other Income') projectedRevenueCents += cents;
+        else projectedExpenseCents += cents;
+      }
       rowsHtml.push('<tr' + (bold ? ' style="font-weight:600;"' : '') + '>'
         + '<td style="padding:4px 8px 4px ' + (10 + node.depth * 16) + 'px;">' + esc(node.label) + '</td>'
         + '<td style="text-align:right;padding:4px 8px;">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
@@ -1997,10 +2079,20 @@ function finRenderPlanning() {
     });
   }
   walk(_finPlanBaseTree);
+  var projectedNetCents = projectedRevenueCents - projectedExpenseCents;
+  function netCell(cents) {
+    return '<td style="text-align:right;padding:5px 8px;color:' + (cents < 0 ? 'var(--danger)' : 'var(--sage)') + ';">' + (cents < 0 ? '−' : '') + '$' + finFmtMoney(Math.abs(cents)/100) + '</td>';
+  }
+  var netRow = '<tr style="font-weight:700;border-top:2px solid var(--navy);"><td style="padding:5px 8px;">Net (Revenue − Expenses)</td>'
+    + (_finPlanBaseNet.budgetCents ? netCell(_finPlanBaseNet.budgetCents) : '<td style="padding:5px 8px;text-align:right;color:var(--warm-gray);">—</td>')
+    + netCell(_finPlanBaseNet.actualCents)
+    + netCell(projectedNetCents)
+    + '</tr>';
 
   var tableHtml = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
     + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:5px 8px;">Account</th><th style="text-align:right;padding:5px 8px;">FY' + _finPlanBaseYear + ' Budget</th><th style="text-align:right;padding:5px 8px;">FY' + _finPlanBaseYear + ' Actual</th><th style="text-align:right;padding:5px 8px;">FY' + _finPlanTargetYear + ' Projected</th></tr></thead>'
-    + '<tbody>' + (rowsHtml.join('') || '<tr><td colspan="4" style="padding:10px;color:var(--warm-gray);">No Church Budget data found for ' + _finPlanBaseYear + ' — sync or import that year first (Church Report tab).</td></tr>') + '</tbody></table></div>';
+    + '<tbody>' + (rowsHtml.join('') || '<tr><td colspan="4" style="padding:10px;color:var(--warm-gray);">No Church Budget data found for ' + _finPlanBaseYear + ' — sync or import that year first (Church Report tab).</td></tr>')
+    + (rowsHtml.length ? netRow : '') + '</tbody></table></div>';
 
   var actionsHtml = isAdminUI
     ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:12px;">'
