@@ -2401,14 +2401,19 @@ function finSalaryApplyToPlan() {
 // design, new rates), and 3 alternate medical plan options Concordia offered alongside it. Dental
 // and Vision are the same across Renewal/Option 1/2/3 (only Current has the old, lower Dental
 // rate) — this is a real quirk of the source quote, not a data-entry simplification.
+// deductibleFamilyCents/oopMaxFamilyCents/deductibleIndividualCents/oopMaxIndividualCents and
+// embedded are all straight from the quote's plan-design table (page 1), used below to work out
+// whether a richer plan's extra premium is actually worth it against real claims levels.
 var HEALTH_PLAN_QUOTE_2027 = {
   effectiveYear: 2027,
+  enrollmentContracts: 2, // 2 Family-tier employee contracts — every total below is for both combined
+  coinsuranceRate: 0.20,  // "Coinsurance 20%" — the same for every option in this quote
   options: {
-    current: { label: 'Current — Healthy Me HSA-C (BCBS)', medicalCents: 4529664, dentalCents: 289464, visionCents: 147168 },
-    renewal: { label: 'Renewal — Stay in Current Plan (Healthy Me HSA-C)', medicalCents: 4922400, dentalCents: 304680, visionCents: 147168 },
-    option1: { label: 'Option 1 — Healthy Me HSA-A (BCBS)', medicalCents: 5731560, dentalCents: 304680, visionCents: 147168 },
-    option2: { label: 'Option 2 — Healthy Me HSA-B (BCBS)', medicalCents: 5252040, dentalCents: 304680, visionCents: 147168 },
-    option3: { label: 'Option 3 — Healthy Me HSA-D (BCBS)', medicalCents: 4413264, dentalCents: 304680, visionCents: 147168 }
+    current: { label: 'Current — Healthy Me HSA-C (BCBS)', medicalCents: 4529664, dentalCents: 289464, visionCents: 147168, embedded: true, deductibleFamilyCents: 700000, oopMaxFamilyCents: 1400000, deductibleIndividualCents: 350000, oopMaxIndividualCents: 700000 },
+    renewal: { label: 'Renewal — Stay in Current Plan (Healthy Me HSA-C)', medicalCents: 4922400, dentalCents: 304680, visionCents: 147168, embedded: true, deductibleFamilyCents: 800000, oopMaxFamilyCents: 1600000, deductibleIndividualCents: 400000, oopMaxIndividualCents: 800000 },
+    option1: { label: 'Option 1 — Healthy Me HSA-A (BCBS)', medicalCents: 5731560, dentalCents: 304680, visionCents: 147168, embedded: false, deductibleFamilyCents: 400000, oopMaxFamilyCents: 800000, deductibleIndividualCents: 200000, oopMaxIndividualCents: 400000 },
+    option2: { label: 'Option 2 — Healthy Me HSA-B (BCBS)', medicalCents: 5252040, dentalCents: 304680, visionCents: 147168, embedded: false, deductibleFamilyCents: 600000, oopMaxFamilyCents: 850000, deductibleIndividualCents: 300000, oopMaxIndividualCents: 600000 },
+    option3: { label: 'Option 3 — Healthy Me HSA-D (BCBS)', medicalCents: 4413264, dentalCents: 304680, visionCents: 147168, embedded: true, deductibleFamilyCents: 1100000, oopMaxFamilyCents: 1700000, deductibleIndividualCents: 550000, oopMaxIndividualCents: 850000 }
   }
 };
 // Pure — no DOM — returns the Medical/Dental/Vision breakdown + total annual employer cost in
@@ -2418,6 +2423,54 @@ function finComputeHealthPlanTotalCents(optionKey) {
   if (!opt) return null;
   var totalCents = opt.medicalCents + opt.dentalCents + opt.visionCents;
   return { label: opt.label, medicalCents: opt.medicalCents, dentalCents: opt.dentalCents, visionCents: opt.visionCents, totalCents: totalCents };
+}
+// Pure — no DOM — a plan's own out-of-pocket cost for a given total billed amount, under a plain
+// deductible-then-coinsurance-up-to-an-OOP-max design (every option in this quote works this way).
+function finComputePlanOOPCents(deductibleCents, oopMaxCents, coinsuranceRate, spendCents) {
+  if (spendCents <= deductibleCents) return spendCents;
+  var coinsuranceCapCents = oopMaxCents - deductibleCents;
+  var oopFromCoinsurance = Math.min((spendCents - deductibleCents) * coinsuranceRate, coinsuranceCapCents);
+  return deductibleCents + oopFromCoinsurance;
+}
+// Pure — no DOM — the extra (or reduced) out-of-pocket cost of being on toKey instead of fromKey
+// for ONE family, assuming the whole family's medical costs (spendCents) are concentrated in a
+// single member (not spread across 2+ people) — the case a non-embedded plan's aggregate
+// deductible/OOP-max hits hardest, since one person alone has to clear the same (family-size)
+// threshold that an embedded plan would have capped at a smaller individual number. Positive =
+// toKey costs the family more at that spend level; this is the worst-case comparison, not the
+// typical one — see finComputeHealthPlanFamilyBreakevenCents for the multi-member case.
+function finComputeHealthPlanSingleClaimantDeltaCents(fromKey, toKey, spendCents) {
+  var from = HEALTH_PLAN_QUOTE_2027.options[fromKey], to = HEALTH_PLAN_QUOTE_2027.options[toKey];
+  if (!from || !to) return null;
+  var rate = HEALTH_PLAN_QUOTE_2027.coinsuranceRate;
+  var fromDed = from.embedded ? from.deductibleIndividualCents : from.deductibleFamilyCents;
+  var fromCap = from.embedded ? from.oopMaxIndividualCents : from.oopMaxFamilyCents;
+  var toDed = to.embedded ? to.deductibleIndividualCents : to.deductibleFamilyCents;
+  var toCap = to.embedded ? to.oopMaxIndividualCents : to.oopMaxFamilyCents;
+  return finComputePlanOOPCents(toDed, toCap, rate, spendCents) - finComputePlanOOPCents(fromDed, fromCap, rate, spendCents);
+}
+// Pure — no DOM — the total family-wide annual medical spend (in cents, assumed spread across 2+
+// family members so the FAMILY deductible/OOP-max apply, not a single person's) at which moving
+// from fromKey to toKey starts saving more in reduced out-of-pocket costs than the extra premium
+// costs (perHouseholdPremiumDiffCents, positive = toKey costs more per household per year). Returns
+// null if the plan never breaks even even at a very high spend level (e.g. toKey's premium is
+// higher with no compensating deductible/OOP-max improvement at all).
+function finComputeHealthPlanFamilyBreakevenCents(fromKey, toKey, perHouseholdPremiumDiffCents) {
+  var from = HEALTH_PLAN_QUOTE_2027.options[fromKey], to = HEALTH_PLAN_QUOTE_2027.options[toKey];
+  if (!from || !to) return null;
+  var rate = HEALTH_PLAN_QUOTE_2027.coinsuranceRate;
+  function savings(spendCents) {
+    return finComputePlanOOPCents(from.deductibleFamilyCents, from.oopMaxFamilyCents, rate, spendCents)
+         - finComputePlanOOPCents(to.deductibleFamilyCents, to.oopMaxFamilyCents, rate, spendCents);
+  }
+  var maxSpendCents = Math.max(from.oopMaxFamilyCents, to.oopMaxFamilyCents) * 4;
+  if (savings(maxSpendCents) < perHouseholdPremiumDiffCents) return null;
+  var lo = 0, hi = maxSpendCents;
+  for (var i = 0; i < 60; i++) {
+    var mid = (lo + hi) / 2;
+    if (savings(mid) >= perHouseholdPremiumDiffCents) hi = mid; else lo = mid;
+  }
+  return Math.round(hi);
 }
 
 var _finHealthPlanSelectedOption = 'renewal'; // Stay on Current/Renewal (Healthy Me HSA-C) — per the 2026-07-21 cost/benefit review, Option B's protection mostly targets high-utilization years neither current employee's household has historically approached (neither has hit the $8,000 individual OOP max under the current plan), so the guaranteed $3,296.40/yr premium increase isn't clearly worth it; revisit if a near-term high-cost event is anticipated
@@ -2435,6 +2488,25 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
     + '<tr style="font-weight:700;border-top:2px solid var(--navy);"><td style="padding:5px 6px;">Total Annual Premium</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(calc.totalCents/100) + '</td></tr>'
     + '</table>') : '<p style="font-size:.8rem;color:var(--warm-gray);">Unknown option.</p>';
 
+  // "Is it worth it?" breakeven — compared against Renewal (staying in the current plan design)
+  // since that's the do-nothing baseline. Only meaningful when the selected option costs more.
+  var breakevenHtml = '';
+  if (calc && _finHealthPlanSelectedOption !== 'renewal') {
+    var baseline = finComputeHealthPlanTotalCents('renewal');
+    var perHouseholdDiffCents = Math.round((calc.totalCents - baseline.totalCents) / HEALTH_PLAN_QUOTE_2027.enrollmentContracts);
+    if (perHouseholdDiffCents > 0) {
+      var breakevenCents = finComputeHealthPlanFamilyBreakevenCents('renewal', _finHealthPlanSelectedOption, perHouseholdDiffCents);
+      var singleClaimantWorstCaseCents = finComputeHealthPlanSingleClaimantDeltaCents('renewal', _finHealthPlanSelectedOption, 100000000);
+      breakevenHtml = '<div style="margin-top:10px;padding:8px 10px;background:var(--white);border-radius:6px;font-size:.75rem;color:var(--warm-gray);">'
+        + '<b style="color:var(--charcoal);">Is it worth it?</b> This option costs $' + finFmtMoney(perHouseholdDiffCents/100) + '/yr more per household than staying on Renewal. '
+        + (breakevenCents != null
+          ? 'If a household\'s medical costs are spread across 2+ family members, the extra premium pays for itself once that household\'s total spend for the year reaches about <b>$' + finFmtMoney(breakevenCents/100) + '</b> — below that, the extra premium is a net cost; above it, the lower deductible/out-of-pocket max saves more than the premium costs.'
+          : 'It never fully pays for itself in reduced out-of-pocket costs at any spend level, even spread across the whole family.')
+        + (singleClaimantWorstCaseCents != null ? ' If one family member alone accounts for all the costs (not spread across the family), this option ' + (singleClaimantWorstCaseCents > 0 ? 'never breaks even — it costs up to $' + finFmtMoney(singleClaimantWorstCaseCents/100) + ' more even in a worst-case year' : 'still comes out ahead by up to $' + finFmtMoney(Math.abs(singleClaimantWorstCaseCents)/100) + ' in a worst-case year') + ', since a lone claimant is held to the same family-size threshold a non-embedded plan uses instead of a smaller individual cap.' : '')
+        + '</div>';
+    }
+  }
+
   var expenseLeaves = [];
   (function walk(nodes) { (nodes || []).forEach(function(n) { if (!n.children.length && n.classification !== 'Income') expenseLeaves.push(n); walk(n.children); }); })(_finPlanBaseTree);
   var categoryOptions = expenseLeaves.map(function(n) {
@@ -2447,6 +2519,7 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
     + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">One group premium for the whole congregation, not a per-worker figure — Medical varies by plan option; Dental and Vision are the same across Renewal/Option 1/2/3 (only the old Current plan has a lower Dental rate).</p>'
     + '<label style="font-size:.72rem;color:var(--warm-gray);display:block;margin-bottom:8px;">Plan Option<br>' + optionSelect + '</label>'
     + breakdownHtml
+    + breakevenHtml
     + (isAdminUI && expenseLeaves.length ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
       + '<label style="font-size:.72rem;color:var(--warm-gray);">Apply total to account<br><select id="fin-healthplan-target-category">' + categoryOptions + '</select></label>'
       + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finHealthPlanApplyToPlan()">Use as FY' + _finPlanTargetYear + ' Projected</button>'
