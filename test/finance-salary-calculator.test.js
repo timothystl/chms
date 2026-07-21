@@ -14,7 +14,7 @@ function loadSalaryCalculator() {
     if (!m) throw new Error(`${name} not found in built script`);
     return m[0];
   });
-  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents'];
+  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputeHealthPlanTotalCents'];
   const fnSrcs = fnNames.map(name => {
     const m = CHMS_APP_EXT_JS.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
     if (!m) throw new Error(`${name} not found in built script`);
@@ -22,12 +22,14 @@ function loadSalaryCalculator() {
   });
   const ficaRateM = CHMS_APP_EXT_JS.match(/var LCMS_EMPLOYER_FICA_RATE = [^\n]*\n/);
   if (!ficaRateM) throw new Error('LCMS_EMPLOYER_FICA_RATE not found in built script');
+  const healthPlanM = CHMS_APP_EXT_JS.match(/var HEALTH_PLAN_QUOTE_2027 = [\s\S]*?\n};\n/);
+  if (!healthPlanM) throw new Error('HEALTH_PLAN_QUOTE_2027 not found in built script');
   // eslint-disable-next-line no-eval
-  return eval(`(function() { ${varSrcs.join('\n')} ${ficaRateM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, LCMS_EMPLOYER_FICA_RATE }; })()`);
+  return eval(`(function() { ${varSrcs.join('\n')} ${ficaRateM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, LCMS_EMPLOYER_FICA_RATE, finComputeHealthPlanTotalCents }; })()`);
 }
 
 describe('LCMS Missouri District salary calculator', () => {
-  const { finLcmsBaseSalaryCents, finComputeLcmsSalary, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, LCMS_EMPLOYER_FICA_RATE } = loadSalaryCalculator();
+  const { finLcmsBaseSalaryCents, finComputeLcmsSalary, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, LCMS_EMPLOYER_FICA_RATE, finComputeHealthPlanTotalCents } = loadSalaryCalculator();
 
   it('looks up the exact published base salary for a known year', () => {
     expect(finLcmsBaseSalaryCents(2027)).toMatchObject({ dollars: 51529, exact: true });
@@ -129,6 +131,29 @@ describe('LCMS Missouri District salary calculator', () => {
       expect(roleDefault).toBe(true);
       const overridden = false; // this worker's actual per-row toggle
       expect(finComputeEmployerFicaCents(7347375, overridden)).toBeGreaterThan(0);
+    });
+  });
+
+  // Health insurance renewal quote (Concordia Plans #0560500326, effective 2027) — verified
+  // against the real quote's own printed totals for all 5 options.
+  describe('Health plan renewal quote (2027)', () => {
+    it('reproduces the quote\'s own printed totals for the Renewal ("stay in current plan") option', () => {
+      const r = finComputeHealthPlanTotalCents('renewal');
+      expect(r.medicalCents).toBe(4922400); // $49,224.00
+      expect(r.dentalCents).toBe(304680);   // $3,046.80
+      expect(r.visionCents).toBe(147168);   // $1,471.68
+      expect(r.totalCents).toBe(5374248);   // $53,742.48
+    });
+
+    it('reproduces the quote\'s own printed totals for Current, Option 1/2/3', () => {
+      expect(finComputeHealthPlanTotalCents('current').totalCents).toBe(4966296);  // $49,662.96
+      expect(finComputeHealthPlanTotalCents('option1').totalCents).toBe(6183408);  // $61,834.08
+      expect(finComputeHealthPlanTotalCents('option2').totalCents).toBe(5703888);  // $57,038.88
+      expect(finComputeHealthPlanTotalCents('option3').totalCents).toBe(4865112);  // $48,651.12
+    });
+
+    it('returns null for an unrecognized option key', () => {
+      expect(finComputeHealthPlanTotalCents('nonexistent')).toBeNull();
     });
   });
 });
