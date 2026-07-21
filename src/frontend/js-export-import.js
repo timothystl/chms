@@ -541,6 +541,61 @@ function mergeDupFundGroupByAttr(attr, gi) {
 function mergeDuplicateFundGroup(gi) { mergeDupFundGroupByAttr('dup', gi); }
 function mergePossibleDuplicateFundGroup(gi) { mergeDupFundGroupByAttr('posdup', gi); }
 
+// ── MANAGE FUNDS ───────────────────────────────────────────────────────
+// Lets an admin deactivate placeholder/unused fund rows (leftover "Breeze Fund 12345" entries,
+// discontinued sub-funds, etc.) so they stop showing in the Giving by Fund report and every
+// other fund picker — without deleting the fund or touching any gifts already recorded against
+// it. Reuses the existing (previously frontend-unused) PUT /admin/api/funds/:id endpoint.
+var _manageFunds = [];
+function loadManageFunds() {
+  var status = document.getElementById('manage-funds-status');
+  var area = document.getElementById('manage-funds-area');
+  status.textContent = 'Loading…'; status.className = 'import-status';
+  area.innerHTML = '';
+  api('/admin/api/funds').then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    _manageFunds = d.funds || [];
+    renderManageFunds();
+    status.textContent = _manageFunds.length + ' fund(s) loaded.';
+    status.className = 'import-status';
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+function renderManageFunds() {
+  var area = document.getElementById('manage-funds-area');
+  if (!_manageFunds.length) { area.innerHTML = '<p style="font-size:.82rem;color:var(--warm-gray);">No funds found.</p>'; return; }
+  var sorted = _manageFunds.slice().sort(function(a, b) {
+    if (!!a.active !== !!b.active) return a.active ? -1 : 1;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+  var rows = sorted.map(function(f) {
+    var amt = '$' + (f.total_cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    return '<tr style="border-bottom:1px solid #eee;' + (f.active ? '' : 'color:var(--warm-gray);') + '">'
+      + '<td style="padding:6px 8px;"><label style="font-size:.82rem;"><input type="checkbox" id="mf-active-' + f.id + '"' + (f.active ? ' checked' : '') + '> Active</label></td>'
+      + '<td style="padding:6px 8px;font-size:.82rem;">' + esc(f.name) + '</td>'
+      + '<td style="padding:6px 8px;font-size:.82rem;">' + f.entry_count + ' gifts &bull; ' + amt + '</td>'
+      + '<td style="padding:6px 8px;"><button class="btn-secondary" style="font-size:.78rem;padding:3px 8px;" onclick="saveManageFundActive(' + f.id + ')">Save</button></td></tr>';
+  }).join('');
+  area.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'
+    + '<tr style="font-size:.75rem;color:var(--warm-gray);text-transform:uppercase;"><th style="text-align:left;padding:6px 8px;">Active</th><th style="text-align:left;padding:6px 8px;">Fund</th><th style="text-align:left;padding:6px 8px;">History</th><th></th></tr>'
+    + rows + '</table></div>';
+}
+function saveManageFundActive(id) {
+  var status = document.getElementById('manage-funds-status');
+  var f = _manageFunds.filter(function(x) { return x.id === id; })[0];
+  var cb = document.getElementById('mf-active-' + id);
+  if (!f || !cb) return;
+  var active = cb.checked;
+  status.textContent = 'Saving…'; status.className = 'import-status';
+  api('/admin/api/funds/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+    name: f.name, description: f.description || '', active: active, sort_order: f.sort_order || 0
+  })}).then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    f.active = active ? 1 : 0;
+    renderManageFunds();
+    status.textContent = 'Saved.'; status.className = 'import-status ok';
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
 // ── SCHEDULER VOLUNTEER MIGRATION (SC6 Phase 2) ───────────────────────
 // Matches the old Scheduler's client-side "ws_people" list to real ChMS People records
 // and lets an admin/staff review and commit the link — no auto-guessing, always a human
