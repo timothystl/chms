@@ -2262,6 +2262,20 @@ function finLcmsBaseSalaryCents(year, colaPct) {
   var dollars = colaApplied ? sourceDollars * Math.pow(1 + rate, yearsPast) : sourceDollars;
   return { dollars: dollars, exact: false, sourceYear: sourceYear, colaApplied: colaApplied };
 }
+// Pure — no DOM — the compound annual growth rate implied by the district's own published base
+// salary history (first published year to last), as one data-backed growth-rate option — derived
+// from the table itself, so it never needs separate updating when the table grows.
+function finLcmsHistoricalAvgGrowthPct() {
+  var years = Object.keys(LCMS_MO_BASE_SALARY_BY_YEAR).map(Number).sort(function(a,b){return a-b;});
+  var first = years[0], last = years[years.length - 1];
+  if (last === first) return 0;
+  return Math.pow(LCMS_MO_BASE_SALARY_BY_YEAR[last] / LCMS_MO_BASE_SALARY_BY_YEAR[first], 1 / (last - first)) - 1;
+}
+// The most recent OFFICIAL (not projected) Social Security COLA at the time this was written —
+// 2.8%, effective for 2026. The SSA doesn't announce a given year's COLA until October of the
+// prior year (based on Jul-Sep CPI data), so this needs a manual update once the 2027 figure is
+// officially announced; various projections as of mid-2026 estimate it around 3.7-3.8%.
+var SSA_COLA_REFERENCE_PCT = 0.028;
 // Looks up (or extrapolates) a multiplier from one of the tables above. growBeyond extends the
 // scale past its last published year; capped freezes at the last published value instead
 // (matches the district's own distinction between the B.S.-only commissioned tracks, which cap
@@ -2309,19 +2323,27 @@ function finComputeEmployerFicaCents(salaryCents, selfEmployedFica) {
 }
 
 var _finSalaryRoster = [];
-var _finSalaryColaPct = 0; // growth-rate assumption (e.g. the published annual Social Security COLA), used only when the target year has no published district base salary yet
-function finSalaryComputeAll(colaPct) {
+var _finSalaryColaPct = 0; // growth-rate assumption, used only when the target year has no published district base salary yet
+var _finSalaryColaSource = 'none'; // 'none' | 'lcms' | 'ssa' | 'custom' — which of the 3 reference options (or a hand-typed figure) is currently picked
+var _finSalaryPensionPct = 0; // Concordia Retirement Plan pension contribution % of salary — Concordia sets this rate annually, so it's always admin-entered, never hardcoded
+// Pure — no DOM — employer pension contribution cost, a straight percentage of salary (same shape
+// as employer FICA, but the % itself is set by Concordia Plan Services each year, not a fixed rate).
+function finComputePensionCents(salaryCents, pensionPct) {
+  return Math.round((salaryCents || 0) * (Number(pensionPct) || 0));
+}
+function finSalaryComputeAll(colaPct, pensionPct) {
   return _finSalaryRoster.map(function(w) {
     var calc = finComputeLcmsSalary({ year: _finPlanTargetYear, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus, colaPct: colaPct });
     var employerFicaCents = calc ? finComputeEmployerFicaCents(calc.salaryCents, w.selfEmployedFica) : 0;
     var hypotheticalFicaCents = calc ? finComputeEmployerFicaCents(calc.salaryCents, false) : 0;
-    return { calc: calc, employerFicaCents: employerFicaCents, hypotheticalFicaCents: hypotheticalFicaCents };
+    var pensionCents = calc ? finComputePensionCents(calc.salaryCents, pensionPct) : 0;
+    return { calc: calc, employerFicaCents: employerFicaCents, hypotheticalFicaCents: hypotheticalFicaCents, pensionCents: pensionCents };
   });
 }
 function finRenderSalaryCalculator(isAdminUI) {
-  var computed = finSalaryComputeAll(_finSalaryColaPct);
+  var computed = finSalaryComputeAll(_finSalaryColaPct, _finSalaryPensionPct);
   var rows = _finSalaryRoster.map(function(w, i) {
-    var calc = computed[i].calc, ficaCents = computed[i].employerFicaCents, hypotheticalFicaCents = computed[i].hypotheticalFicaCents;
+    var calc = computed[i].calc, ficaCents = computed[i].employerFicaCents, hypotheticalFicaCents = computed[i].hypotheticalFicaCents, pensionCents = computed[i].pensionCents;
     var trackOptions = w.role === 'commissioned' ? LCMS_COMMISSIONED_TRACKS : w.role === 'other' ? LCMS_OTHER_WORKER_TRACKS : null;
     var trackSelect = trackOptions
       ? '<select onchange="finSalaryFieldChange(' + i + ',\'trackKey\',this.value)">' + Object.keys(trackOptions).map(function(k) { return '<option value="' + k + '"' + (k === w.trackKey ? ' selected' : '') + '>' + esc(trackOptions[k].label) + '</option>'; }).join('') + '</select>'
@@ -2349,12 +2371,14 @@ function finRenderSalaryCalculator(isAdminUI) {
       + '<td style="padding:3px 6px;">' + attendanceSelect + '</td>'
       + '<td style="padding:3px 6px;text-align:center;"><input type="checkbox" onchange="finSalaryFicaToggle(' + i + ',this.checked)"' + (w.selfEmployedFica ? ' checked' : '') + ' title="Self-employed for Social Security (SECA) — church pays no employer FICA for this worker"></td>'
       + '<td style="padding:3px 6px;text-align:right;">' + ficaCell + '</td>'
+      + '<td style="padding:3px 6px;text-align:right;">' + (calc ? '$' + finFmtMoney(pensionCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
       + '<td style="padding:3px 6px;text-align:right;font-weight:600;">' + (calc ? '$' + finFmtMoney(calc.salaryCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
       + '<td style="padding:3px 6px;"><button class="btn-secondary" style="font-size:.7rem;padding:2px 6px;color:var(--danger);" onclick="finSalaryRemoveWorker(' + i + ')">Remove</button></td>'
       + '</tr>';
   }).join('');
   var totalSalaryCents = computed.reduce(function(sum, c) { return sum + (c.calc ? c.calc.salaryCents : 0); }, 0);
   var totalFicaCents = computed.reduce(function(sum, c) { return sum + c.employerFicaCents; }, 0);
+  var totalPensionCents = computed.reduce(function(sum, c) { return sum + c.pensionCents; }, 0);
   var totalWorkerPaidSecaCents = _finSalaryRoster.reduce(function(sum, w, i) { return sum + (w.selfEmployedFica ? computed[i].hypotheticalFicaCents : 0); }, 0);
   var baseInfo = finLcmsBaseSalaryCents(_finPlanTargetYear, _finSalaryColaPct);
   var expenseLeaves = [];
@@ -2376,18 +2400,27 @@ function finRenderSalaryCalculator(isAdminUI) {
   return '<div style="background:var(--linen);border-radius:8px;padding:12px 14px;margin-top:16px;">'
     + '<div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Salary &amp; Benefits Calculator <span style="font-weight:400;font-size:.72rem;color:var(--warm-gray);">(LCMS Missouri District Compensation Guidelines FY2026–2027)</span></div>'
     + lastYearHtml
-    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">Base salary for FY' + _finPlanTargetYear + ': $' + finFmtMoney(baseInfo.dollars) + (baseInfo.exact ? '' : (baseInfo.colaApplied ? ' <i>(no published base for ' + _finPlanTargetYear + ' yet — grown from ' + baseInfo.sourceYear + ' at the COLA % below)</i>' : ' <i>(no published base for ' + _finPlanTargetYear + " yet — using the district's most recent known year, " + baseInfo.sourceYear + ' flat; enter a COLA % below to grow it instead, or update LCMS_MO_BASE_SALARY_BY_YEAR once a new guideline document is out)</i>')) + '. Benefits (health/retirement via Concordia Plan Services) have no published formula in the district guidelines — CPS quotes those directly per congregation via their own tool — so Benefits below is a plain entered figure, not computed. Pastors and Commissioned Ministers are self-employed for Social Security by default (the church pays no employer FICA share for them — they pay their own SECA themselves, shown for reference); uncheck "Self-Employed (SECA)" for any worker actually treated as a regular employee at this church, where the church\'s ' + (LCMS_EMPLOYER_FICA_RATE*100).toFixed(2) + '% employer FICA payment shows as a compensation benefit that a self-employed worker doesn\'t get.</p>'
-    + '<label style="font-size:.72rem;color:var(--warm-gray);display:block;margin-bottom:8px;">Social Security COLA % <span style="font-weight:400;">(used only for a year with no published base salary yet)</span><br><input type="number" id="fin-salary-cola" step="0.1" value="' + (_finSalaryColaPct ? (_finSalaryColaPct*100).toFixed(1) : '') + '" oninput="finSalaryColaChange(this.value)" style="width:90px;">%</label>'
+    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">Base salary for FY' + _finPlanTargetYear + ': $' + finFmtMoney(baseInfo.dollars) + (baseInfo.exact ? '' : (baseInfo.colaApplied ? ' <i>(no published base for ' + _finPlanTargetYear + ' yet — grown from ' + baseInfo.sourceYear + ' at the growth rate below)</i>' : ' <i>(no published base for ' + _finPlanTargetYear + " yet — using the district's most recent known year, " + baseInfo.sourceYear + ' flat; pick a growth method below to grow it instead, or update LCMS_MO_BASE_SALARY_BY_YEAR once a new guideline document is out)</i>')) + '. Benefits (health/retirement via Concordia Plan Services) have no published formula in the district guidelines — CPS quotes those directly per congregation via their own tool — so Benefits below is a plain entered figure, not computed. Pastors and Commissioned Ministers are self-employed for Social Security by default (the church pays no employer FICA share for them — they pay their own SECA themselves, shown for reference); uncheck "Self-Employed (SECA)" for any worker actually treated as a regular employee at this church, where the church\'s ' + (LCMS_EMPLOYER_FICA_RATE*100).toFixed(2) + '% employer FICA payment shows as a compensation benefit that a self-employed worker doesn\'t get.</p>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">'
+    + '<label style="font-size:.72rem;color:var(--warm-gray);">Base Salary Growth Method <span style="font-weight:400;">(used only for a year with no published base salary yet — pick one to see it, or type a custom % on the right)</span><br><select id="fin-salary-cola-source" onchange="finSalaryColaSourceChange(this.value)">'
+      + '<option value="none"' + (_finSalaryColaSource==='none'?' selected':'') + '>None (flat, default)</option>'
+      + '<option value="lcms"' + (_finSalaryColaSource==='lcms'?' selected':'') + '>LCMS District Historical Average (' + (finLcmsHistoricalAvgGrowthPct()*100).toFixed(2) + '%)</option>'
+      + '<option value="ssa"' + (_finSalaryColaSource==='ssa'?' selected':'') + '>Social Security COLA (' + (SSA_COLA_REFERENCE_PCT*100).toFixed(1) + '% reference — update annually)</option>'
+      + '<option value="custom"' + (_finSalaryColaSource==='custom'?' selected':'') + '>Custom / Concordia Plans figure</option>'
+      + '</select></label>'
+    + '<label style="font-size:.72rem;color:var(--warm-gray);">% used<br><input type="number" id="fin-salary-cola" step="0.01" value="' + (_finSalaryColaPct ? (_finSalaryColaPct*100).toFixed(2) : '') + '" oninput="finSalaryColaChange(this.value)" style="width:90px;">%</label>'
+    + '<label style="font-size:.72rem;color:var(--warm-gray);">Pension Contribution % <span style="font-weight:400;">(Concordia Retirement Plan — set annually by Concordia, enter this year\'s rate)</span><br><input type="number" id="fin-salary-pension" step="0.01" value="' + (_finSalaryPensionPct ? (_finSalaryPensionPct*100).toFixed(2) : '') + '" oninput="finSalaryPensionChange(this.value)" style="width:90px;">%</label>'
+    + '</div>'
     + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
-    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th><th style="text-align:left;padding:3px 6px;">Role</th><th style="text-align:left;padding:3px 6px;">Yrs Exp</th><th style="text-align:left;padding:3px 6px;">Education / Type</th><th style="text-align:left;padding:3px 6px;">Responsibility Stipend</th><th style="text-align:left;padding:3px 6px;">Attendance Bonus</th><th style="text-align:center;padding:3px 6px;">Self-Employed (SECA)</th><th style="text-align:right;padding:3px 6px;">Employer FICA</th><th style="text-align:right;padding:3px 6px;">Salary</th><th></th></tr></thead>'
-    + '<tbody>' + (rows || '<tr><td colspan="10" style="padding:6px;color:var(--warm-gray);">No workers added yet.</td></tr>') + '</tbody>'
-    + '<tfoot><tr style="font-weight:700;border-top:2px solid var(--navy);"><td colspan="6" style="padding:5px 6px;">Total</td><td></td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalFicaCents/100) + '</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalSalaryCents/100) + '</td><td></td></tr></tfoot>'
+    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th><th style="text-align:left;padding:3px 6px;">Role</th><th style="text-align:left;padding:3px 6px;">Yrs Exp</th><th style="text-align:left;padding:3px 6px;">Education / Type</th><th style="text-align:left;padding:3px 6px;">Responsibility Stipend</th><th style="text-align:left;padding:3px 6px;">Attendance Bonus</th><th style="text-align:center;padding:3px 6px;">Self-Employed (SECA)</th><th style="text-align:right;padding:3px 6px;">Employer FICA</th><th style="text-align:right;padding:3px 6px;">Pension</th><th style="text-align:right;padding:3px 6px;">Salary</th><th></th></tr></thead>'
+    + '<tbody>' + (rows || '<tr><td colspan="11" style="padding:6px;color:var(--warm-gray);">No workers added yet.</td></tr>') + '</tbody>'
+    + '<tfoot><tr style="font-weight:700;border-top:2px solid var(--navy);"><td colspan="6" style="padding:5px 6px;">Total</td><td></td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalFicaCents/100) + '</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalPensionCents/100) + '</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalSalaryCents/100) + '</td><td></td></tr></tfoot>'
     + '</table></div>'
     + (totalWorkerPaidSecaCents ? '<p style="font-size:.7rem;color:var(--warm-gray);margin:4px 0 0;">Total self-paid SECA across self-employed workers (not a church cost, shown for reference): $' + finFmtMoney(totalWorkerPaidSecaCents/100) + '</p>' : '')
     + (isAdminUI ? '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;margin-top:8px;" onclick="finSalaryAddWorker()">+ Add Worker</button>' : '')
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
     + '<label style="font-size:.72rem;color:var(--warm-gray);">Benefits Total ($/yr, entered)<br><input type="number" id="fin-salary-benefits" step="0.01" value="' + (_finSalaryBenefitsDollars || '') + '" oninput="finSalaryBenefitsChange(this.value)" style="width:120px;"></label>'
-    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((totalSalaryCents/100) + (totalFicaCents/100) + (_finSalaryBenefitsDollars || 0)) + '</div><div class="rpt-stat-lbl">Total Salary &amp; Benefits</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((totalSalaryCents/100) + (totalFicaCents/100) + (totalPensionCents/100) + (_finSalaryBenefitsDollars || 0)) + '</div><div class="rpt-stat-lbl">Total Salary &amp; Benefits</div></div>'
     + '</div>'
     + (isAdminUI && expenseLeaves.length ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
       + '<label style="font-size:.72rem;color:var(--warm-gray);">Apply total to account<br><select id="fin-salary-target-category">' + categoryOptions + '</select></label>'
@@ -2426,8 +2459,21 @@ function finSalaryAttendanceChange(i, value) {
   _finSalaryRoster[i].attendanceBonus = parseFloat(value) || 0;
   finRerenderPlanningPreserveFocus();
 }
+function finSalaryColaSourceChange(value) {
+  _finSalaryColaSource = value;
+  if (value === 'lcms') _finSalaryColaPct = finLcmsHistoricalAvgGrowthPct();
+  else if (value === 'ssa') _finSalaryColaPct = SSA_COLA_REFERENCE_PCT;
+  else if (value === 'none') _finSalaryColaPct = 0;
+  // 'custom' leaves _finSalaryColaPct as-is — whatever was last picked/typed — for hand-editing
+  finRerenderPlanningPreserveFocus();
+}
 function finSalaryColaChange(value) {
   _finSalaryColaPct = (parseFloat(value) || 0) / 100;
+  _finSalaryColaSource = 'custom'; // hand-editing the % no longer necessarily matches a preset
+  finRerenderPlanningPreserveFocus();
+}
+function finSalaryPensionChange(value) {
+  _finSalaryPensionPct = (parseFloat(value) || 0) / 100;
   finRerenderPlanningPreserveFocus();
 }
 var _finSalaryBenefitsDollars = 0;
@@ -2440,10 +2486,11 @@ function finSalaryApplyToPlan() {
   var sel = document.getElementById('fin-salary-target-category');
   if (!sel) return;
   _finSalaryTargetCategory = sel.value;
-  var computed = finSalaryComputeAll(_finSalaryColaPct);
+  var computed = finSalaryComputeAll(_finSalaryColaPct, _finSalaryPensionPct);
   var totalSalaryCents = computed.reduce(function(sum, c) { return sum + (c.calc ? c.calc.salaryCents : 0); }, 0);
   var totalFicaCents = computed.reduce(function(sum, c) { return sum + c.employerFicaCents; }, 0);
-  var totalCents = totalSalaryCents + totalFicaCents + Math.round((_finSalaryBenefitsDollars || 0) * 100);
+  var totalPensionCents = computed.reduce(function(sum, c) { return sum + c.pensionCents; }, 0);
+  var totalCents = totalSalaryCents + totalFicaCents + totalPensionCents + Math.round((_finSalaryBenefitsDollars || 0) * 100);
   _finPlanEdits[_finSalaryTargetCategory] = (totalCents / 100).toFixed(2);
   finToast('Applied $' + finFmtMoney(totalCents/100) + ' to the FY' + _finPlanTargetYear + ' Projected column — click Save Changes to keep it.');
   finRerenderPlanningPreserveFocus();
@@ -2610,9 +2657,18 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
     var guess = /health|insurance|medical|benefit/i.test(n.label);
     return '<option value="' + esc(n.path) + '"' + (guess && !_finHealthPlanTargetCategory ? ' selected' : (n.path === _finHealthPlanTargetCategory ? ' selected' : '')) + '>' + esc(n.label) + '</option>';
   }).join('');
+  // "Pull in last year" — the real FY base-year actual/budget totals across whichever accounts
+  // look like health insurance accounts, same pattern as the Salary Calculator's reference line.
+  var healthAccounts = expenseLeaves.filter(function(n) { return /health|insurance|medical|benefit/i.test(n.label); });
+  var lastYearHealthActualCents = healthAccounts.reduce(function(sum, n) { return sum + (n.totalActualCents || 0); }, 0);
+  var lastYearHealthBudgetCents = healthAccounts.reduce(function(sum, n) { return sum + (n.hasBudgetInfo ? (n.totalBudgetCents || 0) : 0); }, 0);
+  var lastYearHealthHtml = healthAccounts.length
+    ? '<div style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">FY' + _finPlanBaseYear + ' actual across matching accounts (' + healthAccounts.map(function(n){return esc(n.label);}).join(', ') + '): <b style="color:var(--charcoal);">$' + finFmtMoney(lastYearHealthActualCents/100) + '</b>' + (lastYearHealthBudgetCents ? ' (budgeted $' + finFmtMoney(lastYearHealthBudgetCents/100) + ')' : '') + ' — for comparison against the quote totals below.</div>'
+    : '';
 
   return '<div style="background:var(--linen);border-radius:8px;padding:12px 14px;margin-top:16px;">'
     + '<div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Health Insurance Renewal Options <span style="font-weight:400;font-size:.72rem;color:var(--warm-gray);">(Concordia Plans quote #0560500326, effective ' + HEALTH_PLAN_QUOTE_2027.effectiveYear + ')</span></div>'
+    + lastYearHealthHtml
     + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">One group premium for the whole congregation, not a per-worker figure — Medical varies by plan option; Dental and Vision are the same across Renewal/Option 1/2/3 (only the old Current plan has a lower Dental rate).</p>'
     + '<label style="font-size:.72rem;color:var(--warm-gray);display:block;margin-bottom:8px;">Plan Option<br>' + optionSelect + '</label>'
     + breakdownHtml
