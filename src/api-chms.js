@@ -4,7 +4,7 @@ import { isoWeekKey, handleUtilsApi } from './api-utils.js';
 import { handleHouseholdsApi } from './api-households.js';
 import { handleImportApi } from './api-import.js';
 import { handleReportsApi } from './api-reports.js';
-import { handlePeopleApi } from './api-people.js';
+import { handlePeopleApi, handleSendMemberInvite } from './api-people.js';
 import { handleGivingApi } from './api-giving.js';
 import { handleTuitionAidApi } from './api-tuition-aid.js';
 import { handleFinanceApi } from './api-finance.js';
@@ -429,9 +429,12 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     if (result) return result;
   }
 
-  // Note: the "Invite to Portal" endpoint (people/:id/invite) was retired 2026-07-20
-  // along with the standalone /portal system — see CLAUDE.md's Connect Phase 1 entry.
-  // A real invite flow for role='member' tiered-login accounts is Phase 2.
+  // ── Connect member invite (admin/staff/office/finance only) ────────────────
+  const inviteMatch = seg.match(/^people[/](\d+)[/]invite$/);
+  if (inviteMatch && method === 'POST') {
+    if (!canEdit) return json({ error: 'Access denied' }, 403);
+    return handleSendMemberInvite(env, parseInt(inviteMatch[1], 10));
+  }
 
   // ── People / Archive / Brevo / Photos / Follow-ups → api-people.js ────────
   if (seg.startsWith('people') || seg === 'member-types' ||

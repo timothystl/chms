@@ -17,6 +17,7 @@ import {
 } from './src/api-scheduler.js';
 import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
 import { handleIntakeApi } from './src/api-intake.js';
+import { handleMemberSetup } from './src/api-people.js';
 import { LOGIN_HTML, PUBLIC_HTML, ADMIN_HTML } from './src/html-templates.js';
 import { CHMS_HTML, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from './src/html-chms.js';
 import { PRIVACY_HTML, TERMS_HTML } from './src/legal-pages.js';
@@ -217,6 +218,9 @@ async function _fetch(req, env) {
     if (path === '/admin/login' && method === 'POST') return handleAdminLogin(req, env);
     if (path === '/admin/forgot-password' && method === 'POST') return handleForgotPassword(req, env);
     if (path === '/admin/reset' && (method === 'GET' || method === 'POST')) return handleResetPassword(req, env, url);
+    // Connect member invite setup (Phase 2) — public, token-gated, same pattern as
+    // /admin/reset above.
+    if (path === '/member-setup' && (method === 'GET' || method === 'POST')) return handleMemberSetup(req, env, url);
     if (path === '/admin/logout') {
       return new Response(null, { status: 302, headers: {
         'Location': (isChmsHost || isConnectHost) ? '/' : '/admin',

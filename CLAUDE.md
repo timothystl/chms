@@ -465,13 +465,34 @@ No small standalone app — Connect is a tiered login into the same app, not a s
   regresses for a real user; just flagging it so it isn't mysterious later. Added `connect`
   to `RESERVED_SLUGS`. Done 2026-07-20 (v1.41.0). (`wrangler.toml`, `tlc-volunteer-worker.js`,
   `src/api-chms.js`, `src/api-admin.js`, `src/frontend/js-people.js`)
-- [ ] **CONN2 — Phase 2: Real invite flow.** Nothing populates `role='member'` accounts
-  today. Build the actual invite: staff-initiated, linked to a real `people` row, member
-  sets a password, account activates as `role='member'`. Adapt `api-member.js`'s existing
-  invite-token/email-verification code rather than starting over.
-- [ ] **CONN3 — Phase 2: Security pass on the member-role People view.** Before real
-  members see it, double-check the frontend doesn't leak anything beyond what the backend
-  already filters (giving, tags, pastoral follow-up notes, non-member visitor records).
+- [x] **CONN2 — Phase 2: Real invite flow.** New `POST /admin/api/people/:id/invite`
+  (canEdit/staff+ only) generates a 7-day token via `RSVP_STORE`, same pattern as the
+  existing forgot-password flow — not the old `/portal` system's D1-table tokens, and not
+  created-up-front: the `app_users` row is only inserted (or reactivated, if the person
+  already has one) when the invited person actually completes setup, so an invite that's
+  never opened never leaves a half-account with an unusable password. New public
+  `GET`/`POST /member-setup?token=...` page (`handleMemberSetup`) collects the password and
+  activates the account as `role='member'`, `username` defaulting to the person's email.
+  Restored the People-tab "Invite to Connect" button (removed in Phase 1) pointing at the
+  same endpoint. Extracted the shared unauth token-page shell (`authCardPage`/`escLite`/
+  `randHex`) into `api-utils.js` so both this and `handleResetPassword` use it — also fixed
+  a leftover rebrand miss found in the process (`handleResetPassword`'s page still said
+  "Gather" instead of "ChMS"). The invite/setup functions live in `api-people.js`, not
+  `api-admin.js`, specifically to avoid a circular import (`api-admin.js` → `api-chms.js` →
+  back to `api-admin.js`) that adapting the old code in place would have created.
+- [x] **CONN3 — Phase 2: Security pass on the member-role People view.** Found a real gap,
+  not just a frontend one: the person-detail endpoint already redacted
+  address/phone/email/dob/anniversary per each person's own `dir_hide_*` opt-out, but still
+  spread the *entire* row — including `notes` (free-text, staff/pastoral) and `tags`
+  (staff-assigned labels) — to member-role viewers. The **list** endpoint (the one that
+  actually powers the directory) had no redaction at all, not even the `dir_hide_*`
+  opt-outs. New `memberSafeView()` in `api-people.js` is an explicit allowlist (not a
+  blacklist), so a future new `people` column defaults to *not* being exposed to members
+  until someone deliberately adds it — applied to both the list and detail endpoints; tag
+  queries are now skipped entirely (not fetched then discarded) for member-role requests.
+  Verified with a Node harness against real SQLite: confirmed `notes`/`breeze_id`/
+  `locally_edited`/`tags` are absent from the member-role JSON response, and that
+  `dir_hide_phone` correctly blanks a phone number in the list view (previously leaked).
 - [ ] **CONN4 — Phase 3: Branding differentiation.** Give the `connect.timothystl.org`
   login/shell its own identity distinct from "Timothy ChMS" staff branding, so a member
   checking the directory doesn't feel like they've wandered into a staff tool.

@@ -618,9 +618,9 @@ function showProfile(p) {
   var saEl = document.getElementById('pv-status-actions');
   if (saEl && _userRole !== 'member') {
     var pStatus = p.status || 'active';
-    // "Invite to Portal" (the standalone /portal system) was retired 2026-07-20; a
-    // real invite flow for role='member' tiered-login accounts is Phase 2 of Connect.
-    var inviteBtn = '';
+    var inviteBtn = (mt.toLowerCase() === 'member' && pStatus === 'active' && p.email)
+      ? '<button class="btn-secondary role-admin role-staff" style="font-size:.76rem;padding:3px 9px;color:var(--sky-steel);" onclick="sendConnectInvite('+p.id+')">&#128231; Invite to Connect</button>'
+      : '';
     if (pStatus === 'active') {
       saEl.innerHTML = inviteBtn
         + '<button class="btn-secondary" style="font-size:.76rem;padding:3px 9px;color:var(--warm-gray);" onclick="archivePerson('+p.id+')">Archive</button>'
@@ -2237,6 +2237,12 @@ function deletePerson() {
   api('/admin/api/people/' + id, {method:'DELETE'})
     .then(function() { closeModal('person-modal'); loadPeople(); })
     .catch(function(e) { alert('Delete failed: ' + (e && e.message ? e.message : 'Server error. Please try again.')); });
+}
+function sendConnectInvite(id) {
+  api('/admin/api/people/' + id + '/invite', {method:'POST'}).then(function(r) {
+    if (r && r.ok) alert('Invite sent to ' + (r.email || 'their email address') + '. The link expires in 7 days.');
+    else alert('Error: ' + ((r && r.error) || 'Could not send invite. Check that this person has an email address.'));
+  });
 }
 function archivePerson(id) {
   if (!confirm('Archive this person? They will be hidden from the active list but their records and giving history are preserved.')) return;
