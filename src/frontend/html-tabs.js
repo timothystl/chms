@@ -1506,6 +1506,14 @@ export const HTML_TABS_2 = String.raw`
         </section>
       </div>
 
+      <div id="fin-panel-compensation" style="display:none;">
+        <div style="margin-bottom:16px;">
+          <h2 style="font-family:var(--font-display);font-size:26px;font-weight:700;color:var(--color-navy);margin:0 0 2px;">Compensation Planner — FY<span id="fin-comp-year-label"></span></h2>
+          <div style="font-size:.82rem;color:var(--warm-gray);">Set base salaries using the LCMS Missouri District compensation guidelines, and model group health plan renewal options. Applies into the Planning tab's budget via each card's own "Apply to Plan"/"Use as Projected" controls.</div>
+        </div>
+        <div id="fin-comp-root">Loading…</div>
+      </div>
+
     </div>
   </div>
 </div>

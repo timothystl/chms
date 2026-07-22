@@ -43,7 +43,7 @@ function loadFinance() {
 // Button active-state is handled by the shared renderFinanceSubnav() (js-core.js) re-render,
 // driven by showTab()'s _finActiveNavId — this only toggles panel visibility.
 function finShowSection(section) {
-  ['overview', 'church', 'daycare', 'property', 'planning'].forEach(function(s) {
+  ['overview', 'church', 'daycare', 'property', 'planning', 'compensation'].forEach(function(s) {
     var panel = document.getElementById('fin-panel-' + s);
     if (panel) panel.style.display = (s === section) ? '' : 'none';
   });
@@ -2500,7 +2500,7 @@ function finRerenderPlanningPreserveFocus() {
   var scrollY = window.scrollY;
   var contentArea = document.querySelector('.content-area');
   var contentScrollTop = contentArea ? contentArea.scrollTop : null;
-  finRenderPlanning();
+  finRenderCompensation();
   if (activeId) {
     var restored = document.getElementById(activeId);
     if (restored) {
@@ -2572,10 +2572,12 @@ function finLoadPlanning() {
       _finSalaryLoaded = true;
       return finLoadSalaryPlannerData().then(function() {
         finRenderPlanning();
+        finRenderCompensation();
         finRenderPropertyMultiYearForecast();
       });
     }
     finRenderPlanning();
+    finRenderCompensation();
     finRenderPropertyMultiYearForecast();
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
@@ -2716,8 +2718,19 @@ function finRenderPlanning() {
     + '<div>' + tableHtml + actionsHtml + '</div>'
     + projectedNetCard
     + '</div>'
-    + finRenderPlanningOutlook(projectedRevenueCents, projectedExpenseCents)
-    + finRenderSalaryCalculator(isAdminUI) + finRenderHealthInsuranceCalculator(isAdminUI);
+    + finRenderPlanningOutlook(projectedRevenueCents, projectedExpenseCents);
+}
+// Compensation tab (split out of Planning — Phase 5 of the Finance Workspace redesign): the
+// Salary Calculator and Health Insurance cards are unchanged in logic/data, just rendered into
+// their own tab instead of stacked at the bottom of Planning. Depends on the same
+// _finPlanBaseTree/_finSalaryRoster state Planning loads, via finLoadPlanning() below.
+function finRenderCompensation() {
+  var el = document.getElementById('fin-comp-root');
+  if (!el) return;
+  var isAdminUI = (_userRole === 'admin');
+  var yearLabelEl = document.getElementById('fin-comp-year-label');
+  if (yearLabelEl) yearLabelEl.textContent = _finPlanTargetYear;
+  el.innerHTML = finRenderSalaryCalculator(isAdminUI) + finRenderHealthInsuranceCalculator(isAdminUI);
 }
 // Three-year outlook (Finance Workspace handoff, Planning section): current target year plus 3
 // forward years, income growing 2.5%/yr and expenses 3%/yr beyond the target year — the handoff's
@@ -2755,6 +2768,7 @@ function finPlanChangeTargetYear() {
   _finPlanTargetYear = y;
   _finPlanEdits = {};
   finRenderPlanning();
+  finRenderCompensation();
 }
 function finPlanEditCell(categoryPath, value) {
   _finPlanEdits[categoryPath] = value;
@@ -3069,8 +3083,8 @@ function finRenderSalaryCalculator(isAdminUI) {
     ? '<div style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">FY' + _finPlanBaseYear + ' actual across matching accounts (' + salaryAccounts.map(function(n){return esc(n.label);}).join(', ') + '): <b style="color:var(--charcoal);">$' + finFmtMoney(lastYearActualCents/100) + '</b>' + (lastYearBudgetCents ? ' (budgeted $' + finFmtMoney(lastYearBudgetCents/100) + ')' : '') + ' — for comparison against this year\'s roster total below.</div>'
     : '';
 
-  return '<div style="background:var(--linen);border-radius:8px;padding:12px 14px;margin-top:16px;">'
-    + '<div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Salary &amp; Benefits Calculator <span style="font-weight:400;font-size:.72rem;color:var(--warm-gray);">(LCMS Missouri District Compensation Guidelines FY2026–2027)</span></div>'
+  return '<div class="fin-card" style="margin-top:16px;">'
+    + '<div class="fin-card-title" style="font-size:18px;">Salary &amp; Benefits Calculator <span style="font-family:var(--font-body);font-weight:400;font-size:.72rem;color:var(--warm-gray);">(LCMS Missouri District Compensation Guidelines FY2026–2027)</span></div>'
     + lastYearHtml
     + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">Base salary for FY' + _finPlanTargetYear + ': $' + finFmtMoney(baseInfo.dollars) + (baseInfo.exact ? ' <i>(published by the district — the growth-method scenarios below all resolve to this same base, since there\'s nothing left to project)</i>' : (baseInfo.colaApplied ? ' <i>(no published base for ' + _finPlanTargetYear + ' yet — grown from ' + baseInfo.sourceYear + ' at the active growth rate)</i>' : ' <i>(no published base for ' + _finPlanTargetYear + " yet — using the district's most recent known year, " + baseInfo.sourceYear + ' flat until a growth method is picked below, or update LCMS_MO_BASE_SALARY_BY_YEAR once a new guideline document is out)</i>')) + '. Benefits (health/retirement via Concordia Plan Services) have no published formula in the district guidelines — CPS quotes those directly per congregation via their own tool — so Benefits below is a plain entered figure, not computed. Pastors and Commissioned Ministers are self-employed for Social Security by default (the church pays no employer FICA share for them — they pay their own SECA themselves, shown for reference); uncheck "Self-Employed (SECA)" for any worker actually treated as a regular employee at this church, where the church\'s ' + (LCMS_EMPLOYER_FICA_RATE*100).toFixed(2) + '% employer FICA payment shows as a compensation benefit that a self-employed worker doesn\'t get. Pension and Disability &amp; Survivor (below) apply to every salaried worker the same way, regardless of FICA status — real rates from the church\'s own Concordia Plans Participation overview (as of July 2026).</p>'
     + finRenderSalaryScenarioComparison(baseInfo)
@@ -3094,7 +3108,53 @@ function finRenderSalaryCalculator(isAdminUI) {
       + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finSalaryApplyToPlan()">Use as FY' + _finPlanTargetYear + ' Projected</button>'
       + '</div>' : '')
     + '<div id="fin-salary-save-msg" style="font-size:.72rem;color:var(--warm-gray);margin-top:6px;"></div>'
+    + finRenderConcordiaEstimates()
     + '</div>';
+}
+// Concordia Plans' "Compensation Decision Support Tool" — a report a congregation runs manually
+// per worker (PDF, not an API — see the real Rev. Dinger example this was built from: Position
+// Pastor-Senior Administrative, 20 yrs, Masters, run 2026-07-21) giving 4 ranges (Church Market /
+// Church LCMS / District Market / District, each Low/Mid/High) to compare against the computed
+// LCMS-guideline salary above. Purely a manual reference — no formula, since it's congregation-
+// and role-specific data pulled from Concordia's own tool, not derivable from anything this app
+// already has. Stored as w.concordia on the same roster row, persisted by the existing Save
+// button (roster is saved wholesale) — no new endpoint needed.
+var FIN_CONCORDIA_RANGE_KEYS = [
+  { key: 'churchMarket', label: 'Church Market Range' },
+  { key: 'churchLcms', label: 'Church LCMS Range' },
+  { key: 'districtMarket', label: 'District Market Range' },
+  { key: 'district', label: 'District Range' },
+];
+function finConcordiaField(i, field, value, width) {
+  return '<input type="text" value="' + esc(value == null ? '' : value) + '" oninput="finConcordiaFieldChange(' + i + ',' + volJsAttr(field) + ',this.value)" style="width:' + (width||70) + 'px;">';
+}
+function finRenderConcordiaEstimates() {
+  if (!_finSalaryRoster.length) return '';
+  var blocks = _finSalaryRoster.map(function(w, i) {
+    var c = w.concordia || {};
+    var metaRow = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px;font-size:.72rem;color:var(--warm-gray);">'
+      + '<label>Position<br>' + finConcordiaField(i, 'position', c.position, 160) + '</label>'
+      + '<label>Years of Experience<br>' + finConcordiaField(i, 'years', c.years, 60) + '</label>'
+      + '<label>Education Level<br>' + finConcordiaField(i, 'education', c.education, 90) + '</label>'
+      + '<label>Report Date<br>' + finConcordiaField(i, 'asOfDate', c.asOfDate, 100) + '</label>'
+      + '</div>';
+    var rangeRows = FIN_CONCORDIA_RANGE_KEYS.map(function(r) {
+      return '<tr><td style="padding:3px 6px;color:var(--warm-ink-label);">' + r.label + '</td>'
+        + '<td style="padding:3px 6px;">' + finConcordiaField(i, r.key + 'Low', c[r.key + 'Low']) + '</td>'
+        + '<td style="padding:3px 6px;">' + finConcordiaField(i, r.key + 'Mid', c[r.key + 'Mid']) + '</td>'
+        + '<td style="padding:3px 6px;">' + finConcordiaField(i, r.key + 'High', c[r.key + 'High']) + '</td></tr>';
+    }).join('');
+    return '<details style="margin-bottom:6px;"><summary style="cursor:pointer;font-size:.78rem;font-weight:600;color:var(--warm-ink-label);">' + esc(w.name || 'Worker ' + (i+1)) + ' — Concordia estimate' + (c.churchLcmsMid ? ' ($' + esc(c.churchLcmsMid) + ' LCMS midpoint on file)' : '') + '</summary>'
+      + '<div style="padding:8px 4px 4px;">' + metaRow
+      + '<table style="border-collapse:collapse;font-size:.76rem;"><thead><tr><th></th><th style="padding:3px 6px;text-align:left;color:var(--warm-gray);">Lower</th><th style="padding:3px 6px;text-align:left;color:var(--warm-gray);">Midpoint</th><th style="padding:3px 6px;text-align:left;color:var(--warm-gray);">Higher</th></tr></thead><tbody>' + rangeRows + '</tbody></table>'
+      + '</div></details>';
+  }).join('');
+  return '<details style="margin-top:16px;padding-top:10px;border-top:1px solid var(--warm-row-divider);"><summary style="cursor:pointer;font-size:.85rem;font-weight:700;color:var(--color-navy);">Concordia Decision Support estimates <span style="font-weight:400;font-size:.72rem;color:var(--warm-gray);">(manual reference — run per worker via ConcordiaPlan.org, not computed here)</span></summary>'
+    + '<div style="margin-top:10px;">' + blocks + '<p style="font-size:.7rem;color:var(--warm-gray);margin-top:6px;">Saved with the Save Salary &amp; Benefits Data button above.</p></div></details>';
+}
+function finConcordiaFieldChange(i, field, value) {
+  if (!_finSalaryRoster[i].concordia) _finSalaryRoster[i].concordia = {};
+  _finSalaryRoster[i].concordia[field] = value;
 }
 function finSalaryAddWorker() {
   _finSalaryRoster.push({ name: '', role: 'pastor', trackKey: '', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: finDefaultSelfEmployedFica('pastor'), hasDependents: false, accountCode: '' });
@@ -3213,6 +3273,7 @@ function finSalaryApplyToPlan() {
   _finPlanEdits[_finSalaryTargetCategory] = (totalCents / 100).toFixed(2);
   finToast('Applied $' + finFmtMoney(totalCents/100) + ' to the FY' + _finPlanTargetYear + ' Projected column — click Save Changes to keep it.');
   finRerenderPlanningPreserveFocus();
+  finRenderPlanning();
 }
 
 // ── Health Insurance Renewal Options (Concordia Plans quote #0560500326, effective 2027) ──────
@@ -3385,8 +3446,8 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
     ? '<div style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">FY' + _finPlanBaseYear + ' actual across matching accounts (' + healthAccounts.map(function(n){return esc(n.label);}).join(', ') + '): <b style="color:var(--charcoal);">$' + finFmtMoney(lastYearHealthActualCents/100) + '</b>' + (lastYearHealthBudgetCents ? ' (budgeted $' + finFmtMoney(lastYearHealthBudgetCents/100) + ')' : '') + ' — for comparison against the quote totals below.</div>'
     : '';
 
-  return '<div style="background:var(--linen);border-radius:8px;padding:12px 14px;margin-top:16px;">'
-    + '<div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Health Insurance Renewal Options <span style="font-weight:400;font-size:.72rem;color:var(--warm-gray);">(Concordia Plans quote #0560500326, effective ' + HEALTH_PLAN_QUOTE_2027.effectiveYear + ')</span></div>'
+  return '<div class="fin-card" style="margin-top:16px;">'
+    + '<div class="fin-card-title" style="font-size:18px;">Health Insurance Renewal Options <span style="font-family:var(--font-body);font-weight:400;font-size:.72rem;color:var(--warm-gray);">(Concordia Plans quote #0560500326, effective ' + HEALTH_PLAN_QUOTE_2027.effectiveYear + ')</span></div>'
     + lastYearHealthHtml
     + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">One group premium for the whole congregation, not a per-worker figure — Medical varies by plan option; Dental and Vision are the same across Renewal/Option 1/2/3 (only the old Current plan has a lower Dental rate).</p>'
     + '<label style="font-size:.72rem;color:var(--warm-gray);display:block;margin-bottom:8px;">Plan Option<br>' + optionSelect + '</label>'
@@ -3411,6 +3472,7 @@ function finHealthPlanApplyToPlan() {
   _finPlanEdits[_finHealthPlanTargetCategory] = (calc.totalCents / 100).toFixed(2);
   finToast('Applied $' + finFmtMoney(calc.totalCents/100) + ' to the FY' + _finPlanTargetYear + ' Projected column — click Save Changes to keep it.');
   finRerenderPlanningPreserveFocus();
+  finRenderPlanning();
 }
 
 // ── 3277 Ivanhoe Multi-Year Forecast (kept separate from Church Budget Planning — the property
