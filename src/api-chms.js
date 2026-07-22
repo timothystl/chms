@@ -4,8 +4,7 @@ import { isoWeekKey, handleUtilsApi } from './api-utils.js';
 import { handleHouseholdsApi } from './api-households.js';
 import { handleImportApi } from './api-import.js';
 import { handleReportsApi } from './api-reports.js';
-import { handlePeopleApi } from './api-people.js';
-import { handleSendInvite } from './api-member.js';
+import { handlePeopleApi, handleSendMemberInvite } from './api-people.js';
 import { handleGivingApi } from './api-giving.js';
 import { handleTuitionAidApi } from './api-tuition-aid.js';
 import { handleFinanceApi } from './api-finance.js';
@@ -430,11 +429,11 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     if (result) return result;
   }
 
-  // ── Member portal invite (admin/staff only) ────────────────────────────────
+  // ── Connect member invite (admin/staff/office/finance only) ────────────────
   const inviteMatch = seg.match(/^people[/](\d+)[/]invite$/);
   if (inviteMatch && method === 'POST') {
     if (!canEdit) return json({ error: 'Access denied' }, 403);
-    return handleSendInvite(req, env, parseInt(inviteMatch[1], 10));
+    return handleSendMemberInvite(env, parseInt(inviteMatch[1], 10));
   }
 
   // ── People / Archive / Brevo / Photos / Follow-ups → api-people.js ────────

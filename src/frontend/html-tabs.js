@@ -537,7 +537,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <!-- Old System Comparison Card -->
     <div class="import-card require-admin" style="margin-bottom:14px;" id="old-sys-compare-card">
       <h3>&#128202; Old System Comparison</h3>
-      <p>Upload a spreadsheet from a previous system to compare dates (baptism, confirmation, birthday, anniversary), email, phone, and address against what&#8217;s currently in Timothy ChMS. Identify missing or mismatched data before deciding what to patch.</p>
+      <p>Upload a spreadsheet from a previous system to compare dates (baptism, confirmation, birthday, anniversary), email, phone, and address against what&#8217;s currently in Connect. Identify missing or mismatched data before deciding what to patch.</p>
       <p style="font-size:.82rem;color:var(--warm-gray);margin-bottom:10px;">Accepts <strong>.csv</strong> (preferred) or <strong>.xlsx</strong> (Excel). To use Excel: File &#8594; Save As &#8594; CSV. Matches people by full name. After upload, map your column headers to the fields below, then run the comparison.</p>
       <input type="file" id="old-sys-file" accept=".csv,.xlsx,.xls,.tsv,.txt" style="display:none;" onchange="oldSysFileSelected(this)">
       <button class="btn-secondary" onclick="document.getElementById('old-sys-file').click()">&#128196; Choose Spreadsheet…</button>

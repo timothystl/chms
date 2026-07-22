@@ -2,6 +2,7 @@
 import { html, json, isAuthed, authCookieHeader, getAuthRole, getAuthInfo, hashPassword, verifyPassword } from './auth.js';
 import { handleChmsApi } from './api-chms.js';
 import { LOGIN_HTML } from './html-templates.js';
+import { randHex, authCardPage } from './api-utils.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts } from './api-emails.js';
 import { applyXmasMarketDefaults, handleVolunteerTemplates, handleSignupLinkPerson, handleSignupSendEmail, handleSchedulerVolunteersApi } from './api-scheduler.js';
 
@@ -14,7 +15,7 @@ function normalizeSlug(s) {
 
 // Bare single-segment routes the public worker already serves (or reserves for the
 // scheduler/admin/member surfaces) — a matching event slug would shadow the real route.
-const RESERVED_SLUGS = ['scheduler', 'chms', 'portal', 'admin', 'api', 'rsvp', 'volunteer', 'serve', 'email', 'member'];
+const RESERVED_SLUGS = ['scheduler', 'chms', 'portal', 'admin', 'api', 'rsvp', 'volunteer', 'serve', 'connect', 'email', 'member', 'member-setup'];
 
 export const SCHEDULER_KEYS = [
   'ws_people','ws_schedule_v2','ws_history','ws_last_served',
@@ -690,23 +691,17 @@ export async function handleApiMinistryRoles(env, url) {
 
 // ── Forgot password / reset (public) ─────────────────────────────────────────
 
-function _randHex(bytes) {
-  const a = new Uint8Array(bytes);
-  crypto.getRandomValues(a);
-  return Array.from(a).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
 async function _sendResetEmail(env, to, displayName, resetUrl) {
   const key = env.RESEND_API_KEY || '';
   const from = env.EMAIL_FROM || '';
   if (!key || !from) return { ok: false, error: 'Resend not configured' };
   const safeName = String(displayName || '').replace(/[&<>"]/g, '');
-  const text = `Hi ${safeName || 'there'},\n\nA password reset was requested for your Timothy ChMS account. ` +
+  const text = `Hi ${safeName || 'there'},\n\nA password reset was requested for your Connect account. ` +
     `Click the link below to set a new password. This link expires in 1 hour.\n\n${resetUrl}\n\n` +
     `If you didn't request this, ignore this email — your password won't change.\n\n— Timothy Lutheran Church`;
   const htmlBody = `<!DOCTYPE html><html><body style="font-family:Georgia,serif;background:#FAF7F0;margin:0;padding:32px 16px;">
     <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:40px 32px;border:1px solid #E8E0D0;">
-      <p style="font-size:1.1rem;color:#0A3C5C;font-weight:600;">Reset your Timothy ChMS password</p>
+      <p style="font-size:1.1rem;color:#0A3C5C;font-weight:600;">Reset your Connect password</p>
       <p style="color:#3D3530;line-height:1.6;">Hi ${safeName || 'there'},</p>
       <p style="color:#3D3530;line-height:1.6;">A password reset was requested for your account. Click the button below to set a new password. This link expires in 1 hour.</p>
       <p style="margin:24px 0;"><a href="${resetUrl}" style="display:inline-block;background:#1E2D4A;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Reset password</a></p>
@@ -717,7 +712,7 @@ async function _sendResetEmail(env, to, displayName, resetUrl) {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, subject: 'Reset your Timothy ChMS password', text, html: htmlBody,
+      body: JSON.stringify({ from, to, subject: 'Reset your Connect password', text, html: htmlBody,
         reply_to: env.REPLY_TO_EMAIL || 'office@timothystl.org' }),
     });
     if (res.ok) return { ok: true };
@@ -747,7 +742,7 @@ export async function handleForgotPassword(req, env) {
   ).bind(ident, ident).first().catch(() => null);
   if (!u || !u.email) return json({ ok: true });
 
-  const token = _randHex(32);
+  const token = randHex(32);
   await env.RSVP_STORE.put(`pw_reset:${token}`, JSON.stringify({
     user_id: u.id, username: u.username, ts: Date.now(),
   }), { expirationTtl: 3600 });
@@ -760,31 +755,10 @@ export async function handleForgotPassword(req, env) {
 // GET /admin/reset?token=... — serves the password-reset form.
 // POST /admin/reset — form-encoded {token, password, password2}; updates DB.
 export async function handleResetPassword(req, env, url) {
-  const page = (title, inner) => html(
-    `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>${title} — Timothy ChMS</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,300&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-    <style>:root{--navy:#1E2D4A;--teal:#2E7EA6;--gold:#C9973A;--cream:#F8F4EE;--muted:#8A8898;}
-      *{box-sizing:border-box;margin:0;padding:0;}
-      body{font-family:'DM Sans',sans-serif;background:var(--cream);display:flex;align-items:center;justify-content:center;min-height:100vh;}
-      .card{background:#fff;border-radius:16px;padding:2.5rem;max-width:380px;width:100%;box-shadow:0 4px 24px rgba(30,45,74,.12);}
-      .wm-display{font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:300;font-size:2.6rem;color:var(--navy);text-align:center;margin-bottom:.5rem;}
-      .wm-sub{font-size:10px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);text-align:center;margin-bottom:1.75rem;}
-      .field{margin-bottom:1rem;} label{display:block;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.2em;color:var(--navy);margin-bottom:.4rem;}
-      input{width:100%;padding:.7rem 1rem;border:1.5px solid rgba(30,45,74,.2);border-radius:8px;font-size:.95rem;font-family:inherit;outline:none;}
-      input:focus{border-color:var(--teal);}
-      .btn{width:100%;background:var(--navy);color:#fff;border:none;padding:.85rem;border-radius:8px;font-size:1rem;font-weight:500;cursor:pointer;margin-top:.5rem;}
-      .btn:hover{background:var(--teal);} .btn:disabled{opacity:.6;cursor:wait;}
-      .msg{padding:.75rem 1rem;border-radius:8px;margin-bottom:1rem;font-size:.9rem;}
-      .msg.err{background:#fceae8;color:#c0392b;} .msg.ok{background:#e8f6ed;color:#1d6b3a;}
-      a{color:var(--teal);font-size:.85rem;text-decoration:none;} a:hover{text-decoration:underline;}
-    </style></head><body><div class="card">
-      <div class="wm-display">Gather</div>
+  const page = (title, inner) => authCardPage(title, `<div class="wm-display">ChMS</div>
       <div class="wm-sub">Reset password</div>
       ${inner}
-      <div style="text-align:center;margin-top:1rem;"><a href="/chms">Back to sign in</a></div>
-    </div></body></html>`);
+      <div style="text-align:center;margin-top:1rem;"><a href="/chms">Back to sign in</a></div>`);
 
   if (req.method === 'GET') {
     const token = url.searchParams.get('token') || '';

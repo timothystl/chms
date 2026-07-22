@@ -1,7 +1,8 @@
 // Timothy Lutheran Church — Volunteer Sign-Up Worker
 // Deploy to: serve.timothystl.org (renamed 2026-07-20 from volunteer.timothystl.org — full
 // cutover, old hostname no longer resolves)
-// Admin at: chms.timothystl.org
+// Admin at: connect.timothystl.org (renamed 2026-07-22 from chms.timothystl.org, which
+// still resolves and 301-redirects here for old bookmarks)
 // Admin password is set via ADMIN_PASSWORD environment variable in Cloudflare Dashboard.
 // v2 — modular build (src/)
 
@@ -17,12 +18,10 @@ import {
 } from './src/api-scheduler.js';
 import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
 import { handleIntakeApi } from './src/api-intake.js';
+import { handleMemberSetup } from './src/api-people.js';
 import { LOGIN_HTML, PUBLIC_HTML, ADMIN_HTML } from './src/html-templates.js';
 import { CHMS_HTML, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from './src/html-chms.js';
-import { PORTAL_HTML, PORTAL_MANIFEST_JSON } from './src/portal-html.js';
 import { PRIVACY_HTML, TERMS_HTML } from './src/legal-pages.js';
-import { PORTAL_SW_JS } from './src/portal-sw-js.js';
-import { handleMemberApi, getMemberAuth } from './src/api-member.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts, centralDayOfWeek } from './src/api-emails.js';
 import { sendWebPush } from './src/push-sender.js';
 
@@ -133,7 +132,7 @@ async function sendScheduleReminders(env) {
     const result = await sendWebPush(sub, {
       title: 'Reminder: You\'re serving tomorrow!',
       body: 'Hi ' + (row.first_name || 'there') + ', you have a volunteer assignment this Sunday. See you at church!',
-      url: '/portal',
+      url: '/',
       tag: 'schedule-reminder-' + tomorrowISO,
     }, env).catch(() => ({ ok: false }));
 
@@ -154,7 +153,14 @@ async function _fetch(req, env) {
     const path = url.pathname.replace(/\/$/, '') || '/';
     const method = req.method.toUpperCase();
     const host = url.hostname;
-    const isChmsHost = host === 'chms.timothystl.org';
+    // Connect (2026-07-22) — connect.timothystl.org replaced chms.timothystl.org as the
+    // single hostname for the whole app (staff and members alike); role='member' accounts
+    // are limited to a filtered read-only view by the existing role-based tab-hiding in the
+    // frontend, not by a separate hostname (an earlier two-host design, Phase 1, was tried
+    // and dropped in favor of this simpler single-host approach — see CLAUDE.md). The old
+    // chms.timothystl.org hostname is kept alive below purely to 301-redirect bookmarks.
+    const isChmsHost = host === 'connect.timothystl.org';
+    const isLegacyChmsHost = host === 'chms.timothystl.org';
 
     // CORS preflight for scheduler backend routes
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: SCHED_CORS });
@@ -163,7 +169,7 @@ async function _fetch(req, env) {
       const fRes = await fetch('https://raw.githubusercontent.com/timothystl/chms/main/favicon.svg', { cf: { cacheEverything: true, cacheTtl: 86400 } });
       return new Response(fRes.ok ? fRes.body : '', { status: fRes.ok ? 200 : 404, headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' } });
     }
-    // App icons (Timothy ChMS mark) — proxied from the repo so they update on deploy.
+    // App icons (Connect mark) — proxied from the repo so they update on deploy.
     if (path.startsWith('/icons/') && method === 'GET') {
       const m = path.match(/^\/icons\/(icon-(?:16|32|180|192|512|512-maskable)\.png|tlc-gather-icon\.svg)$/);
       if (m) {
@@ -182,9 +188,17 @@ async function _fetch(req, env) {
     // integration setup (e.g. QuickBooks Online's app registration form requires these URLs).
     if (path === '/privacy' && method === 'GET') return html(PRIVACY_HTML);
     if (path === '/terms' && method === 'GET') return html(TERMS_HTML);
+    // Old chms.timothystl.org hostname → 301 to connect.timothystl.org (page views only,
+    // same treatment volunteer.timothystl.org→serve.timothystl.org would have gotten had
+    // that rename needed a hostname redirect — this one does, since staff have
+    // chms.timothystl.org bookmarked).
+    if (isLegacyChmsHost && method === 'GET' && (path === '/' || path === '/index.html' || path === '/chms')) {
+      return new Response(null, { status: 301, headers: { 'Location': 'https://connect.timothystl.org' + url.search } });
+    }
     if ((path === '/' || path === '/index.html') && method === 'GET') {
       if (isChmsHost) {
-        if (!await isAuthed(req, env)) return html(LOGIN_HTML);
+        const auth = await getAuthInfo(req, env);
+        if (!auth) return html(LOGIN_HTML);
         return html(CHMS_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
       }
       return html(PUBLIC_HTML);
@@ -207,6 +221,9 @@ async function _fetch(req, env) {
     if (path === '/admin/login' && method === 'POST') return handleAdminLogin(req, env);
     if (path === '/admin/forgot-password' && method === 'POST') return handleForgotPassword(req, env);
     if (path === '/admin/reset' && (method === 'GET' || method === 'POST')) return handleResetPassword(req, env, url);
+    // Connect member invite setup (Phase 2) — public, token-gated, same pattern as
+    // /admin/reset above.
+    if (path === '/member-setup' && (method === 'GET' || method === 'POST')) return handleMemberSetup(req, env, url);
     if (path === '/admin/logout') {
       return new Response(null, { status: 302, headers: {
         'Location': isChmsHost ? '/' : '/admin',
@@ -217,55 +234,16 @@ async function _fetch(req, env) {
       if (!await isAuthed(req, env)) return html(LOGIN_HTML);
       return new Response(null, { status: 302, headers: { 'Location': isChmsHost ? '/' : '/chms' } });
     }
-    // Permanent redirect: old volunteer.timothystl.org/chms → chms.timothystl.org
-    if (!isChmsHost && path === '/chms' && method === 'GET') {
-      return new Response(null, { status: 301, headers: { 'Location': 'https://chms.timothystl.org' } });
+    // Permanent redirect: old serve.timothystl.org/chms (or any other non-primary host) → connect.timothystl.org
+    if (!isChmsHost && !isLegacyChmsHost && path === '/chms' && method === 'GET') {
+      return new Response(null, { status: 301, headers: { 'Location': 'https://connect.timothystl.org' } });
     }
-    // ── Member portal ──────────────────────────────────────────────────
-    // SPA at /portal (no auth check — the SPA handles login client-side)
-    if (path === '/portal' || path === '/portal/') {
-      return html(PORTAL_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
-    }
-    // Verify token routes — handled server-side (renders set-password form)
-    if (path.startsWith('/portal/verify/')) {
-      try {
-        return await handleMemberApi(req, env, path, method);
-      } catch (e) {
-        console.error('Portal verify error [' + method + ' ' + path + ']:', e?.message, e?.stack);
-        return html('<p>Something went wrong. Please request a new invite link.</p>', 500);
-      }
-    }
-    if (path === '/portal.webmanifest') {
-      return new Response(PORTAL_MANIFEST_JSON, {
-        headers: { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=86400' }
-      });
-    }
-    if (path === '/portal-sw.js') {
-      return new Response(PORTAL_SW_JS, {
-        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache, no-store' }
-      });
-    }
-    // Member R2 photo proxy — uses tlc-member cookie instead of admin cookie
-    if (path.startsWith('/member/r2photo/') && method === 'GET') {
-      if (!(await getMemberAuth(req, env))) return new Response('Unauthorized', { status: 401 });
-      if (!env.PHOTOS) return new Response('Not configured', { status: 503 });
-      const r2Key = decodeURIComponent(path.slice('/member/r2photo/'.length));
-      if (!r2Key) return new Response('Missing key', { status: 400 });
-      const obj = await env.PHOTOS.get(r2Key);
-      if (!obj) return new Response('Not found', { status: 404 });
-      return new Response(obj.body, {
-        headers: { 'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg', 'Cache-Control': 'private, max-age=86400' }
-      });
-    }
-    // Member API (uses tlc-member cookie; no admin auth required)
-    if (path.startsWith('/member/')) {
-      try {
-        return await handleMemberApi(req, env, path, method);
-      } catch (e) {
-        console.error('Member API error [' + method + ' ' + path + ']:', e?.message, e?.stack);
-        return json({ error: 'Internal server error' }, 500);
-      }
-    }
+    // Note: the standalone /portal member system (separate tlc-member cookie, its own
+    // SPA) was retired 2026-07-20 in favor of the tiered role='member' login on
+    // connect.timothystl.org above — see CLAUDE.md's Connect Phase 1 entry. Its source
+    // (src/api-member.js, portal-html.js, portal-sw-js.js) is kept unimported/unrouted
+    // rather than deleted, since its invite-token/email-verification logic is meant to
+    // be adapted for the real member-tier invite flow in Phase 2.
     // Public intake endpoints (gated by X-Intake-Key header, NOT user session).
     // Called server-to-server from the timothystl.org admin worker.
     if (path.startsWith('/api/intake/')) {
@@ -287,9 +265,13 @@ async function _fetch(req, env) {
       }
     }
     // ── ChMS (People & Giving) ─────────────────────────────────────────
-    // Serve at root on chms.timothystl.org, or at /chms on any host (staging, etc.)
+    // Serve at root on connect.timothystl.org, or at /chms on any host (staging, etc.)
     if ((path === '/chms' || (isChmsHost && path === '/')) && method === 'GET') {
-      if (!await isAuthed(req, env)) return html(LOGIN_HTML);
+      const auth = await getAuthInfo(req, env);
+      if (!auth) return html(LOGIN_HTML);
+      if (auth.role === 'member') {
+        return new Response(null, { status: 302, headers: { 'Location': 'https://connect.timothystl.org/' } });
+      }
       return html(CHMS_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
     }
     if (path === '/chms.webmanifest') {
@@ -389,7 +371,7 @@ async function _fetch(req, env) {
     // Anything else that looks like a single bare path segment gets checked against
     // serve_events.slug before falling through to the (auth-gated) routes below —
     // this must stay a narrow allowlist-style match, not a general SPA catch-all.
-    if (!isChmsHost && method === 'GET' && /^\/[a-z0-9-]{1,64}$/.test(path)) {
+    if (!isChmsHost && !isLegacyChmsHost && method === 'GET' && /^\/[a-z0-9-]{1,64}$/.test(path)) {
       const evRow = await env.DB.prepare('SELECT id FROM serve_events WHERE slug=? AND hidden=0').bind(path.slice(1)).first();
       if (evRow) {
         return new Response(null, { status: 302, headers: { 'Location': '/#event-' + evRow.id, 'Cache-Control': 'no-store' } });
@@ -429,7 +411,7 @@ async function _fetch(req, env) {
       // links to it (confirmed: the only reference was in ADMIN_HTML, itself dead/unserved).
       // The embedded Scheduler tab inside ChMS (src/scheduler-inline.js) is now the only
       // supported way to use the scheduler — redirect any direct hit here into it.
-      return new Response(null, { status: 302, headers: { 'Location': 'https://chms.timothystl.org/#scheduler', 'Cache-Control': 'no-store' } });
+      return new Response(null, { status: 302, headers: { 'Location': 'https://connect.timothystl.org/#scheduler', 'Cache-Control': 'no-store' } });
     }
     return new Response('Not Found', { status: 404 });
 }

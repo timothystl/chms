@@ -6,14 +6,14 @@ Read this at the start of every session. Update NOTES.md (and this file if neede
 
 ## What This App Is
 
-**Timothy ChMS** — the Church Management System (ChMS) for Timothy Lutheran Church. Built on **Cloudflare Workers + D1 (SQLite)**. Single-page admin app assembled from per-tab modules under `src/frontend/` (shell in `src/html-chms.js`). API routes live in domain modules under `src/` — all delegated from `src/api-chms.js` — plus `src/api-admin.js` (auth, users, scheduler).
+**Connect** — the Church Management System for Timothy Lutheran Church, used by both staff (full admin access) and members (a filtered, read-only directory view via `role='member'`, tab-hidden in the frontend — see the Connect section under Queued Items). Built on **Cloudflare Workers + D1 (SQLite)**. Single-page admin app assembled from per-tab modules under `src/frontend/` (shell in `src/html-chms.js`). API routes live in domain modules under `src/` — all delegated from `src/api-chms.js` — plus `src/api-admin.js` (auth, users, scheduler).
 
 The same Worker also serves the **public volunteer signup site**, branded **Serve** at `serve.timothystl.org`, assembled from per-ministry modules under `src/public/`.
 
 **Live at:**
-- `https://chms.timothystl.org` — admin app
+- `https://connect.timothystl.org` — the app, for both staff and members. `https://chms.timothystl.org` (the app's old name/hostname) still resolves and 301-redirects here — see CONN6 under Queued Items.
 - `https://serve.timothystl.org` — public ministry signup, branded "Serve". Renamed 2026-07-20 from `volunteer.timothystl.org` as a full cutover (not a redirect) — the old hostname's Cloudflare route was renamed in place rather than kept alongside the new one, since nothing was publicized under it yet. `volunteer.timothystl.org` no longer resolves at all.
-- Brand: **Timothy ChMS** (was "TLC Gather" — renamed 2026-07-20 as part of the same pass, since "Gather" wasn't a name anyone but the admin actually knew and nothing about the app was public yet). Navy/teal/gold three-pillar system: People / Ministry / Giving. PWA icons under `icons/` (icon files themselves not renamed, just the manifest name/short_name and page titles).
+- Brand: **Connect** (was "Timothy ChMS," renamed 2026-07-22 alongside the `connect.timothystl.org` hostname replacing `chms.timothystl.org` — see CONN6; before that, "TLC Gather," renamed 2026-07-20). Navy/teal/gold three-pillar system: People / Ministry / Giving. PWA icons under `icons/` (icon files themselves not renamed, just the manifest name/short_name and page titles).
 
 ---
 
@@ -423,7 +423,7 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [x] **SW17** — Giving Trend chart logic was duplicated (`js-reports.js` and `js-attendance.js`) and had already drifted (one had a hardcoded Christmas-marker year, the other derived it correctly). Fixed: Attendance tab's resize-drag handler now calls the single shared `renderGivingTrendChart()` instead of a second hand-inlined copy; the underlying hardcoded-year bug in the shared renderer itself was also fixed (now derives from `d.years`) so consolidating didn't just make the bug universal. Done 2026-07-12 (v1.9.5). (`src/frontend/js-attendance.js`, `src/frontend/js-reports.js`)
 - [ ] **RD1** — Three separate CSS token systems coexist in the admin app (legacy `--steel-anchor`/`--linen`, newer `--warm-*`, and a distinct `--ev-*` palette for Volunteers/Events) — a redesign needs to reconcile all three. **User decision 2026-07-12: adopt Palette A (navy/teal/gold brand tokens) as the sole system; retire the others.** In progress.
 - [ ] **RD2** — Two incompatible theming mechanisms: `js-volunteers.js` uses real CSS classes; most other tabs (`js-giving.js`, `js-reports.js`, `js-attendance.js`, `js-settings.js`, most of `js-people.js`) build UI via inline `style="..."` strings. **User decision 2026-07-12: use the system-wide palette/class approach everywhere; stop hand-writing inline colors.** In progress.
-- [x] **RD3** — Closed 2026-07-12. The standalone `/scheduler` page shipped its own distinct "Steel & Amber" visual language, inconsistent with the rest of the app. **User decision: retire the standalone route — only the embedded ChMS tab is used.** Done — `/scheduler` now 302-redirects to the embedded tab (`https://chms.timothystl.org/#scheduler`); `/scheduler/lcms_calendar.json` (a live data dependency of the embedded tab) still works. (v1.9.5)
+- [x] **RD3** — Closed 2026-07-12. The standalone `/scheduler` page shipped its own distinct "Steel & Amber" visual language, inconsistent with the rest of the app. **User decision: retire the standalone route — only the embedded ChMS tab is used.** Done — `/scheduler` now 302-redirects to the embedded tab (`https://connect.timothystl.org/#scheduler`, updated 2026-07-22 from `chms.timothystl.org` — see CONN6); `/scheduler/lcms_calendar.json` (a live data dependency of the embedded tab) still works. (v1.9.5)
 - [ ] **RD4** — Hardcoded hex colors instead of design tokens are pervasive across chart code (`js-reports.js`/`js-attendance.js`) and public ministry pages — a brand-token change would need a manual find/replace, not a variable swap. **User decision 2026-07-12: eliminate inline hex colors app-wide (same decision as RD2).** In progress — 171 hardcoded hex values identified (138 admin + 33 public).
 - [x] **RD5** — Two giving-chart copies (SW17) consolidated 2026-07-12. Person-renderer consolidation (3 implementations in `js-people.js`) explicitly deferred to the actual redesign — unlike the chart, these are legitimately different layouts with no single canonical form, so merging now risks doing the work twice.
 
@@ -432,6 +432,105 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 ---
 
 ## Queued Items (add new ones here during sessions)
+
+### Connect — Tiered Member Login (2026-07-20, in progress, phased)
+Follow-up to the App Family Rename below. Two different member-facing mechanisms existed
+in this codebase: (1) a standalone `/portal` mini-app with its own `tlc-member` cookie,
+own minimal UI, no tab/permission tiers; (2) `app_users.role='member'` — a role tier
+*inside the real ChMS admin app* that already does exactly the Breeze-style "level of
+user opens up more tabs" model (filtered, read-only People/directory view, all writes
+blocked, other tabs hidden via a `role-member` CSS class) — this already existed in the
+code but nothing populated real accounts into it. **Decision: build on (2), retire (1).**
+No small standalone app — Connect is a tiered login into the same app, not a separate product.
+- [x] **CONN1 — Phase 1: Foundation (superseded by CONN6, 2026-07-22 — see below).** Added
+  `connect.timothystl.org` as a new route on
+  the same Worker (`wrangler.toml`). New `isConnectHost` check in `tlc-volunteer-worker.js`:
+  the root path and `/chms` alias now look up the caller's real role and enforce the
+  split — a `role='member'` account hitting `chms.timothystl.org` gets redirected to
+  `connect.timothystl.org`, and any non-member role hitting `connect.timothystl.org` gets
+  redirected back to `chms.timothystl.org`. Both hostnames serve the exact same
+  `CHMS_HTML`/login shell; the existing `role-member` tab-hiding in the frontend is what
+  actually restricts what a member sees, unchanged. **This dual-host design caused real
+  confusion adding the second Cloudflare route and was dropped two days later in favor of a
+  single-host replacement — see CONN6.** Retired the standalone `/portal`
+  system: removed all its routes (`/portal`, `/portal/verify/*`, `/portal.webmanifest`,
+  `/portal-sw.js`, `/member/*`, `/member/r2photo/*`) and the "Invite to Portal" trigger
+  (`people/:id/invite` endpoint + the People-tab button that called it) — that whole flow
+  pointed at the now-unrouted `/portal/verify/` and would have silently sent broken invite
+  emails otherwise. Its source (`src/api-member.js`, `src/portal-html.js`,
+  `src/portal-sw-js.js`) was deliberately **not deleted** — left unimported/unrouted so
+  its invite-token/email-verification logic can be adapted for the real Phase 2 invite
+  flow instead of rewritten from scratch. One known side effect: the scheduler's
+  "you're serving tomorrow" push-notification reminder (`tlc-volunteer-worker.js`,
+  queries `app_users.push_subscription`) will silently stop finding any subscribers,
+  since the only push-subscription flow lived in the now-retired portal's service worker
+  — this was never populated in practice (portal was never publicly launched), so nothing
+  regresses for a real user; just flagging it so it isn't mysterious later. Added `connect`
+  to `RESERVED_SLUGS`. Done 2026-07-20 (v1.41.0). (`wrangler.toml`, `tlc-volunteer-worker.js`,
+  `src/api-chms.js`, `src/api-admin.js`, `src/frontend/js-people.js`)
+- [x] **CONN2 — Phase 2: Real invite flow.** New `POST /admin/api/people/:id/invite`
+  (canEdit/staff+ only) generates a 7-day token via `RSVP_STORE`, same pattern as the
+  existing forgot-password flow — not the old `/portal` system's D1-table tokens, and not
+  created-up-front: the `app_users` row is only inserted (or reactivated, if the person
+  already has one) when the invited person actually completes setup, so an invite that's
+  never opened never leaves a half-account with an unusable password. New public
+  `GET`/`POST /member-setup?token=...` page (`handleMemberSetup`) collects the password and
+  activates the account as `role='member'`, `username` defaulting to the person's email.
+  Restored the People-tab "Invite to Connect" button (removed in Phase 1) pointing at the
+  same endpoint. Extracted the shared unauth token-page shell (`authCardPage`/`escLite`/
+  `randHex`) into `api-utils.js` so both this and `handleResetPassword` use it — also fixed
+  a leftover rebrand miss found in the process (`handleResetPassword`'s page still said
+  "Gather" instead of "ChMS"). The invite/setup functions live in `api-people.js`, not
+  `api-admin.js`, specifically to avoid a circular import (`api-admin.js` → `api-chms.js` →
+  back to `api-admin.js`) that adapting the old code in place would have created.
+- [x] **CONN3 — Phase 2: Security pass on the member-role People view.** Found a real gap,
+  not just a frontend one: the person-detail endpoint already redacted
+  address/phone/email/dob/anniversary per each person's own `dir_hide_*` opt-out, but still
+  spread the *entire* row — including `notes` (free-text, staff/pastoral) and `tags`
+  (staff-assigned labels) — to member-role viewers. The **list** endpoint (the one that
+  actually powers the directory) had no redaction at all, not even the `dir_hide_*`
+  opt-outs. New `memberSafeView()` in `api-people.js` is an explicit allowlist (not a
+  blacklist), so a future new `people` column defaults to *not* being exposed to members
+  until someone deliberately adds it — applied to both the list and detail endpoints; tag
+  queries are now skipped entirely (not fetched then discarded) for member-role requests.
+  Verified with a Node harness against real SQLite: confirmed `notes`/`breeze_id`/
+  `locally_edited`/`tags` are absent from the member-role JSON response, and that
+  `dir_hide_phone` correctly blanks a phone number in the list view (previously leaked).
+- [x] **CONN4 — Branding differentiation, closed via CONN6.** Resolved not by giving
+  `connect.timothystl.org` a separate identity alongside "Timothy ChMS" (the dual-host
+  premise this item assumed), but by the whole product renaming to "Connect" — see CONN6.
+- [x] **CONN5 — Manual Cloudflare follow-up, superseded by CONN6's own follow-up.** The
+  dual-host `connect.timothystl.org` Route added under CONN1 is being replaced by
+  `connect.timothystl.org` as the primary Custom Domain — see CONN6's own Cloudflare step.
+
+### CONN6 — Single-host replacement: connect.timothystl.org replaces chms.timothystl.org (2026-07-22)
+The CONN1 two-host design (chms.timothystl.org for staff, connect.timothystl.org for
+members, with role-based redirects keeping each on their own host) caused real confusion
+adding the second Cloudflare route — including a brief production DNS-caching-related
+outage on `chms.timothystl.org` while the second route was being added — and was dropped
+two days later for something simpler. **`connect.timothystl.org` now fully replaces
+`chms.timothystl.org`** as the single hostname for the whole app, both staff and members —
+the existing `role='member'` tab-hiding in the frontend (unrelated to hostname) is what
+limits what a member sees, same as it always was meant to. No more dual-host redirect
+logic. `chms.timothystl.org` is kept alive purely as a 301 redirect to
+`connect.timothystl.org` (new `isLegacyChmsHost` check in `tlc-volunteer-worker.js`,
+mirroring the `volunteer.timothystl.org`→`serve.timothystl.org` pattern), since staff have
+it bookmarked from months of daily use. `wrangler.toml`: `connect.timothystl.org` is now
+the primary Custom Domain (`custom_domain = true`); `chms.timothystl.org` is now a Route
+(`custom_domain = false`) purely so the Worker still receives requests on it to redirect.
+Full rebrand from "Timothy ChMS" to "Connect": page titles, PWA manifest name/short_name,
+login page (`LOGIN_HTML`'s wordmark), password-reset email copy, `EMAIL_FROM`, the
+operator manual, and `src/legal-pages.js` — which needed a real content rewrite, not just
+a name swap, since its old text said the system was "not offered to or used by the general
+public" and "solely for use by staff and volunteers," both now inaccurate now that member
+accounts are a real, intended tier of the same app. Done 2026-07-22 (v1.54.0).
+**Still needed, manual, outside code, flagged for an admin**: in the Cloudflare dashboard,
+Workers & Pages → `tlc-chms` → Domains → **`+ Add Domain`** → `connect.timothystl.org` —
+purely additive, does not require touching or removing the existing `chms.timothystl.org`
+entry. (`tlc-volunteer-worker.js`, `wrangler.toml`, `src/html-templates.js`,
+`src/html-chms.js`, `src/legal-pages.js`, `src/api-admin.js`, `src/api-utils.js`,
+`src/frontend/html-head.js`, `src/frontend/html-tabs.js`, `src/frontend/js-export-import.js`,
+`src/frontend/js-core.js`, `manual.html`)
 
 ### Branding — App Family Rename (2026-07-20)
 Prompted by a design review of a proposed "app family" branding concept across the church's
@@ -852,7 +951,7 @@ Run through this at the end of any session before pushing, or at the start of a 
 - All modals have specific IDs (e.g. `person-modal`, `hh-modal`). There is no generic `modal-overlay`. Use `openModal(id)` / `closeModal(id)`.
 - DEPLOY_VERSION is at the top of `src/frontend/js-core.js` (moved from `html-chms.js` after IN3 split; now a plain `export const` since v1.35.0, not just a string inside the served script — see the app-JS-caching Architecture Note above). Bump it on every commit that changes the frontend. Format: `major.minor.patch` semver — patch for fixes, minor for new features, major for breaking changes. Started at `1.0.0` (2026-06-01, formerly v233). **Since v1.35.0 this bump is load-bearing, not just cosmetic**: it's the cache-busting query param on `/admin/app-core.js`/`/admin/app-ext.js`, so forgetting it means a JS-only change won't actually reach returning visitors' browsers even though the deploy succeeds.
 - **Editing serve.timothystl.org** (formerly volunteer.timothystl.org): do NOT search/edit `src/html-templates.js` for ministry copy — the public page is assembled from `src/public/` modules. To tweak a ministry, edit `src/public/ministries/<name>.js` directly. Global CSS lives in `src/public/head.js`; all JS (form handlers, routing) in `src/public/scripts.js`.
-- **Brand tokens** (Timothy ChMS): `--color-navy:#1E2D4A`, `--color-teal:#2E7EA6`, `--color-gold:#C9973A`, `--color-cream:#F8F4EE`. Fonts: Cormorant Garamond (display) + DM Sans (head/body). Three-pillar pill system in topbar driven by `pillars` map in `js-core.js` `showTab()`.
+- **Brand tokens** (Connect): `--color-navy:#1E2D4A`, `--color-teal:#2E7EA6`, `--color-gold:#C9973A`, `--color-cream:#F8F4EE`. Fonts: Cormorant Garamond (display) + DM Sans (head/body). Three-pillar pill system in topbar driven by `pillars` map in `js-core.js` `showTab()`.
 - **member_type** is stored lowercased. Both Breeze write paths (per-person at line ~2442, bulk at line ~2777 of `api-import.js`) call `.toLowerCase()` before binding; a defensive `UPDATE … SET member_type=LOWER(member_type)` runs at end of each sync batch as a safety net. Frontend filters use `LOWER()` comparison.
 
 ---

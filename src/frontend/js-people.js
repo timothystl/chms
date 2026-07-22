@@ -600,7 +600,6 @@ function showProfile(p) {
   if (fnEl) fnEl.textContent = displayName;
   var bdEl = document.getElementById('pv-badge');
   var mt = p.member_type||'visitor';
-  var mtL = mt.toLowerCase();
   if (bdEl) {
     var statusHtml = '';
     if (p.status === 'archived') statusHtml = ' <span style="font-size:.7rem;padding:2px 8px;border-radius:99px;background:#8b735522;color:#8b7355;border:1px solid #8b735544;">Archived</span>';
@@ -619,8 +618,8 @@ function showProfile(p) {
   var saEl = document.getElementById('pv-status-actions');
   if (saEl && _userRole !== 'member') {
     var pStatus = p.status || 'active';
-    var inviteBtn = (mtL === 'member' && pStatus === 'active' && p.email)
-      ? '<button class="btn-secondary role-admin role-staff" style="font-size:.76rem;padding:3px 9px;color:var(--sky-steel);" onclick="sendPortalInvite('+p.id+')">&#128231; Invite to Portal</button>'
+    var inviteBtn = (mt.toLowerCase() === 'member' && pStatus === 'active' && p.email)
+      ? '<button class="btn-secondary role-admin role-staff" style="font-size:.76rem;padding:3px 9px;color:var(--sky-steel);" onclick="sendConnectInvite('+p.id+')">&#128231; Invite to Connect</button>'
       : '';
     if (pStatus === 'active') {
       saEl.innerHTML = inviteBtn
@@ -2239,7 +2238,7 @@ function deletePerson() {
     .then(function() { closeModal('person-modal'); loadPeople(); })
     .catch(function(e) { alert('Delete failed: ' + (e && e.message ? e.message : 'Server error. Please try again.')); });
 }
-function sendPortalInvite(id) {
+function sendConnectInvite(id) {
   api('/admin/api/people/' + id + '/invite', {method:'POST'}).then(function(r) {
     if (r && r.ok) alert('Invite sent to ' + (r.email || 'their email address') + '. The link expires in 7 days.');
     else alert('Error: ' + ((r && r.error) || 'Could not send invite. Check that this person has an email address.'));
