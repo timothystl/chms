@@ -127,6 +127,16 @@ Added 2026-04-15, phased 2026-04-15.
 
 ---
 
+### 2026-07-22 (v1.59.0 — Finance Workspace redesign, Phase 4: Planning tab restyle)
+Fourth phase of the Finance Workspace redesign (see FIN27 in CLAUDE.md). Restyle + one new additive card — the budget builder's actual generate/save/commit logic and data model are untouched.
+- Budget builder table: cream header band matching Church Report's Phase 2 treatment, columns reordered to match the handoff (Category / FY Budget / FY Actual / FY Plan / Δ%), a new **Δ%** column (`(Projected − Budget) / Budget`, terracotta above +4%, green below 0%, muted otherwise — the handoff's own spec), and the editable Plan input restyled with the shared `.fin-editable-input` class from Phase 1.
+- New **"FY[target] Projected Net" navy card** to the right of the table (table + actions on the left, card on the right — the handoff's two-column layout), showing projected revenue/planned expenses/surplus-or-deficit, computed from the exact same `projectedRevenueCents`/`projectedExpenseCents` the table's own subtotal rows already use — can't disagree with the table above it.
+- New **Three-Year Outlook** card (`finRenderPlanningOutlook()`) — target year + 3 forward years as a simple bar row (green surplus / terracotta deficit), income growing 2.5%/yr and expenses 3%/yr beyond the target year, per the handoff's own stated assumption (not independently derived — flagged as such in the card's caption). New unit tests lock in the compounding math.
+- Salary Calculator and Health Insurance cards are unchanged in this phase — they're moving into their own Compensation tab in Phase 5, not being restyled in place here.
+- `npm test` (198/198, 2 new tests), `node --check` on both built app-JS bundles, div-balance check on the built `CHMS_HTML`. **Not verified in a live browser.**
+- **Next**: Compensation split out of Planning into its own tab, restyled, real LCMS/Concordia math unchanged, plus the new manual Concordia Decision Support reference block per worker.
+(`src/frontend/js-finance.js`, `src/frontend/js-core.js`, `test/finance-planning-outlook.test.js`)
+
 ### 2026-07-22 (v1.58.0 — Finance Workspace redesign, Phase 3: Property tab restyle)
 Third phase of the Finance Workspace redesign (see FIN27 in CLAUDE.md). Restyle + one genuinely new derived figure — no existing sub-view removed.
 - New `finComputePropertyKpis(d)` / `finRenderKpiGrid(kpis)` — extracted from Phase 1's Overview-Property renderer so the same 4 figures (Occupancy / Monthly Net avg / Annual Net / Reserves On-Hand) back both the Overview tab's Property domain AND a new KPI row at the top of the Property tab itself, guaranteeing the two can never disagree.

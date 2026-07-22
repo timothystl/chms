@@ -2621,6 +2621,15 @@ function finRenderPlanning() {
     });
   })(_finPlanBaseTree);
 
+  // Δ% — (Projected − FY Budget) / FY Budget, matching the Finance Workspace handoff's Planning
+  // column: terracotta when spending is projected to grow more than 4%, green when it's projected
+  // to shrink, muted otherwise. No budget to compare against (a brand-new line) renders as "—".
+  function deltaCell(budgetCents, projectedCents) {
+    if (!budgetCents) return '<td style="text-align:right;padding:4px 8px;color:var(--warm-gray);">—</td>';
+    var pct = (projectedCents - budgetCents) / Math.abs(budgetCents) * 100;
+    var color = pct > 4 ? 'var(--danger)' : pct < 0 ? 'var(--sage-text)' : 'var(--warm-ink-label)';
+    return '<td style="text-align:right;padding:4px 8px;color:' + color + ';font-weight:600;">' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%</td>';
+  }
   function walk(nodes) {
     (nodes || []).forEach(function(node) {
       var planRow = finPlanFindRow(node.path);
@@ -2631,22 +2640,24 @@ function finRenderPlanning() {
       var projectedCell = bold
         ? '<td style="text-align:right;padding:4px 8px;">' + (projCents ? '$' + finFmtMoney(projCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
         : '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
-            ? '<input type="number" step="0.01" value="' + cellVal + '" style="width:100px;text-align:right;" oninput="finPlanEditCell(' + volJsAttr(node.path) + ',this.value)">'
+            ? '<input type="number" step="0.01" value="' + cellVal + '" class="fin-editable-input" style="width:100px;text-align:right;" oninput="finPlanEditCell(' + volJsAttr(node.path) + ',this.value)">'
             : (cellVal !== '' ? '$' + finFmtMoney(parseFloat(cellVal)) : '<span style="color:var(--warm-gray);">—</span>')) + '</td>';
-      rowsHtml.push('<tr' + (bold ? ' style="font-weight:600;"' : '') + '>'
+      rowsHtml.push('<tr' + (bold ? ' style="font-weight:700;"' : '') + '>'
         + '<td style="padding:4px 8px 4px ' + (10 + node.depth * 16) + 'px;">' + esc(node.label) + '</td>'
         + '<td style="text-align:right;padding:4px 8px;">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
         + '<td style="text-align:right;padding:4px 8px;">$' + finFmtMoney(node.totalActualCents/100) + '</td>'
         + projectedCell
+        + deltaCell(node.totalBudgetCents, projCents)
         + '</tr>');
       walk(node.children);
     });
   }
   function subtotalRow(label, budgetCents, hasAnyBudget, actualCents, projectedCents) {
-    return '<tr style="font-weight:700;border-top:2px solid var(--border);"><td style="padding:5px 8px;">' + label + '</td>'
+    return '<tr style="font-weight:700;background:var(--warm-surface-page);border-top:1px solid var(--warm-border);"><td style="padding:5px 8px;">' + label + '</td>'
       + (hasAnyBudget ? '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(budgetCents/100) + '</td>' : '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">—</td>')
       + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(actualCents/100) + '</td>'
       + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(projectedCents/100) + '</td>'
+      + deltaCell(hasAnyBudget ? budgetCents : 0, projectedCents)
       + '</tr>';
   }
   var revenueRoots = _finPlanBaseTree.filter(function(n) { return FIN_REVENUE_CLASSES[n.classification]; });
@@ -2667,11 +2678,19 @@ function finRenderPlanning() {
     + (_finPlanBaseNet.budgetCents ? netCell(_finPlanBaseNet.budgetCents) : '<td style="padding:5px 8px;text-align:right;color:var(--warm-gray);">—</td>')
     + netCell(_finPlanBaseNet.actualCents)
     + netCell(projectedNetCents)
+    + '<td></td>'
     + '</tr>';
 
-  var tableHtml = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
-    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:5px 8px;">Account</th><th style="text-align:right;padding:5px 8px;">FY' + _finPlanBaseYear + ' Budget</th><th style="text-align:right;padding:5px 8px;">FY' + _finPlanBaseYear + ' Actual</th><th style="text-align:right;padding:5px 8px;">FY' + _finPlanTargetYear + ' Projected</th></tr></thead>'
-    + '<tbody>' + (rowsHtml.join('') || '<tr><td colspan="4" style="padding:10px;color:var(--warm-gray);">No Church Budget data found for ' + _finPlanBaseYear + ' — sync or import that year first (Church Report tab).</td></tr>')
+  var tableHtml = '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;">'
+    + '<table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead><tr style="background:var(--warm-surface-header);">'
+    + '<th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Category</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanBaseYear + ' Bud</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanBaseYear + ' Actual</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanTargetYear + ' Plan</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">&Delta;%</th>'
+    + '</tr></thead>'
+    + '<tbody>' + (rowsHtml.join('') || '<tr><td colspan="5" style="padding:10px;color:var(--warm-gray);">No Church Budget data found for ' + _finPlanBaseYear + ' — sync or import that year first (Church Report tab).</td></tr>')
     + (rowsHtml.length ? netRow : '') + '</tbody></table></div>';
 
   var actionsHtml = isAdminUI
@@ -2684,7 +2703,51 @@ function finRenderPlanning() {
       + '<div id="fin-plan-msg" style="font-size:.75rem;color:var(--warm-gray);margin-top:6px;"></div>'
     : '';
 
-  el.innerHTML = yearPickerHtml + tableHtml + actionsHtml + finRenderSalaryCalculator(isAdminUI) + finRenderHealthInsuranceCalculator(isAdminUI);
+  var projectedNetCard = '<div class="fin-navy-card">'
+    + '<div class="fin-card-title" style="font-size:18px;">FY' + _finPlanTargetYear + ' Projected Net</div>'
+    + '<div class="fin-navy-label" style="margin-top:10px;">Projected Revenue</div><div style="font-size:18px;font-weight:700;">$' + finFmtMoney(projectedRevenueCents/100) + '</div>'
+    + '<div class="fin-navy-label" style="margin-top:8px;">Planned Expenses</div><div style="font-size:18px;font-weight:700;">$' + finFmtMoney(projectedExpenseCents/100) + '</div>'
+    + '<div style="border-top:1px solid rgba(255,255,255,.3);margin:10px 0;"></div>'
+    + '<div class="fin-navy-label">Surplus / (Deficit)</div><div class="fin-navy-val ' + (projectedNetCents >= 0 ? 'positive' : 'negative') + '">' + finFmtSigned(projectedNetCents) + '</div>'
+    + '</div>';
+
+  el.innerHTML = yearPickerHtml
+    + '<div style="display:grid;grid-template-columns:1.35fr 1fr;gap:22px;align-items:start;margin-bottom:22px;">'
+    + '<div>' + tableHtml + actionsHtml + '</div>'
+    + projectedNetCard
+    + '</div>'
+    + finRenderPlanningOutlook(projectedRevenueCents, projectedExpenseCents)
+    + finRenderSalaryCalculator(isAdminUI) + finRenderHealthInsuranceCalculator(isAdminUI);
+}
+// Three-year outlook (Finance Workspace handoff, Planning section): current target year plus 3
+// forward years, income growing 2.5%/yr and expenses 3%/yr beyond the target year — the handoff's
+// own stated assumption, not independently derived. A quick "does this trend stay healthy"
+// glance, not a substitute for actually re-planning each year in the table above.
+function finRenderPlanningOutlook(baseRevenueCents, baseExpenseCents) {
+  var years = [];
+  var rev = baseRevenueCents, exp = baseExpenseCents;
+  for (var i = 0; i < 4; i++) {
+    years.push({ year: _finPlanTargetYear + i, revenueCents: rev, expenseCents: exp, netCents: rev - exp });
+    rev = Math.round(rev * 1.025);
+    exp = Math.round(exp * 1.03);
+  }
+  var maxAbs = Math.max(1, Math.max.apply(null, years.map(function(y) { return Math.abs(y.netCents); })));
+  var barsHtml = years.map(function(y) {
+    var pct = Math.abs(y.netCents) / maxAbs * 100;
+    var positive = y.netCents >= 0;
+    return '<div style="flex:1;text-align:center;">'
+      + '<div style="height:120px;display:flex;align-items:flex-end;justify-content:center;">'
+      + '<div style="width:60%;height:' + Math.max(2, pct) + '%;border-radius:4px 4px 0 0;background:' + (positive ? 'var(--sage)' : 'var(--danger)') + ';"></div>'
+      + '</div>'
+      + '<div style="font-size:.8rem;font-weight:700;margin-top:6px;color:' + (positive ? 'var(--sage-text)' : 'var(--danger)') + ';">' + finFmtSigned(y.netCents) + '</div>'
+      + '<div style="font-size:.75rem;color:var(--warm-meta);">FY' + y.year + '</div>'
+      + '</div>';
+  }).join('');
+  return '<div class="fin-card" style="margin-bottom:22px;">'
+    + '<div class="fin-card-title" style="font-size:18px;">Three-Year Outlook</div>'
+    + '<div class="fin-card-sub">Income +2.5%/yr, expenses +3%/yr after FY' + _finPlanTargetYear + '.</div>'
+    + '<div style="display:flex;gap:10px;">' + barsHtml + '</div>'
+    + '</div>';
 }
 function finPlanChangeTargetYear() {
   var y = parseInt(document.getElementById('fin-plan-target-year').value, 10);
