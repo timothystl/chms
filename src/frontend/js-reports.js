@@ -1141,7 +1141,8 @@ function runGivingStatement() {
         + '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:16px;font-style:italic;">No goods or services were provided in exchange for these contributions. Please retain for your tax records.</div>'
         + '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">'
         + '<button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print</button>'
-        + '<button class="btn-secondary" style="font-size:.8rem;" onclick="runGivingStatementLetter()">View Letter</button>'
+        + '<button class="btn-secondary" style="font-size:.8rem;" onclick="runGivingStatementLetter(&#39;year_end&#39;)">View Letter</button>'
+        + '<button class="btn-secondary" style="font-size:.8rem;" onclick="runGivingStatementLetter(&#39;midyear&#39;)">Mid-Year Update Letter</button>'
         + '</div></div>'
       );
     });
@@ -1174,8 +1175,9 @@ function runGivingStatement() {
       + '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:16px;font-style:italic;">No goods or services were provided in exchange for these contributions. Please retain for your tax records.</div>'
       + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">'
       + '<button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print</button>'
-      + '<button class="btn-secondary" style="font-size:.8rem;" onclick="runGivingStatementLetter()">View Letter</button>'
-      + '<button class="btn-secondary" style="font-size:.8rem;" onclick="emailGivingLetter()">&#9993; Email Letter</button>'
+      + '<button class="btn-secondary" style="font-size:.8rem;" onclick="runGivingStatementLetter(&#39;year_end&#39;)">View Letter</button>'
+      + '<button class="btn-secondary" style="font-size:.8rem;" onclick="emailGivingLetter(&#39;year_end&#39;)">&#9993; Email Letter</button>'
+      + '<button class="btn-secondary" style="font-size:.8rem;" onclick="runGivingStatementLetter(&#39;midyear&#39;)">Mid-Year Update Letter</button>'
       + '<button class="btn-secondary" style="font-size:.8rem;" onclick="downloadStatement()">Download CSV</button>'
       + '</div>'
       + '</div>'
@@ -1194,9 +1196,11 @@ function buildGiftTable(entries, mode) {
   }).join('');
   return '<table style="width:100%;border-collapse:collapse;font-size:.9rem;"><thead style="background:#f5f5f5;">' + header + '</thead><tbody>' + rows + '</tbody></table>';
 }
-function renderLetterHTML(d) {
+function renderLetterHTML(d, letterType) {
   var cfg = _churchConfig;
-  var tpl = cfg.giving_letter_template || DEFAULT_LETTER_TEMPLATE;
+  var tpl = letterType === 'midyear'
+    ? (cfg.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE)
+    : (cfg.giving_letter_template || DEFAULT_LETTER_TEMPLATE);
   var name, total, year;
   if (d._mode === 'household') {
     name = (d.household || {}).name || 'Friend';
@@ -1211,32 +1215,35 @@ function renderLetterHTML(d) {
   var giftTable = buildGiftTable(d.entries || [], d._mode);
   var ein = cfg.church_ein || '';
   var einLine = ein ? 'Our EIN/Tax ID is ' + ein + '. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.' : 'No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.';
+  var givingUrl = cfg.online_giving_url || '';
   var today = new Date().toLocaleDateString('en-US', {year:'numeric',month:'long',day:'numeric'});
   var letter = tpl
     .replace(/\{\{name\}\}/g, name)
     .replace(/\{\{year\}\}/g, year)
     .replace(/\{\{total\}\}/g, total)
     .replace(/\{\{ein\}\}/g, ein)
+    .replace(/\{\{giving_url\}\}/g, givingUrl)
     .replace(/\{\{date\}\}/g, today)
     .replace(/\{\{gift_table\}\}/g, giftTable)
-    .replace(/\{\{#if_ein\}\}[\s\S]*?\{\{\/if_ein\}\}/g, ein ? einLine : '');
+    .replace(/\{\{#if_ein\}\}[\s\S]*?\{\{\/if_ein\}\}/g, ein ? einLine : '')
+    .replace(/\{\{#if_giving_url\}\}([\s\S]*?)\{\{\/if_giving_url\}\}/g, givingUrl ? '$1' : '');
   return letter.replace(/\\n/g, '<br>');
 }
-function runGivingStatementLetter() {
+function runGivingStatementLetter(letterType) {
   if (!_stmtData) { alert('Run a giving statement first.'); return; }
   if (!_churchConfig.church_name) {
     // Load config if not yet loaded
     api('/admin/api/config/church').then(function(cfg) {
       _churchConfig = cfg || {};
-      showGivingLetter();
+      showGivingLetter(letterType);
     });
   } else {
-    showGivingLetter();
+    showGivingLetter(letterType);
   }
 }
-function showGivingLetter() {
+function showGivingLetter(letterType) {
   var d = _stmtData;
-  var letterHtml = renderLetterHTML(d);
+  var letterHtml = renderLetterHTML(d, letterType);
   var name, email, yr;
   yr = String(d.year || document.getElementById('rpt-year').value || '');
   if (d._mode === 'household') {
@@ -1253,7 +1260,7 @@ function showGivingLetter() {
     + '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">'
     + '<button class="btn-secondary" style="font-size:.8rem;" onclick="runGivingStatement()">&#8592; Back to Statement</button>'
     + '<button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print Letter</button>'
-    + (email ? '<button class="btn-primary" style="font-size:.8rem;" onclick="emailGivingLetter()">&#9993; Email to ' + esc(email) + '</button>' : '')
+    + (email ? '<button class="btn-primary" style="font-size:.8rem;" onclick="emailGivingLetter(&#39;' + (letterType||'year_end') + '&#39;)">&#9993; Email to ' + esc(email) + '</button>' : '')
     + '<div id="letter-email-status" class="import-status" style="align-self:center;"></div>'
     + '</div>'
     + '<div id="letter-body" style="background:var(--white);border:1px solid var(--border);border-radius:10px;padding:28px 32px;font-size:.92rem;line-height:1.65;">'
@@ -1263,7 +1270,7 @@ function showGivingLetter() {
     + '</div></div>'
   );
 }
-function emailGivingLetter() {
+function emailGivingLetter(letterType) {
   if (!_stmtData) return;
   var p = _stmtData.person || {};
   var email = p.email || '';
@@ -1272,7 +1279,10 @@ function emailGivingLetter() {
   if (status) { status.textContent = 'Sending…'; status.className = 'import-status'; }
   var yr = String(_stmtData.year || '');
   var churchName = _churchConfig.church_name || 'Timothy Lutheran Church';
-  var letterHtml = renderLetterHTML(_stmtData);
+  var letterHtml = renderLetterHTML(_stmtData, letterType);
+  var subject = letterType === 'midyear'
+    ? (yr + ' Mid-Year Giving Update — ' + churchName)
+    : (yr + ' Charitable Contribution Statement — ' + churchName);
   var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
     + '<div style="font-size:16px;font-weight:bold;margin-bottom:6px;">' + esc(churchName) + '</div>'
     + '<hr style="margin:10px 0;">'
@@ -1282,7 +1292,7 @@ function emailGivingLetter() {
     body: JSON.stringify({
       to_email: email,
       to_name: (p.first_name + ' ' + p.last_name).trim(),
-      subject: yr + ' Charitable Contribution Statement — ' + churchName,
+      subject: subject,
       html_body: fullHtml
     })
   }).then(function(d) {

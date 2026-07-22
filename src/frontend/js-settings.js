@@ -168,6 +168,10 @@ function loadSettings() {
     if (el) el.value = d.church_from_email || '';
     el = document.getElementById('st-letter-tpl');
     if (el) el.value = d.giving_letter_template || DEFAULT_LETTER_TEMPLATE;
+    el = document.getElementById('st-midyear-letter-tpl');
+    if (el) el.value = d.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE;
+    el = document.getElementById('st-giving-url');
+    if (el) el.value = d.online_giving_url || '';
     el = document.getElementById('st-vol-address'); if (el) el.value = d.volunteer_address || '';
     el = document.getElementById('st-vol-email'); if (el) el.value = d.volunteer_public_email || '';
     el = document.getElementById('st-vol-phone'); if (el) el.value = d.volunteer_phone || '';
@@ -199,6 +203,8 @@ function saveSettings() {
   v = (document.getElementById('st-from-name') || {}).value; if (v) data.church_from_name = v;
   v = (document.getElementById('st-from-email') || {}).value; if (v) data.church_from_email = v;
   v = (document.getElementById('st-letter-tpl') || {}).value || DEFAULT_LETTER_TEMPLATE; if (v) data.giving_letter_template = v;
+  v = (document.getElementById('st-midyear-letter-tpl') || {}).value || DEFAULT_MIDYEAR_LETTER_TEMPLATE; if (v) data.giving_midyear_letter_template = v;
+  v = (document.getElementById('st-giving-url') || {}).value; if (v) data.online_giving_url = v;
   api('/admin/api/config/church', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(d) {
     if (d.ok) { _churchConfig = data; setStatus('st-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('st-status','');}, 2500); }
     else setStatus('st-status', 'Error: ' + (d.error||'unknown'), 'err');
@@ -220,6 +226,10 @@ function saveVolunteerSettings() {
 function resetLetterTemplate() {
   var el = document.getElementById('st-letter-tpl');
   if (el) el.value = DEFAULT_LETTER_TEMPLATE;
+}
+function resetMidyearLetterTemplate() {
+  var el = document.getElementById('st-midyear-letter-tpl');
+  if (el) el.value = DEFAULT_MIDYEAR_LETTER_TEMPLATE;
 }
 function renderSettingsTagsList() {
   var c = document.getElementById('settings-tags-list');
