@@ -235,7 +235,8 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-year" name="rpt-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
           <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
             <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatement()">View Statement</button>
-            <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatementLetter()">View Letter</button>
+            <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatementLetter(&#39;year_end&#39;)">View Letter</button>
+            <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatementLetter(&#39;midyear&#39;)">Mid-Year Update</button>
             <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="downloadStatement()">CSV</button>
           </div>
         </div>
@@ -286,6 +287,17 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchStatementGivers()">Load Givers</button>
           <div id="batch-stmt-status" class="import-status" style="margin-top:6px;"></div>
           <div id="batch-stmt-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
+        </div>
+      </div>
+      <div class="report-tile require-finance" data-tile-id="batch-send-midyear">
+        <div class="tile-icon">&#128140;</div>
+        <div class="tile-title">Batch Send Mid-Year Update</div>
+        <div class="tile-desc">
+          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Send a mid-year giving update &mdash; thanks them, shows year-to-date giving for review, and suggests ways to set up recurring giving.</div>
+          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-mid-year" name="batch-mid-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchMidyearGivers()">Load Givers</button>
+          <div id="batch-mid-status" class="import-status" style="margin-top:6px;"></div>
+          <div id="batch-mid-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
         </div>
       </div>
     </div>
@@ -437,9 +449,15 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <div class="field"><label>Church Name</label><input type="text" id="st-church-name" name="st-church-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
         <div class="field"><label>EIN (Tax ID)</label><input type="text" id="st-ein" name="st-ein" placeholder="XX-XXXXXXX" style="width:100%;"></div>
       </div>
-      <div class="modal-2col" style="margin-bottom:12px;">
-        <div class="field"><label>From Name (for emails)</label><input type="text" id="st-from-name" name="st-from-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
-        <div class="field"><label>From Email</label><input type="email" id="st-from-email" name="st-from-email" placeholder="giving@yourdomain.org" style="width:100%;"></div>
+      <div class="modal-2col" style="margin-bottom:4px;">
+        <div class="field"><label>Sending Name (shown as the "From" name on outgoing emails)</label><input type="text" id="st-from-name" name="st-from-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
+        <div class="field"><label>Sending Email Address (must be on a domain verified in Resend)</label><input type="email" id="st-from-email" name="st-from-email" placeholder="giving@notify.timothystl.org" style="width:100%;"></div>
+      </div>
+      <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:12px;">This is the address giving statements and mid-year updates are emailed from &mdash; not a contact/reply-to address. It only works if its domain shows &ldquo;Verified&rdquo; at <a href="https://resend.com/domains" target="_blank" rel="noopener">resend.com/domains</a>; otherwise sends fail with a domain-not-verified error.</div>
+      <div class="field" style="margin-bottom:12px;">
+        <label>Online Giving URL (optional)</label>
+        <input type="text" id="st-giving-url" name="st-giving-url" placeholder="https://timothystl.org/give" style="width:100%;">
+        <div style="font-size:.76rem;color:var(--warm-gray);margin-top:4px;">Shown in the Mid-Year Giving Update letter as a link for setting up recurring/automatic giving. Leave blank to omit.</div>
       </div>
       <button class="btn-primary" onclick="saveSettings()">Save Church Info</button>
     </div>
@@ -468,6 +486,16 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div style="margin-top:8px;">
         <button class="btn-primary" onclick="saveSettings()">Save Template</button>
         <button class="btn-secondary" onclick="resetLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
+      </div>
+    </div>
+    <!-- Mid-Year Letter Template Card -->
+    <div class="import-card" style="margin-bottom:14px;">
+      <h3>&#128140; Mid-Year Giving Update Letter Template</h3>
+      <p>Used for the mid-year giving update &mdash; thanks givers, shows year-to-date giving for them to review, and suggests ways to set up recurring/automatic giving. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code>, <code>{{giving_url}}</code></p>
+      <textarea id="st-midyear-letter-tpl" name="st-midyear-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
+      <div style="margin-top:8px;">
+        <button class="btn-primary" onclick="saveSettings()">Save Template</button>
+        <button class="btn-secondary" onclick="resetMidyearLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
       </div>
     </div>
     <!-- Tags Card -->
