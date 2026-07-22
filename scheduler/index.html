@@ -3555,8 +3555,15 @@ function ppExportCanvas(cb) {
     + pageHtml
     + '</div></foreignObject></svg>';
   var fontsReady = (ppWin.document.fonts && ppWin.document.fonts.ready) ? ppWin.document.fonts.ready : Promise.resolve();
+  // Mint the blob URL via ppWin's own URL (not the opener's) and load it through
+  // ppWin's own Image constructor: recent Chrome partitions blob: URLs per-Document,
+  // so a URL created in the opener document is not reliably loadable by an <img>
+  // living in the popup's document \u2014 keeping creation+consumption in the same
+  // realm (also needed so the popup's own loaded Google Fonts apply during rasterization)
+  // avoids that mismatch.
+  var winUrl = ppWin.URL || URL;
   fontsReady.then(function() {
-    var url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+    var url = winUrl.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
     var img = new (ppWin.Image || Image)();
     img.onload = function() {
       try {
@@ -3568,14 +3575,14 @@ function ppExportCanvas(cb) {
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
-        URL.revokeObjectURL(url);
+        winUrl.revokeObjectURL(url);
         canvas.toBlob(function(blob) { cb(blob); }, 'image/png');
       } catch (e) {
-        URL.revokeObjectURL(url);
+        winUrl.revokeObjectURL(url);
         cb(null);
       }
     };
-    img.onerror = function() { URL.revokeObjectURL(url); cb(null); };
+    img.onerror = function() { winUrl.revokeObjectURL(url); cb(null); };
     img.src = url;
   });
 }
