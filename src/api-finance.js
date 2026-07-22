@@ -1590,7 +1590,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // ── Church Report v2: This Year — persisted-table read, no live QuickBooks call ────────
   if (seg === 'finance/church/this-year' && method === 'GET') {
     const year = parseInt(url.searchParams.get('year'), 10) || new Date().getFullYear();
-    const allRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year).all()).results || [];
+    const allRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(year).all()).results || [];
     const entries = resolveChurchYearPrecedence(allRows);
     const summary = computeYearSummary(entries);
     const givingByFundRows = (await db.prepare(
@@ -1637,7 +1637,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       : [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
     if (!years.length) return json({ error: 'No valid years requested' }, 400);
     const placeholders = years.map(() => '?').join(',');
-    const allRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${placeholders})`).bind(...years).all()).results || [];
+    const allRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${placeholders}) AND period_month=0`).bind(...years).all()).results || [];
     const resolved = resolveChurchYearPrecedence(allRows);
     const byYear = {};
     years.forEach(y => { byYear[y] = computeYearSummary(resolved.filter(r => r.fiscal_year === y)); });
@@ -1766,13 +1766,30 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const growthPct = Number(b.growth_pct);
     if (!Number.isFinite(baseYear) || !Number.isFinite(targetYear)) return json({ error: 'base_year and target_year are required' }, 400);
     if (!Number.isFinite(growthPct)) return json({ error: 'Invalid growth_pct' }, 400);
-    const baseRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(baseYear).all()).results || [];
+    // period_month=0 = the annual row (see migrations/0018_finance_church_entries.sql) — must
+    // filter it explicitly, since monthly rows (period_month 1-12) share the same source and
+    // fiscal_year, and would otherwise let a single month's figure silently clobber the true
+    // annual total for that category via the ON CONFLICT upsert below.
+    const baseRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(baseYear).all()).results || [];
     if (!baseRows.length) return json({ error: `No Church Budget data found for ${baseYear} — sync or import that year first.` }, 400);
     const resolved = resolveChurchYearPrecedence(baseRows);
+    // If the base year is still in progress (its own actual is really a year-to-date figure, not
+    // a completed year), annualize it before applying the growth rate — otherwise a mid-year
+    // actual would be projected forward as if it were the whole year's total. A past, complete
+    // base year (or one with no actual at all, only a budget) is used as-is. through_month is an
+    // optional explicit override (real caller never sends it — only tests, for determinism);
+    // production always falls back to the real current month for the real current year.
+    const now = new Date();
+    const explicitThroughMonth = parseInt(b.through_month, 10);
+    const throughMonth = Number.isFinite(explicitThroughMonth) ? explicitThroughMonth
+      : (baseYear === now.getFullYear()) ? (now.getMonth() + 1) : 12;
+    const prorated = throughMonth < 12;
     const ops = [];
     let generated = 0;
     for (const r of resolved) {
-      const baseAmountCents = r.own_actual_cents || r.own_budget_cents || 0;
+      const baseAmountCents = (r.own_actual_cents && prorated)
+        ? Math.round(r.own_actual_cents * (12 / throughMonth))
+        : (r.own_actual_cents || r.own_budget_cents || 0);
       if (!baseAmountCents) continue;
       const plannedCents = Math.round(baseAmountCents * (1 + growthPct));
       ops.push(db.prepare(
@@ -1786,7 +1803,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     }
     if (!ops.length) return json({ error: `No account had an actual or budget figure in ${baseYear} to grow from.` }, 400);
     await db.batch(ops);
-    return json({ ok: true, generated, baseYear, targetYear });
+    return json({ ok: true, generated, baseYear, targetYear, throughMonth, prorated });
   }
 
   // Bulk manual save — commits a whole edited table of Projected values in one round trip
@@ -1814,6 +1831,29 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     }
     await db.batch(ops);
     return json({ ok: true, saved: ops.length });
+  }
+
+  // Salary & Benefits Calculator + Health Insurance card state (worker roster, COLA/pension
+  // settings, benefits figure, selected health plan option) — persisted as one JSON blob in the
+  // generic chms_config key/value table, same pattern as the Commercial Property meta and other
+  // small nested-settings blobs elsewhere in this file. Not fiscal-year-scoped (the roster is a
+  // standing list of current staff, not a per-year plan), so it's read once and reused across
+  // whatever base/target year the admin is currently viewing.
+  if (seg === 'finance/planning/salary' && method === 'GET') {
+    const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_salary_planner'").first();
+    let data = null;
+    if (row) { try { data = JSON.parse(row.value); } catch { data = null; } }
+    return json({ data });
+  }
+  if (seg === 'finance/planning/salary' && method === 'PUT') {
+    if (!isAdmin) return json({ error: 'Access denied: editing the salary planner requires admin access' }, 403);
+    const b = await req.json().catch(() => null);
+    if (!b || typeof b !== 'object' || Array.isArray(b)) return json({ error: 'Invalid payload' }, 400);
+    if (b.roster !== undefined && !Array.isArray(b.roster)) return json({ error: 'roster must be an array' }, 400);
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_salary_planner',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(JSON.stringify(b)).run();
+    return json({ ok: true });
   }
 
   // Generates a compounding multi-year projection from a base dollar amount + a flat growth
@@ -1909,7 +1949,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const trendYears = [year - 4, year - 3, year - 2, year - 1, year];
     const trendPlaceholders = trendYears.map(() => '?').join(',');
 
-    const thisYearEntriesRaw = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year).all()).results || [];
+    const thisYearEntriesRaw = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(year).all()).results || [];
     const thisYearEntries = resolveChurchYearPrecedence(thisYearEntriesRaw);
     const thisYearSummary = computeYearSummary(thisYearEntries);
     const givingByFundRows = (await db.prepare(
@@ -1921,7 +1961,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const givingByFund = givingByFundRows.map(r => ({ fundName: r.fund_name, cents: r.total || 0 }));
     const givingCents = givingByFund.reduce((sum, r) => sum + r.cents, 0);
 
-    const trendIncomeRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${trendPlaceholders})`).bind(...trendYears).all()).results || [];
+    const trendIncomeRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${trendPlaceholders}) AND period_month=0`).bind(...trendYears).all()).results || [];
     const trendIncomeResolved = resolveChurchYearPrecedence(trendIncomeRows);
     const incomeStatementByYear = {};
     trendYears.forEach(y => { incomeStatementByYear[y] = computeYearSummary(trendIncomeResolved.filter(r => r.fiscal_year === y)); });
