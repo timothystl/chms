@@ -2286,8 +2286,8 @@ function finRenderPlanning() {
 
   var actionsHtml = isAdminUI
     ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:12px;">'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);">Growth Assumption %<br><input type="number" id="fin-plan-growth" step="0.1" placeholder="3" style="width:100px;"></label>'
-      + '<button class="btn-secondary" style="font-size:.78rem;padding:5px 12px;" onclick="finPlanGenerateAll()">Generate All (fills every blank line)</button>'
+      + '<label style="font-size:.72rem;color:var(--warm-gray);">Growth Assumption %<br><input type="number" id="fin-plan-growth" step="0.1" value="3" style="width:100px;"></label>'
+      + '<button class="btn-secondary" style="font-size:.78rem;padding:5px 12px;" onclick="finPlanGenerateAll()">Generate All (overwrites every Projected value below)</button>'
       + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finPlanSaveAll()">Save Changes</button>'
       + '<button class="btn-secondary" style="font-size:.78rem;padding:5px 12px;" onclick="finPlanCommit()">Commit FY' + _finPlanTargetYear + ' to Real Budget</button>'
       + '</div>'
@@ -2307,16 +2307,23 @@ function finPlanEditCell(categoryPath, value) {
   _finPlanEdits[categoryPath] = value;
 }
 function finPlanGenerateAll() {
+  // The Growth Assumption % field defaults to a real "3" value (not just a placeholder — a
+  // placeholder-only field silently sent nothing when left untouched, aborting here with no
+  // visible result). Also toast the outcome, not just the msgEl line below the buttons — that
+  // line lives inside #fin-plan-root, which finLoadPlanning() below immediately blanks to
+  // "Loading…" on success, so a plain textContent update there could flash and disappear before
+  // being seen.
   var growthPct = parseFloat(document.getElementById('fin-plan-growth').value);
   var msgEl = document.getElementById('fin-plan-msg');
-  if (!isFinite(growthPct)) { msgEl.textContent = 'Enter a growth % first.'; return; }
-  msgEl.textContent = 'Generating…';
+  if (!isFinite(growthPct)) { if (msgEl) msgEl.textContent = 'Enter a growth % first.'; finToast('Enter a growth % first.'); return; }
+  if (msgEl) msgEl.textContent = 'Generating…';
   var body = { base_year: _finPlanBaseYear, target_year: _finPlanTargetYear, growth_pct: growthPct / 100 };
   api('/admin/api/finance/planning/church/generate-all', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
-    if (d && d.error) { msgEl.textContent = d.error; return; }
-    msgEl.textContent = 'Generated ' + d.generated + ' line(s).' + (d.prorated ? ' Base year actuals were annualized from ' + d.throughMonth + ' month(s) of data before applying growth.' : '');
+    if (d && d.error) { if (msgEl) msgEl.textContent = d.error; finToast(d.error); return; }
+    var summary = 'Generated ' + d.generated + ' line(s) for FY' + _finPlanTargetYear + '.' + (d.prorated ? ' Base year actuals were annualized from ' + d.throughMonth + ' month(s) of data before applying growth.' : '');
+    finToast(summary);
     finLoadPlanning();
-  }).catch(function(err) { msgEl.textContent = err && err.message || 'Generate failed.'; });
+  }).catch(function(err) { var msg = err && err.message || 'Generate failed.'; if (msgEl) msgEl.textContent = msg; finToast(msg); });
 }
 function finPlanSaveAll() {
   var msgEl = document.getElementById('fin-plan-msg');
