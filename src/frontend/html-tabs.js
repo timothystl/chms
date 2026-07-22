@@ -1340,6 +1340,25 @@ export const HTML_TABS_2 = String.raw`
 
       <div id="fin-panel-overview">
 
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px;">
+          <div>
+            <h2 id="fin-ov-title" style="font-family:var(--font-display);font-size:26px;font-weight:700;color:var(--color-navy);margin:0 0 2px;">Financial Overview</h2>
+            <div id="fin-ov-caption" style="font-size:.82rem;color:var(--warm-gray);">&nbsp;</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <select id="fin-ov-domain" class="fin-domain-select" onchange="finOverviewSetDomain(this.value)">
+              <option value="church">Church Operating</option>
+              <option value="daycare">Daycare (MDO)</option>
+              <option value="property">Commercial Property</option>
+            </select>
+            <span id="fin-ov-sync-pill" class="fin-sync-pill" style="display:none;"></span>
+          </div>
+        </div>
+
+        <div id="fin-ov-dashboard">Loading…</div>
+
+        <div style="margin:26px 0 14px;font-size:.78rem;color:var(--warm-gray);border-top:1px solid var(--warm-border);padding-top:16px;">Data sync, connections, and manual-entry tools are below.</div>
+
         <section class="dash-card" style="margin-bottom:16px;">
           <div class="dash-card-hdr">Board Packet</div>
           <div class="dash-card-body" style="padding:14px 18px;">

@@ -574,6 +574,48 @@ export function findBudgetVsActualsSheet(sheets) {
   return null;
 }
 
+// ── Commercial Property: AHRA "Budget Detail" import ─────────────────────────────────────
+// A property-management export (one row per account, one column per month, "Account Name" +
+// "Jan 2026".."Dec 2026" + "Total" + "Percent" header) — a genuinely different shape from the
+// QuickBooks Church Report exports above, but read with the same generic parseXlsxAllSheets().
+// Rather than walking the whole account tree (unnecessary for the Overview/Property revenue-vs-
+// expense chart, which only needs a monthly total), this reads the export's own two rollup rows
+// directly: "Total Budgeted Operating Income" and "Total Budgeted Operating Expense" — both
+// present verbatim in every AHRA Budget Detail export, confirmed against a real file.
+export function findPropertyBudgetDetailSheet(sheets) {
+  for (const s of sheets) {
+    if (!s.grid) continue;
+    if (s.grid.some(r => r && String(r[0] || '').trim() === 'Account Name' && parseMonthColTitle(r[1]))) return s;
+  }
+  return null;
+}
+export function parsePropertyBudgetDetailGrid(grid) {
+  const headerIdx = grid.findIndex(r => r && String(r[0] || '').trim() === 'Account Name' && parseMonthColTitle(r[1]));
+  if (headerIdx === -1) return { months: [] };
+  const header = grid[headerIdx];
+  const monthCols = []; // { col, year, month }
+  for (let c = 1; c < header.length; c++) {
+    const p = parseMonthColTitle(header[c]);
+    if (p) monthCols.push({ col: c, ...p });
+  }
+  if (!monthCols.length) return { months: [] };
+  const findRow = label => grid.find(r => r && String(r[0] || '').trim().toLowerCase() === label.toLowerCase());
+  const revenueRow = findRow('Total Budgeted Operating Income');
+  const expenseRow = findRow('Total Budgeted Operating Expense');
+  if (!revenueRow || !expenseRow) return { months: [] };
+  const months = monthCols.map(({ col, year, month }) => {
+    const revenueCents = dollarsToCents(revenueRow[col]);
+    const expensesCents = dollarsToCents(expenseRow[col]);
+    return {
+      period: `${year}-${String(month).padStart(2, '0')}`,
+      revenueCents,
+      expensesCents,
+      netIncomeCents: revenueCents - expensesCents,
+    };
+  });
+  return { months };
+}
+
 // ── Church Report: Balance Sheet / Statement of Financial Position import ───────────────────
 // A structurally different report from Budget vs. Actuals — point-in-time account balances
 // (Assets/Liabilities/Equity), one "Total" column, no Actual/Budget split. Two real exports from
@@ -1040,6 +1082,37 @@ export function computeSuppliesMonthlyBreakdown(currentMonthlyRows, priorMonthly
   };
 }
 
+// Overview tab's "Income vs. Expenses" trend card: 12 months, actual through the current month
+// (from synced monthly rows) then a flat monthly projection for the remaining months, spreading
+// whatever's left of the year's budget evenly across them — a simple, honest placeholder (the
+// mockup's own model) rather than a smarter seasonal projection, since it's a glance-level chart,
+// not the YTD projection figure itself (that's computeYtdComparison's prior-year-ratio, used for
+// the KPI cards). `curYearMonthlyRows` must already be filtered to one fiscal year; pure/no DB
+// access, independently unit-testable.
+export function computeIncomeExpenseMonthlyTrend(curYearMonthlyRows, throughMonth, summary) {
+  if (!curYearMonthlyRows.length) return { available: false, months: [] };
+  const byMonth = {};
+  for (let m = 1; m <= 12; m++) byMonth[m] = { incomeCents: 0, expenseCents: 0 };
+  for (const r of curYearMonthlyRows) {
+    if (r.period_month < 1 || r.period_month > 12) continue;
+    if (r.classification === 'Income') byMonth[r.period_month].incomeCents += (r.own_actual_cents || 0);
+    else if (r.classification === 'Expenses') byMonth[r.period_month].expenseCents += (r.own_actual_cents || 0);
+  }
+  let incomeSoFarCents = 0, expenseSoFarCents = 0;
+  for (let m = 1; m <= throughMonth; m++) { incomeSoFarCents += byMonth[m].incomeCents; expenseSoFarCents += byMonth[m].expenseCents; }
+  const remainingMonths = 12 - throughMonth;
+  const incomeBudgetCents = summary.classificationTotals?.Income?.budgetCents || 0;
+  const expenseBudgetCents = summary.classificationTotals?.Expenses?.budgetCents || 0;
+  const projIncomePerMonth = remainingMonths > 0 ? Math.max(0, incomeBudgetCents - incomeSoFarCents) / remainingMonths : 0;
+  const projExpensePerMonth = remainingMonths > 0 ? Math.max(0, expenseBudgetCents - expenseSoFarCents) / remainingMonths : 0;
+  const months = [];
+  for (let m = 1; m <= 12; m++) {
+    if (m <= throughMonth) months.push({ month: m, incomeCents: byMonth[m].incomeCents, expenseCents: byMonth[m].expenseCents, projected: false });
+    else months.push({ month: m, incomeCents: Math.round(projIncomePerMonth), expenseCents: Math.round(projExpensePerMonth), projected: true });
+  }
+  return { available: true, throughMonth, months };
+}
+
 // ── Commercial Property (Finance tab) ────────────────────────────────────────────────────
 // Groups a property's monthly rows + distributions by calendar year (the "period" field is
 // always 'YYYY-MM') into the same annual shape the 2026-07-20 data export used, plus each
@@ -1097,8 +1170,36 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
     const capitalLedger = (await db.prepare('SELECT * FROM finance_property_capital_ledger WHERE property_key=? ORDER BY sort_order ASC, entry_date ASC, id ASC').bind(propertyKey).all()).results || [];
     const capitalLedgerTotalCents = capitalLedger.reduce((sum, r) => sum + (r.amount_cents || 0), 0);
     const repairs = (await db.prepare('SELECT * FROM finance_property_repairs WHERE property_key=? ORDER BY entry_date ASC, id ASC').bind(propertyKey).all()).results || [];
+    const budgetMonthly = (await db.prepare('SELECT * FROM finance_property_budget_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
 
-    return json({ propertyKey, meta, monthly, distributions, annualSummary, equity, reserves, reserveDisbursements, capitalLedger, capitalLedgerTotalCents, repairs });
+    return json({ propertyKey, meta, monthly, budgetMonthly, distributions, annualSummary, equity, reserves, reserveDisbursements, capitalLedger, capitalLedgerTotalCents, repairs });
+  }
+
+  // Imports a property manager's "Budget Detail" export (AHRA) — see
+  // parsePropertyBudgetDetailGrid() above. Parses and commits in one step (unlike the Church
+  // Report imports' preview-then-commit flow): this export's shape is fixed and the two rollup
+  // rows it reads are unambiguous, so there's little for a human review step to catch; the
+  // response still echoes back exactly what was written so the admin can see it took.
+  if (seg === `finance/property/${propertyKey}/budget-import` && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const form = await req.formData().catch(() => null);
+    const file = form && form.get('file');
+    if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
+    if (file.size > 15 * 1024 * 1024) return json({ error: 'File too large (max 15 MB)' }, 413);
+    let sheets;
+    try { sheets = await parseXlsxAllSheets(await file.arrayBuffer()); }
+    catch (e) { return json({ error: 'Could not read this file as an Excel workbook: ' + e.message }, 400); }
+    const sheet = findPropertyBudgetDetailSheet(sheets);
+    if (!sheet) return json({ error: 'Could not find a "Budget Detail" sheet in this file (expected an "Account Name" / "Jan YYYY" header row).' }, 400);
+    const { months } = parsePropertyBudgetDetailGrid(sheet.grid);
+    if (!months.length) return json({ error: 'Could not find "Total Budgeted Operating Income"/"Total Budgeted Operating Expense" rows in this sheet.' }, 400);
+    const ops = months.map(m => db.prepare(
+      `INSERT INTO finance_property_budget_monthly (property_key, period, revenue_cents, expenses_cents, net_income_cents, source, updated_at)
+       VALUES (?,?,?,?,?,'ahra_import',datetime('now'))
+       ON CONFLICT(property_key, period) DO UPDATE SET revenue_cents=excluded.revenue_cents, expenses_cents=excluded.expenses_cents, net_income_cents=excluded.net_income_cents, source=excluded.source, updated_at=excluded.updated_at`
+    ).bind(propertyKey, m.period, m.revenueCents, m.expensesCents, m.netIncomeCents));
+    await db.batch(ops);
+    return json({ ok: true, imported: months.length, months });
   }
 
   if (seg === `finance/property/${propertyKey}/monthly` && method === 'POST') {
@@ -1637,6 +1738,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const now = new Date();
     let yoy = { available: false };
     let supplies = { monthly: [], currentYtdCents: 0, priorYtdCents: 0 };
+    let monthlyTrend = { available: false, months: [] };
     if (year === now.getFullYear()) {
       const throughMonth = now.getMonth() + 1;
       const monthlyRows = (await db.prepare(
@@ -1653,6 +1755,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
         monthlyRows.filter(r => r.fiscal_year === year),
         monthlyRows.filter(r => r.fiscal_year === year - 1)
       );
+      monthlyTrend = computeIncomeExpenseMonthlyTrend(monthlyRows.filter(r => r.fiscal_year === year), throughMonth, summary);
     }
 
     return json({
@@ -1661,6 +1764,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       ...summary,
       givingCents,
       givingByFund,
+      monthlyTrend,
       yoy,
       supplies,
     });

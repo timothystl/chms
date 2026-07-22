@@ -422,6 +422,77 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-subnav-btn.active{color:var(--color-navy);border-bottom-color:var(--color-navy);}
 .fin-subnav-btn:hover:not(.active){color:var(--color-navy);}
 .fin-subnav-divider{width:1px;height:18px;background:var(--warm-border);margin:0 6px;flex-shrink:0;}
+
+/* ── Finance Workspace redesign (2026-07 handoff) — KPI cards, on-budget pace panel, chips,
+   navy summary cards. Reuses existing brand tokens wherever they're an exact match for the
+   handoff's own hex values (confirmed token-by-token against the handoff's Design Tokens
+   table) — only the handful with no existing equivalent are added here. ── */
+:root{
+  --sage-text:#4A6E52;--positive-on-navy:#8FD3A6;--negative-on-navy:#E8A088;
+  --chip-positive-bg:#EDF3EE;--chip-warn-bg:#FBF0DA;--chip-negative-bg:#F6E3DC;
+}
+.fin-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px;}
+@media(max-width:900px){.fin-kpi-grid{grid-template-columns:1fr 1fr;}}
+@media(max-width:480px){.fin-kpi-grid{grid-template-columns:1fr;}}
+.fin-kpi-card{background:var(--white);border-radius:18px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:18px 20px;border-top:4px solid var(--color-teal);}
+.fin-kpi-lbl{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);}
+.fin-kpi-val{font-family:var(--font-body);font-size:27px;font-weight:800;color:var(--charcoal);margin:4px 0 8px;font-variant-numeric:tabular-nums;line-height:1;}
+.fin-kpi-sub{font-size:11.5px;color:var(--warm-gray);margin-top:6px;}
+.fin-chip{display:inline-block;padding:3px 10px;border-radius:99px;font-size:.74rem;font-weight:700;white-space:nowrap;}
+.fin-chip-positive{background:var(--chip-positive-bg);color:var(--sage-text);}
+.fin-chip-info{background:var(--color-light-teal);color:var(--color-teal);}
+.fin-chip-warn{background:var(--chip-warn-bg);color:var(--deep-amber);}
+.fin-chip-negative{background:var(--chip-negative-bg);color:var(--danger);}
+.fin-card{background:var(--white);border-radius:20px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:22px 24px;}
+.fin-card-title{font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--color-navy);margin:0 0 4px;}
+.fin-card-sub{font-size:.82rem;color:var(--warm-gray);margin:0 0 14px;}
+.fin-navy-card{background:var(--color-navy);border-radius:20px;box-shadow:0 10px 24px rgba(30,45,74,.2);padding:22px 24px;color:var(--white);}
+.fin-navy-card .fin-card-title{color:var(--white);}
+.fin-navy-label{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:rgba(255,255,255,.65);}
+.fin-navy-val{font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;}
+.fin-navy-val.positive{color:var(--positive-on-navy);}
+.fin-navy-val.negative{color:var(--negative-on-navy);}
+.fin-pace-row{border-top:1px solid var(--warm-row-divider);padding:12px 0;cursor:pointer;}
+.fin-pace-row:first-child{border-top:none;}
+.fin-pace-row-hdr{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.fin-pace-caret{display:inline-block;width:14px;transition:transform .15s;color:var(--warm-meta);}
+.fin-pace-row.open .fin-pace-caret{transform:rotate(90deg);}
+.fin-pace-label{font-weight:700;font-size:.88rem;color:var(--charcoal);}
+.fin-pace-figs{font-size:.85rem;color:var(--warm-ink-label);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.fin-pace-status{display:inline-block;min-width:80px;text-align:center;}
+.fin-pace-bar-track{position:relative;height:11px;border-radius:6px;background:var(--linen);margin-top:8px;overflow:visible;}
+.fin-pace-bar-fill{height:100%;border-radius:6px;background:var(--color-teal);}
+.fin-pace-bar-fill.warn{background:var(--color-gold);}
+.fin-pace-bar-fill.over{background:var(--danger);}
+.fin-pace-marker{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--color-navy);}
+.fin-pace-inset{background:var(--warm-surface-page);border-radius:10px;padding:10px 14px;margin-top:10px;}
+.fin-pace-inset-row{display:flex;justify-content:space-between;font-size:.82rem;padding:4px 0;color:var(--warm-ink-label);}
+.fin-variance-bar-track{display:inline-block;width:54px;height:6px;border-radius:4px;background:var(--linen);vertical-align:middle;margin-right:8px;}
+.fin-variance-bar-fill{height:100%;border-radius:4px;}
+.fin-editable-input{background:var(--color-light-teal);border:1px solid var(--ice-blue);border-radius:8px;padding:4px 8px;font-family:var(--font-body);font-size:.85rem;font-variant-numeric:tabular-nums;width:100%;box-sizing:border-box;}
+.fin-domain-select{font-family:var(--font-body);font-size:.85rem;font-weight:600;padding:6px 10px;border-radius:8px;border:1px solid var(--warm-border);background:var(--white);color:var(--color-navy);}
+.fin-sync-pill{display:inline-flex;align-items:center;gap:6px;font-size:.76rem;font-weight:600;color:var(--sage-text);background:var(--chip-positive-bg);padding:4px 10px;border-radius:99px;}
+.fin-sync-pill::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--sage-text);}
+.fin-balance-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+@media(max-width:700px){.fin-balance-row{grid-template-columns:1fr;}}
+.fin-balance-card{background:var(--white);border-radius:16px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:16px 18px;display:flex;align-items:center;gap:12px;}
+.fin-balance-icon{width:42px;height:42px;border-radius:10px;background:var(--color-light-teal);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
+.fin-balance-lbl{font-size:11.5px;color:var(--warm-gray);font-weight:600;}
+.fin-balance-val{font-size:20px;font-weight:800;color:var(--charcoal);font-variant-numeric:tabular-nums;}
+.fin-trend-chart{display:flex;align-items:flex-end;gap:6px;height:150px;padding-top:10px;}
+.fin-trend-month{flex:1;display:flex;align-items:flex-end;justify-content:center;gap:2px;height:100%;}
+.fin-trend-bar{width:40%;border-radius:3px 3px 0 0;background:var(--color-teal);}
+.fin-trend-bar.expense{background:var(--color-gold);}
+.fin-trend-bar.projected{opacity:.42;}
+.fin-trend-labels{display:flex;gap:6px;margin-top:6px;}
+.fin-trend-labels span{flex:1;text-align:center;font-size:10px;color:var(--warm-meta);}
+.fin-yearend-bar-row{margin-bottom:16px;}
+.fin-yearend-bar-lbl{display:flex;justify-content:space-between;font-size:.8rem;font-weight:700;color:var(--warm-ink-label);margin-bottom:4px;}
+.fin-yearend-bar-track{position:relative;height:20px;border-radius:6px;background:var(--linen);overflow:visible;}
+.fin-yearend-bar-actual{height:100%;border-radius:6px 0 0 6px;background:var(--color-teal);}
+.fin-yearend-bar-projected{height:100%;background:var(--color-teal);opacity:.4;}
+.fin-yearend-bar-row.expense .fin-yearend-bar-actual,.fin-yearend-bar-row.expense .fin-yearend-bar-projected{background:var(--color-gold);}
+.fin-yearend-marker{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--color-navy);}
 .ppl-card-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:var(--warm-surface-card-page);padding:16px;border-radius:12px;}
 @media(max-width:1000px){.ppl-card-grid{grid-template-columns:1fr;}}
 .ppl-card{background:var(--warm-surface-card);border-radius:12px;border-left:4px solid var(--status-member);box-shadow:0 2px 10px rgba(120,90,30,.08);padding:14px 16px;cursor:pointer;position:relative;transition:box-shadow .15s;}
