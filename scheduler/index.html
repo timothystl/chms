@@ -3542,26 +3542,38 @@ function ppExportCanvas(cb) {
   var w = Math.ceil(pageEl.getBoundingClientRect().width) || 816;
   var h = Math.ceil(pageEl.getBoundingClientRect().height) || 1056;
   var scale = 2;
+  // Rebuild from the original HTML string (ppBuildPageHtml()), NOT pageEl.outerHTML:
+  // browsers always re-serialize void elements like <col> and <br> WITHOUT a
+  // self-closing slash regardless of how they were written, which breaks the XML
+  // well-formedness this foreignObject SVG requires (the Bulletin Insert's <col>
+  // colgroup is the one every mode has and month's <br> also hits this) \u2014 the
+  // freshly-built string already has self-closed void tags and no bad entities.
+  var pageHtml = ppBuildPageHtml();
   var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '">'
     + '<foreignObject width="100%" height="100%">'
     + '<div xmlns="http://www.w3.org/1999/xhtml" style="width:' + w + 'px;height:' + h + 'px;background:#fff;font-family:\'DM Sans\',\'Source Sans 3\',Arial,sans-serif;box-sizing:border-box;">'
-    + pageEl.outerHTML
+    + pageHtml
     + '</div></foreignObject></svg>';
   var fontsReady = (ppWin.document.fonts && ppWin.document.fonts.ready) ? ppWin.document.fonts.ready : Promise.resolve();
   fontsReady.then(function() {
     var url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
     var img = new (ppWin.Image || Image)();
     img.onload = function() {
-      var canvas = ppWin.document.createElement('canvas');
-      canvas.width = w * scale;
-      canvas.height = h * scale;
-      var ctx = canvas.getContext('2d');
-      ctx.scale(scale, scale);
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(img, 0, 0, w, h);
-      URL.revokeObjectURL(url);
-      canvas.toBlob(function(blob) { cb(blob); }, 'image/png');
+      try {
+        var canvas = ppWin.document.createElement('canvas');
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        var ctx = canvas.getContext('2d');
+        ctx.scale(scale, scale);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        canvas.toBlob(function(blob) { cb(blob); }, 'image/png');
+      } catch (e) {
+        URL.revokeObjectURL(url);
+        cb(null);
+      }
     };
     img.onerror = function() { URL.revokeObjectURL(url); cb(null); };
     img.src = url;
