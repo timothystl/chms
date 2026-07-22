@@ -961,18 +961,31 @@ function finReorganizeChurchTree(roots) {
 // Renders finBuildTreeFromFlatRows()'s output as an indented HTML table body (Account | Actual
 // | Budget | Remaining), including each node's own-plus-descendants total (matching what a
 // QuickBooks "Total for X" row would show, recomputed rather than stored).
+// A small magnitude-vs-budget bar + signed figure, matching the Finance Workspace handoff's
+// "Variance" column — green (favorable) when actual is on the good side of budget, terracotta
+// (unfavorable) otherwise. Favorability is sign-aware per the handoff: for income/revenue rows
+// (classification arg), actual >= budget is good; for expense rows, actual <= budget is good.
+function finVarianceCell(actualCents, budgetCents, classification) {
+  if (budgetCents == null) return '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">—</td>';
+  var varianceCents = classification === 'Income' || classification === 'Other Income'
+    ? actualCents - budgetCents
+    : budgetCents - actualCents;
+  var favorable = varianceCents >= 0;
+  var pct = budgetCents ? Math.min(100, Math.abs(varianceCents) / Math.abs(budgetCents) * 100) : 0;
+  return '<td style="text-align:right;padding:5px 8px;white-space:nowrap;">'
+    + '<span class="fin-variance-bar-track"><span class="fin-variance-bar-fill" style="width:' + pct + '%;background:' + (favorable ? 'var(--sage)' : 'var(--danger)') + ';"></span></span>'
+    + '<span style="color:' + (favorable ? 'var(--sage-text)' : 'var(--danger)') + ';font-weight:600;">' + finFmtSigned(varianceCents) + '</span></td>';
+}
 function finRenderDetailTreeRows(nodes, html) {
   html = html || [];
   (nodes || []).forEach(function(node) {
     var bold = node.children.length > 0;
-    var budgetCell = node.hasBudgetInfo
-      ? '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(node.totalBudgetCents / 100) + '</td>'
-        + '<td style="text-align:right;padding:5px 8px;' + (node.totalActualCents > node.totalBudgetCents ? 'color:var(--danger);' : 'color:var(--sage);') + '">$' + finFmtMoney((node.totalBudgetCents - node.totalActualCents) / 100) + '</td>'
-      : '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">—</td><td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">—</td>';
-    html.push('<tr' + (bold ? ' style="font-weight:600;"' : '') + '>'
-      + '<td style="padding:5px 8px 5px ' + (10 + node.depth * 16) + 'px;">' + esc(node.label) + '</td>'
+    html.push('<tr' + (bold ? ' style="font-weight:700;"' : '') + '>'
+      + '<td style="padding:5px 8px 5px ' + (10 + node.depth * 16) + 'px;color:' + (bold ? 'var(--charcoal)' : 'var(--warm-ink-label)') + ';">' + esc(node.label) + '</td>'
       + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(node.totalActualCents / 100) + '</td>'
-      + budgetCell + '</tr>');
+      + '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents / 100) : '—') + '</td>'
+      + finVarianceCell(node.totalActualCents, node.hasBudgetInfo ? node.totalBudgetCents : null, node.classification)
+      + '</tr>');
     finRenderDetailTreeRows(node.children, html);
   });
   return html;
@@ -980,36 +993,37 @@ function finRenderDetailTreeRows(nodes, html) {
 // A bold "Total X" row for one top-level classification node (Revenue/Expenses/etc), styled to
 // read as a subtotal beneath its own account lines rather than a header above them.
 function finRenderChurchTotalRow(node, label) {
-  var budgetCell = node.hasBudgetInfo
-    ? '<td style="text-align:right;padding:6px 8px;">$' + finFmtMoney(node.totalBudgetCents / 100) + '</td>'
-      + '<td style="text-align:right;padding:6px 8px;' + (node.totalActualCents > node.totalBudgetCents ? 'color:var(--danger);' : 'color:var(--sage);') + '">$' + finFmtMoney((node.totalBudgetCents - node.totalActualCents) / 100) + '</td>'
-    : '<td style="text-align:right;padding:6px 8px;color:var(--warm-gray);">—</td><td style="text-align:right;padding:6px 8px;color:var(--warm-gray);">—</td>';
-  return '<tr style="font-weight:700;border-top:2px solid var(--border);"><td style="padding:6px 8px;">' + esc(label) + '</td>'
+  return '<tr style="font-weight:700;border-top:1px solid var(--warm-border);background:var(--warm-surface-page);"><td style="padding:6px 8px;">' + esc(label) + '</td>'
     + '<td style="text-align:right;padding:6px 8px;">$' + finFmtMoney(node.totalActualCents / 100) + '</td>'
-    + budgetCell + '</tr>';
+    + '<td style="text-align:right;padding:6px 8px;color:var(--warm-gray);">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents / 100) : '—') + '</td>'
+    + finVarianceCell(node.totalActualCents, node.hasBudgetInfo ? node.totalBudgetCents : null, node.classification)
+    + '</tr>';
 }
 // Full account-detail table body for the Church Report: each top-level classification's own
 // account lines first, with its "Total X" subtotal moved to the END of that section (not a
-// header row above it, per the board's preferred reading order), followed by one grand-total
-// Net Income row summing every section — mirrors the same actual/budget/remaining figure already
-// shown in the Net Income summary card above, so the two can never disagree.
+// header row above it, per the board's preferred reading order). The grand-total Net Income
+// figure — mirroring the same actual/budget/remaining shown in the summary card above, so the
+// two can never disagree — is rendered separately as a full-width navy bar (finRenderNetIncomeBar),
+// matching the Finance Workspace handoff's footer treatment, not as a table row.
 function finRenderChurchDetailBody(tree, netIncome, hasBudgetData) {
   var html = [];
   (tree || []).forEach(function(root) {
     html = html.concat(finRenderDetailTreeRows(root.children));
     html.push(finRenderChurchTotalRow(root, 'Total ' + root.label));
   });
-  if (netIncome) {
-    var remaining = (netIncome.budgetCents || 0) - (netIncome.actualCents || 0);
-    var budgetCell = hasBudgetData
-      ? '<td style="text-align:right;padding:6px 8px;">$' + finFmtMoney(netIncome.budgetCents / 100) + '</td>'
-        + '<td style="text-align:right;padding:6px 8px;' + finMoneyClass(remaining) + '">$' + finFmtMoney(remaining / 100) + '</td>'
-      : '<td style="text-align:right;padding:6px 8px;color:var(--warm-gray);">—</td><td style="text-align:right;padding:6px 8px;color:var(--warm-gray);">—</td>';
-    html.push('<tr style="font-weight:700;border-top:3px double var(--navy);"><td style="padding:6px 8px;">Net Income</td>'
-      + '<td style="text-align:right;padding:6px 8px;">$' + finFmtMoney(netIncome.actualCents / 100) + '</td>'
-      + budgetCell + '</tr>');
-  }
   return html.join('');
+}
+// Full-width navy "Net Income" bar — the Finance Workspace handoff's footer treatment for the
+// Church Report table (mockup section 2: "navy full-width Net Income bar, surplus green-on-navy").
+function finRenderNetIncomeBar(netIncome, hasBudgetData) {
+  if (!netIncome) return '';
+  var remaining = (netIncome.budgetCents || 0) - (netIncome.actualCents || 0);
+  return '<div class="fin-navy-card" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:2px;border-radius:0 0 20px 20px;">'
+    + '<div class="fin-navy-label" style="text-transform:none;font-size:.95rem;font-weight:700;color:var(--white);">Net Income (Surplus/Deficit)</div>'
+    + '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">'
+    + '<div class="fin-navy-val ' + (netIncome.actualCents >= 0 ? 'positive' : 'negative') + '">' + finFmtSigned(netIncome.actualCents) + '</div>'
+    + (hasBudgetData ? '<div style="font-size:.8rem;color:rgba(255,255,255,.75);">vs. $' + finFmtMoney(netIncome.budgetCents/100) + ' budget (' + (remaining >= 0 ? '$' + finFmtMoney(remaining/100) + ' remaining' : 'over by $' + finFmtMoney(-remaining/100)) + ')</div>' : '')
+    + '</div></div>';
 }
 // The report's "as of" date: the most recent sync/import timestamp among this year's entries.
 function finChurchAsOfDate(entries) {
@@ -1098,28 +1112,26 @@ function finLoadChurchThisYear(year) {
   });
 }
 
-function finMoneyClass(cents) {
-  return cents < 0 ? 'color:var(--danger);' : 'color:var(--sage);';
-}
 // One This Year summary card: actual figure, plus (only if any budget is known for the year)
 // the annual budget, remaining amount, and a simple over/under progress bar.
 function finChurchSummaryCard(label, totals, hasBudget) {
   var actual = totals.actualCents, budget = totals.budgetCents;
   var remaining = budget - actual;
   var pct = budget > 0 ? Math.round(actual * 100 / budget) : null;
-  var html = '<div style="flex:1;min-width:170px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">'
-    + '<div style="font-size:.7rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">' + label + '</div>'
-    + '<div style="font-size:1.3rem;font-weight:700;color:var(--steel-anchor);">$' + finFmtMoney(actual / 100) + '</div>';
+  var borderColor = /revenue|income/i.test(label) && !/net/i.test(label) ? 'var(--color-teal)' : /expense/i.test(label) ? 'var(--color-gold)' : (remaining >= 0 ? 'var(--sage)' : 'var(--danger)');
+  var html = '<div class="fin-kpi-card" style="flex:1;min-width:170px;border-top-color:' + borderColor + ';">'
+    + '<div class="fin-kpi-lbl">' + label + '</div>'
+    + '<div class="fin-kpi-val">$' + finFmtMoney(actual / 100) + '</div>';
   if (hasBudget) {
-    html += '<div style="font-size:.76rem;color:var(--warm-gray);margin-top:2px;">Budget: $' + finFmtMoney(budget / 100) + '</div>'
-      + '<div style="font-size:.76rem;' + finMoneyClass(remaining) + '">' + (remaining < 0 ? 'Over by $' + finFmtMoney(-remaining / 100) : '$' + finFmtMoney(remaining / 100) + ' remaining') + '</div>';
+    var chipCls = remaining < 0 ? 'fin-chip-negative' : 'fin-chip-positive';
+    html += '<span class="fin-chip ' + chipCls + '">' + (remaining < 0 ? 'Over by $' + finFmtMoney(-remaining / 100) : '$' + finFmtMoney(remaining / 100) + ' remaining') + '</span>'
+      + '<div class="fin-kpi-sub">Budget: $' + finFmtMoney(budget / 100) + '</div>';
     if (pct != null) {
-      var barColor = pct > 100 ? 'var(--danger)' : pct > 85 ? 'var(--color-gold)' : 'var(--sage)';
-      html += '<div style="height:6px;background:var(--linen);border-radius:3px;margin-top:6px;overflow:hidden;">'
-        + '<div style="height:100%;width:' + Math.min(100, pct) + '%;background:' + barColor + ';"></div></div>';
+      var barColor = pct > 100 ? 'var(--danger)' : pct > 85 ? 'var(--color-gold)' : 'var(--color-teal)';
+      html += '<div class="fin-pace-bar-track" style="margin-top:8px;"><div class="fin-pace-bar-fill" style="width:' + Math.min(100, pct) + '%;background:' + barColor + ';"></div></div>';
     }
   } else {
-    html += '<div style="font-size:.76rem;color:var(--warm-gray);margin-top:2px;">No budget data for this year</div>';
+    html += '<div class="fin-kpi-sub">No budget data for this year</div>';
   }
   return html + '</div>';
 }
@@ -1261,9 +1273,12 @@ function finRenderChurchThisYear(d) {
       + '</div>';
   }
   html += '<details><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail' + (asOfDate ? ' <span style="font-weight:400;">— YTD as of ' + esc(asOfDate) + '</span>' : '') + '</summary>'
-    + '<div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
-    + '<thead><tr style="border-bottom:2px solid var(--navy);"><th style="text-align:left;padding:6px 8px;">Account</th><th style="text-align:right;padding:6px 8px;">YTD Actual</th><th style="text-align:right;padding:6px 8px;">Budget</th><th style="text-align:right;padding:6px 8px;">Remaining</th></tr></thead>'
-    + '<tbody>' + finRenderChurchDetailBody(tree, d.netIncome, d.hasBudgetData) + '</tbody></table></div></details>';
+    + '<div class="fin-card" style="padding:0;overflow:hidden;margin-top:10px;">'
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead><tr style="background:var(--warm-surface-header);"><th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Account</th><th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">YTD Actual</th><th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Budget</th><th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Variance</th></tr></thead>'
+    + '<tbody>' + finRenderChurchDetailBody(tree, d.netIncome, d.hasBudgetData) + '</tbody></table></div>'
+    + finRenderNetIncomeBar(d.netIncome, d.hasBudgetData)
+    + '</div></details>';
   el.innerHTML = html;
 }
 
@@ -1473,8 +1488,8 @@ function finRenderChurchBalances(d, multiYear) {
   }
   html += finRenderBalanceMultiYearChart(multiYear);
   html += '<details open><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail</summary>'
-    + '<div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
-    + '<thead><tr style="border-bottom:2px solid var(--navy);"><th style="text-align:left;padding:6px 8px;">Account</th><th style="text-align:right;padding:6px 8px;">Balance</th></tr></thead>'
+    + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead><tr style="background:var(--warm-surface-header);"><th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Account</th><th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Balance</th></tr></thead>'
     + '<tbody>' + finRenderBalanceTreeRows(tree).join('') + '</tbody></table></div></details>';
   el.innerHTML = html;
 }
