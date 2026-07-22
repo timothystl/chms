@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport, classifyMdoAccountCategory, extractMdoDaycareEntries, persistDaycareEntriesFromChurchBudget, finXlsxParseSheetGrid } from '../src/api-finance.js';
+import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, computeSuppliesMonthlyBreakdown, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport, classifyMdoAccountCategory, extractMdoDaycareEntries, persistDaycareEntriesFromChurchBudget, finXlsxParseSheetGrid } from '../src/api-finance.js';
 
 // ── Minimal D1-shaped wrapper around node:sqlite, so persistChurchEntries() runs against real
 // SQL (real UNIQUE/ON CONFLICT semantics) instead of a hand-rolled re-implementation of what the
@@ -243,6 +243,35 @@ describe('computeYtdComparison', () => {
   });
 });
 
+describe('computeSuppliesMonthlyBreakdown', () => {
+  it('returns all-zero months when nothing matches "supplies"', () => {
+    const result = computeSuppliesMonthlyBreakdown(
+      [{ account_name: '50100 Wages', period_month: 1, own_actual_cents: 500 }],
+      []
+    );
+    expect(result.monthly.length).toBe(12);
+    expect(result.monthly.every(m => m.currentCents === 0 && m.priorCents === 0)).toBe(true);
+    expect(result.currentYtdCents).toBe(0);
+  });
+
+  it('sums matching accounts by month and is case-insensitive, matching real MDO account names', () => {
+    const current = [
+      { account_name: '50160 MDO Supplies', period_month: 1, own_actual_cents: 1000 },
+      { account_name: '57160 MDO - Supplies', period_month: 1, own_actual_cents: 500 },
+      { account_name: 'Office supplies', period_month: 2, own_actual_cents: 300 },
+      { account_name: '50100 Wages', period_month: 1, own_actual_cents: 99999 },
+    ];
+    const prior = [
+      { account_name: '50160 MDO Supplies', period_month: 1, own_actual_cents: 800 },
+    ];
+    const result = computeSuppliesMonthlyBreakdown(current, prior);
+    expect(result.monthly[0]).toEqual({ month: 1, currentCents: 1500, priorCents: 800 });
+    expect(result.monthly[1]).toEqual({ month: 2, currentCents: 300, priorCents: 0 });
+    expect(result.currentYtdCents).toBe(1800);
+    expect(result.priorYtdCents).toBe(800);
+  });
+});
+
 describe('persistChurchEntries — real SQL against the actual migration', () => {
   it('inserts rows and they are readable back', async () => {
     const db = makeTestDb();
@@ -345,6 +374,37 @@ describe('resolveChurchYearPrecedence', () => {
     expect(resolved.length).toBe(2);
     expect(resolved.find(r => r.fiscal_year === 2025).source).toBe('import');
     expect(resolved.find(r => r.fiscal_year === 2026).source).toBe('qbo_sync');
+  });
+
+  // FIN12 — Budget Planning can commit a placeholder budget into a future year
+  // (source='plan_committed'). It must be the LOWEST priority: a real sync or import for that
+  // same year should always win once one exists, so a stale plan never masks real data.
+  it('uses a plan_committed row only when no qbo_sync/import row exists for that year', () => {
+    const rows = [{ fiscal_year: 2027, source: 'plan_committed', category_path: 'Utilities', own_actual_cents: 0, own_budget_cents: 500000 }];
+    const resolved = resolveChurchYearPrecedence(rows);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].source).toBe('plan_committed');
+  });
+
+  it('a qbo_sync row for the same year overrides a plan_committed placeholder', () => {
+    const rows = [
+      { fiscal_year: 2027, source: 'plan_committed', category_path: 'Utilities', own_budget_cents: 500000 },
+      { fiscal_year: 2027, source: 'qbo_sync', category_path: 'Utilities', own_actual_cents: 480000 },
+    ];
+    const resolved = resolveChurchYearPrecedence(rows);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].source).toBe('qbo_sync');
+  });
+
+  it('an import row still wins over both qbo_sync and plan_committed for the same year', () => {
+    const rows = [
+      { fiscal_year: 2027, source: 'plan_committed', category_path: 'Utilities', own_budget_cents: 500000 },
+      { fiscal_year: 2027, source: 'qbo_sync', category_path: 'Utilities', own_actual_cents: 480000 },
+      { fiscal_year: 2027, source: 'import', category_path: 'Utilities', own_actual_cents: 490000 },
+    ];
+    const resolved = resolveChurchYearPrecedence(rows);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].source).toBe('import');
   });
 });
 

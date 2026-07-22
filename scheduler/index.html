@@ -277,13 +277,19 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
      'sched-' prefix (scheduler-inline.js, to avoid colliding with ChMS's own tab ids), so a
      literal #tab-schedule selector matches nothing there. A suffix match works unrenamed
      (standalone /scheduler) and renamed (embedded) alike, with no extra transform-pipeline
-     rule needed. */
+     rule needed. IMPORTANT: an attribute selector like [id$="..."] has the same (class-level)
+     specificity as .tab-content below, NOT an id selector's higher specificity — so any rule
+     hiding a .tab-content element by [id$=...] must come AFTER the ".tab-content{display:
+     block!important}" rule to actually win (equal specificity + !important -> last one in
+     the stylesheet wins). #tab-breeze isn't renamed when embedded, so it keeps a plain #id
+     and doesn't have this problem. */
   header, .tabs, .schedule-controls, .legend, .summary-bar,
-  #schedule-alert, [id$="tab-people"], [id$="tab-settings"], #tab-breeze,
+  #schedule-alert, #tab-breeze,
   .btn, #assignment-summary { display: none !important; }
   body { background: white; }
   .tab-content { display: block !important; padding: 0; }
   [id$="tab-schedule"] { display: block !important; }
+  [id$="tab-people"], [id$="tab-settings"] { display: none !important; }
   .card { box-shadow: none; padding: 8px 0; }
   table { font-size: 0.75rem; border-collapse: collapse !important; }
   td, th { padding: 4px 6px; border: 1px solid #999 !important; }
@@ -309,6 +315,12 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
   /* Focus Week is the on-screen UI only — print uses the full table above */
   .fw-layout, .more-menu-wrap { display: none !important; }
 }
+
+/* ── Print Preview (SC7) ── Print Preview now opens in its own popup window
+   (see openPrintPreview() / ppShellHtml() in the schedule-tab JS) rather than
+   an in-page overlay — a real window has its own native close button/title
+   bar, which an in-page overlay does not. Its CSS is written into that
+   popup's own <head> as a self-contained string, so nothing lives here. */
 
 /* ── Confirmation tracking ─────────────────── */
 .conf-pill { font-size:0.68rem; font-weight:700; padding:2px 7px; border-radius:10px; cursor:pointer; border:none; margin-top:3px; display:block; width:100%; text-align:center; user-select:none; text-transform:uppercase; letter-spacing:0.04em; transition:opacity 0.1s; }
@@ -662,7 +674,7 @@ body.embedded #app-content { display:block!important; }
       <span class="month-nav-label" id="current-month-label">Loading…</span>
       <button class="btn btn-outline btn-sm" id="btn-next-month">&#8594;</button>
       <button class="btn btn-primary btn-sm" id="btn-generate">Generate Month</button>
-      <button class="btn btn-outline btn-sm" id="btn-autofill" title="Auto-fill empty slots using volunteer history">&#9889; Auto-Fill</button>
+      <button class="btn btn-outline btn-sm" id="btn-autofill" title="Auto-fill empty slots based on each volunteer's set availability">&#9889; Auto-Fill</button>
       <button class="btn btn-outline btn-sm" id="btn-add-special">+ Special Service</button>
     </div>
     <div id="schedule-alert"></div>
@@ -2232,8 +2244,11 @@ function generateSchedule() {
 
   renderTable(people, null);
   document.getElementById('schedule-output').style.display = 'block';
-  saveCurrentMonth();
-  setDirty(false);
+  // Same reasoning as autoFillSchedule(): a generated month is real, reviewable content
+  // (it can overwrite a partially-filled month via preserveOverrides), not a background
+  // sync — mark dirty and require an explicit "Save Changes" click instead of persisting
+  // it immediately.
+  setDirty(true);
 }
 
 document.getElementById('btn-generate').addEventListener('click', generateSchedule);
@@ -3233,7 +3248,377 @@ document.getElementById('btn-export-csv').addEventListener('click', function() {
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 });
 
-document.getElementById('btn-print').addEventListener('click', function(){ window.print(); });
+document.getElementById('btn-print').addEventListener('click', openPrintPreview);
+
+// ══════════════════════════════════════════════════════════════════
+// PRINT PREVIEW (SC7) — Single Sunday / Full Month / Bulletin Insert
+// ══════════════════════════════════════════════════════════════════
+var ppMode = 'single';        // 'single' | 'month' | 'bulletin'
+var ppSelectedIdx = 0;        // index into ppSundayRows
+var ppSundayRows = [];        // currentSchedule filtered to type==='sunday'
+var ppWin = null;             // the print-preview popup window, once opened
+
+function ppFmtDateLong(d) {
+  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+function ppFmtMonthDay(d) {
+  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+}
+
+// Builds the same per-Sunday view shape (dates, ordinal/lectionary label,
+// per-service role assignments, shared-role assignments) used by all three
+// print layouts, from the same currentSchedule row data the on-screen table renders.
+function ppSundayData(row) {
+  var pMap = {};
+  getPeople().forEach(function(p) { pMap[p.id] = p; });
+  var dateISO = row.date.toISOString().slice(0, 10);
+  var existingLabel = getSundayLabels()[dateISO] || row.label || '';
+  var lectEntry = getLectEntry(row.date);
+  var ordinalLabel = lectEntry ? lectEntry.sundayName : (row.ordinal + ordSuffix(row.ordinal) + ' Sunday');
+  function nameFor(pid) { return (pid && pMap[pid]) ? pMap[pid].name : ''; }
+  var services = [
+    { key: '8am', time: '8:00 AM' },
+    { key: '10:45am', time: '10:45 AM' }
+  ].map(function(s) {
+    return {
+      time: s.time,
+      roles: PER_ROLES.map(function(role) {
+        return { role: role, name: nameFor(row.assignments[role][s.key]) };
+      })
+    };
+  });
+  var shared = SHARED_ROLES.map(function(role) {
+    return { role: roleLabel(role), name: nameFor(row.assignments[role].shared) };
+  });
+  return {
+    dateISO: dateISO,
+    dateLong: ppFmtDateLong(row.date),
+    dateMonthDay: ppFmtMonthDay(row.date),
+    ordinalLabel: ordinalLabel,
+    label: existingLabel,
+    services: services,
+    shared: shared
+  };
+}
+
+function ppUpdatePageSize() {
+  if (!ppWin || ppWin.closed) return;
+  var el = ppWin.document.getElementById('pp-page-size-style');
+  if (!el) return;
+  var rule = ppMode === 'month'
+    ? '@page { size: letter landscape; margin: 0.6in; }'
+    : ppMode === 'bulletin'
+      ? '@page { size: 7in 8.5in; margin: 0.35in; }'
+      : '@page { size: letter portrait; margin: 0.85in; }';
+  el.textContent = rule;
+}
+
+function ppBuildSingleHtml(d) {
+  var html = '<div class="pp-page pp-page-single">'
+    + '<div style="text-align:center;border-bottom:2px solid #C9973A;padding-bottom:16px;margin-bottom:28px;">'
+    +   '<div style="font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#C9973A;margin-bottom:10px;">Timothy Lutheran Church · Serving This Week</div>'
+    +   '<div style="font-size:36.8px;font-weight:800;color:#1E2D4A;line-height:1.1;">' + esc(d.dateLong) + '</div>'
+    +   '<div style="font-size:16.8px;color:#7A6E60;margin-top:6px;">' + esc(d.ordinalLabel) + '</div>'
+    +   (d.label ? '<div style="display:inline-block;margin-top:8px;font-size:12.5px;font-weight:700;color:#A87B23;background:#F5E0B0;border-radius:999px;padding:3px 12px;">' + esc(d.label) + '</div>' : '')
+    + '</div>';
+  d.services.forEach(function(svc) {
+    html += '<div style="margin-bottom:26px;">'
+      + '<div style="font-size:16px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#1E2D4A;border-bottom:1px solid #E8E0D0;padding-bottom:6px;margin-bottom:4px;">' + esc(svc.time) + ' Service</div>';
+    svc.roles.forEach(function(r) {
+      html += '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:20px;padding:10px 2px;border-bottom:1px solid #F2EDE2;">'
+        +   '<div style="font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#7A6E60;width:150px;flex-shrink:0;">' + esc(r.role) + '</div>'
+        +   '<div style="font-size:21.6px;font-weight:700;color:#1A1A2A;text-align:right;flex:1;">' + esc(r.name) + '</div>'
+        + '</div>';
+    });
+    html += '</div>';
+  });
+  html += '<div>'
+    + '<div style="font-size:16px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#6B8F71;border-bottom:1px solid #E8E0D0;padding-bottom:6px;margin-bottom:4px;">Both Services</div>';
+  d.shared.forEach(function(r) {
+    html += '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:20px;padding:10px 2px;border-bottom:1px solid #F2EDE2;">'
+      +   '<div style="font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#7A6E60;width:150px;flex-shrink:0;">' + esc(r.role) + '</div>'
+      +   '<div style="font-size:21.6px;font-weight:700;color:#1A1A2A;text-align:right;flex:1;">' + esc(r.name) + '</div>'
+      + '</div>';
+  });
+  html += '</div></div>';
+  return html;
+}
+
+function ppBuildMonthHtml() {
+  var rows = ppSundayRows.map(ppSundayData);
+  var html = '<div class="pp-page pp-page-month">'
+    + '<div style="text-align:center;margin-bottom:14px;">'
+    +   '<div style="font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#7A6E60;">Timothy Lutheran Church</div>'
+    +   '<div style="font-size:20.8px;font-weight:800;color:#1E2D4A;">Serving Schedule — ' + esc(monthKeyLabel(currentMonthKey)) + '</div>'
+    + '</div>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:12.5px;">'
+    + '<thead><tr>'
+    +   '<th style="background:#1E2D4A;color:#fff;padding:7px 8px;text-align:left;border:1px solid #1E2D4A;">Date</th>'
+    +   '<th style="background:#1E2D4A;color:#fff;padding:7px 8px;border:1px solid #1E2D4A;"></th>';
+  PER_ROLES.forEach(function(role) {
+    html += '<th style="background:#3D627C;color:#fff;padding:7px 8px;border:1px solid #1E2D4A;">' + esc(role) + '</th>';
+  });
+  html += '<th style="background:#6B8F71;color:#fff;padding:7px 8px;border:1px solid #1E2D4A;width:90px;">Preacher</th>'
+    +   '<th style="background:#6B8F71;color:#fff;padding:7px 8px;border:1px solid #1E2D4A;width:90px;">' + esc("Children's Msg") + '</th>'
+    + '</tr></thead><tbody>';
+  rows.forEach(function(d) {
+    var preacher = (d.shared.filter(function(r) { return r.role === 'Preacher'; })[0] || {}).name || '\u2014';
+    var cm = (d.shared.filter(function(r) { return r.role !== 'Preacher'; })[0] || {}).name || '\u2014';
+    d.services.forEach(function(svc, svcIdx) {
+      html += '<tr>';
+      if (svcIdx === 0) {
+        html += '<td rowspan="2" style="padding:7px 8px;border:1px solid #E8E0D0;font-weight:700;color:#1E2D4A;vertical-align:middle;background:#F2EDE2;width:115px;">'
+          + esc(d.dateMonthDay) + '<br/><span style="font-weight:400;color:#7A6E60;font-size:11.5px;">' + esc(d.ordinalLabel) + '</span></td>';
+      }
+      html += '<td style="padding:7px 8px;border:1px solid #E8E0D0;font-weight:700;color:#7A6E60;font-size:11.48px;width:53px;">' + esc(svc.time) + '</td>';
+      svc.roles.forEach(function(r) {
+        html += '<td style="padding:7px 8px;border:1px solid #E8E0D0;width:85px;">' + esc(r.name || '\u2014') + '</td>';
+      });
+      if (svcIdx === 0) {
+        html += '<td rowspan="2" style="padding:7px 8px;border:1px solid #E8E0D0;vertical-align:middle;width:90px;">' + esc(preacher) + '</td>'
+          +   '<td rowspan="2" style="padding:7px 8px;border:1px solid #E8E0D0;vertical-align:middle;width:90px;">' + esc(cm) + '</td>';
+      }
+      html += '</tr>';
+    });
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function ppBuildBulletinHtml(d) {
+  var colWidths = ['14%', '17.2%', '17.2%', '17.2%', '17.2%', '17.2%'];
+  var html = '<div class="pp-page pp-page-bulletin">'
+    + '<div style="text-align:center;margin-bottom:10px;">'
+    +   '<div style="font-size:11.2px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#000;">Timothy Lutheran Church</div>'
+    +   '<div style="font-size:18.4px;font-weight:800;color:#000;">' + esc(d.dateLong) + '</div>'
+    +   '<div style="font-size:13.6px;color:#333;">' + esc(d.ordinalLabel) + '</div>'
+    + '</div>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed;">'
+    + '<colgroup>' + colWidths.map(function(w) { return '<col style="width:' + w + ';"/>'; }).join('') + '</colgroup>'
+    + '<thead><tr><th style="background:#000;color:#fff;padding:6px 4px;text-align:left;border:1px solid #000;"></th>';
+  PER_ROLES.forEach(function(role) {
+    html += '<th style="background:#000;color:#fff;padding:6px 4px;border:1px solid #000;">' + esc(role) + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+  d.services.forEach(function(svc) {
+    html += '<tr><td style="padding:6px 4px;border:1px solid #000;font-weight:700;color:#000;">' + esc(svc.time) + '</td>';
+    svc.roles.forEach(function(r) {
+      html += '<td style="padding:6px 4px;border:1px solid #000;color:#000;word-break:break-word;line-height:1.2;">' + esc(r.name) + '</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>'
+    + '<div style="margin-top:14px;">'
+    +   '<div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#000;border-bottom:1px solid #000;padding-bottom:4px;margin-bottom:6px;">Both Services</div>';
+  d.shared.forEach(function(r) {
+    html += '<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 2px;border-bottom:1px solid #ccc;font-size:13.1px;">'
+      +   '<span style="font-weight:700;color:#000;">' + esc(r.role) + '</span>'
+      +   '<span style="color:#000;">' + esc(r.name) + '</span>'
+      + '</div>';
+  });
+  html += '</div></div>';
+  return html;
+}
+
+function ppBuildPageHtml() {
+  if (ppMode === 'month') return ppBuildMonthHtml();
+  var row = ppSundayRows[ppSelectedIdx] || ppSundayRows[0];
+  var d = ppSundayData(row);
+  return ppMode === 'bulletin' ? ppBuildBulletinHtml(d) : ppBuildSingleHtml(d);
+}
+
+// The popup's whole document — self-contained (fonts + all pp-* CSS) since it
+// has no access to the opener's stylesheet. A real window (vs. an in-page
+// overlay) gives staff a native title bar + close button, so there's always
+// an obvious way out — the earlier in-page overlay had none.
+function ppShellHtml() {
+  return '<!DOCTYPE html><html><head><meta charset="utf-8">'
+    + '<title>Print Preview \u2014 Schedule</title>'
+    + '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    + '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    + '<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">'
+    + '<style id="pp-page-size-style"></style>'
+    + '<style>'
+    + 'body{margin:0;background:#EDE7DA;font-family:\'DM Sans\',\'Source Sans 3\',Arial,sans-serif;}'
+    + '.pp-toolbar-wrap{max-width:900px;margin:0 auto;padding:16px 20px 0;}'
+    + '.pp-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;background:#1E2D4A;border-radius:12px;padding:14px 20px;box-shadow:0 2px 12px rgba(10,60,92,0.15);}'
+    + '.pp-toolbar-left{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}'
+    + '.pp-toolbar-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}'
+    + '.pp-eyebrow{color:#C9973A;font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}'
+    + '.pp-seg{background:#F2EDE2;border-radius:999px;padding:3px;display:inline-flex;gap:2px;}'
+    + '.pp-seg-btn{border:none;border-radius:999px;padding:7px 16px;font-size:.82rem;font-weight:700;cursor:pointer;font-family:inherit;background:transparent;color:#7A6E60;}'
+    + '.pp-seg-btn.active{background:#1E2D4A;color:#fff;}'
+    + '.pp-sunday-select{padding:7px 12px;border-radius:8px;border:none;font-size:.85rem;font-family:inherit;font-weight:600;color:#1E2D4A;}'
+    + '.pp-print-btn{background:#C9973A;color:#1E2D4A;border:none;border-radius:8px;padding:9px 20px;font-size:.88rem;font-weight:800;cursor:pointer;font-family:inherit;}'
+    + '.pp-icon-btn{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:8px 14px;font-size:.82rem;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;}'
+    + '.pp-icon-btn:hover{background:rgba(255,255,255,.22);}'
+    + '.pp-hint{text-align:center;color:#7A6E60;font-size:.8rem;margin:8px 0 0;min-height:1.2em;}'
+    + '.pp-hint.pp-status-ok{color:#3d6b45;font-weight:700;}'
+    + '.pp-hint.pp-status-err{color:#a03a2e;font-weight:700;}'
+    + '.pp-page-wrap{display:flex;justify-content:center;padding:20px 20px 50px;}'
+    + '.pp-page{background:#fff;box-shadow:0 4px 24px rgba(10,60,92,.18);box-sizing:border-box;}'
+    + '.pp-page-single{width:8.5in;min-height:11in;padding:0.85in;}'
+    + '.pp-page-month{width:11in;min-height:8.5in;padding:0.6in;}'
+    + '.pp-page-bulletin{width:7in;height:8.5in;padding:0.35in;}'
+    + '@media print{'
+    +   '.pp-toolbar-wrap,.pp-hint{display:none !important;}'
+    +   '.pp-page-wrap{display:block !important;padding:0 !important;}'
+    +   '.pp-page{box-shadow:none !important;width:auto !important;min-height:0 !important;height:auto !important;padding:0 !important;margin:0 !important;}'
+    + '}'
+    + '</style></head><body>'
+    + '<div class="pp-toolbar-wrap"><div class="pp-toolbar"></div><p class="pp-hint" id="pp-hint"></p></div>'
+    + '<div class="pp-page-wrap" id="pp-page-mount"></div>'
+    + '</body></html>';
+}
+
+function renderPrintPreview() {
+  if (!ppWin || ppWin.closed) return;
+  ppUpdatePageSize();
+  var doc = ppWin.document;
+  var showPicker = ppMode === 'single' || ppMode === 'bulletin';
+  var sundayOptions = ppSundayRows.map(function(row, i) {
+    var d = ppSundayData(row);
+    return '<option value="' + i + '"' + (i === ppSelectedIdx ? ' selected' : '') + '>' + esc(d.dateLong) + ' \u2014 ' + esc(d.ordinalLabel) + '</option>';
+  }).join('');
+
+  var toolbar = doc.querySelector('.pp-toolbar');
+  toolbar.innerHTML =
+      '<div class="pp-toolbar-left">'
+    +   '<span class="pp-eyebrow">Print Preview</span>'
+    +   '<div class="pp-seg">'
+    +     '<button type="button" class="pp-seg-btn' + (ppMode === 'single' ? ' active' : '') + '" data-pp-mode="single">Single Sunday</button>'
+    +     '<button type="button" class="pp-seg-btn' + (ppMode === 'month' ? ' active' : '') + '" data-pp-mode="month">Full Month</button>'
+    +     '<button type="button" class="pp-seg-btn' + (ppMode === 'bulletin' ? ' active' : '') + '" data-pp-mode="bulletin">Bulletin Insert</button>'
+    +   '</div>'
+    +   (showPicker ? '<select class="pp-sunday-select" id="pp-sunday-select">' + sundayOptions + '</select>' : '')
+    + '</div>'
+    + '<div class="pp-toolbar-right">'
+    +   '<button type="button" class="pp-icon-btn" id="pp-copy-btn" title="Copy the sheet below as an image you can paste into a bulletin">Copy Image</button>'
+    +   '<button type="button" class="pp-icon-btn" id="pp-download-btn" title="Download the sheet below as a PNG image">Download Image</button>'
+    +   '<button type="button" class="pp-print-btn" id="pp-print-btn">Print</button>'
+    + '</div>';
+  doc.getElementById('pp-page-mount').innerHTML = ppBuildPageHtml();
+
+  var sel = doc.getElementById('pp-sunday-select');
+  if (sel) sel.addEventListener('change', function(e) {
+    ppSelectedIdx = parseInt(e.target.value, 10) || 0;
+    renderPrintPreview();
+  });
+  Array.prototype.forEach.call(doc.querySelectorAll('[data-pp-mode]'), function(btn) {
+    btn.addEventListener('click', function() {
+      ppMode = btn.getAttribute('data-pp-mode');
+      renderPrintPreview();
+    });
+  });
+  doc.getElementById('pp-print-btn').addEventListener('click', ppDoPrint);
+  doc.getElementById('pp-copy-btn').addEventListener('click', ppCopyImage);
+  doc.getElementById('pp-download-btn').addEventListener('click', ppDownloadImage);
+}
+
+function ppDoPrint() { if (ppWin && !ppWin.closed) ppWin.print(); }
+
+function ppSetStatus(msg, kind) {
+  if (!ppWin || ppWin.closed) return;
+  var el = ppWin.document.getElementById('pp-hint');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.className = 'pp-hint' + (kind ? ' pp-status-' + kind : '');
+}
+
+// Rasterizes the currently-shown .pp-page into a PNG so staff can paste it
+// straight into a bulletin doc (Word/Publisher/Google Docs all accept an
+// image on the clipboard). No third-party library — draws the page's HTML
+// into an SVG <foreignObject>, then that SVG into a <canvas>, matching this
+// app's existing no-external-JS-dependency convention (see the xlsx reader
+// in js-tuition-aid.js for the same approach to a different problem). The
+// exported markup must be well-formed XML for this to parse (self-closed
+// void tags, no bare HTML named entities — only real Unicode characters or
+// the 5 predefined XML entities), which is why ppBuildSingleHtml/MonthHtml/
+// BulletinHtml avoid &mdash;/&middot;/<br> in favor of literal \u2014/\u00b7/<br/>.
+function ppExportCanvas(cb) {
+  if (!ppWin || ppWin.closed) { cb(null); return; }
+  var pageEl = ppWin.document.querySelector('.pp-page');
+  if (!pageEl) { cb(null); return; }
+  var w = Math.ceil(pageEl.getBoundingClientRect().width) || 816;
+  var h = Math.ceil(pageEl.getBoundingClientRect().height) || 1056;
+  var scale = 2;
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '">'
+    + '<foreignObject width="100%" height="100%">'
+    + '<div xmlns="http://www.w3.org/1999/xhtml" style="width:' + w + 'px;height:' + h + 'px;background:#fff;font-family:\'DM Sans\',\'Source Sans 3\',Arial,sans-serif;box-sizing:border-box;">'
+    + pageEl.outerHTML
+    + '</div></foreignObject></svg>';
+  var fontsReady = (ppWin.document.fonts && ppWin.document.fonts.ready) ? ppWin.document.fonts.ready : Promise.resolve();
+  fontsReady.then(function() {
+    var url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+    var img = new (ppWin.Image || Image)();
+    img.onload = function() {
+      var canvas = ppWin.document.createElement('canvas');
+      canvas.width = w * scale;
+      canvas.height = h * scale;
+      var ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(function(blob) { cb(blob); }, 'image/png');
+    };
+    img.onerror = function() { URL.revokeObjectURL(url); cb(null); };
+    img.src = url;
+  });
+}
+
+function ppCopyImage() {
+  ppSetStatus('Generating image\u2026');
+  ppExportCanvas(function(blob) {
+    if (!blob) { ppSetStatus('Could not generate an image. Try Download instead.', 'err'); return; }
+    if (!(navigator.clipboard && window.ClipboardItem)) {
+      ppSetStatus('Copy isn\u2019t supported in this browser \u2014 use Download instead.', 'err');
+      return;
+    }
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]).then(function() {
+      ppSetStatus('Copied! Paste it into your bulletin doc.', 'ok');
+    }).catch(function() {
+      ppSetStatus('Could not copy \u2014 use Download instead.', 'err');
+    });
+  });
+}
+
+function ppDownloadImage() {
+  ppSetStatus('Generating image\u2026');
+  ppExportCanvas(function(blob) {
+    if (!blob) { ppSetStatus('Could not generate an image.', 'err'); return; }
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'schedule-' + ppMode + '.png';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    ppSetStatus('Image downloaded.', 'ok');
+  });
+}
+
+function openPrintPreview() {
+  if (ppWin && !ppWin.closed) { ppWin.focus(); return; }
+  ppSundayRows = currentSchedule.filter(function(r) { return r.type === 'sunday'; });
+  if (!ppSundayRows.length) {
+    alert('No schedule to print for ' + monthKeyLabel(currentMonthKey) + ' yet. Generate a schedule first.');
+    return;
+  }
+  var fwRow = currentSchedule[focusWeekSelectedIdx];
+  var idx = fwRow ? ppSundayRows.indexOf(fwRow) : -1;
+  ppSelectedIdx = idx > -1 ? idx : 0;
+  ppMode = 'single';
+  ppWin = window.open('', 'schedulerPrintPreview', 'width=1000,height=860,scrollbars=yes,resizable=yes');
+  if (!ppWin) {
+    alert('Please allow pop-ups for this site to use Print Preview.');
+    return;
+  }
+  ppWin.document.open();
+  ppWin.document.write(ppShellHtml());
+  ppWin.document.close();
+  renderPrintPreview();
+}
 
 // Swap dropdowns for plain text before printing, restore after
 window.addEventListener('beforeprint', function() {
@@ -5269,23 +5654,10 @@ function updateLastServedFromRows(rows) {
 // ══════════════════════════════════════════════════════════════════
 // AUTO-FILL SCHEDULE
 // ══════════════════════════════════════════════════════════════════
-function pickBestWithHistory(pool, counts, lastServed, role) {
-  if (!pool.length) return null;
-  pool.sort(function(a, b) {
-    var aLast = (lastServed[a.id] && lastServed[a.id][role]) || '0000-00-00';
-    var bLast = (lastServed[b.id] && lastServed[b.id][role]) || '0000-00-00';
-    if (aLast < bLast) return -1;
-    if (aLast > bLast) return 1;
-    return (counts[a.id]||0) - (counts[b.id]||0);
-  });
-  return pool[0];
-}
-
 function autoFillSchedule() {
   if (!currentSchedule.length) { showAlert('schedule-alert','Generate a schedule first, then use Auto-Fill to populate empty slots.','warning'); return; }
   var people = getPeople();
   if (!people.length) { showAlert('schedule-alert','No people added yet.','warning'); return; }
-  var lastServed = getLastServed();
   var counts = {};
   people.forEach(function(p){ counts[p.id] = 0; });
   // Seed counts from existing assignments
@@ -5324,7 +5696,7 @@ function autoFillSchedule() {
     SHARED_ROLES.forEach(function(role) {
       if (row.assignments[role].shared) return;
       var pool = people.filter(function(p){ return p.roles.indexOf(role)>-1 && eligible(p,ordinal,'shared',dateISO); });
-      var picked = pickBestWithHistory(pool, counts, lastServed, role);
+      var picked = pickBest(pool, counts);
       if (picked) {
         row.assignments[role].shared = picked.id; counts[picked.id]++; filled++;
         usedThisService['8am'][picked.id] = true; usedThisService['10:45am'][picked.id] = true;
@@ -5337,7 +5709,7 @@ function autoFillSchedule() {
         var pool = people.filter(function(p){
           return p.roles.indexOf(role)>-1 && eligible(p,ordinal,svc,dateISO) && !usedForRole[p.id] && !usedThisService[svc][p.id];
         });
-        var picked = pickBestWithHistory(pool, counts, lastServed, role);
+        var picked = pickBest(pool, counts);
         if (picked) {
           row.assignments[role][svc] = picked.id; counts[picked.id]++; filled++;
           usedForRole[picked.id] = true; usedThisService[svc][picked.id] = true;
@@ -5346,8 +5718,12 @@ function autoFillSchedule() {
     });
   });
   renderTable(getPeople(), counts);
-  saveSchedule();
-  showAlert('schedule-alert', filled + ' slot' + (filled!==1?'s':'') + ' auto-filled using volunteer history.' + (filled===0?' (All slots already filled or no eligible volunteers found)':''), filled>0?'success':'warning');
+  // Mark dirty rather than saving immediately (unlike deletePerson()'s cleanup pass
+  // above, which is system-triggered, not an active edit) — Auto-Fill changes real
+  // assignments and should be reviewable/undoable via "Save Changes" like any manual
+  // edit, not committed the instant it runs.
+  setDirty(true);
+  showAlert('schedule-alert', filled + ' slot' + (filled!==1?'s':'') + ' auto-filled based on volunteer availability. Click "Save Changes" to keep them.' + (filled===0?' (All slots already filled or no eligible volunteers found)':''), filled>0?'success':'warning');
 }
 
 // ══════════════════════════════════════════════════════════════════

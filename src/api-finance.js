@@ -928,17 +928,24 @@ async function fetchQboJson(label, resPromise, warnings, hint) {
 // always a deliberate override/backfill — see migrations/0018_finance_church_entries.sql); a
 // year with only 'qbo_sync' rows uses those. One bulk query + JS grouping, not a correlated
 // subquery per year, matching this app's existing performance conventions.
+// Highest to lowest priority. 'import' (a hand-uploaded Excel export) always wins over a live
+// QBO sync, same as before this list existed. 'plan_committed' (a forward Budget Planning
+// projection committed to a future year — see FIN12) is deliberately LOWEST priority: it's a
+// placeholder for a year with no real data yet, and must get out of the way the moment either a
+// live sync or a real import exists for that year, rather than permanently overriding them.
+const CHURCH_SOURCE_PRIORITY = ['import', 'qbo_sync', 'plan_committed'];
 export function resolveChurchYearPrecedence(rows) {
-  const bySourceThenYear = new Map(); // year -> { hasOverride, rows }
+  const byYear = new Map();
   for (const r of rows) {
-    if (!bySourceThenYear.has(r.fiscal_year)) bySourceThenYear.set(r.fiscal_year, { hasOverride: false, rows: [] });
-    const bucket = bySourceThenYear.get(r.fiscal_year);
-    if (r.source !== 'qbo_sync') bucket.hasOverride = true;
-    bucket.rows.push(r);
+    if (!byYear.has(r.fiscal_year)) byYear.set(r.fiscal_year, []);
+    byYear.get(r.fiscal_year).push(r);
   }
   const out = [];
-  for (const { hasOverride, rows: yearRows } of bySourceThenYear.values()) {
-    out.push(...(hasOverride ? yearRows.filter(r => r.source !== 'qbo_sync') : yearRows.filter(r => r.source === 'qbo_sync')));
+  for (const yearRows of byYear.values()) {
+    for (const src of CHURCH_SOURCE_PRIORITY) {
+      const matching = yearRows.filter(r => r.source === src);
+      if (matching.length) { out.push(...matching); break; }
+    }
   }
   return out;
 }
@@ -1004,8 +1011,284 @@ export function computeYtdComparison(currentMonthlyRows, priorMonthlyRows, prior
   };
 }
 
+// Any account whose name contains "Supplies" (matches both a real MDO-tagged QuickBooks
+// account like "50160 MDO Supplies" — see classifyMdoAccountCategory's comment above, which
+// deliberately lumps these into the generic Other Expenses catch-all for the Daycare Report —
+// and any non-MDO church supplies account) is pulled out of the monthly rows as its own
+// month-by-month breakdown, so it can be charted on its own instead of staying buried.
+// `currentMonthlyRows`/`priorMonthlyRows` are the same period_month 1-12 qbo_sync rows already
+// fetched for computeYtdComparison; pure/no DB access, independently unit-testable.
+const SUPPLIES_MATCH_RE = /supplies/i;
+export function computeSuppliesMonthlyBreakdown(currentMonthlyRows, priorMonthlyRows) {
+  const curByMonth = {}, priorByMonth = {};
+  let curYtdCents = 0, priorYtdCents = 0;
+  for (const r of currentMonthlyRows) {
+    if (!SUPPLIES_MATCH_RE.test(r.account_name)) continue;
+    curByMonth[r.period_month] = (curByMonth[r.period_month] || 0) + (r.own_actual_cents || 0);
+    curYtdCents += r.own_actual_cents || 0;
+  }
+  for (const r of priorMonthlyRows) {
+    if (!SUPPLIES_MATCH_RE.test(r.account_name)) continue;
+    priorByMonth[r.period_month] = (priorByMonth[r.period_month] || 0) + (r.own_actual_cents || 0);
+    priorYtdCents += r.own_actual_cents || 0;
+  }
+  const months = Array.from({ length: 12 }, (_, i) => i + 1);
+  return {
+    monthly: months.map(m => ({ month: m, currentCents: curByMonth[m] || 0, priorCents: priorByMonth[m] || 0 })),
+    currentYtdCents: curYtdCents,
+    priorYtdCents: priorYtdCents,
+  };
+}
+
+// ── Commercial Property (Finance tab) ────────────────────────────────────────────────────
+// Groups a property's monthly rows + distributions by calendar year (the "period" field is
+// always 'YYYY-MM') into the same annual shape the 2026-07-20 data export used, plus each
+// year's hand-written note — kept as the single source of truth so the numbers can never drift
+// from what's on screen in the monthly table.
+export function computePropertyAnnualSummary(monthlyRows, distributionRows, annualNotes) {
+  const byYear = {};
+  for (const r of monthlyRows) {
+    const year = parseInt(String(r.period || '').slice(0, 4), 10);
+    if (!Number.isFinite(year)) continue;
+    if (!byYear[year]) byYear[year] = { year, total_revenue_cents: 0, total_expenses_cents: 0, net_income_cents: 0, occ_sum: 0, occ_count: 0, confirmed_distributions_cents: 0, notes: annualNotes?.[year] || '' };
+    const y = byYear[year];
+    if (Number.isFinite(r.total_revenue_cents)) y.total_revenue_cents += r.total_revenue_cents;
+    if (Number.isFinite(r.total_expenses_cents)) y.total_expenses_cents += r.total_expenses_cents;
+    if (Number.isFinite(r.net_income_cents)) y.net_income_cents += r.net_income_cents;
+    if (Number.isFinite(r.occupancy_pct)) { y.occ_sum += r.occupancy_pct; y.occ_count++; }
+  }
+  for (const d of distributionRows) {
+    const year = parseInt(String(d.period || '').slice(0, 4), 10);
+    if (byYear[year]) byYear[year].confirmed_distributions_cents += d.amount_cents;
+  }
+  return Object.values(byYear)
+    .map(y => ({
+      year: y.year,
+      total_revenue_cents: y.total_revenue_cents,
+      total_expenses_cents: y.total_expenses_cents,
+      net_income_cents: y.net_income_cents,
+      avg_occupancy_pct: y.occ_count ? y.occ_sum / y.occ_count : null,
+      confirmed_distributions_cents: y.confirmed_distributions_cents,
+      notes: y.notes,
+    }))
+    .sort((a, b) => a.year - b.year);
+}
+
+async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey) {
+  if (seg === `finance/property/${propertyKey}` && method === 'GET') {
+    const monthly = (await db.prepare('SELECT * FROM finance_property_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
+    const distributions = (await db.prepare('SELECT period, amount_cents FROM finance_property_distributions WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
+    const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(`finance_property_${propertyKey}_meta`).first();
+    let meta = null;
+    if (metaRow) { try { meta = JSON.parse(metaRow.value); } catch { meta = null; } }
+    const annualSummary = computePropertyAnnualSummary(monthly, distributions, meta?.annual_notes);
+    let equity = null;
+    if (meta?.valuation?.capitalized_value_cents != null && meta?.loan?.balance_cents != null) {
+      const value = meta.valuation.capitalized_value_cents;
+      const balance = meta.loan.balance_cents;
+      equity = { market_value_cents: value, mortgage_balance_cents: balance, equity_cents: value - balance, loan_to_value_pct: value ? balance / value : null };
+    }
+    const reserveRows = (await db.prepare('SELECT * FROM finance_property_reserves WHERE property_key=? ORDER BY reserve_key ASC, report_month ASC').bind(propertyKey).all()).results || [];
+    const reserves = {};
+    for (const r of reserveRows) { (reserves[r.reserve_key] || (reserves[r.reserve_key] = [])).push(r); }
+    const disbursementRows = (await db.prepare('SELECT * FROM finance_property_reserve_disbursements WHERE property_key=? ORDER BY reserve_key ASC, period_key ASC').bind(propertyKey).all()).results || [];
+    const reserveDisbursements = {};
+    for (const d of disbursementRows) { (reserveDisbursements[d.reserve_key] || (reserveDisbursements[d.reserve_key] = [])).push(d); }
+    const capitalLedger = (await db.prepare('SELECT * FROM finance_property_capital_ledger WHERE property_key=? ORDER BY sort_order ASC, entry_date ASC, id ASC').bind(propertyKey).all()).results || [];
+    const capitalLedgerTotalCents = capitalLedger.reduce((sum, r) => sum + (r.amount_cents || 0), 0);
+    const repairs = (await db.prepare('SELECT * FROM finance_property_repairs WHERE property_key=? ORDER BY entry_date ASC, id ASC').bind(propertyKey).all()).results || [];
+
+    return json({ propertyKey, meta, monthly, distributions, annualSummary, equity, reserves, reserveDisbursements, capitalLedger, capitalLedgerTotalCents, repairs });
+  }
+
+  if (seg === `finance/property/${propertyKey}/monthly` && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    if (!b.period || !/^\d{4}-\d{2}$/.test(b.period)) return json({ error: 'period must be YYYY-MM' }, 400);
+    const toCents = v => (v === '' || v === null || v === undefined) ? null : Math.round(Number(v) * 100);
+    const occ = (b.occupancy_pct === '' || b.occupancy_pct === null || b.occupancy_pct === undefined) ? null : Number(b.occupancy_pct);
+    if (occ !== null && !Number.isFinite(occ)) return json({ error: 'Invalid occupancy_pct' }, 400);
+    const cents = {
+      total_revenue_cents: toCents(b.total_revenue),
+      total_expenses_cents: toCents(b.total_expenses),
+      net_income_cents: toCents(b.net_income),
+      net_operating_income_cents: toCents(b.net_operating_income),
+      available_for_distribution_cents: toCents(b.available_for_distribution),
+      reserve_balance_cents: toCents(b.reserve_balance),
+    };
+    for (const [k, v] of Object.entries(cents)) { if (v !== null && !Number.isFinite(v)) return json({ error: `Invalid ${k}` }, 400); }
+    await db.prepare(
+      `INSERT INTO finance_property_monthly
+         (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,source_report,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))
+       ON CONFLICT(property_key,period) DO UPDATE SET
+         occupancy_pct=excluded.occupancy_pct, total_revenue_cents=excluded.total_revenue_cents, total_expenses_cents=excluded.total_expenses_cents,
+         net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
+         available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
+         source_report=excluded.source_report, updated_at=excluded.updated_at`
+    ).bind(propertyKey, b.period, occ, cents.total_revenue_cents, cents.total_expenses_cents, cents.net_income_cents, cents.net_operating_income_cents, cents.available_for_distribution_cents, cents.reserve_balance_cents, b.source_report || '').run();
+    return json({ ok: true });
+  }
+
+  const monthMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/monthly/(\\d{4}-\\d{2})$`));
+  if (monthMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_property_monthly WHERE property_key=? AND period=?').bind(propertyKey, monthMatch[1]).run();
+    return json({ ok: true });
+  }
+
+  if (seg === `finance/property/${propertyKey}/distributions` && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    if (!b.period || !/^\d{4}-\d{2}$/.test(b.period)) return json({ error: 'period must be YYYY-MM' }, 400);
+    const amountCents = Math.round(Number(b.amount) * 100);
+    if (!Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
+    await db.prepare(
+      `INSERT INTO finance_property_distributions (property_key,period,amount_cents) VALUES (?,?,?)
+       ON CONFLICT(property_key,period) DO UPDATE SET amount_cents=excluded.amount_cents`
+    ).bind(propertyKey, b.period, amountCents).run();
+    return json({ ok: true });
+  }
+
+  const distMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/distributions/(\\d{4}-\\d{2})$`));
+  if (distMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_property_distributions WHERE property_key=? AND period=?').bind(propertyKey, distMatch[1]).run();
+    return json({ ok: true });
+  }
+
+  if (seg === `finance/property/${propertyKey}/meta` && method === 'PATCH') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(`finance_property_${propertyKey}_meta`).first();
+    let meta = {};
+    if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
+    for (const section of ['property', 'valuation', 'loan']) {
+      if (b[section] && typeof b[section] === 'object') meta[section] = { ...(meta[section] || {}), ...b[section] };
+    }
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(`finance_property_${propertyKey}_meta`, JSON.stringify(meta)).run();
+    return json({ ok: true, meta });
+  }
+
+  // ── Named reserve schedules (property tax, capital paint/asphalt/concrete, ...) ────────────
+  const reserveMonthlyMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/monthly$`));
+  if (reserveMonthlyMatch && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const reserveKey = reserveMonthlyMatch[1];
+    const b = await req.json().catch(() => ({}));
+    if (!b.report_month || !/^\d{4}-\d{2}$/.test(b.report_month)) return json({ error: 'report_month must be YYYY-MM' }, 400);
+    const toCents = v => (v === '' || v === null || v === undefined) ? null : Math.round(Number(v) * 100);
+    const targetEstimateCents = toCents(b.target_estimate);
+    const contributionCents = toCents(b.contribution) ?? 0;
+    if (targetEstimateCents !== null && !Number.isFinite(targetEstimateCents)) return json({ error: 'Invalid target_estimate' }, 400);
+    if (!Number.isFinite(contributionCents)) return json({ error: 'Invalid contribution' }, 400);
+    const taxYear = (b.tax_year === '' || b.tax_year === null || b.tax_year === undefined) ? null : parseInt(b.tax_year, 10);
+    // reserve_before defaults to the latest prior month's reserve_after for this bucket (0 if
+    // none exists yet) — matches how AHRA's own monthly schedule carries a running balance.
+    let reserveBeforeCents = toCents(b.reserve_before);
+    if (reserveBeforeCents === null) {
+      const prior = await db.prepare(
+        `SELECT reserve_after_cents FROM finance_property_reserves WHERE property_key=? AND reserve_key=? AND report_month<? ORDER BY report_month DESC LIMIT 1`
+      ).bind(propertyKey, reserveKey, b.report_month).first();
+      reserveBeforeCents = prior?.reserve_after_cents ?? 0;
+    }
+    const reserveAfterCents = reserveBeforeCents + contributionCents;
+    await db.prepare(
+      `INSERT INTO finance_property_reserves (property_key,reserve_key,report_month,tax_year,target_estimate_cents,reserve_before_cents,contribution_cents,reserve_after_cents,note)
+       VALUES (?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(property_key,reserve_key,report_month) DO UPDATE SET
+         tax_year=excluded.tax_year, target_estimate_cents=excluded.target_estimate_cents, reserve_before_cents=excluded.reserve_before_cents,
+         contribution_cents=excluded.contribution_cents, reserve_after_cents=excluded.reserve_after_cents, note=excluded.note`
+    ).bind(propertyKey, reserveKey, b.report_month, taxYear, targetEstimateCents, reserveBeforeCents, contributionCents, reserveAfterCents, b.note || '').run();
+    return json({ ok: true, reserve_before_cents: reserveBeforeCents, reserve_after_cents: reserveAfterCents });
+  }
+
+  const reserveMonthDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/monthly/(\\d{4}-\\d{2})$`));
+  if (reserveMonthDeleteMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_property_reserves WHERE property_key=? AND reserve_key=? AND report_month=?')
+      .bind(propertyKey, reserveMonthDeleteMatch[1], reserveMonthDeleteMatch[2]).run();
+    return json({ ok: true });
+  }
+
+  const reserveDisbursementMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/disbursements$`));
+  if (reserveDisbursementMatch && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const reserveKey = reserveDisbursementMatch[1];
+    const b = await req.json().catch(() => ({}));
+    if (!b.period_key || !String(b.period_key).trim()) return json({ error: 'period_key is required' }, 400);
+    const amountCents = (b.amount === '' || b.amount === null || b.amount === undefined) ? null : Math.round(Number(b.amount) * 100);
+    if (amountCents !== null && !Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
+    await db.prepare(
+      `INSERT INTO finance_property_reserve_disbursements (property_key,reserve_key,period_key,amount_cents,paid_via_report_month,note)
+       VALUES (?,?,?,?,?,?)
+       ON CONFLICT(property_key,reserve_key,period_key) DO UPDATE SET amount_cents=excluded.amount_cents, paid_via_report_month=excluded.paid_via_report_month, note=excluded.note`
+    ).bind(propertyKey, reserveKey, String(b.period_key).trim(), amountCents, b.paid_via_report_month || '', b.note || '').run();
+    return json({ ok: true });
+  }
+
+  const reserveDisbursementDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/disbursements/(.+)$`));
+  if (reserveDisbursementDeleteMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_property_reserve_disbursements WHERE property_key=? AND reserve_key=? AND period_key=?')
+      .bind(propertyKey, reserveDisbursementDeleteMatch[1], decodeURIComponent(reserveDisbursementDeleteMatch[2])).run();
+    return json({ ok: true });
+  }
+
+  // ── Capital improvements ledger ────────────────────────────────────────────────────────────
+  if (seg === `finance/property/${propertyKey}/capital-ledger` && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const amountCents = Math.round(Number(b.amount) * 100);
+    if (!Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
+    if (b.entry_date && !/^\d{4}(-\d{2}(-\d{2})?)?$/.test(b.entry_date)) return json({ error: 'entry_date must be YYYY, YYYY-MM, or YYYY-MM-DD' }, 400);
+    const maxSort = await db.prepare('SELECT COALESCE(MAX(sort_order),-1) as m FROM finance_property_capital_ledger WHERE property_key=?').bind(propertyKey).first();
+    const r = await db.prepare(
+      `INSERT INTO finance_property_capital_ledger (property_key,entry_date,amount_cents,payee,description,check_ref,project,sort_order) VALUES (?,?,?,?,?,?,?,?)`
+    ).bind(propertyKey, b.entry_date || '', amountCents, b.payee || '', b.description || '', b.check_ref || '', b.project || '', (maxSort?.m ?? -1) + 1).run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+
+  const capitalLedgerDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/capital-ledger/(\\d+)$`));
+  if (capitalLedgerDeleteMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_property_capital_ledger WHERE property_key=? AND id=?').bind(propertyKey, parseInt(capitalLedgerDeleteMatch[1], 10)).run();
+    return json({ ok: true });
+  }
+
+  // ── Repairs & maintenance log ──────────────────────────────────────────────────────────────
+  if (seg === `finance/property/${propertyKey}/repairs` && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const amountCents = (b.amount === '' || b.amount === null || b.amount === undefined) ? null : Math.round(Number(b.amount) * 100);
+    if (amountCents !== null && !Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
+    const r = await db.prepare(
+      `INSERT INTO finance_property_repairs (property_key,entry_date,category,description,amount_cents,payee,capitalized) VALUES (?,?,?,?,?,?,?)`
+    ).bind(propertyKey, b.entry_date || '', b.category || '', b.description || '', amountCents, b.payee || '', b.capitalized ? 1 : 0).run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+
+  const repairsDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/repairs/(\\d+)$`));
+  if (repairsDeleteMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_property_repairs WHERE property_key=? AND id=?').bind(propertyKey, parseInt(repairsDeleteMatch[1], 10)).run();
+    return json({ ok: true });
+  }
+
+  return undefined;
+}
+
 export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, isFinance) {
   if (!isFinance) return json({ error: 'Access denied: finance data requires finance access' }, 403);
+
+  // ── Commercial Property (only 'ivanhoe' exists today; propertyKey is threaded through so a
+  // second property could be added later without a route/schema change) ──────────────────
+  if (seg.startsWith('finance/property/ivanhoe')) {
+    const propRes = await handlePropertyApi(req, url, method, seg, db, isAdmin, 'ivanhoe');
+    if (propRes !== undefined) return propRes;
+  }
 
   // ── QuickBooks connection status ─────────────────────────────────────
   if (seg === 'finance/status' && method === 'GET') {
@@ -1288,6 +1571,27 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ ok: true, id: r.meta?.last_row_id });
   }
 
+  // Bulk-enter past years — a paste-in alternative to the one-row-at-a-time form above, since
+  // the daycare app has no historical API (see FIN3) and past years must be hand-entered.
+  if (seg === 'finance/daycare/bulk' && method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) return json({ error: 'No rows to import' }, 400);
+    const ops = [];
+    for (const r of rows) {
+      if (!r.period || !/^\d{4}(-\d{2})?$/.test(r.period)) return json({ error: `Invalid period: ${r.period}` }, 400);
+      if (!r.category || !String(r.category).trim()) return json({ error: 'Category is required for every row' }, 400);
+      const amountCents = Math.round(Number(r.amount_cents));
+      if (!Number.isFinite(amountCents)) return json({ error: `Invalid amount for ${r.period} / ${r.category}` }, 400);
+      const entryType = r.entry_type === 'budget' ? 'budget' : 'actual';
+      ops.push(db.prepare(
+        `INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,notes) VALUES (?,?,?,?,?)`
+      ).bind(r.period, String(r.category).trim(), entryType, amountCents, r.notes || ''));
+    }
+    await db.batch(ops);
+    return json({ ok: true, imported: ops.length });
+  }
+
   const dcMatch = seg.match(/^finance\/daycare\/(\d+)$/);
   if (dcMatch && method === 'PUT') {
     const id = parseInt(dcMatch[1], 10);
@@ -1315,7 +1619,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // ── Church Report v2: This Year — persisted-table read, no live QuickBooks call ────────
   if (seg === 'finance/church/this-year' && method === 'GET') {
     const year = parseInt(url.searchParams.get('year'), 10) || new Date().getFullYear();
-    const allRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year).all()).results || [];
+    const allRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(year).all()).results || [];
     const entries = resolveChurchYearPrecedence(allRows);
     const summary = computeYearSummary(entries);
     const givingByFundRows = (await db.prepare(
@@ -1332,6 +1636,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     // sync only populates for current + prior year (see the sync handler below).
     const now = new Date();
     let yoy = { available: false };
+    let supplies = { monthly: [], currentYtdCents: 0, priorYtdCents: 0 };
     if (year === now.getFullYear()) {
       const throughMonth = now.getMonth() + 1;
       const monthlyRows = (await db.prepare(
@@ -1341,6 +1646,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       const priorMonthly = monthlyRows.filter(r => r.fiscal_year === year - 1 && r.period_month <= throughMonth);
       const priorAnnualRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year - 1).all()).results || [];
       yoy = computeYtdComparison(curMonthly, priorMonthly, priorAnnualRows, throughMonth);
+      // Uses the full (uncapped) monthly rows, not the throughMonth-filtered slices above —
+      // a month-by-month supplies chart is more useful showing all synced months than being
+      // clipped to "so far this year" like the YTD projection needs to be.
+      supplies = computeSuppliesMonthlyBreakdown(
+        monthlyRows.filter(r => r.fiscal_year === year),
+        monthlyRows.filter(r => r.fiscal_year === year - 1)
+      );
     }
 
     return json({
@@ -1350,6 +1662,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       givingCents,
       givingByFund,
       yoy,
+      supplies,
     });
   }
 
@@ -1362,7 +1675,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       : [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
     if (!years.length) return json({ error: 'No valid years requested' }, 400);
     const placeholders = years.map(() => '?').join(',');
-    const allRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${placeholders})`).bind(...years).all()).results || [];
+    const allRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${placeholders}) AND period_month=0`).bind(...years).all()).results || [];
     const resolved = resolveChurchYearPrecedence(allRows);
     const byYear = {};
     years.forEach(y => { byYear[y] = computeYearSummary(resolved.filter(r => r.fiscal_year === y)); });
@@ -1466,6 +1779,202 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ years, byYear });
   }
 
+  // ── Church Budget Planning — forward multi-year what-if planning (Property Expenses,
+  // Salaries & Benefits, Utilities, Insurance, or any freeform category), independent of any
+  // QuickBooks import/sync. A plan can be "committed" into a future fiscal year's real budget
+  // (finance_church_entries, source='plan_committed') — resolveChurchYearPrecedence() ranks that
+  // source lowest, so it's a placeholder only until real synced/imported data exists. ──────────
+  if (seg === 'finance/planning/church' && method === 'GET') {
+    const rows = (await db.prepare('SELECT * FROM finance_budget_plan ORDER BY category ASC, fiscal_year ASC').all()).results || [];
+    return json({ rows });
+  }
+
+  // Generates a plan row for EVERY real account line in a base year's resolved Church Budget
+  // (same rows Church Report itself shows — category_path is used as the plan's category key,
+  // so the planner always mirrors the real chart of accounts instead of a hand-typed list).
+  // base amount = that account's own actual for the base year, falling back to its own budget
+  // if there's no actual yet (e.g. a mid-year base year); accounts with neither are skipped —
+  // there's nothing real to grow from. A single flat growth rate applies to every line; use
+  // override-bulk afterward to hand-correct individual lines (e.g. Salary & Benefits).
+  if (seg === 'finance/planning/church/generate-all' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const baseYear = parseInt(b.base_year, 10);
+    const targetYear = parseInt(b.target_year, 10);
+    const growthPct = Number(b.growth_pct);
+    if (!Number.isFinite(baseYear) || !Number.isFinite(targetYear)) return json({ error: 'base_year and target_year are required' }, 400);
+    if (!Number.isFinite(growthPct)) return json({ error: 'Invalid growth_pct' }, 400);
+    // period_month=0 = the annual row (see migrations/0018_finance_church_entries.sql) — must
+    // filter it explicitly, since monthly rows (period_month 1-12) share the same source and
+    // fiscal_year, and would otherwise let a single month's figure silently clobber the true
+    // annual total for that category via the ON CONFLICT upsert below.
+    const baseRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(baseYear).all()).results || [];
+    if (!baseRows.length) return json({ error: `No Church Budget data found for ${baseYear} — sync or import that year first.` }, 400);
+    const resolved = resolveChurchYearPrecedence(baseRows);
+    // If the base year is still in progress (its own actual is really a year-to-date figure, not
+    // a completed year), annualize it before applying the growth rate — otherwise a mid-year
+    // actual would be projected forward as if it were the whole year's total. A past, complete
+    // base year (or one with no actual at all, only a budget) is used as-is. through_month is an
+    // optional explicit override (real caller never sends it — only tests, for determinism);
+    // production always falls back to the real current month for the real current year.
+    const now = new Date();
+    const explicitThroughMonth = parseInt(b.through_month, 10);
+    const throughMonth = Number.isFinite(explicitThroughMonth) ? explicitThroughMonth
+      : (baseYear === now.getFullYear()) ? (now.getMonth() + 1) : 12;
+    const prorated = throughMonth < 12;
+    const ops = [];
+    let generated = 0;
+    for (const r of resolved) {
+      const baseAmountCents = (r.own_actual_cents && prorated)
+        ? Math.round(r.own_actual_cents * (12 / throughMonth))
+        : (r.own_actual_cents || r.own_budget_cents || 0);
+      if (!baseAmountCents) continue;
+      const plannedCents = Math.round(baseAmountCents * (1 + growthPct));
+      ops.push(db.prepare(
+        `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,growth_pct,base_amount_cents,notes,updated_at)
+         VALUES (?,?,?,?,'grown',?,?,?,datetime('now'))
+         ON CONFLICT(category,fiscal_year) DO UPDATE SET
+           classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis='grown',
+           growth_pct=excluded.growth_pct, base_amount_cents=excluded.base_amount_cents, notes=excluded.notes, updated_at=excluded.updated_at`
+      ).bind(r.category_path, r.classification, targetYear, plannedCents, growthPct, baseAmountCents, r.account_name));
+      generated++;
+    }
+    if (!ops.length) return json({ error: `No account had an actual or budget figure in ${baseYear} to grow from.` }, 400);
+    await db.batch(ops);
+    return json({ ok: true, generated, baseYear, targetYear, throughMonth, prorated });
+  }
+
+  // Bulk manual save — commits a whole edited table of Projected values in one round trip
+  // (each row keeps its own fiscal_year, e.g. all rows for the same target year), rather than
+  // one request per edited line.
+  if (seg === 'finance/planning/church/override-bulk' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) return json({ error: 'No rows to save' }, 400);
+    const ops = [];
+    for (const r of rows) {
+      const category = String(r.category || '').trim();
+      const fiscalYear = parseInt(r.fiscal_year, 10);
+      if (!category || !Number.isFinite(fiscalYear)) return json({ error: 'Every row needs a category and fiscal_year' }, 400);
+      const amountCents = Math.round(Number(r.planned_amount) * 100);
+      if (!Number.isFinite(amountCents)) return json({ error: `Invalid amount for ${category}` }, 400);
+      ops.push(db.prepare(
+        `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,notes,updated_at)
+         VALUES (?,?,?,?,'manual',?,datetime('now'))
+         ON CONFLICT(category,fiscal_year) DO UPDATE SET
+           classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis='manual',
+           growth_pct=NULL, base_amount_cents=NULL, notes=excluded.notes, updated_at=excluded.updated_at`
+      ).bind(category, r.classification || 'Expenses', fiscalYear, amountCents, r.notes || ''));
+    }
+    await db.batch(ops);
+    return json({ ok: true, saved: ops.length });
+  }
+
+  // Salary & Benefits Calculator + Health Insurance card state (worker roster, COLA/pension
+  // settings, benefits figure, selected health plan option) — persisted as one JSON blob in the
+  // generic chms_config key/value table, same pattern as the Commercial Property meta and other
+  // small nested-settings blobs elsewhere in this file. Not fiscal-year-scoped (the roster is a
+  // standing list of current staff, not a per-year plan), so it's read once and reused across
+  // whatever base/target year the admin is currently viewing.
+  if (seg === 'finance/planning/salary' && method === 'GET') {
+    const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_salary_planner'").first();
+    let data = null;
+    if (row) { try { data = JSON.parse(row.value); } catch { data = null; } }
+    return json({ data });
+  }
+  if (seg === 'finance/planning/salary' && method === 'PUT') {
+    if (!isAdmin) return json({ error: 'Access denied: editing the salary planner requires admin access' }, 403);
+    const b = await req.json().catch(() => null);
+    if (!b || typeof b !== 'object' || Array.isArray(b)) return json({ error: 'Invalid payload' }, 400);
+    if (b.roster !== undefined && !Array.isArray(b.roster)) return json({ error: 'roster must be an array' }, 400);
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_salary_planner',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(JSON.stringify(b)).run();
+    return json({ ok: true });
+  }
+
+  // Generates a compounding multi-year projection from a base dollar amount + a flat growth
+  // rate, upserting one row per target year (basis='grown'). A later manual override on any of
+  // those years replaces just that year's row (basis='manual') without touching the others.
+  if (seg === 'finance/planning/church/generate' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const category = String(b.category || '').trim();
+    if (!category) return json({ error: 'category is required' }, 400);
+    const classification = b.classification || 'Expenses';
+    const baseAmountCents = Math.round(Number(b.base_amount) * 100);
+    if (!Number.isFinite(baseAmountCents)) return json({ error: 'Invalid base_amount' }, 400);
+    const growthPct = Number(b.growth_pct);
+    if (!Number.isFinite(growthPct)) return json({ error: 'Invalid growth_pct' }, 400);
+    const targetYears = Array.isArray(b.target_years) ? b.target_years.map(y => parseInt(y, 10)).filter(Number.isFinite) : [];
+    if (!targetYears.length) return json({ error: 'target_years is required' }, 400);
+    const ops = targetYears.map((year, i) => {
+      const cents = Math.round(baseAmountCents * Math.pow(1 + growthPct, i + 1));
+      return db.prepare(
+        `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,growth_pct,base_amount_cents,notes,updated_at)
+         VALUES (?,?,?,?,'grown',?,?,?,datetime('now'))
+         ON CONFLICT(category,fiscal_year) DO UPDATE SET
+           classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis=excluded.basis,
+           growth_pct=excluded.growth_pct, base_amount_cents=excluded.base_amount_cents, notes=excluded.notes, updated_at=excluded.updated_at`
+      ).bind(category, classification, year, cents, growthPct, baseAmountCents, b.notes || '');
+    });
+    await db.batch(ops);
+    return json({ ok: true, years: targetYears });
+  }
+
+  // Manual override for a single category/year — always wins over whatever finance/planning/
+  // church/generate previously computed for that one year.
+  if (seg === 'finance/planning/church/override' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const category = String(b.category || '').trim();
+    const fiscalYear = parseInt(b.fiscal_year, 10);
+    if (!category || !Number.isFinite(fiscalYear)) return json({ error: 'category and fiscal_year are required' }, 400);
+    const amountCents = Math.round(Number(b.planned_amount) * 100);
+    if (!Number.isFinite(amountCents)) return json({ error: 'Invalid planned_amount' }, 400);
+    await db.prepare(
+      `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,notes,updated_at)
+       VALUES (?,?,?,?,'manual',?,datetime('now'))
+       ON CONFLICT(category,fiscal_year) DO UPDATE SET
+         classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis='manual',
+         growth_pct=NULL, base_amount_cents=NULL, notes=excluded.notes, updated_at=excluded.updated_at`
+    ).bind(category, b.classification || 'Expenses', fiscalYear, amountCents, b.notes || '').run();
+    return json({ ok: true });
+  }
+
+  const planDeleteMatch = seg.match(/^finance\/planning\/church\/([^/]+)\/(\d{4})$/);
+  if (planDeleteMatch && method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+    await db.prepare('DELETE FROM finance_budget_plan WHERE category=? AND fiscal_year=?')
+      .bind(decodeURIComponent(planDeleteMatch[1]), parseInt(planDeleteMatch[2], 10)).run();
+    return json({ ok: true });
+  }
+
+  // Commits every planned category for one fiscal year into finance_church_entries as a
+  // placeholder budget (source='plan_committed', own_actual_cents=0 — there's no actual yet,
+  // that's the whole point). Wholesale-replaces prior plan_committed rows for that year only, so
+  // re-committing after editing the plan doesn't leave stale categories behind.
+  if (seg === 'finance/planning/church/commit' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: committing a budget plan requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const fiscalYear = parseInt(b.fiscal_year, 10);
+    if (!Number.isFinite(fiscalYear)) return json({ error: 'fiscal_year is required' }, 400);
+    const planRows = (await db.prepare('SELECT * FROM finance_budget_plan WHERE fiscal_year=?').bind(fiscalYear).all()).results || [];
+    if (!planRows.length) return json({ error: `No plan rows exist for ${fiscalYear}` }, 400);
+    const syncedAt = new Date().toISOString();
+    const ops = [db.prepare(`DELETE FROM finance_church_entries WHERE source='plan_committed' AND fiscal_year=?`).bind(fiscalYear)];
+    for (const r of planRows) {
+      ops.push(db.prepare(
+        `INSERT INTO finance_church_entries
+           (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+         VALUES (?,0,?,?,?,0,0,0,?,'plan_committed',?)`
+      ).bind(fiscalYear, r.classification, r.category, r.category, r.planned_amount_cents, syncedAt));
+    }
+    await db.batch(ops);
+    return json({ ok: true, fiscalYear, committed: planRows.length });
+  }
+
   // ── Board Packet export — a single clean JSON snapshot of the numbers a board would need for
   // a monthly finance summary, meant to be handed to a separate Claude session (or any other
   // analyst) to write the actual narrative: this endpoint deliberately does no anomaly detection
@@ -1478,7 +1987,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const trendYears = [year - 4, year - 3, year - 2, year - 1, year];
     const trendPlaceholders = trendYears.map(() => '?').join(',');
 
-    const thisYearEntriesRaw = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year).all()).results || [];
+    const thisYearEntriesRaw = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(year).all()).results || [];
     const thisYearEntries = resolveChurchYearPrecedence(thisYearEntriesRaw);
     const thisYearSummary = computeYearSummary(thisYearEntries);
     const givingByFundRows = (await db.prepare(
@@ -1490,7 +1999,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const givingByFund = givingByFundRows.map(r => ({ fundName: r.fund_name, cents: r.total || 0 }));
     const givingCents = givingByFund.reduce((sum, r) => sum + r.cents, 0);
 
-    const trendIncomeRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${trendPlaceholders})`).bind(...trendYears).all()).results || [];
+    const trendIncomeRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${trendPlaceholders}) AND period_month=0`).bind(...trendYears).all()).results || [];
     const trendIncomeResolved = resolveChurchYearPrecedence(trendIncomeRows);
     const incomeStatementByYear = {};
     trendYears.forEach(y => { incomeStatementByYear[y] = computeYearSummary(trendIncomeResolved.filter(r => r.fiscal_year === y)); });

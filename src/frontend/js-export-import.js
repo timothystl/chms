@@ -94,6 +94,100 @@ function doSendBatch(yr, checks, status) {
   }
   sendNext();
 }
+// ── BATCH SEND — MID-YEAR UPDATE ────────────────────────────────────────
+function loadBatchMidyearGivers() {
+  var yr = document.getElementById('batch-mid-year').value;
+  var status = document.getElementById('batch-mid-status');
+  var listEl = document.getElementById('batch-mid-list');
+  if (!yr) { status.textContent = 'Enter a year.'; status.className = 'import-status err'; return; }
+  status.textContent = 'Loading givers for ' + yr + '…'; status.className = 'import-status';
+  listEl.innerHTML = '';
+  api('/admin/api/reports/giving-statement?year=' + yr + '&list_givers=1').then(function(d) {
+    var givers = d.givers || [];
+    if (!givers.length) {
+      status.textContent = 'No givers with email found for ' + yr + '.';
+      status.className = 'import-status err';
+      return;
+    }
+    status.textContent = givers.length + ' givers found with email. Check who to include, then Send.';
+    status.className = 'import-status ok';
+    listEl.innerHTML = '<div style="margin-bottom:8px;display:flex;gap:8px;">'
+      + '<button class="btn-sm" onclick="selectAllMidyearGivers(true)">Select All</button>'
+      + '<button class="btn-sm" onclick="selectAllMidyearGivers(false)">Deselect All</button>'
+      + '<button class="btn-primary" style="font-size:.8rem;padding:4px 12px;" onclick="sendBatchMidyearLetters(' + yr + ')">Send Selected</button>'
+      + '</div>'
+      + '<div id="batch-mid-givers-list">'
+      + givers.map(function(g) {
+        return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.85rem;cursor:pointer;">'
+          + '<input type="checkbox" data-pid="' + g.id + '" checked>'
+          + '<span>' + esc(g.first_name + ' ' + g.last_name) + '</span>'
+          + '<span style="color:var(--warm-gray);font-size:.78rem;">' + esc(g.email) + '</span>'
+          + '<span style="margin-left:auto;font-size:.78rem;">' + fmtMoney(g.total_cents) + '</span>'
+          + '</label>';
+      }).join('')
+      + '</div>';
+  }).catch(function(e) {
+    status.textContent = 'Error: ' + e.message; status.className = 'import-status err';
+  });
+}
+function selectAllMidyearGivers(checked) {
+  document.querySelectorAll('#batch-mid-givers-list input[type=checkbox]').forEach(function(cb) { cb.checked = checked; });
+}
+function sendBatchMidyearLetters(yr) {
+  var status = document.getElementById('batch-mid-status');
+  var checks = document.querySelectorAll('#batch-mid-givers-list input[type=checkbox]:checked');
+  if (!checks.length) { status.textContent = 'No givers selected.'; status.className = 'import-status err'; return; }
+  if (!_churchConfig.church_name) {
+    api('/admin/api/config/church').then(function(cfg) {
+      _churchConfig = cfg || {};
+      doSendMidyearBatch(yr, checks, status);
+    });
+  } else {
+    doSendMidyearBatch(yr, checks, status);
+  }
+}
+function doSendMidyearBatch(yr, checks, status) {
+  var ids = Array.from(checks).map(function(cb){return cb.dataset.pid;});
+  var total = ids.length, done = 0, failed = 0, skipped = 0;
+  status.textContent = 'Sending 0/' + total + '…'; status.className = 'import-status';
+  function sendNext() {
+    if (!ids.length) {
+      var msg = 'Done. ' + done + ' sent';
+      if (skipped) msg += ', ' + skipped + ' skipped (no email)';
+      if (failed) msg += ', ' + failed + ' failed';
+      msg += '.';
+      status.textContent = msg;
+      status.className = failed ? 'import-status' : 'import-status ok';
+      return;
+    }
+    var pid = ids.shift();
+    api('/admin/api/reports/giving-statement?person_id=' + pid + '&year=' + yr).then(function(d) {
+      if (d.error || !d.person) { failed++; sendNext(); return; }
+      d._mode = 'person';
+      var p = d.person || {};
+      if (!p.email) { skipped++; sendNext(); return; }
+      var churchName = _churchConfig.church_name || 'Timothy Lutheran Church';
+      var letterHtml = renderLetterHTML(d, 'midyear');
+      var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
+        + '<div style="font-size:16px;font-weight:bold;margin-bottom:6px;">' + esc(churchName) + '</div><hr style="margin:10px 0;">'
+        + letterHtml + '</div>';
+      return api('/admin/api/giving/send-statement', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          to_email: p.email,
+          to_name: (p.first_name + ' ' + p.last_name).trim(),
+          subject: yr + ' Mid-Year Giving Update — ' + churchName,
+          html_body: fullHtml
+        })
+      });
+    }).then(function(r) {
+      if (r && r.ok) done++; else failed++;
+      status.textContent = 'Sending ' + (done+failed+skipped) + '/' + total + '…';
+      sendNext();
+    }).catch(function() { failed++; sendNext(); });
+  }
+  sendNext();
+}
 // ── GENERATE REGISTER FROM PEOPLE ─────────────────────────────────────
 // Called from the Register tab toolbar — uses the current register type
 function openRegFromPeoplePrompt() {
@@ -464,6 +558,16 @@ function applyFundMapping() {
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
+function dupFundRowsHtml(funds, groupAttr, gi) {
+  return funds.map(function(f, fi) {
+    var amt = '$' + (f.total_cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    return '<tr style="border-bottom:1px solid #eee;">'
+      + '<td style="padding:6px 8px;"><label style="font-size:.82rem;"><input type="radio" name="' + groupAttr + '-keep-' + gi + '" value="' + f.id + '"' + (fi === 0 ? ' checked' : '') + '> Keep this one</label></td>'
+      + '<td style="padding:6px 8px;font-size:.82rem;">' + esc(f.name) + ' &bull; #' + f.id + (f.breeze_id ? ' &bull; breeze_id ' + esc(f.breeze_id) : ' &bull; no breeze_id') + (f.active ? '' : ' &bull; <span style="color:#999;">inactive</span>') + '</td>'
+      + '<td style="padding:6px 8px;font-size:.82rem;">' + f.entry_count + ' gifts &bull; ' + amt + '</td></tr>';
+  }).join('');
+}
+
 function loadDuplicateFunds() {
   var status = document.getElementById('dup-funds-status');
   var area = document.getElementById('dup-funds-area');
@@ -472,33 +576,42 @@ function loadDuplicateFunds() {
   api('/admin/api/funds/duplicates').then(function(d) {
     if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
     var groups = d.duplicates || [];
-    if (!groups.length) {
-      status.textContent = 'No duplicate fund names found.';
+    var possible = d.possible_duplicates || [];
+    var html = '';
+    if (groups.length) {
+      html += '<div style="font-weight:600;font-size:.85rem;margin:4px 0;">Exact name matches</div>';
+      html += groups.map(function(g, gi) {
+        return '<div style="margin:10px 0;padding:8px;border:1px solid var(--border);border-radius:8px;">'
+          + '<div style="font-weight:600;font-size:.9rem;margin-bottom:6px;">' + esc(g.name) + ' <span style="font-weight:400;color:var(--warm-gray);font-size:.8rem;">(' + g.funds.length + ' duplicate rows)</span></div>'
+          + '<table style="width:100%;border-collapse:collapse;" data-dup-group="' + gi + '">' + dupFundRowsHtml(g.funds, 'dup', gi) + '</table>'
+          + '<button class="btn-secondary" style="margin-top:6px;font-size:.82rem;" onclick="mergeDuplicateFundGroup(' + gi + ')">Merge into selected</button>'
+          + '</div>';
+      }).join('');
+    }
+    if (possible.length) {
+      html += '<div style="font-weight:600;font-size:.85rem;margin:14px 0 4px;">Possible duplicates — same fund code, different names <span style="font-weight:400;color:var(--warm-gray);font-size:.8rem;">(review before merging)</span></div>';
+      html += possible.map(function(g, gi) {
+        return '<div style="margin:10px 0;padding:8px;border:1px solid var(--border);border-radius:8px;">'
+          + '<div style="font-weight:600;font-size:.9rem;margin-bottom:6px;">Fund code ' + esc(g.prefix) + ' <span style="font-weight:400;color:var(--warm-gray);font-size:.8rem;">(' + g.funds.length + ' rows)</span></div>'
+          + '<table style="width:100%;border-collapse:collapse;" data-posdup-group="' + gi + '">' + dupFundRowsHtml(g.funds, 'posdup', gi) + '</table>'
+          + '<button class="btn-secondary" style="margin-top:6px;font-size:.82rem;" onclick="mergePossibleDuplicateFundGroup(' + gi + ')">Merge into selected</button>'
+          + '</div>';
+      }).join('');
+    }
+    if (!groups.length && !possible.length) {
+      status.textContent = 'No duplicate funds found.';
       status.className = 'import-status ok';
       return;
     }
-    area.innerHTML = groups.map(function(g, gi) {
-      var rows = g.funds.map(function(f, fi) {
-        var amt = '$' + (f.total_cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-        return '<tr style="border-bottom:1px solid #eee;">'
-          + '<td style="padding:6px 8px;"><label style="font-size:.82rem;"><input type="radio" name="dup-keep-' + gi + '" value="' + f.id + '"' + (fi === 0 ? ' checked' : '') + '> Keep this one</label></td>'
-          + '<td style="padding:6px 8px;font-size:.82rem;">#' + f.id + (f.breeze_id ? ' &bull; breeze_id ' + esc(f.breeze_id) : ' &bull; no breeze_id') + (f.active ? '' : ' &bull; <span style="color:#999;">inactive</span>') + '</td>'
-          + '<td style="padding:6px 8px;font-size:.82rem;">' + f.entry_count + ' gifts &bull; ' + amt + '</td></tr>';
-      }).join('');
-      return '<div style="margin:10px 0;padding:8px;border:1px solid var(--border);border-radius:8px;">'
-        + '<div style="font-weight:600;font-size:.9rem;margin-bottom:6px;">' + esc(g.name) + ' <span style="font-weight:400;color:var(--warm-gray);font-size:.8rem;">(' + g.funds.length + ' duplicate rows)</span></div>'
-        + '<table style="width:100%;border-collapse:collapse;" data-dup-group="' + gi + '">' + rows + '</table>'
-        + '<button class="btn-secondary" style="margin-top:6px;font-size:.82rem;" onclick="mergeDuplicateFundGroup(' + gi + ')">Merge into selected</button>'
-        + '</div>';
-    }).join('');
-    status.textContent = groups.length + ' duplicate fund name group(s) found. Pick which row to keep in each, then merge.';
+    area.innerHTML = html;
+    status.textContent = groups.length + ' exact duplicate group(s), ' + possible.length + ' possible duplicate group(s) found. Pick which row to keep in each, then merge.';
     status.className = 'import-status';
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
-function mergeDuplicateFundGroup(gi) {
+function mergeDupFundGroupByAttr(attr, gi) {
   var status = document.getElementById('dup-funds-status');
-  var table = document.querySelector('table[data-dup-group="' + gi + '"]');
+  var table = document.querySelector('table[data-' + attr + '-group="' + gi + '"]');
   if (!table) return;
   var radios = table.querySelectorAll('input[type=radio]');
   var keepId = null, allIds = [];
@@ -516,6 +629,64 @@ function mergeDuplicateFundGroup(gi) {
     status.textContent = 'Merged. ' + (d.moved_entries||0) + ' gift(s) reassigned to fund #' + keepId + '.';
     status.className = 'import-status ok';
     loadDuplicateFunds();
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
+function mergeDuplicateFundGroup(gi) { mergeDupFundGroupByAttr('dup', gi); }
+function mergePossibleDuplicateFundGroup(gi) { mergeDupFundGroupByAttr('posdup', gi); }
+
+// ── MANAGE FUNDS ───────────────────────────────────────────────────────
+// Lets an admin deactivate placeholder/unused fund rows (leftover "Breeze Fund 12345" entries,
+// discontinued sub-funds, etc.) so they stop showing in the Giving by Fund report and every
+// other fund picker — without deleting the fund or touching any gifts already recorded against
+// it. Reuses the existing (previously frontend-unused) PUT /admin/api/funds/:id endpoint.
+var _manageFunds = [];
+function loadManageFunds() {
+  var status = document.getElementById('manage-funds-status');
+  var area = document.getElementById('manage-funds-area');
+  status.textContent = 'Loading…'; status.className = 'import-status';
+  area.innerHTML = '';
+  api('/admin/api/funds').then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    _manageFunds = d.funds || [];
+    renderManageFunds();
+    status.textContent = _manageFunds.length + ' fund(s) loaded.';
+    status.className = 'import-status';
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+function renderManageFunds() {
+  var area = document.getElementById('manage-funds-area');
+  if (!_manageFunds.length) { area.innerHTML = '<p style="font-size:.82rem;color:var(--warm-gray);">No funds found.</p>'; return; }
+  var sorted = _manageFunds.slice().sort(function(a, b) {
+    if (!!a.active !== !!b.active) return a.active ? -1 : 1;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+  var rows = sorted.map(function(f) {
+    var amt = '$' + (f.total_cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    return '<tr style="border-bottom:1px solid #eee;' + (f.active ? '' : 'color:var(--warm-gray);') + '">'
+      + '<td style="padding:6px 8px;"><label style="font-size:.82rem;"><input type="checkbox" id="mf-active-' + f.id + '"' + (f.active ? ' checked' : '') + '> Active</label></td>'
+      + '<td style="padding:6px 8px;font-size:.82rem;">' + esc(f.name) + '</td>'
+      + '<td style="padding:6px 8px;font-size:.82rem;">' + f.entry_count + ' gifts &bull; ' + amt + '</td>'
+      + '<td style="padding:6px 8px;"><button class="btn-secondary" style="font-size:.78rem;padding:3px 8px;" onclick="saveManageFundActive(' + f.id + ')">Save</button></td></tr>';
+  }).join('');
+  area.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'
+    + '<tr style="font-size:.75rem;color:var(--warm-gray);text-transform:uppercase;"><th style="text-align:left;padding:6px 8px;">Active</th><th style="text-align:left;padding:6px 8px;">Fund</th><th style="text-align:left;padding:6px 8px;">History</th><th></th></tr>'
+    + rows + '</table></div>';
+}
+function saveManageFundActive(id) {
+  var status = document.getElementById('manage-funds-status');
+  var f = _manageFunds.filter(function(x) { return x.id === id; })[0];
+  var cb = document.getElementById('mf-active-' + id);
+  if (!f || !cb) return;
+  var active = cb.checked;
+  status.textContent = 'Saving…'; status.className = 'import-status';
+  api('/admin/api/funds/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+    name: f.name, description: f.description || '', active: active, sort_order: f.sort_order || 0
+  })}).then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    f.active = active ? 1 : 0;
+    renderManageFunds();
+    status.textContent = 'Saved.'; status.className = 'import-status ok';
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
