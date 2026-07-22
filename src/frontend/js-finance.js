@@ -649,7 +649,12 @@ function finRecomputeTreeTotals(nodes) {
     node.hasBudgetInfo = hasBudgetInfo;
   });
 }
-var FIN_CHURCH_CLASS_ORDER = { 'Income': 0, 'Cost of Goods Sold': 1, 'Expenses': 2, 'Other Income': 3, 'Other Expenses': 4 };
+// Revenue-like classes (Income, Other Income) grouped first, then expense-like classes (Cost of
+// Goods Sold, Expenses, Other Expenses) — needed so Planning can insert one Total Revenue
+// subtotal after the revenue group and one Total Expenses subtotal after the expense group,
+// rather than the two being interleaved.
+var FIN_CHURCH_CLASS_ORDER = { 'Income': 0, 'Other Income': 1, 'Cost of Goods Sold': 2, 'Expenses': 3, 'Other Expenses': 4 };
+var FIN_REVENUE_CLASSES = { 'Income': true, 'Other Income': true };
 function finReorganizeChurchTree(roots) {
   var cloned = JSON.parse(JSON.stringify(roots || []));
   finRemoveNodesByLabel(cloned, /^sales$/i);
@@ -2039,6 +2044,49 @@ function finRerenderPlanningPreserveFocus() {
   window.scrollTo(0, scrollY);
   if (contentArea && contentScrollTop != null) contentArea.scrollTop = contentScrollTop;
 }
+// Seeded once (only if nothing has ever been saved) — the church's 3 current salaried workers,
+// each tied to their real payroll account code so the roster can pull in that account's own
+// FY actual/budget as a reference. Knapp = DCE (Commissioned, MA track), Thompson = Director of
+// Parish Music (Other Church Worker, treated as a regular employee per FIN15/FIN16).
+var SALARY_STAFF_SEED = [
+  { name: 'Dinger', role: 'pastor', trackKey: '', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: true, hasDependents: false, accountCode: '58001' },
+  { name: 'Knapp', role: 'commissioned', trackKey: 'ma', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: true, hasDependents: false, accountCode: '58002' },
+  { name: 'Thompson', role: 'other', trackKey: 'business_manager_music', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: false, hasDependents: false, accountCode: '58003' }
+];
+var _finSalaryLoaded = false; // salary/health-plan settings load once per page visit, not per base-year change — they're not scoped to a fiscal year
+function finLoadSalaryPlannerData() {
+  return api('/admin/api/finance/planning/salary').then(function(d) {
+    var saved = d && d.data;
+    if (saved && Array.isArray(saved.roster) && saved.roster.length) {
+      _finSalaryRoster = saved.roster;
+      _finSalaryColaPct = saved.colaPct || 0;
+      _finSalaryColaSource = saved.colaSource || 'none';
+      _finSalaryPensionPct = (saved.pensionPct != null) ? saved.pensionPct : null;
+      _finSalaryBenefitsDollars = saved.benefitsDollars || 0;
+      _finSalaryTargetCategory = saved.targetCategory || '';
+      _finHealthPlanSelectedOption = saved.healthPlanOption || 'renewal';
+      _finHealthPlanTargetCategory = saved.healthPlanTargetCategory || '';
+    } else if (!_finSalaryRoster.length) {
+      _finSalaryRoster = JSON.parse(JSON.stringify(SALARY_STAFF_SEED));
+    }
+  }).catch(function() {
+    if (!_finSalaryRoster.length) _finSalaryRoster = JSON.parse(JSON.stringify(SALARY_STAFF_SEED));
+  });
+}
+function finSalarySaveData() {
+  var msgEl = document.getElementById('fin-salary-save-msg');
+  var body = {
+    roster: _finSalaryRoster, colaPct: _finSalaryColaPct, colaSource: _finSalaryColaSource, pensionPct: _finSalaryPensionPct,
+    benefitsDollars: _finSalaryBenefitsDollars, targetCategory: _finSalaryTargetCategory,
+    healthPlanOption: _finHealthPlanSelectedOption, healthPlanTargetCategory: _finHealthPlanTargetCategory
+  };
+  if (msgEl) msgEl.textContent = 'Saving…';
+  api('/admin/api/finance/planning/salary', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(function(d) {
+    if (d && d.error) { if (msgEl) msgEl.textContent = d.error; return; }
+    if (msgEl) msgEl.textContent = 'Saved.';
+    finToast('Salary & Benefits and Health Insurance data saved.');
+  }).catch(function(err) { if (msgEl) msgEl.textContent = err && err.message || 'Save failed.'; });
+}
 function finLoadPlanning() {
   var el = document.getElementById('fin-plan-root');
   if (!el) return;
@@ -2051,6 +2099,13 @@ function finLoadPlanning() {
     _finPlanBaseTree = finReorganizeChurchTree(finBuildTreeFromFlatRows((results[1] && results[1].entries) || []));
     _finPlanBaseNet = (results[1] && results[1].netIncome) || { actualCents: 0, budgetCents: 0 };
     _finPlanEdits = {};
+    if (!_finSalaryLoaded) {
+      _finSalaryLoaded = true;
+      return finLoadSalaryPlannerData().then(function() {
+        finRenderPlanning();
+        finRenderPropertyMultiYearForecast();
+      });
+    }
     finRenderPlanning();
     finRenderPropertyMultiYearForecast();
   }).catch(function(err) {
@@ -2079,33 +2134,62 @@ function finRenderPlanning() {
     + '</div>';
 
   var rowsHtml = [];
-  // Projected totals are summed only across LEAF accounts (no children) — mirrors how the real
-  // FY base totals are already rolled up (own postings only, never double-counting a subtotal),
-  // so a value typed directly onto a group/branch row (allowed, but unusual) doesn't inflate it.
-  var projectedRevenueCents = 0, projectedExpenseCents = 0;
+  // Projected cents for a GROUP row (has children) is always the live sum of its own descendant
+  // leaves — never independently editable — so a category like "42 Passive Income" automatically
+  // reflects whatever its leaf accounts add up to instead of needing its own typed-in figure.
+  var projectedCentsByPath = {};
+  (function computeProjected(nodes) {
+    (nodes || []).forEach(function(node) {
+      if (!node.children.length) {
+        var editedVal = _finPlanEdits[node.path];
+        var planRow = finPlanFindRow(node.path);
+        var cellVal = editedVal !== undefined ? editedVal : (planRow ? (planRow.planned_amount_cents/100).toFixed(2) : '');
+        projectedCentsByPath[node.path] = (cellVal !== '' && isFinite(parseFloat(cellVal))) ? Math.round(parseFloat(cellVal) * 100) : 0;
+      } else {
+        computeProjected(node.children);
+        projectedCentsByPath[node.path] = node.children.reduce(function(sum, c) { return sum + (projectedCentsByPath[c.path] || 0); }, 0);
+      }
+    });
+  })(_finPlanBaseTree);
+
   function walk(nodes) {
     (nodes || []).forEach(function(node) {
       var planRow = finPlanFindRow(node.path);
       var editedVal = _finPlanEdits[node.path];
       var cellVal = editedVal !== undefined ? editedVal : (planRow ? (planRow.planned_amount_cents/100).toFixed(2) : '');
       var bold = node.children.length > 0;
-      if (!bold && cellVal !== '' && isFinite(parseFloat(cellVal))) {
-        var cents = Math.round(parseFloat(cellVal) * 100);
-        if (node.classification === 'Income' || node.classification === 'Other Income') projectedRevenueCents += cents;
-        else projectedExpenseCents += cents;
-      }
+      var projCents = projectedCentsByPath[node.path] || 0;
+      var projectedCell = bold
+        ? '<td style="text-align:right;padding:4px 8px;">' + (projCents ? '$' + finFmtMoney(projCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
+        : '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
+            ? '<input type="number" step="0.01" value="' + cellVal + '" style="width:100px;text-align:right;" oninput="finPlanEditCell(' + volJsAttr(node.path) + ',this.value)">'
+            : (cellVal !== '' ? '$' + finFmtMoney(parseFloat(cellVal)) : '<span style="color:var(--warm-gray);">—</span>')) + '</td>';
       rowsHtml.push('<tr' + (bold ? ' style="font-weight:600;"' : '') + '>'
         + '<td style="padding:4px 8px 4px ' + (10 + node.depth * 16) + 'px;">' + esc(node.label) + '</td>'
         + '<td style="text-align:right;padding:4px 8px;">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
         + '<td style="text-align:right;padding:4px 8px;">$' + finFmtMoney(node.totalActualCents/100) + '</td>'
-        + '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
-          ? '<input type="number" step="0.01" value="' + cellVal + '" style="width:100px;text-align:right;" oninput="finPlanEditCell(' + volJsAttr(node.path) + ',this.value)">'
-          : (cellVal !== '' ? '$' + finFmtMoney(parseFloat(cellVal)) : '<span style="color:var(--warm-gray);">—</span>')) + '</td>'
+        + projectedCell
         + '</tr>');
       walk(node.children);
     });
   }
-  walk(_finPlanBaseTree);
+  function subtotalRow(label, budgetCents, hasAnyBudget, actualCents, projectedCents) {
+    return '<tr style="font-weight:700;border-top:2px solid var(--border);"><td style="padding:5px 8px;">' + label + '</td>'
+      + (hasAnyBudget ? '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(budgetCents/100) + '</td>' : '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">—</td>')
+      + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(actualCents/100) + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(projectedCents/100) + '</td>'
+      + '</tr>';
+  }
+  var revenueRoots = _finPlanBaseTree.filter(function(n) { return FIN_REVENUE_CLASSES[n.classification]; });
+  var expenseRoots = _finPlanBaseTree.filter(function(n) { return !FIN_REVENUE_CLASSES[n.classification]; });
+  function sumRoots(roots, field) { return roots.reduce(function(sum, n) { return sum + (n[field] || 0); }, 0); }
+  var revenueProjectedCents = revenueRoots.reduce(function(sum, n) { return sum + (projectedCentsByPath[n.path] || 0); }, 0);
+  var expenseProjectedCents = expenseRoots.reduce(function(sum, n) { return sum + (projectedCentsByPath[n.path] || 0); }, 0);
+  walk(revenueRoots);
+  if (revenueRoots.length) rowsHtml.push(subtotalRow('Total Revenue', sumRoots(revenueRoots, 'totalBudgetCents'), revenueRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(revenueRoots, 'totalActualCents'), revenueProjectedCents));
+  walk(expenseRoots);
+  if (expenseRoots.length) rowsHtml.push(subtotalRow('Total Expenses', sumRoots(expenseRoots, 'totalBudgetCents'), expenseRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(expenseRoots, 'totalActualCents'), expenseProjectedCents));
+  var projectedRevenueCents = revenueProjectedCents, projectedExpenseCents = expenseProjectedCents;
   var projectedNetCents = projectedRevenueCents - projectedExpenseCents;
   function netCell(cents) {
     return '<td style="text-align:right;padding:5px 8px;color:' + (cents < 0 ? 'var(--danger)' : 'var(--sage)') + ';">' + (cents < 0 ? '−' : '') + '$' + finFmtMoney(Math.abs(cents)/100) + '</td>';
@@ -2151,7 +2235,7 @@ function finPlanGenerateAll() {
   var body = { base_year: _finPlanBaseYear, target_year: _finPlanTargetYear, growth_pct: growthPct / 100 };
   api('/admin/api/finance/planning/church/generate-all', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
     if (d && d.error) { msgEl.textContent = d.error; return; }
-    msgEl.textContent = 'Generated ' + d.generated + ' line(s).';
+    msgEl.textContent = 'Generated ' + d.generated + ' line(s).' + (d.prorated ? ' Base year actuals were annualized from ' + d.throughMonth + ' month(s) of data before applying growth.' : '');
     finLoadPlanning();
   }).catch(function(err) { msgEl.textContent = err && err.message || 'Generate failed.'; });
 }
@@ -2373,8 +2457,21 @@ function finRenderSalaryCalculator(isAdminUI) {
   var pensionRateInfo = finConcordiaPensionRateFor(_finPlanTargetYear);
   var pensionPctUsed = _finSalaryPensionPct != null ? _finSalaryPensionPct : pensionRateInfo.rate;
   var computed = finSalaryComputeAll(_finSalaryColaPct, pensionPctUsed);
+  var allAccountNodes = [];
+  (function flatten(nodes) { (nodes || []).forEach(function(n) { allAccountNodes.push(n); flatten(n.children); }); })(_finPlanBaseTree);
+  // "Pull them in from the budget" — each worker can be tied to their own real payroll account
+  // code (e.g. 58001), so their row shows that specific account's FY base-year actual/budget as
+  // a reference, instead of only the aggregate salary-account total shown below the table.
+  function findAccountByCode(code) {
+    if (!code) return null;
+    return allAccountNodes.filter(function(n) { return n.path.indexOf(code) >= 0 || n.label.indexOf(code) >= 0; })[0] || null;
+  }
   var rows = _finSalaryRoster.map(function(w, i) {
     var calc = computed[i].calc, ficaCents = computed[i].employerFicaCents, hypotheticalFicaCents = computed[i].hypotheticalFicaCents, pensionCents = computed[i].pensionCents, disabilityCents = computed[i].disabilityCents;
+    var acctNode = findAccountByCode(w.accountCode);
+    var acctRefCell = acctNode
+      ? '<span title="' + esc(acctNode.label) + '">$' + finFmtMoney(acctNode.totalActualCents/100) + (acctNode.hasBudgetInfo ? ' <span style="color:var(--warm-gray);">(bud. $' + finFmtMoney(acctNode.totalBudgetCents/100) + ')</span>' : '') + '</span>'
+      : (w.accountCode ? '<span style="color:var(--warm-gray);" title="No account matching this code was found">not found</span>' : '<span style="color:var(--warm-gray);">—</span>');
     var trackOptions = w.role === 'commissioned' ? LCMS_COMMISSIONED_TRACKS : w.role === 'other' ? LCMS_OTHER_WORKER_TRACKS : null;
     var trackSelect = trackOptions
       ? '<select onchange="finSalaryFieldChange(' + i + ',\'trackKey\',this.value)">' + Object.keys(trackOptions).map(function(k) { return '<option value="' + k + '"' + (k === w.trackKey ? ' selected' : '') + '>' + esc(trackOptions[k].label) + '</option>'; }).join('') + '</select>'
@@ -2394,7 +2491,9 @@ function finRenderSalaryCalculator(isAdminUI) {
         ? '<span style="color:var(--warm-gray);" title="Not a church cost — shown for reference only">$0 to church<br><span style="font-size:.68rem;">worker pays $' + finFmtMoney(hypotheticalFicaCents/100) + ' SECA themselves</span></span>'
         : '$' + finFmtMoney(ficaCents/100) + '<br><span style="font-size:.68rem;color:var(--sage);">compensation benefit</span>';
     return '<tr>'
-      + '<td style="padding:3px 6px;"><input type="text" id="fin-salary-name-' + i + '" value="' + esc(w.name) + '" oninput="finSalaryFieldChange(' + i + ',\'name\',this.value)" style="width:120px;"></td>'
+      + '<td style="padding:3px 6px;"><input type="text" id="fin-salary-name-' + i + '" value="' + esc(w.name) + '" oninput="finSalaryFieldChange(' + i + ',\'name\',this.value)" style="width:100px;"></td>'
+      + '<td style="padding:3px 6px;"><input type="text" id="fin-salary-acct-' + i + '" value="' + esc(w.accountCode || '') + '" oninput="finSalaryFieldChange(' + i + ',\'accountCode\',this.value)" style="width:55px;" placeholder="acct #"></td>'
+      + '<td style="padding:3px 6px;text-align:right;font-size:.72rem;">' + acctRefCell + '</td>'
       + '<td style="padding:3px 6px;"><select onchange="finSalaryRoleChange(' + i + ',this.value)"><option value="pastor"' + (w.role==='pastor'?' selected':'') + '>Pastor</option><option value="commissioned"' + (w.role==='commissioned'?' selected':'') + '>Commissioned Worker</option><option value="other"' + (w.role==='other'?' selected':'') + '>Other Church Worker</option></select></td>'
       + '<td style="padding:3px 6px;"><input type="number" id="fin-salary-years-' + i + '" value="' + w.yearsExperience + '" oninput="finSalaryFieldChange(' + i + ',\'yearsExperience\',this.value)" style="width:60px;"></td>'
       + '<td style="padding:3px 6px;">' + trackSelect + '</td>'
@@ -2446,24 +2545,26 @@ function finRenderSalaryCalculator(isAdminUI) {
     + '<label style="font-size:.72rem;color:var(--warm-gray);">Pension Contribution % <span style="font-weight:400;">(Concordia Retirement Plan, Traditional Option — defaults to the real FY' + _finPlanTargetYear + ' rate' + (pensionRateInfo.exact ? '' : ', carried flat from ' + pensionRateInfo.sourceYear + ' since ' + _finPlanTargetYear + ' isn\'t published yet') + ')</span><br><input type="number" id="fin-salary-pension" step="0.01" value="' + (pensionPctUsed*100).toFixed(2) + '" oninput="finSalaryPensionChange(this.value)" style="width:90px;">%' + (_finSalaryPensionPct != null ? ' <a href="#" onclick="finSalaryPensionReset();return false;" style="font-size:.68rem;">↺ use Concordia rate</a>' : '') + '</label>'
     + '</div>'
     + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
-    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th><th style="text-align:left;padding:3px 6px;">Role</th><th style="text-align:left;padding:3px 6px;">Yrs Exp</th><th style="text-align:left;padding:3px 6px;">Education / Type</th><th style="text-align:left;padding:3px 6px;">Responsibility Stipend</th><th style="text-align:left;padding:3px 6px;">Attendance Bonus</th><th style="text-align:center;padding:3px 6px;">Self-Employed (SECA)</th><th style="text-align:right;padding:3px 6px;">Employer FICA</th><th style="text-align:right;padding:3px 6px;">Pension</th><th style="text-align:center;padding:3px 6px;">Has Dependents</th><th style="text-align:right;padding:3px 6px;">Disability</th><th style="text-align:right;padding:3px 6px;">Salary</th><th></th></tr></thead>'
-    + '<tbody>' + (rows || '<tr><td colspan="13" style="padding:6px;color:var(--warm-gray);">No workers added yet.</td></tr>') + '</tbody>'
-    + '<tfoot><tr style="font-weight:700;border-top:2px solid var(--navy);"><td colspan="6" style="padding:5px 6px;">Total</td><td></td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalFicaCents/100) + '</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalPensionCents/100) + '</td><td></td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalDisabilityCents/100) + '</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalSalaryCents/100) + '</td><td></td></tr></tfoot>'
+    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th><th style="text-align:left;padding:3px 6px;">Acct #</th><th style="text-align:right;padding:3px 6px;">FY' + _finPlanBaseYear + ' Acct Actual</th><th style="text-align:left;padding:3px 6px;">Role</th><th style="text-align:left;padding:3px 6px;">Yrs Exp</th><th style="text-align:left;padding:3px 6px;">Education / Type</th><th style="text-align:left;padding:3px 6px;">Responsibility Stipend</th><th style="text-align:left;padding:3px 6px;">Attendance Bonus</th><th style="text-align:center;padding:3px 6px;">Self-Employed (SECA)</th><th style="text-align:right;padding:3px 6px;">Employer FICA</th><th style="text-align:right;padding:3px 6px;">Pension</th><th style="text-align:center;padding:3px 6px;">Has Dependents</th><th style="text-align:right;padding:3px 6px;">Disability</th><th style="text-align:right;padding:3px 6px;">Salary</th><th></th></tr></thead>'
+    + '<tbody>' + (rows || '<tr><td colspan="15" style="padding:6px;color:var(--warm-gray);">No workers added yet.</td></tr>') + '</tbody>'
+    + '<tfoot><tr style="font-weight:700;border-top:2px solid var(--navy);"><td colspan="8" style="padding:5px 6px;">Total</td><td></td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalFicaCents/100) + '</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalPensionCents/100) + '</td><td></td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalDisabilityCents/100) + '</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalSalaryCents/100) + '</td><td></td></tr></tfoot>'
     + '</table></div>'
     + (totalWorkerPaidSecaCents ? '<p style="font-size:.7rem;color:var(--warm-gray);margin:4px 0 0;">Total self-paid SECA across self-employed workers (not a church cost, shown for reference): $' + finFmtMoney(totalWorkerPaidSecaCents/100) + '</p>' : '')
     + (isAdminUI ? '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;margin-top:8px;" onclick="finSalaryAddWorker()">+ Add Worker</button>' : '')
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
     + '<label style="font-size:.72rem;color:var(--warm-gray);">Benefits Total ($/yr, entered)<br><input type="number" id="fin-salary-benefits" step="0.01" value="' + (_finSalaryBenefitsDollars || '') + '" oninput="finSalaryBenefitsChange(this.value)" style="width:120px;"></label>'
     + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((totalSalaryCents/100) + (totalFicaCents/100) + (totalPensionCents/100) + (totalDisabilityCents/100) + (_finSalaryBenefitsDollars || 0)) + '</div><div class="rpt-stat-lbl">Total Salary &amp; Benefits</div></div>'
+    + (isAdminUI ? '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finSalarySaveData()">Save Salary &amp; Benefits Data</button>' : '')
     + '</div>'
     + (isAdminUI && expenseLeaves.length ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
       + '<label style="font-size:.72rem;color:var(--warm-gray);">Apply total to account<br><select id="fin-salary-target-category">' + categoryOptions + '</select></label>'
       + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finSalaryApplyToPlan()">Use as FY' + _finPlanTargetYear + ' Projected</button>'
       + '</div>' : '')
+    + '<div id="fin-salary-save-msg" style="font-size:.72rem;color:var(--warm-gray);margin-top:6px;"></div>'
     + '</div>';
 }
 function finSalaryAddWorker() {
-  _finSalaryRoster.push({ name: '', role: 'pastor', trackKey: '', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: finDefaultSelfEmployedFica('pastor'), hasDependents: false });
+  _finSalaryRoster.push({ name: '', role: 'pastor', trackKey: '', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: finDefaultSelfEmployedFica('pastor'), hasDependents: false, accountCode: '' });
   finRerenderPlanningPreserveFocus();
 }
 function finSalaryDependentsToggle(i, checked) {
