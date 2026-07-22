@@ -32,6 +32,7 @@ function loadFinance() {
     finRenderDaycareReport();
     finLoadProperty();
     finLoadPlanning();
+    finLoadOverviewDomain();
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
     loadingEl.textContent = 'Could not load finance data.';
@@ -46,6 +47,289 @@ function finShowSection(section) {
     var panel = document.getElementById('fin-panel-' + s);
     if (panel) panel.style.display = (s === section) ? '' : 'none';
   });
+}
+
+// ── Overview dashboard (Finance Workspace redesign, 2026-07) ────────────────────────────────
+// A glance-level "are we on budget?" view, switchable between the three domains this church
+// actually tracks money for (Church Operating / Daycare / Commercial Property) — NOT a giving-
+// fund selector (the design handoff's mockup showed a fund <select>, but this app's Church
+// Report data is QuickBooks-chart-of-accounts based, one ledger, with no per-giving-fund budget
+// to select between; the three real domains are what the switcher actually maps to). Church and
+// Daycare both have a real per-category budget, so they get the full layout (KPIs + "are we on
+// budget?" pace panel + trend + year-end projection); Property has no line-item budget to pace
+// against (it's landlord actuals/reserves), so it gets KPIs + the revenue/expense trend only.
+var _finOverviewDomain = 'church';
+var _finOverviewChurchData = null;
+var _finOverviewDrillOpen = null; // single-open drilldown category path, church/daycare pace panel
+function finOverviewSetDomain(domain) {
+  _finOverviewDomain = domain;
+  _finOverviewDrillOpen = null;
+  finLoadOverviewDomain();
+}
+function finLoadOverviewDomain() {
+  var root = document.getElementById('fin-ov-dashboard');
+  if (!root) return;
+  root.innerHTML = 'Loading…';
+  if (_finOverviewDomain === 'church') {
+    var year = new Date().getFullYear();
+    api('/admin/api/finance/church/this-year?year=' + year).then(function(d) {
+      _finOverviewChurchData = d;
+      finRenderOverviewChurch(d);
+    }).catch(function() { root.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Could not load Church Report data.</p>'; });
+  } else if (_finOverviewDomain === 'daycare') {
+    finRenderOverviewDaycare();
+  } else if (_finOverviewDomain === 'property') {
+    if (_finProperty) finRenderOverviewProperty(_finProperty);
+    else root.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading property data…</p>';
+  }
+}
+function finFmtSigned(cents) {
+  var v = (cents || 0) / 100;
+  var sign = v < 0 ? '-' : '+';
+  return sign + '$' + finFmtMoney(Math.abs(v));
+}
+function finElapsedYearPct(year) {
+  var now = new Date();
+  if (year !== now.getFullYear()) return 1; // a past/future year — no "expected by now" concept
+  var start = new Date(year, 0, 1), end = new Date(year + 1, 0, 1);
+  return (now - start) / (end - start);
+}
+// Shared renderer for the "Are we on budget?" pace panel — used by both Church and Daycare
+// domains. categories = [{ path, label, actualCents, budgetCents, children: [{label,actualCents,budgetCents}] }].
+function finRenderPacePanel(categories, elapsedPct) {
+  var elapsedLabel = Math.round(elapsedPct * 100) + '%';
+  var rows = categories.map(function(cat) {
+    var hasBudget = cat.budgetCents > 0;
+    var spentPct = hasBudget ? cat.actualCents / cat.budgetCents : 0;
+    var expectedByNowCents = cat.budgetCents * elapsedPct;
+    var diffCents = cat.actualCents - expectedByNowCents;
+    var status = 'ok', statusLabel = 'On pace', barClass = '';
+    if (hasBudget && cat.actualCents > cat.budgetCents) { status = 'over'; statusLabel = 'Over budget'; barClass = 'over'; }
+    else if (hasBudget && diffCents > 150000) { status = 'warn'; statusLabel = 'Over pace'; barClass = 'warn'; }
+    else if (!hasBudget) { statusLabel = 'No budget'; }
+    var chipClass = status === 'over' ? 'fin-chip-negative' : status === 'warn' ? 'fin-chip-warn' : hasBudget ? 'fin-chip-positive' : 'fin-chip-info';
+    var open = _finOverviewDrillOpen === cat.path;
+    var insetHtml = '';
+    if (open && cat.children && cat.children.length) {
+      insetHtml = '<div class="fin-pace-inset">' + cat.children.map(function(c) {
+        return '<div class="fin-pace-inset-row"><span>' + esc(c.label) + '</span><span>$' + finFmtMoney(c.actualCents/100) + (c.budgetCents > 0 ? ' / $' + finFmtMoney(c.budgetCents/100) : '') + '</span></div>';
+      }).join('') + '</div>';
+    }
+    return '<div class="fin-pace-row' + (open ? ' open' : '') + '" onclick="finOverviewToggleDrill(\'' + esc(cat.path).replace(/'/g, "\\'") + '\')">'
+      + '<div class="fin-pace-row-hdr">'
+      + '<span><span class="fin-pace-caret">&#9656;</span><span class="fin-pace-label">' + esc(cat.label) + '</span></span>'
+      + '<span class="fin-pace-figs">$' + finFmtMoney(cat.actualCents/100) + (hasBudget ? ' / $' + finFmtMoney(cat.budgetCents/100) : '') + ' &nbsp; <span class="fin-chip ' + chipClass + ' fin-pace-status">' + statusLabel + '</span></span>'
+      + '</div>'
+      + (hasBudget ? '<div class="fin-pace-bar-track"><div class="fin-pace-bar-fill ' + barClass + '" style="width:' + Math.min(100, spentPct*100) + '%;"></div><div class="fin-pace-marker" style="left:' + (elapsedPct*100) + '%;"></div></div>' : '')
+      + insetHtml
+      + '</div>';
+  }).join('');
+  return '<div class="fin-card" style="margin-bottom:22px;">'
+    + '<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;">'
+    + '<div><div class="fin-card-title">Are we on budget?</div><div class="fin-card-sub" style="margin-bottom:0;">Click a category to see its line items. A bar past the vertical line means spending faster than the calendar.</div></div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);white-space:nowrap;"><span style="color:var(--color-teal);">&#9632;</span> Spent &nbsp;|&nbsp; <span style="color:var(--color-navy);">&#124;</span> Expected by now (' + elapsedLabel + ')</div>'
+    + '</div>'
+    + '<div style="margin-top:10px;">' + (rows || '<p style="font-size:.85rem;color:var(--warm-gray);">No expense categories with budget data yet.</p>') + '</div>'
+    + '</div>';
+}
+function finOverviewToggleDrill(path) {
+  _finOverviewDrillOpen = (_finOverviewDrillOpen === path) ? null : path;
+  finLoadOverviewDomain();
+}
+function finRenderTrendChart(months, title) {
+  if (!months || !months.length) return '';
+  var maxVal = 1;
+  months.forEach(function(m) { maxVal = Math.max(maxVal, m.incomeCents/100, m.expenseCents/100); });
+  var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var bars = months.map(function(m) {
+    var incH = Math.max(2, (m.incomeCents/100) / maxVal * 100);
+    var expH = Math.max(2, (m.expenseCents/100) / maxVal * 100);
+    return '<div class="fin-trend-month"><div class="fin-trend-bar' + (m.projected ? ' projected' : '') + '" style="height:' + incH + '%;" title="Income ' + monthNames[m.month-1] + ': $' + finFmtMoney(m.incomeCents/100) + '"></div>'
+      + '<div class="fin-trend-bar expense' + (m.projected ? ' projected' : '') + '" style="height:' + expH + '%;" title="Expenses ' + monthNames[m.month-1] + ': $' + finFmtMoney(m.expenseCents/100) + '"></div></div>';
+  }).join('');
+  var labels = months.map(function(m) { return '<span>' + monthNames[m.month-1] + '</span>'; }).join('');
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:18px;">' + esc(title) + '</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:6px;"><span style="color:var(--color-teal);">&#9632;</span> Income &nbsp; <span style="color:var(--color-gold);">&#9632;</span> Expenses &nbsp; <span style="opacity:.5;">(faded = projected)</span></div>'
+    + '<div class="fin-trend-chart">' + bars + '</div>'
+    + '<div class="fin-trend-labels">' + labels + '</div>'
+    + '</div>';
+}
+function finRenderYearEndProjection(income, expenses) {
+  function bar(label, cls, series) {
+    if (!series) return '';
+    var maxVal = Math.max(series.projectedFullYearCents, series.currentYtdCents, 1);
+    var actualPct = Math.min(100, series.currentYtdCents / maxVal * 100);
+    var projPct = Math.min(100, series.projectedFullYearCents / maxVal * 100);
+    return '<div class="fin-yearend-bar-row ' + cls + '">'
+      + '<div class="fin-yearend-bar-lbl"><span>' + label + '</span><span>$' + finFmtMoney(series.projectedFullYearCents/100) + ' projected</span></div>'
+      + '<div class="fin-yearend-bar-track"><div class="fin-yearend-bar-projected" style="width:' + projPct + '%;"></div><div class="fin-yearend-bar-actual" style="width:' + actualPct + '%;position:absolute;top:0;left:0;"></div></div>'
+      + '</div>';
+  }
+  var netProjected = (income ? income.projectedFullYearCents : 0) - (expenses ? expenses.projectedFullYearCents : 0);
+  var netCls = netProjected >= 0 ? 'positive' : 'negative';
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:18px;">Year-End Projection</div>'
+    + (income || expenses
+      ? bar('Income', 'income', income) + bar('Expenses', 'expense', expenses)
+        + '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--warm-row-divider);"><div class="fin-kpi-lbl">Projected surplus / (deficit)</div><div class="fin-navy-val ' + netCls + '" style="color:' + (netProjected >= 0 ? 'var(--sage-text)' : 'var(--danger)') + ';">' + finFmtSigned(netProjected) + '</div></div>'
+      : '<p style="font-size:.82rem;color:var(--warm-gray);">Not yet available — needs at least one month of monthly-granularity QuickBooks sync data for this year and last year.</p>')
+    + '</div>';
+}
+function finRenderBalancesRow() {
+  var overview = _finOverview || {};
+  var qboList = ((overview.accounts && overview.accounts.QueryResponse && overview.accounts.QueryResponse.Account) || []);
+  function sumMatching(re) {
+    return qboList.filter(function(a) { return re.test(a.Name || ''); }).reduce(function(s, a) { return s + (Number(a.CurrentBalance) || 0); }, 0);
+  }
+  var checking = sumMatching(/checking/i);
+  var savings = sumMatching(/saving|reserve/i);
+  var reserves = 0;
+  if (_finProperty && _finProperty.reserves) {
+    Object.keys(_finProperty.reserves).forEach(function(key) {
+      var rows = _finProperty.reserves[key];
+      if (rows && rows.length) reserves += (rows[rows.length-1].reserve_after_cents || 0) / 100;
+    });
+  }
+  return '<div class="fin-balance-row">'
+    + '<div class="fin-balance-card"><div class="fin-balance-icon">&#127974;</div><div><div class="fin-balance-lbl">Operating Checking</div><div class="fin-balance-val">$' + finFmtMoney(checking) + '</div></div></div>'
+    + '<div class="fin-balance-card"><div class="fin-balance-icon">&#128737;</div><div><div class="fin-balance-lbl">Reserves &amp; Savings</div><div class="fin-balance-val">$' + finFmtMoney(savings) + '</div></div></div>'
+    + '<div class="fin-balance-card"><div class="fin-balance-icon">&#127968;</div><div><div class="fin-balance-lbl">Ivanhoe Property Reserves</div><div class="fin-balance-val">$' + finFmtMoney(reserves) + '</div></div></div>'
+    + '</div>'
+    + '<p style="font-size:.72rem;color:var(--warm-gray);margin-top:8px;">Checking/Savings are a best-effort match on QuickBooks account name — see the full Account Balances table below for the authoritative list.</p>';
+}
+
+function finRenderOverviewChurch(d) {
+  var root = document.getElementById('fin-ov-dashboard');
+  var capEl = document.getElementById('fin-ov-caption');
+  var pillEl = document.getElementById('fin-ov-sync-pill');
+  if (!root) return;
+  var elapsedPct = finElapsedYearPct(d.year);
+  if (capEl) capEl.textContent = 'Church Operating — ' + d.year + ' · As of today · ' + Math.round(elapsedPct*100) + '% of the fiscal year elapsed';
+  if (pillEl) { pillEl.style.display = _finStatus.connected ? 'inline-flex' : 'none'; pillEl.textContent = 'QuickBooks synced ' + (_finOverview.accountsSyncedAt ? finFmtTs(_finOverview.accountsSyncedAt) : 'never'); }
+
+  var income = d.classificationTotals.Income || { actualCents: 0, budgetCents: 0 };
+  var expenses = d.classificationTotals.Expenses || { actualCents: 0, budgetCents: 0 };
+  var net = d.netIncome || { actualCents: 0, budgetCents: 0 };
+  var netVariance = net.actualCents - net.budgetCents;
+
+  var kpis = [
+    { lbl: 'Net Position YTD', val: finFmtSigned(net.actualCents), cls: net.actualCents >= 0 ? 'positive' : 'negative',
+      chip: d.hasBudgetData ? (finFmtSigned(netVariance) + ' vs. budget') : null, chipCls: netVariance >= 0 ? 'fin-chip-positive' : 'fin-chip-negative', border: net.actualCents >= 0 ? 'var(--sage)' : 'var(--danger)' },
+    { lbl: 'Income YTD', val: '$' + finFmtMoney(income.actualCents/100), chip: income.budgetCents > 0 ? (Math.round(income.actualCents/income.budgetCents*100) + '% of $' + finFmtMoney(income.budgetCents/100) + ' budget') : null, chipCls: 'fin-chip-info', border: 'var(--color-teal)' },
+    { lbl: 'Expenses YTD', val: '$' + finFmtMoney(expenses.actualCents/100), chip: expenses.budgetCents > 0 ? (Math.round(expenses.actualCents/expenses.budgetCents*100) + '% of $' + finFmtMoney(expenses.budgetCents/100) + ' budget') : null, chipCls: 'fin-chip-warn', border: 'var(--color-gold)' },
+    { lbl: 'Projected Year-End', val: d.yoy && d.yoy.available ? finFmtSigned(d.yoy.net.projectedFullYearCents) : '—', chip: d.yoy && d.yoy.available ? ((d.yoy.net.projectedFullYearCents >= 0 ? 'Surplus' : 'Deficit') + ' est. Dec 31') : 'Not yet available', chipCls: (d.yoy && d.yoy.available && d.yoy.net.projectedFullYearCents >= 0) ? 'fin-chip-positive' : 'fin-chip-negative', border: (d.yoy && d.yoy.available && d.yoy.net.projectedFullYearCents < 0) ? 'var(--danger)' : 'var(--sage)' },
+  ];
+  var kpiHtml = '<div class="fin-kpi-grid">' + kpis.map(function(k) {
+    return '<div class="fin-kpi-card" style="border-top-color:' + k.border + ';"><div class="fin-kpi-lbl">' + k.lbl + '</div><div class="fin-kpi-val">' + k.val + '</div>'
+      + (k.chip ? '<span class="fin-chip ' + k.chipCls + '">' + k.chip + '</span>' : '') + '</div>';
+  }).join('') + '</div>';
+
+  var tree = finReorganizeChurchTree(finBuildTreeFromFlatRows(d.entries));
+  var expenseRoot = tree.filter(function(n) { return n.classification === 'Expenses'; })[0];
+  var categories = ((expenseRoot && expenseRoot.children) || []).map(function(n) {
+    return {
+      path: n.path, label: n.label, actualCents: n.totalActualCents, budgetCents: n.totalBudgetCents,
+      children: (n.children || []).map(function(c) { return { label: c.label, actualCents: c.totalActualCents, budgetCents: c.totalBudgetCents }; }),
+    };
+  }).sort(function(a, b) { return b.actualCents - a.actualCents; });
+  var paceHtml = finRenderPacePanel(categories, elapsedPct);
+
+  var trendHtml = (d.monthlyTrend && d.monthlyTrend.available) ? finRenderTrendChart(d.monthlyTrend.months, 'Income vs. Expenses') : '<div class="fin-card"><div class="fin-card-title" style="font-size:18px;">Income vs. Expenses</div><p style="font-size:.82rem;color:var(--warm-gray);">Not yet available — needs monthly-granularity QuickBooks sync data for this year.</p></div>';
+  var projHtml = finRenderYearEndProjection(d.yoy && d.yoy.available ? d.yoy.income : null, d.yoy && d.yoy.available ? d.yoy.expenses : null);
+
+  root.innerHTML = kpiHtml + paceHtml
+    + '<div style="display:grid;grid-template-columns:1.5fr 1fr;gap:22px;margin-bottom:22px;">' + trendHtml + projHtml + '</div>'
+    + '<div class="fin-card-title" style="font-size:18px;margin-bottom:10px;">Balances</div>' + finRenderBalancesRow();
+}
+
+function finRenderOverviewDaycare() {
+  var root = document.getElementById('fin-ov-dashboard');
+  var capEl = document.getElementById('fin-ov-caption');
+  var pillEl = document.getElementById('fin-ov-sync-pill');
+  if (!root) return;
+  if (pillEl) pillEl.style.display = 'none';
+  var agg = finAggregateDaycareByYear(_finDaycare);
+  var year = String(new Date().getFullYear());
+  var y = agg.byYear[year];
+  var elapsedPct = finElapsedYearPct(new Date().getFullYear());
+  if (capEl) capEl.textContent = 'Daycare (MDO) — ' + year + ' · As of today · ' + Math.round(elapsedPct*100) + '% of the fiscal year elapsed';
+  if (!y) { root.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No daycare data yet for ' + year + '. Sync or add entries below.</p>'; return; }
+
+  var netVariance = y.netActual - y.netBudget;
+  var kpis = [
+    { lbl: 'Net Position YTD', val: finFmtSigned(netVariance >= 0 ? y.netActual : y.netActual) === undefined ? '' : (y.netActual >= 0 ? '+' : '-') + '$' + finFmtMoney(Math.abs(y.netActual)), chip: y.netBudget ? ((netVariance >= 0 ? '+' : '-') + '$' + finFmtMoney(Math.abs(netVariance)) + ' vs. budget') : null, chipCls: netVariance >= 0 ? 'fin-chip-positive' : 'fin-chip-negative', border: y.netActual >= 0 ? 'var(--sage)' : 'var(--danger)' },
+    { lbl: 'Income YTD', val: '$' + finFmtMoney(y.incomeActual), chip: y.incomeBudget ? (Math.round(y.incomeActual/y.incomeBudget*100) + '% of $' + finFmtMoney(y.incomeBudget) + ' budget') : null, chipCls: 'fin-chip-info', border: 'var(--color-teal)' },
+    { lbl: 'Expenses YTD', val: '$' + finFmtMoney(y.expenseActual), chip: y.expenseBudget ? (Math.round(y.expenseActual/y.expenseBudget*100) + '% of $' + finFmtMoney(y.expenseBudget) + ' budget') : null, chipCls: 'fin-chip-warn', border: 'var(--color-gold)' },
+    { lbl: 'Net Budgeted (Full Year)', val: '$' + finFmtMoney(y.netBudget), chip: null, border: 'var(--color-navy)' },
+  ];
+  var kpiHtml = '<div class="fin-kpi-grid">' + kpis.map(function(k) {
+    return '<div class="fin-kpi-card" style="border-top-color:' + k.border + ';"><div class="fin-kpi-lbl">' + k.lbl + '</div><div class="fin-kpi-val">' + k.val + '</div>'
+      + (k.chip ? '<span class="fin-chip ' + k.chipCls + '">' + k.chip + '</span>' : '') + '</div>';
+  }).join('') + '</div>';
+
+  var categories = Object.keys(y.categories).filter(function(c) { return !finIsIncomeCategory(c); }).map(function(c) {
+    return { path: c, label: c, actualCents: Math.round(y.categories[c].actual*100), budgetCents: Math.round(y.categories[c].budget*100), children: [] };
+  }).sort(function(a, b) { return b.actualCents - a.actualCents; });
+  var paceHtml = finRenderPacePanel(categories, elapsedPct);
+
+  root.innerHTML = kpiHtml + paceHtml + '<p style="font-size:.78rem;color:var(--warm-gray);">Full year-by-year detail is in the <b>Daycare Report</b> tab.</p>';
+}
+
+function finRenderOverviewProperty(d) {
+  var root = document.getElementById('fin-ov-dashboard');
+  var capEl = document.getElementById('fin-ov-caption');
+  var pillEl = document.getElementById('fin-ov-sync-pill');
+  if (!root) return;
+  if (pillEl) pillEl.style.display = 'none';
+  if (capEl) capEl.textContent = '3277 Ivanhoe — Commercial Property';
+  var monthly = (d.monthly || []).slice().sort(function(a,b){ return a.period < b.period ? -1 : 1; }).slice(-12);
+  var occSum = 0, occCount = 0, netSum = 0;
+  monthly.forEach(function(m) { if (m.occupancy_pct != null) { occSum += m.occupancy_pct; occCount++; } netSum += (m.net_income_cents || 0); });
+  var years = (d.annualSummary || []).slice().sort(function(a,b){ return b.year - a.year; });
+  var curYear = years[0];
+  var reserves = 0;
+  if (d.reserves) Object.keys(d.reserves).forEach(function(key) {
+    var rows = d.reserves[key];
+    if (rows && rows.length) reserves += (rows[rows.length-1].reserve_after_cents || 0) / 100;
+  });
+  var kpis = [
+    { lbl: 'Occupancy', val: occCount ? Math.round(occSum/occCount*100) + '%' : '—', chip: monthly.length + ' months tracked', chipCls: 'fin-chip-positive', border: 'var(--sage)' },
+    { lbl: 'Monthly Net (avg)', val: '$' + finFmtMoney((monthly.length ? netSum/monthly.length : 0)/100), chip: null, border: 'var(--color-teal)' },
+    { lbl: 'Annual Net (this year)', val: curYear ? '$' + finFmtMoney(curYear.net_income_cents/100) : '—', chip: 'to General Fund', chipCls: 'fin-chip-info', border: 'var(--color-navy)' },
+    { lbl: 'Reserves On-Hand', val: '$' + finFmtMoney(reserves), chip: 'tax + capital', chipCls: 'fin-chip-info', border: 'var(--color-gold)' },
+  ];
+  var kpiHtml = '<div class="fin-kpi-grid">' + kpis.map(function(k) {
+    return '<div class="fin-kpi-card" style="border-top-color:' + k.border + ';"><div class="fin-kpi-lbl">' + k.lbl + '</div><div class="fin-kpi-val">' + k.val + '</div>'
+      + (k.chip ? '<span class="fin-chip ' + k.chipCls + '">' + k.chip + '</span>' : '') + '</div>';
+  }).join('') + '</div>';
+
+  var chartMonthly = (d.monthly || []).slice().sort(function(a,b){ return a.period < b.period ? -1 : 1; }).slice(-12);
+  var budgetByPeriod = {};
+  (d.budgetMonthly || []).forEach(function(b) { budgetByPeriod[b.period] = b; });
+  var hasBudget = chartMonthly.some(function(m) { return budgetByPeriod[m.period]; });
+  var series = hasBudget
+    ? [{ key: 'rev', label: 'Revenue', color: '#2E7EA6' }, { key: 'revB', label: 'Rev. Budget', color: '#9FC7DA' }, { key: 'exp', label: 'Expenses', color: '#C9973A' }, { key: 'expB', label: 'Exp. Budget', color: '#E4CB99' }]
+    : [{ key: 'rev', label: 'Revenue', color: '#2E7EA6' }, { key: 'exp', label: 'Expenses', color: '#C9973A' }];
+  var chartHtml = chartMonthly.length ? renderGroupedBarChart({
+    chartH: 200,
+    title: 'Revenue vs. Expenses (last ' + chartMonthly.length + ' months)' + (hasBudget ? ' — vs. AHRA budget' : ''),
+    groups: chartMonthly.map(function(m) { return { key: m.period, label: m.period.slice(2) }; }),
+    series: series,
+    value: function(g, s) {
+      var m = chartMonthly.filter(function(x) { return x.period === g; })[0];
+      var b = budgetByPeriod[g];
+      if (s === 'rev') return m.total_revenue_cents == null ? null : m.total_revenue_cents/100;
+      if (s === 'exp') return m.total_expenses_cents == null ? null : m.total_expenses_cents/100;
+      if (s === 'revB') return b ? b.revenue_cents/100 : null;
+      if (s === 'expB') return b ? b.expenses_cents/100 : null;
+      return null;
+    },
+    tooltip: function(g, s, v) { return g + ': $' + finFmtMoney(v); },
+  }) : '<p style="font-size:.85rem;color:var(--warm-gray);">No monthly data yet.</p>';
+
+  root.innerHTML = kpiHtml + '<div class="fin-card">' + chartHtml + '</div>'
+    + '<p style="font-size:.78rem;color:var(--warm-gray);margin-top:12px;">Full reserves, capital ledger, valuation calculator, and forecast are in the <b>Commercial Property</b> tab.</p>';
 }
 // Lazy-init for the Giving tab's Reports view (moved there from the Finance tab — see
 // givSetView() in js-giving.js) — mirrors initReportTrendYears()'s own idempotent guard, safe
@@ -1488,6 +1772,7 @@ function finLoadProperty() {
     _finProperty = d;
     finRenderProperty(d);
     finRenderDaycareMdoNote();
+    if (_finOverviewDomain === 'property') finRenderOverviewProperty(d);
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
     el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load property data.</p>';
@@ -1740,6 +2025,36 @@ function finValSave() {
   }).catch(function(err) { msgEl.textContent = err && err.message || 'Save failed.'; });
 }
 
+// Single-step: parses and commits the AHRA "Budget Detail" export in one request (unlike the
+// Church Report imports' preview-then-commit — see the parsePropertyBudgetDetailGrid() comment
+// in api-finance.js for why: this export's shape is fixed and the two rollup rows read are
+// unambiguous, so a review step has little to catch). Reloads property data on success so the
+// Revenue vs. Expenses chart picks up the new budget series immediately.
+function finPropertyBudgetImportFileSelected(inputEl) {
+  var file = inputEl.files && inputEl.files[0];
+  if (!file) return;
+  var statusEl = document.getElementById('fin-property-budget-import-status');
+  if (statusEl) statusEl.textContent = 'Importing…';
+  var fd = new FormData();
+  fd.append('file', file);
+  fetch('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/budget-import', { method: 'POST', body: fd, credentials: 'include' })
+    .then(function(r) {
+      return r.json().then(function(d) {
+        if (r.status === 401) { location.href = '/chms'; throw new Error('Unauthorized'); }
+        if (!r.ok) throw new Error(d.error || 'Could not import this file.');
+        return d;
+      });
+    })
+    .then(function(d) {
+      if (statusEl) statusEl.textContent = 'Imported ' + d.imported + ' month(s): ' + d.months.map(function(m) { return m.period; }).join(', ') + '.';
+      inputEl.value = '';
+      finLoadProperty();
+    })
+    .catch(function(err) {
+      if (err.message !== 'Unauthorized' && statusEl) statusEl.textContent = 'Error: ' + err.message;
+    });
+}
+
 function finRenderProperty(d) {
   var el = document.getElementById('fin-property-root');
   if (!el || !d) return;
@@ -1813,8 +2128,16 @@ function finRenderProperty(d) {
       + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finPropertyAddDistribution()">+ Add</button>'
       + '</div>' : '');
 
+  var budgetImportHtml = isAdminUI
+    ? '<div style="margin-bottom:16px;padding:10px 14px;background:var(--warm-surface-page);border-radius:10px;">'
+      + '<label style="font-size:.78rem;color:var(--warm-gray);font-weight:600;">Import Budget (AHRA "Budget Detail" export) <input type="file" accept=".xlsx" onchange="finPropertyBudgetImportFileSelected(this)" style="display:block;margin-top:4px;"></label>'
+      + '<div id="fin-property-budget-import-status" style="font-size:.76rem;color:var(--warm-gray);margin-top:6px;"></div>'
+      + '</div>'
+    : '';
+
   el.innerHTML = statsHtml
     + '<div style="margin-bottom:16px;">' + infoHtml + '</div>'
+    + budgetImportHtml
     + finRenderPropertyCharts(d)
     + finRenderPropertyForecast(d)
     + finRenderValuationCalculator(d, isAdminUI)

@@ -1402,6 +1402,18 @@ async function _doInitDb(db) {
       PRIMARY KEY (category, fiscal_year)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_finance_budget_plan_year ON finance_budget_plan(fiscal_year)`,
+    // Commercial Property monthly BUDGET (see migrations/0025_finance_property_budget.sql) —
+    // parallels finance_property_monthly (actuals) but imported from a separate AHRA export.
+    `CREATE TABLE IF NOT EXISTS finance_property_budget_monthly (
+      property_key      TEXT    NOT NULL DEFAULT 'ivanhoe',
+      period             TEXT    NOT NULL,
+      revenue_cents      INTEGER NOT NULL DEFAULT 0,
+      expenses_cents     INTEGER NOT NULL DEFAULT 0,
+      net_income_cents   INTEGER NOT NULL DEFAULT 0,
+      source             TEXT    NOT NULL DEFAULT 'ahra_import',
+      updated_at         TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (property_key, period)
+    )`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
