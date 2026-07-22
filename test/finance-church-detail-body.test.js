@@ -8,14 +8,14 @@ function loadDetailBodyHelpers() {
   // esc() itself lives in the CORE bundle (shared across all tabs), not EXT — stub a plain
   // equivalent here since it isn't what this test is verifying.
   const escStub = 'function esc(s) { return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&#39;"); }';
-  const names = ['finFmtMoney', 'finMoneyClass', 'finRenderDetailTreeRows', 'finRenderChurchTotalRow', 'finRenderChurchDetailBody', 'finChurchAsOfDate'];
+  const names = ['finFmtMoney', 'finFmtSigned', 'finVarianceCell', 'finRenderDetailTreeRows', 'finRenderChurchTotalRow', 'finRenderChurchDetailBody', 'finRenderNetIncomeBar', 'finChurchAsOfDate'];
   const fnSrcs = names.map(name => {
     const m = CHMS_APP_EXT_JS.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
     if (!m) throw new Error(`${name} not found in built script`);
     return m[0];
   });
   // eslint-disable-next-line no-eval
-  return eval(`(function() { ${escStub} ${fnSrcs.join('\n')} return { finRenderChurchDetailBody, finChurchAsOfDate }; })()`);
+  return eval(`(function() { ${escStub} ${fnSrcs.join('\n')} return { finRenderChurchDetailBody, finRenderNetIncomeBar, finChurchAsOfDate }; })()`);
 }
 
 function leaf(path, label, classification, depth, actualCents, budgetCents, children) {
@@ -28,7 +28,7 @@ function leaf(path, label, classification, depth, actualCents, budgetCents, chil
 }
 
 describe('finRenderChurchDetailBody', () => {
-  const { finRenderChurchDetailBody, finChurchAsOfDate } = loadDetailBodyHelpers();
+  const { finRenderChurchDetailBody, finRenderNetIncomeBar, finChurchAsOfDate } = loadDetailBodyHelpers();
 
   it('renders each section\'s own account lines before its Total row, not a header above them', () => {
     const donorIncome = leaf('Income:40 Donor Income', '40 Donor Income', 'Income', 1, 22671104, 42500000);
@@ -50,24 +50,30 @@ describe('finRenderChurchDetailBody', () => {
     const totalRevenueIdx = html.indexOf('Total Revenue');
     const mdoIdx = html.indexOf('57 MDO Expenses');
     const totalExpensesIdx = html.indexOf('Total Expenses');
-    const netIdx = html.indexOf('Net Income');
 
     expect(donorIdx).toBeGreaterThan(-1);
     expect(totalRevenueIdx).toBeGreaterThan(donorIdx);
     expect(mdoIdx).toBeGreaterThan(totalRevenueIdx);
     expect(totalExpensesIdx).toBeGreaterThan(mdoIdx);
-    expect(netIdx).toBeGreaterThan(totalExpensesIdx);
+    // Net Income is no longer a row inside the table body — it's rendered separately as a
+    // full-width navy bar (finRenderNetIncomeBar), matching the Finance Workspace handoff.
+    expect(html).not.toContain('Net Income');
   });
 
-  it('sums the Net Income row from the passed-in totals, matching the summary card figure', () => {
-    const revenue = leaf('Income', 'Revenue', 'Income', 0, 50000, null, []);
-    revenue.totalActualCents = 50000; revenue.totalBudgetCents = 0; revenue.hasBudgetInfo = false;
-    const expenses = leaf('Expenses', 'Expenses', 'Expenses', 0, 30000, null, []);
-    expenses.totalActualCents = 30000; expenses.totalBudgetCents = 0; expenses.hasBudgetInfo = false;
+  it('finRenderNetIncomeBar shows the actual figure and, when budget data exists, the variance', () => {
     const netIncome = { actualCents: 20000, budgetCents: 0 };
-    const html = finRenderChurchDetailBody([revenue, expenses], netIncome, false);
-    expect(html).toContain('Net Income');
-    expect(html).toContain('$200.00');
+    const htmlNoBudget = finRenderNetIncomeBar(netIncome, false);
+    expect(htmlNoBudget).toContain('Net Income');
+    expect(htmlNoBudget).toContain('$200.00');
+    expect(htmlNoBudget).not.toContain('vs. $');
+
+    const netIncomeWithBudget = { actualCents: 20000, budgetCents: 15000 };
+    const htmlWithBudget = finRenderNetIncomeBar(netIncomeWithBudget, true);
+    expect(htmlWithBudget).toContain('vs. $150.00 budget');
+  });
+
+  it('finRenderNetIncomeBar returns empty string when passed no netIncome', () => {
+    expect(finRenderNetIncomeBar(null, false)).toBe('');
   });
 
   it('finChurchAsOfDate picks the most recent synced_at among entries', () => {
