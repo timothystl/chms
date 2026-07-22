@@ -146,8 +146,12 @@ export const SEC_HEADERS = {
   // required by the SPA so 'unsafe-inline' is the pragmatic choice here.
   // fonts.googleapis.com serves the @import CSS; fonts.gstatic.com serves the
   // actual font binary files; both are needed for Google Fonts to load.
+  // img-src needs blob: (not just the '*' wildcard, which excludes the blob:/
+  // data:/filesystem: schemes per the CSP spec) for the Scheduler's Print
+  // Preview Copy/Download Image feature, which loads its rasterized SVG into
+  // an <img> via a blob: URL (see SC7-FIX4 in CLAUDE.md).
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src * data:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; frame-ancestors 'none';",
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src * data: blob:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; frame-ancestors 'none';",
 };
 export function html(content, status = 200, extraHeaders = {}) {
   return new Response(content, {
