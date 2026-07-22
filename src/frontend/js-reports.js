@@ -1196,8 +1196,8 @@ function buildGiftTable(entries, mode) {
   }).join('');
   return '<table style="width:100%;border-collapse:collapse;font-size:.9rem;"><thead style="background:#f5f5f5;">' + header + '</thead><tbody>' + rows + '</tbody></table>';
 }
-function renderLetterHTML(d, letterType) {
-  var cfg = _churchConfig;
+function renderLetterHTML(d, letterType, cfgOverride) {
+  var cfg = cfgOverride || _churchConfig;
   var tpl = letterType === 'midyear'
     ? (cfg.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE)
     : (cfg.giving_letter_template || DEFAULT_LETTER_TEMPLATE);
