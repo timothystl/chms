@@ -1011,6 +1011,35 @@ export function computeYtdComparison(currentMonthlyRows, priorMonthlyRows, prior
   };
 }
 
+// Any account whose name contains "Supplies" (matches both a real MDO-tagged QuickBooks
+// account like "50160 MDO Supplies" — see classifyMdoAccountCategory's comment above, which
+// deliberately lumps these into the generic Other Expenses catch-all for the Daycare Report —
+// and any non-MDO church supplies account) is pulled out of the monthly rows as its own
+// month-by-month breakdown, so it can be charted on its own instead of staying buried.
+// `currentMonthlyRows`/`priorMonthlyRows` are the same period_month 1-12 qbo_sync rows already
+// fetched for computeYtdComparison; pure/no DB access, independently unit-testable.
+const SUPPLIES_MATCH_RE = /supplies/i;
+export function computeSuppliesMonthlyBreakdown(currentMonthlyRows, priorMonthlyRows) {
+  const curByMonth = {}, priorByMonth = {};
+  let curYtdCents = 0, priorYtdCents = 0;
+  for (const r of currentMonthlyRows) {
+    if (!SUPPLIES_MATCH_RE.test(r.account_name)) continue;
+    curByMonth[r.period_month] = (curByMonth[r.period_month] || 0) + (r.own_actual_cents || 0);
+    curYtdCents += r.own_actual_cents || 0;
+  }
+  for (const r of priorMonthlyRows) {
+    if (!SUPPLIES_MATCH_RE.test(r.account_name)) continue;
+    priorByMonth[r.period_month] = (priorByMonth[r.period_month] || 0) + (r.own_actual_cents || 0);
+    priorYtdCents += r.own_actual_cents || 0;
+  }
+  const months = Array.from({ length: 12 }, (_, i) => i + 1);
+  return {
+    monthly: months.map(m => ({ month: m, currentCents: curByMonth[m] || 0, priorCents: priorByMonth[m] || 0 })),
+    currentYtdCents: curYtdCents,
+    priorYtdCents: priorYtdCents,
+  };
+}
+
 // ── Commercial Property (Finance tab) ────────────────────────────────────────────────────
 // Groups a property's monthly rows + distributions by calendar year (the "period" field is
 // always 'YYYY-MM') into the same annual shape the 2026-07-20 data export used, plus each
@@ -1607,6 +1636,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     // sync only populates for current + prior year (see the sync handler below).
     const now = new Date();
     let yoy = { available: false };
+    let supplies = { monthly: [], currentYtdCents: 0, priorYtdCents: 0 };
     if (year === now.getFullYear()) {
       const throughMonth = now.getMonth() + 1;
       const monthlyRows = (await db.prepare(
@@ -1616,6 +1646,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       const priorMonthly = monthlyRows.filter(r => r.fiscal_year === year - 1 && r.period_month <= throughMonth);
       const priorAnnualRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year - 1).all()).results || [];
       yoy = computeYtdComparison(curMonthly, priorMonthly, priorAnnualRows, throughMonth);
+      // Uses the full (uncapped) monthly rows, not the throughMonth-filtered slices above —
+      // a month-by-month supplies chart is more useful showing all synced months than being
+      // clipped to "so far this year" like the YTD projection needs to be.
+      supplies = computeSuppliesMonthlyBreakdown(
+        monthlyRows.filter(r => r.fiscal_year === year),
+        monthlyRows.filter(r => r.fiscal_year === year - 1)
+      );
     }
 
     return json({
@@ -1625,6 +1662,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       givingCents,
       givingByFund,
       yoy,
+      supplies,
     });
   }
 

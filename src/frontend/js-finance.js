@@ -903,6 +903,40 @@ function finRenderYoyBlock(yoy) {
     + 'Projection assumes this year follows a similar month-to-month pattern as last year — an estimate for planning, not a guarantee; a single large one-time gift or expense can shift it substantially.'
     + '</p></div>';
 }
+// Supplies chart — a real MDO/church QuickBooks account ("...Supplies") pulled out of the
+// generic Other Expenses catch-all and charted month-by-month, styled after the myMDO daycare
+// dashboard's monthly bar charts (This Year vs Last Year grouped bars). d.supplies.available
+// is implied by a non-empty monthly array — mirrors the yoy.available convention.
+function finRenderSuppliesChart(d) {
+  var supplies = d.supplies;
+  if (!supplies || !supplies.monthly || !supplies.monthly.length) return '';
+  var hasAny = supplies.monthly.some(function(m) { return m.currentCents || m.priorCents; });
+  if (!hasAny) return '';
+  var chart = renderGroupedBarChart({
+    chartH: 180,
+    groups: supplies.monthly.map(function(m) { return { key: m.month, label: MONTH_NAMES[m.month - 1].slice(0, 3) }; }),
+    series: [
+      { key: 'cur', label: 'This Year', color: '#2E7EA6' },
+      { key: 'prior', label: 'Last Year', color: '#C9973A' },
+    ],
+    value: function(g, s) {
+      var row = supplies.monthly[g - 1];
+      return (s === 'cur' ? row.currentCents : row.priorCents) / 100;
+    },
+    tooltip: function(g, s, v) {
+      return (s === 'cur' ? 'This Year' : 'Last Year') + ' — ' + MONTH_NAMES[g - 1] + ': $' + finFmtMoney(v);
+    },
+    barLabel: function(v) { return v >= 1000 ? '$' + Math.round(v / 1000) + 'k' : '$' + Math.round(v); },
+  });
+  if (!chart) return '';
+  return '<div style="margin-bottom:18px;">'
+    + '<h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Supplies by month</h4>'
+    + chart
+    + '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:6px;">'
+    + 'YTD: $' + finFmtMoney(supplies.currentYtdCents / 100) + ' this year vs. $' + finFmtMoney(supplies.priorYtdCents / 100) + ' last year'
+    + ' <span style="font-size:.72rem;">— any QuickBooks account with "Supplies" in its name; still counted under Other Expenses in the totals above, shown here for visibility only.</span>'
+    + '</div></div>';
+}
 function finRenderChurchThisYear(d) {
   var el = document.getElementById('fin-church-year-view');
   if (!el) return;
@@ -928,7 +962,8 @@ function finRenderChurchThisYear(d) {
           }).join('')
         + '</table>' : '')
     + '</div>'
-    + finRenderYoyBlock(d.yoy);
+    + finRenderYoyBlock(d.yoy)
+    + finRenderSuppliesChart(d);
 
   var tree = finReorganizeChurchTree(finBuildTreeFromFlatRows(d.entries));
   var incomePie = finPieItemsFromTree(tree, 'Income', 'totalActualCents');
