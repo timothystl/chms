@@ -127,6 +127,16 @@ Added 2026-04-15, phased 2026-04-15.
 
 ---
 
+### 2026-07-22 (v1.58.0 — Finance Workspace redesign, Phase 3: Property tab restyle)
+Third phase of the Finance Workspace redesign (see FIN27 in CLAUDE.md). Restyle + one genuinely new derived figure — no existing sub-view removed.
+- New `finComputePropertyKpis(d)` / `finRenderKpiGrid(kpis)` — extracted from Phase 1's Overview-Property renderer so the same 4 figures (Occupancy / Monthly Net avg / Annual Net / Reserves On-Hand) back both the Overview tab's Property domain AND a new KPI row at the top of the Property tab itself, guaranteeing the two can never disagree.
+- Existing Valuation/Mortgage/Equity/Loan-to-Value stat row kept (not removed), relabeled "Valuation & Equity" and placed below the new KPI grid as a second, more detailed row.
+- **New "Available for Distribution" navy bar** (`finComputeAvailableForDistribution()`/`finRenderAvailableForDistributionBar()`) — directly from the design handoff's Property screen: this year's net income, minus reserve contributions and capital spend committed this year. A computed **estimate** for planning, explicitly captioned as distinct from "Distributions to Church" (the existing actual historical record) so the two aren't confused. New unit tests (`test/finance-property-distribution.test.js`) lock in the date-filtering (only current-year reserve/capital rows count) and the zero-data case.
+- Property Tax Reserve section gained a small on-hand-vs-estimated-tax progress bar above its existing detailed schedule table (table itself unchanged).
+- `npm test` (196/196, 2 new tests), `node --check` on both built app-JS bundles, div-balance check on the built `CHMS_HTML`. **Not verified in a live browser.**
+- **Next**: Planning tab restyle (budget builder grid, 3-year outlook), then Compensation split out of Planning into its own tab.
+(`src/frontend/js-finance.js`, `src/frontend/js-core.js`, `test/finance-property-distribution.test.js`)
+
 ### 2026-07-22 (v1.57.0 — Finance Workspace redesign, Phase 2: Church Report visual restyle)
 Second phase of the Finance Workspace redesign (see FIN27 in CLAUDE.md, and the Phase 1 entry below). Restyle-only, per the user's decision — every existing sub-view (This Year/Multi-Year/Balance Sheet toggle, Supplies chart, YoY block, pie charts, Board Packet, CSV/xlsx import) is untouched in behavior; only the account-detail table and summary cards changed visually.
 - `finChurchSummaryCard()` (the Total Revenue/Total Expenses/Net Income cards atop This Year view) now uses the `.fin-kpi-card`/`.fin-kpi-lbl`/`.fin-kpi-val`/`.fin-chip` classes from Phase 1 instead of ad hoc inline styles — colored top border by type (teal/gold/sage-or-danger), a status chip instead of plain text for the over/under-budget line.

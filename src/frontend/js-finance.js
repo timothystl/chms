@@ -276,13 +276,10 @@ function finRenderOverviewDaycare() {
   root.innerHTML = kpiHtml + paceHtml + '<p style="font-size:.78rem;color:var(--warm-gray);">Full year-by-year detail is in the <b>Daycare Report</b> tab.</p>';
 }
 
-function finRenderOverviewProperty(d) {
-  var root = document.getElementById('fin-ov-dashboard');
-  var capEl = document.getElementById('fin-ov-caption');
-  var pillEl = document.getElementById('fin-ov-sync-pill');
-  if (!root) return;
-  if (pillEl) pillEl.style.display = 'none';
-  if (capEl) capEl.textContent = '3277 Ivanhoe — Commercial Property';
+// Shared by the Overview tab's Property domain and the Property tab's own top-of-page KPI row
+// (Phase 3 of the Finance Workspace redesign) — one source of truth for these 4 figures so the
+// two views can never disagree.
+function finComputePropertyKpis(d) {
   var monthly = (d.monthly || []).slice().sort(function(a,b){ return a.period < b.period ? -1 : 1; }).slice(-12);
   var occSum = 0, occCount = 0, netSum = 0;
   monthly.forEach(function(m) { if (m.occupancy_pct != null) { occSum += m.occupancy_pct; occCount++; } netSum += (m.net_income_cents || 0); });
@@ -293,16 +290,28 @@ function finRenderOverviewProperty(d) {
     var rows = d.reserves[key];
     if (rows && rows.length) reserves += (rows[rows.length-1].reserve_after_cents || 0) / 100;
   });
-  var kpis = [
+  return [
     { lbl: 'Occupancy', val: occCount ? Math.round(occSum/occCount*100) + '%' : '—', chip: monthly.length + ' months tracked', chipCls: 'fin-chip-positive', border: 'var(--sage)' },
     { lbl: 'Monthly Net (avg)', val: '$' + finFmtMoney((monthly.length ? netSum/monthly.length : 0)/100), chip: null, border: 'var(--color-teal)' },
     { lbl: 'Annual Net (this year)', val: curYear ? '$' + finFmtMoney(curYear.net_income_cents/100) : '—', chip: 'to General Fund', chipCls: 'fin-chip-info', border: 'var(--color-navy)' },
     { lbl: 'Reserves On-Hand', val: '$' + finFmtMoney(reserves), chip: 'tax + capital', chipCls: 'fin-chip-info', border: 'var(--color-gold)' },
   ];
-  var kpiHtml = '<div class="fin-kpi-grid">' + kpis.map(function(k) {
+}
+function finRenderKpiGrid(kpis) {
+  return '<div class="fin-kpi-grid">' + kpis.map(function(k) {
     return '<div class="fin-kpi-card" style="border-top-color:' + k.border + ';"><div class="fin-kpi-lbl">' + k.lbl + '</div><div class="fin-kpi-val">' + k.val + '</div>'
-      + (k.chip ? '<span class="fin-chip ' + k.chipCls + '">' + k.chip + '</span>' : '') + '</div>';
+      + (k.chip ? '<span class="fin-chip ' + (k.chipCls||'fin-chip-info') + '">' + k.chip + '</span>' : '') + '</div>';
   }).join('') + '</div>';
+}
+
+function finRenderOverviewProperty(d) {
+  var root = document.getElementById('fin-ov-dashboard');
+  var capEl = document.getElementById('fin-ov-caption');
+  var pillEl = document.getElementById('fin-ov-sync-pill');
+  if (!root) return;
+  if (pillEl) pillEl.style.display = 'none';
+  if (capEl) capEl.textContent = '3277 Ivanhoe — Commercial Property';
+  var kpiHtml = finRenderKpiGrid(finComputePropertyKpis(d));
 
   var chartMonthly = (d.monthly || []).slice().sort(function(a,b){ return a.period < b.period ? -1 : 1; }).slice(-12);
   var budgetByPeriod = {};
@@ -2070,6 +2079,40 @@ function finPropertyBudgetImportFileSelected(inputEl) {
     });
 }
 
+// "Available for Distribution" — the Finance Workspace handoff's Property-tab navy footer bar:
+// this year's net income, less what was set aside into reserves and committed to capital
+// projects this year. A computed ESTIMATE for planning purposes — distinct from "Distributions
+// to Church" below, which is the actual historical record of amounts already sent.
+function finComputeAvailableForDistribution(d) {
+  var year = new Date().getFullYear();
+  var curYear = (d.annualSummary || []).filter(function(y) { return y.year === year; })[0];
+  var annualNetCents = curYear ? curYear.net_income_cents : 0;
+  var reserveContribCents = 0;
+  if (d.reserves) Object.keys(d.reserves).forEach(function(key) {
+    (d.reserves[key] || []).forEach(function(r) {
+      if (String(r.report_month || '').slice(0, 4) === String(year)) reserveContribCents += (r.contribution_cents || 0);
+    });
+  });
+  var capitalCents = 0;
+  (d.capitalLedger || []).forEach(function(c) {
+    if (String(c.entry_date || '').slice(0, 4) === String(year)) capitalCents += (c.amount_cents || 0);
+  });
+  return { year: year, annualNetCents: annualNetCents, reserveContribCents: reserveContribCents, capitalCents: capitalCents, availableCents: annualNetCents - reserveContribCents - capitalCents };
+}
+function finRenderAvailableForDistributionBar(d) {
+  var a = finComputeAvailableForDistribution(d);
+  return '<div class="fin-navy-card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;margin:18px 0;">'
+    + '<div style="max-width:340px;"><div class="fin-card-title" style="font-size:18px;">Available for Distribution</div>'
+    + '<div style="font-size:.8rem;color:rgba(255,255,255,.75);">' + a.year + ' net income, less amounts set aside for reserves and committed to capital projects this year. An estimate for planning — see "Distributions to Church" below for the actual record.</div></div>'
+    + '<div style="text-align:right;">'
+    + '<div style="font-size:.82rem;color:rgba(255,255,255,.75);">Annual Net &nbsp; $' + finFmtMoney(a.annualNetCents/100) + '</div>'
+    + '<div style="font-size:.82rem;color:var(--negative-on-navy);">&minus; Reserves &nbsp; $' + finFmtMoney(a.reserveContribCents/100) + '</div>'
+    + '<div style="font-size:.82rem;color:var(--negative-on-navy);">&minus; Capital &nbsp; $' + finFmtMoney(a.capitalCents/100) + '</div>'
+    + '<div style="border-top:1px solid rgba(255,255,255,.3);margin:6px 0;"></div>'
+    + '<div class="fin-navy-val ' + (a.availableCents >= 0 ? 'positive' : 'negative') + '" style="font-size:30px;">$' + finFmtMoney(a.availableCents/100) + '</div>'
+    + '</div></div>';
+}
+
 function finRenderProperty(d) {
   var el = document.getElementById('fin-property-root');
   if (!el || !d) return;
@@ -2080,7 +2123,9 @@ function finRenderProperty(d) {
   var eq = d.equity || {};
   var isAdminUI = (_userRole === 'admin');
 
-  var statsHtml = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">'
+  var kpiHtml = finRenderKpiGrid(finComputePropertyKpis(d));
+
+  var statsHtml = '<h4 style="margin:0 0 8px;font-size:.85rem;color:var(--warm-meta);">Valuation &amp; Equity</h4><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">'
     + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((val.capitalized_value_cents||0)/100) + '</div><div class="rpt-stat-lbl">Valuation</div></div>'
     + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((loan.balance_cents||0)/100) + '</div><div class="rpt-stat-lbl">Mortgage Balance</div></div>'
     + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((eq.equity_cents||0)/100) + '</div><div class="rpt-stat-lbl">Equity</div></div>'
@@ -2150,8 +2195,9 @@ function finRenderProperty(d) {
       + '</div>'
     : '';
 
-  el.innerHTML = statsHtml
+  el.innerHTML = kpiHtml
     + '<div style="margin-bottom:16px;">' + infoHtml + '</div>'
+    + statsHtml
     + budgetImportHtml
     + finRenderPropertyCharts(d)
     + finRenderPropertyForecast(d)
@@ -2162,6 +2208,7 @@ function finRenderProperty(d) {
     + finRenderPropertyTaxReserve(d, isAdminUI)
     + finRenderCapitalImprovements(d, isAdminUI)
     + finRenderRepairs(d, isAdminUI)
+    + finRenderAvailableForDistributionBar(d)
     + finRenderInsuranceAllocation(d);
 }
 
@@ -2206,7 +2253,12 @@ function finRenderPropertyTaxReserve(d, isAdminUI) {
       + '<p style="font-size:.72rem;color:var(--warm-gray);margin:6px 0 0;">"Before" carries forward automatically from the prior month’s "After" — leave Estimated Tax/Contribution at 0 the month the bill is paid to zero the reserve out.</p>'
     : '';
   var pacNote = (d.meta && d.meta.capital_improvements && d.meta.capital_improvements.separate_paint_asphalt_concrete_reserve_note) || '';
-  return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Property Tax Reserve</h4>'
+  var latest = rows[0];
+  var progressHtml = (latest && latest.reserve_after_cents != null && latest.target_estimate_cents)
+    ? '<div style="margin-bottom:10px;"><div style="display:flex;justify-content:space-between;font-size:.8rem;color:var(--warm-ink-label);margin-bottom:4px;"><span>On-hand vs. estimated tax (' + esc(latest.report_month) + ')</span><span>$' + finFmtMoney(latest.reserve_after_cents/100) + ' / $' + finFmtMoney(latest.target_estimate_cents/100) + '</span></div>'
+      + '<div class="fin-pace-bar-track"><div class="fin-pace-bar-fill" style="width:' + Math.min(100, latest.reserve_after_cents/latest.target_estimate_cents*100) + '%;background:var(--color-gold);"></div></div></div>'
+    : '';
+  return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Property Tax Reserve</h4>' + progressHtml
     + scheduleHtml + paidHtml + addFormHtml
     + (pacNote ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:12px 0 0;"><i>' + esc(pacNote) + '</i></p>' : '');
 }
