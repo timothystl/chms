@@ -17,7 +17,7 @@ export function authCardPage(title, bodyInner) {
   return html(
     `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>${title} — Timothy ChMS</title>
+    <title>${title} — Connect</title>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,300&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <style>:root{--navy:#1E2D4A;--teal:#2E7EA6;--gold:#C9973A;--cream:#F8F4EE;--muted:#8A8898;}
       *{box-sizing:border-box;margin:0;padding:0;}

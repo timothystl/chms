@@ -1,9 +1,12 @@
 // ── Privacy Policy & Terms of Service ──────────────────────────────────────
 // Public, unauthenticated static pages. Written specifically to satisfy third-party
 // integration requirements (e.g. QuickBooks Online's app-registration form asks for these
-// URLs) for Timothy ChMS, an internal tool used only by authorized Timothy Lutheran Church
-// staff — not a public consumer product. Plain-language and honest about what the system
-// actually does; not a substitute for review by the church's own legal counsel if desired.
+// URLs) for Connect, Timothy Lutheran Church's church management system. Connect has two
+// tiers of authorized users — staff/volunteer accounts with administrative access, and
+// member accounts with a filtered, read-only directory view — but it is still not a public
+// consumer product: every user is individually authorized by the church, there's no
+// self-signup. Plain-language and honest about what the system actually does; not a
+// substitute for review by the church's own legal counsel if desired.
 const STYLE = `<style>
 :root{--navy:#1E2D4A;--teal:#2E7EA6;--gold:#C9973A;--cream:#F8F4EE;--muted:#6B7280;--ink:#1A1A2A;}
 *{box-sizing:border-box;}
@@ -23,11 +26,11 @@ const HEAD = `<meta charset="UTF-8"><meta name="viewport" content="width=device-
   `<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,300&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">` +
   STYLE;
 
-export const PRIVACY_HTML = `<!DOCTYPE html><html lang="en"><head>${HEAD}<title>Privacy Policy — Timothy ChMS</title></head><body><div class="wrap">
+export const PRIVACY_HTML = `<!DOCTYPE html><html lang="en"><head>${HEAD}<title>Privacy Policy — Connect</title></head><body><div class="wrap">
 <h1>Privacy Policy</h1>
-<div class="updated">Timothy ChMS — Timothy Lutheran Church Management System &middot; Last updated 2026-07-20</div>
+<div class="updated">Connect — Timothy Lutheran Church Management System &middot; Last updated 2026-07-22</div>
 
-<p>Timothy ChMS ("the system") is an internal administrative tool used by Timothy Lutheran Church staff to manage membership records, giving, attendance, volunteer scheduling, and financial reporting. It is not a public-facing product, and it is not offered to or used by the general public — access is limited to authorized church staff with individual login credentials.</p>
+<p>Connect ("the system") is Timothy Lutheran Church's church management system, used by church staff to manage membership records, giving, attendance, volunteer scheduling, and financial reporting, and by church members to view a filtered church directory and their own information. It is not a public-facing product open to signup — access is limited to individuals the church has authorized and issued their own login credentials, at whichever access level (staff or member) fits their role.</p>
 
 <h2>What information the system holds</h2>
 <ul>
@@ -46,7 +49,7 @@ export const PRIVACY_HTML = `<!DOCTYPE html><html lang="en"><head>${HEAD}<title>
 </ul>
 
 <h2>Access control</h2>
-<p>Access requires an individual login and is restricted by role (e.g. general staff, finance, or administrator) to the minimum data each role needs to do its work. Financial data specifically is restricted to finance and administrator roles.</p>
+<p>Access requires an individual login and is restricted by role. Staff roles (general staff, finance, or administrator) see the data each role needs to do its work, with financial data specifically restricted to finance and administrator roles. Member accounts see a filtered, read-only view of the church directory and can edit only their own contact information — they cannot see giving, financial, or pastoral care/follow-up data.</p>
 
 <h2>Data retention</h2>
 <p>Records are retained as needed for ongoing church administration. Some internal log records are automatically purged after a defined retention period as a matter of routine housekeeping.</p>
@@ -54,20 +57,20 @@ export const PRIVACY_HTML = `<!DOCTYPE html><html lang="en"><head>${HEAD}<title>
 <h2>Questions</h2>
 <p>Contact the church office at <a href="mailto:office@timothystl.org">office@timothystl.org</a> with any questions about this policy or your information.</p>
 
-<div class="foot">This page describes Timothy ChMS's actual data practices in plain language and is not a substitute for review by legal counsel.</div>
+<div class="foot">This page describes Connect's actual data practices in plain language and is not a substitute for review by legal counsel.</div>
 </div></body></html>`;
 
-export const TERMS_HTML = `<!DOCTYPE html><html lang="en"><head>${HEAD}<title>Terms of Use — Timothy ChMS</title></head><body><div class="wrap">
+export const TERMS_HTML = `<!DOCTYPE html><html lang="en"><head>${HEAD}<title>Terms of Use — Connect</title></head><body><div class="wrap">
 <h1>Terms of Use</h1>
-<div class="updated">Timothy ChMS — Timothy Lutheran Church Management System &middot; Last updated 2026-07-20</div>
+<div class="updated">Connect — Timothy Lutheran Church Management System &middot; Last updated 2026-07-22</div>
 
-<p>Timothy ChMS is an internal administrative tool provided by Timothy Lutheran Church solely for use by staff and volunteers who have been granted login credentials by the church. It is not available to, and is not intended for use by, the general public.</p>
+<p>Connect is provided by Timothy Lutheran Church solely for use by staff, volunteers, and members who have been granted login credentials by the church, at whichever access level (staff or member) fits their role. It is not available to, and is not intended for use by, the general public — there is no self-signup.</p>
 
 <h2>Authorized use</h2>
 <ul>
-<li>Access is limited to individuals explicitly authorized by the church and issued their own login.</li>
+<li>Access is limited to individuals explicitly authorized by the church and issued their own login, whether staff-level or member-level.</li>
 <li>Login credentials are personal and must not be shared. Each user is responsible for activity under their own account.</li>
-<li>The system is to be used only for legitimate church administrative purposes — membership, giving, scheduling, and financial reporting as described in the <a href="/privacy">Privacy Policy</a>.</li>
+<li>The system is to be used only for legitimate purposes — church administration for staff accounts, and viewing the directory and one's own information for member accounts — as described in the <a href="/privacy">Privacy Policy</a>.</li>
 </ul>
 
 <h2>No warranty</h2>
