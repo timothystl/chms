@@ -1121,6 +1121,10 @@ async function seedIvanhoePropertyJune2026Notes(db) {
   await db.batch([
     db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify(meta)),
     db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_2026_06_notes_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`),
+    // Backfill the same figures onto the real loan_payment_cents/interest_expense_cents columns
+    // (added by the same migration this seed ships alongside) so the automatic mortgage-balance
+    // rollforward (finComputeMortgageRemainingCents) has real data for June, not just a meta note.
+    db.prepare(`UPDATE finance_property_monthly SET loan_payment_cents=378303, interest_expense_cents=95205 WHERE property_key='ivanhoe' AND period='2026-06'`),
   ]);
 }
 
@@ -1507,6 +1511,11 @@ async function _doInitDb(db) {
       updated_at         TEXT    NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (property_key, period)
     )`,
+    // Real per-month loan payment + interest expense (see migrations/0026_...) — lets the
+    // confirmed mortgage balance roll forward automatically instead of needing a fresh lender
+    // confirmation every time (finComputeMortgageRemainingCents in js-finance.js).
+    'ALTER TABLE finance_property_monthly ADD COLUMN loan_payment_cents INTEGER',
+    'ALTER TABLE finance_property_monthly ADD COLUMN interest_expense_cents INTEGER',
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

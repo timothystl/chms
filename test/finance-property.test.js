@@ -11,6 +11,7 @@ function makeTestDb() {
   sqlite.exec(readFileSync(new URL('../migrations/0022_finance_property.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0023_finance_property_reserves.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0025_finance_property_budget.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0026_finance_property_loan_payments.sql', import.meta.url), 'utf8'));
   sqlite.exec(`CREATE TABLE finance_daycare_entries (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     period       TEXT    NOT NULL DEFAULT '',
