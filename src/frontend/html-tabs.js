@@ -482,7 +482,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div class="import-card" style="margin-bottom:14px;">
       <h3>&#128140; Year-End Giving Letter Template</h3>
       <p>Used when generating giving letters. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{ein}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code></p>
-      <textarea id="st-letter-tpl" name="st-letter-tpl" rows="10" oninput="liveUpdateLetterPreview('year_end')" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
+      <textarea id="st-letter-tpl" name="st-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
       <div style="margin-top:8px;">
         <button class="btn-primary" onclick="saveSettings()">Save Template</button>
         <button class="btn-secondary" onclick="previewLetterTemplate(&#39;year_end&#39;)" style="margin-left:8px;">&#128065; Preview</button>
@@ -493,7 +493,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div class="import-card" style="margin-bottom:14px;">
       <h3>&#128140; Mid-Year Giving Update Letter Template</h3>
       <p>Used for the mid-year giving update &mdash; thanks givers, shows year-to-date giving for them to review, and suggests ways to set up recurring/automatic giving. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code>, <code>{{giving_url}}</code></p>
-      <textarea id="st-midyear-letter-tpl" name="st-midyear-letter-tpl" rows="10" oninput="liveUpdateLetterPreview('midyear')" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
+      <textarea id="st-midyear-letter-tpl" name="st-midyear-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
       <div style="margin-top:8px;">
         <button class="btn-primary" onclick="saveSettings()">Save Template</button>
         <button class="btn-secondary" onclick="previewLetterTemplate(&#39;midyear&#39;)" style="margin-left:8px;">&#128065; Preview</button>

@@ -1201,6 +1201,13 @@ function renderLetterHTML(d, letterType, cfgOverride) {
   var tpl = letterType === 'midyear'
     ? (cfg.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE)
     : (cfg.giving_letter_template || DEFAULT_LETTER_TEMPLATE);
+  // TinyMCE-authored templates wrap merge tokens in an atomic, non-editable "chip" span
+  // (see mceTokenChip() in js-settings.js) so a user can't accidentally split a token like
+  // {{name}} across formatting tags mid-edit. Unwrap those chips back to their literal
+  // {{token}} text here, before the substitution regexes below run — the regexes themselves
+  // are unchanged and never see the wrapper markup. Plain-text templates saved before this
+  // editor existed have no such spans, so this is a no-op for them.
+  tpl = tpl.replace(/<span[^>]*data-mce-token="[^"]*"[^>]*>([\s\S]*?)<\/span>/g, '$1');
   var name, total, year;
   if (d._mode === 'household') {
     name = (d.household || {}).name || 'Friend';

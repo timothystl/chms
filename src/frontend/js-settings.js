@@ -166,10 +166,8 @@ function loadSettings() {
     if (el) el.value = d.church_from_name || '';
     el = document.getElementById('st-from-email');
     if (el) el.value = d.church_from_email || '';
-    el = document.getElementById('st-letter-tpl');
-    if (el) el.value = d.giving_letter_template || DEFAULT_LETTER_TEMPLATE;
-    el = document.getElementById('st-midyear-letter-tpl');
-    if (el) el.value = d.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE;
+    initLetterEditor('st-letter-tpl', 'year_end', d.giving_letter_template || DEFAULT_LETTER_TEMPLATE);
+    initLetterEditor('st-midyear-letter-tpl', 'midyear', d.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE);
     el = document.getElementById('st-giving-url');
     if (el) el.value = d.online_giving_url || '';
     el = document.getElementById('st-vol-address'); if (el) el.value = d.volunteer_address || '';
@@ -194,6 +192,10 @@ function loadSettings() {
   });
 }
 function saveSettings() {
+  // TinyMCE only writes its current content back into the underlying <textarea> on an
+  // explicit save() call (or native form submit, which this SPA doesn't use) — sync both
+  // letter editors first so the .value reads below see what's actually in the editor.
+  syncLetterEditors();
   // Only include non-empty values — the API will skip saving empty strings,
   // preserving whatever was previously stored.
   var data = {};
@@ -224,16 +226,128 @@ function saveVolunteerSettings() {
   });
 }
 function resetLetterTemplate() {
-  var el = document.getElementById('st-letter-tpl');
-  if (el) el.value = DEFAULT_LETTER_TEMPLATE;
+  setLetterEditorContent('st-letter-tpl', DEFAULT_LETTER_TEMPLATE);
 }
 function resetMidyearLetterTemplate() {
-  var el = document.getElementById('st-midyear-letter-tpl');
-  if (el) el.value = DEFAULT_MIDYEAR_LETTER_TEMPLATE;
+  setLetterEditorContent('st-midyear-letter-tpl', DEFAULT_MIDYEAR_LETTER_TEMPLATE);
+}
+function setLetterEditorContent(id, value) {
+  var editor = window.tinymce && tinymce.get(id);
+  if (editor) editor.setContent(value); else { var el = document.getElementById(id); if (el) el.value = value; }
+}
+
+// ── TinyMCE letter template editors (self-hosted — see /admin/vendor/tinymce/ route) ──
+// Merge tokens are inserted as atomic, non-editable "chip" spans (contenteditable="false")
+// so a user can't partially select/format half of {{name}} and silently split the token
+// across tags. renderLetterHTML() (js-reports.js) unwraps these chips back to plain
+// {{token}} text before running its substitution regexes, so the stored template stays a
+// plain-text mini-template — same format the pre-TinyMCE textarea produced — just with
+// real HTML (bold/lists/images) around it instead of a flat string.
+var MCE_FIELDS_YEAR_END = [
+  {label:'Name', token:'{{name}}'}, {label:'Year', token:'{{year}}'}, {label:'Total', token:'{{total}}'},
+  {label:'Date', token:'{{date}}'}, {label:'Gift Table', token:'{{gift_table}}'}, {label:'EIN / Tax ID', token:'{{ein}}'}
+];
+var MCE_FIELDS_MIDYEAR = [
+  {label:'Name', token:'{{name}}'}, {label:'Year', token:'{{year}}'}, {label:'Total', token:'{{total}}'},
+  {label:'Date', token:'{{date}}'}, {label:'Gift Table', token:'{{gift_table}}'}, {label:'Online Giving URL', token:'{{giving_url}}'}
+];
+function mceTokenChip(token) {
+  return '<span contenteditable="false" data-mce-token="' + token + '" '
+    + 'style="display:inline-block;background:#EDF5F8;color:#1E2D4A;border:1px solid #B8D4E3;'
+    + 'border-radius:4px;padding:0 5px;margin:0 1px;font-family:monospace;font-size:.85em;white-space:nowrap;">'
+    + token + '</span>';
+}
+function mceConditionalHtml(letterType) {
+  if (letterType === 'midyear') {
+    return mceTokenChip('{{#if_giving_url}}') + '- Online recurring giving: ' + mceTokenChip('{{giving_url}}') + '<br>' + mceTokenChip('{{/if_giving_url}}');
+  }
+  return mceTokenChip('{{#if_ein}}') + 'Our EIN/Tax ID is ' + mceTokenChip('{{ein}}') + '. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.' + mceTokenChip('{{/if_ein}}');
+}
+var _tinyLoading = null;
+function ensureTinyMCE(cb) {
+  if (window.tinymce) { cb(); return; }
+  if (_tinyLoading) { _tinyLoading.push(cb); return; }
+  _tinyLoading = [cb];
+  var s = document.createElement('script');
+  s.src = '/admin/vendor/tinymce/tinymce.min.js?v=' + DEPLOY_VERSION;
+  s.onload = function() {
+    var cbs = _tinyLoading; _tinyLoading = null;
+    cbs.forEach(function(fn) { fn(); });
+  };
+  document.head.appendChild(s);
+}
+function initLetterEditor(id, letterType, value) {
+  var existing = window.tinymce && tinymce.get(id);
+  if (existing) { existing.setContent(value || ''); return; }
+  var ta = document.getElementById(id);
+  if (ta) ta.value = value || ''; // shown briefly until TinyMCE finishes loading/initializing
+  ensureTinyMCE(function() {
+    if (tinymce.get(id)) { tinymce.get(id).setContent(value || ''); return; }
+    var fields = letterType === 'midyear' ? MCE_FIELDS_MIDYEAR : MCE_FIELDS_YEAR_END;
+    tinymce.init({
+      selector: '#' + id,
+      base_url: '/admin/vendor/tinymce',
+      suffix: '.min',
+      license_key: 'gpl',
+      height: 320,
+      menubar: false,
+      branding: false,
+      promotion: false,
+      plugins: 'lists link image code',
+      toolbar: 'undo redo | blocks | bold italic underline | bullist numlist | link image | mergefield | code',
+      content_css: false,
+      content_style: 'body{font-family:Georgia,serif;font-size:14px;line-height:1.65;color:#222;padding:12px;}'
+        + '.mce-content-body span[data-mce-token]{user-select:all;}',
+      // No upload endpoint — images (church logo, four-values graphic, etc.) are embedded as
+      // base64 data: URIs directly in the stored template, same as drag-drop/paste already
+      // does by default with no images_upload_handler configured. img-src already allows
+      // data: under the existing CSP, so this needs no server changes and no new upload route.
+      file_picker_types: 'image',
+      file_picker_callback: function(callback, value, meta) {
+        if (meta.filetype !== 'image') return;
+        var input = document.createElement('input');
+        input.type = 'file'; input.accept = 'image/*';
+        input.onchange = function() {
+          var file = input.files[0];
+          if (!file) return;
+          var reader = new FileReader();
+          reader.onload = function() { callback(reader.result, { alt: file.name }); };
+          reader.readAsDataURL(file);
+        };
+        input.click();
+      },
+      setup: function(editor) {
+        editor.ui.registry.addMenuButton('mergefield', {
+          text: 'Insert Merge Field',
+          fetch: function(callback) {
+            var items = fields.map(function(f) {
+              return { type: 'menuitem', text: f.label, onAction: function() { editor.insertContent(mceTokenChip(f.token)); } };
+            });
+            items.push({ type: 'menuitem', text: (letterType === 'midyear' ? 'Conditional: If Giving URL set' : 'Conditional: If EIN set'), onAction: function() { editor.insertContent(mceConditionalHtml(letterType)); } });
+            callback(items);
+          }
+        });
+        editor.on('init', function() { editor.setContent(value || ''); });
+        editor.on('change input undo redo SetContent', function() {
+          editor.save();
+          liveUpdateLetterPreview(letterType);
+        });
+      }
+    });
+  });
+}
+function syncLetterEditors() {
+  if (!window.tinymce) return;
+  ['st-letter-tpl', 'st-midyear-letter-tpl'].forEach(function(id) {
+    var editor = tinymce.get(id);
+    if (editor) editor.save();
+  });
 }
 function renderLetterPreview(letterType) {
   var tplId = letterType === 'midyear' ? 'st-midyear-letter-tpl' : 'st-letter-tpl';
   var cfgKey = letterType === 'midyear' ? 'giving_midyear_letter_template' : 'giving_letter_template';
+  var editor = window.tinymce && tinymce.get(tplId);
+  if (editor) editor.save();
   var tplVal = (document.getElementById(tplId) || {}).value
     || (letterType === 'midyear' ? DEFAULT_MIDYEAR_LETTER_TEMPLATE : DEFAULT_LETTER_TEMPLATE);
   var cfg = Object.assign({}, _churchConfig);

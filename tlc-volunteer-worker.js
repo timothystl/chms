@@ -178,6 +178,18 @@ async function _fetch(req, env) {
         return new Response(fRes.ok ? fRes.body : '', { status: fRes.ok ? 200 : 404, headers: { 'Content-Type': ct, 'Cache-Control': 'public, max-age=86400' } });
       }
     }
+    // Self-hosted TinyMCE (giving-letter template editors) — same proxy-from-repo pattern as
+    // /icons/ above, so the editor loads same-origin under the existing CSP (script-src 'self')
+    // with no third-party CDN and no tiny.cloud API key. Files live in vendor/tinymce/ in this
+    // repo (a hand-picked minimal subset of the npm package — core/model/theme/icons/oxide skin
+    // + lists/image/link/code plugins only, not the full ~12MB package).
+    if (path.startsWith('/admin/vendor/tinymce/') && method === 'GET') {
+      const rel = path.slice('/admin/vendor/tinymce/'.length);
+      if (!/^[\w./-]+\.(js|css)$/.test(rel) || rel.includes('..')) return new Response('Not found', { status: 404 });
+      const fRes = await fetch('https://raw.githubusercontent.com/timothystl/chms/main/vendor/tinymce/' + rel, { cf: { cacheEverything: true, cacheTtl: 86400 } });
+      const ct = rel.endsWith('.css') ? 'text/css' : 'application/javascript';
+      return new Response(fRes.ok ? fRes.body : '', { status: fRes.ok ? 200 : 404, headers: { 'Content-Type': ct, 'Cache-Control': 'public, max-age=86400' } });
+    }
     // Public site header/drawer logo — proxied + cached the same way, instead of inlining
     // ~115KB of base64 into every page's HTML.
     if (path === '/header-logo.png' && method === 'GET') {
