@@ -10,6 +10,7 @@ function makeTestDb() {
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   sqlite.exec(readFileSync(new URL('../migrations/0022_finance_property.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0023_finance_property_reserves.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0025_finance_property_budget.sql', import.meta.url), 'utf8'));
   sqlite.exec(`CREATE TABLE finance_daycare_entries (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     period       TEXT    NOT NULL DEFAULT '',

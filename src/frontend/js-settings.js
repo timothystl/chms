@@ -168,6 +168,10 @@ function loadSettings() {
     if (el) el.value = d.church_from_email || '';
     el = document.getElementById('st-letter-tpl');
     if (el) el.value = d.giving_letter_template || DEFAULT_LETTER_TEMPLATE;
+    el = document.getElementById('st-midyear-letter-tpl');
+    if (el) el.value = d.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE;
+    el = document.getElementById('st-giving-url');
+    if (el) el.value = d.online_giving_url || '';
     el = document.getElementById('st-vol-address'); if (el) el.value = d.volunteer_address || '';
     el = document.getElementById('st-vol-email'); if (el) el.value = d.volunteer_public_email || '';
     el = document.getElementById('st-vol-phone'); if (el) el.value = d.volunteer_phone || '';
@@ -199,6 +203,8 @@ function saveSettings() {
   v = (document.getElementById('st-from-name') || {}).value; if (v) data.church_from_name = v;
   v = (document.getElementById('st-from-email') || {}).value; if (v) data.church_from_email = v;
   v = (document.getElementById('st-letter-tpl') || {}).value || DEFAULT_LETTER_TEMPLATE; if (v) data.giving_letter_template = v;
+  v = (document.getElementById('st-midyear-letter-tpl') || {}).value || DEFAULT_MIDYEAR_LETTER_TEMPLATE; if (v) data.giving_midyear_letter_template = v;
+  v = (document.getElementById('st-giving-url') || {}).value; if (v) data.online_giving_url = v;
   api('/admin/api/config/church', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(d) {
     if (d.ok) { _churchConfig = data; setStatus('st-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('st-status','');}, 2500); }
     else setStatus('st-status', 'Error: ' + (d.error||'unknown'), 'err');
@@ -220,6 +226,50 @@ function saveVolunteerSettings() {
 function resetLetterTemplate() {
   var el = document.getElementById('st-letter-tpl');
   if (el) el.value = DEFAULT_LETTER_TEMPLATE;
+}
+function resetMidyearLetterTemplate() {
+  var el = document.getElementById('st-midyear-letter-tpl');
+  if (el) el.value = DEFAULT_MIDYEAR_LETTER_TEMPLATE;
+}
+function renderLetterPreview(letterType) {
+  var tplId = letterType === 'midyear' ? 'st-midyear-letter-tpl' : 'st-letter-tpl';
+  var cfgKey = letterType === 'midyear' ? 'giving_midyear_letter_template' : 'giving_letter_template';
+  var tplVal = (document.getElementById(tplId) || {}).value
+    || (letterType === 'midyear' ? DEFAULT_MIDYEAR_LETTER_TEMPLATE : DEFAULT_LETTER_TEMPLATE);
+  var cfg = Object.assign({}, _churchConfig);
+  cfg[cfgKey] = tplVal;
+  var sampleGifts = [
+    { gift_date: '2026-01-12', fund_name: 'General Fund', amount: 25000, method: 'Check' },
+    { gift_date: '2026-03-08', fund_name: 'Building Fund', amount: 10000, method: 'Online' },
+    { gift_date: '2026-05-24', fund_name: 'General Fund', amount: 25000, method: 'Check' }
+  ];
+  var sampleData = {
+    _mode: 'person',
+    person: { first_name: 'Jane', last_name: 'Sample' },
+    year: new Date().getFullYear(),
+    total_cents: sampleGifts.reduce(function(s,g){ return s + g.amount; }, 0),
+    entries: sampleGifts
+  };
+  var letterHtml = renderLetterHTML(sampleData, letterType, cfg);
+  var churchName = _churchConfig.church_name || 'Timothy Lutheran Church';
+  var title = document.getElementById('letter-preview-title');
+  if (title) title.textContent = (letterType === 'midyear' ? 'Mid-Year Giving Update' : 'Year-End Giving Statement') + ' Letter Preview';
+  var body = document.getElementById('letter-preview-body');
+  if (body) {
+    body.innerHTML = '<div style="font-family:var(--font-head);font-size:1.05rem;color:var(--steel-anchor);margin-bottom:4px;">'
+      + esc(churchName) + '</div><hr style="margin:10px 0;">' + letterHtml;
+  }
+}
+function previewLetterTemplate(letterType) {
+  var modal = document.getElementById('letter-preview-modal');
+  if (modal) modal.dataset.previewType = letterType;
+  renderLetterPreview(letterType);
+  openModal('letter-preview-modal');
+}
+function liveUpdateLetterPreview(letterType) {
+  var modal = document.getElementById('letter-preview-modal');
+  if (!modal || !modal.classList.contains('open') || modal.dataset.previewType !== letterType) return;
+  renderLetterPreview(letterType);
 }
 function renderSettingsTagsList() {
   var c = document.getElementById('settings-tags-list');

@@ -94,6 +94,100 @@ function doSendBatch(yr, checks, status) {
   }
   sendNext();
 }
+// ── BATCH SEND — MID-YEAR UPDATE ────────────────────────────────────────
+function loadBatchMidyearGivers() {
+  var yr = document.getElementById('batch-mid-year').value;
+  var status = document.getElementById('batch-mid-status');
+  var listEl = document.getElementById('batch-mid-list');
+  if (!yr) { status.textContent = 'Enter a year.'; status.className = 'import-status err'; return; }
+  status.textContent = 'Loading givers for ' + yr + '…'; status.className = 'import-status';
+  listEl.innerHTML = '';
+  api('/admin/api/reports/giving-statement?year=' + yr + '&list_givers=1').then(function(d) {
+    var givers = d.givers || [];
+    if (!givers.length) {
+      status.textContent = 'No givers with email found for ' + yr + '.';
+      status.className = 'import-status err';
+      return;
+    }
+    status.textContent = givers.length + ' givers found with email. Check who to include, then Send.';
+    status.className = 'import-status ok';
+    listEl.innerHTML = '<div style="margin-bottom:8px;display:flex;gap:8px;">'
+      + '<button class="btn-sm" onclick="selectAllMidyearGivers(true)">Select All</button>'
+      + '<button class="btn-sm" onclick="selectAllMidyearGivers(false)">Deselect All</button>'
+      + '<button class="btn-primary" style="font-size:.8rem;padding:4px 12px;" onclick="sendBatchMidyearLetters(' + yr + ')">Send Selected</button>'
+      + '</div>'
+      + '<div id="batch-mid-givers-list">'
+      + givers.map(function(g) {
+        return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.85rem;cursor:pointer;">'
+          + '<input type="checkbox" data-pid="' + g.id + '" checked>'
+          + '<span>' + esc(g.first_name + ' ' + g.last_name) + '</span>'
+          + '<span style="color:var(--warm-gray);font-size:.78rem;">' + esc(g.email) + '</span>'
+          + '<span style="margin-left:auto;font-size:.78rem;">' + fmtMoney(g.total_cents) + '</span>'
+          + '</label>';
+      }).join('')
+      + '</div>';
+  }).catch(function(e) {
+    status.textContent = 'Error: ' + e.message; status.className = 'import-status err';
+  });
+}
+function selectAllMidyearGivers(checked) {
+  document.querySelectorAll('#batch-mid-givers-list input[type=checkbox]').forEach(function(cb) { cb.checked = checked; });
+}
+function sendBatchMidyearLetters(yr) {
+  var status = document.getElementById('batch-mid-status');
+  var checks = document.querySelectorAll('#batch-mid-givers-list input[type=checkbox]:checked');
+  if (!checks.length) { status.textContent = 'No givers selected.'; status.className = 'import-status err'; return; }
+  if (!_churchConfig.church_name) {
+    api('/admin/api/config/church').then(function(cfg) {
+      _churchConfig = cfg || {};
+      doSendMidyearBatch(yr, checks, status);
+    });
+  } else {
+    doSendMidyearBatch(yr, checks, status);
+  }
+}
+function doSendMidyearBatch(yr, checks, status) {
+  var ids = Array.from(checks).map(function(cb){return cb.dataset.pid;});
+  var total = ids.length, done = 0, failed = 0, skipped = 0;
+  status.textContent = 'Sending 0/' + total + '…'; status.className = 'import-status';
+  function sendNext() {
+    if (!ids.length) {
+      var msg = 'Done. ' + done + ' sent';
+      if (skipped) msg += ', ' + skipped + ' skipped (no email)';
+      if (failed) msg += ', ' + failed + ' failed';
+      msg += '.';
+      status.textContent = msg;
+      status.className = failed ? 'import-status' : 'import-status ok';
+      return;
+    }
+    var pid = ids.shift();
+    api('/admin/api/reports/giving-statement?person_id=' + pid + '&year=' + yr).then(function(d) {
+      if (d.error || !d.person) { failed++; sendNext(); return; }
+      d._mode = 'person';
+      var p = d.person || {};
+      if (!p.email) { skipped++; sendNext(); return; }
+      var churchName = _churchConfig.church_name || 'Timothy Lutheran Church';
+      var letterHtml = renderLetterHTML(d, 'midyear');
+      var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
+        + '<div style="font-size:16px;font-weight:bold;margin-bottom:6px;">' + esc(churchName) + '</div><hr style="margin:10px 0;">'
+        + letterHtml + '</div>';
+      return api('/admin/api/giving/send-statement', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          to_email: p.email,
+          to_name: (p.first_name + ' ' + p.last_name).trim(),
+          subject: yr + ' Mid-Year Giving Update — ' + churchName,
+          html_body: fullHtml
+        })
+      });
+    }).then(function(r) {
+      if (r && r.ok) done++; else failed++;
+      status.textContent = 'Sending ' + (done+failed+skipped) + '/' + total + '…';
+      sendNext();
+    }).catch(function() { failed++; sendNext(); });
+  }
+  sendNext();
+}
 // ── GENERATE REGISTER FROM PEOPLE ─────────────────────────────────────
 // Called from the Register tab toolbar — uses the current register type
 function openRegFromPeoplePrompt() {
@@ -1319,7 +1413,7 @@ function _oldSysReRender(filter) {
           + '</tr>';
       }).join('');
       diffRows = '<table style="width:100%;border-collapse:collapse;margin-top:6px;">'
-        + '<thead><tr><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">Field</th><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">Old System</th><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">Timothy ChMS</th><th></th></tr></thead>'
+        + '<thead><tr><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">Field</th><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">Old System</th><th style="padding:2px 8px;font-size:.75rem;text-align:left;color:var(--warm-gray);font-weight:400;">Connect</th><th></th></tr></thead>'
         + '<tbody>'+diffRows+'</tbody></table>';
     }
     var borderColor = r.status==='diff' ? 'var(--gold)' : r.status==='not_found' ? '#e74c3c' : r.status==='multiple' ? 'var(--teal)' : 'var(--soft-sage)';

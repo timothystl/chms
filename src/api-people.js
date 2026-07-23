@@ -1,8 +1,39 @@
 // ── People, Follow-up, Archive, Brevo Sync, Photos API handlers ────────────
-import { json } from './auth.js';
+import { json, hashPassword } from './auth.js';
 import { brevoUpsertContact, brevoBulkSync, brevoGetListContacts } from './api-emails.js';
-import { disambiguateHHName, normalizePhone } from './api-utils.js';
+import { disambiguateHHName, normalizePhone, randHex, escLite, authCardPage } from './api-utils.js';
 import { makeBreezeClient } from './breeze.js';
+
+// ── Member-directory view (Connect) ───────────────────────────────────────────
+// Explicit allowlist (not a blacklist) for what a role='member' viewer sees of another
+// person's record — a future new `people` column defaults to NOT being exposed to
+// members until someone deliberately adds it here. Strips staff-only fields (notes,
+// tags, breeze_id, etc.) entirely and respects each person's own dir_hide_* opt-outs.
+function memberSafeView(p, householdDisplayName) {
+  return {
+    id: p.id,
+    first_name: p.first_name || '',
+    last_name: p.last_name || '',
+    middle_name: p.middle_name || '',
+    preferred_name: p.preferred_name || '',
+    photo_url: p.photo_url || '',
+    household_id: p.household_id || null,
+    household_name: p.household_name || '',
+    household_display_name: householdDisplayName || null,
+    household_photo_url: p.household_photo_url || '',
+    family_role: p.family_role || '',
+    email: p.dir_hide_email ? '' : (p.email || ''),
+    phone: p.dir_hide_phone ? '' : (p.phone || ''),
+    address1: p.dir_hide_address ? '' : (p.address1 || ''),
+    address2: p.dir_hide_address ? '' : (p.address2 || ''),
+    city: p.dir_hide_address ? '' : (p.city || ''),
+    state: p.dir_hide_address ? '' : (p.state || ''),
+    zip: p.dir_hide_address ? '' : (p.zip || ''),
+    dob: p.dir_hide_dob ? '' : (p.dob || ''),
+    anniversary_date: p.dir_hide_anniversary ? '' : (p.anniversary_date || ''),
+    tags: [],
+  };
+}
 
 // ── Photo upload validation ──────────────────────────────────────────────────
 // Validates a multipart-form image File against size limit and magic-byte
@@ -295,10 +326,11 @@ if (seg === 'people' && method === 'GET') {
      LEFT JOIN households h ON p.household_id=h.id${hhJoin}
      WHERE ${where} ORDER BY ${sortCol} ${sortDir}, p.last_name ASC, p.first_name ASC LIMIT ? OFFSET ?`
   ).bind(...binds, limit, offset).all()).results || [];
-  // Batch-load tags for all returned people in a single query (avoids N+1)
+  // Batch-load tags for all returned people in a single query (avoids N+1) — skipped
+  // entirely for member-role viewers, who never see tags (memberSafeView strips them).
   const ids = rows.map(r => r.id);
   const tagsByPerson = {};
-  if (ids.length) {
+  if (canEdit && ids.length) {
     const ph = ids.map(() => '?').join(',');
     const allTagRows = (await db.prepare(
       `SELECT pt.person_id, t.id, t.name, t.color FROM tags t
@@ -325,11 +357,11 @@ if (seg === 'people' && method === 'GET') {
     ).bind(...hhIdsUniq).all()).results || [];
     for (const r of dRows) hhDisambigMap[r.id] = disambiguateHHName(r.name, r.head_first_name);
   }
-  const people = rows.map(p => ({
-    ...p,
-    tags: tagsByPerson[p.id] || [],
-    household_display_name: hhDisambigMap[p.household_id] || p.household_name || null
-  }));
+  const people = rows.map(p => {
+    const householdDisplayName = hhDisambigMap[p.household_id] || p.household_name || null;
+    if (!canEdit) return memberSafeView(p, householdDisplayName);
+    return { ...p, tags: tagsByPerson[p.id] || [], household_display_name: householdDisplayName };
+  });
   return json({ people, total, offset, limit });
 }
 
@@ -503,9 +535,11 @@ if (pmatch) {
     if (!canEdit && (p.member_type || '').toLowerCase() !== 'member') {
       return json({ error: 'Not found' }, 404);
     }
-    const tags = (await db.prepare(
+    // Tags are staff-only — never fetched for a member-role viewer (memberSafeView
+    // strips them anyway, but skip the query entirely rather than fetch-then-discard).
+    const tags = canEdit ? (await db.prepare(
       `SELECT t.id,t.name,t.color FROM tags t JOIN person_tags pt ON pt.tag_id=t.id WHERE pt.person_id=?`
-    ).bind(pid).all()).results || [];
+    ).bind(pid).all()).results || [] : [];
     let giving12mo = 0;
     if (isFinance) {
       const giving12 = await db.prepare(
@@ -524,16 +558,13 @@ if (pmatch) {
         if (hd?.first_name) household_display_name = disambiguateHHName(p.household_name, hd.first_name);
       }
     }
-    // Redact privacy-protected fields when viewed by a member-role user
-    let personData = { ...p };
+    // Member-role viewers get the same directory-safe allowlist as the list endpoint
+    // (strips notes, breeze_id, and other staff-only fields; respects dir_hide_* opt-outs)
+    // instead of the full row.
     if (!canEdit) {
-      if (p.dir_hide_address)     { personData.address1 = ''; personData.address2 = ''; personData.city = ''; personData.state = ''; personData.zip = ''; }
-      if (p.dir_hide_phone)       { personData.phone = ''; }
-      if (p.dir_hide_email)       { personData.email = ''; }
-      if (p.dir_hide_dob)         { personData.dob = ''; }
-      if (p.dir_hide_anniversary) { personData.anniversary_date = ''; }
+      return json(memberSafeView(p, household_display_name));
     }
-    return json({ ...personData, tags, giving_12mo: giving12mo, household_display_name });
+    return json({ ...p, tags, giving_12mo: giving12mo, household_display_name });
   }
   if (method === 'PUT') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
@@ -1003,3 +1034,123 @@ if (seg === 'audit/undo' && method === 'POST') {
 
   return null; // not handled
 }
+
+// ── Connect member invite (Phase 2) ──────────────────────────────────────────
+// Staff-initiated invite → member sets a password → account activates as role='member'.
+// Uses the same RSVP_STORE token pattern as forgot-password/reset above, rather than
+// the old /portal system's D1-table tokens. The app_users row is only created (or
+// reactivated) when the member actually completes setup — an invite that's never
+// opened never leaves a half-account with an unusable password sitting in the DB.
+
+async function _sendMemberInviteEmail(env, to, displayName, setupUrl) {
+  const key = env.RESEND_API_KEY || '';
+  const from = env.EMAIL_FROM || '';
+  if (!key || !from) return { ok: false, error: 'Resend not configured' };
+  const safeName = escLite(displayName).replace(/&amp;/g, '&'); // plain-text email body, not HTML
+  const text = `Hi ${safeName || 'there'},\n\nYou've been invited to Connect, Timothy Lutheran Church's member ` +
+    `directory, where you can look up other members and keep your own contact info up to date. Click the link ` +
+    `below to set a password and get started. This link expires in 7 days.\n\n${setupUrl}\n\n— Timothy Lutheran Church`;
+  const htmlBody = `<!DOCTYPE html><html><body style="font-family:Georgia,serif;background:#FAF7F0;margin:0;padding:32px 16px;">
+    <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:40px 32px;border:1px solid #E8E0D0;">
+      <p style="font-size:1.1rem;color:#0A3C5C;font-weight:600;">You're invited to Connect</p>
+      <p style="color:#3D3530;line-height:1.6;">Hi ${escLite(displayName) || 'there'},</p>
+      <p style="color:#3D3530;line-height:1.6;">You've been invited to Connect, Timothy Lutheran Church's member directory, where you can look up other members and keep your own contact info up to date. Click the button below to set a password. This link expires in 7 days.</p>
+      <p style="margin:24px 0;"><a href="${setupUrl}" style="display:inline-block;background:#1E2D4A;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Set up your account</a></p>
+      <p style="color:#7A6E60;font-size:.8rem;margin-top:24px;border-top:1px solid #E8E0D0;padding-top:16px;">Timothy Lutheran Church &middot; 6704 Fyler Ave, St. Louis, MO 63139</p>
+    </div></body></html>`;
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to, subject: "You're invited to Connect — Timothy Lutheran Church", text, html: htmlBody,
+        reply_to: env.REPLY_TO_EMAIL || 'office@timothystl.org' }),
+    });
+    if (res.ok) return { ok: true };
+    const data = await res.json().catch(() => ({}));
+    return { ok: false, error: data.message || String(res.status) };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
+// POST /admin/api/people/:id/invite — caller (api-chms.js) already checked canEdit.
+export async function handleSendMemberInvite(env, personId) {
+  if (!env.RSVP_STORE) return json({ error: 'Invite system not configured' }, 503);
+  const p = await env.DB.prepare(
+    `SELECT id, first_name, last_name, email, member_type, status FROM people WHERE id=?`
+  ).bind(personId).first();
+  if (!p) return json({ error: 'Person not found' }, 404);
+  if ((p.member_type || '').toLowerCase() !== 'member') return json({ error: 'Only members can be invited to Connect' }, 400);
+  if (p.status && p.status !== 'active') return json({ error: 'Person is not active' }, 400);
+  if (!p.email) return json({ error: 'Person has no email address' }, 400);
+
+  const token = randHex(32);
+  const displayName = [p.first_name, p.last_name].filter(Boolean).join(' ');
+  await env.RSVP_STORE.put(`member_invite:${token}`, JSON.stringify({
+    person_id: p.id, email: p.email.toLowerCase().trim(), display_name: displayName, ts: Date.now(),
+  }), { expirationTtl: 7 * 24 * 3600 });
+
+  const setupUrl = `https://connect.timothystl.org/member-setup?token=${token}`;
+  const sendResult = await _sendMemberInviteEmail(env, p.email, displayName, setupUrl);
+  if (!sendResult.ok) return json({ error: sendResult.error || 'Could not send invite email' }, 502);
+  return json({ ok: true, email: p.email });
+}
+
+// GET /member-setup?token=... — serves the "set your password" form for a Connect invite.
+// POST /member-setup — form-encoded {token, password, password2}; creates or reactivates
+// the role='member' app_users account linked to the invited person.
+export async function handleMemberSetup(req, env, url) {
+  const page = (title, inner) => authCardPage(title, `<div class="wm-display">Connect</div>
+      <div class="wm-sub">${escLite(title)}</div>
+      ${inner}`);
+
+  if (req.method === 'GET') {
+    const token = url.searchParams.get('token') || '';
+    if (!token || !env.RSVP_STORE) return page('Set up your account', `<div class="msg err">This invite link is invalid.</div>`);
+    const raw = await env.RSVP_STORE.get(`member_invite:${token}`);
+    if (!raw) return page('Set up your account', `<div class="msg err">This invite link has expired or was already used. Ask the church office to resend it.</div>`);
+    let rec; try { rec = JSON.parse(raw); } catch { return page('Set up your account', `<div class="msg err">Invalid invite link.</div>`); }
+    return page('Set up your account', `<p style="color:#3D3530;font-size:.9rem;margin-bottom:1.25rem;">Setting up an account for <strong>${escLite(rec.display_name)}</strong> (${escLite(rec.email)}).</p>
+      <form method="POST" action="/member-setup" onsubmit="var b=this.querySelector('.btn');b.disabled=true;b.textContent='Saving…';">
+        <input type="hidden" name="token" value="${escLite(token)}">
+        <div class="field"><label>Password</label><input type="password" name="password" minlength="8" autofocus required></div>
+        <div class="field"><label>Confirm password</label><input type="password" name="password2" minlength="8" required></div>
+        <button class="btn" type="submit">Set up account</button>
+      </form>`);
+  }
+
+  if (req.method === 'POST') {
+    let body = ''; try { body = await req.text(); } catch {}
+    const params = new URLSearchParams(body);
+    const token = (params.get('token') || '').trim();
+    const password = params.get('password') || '';
+    const password2 = params.get('password2') || '';
+    if (!token) return page('Set up your account', `<div class="msg err">Missing token.</div>`);
+    if (password.length < 8) return page('Set up your account', `<div class="msg err">Password must be at least 8 characters.</div>`);
+    if (password !== password2) return page('Set up your account', `<div class="msg err">Passwords do not match.</div>`);
+    if (!env.RSVP_STORE) return page('Set up your account', `<div class="msg err">Invite system is unavailable.</div>`);
+    const raw = await env.RSVP_STORE.get(`member_invite:${token}`);
+    if (!raw) return page('Set up your account', `<div class="msg err">This invite link has expired or was already used. Ask the church office to resend it.</div>`);
+    let rec; try { rec = JSON.parse(raw); } catch { return page('Set up your account', `<div class="msg err">Invalid invite link.</div>`); }
+
+    const hash = await hashPassword(password);
+    const existing = await env.DB.prepare(
+      `SELECT id, people_id FROM app_users WHERE people_id=? OR LOWER(username)=?`
+    ).bind(rec.person_id, rec.email).first();
+    if (existing && existing.people_id && existing.people_id !== rec.person_id) {
+      return page('Set up your account', `<div class="msg err">This email is already associated with a different account. Contact the church office.</div>`);
+    }
+    if (existing) {
+      await env.DB.prepare(
+        `UPDATE app_users SET password_hash=?, role='member', people_id=?, active=1, email=? WHERE id=?`
+      ).bind(hash, rec.person_id, rec.email, existing.id).run();
+    } else {
+      await env.DB.prepare(
+        `INSERT INTO app_users (username, password_hash, display_name, email, role, people_id, active) VALUES (?,?,?,?,'member',?,1)`
+      ).bind(rec.email, hash, rec.display_name || '', rec.email, rec.person_id).run();
+    }
+    await env.RSVP_STORE.delete(`member_invite:${token}`).catch(() => {});
+    return page('Set up your account', `<div class="msg ok">Account set up! <a href="https://connect.timothystl.org/">Sign in to Connect</a>.</div>`);
+  }
+
+  return page('Set up your account', `<div class="msg err">Method not allowed.</div>`);
+}
+

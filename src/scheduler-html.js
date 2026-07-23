@@ -3537,43 +3537,74 @@ function ppSetStatus(msg, kind) {
 // void tags, no bare HTML named entities — only real Unicode characters or
 // the 5 predefined XML entities), which is why ppBuildSingleHtml/MonthHtml/
 // BulletinHtml avoid &mdash;/&middot;/<br> in favor of literal \\u2014/\\u00b7/<br/>.
+// cb(blob, reason) — reason is a short human-readable string set on failure so the
+// status line (and console) can say WHY instead of a single generic message; this
+// is diagnostic instrumentation added after three prior fixes (XML well-formedness,
+// cross-document blob URL realm, CSP img-src) each resolved a real bug without
+// resolving the reported symptom \\u2014 the remaining suspect is the canvas getting
+// tainted by the foreignObject-embedded SVG (some browsers set origin-clean=false
+// for any SVG image containing foreignObject content, even same-origin/local),
+// which would throw a SecurityError synchronously from canvas.toBlob().
 function ppExportCanvas(cb) {
-  if (!ppWin || ppWin.closed) { cb(null); return; }
+  if (!ppWin || ppWin.closed) { cb(null, 'popup closed'); return; }
   var pageEl = ppWin.document.querySelector('.pp-page');
-  if (!pageEl) { cb(null); return; }
+  if (!pageEl) { cb(null, 'page not rendered'); return; }
   var w = Math.ceil(pageEl.getBoundingClientRect().width) || 816;
   var h = Math.ceil(pageEl.getBoundingClientRect().height) || 1056;
   var scale = 2;
+  // Rebuild from the original HTML string (ppBuildPageHtml()), NOT pageEl.outerHTML:
+  // browsers always re-serialize void elements like <col> and <br> WITHOUT a
+  // self-closing slash regardless of how they were written, which breaks the XML
+  // well-formedness this foreignObject SVG requires (the Bulletin Insert's <col>
+  // colgroup is the one every mode has and month's <br> also hits this) \\u2014 the
+  // freshly-built string already has self-closed void tags and no bad entities.
+  var pageHtml = ppBuildPageHtml();
   var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '">'
     + '<foreignObject width="100%" height="100%">'
     + '<div xmlns="http://www.w3.org/1999/xhtml" style="width:' + w + 'px;height:' + h + 'px;background:#fff;font-family:\\'DM Sans\\',\\'Source Sans 3\\',Arial,sans-serif;box-sizing:border-box;">'
-    + pageEl.outerHTML
+    + pageHtml
     + '</div></foreignObject></svg>';
   var fontsReady = (ppWin.document.fonts && ppWin.document.fonts.ready) ? ppWin.document.fonts.ready : Promise.resolve();
+  // Mint the blob URL via ppWin's own URL (not the opener's) and load it through
+  // ppWin's own Image constructor: recent Chrome partitions blob: URLs per-Document,
+  // so a URL created in the opener document is not reliably loadable by an <img>
+  // living in the popup's document \\u2014 keeping creation+consumption in the same
+  // realm (also needed so the popup's own loaded Google Fonts apply during rasterization)
+  // avoids that mismatch.
+  var winUrl = ppWin.URL || URL;
   fontsReady.then(function() {
-    var url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+    var url = winUrl.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
     var img = new (ppWin.Image || Image)();
     img.onload = function() {
-      var canvas = ppWin.document.createElement('canvas');
-      canvas.width = w * scale;
-      canvas.height = h * scale;
-      var ctx = canvas.getContext('2d');
-      ctx.scale(scale, scale);
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(img, 0, 0, w, h);
-      URL.revokeObjectURL(url);
-      canvas.toBlob(function(blob) { cb(blob); }, 'image/png');
+      try {
+        var canvas = ppWin.document.createElement('canvas');
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        var ctx = canvas.getContext('2d');
+        ctx.scale(scale, scale);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        winUrl.revokeObjectURL(url);
+        canvas.toBlob(function(blob) {
+          cb(blob, blob ? null : 'toBlob returned no data (canvas may be tainted)');
+        }, 'image/png');
+      } catch (e) {
+        winUrl.revokeObjectURL(url);
+        var reason = (e && (e.name || e.message)) ? (e.name + ': ' + e.message) : String(e);
+        if (ppWin.console) ppWin.console.error('Scheduler print preview image export failed:', e);
+        cb(null, reason);
+      }
     };
-    img.onerror = function() { URL.revokeObjectURL(url); cb(null); };
+    img.onerror = function() { winUrl.revokeObjectURL(url); cb(null, 'the rendered sheet failed to load as an image'); };
     img.src = url;
   });
 }
 
 function ppCopyImage() {
   ppSetStatus('Generating image\\u2026');
-  ppExportCanvas(function(blob) {
-    if (!blob) { ppSetStatus('Could not generate an image. Try Download instead.', 'err'); return; }
+  ppExportCanvas(function(blob, reason) {
+    if (!blob) { ppSetStatus('Could not generate an image' + (reason ? ' (' + reason + ')' : '') + '. Try Download instead.', 'err'); return; }
     if (!(navigator.clipboard && window.ClipboardItem)) {
       ppSetStatus('Copy isn\\u2019t supported in this browser \\u2014 use Download instead.', 'err');
       return;
@@ -3588,8 +3619,8 @@ function ppCopyImage() {
 
 function ppDownloadImage() {
   ppSetStatus('Generating image\\u2026');
-  ppExportCanvas(function(blob) {
-    if (!blob) { ppSetStatus('Could not generate an image.', 'err'); return; }
+  ppExportCanvas(function(blob, reason) {
+    if (!blob) { ppSetStatus('Could not generate an image' + (reason ? ' (' + reason + ')' : '') + '.', 'err'); return; }
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;

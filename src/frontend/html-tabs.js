@@ -235,7 +235,8 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-year" name="rpt-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
           <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
             <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatement()">View Statement</button>
-            <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatementLetter()">View Letter</button>
+            <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatementLetter(&#39;year_end&#39;)">View Letter</button>
+            <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingStatementLetter(&#39;midyear&#39;)">Mid-Year Update</button>
             <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="downloadStatement()">CSV</button>
           </div>
         </div>
@@ -286,6 +287,17 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchStatementGivers()">Load Givers</button>
           <div id="batch-stmt-status" class="import-status" style="margin-top:6px;"></div>
           <div id="batch-stmt-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
+        </div>
+      </div>
+      <div class="report-tile require-finance" data-tile-id="batch-send-midyear">
+        <div class="tile-icon">&#128140;</div>
+        <div class="tile-title">Batch Send Mid-Year Update</div>
+        <div class="tile-desc">
+          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Send a mid-year giving update &mdash; thanks them, shows year-to-date giving for review, and suggests ways to set up recurring giving.</div>
+          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-mid-year" name="batch-mid-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchMidyearGivers()">Load Givers</button>
+          <div id="batch-mid-status" class="import-status" style="margin-top:6px;"></div>
+          <div id="batch-mid-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
         </div>
       </div>
     </div>
@@ -437,9 +449,15 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <div class="field"><label>Church Name</label><input type="text" id="st-church-name" name="st-church-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
         <div class="field"><label>EIN (Tax ID)</label><input type="text" id="st-ein" name="st-ein" placeholder="XX-XXXXXXX" style="width:100%;"></div>
       </div>
-      <div class="modal-2col" style="margin-bottom:12px;">
-        <div class="field"><label>From Name (for emails)</label><input type="text" id="st-from-name" name="st-from-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
-        <div class="field"><label>From Email</label><input type="email" id="st-from-email" name="st-from-email" placeholder="giving@yourdomain.org" style="width:100%;"></div>
+      <div class="modal-2col" style="margin-bottom:4px;">
+        <div class="field"><label>Sending Name (shown as the "From" name on outgoing emails)</label><input type="text" id="st-from-name" name="st-from-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
+        <div class="field"><label>Sending Email Address (must be on a domain verified in Resend)</label><input type="email" id="st-from-email" name="st-from-email" placeholder="giving@notify.timothystl.org" style="width:100%;"></div>
+      </div>
+      <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:12px;">This is the address giving statements and mid-year updates are emailed from &mdash; not a contact/reply-to address. It only works if its domain shows &ldquo;Verified&rdquo; at <a href="https://resend.com/domains" target="_blank" rel="noopener">resend.com/domains</a>; otherwise sends fail with a domain-not-verified error.</div>
+      <div class="field" style="margin-bottom:12px;">
+        <label>Online Giving URL (optional)</label>
+        <input type="text" id="st-giving-url" name="st-giving-url" placeholder="https://timothystl.org/give" style="width:100%;">
+        <div style="font-size:.76rem;color:var(--warm-gray);margin-top:4px;">Shown in the Mid-Year Giving Update letter as a link for setting up recurring/automatic giving. Leave blank to omit.</div>
       </div>
       <button class="btn-primary" onclick="saveSettings()">Save Church Info</button>
     </div>
@@ -464,10 +482,22 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div class="import-card" style="margin-bottom:14px;">
       <h3>&#128140; Year-End Giving Letter Template</h3>
       <p>Used when generating giving letters. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{ein}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code></p>
-      <textarea id="st-letter-tpl" name="st-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
+      <textarea id="st-letter-tpl" name="st-letter-tpl" rows="10" oninput="liveUpdateLetterPreview('year_end')" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
       <div style="margin-top:8px;">
         <button class="btn-primary" onclick="saveSettings()">Save Template</button>
+        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;year_end&#39;)" style="margin-left:8px;">&#128065; Preview</button>
         <button class="btn-secondary" onclick="resetLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
+      </div>
+    </div>
+    <!-- Mid-Year Letter Template Card -->
+    <div class="import-card" style="margin-bottom:14px;">
+      <h3>&#128140; Mid-Year Giving Update Letter Template</h3>
+      <p>Used for the mid-year giving update &mdash; thanks givers, shows year-to-date giving for them to review, and suggests ways to set up recurring/automatic giving. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code>, <code>{{giving_url}}</code></p>
+      <textarea id="st-midyear-letter-tpl" name="st-midyear-letter-tpl" rows="10" oninput="liveUpdateLetterPreview('midyear')" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
+      <div style="margin-top:8px;">
+        <button class="btn-primary" onclick="saveSettings()">Save Template</button>
+        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;midyear&#39;)" style="margin-left:8px;">&#128065; Preview</button>
+        <button class="btn-secondary" onclick="resetMidyearLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
       </div>
     </div>
     <!-- Tags Card -->
@@ -509,7 +539,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <!-- Old System Comparison Card -->
     <div class="import-card require-admin" style="margin-bottom:14px;" id="old-sys-compare-card">
       <h3>&#128202; Old System Comparison</h3>
-      <p>Upload a spreadsheet from a previous system to compare dates (baptism, confirmation, birthday, anniversary), email, phone, and address against what&#8217;s currently in Timothy ChMS. Identify missing or mismatched data before deciding what to patch.</p>
+      <p>Upload a spreadsheet from a previous system to compare dates (baptism, confirmation, birthday, anniversary), email, phone, and address against what&#8217;s currently in Connect. Identify missing or mismatched data before deciding what to patch.</p>
       <p style="font-size:.82rem;color:var(--warm-gray);margin-bottom:10px;">Accepts <strong>.csv</strong> (preferred) or <strong>.xlsx</strong> (Excel). To use Excel: File &#8594; Save As &#8594; CSV. Matches people by full name. After upload, map your column headers to the fields below, then run the comparison.</p>
       <input type="file" id="old-sys-file" accept=".csv,.xlsx,.xls,.tsv,.txt" style="display:none;" onchange="oldSysFileSelected(this)">
       <button class="btn-secondary" onclick="document.getElementById('old-sys-file').click()">&#128196; Choose Spreadsheet…</button>
@@ -1310,6 +1340,25 @@ export const HTML_TABS_2 = String.raw`
 
       <div id="fin-panel-overview">
 
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px;">
+          <div>
+            <h2 id="fin-ov-title" style="font-family:var(--font-display);font-size:26px;font-weight:700;color:var(--color-navy);margin:0 0 2px;">Financial Overview</h2>
+            <div id="fin-ov-caption" style="font-size:.82rem;color:var(--warm-gray);">&nbsp;</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <select id="fin-ov-domain" class="fin-domain-select" onchange="finOverviewSetDomain(this.value)">
+              <option value="church">Church Operating</option>
+              <option value="daycare">Daycare (MDO)</option>
+              <option value="property">Commercial Property</option>
+            </select>
+            <span id="fin-ov-sync-pill" class="fin-sync-pill" style="display:none;"></span>
+          </div>
+        </div>
+
+        <div id="fin-ov-dashboard">Loading…</div>
+
+        <div style="margin:26px 0 14px;font-size:.78rem;color:var(--warm-gray);border-top:1px solid var(--warm-border);padding-top:16px;">Data sync, connections, and manual-entry tools are below.</div>
+
         <section class="dash-card" style="margin-bottom:16px;">
           <div class="dash-card-hdr">Board Packet</div>
           <div class="dash-card-body" style="padding:14px 18px;">
@@ -1350,16 +1399,6 @@ export const HTML_TABS_2 = String.raw`
               <button class="btn-secondary" id="fin-dc-cancel-btn" style="display:none;" onclick="finCancelEditDaycare()">Cancel</button>
             </div>
             <div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="fin-dc-error"></div>
-
-            <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
-              <div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Import from Church Budget (MDO accounts)</div>
-              <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 10px;">Pulls the Mother's Day Out line items (any account with "MDO" or "Mother's Day Out" in its name) out of a Church Report Budget you've already imported for a given year, and categorizes them into the Daycare Report's categories automatically.</p>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-                <label style="font-size:.75rem;color:var(--warm-gray);">Church Budget Year<br><input type="number" id="fin-dc-cb-year" placeholder="2025" style="width:100px;"></label>
-                <button class="btn-secondary" onclick="finDaycareChurchBudgetPreview()">Preview</button>
-              </div>
-              <div id="fin-dc-cb-preview" style="margin-top:10px;"></div>
-            </div>
 
             <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
               <div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Bulk-Enter Past Years</div>
@@ -1404,6 +1443,7 @@ export const HTML_TABS_2 = String.raw`
               <button id="fin-church-mode-multiyear" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('multiyear')">Multi-Year</button>
               <button id="fin-church-mode-balances" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('balances')">Balance Sheet</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchImport()">Import Budget</button>
+              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchMonthlyImport()">Import Monthly P&amp;L</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchBalanceImport()">Import Balance Sheet</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportChurchCsv()">Export CSV</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
@@ -1428,6 +1468,15 @@ export const HTML_TABS_2 = String.raw`
           </div>
           <div class="dash-card-body" style="padding:14px 18px;">
             <div id="fin-daycare-mdo-note"></div>
+            <div style="background:var(--warm-surface-page);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+              <div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Import from Church Budget (MDO accounts)</div>
+              <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 10px;">The single source of truth for this report (see the note above the table below). Pulls the Mother's Day Out line items (any account with "MDO" or "Mother's Day Out" in its name) out of a Church Report Budget you've already imported for a given year, and categorizes them into the Daycare Report's categories automatically.</p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+                <label style="font-size:.75rem;color:var(--warm-gray);">Church Budget Year<br><input type="number" id="fin-dc-cb-year" placeholder="2025" style="width:100px;"></label>
+                <button class="btn-secondary" onclick="finDaycareChurchBudgetPreview()">Preview</button>
+              </div>
+              <div id="fin-dc-cb-preview" style="margin-top:10px;"></div>
+            </div>
             <div id="fin-daycare-report"></div>
           </div>
         </section>
@@ -1455,6 +1504,14 @@ export const HTML_TABS_2 = String.raw`
           <div class="dash-card-hdr">3277 Ivanhoe — Multi-Year Forecast</div>
           <div class="dash-card-body" style="padding:14px 18px;" id="fin-plan-property-root"></div>
         </section>
+      </div>
+
+      <div id="fin-panel-compensation" style="display:none;">
+        <div style="margin-bottom:16px;">
+          <h2 style="font-family:var(--font-display);font-size:26px;font-weight:700;color:var(--color-navy);margin:0 0 2px;">Compensation Planner — FY<span id="fin-comp-year-label"></span></h2>
+          <div style="font-size:.82rem;color:var(--warm-gray);">Set base salaries using the LCMS Missouri District compensation guidelines, and model group health plan renewal options. Applies into the Planning tab's budget via each card's own "Apply to Plan"/"Use as Projected" controls.</div>
+        </div>
+        <div id="fin-comp-root">Loading…</div>
       </div>
 
     </div>
@@ -1789,6 +1846,18 @@ export const HTML_TABS_2 = String.raw`
   </div>
 </div>
 
+<!-- Letter template preview modal -->
+<div class="modal-overlay" id="letter-preview-modal">
+  <div class="modal" style="max-width:640px;">
+    <h2 id="letter-preview-title">Letter Preview</h2>
+    <p style="font-size:.8rem;color:var(--warm-gray);margin-top:-6px;">Rendered with sample data using the text currently in the box below &mdash; this preview updates live but is not saved until you click Save Template.</p>
+    <div id="letter-preview-body" style="background:var(--white);border:1px solid var(--border);border-radius:10px;padding:22px 26px;font-size:.9rem;line-height:1.6;max-height:60vh;overflow-y:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('letter-preview-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- New batch modal -->
 <div class="modal-overlay" id="batch-modal">
   <div class="modal" style="max-width:380px;">
@@ -2117,6 +2186,26 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('fin-church-import-modal')">Close</button>
       <button class="btn-primary" id="fin-church-import-confirm-btn" style="display:none;" onclick="finChurchConfirmImport()">Import Selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Church Report: import a "Profit and Loss by Month" Excel export — unlocks the Overview's
+     Income vs. Expenses trend / Year-End Projection cards, which need month-by-month data that
+     the annual Budget vs. Actuals import above can't provide (see FIN2 — live QuickBooks sync,
+     the only other source of monthly data, is still pending approval). -->
+<div class="modal-overlay" id="fin-church-monthly-import-modal">
+  <div class="modal" style="max-width:640px;width:95vw;">
+    <div class="modal-header"><span>Import Monthly P&amp;L from Excel</span><button class="modal-close" onclick="closeModal('fin-church-monthly-import-modal')">&#10005;</button></div>
+    <div style="padding:4px 0;">
+      <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload a QuickBooks "Profit and Loss by Month" export (.xlsx) — one column per month, not the Actual/Budget shape the Budget import above expects. This is what feeds the Overview tab's Income vs. Expenses trend and Year-End Projection cards. Importing a year replaces any previously-imported monthly data for that year; a live QuickBooks monthly sync (once connected) always takes precedence over this import for the same year.</p>
+      <input type="file" id="fin-church-monthly-import-file" accept=".xlsx" onchange="finChurchMonthlyImportFileSelected(this)">
+      <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="fin-church-monthly-import-status"></div>
+      <div id="fin-church-monthly-import-preview"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('fin-church-monthly-import-modal')">Close</button>
+      <button class="btn-primary" id="fin-church-monthly-import-confirm-btn" style="display:none;" onclick="finChurchConfirmMonthlyImport()">Import</button>
     </div>
   </div>
 </div>
