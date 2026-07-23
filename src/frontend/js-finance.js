@@ -2367,11 +2367,22 @@ function finComputeAvailableForDistribution(d) {
   });
   return { year: year, annualNetCents: annualNetCents, reserveContribCents: reserveContribCents, capitalCents: capitalCents, availableCents: annualNetCents - reserveContribCents - capitalCents };
 }
+// "Amount Dispersed" — this calendar year's actual confirmed distributions already sent to the
+// church (from the Distributions to Church record below), distinct from the estimate above.
+function finComputeDistributedThisYear(d) {
+  var year = new Date().getFullYear();
+  var cents = (d.distributions || []).filter(function(dd) { return String(dd.period || '').slice(0, 4) === String(year); })
+    .reduce(function(sum, dd) { return sum + (dd.amount_cents || 0); }, 0);
+  return { year: year, cents: cents };
+}
 function finRenderAvailableForDistributionBar(d) {
   var a = finComputeAvailableForDistribution(d);
+  var dispersed = finComputeDistributedThisYear(d);
   return '<div class="fin-navy-card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;margin:18px 0;">'
     + '<div style="max-width:340px;"><div class="fin-card-title" style="font-size:18px;">Available for Distribution</div>'
-    + '<div style="font-size:.8rem;color:rgba(255,255,255,.75);">' + a.year + ' net income, less amounts set aside for reserves and committed to capital projects this year. An estimate for planning — see "Distributions to Church" below for the actual record.</div></div>'
+    + '<div style="font-size:.8rem;color:rgba(255,255,255,.75);">' + a.year + ' net income, less amounts set aside for reserves and committed to capital projects this year. An estimate for planning — see "Distributions to Church" below for the actual record.</div>'
+    + '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.3);"><div style="font-size:.75rem;color:rgba(255,255,255,.75);">Amount Dispersed (' + dispersed.year + ', confirmed)</div><div class="fin-navy-val positive" style="font-size:22px;">$' + finFmtMoney(dispersed.cents/100) + '</div></div>'
+    + '</div>'
     + '<div style="text-align:right;">'
     + '<div style="font-size:.82rem;color:rgba(255,255,255,.75);">Annual Net &nbsp; $' + finFmtMoney(a.annualNetCents/100) + '</div>'
     + '<div style="font-size:.82rem;color:var(--negative-on-navy);">&minus; Reserves &nbsp; $' + finFmtMoney(a.reserveContribCents/100) + '</div>'
@@ -2395,7 +2406,7 @@ function finRenderProperty(d) {
 
   var statsHtml = '<h4 style="margin:0 0 8px;font-size:.85rem;color:var(--warm-meta);">Valuation &amp; Equity</h4><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">'
     + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((val.capitalized_value_cents||0)/100) + '</div><div class="rpt-stat-lbl">Valuation</div></div>'
-    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((loan.balance_cents||0)/100) + '</div><div class="rpt-stat-lbl">Mortgage Balance</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((loan.balance_cents||0)/100) + '</div><div class="rpt-stat-lbl">Mortgage Remaining' + (loan.balance_as_of_date ? ' <span style="font-weight:400;">(as of ' + esc(loan.balance_as_of_date) + ')</span>' : '') + '</div></div>'
     + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((eq.equity_cents||0)/100) + '</div><div class="rpt-stat-lbl">Equity</div></div>'
     + '<div class="rpt-stat"><div class="rpt-stat-num">' + (eq.loan_to_value_pct != null ? (eq.loan_to_value_pct*100).toFixed(1) + '%' : '—') + '</div><div class="rpt-stat-lbl">Loan-to-Value</div></div>'
     + '</div>';
