@@ -249,12 +249,13 @@ function finRenderOverviewDaycare() {
   var pillEl = document.getElementById('fin-ov-sync-pill');
   if (!root) return;
   if (pillEl) pillEl.style.display = 'none';
-  var agg = finAggregateDaycareByYear(_finDaycare);
+  var agg = finAggregateDaycareByYear(_finDaycare, _finDaycareAllocation ? _finDaycareAllocation.allocation : null);
   var year = String(new Date().getFullYear());
   var y = agg.byYear[year];
   var elapsedPct = finElapsedYearPct(new Date().getFullYear());
   if (capEl) capEl.textContent = 'Daycare (MDO) — ' + year + ' · As of today · ' + Math.round(elapsedPct*100) + '% of the fiscal year elapsed';
   if (!y) { root.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No daycare data yet for ' + year + '. Sync or add entries below.</p>'; return; }
+  if (!_finDaycareAllocation && !_finDaycareAllocationLoading) finLoadDaycareAllocation([year]);
 
   var netVariance = y.netActual - y.netBudget;
   var kpis = [
@@ -734,14 +735,27 @@ function finRenderDaycareMdoNote() {
 // sync table) into calendar-year totals per category, plus Income/Expense/Net
 // summary rows. Computed client-side from _finDaycare — no new endpoint needed,
 // since the full row set is already fetched for the Overview tab.
-var FIN_KNOWN_CATEGORY_ORDER = ['Tuition Income', 'Payroll', 'Payroll Taxes', 'Workers Comp', 'Other Payroll Expenses', 'Other Expenses'];
+var FIN_KNOWN_CATEGORY_ORDER = ['Tuition Income', 'Payroll', 'Payroll Taxes', 'Workers Comp', 'Other Payroll Expenses', 'Utilities', 'Insurance', 'Other Expenses'];
 function finIsIncomeCategory(cat) {
   return String(cat || '').trim().toLowerCase() === 'tuition income';
 }
-function finAggregateDaycareByYear(entries) {
+// allocationByYear (optional) = the response from GET /admin/api/finance/daycare/allocation —
+// { [year]: { mdoUtilityCents, mdoInsuranceCents, ... } }. MDO has no Utilities/Insurance
+// accounts of its own (it shares the building with the church), so per the user's explicit
+// choice these two lines are a live percentage of the CHURCH side's actual Utilities/Insurance
+// expense — recalculated every render, never a stored figure — merged in as ordinary expense
+// categories (Budget column stays $0 for these two: the allocation is actual-only, matching what
+// was asked for). Omit allocationByYear (or pass a year with no matching key) and these two rows
+// simply don't appear for that year, same as any other category with no data.
+function finAggregateDaycareByYear(entries, allocationByYear) {
   var years = [];
   var categoriesSeen = [];
   var byYear = {};
+  // source='manual_budget_override' rows are held back from the normal sum below and applied
+  // afterward as a REPLACEMENT (not an addition) for that exact (year, category)'s budget — see
+  // the endpoint's comment in api-finance.js. Actual is never overridden this way: per the user's
+  // explicit correction, Actual always comes from the church's own budget import.
+  var overrides = {};
   (entries || []).forEach(function(e) {
     var year = String(e.period || '').slice(0, 4);
     if (!/^\d{4}$/.test(year)) return;
@@ -753,13 +767,39 @@ function finAggregateDaycareByYear(entries) {
     var amt = (Number(e.amount_cents) || 0) / 100;
     var isIncome = finIsIncomeCategory(cat);
     var isBudget = e.entry_type === 'budget';
+    if (isBudget && e.source === 'manual_budget_override') {
+      if (!overrides[year]) overrides[year] = {};
+      overrides[year][cat] = amt;
+      return;
+    }
     byYear[year].categories[cat][isBudget ? 'budget' : 'actual'] += amt;
     if (isIncome) byYear[year][isBudget ? 'incomeBudget' : 'incomeActual'] += amt;
     else byYear[year][isBudget ? 'expenseBudget' : 'expenseActual'] += amt;
   });
+  Object.keys(overrides).forEach(function(year) {
+    if (!byYear[year]) return;
+    Object.keys(overrides[year]).forEach(function(cat) {
+      if (!byYear[year].categories[cat]) byYear[year].categories[cat] = { actual: 0, budget: 0 };
+      var prevBudget = byYear[year].categories[cat].budget;
+      var nextBudget = overrides[year][cat];
+      byYear[year].categories[cat].budget = nextBudget;
+      var delta = nextBudget - prevBudget;
+      if (finIsIncomeCategory(cat)) byYear[year].incomeBudget += delta;
+      else byYear[year].expenseBudget += delta;
+    });
+  });
   years.sort();
   years.forEach(function(y) {
     var b = byYear[y];
+    var alloc = allocationByYear && allocationByYear[y];
+    if (alloc) {
+      var utilDollars = (alloc.mdoUtilityCents || 0) / 100, insDollars = (alloc.mdoInsuranceCents || 0) / 100;
+      if (categoriesSeen.indexOf('Utilities') === -1) categoriesSeen.push('Utilities');
+      if (categoriesSeen.indexOf('Insurance') === -1) categoriesSeen.push('Insurance');
+      b.categories['Utilities'] = { actual: utilDollars, budget: (b.categories['Utilities'] || {}).budget || 0 };
+      b.categories['Insurance'] = { actual: insDollars, budget: (b.categories['Insurance'] || {}).budget || 0 };
+      b.expenseActual += utilDollars + insDollars;
+    }
     b.netActual = b.incomeActual - b.expenseActual;
     b.netBudget = b.incomeBudget - b.expenseBudget;
   });
@@ -767,17 +807,109 @@ function finAggregateDaycareByYear(entries) {
     .concat(categoriesSeen.filter(function(c) { return FIN_KNOWN_CATEGORY_ORDER.indexOf(c) === -1; }).sort());
   return { years: years, categories: categories, byYear: byYear };
 }
+// ── MDO Utilities/Insurance cost-share (live % of church actual — see the user's explicit
+// request: "put in a utility and insurance line that you calculate from my percentage from
+// actual expenses from church side"). Fetched once per page visit for whatever years the
+// Daycare Report currently shows, then cached — finRenderDaycareReport() re-renders once it
+// resolves. Re-fetched (via finDaycareAllocationConfigSave) whenever the percentage is changed.
+var _finDaycareAllocation = null; // { years, utilityPct, insurancePct, allocation: {year: {...}} }
+var _finDaycareAllocationLoading = false;
+function finLoadDaycareAllocation(years) {
+  if (!years.length || _finDaycareAllocationLoading) return;
+  _finDaycareAllocationLoading = true;
+  api('/admin/api/finance/daycare/allocation?years=' + years.join(',')).then(function(d) {
+    _finDaycareAllocation = d;
+    _finDaycareAllocationLoading = false;
+    finRenderDaycareReport();
+    if (_finOverviewDomain === 'daycare') finRenderOverviewDaycare();
+  }).catch(function() { _finDaycareAllocationLoading = false; });
+}
+function finDaycareAllocationConfigSave() {
+  var uEl = document.getElementById('fin-dc-alloc-util-pct');
+  var iEl = document.getElementById('fin-dc-alloc-ins-pct');
+  var msgEl = document.getElementById('fin-dc-alloc-msg');
+  var utilityPct = parseFloat(uEl.value) / 100, insurancePct = parseFloat(iEl.value) / 100;
+  if (!isFinite(utilityPct) || !isFinite(insurancePct)) { if (msgEl) msgEl.textContent = 'Enter valid percentages.'; return; }
+  if (msgEl) msgEl.textContent = 'Saving…';
+  api('/admin/api/finance/daycare/allocation-config', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ utilityPct: utilityPct, insurancePct: insurancePct }) }).then(function(d) {
+    if (d && d.error) { if (msgEl) msgEl.textContent = d.error; return; }
+    if (msgEl) msgEl.textContent = 'Saved.';
+    _finDaycareAllocation = null; // force a fresh fetch at the new percentage
+    var years = (_finDaycareAgg && _finDaycareAgg.years) || [];
+    finLoadDaycareAllocation(years);
+  }).catch(function(err) { if (msgEl) msgEl.textContent = err && err.message || 'Save failed.'; });
+}
+function finRenderDaycareAllocationConfig() {
+  var pct = _finDaycareAllocation ? _finDaycareAllocation.utilityPct : 0.5;
+  var ipct = _finDaycareAllocation ? _finDaycareAllocation.insurancePct : 0.5;
+  var isAdminUI = (_userRole === 'admin');
+  return '<div style="background:var(--warm-surface-page);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:.78rem;color:var(--warm-ink-label);">'
+    + '<b>MDO Utilities/Insurance cost-share:</b> Utilities and Insurance below are ' + (pct*100).toFixed(0) + '%/' + (ipct*100).toFixed(0) + '% of the church side\'s actual Utilities/Insurance expense for that year — recalculated live, not stored.'
+    + (isAdminUI ? '<div style="margin-top:6px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">'
+      + '<label>Utilities %<br><input type="number" id="fin-dc-alloc-util-pct" step="1" value="' + (pct*100).toFixed(0) + '" style="width:70px;"></label>'
+      + '<label>Insurance %<br><input type="number" id="fin-dc-alloc-ins-pct" step="1" value="' + (ipct*100).toFixed(0) + '" style="width:70px;"></label>'
+      + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;" onclick="finDaycareAllocationConfigSave()">Save %</button>'
+      + '<span id="fin-dc-alloc-msg" style="font-size:.72rem;color:var(--warm-gray);"></span>'
+      + '</div>' : '')
+    + '</div>';
+}
+// ── Directly-editable Budget cells in the Daycare Report table itself ─────────────────────
+// Per the user's correction: Actual always comes from the church's own Budget import ("Import
+// from Church Budget (MDO accounts)" in Overview → Daycare Sync) — never hand-typed here. Only
+// Budget is directly editable, cell by cell, right in the table (a past year's real budget
+// often isn't sitting in an imported church file). Click a Budget cell to turn it into an input;
+// Enter or blur saves via POST finance/daycare/budget-override, which replaces (not adds to)
+// any prior override for that exact (year, category) — see that endpoint's comment.
+function finDaycareBudgetCellEdit(year, cat, cellEl) {
+  if (cellEl.querySelector('input')) return; // already editing
+  var current = cellEl.getAttribute('data-raw') || '';
+  cellEl.innerHTML = '<input type="number" step="0.01" class="fin-editable-input" value="' + esc(current) + '" style="width:90px;text-align:right;" onblur="finDaycareBudgetCellSave(' + year + ',' + volJsAttr(cat) + ',this)" onkeydown="if(event.key===\'Enter\')this.blur();">';
+  var input = cellEl.querySelector('input');
+  input.focus();
+  input.select();
+}
+function finDaycareBudgetCellSave(year, cat, inputEl) {
+  var value = inputEl.value;
+  var body = { year: year, category: cat, budget: value };
+  api('/admin/api/finance/daycare/budget-override', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(function(d) {
+    if (d && d.error) { finToast(d.error); return; }
+    finToast('Saved ' + cat + ' FY' + year + ' budget.');
+    return finLoadFinanceDaycareEntries();
+  }).catch(function(err) { finToast(err && err.message || 'Save failed.'); });
+}
+// Re-fetches just the daycare entries list (used after a budget-cell edit) and re-renders every
+// view that depends on it, without re-fetching the rest of the Finance tab's data.
+function finLoadFinanceDaycareEntries() {
+  return api('/admin/api/finance/daycare').then(function(d) {
+    _finDaycare = (d && d.entries) || [];
+    finRenderDaycareStatus();
+    finRenderDaycareReport();
+    if (_finOverviewDomain === 'daycare') finRenderOverviewDaycare();
+  });
+}
 function finRenderDaycareReport() {
   var el = document.getElementById('fin-daycare-report');
   if (!el) return;
-  var agg = finAggregateDaycareByYear(_finDaycare);
+  var allocationByYear = _finDaycareAllocation ? _finDaycareAllocation.allocation : null;
+  var agg = finAggregateDaycareByYear(_finDaycare, allocationByYear);
   _finDaycareAgg = agg;
   if (!agg.years.length) {
-    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No daycare data yet. Sync the daycare app or add entries in the Overview tab.</p>';
+    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No daycare data yet. Sync the daycare app, or use "Import from Church Budget (MDO accounts)" in the Overview tab.</p>';
     return;
   }
+  if (!_finDaycareAllocation && !_finDaycareAllocationLoading) finLoadDaycareAllocation(agg.years);
+  var isAdminUI = (_userRole === 'admin');
   function moneyCell(v, muted) {
     return '<td style="text-align:right;padding:5px 8px;' + (muted ? 'color:var(--warm-gray);' : '') + '">$' + finFmtMoney(v) + '</td>';
+  }
+  // Budget is directly editable (click to edit) for every category except the two live-derived
+  // ones (Utilities/Insurance) — those are always computed from the church side, editing them
+  // wouldn't mean anything since finAggregateDaycareByYear recomputes their budget from the
+  // allocation percentage as well as any override, matching the "actual only" phrasing this was
+  // built to.
+  function budgetCell(year, cat, v, editable) {
+    if (!editable) return moneyCell(v, true);
+    return '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);cursor:pointer;" data-raw="' + (v || '') + '" title="Click to edit" onclick="finDaycareBudgetCellEdit(' + year + ',' + volJsAttr(cat) + ',this)">$' + finFmtMoney(v) + '</td>';
   }
   var yearHead1 = '<th></th>' + agg.years.map(function(y) {
     return '<th colspan="2" style="text-align:center;padding:6px 8px;border-bottom:1px solid var(--border);">' + esc(y) + '</th>';
@@ -787,11 +919,12 @@ function finRenderDaycareReport() {
       + '<th style="text-align:right;padding:4px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:600;">Budget</th>';
   }).join('');
   var catRows = agg.categories.map(function(cat) {
+    var isDerived = cat === 'Utilities' || cat === 'Insurance';
     var cells = agg.years.map(function(y) {
       var c = agg.byYear[y].categories[cat] || { actual: 0, budget: 0 };
-      return moneyCell(c.actual) + moneyCell(c.budget, true);
+      return moneyCell(c.actual) + budgetCell(y, cat, c.budget, isAdminUI && !isDerived);
     }).join('');
-    return '<tr><td style="padding:5px 8px;">' + esc(cat) + '</td>' + cells + '</tr>';
+    return '<tr><td style="padding:5px 8px;">' + esc(cat) + (isDerived ? ' <span style="font-size:.68rem;color:var(--warm-gray);" title="Live % of church actual — see the note above">(derived)</span>' : '') + '</td>' + cells + '</tr>';
   }).join('');
   function summaryRow(label, actualKey, budgetKey, bold) {
     var cells = agg.years.map(function(y) {
@@ -801,8 +934,9 @@ function finRenderDaycareReport() {
     return '<tr' + (bold ? ' style="font-weight:700;border-top:2px solid var(--navy);"' : ' style="font-weight:600;border-top:1px solid var(--border);"') + '>'
       + '<td style="padding:5px 8px;">' + label + '</td>' + cells + '</tr>';
   }
-  el.innerHTML =
-    '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+  el.innerHTML = finRenderDaycareAllocationConfig()
+    + (isAdminUI ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 10px;">Actual always comes from "Import from Church Budget (MDO accounts)" in the Overview tab. Click any Budget figure below to edit it directly — useful for a past year whose real budget isn\'t in an imported file.</p>' : '')
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
     + '<thead><tr>' + yearHead1 + '</tr><tr style="border-bottom:2px solid var(--navy);">' + yearHead2 + '</tr></thead>'
     + '<tbody>' + catRows
     + summaryRow('Total Income', 'incomeActual', 'incomeBudget', false)

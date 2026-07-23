@@ -794,6 +794,42 @@ export function classifyMdoAccountCategory(accountName) {
   for (const rule of MDO_CATEGORY_RULES) if (rule.re.test(accountName)) return rule.category;
   return 'Other Expenses';
 }
+
+// ── Daycare (MDO) Utilities/Insurance cost-share ──────────────────────────────────────────
+// MDO has no Utilities or Insurance accounts of its own — it shares the building with the
+// church — so per the user's explicit choice, these two Daycare Report lines are a live
+// percentage of the CHURCH side's actual Utilities/Insurance expense for the same year,
+// recalculated every time (never a stored dollar figure that can go stale). Matches on
+// category_path (not just account_name) since the church's chart of accounts only tags the
+// grouping label itself (e.g. "34 Utilities") — real postings live on child leaf accounts
+// (Electric/Gas/Water/etc.) that don't contain the word "Utilities" in their own name at all;
+// category_path carries the full colon-joined ancestor chain, matching either the parent or a
+// child correctly without double-counting (own_actual_cents is always non-cumulative — see
+// resolveChurchYearPrecedence's callers elsewhere in this file for the same guarantee).
+const MDO_ALLOCATION_MATCH = { utilities: /utilit/i, insurance: /insuranc/i };
+export function computeChurchCategoryActualCents(resolvedRows, matchRe) {
+  let cents = 0;
+  for (const r of resolvedRows) {
+    if (matchRe.test(r.category_path) || matchRe.test(r.account_name)) cents += (r.own_actual_cents || 0);
+  }
+  return cents;
+}
+// `rowsByYear` = { year: resolvedRows[] } (already precedence-resolved per year, period_month=0
+// only). Returns { [year]: { utilityActualCents, insuranceActualCents, mdoUtilityCents, mdoInsuranceCents } }.
+export function computeMdoUtilityInsuranceAllocation(rowsByYear, utilityPct, insurancePct) {
+  const out = {};
+  for (const year of Object.keys(rowsByYear)) {
+    const utilityActualCents = computeChurchCategoryActualCents(rowsByYear[year], MDO_ALLOCATION_MATCH.utilities);
+    const insuranceActualCents = computeChurchCategoryActualCents(rowsByYear[year], MDO_ALLOCATION_MATCH.insurance);
+    out[year] = {
+      utilityActualCents,
+      insuranceActualCents,
+      mdoUtilityCents: Math.round(utilityActualCents * utilityPct),
+      mdoInsuranceCents: Math.round(insuranceActualCents * insurancePct),
+    };
+  }
+  return out;
+}
 // `entries` should already be precedence-resolved (resolveChurchYearPrecedence) for the target
 // year. Each matching account can produce up to 2 daycare entries (actual + budget) — zero/null
 // amounts are skipped rather than written as $0 clutter. No has_children filtering: every stored
@@ -1691,6 +1727,68 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     }
     await db.batch(ops);
     return json({ ok: true, imported: ops.length });
+  }
+
+  // ── Daycare: per-cell Budget override (editable directly in the Daycare Report table) ────
+  // Actual always comes from the church's own Budget/Actuals import ("Import from Church Budget
+  // (MDO accounts)", source='church_budget_import') — never hand-typed here, per the user's
+  // explicit correction: "Actual should come from the budget from the church." This endpoint
+  // only ever touches the Budget side of one (year, category) cell, tagged
+  // source='manual_budget_override', so a typed-in historical budget figure can coexist with —
+  // and take precedence over, see finAggregateDaycareByYear's override pass — whatever budget
+  // figure the church import may also have brought in for that same cell, without the two
+  // silently summing together. Deleting any existing override first makes re-saving (or clearing
+  // by omitting `budget`) idempotent rather than additive.
+  if (seg === 'finance/daycare/budget-override' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing daycare budget data requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const year = parseInt(b.year, 10);
+    if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
+    if (!b.category || !String(b.category).trim()) return json({ error: 'category is required' }, 400);
+    const period = String(year);
+    const category = String(b.category).trim();
+    const ops = [db.prepare(`DELETE FROM finance_daycare_entries WHERE period=? AND category=? AND entry_type='budget' AND source='manual_budget_override'`).bind(period, category)];
+    let cents = null;
+    if (b.budget !== '' && b.budget != null) {
+      cents = Math.round(Number(b.budget) * 100);
+      if (!Number.isFinite(cents)) return json({ error: 'Invalid budget amount' }, 400);
+      ops.push(db.prepare(`INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,source) VALUES (?,?,'budget',?,'manual_budget_override')`).bind(period, category, cents));
+    }
+    await db.batch(ops);
+    return json({ ok: true, year, category, budgetCents: cents });
+  }
+
+  // ── Daycare: Utilities/Insurance cost-share config + live computation ────────────────────
+  if (seg === 'finance/daycare/allocation-config' && method === 'GET') {
+    const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_daycare_allocation_config'").first();
+    let cfg = { utilityPct: 0.5, insurancePct: 0.5 };
+    if (row) { try { cfg = { ...cfg, ...JSON.parse(row.value) }; } catch { /* keep default */ } }
+    return json(cfg);
+  }
+  if (seg === 'finance/daycare/allocation-config' && method === 'PUT') {
+    if (!isAdmin) return json({ error: 'Access denied: editing the daycare cost-share requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const utilityPct = Number(b.utilityPct);
+    const insurancePct = Number(b.insurancePct);
+    if (!Number.isFinite(utilityPct) || !Number.isFinite(insurancePct)) return json({ error: 'utilityPct and insurancePct must be numbers (e.g. 0.5 for 50%)' }, 400);
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_daycare_allocation_config',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(JSON.stringify({ utilityPct, insurancePct })).run();
+    return json({ ok: true });
+  }
+  if (seg === 'finance/daycare/allocation' && method === 'GET') {
+    const yearsParam = url.searchParams.get('years') || '';
+    const years = yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite);
+    if (!years.length) return json({ error: 'years is required (comma-separated)' }, 400);
+    const cfgRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_daycare_allocation_config'").first();
+    let cfg = { utilityPct: 0.5, insurancePct: 0.5 };
+    if (cfgRow) { try { cfg = { ...cfg, ...JSON.parse(cfgRow.value) }; } catch { /* keep default */ } }
+    const placeholders = years.map(() => '?').join(',');
+    const allRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${placeholders}) AND period_month=0`).bind(...years).all()).results || [];
+    const rowsByYear = {};
+    for (const year of years) rowsByYear[year] = resolveChurchYearPrecedence(allRows.filter(r => r.fiscal_year === year));
+    const allocation = computeMdoUtilityInsuranceAllocation(rowsByYear, cfg.utilityPct, cfg.insurancePct);
+    return json({ years, utilityPct: cfg.utilityPct, insurancePct: cfg.insurancePct, allocation });
   }
 
   const dcMatch = seg.match(/^finance\/daycare\/(\d+)$/);
