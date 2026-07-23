@@ -396,6 +396,19 @@ if (seg === 'config/church' && method === 'PUT') {
   const allowed = ['church_ein','church_from_name','church_from_email','giving_letter_template','giving_midyear_letter_template',
     'online_giving_url','church_name',
     'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
+  // The two letter-template editors have no image-upload endpoint — an inserted image
+  // (via the toolbar, or paste/drag-drop, which TinyMCE also embeds as base64 by default
+  // with no images_upload_handler configured) becomes a giant base64 text blob saved
+  // directly in the template. Past a certain size that single value can exceed what D1
+  // accepts for one column, which surfaced as an opaque "Internal server error" with no
+  // indication of the actual cause. Catch it here with a specific message instead of
+  // letting the DB write throw and fall through to the generic 500 handler.
+  const TEMPLATE_MAX_CHARS = 1000000; // ~1MB — well past any legitimate template+small-image size
+  for (const k of ['giving_letter_template', 'giving_midyear_letter_template']) {
+    if (b[k] && String(b[k]).length > TEMPLATE_MAX_CHARS) {
+      return json({ error: 'This letter template is too large to save (likely an embedded image) — please use a smaller image (under ~400 KB) or remove it and try again.' }, 400);
+    }
+  }
   for (const k of allowed) {
     // Only save non-empty values — preserves existing config if user saves with a blank field
     if (b[k]) {

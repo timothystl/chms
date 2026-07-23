@@ -347,6 +347,17 @@ function initLetterEditor(id, letterType, value) {
         input.onchange = function() {
           var file = input.files[0];
           if (!file) return;
+          // No upload endpoint — the whole file becomes a base64 text blob embedded directly
+          // in the saved template (see the comment above). A full-size photo easily produces
+          // a template well past what a single D1 column value / request can hold, which
+          // used to fail Save with a generic "Internal server error" and no indication why.
+          // Cap the raw file here so the failure (if any) is an immediate, specific message
+          // instead of a round-trip to the server.
+          if (file.size > 400 * 1024) {
+            alert('That image is too large (' + Math.round(file.size / 1024) + ' KB — max 400 KB). Please use a smaller image or compress it first; letter templates are limited in size since the image gets embedded directly in the saved letter and every email sent from it.');
+            input.value = '';
+            return;
+          }
           var reader = new FileReader();
           reader.onload = function() { callback(reader.result, { alt: file.name }); };
           reader.readAsDataURL(file);
