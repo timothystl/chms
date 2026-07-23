@@ -2392,6 +2392,24 @@ function finRenderAvailableForDistributionBar(d) {
     + '</div></div>';
 }
 
+// Pure — no DOM — rolls the last lender-CONFIRMED mortgage balance forward using each
+// subsequent month's real principal payment (loan_payment_cents − interest_expense_cents), so a
+// fresh lender confirmation isn't needed every time a new month's report comes in. Only months
+// whose period is strictly AFTER the confirmed as-of month are applied — anything at or before
+// that date is already reflected in the confirmed figure (the exact reasoning behind why June
+// 2026's own payment wasn't subtracted from the 2026-07-20 confirmation — see FIN30).
+function finComputeMortgageRemainingCents(loan, monthly) {
+  if (!loan || loan.balance_cents == null || !loan.balance_as_of_date) {
+    return { cents: (loan && loan.balance_cents != null) ? loan.balance_cents : null, asOf: loan ? loan.balance_as_of_date : null, monthsApplied: [] };
+  }
+  var asOfMonth = String(loan.balance_as_of_date).slice(0, 7); // YYYY-MM
+  var applicable = (monthly || [])
+    .filter(function(m) { return m.period > asOfMonth && m.loan_payment_cents != null && m.interest_expense_cents != null; })
+    .sort(function(a, b) { return a.period < b.period ? -1 : 1; });
+  var cents = loan.balance_cents;
+  applicable.forEach(function(m) { cents -= (m.loan_payment_cents - m.interest_expense_cents); });
+  return { cents: cents, asOf: applicable.length ? applicable[applicable.length - 1].period : loan.balance_as_of_date, monthsApplied: applicable.map(function(m) { return m.period; }) };
+}
 function finRenderProperty(d) {
   var el = document.getElementById('fin-property-root');
   if (!el || !d) return;
@@ -2399,17 +2417,22 @@ function finRenderProperty(d) {
   var prop = meta.property || {};
   var val = meta.valuation || {};
   var loan = meta.loan || {};
-  var eq = d.equity || {};
   var isAdminUI = (_userRole === 'admin');
 
   var kpiHtml = finRenderKpiGrid(finComputePropertyKpis(d));
 
+  var mortgageRemaining = finComputeMortgageRemainingCents(loan, d.monthly || []);
+  var valueCents = val.capitalized_value_cents || 0;
+  var equityCents = mortgageRemaining.cents != null ? (valueCents - mortgageRemaining.cents) : null;
+  var ltvPct = (valueCents && mortgageRemaining.cents != null) ? (mortgageRemaining.cents / valueCents) : null;
+
   var statsHtml = '<h4 style="margin:0 0 8px;font-size:.85rem;color:var(--warm-meta);">Valuation &amp; Equity</h4><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">'
-    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((val.capitalized_value_cents||0)/100) + '</div><div class="rpt-stat-lbl">Valuation</div></div>'
-    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((loan.balance_cents||0)/100) + '</div><div class="rpt-stat-lbl">Mortgage Remaining' + (loan.balance_as_of_date ? ' <span style="font-weight:400;">(as of ' + esc(loan.balance_as_of_date) + ')</span>' : '') + '</div></div>'
-    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((eq.equity_cents||0)/100) + '</div><div class="rpt-stat-lbl">Equity</div></div>'
-    + '<div class="rpt-stat"><div class="rpt-stat-num">' + (eq.loan_to_value_pct != null ? (eq.loan_to_value_pct*100).toFixed(1) + '%' : '—') + '</div><div class="rpt-stat-lbl">Loan-to-Value</div></div>'
-    + '</div>';
+    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney(valueCents/100) + '</div><div class="rpt-stat-lbl">Valuation</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((mortgageRemaining.cents||0)/100) + '</div><div class="rpt-stat-lbl">Mortgage Remaining' + (mortgageRemaining.asOf ? ' <span style="font-weight:400;">(as of ' + esc(mortgageRemaining.asOf) + ')</span>' : '') + '</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">' + (equityCents != null ? '$' + finFmtMoney(equityCents/100) : '—') + '</div><div class="rpt-stat-lbl">Equity</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">' + (ltvPct != null ? (ltvPct*100).toFixed(1) + '%' : '—') + '</div><div class="rpt-stat-lbl">Loan-to-Value</div></div>'
+    + '</div>'
+    + (mortgageRemaining.monthsApplied.length ? '<p style="font-size:.72rem;color:var(--warm-gray);margin:-10px 0 16px;">Mortgage Remaining rolled forward from the $' + finFmtMoney((loan.balance_cents||0)/100) + ' lender-confirmed balance (' + esc(loan.balance_as_of_date) + ') using ' + mortgageRemaining.monthsApplied.length + ' month(s) of real principal payments (' + mortgageRemaining.monthsApplied.map(esc).join(', ') + ') — no new lender confirmation needed.</p>' : '');
 
   var infoHtml = '<p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 4px;"><b>' + esc(prop.name || '3277 Ivanhoe') + '</b> — ' + esc(prop.type || '') + '. Owned by ' + esc(prop.owner || 'Timothy Lutheran Church') + '. Managed by ' + esc(prop.property_manager || '') + '.</p>'
     + (val.as_of_date ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 2px;">Valuation as of ' + esc(val.as_of_date) + ' (' + esc(val.method || '') + ').</p>' : '')
@@ -2701,6 +2724,8 @@ function finPropertyOpenMonthModal(period) {
   document.getElementById('fpm-noi').value = m && m.net_operating_income_cents != null ? (m.net_operating_income_cents/100) : '';
   document.getElementById('fpm-afd').value = m && m.available_for_distribution_cents != null ? (m.available_for_distribution_cents/100) : '';
   document.getElementById('fpm-reserve').value = m && m.reserve_balance_cents != null ? (m.reserve_balance_cents/100) : '';
+  document.getElementById('fpm-loan-payment').value = m && m.loan_payment_cents != null ? (m.loan_payment_cents/100) : '';
+  document.getElementById('fpm-interest-expense').value = m && m.interest_expense_cents != null ? (m.interest_expense_cents/100) : '';
   document.getElementById('fpm-source').value = m ? (m.source_report || '') : '';
   document.getElementById('fpm-error').textContent = '';
   openModal('fin-property-month-modal');
@@ -2719,6 +2744,8 @@ function finPropertySaveMonth() {
     net_operating_income: numOrEmpty('fpm-noi'),
     available_for_distribution: numOrEmpty('fpm-afd'),
     reserve_balance: numOrEmpty('fpm-reserve'),
+    loan_payment: numOrEmpty('fpm-loan-payment'),
+    interest_expense: numOrEmpty('fpm-interest-expense'),
     source_report: document.getElementById('fpm-source').value.trim(),
   };
   api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/monthly', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {

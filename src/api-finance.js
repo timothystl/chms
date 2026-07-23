@@ -1353,18 +1353,24 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
       net_operating_income_cents: toCents(b.net_operating_income),
       available_for_distribution_cents: toCents(b.available_for_distribution),
       reserve_balance_cents: toCents(b.reserve_balance),
+      // Real per-month loan payment + interest expense (bank rec + income statement) — lets the
+      // confirmed mortgage balance roll forward automatically instead of needing a fresh lender
+      // confirmation every time (see finComputeMortgageRemainingCents).
+      loan_payment_cents: toCents(b.loan_payment),
+      interest_expense_cents: toCents(b.interest_expense),
     };
     for (const [k, v] of Object.entries(cents)) { if (v !== null && !Number.isFinite(v)) return json({ error: `Invalid ${k}` }, 400); }
     await db.prepare(
       `INSERT INTO finance_property_monthly
-         (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,source_report,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))
+         (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,loan_payment_cents,interest_expense_cents,source_report,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
        ON CONFLICT(property_key,period) DO UPDATE SET
          occupancy_pct=excluded.occupancy_pct, total_revenue_cents=excluded.total_revenue_cents, total_expenses_cents=excluded.total_expenses_cents,
          net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
          available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
+         loan_payment_cents=excluded.loan_payment_cents, interest_expense_cents=excluded.interest_expense_cents,
          source_report=excluded.source_report, updated_at=excluded.updated_at`
-    ).bind(propertyKey, b.period, occ, cents.total_revenue_cents, cents.total_expenses_cents, cents.net_income_cents, cents.net_operating_income_cents, cents.available_for_distribution_cents, cents.reserve_balance_cents, b.source_report || '').run();
+    ).bind(propertyKey, b.period, occ, cents.total_revenue_cents, cents.total_expenses_cents, cents.net_income_cents, cents.net_operating_income_cents, cents.available_for_distribution_cents, cents.reserve_balance_cents, cents.loan_payment_cents, cents.interest_expense_cents, b.source_report || '').run();
     return json({ ok: true });
   }
 
