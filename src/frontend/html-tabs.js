@@ -1401,16 +1401,6 @@ export const HTML_TABS_2 = String.raw`
             <div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="fin-dc-error"></div>
 
             <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
-              <div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Import from Church Budget (MDO accounts)</div>
-              <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 10px;">Pulls the Mother's Day Out line items (any account with "MDO" or "Mother's Day Out" in its name) out of a Church Report Budget you've already imported for a given year, and categorizes them into the Daycare Report's categories automatically.</p>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-                <label style="font-size:.75rem;color:var(--warm-gray);">Church Budget Year<br><input type="number" id="fin-dc-cb-year" placeholder="2025" style="width:100px;"></label>
-                <button class="btn-secondary" onclick="finDaycareChurchBudgetPreview()">Preview</button>
-              </div>
-              <div id="fin-dc-cb-preview" style="margin-top:10px;"></div>
-            </div>
-
-            <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
               <div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Bulk-Enter Past Years</div>
               <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 8px;">Paste one entry per line: <code>period, category, type, amount, notes</code> — period is <code>YYYY</code> or <code>YYYY-MM</code>, type is <code>actual</code> or <code>budget</code> (defaults to actual if omitted), notes is optional. Example: <code>2023, Tuition Income, actual, 285000</code></p>
               <textarea id="fin-dc-bulk-text" rows="5" style="width:100%;font-family:monospace;font-size:.8rem;padding:8px;border:1px solid var(--border);border-radius:6px;" placeholder="2023, Tuition Income, actual, 285000&#10;2023, Payroll, actual, 190000&#10;2023, Payroll, budget, 200000"></textarea>
@@ -1477,6 +1467,15 @@ export const HTML_TABS_2 = String.raw`
           </div>
           <div class="dash-card-body" style="padding:14px 18px;">
             <div id="fin-daycare-mdo-note"></div>
+            <div style="background:var(--warm-surface-page);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+              <div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Import from Church Budget (MDO accounts)</div>
+              <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 10px;">The single source of truth for this report (see the note above the table below). Pulls the Mother's Day Out line items (any account with "MDO" or "Mother's Day Out" in its name) out of a Church Report Budget you've already imported for a given year, and categorizes them into the Daycare Report's categories automatically.</p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+                <label style="font-size:.75rem;color:var(--warm-gray);">Church Budget Year<br><input type="number" id="fin-dc-cb-year" placeholder="2025" style="width:100px;"></label>
+                <button class="btn-secondary" onclick="finDaycareChurchBudgetPreview()">Preview</button>
+              </div>
+              <div id="fin-dc-cb-preview" style="margin-top:10px;"></div>
+            </div>
             <div id="fin-daycare-report"></div>
           </div>
         </section>

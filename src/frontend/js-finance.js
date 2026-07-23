@@ -664,7 +664,12 @@ function finDaycareChurchBudgetImport(year) {
     if (d && d.error) { finToast(d.error); return; }
     finToast('Imported ' + (d && d.imported || 0) + ' daycare line item(s) from the ' + year + ' Church Budget.');
     document.getElementById('fin-dc-cb-preview').innerHTML = '';
-    return api('/admin/api/finance/daycare').then(function(d2) { _finDaycare = d2.entries || []; finRenderDaycare(); });
+    return api('/admin/api/finance/daycare').then(function(d2) {
+      _finDaycare = d2.entries || [];
+      finRenderDaycare();
+      finRenderDaycareReport();
+      if (_finOverviewDomain === 'daycare') finRenderOverviewDaycare();
+    });
   }).catch(function(err) { finToast(err && err.message || 'Import failed.'); });
 }
 
