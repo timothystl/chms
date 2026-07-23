@@ -1324,7 +1324,10 @@ function emailGivingLetter(letterType) {
       to_email: email,
       to_name: (p.first_name + ' ' + p.last_name).trim(),
       subject: subject,
-      html_body: fullHtml
+      html_body: fullHtml,
+      person_id: p.id,
+      year: _stmtData.year,
+      letter_type: letterType || 'year_end'
     })
   }).then(function(d) {
     if (status) {

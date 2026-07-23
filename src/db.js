@@ -1516,6 +1516,15 @@ async function _doInitDb(db) {
     // confirmation every time (finComputeMortgageRemainingCents in js-finance.js).
     'ALTER TABLE finance_property_monthly ADD COLUMN loan_payment_cents INTEGER',
     'ALTER TABLE finance_property_monthly ADD COLUMN interest_expense_cents INTEGER',
+    // Giving-letter batch send resume/dedup (see migrations/0027_giving_letter_sends.sql).
+    `CREATE TABLE IF NOT EXISTS giving_letter_sends (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_id   INTEGER NOT NULL,
+      year        INTEGER NOT NULL,
+      letter_type TEXT    NOT NULL,
+      sent_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(person_id, year, letter_type)
+    )`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

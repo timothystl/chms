@@ -1,31 +1,47 @@
 export const JS_EXPORT_IMPORT = String.raw`// ── BATCH SEND ─────────────────────────────────────────────────────────
-function loadBatchStatementGivers() {
-  var yr = document.getElementById('batch-stmt-year').value;
-  var status = document.getElementById('batch-stmt-status');
-  var listEl = document.getElementById('batch-stmt-list');
+// Shared by the Year-End (prefix 'batch-stmt', letterType 'year_end') and Mid-Year
+// (prefix 'batch-mid', letterType 'midyear') batch-send tiles. Two features on top of the
+// original one-shot loop: (1) already-sent givers (per giving_letter_sends, resolved via
+// list_givers's letter_type param) show "(already sent)" and default unchecked, so reloading
+// the list after a rate-limit interruption — or just coming back the next day — naturally
+// only sends to whoever's still pending; (2) a "Max to send today" cap stops the loop before
+// Resend's own daily limit is hit, and a distinct rate_limited response (see
+// api-import.js) stops the loop immediately instead of marking every remaining recipient
+// "failed" one at a time.
+function loadBatchGivers(prefix, letterType) {
+  var yr = document.getElementById(prefix + '-year').value;
+  var status = document.getElementById(prefix + '-status');
+  var listEl = document.getElementById(prefix + '-list');
   if (!yr) { status.textContent = 'Enter a year.'; status.className = 'import-status err'; return; }
   status.textContent = 'Loading givers for ' + yr + '…'; status.className = 'import-status';
   listEl.innerHTML = '';
-  // Fetch people who gave in this year (via giving summary approach - get all people with giving)
-  api('/admin/api/reports/giving-statement?year=' + yr + '&list_givers=1').then(function(d) {
+  api('/admin/api/reports/giving-statement?year=' + yr + '&list_givers=1&letter_type=' + letterType).then(function(d) {
     var givers = d.givers || [];
     if (!givers.length) {
       status.textContent = 'No givers with email found for ' + yr + '.';
       status.className = 'import-status err';
       return;
     }
-    status.textContent = givers.length + ' givers found with email. Check who to include, then Send.';
+    var alreadySent = givers.filter(function(g) { return g.already_sent; }).length;
+    status.textContent = givers.length + ' givers found with email'
+      + (alreadySent ? ' (' + alreadySent + ' already sent this year — unchecked below, but you can re-check to resend)' : '')
+      + '. Check who to include, then Send.';
     status.className = 'import-status ok';
-    listEl.innerHTML = '<div style="margin-bottom:8px;display:flex;gap:8px;">'
-      + '<button class="btn-sm" onclick="selectAllBatchGivers(true)">Select All</button>'
-      + '<button class="btn-sm" onclick="selectAllBatchGivers(false)">Deselect All</button>'
-      + '<button class="btn-primary" style="font-size:.8rem;padding:4px 12px;" onclick="sendBatchStatements(' + yr + ')">Send Selected</button>'
+    listEl.innerHTML = '<div style="margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+      + '<button class="btn-sm" onclick="selectAllBatchGivers(&#39;' + prefix + '&#39;,true)">Select All</button>'
+      + '<button class="btn-sm" onclick="selectAllBatchGivers(&#39;' + prefix + '&#39;,false)">Deselect All</button>'
+      + '<label style="font-size:.8rem;display:flex;align-items:center;gap:4px;">Max to send today'
+      + '<input type="number" id="' + prefix + '-daily-cap" value="80" min="1" style="width:60px;padding:2px 6px;font-size:.8rem;">'
+      + '</label>'
+      + '<button class="btn-primary" style="font-size:.8rem;padding:4px 12px;" onclick="sendBatchGivers(&#39;' + prefix + '&#39;,' + yr + ',&#39;' + letterType + '&#39;)">Send Selected</button>'
       + '</div>'
-      + '<div id="batch-givers-list">'
+      + '<div style="font-size:.74rem;color:var(--warm-gray);margin-bottom:8px;">Resend&rsquo;s free plan caps at 100 emails/day &mdash; keep this a bit under 100 if you&rsquo;re on that plan and sending other emails the same day.</div>'
+      + '<div id="' + prefix + '-givers-list">'
       + givers.map(function(g) {
-        return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.85rem;cursor:pointer;">'
-          + '<input type="checkbox" data-pid="' + g.id + '" checked>'
+        return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.85rem;cursor:pointer;' + (g.already_sent ? 'opacity:.6;' : '') + '">'
+          + '<input type="checkbox" data-pid="' + g.id + '"' + (g.already_sent ? '' : ' checked') + '>'
           + '<span>' + esc(g.first_name + ' ' + g.last_name) + '</span>'
+          + (g.already_sent ? '<span style="font-size:.72rem;color:var(--warm-gray);font-style:italic;">already sent</span>' : '')
           + '<span style="color:var(--warm-gray);font-size:.78rem;">' + esc(g.email) + '</span>'
           + '<span style="margin-left:auto;font-size:.78rem;">' + fmtMoney(g.total_cents) + '</span>'
           + '</label>';
@@ -35,37 +51,46 @@ function loadBatchStatementGivers() {
     status.textContent = 'Error: ' + e.message; status.className = 'import-status err';
   });
 }
-function selectAllBatchGivers(checked) {
-  document.querySelectorAll('#batch-givers-list input[type=checkbox]').forEach(function(cb) { cb.checked = checked; });
+function selectAllBatchGivers(prefix, checked) {
+  document.querySelectorAll('#' + prefix + '-givers-list input[type=checkbox]').forEach(function(cb) { cb.checked = checked; });
 }
-function sendBatchStatements(yr) {
-  var status = document.getElementById('batch-stmt-status');
-  var checks = document.querySelectorAll('#batch-givers-list input[type=checkbox]:checked');
+function sendBatchGivers(prefix, yr, letterType) {
+  var status = document.getElementById(prefix + '-status');
+  var checks = document.querySelectorAll('#' + prefix + '-givers-list input[type=checkbox]:checked');
   if (!checks.length) { status.textContent = 'No givers selected.'; status.className = 'import-status err'; return; }
-  // Ensure church config is loaded
+  var capEl = document.getElementById(prefix + '-daily-cap');
+  var dailyCap = Math.max(1, parseInt((capEl || {}).value, 10) || 80);
   if (!_churchConfig.church_name) {
     api('/admin/api/config/church').then(function(cfg) {
       _churchConfig = cfg || {};
-      doSendBatch(yr, checks, status);
+      doSendGivingBatch(yr, letterType, checks, status, dailyCap);
     });
   } else {
-    doSendBatch(yr, checks, status);
+    doSendGivingBatch(yr, letterType, checks, status, dailyCap);
   }
 }
-function doSendBatch(yr, checks, status) {
+function doSendGivingBatch(yr, letterType, checks, status, dailyCap) {
   var ids = Array.from(checks).map(function(cb){return cb.dataset.pid;});
-  var total = ids.length, done = 0, failed = 0, skipped = 0;
+  var total = ids.length, done = 0, failed = 0, skipped = 0, stoppedByLimit = false;
   status.textContent = 'Sending 0/' + total + '…'; status.className = 'import-status';
-  function sendNext() {
-    if (!ids.length) {
-      var msg = 'Done. ' + done + ' sent';
+  function finish() {
+    var remaining = ids.length;
+    var msg;
+    if (stoppedByLimit) {
+      msg = "Resend's sending limit was hit after " + done + ' sent. ' + remaining + ' remaining were not attempted — come back later today or tomorrow and click Load Givers again to continue (they will show as pending, not already sent).';
+    } else if (remaining) {
+      msg = "Reached today's cap of " + dailyCap + ' (' + done + ' sent). ' + remaining + ' remaining — click Load Givers again later to continue.';
+    } else {
+      msg = 'Done. ' + done + ' sent';
       if (skipped) msg += ', ' + skipped + ' skipped (no email)';
       if (failed) msg += ', ' + failed + ' failed';
       msg += '.';
-      status.textContent = msg;
-      status.className = failed ? 'import-status' : 'import-status ok';
-      return;
     }
+    status.textContent = msg;
+    status.className = (failed || stoppedByLimit || remaining) ? 'import-status' : 'import-status ok';
+  }
+  function sendNext() {
+    if (!ids.length || done >= dailyCap) { finish(); return; }
     var pid = ids.shift();
     api('/admin/api/reports/giving-statement?person_id=' + pid + '&year=' + yr).then(function(d) {
       if (d.error || !d.person) { failed++; sendNext(); return; }
@@ -73,7 +98,10 @@ function doSendBatch(yr, checks, status) {
       var p = d.person || {};
       if (!p.email) { skipped++; sendNext(); return; }
       var churchName = _churchConfig.church_name || 'Timothy Lutheran Church';
-      var letterHtml = renderLetterHTML(d, 'year_end');
+      var letterHtml = renderLetterHTML(d, letterType);
+      var subject = letterType === 'midyear'
+        ? (yr + ' Mid-Year Giving Update — ' + churchName)
+        : (yr + ' Charitable Contribution Statement — ' + churchName);
       var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
         + letterheadImgHtml(true, churchName, 'font-size:16px;font-weight:bold;', 6) + '<hr style="margin:10px 0;">'
         + letterHtml + '</div>';
@@ -82,108 +110,17 @@ function doSendBatch(yr, checks, status) {
         body: JSON.stringify({
           to_email: p.email,
           to_name: (p.first_name + ' ' + p.last_name).trim(),
-          subject: yr + ' Charitable Contribution Statement — ' + churchName,
-          html_body: fullHtml
+          subject: subject,
+          html_body: fullHtml,
+          person_id: pid,
+          year: yr,
+          letter_type: letterType
         })
       });
     }).then(function(r) {
-      if (r && r.ok) done++; else failed++;
-      status.textContent = 'Sending ' + (done+failed+skipped) + '/' + total + '…';
-      sendNext();
-    }).catch(function() { failed++; sendNext(); });
-  }
-  sendNext();
-}
-// ── BATCH SEND — MID-YEAR UPDATE ────────────────────────────────────────
-function loadBatchMidyearGivers() {
-  var yr = document.getElementById('batch-mid-year').value;
-  var status = document.getElementById('batch-mid-status');
-  var listEl = document.getElementById('batch-mid-list');
-  if (!yr) { status.textContent = 'Enter a year.'; status.className = 'import-status err'; return; }
-  status.textContent = 'Loading givers for ' + yr + '…'; status.className = 'import-status';
-  listEl.innerHTML = '';
-  api('/admin/api/reports/giving-statement?year=' + yr + '&list_givers=1').then(function(d) {
-    var givers = d.givers || [];
-    if (!givers.length) {
-      status.textContent = 'No givers with email found for ' + yr + '.';
-      status.className = 'import-status err';
-      return;
-    }
-    status.textContent = givers.length + ' givers found with email. Check who to include, then Send.';
-    status.className = 'import-status ok';
-    listEl.innerHTML = '<div style="margin-bottom:8px;display:flex;gap:8px;">'
-      + '<button class="btn-sm" onclick="selectAllMidyearGivers(true)">Select All</button>'
-      + '<button class="btn-sm" onclick="selectAllMidyearGivers(false)">Deselect All</button>'
-      + '<button class="btn-primary" style="font-size:.8rem;padding:4px 12px;" onclick="sendBatchMidyearLetters(' + yr + ')">Send Selected</button>'
-      + '</div>'
-      + '<div id="batch-mid-givers-list">'
-      + givers.map(function(g) {
-        return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.85rem;cursor:pointer;">'
-          + '<input type="checkbox" data-pid="' + g.id + '" checked>'
-          + '<span>' + esc(g.first_name + ' ' + g.last_name) + '</span>'
-          + '<span style="color:var(--warm-gray);font-size:.78rem;">' + esc(g.email) + '</span>'
-          + '<span style="margin-left:auto;font-size:.78rem;">' + fmtMoney(g.total_cents) + '</span>'
-          + '</label>';
-      }).join('')
-      + '</div>';
-  }).catch(function(e) {
-    status.textContent = 'Error: ' + e.message; status.className = 'import-status err';
-  });
-}
-function selectAllMidyearGivers(checked) {
-  document.querySelectorAll('#batch-mid-givers-list input[type=checkbox]').forEach(function(cb) { cb.checked = checked; });
-}
-function sendBatchMidyearLetters(yr) {
-  var status = document.getElementById('batch-mid-status');
-  var checks = document.querySelectorAll('#batch-mid-givers-list input[type=checkbox]:checked');
-  if (!checks.length) { status.textContent = 'No givers selected.'; status.className = 'import-status err'; return; }
-  if (!_churchConfig.church_name) {
-    api('/admin/api/config/church').then(function(cfg) {
-      _churchConfig = cfg || {};
-      doSendMidyearBatch(yr, checks, status);
-    });
-  } else {
-    doSendMidyearBatch(yr, checks, status);
-  }
-}
-function doSendMidyearBatch(yr, checks, status) {
-  var ids = Array.from(checks).map(function(cb){return cb.dataset.pid;});
-  var total = ids.length, done = 0, failed = 0, skipped = 0;
-  status.textContent = 'Sending 0/' + total + '…'; status.className = 'import-status';
-  function sendNext() {
-    if (!ids.length) {
-      var msg = 'Done. ' + done + ' sent';
-      if (skipped) msg += ', ' + skipped + ' skipped (no email)';
-      if (failed) msg += ', ' + failed + ' failed';
-      msg += '.';
-      status.textContent = msg;
-      status.className = failed ? 'import-status' : 'import-status ok';
-      return;
-    }
-    var pid = ids.shift();
-    api('/admin/api/reports/giving-statement?person_id=' + pid + '&year=' + yr).then(function(d) {
-      if (d.error || !d.person) { failed++; sendNext(); return; }
-      d._mode = 'person';
-      var p = d.person || {};
-      if (!p.email) { skipped++; sendNext(); return; }
-      var churchName = _churchConfig.church_name || 'Timothy Lutheran Church';
-      var letterHtml = renderLetterHTML(d, 'midyear');
-      var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
-        + letterheadImgHtml(true, churchName, 'font-size:16px;font-weight:bold;', 6) + '<hr style="margin:10px 0;">'
-        + letterHtml + '</div>';
-      return api('/admin/api/giving/send-statement', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          to_email: p.email,
-          to_name: (p.first_name + ' ' + p.last_name).trim(),
-          subject: yr + ' Mid-Year Giving Update — ' + churchName,
-          html_body: fullHtml
-        })
-      });
-    }).then(function(r) {
-      if (r && r.ok) done++; else failed++;
-      status.textContent = 'Sending ' + (done+failed+skipped) + '/' + total + '…';
-      sendNext();
+      if (r && r.ok) { done++; status.textContent = 'Sending ' + (done+failed+skipped) + '/' + total + '…'; sendNext(); return; }
+      if (r && r.rate_limited) { stoppedByLimit = true; finish(); return; }
+      failed++; status.textContent = 'Sending ' + (done+failed+skipped) + '/' + total + '…'; sendNext();
     }).catch(function() { failed++; sendNext(); });
   }
   sendNext();
@@ -283,6 +220,8 @@ function doSendAppealBatch(yr, checks, status) {
   }
   sendNext();
 }
+function loadBatchStatementGivers() { loadBatchGivers('batch-stmt', 'year_end'); }
+function loadBatchMidyearGivers() { loadBatchGivers('batch-mid', 'midyear'); }
 // ── GENERATE REGISTER FROM PEOPLE ─────────────────────────────────────
 // Called from the Register tab toolbar — uses the current register type
 function openRegFromPeoplePrompt() {

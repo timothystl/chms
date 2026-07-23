@@ -1030,7 +1030,7 @@ if (seg.startsWith('export/') && method === 'GET') {
 // ── Send Giving Statement via Resend ─────────────────────────────
 if (seg === 'giving/send-statement' && method === 'POST') {
   let b = {}; try { b = await req.json(); } catch {}
-  const { to_email, to_name, subject, html_body } = b;
+  const { to_email, to_name, subject, html_body, person_id, year, letter_type } = b;
   if (!to_email || !html_body) return json({ error: 'to_email and html_body required' }, 400);
   const fromNameRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_from_name'").first();
   const fromEmailRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_from_email'").first();
@@ -1045,7 +1045,23 @@ if (seg === 'giving/send-statement' && method === 'POST') {
     body: JSON.stringify({ from: `${fromName} <${fromEmail}>`, to: [to_email], subject: subject || 'Your Giving Statement', html: html_body })
   });
   const rd = await res.json();
-  if (!res.ok) return json({ error: rd.message || 'Resend error' }, 500);
+  if (!res.ok) {
+    // Resend returns 429 for rate/quota limits; also sniff the error name/message as a
+    // fallback since exact shapes vary by error type. Surfaced distinctly so the batch-send
+    // loop can stop immediately instead of burning through every remaining recipient
+    // marking each one "failed" one at a time.
+    const rateLimited = res.status === 429 || /rate.?limit|quota|daily limit/i.test(String(rd.name || '') + ' ' + String(rd.message || ''));
+    return json({ error: rd.message || 'Resend error', rate_limited: rateLimited }, res.status === 429 ? 429 : 500);
+  }
+  // Record the send for batch resume/dedup — a manual single send still always goes through
+  // above regardless of any prior record; this just logs it (or refreshes sent_at on a
+  // deliberate resend) so a later batch run knows this person/year/letter is already covered.
+  if (person_id && year && letter_type) {
+    await db.prepare(
+      `INSERT INTO giving_letter_sends(person_id, year, letter_type, sent_at) VALUES(?,?,?,datetime('now'))
+       ON CONFLICT(person_id, year, letter_type) DO UPDATE SET sent_at=excluded.sent_at`
+    ).bind(person_id, year, letter_type).run().catch(() => {});
+  }
   return json({ ok: true, id: rd.id });
 }
 
