@@ -1195,6 +1195,7 @@ if (seg === 'reports/giving-by-method' && method === 'GET') {
 
 if (seg === 'reports/giving-statement' && method === 'GET' && url.searchParams.get('list_givers') === '1') {
   const year = url.searchParams.get('year') || new Date().getFullYear();
+  const letterType = url.searchParams.get('letter_type') || '';
   const givers = (await db.prepare(
     `SELECT p.id, p.first_name, p.last_name, p.email,
             SUM(ge.amount) as total_cents
@@ -1205,6 +1206,16 @@ if (seg === 'reports/giving-statement' && method === 'GET' && url.searchParams.g
        AND substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),1,4)=?
      GROUP BY p.id ORDER BY p.last_name, p.first_name`
   ).bind(String(year)).all()).results || [];
+  // Mark who already has this year's letter recorded as sent, so the batch-send UI can
+  // default them unchecked — lets a re-run after a Resend rate-limit interruption (or just a
+  // deliberate second day) pick up only the people who haven't gotten it yet.
+  if (letterType && givers.length) {
+    const sentRows = (await db.prepare(
+      `SELECT person_id FROM giving_letter_sends WHERE year=? AND letter_type=?`
+    ).bind(Number(year), letterType).all()).results || [];
+    const sentIds = new Set(sentRows.map(r => r.person_id));
+    for (const g of givers) g.already_sent = sentIds.has(g.id);
+  }
   return json({ givers });
 }
 
