@@ -1729,38 +1729,33 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ ok: true, imported: ops.length });
   }
 
-  // ── Daycare: direct year-entry (editable fields, per category) ───────────────────────────
-  // "Fields I can edit in the Finance tab" — replaces (not appends) any prior direct entry for
-  // this exact (year, category, type), tagged source='manual_year_entry', so re-saving the same
-  // year is idempotent (behaves like a real editable field) without disturbing entries from any
-  // other source (daycare_api sync, church_budget_import, or one-off 'manual' rows added via the
-  // existing single-entry form).
-  if (seg === 'finance/daycare/year-entry' && method === 'POST') {
+  // ── Daycare: per-cell Budget override (editable directly in the Daycare Report table) ────
+  // Actual always comes from the church's own Budget/Actuals import ("Import from Church Budget
+  // (MDO accounts)", source='church_budget_import') — never hand-typed here, per the user's
+  // explicit correction: "Actual should come from the budget from the church." This endpoint
+  // only ever touches the Budget side of one (year, category) cell, tagged
+  // source='manual_budget_override', so a typed-in historical budget figure can coexist with —
+  // and take precedence over, see finAggregateDaycareByYear's override pass — whatever budget
+  // figure the church import may also have brought in for that same cell, without the two
+  // silently summing together. Deleting any existing override first makes re-saving (or clearing
+  // by omitting `budget`) idempotent rather than additive.
+  if (seg === 'finance/daycare/budget-override' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing daycare budget data requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
     const year = parseInt(b.year, 10);
     if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
-    const rows = Array.isArray(b.entries) ? b.entries : [];
-    if (!rows.length) return json({ error: 'No entries to save' }, 400);
+    if (!b.category || !String(b.category).trim()) return json({ error: 'category is required' }, 400);
     const period = String(year);
-    const ops = [db.prepare(`DELETE FROM finance_daycare_entries WHERE period=? AND source='manual_year_entry'`).bind(period)];
-    let saved = 0;
-    for (const r of rows) {
-      if (!r.category || !String(r.category).trim()) continue;
-      const category = String(r.category).trim();
-      const actualCents = r.actual === '' || r.actual == null ? null : Math.round(Number(r.actual) * 100);
-      const budgetCents = r.budget === '' || r.budget == null ? null : Math.round(Number(r.budget) * 100);
-      if (actualCents != null && Number.isFinite(actualCents)) {
-        ops.push(db.prepare(`INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,source) VALUES (?,?,?,?,'manual_year_entry')`).bind(period, category, 'actual', actualCents));
-        saved++;
-      }
-      if (budgetCents != null && Number.isFinite(budgetCents)) {
-        ops.push(db.prepare(`INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,source) VALUES (?,?,?,?,'manual_year_entry')`).bind(period, category, 'budget', budgetCents));
-        saved++;
-      }
+    const category = String(b.category).trim();
+    const ops = [db.prepare(`DELETE FROM finance_daycare_entries WHERE period=? AND category=? AND entry_type='budget' AND source='manual_budget_override'`).bind(period, category)];
+    let cents = null;
+    if (b.budget !== '' && b.budget != null) {
+      cents = Math.round(Number(b.budget) * 100);
+      if (!Number.isFinite(cents)) return json({ error: 'Invalid budget amount' }, 400);
+      ops.push(db.prepare(`INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,source) VALUES (?,?,'budget',?,'manual_budget_override')`).bind(period, category, cents));
     }
     await db.batch(ops);
-    return json({ ok: true, year, saved });
+    return json({ ok: true, year, category, budgetCents: cents });
   }
 
   // ── Daycare: Utilities/Insurance cost-share config + live computation ────────────────────

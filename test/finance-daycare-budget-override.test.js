@@ -49,46 +49,46 @@ function insertChurchRow(db, r) {
   ).run(r.fiscal_year, r.period_month, r.classification, r.category_path, r.account_name, r.depth, r.has_children, r.own_actual_cents, r.own_budget_cents, r.source);
 }
 
-describe('finance/daycare/year-entry (direct-editable MDO budget fields)', () => {
+describe('finance/daycare/budget-override (directly-editable Budget cell)', () => {
   it('requires admin', async () => {
     const db = makeTestDb();
-    const res = await handleFinanceApi(makeReq({ year: 2025, entries: [{ category: 'Tuition Income', actual: '1000' }] }), {}, new URL('https://x/'), 'POST', 'finance/daycare/year-entry', db, false, true);
+    const res = await handleFinanceApi(makeReq({ year: 2025, category: 'Tuition Income', budget: '300000' }), {}, new URL('https://x/'), 'POST', 'finance/daycare/budget-override', db, false, true);
     expect(res.status).toBe(403);
   });
 
-  it('saves actual and budget per category for a year', async () => {
+  it('saves a budget override for one (year, category) cell', async () => {
     const db = makeTestDb();
-    const body = { year: 2025, entries: [
-      { category: 'Tuition Income', actual: '285000', budget: '300000' },
-      { category: 'Payroll', actual: '190000' },
-    ] };
-    const res = await handleFinanceApi(makeReq(body), {}, new URL('https://x/'), 'POST', 'finance/daycare/year-entry', db, true, true);
+    const res = await handleFinanceApi(makeReq({ year: 2025, category: 'Tuition Income', budget: '300000' }), {}, new URL('https://x/'), 'POST', 'finance/daycare/budget-override', db, true, true);
     expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.saved).toBe(3);
     const rows = daycareRows(db);
-    expect(rows).toHaveLength(3);
-    expect(rows.find(r => r.category === 'Tuition Income' && r.entry_type === 'actual').amount_cents).toBe(28500000);
-    expect(rows.find(r => r.category === 'Tuition Income' && r.entry_type === 'budget').amount_cents).toBe(30000000);
-    expect(rows.find(r => r.category === 'Payroll' && r.entry_type === 'actual').amount_cents).toBe(19000000);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ period: '2025', category: 'Tuition Income', entry_type: 'budget', amount_cents: 30000000, source: 'manual_budget_override' });
   });
 
-  it('re-saving the same year REPLACES its prior manual_year_entry rows instead of appending', async () => {
+  it('re-saving the same cell REPLACES the prior override instead of appending', async () => {
     const db = makeTestDb();
-    await handleFinanceApi(makeReq({ year: 2025, entries: [{ category: 'Tuition Income', actual: '100000' }] }), {}, new URL('https://x/'), 'POST', 'finance/daycare/year-entry', db, true, true);
-    await handleFinanceApi(makeReq({ year: 2025, entries: [{ category: 'Tuition Income', actual: '150000' }] }), {}, new URL('https://x/'), 'POST', 'finance/daycare/year-entry', db, true, true);
+    await handleFinanceApi(makeReq({ year: 2025, category: 'Tuition Income', budget: '100000' }), {}, new URL('https://x/'), 'POST', 'finance/daycare/budget-override', db, true, true);
+    await handleFinanceApi(makeReq({ year: 2025, category: 'Tuition Income', budget: '150000' }), {}, new URL('https://x/'), 'POST', 'finance/daycare/budget-override', db, true, true);
     const rows = daycareRows(db);
     expect(rows).toHaveLength(1);
     expect(rows[0].amount_cents).toBe(15000000);
   });
 
-  it('does not touch entries from other sources (e.g. a manual single-entry-form row)', async () => {
+  it('an empty budget clears the override instead of inserting $0', async () => {
     const db = makeTestDb();
-    db._raw.prepare(`INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,source) VALUES ('2025','Other Expenses','actual',5000,'manual')`).run();
-    await handleFinanceApi(makeReq({ year: 2025, entries: [{ category: 'Tuition Income', actual: '100000' }] }), {}, new URL('https://x/'), 'POST', 'finance/daycare/year-entry', db, true, true);
+    await handleFinanceApi(makeReq({ year: 2025, category: 'Tuition Income', budget: '100000' }), {}, new URL('https://x/'), 'POST', 'finance/daycare/budget-override', db, true, true);
+    await handleFinanceApi(makeReq({ year: 2025, category: 'Tuition Income', budget: '' }), {}, new URL('https://x/'), 'POST', 'finance/daycare/budget-override', db, true, true);
+    expect(daycareRows(db)).toHaveLength(0);
+  });
+
+  it('does not touch entries from other sources (e.g. a church_budget_import actual row)', async () => {
+    const db = makeTestDb();
+    db._raw.prepare(`INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,source) VALUES ('2025','Tuition Income','actual',28500000,'church_budget_import')`).run();
+    await handleFinanceApi(makeReq({ year: 2025, category: 'Tuition Income', budget: '300000' }), {}, new URL('https://x/'), 'POST', 'finance/daycare/budget-override', db, true, true);
     const rows = daycareRows(db);
     expect(rows).toHaveLength(2);
-    expect(rows.some(r => r.source === 'manual' && r.category === 'Other Expenses')).toBe(true);
+    expect(rows.some(r => r.source === 'church_budget_import' && r.entry_type === 'actual')).toBe(true);
+    expect(rows.some(r => r.source === 'manual_budget_override' && r.entry_type === 'budget')).toBe(true);
   });
 });
 
