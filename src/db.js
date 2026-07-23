@@ -1084,6 +1084,46 @@ async function seedIvanhoePropertyJune2026(db) {
   await db.batch(ops);
 }
 
+// FIN — follow-up after the June 2026 seed above, per Andrew's own read of the numbers: (1) the
+// AHRA/MRI "Mortgage Payable One" GL account (2500-0010) genuinely does grow every month rather
+// than shrink — the June report's period debit ($2,830.98) exactly equals that month's actual
+// principal payment (bank rec shows a $3,783.03 LCEF loan payment 6/30/2026; the income
+// statement shows $952.05 interest expense for the same month; 3783.03 - 952.05 = 2830.98,
+// dollar-for-dollar). That's strong evidence this GL account tracks a CUMULATIVE total that
+// grows by each month's principal paid, not the live outstanding balance (which actually
+// decreases as principal is paid) — Andrew's own theory, now backed by an exact reconciliation,
+// not just a vague "artifact" label. Recorded as principal-payment history for the audit trail;
+// does NOT change the confirmed running balance, since this payment already posted before the
+// 2026-07-20 lender confirmation date it's anchored to. (2) Daniel Pica: per Andrew, a former
+// tenant who moved out — plausibly not refunded his full security deposit, which would explain
+// both the $475 ledger/GL gap and why he no longer appears anywhere else in this report (rent
+// roll / aged delinquencies only list current tenants). Still worth confirming the exact
+// refunded amount with AHRA, but resolves the "who is this and why" question. Separate marker
+// from the June financials seed above so it's safe regardless of whether that one already ran.
+async function seedIvanhoePropertyJune2026Notes(db) {
+  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_2026_06_notes_seeded'").first();
+  if (marker) return;
+  const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_meta'").first();
+  let meta = {};
+  if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
+  meta.loan = meta.loan || {};
+  meta.loan.principal_payment_history = [
+    { period: '2026-06', total_payment_cents: 378303, interest_cents: 95205, principal_cents: 283098,
+      note: 'Bank reconciliation: $3,783.03 LCEF loan payment, 6/30/2026. Income statement: $952.05 interest expense, June 2026. Principal = 378303 − 95205 = 283098 — exactly matches the $2,830.98 period debit posted to GL account "Mortgage Payable One" (2500-0010) that same month.' },
+  ];
+  meta.loan.note = (meta.loan.note || '') + ' AHRA/MRI\'s "Mortgage Payable One" GL account grows every month rather than shrinking — the June 2026 period debit ($2,830.98) exactly matches that month\'s real principal payment (see principal_payment_history), strong evidence this account tracks a cumulative total paid over time, not the live outstanding balance. The confirmed running balance above ($279,691.13 as of 2026-07-20) is the one to use; it already reflects June\'s payment since it postdates it.';
+  const openItems = meta.open_items_2026_06;
+  if (Array.isArray(openItems)) {
+    meta.open_items_2026_06 = openItems.map((item) => item.indexOf('Daniel Pica') >= 0
+      ? 'Security Deposits Ledger ending balance (-$4,925.00) does not tie to the Balance Sheet / GL security deposits liability (-$4,450.00). Per Andrew: "Daniel Pica" is a former tenant who moved out and may not have been refunded his full security deposit — plausibly explaining both the $475 gap and why he doesn\'t appear anywhere else in this report (rent roll / aged delinquencies list only current tenants). Still worth confirming the exact refunded amount with AHRA.'
+      : item);
+  }
+  await db.batch([
+    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify(meta)),
+    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_2026_06_notes_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`),
+  ]);
+}
+
 async function _doInitDb(db) {
   for (const stmt of DB_INIT) {
     await db.prepare(stmt).run();
@@ -1516,5 +1556,6 @@ async function _doInitDb(db) {
   await seedIvanhoePropertyReservesV2(db);
   await seedIvanhoePropertyValuationV3(db);
   await seedIvanhoePropertyJune2026(db);
+  await seedIvanhoePropertyJune2026Notes(db);
 }
 

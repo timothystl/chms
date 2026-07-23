@@ -46,3 +46,33 @@ describe('finComputeAvailableForDistribution', () => {
     expect(result.availableCents).toBe(0);
   });
 });
+
+function loadDistributedHelper() {
+  const m = CHMS_APP_EXT_JS.match(/function finComputeDistributedThisYear\([^)]*\) \{[\s\S]*?\n\}/);
+  if (!m) throw new Error('finComputeDistributedThisYear not found in built script');
+  // eslint-disable-next-line no-eval
+  return eval(`(function() { ${m[0]} return finComputeDistributedThisYear; })()`);
+}
+
+describe('finComputeDistributedThisYear', () => {
+  const finComputeDistributedThisYear = loadDistributedHelper();
+  const thisYear = new Date().getFullYear();
+
+  it('sums only this calendar year\'s confirmed distributions', () => {
+    const d = {
+      distributions: [
+        { period: `${thisYear}-01`, amount_cents: 300000 },
+        { period: `${thisYear}-04`, amount_cents: 450000 },
+        { period: `${thisYear - 1}-11`, amount_cents: 999999 }, // prior year — excluded
+      ],
+    };
+    const result = finComputeDistributedThisYear(d);
+    expect(result.year).toBe(thisYear);
+    expect(result.cents).toBe(750000);
+  });
+
+  it('handles no distributions gracefully', () => {
+    const result = finComputeDistributedThisYear({ distributions: [] });
+    expect(result.cents).toBe(0);
+  });
+});
