@@ -175,6 +175,7 @@ function loadSettings() {
     el = document.getElementById('st-vol-phone'); if (el) el.value = d.volunteer_phone || '';
     el = document.getElementById('st-notify-new-signup'); if (el) el.checked = d.notify_new_signup === '1';
     el = document.getElementById('st-notify-weekly-digest'); if (el) el.checked = d.notify_weekly_digest === '1';
+    renderLetterheadLogoState(d.letterhead_logo_ext);
     // Re-enable save buttons now that fields are populated
     document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = false; });
   });
@@ -223,6 +224,42 @@ function saveVolunteerSettings() {
   api('/admin/api/config/church', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(d) {
     if (d.ok) { setStatus('st-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('st-status','');}, 2500); }
     else setStatus('st-status', 'Error: ' + (d.error||'unknown'), 'err');
+  });
+}
+function renderLetterheadLogoState(ext) {
+  var img = document.getElementById('st-logo-preview');
+  var rmBtn = document.getElementById('st-logo-remove-btn');
+  if (ext) {
+    if (img) { img.src = '/admin/letterhead-logo?t=' + Date.now(); img.style.display = 'inline-block'; }
+    if (rmBtn) rmBtn.style.display = 'inline-flex';
+  } else {
+    if (img) { img.style.display = 'none'; img.removeAttribute('src'); }
+    if (rmBtn) rmBtn.style.display = 'none';
+  }
+  _churchConfig.letterhead_logo_ext = ext || '';
+}
+function uploadLetterheadLogo(file) {
+  if (!file) return;
+  var status = document.getElementById('st-logo-status');
+  if (status) { status.textContent = 'Uploading…'; status.className = 'import-status'; }
+  var fd = new FormData();
+  fd.append('logo', file, file.name || 'logo');
+  api('/admin/api/config/letterhead-logo', { method: 'POST', body: fd, credentials: 'same-origin' }).then(function(d) {
+    if (d && d.ok) {
+      renderLetterheadLogoState(d.ext);
+      if (status) { status.textContent = 'Uploaded!'; status.className = 'import-status ok'; setTimeout(function(){status.textContent='';}, 2500); }
+    } else {
+      if (status) { status.textContent = 'Error: ' + ((d && d.error) || 'unknown'); status.className = 'import-status err'; }
+    }
+  }).catch(function() {
+    if (status) { status.textContent = 'Upload failed. Please try again.'; status.className = 'import-status err'; }
+  });
+}
+function removeLetterheadLogo() {
+  if (!confirm('Remove the letterhead logo? Giving letters will go back to showing the plain church name.')) return;
+  api('/admin/api/config/letterhead-logo', { method: 'DELETE' }).then(function(d) {
+    if (d && d.ok) renderLetterheadLogoState('');
+    else alert('Error: ' + ((d && d.error) || 'unknown'));
   });
 }
 function resetLetterTemplate() {
@@ -370,8 +407,8 @@ function renderLetterPreview(letterType) {
   if (title) title.textContent = (letterType === 'midyear' ? 'Mid-Year Giving Update' : 'Year-End Giving Statement') + ' Letter Preview';
   var body = document.getElementById('letter-preview-body');
   if (body) {
-    body.innerHTML = '<div style="font-family:var(--font-head);font-size:1.05rem;color:var(--steel-anchor);margin-bottom:4px;">'
-      + esc(churchName) + '</div><hr style="margin:10px 0;">' + letterHtml;
+    body.innerHTML = (letterheadImgHtml(false) || '<div style="font-family:var(--font-head);font-size:1.05rem;color:var(--steel-anchor);margin-bottom:4px;">' + esc(churchName) + '</div>')
+      + '<hr style="margin:10px 0;">' + letterHtml;
   }
 }
 function previewLetterTemplate(letterType) {
