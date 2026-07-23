@@ -1208,6 +1208,33 @@ if (seg === 'reports/giving-statement' && method === 'GET' && url.searchParams.g
   return json({ givers });
 }
 
+// Giving-appeal population: every household with at least one active Member (regardless of
+// whether they've given anything this year — unlike list_givers above, which only lists people
+// who already have a gift on record). One recipient per household — the head of household's
+// email if they have one, else the first other active member with an email — so a married
+// couple sharing a household doesn't get the appeal twice. total_cents is included for display
+// only (0 for a household that hasn't given yet, which is the point of this list).
+if (seg === 'reports/giving-statement' && method === 'GET' && url.searchParams.get('list_member_households') === '1') {
+  const year = url.searchParams.get('year') || new Date().getFullYear();
+  const rows = (await db.prepare(
+    `SELECT h.id, h.name,
+            (SELECT p2.email FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.email != ''
+               ORDER BY CASE WHEN p2.family_role='head' THEN 0 ELSE 1 END, p2.id LIMIT 1) as recipient_email,
+            (SELECT p2.first_name || ' ' || p2.last_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.email != ''
+               ORDER BY CASE WHEN p2.family_role='head' THEN 0 ELSE 1 END, p2.id LIMIT 1) as recipient_name,
+            COALESCE((SELECT SUM(ge.amount) FROM giving_entries ge
+                        JOIN giving_batches gb ON ge.batch_id=gb.id
+                        JOIN people p3 ON ge.person_id=p3.id
+                       WHERE p3.household_id=h.id
+                         AND substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),1,4)=?), 0) as total_cents
+     FROM households h
+     WHERE EXISTS (SELECT 1 FROM people p WHERE p.household_id=h.id AND p.active=1 AND LOWER(p.member_type)='member')
+     ORDER BY h.name`
+  ).bind(String(year)).all()).results || [];
+  const households = rows.filter(r => r.recipient_email);
+  return json({ households });
+}
+
 if (seg === 'reports/giving-statement' && method === 'GET') {
   const personId = url.searchParams.get('person_id');
   const year = url.searchParams.get('year') || new Date().getFullYear();

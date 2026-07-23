@@ -300,6 +300,17 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <div id="batch-mid-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
         </div>
       </div>
+      <div class="report-tile require-finance" data-tile-id="batch-send-appeal">
+        <div class="tile-icon">&#128140;</div>
+        <div class="tile-title">Send Giving Appeal to All Member Households</div>
+        <div class="tile-desc">
+          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Sends the Mid-Year Update letter to every member household &mdash; not just people who've already given &mdash; one email per household, so it can also prompt households that haven't given yet. Households with $0 recorded will show a $0 total in the letter.</div>
+          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-appeal-year" name="batch-appeal-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchAppealHouseholds()">Load Member Households</button>
+          <div id="batch-appeal-status" class="import-status" style="margin-top:6px;"></div>
+          <div id="batch-appeal-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
+        </div>
+      </div>
     </div>
     <div id="giv-rpt-output" class="report-output"></div>
   </div>
