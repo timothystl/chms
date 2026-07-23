@@ -2270,6 +2270,11 @@ export const HTML_TABS_2 = String.raw`
         <div class="field"><label>Available for Distribution ($)</label><input type="number" id="fpm-afd" step="0.01"></div>
         <div class="field"><label>Reserve Balance ($)</label><input type="number" id="fpm-reserve" step="0.01"></div>
       </div>
+      <div class="modal-2col">
+        <div class="field"><label>Loan Payment ($) <span style="font-weight:400;color:var(--warm-gray);">from bank rec</span></label><input type="number" id="fpm-loan-payment" step="0.01"></div>
+        <div class="field"><label>Interest Expense ($) <span style="font-weight:400;color:var(--warm-gray);">from income statement</span></label><input type="number" id="fpm-interest-expense" step="0.01"></div>
+      </div>
+      <p style="font-size:.72rem;color:var(--warm-gray);margin:0 0 8px;">Fill in both to let the Mortgage Remaining card roll forward automatically (principal paid = loan payment − interest expense). Leave blank if this month's report doesn't break these out.</p>
       <div class="field"><label>Source Report</label><input type="text" id="fpm-source" placeholder="2026-06 - 3277 Ivanhoe Property Management Report.pdf" style="width:100%;"></div>
       <div style="font-size:.78rem;color:var(--danger);margin-top:6px;" id="fpm-error"></div>
     </div>

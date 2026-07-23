@@ -76,3 +76,58 @@ describe('finComputeDistributedThisYear', () => {
     expect(result.cents).toBe(0);
   });
 });
+
+function loadMortgageHelper() {
+  const m = CHMS_APP_EXT_JS.match(/function finComputeMortgageRemainingCents\([^)]*\) \{[\s\S]*?\n\}/);
+  if (!m) throw new Error('finComputeMortgageRemainingCents not found in built script');
+  // eslint-disable-next-line no-eval
+  return eval(`(function() { ${m[0]} return finComputeMortgageRemainingCents; })()`);
+}
+
+describe('finComputeMortgageRemainingCents', () => {
+  const finComputeMortgageRemainingCents = loadMortgageHelper();
+  const loan = { balance_cents: 27969113, balance_as_of_date: '2026-07-20' };
+
+  it('reproduces the real June 2026 reconciliation exactly ($2,830.98 principal)', () => {
+    const monthly = [{ period: '2026-06', loan_payment_cents: 378303, interest_expense_cents: 95205 }];
+    // June predates the confirmed as-of date (2026-07-20) — already reflected in the anchor, not subtracted
+    const result = finComputeMortgageRemainingCents(loan, monthly);
+    expect(result.cents).toBe(27969113);
+    expect(result.asOf).toBe('2026-07-20');
+    expect(result.monthsApplied).toEqual([]);
+  });
+
+  it('rolls the balance forward using a real month after the confirmed as-of date', () => {
+    const monthly = [{ period: '2026-08', loan_payment_cents: 378303, interest_expense_cents: 95000 }];
+    const result = finComputeMortgageRemainingCents(loan, monthly);
+    const principal = 378303 - 95000;
+    expect(result.cents).toBe(27969113 - principal);
+    expect(result.asOf).toBe('2026-08');
+    expect(result.monthsApplied).toEqual(['2026-08']);
+  });
+
+  it('applies multiple months after the anchor in chronological order', () => {
+    const monthly = [
+      { period: '2026-09', loan_payment_cents: 378303, interest_expense_cents: 94000 },
+      { period: '2026-08', loan_payment_cents: 378303, interest_expense_cents: 95000 },
+    ];
+    const result = finComputeMortgageRemainingCents(loan, monthly);
+    const expected = 27969113 - (378303 - 95000) - (378303 - 94000);
+    expect(result.cents).toBe(expected);
+    expect(result.asOf).toBe('2026-09');
+    expect(result.monthsApplied).toEqual(['2026-08', '2026-09']);
+  });
+
+  it('ignores months missing either loan_payment_cents or interest_expense_cents', () => {
+    const monthly = [{ period: '2026-08', loan_payment_cents: 378303, interest_expense_cents: null }];
+    const result = finComputeMortgageRemainingCents(loan, monthly);
+    expect(result.cents).toBe(27969113);
+    expect(result.monthsApplied).toEqual([]);
+  });
+
+  it('falls back to the raw balance when there is no confirmed as-of date', () => {
+    const result = finComputeMortgageRemainingCents({ balance_cents: 5000000 }, []);
+    expect(result.cents).toBe(5000000);
+    expect(result.monthsApplied).toEqual([]);
+  });
+});
