@@ -75,7 +75,7 @@ function doSendBatch(yr, checks, status) {
       var churchName = _churchConfig.church_name || 'Timothy Lutheran Church';
       var letterHtml = renderLetterHTML(d, 'year_end');
       var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
-        + letterheadImgHtml(true) + '<div style="font-size:16px;font-weight:bold;margin-bottom:6px;">' + esc(churchName) + '</div>' + '<hr style="margin:10px 0;">'
+        + letterheadImgHtml(true, churchName, 'font-size:16px;font-weight:bold;', 6) + '<hr style="margin:10px 0;">'
         + letterHtml + '</div>';
       return api('/admin/api/giving/send-statement', {
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -169,7 +169,7 @@ function doSendMidyearBatch(yr, checks, status) {
       var churchName = _churchConfig.church_name || 'Timothy Lutheran Church';
       var letterHtml = renderLetterHTML(d, 'midyear');
       var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
-        + letterheadImgHtml(true) + '<div style="font-size:16px;font-weight:bold;margin-bottom:6px;">' + esc(churchName) + '</div>' + '<hr style="margin:10px 0;">'
+        + letterheadImgHtml(true, churchName, 'font-size:16px;font-weight:bold;', 6) + '<hr style="margin:10px 0;">'
         + letterHtml + '</div>';
       return api('/admin/api/giving/send-statement', {
         method:'POST', headers:{'Content-Type':'application/json'},

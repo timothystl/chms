@@ -407,7 +407,7 @@ function renderLetterPreview(letterType) {
   if (title) title.textContent = (letterType === 'midyear' ? 'Mid-Year Giving Update' : 'Year-End Giving Statement') + ' Letter Preview';
   var body = document.getElementById('letter-preview-body');
   if (body) {
-    body.innerHTML = letterheadImgHtml(false) + '<div style="font-family:var(--font-head);font-size:1.05rem;color:var(--steel-anchor);margin-bottom:4px;">' + esc(churchName) + '</div>'
+    body.innerHTML = letterheadImgHtml(false, churchName, 'font-family:var(--font-head);font-size:1.05rem;color:var(--steel-anchor);')
       + '<hr style="margin:10px 0;">' + letterHtml;
   }
 }
