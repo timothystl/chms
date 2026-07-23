@@ -1131,7 +1131,7 @@ function runGivingStatement() {
       }).join('');
       showRptOutput(
         '<div style="max-width:620px;margin:0 auto;">'
-        + '<div style="text-align:center;margin-bottom:16px;">' + (letterheadImgHtml(false) || '<div style="font-family:var(--font-head);font-size:1.2rem;color:var(--steel-anchor);">' + esc(_churchConfig.church_name || 'Timothy Lutheran Church') + '</div>')
+        + '<div style="margin-bottom:16px;">' + letterheadImgHtml(false) + '<div style="font-family:var(--font-head);font-size:1.2rem;color:var(--steel-anchor);">' + esc(_churchConfig.church_name || 'Timothy Lutheran Church') + '</div>'
         + '<div style="font-size:.9rem;color:var(--warm-gray);">Household Giving Statement — ' + esc(String(yr)) + '</div></div>'
         + '<div style="margin-bottom:14px;font-size:.9rem;"><div><strong>Household:</strong> ' + esc(hh.name) + '</div></div>'
         + '<table class="rpt-table"><thead><tr><th>Date</th><th>Person</th><th>Fund</th><th style="text-align:right;">Amount</th></tr></thead><tbody>'
@@ -1160,8 +1160,8 @@ function runGivingStatement() {
     }).join('');
     showRptOutput(
       '<div style="max-width:600px;margin:0 auto;">'
-      + '<div style="text-align:center;margin-bottom:20px;">'
-      + (letterheadImgHtml(false) || '<div style="font-family:var(--font-head);font-size:1.2rem;color:var(--steel-anchor);">' + esc(_churchConfig.church_name || 'Timothy Lutheran Church') + '</div>')
+      + '<div style="margin-bottom:20px;">'
+      + letterheadImgHtml(false) + '<div style="font-family:var(--font-head);font-size:1.2rem;color:var(--steel-anchor);">' + esc(_churchConfig.church_name || 'Timothy Lutheran Church') + '</div>'
       + '<div style="font-size:.9rem;color:var(--warm-gray);">Charitable Contribution Statement — ' + esc(String(yr)) + '</div>'
       + '</div>'
       + '<div style="margin-bottom:16px;font-size:.9rem;">'
@@ -1196,16 +1196,17 @@ function buildGiftTable(entries, mode) {
   }).join('');
   return '<table style="width:100%;border-collapse:collapse;font-size:.9rem;"><thead style="background:#f5f5f5;">' + header + '</thead><tbody>' + rows + '</tbody></table>';
 }
-// Returns an <img> tag for the uploaded letterhead logo, or '' if none is set — callers fall
-// back to their own existing plain-church-name-text markup when this is empty, so nothing
-// changes for anyone who hasn't uploaded a logo. absolute=true builds a full https:// URL,
+// Returns an <img> tag for the uploaded letterhead logo, or '' if none is set — callers
+// prepend this to their own existing church-name-text markup (not replace it), so the logo
+// shows alongside the name, and nothing changes in the text for anyone who hasn't uploaded a
+// logo. Left-aligned, not centered — no margin:auto. absolute=true builds a full https:// URL,
 // required for outbound HTML email (an email client can't resolve a relative /admin/... path
 // or send along a session cookie, which is also why /admin/letterhead-logo itself is served
 // unauthenticated — see tlc-volunteer-worker.js).
 function letterheadImgHtml(absolute, maxHeight) {
   if (!_churchConfig.letterhead_logo_ext) return '';
   var src = (absolute ? 'https://connect.timothystl.org' : '') + '/admin/letterhead-logo';
-  return '<img src="' + src + '" alt="' + esc(_churchConfig.church_name || 'Church logo') + '" style="max-height:' + (maxHeight || 70) + 'px;display:block;margin:0 auto 8px;">';
+  return '<img src="' + src + '" alt="' + esc(_churchConfig.church_name || 'Church logo') + '" style="max-height:' + (maxHeight || 70) + 'px;display:block;margin:0 0 8px;">';
 }
 function renderLetterHTML(d, letterType, cfgOverride) {
   var cfg = cfgOverride || _churchConfig;
@@ -1282,7 +1283,7 @@ function showGivingLetter(letterType) {
     + '<div id="letter-email-status" class="import-status" style="align-self:center;"></div>'
     + '</div>'
     + '<div id="letter-body" style="background:var(--white);border:1px solid var(--border);border-radius:10px;padding:28px 32px;font-size:.92rem;line-height:1.65;">'
-    + (letterheadImgHtml(false) || '<div style="font-family:var(--font-head);font-size:1.1rem;color:var(--steel-anchor);margin-bottom:4px;">' + esc(churchName) + '</div>')
+    + letterheadImgHtml(false) + '<div style="font-family:var(--font-head);font-size:1.1rem;color:var(--steel-anchor);margin-bottom:4px;">' + esc(churchName) + '</div>'
     + '<hr style="margin:12px 0;">'
     + letterHtml
     + '</div></div>'
@@ -1302,7 +1303,7 @@ function emailGivingLetter(letterType) {
     ? (yr + ' Mid-Year Giving Update — ' + churchName)
     : (yr + ' Charitable Contribution Statement — ' + churchName);
   var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
-    + (letterheadImgHtml(true) || '<div style="font-size:16px;font-weight:bold;margin-bottom:6px;">' + esc(churchName) + '</div>')
+    + letterheadImgHtml(true) + '<div style="font-size:16px;font-weight:bold;margin-bottom:6px;">' + esc(churchName) + '</div>'
     + '<hr style="margin:10px 0;">'
     + letterHtml + '</div>';
   api('/admin/api/giving/send-statement', {
