@@ -350,6 +350,25 @@ if (seg === 'config/member-type-map' && method === 'PUT') {
   return json({ ok: true });
 }
 
+// One-time self-heal: a saved giving-letter template that's an EXACT match of the old
+// plain-textarea default (a literal "\n" marker, not a real newline — predates the TinyMCE
+// editor) gets silently upgraded to the same template's new real-HTML form the moment it's
+// next read. Exact-match only, deliberately — a template a user has actually customized
+// (even lightly) won't match and is left untouched, since there's no safe way to guess how
+// to HTML-ify arbitrary hand-edited text.
+const OLD_DEFAULT_LETTER_TEMPLATE = 'Dear {{name}},\n\nThank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.\n\nBelow is a summary of your giving for {{year}}:\n\n{{gift_table}}\n\nTotal Contributions: {{total}}\n\n{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}\n\nWith gratitude,\n\nTimothy Lutheran Church\n\nDate: {{date}}';
+const NEW_DEFAULT_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>Thank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.</p><p>Below is a summary of your giving for {{year}}:</p>{{gift_table}}<p>Total Contributions: {{total}}</p><p>{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}</p><p>With gratitude,</p><p>Timothy Lutheran Church</p><p>Date: {{date}}</p>';
+const OLD_DEFAULT_MIDYEAR_LETTER_TEMPLATE = 'Dear {{name}},\n\nAs we reach the midpoint of {{year}}, we want to pause and say thank you. Your generosity to Timothy Lutheran Church sustains our ministry, our staff, and our mission in this community &mdash; and we do not take that for granted.\n\nBelow is a summary of your recorded giving for {{year}} so far:\n\n{{gift_table}}\n\nTotal Giving to Date: {{total}}\n\nPlease take a moment to look this over. If anything looks off &mdash; a missing gift, an incorrect amount, or a gift recorded under the wrong name &mdash; please let the church office know so we can correct our records.\n\nIf you have been giving by check or cash and would like a simpler way to stay consistent, consider setting up recurring giving:\n{{#if_giving_url}}- Online recurring giving: {{giving_url}}\n{{/if_giving_url}}- Automatic bank draft or bill pay through your bank\n- Contact the church office and we would be glad to help you set it up\n\nThank you again for your generosity and your partnership in ministry.\n\nWith gratitude,\n\nTimothy Lutheran Church\n\nDate: {{date}}';
+const NEW_DEFAULT_MIDYEAR_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>As we reach the midpoint of {{year}}, we want to pause and say thank you. Your generosity to Timothy Lutheran Church sustains our ministry, our staff, and our mission in this community &mdash; and we do not take that for granted.</p><p>Below is a summary of your recorded giving for {{year}} so far:</p>{{gift_table}}<p>Total Giving to Date: {{total}}</p><p>Please take a moment to look this over. If anything looks off &mdash; a missing gift, an incorrect amount, or a gift recorded under the wrong name &mdash; please let the church office know so we can correct our records.</p><p>If you have been giving by check or cash and would like a simpler way to stay consistent, consider setting up recurring giving:</p><ul><li>{{#if_giving_url}}Online recurring giving: {{giving_url}}{{/if_giving_url}}</li><li>Automatic bank draft or bill pay through your bank</li><li>Contact the church office and we would be glad to help you set it up</li></ul><p>Thank you again for your generosity and your partnership in ministry.</p><p>With gratitude,</p><p>Timothy Lutheran Church</p><p>Date: {{date}}</p>';
+async function healLetterTemplateIfStale(db, key, oldText, newText) {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(key).first();
+  if (row && row.value === oldText) {
+    await db.prepare("UPDATE chms_config SET value=? WHERE key=?").bind(newText, key).run();
+    return newText;
+  }
+  return row ? row.value : null;
+}
+
 if (seg === 'config/church' && method === 'GET') {
   // EIN is admin-only (PII). Non-admins get the rest of the config without it.
   // letterhead_logo_ext is read-only here (informational — GET-only) so every place that
@@ -362,6 +381,14 @@ if (seg === 'config/church' && method === 'GET') {
   const rows = (await db.prepare(`SELECT key, value FROM chms_config WHERE key IN (${keys.map(()=>'?').join(',')})`).bind(...keys).all()).results || [];
   const config = {};
   for (const r of rows) config[r.key] = r.value;
+  if ('giving_letter_template' in config) {
+    const healed = await healLetterTemplateIfStale(db, 'giving_letter_template', OLD_DEFAULT_LETTER_TEMPLATE, NEW_DEFAULT_LETTER_TEMPLATE);
+    if (healed) config.giving_letter_template = healed;
+  }
+  if ('giving_midyear_letter_template' in config) {
+    const healed = await healLetterTemplateIfStale(db, 'giving_midyear_letter_template', OLD_DEFAULT_MIDYEAR_LETTER_TEMPLATE, NEW_DEFAULT_MIDYEAR_LETTER_TEMPLATE);
+    if (healed) config.giving_midyear_letter_template = healed;
+  }
   return json(config);
 }
 if (seg === 'config/church' && method === 'PUT') {
