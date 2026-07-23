@@ -1443,6 +1443,7 @@ export const HTML_TABS_2 = String.raw`
               <button id="fin-church-mode-multiyear" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('multiyear')">Multi-Year</button>
               <button id="fin-church-mode-balances" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('balances')">Balance Sheet</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchImport()">Import Budget</button>
+              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchMonthlyImport()">Import Monthly P&amp;L</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchBalanceImport()">Import Balance Sheet</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportChurchCsv()">Export CSV</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
@@ -2185,6 +2186,26 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('fin-church-import-modal')">Close</button>
       <button class="btn-primary" id="fin-church-import-confirm-btn" style="display:none;" onclick="finChurchConfirmImport()">Import Selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Church Report: import a "Profit and Loss by Month" Excel export — unlocks the Overview's
+     Income vs. Expenses trend / Year-End Projection cards, which need month-by-month data that
+     the annual Budget vs. Actuals import above can't provide (see FIN2 — live QuickBooks sync,
+     the only other source of monthly data, is still pending approval). -->
+<div class="modal-overlay" id="fin-church-monthly-import-modal">
+  <div class="modal" style="max-width:640px;width:95vw;">
+    <div class="modal-header"><span>Import Monthly P&amp;L from Excel</span><button class="modal-close" onclick="closeModal('fin-church-monthly-import-modal')">&#10005;</button></div>
+    <div style="padding:4px 0;">
+      <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload a QuickBooks "Profit and Loss by Month" export (.xlsx) — one column per month, not the Actual/Budget shape the Budget import above expects. This is what feeds the Overview tab's Income vs. Expenses trend and Year-End Projection cards. Importing a year replaces any previously-imported monthly data for that year; a live QuickBooks monthly sync (once connected) always takes precedence over this import for the same year.</p>
+      <input type="file" id="fin-church-monthly-import-file" accept=".xlsx" onchange="finChurchMonthlyImportFileSelected(this)">
+      <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="fin-church-monthly-import-status"></div>
+      <div id="fin-church-monthly-import-preview"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('fin-church-monthly-import-modal')">Close</button>
+      <button class="btn-primary" id="fin-church-monthly-import-confirm-btn" style="display:none;" onclick="finChurchConfirmMonthlyImport()">Import</button>
     </div>
   </div>
 </div>
