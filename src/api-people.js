@@ -38,7 +38,7 @@ function memberSafeView(p, householdDisplayName) {
 // ── Photo upload validation ──────────────────────────────────────────────────
 // Validates a multipart-form image File against size limit and magic-byte
 // signature. file.type from FormData is client-supplied and spoofable.
-async function validateImageUpload(file, maxBytes = 8 * 1024 * 1024) {
+export async function validateImageUpload(file, maxBytes = 8 * 1024 * 1024) {
   if (!file || !file.size) return { ok: false, status: 400, error: 'No file provided' };
   if (file.size > maxBytes) return { ok: false, status: 413, error: 'Image too large (max 8 MB)' };
   const buf = await file.arrayBuffer();
