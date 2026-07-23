@@ -127,6 +127,13 @@ Added 2026-04-15, phased 2026-04-15.
 
 ---
 
+### 2026-07-23 (v1.62.1 — Daycare Report: single source of truth — church Budget import only)
+Follow-up: asked where the Daycare Report's numbers actually come from. Answer given: Actual/Budget were a blind SUM across every source with data for that (year, category) — `church_budget_import`, `daycare_api` (the daycare app's own sync), and one-off `manual` entries — with no way to tell which contributed, and a real risk of double-counting if more than one had data for the same cell. User's decision: **only one source — the church Budget import is fine.**
+- `finAggregateDaycareByYear()` now only counts `source='church_budget_import'` (plus `manual_budget_override`, the per-cell Budget edit from v1.61.1) — new `FIN_DAYCARE_COUNTED_SOURCES` allowlist. `daycare_api` and plain `manual` rows are excluded from every total: not deleted, just no longer counted, so the two can never silently sum together again.
+- New `finDaycareOtherSourceTotals()` scans for any excluded-source data that still exists per year and a new warning banner surfaces it at the top of the Daycare Report ("there's daycare-app-sync or manually-entered data... not included... see Overview → Daycare Sync → 'Show all synced line items' to review or remove it") — a deliberate choice not to silently hide old data the user might not know is sitting there unused.
+- `npm test` (223/223, 4 new tests), `node --check` on both built app-JS bundles, div-balance check on the built `CHMS_HTML`. **Not verified in a live browser.**
+(`src/frontend/js-finance.js`, `src/frontend/js-core.js`, `test/finance-daycare-aggregate.test.js`)
+
 ### 2026-07-23 (v1.61.1 — Daycare Report: corrected direct-edit model — Budget-only, per-cell)
 Immediate follow-up after v1.61.0 shipped: the user clarified (with a screenshot) that the "enter everything by hand" panel was the wrong shape. The real ask: **Actual** should always come from the church's own budget import (already exists — "Import from Church Budget (MDO accounts)" in Overview → Daycare Sync), never be hand-typed; only a past year's **Budget** figure needs direct editing, since it may not be sitting in an imported church file, and it should be editable right in the existing Daycare Report table, not a separate form.
 - Replaced `POST finance/daycare/year-entry` (which accepted Actual+Budget for a whole year at once, source `manual_year_entry`) with `POST finance/daycare/budget-override` — one (year, category) cell at a time, source `manual_budget_override`. Actual is never touched by this endpoint at all.
