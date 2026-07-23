@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.64.0';
+export const DEPLOY_VERSION = '1.64.1';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -44,8 +44,12 @@ var _archiveView = false;
 var _selectMode = false, _selectedPeople = new Set();
 var _editingHouseholdId = null;
 var _churchConfig = {};
-var DEFAULT_LETTER_TEMPLATE = 'Dear {{name}},\\n\\nThank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.\\n\\nBelow is a summary of your giving for {{year}}:\\n\\n{{gift_table}}\\n\\nTotal Contributions: {{total}}\\n\\n{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}\\n\\nWith gratitude,\\n\\nTimothy Lutheran Church\\n\\nDate: {{date}}';
-var DEFAULT_MIDYEAR_LETTER_TEMPLATE = 'Dear {{name}},\\n\\nAs we reach the midpoint of {{year}}, we want to pause and say thank you. Your generosity to Timothy Lutheran Church sustains our ministry, our staff, and our mission in this community &mdash; and we do not take that for granted.\\n\\nBelow is a summary of your recorded giving for {{year}} so far:\\n\\n{{gift_table}}\\n\\nTotal Giving to Date: {{total}}\\n\\nPlease take a moment to look this over. If anything looks off &mdash; a missing gift, an incorrect amount, or a gift recorded under the wrong name &mdash; please let the church office know so we can correct our records.\\n\\nIf you have been giving by check or cash and would like a simpler way to stay consistent, consider setting up recurring giving:\\n{{#if_giving_url}}- Online recurring giving: {{giving_url}}\\n{{/if_giving_url}}- Automatic bank draft or bill pay through your bank\\n- Contact the church office and we would be glad to help you set it up\\n\\nThank you again for your generosity and your partnership in ministry.\\n\\nWith gratitude,\\n\\nTimothy Lutheran Church\\n\\nDate: {{date}}';
+// Real HTML (not the old plain-textarea "\n"-marker format renderLetterHTML() still
+// tolerates for pre-TinyMCE saved templates) — these are what TinyMCE actually displays
+// and edits, so they need to look right in the rich editor from the first load, not just
+// after the final \n->  substitution pass.
+var DEFAULT_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>Thank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.</p><p>Below is a summary of your giving for {{year}}:</p>{{gift_table}}<p>Total Contributions: {{total}}</p><p>{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}</p><p>With gratitude,</p><p>Timothy Lutheran Church</p><p>Date: {{date}}</p>';
+var DEFAULT_MIDYEAR_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>As we reach the midpoint of {{year}}, we want to pause and say thank you. Your generosity to Timothy Lutheran Church sustains our ministry, our staff, and our mission in this community &mdash; and we do not take that for granted.</p><p>Below is a summary of your recorded giving for {{year}} so far:</p>{{gift_table}}<p>Total Giving to Date: {{total}}</p><p>Please take a moment to look this over. If anything looks off &mdash; a missing gift, an incorrect amount, or a gift recorded under the wrong name &mdash; please let the church office know so we can correct our records.</p><p>If you have been giving by check or cash and would like a simpler way to stay consistent, consider setting up recurring giving:</p><ul><li>{{#if_giving_url}}Online recurring giving: {{giving_url}}{{/if_giving_url}}</li><li>Automatic bank draft or bill pay through your bank</li><li>Contact the church office and we would be glad to help you set it up</li></ul><p>Thank you again for your generosity and your partnership in ministry.</p><p>With gratitude,</p><p>Timothy Lutheran Church</p><p>Date: {{date}}</p>';
 
 // ── HELPERS ──────────────────────────────────────────────────────────
 function api(path, opts) {
