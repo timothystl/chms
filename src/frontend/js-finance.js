@@ -747,6 +747,24 @@ function finIsIncomeCategory(cat) {
 // categories (Budget column stays $0 for these two: the allocation is actual-only, matching what
 // was asked for). Omit allocationByYear (or pass a year with no matching key) and these two rows
 // simply don't appear for that year, same as any other category with no data.
+// Per the user's explicit decision — "there should really only be one source, the church import
+// is fine" — the Report only ever sums entries from the church's own Budget import
+// (source='church_budget_import'), plus whatever's been directly edited via a Budget-cell
+// override (source='manual_budget_override', see below). The older daycare-app sync
+// (source='daycare_api') and one-off single-entry-form rows (source='manual') are deliberately
+// EXCLUDED from every total here — not deleted, just not counted — so two sources can never
+// silently double-count the same figure. finDaycareOtherSourceTotals() (below) tells the caller
+// how much of that excluded data still exists, so it can be surfaced rather than hidden.
+var FIN_DAYCARE_COUNTED_SOURCES = { church_budget_import: true, manual_budget_override: true };
+function finDaycareOtherSourceTotals(entries) {
+  var byYear = {};
+  (entries || []).forEach(function(e) {
+    var year = String(e.period || '').slice(0, 4);
+    if (!/^\d{4}$/.test(year) || FIN_DAYCARE_COUNTED_SOURCES[e.source]) return;
+    byYear[year] = (byYear[year] || 0) + (Number(e.amount_cents) || 0);
+  });
+  return byYear;
+}
 function finAggregateDaycareByYear(entries, allocationByYear) {
   var years = [];
   var categoriesSeen = [];
@@ -757,6 +775,7 @@ function finAggregateDaycareByYear(entries, allocationByYear) {
   // explicit correction, Actual always comes from the church's own budget import.
   var overrides = {};
   (entries || []).forEach(function(e) {
+    if (!FIN_DAYCARE_COUNTED_SOURCES[e.source]) return;
     var year = String(e.period || '').slice(0, 4);
     if (!/^\d{4}$/.test(year)) return;
     if (years.indexOf(year) === -1) years.push(year);
@@ -887,14 +906,27 @@ function finLoadFinanceDaycareEntries() {
     if (_finOverviewDomain === 'daycare') finRenderOverviewDaycare();
   });
 }
+// A visible warning (not a silent drop) when daycare-app-sync or one-off manual rows exist for a
+// year but aren't counted in the table above — per the user's decision to count only the church
+// Budget import (plus direct Budget-cell overrides) as the single source of truth.
+function finRenderDaycareOtherSourceWarning() {
+  var otherByYear = finDaycareOtherSourceTotals(_finDaycare);
+  var years = Object.keys(otherByYear).filter(function(y) { return otherByYear[y] !== 0; }).sort();
+  if (!years.length) return '';
+  var parts = years.map(function(y) { return 'FY' + y + ' ($' + finFmtMoney(otherByYear[y]/100) + ')'; }).join(', ');
+  return '<div style="background:var(--chip-warn-bg,#FBF0DA);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:.78rem;color:var(--deep-amber);">'
+    + '<b>Heads up:</b> there\'s daycare-app-sync or manually-entered data (not from the church Budget import) sitting unused for ' + parts + '. It\'s not included in any total above, per your decision to use only the church import as the source of truth — flagging so it\'s not silently invisible. See Overview → Daycare Sync → "Show all synced line items" to review or remove it.'
+    + '</div>';
+}
 function finRenderDaycareReport() {
   var el = document.getElementById('fin-daycare-report');
   if (!el) return;
   var allocationByYear = _finDaycareAllocation ? _finDaycareAllocation.allocation : null;
   var agg = finAggregateDaycareByYear(_finDaycare, allocationByYear);
   _finDaycareAgg = agg;
+  var otherSourceWarning = finRenderDaycareOtherSourceWarning();
   if (!agg.years.length) {
-    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No daycare data yet. Sync the daycare app, or use "Import from Church Budget (MDO accounts)" in the Overview tab.</p>';
+    el.innerHTML = otherSourceWarning + '<p style="font-size:.85rem;color:var(--warm-gray);">No daycare data yet from the church Budget import. Use "Import from Church Budget (MDO accounts)" in the Overview tab.</p>';
     return;
   }
   if (!_finDaycareAllocation && !_finDaycareAllocationLoading) finLoadDaycareAllocation(agg.years);
@@ -934,8 +966,9 @@ function finRenderDaycareReport() {
     return '<tr' + (bold ? ' style="font-weight:700;border-top:2px solid var(--navy);"' : ' style="font-weight:600;border-top:1px solid var(--border);"') + '>'
       + '<td style="padding:5px 8px;">' + label + '</td>' + cells + '</tr>';
   }
-  el.innerHTML = finRenderDaycareAllocationConfig()
-    + (isAdminUI ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 10px;">Actual always comes from "Import from Church Budget (MDO accounts)" in the Overview tab. Click any Budget figure below to edit it directly — useful for a past year whose real budget isn\'t in an imported file.</p>' : '')
+  el.innerHTML = otherSourceWarning
+    + finRenderDaycareAllocationConfig()
+    + (isAdminUI ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 10px;">Actual always comes from "Import from Church Budget (MDO accounts)" in the Overview tab — the single source of truth. Click any Budget figure below to edit it directly — useful for a past year whose real budget isn\'t in an imported file.</p>' : '')
     + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
     + '<thead><tr>' + yearHead1 + '</tr><tr style="border-bottom:2px solid var(--navy);">' + yearHead2 + '</tr></thead>'
     + '<tbody>' + catRows

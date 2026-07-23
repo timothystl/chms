@@ -7,10 +7,12 @@ import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
 function loadHelper() {
   const orderM = CHMS_APP_EXT_JS.match(/var FIN_KNOWN_CATEGORY_ORDER = [\s\S]*?;\n/);
   const isIncomeM = CHMS_APP_EXT_JS.match(/function finIsIncomeCategory\([^)]*\) \{[\s\S]*?\n\}/);
+  const countedM = CHMS_APP_EXT_JS.match(/var FIN_DAYCARE_COUNTED_SOURCES = [\s\S]*?;\n/);
+  const otherTotalsM = CHMS_APP_EXT_JS.match(/function finDaycareOtherSourceTotals\([^)]*\) \{[\s\S]*?\n\}/);
   const aggM = CHMS_APP_EXT_JS.match(/function finAggregateDaycareByYear\([^)]*\) \{[\s\S]*?\n\}/);
-  if (!orderM || !isIncomeM || !aggM) throw new Error('helper(s) not found in built script');
+  if (!orderM || !isIncomeM || !countedM || !otherTotalsM || !aggM) throw new Error('helper(s) not found in built script');
   // eslint-disable-next-line no-eval
-  return eval(`(function() { ${orderM[0]} ${isIncomeM[0]} ${aggM[0]} return finAggregateDaycareByYear; })()`);
+  return eval(`(function() { ${orderM[0]} ${isIncomeM[0]} ${countedM[0]} ${otherTotalsM[0]} ${aggM[0]} return { finAggregateDaycareByYear, finDaycareOtherSourceTotals }; })()`);
 }
 
 function entry(period, category, entry_type, amount_cents, source) {
@@ -18,7 +20,7 @@ function entry(period, category, entry_type, amount_cents, source) {
 }
 
 describe('finAggregateDaycareByYear', () => {
-  const finAggregateDaycareByYear = loadHelper();
+  const { finAggregateDaycareByYear } = loadHelper();
 
   it('sums actual and budget normally when there is no override', () => {
     const agg = finAggregateDaycareByYear([
@@ -63,5 +65,40 @@ describe('finAggregateDaycareByYear', () => {
       entry('2025', 'Utilities', 'budget', 100000, 'manual_budget_override'),
     ], allocationByYear);
     expect(agg.byYear['2025'].categories['Utilities']).toEqual({ actual: 5000, budget: 1000 });
+  });
+
+  // Per the user's explicit decision: "there should really only be one source, the church import
+  // is fine" — daycare_api (app sync) and plain 'manual' rows are excluded from every total.
+  it('ignores daycare_api and manual sources entirely — only church_budget_import and manual_budget_override count', () => {
+    const agg = finAggregateDaycareByYear([
+      entry('2025', 'Tuition Income', 'actual', 28500000, 'church_budget_import'),
+      entry('2025', 'Tuition Income', 'actual', 99999999, 'daycare_api'),
+      entry('2025', 'Payroll', 'actual', 12345, 'manual'),
+    ]);
+    expect(agg.byYear['2025'].categories['Tuition Income'].actual).toBe(285000);
+    expect(agg.byYear['2025'].categories['Payroll']).toBeUndefined(); // the manual-only row never counted at all
+  });
+
+  it('a year with ONLY excluded-source data does not appear in years at all', () => {
+    const agg = finAggregateDaycareByYear([entry('2024', 'Tuition Income', 'actual', 1000000, 'daycare_api')]);
+    expect(agg.years).toEqual([]);
+  });
+});
+
+describe('finDaycareOtherSourceTotals', () => {
+  const { finDaycareOtherSourceTotals } = loadHelper();
+
+  it('sums entries from every source except church_budget_import/manual_budget_override, per year', () => {
+    const totals = finDaycareOtherSourceTotals([
+      entry('2023', 'Tuition Income', 'actual', 100000, 'daycare_api'),
+      entry('2023', 'Payroll', 'actual', 50000, 'manual'),
+      entry('2024', 'Tuition Income', 'actual', 25000, 'daycare_api'),
+      entry('2025', 'Tuition Income', 'actual', 999999, 'church_budget_import'), // excluded from this total
+    ]);
+    expect(totals).toEqual({ '2023': 150000, '2024': 25000 });
+  });
+
+  it('returns an empty object when there is nothing outside the counted sources', () => {
+    expect(finDaycareOtherSourceTotals([entry('2025', 'Tuition Income', 'actual', 1000, 'church_budget_import')])).toEqual({});
   });
 });
