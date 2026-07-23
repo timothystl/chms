@@ -574,6 +574,107 @@ export function findBudgetVsActualsSheet(sheets) {
   return null;
 }
 
+// ── Church Report: "Profit and Loss by Month" Excel import ───────────────────────────────────
+// A genuinely different QuickBooks export from the annual "Budget vs. Actuals" report above:
+// one column per month (Jan/Feb/.../Dec) instead of Actual/Budget, and no Budget figures at all
+// (own_budget_cents is always null, same as the live monthly sync's makeMonthlyExtractor — see
+// FIN2/CONN6-era notes on why monthly data specifically needs its own source: the Overview tab's
+// trend/projection cards need period_month 1-12 rows, which the annual import can never produce).
+// Reuses the exact same leading-space-indentation tree walk as parseBudgetVsActualsGrid (same
+// report family, same export convention from this church's QuickBooks) — only the header
+// detection and per-row amount extraction differ (N month columns instead of 2).
+export function findMonthlyPnLSheet(sheets) {
+  for (const s of sheets) {
+    if (!s.grid) continue;
+    if (s.grid.some(r => r && parseMonthColTitle(r[1]) && parseMonthColTitle(r[2]))) return s;
+  }
+  return null;
+}
+export function parseMonthlyPnLGrid(grid) {
+  const headerIdx = grid.findIndex(r => r && parseMonthColTitle(r[1]) && parseMonthColTitle(r[2]));
+  if (headerIdx === -1) throw new Error('Could not find a month-by-month header row (e.g. "Jan 2026", "Feb 2026", ...) in this sheet.');
+  const header = grid[headerIdx];
+  const monthCols = [];
+  for (let c = 1; c < header.length; c++) {
+    const p = parseMonthColTitle(header[c]);
+    if (p) monthCols.push({ col: c, year: p.year, month: p.month });
+  }
+  if (!monthCols.length) throw new Error('No month columns found in the header row.');
+  const fiscalYear = monthCols[0].year;
+  const stack = [];
+  let classification = null;
+  const rows = [], skipped = [];
+  for (let i = headerIdx + 1; i < grid.length; i++) {
+    const raw = grid[i] && grid[i][0];
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const label = raw.trim();
+    if (/^Total\s/i.test(label)) continue;
+    if (IMPORT_SKIP_LABEL_RE.test(label)) continue;
+    const depth = indentDepthOf(raw);
+    const nextLabel = nextNonBlankLabel(grid, i);
+    const hasChildren = nextLabel != null && indentDepthOf(nextLabel) > depth;
+    if (depth === 0 && !hasChildren) { skipped.push(raw); continue; }
+    while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
+    let path;
+    if (depth === 0) {
+      classification = normalizeChurchClassification(label);
+      path = [classification];
+    } else {
+      const parent = stack.length ? stack[stack.length - 1] : { path: [classification || 'Income'] };
+      path = parent.path.concat(label);
+    }
+    stack.push({ depth, path });
+    const row = grid[i] || [];
+    for (const { col, year, month } of monthCols) {
+      rows.push(makeFlatRow(path, classification, hasChildren, {
+        fiscal_year: year, period_month: month,
+        own_actual_cents: dollarsToCents(row[col]), own_budget_cents: null,
+      }));
+    }
+  }
+  return { fiscalYear, months: monthCols.map(m => m.month), rows, skipped };
+}
+// Wholesale-replaces source='monthly_import' rows for exactly one fiscal year's monthly range —
+// same re-import-is-idempotent pattern as persistChurchEntriesImport, scoped to period_month
+// 1-12 only so it can never touch that function's own annual (period_month=0) rows even though
+// they share a fiscal_year.
+export async function persistChurchEntriesMonthlyImport(db, rows, fiscalYear, importedAt) {
+  const ops = [db.prepare(`DELETE FROM finance_church_entries WHERE source='monthly_import' AND fiscal_year=? AND period_month BETWEEN 1 AND 12`).bind(fiscalYear)];
+  for (const r of rows) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_church_entries
+         (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+       VALUES (?,?,?,?,?,?,?,?,?,'monthly_import',?)
+       ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
+         classification=excluded.classification, account_name=excluded.account_name, depth=excluded.depth,
+         has_children=excluded.has_children, own_actual_cents=excluded.own_actual_cents,
+         own_budget_cents=excluded.own_budget_cents, synced_at=excluded.synced_at`
+    ).bind(fiscalYear, r.period_month, r.classification, r.category_path, r.account_name, r.depth, r.has_children ? 1 : 0, r.own_actual_cents, r.own_budget_cents, importedAt));
+  }
+  await db.batch(ops);
+}
+// Monthly rows can come from two sources (the live sync's 'qbo_sync' or this manual
+// 'monthly_import') — resolved per fiscal year, live sync wins whenever it has data for that
+// year (it's the fresher, always-current source once connected), falling back to the manual
+// import only for a year the live sync has never covered. Mirrors resolveChurchYearPrecedence's
+// per-year (not per-row) resolution, just with the opposite priority order for the reason above.
+const CHURCH_MONTHLY_SOURCE_PRIORITY = ['qbo_sync', 'monthly_import'];
+export function resolveChurchMonthlyYearPrecedence(rows) {
+  const byYear = new Map();
+  for (const r of rows) {
+    if (!byYear.has(r.fiscal_year)) byYear.set(r.fiscal_year, []);
+    byYear.get(r.fiscal_year).push(r);
+  }
+  const out = [];
+  for (const yearRows of byYear.values()) {
+    for (const src of CHURCH_MONTHLY_SOURCE_PRIORITY) {
+      const matching = yearRows.filter(r => r.source === src);
+      if (matching.length) { out.push(...matching); break; }
+    }
+  }
+  return out;
+}
+
 // ── Commercial Property: AHRA "Budget Detail" import ─────────────────────────────────────
 // A property-management export (one row per account, one column per month, "Account Name" +
 // "Jan 2026".."Dec 2026" + "Total" + "Percent" header) — a genuinely different shape from the
@@ -1839,9 +1940,10 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     let monthlyTrend = { available: false, months: [] };
     if (year === now.getFullYear()) {
       const throughMonth = now.getMonth() + 1;
-      const monthlyRows = (await db.prepare(
-        `SELECT * FROM finance_church_entries WHERE source='qbo_sync' AND period_month BETWEEN 1 AND 12 AND fiscal_year IN (?,?)`
+      const monthlyRowsAll = (await db.prepare(
+        `SELECT * FROM finance_church_entries WHERE source IN ('qbo_sync','monthly_import') AND period_month BETWEEN 1 AND 12 AND fiscal_year IN (?,?)`
       ).bind(year, year - 1).all()).results || [];
+      const monthlyRows = resolveChurchMonthlyYearPrecedence(monthlyRowsAll);
       const curMonthly = monthlyRows.filter(r => r.fiscal_year === year && r.period_month <= throughMonth);
       const priorMonthly = monthlyRows.filter(r => r.fiscal_year === year - 1 && r.period_month <= throughMonth);
       const priorAnnualRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year - 1).all()).results || [];
@@ -1920,6 +2022,42 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       || !Number.isFinite(r.own_actual_cents) || !Number.isFinite(r.own_budget_cents));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
     await persistChurchEntriesImport(db, rows, fiscalYear, new Date().toISOString());
+    return json({ ok: true, fiscalYear, imported: rows.length });
+  }
+
+  // ── Church Report: Monthly P&L import (unblocks YoY/Supplies/Trend cards without live
+  // QuickBooks sync — see FIN2). A "Profit and Loss by Month" export has one column per month
+  // instead of one Actual/Budget pair, so it needs its own sheet-finder/parser, but reuses the
+  // same preview-then-commit shape and the same xlsx-reading infrastructure. ─────────────────
+  if (seg === 'finance/church/monthly-import-preview' && method === 'POST') {
+    const form = await req.formData().catch(() => null);
+    const file = form && form.get('file');
+    if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
+    if (file.size > 15 * 1024 * 1024) return json({ error: 'File too large (max 15 MB)' }, 413);
+    let sheets;
+    try { sheets = await parseXlsxAllSheets(await file.arrayBuffer()); }
+    catch (e) { return json({ error: 'Could not read this file as an Excel workbook: ' + e.message }, 400); }
+    const sheet = findMonthlyPnLSheet(sheets);
+    if (!sheet) return json({ error: 'Could not find a month-by-month "Profit and Loss by Month" sheet (a sheet with columns like "Jan 2026", "Feb 2026", ...) in this file.' }, 400);
+    let parsed;
+    try { parsed = parseMonthlyPnLGrid(sheet.grid); }
+    catch (e) { return json({ error: e.message }, 400); }
+    return json({ sheetName: sheet.name, fiscalYear: parsed.fiscalYear, months: parsed.months, rows: parsed.rows, skipped: parsed.skipped });
+  }
+
+  // Commit step: wholesale-replaces any existing source='monthly_import' rows for that fiscal
+  // year (all 12 months at once) — the same replace-per-year pattern as the annual import.
+  if (seg === 'finance/church/monthly-import' && method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    const fiscalYear = parseInt(b.fiscal_year, 10);
+    if (!Number.isFinite(fiscalYear)) return json({ error: 'fiscal_year is required' }, 400);
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) return json({ error: 'No rows to import' }, 400);
+    const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number'
+      || !Number.isInteger(r.period_month) || r.period_month < 1 || r.period_month > 12
+      || !Number.isFinite(r.own_actual_cents));
+    if (bad) return json({ error: 'Malformed row in import payload' }, 400);
+    await persistChurchEntriesMonthlyImport(db, rows, fiscalYear, new Date().toISOString());
     return json({ ok: true, fiscalYear, imported: rows.length });
   }
 
