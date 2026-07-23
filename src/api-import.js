@@ -2,6 +2,7 @@
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
 import { parseFundSplits, givingEntryId, isGivingDup } from './api-utils.js';
+import { validateImageUpload } from './api-people.js';
 
 // Cache a Breeze profile photo into our R2 bucket, returning a stable
 // /admin/r2photo/... URL. Mirrors the auth fallbacks in the /admin/photo-proxy
@@ -351,8 +352,11 @@ if (seg === 'config/member-type-map' && method === 'PUT') {
 
 if (seg === 'config/church' && method === 'GET') {
   // EIN is admin-only (PII). Non-admins get the rest of the config without it.
+  // letterhead_logo_ext is read-only here (informational — GET-only) so every place that
+  // already loads _churchConfig picks it up for free; it can only be SET via the dedicated
+  // config/letterhead-logo upload/delete endpoints below, not this generic PUT.
   const publicKeys = ['church_from_name','church_from_email','giving_letter_template','giving_midyear_letter_template',
-    'online_giving_url','church_name',
+    'online_giving_url','church_name','letterhead_logo_ext',
     'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
   const keys = isAdmin ? ['church_ein', ...publicKeys] : publicKeys;
   const rows = (await db.prepare(`SELECT key, value FROM chms_config WHERE key IN (${keys.map(()=>'?').join(',')})`).bind(...keys).all()).results || [];
@@ -371,6 +375,40 @@ if (seg === 'config/church' && method === 'PUT') {
       await db.prepare("INSERT INTO chms_config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(k, String(b[k])).run();
     }
   }
+  return json({ ok: true });
+}
+
+// ── Letterhead logo — shown at the top of giving letters (view/email/preview) in place of
+// the plain church-name text once set. Served publicly (unauthenticated) at
+// /admin/letterhead-logo (tlc-volunteer-worker.js) since outbound HTML emails need a real,
+// non-authenticated image URL — an email client can't send along a session cookie. Stored in
+// the same R2 bucket as person/household photos, at a fixed key so there's only ever one.
+if (seg === 'config/letterhead-logo' && method === 'GET') {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key='letterhead_logo_ext'").first();
+  return json({ ext: row?.value || '' });
+}
+if (seg === 'config/letterhead-logo' && method === 'POST') {
+  if (!isStaff) return json({ error: 'Access denied' }, 403);
+  if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket tlc-chms-photos' }, 503);
+  let file;
+  try { const fd = await req.formData(); file = fd.get('logo'); } catch { return json({ error: 'Invalid form data' }, 400); }
+  const v = await validateImageUpload(file);
+  if (!v.ok) return json({ error: v.error }, v.status);
+  const prev = await db.prepare("SELECT value FROM chms_config WHERE key='letterhead_logo_ext'").first();
+  if (prev?.value && prev.value !== v.ext) {
+    try { await env.PHOTOS.delete(`branding/letterhead-logo.${prev.value}`); } catch {}
+  }
+  await env.PHOTOS.put(`branding/letterhead-logo.${v.ext}`, v.buf, { httpMetadata: { contentType: v.ct } });
+  await db.prepare("INSERT INTO chms_config(key,value) VALUES('letterhead_logo_ext',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(v.ext).run();
+  return json({ ok: true, ext: v.ext });
+}
+if (seg === 'config/letterhead-logo' && method === 'DELETE') {
+  if (!isStaff) return json({ error: 'Access denied' }, 403);
+  const prev = await db.prepare("SELECT value FROM chms_config WHERE key='letterhead_logo_ext'").first();
+  if (prev?.value && env.PHOTOS) {
+    try { await env.PHOTOS.delete(`branding/letterhead-logo.${prev.value}`); } catch {}
+  }
+  await db.prepare("DELETE FROM chms_config WHERE key='letterhead_logo_ext'").run();
   return json({ ok: true });
 }
 

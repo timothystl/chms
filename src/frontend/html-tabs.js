@@ -459,6 +459,17 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <input type="text" id="st-giving-url" name="st-giving-url" placeholder="https://timothystl.org/give" style="width:100%;">
         <div style="font-size:.76rem;color:var(--warm-gray);margin-top:4px;">Shown in the Mid-Year Giving Update letter as a link for setting up recurring/automatic giving. Leave blank to omit.</div>
       </div>
+      <div class="field" style="margin-bottom:12px;">
+        <label>Letterhead Logo (optional)</label>
+        <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:6px;">Replaces the plain church-name text at the top of giving letters (view, email, and batch send) with this image. Uploaded separately from the buttons below &mdash; no need to click Save Church Info.</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <img id="st-logo-preview" style="max-height:56px;display:none;border:1px solid var(--border);border-radius:6px;padding:4px;background:var(--white);">
+          <input type="file" id="st-logo-file" name="st-logo-file" accept="image/*" style="display:none;" onchange="uploadLetterheadLogo(this.files[0])">
+          <button class="btn-secondary" style="font-size:.82rem;" onclick="document.getElementById('st-logo-file').click()">&#128247; Upload Logo</button>
+          <button class="btn-secondary" id="st-logo-remove-btn" style="font-size:.82rem;display:none;" onclick="removeLetterheadLogo()">Remove Logo</button>
+          <span id="st-logo-status" class="import-status"></span>
+        </div>
+      </div>
       <button class="btn-primary" onclick="saveSettings()">Save Church Info</button>
     </div>
     <!-- Volunteer Site & Notifications Card -->
