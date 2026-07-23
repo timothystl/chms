@@ -331,9 +331,21 @@ function initLetterEditor(id, letterType, value) {
       branding: false,
       promotion: false,
       plugins: 'lists link image code',
-      toolbar: 'undo redo | blocks | bold italic underline | bullist numlist | link image | mergefield | code',
+      // This editor is self-hosted from a deliberately minimal vendored TinyMCE subset (see
+      // vendor/tinymce/ — only the code/image/link/lists plugins are actually present, not
+      // the full package). Every button below is either one of those four plugins or a
+      // core-registered command that needs no plugin file at all (confirmed present in the
+      // vendored tinymce.min.js: forecolor, fontsize, blockquote) — deliberately NOT adding
+      // table/charmap/searchreplace/etc., since those plugin files don't exist here and
+      // requesting them would 404 and leave a broken button instead of a missing one.
+      toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline strikethrough subscript superscript | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist indent outdent | blockquote removeformat | link image | mergefield | code',
       content_css: false,
-      content_style: 'body{font-family:Georgia,serif;font-size:14px;line-height:1.65;color:#222;padding:12px;}'
+      // 600px matches the actual printed/emailed letter's max-width (showGivingLetter's
+      // wrapping div in js-reports.js) — constraining the editable body to the same width,
+      // centered on a gray canvas with a page-like shadow, makes the real line-wrap and
+      // margins visible while typing instead of only showing up once you print/preview.
+      content_style: 'html{background:#e2e0da;}'
+        + 'body{max-width:600px;margin:0 auto;background:#fff;font-family:Georgia,serif;font-size:14px;line-height:1.65;color:#222;padding:28px 32px;box-shadow:0 0 0 1px rgba(0,0,0,.08),0 2px 10px rgba(0,0,0,.1);min-height:calc(100% - 40px);}'
         + '.mce-content-body span[data-mce-token]{user-select:all;}',
       // No upload endpoint — images (church logo, four-values graphic, etc.) are embedded as
       // base64 data: URIs directly in the stored template, same as drag-drop/paste already
