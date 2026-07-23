@@ -459,6 +459,17 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <input type="text" id="st-giving-url" name="st-giving-url" placeholder="https://timothystl.org/give" style="width:100%;">
         <div style="font-size:.76rem;color:var(--warm-gray);margin-top:4px;">Shown in the Mid-Year Giving Update letter as a link for setting up recurring/automatic giving. Leave blank to omit.</div>
       </div>
+      <div class="field" style="margin-bottom:12px;">
+        <label>Letterhead Logo (optional)</label>
+        <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:6px;">Replaces the plain church-name text at the top of giving letters (view, email, and batch send) with this image. Uploaded separately from the buttons below &mdash; no need to click Save Church Info.</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <img id="st-logo-preview" style="max-height:56px;display:none;border:1px solid var(--border);border-radius:6px;padding:4px;background:var(--white);">
+          <input type="file" id="st-logo-file" name="st-logo-file" accept="image/*" style="display:none;" onchange="uploadLetterheadLogo(this.files[0])">
+          <button class="btn-secondary" style="font-size:.82rem;" onclick="document.getElementById('st-logo-file').click()">&#128247; Upload Logo</button>
+          <button class="btn-secondary" id="st-logo-remove-btn" style="font-size:.82rem;display:none;" onclick="removeLetterheadLogo()">Remove Logo</button>
+          <span id="st-logo-status" class="import-status"></span>
+        </div>
+      </div>
       <button class="btn-primary" onclick="saveSettings()">Save Church Info</button>
     </div>
     <!-- Volunteer Site & Notifications Card -->
@@ -482,7 +493,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div class="import-card" style="margin-bottom:14px;">
       <h3>&#128140; Year-End Giving Letter Template</h3>
       <p>Used when generating giving letters. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{ein}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code></p>
-      <textarea id="st-letter-tpl" name="st-letter-tpl" rows="10" oninput="liveUpdateLetterPreview('year_end')" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
+      <textarea id="st-letter-tpl" name="st-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
       <div style="margin-top:8px;">
         <button class="btn-primary" onclick="saveSettings()">Save Template</button>
         <button class="btn-secondary" onclick="previewLetterTemplate(&#39;year_end&#39;)" style="margin-left:8px;">&#128065; Preview</button>
@@ -493,7 +504,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div class="import-card" style="margin-bottom:14px;">
       <h3>&#128140; Mid-Year Giving Update Letter Template</h3>
       <p>Used for the mid-year giving update &mdash; thanks givers, shows year-to-date giving for them to review, and suggests ways to set up recurring/automatic giving. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code>, <code>{{giving_url}}</code></p>
-      <textarea id="st-midyear-letter-tpl" name="st-midyear-letter-tpl" rows="10" oninput="liveUpdateLetterPreview('midyear')" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
+      <textarea id="st-midyear-letter-tpl" name="st-midyear-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
       <div style="margin-top:8px;">
         <button class="btn-primary" onclick="saveSettings()">Save Template</button>
         <button class="btn-secondary" onclick="previewLetterTemplate(&#39;midyear&#39;)" style="margin-left:8px;">&#128065; Preview</button>

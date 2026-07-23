@@ -2,6 +2,7 @@
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
 import { parseFundSplits, givingEntryId, isGivingDup } from './api-utils.js';
+import { validateImageUpload } from './api-people.js';
 
 // Cache a Breeze profile photo into our R2 bucket, returning a stable
 // /admin/r2photo/... URL. Mirrors the auth fallbacks in the /admin/photo-proxy
@@ -349,15 +350,45 @@ if (seg === 'config/member-type-map' && method === 'PUT') {
   return json({ ok: true });
 }
 
+// One-time self-heal: a saved giving-letter template that's an EXACT match of the old
+// plain-textarea default (a literal "\n" marker, not a real newline — predates the TinyMCE
+// editor) gets silently upgraded to the same template's new real-HTML form the moment it's
+// next read. Exact-match only, deliberately — a template a user has actually customized
+// (even lightly) won't match and is left untouched, since there's no safe way to guess how
+// to HTML-ify arbitrary hand-edited text.
+const OLD_DEFAULT_LETTER_TEMPLATE = 'Dear {{name}},\n\nThank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.\n\nBelow is a summary of your giving for {{year}}:\n\n{{gift_table}}\n\nTotal Contributions: {{total}}\n\n{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}\n\nWith gratitude,\n\nTimothy Lutheran Church\n\nDate: {{date}}';
+const NEW_DEFAULT_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>Thank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.</p><p>Below is a summary of your giving for {{year}}:</p>{{gift_table}}<p>Total Contributions: {{total}}</p><p>{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}</p><p>With gratitude,</p><p>Timothy Lutheran Church</p><p>Date: {{date}}</p>';
+const OLD_DEFAULT_MIDYEAR_LETTER_TEMPLATE = 'Dear {{name}},\n\nAs we reach the midpoint of {{year}}, we want to pause and say thank you. Your generosity to Timothy Lutheran Church sustains our ministry, our staff, and our mission in this community &mdash; and we do not take that for granted.\n\nBelow is a summary of your recorded giving for {{year}} so far:\n\n{{gift_table}}\n\nTotal Giving to Date: {{total}}\n\nPlease take a moment to look this over. If anything looks off &mdash; a missing gift, an incorrect amount, or a gift recorded under the wrong name &mdash; please let the church office know so we can correct our records.\n\nIf you have been giving by check or cash and would like a simpler way to stay consistent, consider setting up recurring giving:\n{{#if_giving_url}}- Online recurring giving: {{giving_url}}\n{{/if_giving_url}}- Automatic bank draft or bill pay through your bank\n- Contact the church office and we would be glad to help you set it up\n\nThank you again for your generosity and your partnership in ministry.\n\nWith gratitude,\n\nTimothy Lutheran Church\n\nDate: {{date}}';
+const NEW_DEFAULT_MIDYEAR_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>As we reach the midpoint of {{year}}, we want to pause and say thank you. Your generosity to Timothy Lutheran Church sustains our ministry, our staff, and our mission in this community &mdash; and we do not take that for granted.</p><p>Below is a summary of your recorded giving for {{year}} so far:</p>{{gift_table}}<p>Total Giving to Date: {{total}}</p><p>Please take a moment to look this over. If anything looks off &mdash; a missing gift, an incorrect amount, or a gift recorded under the wrong name &mdash; please let the church office know so we can correct our records.</p><p>If you have been giving by check or cash and would like a simpler way to stay consistent, consider setting up recurring giving:</p><ul><li>{{#if_giving_url}}Online recurring giving: <a href="{{giving_url}}">{{giving_url}}</a>{{/if_giving_url}}</li><li>Automatic bank draft or bill pay through your bank</li><li>Contact the church office and we would be glad to help you set it up</li></ul><p>Thank you again for your generosity and your partnership in ministry.</p><p>With gratitude,</p><p>Timothy Lutheran Church</p><p>Date: {{date}}</p>';
+async function healLetterTemplateIfStale(db, key, oldText, newText) {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(key).first();
+  if (row && row.value === oldText) {
+    await db.prepare("UPDATE chms_config SET value=? WHERE key=?").bind(newText, key).run();
+    return newText;
+  }
+  return row ? row.value : null;
+}
+
 if (seg === 'config/church' && method === 'GET') {
   // EIN is admin-only (PII). Non-admins get the rest of the config without it.
+  // letterhead_logo_ext is read-only here (informational — GET-only) so every place that
+  // already loads _churchConfig picks it up for free; it can only be SET via the dedicated
+  // config/letterhead-logo upload/delete endpoints below, not this generic PUT.
   const publicKeys = ['church_from_name','church_from_email','giving_letter_template','giving_midyear_letter_template',
-    'online_giving_url','church_name',
+    'online_giving_url','church_name','letterhead_logo_ext',
     'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
   const keys = isAdmin ? ['church_ein', ...publicKeys] : publicKeys;
   const rows = (await db.prepare(`SELECT key, value FROM chms_config WHERE key IN (${keys.map(()=>'?').join(',')})`).bind(...keys).all()).results || [];
   const config = {};
   for (const r of rows) config[r.key] = r.value;
+  if ('giving_letter_template' in config) {
+    const healed = await healLetterTemplateIfStale(db, 'giving_letter_template', OLD_DEFAULT_LETTER_TEMPLATE, NEW_DEFAULT_LETTER_TEMPLATE);
+    if (healed) config.giving_letter_template = healed;
+  }
+  if ('giving_midyear_letter_template' in config) {
+    const healed = await healLetterTemplateIfStale(db, 'giving_midyear_letter_template', OLD_DEFAULT_MIDYEAR_LETTER_TEMPLATE, NEW_DEFAULT_MIDYEAR_LETTER_TEMPLATE);
+    if (healed) config.giving_midyear_letter_template = healed;
+  }
   return json(config);
 }
 if (seg === 'config/church' && method === 'PUT') {
@@ -365,12 +396,59 @@ if (seg === 'config/church' && method === 'PUT') {
   const allowed = ['church_ein','church_from_name','church_from_email','giving_letter_template','giving_midyear_letter_template',
     'online_giving_url','church_name',
     'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
+  // The two letter-template editors have no image-upload endpoint — an inserted image
+  // (via the toolbar, or paste/drag-drop, which TinyMCE also embeds as base64 by default
+  // with no images_upload_handler configured) becomes a giant base64 text blob saved
+  // directly in the template. Past a certain size that single value can exceed what D1
+  // accepts for one column, which surfaced as an opaque "Internal server error" with no
+  // indication of the actual cause. Catch it here with a specific message instead of
+  // letting the DB write throw and fall through to the generic 500 handler.
+  const TEMPLATE_MAX_CHARS = 1000000; // ~1MB — well past any legitimate template+small-image size
+  for (const k of ['giving_letter_template', 'giving_midyear_letter_template']) {
+    if (b[k] && String(b[k]).length > TEMPLATE_MAX_CHARS) {
+      return json({ error: 'This letter template is too large to save (likely an embedded image) — please use a smaller image (under ~400 KB) or remove it and try again.' }, 400);
+    }
+  }
   for (const k of allowed) {
     // Only save non-empty values — preserves existing config if user saves with a blank field
     if (b[k]) {
       await db.prepare("INSERT INTO chms_config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(k, String(b[k])).run();
     }
   }
+  return json({ ok: true });
+}
+
+// ── Letterhead logo — shown at the top of giving letters (view/email/preview) in place of
+// the plain church-name text once set. Served publicly (unauthenticated) at
+// /admin/letterhead-logo (tlc-volunteer-worker.js) since outbound HTML emails need a real,
+// non-authenticated image URL — an email client can't send along a session cookie. Stored in
+// the same R2 bucket as person/household photos, at a fixed key so there's only ever one.
+if (seg === 'config/letterhead-logo' && method === 'GET') {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key='letterhead_logo_ext'").first();
+  return json({ ext: row?.value || '' });
+}
+if (seg === 'config/letterhead-logo' && method === 'POST') {
+  if (!isStaff) return json({ error: 'Access denied' }, 403);
+  if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket tlc-chms-photos' }, 503);
+  let file;
+  try { const fd = await req.formData(); file = fd.get('logo'); } catch { return json({ error: 'Invalid form data' }, 400); }
+  const v = await validateImageUpload(file);
+  if (!v.ok) return json({ error: v.error }, v.status);
+  const prev = await db.prepare("SELECT value FROM chms_config WHERE key='letterhead_logo_ext'").first();
+  if (prev?.value && prev.value !== v.ext) {
+    try { await env.PHOTOS.delete(`branding/letterhead-logo.${prev.value}`); } catch {}
+  }
+  await env.PHOTOS.put(`branding/letterhead-logo.${v.ext}`, v.buf, { httpMetadata: { contentType: v.ct } });
+  await db.prepare("INSERT INTO chms_config(key,value) VALUES('letterhead_logo_ext',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(v.ext).run();
+  return json({ ok: true, ext: v.ext });
+}
+if (seg === 'config/letterhead-logo' && method === 'DELETE') {
+  if (!isStaff) return json({ error: 'Access denied' }, 403);
+  const prev = await db.prepare("SELECT value FROM chms_config WHERE key='letterhead_logo_ext'").first();
+  if (prev?.value && env.PHOTOS) {
+    try { await env.PHOTOS.delete(`branding/letterhead-logo.${prev.value}`); } catch {}
+  }
+  await db.prepare("DELETE FROM chms_config WHERE key='letterhead_logo_ext'").run();
   return json({ ok: true });
 }
 

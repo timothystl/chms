@@ -1131,7 +1131,7 @@ function runGivingStatement() {
       }).join('');
       showRptOutput(
         '<div style="max-width:620px;margin:0 auto;">'
-        + '<div style="text-align:center;margin-bottom:16px;"><div style="font-family:var(--font-head);font-size:1.2rem;color:var(--steel-anchor);">' + esc(_churchConfig.church_name || 'Timothy Lutheran Church') + '</div>'
+        + '<div style="margin-bottom:16px;">' + letterheadImgHtml(false, _churchConfig.church_name, 'font-family:var(--font-head);font-size:1.2rem;color:var(--steel-anchor);')
         + '<div style="font-size:.9rem;color:var(--warm-gray);">Household Giving Statement — ' + esc(String(yr)) + '</div></div>'
         + '<div style="margin-bottom:14px;font-size:.9rem;"><div><strong>Household:</strong> ' + esc(hh.name) + '</div></div>'
         + '<table class="rpt-table"><thead><tr><th>Date</th><th>Person</th><th>Fund</th><th style="text-align:right;">Amount</th></tr></thead><tbody>'
@@ -1160,8 +1160,8 @@ function runGivingStatement() {
     }).join('');
     showRptOutput(
       '<div style="max-width:600px;margin:0 auto;">'
-      + '<div style="text-align:center;margin-bottom:20px;">'
-      + '<div style="font-family:var(--font-head);font-size:1.2rem;color:var(--steel-anchor);">' + esc(_churchConfig.church_name || 'Timothy Lutheran Church') + '</div>'
+      + '<div style="margin-bottom:20px;">'
+      + letterheadImgHtml(false, _churchConfig.church_name, 'font-family:var(--font-head);font-size:1.2rem;color:var(--steel-anchor);')
       + '<div style="font-size:.9rem;color:var(--warm-gray);">Charitable Contribution Statement — ' + esc(String(yr)) + '</div>'
       + '</div>'
       + '<div style="margin-bottom:16px;font-size:.9rem;">'
@@ -1186,21 +1186,52 @@ function runGivingStatement() {
 }
 function buildGiftTable(entries, mode) {
   if (!entries || !entries.length) return 'No contributions recorded for this period.';
+  // th defaults to center-aligned text in every browser, td defaults to left — without an
+  // explicit text-align on both, the header row visually drifts out of line with the data
+  // beneath it. Amount is right-aligned (matches how the dollar figures themselves are laid
+  // out), everything else left-aligned; both th and td get the same alignment per column so
+  // header and data always agree. A little cell padding too — the columns had none before.
+  var td = 'style="text-align:left;padding:4px 8px;"';
+  var tdR = 'style="text-align:right;padding:4px 8px;"';
+  var thBase = 'style="text-align:left;padding:4px 8px;"';
+  var thR = 'style="text-align:right;padding:4px 8px;"';
   var header = mode === 'household'
-    ? '<tr><th>Date</th><th>Person</th><th>Fund</th><th>Amount</th></tr>'
-    : '<tr><th>Date</th><th>Fund</th><th>Amount</th><th>Method</th></tr>';
+    ? '<tr><th ' + thBase + '>Date</th><th ' + thBase + '>Person</th><th ' + thBase + '>Fund</th><th ' + thR + '>Amount</th></tr>'
+    : '<tr><th ' + thBase + '>Date</th><th ' + thBase + '>Fund</th><th ' + thR + '>Amount</th><th ' + thBase + '>Method</th></tr>';
   var rows = entries.map(function(e) {
     if (mode === 'household')
-      return '<tr><td>' + esc(fmtDate(e.gift_date)) + '</td><td>' + esc(e.first_name + ' ' + e.last_name) + '</td><td>' + esc(e.fund_name) + '</td><td>' + fmtMoney(e.amount) + '</td></tr>';
-    return '<tr><td>' + esc(fmtDate(e.gift_date)) + '</td><td>' + esc(e.fund_name) + '</td><td>' + fmtMoney(e.amount) + '</td><td>' + esc(e.method) + '</td></tr>';
+      return '<tr><td ' + td + '>' + esc(fmtDate(e.gift_date)) + '</td><td ' + td + '>' + esc(e.first_name + ' ' + e.last_name) + '</td><td ' + td + '>' + esc(e.fund_name) + '</td><td ' + tdR + '>' + fmtMoney(e.amount) + '</td></tr>';
+    return '<tr><td ' + td + '>' + esc(fmtDate(e.gift_date)) + '</td><td ' + td + '>' + esc(e.fund_name) + '</td><td ' + tdR + '>' + fmtMoney(e.amount) + '</td><td ' + td + '>' + esc(e.method) + '</td></tr>';
   }).join('');
   return '<table style="width:100%;border-collapse:collapse;font-size:.9rem;"><thead style="background:#f5f5f5;">' + header + '</thead><tbody>' + rows + '</tbody></table>';
+}
+// Builds the church-name header row, with the uploaded letterhead logo shown genuinely
+// alongside the name (a real flex row) when one is set — not stacked above it. Falls back to
+// just the plain name markup when no logo is configured, so nothing changes in that case.
+// Left-aligned, not centered — no margin:auto. absolute=true builds a full https:// URL,
+// required for outbound HTML email (an email client can't resolve a relative /admin/... path
+// or send along a session cookie, which is also why /admin/letterhead-logo itself is served
+// unauthenticated — see tlc-volunteer-worker.js).
+function letterheadImgHtml(absolute, churchName, nameStyle, rowMarginBottom, maxHeight) {
+  var name = churchName || _churchConfig.church_name || 'Timothy Lutheran Church';
+  var nameDiv = '<div style="' + (nameStyle || '') + '">' + esc(name) + '</div>';
+  if (!_churchConfig.letterhead_logo_ext) return nameDiv;
+  var src = (absolute ? 'https://connect.timothystl.org' : '') + '/admin/letterhead-logo';
+  var img = '<img src="' + src + '" alt="' + esc(name) + '" style="max-height:' + (maxHeight || 44) + 'px;display:block;flex-shrink:0;">';
+  return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:' + (rowMarginBottom == null ? 4 : rowMarginBottom) + 'px;">' + img + nameDiv + '</div>';
 }
 function renderLetterHTML(d, letterType, cfgOverride) {
   var cfg = cfgOverride || _churchConfig;
   var tpl = letterType === 'midyear'
     ? (cfg.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE)
     : (cfg.giving_letter_template || DEFAULT_LETTER_TEMPLATE);
+  // TinyMCE-authored templates wrap merge tokens in an atomic, non-editable "chip" span
+  // (see mceTokenChip() in js-settings.js) so a user can't accidentally split a token like
+  // {{name}} across formatting tags mid-edit. Unwrap those chips back to their literal
+  // {{token}} text here, before the substitution regexes below run — the regexes themselves
+  // are unchanged and never see the wrapper markup. Plain-text templates saved before this
+  // editor existed have no such spans, so this is a no-op for them.
+  tpl = tpl.replace(/<span[^>]*data-mce-token="[^"]*"[^>]*>([\s\S]*?)<\/span>/g, '$1');
   var name, total, year;
   if (d._mode === 'household') {
     name = (d.household || {}).name || 'Friend';
@@ -1264,7 +1295,7 @@ function showGivingLetter(letterType) {
     + '<div id="letter-email-status" class="import-status" style="align-self:center;"></div>'
     + '</div>'
     + '<div id="letter-body" style="background:var(--white);border:1px solid var(--border);border-radius:10px;padding:28px 32px;font-size:.92rem;line-height:1.65;">'
-    + '<div style="font-family:var(--font-head);font-size:1.1rem;color:var(--steel-anchor);margin-bottom:4px;">' + esc(churchName) + '</div>'
+    + letterheadImgHtml(false, churchName, 'font-family:var(--font-head);font-size:1.1rem;color:var(--steel-anchor);')
     + '<hr style="margin:12px 0;">'
     + letterHtml
     + '</div></div>'
@@ -1284,7 +1315,7 @@ function emailGivingLetter(letterType) {
     ? (yr + ' Mid-Year Giving Update — ' + churchName)
     : (yr + ' Charitable Contribution Statement — ' + churchName);
   var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
-    + '<div style="font-size:16px;font-weight:bold;margin-bottom:6px;">' + esc(churchName) + '</div>'
+    + letterheadImgHtml(true, churchName, 'font-size:16px;font-weight:bold;', 6)
     + '<hr style="margin:10px 0;">'
     + letterHtml + '</div>';
   api('/admin/api/giving/send-statement', {

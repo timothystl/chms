@@ -71,6 +71,17 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
   --ev-cream:#F7F3EC;--ev-moss:#4A5E3A;--ev-danger:var(--danger);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
+/* ── Giving-letter rendered content (Settings preview + the "View Letter" screen) ──
+   The universal *{margin:0;padding:0} reset above only applies to this app's own page —
+   TinyMCE's editing surface is a separate iframe with normal browser defaults, so a
+   paragraph break already shows a visible gap while typing. Without these rules the
+   rendered output (which lives on this page, not in that iframe) collapses every <p>/<ul>
+   flush together, so a single paragraph break shows no gap at all here. */
+#letter-preview-body p,#letter-body p{margin:0 0 1em;}
+#letter-preview-body p:last-child,#letter-body p:last-child{margin-bottom:0;}
+#letter-preview-body ul,#letter-body ul,#letter-preview-body ol,#letter-body ol{margin:0 0 1em;padding-left:24px;}
+#letter-preview-body ul ul,#letter-body ul ul,#letter-preview-body ol ol,#letter-body ol ol{margin:0;padding-left:24px;}
+#letter-preview-body li,#letter-body li{margin:0 0 4px;}
 html,body{height:100%;overflow:hidden;}
 body{font-family:var(--font-body);background:var(--warm-white);color:var(--charcoal);}
 a{color:var(--sky-steel);}
