@@ -31,11 +31,11 @@ function loadBatchGivers(prefix, letterType) {
       + '<button class="btn-sm" onclick="selectAllBatchGivers(&#39;' + prefix + '&#39;,true)">Select All</button>'
       + '<button class="btn-sm" onclick="selectAllBatchGivers(&#39;' + prefix + '&#39;,false)">Deselect All</button>'
       + '<label style="font-size:.8rem;display:flex;align-items:center;gap:4px;">Max to send today'
-      + '<input type="number" id="' + prefix + '-daily-cap" value="80" min="1" style="width:60px;padding:2px 6px;font-size:.8rem;">'
+      + '<input type="number" id="' + prefix + '-daily-cap" value="250" min="1" style="width:60px;padding:2px 6px;font-size:.8rem;">'
       + '</label>'
       + '<button class="btn-primary" style="font-size:.8rem;padding:4px 12px;" onclick="sendBatchGivers(&#39;' + prefix + '&#39;,' + yr + ',&#39;' + letterType + '&#39;)">Send Selected</button>'
       + '</div>'
-      + '<div style="font-size:.74rem;color:var(--warm-gray);margin-bottom:8px;">Resend&rsquo;s free plan caps at 100 emails/day &mdash; keep this a bit under 100 if you&rsquo;re on that plan and sending other emails the same day.</div>'
+      + '<div style="font-size:.74rem;color:var(--warm-gray);margin-bottom:8px;">Brevo&rsquo;s free plan caps at 300 emails/day &mdash; keep this a bit under 300 if you&rsquo;re also sending the weekly newsletter the same day.</div>'
       + '<div id="' + prefix + '-givers-list">'
       + givers.map(function(g) {
         return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.85rem;cursor:pointer;' + (g.already_sent ? 'opacity:.6;' : '') + '">'
@@ -59,7 +59,7 @@ function sendBatchGivers(prefix, yr, letterType) {
   var checks = document.querySelectorAll('#' + prefix + '-givers-list input[type=checkbox]:checked');
   if (!checks.length) { status.textContent = 'No givers selected.'; status.className = 'import-status err'; return; }
   var capEl = document.getElementById(prefix + '-daily-cap');
-  var dailyCap = Math.max(1, parseInt((capEl || {}).value, 10) || 80);
+  var dailyCap = Math.max(1, parseInt((capEl || {}).value, 10) || 250);
   if (!_churchConfig.church_name) {
     api('/admin/api/config/church').then(function(cfg) {
       _churchConfig = cfg || {};
@@ -77,7 +77,7 @@ function doSendGivingBatch(yr, letterType, checks, status, dailyCap) {
     var remaining = ids.length;
     var msg;
     if (stoppedByLimit) {
-      msg = "Resend's sending limit was hit after " + done + ' sent. ' + remaining + ' remaining were not attempted — come back later today or tomorrow and click Load Givers again to continue (they will show as pending, not already sent).';
+      msg = "Brevo's sending limit was hit after " + done + ' sent. ' + remaining + ' remaining were not attempted — come back later today or tomorrow and click Load Givers again to continue (they will show as pending, not already sent).';
     } else if (remaining) {
       msg = "Reached today's cap of " + dailyCap + ' (' + done + ' sent). ' + remaining + ' remaining — click Load Givers again later to continue.';
     } else {

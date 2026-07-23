@@ -73,6 +73,40 @@ export async function brevoGetListContacts(env) {
   } catch (e) { return { ok: false, error: e.message }; }
 }
 
+// ── Brevo Transactional Email (giving statements/mid-year updates) ───────────
+// Newsletter/contact-list sync above uses Brevo's Contacts API; this is a separate Brevo
+// product (Transactional Email) — same account/API key, different endpoint. Church chose
+// Brevo over Resend for these sends specifically: its free tier caps at 300/day vs Resend's
+// 100/day, and the giving-letter volume here is sporadic (a few batch sends a year) rather
+// than a steady daily load, so there's plenty of headroom alongside the one weekly
+// newsletter also going out through this same Brevo account.
+export async function sendBrevoTransactionalEmail(env, { toEmail, toName, subject, html, fromName, fromEmail }) {
+  const apiKey = env.BREVO_API_KEY || '';
+  if (!apiKey) return { ok: false, error: 'BREVO_API_KEY not set in Worker environment', status: 500 };
+  if (!fromEmail) return { ok: false, error: 'church_from_email not configured in Settings', status: 400 };
+  try {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        sender: { name: fromName || 'Timothy Lutheran Church', email: fromEmail },
+        to: [{ email: toEmail, name: toName || undefined }],
+        subject: subject || 'Your Giving Statement',
+        htmlContent: html,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // Brevo returns 429 for rate/quota limits; also sniff the error code/message as a
+      // fallback since exact shapes vary. Surfaced distinctly so the batch-send loop can stop
+      // immediately instead of burning through every remaining recipient one at a time.
+      const rateLimited = res.status === 429 || /rate.?limit|quota|daily limit/i.test(String(data.code || '') + ' ' + String(data.message || ''));
+      return { ok: false, error: data.message || 'Brevo error', rate_limited: rateLimited, status: res.status === 429 ? 429 : 500 };
+    }
+    return { ok: true, id: data.messageId };
+  } catch (e) { return { ok: false, error: e.message, status: 500 }; }
+}
+
 // Central Time MM-DD for "today" — independent of when the cron/test fires.
 // Uses Intl with America/Chicago so DST is handled automatically.
 function centralTodayMMDD() {

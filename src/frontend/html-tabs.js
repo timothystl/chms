@@ -462,9 +462,9 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <div class="modal-2col" style="margin-bottom:4px;">
         <div class="field"><label>Sending Name (shown as the "From" name on outgoing emails)</label><input type="text" id="st-from-name" name="st-from-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
-        <div class="field"><label>Sending Email Address (must be on a domain verified in Resend)</label><input type="email" id="st-from-email" name="st-from-email" placeholder="giving@notify.timothystl.org" style="width:100%;"></div>
+        <div class="field"><label>Sending Email Address (must be a verified sender in Brevo)</label><input type="email" id="st-from-email" name="st-from-email" placeholder="giving@notify.timothystl.org" style="width:100%;"></div>
       </div>
-      <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:12px;">This is the address giving statements and mid-year updates are emailed from &mdash; not a contact/reply-to address. It only works if its domain shows &ldquo;Verified&rdquo; at <a href="https://resend.com/domains" target="_blank" rel="noopener">resend.com/domains</a>; otherwise sends fail with a domain-not-verified error.</div>
+      <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:12px;">This is the address giving statements and mid-year updates are emailed from &mdash; not a contact/reply-to address. Giving letters send via Brevo (the same account used for the newsletter sync), so this address&rsquo;s domain needs to show as verified under <a href="https://app.brevo.com/senders/domain/list" target="_blank" rel="noopener">Brevo &rarr; Senders &amp; IP &rarr; Domains</a>; otherwise sends will fail.</div>
       <div class="field" style="margin-bottom:12px;">
         <label>Online Giving URL (optional)</label>
         <input type="text" id="st-giving-url" name="st-giving-url" placeholder="https://timothystl.org/give" style="width:100%;">
