@@ -44,7 +44,7 @@ All secrets are stored as Cloudflare Worker secrets (`wrangler secret put <NAME>
 - **Risk if leaked**: Ability to create person records and prayer requests via the intake endpoints.
 
 ### `BREVO_API_KEY`
-- **Purpose**: Authenticates calls to the Brevo API. Used for (1) newsletter contact sync and (2) transactional SMS (birthday/anniversary texts).
+- **Purpose**: Authenticates calls to the Brevo API. Used for (1) newsletter contact sync, (2) transactional SMS (birthday/anniversary texts), and (3) giving statement/mid-year-update emails (`giving/send-statement`, pinned to Brevo rather than Resend for its higher 300/day free-tier cap).
 - **Format**: `xkeysib-` prefixed key from brevo.com → SMTP & API → API Keys.
 - **Rotation**: Generate a new key in Brevo, `wrangler secret put BREVO_API_KEY`, delete old key.
 - **Risk if leaked**: Ability to send SMS and email campaigns, and read/write Brevo contact lists.

@@ -3,6 +3,7 @@ import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
 import { parseFundSplits, givingEntryId, isGivingDup } from './api-utils.js';
 import { validateImageUpload } from './api-people.js';
+import { sendBrevoTransactionalEmail } from './api-emails.js';
 
 // Cache a Breeze profile photo into our R2 bucket, returning a stable
 // /admin/r2photo/... URL. Mirrors the auth fallbacks in the /admin/photo-proxy
@@ -1027,7 +1028,11 @@ if (seg.startsWith('export/') && method === 'GET') {
   }
 }
 
-// ── Send Giving Statement via Resend ─────────────────────────────
+// ── Send Giving Statement via Brevo ───────────────────────────────
+// Pinned to Brevo (not Resend) per an explicit decision: this church's giving-letter volume
+// is sporadic (a handful of batch sends a year, not a steady daily load) alongside one weekly
+// newsletter, and Brevo's free tier caps at 300/day vs. Resend's 100/day — real headroom for
+// the same account already configured for the newsletter/contact sync (BREVO_API_KEY).
 if (seg === 'giving/send-statement' && method === 'POST') {
   let b = {}; try { b = await req.json(); } catch {}
   const { to_email, to_name, subject, html_body, person_id, year, letter_type } = b;
@@ -1036,23 +1041,11 @@ if (seg === 'giving/send-statement' && method === 'POST') {
   const fromEmailRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_from_email'").first();
   const fromName = fromNameRow?.value || 'Timothy Lutheran Church';
   const fromEmail = fromEmailRow?.value || '';
-  if (!fromEmail) return json({ error: 'church_from_email not configured in Settings' }, 400);
-  const apiKey = env.RESEND_API_KEY;
-  if (!apiKey) return json({ error: 'RESEND_API_KEY not set in Worker environment' }, 500);
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: `${fromName} <${fromEmail}>`, to: [to_email], subject: subject || 'Your Giving Statement', html: html_body })
+  const result = await sendBrevoTransactionalEmail(env, {
+    toEmail: to_email, toName: to_name, subject: subject || 'Your Giving Statement',
+    html: html_body, fromName, fromEmail,
   });
-  const rd = await res.json();
-  if (!res.ok) {
-    // Resend returns 429 for rate/quota limits; also sniff the error name/message as a
-    // fallback since exact shapes vary by error type. Surfaced distinctly so the batch-send
-    // loop can stop immediately instead of burning through every remaining recipient
-    // marking each one "failed" one at a time.
-    const rateLimited = res.status === 429 || /rate.?limit|quota|daily limit/i.test(String(rd.name || '') + ' ' + String(rd.message || ''));
-    return json({ error: rd.message || 'Resend error', rate_limited: rateLimited }, res.status === 429 ? 429 : 500);
-  }
+  if (!result.ok) return json({ error: result.error, rate_limited: !!result.rate_limited }, result.status || 500);
   // Record the send for batch resume/dedup — a manual single send still always goes through
   // above regardless of any prior record; this just logs it (or refreshes sent_at on a
   // deliberate resend) so a later batch run knows this person/year/letter is already covered.
@@ -1062,7 +1055,7 @@ if (seg === 'giving/send-statement' && method === 'POST') {
        ON CONFLICT(person_id, year, letter_type) DO UPDATE SET sent_at=excluded.sent_at`
     ).bind(person_id, year, letter_type).run().catch(() => {});
   }
-  return json({ ok: true, id: rd.id });
+  return json({ ok: true, id: result.id });
 }
 
 // ── Breeze Fund List (with giving totals for mapping UI) ─────────
