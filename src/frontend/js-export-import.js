@@ -188,6 +188,101 @@ function doSendMidyearBatch(yr, checks, status) {
   }
   sendNext();
 }
+// ── BATCH SEND — GIVING APPEAL (all member households, not just existing givers) ───────
+function loadBatchAppealHouseholds() {
+  var yr = document.getElementById('batch-appeal-year').value;
+  var status = document.getElementById('batch-appeal-status');
+  var listEl = document.getElementById('batch-appeal-list');
+  if (!yr) { status.textContent = 'Enter a year.'; status.className = 'import-status err'; return; }
+  status.textContent = 'Loading member households for ' + yr + '…'; status.className = 'import-status';
+  listEl.innerHTML = '';
+  api('/admin/api/reports/giving-statement?year=' + yr + '&list_member_households=1').then(function(d) {
+    var households = d.households || [];
+    if (!households.length) {
+      status.textContent = 'No member households with an email on file found.';
+      status.className = 'import-status err';
+      return;
+    }
+    status.textContent = households.length + ' member households found with email. Check who to include, then Send.';
+    status.className = 'import-status ok';
+    listEl.innerHTML = '<div style="margin-bottom:8px;display:flex;gap:8px;">'
+      + '<button class="btn-sm" onclick="selectAllAppealHouseholds(true)">Select All</button>'
+      + '<button class="btn-sm" onclick="selectAllAppealHouseholds(false)">Deselect All</button>'
+      + '<button class="btn-primary" style="font-size:.8rem;padding:4px 12px;" onclick="sendBatchAppealLetters(' + yr + ')">Send Selected</button>'
+      + '</div>'
+      + '<div id="batch-appeal-households-list">'
+      + households.map(function(h) {
+        return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.85rem;cursor:pointer;">'
+          + '<input type="checkbox" data-hhid="' + h.id + '" data-email="' + esc(h.recipient_email) + '" data-name="' + esc(h.recipient_name) + '" checked>'
+          + '<span>' + esc(h.name) + '</span>'
+          + '<span style="color:var(--warm-gray);font-size:.78rem;">' + esc(h.recipient_name) + ' — ' + esc(h.recipient_email) + '</span>'
+          + '<span style="margin-left:auto;font-size:.78rem;">' + fmtMoney(h.total_cents) + '</span>'
+          + '</label>';
+      }).join('')
+      + '</div>';
+  }).catch(function(e) {
+    status.textContent = 'Error: ' + e.message; status.className = 'import-status err';
+  });
+}
+function selectAllAppealHouseholds(checked) {
+  document.querySelectorAll('#batch-appeal-households-list input[type=checkbox]').forEach(function(cb) { cb.checked = checked; });
+}
+function sendBatchAppealLetters(yr) {
+  var status = document.getElementById('batch-appeal-status');
+  var checks = document.querySelectorAll('#batch-appeal-households-list input[type=checkbox]:checked');
+  if (!checks.length) { status.textContent = 'No households selected.'; status.className = 'import-status err'; return; }
+  if (!_churchConfig.church_name) {
+    api('/admin/api/config/church').then(function(cfg) {
+      _churchConfig = cfg || {};
+      doSendAppealBatch(yr, checks, status);
+    });
+  } else {
+    doSendAppealBatch(yr, checks, status);
+  }
+}
+function doSendAppealBatch(yr, checks, status) {
+  var rows = Array.from(checks).map(function(cb) {
+    return { hhid: cb.dataset.hhid, recipient_name: cb.dataset.name || '', recipient_email: cb.dataset.email || '' };
+  });
+  var total = rows.length, done = 0, failed = 0, skipped = 0;
+  status.textContent = 'Sending 0/' + total + '…'; status.className = 'import-status';
+  function sendNext() {
+    if (!rows.length) {
+      var msg = 'Done. ' + done + ' sent';
+      if (skipped) msg += ', ' + skipped + ' skipped (no email)';
+      if (failed) msg += ', ' + failed + ' failed';
+      msg += '.';
+      status.textContent = msg;
+      status.className = failed ? 'import-status' : 'import-status ok';
+      return;
+    }
+    var row = rows.shift();
+    if (!row.recipient_email) { skipped++; sendNext(); return; }
+    api('/admin/api/reports/giving-statement-household?household_id=' + row.hhid + '&year=' + yr).then(function(d) {
+      if (d.error) { failed++; sendNext(); return; }
+      d._mode = 'household';
+      var churchName = _churchConfig.church_name || 'Timothy Lutheran Church';
+      var letterHtml = renderLetterHTML(d, 'midyear');
+      var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
+        + letterheadImgHtml(true, churchName, 'font-size:16px;font-weight:bold;', 6) + '<hr style="margin:10px 0;">'
+        + letterHtml + '</div>';
+      return api('/admin/api/giving/send-statement', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          to_email: row.recipient_email,
+          to_name: row.recipient_name,
+          subject: yr + ' Mid-Year Giving Update — ' + churchName,
+          html_body: fullHtml
+        })
+      });
+    }).then(function(r) {
+      if (r && r.ok) done++; else failed++;
+      status.textContent = 'Sending ' + (done+failed+skipped) + '/' + total + '…';
+      sendNext();
+    }).catch(function() { failed++; sendNext(); });
+  }
+  sendNext();
+}
 // ── GENERATE REGISTER FROM PEOPLE ─────────────────────────────────────
 // Called from the Register tab toolbar — uses the current register type
 function openRegFromPeoplePrompt() {
