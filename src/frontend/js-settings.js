@@ -154,30 +154,13 @@ function loadSettings() {
       yrSel.appendChild(opt);
     }
   }
-  // Disable save buttons until data has loaded to prevent saving empty values
-  document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = true; });
   api('/admin/api/config/church').then(function(d) {
     _churchConfig = d || {};
-    var el = document.getElementById('st-church-name');
-    if (el) el.value = d.church_name || 'Timothy Lutheran Church';
-    el = document.getElementById('st-ein');
-    if (el) el.value = d.church_ein || '';
-    el = document.getElementById('st-from-name');
-    if (el) el.value = d.church_from_name || '';
-    el = document.getElementById('st-from-email');
-    if (el) el.value = d.church_from_email || '';
-    initLetterEditor('st-letter-tpl', 'year_end', d.giving_letter_template || DEFAULT_LETTER_TEMPLATE);
-    initLetterEditor('st-midyear-letter-tpl', 'midyear', d.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE);
-    el = document.getElementById('st-giving-url');
-    if (el) el.value = d.online_giving_url || '';
-    el = document.getElementById('st-vol-address'); if (el) el.value = d.volunteer_address || '';
+    var el = document.getElementById('st-vol-address'); if (el) el.value = d.volunteer_address || '';
     el = document.getElementById('st-vol-email'); if (el) el.value = d.volunteer_public_email || '';
     el = document.getElementById('st-vol-phone'); if (el) el.value = d.volunteer_phone || '';
     el = document.getElementById('st-notify-new-signup'); if (el) el.checked = d.notify_new_signup === '1';
     el = document.getElementById('st-notify-weekly-digest'); if (el) el.checked = d.notify_weekly_digest === '1';
-    renderLetterheadLogoState(d.letterhead_logo_ext);
-    // Re-enable save buttons now that fields are populated
-    document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = false; });
   });
   api('/admin/api/tags').then(function(d) {
     allTags = d.tags || [];
@@ -209,8 +192,33 @@ function saveSettings() {
   v = (document.getElementById('st-midyear-letter-tpl') || {}).value || DEFAULT_MIDYEAR_LETTER_TEMPLATE; if (v) data.giving_midyear_letter_template = v;
   v = (document.getElementById('st-giving-url') || {}).value; if (v) data.online_giving_url = v;
   api('/admin/api/config/church', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(d) {
-    if (d.ok) { _churchConfig = data; setStatus('st-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('st-status','');}, 2500); }
-    else setStatus('st-status', 'Error: ' + (d.error||'unknown'), 'err');
+    if (d.ok) { _churchConfig = data; setStatus('giv-settings-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('giv-settings-status','');}, 2500); }
+    else setStatus('giv-settings-status', 'Error: ' + (d.error||'unknown'), 'err');
+  });
+}
+// Populates the Giving tab's Settings sub-view (Church Info + both letter templates) — moved
+// out of the main Settings tab so giving-related config lives right where it's used, no more
+// switching tabs to edit the letterhead/templates while sending statements. Called from
+// givSetView('settings') (js-giving.js), not from loadSettings(), since this DOM now lives
+// under #tab-giving instead of #tab-settings.
+function loadGivingSettings() {
+  document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = true; });
+  api('/admin/api/config/church').then(function(d) {
+    _churchConfig = d || {};
+    var el = document.getElementById('st-church-name');
+    if (el) el.value = d.church_name || 'Timothy Lutheran Church';
+    el = document.getElementById('st-ein');
+    if (el) el.value = d.church_ein || '';
+    el = document.getElementById('st-from-name');
+    if (el) el.value = d.church_from_name || '';
+    el = document.getElementById('st-from-email');
+    if (el) el.value = d.church_from_email || '';
+    initLetterEditor('st-letter-tpl', 'year_end', d.giving_letter_template || DEFAULT_LETTER_TEMPLATE);
+    initLetterEditor('st-midyear-letter-tpl', 'midyear', d.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE);
+    el = document.getElementById('st-giving-url');
+    if (el) el.value = d.online_giving_url || '';
+    renderLetterheadLogoState(d.letterhead_logo_ext);
+    document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = false; });
   });
 }
 function saveVolunteerSettings() {

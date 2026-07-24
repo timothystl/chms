@@ -153,6 +153,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <button class="active" id="giv-view-batches-btn" onclick="givSetView('batches')">Batches</button>
       <button id="giv-view-txns-btn" onclick="givSetView('transactions')">Transactions</button>
       <button id="giv-view-reports-btn" onclick="givSetView('reports')">Reports</button>
+      <button id="giv-view-settings-btn" onclick="givSetView('settings')">Settings</button>
     </div>
   </div>
   <div class="giving-layout" id="giv-view-batches">
@@ -314,6 +315,63 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <div id="giv-rpt-output" class="report-output"></div>
   </div>
+
+  <div id="giv-view-settings" style="display:none;max-width:900px;">
+    <div id="giv-settings-status" class="status-msg" style="margin-bottom:8px;"></div>
+    <!-- Church Info Card -->
+    <div class="import-card require-finance" style="margin-bottom:14px;">
+      <h3>&#9962; Church Information</h3>
+      <p>Used in giving letters, email headers, and reports.</p>
+      <div class="modal-2col" style="margin-bottom:10px;">
+        <div class="field"><label>Church Name</label><input type="text" id="st-church-name" name="st-church-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
+        <div class="field"><label>EIN (Tax ID)</label><input type="text" id="st-ein" name="st-ein" placeholder="XX-XXXXXXX" style="width:100%;"></div>
+      </div>
+      <div class="modal-2col" style="margin-bottom:4px;">
+        <div class="field"><label>Sending Name (shown as the "From" name on outgoing emails)</label><input type="text" id="st-from-name" name="st-from-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
+        <div class="field"><label>Sending Email Address (must be a verified sender in Brevo)</label><input type="email" id="st-from-email" name="st-from-email" placeholder="giving@notify.timothystl.org" style="width:100%;"></div>
+      </div>
+      <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:12px;">This is the address giving statements and mid-year updates are emailed from &mdash; not a contact/reply-to address. Giving letters send via Brevo (the same account used for the newsletter sync), so this address&rsquo;s domain needs to show as verified under <a href="https://app.brevo.com/senders/domain/list" target="_blank" rel="noopener">Brevo &rarr; Senders &amp; IP &rarr; Domains</a>; otherwise sends will fail.</div>
+      <div class="field" style="margin-bottom:12px;">
+        <label>Online Giving URL (optional)</label>
+        <input type="text" id="st-giving-url" name="st-giving-url" placeholder="https://timothystl.org/give" style="width:100%;">
+        <div style="font-size:.76rem;color:var(--warm-gray);margin-top:4px;">Shown in the Mid-Year Giving Update letter as a link for setting up recurring/automatic giving. Leave blank to omit.</div>
+      </div>
+      <div class="field" style="margin-bottom:12px;">
+        <label>Letterhead Logo (optional)</label>
+        <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:6px;">Replaces the plain church-name text at the top of giving letters (view, email, and batch send) with this image. Uploaded separately from the buttons below &mdash; no need to click Save Church Info.</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <img id="st-logo-preview" style="max-height:56px;display:none;border:1px solid var(--border);border-radius:6px;padding:4px;background:var(--white);">
+          <input type="file" id="st-logo-file" name="st-logo-file" accept="image/*" style="display:none;" onchange="uploadLetterheadLogo(this.files[0])">
+          <button class="btn-secondary" style="font-size:.82rem;" onclick="document.getElementById('st-logo-file').click()">&#128247; Upload Logo</button>
+          <button class="btn-secondary" id="st-logo-remove-btn" style="font-size:.82rem;display:none;" onclick="removeLetterheadLogo()">Remove Logo</button>
+          <span id="st-logo-status" class="import-status"></span>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="saveSettings()">Save Church Info</button>
+    </div>
+    <!-- Letter Template Card -->
+    <div class="import-card require-finance" style="margin-bottom:14px;">
+      <h3>&#128140; Year-End Giving Letter Template</h3>
+      <p>Used when generating giving letters. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{ein}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code></p>
+      <textarea id="st-letter-tpl" name="st-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
+      <div style="margin-top:8px;">
+        <button class="btn-primary" onclick="saveSettings()">Save Template</button>
+        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;year_end&#39;)" style="margin-left:8px;">&#128065; Preview</button>
+        <button class="btn-secondary" onclick="resetLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
+      </div>
+    </div>
+    <!-- Mid-Year Letter Template Card -->
+    <div class="import-card require-finance" style="margin-bottom:14px;">
+      <h3>&#128140; Mid-Year Giving Update Letter Template</h3>
+      <p>Used for the mid-year giving update &mdash; thanks givers, shows year-to-date giving for them to review, and suggests ways to set up recurring/automatic giving. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code>, <code>{{giving_url}}</code></p>
+      <textarea id="st-midyear-letter-tpl" name="st-midyear-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
+      <div style="margin-top:8px;">
+        <button class="btn-primary" onclick="saveSettings()">Save Template</button>
+        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;midyear&#39;)" style="margin-left:8px;">&#128065; Preview</button>
+        <button class="btn-secondary" onclick="resetMidyearLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ═══ REPORTS TAB ═══ -->
@@ -452,37 +510,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div id="st-users-list" style="margin:12px 0;"></div>
       <button class="btn-primary" style="font-size:.85rem;padding:6px 14px;" onclick="openUserForm(null)">+ Add User</button>
     </div>
-    <!-- Church Info Card -->
-    <div class="import-card" style="margin-bottom:14px;">
-      <h3>&#9962; Church Information</h3>
-      <p>Used in giving letters, email headers, and reports.</p>
-      <div class="modal-2col" style="margin-bottom:10px;">
-        <div class="field"><label>Church Name</label><input type="text" id="st-church-name" name="st-church-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
-        <div class="field"><label>EIN (Tax ID)</label><input type="text" id="st-ein" name="st-ein" placeholder="XX-XXXXXXX" style="width:100%;"></div>
-      </div>
-      <div class="modal-2col" style="margin-bottom:4px;">
-        <div class="field"><label>Sending Name (shown as the "From" name on outgoing emails)</label><input type="text" id="st-from-name" name="st-from-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
-        <div class="field"><label>Sending Email Address (must be a verified sender in Brevo)</label><input type="email" id="st-from-email" name="st-from-email" placeholder="giving@notify.timothystl.org" style="width:100%;"></div>
-      </div>
-      <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:12px;">This is the address giving statements and mid-year updates are emailed from &mdash; not a contact/reply-to address. Giving letters send via Brevo (the same account used for the newsletter sync), so this address&rsquo;s domain needs to show as verified under <a href="https://app.brevo.com/senders/domain/list" target="_blank" rel="noopener">Brevo &rarr; Senders &amp; IP &rarr; Domains</a>; otherwise sends will fail.</div>
-      <div class="field" style="margin-bottom:12px;">
-        <label>Online Giving URL (optional)</label>
-        <input type="text" id="st-giving-url" name="st-giving-url" placeholder="https://timothystl.org/give" style="width:100%;">
-        <div style="font-size:.76rem;color:var(--warm-gray);margin-top:4px;">Shown in the Mid-Year Giving Update letter as a link for setting up recurring/automatic giving. Leave blank to omit.</div>
-      </div>
-      <div class="field" style="margin-bottom:12px;">
-        <label>Letterhead Logo (optional)</label>
-        <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:6px;">Replaces the plain church-name text at the top of giving letters (view, email, and batch send) with this image. Uploaded separately from the buttons below &mdash; no need to click Save Church Info.</div>
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-          <img id="st-logo-preview" style="max-height:56px;display:none;border:1px solid var(--border);border-radius:6px;padding:4px;background:var(--white);">
-          <input type="file" id="st-logo-file" name="st-logo-file" accept="image/*" style="display:none;" onchange="uploadLetterheadLogo(this.files[0])">
-          <button class="btn-secondary" style="font-size:.82rem;" onclick="document.getElementById('st-logo-file').click()">&#128247; Upload Logo</button>
-          <button class="btn-secondary" id="st-logo-remove-btn" style="font-size:.82rem;display:none;" onclick="removeLetterheadLogo()">Remove Logo</button>
-          <span id="st-logo-status" class="import-status"></span>
-        </div>
-      </div>
-      <button class="btn-primary" onclick="saveSettings()">Save Church Info</button>
-    </div>
     <!-- Volunteer Site & Notifications Card -->
     <div class="import-card" style="margin-bottom:14px;">
       <h3>&#128101; Volunteer Site &amp; Notifications</h3>
@@ -499,28 +526,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <p style="font-size:.76rem;color:var(--warm-gray);margin-bottom:10px;">The weekly digest isn&rsquo;t built yet &mdash; this just saves the preference for when it is.</p>
       <button class="btn-primary" onclick="saveVolunteerSettings()">Save Volunteer Settings</button>
-    </div>
-    <!-- Letter Template Card -->
-    <div class="import-card" style="margin-bottom:14px;">
-      <h3>&#128140; Year-End Giving Letter Template</h3>
-      <p>Used when generating giving letters. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{ein}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code></p>
-      <textarea id="st-letter-tpl" name="st-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
-      <div style="margin-top:8px;">
-        <button class="btn-primary" onclick="saveSettings()">Save Template</button>
-        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;year_end&#39;)" style="margin-left:8px;">&#128065; Preview</button>
-        <button class="btn-secondary" onclick="resetLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
-      </div>
-    </div>
-    <!-- Mid-Year Letter Template Card -->
-    <div class="import-card" style="margin-bottom:14px;">
-      <h3>&#128140; Mid-Year Giving Update Letter Template</h3>
-      <p>Used for the mid-year giving update &mdash; thanks givers, shows year-to-date giving for them to review, and suggests ways to set up recurring/automatic giving. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code>, <code>{{giving_url}}</code></p>
-      <textarea id="st-midyear-letter-tpl" name="st-midyear-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
-      <div style="margin-top:8px;">
-        <button class="btn-primary" onclick="saveSettings()">Save Template</button>
-        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;midyear&#39;)" style="margin-left:8px;">&#128065; Preview</button>
-        <button class="btn-secondary" onclick="resetMidyearLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
-      </div>
     </div>
     <!-- Tags Card -->
     <div class="import-card" style="margin-bottom:14px;">

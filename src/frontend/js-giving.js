@@ -7,14 +7,17 @@ function givSetView(view) {
   document.getElementById('giv-view-batches-btn').classList.toggle('active', view === 'batches');
   document.getElementById('giv-view-txns-btn').classList.toggle('active', view === 'transactions');
   document.getElementById('giv-view-reports-btn').classList.toggle('active', view === 'reports');
+  document.getElementById('giv-view-settings-btn').classList.toggle('active', view === 'settings');
   document.getElementById('giv-view-batches').style.display = view === 'batches' ? 'grid' : 'none';
   document.getElementById('giv-view-transactions').style.display = view === 'transactions' ? 'flex' : 'none';
   document.getElementById('giv-view-reports').style.display = view === 'reports' ? '' : 'none';
+  document.getElementById('giv-view-settings').style.display = view === 'settings' ? '' : 'none';
   if (view === 'transactions') {
     givTxnPopulateFundOptions();
     loadGivingTransactions();
   }
   if (view === 'reports') finInitGivingReports();
+  if (view === 'settings') loadGivingSettings();
 }
 function givTxnPopulateFundOptions() {
   var sel = document.getElementById('giv-txn-fund');
