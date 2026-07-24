@@ -608,12 +608,11 @@ function showProfile(p) {
   }
   var haEl = document.getElementById('pv-hdr-actions');
   if (haEl) {
-    var pvAddrParts = [p.address1, p.city, ((p.state||'')+(p.zip ? ' '+p.zip : '')).trim()].filter(Boolean);
-    var pvMapUrl = pvAddrParts.length ? mapUrl(pvAddrParts.join(', ')) : '';
-    haEl.innerHTML = (p.phone ? '<a class="btn-call" href="tel:'+esc(p.phone)+'">&#128222; Call</a>' : '')
-      + '<button class="btn-outline-cream pv-desktop-only require-edit" onclick="openPersonEdit(_currentPvPerson)">Edit</button>'
-      + (p.email ? '<a class="btn-outline-cream pv-mobile-only" href="mailto:'+esc(p.email)+'">&#9993; Email</a>' : '')
-      + (pvMapUrl ? '<a class="btn-outline-cream pv-mobile-only" href="'+esc(pvMapUrl)+'" target="_blank">&#128205; Map</a>' : '');
+    var telDigits = (p.phone||'').replace(/[^0-9]/g,'');
+    haEl.innerHTML = (p.phone ? '<a class="pv2-hdr-btn" href="tel:'+telDigits+'">&#128222; Call</a>' : '')
+      + (p.phone ? '<a class="pv2-hdr-btn" href="sms:'+telDigits+'">&#128172; Text</a>' : '')
+      + (p.email ? '<a class="pv2-hdr-btn solid" href="mailto:'+esc(p.email)+'">&#9993; Email</a>' : '')
+      + '<button class="pv2-hdr-btn pv-desktop-only require-edit" onclick="openPersonEdit(_currentPvPerson)">&#9998; Full edit</button>';
   }
   var saEl = document.getElementById('pv-status-actions');
   if (saEl && _userRole !== 'member') {
@@ -640,119 +639,12 @@ function showProfile(p) {
   }
   var roleEl = document.getElementById('pv-role');
   if (roleEl) roleEl.textContent = p.family_role ? ' \u00b7 '+p.family_role : '';
-  // Info tab — two-column layout
-  var infoEl = document.getElementById('ptab-info');
-  if (infoEl) {
-    var addrParts = [p.address1, p.city, ((p.state||'')+(p.zip ? ' '+p.zip : '')).trim()].filter(Boolean);
-    var addrStr = addrParts.map(esc).join(', ');
-    var addrVal = addrStr ? '<a href="https://maps.google.com/?q='+encodeURIComponent(addrParts.join(', '))+'" target="_blank" rel="noopener">'+addrStr+'</a>' : '';
-    var emailVal = p.email ? '<a href="mailto:'+esc(p.email)+'">'+esc(p.email)+'</a>' : '';
-    var phoneVal = p.phone ? '<a href="tel:'+esc(p.phone)+'">'+esc(p.phone)+'</a>' : '';
-    var tagHtml = (p.tags||[]).map(function(t){
-      return '<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:99px;background:'+esc(t.color)+';color:white;font-size:11px;font-weight:600;margin:2px;">'+esc(t.name)+'</span>';
-    }).join('');
-    var dirBadge = p.public_directory === 0 ? '<span style="display:inline-block;font-size:10px;padding:2px 7px;border-radius:99px;background:#f4e8c1;color:#9a7a2b;font-weight:600;margin-left:8px;">Private</span>' : '';
-    var leftCol = '<div>'
-      + '<div class="pv-section" id="pv-contact-section">'
-      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Contact'+dirBadge+'</div>'
-      + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditContact()">Edit</button></div>'
-      + pvRow('Address', addrVal)
-      + pvRow('Phone', phoneVal + (p.phone && _userRole !== 'member' ? (p.sms_opt_in
-          ? ' <span id="pv-sms-badge" onclick="togglePVSms()" title="Click to opt out of SMS" style="cursor:pointer;margin-left:6px;display:inline-block;font-size:10px;padding:1px 7px;border-radius:99px;background:#e8f3ec;color:#3a7a55;font-weight:600;">SMS ✓</span>'
-          : ' <span id="pv-sms-badge" onclick="togglePVSms()" title="Click to opt in to SMS" style="cursor:pointer;margin-left:6px;display:inline-block;font-size:10px;padding:1px 7px;border-radius:99px;background:#f0eee8;color:#998877;font-weight:600;">SMS off</span>') : (p.phone && p.sms_opt_in ? ' <span style="margin-left:6px;display:inline-block;font-size:10px;padding:1px 7px;border-radius:99px;background:#e8f3ec;color:#3a7a55;font-weight:600;">SMS ✓</span>' : '')))
-      + pvRow('Email', emailVal)
-      + (p.email && _userRole !== 'member' ? '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">'
-          + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="addToNewsletter('+p.id+',\''+esc(p.email)+'\',\''+esc(p.first_name||'')+'\',\''+esc(p.last_name||'')+'\')">&#9993; Add to Newsletter</button>'
-          + '<span id="pv-newsletter-status" style="font-size:.75rem;line-height:2;color:var(--teal);"></span>'
-          + '</div>' : '')
-      + (p.household_id && (p.address1||'').trim() ? '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">'
-          + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button>'
-          + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="syncPersonAddrToHousehold('+p.household_id+')">&#8593; Sync to household record</button>'
-          + '</div>' : '')
-      + (addrParts.length >= 2 ? '<div style="margin-top:8px;"><button id="pv-map-btn-'+p.id+'" class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="togglePersonMap('+p.id+')">&#9654; Show Map</button><div id="pv-map-'+p.id+'" data-addr="'+encodeURIComponent(addrParts.join(', '))+'" style="display:none;margin-top:8px;border-radius:8px;overflow:hidden;line-height:0;"></div></div>' : '')
-      + '</div>'
-      + '<div class="pv-section">'
-      + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Family</div>'
-      + (p.household_id
-          ? '<button class="btn-secondary require-edit" style="font-size:.75rem;padding:3px 9px;margin-left:auto;" onclick="openAddToHouseholdModal('+p.household_id+')">+ Add Person</button>'
-          : '<div style="margin-left:auto;display:flex;gap:5px;">'
-            + '<button class="btn-secondary require-edit" style="font-size:.75rem;padding:3px 9px;" onclick="createHouseholdForPerson('+p.id+',\''+esc(p.last_name||'')+'\')">+ Create Household</button>'
-            + '<button class="btn-secondary require-edit" style="font-size:.75rem;padding:3px 9px;" onclick="openPersonEdit(_currentPvPerson)">Link to Existing</button>'
-            + '</div>')
-      + '</div>'
-      + (p.household_id
-          ? '<div id="pv-family-members" style="color:var(--warm-gray);font-size:12px;">Loading\u2026</div>'
-          : '<div style="color:var(--faint);font-size:12px;font-style:italic;">No household linked</div>')
-      + '</div>'
-      + '</div>';
-    var rightCol = '<div>'
-      + '<div class="pv-section" id="pv-demo-section">'
-      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Demographics / Dates</div><div style="display:flex;gap:5px;">'
-      + (p.breeze_id ? '<button class="btn-secondary role-admin" style="font-size:.7rem;padding:2px 8px;" onclick="syncPersonFromBreeze(\''+esc(p.breeze_id)+'\','+p.id+')">&#8635; Sync Breeze</button>' : '<button class="btn-secondary role-admin role-staff" style="font-size:.7rem;padding:2px 8px;" onclick="pushPersonToBreeze('+p.id+')">&#8679; Push to Breeze</button>')
-      + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditDemo()">Edit</button></div></div>'
-      + '<div class="pv-field-grid">'
-      + pvField('middle name', p.middle_name)
-      + pvField('preferred name', p.preferred_name)
-      + pvField('gender', p.gender)
-      + pvField('marital status', p.marital_status)
-      + pvField('birthday', p.dob ? fmtDate(p.dob)+calcAge(p.dob) : '')
-      + pvField('baptized', p.baptism_date ? fmtDate(p.baptism_date) : (p.baptized ? 'Yes (date unknown)' : ''))
-      + pvField('confirmed', p.confirmation_date ? fmtDate(p.confirmation_date) : (p.confirmed ? 'Yes (date unknown)' : ''))
-      + pvField('anniversary', p.anniversary_date ? fmtDate(p.anniversary_date) : '')
-      + pvField('deceased', p.deceased ? (p.death_date ? fmtDate(p.death_date) : 'Yes') : 'No')
-      + '</div>'
-      + '</div>'
-      + '<div class="pv-section" id="pv-tags-section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Tags</div><button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditTags()">Edit</button></div><div style="display:flex;flex-wrap:wrap;gap:6px;">'+(tagHtml||'<span style="color:var(--warm-gray);font-size:12px;font-style:italic;">No tags</span>')+'</div></div>'
-      + (p.notes || _userRole !== 'member'
-          ? '<div class="pv-section" id="pv-notes-section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Notes</div>'
-            + (_userRole !== 'member' ? '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditNotes()">Edit</button>' : '')
-            + '</div><div style="font-size:13px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'+(p.notes ? esc(p.notes) : '<span style="color:var(--warm-gray);font-style:italic;">No notes</span>')+'</div></div>'
-          : '')
-      + '</div>';
-    infoEl.innerHTML = '<div class="pv-info-cols">'+leftCol+rightCol+'</div>';
-    if (p.household_id) loadPvFamily(p.household_id, p.id);
-  }
-  // Aside
-  var asideEl = document.getElementById('pv-aside');
-  if (asideEl) {
-    asideEl.innerHTML = '<div class="pv-aside-block">'
-      + '<div class="pv-aside-lbl">Member ID</div>'
-      + '<div style="font-size:13px;color:var(--charcoal);">#'+p.id+'</div>'
-      + '</div>'
-      + (p.envelope_number ? '<div class="pv-aside-block"><div class="pv-aside-lbl">Envelope #</div><div style="font-size:13px;color:var(--charcoal);">'+esc(p.envelope_number)+'</div></div>' : '')
-      + (p.deceased ? '<div class="pv-aside-block" style="color:var(--danger);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Deceased</div>' : '')
-      + '<div class="pv-aside-block">'
-      + '<div class="pv-aside-lbl">Added</div>'
-      + '<div style="font-size:13px;color:var(--charcoal);">'+(p.created_at ? p.created_at.slice(0,10) : '—')+'</div>'
-      + '</div>'
-      + '<div class="pv-aside-block">'
-      + '<div class="pv-aside-lbl">Last Seen</div>'
-      + '<div style="font-size:13px;color:var(--charcoal);" id="pv-last-seen">'+(p.last_seen_date || '—')+'</div>'
-      + '</div>'
-      + '<div class="pv-aside-block" style="display:flex;flex-direction:column;gap:6px;">'
-      + '<button class="btn-secondary" style="font-size:.75rem;padding:4px 10px;width:100%;" onclick="markSeenToday('+p.id+')">&#10003; Mark Seen Today</button>'
-      + '<button class="btn-secondary" style="font-size:.75rem;padding:4px 10px;width:100%;" onclick="openAddFollowUp('+p.id+',\''+esc((p.first_name||'')+' '+(p.last_name||''))+'\',\'pastoral_call\')">+ Follow Up</button>'
-      + '</div>'
-      + '<div class="pv-aside-block" id="pv-aside-giving">'
-      + '<div class="pv-aside-lbl">Total Giving</div>'
-      + '<div style="font-size:12px;color:var(--warm-gray);">—</div>'
-      + '</div>';
-    api('/admin/api/giving?person_id='+p.id+'&limit=500').then(function(d) {
-      var entries = (d && d.entries) ? d.entries : (Array.isArray(d) ? d : []);
-      var ag = document.getElementById('pv-aside-giving');
-      var curYear = new Date().getFullYear().toString();
-      var pid = p.id;
-      var ytdEntries = entries.filter(function(e){ return (e.contribution_date||'').slice(0,4)===curYear; });
-      var ytdTotal = ytdEntries.reduce(function(s,e){return s+(e.amount||0);},0);
-      if (ag) ag.innerHTML = '<div class="pv-aside-lbl">'+curYear+' Giving</div>'
-        + '<div class="pv-aside-big">$'+(ytdTotal/100).toFixed(2)+'</div>'
-        + '<div class="pv-aside-sub">'+ytdEntries.length+' gift'+(ytdEntries.length!==1?'s':'')+'</div>'
-        + (entries.length ? '<div style="display:flex;flex-direction:column;gap:4px;margin-top:8px;">'
-          + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;width:100%;" onclick="showPvTab(\'giving\')">View All Gifts</button>'
-          + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;width:100%;" onclick="sendGivingStatement('+pid+',\''+curYear+'\')">&#9993; Send Statement</button>'
-          + '</div>' : '');
-    });
-  }
+  // Info tab — redesigned single-screen card layout with sticky jump-nav + inline per-field edit.
+  pvfRenderInfo(p);
+  // The right-rail aside's content (giving summary, mark-seen, follow-ups) now lives in cards,
+  // so hide it in the redesigned layout and let the card grid span the full width.
+  var asideHide = document.getElementById('pv-aside');
+  if (asideHide) asideHide.style.display = 'none';
   var ca = document.querySelector('.content-area');
   if (ca) { ca.classList.remove('hv-mode', 'ov-mode'); ca.classList.add('pv-mode'); }
   showPvTab('info');
@@ -769,6 +661,413 @@ function pvField(label, val) {
 function pvFieldHtml(label, html) {
   return '<div class="pv-field-card"><div class="pv-field-card-lbl">'+label+'</div>'
     + '<div class="pv-field-card-val'+(html?'':' empty')+'">'+(html||'—')+'</div></div>';
+}
+// ── PROFILE REDESIGN: inline per-field edit engine ─────────────────────
+// Registry of editable fields on the current person, keyed by field id. Rebuilt on each
+// showProfile() render. Each cfg drives the read-only display, the inline editor, and the
+// single-field PATCH save. members never see editors (canEdit gate below).
+var _pvFields = {};
+function pvfCanEdit() { return _userRole !== 'member'; }
+function pvfYearsAgo(v) {
+  if (!v) return '';
+  var d = new Date(v); if (isNaN(d)) return '';
+  var y = Math.floor((Date.now() - d.getTime()) / (365.25 * 864e5));
+  return y > 0 ? y + ' year' + (y === 1 ? '' : 's') + ' ago' : '';
+}
+// Build the field registry from a person record + configured member types.
+function pvfBuildRegistry(p) {
+  var mtOpts = [{value:'', label:'—'}].concat((typeof _memberTypes !== 'undefined' ? _memberTypes : ['Member','Attender','Visitor']).map(function(t){
+    return { value: t.toLowerCase(), label: t };
+  }));
+  var genderOpts = [{value:'',label:'—'},{value:'Male',label:'Male'},{value:'Female',label:'Female'},{value:'Other',label:'Other'}];
+  var maritalOpts = [{value:'',label:'—'},{value:'Single',label:'Single'},{value:'Married',label:'Married'},{value:'Divorced',label:'Divorced'},{value:'Widowed',label:'Widowed'}];
+  function dateSub(v) { return pvfYearsAgo(v); }
+  var defs = [
+    {id:'first_name', label:'First name', type:'text'},
+    {id:'last_name', label:'Last name', type:'text'},
+    {id:'preferred_name', label:'Preferred name', type:'text', ph:'Nickname'},
+    {id:'middle_name', label:'Middle name', type:'text', ph:'Middle'},
+    {id:'gender', label:'Gender', type:'select', options:genderOpts},
+    {id:'marital_status', label:'Marital status', type:'select', options:maritalOpts},
+    {id:'member_type', label:'Status', type:'select', options:mtOpts},
+    {id:'dob', label:'Birthdate', type:'date', sub:function(v){ return v ? (pvfYearsAgo(v).replace(' ago',' old')) : ''; }},
+    {id:'phone', label:'Phone', type:'tel'},
+    {id:'email', label:'Email', type:'email'},
+    {id:'address1', label:'Street', type:'text'},
+    {id:'city', label:'City', type:'text'},
+    {id:'state', label:'State', type:'text'},
+    {id:'zip', label:'ZIP', type:'text'},
+    {id:'baptism_date', label:'Baptism', type:'date', sub:dateSub},
+    {id:'confirmation_date', label:'Confirmation', type:'date', sub:dateSub},
+    {id:'anniversary_date', label:'Anniversary', type:'date', sub:dateSub},
+  ];
+  _pvFields = {};
+  defs.forEach(function(d){ _pvFields[d.id] = d; });
+}
+function pvfRawVal(id) {
+  var p = _currentPvPerson || {};
+  return p[id] == null ? '' : p[id];
+}
+function pvfDisplay(cfg, val) {
+  if (val === '' || val == null) return '';
+  if (cfg.type === 'select') {
+    var o = (cfg.options || []).find(function(x){ return String(x.value) === String(val); });
+    return o ? o.label : String(val);
+  }
+  if (cfg.type === 'date') return fmtDate(val);
+  return String(val);
+}
+// Read-only cell HTML for one field (with hover pencil when editable).
+function pvfRowHtml(id) {
+  var cfg = _pvFields[id]; if (!cfg) return '';
+  var val = pvfRawVal(id);
+  var disp = pvfDisplay(cfg, val);
+  var empty = !disp;
+  var editable = pvfCanEdit();
+  var sub = (cfg.sub && val) ? cfg.sub(val) : '';
+  var inner = '<div class="pv2-ro' + (editable ? ' editable' : '') + (empty ? ' empty' : '') + '"'
+    + (editable ? ' onclick="pvfStart(\'' + id + '\')"' : '') + '>'
+    + '<span>' + (empty ? 'Not set' : esc(disp)) + '</span>'
+    + (editable ? '<span class="pv2-pencil">✎ Edit</span>' : '')
+    + '</div>'
+    + (sub ? '<div class="pv2-sub">' + esc(sub) + '</div>' : '');
+  return '<div class="pv2-frow"><div class="pv2-flabel">' + esc(cfg.label) + '</div>'
+    + '<div class="pv2-fval" id="pvf-' + id + '">' + inner + '</div></div>';
+}
+// Swap a field cell into its inline editor.
+function pvfStart(id) {
+  if (!pvfCanEdit()) return;
+  var cfg = _pvFields[id]; if (!cfg) return;
+  var cell = document.getElementById('pvf-' + id); if (!cell) return;
+  var val = pvfRawVal(id);
+  var html;
+  if (cfg.type === 'select') {
+    html = '<select class="pv2-inp sel" id="pvfi-' + id + '" onchange="pvfCommit(\'' + id + '\')" onblur="pvfCommit(\'' + id + '\')">'
+      + (cfg.options || []).map(function(o){
+          return '<option value="' + esc(String(o.value)) + '"' + (String(o.value) === String(val) ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+        }).join('')
+      + '</select>';
+  } else {
+    html = '<input class="pv2-inp" id="pvfi-' + id + '" type="' + esc(cfg.type || 'text') + '" value="' + esc(String(val)) + '"'
+      + ' placeholder="' + esc(cfg.ph || cfg.label) + '" onblur="pvfCommit(\'' + id + '\')"'
+      + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}else if(event.key===\'Escape\'){pvfCancel(\'' + id + '\');}">';
+  }
+  cell.innerHTML = html;
+  var el = document.getElementById('pvfi-' + id);
+  if (el) { el.focus(); if (el.select && cfg.type !== 'date') el.select(); }
+}
+function pvfCancel(id) {
+  var cell = document.getElementById('pvf-' + id);
+  if (cell) cell.innerHTML = pvfRowHtml(id).replace(/^[\s\S]*?<div class="pv2-fval"[^>]*>/, '').replace(/<\/div>$/, '');
+}
+// Commit a single field: PATCH just that field, update local record, re-render cell + toast.
+var _pvfCommitting = {};
+function pvfCommit(id) {
+  var cfg = _pvFields[id]; if (!cfg) return;
+  if (_pvfCommitting[id]) return; // guard against onchange+onblur double-fire on selects
+  var inp = document.getElementById('pvfi-' + id);
+  if (!inp) return;
+  var newVal = inp.value;
+  var oldVal = String(pvfRawVal(id));
+  if (String(newVal) === oldVal) { pvfCancel(id); return; }
+  _pvfCommitting[id] = true;
+  var body = {}; body[id] = newVal;
+  var p = _currentPvPerson;
+  api('/admin/api/people/' + p.id, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) })
+    .then(function(r) {
+      _pvfCommitting[id] = false;
+      if (r && r.error) { alert('Save failed: ' + r.error); pvfCancel(id); return; }
+      _currentPvPerson[id] = newVal;
+      pvfCancel(id);
+      pvfToast();
+      // Header-affecting fields: re-render the whole profile header/badges.
+      if (['first_name','last_name','preferred_name','member_type','marital_status'].indexOf(id) >= 0) {
+        pvfRefreshHeader();
+      }
+    }).catch(function() {
+      _pvfCommitting[id] = false;
+      alert('Save failed. Please try again.');
+      pvfCancel(id);
+    });
+}
+var _pvToastTimer = null;
+function pvfToast() {
+  var t = document.getElementById('pv2-toast');
+  if (!t) return;
+  t.classList.add('show');
+  clearTimeout(_pvToastTimer);
+  _pvToastTimer = setTimeout(function(){ t.classList.remove('show'); }, 1400);
+}
+// Smooth-scroll the info panel to a section card and mark its nav button active.
+function pvfGo(id) {
+  document.querySelectorAll('.pv2-nav-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.sec === id); });
+  var el = document.getElementById('pvf-sec-' + id);
+  if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// Re-render the header name/subline/badges after an inline edit of a header field.
+function pvfRefreshHeader() {
+  var p = _currentPvPerson; if (!p) return;
+  var isOrg = (p.member_type||'').toLowerCase() === 'organization';
+  var displayName = isOrg ? (p.first_name||p.last_name||'Unnamed')
+    : ((p.first_name||'')+' '+(p.last_name||'')).trim();
+  var fnEl = document.getElementById('pv-fullname'); if (fnEl) fnEl.textContent = displayName || 'Unnamed';
+  var tn = document.getElementById('pv-topbar-name'); if (tn) tn.textContent = displayName;
+  pvfRenderBadges();
+  var cr = document.getElementById('pvf-crumb'); if (cr) cr.textContent = displayName;
+}
+// Header badge row: status pill + marital pill + tag chips (redesign header badges).
+function pvfRenderBadges() {
+  var el = document.getElementById('pvf-badges'); if (!el) return;
+  var p = _currentPvPerson || {};
+  var cfg = _pvFields['member_type'];
+  var statusLabel = cfg ? pvfDisplay(cfg, (p.member_type||'').toLowerCase()) : (p.member_type||'');
+  var mCfg = _pvFields['marital_status'];
+  var maritalLabel = (p.marital_status && mCfg) ? pvfDisplay(mCfg, p.marital_status) : '';
+  var html = '';
+  if (statusLabel) html += '<span class="pv2-badge status">' + esc(statusLabel) + '</span>';
+  if (maritalLabel) html += '<span class="pv2-badge marital">' + esc(maritalLabel) + '</span>';
+  html += (p.tags||[]).map(function(t){ return '<span class="pv2-badge tag">' + esc(t.name) + '</span>'; }).join('');
+  el.innerHTML = html;
+}
+// Generic section card wrapper.
+function pvfCard(id, title, opts) {
+  opts = opts || {};
+  return '<div class="pv2-card" id="pvf-sec-' + id + '"' + (opts.cls ? ' data-cls="' + opts.cls + '"' : '') + '>'
+    + '<div class="pv2-card-hd"><h3>' + esc(title) + '</h3><div class="sp"></div>'
+    + (opts.tag ? '<span class="pv2-card-hd-tag">' + esc(opts.tag) + '</span>' : '')
+    + (opts.headerBtns || '')
+    + '</div>'
+    + '<div class="pv2-card-bd' + (opts.pad ? ' pad' : '') + '" id="pvf-body-' + id + '">' + (opts.body || '') + '</div>'
+    + '</div>';
+}
+// ── Custom card bodies ─────────────────────────────────────────────────
+function pvfContactExtras(p) {
+  var out = '';
+  if (p.phone && _userRole !== 'member') {
+    out += '<div style="margin-top:6px;">' + (p.sms_opt_in
+      ? '<span id="pv-sms-badge" onclick="togglePVSms()" title="Click to opt out of SMS" style="cursor:pointer;font-size:11px;padding:2px 9px;border-radius:99px;background:var(--pale-sage);color:var(--sage);font-weight:600;">SMS ✓</span>'
+      : '<span id="pv-sms-badge" onclick="togglePVSms()" title="Click to opt in to SMS" style="cursor:pointer;font-size:11px;padding:2px 9px;border-radius:99px;background:var(--linen);color:var(--warm-gray);font-weight:600;">SMS off</span>') + '</div>';
+  }
+  if (p.email && _userRole !== 'member') {
+    out += '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
+      + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="addToNewsletter(' + p.id + ',\'' + esc(p.email) + '\',\'' + esc(p.first_name||'') + '\',\'' + esc(p.last_name||'') + '\')">&#9993; Add to Newsletter</button>'
+      + '<span id="pv-newsletter-status" style="font-size:.75rem;color:var(--color-teal);"></span></div>';
+  }
+  if (p.household_id && (p.address1||'').trim() && _userRole !== 'member') {
+    out += '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">'
+      + '<button class="btn-secondary" style="font-size:.75rem;padding:4px 10px;" onclick="applyAddressToHousehold(' + p.id + ',' + p.household_id + ')">Push address to household</button>'
+      + '<button class="btn-secondary" style="font-size:.75rem;padding:4px 10px;" onclick="syncPersonAddrToHousehold(' + p.household_id + ')">&#8593; Sync to household</button></div>';
+  }
+  return out;
+}
+function pvfFamilyBody(p) {
+  if (p.household_id) {
+    return '<div id="pv-family-members" style="color:var(--warm-gray);font-size:12px;">Loading…</div>';
+  }
+  if (_userRole === 'member') return '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:6px 0;">No household linked</div>';
+  return '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:6px 0;">No household linked</div>'
+    + '<button class="pv2-adddash" onclick="createHouseholdForPerson(' + p.id + ',\'' + esc(p.last_name||'') + '\')">＋ Create household</button>';
+}
+function pvfTagsBody(p) {
+  var chips = (p.tags||[]).map(function(t){
+    return '<span class="pv2-chip">' + esc(t.name)
+      + (_userRole !== 'member' ? '<button class="pv2-chip-x" onclick="pvfRemoveTag(' + t.id + ')">✕</button>' : '')
+      + '</span>';
+  }).join('');
+  var out = '<div style="display:flex;flex-wrap:wrap;gap:8px;' + (chips ? 'margin-bottom:12px;' : '') + '">'
+    + (chips || (_userRole === 'member' ? '<span style="color:var(--faint);font-size:13px;font-style:italic;">No tags</span>' : '')) + '</div>';
+  if (_userRole !== 'member') {
+    var curIds = (p.tags||[]).map(function(t){ return t.id; });
+    var avail = (typeof allTags !== 'undefined' ? allTags : []).filter(function(t){ return curIds.indexOf(t.id) < 0; });
+    out += '<div style="display:flex;flex-wrap:wrap;gap:7px;">'
+      + (avail.length ? avail.map(function(t){
+          return '<button class="pv2-chip-add" onclick="pvfAddTag(' + t.id + ')">＋ ' + esc(t.name) + '</button>';
+        }).join('') : '<span style="color:var(--faint);font-size:12.5px;">All tags applied</span>')
+      + '</div>';
+  }
+  return out;
+}
+function pvfSetTags(tagIds) {
+  var p = _currentPvPerson;
+  api('/admin/api/people/' + p.id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tag_ids: tagIds }) })
+    .then(function(r){
+      if (r && r.error) { alert('Save failed: ' + r.error); return; }
+      _currentPvPerson.tags = (typeof allTags !== 'undefined' ? allTags : []).filter(function(t){ return tagIds.indexOf(t.id) >= 0; });
+      var body = document.getElementById('pvf-body-tags'); if (body) body.innerHTML = pvfTagsBody(_currentPvPerson);
+      pvfRenderBadges();
+      pvfToast();
+    }).catch(function(){ alert('Save failed. Please try again.'); });
+}
+function pvfAddTag(tagId) {
+  var cur = (_currentPvPerson.tags||[]).map(function(t){ return t.id; });
+  if (cur.indexOf(tagId) < 0) cur.push(tagId);
+  pvfSetTags(cur);
+}
+function pvfRemoveTag(tagId) {
+  var cur = (_currentPvPerson.tags||[]).map(function(t){ return t.id; }).filter(function(id){ return id !== tagId; });
+  pvfSetTags(cur);
+}
+function pvfLocationBody(p) {
+  var addrParts = [p.address1, p.city, ((p.state||'')+(p.zip ? ' '+p.zip : '')).trim()].filter(Boolean);
+  if (!addrParts.length) return '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:4px 0;">No address on file</div>';
+  var addrStr = addrParts.map(esc).join(', ');
+  var out = '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--warm-meta);margin-bottom:5px;">Home address</div>'
+    + '<div style="font-size:14.5px;color:var(--color-navy);line-height:1.45;">' + addrStr + '</div>';
+  if (addrParts.length >= 2) {
+    out += '<div style="margin-top:10px;"><button id="pv-map-btn-' + p.id + '" class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="togglePersonMap(' + p.id + ')">&#9654; Show Map</button>'
+      + '<div id="pv-map-' + p.id + '" data-addr="' + encodeURIComponent(addrParts.join(', ')) + '" style="display:none;margin-top:8px;border-radius:8px;overflow:hidden;line-height:0;"></div></div>';
+  }
+  return out;
+}
+function pvfGivingBody() {
+  return '<div id="pvf-giving-inner" style="color:var(--warm-gray);font-size:13px;">Loading…</div>';
+}
+function pvfRenderGivingCard(personId) {
+  var el = document.getElementById('pvf-giving-inner');
+  if (!el) return;
+  api('/admin/api/giving?person_id=' + personId + '&limit=500').then(function(d){
+    var entries = (d && d.entries) ? d.entries : (Array.isArray(d) ? d : []);
+    var curYear = new Date().getFullYear().toString();
+    var ytd = entries.filter(function(e){ return (e.contribution_date||'').slice(0,4) === curYear; });
+    var ytdTotal = ytd.reduce(function(s,e){ return s+(e.amount||0); }, 0);
+    var grandTotal = entries.reduce(function(s,e){ return s+(e.amount||0); }, 0);
+    var recent = entries.slice().sort(function(a,b){ return (b.contribution_date||'').localeCompare(a.contribution_date||''); }).slice(0,3);
+    var html = '<div style="display:flex;gap:12px;margin-bottom:16px;">'
+      + '<div class="pv2-tile"><div class="pv2-tile-lbl">' + curYear + '</div><div class="pv2-tile-val" style="color:var(--color-teal);">$' + (ytdTotal/100).toFixed(2) + '</div></div>'
+      + '<div class="pv2-tile"><div class="pv2-tile-lbl">All time</div><div class="pv2-tile-val" style="color:var(--color-navy);">$' + (grandTotal/100).toFixed(2) + '</div></div>'
+      + '</div>';
+    if (recent.length) {
+      html += '<div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--warm-meta);margin-bottom:6px;">Recent gifts</div>';
+      html += recent.map(function(g){
+        return '<div class="pv2-gift"><div style="flex:1;min-width:0;">'
+          + '<div style="font-weight:700;font-size:14px;color:var(--color-navy);">' + esc(g.fund_name || g.fund || 'Gift') + '</div>'
+          + '<div style="font-size:12.5px;color:var(--warm-meta);">' + esc(fmtDate(g.contribution_date||'')) + ' · ' + esc(g.method||'') + '</div></div>'
+          + '<div style="font-weight:700;font-size:15px;color:var(--color-navy);">$' + ((g.amount||0)/100).toFixed(2) + '</div></div>';
+      }).join('');
+    } else {
+      html += '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:4px 0;">No gifts recorded</div>';
+    }
+    html += '<div style="display:flex;gap:12px;justify-content:center;margin-top:12px;">'
+      + '<a href="#" onclick="showPvTab(\'giving\');return false;" style="font-size:13.5px;font-weight:700;">View full giving history →</a>'
+      + (entries.length ? '<a href="#" onclick="sendGivingStatement(' + personId + ',\'' + curYear + '\');return false;" style="font-size:13.5px;font-weight:700;">&#9993; Send statement</a>' : '')
+      + '</div>';
+    el.innerHTML = html;
+  }).catch(function(){ el.innerHTML = '<div style="color:var(--danger);font-size:13px;">Could not load giving.</div>'; });
+}
+function pvfFollowupsBody(p) {
+  var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+  return '<div id="pvf-followup-list" style="color:var(--warm-gray);font-size:13px;margin-bottom:10px;">Loading…</div>'
+    + (_userRole !== 'member'
+        ? '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+          + '<button class="btn-secondary" style="font-size:.78rem;padding:5px 11px;" onclick="markSeenToday(' + p.id + ')">&#10003; Mark Seen Today</button>'
+          + '<button class="btn-secondary" style="font-size:.78rem;padding:5px 11px;" onclick="openAddFollowUp(' + p.id + ',\'' + esc(name) + '\',\'pastoral_call\')">＋ Add follow-up</button>'
+          + '</div>'
+        : '');
+}
+function pvfRenderFollowups(personId) {
+  var el = document.getElementById('pvf-followup-list');
+  if (!el) return;
+  // The follow-up list endpoint is staff+ only; other roles just see the action buttons.
+  if (_userRole !== 'admin' && _userRole !== 'staff') { el.innerHTML = ''; return; }
+  api('/admin/api/followup?person_id=' + personId).then(function(d){
+    var items = (d && d.items) ? d.items : (Array.isArray(d) ? d : []);
+    var open = items.filter(function(i){ return !i.done && !i.completed_at && i.status !== 'done'; });
+    if (!open.length) { el.innerHTML = '<div style="color:var(--faint);font-size:13px;font-style:italic;">No open follow-ups</div>'; return; }
+    el.innerHTML = open.map(function(i){
+      var due = i.due_date ? 'Due ' + esc(fmtDate(i.due_date)) : '';
+      return '<div style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--warm-row-divider);">'
+        + '<div style="flex:1;min-width:0;"><div style="font-size:13.5px;color:var(--color-navy);">' + esc(i.notes || i.type || 'Follow-up') + '</div>'
+        + (due ? '<div style="font-size:12px;color:var(--faint);margin-top:2px;">' + due + '</div>' : '') + '</div></div>';
+    }).join('');
+  }).catch(function(){ el.innerHTML = '<div style="color:var(--faint);font-size:12.5px;">Could not load follow-ups</div>'; });
+}
+function pvfNotesBody(p) {
+  var has = (p.notes||'').trim();
+  if (_userRole === 'member') {
+    return '<div style="font-size:14px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'
+      + (has ? esc(p.notes) : '<span style="color:var(--faint);font-style:italic;">No notes</span>') + '</div>';
+  }
+  return '<div class="pv2-note" onclick="pvfEditNotesInline()" style="cursor:text;">'
+    + '<div style="font-size:14px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'
+    + (has ? esc(p.notes) : '<span style="color:var(--faint);font-style:italic;">Click to add a note…</span>') + '</div></div>';
+}
+function pvfEditNotesInline() {
+  if (_userRole === 'member') return;
+  var body = document.getElementById('pvf-body-notes'); if (!body) return;
+  var p = _currentPvPerson;
+  body.innerHTML = '<textarea id="pvf-notes-ta" rows="4" class="pv2-inp" style="max-width:100%;resize:vertical;line-height:1.5;">' + esc(p.notes||'') + '</textarea>'
+    + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;">'
+    + '<button class="btn-secondary" style="font-size:.78rem;" onclick="pvfCancelNotesInline()">Cancel</button>'
+    + '<button class="btn-primary" style="font-size:.78rem;" onclick="pvfSaveNotesInline()">Save note</button></div>';
+  var ta = document.getElementById('pvf-notes-ta'); if (ta) ta.focus();
+}
+function pvfCancelNotesInline() {
+  var body = document.getElementById('pvf-body-notes'); if (body) body.innerHTML = pvfNotesBody(_currentPvPerson);
+}
+function pvfSaveNotesInline() {
+  var ta = document.getElementById('pvf-notes-ta'); if (!ta) return;
+  var val = ta.value;
+  var p = _currentPvPerson;
+  api('/admin/api/people/' + p.id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ notes: val }) })
+    .then(function(r){
+      if (r && r.error) { alert('Save failed: ' + r.error); return; }
+      _currentPvPerson.notes = val;
+      pvfCancelNotesInline();
+      pvfToast();
+    }).catch(function(){ alert('Save failed. Please try again.'); });
+}
+// Build + inject the whole redesigned Information panel, then load async card content.
+function pvfRenderInfo(p) {
+  var infoEl = document.getElementById('ptab-info');
+  if (!infoEl) return;
+  pvfBuildRegistry(p);
+  var isFinance = (_userRole === 'admin' || _userRole === 'finance');
+  var displayName = ((p.first_name||'')+' '+(p.last_name||'')).trim() || 'Unnamed';
+
+  var nameCard = pvfCard('name', 'Name', { body:
+    pvfRowHtml('first_name') + pvfRowHtml('last_name') + pvfRowHtml('preferred_name') + pvfRowHtml('middle_name') });
+  var personalCard = pvfCard('personal', 'Personal', { body:
+    pvfRowHtml('gender') + pvfRowHtml('marital_status') + pvfRowHtml('member_type') + pvfRowHtml('dob') });
+  var contactCard = pvfCard('contact', 'Contact', { body:
+    pvfRowHtml('phone') + pvfRowHtml('email') + pvfRowHtml('address1') + pvfRowHtml('city') + pvfRowHtml('state') + pvfRowHtml('zip')
+    + pvfContactExtras(p) });
+  var addBtn = p.household_id
+    ? '<button class="btn-secondary require-edit" style="font-size:.72rem;padding:3px 9px;" onclick="openAddToHouseholdModal(' + p.household_id + ')">+ Add</button>'
+    : '';
+  var familyCard = pvfCard('family', 'Family & Household', { headerBtns: addBtn, body: pvfFamilyBody(p) });
+
+  var breezeBtn = _userRole === 'member' ? '' : (p.breeze_id
+    ? '<button class="btn-secondary role-admin" style="font-size:.72rem;padding:3px 9px;" onclick="syncPersonFromBreeze(\'' + esc(p.breeze_id) + '\',' + p.id + ')">&#8635; Breeze</button>'
+    : '<button class="btn-secondary role-admin role-staff" style="font-size:.72rem;padding:3px 9px;" onclick="pushPersonToBreeze(' + p.id + ')">&#8679; Breeze</button>');
+  var demoCard = pvfCard('church', 'Demographics', { headerBtns: breezeBtn, body:
+    pvfRowHtml('baptism_date') + pvfRowHtml('confirmation_date') + pvfRowHtml('anniversary_date') });
+  var tagsCard = pvfCard('tags', 'Tags & Groups', { pad:true, body: pvfTagsBody(p) });
+  var locationCard = pvfCard('location', 'Location', { pad:true, body: pvfLocationBody(p) });
+  var givingCard = isFinance ? pvfCard('giving', 'Giving', { tag:'This year', pad:true, body: pvfGivingBody() }) : '';
+  var followCard = pvfCard('followups', 'Follow-ups', { pad:true, body: pvfFollowupsBody(p) });
+  var notesCard = pvfCard('notes', 'Notes', { body: pvfNotesBody(p) });
+
+  var navDefs = [['name','Name'],['personal','Personal'],['contact','Contact'],['family','Family'],
+    ['church','Demographics'],['tags','Tags & Groups'],['location','Location']];
+  if (isFinance) navDefs.push(['giving','Giving']);
+  navDefs.push(['followups','Follow-ups'],['notes','Notes']);
+  var navHtml = '<div class="pv2-nav-lbl">Jump to</div>'
+    + navDefs.map(function(n){ return '<button class="pv2-nav-btn" data-sec="' + n[0] + '" onclick="pvfGo(\'' + n[0] + '\')">' + esc(n[1]) + '</button>'; }).join('');
+
+  infoEl.innerHTML = '<div style="max-width:1120px;margin:0 auto;">'
+    + '<div class="pv2-crumb">People <span style="opacity:.5">/</span> <b id="pvf-crumb">' + esc(displayName) + '</b></div>'
+    + '<div class="pv2-badges" id="pvf-badges"></div>'
+    + '<div class="pv2-body">'
+    + '<nav class="pv2-nav">' + navHtml + '</nav>'
+    + '<div class="pv2-grid">'
+    + '<div class="pv2-col">' + nameCard + personalCard + contactCard + familyCard + '</div>'
+    + '<div class="pv2-col">' + demoCard + tagsCard + locationCard + givingCard + followCard + notesCard + '</div>'
+    + '</div></div></div>';
+
+  pvfRenderBadges();
+  if (p.household_id) loadPvFamily(p.household_id, p.id);
+  if (isFinance) pvfRenderGivingCard(p.id);
+  pvfRenderFollowups(p.id);
 }
 // ── PERSON PROFILE SECTION EDITING ─────────────────────────────────────
 function pvBuildPersonPatch(p, overrides) {
