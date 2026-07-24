@@ -127,6 +127,14 @@ Added 2026-04-15, phased 2026-04-15.
 
 ---
 
+### 2026-07-23 (v1.73.0 — Breeze Giving Sync moved into the Giving tab too)
+Direct follow-up to the previous move: user pointed at the "Giving" sub-section of Settings → Import/Export's "Breeze Sync" card (date-range sync, Sync All History, Breeze Audit Log Export) and asked for it in the Giving tab as well.
+- New "Breeze Giving Sync" card in the Giving tab's Settings sub-view (`giv-view-settings`), containing exactly what was in that Giving sub-section — moved, not duplicated, same element IDs, so `runBreezeGivingSync()`/`runBreezeGivingAll()`/`downloadBreezeAuditLog()` (`js-export-import.js`, all `getElementById`-based) keep working unchanged.
+- Left **People** sync and **Fund Names** (Auto-Fix/manual mapping) in the original Settings → Import/Export "Breeze Sync" card — the user pointed at a specific section, not the whole card, and Fund Names in particular is shared infrastructure (also touched by CSV import, not just the Breeze sync). Updated that card's intro line to reflect the split and point at the new location.
+- Verified via a byte-offset scan of the built `CHMS_HTML` that every moved element ID appears exactly once. `npm test` (241/241, no test changes — pure markup relocation). `node --check` on both built script bundles.
+- **Not verified**: an actual browser.
+(`src/frontend/html-tabs.js`, `src/frontend/js-core.js`)
+
 ### 2026-07-23 (v1.72.0 — Giving letter settings moved from Settings tab into the Giving tab)
 User didn't want to switch back and forth between Settings and Giving to manage the giving-letter config. Checked every field in the old "Church Information" card and both letter-template cards for whether they're actually giving-specific or genuinely shared app-wide config before moving anything — `church_name`/`church_ein`/`church_from_name`/`church_from_email`/`online_giving_url`/`letterhead_logo_ext` and both templates are used **exclusively** by the giving-letter rendering/send code (`js-reports.js`, `js-export-import.js`, `api-import.js`'s `giving/send-statement`) — nothing else in the app reads them. So the whole cluster moved, not just some of it.
 - New 4th sub-view in the Giving tab's existing Batches/Transactions/Reports toggle: **Settings** (`givSetView('settings')`, `js-giving.js`). Contains the exact same 3 cards (Church Information, Year-End Letter Template, Mid-Year Letter Template) with the exact same element IDs — moved, not duplicated, so no ID collisions and every existing save/preview/reset/upload function (`saveSettings()`, `previewLetterTemplate()`, `uploadLetterheadLogo()`, etc.) keeps working unchanged, since they're all `getElementById`-based and don't care which tab-panel an element lives under.

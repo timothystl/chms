@@ -349,6 +349,30 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <button class="btn-primary" onclick="saveSettings()">Save Church Info</button>
     </div>
+    <!-- Breeze Giving Sync Card -->
+    <div class="import-card require-finance" style="margin-bottom:14px;">
+      <h3>&#9729; Breeze Giving Sync</h3>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed in Settings &rarr; Import/Export after import.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+        <div class="field" style="margin:0;"><label>From</label><input type="date" id="giving-sync-from" name="giving-sync-from" style="font-size:.85rem;padding:4px 8px;"></div>
+        <div class="field" style="margin:0;"><label>To</label><input type="date" id="giving-sync-to" name="giving-sync-to" style="font-size:.85rem;padding:4px 8px;"></div>
+      </div>
+      <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Date Range</button>
+      <div class="import-status" id="giving-sync-status"></div>
+      <pre id="giving-sync-diagnostics" style="display:none;margin-top:10px;padding:10px;background:#f4f0ea;border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
+      <div style="margin-top:12px;">
+        <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+          <div class="field" style="margin:0;"><label>Start Year</label><input type="number" id="giving-sync-start-year" name="giving-sync-start-year" value="2020" min="2000" max="2099" style="width:90px;font-size:.85rem;padding:4px 8px;"></div>
+        </div>
+        <button class="btn-primary" id="giving-all-btn" onclick="runBreezeGivingAll()">Sync All History</button>
+        <div class="import-status" id="giving-all-status"></div>
+      </div>
+      <div style="margin-top:12px;">
+        <p style="margin:0 0 8px;"><strong>Breeze Audit Log Export</strong> — Download every contribution-related event from Breeze (added, updated, deleted) as a CSV for reconciliation. Uses the same date range as the sync above.</p>
+        <button class="btn-secondary" onclick="downloadBreezeAuditLog()">&#128229; Download Audit Log CSV</button>
+      </div>
+    </div>
     <!-- Letter Template Card -->
     <div class="import-card require-finance" style="margin-bottom:14px;">
       <h3>&#128140; Year-End Giving Letter Template</h3>
@@ -583,7 +607,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <div class="import-card">
       <h3>&#9729; Breeze Sync</h3>
-      <p>All direct syncing with the Breeze API, in one place — people, giving, and fund names.</p>
+      <p>Direct syncing with the Breeze API for people and fund names. Giving sync moved to Giving &rarr; Settings.</p>
 
       <h4 style="font-size:.9rem;margin:0 0 6px;">People</h4>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">Existing records (matched by Breeze ID) are updated; new people are added. Dates and photos already in the system are preserved if Breeze doesn't return a value.</p>
@@ -595,29 +619,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div class="import-status" id="breeze-status"></div>
       <div class="import-status" id="breeze-tag-status" style="margin-top:4px;"></div>
       <div id="breeze-diag" style="display:none;margin-top:10px;font-size:.78rem;font-family:monospace;background:var(--linen);padding:10px;border-radius:6px;white-space:pre-wrap;"></div>
-
-      <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
-      <h4 style="font-size:.9rem;margin:0 0 6px;">Giving</h4>
-      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed below after import.</p>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
-        <div class="field" style="margin:0;"><label>From</label><input type="date" id="giving-sync-from" name="giving-sync-from" style="font-size:.85rem;padding:4px 8px;"></div>
-        <div class="field" style="margin:0;"><label>To</label><input type="date" id="giving-sync-to" name="giving-sync-to" style="font-size:.85rem;padding:4px 8px;"></div>
-      </div>
-      <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Date Range</button>
-      <div class="import-status" id="giving-sync-status"></div>
-      <pre id="giving-sync-diagnostics" style="display:none;margin-top:10px;padding:10px;background:#f4f0ea;border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
-      <div style="margin-top:12px;">
-        <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
-          <div class="field" style="margin:0;"><label>Start Year</label><input type="number" id="giving-sync-start-year" name="giving-sync-start-year" value="2020" min="2000" max="2099" style="width:90px;font-size:.85rem;padding:4px 8px;"></div>
-        </div>
-        <button class="btn-primary" id="giving-all-btn" onclick="runBreezeGivingAll()">Sync All History</button>
-        <div class="import-status" id="giving-all-status"></div>
-      </div>
-      <div style="margin-top:12px;">
-        <p style="margin:0 0 8px;"><strong>Breeze Audit Log Export</strong> — Download every contribution-related event from Breeze (added, updated, deleted) as a CSV for reconciliation. Uses the same date range as the sync above.</p>
-        <button class="btn-secondary" onclick="downloadBreezeAuditLog()">&#128229; Download Audit Log CSV</button>
-      </div>
 
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
       <h4 style="font-size:.9rem;margin:0 0 6px;">Fund Names</h4>
