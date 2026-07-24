@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.73.0';
+export const DEPLOY_VERSION = '1.74.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -33,6 +33,11 @@ var _pvGivingEntries = [];
 var _editGiftId = null;
 var _editGiftFilterYear = '';
 var _userRole = 'admin';
+// Admin-configurable per-role flags (Settings -> Role Permissions), resolved server-side
+// and delivered via /admin/api/me — see api-utils.js. Defaults permissive until that
+// response lands (applyRoleUI always runs before the first showTab(), so this default is
+// only a brief bootstrap fallback, never the real access-control decision).
+var _userPermissions = { finance: true, staff: true, register: true, reports: true };
 var _batchSearch = '';
 var _attOrder = 'desc', _attGroupBy = 'none', _attChartMode = 'line', _attTableVisible = true, _attChartH = 210;
 var _yoyRptH = 200, _byServiceRptH = 180, _givingTrendH = 220;
@@ -189,17 +194,15 @@ var _tabFromPopState = false;
 // back/forward, or a bare '#finance' hash on reload), defaulting to 'overview' the first time.
 // See FIN_TOPNAV_ITEMS/finNavGo above.
 function showTab(name, finSection) {
-  // Enforce role-based tab access
-  var isFinancePlus = _userRole === 'admin' || _userRole === 'finance';
-  var isStaffPlus   = _userRole === 'admin' || _userRole === 'staff';
-  var canRegister   = _userRole === 'admin' || _userRole === 'staff' || _userRole === 'office';
-  var canEdit       = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff';
-  if (name === 'giving'     && !isFinancePlus) return;
-  if (name === 'tuitionaid' && !isFinancePlus) return;
-  if (name === 'finance'    && !isFinancePlus) return;
-  if (name === 'attendance' && !isStaffPlus)   return;
-  if (name === 'register'   && !canRegister)   return;
-  if (name === 'reports'    && !canEdit)        return;
+  // Enforce role-based tab access — admin-configurable per role, see _userPermissions above.
+  // This is a UX convenience (avoid landing on a blank/403'd tab); the real enforcement is
+  // server-side in handleChmsApi's ACL block, which reads the same permissions.
+  if (name === 'giving'     && !_userPermissions.finance)  return;
+  if (name === 'tuitionaid' && !_userPermissions.finance)  return;
+  if (name === 'finance'    && !_userPermissions.finance)  return;
+  if (name === 'attendance' && !_userPermissions.staff)    return;
+  if (name === 'register'   && !_userPermissions.register) return;
+  if (name === 'reports'    && !_userPermissions.reports)  return;
   if (name === 'import'     && _userRole !== 'admin') return;
   if (name === 'settings'   && _userRole !== 'admin') return;
   if (name === 'volunteers' && _userRole !== 'admin') return;
@@ -353,7 +356,7 @@ window.addEventListener('load', function() {
   if (bsy) bsy.value = y;
   // Fetch role first so UI restrictions apply before content loads
   api('/admin/api/me').then(function(d) {
-    applyRoleUI(d && d.role ? d.role : 'admin', d && d.display_name);
+    applyRoleUI(d && d.role ? d.role : 'admin', d && d.display_name, d && d.permissions);
   }).catch(function() {
     applyRoleUI('admin');
   }).finally(function() {
@@ -370,11 +373,18 @@ window.addEventListener('load', function() {
   });
 });
 // ── ROLE UI ──────────────────────────────────────────────────────────────
-function applyRoleUI(role, displayName) {
+function applyRoleUI(role, displayName, permissions) {
   _userRole = role || 'admin';
   if (_userRole === 'unknown') { location.href = '/chms'; return; }
+  // Admin always full access (matches the backend's fixed admin bypass); any other missing
+  // permissions payload (e.g. the /me call failed and applyRoleUI('admin') ran instead)
+  // defaults permissive too, consistent with the pre-load default above.
+  _userPermissions = (_userRole === 'admin' || !permissions)
+    ? { finance: true, staff: true, register: true, reports: true }
+    : permissions;
   document.body.classList.remove('role-admin','role-finance','role-staff','role-office','role-member');
   document.body.classList.add('role-' + _userRole);
+  applyPermissionUI(_userPermissions);
   var badge = document.getElementById('topbar-role');
   if (badge) {
     if (_userRole !== 'admin') {
@@ -384,6 +394,19 @@ function applyRoleUI(role, displayName) {
       badge.style.display = 'none';
     }
   }
+}
+// Drives .require-finance/.require-staff/.require-register/.require-reports visibility
+// from the resolved permissions instead of a fixed CSS role rule — these four are the
+// admin-configurable ones (Settings -> Users -> Role Permissions); .require-admin/.no-member
+// stay governed by the static role-based CSS in html-head.js since they're not configurable.
+function applyPermissionUI(perms) {
+  var map = { 'require-finance': 'finance', 'require-staff': 'staff', 'require-register': 'register', 'require-reports': 'reports' };
+  Object.keys(map).forEach(function(cls) {
+    var allowed = !!(perms && perms[map[cls]]);
+    document.querySelectorAll('.' + cls).forEach(function(el) {
+      el.style.display = allowed ? '' : 'none';
+    });
+  });
 }
 
 // ── TAGS ──────────────────────────────────────────────────────────────

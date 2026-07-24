@@ -46,7 +46,7 @@ The same Worker also serves the **public volunteer signup site**, branded **Serv
 ## Architecture Notes
 
 - **Auth**: Cookie-based HMAC-SHA256. Login checks `app_users` table first (per-user DB accounts), falls back to `ADMIN_PASSWORD` env-var for break-glass admin access only.
-- **Roles**: `admin | finance | staff | member` — enforced in `api-chms.js` ACL block; domain modules receive pre-computed `isAdmin/isFinance/isStaff/canEdit` flags.
+- **Roles**: `admin | finance | staff | office | member` — enforced in `api-chms.js` ACL block; domain modules receive pre-computed `isAdmin/isFinance/isStaff/canEdit/canRegister` flags. `isFinance`/`isStaff`/`canRegister`, plus a `canReports` flag, are **admin-configurable per role** (Settings → Role Permissions) as of 2026-07-23 — see `getRolePermissions()`/`resolveRolePermissions()` in `src/api-utils.js`; admin is always full access and member is a fixed, structurally different read-only view, neither is configurable.
 - **Photos**: Stored in R2 bucket `tlc-chms-photos`; served via `/admin/r2photo/` proxy.
 - **Breeze ChMS sync**: `POST /admin/api/import/breeze` (bulk) and `POST /admin/api/import/breeze-sync-person` (per-person). See NOTES.md for field ID quirks.
 - **D1 param limit**: ~100 per statement. Use chunked queries for large IN/NOT IN lists.

@@ -1,7 +1,7 @@
 // ── Import, Config, Register, Export, Breeze Sync API handlers ──────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { parseFundSplits, givingEntryId, isGivingDup } from './api-utils.js';
+import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_KEYS } from './api-utils.js';
 import { validateImageUpload } from './api-people.js';
 import { sendBrevoTransactionalEmail } from './api-emails.js';
 
@@ -451,6 +451,33 @@ if (seg === 'config/letterhead-logo' && method === 'DELETE') {
   }
   await db.prepare("DELETE FROM chms_config WHERE key='letterhead_logo_ext'").run();
   return json({ ok: true });
+}
+
+// ── Role Permissions ──────────────────────────────────────────────
+// Admin-only in both directions (GET included) — this is the actual access-control matrix
+// for the finance/staff/office roles (see api-utils.js), not informational config like
+// church name, so it isn't exposed to the roles it describes.
+if (seg === 'config/role-permissions' && method === 'GET') {
+  if (!isAdmin) return json({ error: 'Access denied' }, 403);
+  return json({ permissions: await getRolePermissions(db) });
+}
+if (seg === 'config/role-permissions' && method === 'PUT') {
+  if (!isAdmin) return json({ error: 'Access denied' }, 403);
+  let b = {}; try { b = await req.json(); } catch {}
+  const incoming = b.permissions && typeof b.permissions === 'object' ? b.permissions : {};
+  // Validate shape before saving — only known role/key combinations, boolean values —
+  // rather than trusting the request body wholesale into a matrix every ACL check reads.
+  const cleaned = {};
+  for (const role of ROLE_PERMISSION_ROLES) {
+    if (!incoming[role] || typeof incoming[role] !== 'object') continue;
+    cleaned[role] = {};
+    for (const key of ROLE_PERMISSION_KEYS) {
+      if (key in incoming[role]) cleaned[role][key] = !!incoming[role][key];
+    }
+  }
+  await db.prepare("INSERT INTO chms_config(key,value) VALUES('role_permissions_json',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+    .bind(JSON.stringify(cleaned)).run();
+  return json({ ok: true, permissions: resolveRolePermissions(JSON.stringify(cleaned)) });
 }
 
 // ── Church Register ──────────────────────────────────────────────

@@ -1,6 +1,6 @@
 // ── ChMS (People & Giving) API handler ────────────────────────────────────────
 import { json } from './auth.js';
-import { isoWeekKey, handleUtilsApi } from './api-utils.js';
+import { isoWeekKey, handleUtilsApi, getRolePermissions, permissionsForRole } from './api-utils.js';
 import { handleHouseholdsApi } from './api-households.js';
 import { handleImportApi } from './api-import.js';
 import { handleReportsApi } from './api-reports.js';
@@ -14,16 +14,20 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
 
   // ── Role-based access control ────────────────────────────────────
   // Roles: admin | finance | staff | office | member
-  //   admin   — full access
-  //   finance — people CRUD + full giving; no attendance/register/followups
-  //   staff   — people CRUD + attendance/register/followups/tags; no giving
-  //   office  — data-entry: people/households/register CRUD only; no giving,
-  //             attendance, follow-ups/audit, reports, settings, or imports
-  //   member  — GET people filtered to member_type='member' only
-  const isAdmin    = role === 'admin';
-  const isFinance  = role === 'admin' || role === 'finance';
-  const isStaff    = role === 'admin' || role === 'staff';
-  const canRegister = role === 'admin' || role === 'staff' || role === 'office';
+  //   admin   — always full access, not configurable (can never be locked out)
+  //   finance | staff | office — the finance/staff/register/reports flags below are
+  //             admin-configurable per role (Settings → Role Permissions), defaulting to
+  //             the historical fixed behavior: finance→finance only, staff→staff+register,
+  //             office→register only, reports→finance+staff. See api-utils.js.
+  //   member  — GET people filtered to member_type='member' only; a structurally different
+  //             read-only view, not part of the configurable matrix
+  const isAdmin = role === 'admin';
+  const perms = await getRolePermissions(db);
+  const rolePerms = permissionsForRole(perms, role);
+  const isFinance   = rolePerms.finance;
+  const isStaff     = rolePerms.staff;
+  const canRegister = rolePerms.register;
+  const canReports  = rolePerms.reports;
   const canEdit    = role === 'admin' || role === 'finance' || role === 'staff' || role === 'office';
 
   // Giving and giving reports — finance+ only
@@ -47,10 +51,10 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   if (seg.startsWith('register') && !canRegister) {
     return json({ error: 'Access denied' }, 403);
   }
-  // Reports — office (data-entry) role has no reporting access. (Engagement/
-  // review-queue endpoints stay open — they back Dashboard widgets, not the
-  // Reports tab, and the dashboard already omits that data for non-staff roles.)
-  if (seg.startsWith('reports') && role === 'office') {
+  // Reports — gated by the configurable "reports" permission (defaults to everyone except
+  // office). (Engagement/review-queue endpoints stay open — they back Dashboard widgets,
+  // not the Reports tab, and the dashboard already omits that data for non-staff roles.)
+  if (seg.startsWith('reports') && !canReports) {
     return json({ error: 'Access denied' }, 403);
   }
   // Config (settings) — reads open to any logged-in role (needed for e.g. the

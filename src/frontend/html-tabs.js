@@ -534,6 +534,24 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div id="st-users-list" style="margin:12px 0;"></div>
       <button class="btn-primary" style="font-size:.85rem;padding:6px 14px;" onclick="openUserForm(null)">+ Add User</button>
     </div>
+    <!-- Role Permissions Card (admin only) -->
+    <div class="import-card require-admin" style="margin-bottom:14px;">
+      <h3>&#128274; Role Permissions</h3>
+      <p>Controls what the Finance, Staff, and Office user types can access. Admin always has full access; Member is a separate read-only directory view and isn&rsquo;t configurable here.</p>
+      <div id="role-perm-status" class="status-msg" style="margin-bottom:8px;"></div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:.88rem;min-width:480px;">
+          <thead><tr style="border-bottom:1px solid var(--border);">
+            <th style="text-align:left;padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Access</th>
+            <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Finance</th>
+            <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Staff</th>
+            <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Office</th>
+          </tr></thead>
+          <tbody id="role-perm-tbody"></tbody>
+        </table>
+      </div>
+      <button class="btn-primary" style="margin-top:12px;" onclick="saveRolePermissions()">Save Role Permissions</button>
+    </div>
     <!-- Volunteer Site & Notifications Card -->
     <div class="import-card" style="margin-bottom:14px;">
       <h3>&#128101; Volunteer Site &amp; Notifications</h3>

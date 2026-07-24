@@ -119,24 +119,22 @@ a.s-item{text-decoration:none;color:inherit;}
 .s-bottom{margin-top:auto;display:flex;flex-direction:column;align-items:stretch;gap:4px;}
 .s-tip{position:static;transform:none;background:transparent;border:none;padding:0;font-size:13px;color:rgba(255,255,255,.7);white-space:nowrap;pointer-events:none;z-index:auto;}
 /* ── ROLE-BASED VISIBILITY ── */
-/* .require-finance  = visible only for admin + finance */
-/* .require-staff    = visible only for admin + staff (not office) */
-/* .require-register = visible for admin + staff + office (data-entry) */
-/* .require-edit     = visible for admin + finance + staff + office (not member) */
-/* .require-admin    = admin only */
+/* .require-finance/.require-staff/.require-register, plus the Reports sidebar item's
+   office exclusion, are admin-configurable per role (Settings -> Giving -> ... no, wait
+   actually admin-configurable via applyPermissionUI() in js-core.js, driven by /admin/api/me's
+   permissions field (see api-utils.js) -- NOT hardcoded CSS below. Member always gets false
+   for all three regardless of config (member is a structurally different, non-configurable
+   view), which is why role-member still has its own static rules here as a belt-and-suspenders
+   fallback in case JS hasn't run yet. */
+/* .require-edit     = visible for admin + finance + staff + office (not member) -- fixed, not configurable */
+/* .require-admin    = admin only -- fixed, not configurable */
 /* .no-member        = hidden for member role */
-/* .no-office        = hidden for the office (data-entry) role */
-.role-staff  .require-finance{display:none!important;}
-.role-office .require-finance{display:none!important;}
 .role-member .require-finance{display:none!important;}
 .role-finance .require-staff{display:none!important;}
-.role-office  .require-staff{display:none!important;}
 .role-member .require-staff{display:none!important;}
-.role-finance .require-register{display:none!important;}
 .role-member  .require-register{display:none!important;}
 .role-member .require-edit{display:none!important;}
 .role-member .no-member{display:none!important;}
-.role-office .no-office{display:none!important;}
 .role-finance .require-admin{display:none!important;}
 .role-staff   .require-admin{display:none!important;}
 .role-office  .require-admin{display:none!important;}
@@ -712,24 +710,22 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .hv-summary{display:none!important;}
 }
 /* ── ROLE-BASED VISIBILITY ── */
-/* .require-finance  = visible only for admin + finance */
-/* .require-staff    = visible only for admin + staff (not office) */
-/* .require-register = visible for admin + staff + office (data-entry) */
-/* .require-edit     = visible for admin + finance + staff + office (not member) */
-/* .require-admin    = admin only */
+/* .require-finance/.require-staff/.require-register, plus the Reports sidebar item's
+   office exclusion, are admin-configurable per role (Settings -> Giving -> ... no, wait
+   actually admin-configurable via applyPermissionUI() in js-core.js, driven by /admin/api/me's
+   permissions field (see api-utils.js) -- NOT hardcoded CSS below. Member always gets false
+   for all three regardless of config (member is a structurally different, non-configurable
+   view), which is why role-member still has its own static rules here as a belt-and-suspenders
+   fallback in case JS hasn't run yet. */
+/* .require-edit     = visible for admin + finance + staff + office (not member) -- fixed, not configurable */
+/* .require-admin    = admin only -- fixed, not configurable */
 /* .no-member        = hidden for member role */
-/* .no-office        = hidden for the office (data-entry) role */
-.role-staff  .require-finance{display:none!important;}
-.role-office .require-finance{display:none!important;}
 .role-member .require-finance{display:none!important;}
 .role-finance .require-staff{display:none!important;}
-.role-office  .require-staff{display:none!important;}
 .role-member .require-staff{display:none!important;}
-.role-finance .require-register{display:none!important;}
 .role-member  .require-register{display:none!important;}
 .role-member .require-edit{display:none!important;}
 .role-member .no-member{display:none!important;}
-.role-office .no-office{display:none!important;}
 .role-finance .require-admin{display:none!important;}
 .role-staff   .require-admin{display:none!important;}
 .role-office  .require-admin{display:none!important;}
@@ -909,7 +905,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div class="s-item require-finance" data-tab="finance" onclick="showTab('finance')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.34-2.5-3-2.5s-3 1-3 2.25S10.34 11.5 12 11.5s3 1.1 3 2.25S13.66 16 12 16s-3-1.1-3-2.5"/></svg><span class="s-tip">Financial Reports</span></div>
   <div class="s-section-hdr no-member">Ministry</div>
   <div class="s-item require-staff" data-tab="attendance" onclick="showTab('attendance')"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg><span class="s-tip">Attendance</span></div>
-  <div class="s-item no-member no-office" data-tab="reports" onclick="showTab('reports')"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span class="s-tip">Reports</span></div>
+  <div class="s-item no-member require-reports" data-tab="reports" onclick="showTab('reports')"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span class="s-tip">Reports</span></div>
   <div class="s-item require-register" data-tab="register" onclick="showTab('register')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="9" y1="7" x2="17" y2="7"/><line x1="9" y1="11" x2="14" y2="11"/></svg><span class="s-tip">Register</span></div>
   <div class="s-section-hdr require-admin">Admin</div>
   <div class="s-item require-admin" data-tab="volunteers" onclick="showTab('volunteers')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg><span class="s-tip">Volunteers</span></div>

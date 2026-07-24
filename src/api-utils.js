@@ -1,6 +1,51 @@
 // Shared utilities used across multiple api-*.js modules.
 import { json, html } from './auth.js';
 
+// ── Configurable role permissions ─────────────────────────────────────────
+// The four flags below (isFinance/isStaff/canRegister/canReports) are the actual
+// access-control primitives threaded through the whole ChMS API — handleChmsApi computes
+// them once and passes them straight into every domain handler (handleGivingApi,
+// handleReportsApi, etc.), so redefining these four from configurable, per-role storage
+// (rather than the fixed formulas they used to be) is a single point of truth: every
+// downstream consumer automatically respects an admin's changes with no other file
+// touched. admin always gets all four regardless of config (never editable, so an admin
+// can never lock themselves out); member is a structurally different, filtered read-only
+// view handled entirely separately and isn't part of this matrix. canEdit (the fourth
+// original flag) is deliberately NOT included here — it's a blanket "not read-only"
+// flag (true for every non-member role, always), not a specific feature toggle.
+export const ROLE_PERMISSION_KEYS = ['finance', 'staff', 'register', 'reports'];
+export const ROLE_PERMISSION_ROLES = ['finance', 'staff', 'office'];
+export const DEFAULT_ROLE_PERMISSIONS = {
+  finance: { finance: true,  staff: false, register: false, reports: true },
+  staff:   { finance: false, staff: true,  register: true,  reports: true },
+  office:  { finance: false, staff: false, register: true,  reports: false },
+};
+
+// Pure — takes the raw stored JSON string (or null/undefined) and returns the full
+// {finance:{...}, staff:{...}, office:{...}} matrix with every role/key defaulted, so a
+// partially-edited or missing config can never leave a key silently undefined.
+export function resolveRolePermissions(storedJson) {
+  let overrides = {};
+  if (storedJson) { try { overrides = JSON.parse(storedJson) || {}; } catch { overrides = {}; } }
+  const result = {};
+  for (const role of Object.keys(DEFAULT_ROLE_PERMISSIONS)) {
+    result[role] = Object.assign({}, DEFAULT_ROLE_PERMISSIONS[role], overrides[role] || {});
+  }
+  return result;
+}
+
+export async function getRolePermissions(db) {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key='role_permissions_json'").first();
+  return resolveRolePermissions(row?.value);
+}
+
+// The four flags a given role actually gets, folding in admin's always-full-access and
+// member's not-applicable status (member permissions are computed elsewhere entirely).
+export function permissionsForRole(matrix, role) {
+  if (role === 'admin') return { finance: true, staff: true, register: true, reports: true };
+  return matrix[role] || { finance: false, staff: false, register: false, reports: false };
+}
+
 export function randHex(bytes) {
   const a = new Uint8Array(bytes);
   crypto.getRandomValues(a);
