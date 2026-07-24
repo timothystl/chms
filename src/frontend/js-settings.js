@@ -46,6 +46,57 @@ function saveMemberTypes() {
   });
 }
 
+// ── ROLE PERMISSIONS ─────────────────────────────────────────────────
+// Admin editor for the four configurable access flags — see api-utils.js for the
+// server-side defaults/resolution and applyPermissionUI() in js-core.js for how these
+// drive .require-finance/.require-staff/.require-register/.require-reports visibility for
+// whichever role is actually logged in.
+var ROLE_PERM_ROWS = [
+  { key: 'finance',  label: 'Giving, Tuition Aid, Financial Reports' },
+  { key: 'staff',    label: 'Attendance, Follow-ups, Audit Log' },
+  { key: 'register', label: 'Register' },
+  { key: 'reports',  label: 'Reports tab' },
+];
+var ROLE_PERM_ROLES = ['finance', 'staff', 'office'];
+function loadRolePermissions() {
+  api('/admin/api/config/role-permissions').then(function(d) {
+    renderRolePermTable(d && d.permissions);
+  }).catch(function() {});
+}
+function renderRolePermTable(perms) {
+  var tbody = document.getElementById('role-perm-tbody');
+  if (!tbody || !perms) return;
+  tbody.innerHTML = ROLE_PERM_ROWS.map(function(row) {
+    return '<tr style="border-bottom:1px solid var(--linen);">'
+      + '<td style="padding:8px;">' + esc(row.label) + '</td>'
+      + ROLE_PERM_ROLES.map(function(role) {
+        var isChecked = perms[role] && perms[role][row.key];
+        return '<td style="padding:8px;text-align:center;"><input type="checkbox" id="rp-' + role + '-' + row.key + '"' + (isChecked ? ' checked' : '') + '></td>';
+      }).join('')
+      + '</tr>';
+  }).join('');
+}
+function saveRolePermissions() {
+  var permissions = {};
+  ROLE_PERM_ROLES.forEach(function(role) {
+    permissions[role] = {};
+    ROLE_PERM_ROWS.forEach(function(row) {
+      var cb = document.getElementById('rp-' + role + '-' + row.key);
+      permissions[role][row.key] = !!(cb && cb.checked);
+    });
+  });
+  api('/admin/api/config/role-permissions', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ permissions: permissions }) }).then(function(d) {
+    if (d && d.ok) {
+      setStatus('role-perm-status', 'Saved! Users with an active session will see the change on their next page load.', 'ok');
+      setTimeout(function(){ setStatus('role-perm-status',''); }, 4000);
+    } else {
+      setStatus('role-perm-status', 'Error: ' + ((d && d.error) || 'unknown'), 'err');
+    }
+  }).catch(function() {
+    setStatus('role-perm-status', 'Network error. Please try again.', 'err');
+  });
+}
+
 // ── USERS MANAGEMENT ──────────────────────────────────────────────────
 var _usersData = [];
 var _editingUserId = null;
@@ -142,7 +193,7 @@ function deleteUser(uid) {
 
 // ── SETTINGS ──────────────────────────────────────────────────────────
 function loadSettings() {
-  if (_userRole === 'admin') loadUsers();
+  if (_userRole === 'admin') { loadUsers(); loadRolePermissions(); }
   // Populate giving export year dropdown
   var yrSel = document.getElementById('export-giving-year');
   if (yrSel && yrSel.options.length <= 1) {
