@@ -1117,6 +1117,7 @@ export const HTML_TABS_2 = String.raw`
       <div class="pv-aside" id="pv-aside"></div>
     </div>
   </div>
+  <div class="pv2-toast" id="pv2-toast"><span class="ck">&#10003;</span> Changes saved</div>
 </div>
 
 <!-- ═══ HOUSEHOLD VIEW ═══ -->
