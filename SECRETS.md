@@ -73,6 +73,12 @@ These are not required for the app to function but unlock additional capabilitie
 - **Set**: `wrangler secret put GOOGLE_ADDRESS_API_KEY`.
 - **Risk if leaked**: Free-tier quota abuse; restrict the key server-side (API restriction) to limit blast radius.
 
+### `GOOGLE_MAPS_API_KEY`
+- **Purpose**: Google **Maps Static API** — powers the embedded map image on the Person Profile and Household View ("Show Map"). This is a **different Google product** than Address Validation, so it needs its own enablement/restriction. If absent, the code falls back to `GOOGLE_ADDRESS_API_KEY`, but a key restricted to Address Validation (as those provisioning steps instruct) will be **rejected** by the Static Maps API with a 403 — showing "Map unavailable" in the UI.
+- **Provision**: Google Cloud Console → same or new project → enable billing → enable **"Maps Static API"** → Credentials → Create API Key → under API restrictions, allow **Maps Static API** (a server-side key; leave application/referrer restrictions off since the Worker calls it server-to-server).
+- **Set**: `wrangler secret put GOOGLE_MAPS_API_KEY`.
+- **Risk if leaked**: Free-tier/quota abuse; restrict the key to the Maps Static API only.
+
 ### `USPS_CLIENT_ID` + `USPS_CLIENT_SECRET`
 - **Purpose**: USPS OAuth 2.0 address validation. Used if `GOOGLE_ADDRESS_API_KEY` is absent. Note: as of the January 2026 Web Tools shutdown, this API is rate-limited to 60 requests/hour — fine for the single-person button, impractical for bulk validation at scale.
 - **Provision**: Register at https://developer.usps.com → create an app with the **Addresses (3.0)** API → copy Consumer Key and Consumer Secret.

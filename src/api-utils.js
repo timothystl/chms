@@ -401,12 +401,19 @@ export async function handleUtilsApi(req, env, url, method, seg, db, isAdmin, ca
   }
 
   // GET /admin/api/utils/static-map?address=... — server-side Google Static Maps proxy.
-  // Keeps GOOGLE_ADDRESS_API_KEY off the client entirely (it's a server-side key with no
-  // HTTP-referrer restriction, unlike a typical embed/JS-API key, so it must never be exposed
-  // in page source). Returns the map image bytes directly.
+  // Keeps the key off the client entirely (it's a server-side key with no HTTP-referrer
+  // restriction, unlike a typical embed/JS-API key, so it must never be exposed in page
+  // source). Returns the map image bytes directly.
+  //
+  // NOTE: this hits the Maps *Static* API, which is a DIFFERENT Google product than the
+  // Address Validation API. A key restricted to Address Validation (per SECRETS.md) will be
+  // rejected here with 403 unless "Maps Static API" is also enabled on the project and the
+  // key's API restrictions allow it. Prefer a dedicated GOOGLE_MAPS_API_KEY; fall back to the
+  // address key only for backwards compatibility.
   if (seg === 'utils/static-map' && method === 'GET') {
     if (!canEdit) return json({ error: 'Access denied' }, 403);
-    if (!env.GOOGLE_ADDRESS_API_KEY) return json({ error: 'Maps not configured' }, 501);
+    const mapKey = env.GOOGLE_MAPS_API_KEY || env.GOOGLE_ADDRESS_API_KEY;
+    if (!mapKey) return json({ error: 'Maps not configured' }, 501);
     const address = (url.searchParams.get('address') || '').trim();
     if (!address) return json({ error: 'address is required' }, 400);
     const mapUrl = 'https://maps.googleapis.com/maps/api/staticmap?' + new URLSearchParams({
@@ -415,10 +422,17 @@ export async function handleUtilsApi(req, env, url, method, seg, db, isAdmin, ca
       size: '600x260',
       scale: '2',
       markers: 'color:0x1E2D4A|' + address,
-      key: env.GOOGLE_ADDRESS_API_KEY,
+      key: mapKey,
     });
     const r = await fetch(mapUrl);
-    if (!r.ok) return json({ error: 'Map lookup failed' }, 502);
+    if (!r.ok) {
+      // Surface Google's own reason (e.g. "API keys with referer restrictions cannot be used
+      // with this API", "The Maps Static API must be enabled") so this is diagnosable from the
+      // Network tab instead of a generic failure.
+      let reason = '';
+      try { reason = (await r.text()).slice(0, 300).trim(); } catch {}
+      return json({ error: 'Map lookup failed', status: r.status, google: reason }, 502);
+    }
     return new Response(r.body, { headers: { 'Content-Type': r.headers.get('Content-Type') || 'image/png', 'Cache-Control': 'private, max-age=3600' } });
   }
 
