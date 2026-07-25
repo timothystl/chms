@@ -954,24 +954,40 @@ function pvfFamilyBody(p) {
   return '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:6px 0;">No household linked</div>'
     + '<button class="pv2-adddash" onclick="createHouseholdForPerson(' + p.id + ',\'' + esc(p.last_name||'') + '\')">＋ Create household</button>';
 }
+var _pvfTagAddOpen = false;
 function pvfTagsBody(p) {
+  // Show only the tags actually applied to this person (the "active" tags). The full list of
+  // available tags stays hidden behind a click-to-open "＋ Add tag" box, rather than always
+  // listing every unapplied tag inline.
   var chips = (p.tags||[]).map(function(t){
     return '<span class="pv2-chip">' + esc(t.name)
       + (_userRole !== 'member' ? '<button class="pv2-chip-x" onclick="pvfRemoveTag(' + t.id + ')">✕</button>' : '')
       + '</span>';
   }).join('');
   var out = '<div style="display:flex;flex-wrap:wrap;gap:8px;' + (chips ? 'margin-bottom:12px;' : '') + '">'
-    + (chips || (_userRole === 'member' ? '<span style="color:var(--faint);font-size:13px;font-style:italic;">No tags</span>' : '')) + '</div>';
+    + (chips || '<span style="color:var(--faint);font-size:13px;font-style:italic;">No tags</span>') + '</div>';
   if (_userRole !== 'member') {
     var curIds = (p.tags||[]).map(function(t){ return t.id; });
     var avail = (typeof allTags !== 'undefined' ? allTags : []).filter(function(t){ return curIds.indexOf(t.id) < 0; });
-    out += '<div style="display:flex;flex-wrap:wrap;gap:7px;">'
-      + (avail.length ? avail.map(function(t){
-          return '<button class="pv2-chip-add" onclick="pvfAddTag(' + t.id + ')">＋ ' + esc(t.name) + '</button>';
-        }).join('') : '<span style="color:var(--faint);font-size:12.5px;">All tags applied</span>')
-      + '</div>';
+    if (!avail.length) {
+      out += '<span style="color:var(--faint);font-size:12.5px;">All tags applied</span>';
+    } else {
+      out += '<button class="pv2-chip-add" onclick="pvfToggleAddTags()">' + (_pvfTagAddOpen ? '✕ Done' : '＋ Add tag') + '</button>';
+      if (_pvfTagAddOpen) {
+        out += '<div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;">'
+          + avail.map(function(t){
+              return '<button class="pv2-chip-add" onclick="pvfAddTag(' + t.id + ')">＋ ' + esc(t.name) + '</button>';
+            }).join('')
+          + '</div>';
+      }
+    }
   }
   return out;
+}
+function pvfToggleAddTags() {
+  _pvfTagAddOpen = !_pvfTagAddOpen;
+  var body = document.getElementById('pvf-body-tags');
+  if (body) body.innerHTML = pvfTagsBody(_currentPvPerson);
 }
 function pvfSetTags(tagIds) {
   var p = _currentPvPerson;
@@ -1106,6 +1122,7 @@ function pvfSaveNotesInline() {
 function pvfRenderInfo(p) {
   var infoEl = document.getElementById('ptab-info');
   if (!infoEl) return;
+  _pvfTagAddOpen = false; // start collapsed on each profile render
   pvfBuildRegistry(p);
   var isFinance = (_userRole === 'admin' || _userRole === 'finance');
   var displayName = ((p.first_name||'')+' '+(p.last_name||'')).trim() || 'Unnamed';
