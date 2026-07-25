@@ -1081,6 +1081,23 @@ function runBreezeImport() {
   }
   doPage(0);
 }
+function runBreezeNameSync(btnEl) {
+  var btn = btnEl || null;
+  var status = document.getElementById('breeze-name-status');
+  if (btn) { btn.disabled = true; }
+  if (status) { status.textContent = 'Syncing middle & preferred names from Breeze…'; status.className = 'import-status'; }
+  api('/admin/api/import/breeze-sync-names', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' })
+    .then(function(r) {
+      if (!r || !r.ok) { if (status) { status.textContent = 'Error: ' + ((r && r.error) || 'Unknown error'); status.className = 'import-status err'; } return; }
+      if (status) {
+        status.textContent = 'Done — ' + r.matched + ' linked people scanned; ' + r.middle_updated + ' middle name'
+          + (r.middle_updated === 1 ? '' : 's') + ' and ' + r.preferred_updated + ' preferred name'
+          + (r.preferred_updated === 1 ? '' : 's') + ' updated.';
+        status.className = 'import-status ok';
+      }
+    }).catch(function() { if (status) { status.textContent = 'Request failed.'; status.className = 'import-status err'; } })
+    .finally(function() { if (btn) btn.disabled = false; });
+}
 function runBreezeTagSync(btnEl) {
   var btn = btnEl || null;
   var origLabel = btn ? btn.innerHTML : '';

@@ -687,8 +687,10 @@ function pvfBuildRegistry(p) {
   }));
   var genderOpts = [{value:'',label:'—'},{value:'Male',label:'Male'},{value:'Female',label:'Female'},{value:'Other',label:'Other'}];
   var maritalOpts = [{value:'',label:'—'},{value:'Single',label:'Single'},{value:'Married',label:'Married'},{value:'Divorced',label:'Divorced'},{value:'Widowed',label:'Widowed'}];
+  var roleOpts = [{value:'',label:'—'},{value:'head',label:'Head'},{value:'spouse',label:'Spouse'},{value:'child',label:'Child'},{value:'other',label:'Other'}];
   function dateSub(v) { return pvfYearsAgo(v); }
   var defs = [
+    {id:'family_role', label:'Role in household', type:'select', options:roleOpts},
     {id:'first_name', label:'First name', type:'text'},
     {id:'last_name', label:'Last name', type:'text'},
     {id:'preferred_name', label:'Preferred name', type:'text', ph:'Nickname'},
@@ -787,7 +789,7 @@ function pvfCommit(id) {
       pvfCancel(id);
       pvfToast();
       // Header-affecting fields: re-render the whole profile header/badges.
-      if (['first_name','last_name','preferred_name','member_type','marital_status'].indexOf(id) >= 0) {
+      if (['first_name','last_name','preferred_name','member_type','marital_status','family_role'].indexOf(id) >= 0) {
         pvfRefreshHeader();
       }
     }).catch(function() {
@@ -884,6 +886,7 @@ function pvfRefreshHeader() {
   var fnEl = document.getElementById('pv-fullname'); if (fnEl) fnEl.textContent = displayName || 'Unnamed';
   var tn = document.getElementById('pv-topbar-name'); if (tn) tn.textContent = displayName;
   var cr = document.getElementById('pvf-crumb'); if (cr) cr.textContent = displayName;
+  var roleEl = document.getElementById('pv-role'); if (roleEl) roleEl.textContent = p.family_role ? ' · ' + p.family_role : '';
 }
 // Generic section card wrapper.
 function pvfCard(id, title, opts) {
@@ -913,7 +916,10 @@ function pvfContactExtras(p) {
 }
 function pvfFamilyBody(p) {
   if (p.household_id) {
-    return '<div id="pv-family-members" style="color:var(--warm-gray);font-size:12px;">Loading…</div>';
+    // "Role in household" (head/spouse/child/other) is inline-editable here;
+    // the member list loads async into #pv-family-members below it.
+    return pvfRowHtml('family_role')
+      + '<div id="pv-family-members" style="color:var(--warm-gray);font-size:12px;margin-top:6px;">Loading…</div>';
   }
   if (_userRole === 'member') return '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:6px 0;">No household linked</div>';
   return '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:6px 0;">No household linked</div>'
