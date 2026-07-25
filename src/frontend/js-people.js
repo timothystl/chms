@@ -809,7 +809,9 @@ function pvfGo(id) {
   var el = document.getElementById('pvf-sec-' + id);
   if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-// Re-render the header name/subline/badges after an inline edit of a header field.
+// Re-render the header name/crumb after an inline edit of a header field.
+// (The old pill/badge row at the top of the profile was removed per request —
+// status/marital live in the Personal card and tags in the Tags card.)
 function pvfRefreshHeader() {
   var p = _currentPvPerson; if (!p) return;
   var isOrg = (p.member_type||'').toLowerCase() === 'organization';
@@ -817,22 +819,7 @@ function pvfRefreshHeader() {
     : ((p.first_name||'')+' '+(p.last_name||'')).trim();
   var fnEl = document.getElementById('pv-fullname'); if (fnEl) fnEl.textContent = displayName || 'Unnamed';
   var tn = document.getElementById('pv-topbar-name'); if (tn) tn.textContent = displayName;
-  pvfRenderBadges();
   var cr = document.getElementById('pvf-crumb'); if (cr) cr.textContent = displayName;
-}
-// Header badge row: status pill + marital pill + tag chips (redesign header badges).
-function pvfRenderBadges() {
-  var el = document.getElementById('pvf-badges'); if (!el) return;
-  var p = _currentPvPerson || {};
-  var cfg = _pvFields['member_type'];
-  var statusLabel = cfg ? pvfDisplay(cfg, (p.member_type||'').toLowerCase()) : (p.member_type||'');
-  var mCfg = _pvFields['marital_status'];
-  var maritalLabel = (p.marital_status && mCfg) ? pvfDisplay(mCfg, p.marital_status) : '';
-  var html = '';
-  if (statusLabel) html += '<span class="pv2-badge status">' + esc(statusLabel) + '</span>';
-  if (maritalLabel) html += '<span class="pv2-badge marital">' + esc(maritalLabel) + '</span>';
-  html += (p.tags||[]).map(function(t){ return '<span class="pv2-badge tag">' + esc(t.name) + '</span>'; }).join('');
-  el.innerHTML = html;
 }
 // Generic section card wrapper.
 function pvfCard(id, title, opts) {
@@ -894,7 +881,6 @@ function pvfSetTags(tagIds) {
       if (r && r.error) { alert('Save failed: ' + r.error); return; }
       _currentPvPerson.tags = (typeof allTags !== 'undefined' ? allTags : []).filter(function(t){ return tagIds.indexOf(t.id) >= 0; });
       var body = document.getElementById('pvf-body-tags'); if (body) body.innerHTML = pvfTagsBody(_currentPvPerson);
-      pvfRenderBadges();
       pvfToast();
     }).catch(function(){ alert('Save failed. Please try again.'); });
 }
@@ -1057,7 +1043,6 @@ function pvfRenderInfo(p) {
 
   infoEl.innerHTML = '<div style="max-width:1120px;margin:0 auto;">'
     + '<div class="pv2-crumb">People <span style="opacity:.5">/</span> <b id="pvf-crumb">' + esc(displayName) + '</b></div>'
-    + '<div class="pv2-badges" id="pvf-badges"></div>'
     + '<div class="pv2-body">'
     + '<nav class="pv2-nav">' + navHtml + '</nav>'
     + '<div class="pv2-grid">'
@@ -1065,7 +1050,6 @@ function pvfRenderInfo(p) {
     + '<div class="pv2-col">' + demoCard + tagsCard + locationCard + givingCard + followCard + notesCard + '</div>'
     + '</div></div></div>';
 
-  pvfRenderBadges();
   if (p.household_id) loadPvFamily(p.household_id, p.id);
   if (isFinance) pvfRenderGivingCard(p.id);
   pvfRenderFollowups(p.id);
