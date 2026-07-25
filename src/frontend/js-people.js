@@ -266,6 +266,16 @@ function renderPersonQuickView(p) {
   if (p.phone) contactRows += '<div class="ppl-qv-row"><a href="tel:' + esc(p.phone.replace(/\\D/g,'')) + '">' + esc(p.phone) + '</a></div>';
   if (p.email) contactRows += '<div class="ppl-qv-row"><a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a></div>';
   if (!contactRows) contactRows = '<div class="ppl-qv-row" style="color:var(--faint);">No contact info on file</div>';
+  // Location: same address parts + static-map proxy as the full profile. Only rendered when
+  // there's a usable address and the viewer can load the map (member role can't hit the proxy).
+  var addrParts = [p.address1, p.city, ((p.state||'')+(p.zip ? ' '+p.zip : '')).trim()].filter(Boolean);
+  var mapEnc = (addrParts.length >= 2 && _userRole !== 'member') ? encodeURIComponent(addrParts.join(', ')) : '';
+  var locSection = '';
+  if (mapEnc) {
+    locSection = '<div class="ppl-qv-section"><div class="ppl-qv-section-lbl">Location</div>'
+      + '<div class="ppl-qv-row" style="margin-bottom:8px;"><a href="https://maps.google.com/?q=' + mapEnc + '" target="_blank" rel="noopener">' + esc(addrParts.join(', ')) + '</a></div>'
+      + '<div id="ppl-qv-map" class="ppl-qv-map"><div style="padding:8px;font-size:12px;color:var(--warm-gray);">Loading map&#8230;</div></div></div>';
+  }
   el.innerHTML = '<div class="ppl-qv-avatar" style="background:' + tint.bg + ';color:' + tint.fg + ';">' + avInner + '</div>'
     + '<div class="ppl-qv-name">' + name + '</div>'
     + '<div class="ppl-qv-meta">' + typeDotHtml(p.member_type) + hhLink + '</div>'
@@ -274,8 +284,27 @@ function renderPersonQuickView(p) {
     + '<div onclick="openPersonDetail(' + p.id + ')" style="background:var(--linen);color:var(--color-navy);">Full Profile</div>'
     + '</div>'
     + '<div class="ppl-qv-section"><div class="ppl-qv-section-lbl">Contact</div>' + contactRows + '</div>'
-    + (p.household_id ? '<div class="ppl-qv-section"><div class="ppl-qv-section-lbl">Household</div><div class="ppl-qv-hh-chips" id="ppl-qv-hh-chips">Loading&#8230;</div></div>' : '');
+    + locSection
+    + (p.household_id ? '<div class="ppl-qv-section"><div class="ppl-qv-section-lbl">Household</div><div class="ppl-qv-hh-names" id="ppl-qv-hh-chips">Loading&#8230;</div></div>' : '');
+  if (mapEnc) loadQuickViewMap(p.id, mapEnc);
   if (p.household_id) loadQuickViewHousehold(p.household_id, p.id);
+}
+// Auto-load the static map into the quick-view Location section (no toggle — the panel is compact).
+function loadQuickViewMap(personId, encAddr) {
+  var el = document.getElementById('ppl-qv-map');
+  if (!el) return;
+  var img = new Image();
+  img.onload = function() {
+    if (_qvPersonId !== personId) return; // selection changed while loading
+    el.innerHTML = '';
+    img.style.cssText = 'width:100%;height:auto;display:block;';
+    el.appendChild(img);
+  };
+  img.onerror = function() {
+    if (_qvPersonId !== personId) return;
+    el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--danger);">Map unavailable. <a href="https://maps.google.com/?q=' + encAddr + '" target="_blank" rel="noopener">Open in Google Maps</a></div>';
+  };
+  img.src = '/admin/api/utils/static-map?address=' + encAddr;
 }
 function loadQuickViewHousehold(hhId, selfId) {
   api('/admin/api/households/' + hhId).then(function(hh) {
@@ -283,9 +312,9 @@ function loadQuickViewHousehold(hhId, selfId) {
     if (!chipsEl || _qvPersonId !== selfId) return; // stale response, selection changed
     var members = hh.members || [];
     chipsEl.innerHTML = members.map(function(m) {
-      var tint = avatarTint(m.id);
       var mName = ((m.first_name||'')+' '+(m.last_name||'')).trim();
-      return '<div class="ppl-qv-chip" style="background:' + tint.bg + ';color:' + tint.fg + ';" title="' + esc(mName) + '" onclick="openPersonQuickView(' + m.id + ')">' + initials(m.first_name, m.last_name) + '</div>';
+      var isSelf = m.id === selfId;
+      return '<div class="ppl-qv-hh-name' + (isSelf ? ' is-self' : '') + '" onclick="openPersonQuickView(' + m.id + ')">' + esc(mName || 'Unnamed') + '</div>';
     }).join('') || '<span style="color:var(--faint);font-size:12px;">No other members</span>';
   }).catch(function() {});
 }
