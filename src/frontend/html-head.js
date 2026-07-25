@@ -743,8 +743,12 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .pv2-toast .ck{color:var(--sage);}
 @keyframes pv2fadeup{from{opacity:0;transform:translate(-50%,6px)}to{opacity:1;transform:translate(-50%,0)}}
 @media(max-width:900px){
+  .pv2-body{flex-direction:column;}
   .pv2-grid{grid-template-columns:1fr;}
-  .pv2-nav{display:none;}
+  /* Narrow: sidebar becomes a horizontal, scrollable "jump to" pill bar (per handoff) */
+  .pv2-nav{position:sticky;top:0;z-index:6;width:auto;flex-direction:row;overflow-x:auto;gap:6px;background:var(--warm-surface-page);padding:8px 2px;border-bottom:1px solid var(--warm-divider);}
+  .pv2-nav-lbl{display:none;}
+  .pv2-nav-btn{white-space:nowrap;flex:none;}
   .pv2-inp{max-width:100%;}
 }
 /* ── HOUSEHOLD VIEW (full page, mirrors Person Profile) ── */
