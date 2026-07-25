@@ -1057,12 +1057,13 @@ export const HTML_TABS_2 = String.raw`
     <div class="pv-hdr">
       <div class="pv-photo-wrap" id="pv-photo-wrap">
         <div class="pv-photo" id="pv-photo"></div>
-        <div class="pv-photo-upload-overlay require-edit" id="pv-photo-overlay" onclick="triggerPhotoUpload()" title="Upload photo" style="display:none;">
+        <div class="pv-photo-upload-overlay require-edit" id="pv-photo-overlay" onclick="togglePvPhotoMenu(event)" title="Edit photo" style="display:none;">
           <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="white" stroke-width="1.8"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
         </div>
-        <button type="button" id="pv-photo-remove-btn" class="require-edit" onclick="removePersonPhoto()" title="Remove photo" style="display:none;position:absolute;top:-4px;right:-4px;width:22px;height:22px;border-radius:50%;border:none;background:var(--clay-red);color:white;font-size:14px;line-height:1;cursor:pointer;padding:0;box-shadow:0 1px 3px rgba(0,0,0,.3);">&times;</button>
-        <button type="button" id="pv-photo-recrop-btn" class="require-edit" onclick="recropPersonPhoto()" title="Re-crop current photo" style="display:none;position:absolute;top:-4px;left:-4px;width:22px;height:22px;border-radius:50%;border:none;background:var(--steel-anchor);color:white;font-size:12px;line-height:1;cursor:pointer;padding:0;box-shadow:0 1px 3px rgba(0,0,0,.3);">&#9986;</button>
-        <button type="button" id="pv-photo-pick-btn" class="require-edit" onclick="openPVPhotoPicker()" title="Use a family member's photo" style="display:none;position:absolute;bottom:-4px;left:-4px;width:22px;height:22px;border-radius:50%;border:none;background:var(--moss-green);color:white;font-size:12px;line-height:1;cursor:pointer;padding:0;box-shadow:0 1px 3px rgba(0,0,0,.3);">&#128100;</button>
+        <button type="button" id="pv-photo-edit-btn" class="require-edit pv-photo-edit-btn" onclick="togglePvPhotoMenu(event)" title="Edit photo" style="display:none;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </button>
+        <div id="pv-photo-menu" class="pv-photo-menu" style="display:none;"></div>
       </div>
       <input type="file" id="pv-photo-input" accept="image/*" style="display:none;" onchange="handlePhotoFileSelected(this)">
       <div class="pv-hdr-info">

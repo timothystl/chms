@@ -587,14 +587,15 @@ function showProfile(p) {
       photoEl.innerHTML = '<span style="color:'+pvTint.fg+';font-size:28px;font-weight:700;line-height:1;">'+initials+'</span>';
       photoEl.style.background = pvTint.bg;
     }
+    // Photo editing is now a single discreet edit button + on-click menu
+    // (was four always-on corner buttons). Members never see it.
+    var canEditPhoto = (_userRole !== 'member');
     var overlayEl = document.getElementById('pv-photo-overlay');
-    if (overlayEl) overlayEl.style.display = (_userRole !== 'member') ? 'flex' : 'none';
-    var rmBtn = document.getElementById('pv-photo-remove-btn');
-    if (rmBtn) rmBtn.style.display = (p.photo_url && _userRole !== 'member') ? 'block' : 'none';
-    var rcBtn = document.getElementById('pv-photo-recrop-btn');
-    if (rcBtn) rcBtn.style.display = (p.photo_url && _userRole !== 'member') ? 'block' : 'none';
-    var pkBtn = document.getElementById('pv-photo-pick-btn');
-    if (pkBtn) pkBtn.style.display = (p.household_id && _userRole !== 'member') ? 'block' : 'none';
+    if (overlayEl) overlayEl.style.display = canEditPhoto ? 'flex' : 'none';
+    var editBtn = document.getElementById('pv-photo-edit-btn');
+    if (editBtn) editBtn.style.display = canEditPhoto ? 'flex' : 'none';
+    closePvPhotoMenu();
+    _pvPhotoState = { hasPhoto: !!p.photo_url, hasHousehold: !!p.household_id };
   }
   var fnEl = document.getElementById('pv-fullname');
   if (fnEl) fnEl.textContent = displayName;
@@ -1438,6 +1439,33 @@ function triggerPhotoUpload() {
   var inp = document.getElementById('pv-photo-input');
   if (inp) inp.click();
 }
+// Photo edit menu: a single edit button opens this on-demand menu instead of
+// four always-visible corner buttons cluttering the profile photo.
+var _pvPhotoState = { hasPhoto: false, hasHousehold: false };
+function togglePvPhotoMenu(e) {
+  if (e) { e.stopPropagation(); if (e.preventDefault) e.preventDefault(); }
+  if (_userRole === 'member') return;
+  var menu = document.getElementById('pv-photo-menu');
+  if (!menu) return;
+  if (menu.style.display !== 'none') { closePvPhotoMenu(); return; }
+  var items = [];
+  items.push('<button onclick="closePvPhotoMenu();triggerPhotoUpload()">&#128247; ' + (_pvPhotoState.hasPhoto ? 'Replace photo' : 'Upload photo') + '</button>');
+  if (_pvPhotoState.hasHousehold) items.push('<button onclick="closePvPhotoMenu();openPVPhotoPicker()">&#128100; Use a family photo</button>');
+  if (_pvPhotoState.hasPhoto) items.push('<button onclick="closePvPhotoMenu();recropPersonPhoto()">&#9986; Re-crop</button>');
+  if (_pvPhotoState.hasPhoto) items.push('<button class="danger" onclick="closePvPhotoMenu();removePersonPhoto()">&times; Remove photo</button>');
+  menu.innerHTML = items.join('');
+  menu.style.display = 'block';
+  setTimeout(function() { document.addEventListener('click', _pvPhotoMenuOutside); }, 0);
+}
+function _pvPhotoMenuOutside(ev) {
+  var menu = document.getElementById('pv-photo-menu');
+  if (menu && !menu.contains(ev.target)) closePvPhotoMenu();
+}
+function closePvPhotoMenu() {
+  var menu = document.getElementById('pv-photo-menu');
+  if (menu) menu.style.display = 'none';
+  document.removeEventListener('click', _pvPhotoMenuOutside);
+}
 function triggerHHPhotoUpload() {
   var inp = document.getElementById('hm-photo-input');
   if (inp) inp.click();
@@ -1606,10 +1634,7 @@ function usePVPhotoFrom(idx) {
         photoEl.innerHTML = '';
         photoEl.appendChild(imgEl);
       }
-      var rmBtn = document.getElementById('pv-photo-remove-btn');
-      if (rmBtn) rmBtn.style.display = 'block';
-      var rcBtn = document.getElementById('pv-photo-recrop-btn');
-      if (rcBtn) rcBtn.style.display = 'block';
+      _pvPhotoState.hasPhoto = true;
     });
 }
 function recropPersonPhoto() {
@@ -1636,8 +1661,7 @@ function removePersonPhoto() {
         var initialsTxt = ((_currentPvPerson.first_name||'').charAt(0) + (_currentPvPerson.last_name||'').charAt(0)).toUpperCase();
         photoEl.innerHTML = '<span style="color:white;font-size:24px;font-weight:600;line-height:1;">' + initialsTxt + '</span>';
       }
-      var rmBtn = document.getElementById('pv-photo-remove-btn');
-      if (rmBtn) rmBtn.style.display = 'none';
+      _pvPhotoState.hasPhoto = false;
     })
     .catch(function() { alert('Remove failed. Please try again.'); });
 }
@@ -1653,6 +1677,7 @@ function uploadPersonPhoto(blob) {
       if (overlay) { overlay.style.opacity = ''; overlay.innerHTML = '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="white" stroke-width="1.8"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>'; }
       if (d && d.ok && d.photo_url) {
         _currentPvPerson.photo_url = d.photo_url;
+        _pvPhotoState.hasPhoto = true;
         var photoEl = document.getElementById('pv-photo');
         if (photoEl) {
           var imgEl = document.createElement('img');
