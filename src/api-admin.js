@@ -600,7 +600,7 @@ export async function handleAdminApi(req, env, url, method) {
       seg.startsWith('organizations') || seg.startsWith('export/') ||
       seg.startsWith('prayer-requests') || seg.startsWith('engagement') ||
       seg.startsWith('utils/')         || seg.startsWith('tuition-aid') ||
-      seg.startsWith('finance')        ||
+      seg.startsWith('finance')        || seg.startsWith('brevo') ||
       seg === 'dashboard'      || seg === 'board'              ||
       seg === 'directory') {
     try {
