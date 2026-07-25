@@ -684,6 +684,7 @@ function hvfRenderInfo(h, members, dispName) {
     + '<div style="max-width:1120px;margin:0 auto;padding:18px 24px 44px;">'
     + '<div class="pv2-crumb">Households <span style="opacity:.5">/</span> <b>' + esc(dispName) + '</b></div>'
     + '<div class="pv2-body">'
+    + pvfNavSelectHtml(navDefs, 'recf-sec-hv-')
     + '<nav class="pv2-nav">' + navHtml + '</nav>'
     + '<div class="pv2-grid">'
     + '<div class="pv2-col">' + detailsCard + membersCard + '</div>'
@@ -788,6 +789,7 @@ function ovfRenderInfo(o) {
     + '<div style="max-width:1120px;margin:0 auto;padding:18px 24px 44px;">'
     + '<div class="pv2-crumb">Organizations <span style="opacity:.5">/</span> <b>' + esc(o.name || 'Organization') + '</b></div>'
     + '<div class="pv2-body">'
+    + pvfNavSelectHtml(navDefs, 'recf-sec-ov-')
     + '<nav class="pv2-nav">' + navHtml + '</nav>'
     + '<div class="pv2-grid">'
     + '<div class="pv2-col">' + detailsCard + contactCard + '</div>'

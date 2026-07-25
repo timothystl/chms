@@ -706,6 +706,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .pv2-nav-btn{text-align:left;background:none;color:var(--warm-gray);font-weight:600;font-size:13.5px;padding:9px 12px;border:none;border-radius:9px;cursor:pointer;font-family:var(--font-body);}
 .pv2-nav-btn:hover{background:var(--warm-surface-header);}
 .pv2-nav-btn.active{background:var(--blue-mist);color:var(--color-navy);font-weight:700;}
+.pv2-nav-select{display:none;width:100%;margin-bottom:14px;font-size:15px;padding:11px 12px;border-radius:10px;border:1px solid var(--warm-border);background:var(--white);color:var(--color-navy);font-family:var(--font-body);}
 .pv2-grid{flex:1;min-width:0;display:grid;grid-template-columns:1fr 380px;gap:20px;align-items:start;}
 .pv2-col{display:flex;flex-direction:column;gap:20px;min-width:0;}
 .pv2-card{background:var(--warm-surface-card);border:1px solid var(--warm-divider);border-radius:16px;overflow:hidden;box-shadow:0 1px 2px rgba(20,40,60,.04);scroll-margin-top:14px;}
@@ -752,13 +753,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 @media(max-width:900px){
   .pv2-body{flex-direction:column;}
   .pv2-grid{grid-template-columns:1fr;}
-  /* Narrow: the sidebar becomes a compact "jump to" chip block above the cards.
-     Chips wrap onto multiple rows (no sideways scrolling) and it isn't sticky,
-     so it doesn't eat vertical space while reading. */
-  .pv2-nav{position:static;width:auto;flex-direction:row;flex-wrap:wrap;gap:7px;background:transparent;padding:0;border-bottom:none;margin-bottom:8px;}
-  .pv2-nav-lbl{width:100%;display:block;padding:0 0 2px;}
-  .pv2-nav-btn{white-space:nowrap;flex:none;background:var(--warm-surface-header);padding:7px 12px;}
-  .pv2-nav-btn.active{background:var(--blue-mist);}
+  /* Narrow: the side "Jump to" rail is replaced by a compact dropdown menu. */
+  .pv2-nav{display:none;}
+  .pv2-nav-select{display:block;}
   .pv2-inp{max-width:100%;}
 }
 /* ── HOUSEHOLD VIEW (full page, mirrors Person Profile) ── */

@@ -25,6 +25,41 @@ export async function brevoUpsertContact(env, email, firstName, lastName) {
   } catch (e) { return { ok: false, error: e.message }; }
 }
 
+// Per-contact newsletter status: does this email exist in Brevo, and is it in
+// our newsletter list? Used to show the correct profile button state.
+export async function brevoContactStatus(env, email) {
+  const apiKey = env.BREVO_API_KEY || '';
+  const listId = parseInt(env.BREVO_LIST_ID || '0');
+  if (!apiKey || !listId) return { ok: false, error: 'Brevo not configured (missing BREVO_API_KEY or BREVO_LIST_ID)' };
+  try {
+    const res = await fetch('https://api.brevo.com/v3/contacts/' + encodeURIComponent(email), {
+      headers: { 'api-key': apiKey },
+    });
+    if (res.status === 404) return { ok: true, exists: false, subscribed: false };
+    if (!res.ok) { const d = await res.json().catch(() => ({})); return { ok: false, error: d.message || String(res.status) }; }
+    const data = await res.json();
+    const lists = data.listIds || [];
+    return { ok: true, exists: true, subscribed: lists.indexOf(listId) >= 0 };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
+// Remove a contact from the newsletter list (does not delete the contact itself).
+export async function brevoRemoveFromList(env, email) {
+  const apiKey = env.BREVO_API_KEY || '';
+  const listId = parseInt(env.BREVO_LIST_ID || '0');
+  if (!apiKey || !listId) return { ok: false, error: 'Brevo not configured (missing BREVO_API_KEY or BREVO_LIST_ID)' };
+  try {
+    const res = await fetch('https://api.brevo.com/v3/contacts/lists/' + listId + '/contacts/remove', {
+      method: 'POST',
+      headers: { 'api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: [email] }),
+    });
+    if (res.status === 201 || res.status === 204) return { ok: true };
+    const d = await res.json().catch(() => ({}));
+    return { ok: false, error: d.message || String(res.status) };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
 export async function brevoBulkSync(env, contacts) {
   // contacts: [{ email, firstName, lastName }, ...]
   const apiKey = env.BREVO_API_KEY || '';

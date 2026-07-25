@@ -610,14 +610,15 @@ function showProfile(p) {
   var haEl = document.getElementById('pv-hdr-actions');
   if (haEl) {
     var telDigits = (p.phone||'').replace(/[^0-9]/g,'');
-    var nlBtn = (p.email && _userRole !== 'member')
-      ? '<button class="pv2-hdr-btn dashed require-edit" onclick="addToNewsletter('+p.id+')">&#128240; Add to newsletter</button>'
+    var nlWrap = (p.email && _userRole !== 'member')
+      ? '<span id="pv-newsletter-wrap" class="require-edit"></span>'
         + '<span id="pv-newsletter-status" style="font-size:.75rem;color:var(--color-teal);align-self:center;"></span>'
       : '';
     haEl.innerHTML = (p.phone ? '<a class="pv2-hdr-btn" href="tel:'+telDigits+'">&#128222; Call</a>' : '')
       + (p.phone ? '<a class="pv2-hdr-btn" href="sms:'+telDigits+'">&#128172; Text</a>' : '')
       + (p.email ? '<a class="pv2-hdr-btn solid" href="mailto:'+esc(p.email)+'">&#9993; Email</a>' : '')
-      + nlBtn;
+      + nlWrap;
+    if (p.email && _userRole !== 'member') pvfNewsletterInit(p.id);
   }
   var saEl = document.getElementById('pv-status-actions');
   if (saEl && _userRole !== 'member') {
@@ -802,6 +803,69 @@ function pvfToast() {
   t.classList.add('show');
   clearTimeout(_pvToastTimer);
   _pvToastTimer = setTimeout(function(){ t.classList.remove('show'); }, 1400);
+}
+// ── Newsletter (Brevo) status + toggle on the profile header ─────────────
+// Checks whether the person is already on the newsletter list and renders the
+// header button to match: "On newsletter ✓" (click to remove) vs "Add to
+// newsletter" (click to add). All state comes from _currentPvPerson so no
+// person data is embedded in an onclick (VUXBUG2 class).
+function pvfNewsletterInit(id) {
+  var p = _currentPvPerson;
+  if (!p || String(p.id) !== String(id) || !p.email) return;
+  pvfNewsletterRender(id, 'checking');
+  api('/admin/api/brevo/contact-status?email=' + encodeURIComponent(p.email)).then(function(r){
+    if (r && r.ok) pvfNewsletterRender(id, r.subscribed ? 'on' : 'off');
+    else pvfNewsletterRender(id, 'off', (r && r.error) || '');
+  }).catch(function(){ pvfNewsletterRender(id, 'off'); });
+}
+function pvfNewsletterRender(id, state, errNote) {
+  var wrap = document.getElementById('pv-newsletter-wrap');
+  if (wrap) {
+    if (state === 'checking') {
+      wrap.innerHTML = '<button class="pv2-hdr-btn dashed" disabled>&#128240; Checking newsletter…</button>';
+    } else if (state === 'on') {
+      wrap.innerHTML = '<button class="pv2-hdr-btn on" title="On the newsletter — click to remove" onclick="pvfNewsletterToggle(' + id + ',true)">&#9993; On newsletter &#10003;</button>';
+    } else {
+      wrap.innerHTML = '<button class="pv2-hdr-btn dashed" onclick="pvfNewsletterToggle(' + id + ',false)">&#128240; Add to newsletter</button>';
+    }
+  }
+  var st = document.getElementById('pv-newsletter-status');
+  if (st) st.textContent = errNote ? ('Newsletter unavailable: ' + errNote) : '';
+}
+function pvfNewsletterToggle(id, currentlyOn) {
+  var p = _currentPvPerson;
+  if (!p || String(p.id) !== String(id) || !p.email) return;
+  var st = document.getElementById('pv-newsletter-status');
+  if (currentlyOn) {
+    var who = ((p.first_name||'') + ' ' + (p.last_name||'')).trim() || 'this person';
+    if (!confirm('Remove ' + who + ' from the newsletter list?')) return;
+    if (st) st.textContent = 'Removing…';
+    api('/admin/api/brevo/remove-contact', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email: p.email }) })
+      .then(function(r){
+        if (r && r.ok) { if (st) st.textContent = ''; pvfNewsletterRender(id, 'off'); pvfToast(); }
+        else { if (st) st.textContent = 'Error: ' + ((r && r.error) || 'unknown'); }
+      }).catch(function(){ if (st) st.textContent = 'Request failed.'; });
+  } else {
+    if (st) st.textContent = 'Adding…';
+    api('/admin/api/brevo/sync-contact', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email: p.email, first_name: p.first_name||'', last_name: p.last_name||'' }) })
+      .then(function(r){
+        if (r && r.ok) { if (st) st.textContent = ''; pvfNewsletterRender(id, 'on'); pvfToast(); }
+        else { if (st) st.textContent = 'Error: ' + ((r && r.error) || 'unknown'); }
+      }).catch(function(){ if (st) st.textContent = 'Request failed.'; });
+  }
+}
+// Mobile "Jump to" dropdown (mirrors the desktop side rail). Shared by the
+// Person Profile, Household, and Organization views — the option value is the
+// target section element's id, so one handler works for every view.
+function pvfNavSelectHtml(navDefs, prefix) {
+  return '<select class="pv2-nav-select" onchange="pvfNavSelect(this)" aria-label="Jump to section">'
+    + '<option value="" disabled selected>Jump to…</option>'
+    + navDefs.map(function(n){ return '<option value="' + prefix + n[0] + '">' + esc(n[1]) + '</option>'; }).join('')
+    + '</select>';
+}
+function pvfNavSelect(sel) {
+  var el = sel && sel.value ? document.getElementById(sel.value) : null;
+  if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 // Smooth-scroll the info panel to a section card and mark its nav button active.
 function pvfGo(id) {
@@ -1044,6 +1108,7 @@ function pvfRenderInfo(p) {
   infoEl.innerHTML = '<div style="max-width:1120px;margin:0 auto;">'
     + '<div class="pv2-crumb">People <span style="opacity:.5">/</span> <b id="pvf-crumb">' + esc(displayName) + '</b></div>'
     + '<div class="pv2-body">'
+    + pvfNavSelectHtml(navDefs, 'pvf-sec-')
     + '<nav class="pv2-nav">' + navHtml + '</nav>'
     + '<div class="pv2-grid">'
     + '<div class="pv2-col">' + nameCard + personalCard + contactCard + familyCard + '</div>'
