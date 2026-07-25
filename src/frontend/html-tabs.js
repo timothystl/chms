@@ -632,10 +632,13 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
         <button class="btn-primary" onclick="runBreezeImport()">Sync People from Breeze</button>
         <button class="btn-secondary" onclick="runBreezeTagSync(this)">&#127991; Sync Tags Only</button>
+        <button class="btn-secondary" onclick="runBreezeNameSync(this)">&#128100; Sync Middle &amp; Preferred Names Only</button>
       </div>
+      <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 8px;">&#128100; <strong>Names Only</strong> pulls just the middle name and preferred (nickname) from Breeze for people already linked to Breeze &mdash; nothing else is touched, and a blank in Breeze never clears a name you&rsquo;ve set here.</p>
       <div class="progress-bar" id="breeze-bar"><div class="progress-fill" id="breeze-fill" style="width:0%"></div></div>
       <div class="import-status" id="breeze-status"></div>
       <div class="import-status" id="breeze-tag-status" style="margin-top:4px;"></div>
+      <div class="import-status" id="breeze-name-status" style="margin-top:4px;"></div>
       <div id="breeze-diag" style="display:none;margin-top:10px;font-size:.78rem;font-family:monospace;background:var(--linen);padding:10px;border-radius:6px;white-space:pre-wrap;"></div>
 
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
