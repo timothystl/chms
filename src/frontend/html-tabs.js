@@ -1130,20 +1130,10 @@ export const HTML_TABS_2 = String.raw`
       <button class="btn-outline-cream require-edit" id="hv-edit-btn">Edit</button>
     </div>
   </div>
-  <div class="hv-body">
-    <div class="hv-hdr">
-      <div class="hv-icon-tile" id="hv-icon-tile">&#127968;</div>
-      <div style="flex:1;">
-        <div class="hv-name" id="hv-name"></div>
-        <div class="hv-addr" id="hv-addr"></div>
-      </div>
-    </div>
-    <div class="hv-main">
-      <div class="hv-section-title">Household Members</div>
-      <div id="hv-members"></div>
-      <div class="hv-summary" id="hv-summary" style="display:none;"></div>
-    </div>
+  <div class="pv-body">
+    <div id="hv-info"></div>
   </div>
+  <div class="pv2-toast" id="hv-toast"><span class="ck">&#10003;</span> Changes saved</div>
 </div>
 
 <!-- ═══ ORGANIZATION VIEW (full page, mirrors Household View) ═══ -->
@@ -1156,19 +1146,10 @@ export const HTML_TABS_2 = String.raw`
       <button class="btn-outline-cream require-edit" id="ov-edit-btn">Edit</button>
     </div>
   </div>
-  <div class="hv-body">
-    <div class="hv-hdr">
-      <div class="hv-icon-tile" id="ov-icon-tile">&#127970;</div>
-      <div style="flex:1;">
-        <div class="hv-name" id="ov-name"></div>
-        <div class="hv-addr" id="ov-addr"></div>
-      </div>
-    </div>
-    <div class="hv-main">
-      <div class="hv-section-title">Details</div>
-      <div id="ov-details"></div>
-    </div>
+  <div class="pv-body">
+    <div id="ov-info"></div>
   </div>
+  <div class="pv2-toast" id="ov-toast"><span class="ck">&#10003;</span> Changes saved</div>
 </div>
 
 <!-- ═══ TUITION AID PLANNER TAB ═══ -->
