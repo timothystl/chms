@@ -536,6 +536,12 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .ppl-qv-row a:hover{text-decoration:underline;}
 .ppl-qv-hh-chips{display:flex;flex-wrap:wrap;gap:8px;}
 .ppl-qv-chip{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;}
+.ppl-qv-hh-names{display:flex;flex-direction:column;gap:4px;}
+.ppl-qv-hh-name{font-size:13.5px;color:var(--color-teal);font-weight:600;cursor:pointer;}
+.ppl-qv-hh-name:hover{text-decoration:underline;}
+.ppl-qv-hh-name.is-self{color:var(--color-navy);font-weight:700;cursor:default;}
+.ppl-qv-hh-name.is-self:hover{text-decoration:none;}
+.ppl-qv-map{border-radius:10px;overflow:hidden;line-height:0;border:1px solid var(--warm-divider);min-height:20px;}
 .dir-table tbody tr.dir-row-qv td{background:var(--blue-mist)!important;box-shadow:inset 3px 0 0 var(--color-teal);}
 .ppl-card.qv-active{box-shadow:0 0 0 2px var(--color-teal);}
 @media(max-width:1000px){.ppl-quickview{width:280px;padding:22px 18px;}}
