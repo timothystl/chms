@@ -1,6 +1,6 @@
 // ── People, Follow-up, Archive, Brevo Sync, Photos API handlers ────────────
 import { json, hashPassword } from './auth.js';
-import { brevoUpsertContact, brevoBulkSync, brevoGetListContacts } from './api-emails.js';
+import { brevoUpsertContact, brevoBulkSync, brevoGetListContacts, brevoContactStatus, brevoRemoveFromList } from './api-emails.js';
 import { disambiguateHHName, normalizePhone, randHex, escLite, authCardPage } from './api-utils.js';
 import { makeBreezeClient } from './breeze.js';
 
@@ -783,6 +783,20 @@ if (seg === 'brevo/sync-contact' && method === 'POST') {
   if (!b.email) return json({ error: 'email required' }, 400);
   const result = await brevoUpsertContact(env, b.email, b.first_name || '', b.last_name || '');
   return json(result);
+}
+
+if (seg === 'brevo/contact-status' && method === 'GET') {
+  if (!isStaff) return json({ error: 'Access denied' }, 403);
+  const email = url.searchParams.get('email') || '';
+  if (!email) return json({ error: 'email required' }, 400);
+  return json(await brevoContactStatus(env, email));
+}
+
+if (seg === 'brevo/remove-contact' && method === 'POST') {
+  if (!isStaff) return json({ error: 'Access denied' }, 403);
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  if (!b.email) return json({ error: 'email required' }, 400);
+  return json(await brevoRemoveFromList(env, b.email));
 }
 
 if (seg === 'brevo/bulk-sync' && method === 'POST') {

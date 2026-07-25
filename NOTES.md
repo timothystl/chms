@@ -127,6 +127,14 @@ Added 2026-04-15, phased 2026-04-15.
 
 ---
 
+### 2026-07-25 (v1.78.0–v1.81.0 — Profile redesign follow-ups)
+Iterative fixes on the redesigned record views, all reported live:
+- **v1.78.0** — Person Profile photo: replaced the four always-visible corner buttons (upload/remove/re-crop/family-pick) with a single edit button that opens an on-click menu (works on touch); members see none.
+- **v1.79.0** — Newsletter button error (apostrophe-in-onclick, VUXBUG2 class): the header button now passes only the person id and reads email/name from `_currentPvPerson`. Also reflowed the narrow-screen jump-nav.
+- **v1.80.0** — Removed the redundant pill/badge row (status/marital/tags) from the top of the Person Profile per request; that info lives in the header + Personal/Tags cards. Desktop jump-nav stays a docked left sidebar.
+- **v1.81.0** — Newsletter is now **stateful**: on profile load, a `GET /admin/api/brevo/contact-status` check (new `brevoContactStatus`) shows either "✓ On newsletter" (click to remove, via new `brevoRemoveFromList` + `POST /admin/api/brevo/remove-contact`) or "Add to newsletter" (adds via the existing sync-contact). The toggle lives in `js-people.js` (same bundle as `_currentPvPerson`) and surfaces the real Brevo error inline. The mobile "Jump to" nav is now a dropdown `<select>` (shared across Profile/Household/Org — option value is the target section id, one handler for all three); desktop keeps the side rail.
+(`src/api-emails.js`, `src/api-people.js`, `src/frontend/js-people.js`, `src/frontend/js-households.js`, `src/frontend/js-export-import.js`, `src/frontend/html-head.js`, `src/frontend/html-tabs.js`, `src/frontend/js-core.js`)
+
 ### 2026-07-25 (v1.77.0 — Household & Organization redesign: single-screen cards, jump-nav, inline edit)
 Phase 2 of the record-view redesign (v1.75.0 shipped Person Profile; v1.76.0 was profile fix-feedback). Applies the same single-screen card + sticky "Jump to" nav + inline per-field editing to the **Household View** and **Organization View**, in the app's own navy/teal/gold Connect brand tokens, reusing the generic `.pv2-*` CSS from the profile redesign (no new CSS needed).
 - **Household View** cards: **Household** (family name, editable; envelope # and anniversary shown as read-only derived rows since the household PUT endpoint doesn't own those — they come from member records), **Members** (clickable roster with avatars/role/type-dot, + a "Manage" button opening the existing edit modal for add/remove/photo), **Address** (street/apt/city/state/zip inline-editable + auto-embedded static map), **Giving** (finance-only: YTD + all-time tiles + by-year list from `giving_years`), **Notes** (click-to-edit textarea).
