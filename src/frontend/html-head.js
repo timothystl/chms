@@ -604,6 +604,13 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .pv-photo-upload-overlay{position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;cursor:pointer;}
 .pv-photo-wrap:hover .pv-photo-upload-overlay{opacity:1;}
 .pv-photo-upload-overlay svg{pointer-events:none;}
+.pv-photo-edit-btn{position:absolute;bottom:-2px;right:-2px;width:28px;height:28px;border-radius:50%;border:2px solid var(--white);background:var(--color-navy);cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.28);}
+.pv-photo-edit-btn:hover{background:var(--color-teal);}
+.pv-photo-edit-btn svg{width:14px;height:14px;pointer-events:none;}
+.pv-photo-menu{position:absolute;top:96px;left:0;z-index:30;background:var(--white);border:1px solid var(--warm-divider);border-radius:11px;box-shadow:0 10px 34px rgba(0,0,0,.18);padding:5px;min-width:214px;}
+.pv-photo-menu button{display:block;width:100%;text-align:left;background:none;border:none;padding:9px 12px;font-size:13.5px;color:var(--color-navy);cursor:pointer;border-radius:7px;font-family:var(--font-body);}
+.pv-photo-menu button:hover{background:var(--warm-surface-header);}
+.pv-photo-menu button.danger{color:var(--danger);}
 .pv-hdr-info{flex:1;}
 .pv-fullname{font-family:var(--font-display);font-size:28px;font-weight:700;color:var(--color-navy);line-height:1.2;}
 .pv-meta{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap;}
