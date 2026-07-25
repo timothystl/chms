@@ -611,7 +611,7 @@ function showProfile(p) {
   if (haEl) {
     var telDigits = (p.phone||'').replace(/[^0-9]/g,'');
     var nlBtn = (p.email && _userRole !== 'member')
-      ? '<button class="pv2-hdr-btn dashed require-edit" onclick="addToNewsletter('+p.id+',\''+esc(p.email)+'\',\''+esc(p.first_name||'')+'\',\''+esc(p.last_name||'')+'\')">&#128240; Add to newsletter</button>'
+      ? '<button class="pv2-hdr-btn dashed require-edit" onclick="addToNewsletter('+p.id+')">&#128240; Add to newsletter</button>'
         + '<span id="pv-newsletter-status" style="font-size:.75rem;color:var(--color-teal);align-self:center;"></span>'
       : '';
     haEl.innerHTML = (p.phone ? '<a class="pv2-hdr-btn" href="tel:'+telDigits+'">&#128222; Call</a>' : '')
