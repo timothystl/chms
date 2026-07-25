@@ -335,8 +335,17 @@ function clearAllGiving() {
 }
 
 function addToNewsletter(id, email, firstName, lastName) {
+  // Prefer the live profile record so names/emails with apostrophes or quotes
+  // never have to survive an inline onclick attribute (VUXBUG2 class). The
+  // extra args are kept for backward-compatibility with any other caller.
+  if (email == null && typeof _currentPvPerson !== 'undefined' && _currentPvPerson && String(_currentPvPerson.id) === String(id)) {
+    email = _currentPvPerson.email || '';
+    firstName = _currentPvPerson.first_name || '';
+    lastName = _currentPvPerson.last_name || '';
+  }
   var st = document.getElementById('pv-newsletter-status');
   if (st) st.textContent = 'Adding\u2026';
+  if (!email) { if (st) st.textContent = 'No email on file.'; return; }
   api('/admin/api/brevo/sync-contact', {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({email: email, first_name: firstName, last_name: lastName})
   }).then(function(r) {
