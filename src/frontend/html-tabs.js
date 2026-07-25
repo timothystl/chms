@@ -1083,7 +1083,6 @@ export const HTML_TABS_2 = String.raw`
       <div class="pv-tab active" data-ptab="info" onclick="showPvTab('info')">Information</div>
       <div class="pv-tab require-finance" data-ptab="giving" onclick="showPvTab('giving')">Giving</div>
       <div class="pv-tab" data-ptab="attendance" onclick="showPvTab('attendance')">Attendance</div>
-      <div class="pv-tab" data-ptab="timeline" onclick="showPvTab('timeline')">Timeline</div>
     </div>
     <div class="pv-layout">
       <div class="pv-main">
@@ -1113,9 +1112,6 @@ export const HTML_TABS_2 = String.raw`
         </div>
         <div id="ptab-attendance" class="ptab-panel">
           <div style="color:var(--warm-gray);font-size:13px;padding:20px 0;">Attendance records for this person will appear here.</div>
-        </div>
-        <div id="ptab-timeline" class="ptab-panel">
-          <div style="color:var(--warm-gray);font-size:13px;padding:20px 0;font-style:italic;">Timeline coming soon — pastoral notes and visit log.</div>
         </div>
       </div>
       <div class="pv-aside" id="pv-aside"></div>
