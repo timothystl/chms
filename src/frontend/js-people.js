@@ -2051,7 +2051,6 @@ function showPvTab(name) {
   });
   if (name === 'giving' && _currentPvPerson) loadPvGiving(_currentPvPerson.id);
   if (name === 'attendance' && _currentPvPerson) loadPvAttendance(_currentPvPerson.id);
-  if (name === 'timeline' && _currentPvPerson) loadPvTimeline(_currentPvPerson.id);
 }
 function loadPvGiving(personId) {
   var el = document.getElementById('ptab-giving');
@@ -2390,60 +2389,6 @@ function loadPvAttendance(personId) {
   var el = document.getElementById('ptab-attendance');
   if (!el) return;
   el.innerHTML = '<div style="padding:20px;color:var(--warm-gray);">Attendance data coming soon.</div>';
-}
-function loadPvTimeline(personId) {
-  var el = document.getElementById('ptab-timeline');
-  if (!el) return;
-  el.innerHTML = '<div style="padding:20px;color:var(--warm-gray);">Loading…</div>';
-  Promise.all([
-    api('/admin/api/audit?entity_type=person&entity_id='+personId+'&limit=60'),
-    api('/admin/api/followup?person_id='+personId)
-  ]).then(function(results) {
-    var auditEntries = (results[0] && results[0].entries) ? results[0].entries : [];
-    var fuItems = (results[1] && results[1].items) ? results[1].items : [];
-    // Merge and sort by date descending
-    var events = [];
-    auditEntries.forEach(function(a) {
-      events.push({ ts: a.ts, type: 'audit', data: a });
-    });
-    fuItems.forEach(function(f) {
-      events.push({ ts: f.completed_at || f.created_at, type: 'followup', data: f });
-    });
-    events.sort(function(a,b){ return (b.ts||'').localeCompare(a.ts||''); });
-    if (!events.length) {
-      el.innerHTML = '<div style="padding:20px;color:var(--warm-gray);font-style:italic;">No timeline entries yet.</div>';
-      return;
-    }
-    var typeLabels = {pastoral_call:'Pastoral Call',prayer:'Prayer Follow-up',first_gift:'First Gift',not_seen:'Not Seen',newsletter:'Newsletter',general:'Follow-up'};
-    var rows = events.map(function(ev) {
-      var d = ev.data;
-      var ts = (ev.ts||'').slice(0,16).replace('T',' ');
-      if (ev.type === 'audit') {
-        var old = d.old_value ? esc(d.old_value) : '<em style="color:var(--warm-gray)">—</em>';
-        var nw  = d.new_value ? esc(d.new_value) : '<em style="color:var(--warm-gray)">—</em>';
-        return '<div class="tl-row">'
-          + '<div class="tl-dot tl-dot-edit"></div>'
-          + '<div class="tl-body">'
-          + '<div class="tl-meta"><span class="tl-action">Edited</span> <span class="tl-field">'+esc(d.field||'')+'</span></div>'
-          + '<div class="tl-change">'+old+' &rarr; '+nw+'</div>'
-          + '<div class="tl-ts">'+ts+'</div>'
-          + '</div></div>';
-      } else {
-        var fLabel = typeLabels[d.type] || 'Follow-up';
-        var status = d.completed ? '<span style="color:var(--teal);font-size:.78rem;">&#10003; done '+(d.completed_at||'').slice(0,10)+'</span>' : '<span style="color:var(--sand-tan);font-size:.78rem;">open</span>';
-        return '<div class="tl-row">'
-          + '<div class="tl-dot tl-dot-fu"></div>'
-          + '<div class="tl-body">'
-          + '<div class="tl-meta"><span class="tl-action">'+esc(fLabel)+'</span> '+status+'</div>'
-          + (d.notes ? '<div class="tl-change">'+esc(d.notes)+'</div>' : '')
-          + '<div class="tl-ts">'+ts+'</div>'
-          + '</div></div>';
-      }
-    }).join('');
-    el.innerHTML = '<div style="padding:20px 16px;">'+rows+'</div>';
-  }).catch(function() {
-    el.innerHTML = '<div style="padding:20px;color:var(--danger);">Could not load timeline.</div>';
-  });
 }
 function openPersonEdit(p) {
   var isNew = !p || !p.id;
