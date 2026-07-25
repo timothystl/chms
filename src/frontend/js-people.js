@@ -609,10 +609,14 @@ function showProfile(p) {
   var haEl = document.getElementById('pv-hdr-actions');
   if (haEl) {
     var telDigits = (p.phone||'').replace(/[^0-9]/g,'');
+    var nlBtn = (p.email && _userRole !== 'member')
+      ? '<button class="pv2-hdr-btn dashed require-edit" onclick="addToNewsletter('+p.id+',\''+esc(p.email)+'\',\''+esc(p.first_name||'')+'\',\''+esc(p.last_name||'')+'\')">&#128240; Add to newsletter</button>'
+        + '<span id="pv-newsletter-status" style="font-size:.75rem;color:var(--color-teal);align-self:center;"></span>'
+      : '';
     haEl.innerHTML = (p.phone ? '<a class="pv2-hdr-btn" href="tel:'+telDigits+'">&#128222; Call</a>' : '')
       + (p.phone ? '<a class="pv2-hdr-btn" href="sms:'+telDigits+'">&#128172; Text</a>' : '')
       + (p.email ? '<a class="pv2-hdr-btn solid" href="mailto:'+esc(p.email)+'">&#9993; Email</a>' : '')
-      + '<button class="pv2-hdr-btn pv-desktop-only require-edit" onclick="openPersonEdit(_currentPvPerson)">&#9998; Full edit</button>';
+      + nlBtn;
   }
   var saEl = document.getElementById('pv-status-actions');
   if (saEl && _userRole !== 'member') {
@@ -848,11 +852,6 @@ function pvfContactExtras(p) {
       ? '<span id="pv-sms-badge" onclick="togglePVSms()" title="Click to opt out of SMS" style="cursor:pointer;font-size:11px;padding:2px 9px;border-radius:99px;background:var(--pale-sage);color:var(--sage);font-weight:600;">SMS ✓</span>'
       : '<span id="pv-sms-badge" onclick="togglePVSms()" title="Click to opt in to SMS" style="cursor:pointer;font-size:11px;padding:2px 9px;border-radius:99px;background:var(--linen);color:var(--warm-gray);font-weight:600;">SMS off</span>') + '</div>';
   }
-  if (p.email && _userRole !== 'member') {
-    out += '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
-      + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="addToNewsletter(' + p.id + ',\'' + esc(p.email) + '\',\'' + esc(p.first_name||'') + '\',\'' + esc(p.last_name||'') + '\')">&#9993; Add to Newsletter</button>'
-      + '<span id="pv-newsletter-status" style="font-size:.75rem;color:var(--color-teal);"></span></div>';
-  }
   if (p.household_id && (p.address1||'').trim() && _userRole !== 'member') {
     out += '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">'
       + '<button class="btn-secondary" style="font-size:.75rem;padding:4px 10px;" onclick="applyAddressToHousehold(' + p.id + ',' + p.household_id + ')">Push address to household</button>'
@@ -914,8 +913,9 @@ function pvfLocationBody(p) {
   var out = '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--warm-meta);margin-bottom:5px;">Home address</div>'
     + '<div style="font-size:14.5px;color:var(--color-navy);line-height:1.45;">' + addrStr + '</div>';
   if (addrParts.length >= 2) {
-    out += '<div style="margin-top:10px;"><button id="pv-map-btn-' + p.id + '" class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="togglePersonMap(' + p.id + ')">&#9654; Show Map</button>'
-      + '<div id="pv-map-' + p.id + '" data-addr="' + encodeURIComponent(addrParts.join(', ')) + '" style="display:none;margin-top:8px;border-radius:8px;overflow:hidden;line-height:0;"></div></div>';
+    // Map is embedded on load (auto-opened by pvfRenderInfo); the button just toggles it.
+    out += '<div style="margin-top:10px;"><div id="pv-map-' + p.id + '" data-addr="' + encodeURIComponent(addrParts.join(', ')) + '" style="display:none;margin-top:2px;border-radius:10px;overflow:hidden;line-height:0;border:1px solid var(--warm-divider);"></div>'
+      + '<button id="pv-map-btn-' + p.id + '" class="btn-secondary" style="font-size:.72rem;padding:3px 9px;margin-top:8px;" onclick="togglePersonMap(' + p.id + ')">&#9654; Show Map</button></div>';
   }
   return out;
 }
@@ -1068,6 +1068,8 @@ function pvfRenderInfo(p) {
   if (p.household_id) loadPvFamily(p.household_id, p.id);
   if (isFinance) pvfRenderGivingCard(p.id);
   pvfRenderFollowups(p.id);
+  // Auto-embed the map (togglePersonMap opens the hidden container + loads the static map).
+  if (document.getElementById('pv-map-' + p.id)) togglePersonMap(p.id);
 }
 // ── PERSON PROFILE SECTION EDITING ─────────────────────────────────────
 function pvBuildPersonPatch(p, overrides) {
