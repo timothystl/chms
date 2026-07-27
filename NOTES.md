@@ -22,6 +22,11 @@ Update it as issues are found, fixed, or queued.
 
 ---
 
+## Recent Changes
+
+### v1.83.3 — Breeze middle-name/nickname sync bug fix (2026-07-27)
+`import/breeze-sync-names` (the targeted "sync middle names + nicknames from Breeze" pass) matched everyone by `breeze_id` but reported `middle_updated: 0` for all of them ("didn't match anyone"). Root cause: it called the Breeze `/people` list endpoint *without* `details=1`, and that minimal response omits `middle_name`/`nick_name` entirely — so `bp.middle_name` was always `undefined` and the write condition never fired. Fixed by adding `details=1` to the list call and reading the name from any of the known key spellings (`middle_name`/`middle`/`middlename`, `nick_name`/`nickname`/`nick`/`preferred_name`) via a new `pickName()` helper. Also added a `sample` array (first 8 matched people, raw Breeze name fields vs. resolved vs. local) to the JSON response so the next real run confirms exactly what Breeze sends. Behavior otherwise unchanged: still only writes when Breeze has a non-empty value (never clears a locally-set name), touches no other columns. `node --check` clean, `npm test` (251/251). Not verified against the live Breeze API (no access in-session) — the `sample` output is there to confirm on the first real run. (`src/api-import.js`)
+
 ## Backlog — Phased Plan
 
 Items ordered by effort. Complete one phase, test, then move to the next.
