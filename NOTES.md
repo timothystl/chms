@@ -24,6 +24,25 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.90.0 — Giving Plateaus: per-household mode (2026-07-27)
+Added a **Group by: Household / Person** selector to the Giving Plateaus report (household is the
+new default). In household scope a household is one "giver" — spouses who give separately on the
+same day are summed into one contribution, so a couple that together drops $43/wk shows a $43
+plateau, not two smaller ones. Givers with no household stand alone (link back to the person).
+- Endpoint gained `&scope=household|person`. Household query keys/GROUP BYs on a
+  `CASE … 'h:'||household_id … 'p:'||id` expression joined to `households` for the display name
+  (falls back to `<lastname> Household`, then `Household #<id>` when the household name is blank).
+- **Real bug caught by an in-memory-SQLite harness before shipping**: the group key was first
+  aliased `person_id`, which collides with the `ge.person_id` column — SQLite grouped by the
+  person, not the household, so spouses' same-day gifts never merged (Smith household read $25
+  instead of $43). Fixed by grouping on the key *expression*, not the ambiguous alias; harness now
+  confirms $43→$50.
+- `computeGivingPlateaus()` carries `link_id`/`link_kind` through per row so the UI opens the
+  household view (or person) on click; person scope defaults them to the person (unchanged
+  behavior). Labels ("givers"/"households", "People"/"Households") switch with scope.
+- `npm test` (290/290, 2 new pure-function tests for the link passthrough), `node --check` on both
+  built bundles + backend, plus the SQLite harness above. Not verified in a live browser.
+
 ### v1.89.0 — Giving Plateaus & Nudges report (2026-07-27)
 New "Giving Plateaus & Nudges" tile in the Finance tab's Giving Reports section (finance/admin,
 `require-finance`). Answers "where do givers settle, and what should I nudge them to." The church's

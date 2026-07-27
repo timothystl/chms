@@ -812,6 +812,10 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
   (288/288), `node --check` on both built bundles. Not verified in a live browser or against live
   data. Done 2026-07-27 (v1.89.0). (`src/api-utils.js`, `src/api-reports.js`,
   `src/frontend/js-reports.js`, `src/frontend/html-tabs.js`, `test/giving-plateaus.test.js`)
+  **v1.90.0** — added a Group-by Household/Person selector (household default): a household is one
+  giver, spouses' same-day gifts summed. Endpoint `&scope=household|person`; `computeGivingPlateaus`
+  carries `link_id`/`link_kind` so rows link to the household (or person). An in-memory-SQLite
+  harness caught a real GROUP-BY-alias-collision bug (grouped by person not household) before ship.
 - [ ] **G24** — Manual follow-up needed, outside code: `CHMS_INTAKE_API_KEY` (the same secret value already set on this Worker) needs to also be set as a secret on the website repo's `tlc-newsletter-admin` Worker (admin.timothystl.org) — it isn't there today (that Worker has never called out to ChMS before). Without it, `GET /api/intake/funds` calls from the Giving tab will always get a 401. `wrangler secret put CHMS_INTAKE_API_KEY --name tlc-newsletter-admin`, using the exact same value already configured for this Worker.
 
 ### Dashboard
