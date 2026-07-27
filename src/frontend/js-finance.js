@@ -2347,6 +2347,31 @@ function finPropertyBudgetImportFileSelected(inputEl) {
     });
 }
 
+function finPropertyToggleMonthlyCsvPanel() {
+  var panel = document.getElementById('fin-property-monthly-csv-panel');
+  if (panel) panel.style.display = (panel.style.display === 'none') ? 'block' : 'none';
+}
+
+// Bulk import of one or more months from the AHRA report's own "monthly financials" CSV row
+// format — an alternative to typing each field into the "+ Add Month" modal by hand for every
+// new report. Reuses the same period-YYYY-MM upsert as that modal, so re-pasting an already-
+// imported month's row safely updates it in place rather than duplicating.
+function finPropertyImportMonthlyCsv() {
+  var textEl = document.getElementById('fin-property-monthly-csv-text');
+  var statusEl = document.getElementById('fin-property-monthly-csv-status');
+  var csv = textEl ? textEl.value.trim() : '';
+  if (!csv) { if (statusEl) statusEl.textContent = 'Paste a CSV row first.'; return; }
+  if (statusEl) statusEl.textContent = 'Importing…';
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/monthly-import-csv', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ csv: csv }) })
+    .then(function(d) {
+      if (d && d.error) { if (statusEl) statusEl.textContent = d.error; return; }
+      if (statusEl) statusEl.textContent = 'Imported ' + d.imported + ' month(s): ' + d.periods.join(', ') + '.';
+      if (textEl) textEl.value = '';
+      finLoadProperty();
+    })
+    .catch(function(err) { if (statusEl) statusEl.textContent = err && err.message || 'Import failed.'; });
+}
+
 // "Available for Distribution" — the Finance Workspace handoff's Property-tab navy footer bar:
 // this year's net income, less what was set aside into reserves and committed to capital
 // projects this year. A computed ESTIMATE for planning purposes — distinct from "Distributions
@@ -2497,6 +2522,16 @@ function finRenderProperty(d) {
       + '</div>'
     : '';
 
+  var monthlyCsvImportHtml = isAdminUI
+    ? '<div id="fin-property-monthly-csv-panel" style="display:none;margin:8px 0 14px;padding:10px 14px;background:var(--warm-surface-page);border-radius:10px;">'
+      + '<label style="font-size:.78rem;color:var(--warm-gray);font-weight:600;">Paste the AHRA report\'s "monthly financials" CSV row(s) below (same header row as ' +
+        '<code>period,occupancy_pct,total_revenue,operating_expenses,...</code>) to add or update those months in one step, instead of typing each field into the modal.</label>'
+      + '<textarea id="fin-property-monthly-csv-text" rows="4" style="width:100%;font-family:monospace;font-size:.76rem;margin-top:6px;" placeholder="period,occupancy_pct,total_revenue,operating_expenses,net_operating_income,non_operating_expenses,net_income,...\n2026-06,100,9765.27,-3505.43,6259.84,-957.05,5302.79,..."></textarea>'
+      + '<div style="margin-top:8px;"><button class="btn-primary" style="font-size:.78rem;padding:4px 10px;" onclick="finPropertyImportMonthlyCsv()">Import</button> '
+      + '<span id="fin-property-monthly-csv-status" style="font-size:.76rem;color:var(--warm-gray);margin-left:8px;"></span></div>'
+      + '</div>'
+    : '';
+
   el.innerHTML = kpiHtml
     + '<div style="margin-bottom:16px;">' + infoHtml + '</div>'
     + statsHtml
@@ -2505,7 +2540,9 @@ function finRenderProperty(d) {
     + finRenderPropertyForecast(d)
     + finRenderValuationCalculator(d, isAdminUI)
     + '<h4 style="margin:0 0 8px;font-size:.9rem;">Annual Summary</h4>' + annualHtml
-    + '<h4 style="margin:18px 0 8px;display:flex;align-items:center;justify-content:space-between;font-size:.9rem;"><span>Monthly Financials</span>' + (isAdminUI ? '<button class="btn-primary" style="font-size:.78rem;padding:4px 10px;" onclick="finPropertyOpenMonthModal()">+ Add Month</button>' : '') + '</h4>' + monthlyHtml
+    + '<h4 style="margin:18px 0 8px;display:flex;align-items:center;justify-content:space-between;font-size:.9rem;"><span>Monthly Financials</span>' + (isAdminUI ? '<span><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;margin-right:6px;" onclick="finPropertyToggleMonthlyCsvPanel()">Import CSV</button><button class="btn-primary" style="font-size:.78rem;padding:4px 10px;" onclick="finPropertyOpenMonthModal()">+ Add Month</button></span>' : '') + '</h4>'
+    + monthlyCsvImportHtml
+    + monthlyHtml
     + '<h4 style="margin:18px 0 8px;font-size:.9rem;">Distributions to Church</h4>' + distHtml
     + finRenderPropertyTaxReserve(d, isAdminUI)
     + finRenderCapitalImprovements(d, isAdminUI)

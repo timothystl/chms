@@ -290,18 +290,29 @@ export function finXlsxParseSheetGrid(xml, sharedStrings) {
   }
   return dense;
 }
+// `<sheet .../>` is self-closing in most Excel-generated workbooks, but at least one real AHRA
+// export (the "Budget Detail" report) instead writes `<sheet ...></sheet>` — a valid XML variant
+// the old `[^>]*\/>` regex never matched, silently returning zero sheet names for that file and
+// making its upload always fail with "Could not find a Budget Detail sheet." Matching just the
+// opening `<sheet ...>` tag (self-closed or not) and reading its attributes handles both forms,
+// and also stops assuming `name` comes before `r:id` in the tag.
 function finXlsxListSheetNames(workbookXml) {
   const out = [];
-  const sheetRe = /<sheet\b[^>]*\bname="([^"]*)"[^>]*\/>/g;
+  const sheetRe = /<sheet\b([^>]*?)\/?>/g;
   let sm;
-  while ((sm = sheetRe.exec(workbookXml))) out.push(finXmlUnescape(sm[1]));
+  while ((sm = sheetRe.exec(workbookXml))) {
+    const nameM = /\bname="([^"]*)"/.exec(sm[1]);
+    if (nameM) out.push(finXmlUnescape(nameM[1]));
+  }
   return out;
 }
 function finXlsxFindSheetPath(workbookXml, relsXml, sheetName) {
-  const sheetRe = /<sheet\b[^>]*\bname="([^"]*)"[^>]*\br:id="(rId\d+)"[^>]*\/>/g;
+  const sheetRe = /<sheet\b([^>]*?)\/?>/g;
   let sm, rId = null;
   while ((sm = sheetRe.exec(workbookXml))) {
-    if (finXmlUnescape(sm[1]) === sheetName) { rId = sm[2]; break; }
+    const nameM = /\bname="([^"]*)"/.exec(sm[1]);
+    const idM = /\br:id="(rId\d+)"/.exec(sm[1]);
+    if (nameM && idM && finXmlUnescape(nameM[1]) === sheetName) { rId = idM[1]; break; }
   }
   if (!rId) return null;
   const relMap = {};
@@ -715,6 +726,63 @@ export function parsePropertyBudgetDetailGrid(grid) {
     };
   });
   return { months };
+}
+
+// ── Commercial Property: monthly-financials CSV import ──────────────────────────────────────
+// Each new AHRA property management report comes with its own single-row CSV export in this
+// exact header shape (confirmed against the real June 2026 export used to seed this table —
+// see seedIvanhoePropertyJune2026 in db.js) — this lets an admin paste/upload that CSV directly
+// instead of retyping every field into the "+ Add Month" modal by hand each time a new report
+// arrives. `management_fee_expense`/`accounts_receivable` aren't tracked by this table (no column
+// for them) and are intentionally ignored, same as `total_revenue_ytd` etc. — this app derives
+// YTD figures itself from the stored monthly rows rather than storing a redundant snapshot.
+const PROPERTY_MONTHLY_CSV_REQUIRED_COLS = ['period', 'total_revenue', 'operating_expenses', 'net_operating_income', 'non_operating_expenses', 'net_income'];
+function parseCsvLine(line) {
+  const out = [];
+  let cur = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else inQuotes = false; }
+      else cur += ch;
+    } else if (ch === '"') inQuotes = true;
+    else if (ch === ',') { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+export function parsePropertyMonthlyCsv(text) {
+  const lines = (text || '').split(/\r\n|\r|\n/).map(l => l.trim()).filter(l => l.length);
+  if (!lines.length) return { rows: [], error: 'Empty file.' };
+  const header = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+  const idx = {};
+  header.forEach((h, i) => { idx[h] = i; });
+  for (const col of PROPERTY_MONTHLY_CSV_REQUIRED_COLS) {
+    if (!(col in idx)) return { rows: [], error: `Missing required column "${col}".` };
+  }
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = parseCsvLine(lines[i]);
+    const get = col => (idx[col] != null ? cells[idx[col]] : undefined);
+    const period = (get('period') || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(period)) return { rows: [], error: `Row ${i + 1}: "period" must be YYYY-MM (got "${period}").` };
+    const occRaw = get('occupancy_pct');
+    const occ = (occRaw === undefined || occRaw === '') ? null : Number(occRaw) / 100;
+    const operatingExpCents = Math.abs(dollarsToCents(get('operating_expenses')));
+    const nonOperatingExpCents = Math.abs(dollarsToCents(get('non_operating_expenses')));
+    rows.push({
+      period,
+      occupancy_pct: occ,
+      total_revenue_cents: dollarsToCents(get('total_revenue')),
+      total_expenses_cents: operatingExpCents + nonOperatingExpCents,
+      net_operating_income_cents: dollarsToCents(get('net_operating_income')),
+      net_income_cents: dollarsToCents(get('net_income')),
+      available_for_distribution_cents: get('distribution_amount') !== undefined ? dollarsToCents(get('distribution_amount')) : null,
+      reserve_balance_cents: get('total_property_reserve') !== undefined ? dollarsToCents(get('total_property_reserve')) : null,
+    });
+  }
+  return { rows };
 }
 
 // ── Church Report: Balance Sheet / Statement of Financial Position import ───────────────────
@@ -1372,6 +1440,31 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
          source_report=excluded.source_report, updated_at=excluded.updated_at`
     ).bind(propertyKey, b.period, occ, cents.total_revenue_cents, cents.total_expenses_cents, cents.net_income_cents, cents.net_operating_income_cents, cents.available_for_distribution_cents, cents.reserve_balance_cents, cents.loan_payment_cents, cents.interest_expense_cents, b.source_report || '').run();
     return json({ ok: true });
+  }
+
+  // Bulk import of one or more months from the AHRA report's own monthly-financials CSV row
+  // format (see parsePropertyMonthlyCsv) — an alternative to filling out the "+ Add Month" modal
+  // by hand for each new report. loan_payment_cents/interest_expense_cents aren't in this CSV
+  // shape, so they're left untouched on a re-imported month (upsert only sets the columns this
+  // CSV actually carries) rather than being wiped back to null.
+  if (seg === `finance/property/${propertyKey}/monthly-import-csv` && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const { rows, error } = parsePropertyMonthlyCsv(b.csv || '');
+    if (error) return json({ error }, 400);
+    if (!rows.length) return json({ error: 'No data rows found in this CSV.' }, 400);
+    const ops = rows.map(r => db.prepare(
+      `INSERT INTO finance_property_monthly
+         (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,source_report,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))
+       ON CONFLICT(property_key,period) DO UPDATE SET
+         occupancy_pct=excluded.occupancy_pct, total_revenue_cents=excluded.total_revenue_cents, total_expenses_cents=excluded.total_expenses_cents,
+         net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
+         available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
+         source_report=excluded.source_report, updated_at=excluded.updated_at`
+    ).bind(propertyKey, r.period, r.occupancy_pct, r.total_revenue_cents, r.total_expenses_cents, r.net_income_cents, r.net_operating_income_cents, r.available_for_distribution_cents, r.reserve_balance_cents, b.source_report || 'csv_import'));
+    await db.batch(ops);
+    return json({ ok: true, imported: rows.length, periods: rows.map(r => r.period) });
   }
 
   const monthMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/monthly/(\\d{4}-\\d{2})$`));
