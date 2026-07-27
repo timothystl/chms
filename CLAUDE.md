@@ -813,6 +813,7 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
   (288/288), `node --check` on both built bundles. Not verified in a live browser or against live
   data. Done 2026-07-27 (v1.89.0). (`src/api-utils.js`, `src/api-reports.js`,
   `src/frontend/js-reports.js`, `src/frontend/html-tabs.js`, `test/giving-plateaus.test.js`)
+  **v1.91.0** — added a Group-by Household/Person selector (household default): a household is one
   **v1.90.0** — added a Group-by Household/Person selector (household default): a household is one
   giver, spouses' same-day gifts summed. Endpoint `&scope=household|person`; `computeGivingPlateaus`
   carries `link_id`/`link_kind` so rows link to the household (or person). An in-memory-SQLite
