@@ -819,6 +819,9 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
   giver, spouses' same-day gifts summed. Endpoint `&scope=household|person`; `computeGivingPlateaus`
   carries `link_id`/`link_kind` so rows link to the household (or person). An in-memory-SQLite
   harness caught a real GROUP-BY-alias-collision bug (grouped by person not household) before ship.
+  **v1.92.0** — moved the report out of the Giving → Reports tile grid into the **Board Report**
+  sub-view (Finance → Giving → Board Report), with its own `#giv-plat-output` target (not the shared
+  `showRptOutput`). Year prefills on board-view open.
 - [ ] **G24** — Manual follow-up needed, outside code: `CHMS_INTAKE_API_KEY` (the same secret value already set on this Worker) needs to also be set as a secret on the website repo's `tlc-newsletter-admin` Worker (admin.timothystl.org) — it isn't there today (that Worker has never called out to ChMS before). Without it, `GET /api/intake/funds` calls from the Giving tab will always get a 401. `wrangler secret put CHMS_INTAKE_API_KEY --name tlc-newsletter-admin`, using the exact same value already configured for this Worker.
 
 ### Dashboard

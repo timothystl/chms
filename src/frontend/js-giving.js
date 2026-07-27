@@ -16,7 +16,11 @@ function givSetView(view) {
     givTxnPopulateFundOptions();
     loadGivingTransactions();
   }
-  if (view === 'board') loadBoardReport();
+  if (view === 'board') {
+    loadBoardReport();
+    var platYr = document.getElementById('rpt-plateau-year');
+    if (platYr && !platYr.value) platYr.value = new Date().getFullYear();
+  }
   if (view === 'reports') finInitGivingReports();
   if (view === 'settings') loadGivingSettings();
 }

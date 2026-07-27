@@ -126,8 +126,6 @@ function initReports() {
   var curY = new Date().getFullYear();
   var yoyEl = document.getElementById('rpt-yoy-year');
   if (yoyEl && !yoyEl.value) yoyEl.value = curY;
-  var platEl = document.getElementById('rpt-plateau-year');
-  if (platEl && !platEl.value) platEl.value = curY;
   applyRptPrefs();
 }
 // Writes to both possible output targets: '#rpt-output' (Reports tab — Membership/Contact
@@ -1009,14 +1007,20 @@ function fmtWholeDollars(cents) {
   return '$' + Math.round((cents || 0) / 100).toLocaleString();
 }
 function runGivingPlateaus() {
-  var yr = parseInt(document.getElementById('rpt-plateau-year').value, 10);
-  if (!yr) { alert('Please enter a year.'); return; }
+  var yrEl = document.getElementById('rpt-plateau-year');
+  var yr = parseInt(yrEl && yrEl.value, 10);
+  if (!yr) { yr = new Date().getFullYear(); if (yrEl) yrEl.value = yr; }
   var rep = parseInt(document.getElementById('rpt-plateau-repeat').value, 10) || 3;
   var scopeEl = document.getElementById('rpt-plateau-scope');
   var scope = scopeEl ? scopeEl.value : 'household';
+  // Lives in the Board Report view with its own output target.
+  var out = document.getElementById('giv-plat-output');
+  if (out) { out.innerHTML = '<div style="padding:16px;color:var(--warm-gray);">Loading&hellip;</div>'; out.classList.add('visible'); }
   api('/admin/api/reports/giving-plateaus?year=' + yr + '&min_repeat=' + rep + '&scope=' + scope).then(function(d) {
-    if (d.error) { alert(d.error); return; }
-    showRptOutput(renderGivingPlateaus(d));
+    if (d.error) { if (out) out.innerHTML = '<div style="padding:16px;color:var(--danger);">' + esc(d.error) + '</div>'; else alert(d.error); return; }
+    if (out) { out.innerHTML = renderGivingPlateaus(d); out.scrollIntoView({behavior:'smooth', block:'nearest'}); }
+  }).catch(function(e) {
+    if (out) out.innerHTML = '<div style="padding:16px;color:var(--danger);">Could not load report.</div>';
   });
 }
 function rptTogglePlateauPeople(idx) {
