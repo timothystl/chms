@@ -2521,7 +2521,9 @@ if (seg === 'import/breeze-sync-names' && method === 'POST') { try {
       if (!local) continue;
       matched++;
       const bMiddle = pickName(bp, MIDDLE_KEYS);
-      const bPref   = pickName(bp, PREF_KEYS);
+      let bPref     = pickName(bp, PREF_KEYS);
+      // A nickname that just repeats the first name isn't a real preferred name — don't store it.
+      if (bPref && bPref.toLowerCase() === (bp.first_name || '').trim().toLowerCase()) bPref = '';
       if (sample.length < 8) {
         sample.push({
           breeze_id: String(bp.id),

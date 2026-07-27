@@ -590,8 +590,11 @@ function calcAge(ds) {
 function showProfile(p) {
   _currentPvPerson = p;
   var isOrg = (p.member_type||'').toLowerCase() === 'organization';
+  // A preferred name that just repeats the first name isn't shown (redundant).
+  var _prefN = (p.preferred_name||'').trim();
+  var _showPref = _prefN && _prefN.toLowerCase() !== (p.first_name||'').trim().toLowerCase();
   var displayName = isOrg ? (p.first_name||p.last_name||'Unnamed')
-    : ((p.first_name||'')+(p.preferred_name ? ' "'+p.preferred_name+'"' : '')+' '+(p.last_name||'')).trim();
+    : ((p.first_name||'')+(_showPref ? ' "'+_prefN+'"' : '')+' '+(p.last_name||'')).trim();
   var tn = document.getElementById('pv-topbar-name');
   if (tn) tn.textContent = displayName;
   var photoEl = document.getElementById('pv-photo');
@@ -1139,8 +1142,12 @@ function pvfRenderInfo(p) {
   var isFinance = (_userRole === 'admin' || _userRole === 'finance');
   var displayName = ((p.first_name||'')+' '+(p.last_name||'')).trim() || 'Unnamed';
 
+  // Hide the preferred-name row when it just repeats the first name (redundant).
+  var _prefRedundant = (p.preferred_name||'').trim()
+    && (p.preferred_name||'').trim().toLowerCase() === (p.first_name||'').trim().toLowerCase();
   var nameCard = pvfCard('name', 'Name', { body:
-    pvfRowHtml('first_name') + pvfRowHtml('last_name') + pvfRowHtml('preferred_name') + pvfRowHtml('middle_name') });
+    pvfRowHtml('first_name') + pvfRowHtml('last_name')
+    + (_prefRedundant ? '' : pvfRowHtml('preferred_name')) + pvfRowHtml('middle_name') });
   var personalCard = pvfCard('personal', 'Personal', { body:
     pvfRowHtml('gender') + pvfRowHtml('marital_status') + pvfRowHtml('member_type') + pvfRowHtml('dob') });
   var contactCard = pvfCard('contact', 'Contact', { body:
@@ -2544,7 +2551,12 @@ function savePerson() {
     first_name: first_name,
     last_name: last_name,
     middle_name: isOrg ? '' : document.getElementById('pm-middle').value.trim(),
-    preferred_name: isOrg ? '' : document.getElementById('pm-preferred').value.trim(),
+    // Don't store a preferred name that just repeats the first name.
+    preferred_name: (function(){
+      if (isOrg) return '';
+      var pref = document.getElementById('pm-preferred').value.trim();
+      return pref.toLowerCase() === first_name.toLowerCase() ? '' : pref;
+    })(),
     email: document.getElementById('pm-email').value.trim(),
     phone: document.getElementById('pm-phone').value.trim(),
     address1: document.getElementById('pm-addr1').value.trim(),

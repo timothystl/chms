@@ -24,6 +24,13 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.85.1 — Redundant preferred name (== first name) is suppressed (2026-07-27)
+A preferred name that just repeats the first name is no longer treated as a real preferred name. (`src/frontend/js-people.js`, `src/api-import.js`)
+- Profile header display name no longer renders `John "John" Smith` — the quoted preferred is shown only when it differs from the first name (case-insensitive).
+- The Name card hides the "Preferred name" row entirely when it equals the first name (an empty preferred still shows an editable "Not set" row so one can be added).
+- The person-edit modal save normalizes a preferred name equal to the first name to `''`, so redundant values clear on next save.
+- The Breeze middle/nickname sync (`breeze-sync-names`) skips writing a nickname that equals the Breeze first name — stops redundant preferred names from being created in the first place (the likely original source).
+
 ### v1.85.0 — Breeze people sync is now add-only; newsletter moved to Tags & Groups (2026-07-27)
 **Policy change (user):** Connect is the source of truth for **all people data**; only giving syncs from Breeze.
 - **Bulk `import/breeze` is now add-only** (`src/api-import.js`): existing linked people are skipped at the top of the per-person loop — no field (name, contact, member type, household, photo, dates) is ever overwritten. Only brand-new Breeze people are inserted. The dead `locally_edited`-aware UPDATE branch was removed. The **deactivation pass** (which set `active=0` on Connect people missing from Breeze) and the **household anniversary-propagation pass** are both disabled — both modified existing people. Response still returns `deactivated`/`anniversaryPropagated` (now always 0) plus the existing `skipped` count. The `breeze_sync_seen_ids` accumulator is no longer written (was only for deactivation).
