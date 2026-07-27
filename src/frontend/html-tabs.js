@@ -161,7 +161,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div class="batch-list-panel">
       <div class="batch-list-hdr">
         <h3>Batches</h3>
-        <button class="btn-primary" style="padding:5px 12px;font-size:.8rem;" onclick="openNewBatch()">+ New</button>
+        <button class="btn-primary require-edit-giving" style="padding:5px 12px;font-size:.8rem;" onclick="openNewBatch()">+ New</button>
       </div>
       <div class="batch-search-wrap">
         <input type="search" id="batch-search-input" placeholder="Search batches&#8230;" oninput="filterBatchSearch(this.value)">
@@ -466,9 +466,9 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <!-- Controls row -->
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
-      <button class="btn-primary" style="font-size:.85rem;" onclick="openNewSundayEntry()">+ Add Sunday</button>
-      <button class="btn-secondary" style="font-size:.8rem;" onclick="openSpecialServiceEntry()">+ Special</button>
-      <button class="btn-secondary" style="font-size:.8rem;" onclick="seedYearSundays()">&#128197; Pre-fill Year Sundays</button>
+      <button class="btn-primary require-edit-attendance" style="font-size:.85rem;" onclick="openNewSundayEntry()">+ Add Sunday</button>
+      <button class="btn-secondary require-edit-attendance" style="font-size:.8rem;" onclick="openSpecialServiceEntry()">+ Special</button>
+      <button class="btn-secondary require-edit-attendance" style="font-size:.8rem;" onclick="seedYearSundays()">&#128197; Pre-fill Year Sundays</button>
       <div style="flex:1;"></div>
       <input type="date" id="att-from" name="att-from" style="font-size:.78rem;padding:3px 6px;border:1px solid var(--border);border-radius:6px;">
       <span style="font-size:.8rem;color:var(--warm-gray);">to</span>
@@ -537,15 +537,16 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <!-- Role Permissions Card (admin only) -->
     <div class="import-card require-admin" style="margin-bottom:14px;">
       <h3>&#128274; Role Permissions</h3>
-      <p>Controls what the Finance, Staff, and Office user types can access. Admin always has full access; Member is a separate read-only directory view and isn&rsquo;t configurable here.</p>
+      <p>Set each feature area to <strong>No access</strong>, <strong>View only</strong>, or <strong>Edit</strong> for every user type. Admin always has full access. Member is the read-only directory view &mdash; it can never edit and only its safe extras (the Reports tab) can be turned on.</p>
       <div id="role-perm-status" class="status-msg" style="margin-bottom:8px;"></div>
       <div style="overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:.88rem;min-width:480px;">
+        <table style="width:100%;border-collapse:collapse;font-size:.88rem;min-width:560px;">
           <thead><tr style="border-bottom:1px solid var(--border);">
             <th style="text-align:left;padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Access</th>
             <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Finance</th>
             <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Staff</th>
             <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Office</th>
+            <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Member</th>
           </tr></thead>
           <tbody id="role-perm-tbody"></tbody>
         </table>
@@ -832,7 +833,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <div class="field"><label>Record Type</label><input type="text" id="reg-record-type" name="reg-record-type" placeholder="e.g. Infant, Adult (optional)"></div>
         <div class="field"><label>Notes</label><textarea id="reg-notes" name="reg-notes" placeholder="Optional notes" style="width:100%;height:64px;resize:vertical;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:inherit;"></textarea></div>
         <div style="display:flex;gap:8px;margin-top:4px;">
-          <button class="btn-primary" style="font-size:.85rem;" id="reg-save-btn" onclick="saveRegisterEntry()">Add Entry</button>
+          <button class="btn-primary require-edit-register" style="font-size:.85rem;" id="reg-save-btn" onclick="saveRegisterEntry()">Add Entry</button>
           <button class="btn-secondary" style="font-size:.85rem;display:none;" id="reg-cancel-btn" onclick="cancelRegisterEdit()">Cancel</button>
         </div>
       </div>

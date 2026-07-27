@@ -1,7 +1,7 @@
 // ── Import, Config, Register, Export, Breeze Sync API handlers ──────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_KEYS } from './api-utils.js';
+import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS } from './api-utils.js';
 import { validateImageUpload } from './api-people.js';
 import { sendBrevoTransactionalEmail } from './api-emails.js';
 
@@ -465,14 +465,19 @@ if (seg === 'config/role-permissions' && method === 'PUT') {
   if (!isAdmin) return json({ error: 'Access denied' }, 403);
   let b = {}; try { b = await req.json(); } catch {}
   const incoming = b.permissions && typeof b.permissions === 'object' ? b.permissions : {};
-  // Validate shape before saving — only known role/key combinations, boolean values —
-  // rather than trusting the request body wholesale into a matrix every ACL check reads.
+  // Validate shape before saving — only known role/item combinations, only the three valid
+  // levels — rather than trusting the request body wholesale into a matrix every ACL check
+  // reads. resolveRolePermissions() re-clamps on read (member restrictions, per-item ceiling
+  // for read-only items), so a hand-crafted request still can't over-grant.
   const cleaned = {};
   for (const role of ROLE_PERMISSION_ROLES) {
     if (!incoming[role] || typeof incoming[role] !== 'object') continue;
     cleaned[role] = {};
-    for (const key of ROLE_PERMISSION_KEYS) {
-      if (key in incoming[role]) cleaned[role][key] = !!incoming[role][key];
+    for (const item of ROLE_PERMISSION_ITEM_KEYS) {
+      if (item in incoming[role]) {
+        const lvl = incoming[role][item];
+        cleaned[role][item] = ROLE_PERMISSION_LEVELS.includes(lvl) ? lvl : 'none';
+      }
     }
   }
   await db.prepare("INSERT INTO chms_config(key,value) VALUES('role_permissions_json',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
