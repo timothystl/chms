@@ -376,8 +376,8 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
     if (!isAdmin) return json({ error: 'Access denied' }, 403);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const r = await db.prepare(
-      `INSERT INTO funds (name,description,active,sort_order) VALUES (?,?,?,?)`
-    ).bind(b.name||'New Fund',b.description||'',b.active==null?1:b.active?1:0,b.sort_order||0).run();
+      `INSERT INTO funds (name,description,active,sort_order,tithely_fund_id) VALUES (?,?,?,?,?)`
+    ).bind(b.name||'New Fund',b.description||'',b.active==null?1:b.active?1:0,b.sort_order||0,b.tithely_fund_id||'').run();
     return json({ ok: true, id: r.meta?.last_row_id });
   }
   const fundmatch = seg.match(/^funds\/(\d+)$/);
@@ -385,16 +385,22 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
     if (method === 'PUT') {
       if (!isAdmin) return json({ error: 'Access denied' }, 403);
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-      // budget_annual_cents is optional: only overwrite it when the caller sends it, so a plain
-      // name/active edit from the Manage Funds card never clobbers a budget set elsewhere.
+      // budget_annual_cents and tithely_fund_id are both optional: only overwrite when the
+      // caller actually sends them, so a plain name/active edit from the Manage Funds card
+      // never clobbers a budget or Tithe.ly ID set elsewhere. tithely_fund_id uses `!= null`
+      // (not truthy) so a deliberate clear-to-blank still saves.
+      const sets = ['name=?', 'description=?', 'active=?', 'sort_order=?'];
+      const binds = [b.name||'', b.description||'', b.active?1:0, b.sort_order||0];
       if (b.budget_annual_cents != null) {
-        const budget = Math.max(0, Math.round(Number(b.budget_annual_cents) || 0));
-        await db.prepare(`UPDATE funds SET name=?,description=?,active=?,sort_order=?,budget_annual_cents=? WHERE id=?`)
-          .bind(b.name||'',b.description||'',b.active?1:0,b.sort_order||0,budget,parseInt(fundmatch[1])).run();
-      } else {
-        await db.prepare(`UPDATE funds SET name=?,description=?,active=?,sort_order=? WHERE id=?`)
-          .bind(b.name||'',b.description||'',b.active?1:0,b.sort_order||0,parseInt(fundmatch[1])).run();
+        sets.push('budget_annual_cents=?');
+        binds.push(Math.max(0, Math.round(Number(b.budget_annual_cents) || 0)));
       }
+      if (b.tithely_fund_id != null) {
+        sets.push('tithely_fund_id=?');
+        binds.push(String(b.tithely_fund_id).trim());
+      }
+      binds.push(parseInt(fundmatch[1]));
+      await db.prepare(`UPDATE funds SET ${sets.join(',')} WHERE id=?`).bind(...binds).run();
       return json({ ok: true });
     }
   }

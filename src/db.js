@@ -1168,6 +1168,10 @@ async function _doInitDb(db) {
     'ALTER TABLE funds ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
     // funds: per-fund annual budget (cents) for the Board Report YTD-budget/variance columns
     'ALTER TABLE funds ADD COLUMN budget_annual_cents INTEGER NOT NULL DEFAULT 0',
+    // funds: Tithe.ly fund ID, hand-entered by an admin — mirrors breeze_id above but for
+    // the website's give.timothystl.org giving page (GET /api/intake/funds exposes it so
+    // the website repo doesn't need its own separate fund/ID mapping)
+    'ALTER TABLE funds ADD COLUMN tithely_fund_id TEXT NOT NULL DEFAULT ""',
     // people: deceased flag and death date
     'ALTER TABLE people ADD COLUMN deceased INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE people ADD COLUMN death_date TEXT NOT NULL DEFAULT ""',

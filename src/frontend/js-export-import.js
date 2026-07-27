@@ -712,10 +712,11 @@ function renderManageFunds() {
       + '<td style="padding:6px 8px;font-size:.82rem;">' + esc(f.name) + '</td>'
       + '<td style="padding:6px 8px;font-size:.82rem;">' + f.entry_count + ' gifts &bull; ' + amt + '</td>'
       + '<td style="padding:6px 8px;font-size:.82rem;white-space:nowrap;">$<input type="number" min="0" step="1" id="mf-budget-' + f.id + '" value="' + budgetDollars + '" style="width:90px;font-size:.82rem;padding:3px 6px;" title="Annual budget for the Board Report"></td>'
+      + '<td style="padding:6px 8px;"><input type="text" id="mf-tithely-' + f.id + '" value="' + esc(f.tithely_fund_id || '') + '" placeholder="Tithe.ly fundId" style="width:140px;font-size:.78rem;padding:3px 6px;font-family:monospace;" title="For give.timothystl.org — blank if this fund isn\'t used there"></td>'
       + '<td style="padding:6px 8px;"><button class="btn-secondary" style="font-size:.78rem;padding:3px 8px;" onclick="saveManageFundActive(' + f.id + ')">Save</button></td></tr>';
   }).join('');
   area.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'
-    + '<tr style="font-size:.75rem;color:var(--warm-gray);text-transform:uppercase;"><th style="text-align:left;padding:6px 8px;">Active</th><th style="text-align:left;padding:6px 8px;">Fund</th><th style="text-align:left;padding:6px 8px;">History</th><th style="text-align:left;padding:6px 8px;">Annual budget</th><th></th></tr>'
+    + '<tr style="font-size:.75rem;color:var(--warm-gray);text-transform:uppercase;"><th style="text-align:left;padding:6px 8px;">Active</th><th style="text-align:left;padding:6px 8px;">Fund</th><th style="text-align:left;padding:6px 8px;">History</th><th style="text-align:left;padding:6px 8px;">Annual budget</th><th style="text-align:left;padding:6px 8px;">Tithe.ly fund ID</th><th></th></tr>'
     + rows + '</table></div>';
 }
 function saveManageFundActive(id) {
@@ -726,13 +727,16 @@ function saveManageFundActive(id) {
   var active = cb.checked;
   var budgetInput = document.getElementById('mf-budget-' + id);
   var budgetCents = budgetInput ? Math.max(0, Math.round((parseFloat(budgetInput.value) || 0) * 100)) : (f.budget_annual_cents || 0);
+  var tithelyInput = document.getElementById('mf-tithely-' + id);
+  var tithelyFundId = tithelyInput ? tithelyInput.value.trim() : (f.tithely_fund_id || '');
   status.textContent = 'Saving…'; status.className = 'import-status';
   api('/admin/api/funds/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
-    name: f.name, description: f.description || '', active: active, sort_order: f.sort_order || 0, budget_annual_cents: budgetCents
+    name: f.name, description: f.description || '', active: active, sort_order: f.sort_order || 0, budget_annual_cents: budgetCents, tithely_fund_id: tithelyFundId
   })}).then(function(d) {
     if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
     f.active = active ? 1 : 0;
     f.budget_annual_cents = budgetCents;
+    f.tithely_fund_id = tithelyFundId;
     renderManageFunds();
     status.textContent = 'Saved.'; status.className = 'import-status ok';
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
