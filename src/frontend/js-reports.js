@@ -126,6 +126,8 @@ function initReports() {
   var curY = new Date().getFullYear();
   var yoyEl = document.getElementById('rpt-yoy-year');
   if (yoyEl && !yoyEl.value) yoyEl.value = curY;
+  var platEl = document.getElementById('rpt-plateau-year');
+  if (platEl && !platEl.value) platEl.value = curY;
   applyRptPrefs();
 }
 // Writes to both possible output targets: '#rpt-output' (Reports tab — Membership/Contact
@@ -998,6 +1000,118 @@ function runGivingInsights() {
       + topBlock + lapsedBlock + freqBlock + trendBlock
     );
   });
+}
+
+// ── Giving Plateaus & Nudges ────────────────────────────────────────────
+// Whole-dollar formatter — plateaus/targets/upside are all whole dollars by
+// construction, so cents would just be noise.
+function fmtWholeDollars(cents) {
+  return '$' + Math.round((cents || 0) / 100).toLocaleString();
+}
+function runGivingPlateaus() {
+  var yr = parseInt(document.getElementById('rpt-plateau-year').value, 10);
+  if (!yr) { alert('Please enter a year.'); return; }
+  var rep = parseInt(document.getElementById('rpt-plateau-repeat').value, 10) || 3;
+  api('/admin/api/reports/giving-plateaus?year=' + yr + '&min_repeat=' + rep).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    showRptOutput(renderGivingPlateaus(d));
+  });
+}
+function rptTogglePlateauPeople(idx) {
+  var el = document.getElementById('rpt-plat-people-' + idx);
+  if (!el) return;
+  var open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  var btn = document.getElementById('rpt-plat-toggle-' + idx);
+  if (btn) btn.innerHTML = (open ? '&#9656; Show ' : '&#9662; Hide ') + btn.dataset.count + ' people';
+}
+function renderGivingPlateaus(d) {
+  var s = d.summary || {};
+  var tiers = d.tiers || [];
+  var dist = d.distribution || [];
+  var yr = d.year;
+
+  if (!tiers.length) {
+    return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+      + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving Plateaus &amp; Nudges — ' + yr + '</h3></div>'
+      + '<div style="padding:20px;color:var(--warm-gray);">No givers reached ' + (d.min_repeat||3) + ' gifts at the same amount in ' + yr + '. Lower the "Min. repeats" value, or pick a year with more giving history.</div>';
+  }
+
+  // Summary stat cards
+  var cards = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px;">'
+    + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;">'
+    + '<div style="font-size:1.5rem;font-weight:700;color:var(--steel-anchor);font-variant-numeric:tabular-nums;">' + (s.plateaued_givers||0) + '</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);">givers with a settled amount</div></div>'
+    + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;">'
+    + '<div style="font-size:1.5rem;font-weight:700;color:#5A9E6F;font-variant-numeric:tabular-nums;">' + fmtWholeDollars(s.total_upside_annual_cents) + '</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);">est. added giving / year if all nudged up one rung</div></div>'
+    + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;">'
+    + '<div style="font-size:1.5rem;font-weight:700;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + (s.variable_givers||0) + '</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);">variable givers (no repeating amount)</div></div>'
+    + '</div>';
+
+  // Nudge tier table
+  var tierRows = tiers.map(function(t) {
+    var range = (t.plateau_min_cents === t.plateau_max_cents)
+      ? fmtWholeDollars(t.plateau_min_cents)
+      : fmtWholeDollars(t.plateau_min_cents) + '–' + fmtWholeDollars(t.plateau_max_cents);
+    return '<tr>'
+      + '<td style="font-weight:700;color:var(--steel-anchor);">' + fmtWholeDollars(t.target_cents) + '</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (t.num_people||0) + '</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--warm-gray);">' + range + '</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;">+' + fmtWholeDollars(t.avg_weekly_increase_cents) + '/gift</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#5A9E6F;font-weight:600;">' + fmtWholeDollars(t.upside_annual_cents) + '</td></tr>';
+  }).join('');
+  var tierBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
+    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128201; Nudge Targets</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">Each giver&rsquo;s settled per-gift amount, grouped by the next clean number up. Upside assumes they keep giving at the same frequency, just at the nudged amount.</div>'
+    + '<table class="rpt-table"><thead><tr><th>Nudge to</th><th style="text-align:right;">People</th><th style="text-align:right;">Now (plateau range)</th><th style="text-align:right;">Avg increase</th><th style="text-align:right;">Est. +$/yr</th></tr></thead>'
+    + '<tbody>' + tierRows
+    + '<tr class="rpt-total"><td>Total</td><td style="text-align:right;">' + (s.plateaued_givers||0) + '</td><td></td><td></td><td style="text-align:right;">' + fmtWholeDollars(s.total_upside_annual_cents) + '</td></tr>'
+    + '</tbody></table></div>';
+
+  // Per-tier people breakdown (collapsible)
+  var peopleBlocks = tiers.map(function(t, i) {
+    var rows = (t.people||[]).map(function(p) {
+      return '<tr style="cursor:pointer;" onclick="openPersonDetail(' + p.id + ')">'
+        + '<td style="color:var(--steel-anchor);font-weight:600;">' + esc(p.name||'') + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + fmtWholeDollars(p.plateau_cents) + '</td>'
+        + '<td style="text-align:center;color:var(--warm-gray);">&rarr; ' + fmtWholeDollars(p.target_cents) + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--warm-gray);">' + (p.gifts||0) + ' gifts</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#5A9E6F;">' + fmtWholeDollars(p.upside_annual_cents) + '</td></tr>';
+    }).join('');
+    return '<div style="margin-bottom:8px;">'
+      + '<button id="rpt-plat-toggle-' + i + '" data-count="' + (t.num_people||0) + '" class="btn-secondary" style="font-size:.82rem;padding:5px 12px;width:100%;text-align:left;" onclick="rptTogglePlateauPeople(' + i + ')">'
+      + '&#9656; Show ' + (t.num_people||0) + ' people nudging to ' + fmtWholeDollars(t.target_cents) + '</button>'
+      + '<div id="rpt-plat-people-' + i + '" style="display:none;margin-top:6px;">'
+      + '<table class="rpt-table"><thead><tr><th>Name</th><th style="text-align:right;">Plateau</th><th style="text-align:center;">Nudge</th><th style="text-align:right;">Frequency</th><th style="text-align:right;">Est. +$/yr</th></tr></thead>'
+      + '<tbody>' + rows + '</tbody></table>'
+      + ((t.people||[]).length < (t.num_people||0) ? '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:4px;">Showing first ' + (t.people||[]).length + ' of ' + t.num_people + '.</div>' : '')
+      + '</div></div>';
+  }).join('');
+  var peopleBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
+    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:10px;">&#128101; Who&rsquo;s in each tier</div>'
+    + peopleBlocks + '</div>';
+
+  // Fine distribution histogram (how many givers plateau at each amount)
+  var maxN = dist.reduce(function(m, r){ return Math.max(m, r.n||0); }, 1);
+  var distRows = dist.map(function(r) {
+    var pct = Math.round((r.n||0) * 100 / maxN);
+    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'
+      + '<div style="flex:0 0 60px;text-align:right;font-size:.82rem;color:var(--charcoal);font-variant-numeric:tabular-nums;">$' + r.plateau_dollars + '</div>'
+      + '<div style="flex:1;background:var(--linen);border-radius:4px;height:14px;overflow:hidden;">'
+      + '<div style="background:#C9973A;height:100%;width:' + pct + '%;"></div></div>'
+      + '<div style="flex:0 0 46px;text-align:right;font-size:.8rem;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + (r.n||0) + '</div></div>';
+  }).join('');
+  var distBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;">'
+    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128200; Plateau Distribution</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">Number of givers settled at each per-gift amount &mdash; the spikes are your real plateaus.</div>'
+    + distRows + '</div>';
+
+  return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+    + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving Plateaus &amp; Nudges — ' + yr + '</h3>'
+    + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
+    + cards + tierBlock + peopleBlock + distBlock;
 }
 
 // ── R8: Giving × Attendance overlay ─────────────────────────────────────

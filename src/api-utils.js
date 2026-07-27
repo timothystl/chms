@@ -321,6 +321,126 @@ export function computeConcentration(householdTotals) {
   };
 }
 
+// ── GIVING PLATEAUS / NUDGE TARGETS ───────────────────────────────────────
+// Ladder of "attractive" per-gift giving amounts (whole dollars). A nudge
+// target is the smallest rung strictly greater than a giver's plateau, so
+// 43→50, 83→100, 50→60, 100→125, etc. Above the top rung we round up to the
+// next $1,000.
+export const GIVING_NUDGE_LADDER = [
+  10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 200, 250, 300, 400, 500,
+  600, 750, 1000, 1250, 1500, 2000, 2500, 3000, 4000, 5000,
+];
+
+export function givingNudgeTarget(dollars) {
+  const d = Number(dollars) || 0;
+  for (const rung of GIVING_NUDGE_LADDER) if (rung > d) return rung;
+  return Math.ceil((d + 1) / 1000) * 1000;
+}
+
+// Given one row per (person, giving-day) — { person_id, name, member_type,
+// day_cents } where day_cents is that person's TOTAL contribution that day —
+// find each regular giver's "plateau": the whole-dollar per-gift amount they
+// repeat most often across the period. A giver counts as plateaued only if
+// their modal amount recurs at least `minRepeat` times (default 3), which
+// screens out one-off and highly variable givers. Each plateaued giver is
+// assigned a nudge target (next ladder rung up) and an estimated annual
+// upside = (target − plateau) × number of gifts they already make. Results
+// are grouped into tiers by nudge target and a fine per-dollar histogram.
+export function computeGivingPlateaus(rows, opts = {}) {
+  const minRepeat = Math.max(2, opts.minRepeat || 3);
+  const peopleCap = opts.peopleCap || 500;
+
+  const byPerson = new Map();
+  for (const r of rows || []) {
+    const pid = r.person_id;
+    if (pid == null) continue;
+    const dollars = Math.round((Number(r.day_cents) || 0) / 100);
+    if (dollars <= 0) continue;
+    let p = byPerson.get(pid);
+    if (!p) { p = { id: pid, name: r.name || '', counts: new Map(), gifts: 0, total: 0 }; byPerson.set(pid, p); }
+    p.counts.set(dollars, (p.counts.get(dollars) || 0) + 1);
+    p.gifts += 1;
+    p.total += Number(r.day_cents) || 0;
+  }
+
+  const plateaued = [];
+  let variable = 0;
+  for (const p of byPerson.values()) {
+    // Modal whole-dollar amount: highest count; tie-break to the HIGHER amount
+    // (keeps the plateau baseline conservative, so upside is never overstated).
+    let best = 0, bestCount = 0;
+    for (const [d, c] of p.counts) {
+      if (c > bestCount || (c === bestCount && d > best)) { best = d; bestCount = c; }
+    }
+    if (bestCount < minRepeat) { variable++; continue; }
+    const plateauCents = best * 100;
+    const targetCents = givingNudgeTarget(best) * 100;
+    const weeklyIncreaseCents = targetCents - plateauCents;
+    plateaued.push({
+      id: p.id, name: p.name,
+      plateau_cents: plateauCents,
+      repeats: bestCount,
+      gifts: p.gifts,
+      total_cents: p.total,
+      target_cents: targetCents,
+      weekly_increase_cents: weeklyIncreaseCents,
+      upside_annual_cents: weeklyIncreaseCents * p.gifts,
+    });
+  }
+
+  // Fine histogram: how many givers plateau at each whole-dollar amount.
+  const distMap = new Map();
+  for (const pp of plateaued) {
+    const d = pp.plateau_cents / 100;
+    distMap.set(d, (distMap.get(d) || 0) + 1);
+  }
+  const distribution = [...distMap.entries()]
+    .map(([plateau_dollars, n]) => ({ plateau_dollars, n }))
+    .sort((a, b) => a.plateau_dollars - b.plateau_dollars);
+
+  // Tiers grouped by nudge target.
+  const tierMap = new Map();
+  for (const pp of plateaued) {
+    let t = tierMap.get(pp.target_cents);
+    if (!t) {
+      t = { target_cents: pp.target_cents, people: [], num_people: 0, upside_annual_cents: 0,
+            plateau_min_cents: Infinity, plateau_max_cents: 0, sum_plateau_cents: 0, sum_weekly_inc: 0 };
+      tierMap.set(pp.target_cents, t);
+    }
+    t.people.push(pp);
+    t.num_people++;
+    t.upside_annual_cents += pp.upside_annual_cents;
+    t.plateau_min_cents = Math.min(t.plateau_min_cents, pp.plateau_cents);
+    t.plateau_max_cents = Math.max(t.plateau_max_cents, pp.plateau_cents);
+    t.sum_plateau_cents += pp.plateau_cents;
+    t.sum_weekly_inc += pp.weekly_increase_cents;
+  }
+  const tiers = [...tierMap.values()].map(t => {
+    t.people.sort((a, b) => b.upside_annual_cents - a.upside_annual_cents);
+    return {
+      target_cents: t.target_cents,
+      num_people: t.num_people,
+      plateau_min_cents: t.plateau_min_cents === Infinity ? 0 : t.plateau_min_cents,
+      plateau_max_cents: t.plateau_max_cents,
+      avg_plateau_cents: t.num_people ? Math.round(t.sum_plateau_cents / t.num_people) : 0,
+      avg_weekly_increase_cents: t.num_people ? Math.round(t.sum_weekly_inc / t.num_people) : 0,
+      upside_annual_cents: t.upside_annual_cents,
+      people: t.people.slice(0, peopleCap),
+    };
+  }).sort((a, b) => a.target_cents - b.target_cents);
+
+  return {
+    summary: {
+      plateaued_givers: plateaued.length,
+      variable_givers: variable,
+      total_weekly_plateau_cents: plateaued.reduce((s, p) => s + p.plateau_cents, 0),
+      total_upside_annual_cents: plateaued.reduce((s, p) => s + p.upside_annual_cents, 0),
+    },
+    tiers,
+    distribution,
+  };
+}
+
 // ── PHONE NORMALIZATION ───────────────────────────────────────────────────
 // Strips formatting and returns (XXX) XXX-XXXX for 10-digit US numbers.
 // Returns original string unchanged for international or unusual formats.

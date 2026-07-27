@@ -24,6 +24,37 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.89.0 — Giving Plateaus & Nudges report (2026-07-27)
+New "Giving Plateaus & Nudges" tile in the Finance tab's Giving Reports section (finance/admin,
+`require-finance`). Answers "where do givers settle, and what should I nudge them to." The church's
+actual giving page is external (Tithe.ly at give.timothystl.org — confirmed not in this repo), so
+this is the in-app analysis half: it hands the pastor the tier→target table to then set as suggested
+amounts in Tithe.ly.
+- **Endpoint** `GET /admin/api/reports/giving-plateaus?year=YYYY&min_repeat=N` (`src/api-reports.js`).
+  Pulls one row per (person, giving-day) with that day's SUMmed contribution (so a fund-split gift
+  counts as the single amount the giver actually gave), excludes organizations. Gated as `giving`
+  via the central `ACCESS_GATE` (seg starts with `reports/giving`) — same path as giving-insights,
+  no per-handler check needed.
+- **Pure math** in `src/api-utils.js`, unit-tested (`test/giving-plateaus.test.js`, 10 cases):
+  - `givingNudgeTarget(dollars)` — next rung up a fixed "attractive amounts" ladder. Reproduces the
+    user's own examples exactly: 43→50, 83→100; 50→60, 100→125; above the top rung rounds up to the
+    next $1,000.
+  - `computeGivingPlateaus(rows, {minRepeat})` — each giver's plateau = the whole-dollar per-gift
+    amount they repeat most (modal; tie-break to the HIGHER amount so upside is never overstated).
+    A giver only counts as "plateaued" if that amount recurs ≥ `minRepeat` times (default 3) —
+    screens out one-off/variable givers (counted separately). Per-person upside = (target−plateau)
+    × number of gifts they already make; grouped into tiers by nudge target, plus a fine per-dollar
+    histogram.
+- **UI** (`src/frontend/js-reports.js` `runGivingPlateaus`/`renderGivingPlateaus`, tile in
+  `html-tabs.js`): summary stat cards (plateaued givers / est. added giving per year / variable
+  givers), a Nudge Targets table (target · #people · plateau range · avg increase · est. +$/yr),
+  a collapsible per-tier people list (click a name → profile), and a plateau-distribution histogram.
+  Year defaults to current; a "Min. repeats" input is exposed on the tile.
+- **Upside is an estimate**, stated in the UI: assumes each plateaued giver keeps their current
+  giving frequency but at the nudged amount — it does not predict who will actually say yes.
+- `npm test` (288/288), `node --check` on both built app-JS bundles + `api-utils.js`/`api-reports.js`.
+  **Not verified**: a live browser or against live giving data (no D1 access in-session).
+
 ### v1.86.0 — Giving redesign Phase 1: sub-nav restructure + Board Report (2026-07-27)
 First phase of the Giving tab redesign (design handoff: board reports, donor letters, receipts).
 Delivered as phased PRs, foundation first (user decision); this PR is the sub-nav restructure and
