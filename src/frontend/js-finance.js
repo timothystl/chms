@@ -3005,6 +3005,29 @@ function finRenderPlanning() {
     });
   })(_finPlanBaseTree);
 
+  // "FY{base} Projected" column — the base year's projected YEAR-END total, computed exactly the
+  // way generate-all annualizes it (see api-finance.js): while the base year is still in progress,
+  // each leaf account's actual-to-date is annualized by 12/throughMonth; a complete past year (or a
+  // line with only a budget and no actual) is used as-is. Group rows roll up as the sum of their
+  // leaves, so the annualization factor stays uniform and the column always reconciles to its own
+  // subtotals. Read-only and display-only — nothing is stored (see the auto-compute decision).
+  var _finPlanNow = new Date();
+  var baseThroughMonth = (_finPlanBaseYear === _finPlanNow.getFullYear()) ? (_finPlanNow.getMonth() + 1) : 12;
+  var baseProrated = baseThroughMonth < 12;
+  var baseProjByPath = {};
+  (function computeBaseProj(nodes) {
+    (nodes || []).forEach(function(node) {
+      if (!node.children.length) {
+        var actual = node.totalActualCents || 0;
+        var budget = node.totalBudgetCents || 0;
+        baseProjByPath[node.path] = (actual && baseProrated) ? Math.round(actual * (12 / baseThroughMonth)) : (actual || budget || 0);
+      } else {
+        computeBaseProj(node.children);
+        baseProjByPath[node.path] = node.children.reduce(function(sum, c) { return sum + (baseProjByPath[c.path] || 0); }, 0);
+      }
+    });
+  })(_finPlanBaseTree);
+
   // Δ% — (Projected − FY Budget) / FY Budget, matching the Finance Workspace handoff's Planning
   // column: terracotta when spending is projected to grow more than 4%, green when it's projected
   // to shrink, muted otherwise. No budget to compare against (a brand-new line) renders as "—".
@@ -3030,16 +3053,18 @@ function finRenderPlanning() {
         + '<td style="padding:4px 8px 4px ' + (10 + node.depth * 16) + 'px;">' + esc(node.label) + '</td>'
         + '<td style="text-align:right;padding:4px 8px;">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
         + '<td style="text-align:right;padding:4px 8px;">$' + finFmtMoney(node.totalActualCents/100) + '</td>'
+        + '<td style="text-align:right;padding:4px 8px;color:var(--warm-ink-label);">$' + finFmtMoney((baseProjByPath[node.path] || 0)/100) + '</td>'
         + projectedCell
         + deltaCell(node.totalBudgetCents, projCents)
         + '</tr>');
       walk(node.children);
     });
   }
-  function subtotalRow(label, budgetCents, hasAnyBudget, actualCents, projectedCents) {
+  function subtotalRow(label, budgetCents, hasAnyBudget, actualCents, baseProjectedCents, projectedCents) {
     return '<tr style="font-weight:700;background:var(--warm-surface-page);border-top:1px solid var(--warm-border);"><td style="padding:5px 8px;">' + label + '</td>'
       + (hasAnyBudget ? '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(budgetCents/100) + '</td>' : '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">—</td>')
       + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(actualCents/100) + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(baseProjectedCents/100) + '</td>'
       + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(projectedCents/100) + '</td>'
       + deltaCell(hasAnyBudget ? budgetCents : 0, projectedCents)
       + '</tr>';
@@ -3049,10 +3074,12 @@ function finRenderPlanning() {
   function sumRoots(roots, field) { return roots.reduce(function(sum, n) { return sum + (n[field] || 0); }, 0); }
   var revenueProjectedCents = revenueRoots.reduce(function(sum, n) { return sum + (projectedCentsByPath[n.path] || 0); }, 0);
   var expenseProjectedCents = expenseRoots.reduce(function(sum, n) { return sum + (projectedCentsByPath[n.path] || 0); }, 0);
+  var baseRevenueProjCents = revenueRoots.reduce(function(sum, n) { return sum + (baseProjByPath[n.path] || 0); }, 0);
+  var baseExpenseProjCents = expenseRoots.reduce(function(sum, n) { return sum + (baseProjByPath[n.path] || 0); }, 0);
   walk(revenueRoots);
-  if (revenueRoots.length) rowsHtml.push(subtotalRow('Total Revenue', sumRoots(revenueRoots, 'totalBudgetCents'), revenueRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(revenueRoots, 'totalActualCents'), revenueProjectedCents));
+  if (revenueRoots.length) rowsHtml.push(subtotalRow('Total Revenue', sumRoots(revenueRoots, 'totalBudgetCents'), revenueRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(revenueRoots, 'totalActualCents'), baseRevenueProjCents, revenueProjectedCents));
   walk(expenseRoots);
-  if (expenseRoots.length) rowsHtml.push(subtotalRow('Total Expenses', sumRoots(expenseRoots, 'totalBudgetCents'), expenseRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(expenseRoots, 'totalActualCents'), expenseProjectedCents));
+  if (expenseRoots.length) rowsHtml.push(subtotalRow('Total Expenses', sumRoots(expenseRoots, 'totalBudgetCents'), expenseRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(expenseRoots, 'totalActualCents'), baseExpenseProjCents, expenseProjectedCents));
   var projectedRevenueCents = revenueProjectedCents, projectedExpenseCents = expenseProjectedCents;
   var projectedNetCents = projectedRevenueCents - projectedExpenseCents;
   function netCell(cents) {
@@ -3061,6 +3088,7 @@ function finRenderPlanning() {
   var netRow = '<tr style="font-weight:700;border-top:2px solid var(--navy);"><td style="padding:5px 8px;">Net (Revenue − Expenses)</td>'
     + (_finPlanBaseNet.budgetCents ? netCell(_finPlanBaseNet.budgetCents) : '<td style="padding:5px 8px;text-align:right;color:var(--warm-gray);">—</td>')
     + netCell(_finPlanBaseNet.actualCents)
+    + netCell(baseRevenueProjCents - baseExpenseProjCents)
     + netCell(projectedNetCents)
     + '<td></td>'
     + '</tr>';
@@ -3071,10 +3099,11 @@ function finRenderPlanning() {
     + '<th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Category</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanBaseYear + ' Bud</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanBaseYear + ' Actual</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);"' + (baseProrated ? ' title="Projected year-end total — base-year actuals annualized from ' + baseThroughMonth + ' month(s) of data"' : '') + '>FY' + _finPlanBaseYear + ' Projected</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanTargetYear + ' Plan</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">&Delta;%</th>'
     + '</tr></thead>'
-    + '<tbody>' + (rowsHtml.join('') || '<tr><td colspan="5" style="padding:10px;color:var(--warm-gray);">No Church Budget data found for ' + _finPlanBaseYear + ' — sync or import that year first (Church Report tab).</td></tr>')
+    + '<tbody>' + (rowsHtml.join('') || '<tr><td colspan="6" style="padding:10px;color:var(--warm-gray);">No Church Budget data found for ' + _finPlanBaseYear + ' — sync or import that year first (Church Report tab).</td></tr>')
     + (rowsHtml.length ? netRow : '') + '</tbody></table></div>';
 
   var actionsHtml = isAdminUI
