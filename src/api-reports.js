@@ -684,25 +684,62 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
   const year = parseInt(url.searchParams.get('year') || '', 10);
   if (!year || isNaN(year)) return json({ error: 'year required' }, 400);
   const minRepeat = Math.max(2, Math.min(parseInt(url.searchParams.get('min_repeat') || '3', 10) || 3, 52));
+  const scope = url.searchParams.get('scope') === 'household' ? 'household' : 'person';
   const start = year + '-01-01', end = year + '-12-31';
   const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
-  // One row per (person, giving-day) with that day's total contribution, so a
-  // gift split across funds counts as the single amount the giver actually gave.
-  const rows = (await db.prepare(
-    `SELECT ge.person_id AS person_id,
-            (p.first_name || ' ' || p.last_name) AS name,
-            ${effDate} AS d,
-            SUM(ge.amount) AS day_cents
-     FROM giving_entries ge
-     JOIN giving_batches gb ON gb.id = ge.batch_id
-     JOIN people p ON p.id = ge.person_id
-     WHERE ${effDate} >= ? AND ${effDate} <= ?
-       AND ge.person_id IS NOT NULL
-       AND LOWER(COALESCE(p.member_type,'')) != 'organization'
-     GROUP BY ge.person_id, d`
-  ).bind(start, end).all()).results || [];
+  // One row per (giver, giving-day) with that day's total contribution, so a
+  // gift split across funds counts as the single amount actually given.
+  // In household scope the "giver" is the household — spouses who give
+  // separately on the same day are summed into one household contribution;
+  // givers with no household stand alone (link_kind='person'). The grouping
+  // key is aliased to `person_id` so the pure helper is unchanged.
+  let rows;
+  if (scope === 'household') {
+    const housed = "p.household_id IS NOT NULL AND p.household_id != 0";
+    // Group key as an expression (NOT aliased "person_id" — that would collide
+    // with the ge.person_id column and SQLite would group by the person, not
+    // the household, so spouses' same-day gifts wouldn't merge). Repeated in
+    // GROUP BY so the sum is per (household, day).
+    const keyExpr = `CASE WHEN ${housed} THEN 'h:' || p.household_id ELSE 'p:' || p.id END`;
+    rows = (await db.prepare(
+      `SELECT ${keyExpr} AS person_id,
+              CASE WHEN ${housed}
+                   THEN COALESCE(NULLIF(h.name,''),
+                        (SELECT hp.last_name || ' Household' FROM people hp
+                          WHERE hp.household_id = p.household_id AND hp.last_name != '' LIMIT 1),
+                        'Household #' || p.household_id)
+                   ELSE (p.first_name || ' ' || p.last_name) END AS name,
+              CASE WHEN ${housed} THEN p.household_id ELSE p.id END AS link_id,
+              CASE WHEN ${housed} THEN 'household' ELSE 'person' END AS link_kind,
+              ${effDate} AS d,
+              SUM(ge.amount) AS day_cents
+       FROM giving_entries ge
+       JOIN giving_batches gb ON gb.id = ge.batch_id
+       JOIN people p ON p.id = ge.person_id
+       LEFT JOIN households h ON h.id = p.household_id
+       WHERE ${effDate} >= ? AND ${effDate} <= ?
+         AND ge.person_id IS NOT NULL
+         AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+       GROUP BY ${keyExpr}, d`
+    ).bind(start, end).all()).results || [];
+  } else {
+    rows = (await db.prepare(
+      `SELECT ge.person_id AS person_id,
+              (p.first_name || ' ' || p.last_name) AS name,
+              p.id AS link_id, 'person' AS link_kind,
+              ${effDate} AS d,
+              SUM(ge.amount) AS day_cents
+       FROM giving_entries ge
+       JOIN giving_batches gb ON gb.id = ge.batch_id
+       JOIN people p ON p.id = ge.person_id
+       WHERE ${effDate} >= ? AND ${effDate} <= ?
+         AND ge.person_id IS NOT NULL
+         AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+       GROUP BY ge.person_id, d`
+    ).bind(start, end).all()).results || [];
+  }
   const result = computeGivingPlateaus(rows, { minRepeat });
-  return json({ year, min_repeat: minRepeat, ...result });
+  return json({ year, min_repeat: minRepeat, scope, ...result });
 }
 
 // ── Giving × Attendance overlay (R8) ────────────────────────────────
