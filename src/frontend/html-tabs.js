@@ -277,6 +277,18 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingInsights()">Run Report</button>
         </div>
       </div>
+      <div class="report-tile require-finance" data-tile-id="giving-plateaus">
+        <div class="tile-icon">&#128201;</div>
+        <div class="tile-title">Giving Plateaus &amp; Nudges</div>
+        <div class="tile-desc">
+          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Finds the per-gift amounts givers settle at (e.g. $43/wk), then suggests a nudge to the next clean number (&rarr; $50) and the estimated annual upside.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+            <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="rpt-plateau-year" name="rpt-plateau-year" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+            <div class="field" style="margin:4px 0;"><label>Min. repeats</label><input type="number" id="rpt-plateau-repeat" name="rpt-plateau-repeat" value="3" min="2" style="font-size:.82rem;padding:4px 8px;width:70px;"></div>
+          </div>
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingPlateaus()">Run Report</button>
+        </div>
+      </div>
       <div class="report-tile require-finance" data-tile-id="giving-yoy">
         <div class="tile-icon">&#128200;</div>
         <div class="tile-title">Giving Trends</div>

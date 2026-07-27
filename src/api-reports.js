@@ -1,7 +1,7 @@
 // ── Reports, Engagement, Prayer API handlers ─────────────────────────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { isoWeekKey, bucketGivingMethod, projectYearEnd, spreadBudgetYtd, computeConcentration } from './api-utils.js';
+import { isoWeekKey, bucketGivingMethod, projectYearEnd, spreadBudgetYtd, computeConcentration, computeGivingPlateaus } from './api-utils.js';
 
 export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -672,6 +672,37 @@ if (seg === 'reports/giving-insights' && method === 'GET') {
     frequency:  buckets,
     trend:      trendRows,
   });
+}
+
+// ── Giving Plateaus / Nudge Targets ─────────────────────────────────
+// For each regular giver, find the per-gift amount they've settled at (the
+// whole-dollar amount they repeat most often that year), group them by the
+// next clean nudge target (43→50, 83→100), and estimate the annual upside of
+// moving each tier up one rung. Gated as `giving` (finance/admin) via the
+// central access gate — seg starts with "reports/giving".
+if (seg === 'reports/giving-plateaus' && method === 'GET') {
+  const year = parseInt(url.searchParams.get('year') || '', 10);
+  if (!year || isNaN(year)) return json({ error: 'year required' }, 400);
+  const minRepeat = Math.max(2, Math.min(parseInt(url.searchParams.get('min_repeat') || '3', 10) || 3, 52));
+  const start = year + '-01-01', end = year + '-12-31';
+  const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
+  // One row per (person, giving-day) with that day's total contribution, so a
+  // gift split across funds counts as the single amount the giver actually gave.
+  const rows = (await db.prepare(
+    `SELECT ge.person_id AS person_id,
+            (p.first_name || ' ' || p.last_name) AS name,
+            ${effDate} AS d,
+            SUM(ge.amount) AS day_cents
+     FROM giving_entries ge
+     JOIN giving_batches gb ON gb.id = ge.batch_id
+     JOIN people p ON p.id = ge.person_id
+     WHERE ${effDate} >= ? AND ${effDate} <= ?
+       AND ge.person_id IS NOT NULL
+       AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+     GROUP BY ge.person_id, d`
+  ).bind(start, end).all()).results || [];
+  const result = computeGivingPlateaus(rows, { minRepeat });
+  return json({ year, min_repeat: minRepeat, ...result });
 }
 
 // ── Giving × Attendance overlay (R8) ────────────────────────────────
