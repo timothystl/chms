@@ -24,6 +24,47 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.86.0 — Giving redesign Phase 1: sub-nav restructure + Board Report (2026-07-27)
+First phase of the Giving tab redesign (design handoff: board reports, donor letters, receipts).
+Delivered as phased PRs, foundation first (user decision); this PR is the sub-nav restructure and
+the Board Report (options 1A dashboard + 1B narrative). Later phases: Letters & Statements (1C/1D),
+Analysis (2A), Trends (3A/3B), and receipts (both A+B scaffolding, per user decision).
+- **Sub-nav restructure.** The four-button `.view-toggle` in `#tab-giving` is now a `.fin-subnav`
+  bar matching the Finance tab: **Batches · Transactions · Board Report · Reports · Settings**.
+  `givSetView()` is now data-driven (loops over `_GIV_VIEWS`) instead of per-id toggles. This is a
+  *transitional* nav — the target design retires "Reports" once Letters (1C) and Analysis (2A)
+  land in later phases; kept for now so nothing existing breaks mid-redesign.
+- **Board Report (1A/1B).** New `#giv-view-board` panel, finance-gated, aggregate-only (no
+  individual donors named). A **Dashboard / Narrative** toggle renders the same data two ways:
+  - *Dashboard*: 4 KPI cards (Given YTD, Vs. budget YTD, Year-end projection, Giving households),
+    a month-by-month grouped bar chart (prior year / current-through-last-closed-month / budget),
+    a navy "Where the money comes from" method-mix + concentration panel, and a By-fund table
+    (YTD actual / YTD budget / variance / prior year).
+  - *Narrative*: a US-Letter prose page for the packet (lede + "Are we on pace / Who is giving /
+    How gifts arrive" + compact fund table + footnote), print-to-PDF ready.
+  - **Print board page** sets `body.printing-board` so only the board panel prints (the shared
+    subnav + toolbar hide, grids stay full width) — the in-place `@media print` approach the
+    handoff asked for, not a popup. **Email packet** is a stubbed alert (pointed at a later phase).
+- **Backend.** New `GET /admin/api/reports/giving-board?period=YYYY-MM|YYYY-Qn|YYYY` (`api-reports.js`)
+  computes everything from real `giving_entries`/`funds`/`people` data so the figures reconcile
+  (YTD total = fund table = method mix; households from real household grouping; loose-plate cash
+  with no person is excluded from household/concentration but counted in the fund total, matching
+  the design). Pure math extracted to `api-utils.js` and unit-tested (`test/giving-board.test.js`,
+  14 cases): `bucketGivingMethod`, `projectYearEnd` (seasonal vs. straight-line, method named for
+  the UI), `spreadBudgetYtd` (annual budget spread by prior-year monthly shape — December carries
+  it), `computeConcentration` (top-10 share, half-households, 4-segment bar).
+- **Fund budgets.** New `budget_annual_cents` column on `funds` (migration `0028` + `db.js` safety
+  net); `PUT /admin/api/funds/:id` accepts it (only when sent, so a plain edit never clobbers it);
+  the Settings → Import/Export **Manage Funds** card gained an "Annual budget" input. With no
+  budgets set, the board gracefully shows "—" for budget/variance and hides the budget bars.
+- **Verification.** `npm test` (268/268, +14), `node --check` on both built app-JS bundles, an
+  end-to-end render harness against the served EXT bundle (dashboard + narrative + no-budget empty
+  state), and a real-SQLite integration test of all five board queries (totals reconcile, loose
+  plate correctly excluded from households). **Not verified**: an actual browser.
+  (`src/api-reports.js`, `src/api-utils.js`, `src/api-households.js`, `src/db.js`,
+  `migrations/0028_fund_budget.sql`, `src/frontend/html-tabs.js`, `src/frontend/html-head.js`,
+  `src/frontend/js-giving.js`, `src/frontend/js-export-import.js`, `test/giving-board.test.js`)
+
 ### v1.85.1 — Redundant preferred name (== first name) is suppressed (2026-07-27)
 A preferred name that just repeats the first name is no longer treated as a real preferred name. (`src/frontend/js-people.js`, `src/api-import.js`)
 - Profile header display name no longer renders `John "John" Smith` — the quoted preferred is shown only when it differs from the first name (case-insensitive).

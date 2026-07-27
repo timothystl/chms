@@ -706,14 +706,16 @@ function renderManageFunds() {
   });
   var rows = sorted.map(function(f) {
     var amt = '$' + (f.total_cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    var budgetDollars = Math.round((f.budget_annual_cents || 0) / 100);
     return '<tr style="border-bottom:1px solid #eee;' + (f.active ? '' : 'color:var(--warm-gray);') + '">'
       + '<td style="padding:6px 8px;"><label style="font-size:.82rem;"><input type="checkbox" id="mf-active-' + f.id + '"' + (f.active ? ' checked' : '') + '> Active</label></td>'
       + '<td style="padding:6px 8px;font-size:.82rem;">' + esc(f.name) + '</td>'
       + '<td style="padding:6px 8px;font-size:.82rem;">' + f.entry_count + ' gifts &bull; ' + amt + '</td>'
+      + '<td style="padding:6px 8px;font-size:.82rem;white-space:nowrap;">$<input type="number" min="0" step="1" id="mf-budget-' + f.id + '" value="' + budgetDollars + '" style="width:90px;font-size:.82rem;padding:3px 6px;" title="Annual budget for the Board Report"></td>'
       + '<td style="padding:6px 8px;"><button class="btn-secondary" style="font-size:.78rem;padding:3px 8px;" onclick="saveManageFundActive(' + f.id + ')">Save</button></td></tr>';
   }).join('');
   area.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'
-    + '<tr style="font-size:.75rem;color:var(--warm-gray);text-transform:uppercase;"><th style="text-align:left;padding:6px 8px;">Active</th><th style="text-align:left;padding:6px 8px;">Fund</th><th style="text-align:left;padding:6px 8px;">History</th><th></th></tr>'
+    + '<tr style="font-size:.75rem;color:var(--warm-gray);text-transform:uppercase;"><th style="text-align:left;padding:6px 8px;">Active</th><th style="text-align:left;padding:6px 8px;">Fund</th><th style="text-align:left;padding:6px 8px;">History</th><th style="text-align:left;padding:6px 8px;">Annual budget</th><th></th></tr>'
     + rows + '</table></div>';
 }
 function saveManageFundActive(id) {
@@ -722,12 +724,15 @@ function saveManageFundActive(id) {
   var cb = document.getElementById('mf-active-' + id);
   if (!f || !cb) return;
   var active = cb.checked;
+  var budgetInput = document.getElementById('mf-budget-' + id);
+  var budgetCents = budgetInput ? Math.max(0, Math.round((parseFloat(budgetInput.value) || 0) * 100)) : (f.budget_annual_cents || 0);
   status.textContent = 'Saving…'; status.className = 'import-status';
   api('/admin/api/funds/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
-    name: f.name, description: f.description || '', active: active, sort_order: f.sort_order || 0
+    name: f.name, description: f.description || '', active: active, sort_order: f.sort_order || 0, budget_annual_cents: budgetCents
   })}).then(function(d) {
     if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
     f.active = active ? 1 : 0;
+    f.budget_annual_cents = budgetCents;
     renderManageFunds();
     status.textContent = 'Saved.'; status.className = 'import-status ok';
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });

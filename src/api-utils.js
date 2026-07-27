@@ -229,6 +229,98 @@ export function isGivingDup(pid, nthOcc, existingIds) {
     : existingIds.has(pid + '-' + nthOcc);
 }
 
+// ── BOARD REPORT HELPERS ──────────────────────────────────────────────────
+// Pure functions backing GET /admin/api/reports/giving-board. Kept out of the endpoint
+// so they can be unit-tested without a DB (test/giving-board.test.js).
+
+// Bucket a raw giving_entries.method value into the four board-report categories.
+// Returns one of: 'check' | 'ach' | 'cash' | 'other'.
+export function bucketGivingMethod(method) {
+  const m = String(method || '').trim().toLowerCase();
+  if (m === 'check' || m === 'cheque' || m === 'checks') return 'check';
+  if (m === 'cash' || m === 'loose' || m === 'loose plate' || m === 'plate') return 'cash';
+  if (m === 'ach' || m === 'online' || m === 'card' || m === 'credit' || m === 'credit card' ||
+      m === 'debit' || m === 'eft' || m === 'bank' || m === 'auto' || m === 'recurring' ||
+      m === 'paypal' || m === 'venmo' || m === 'zelle') return 'ach';
+  // Everything else — stock, IRA, QCD, in-kind, gift-in-kind, blank, unknown — rolls up as "other".
+  return 'other';
+}
+
+// Project a full-year total from year-to-date giving. When prior-year data covers the same
+// window, extrapolate by the prior year's own seasonal shape ("if the second half behaves like
+// last year's second half"); otherwise fall back to a straight-line month fraction. Returns
+// { projected, method } where method is a human string naming which path was used, so the UI
+// can state the projection method (a data-consistency rule from the handoff).
+export function projectYearEnd(ytdCents, priorCumThroughMonthCents, priorFullYearCents, throughMonth) {
+  const ytd = Math.max(0, Math.round(ytdCents || 0));
+  const tm = Math.min(12, Math.max(1, Math.round(throughMonth || 12)));
+  if (tm >= 12) return { projected: ytd, method: 'actual' };
+  const priorCum = Math.max(0, Math.round(priorCumThroughMonthCents || 0));
+  const priorFull = Math.max(0, Math.round(priorFullYearCents || 0));
+  // Prior-year-seasonal path: scale YTD up by (prior full year / prior year through same month).
+  if (priorCum > 0 && priorFull >= priorCum) {
+    return { projected: Math.round(ytd * (priorFull / priorCum)), method: 'seasonal' };
+  }
+  // Straight-line fallback: assume the rest of the year matches the pace so far.
+  return { projected: Math.round(ytd * (12 / tm)), method: 'linear' };
+}
+
+// Spread an annual budget across the year and return the portion due through `throughMonth`.
+// priorMonthly is a 12-element array (index 0 = Jan) of the prior year's actual monthly cents;
+// when it sums to > 0 the budget follows that seasonal shape (so December carries its real share),
+// otherwise it falls back to an even month/12 spread. Returns cents through the month.
+export function spreadBudgetYtd(annualCents, priorMonthly, throughMonth) {
+  const annual = Math.max(0, Math.round(annualCents || 0));
+  if (!annual) return 0;
+  const tm = Math.min(12, Math.max(1, Math.round(throughMonth || 12)));
+  const monthly = Array.isArray(priorMonthly) ? priorMonthly : [];
+  const priorTotal = monthly.reduce((s, v) => s + (Number(v) || 0), 0);
+  if (priorTotal > 0) {
+    let cum = 0;
+    for (let i = 0; i < tm && i < 12; i++) cum += Number(monthly[i]) || 0;
+    return Math.round(annual * (cum / priorTotal));
+  }
+  return Math.round(annual * (tm / 12));
+}
+
+// Given an array of per-household total-cents figures, compute donor concentration:
+// top-10 share, the count of households that make up half of all giving, and the four
+// stacked-bar segments (Top 10 / Next 20 / Next 40 / everyone else). All shares are
+// derived from the same sorted totals so the board figures can never disagree.
+export function computeConcentration(householdTotals) {
+  const totals = (householdTotals || []).map(v => Math.max(0, Math.round(Number(v) || 0)))
+    .filter(v => v > 0).sort((a, b) => b - a);
+  const n = totals.length;
+  const grand = totals.reduce((s, v) => s + v, 0);
+  const sumRange = (start, end) => {
+    let s = 0;
+    for (let i = start; i < end && i < n; i++) s += totals[i];
+    return s;
+  };
+  const top10 = sumRange(0, 10);
+  const next20 = sumRange(10, 30);
+  const next40 = sumRange(30, 70);
+  const rest = Math.max(0, grand - top10 - next20 - next40);
+  const restCount = Math.max(0, n - 70);
+  // households making up (at least) half of all giving
+  let half = 0, acc = 0;
+  const target = grand / 2;
+  for (let i = 0; i < n; i++) { acc += totals[i]; half = i + 1; if (acc >= target) break; }
+  const pct = (part) => grand > 0 ? Math.round((part / grand) * 100) : 0;
+  return {
+    households: n,
+    grand_total_cents: grand,
+    top10_cents: top10, top10_pct: pct(top10),
+    half_households: grand > 0 ? half : 0,
+    segments: [
+      { key: 'top10',  label: 'Top 10',  count: Math.min(10, n),  cents: top10,  pct: pct(top10) },
+      { key: 'next20', label: 'Next 20', count: Math.max(0, Math.min(20, n - 10)), cents: next20, pct: pct(next20) },
+      { key: 'next40', label: 'Next 40', count: Math.max(0, Math.min(40, n - 30)), cents: next40, pct: pct(next40) },
+      { key: 'rest',   label: 'Other ' + restCount, count: restCount, cents: rest, pct: pct(rest) },
+    ],
+  };
+}
+
 // ── PHONE NORMALIZATION ───────────────────────────────────────────────────
 // Strips formatting and returns (XXX) XXX-XXXX for 10-digit US numbers.
 // Returns original string unchanged for international or unusual formats.
