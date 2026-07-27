@@ -75,53 +75,14 @@ function closeHouseholdView() {
 function showHouseholdView(h) {
   _currentHousehold = h;
   var members = (h.members || []).slice();
-  var addr = [h.address1, h.city, h.state && h.zip ? h.state + ' ' + h.zip : (h.state || h.zip || '')].filter(Boolean).join(', ');
   var roleOrder = {head:0, spouse:1, child:2, other:3};
   members.sort(function(a,b){ return (roleOrder[a.family_role]??4)-(roleOrder[b.family_role]??4) || (a.last_name||'').localeCompare(b.last_name||''); });
   var dispName = h.display_name || h.name;
   var tn = document.getElementById('hv-topbar-name');
   if (tn) tn.textContent = dispName;
-  var iconEl = document.getElementById('hv-icon-tile');
-  if (iconEl) {
-    iconEl.innerHTML = h.photo_url
-      ? '<img src="'+esc(photoSrc(h.photo_url))+'" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:12px;" onerror="this.parentNode.innerHTML=&#39;&#127968;&#39;">'
-      : '&#127968;';
-  }
-  var nameEl = document.getElementById('hv-name');
-  if (nameEl) nameEl.textContent = dispName;
-  var addrEl = document.getElementById('hv-addr');
-  if (addrEl) addrEl.textContent = addr;
   var editBtn = document.getElementById('hv-edit-btn');
   if (editBtn) editBtn.setAttribute('onclick', 'editHouseholdById(' + h.id + ')');
-  var membersEl = document.getElementById('hv-members');
-  if (membersEl) {
-    membersEl.innerHTML = members.length ? members.map(function(m) {
-      var mName = ((m.first_name||'')+' '+(m.last_name||'')).trim();
-      var ini = ((m.first_name||'').charAt(0)+(m.last_name||'').charAt(0)).toUpperCase();
-      var mTint = avatarTint(m.id);
-      var role = m.family_role ? m.family_role.charAt(0).toUpperCase()+m.family_role.slice(1) : '';
-      return '<div class="hv-member-row" onclick="openPersonDetail('+m.id+')">'
-        + '<div class="hv-member-avatar" style="background:'+mTint.bg+';color:'+mTint.fg+';">'+ini+'</div>'
-        + '<div style="flex:1;min-width:0;"><div class="hv-member-name">'+esc(mName)+'</div>'
-        + (role ? '<div class="hv-member-role">'+esc(role)+'</div>' : '')
-        + '</div>'
-        + '<div style="flex-shrink:0;">'+typeDotHtml(m.member_type)+'</div>'
-        + '</div>';
-    }).join('') : '<div style="color:var(--warm-meta);font-size:.88rem;padding:10px 0;">No members</div>';
-  }
-  // Desktop-only summary strip: current-year giving (finance+ only), envelope #, anniversary
-  var summaryEl = document.getElementById('hv-summary');
-  if (summaryEl) {
-    var isFinanceUser = (_userRole === 'admin' || _userRole === 'finance');
-    var curYear = new Date().getFullYear().toString();
-    var curYearGiving = isFinanceUser ? ((h.giving_years||[]).find(function(g){ return String(g.yr) === curYear; }) || {}).total_cents || 0 : null;
-    var tiles = '';
-    if (isFinanceUser) tiles += '<div><div class="hv-summary-lbl">'+curYear+' Giving</div><div class="hv-summary-val">$'+(curYearGiving/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</div></div>';
-    if (h.envelope_number) tiles += '<div><div class="hv-summary-lbl">Envelope #</div><div class="hv-summary-val">'+esc(h.envelope_number)+'</div></div>';
-    if (h.anniversary_date) tiles += '<div><div class="hv-summary-lbl">Anniversary</div><div class="hv-summary-val">'+fmtDate(h.anniversary_date)+'</div></div>';
-    summaryEl.innerHTML = tiles;
-    summaryEl.style.display = tiles ? 'flex' : 'none';
-  }
+  hvfRenderInfo(h, members, dispName);
   var ca = document.querySelector('.content-area');
   if (ca) { ca.classList.remove('pv-mode', 'ov-mode'); ca.classList.add('hv-mode'); }
 }
@@ -368,31 +329,11 @@ function closeOrganizationView() {
   if (ca) ca.classList.remove('ov-mode');
 }
 function showOrganizationView(o, idx) {
-  var addr = [o.address1, o.city, o.state].filter(Boolean).join(', ');
   var tn = document.getElementById('ov-topbar-name');
   if (tn) tn.textContent = o.name;
-  var nameEl = document.getElementById('ov-name');
-  if (nameEl) nameEl.textContent = o.name;
-  var addrEl = document.getElementById('ov-addr');
-  if (addrEl) addrEl.textContent = addr;
   var editBtn = document.getElementById('ov-edit-btn');
   if (editBtn) editBtn.setAttribute('onclick', 'openOrgEdit(_orgRows[' + idx + '])');
-  var detailsEl = document.getElementById('ov-details');
-  if (detailsEl) {
-    function row(key, valHtml) {
-      if (!valHtml) return '';
-      return '<div class="pv-row"><div class="pv-row-key">' + esc(key) + '</div><div class="pv-row-val">' + valHtml + '</div></div>';
-    }
-    var website = (o.website && /^https?:\/\//i.test(o.website))
-      ? '<a href="' + esc(o.website) + '" target="_blank">' + esc(o.website.replace(/^https?:\/\//, '')) + '</a>' : '';
-    var html = row('Type', o.type ? esc(o.type) : '')
-      + row('Contact', o.contact_name ? esc(o.contact_name) : '')
-      + row('Phone', o.phone ? '<a href="tel:' + esc(o.phone.replace(/\D/g, '')) + '">' + esc(o.phone) + '</a>' : '')
-      + row('Email', o.email ? '<a href="mailto:' + esc(o.email) + '">' + esc(o.email) + '</a>' : '')
-      + row('Website', website)
-      + row('Notes', o.notes ? esc(o.notes) : '');
-    detailsEl.innerHTML = html || '<div style="color:var(--warm-meta);font-size:.88rem;padding:10px 0;">No details on file</div>';
-  }
+  ovfRenderInfo(o);
   var ca = document.querySelector('.content-area');
   if (ca) { ca.classList.remove('pv-mode', 'hv-mode'); ca.classList.add('ov-mode'); }
 }
@@ -447,6 +388,415 @@ function deleteOrg() {
     if (r.ok) { closeModal('org-modal'); loadOrganizations(); }
     else alert(r.error || 'Delete failed.');
   });
+}
+
+// ══ HOUSEHOLD / ORGANIZATION VIEW REDESIGN ════════════════════════════
+// Single-screen card layout with a sticky jump-nav and inline per-field
+// editing, mirroring the Person Profile redesign. Households and orgs save
+// via a full-object PUT (not the person profile's sparse PATCH), so the
+// commit path merges the changed field into the in-memory record, then PUTs
+// the whole thing. Reuses the generic .pv2-* card/field CSS.
+var _recCtx = { hv: null, ov: null };  // { rec, fields, save(f,v)=>Promise, canEdit, afterCommit(f) }
+var _recfCommitting = {};
+var _recfToastTimer = null;
+
+function recfRawVal(ns, id) {
+  var r = (_recCtx[ns] && _recCtx[ns].rec) || {};
+  return r[id] == null ? '' : r[id];
+}
+function recfDisplay(cfg, val) {
+  if (val === '' || val == null) return '';
+  if (cfg.type === 'select') {
+    var o = (cfg.options || []).find(function(x){ return String(x.value) === String(val); });
+    return o ? o.label : String(val);
+  }
+  if (cfg.type === 'date') return fmtDate(val);
+  return String(val);
+}
+function recfRowHtml(ns, id) {
+  var ctx = _recCtx[ns]; if (!ctx) return '';
+  var cfg = ctx.fields[id]; if (!cfg) return '';
+  var val = recfRawVal(ns, id);
+  var disp = recfDisplay(cfg, val);
+  var empty = !disp;
+  var editable = ctx.canEdit;
+  var inner = '<div class="pv2-ro' + (editable ? ' editable' : '') + (empty ? ' empty' : '')  + '"'
+    + (editable ? ' onclick="recfStart(\'' + ns + '\',\'' + id + '\')"' : '') + '>'
+    + '<span>' + (empty ? 'Not set' : esc(disp)) + '</span>'
+    + (editable ? '<span class="pv2-pencil">✎ Edit</span>' : '')
+    + '</div>';
+  return '<div class="pv2-frow"><div class="pv2-flabel">' + esc(cfg.label) + '</div>'
+    + '<div class="pv2-fval" id="recf-' + ns + '-' + id + '">' + inner + '</div></div>';
+}
+function recfStaticRow(label, valHtml) {
+  return '<div class="pv2-frow"><div class="pv2-flabel">' + esc(label) + '</div>'
+    + '<div class="pv2-fval"><div class="pv2-ro">' + valHtml + '</div></div></div>';
+}
+function recfStart(ns, id) {
+  var ctx = _recCtx[ns]; if (!ctx || !ctx.canEdit) return;
+  var cfg = ctx.fields[id]; if (!cfg) return;
+  var cell = document.getElementById('recf-' + ns + '-' + id); if (!cell) return;
+  var val = recfRawVal(ns, id);
+  var html;
+  if (cfg.type === 'select') {
+    html = '<select class="pv2-inp sel" id="recfi-' + ns + '-' + id + '" onchange="recfCommit(\'' + ns + '\',\'' + id + '\')" onblur="recfCommit(\'' + ns + '\',\'' + id + '\')">'
+      + (cfg.options || []).map(function(o){
+          return '<option value="' + esc(String(o.value)) + '"' + (String(o.value) === String(val) ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+        }).join('')
+      + '</select>';
+  } else {
+    html = '<input class="pv2-inp" id="recfi-' + ns + '-' + id + '" type="' + esc(cfg.type || 'text') + '" value="' + esc(String(val)) + '"'
+      + ' placeholder="' + esc(cfg.ph || cfg.label) + '" onblur="recfCommit(\'' + ns + '\',\'' + id + '\')"'
+      + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}else if(event.key===\'Escape\'){recfCancel(\'' + ns + '\',\'' + id + '\');}">';
+  }
+  cell.innerHTML = html;
+  var el = document.getElementById('recfi-' + ns + '-' + id);
+  if (el) { el.focus(); if (el.select && cfg.type !== 'date') el.select(); }
+}
+function recfCancel(ns, id) {
+  var cell = document.getElementById('recf-' + ns + '-' + id);
+  if (cell) cell.innerHTML = recfRowHtml(ns, id).replace(/^[\s\S]*?<div class="pv2-fval"[^>]*>/, '').replace(/<\/div>$/, '');
+}
+function recfCommit(ns, id) {
+  var ctx = _recCtx[ns]; if (!ctx) return;
+  var cfg = ctx.fields[id]; if (!cfg) return;
+  var key = ns + ':' + id;
+  if (_recfCommitting[key]) return; // guard onchange+onblur double-fire on selects
+  var inp = document.getElementById('recfi-' + ns + '-' + id); if (!inp) return;
+  var newVal = inp.value;
+  var oldVal = String(recfRawVal(ns, id));
+  if (String(newVal) === oldVal) { recfCancel(ns, id); return; }
+  _recfCommitting[key] = true;
+  ctx.rec[id] = newVal; // set before save so the full-object PUT body includes it
+  ctx.save(id, newVal).then(function(r) {
+    _recfCommitting[key] = false;
+    if (r && r.error) { alert('Save failed: ' + r.error); ctx.rec[id] = oldVal; recfCancel(ns, id); return; }
+    recfCancel(ns, id);
+    recfToast(ns);
+    if (ctx.afterCommit) ctx.afterCommit(id);
+  }).catch(function() {
+    _recfCommitting[key] = false;
+    alert('Save failed. Please try again.');
+    ctx.rec[id] = oldVal; recfCancel(ns, id);
+  });
+}
+function recfToast(ns) {
+  var t = document.getElementById(ns + '-toast'); if (!t) return;
+  t.classList.add('show');
+  clearTimeout(_recfToastTimer);
+  _recfToastTimer = setTimeout(function(){ t.classList.remove('show'); }, 1400);
+}
+function recfGo(ns, id) {
+  var root = document.getElementById(ns === 'hv' ? 'household-view' : 'organization-view');
+  if (root) root.querySelectorAll('.pv2-nav-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.sec === id); });
+  var el = document.getElementById('recf-sec-' + ns + '-' + id);
+  if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function recfCard(ns, id, title, opts) {
+  opts = opts || {};
+  return '<div class="pv2-card" id="recf-sec-' + ns + '-' + id + '">'
+    + '<div class="pv2-card-hd"><h3>' + esc(title) + '</h3><div class="sp"></div>'
+    + (opts.tag ? '<span class="pv2-card-hd-tag">' + esc(opts.tag) + '</span>' : '')
+    + (opts.headerBtns || '')
+    + '</div>'
+    + '<div class="pv2-card-bd' + (opts.pad ? ' pad' : '') + '" id="recf-body-' + ns + '-' + id + '">' + (opts.body || '') + '</div>'
+    + '</div>';
+}
+// Shared notes card (click-to-edit textarea, preserves line breaks).
+function recfNotesBody(ns) {
+  var ctx = _recCtx[ns];
+  var val = (ctx.rec.notes || '').trim();
+  if (!ctx.canEdit) {
+    return '<div style="font-size:14px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'
+      + (val ? esc(ctx.rec.notes) : '<span style="color:var(--faint);font-style:italic;">No notes</span>') + '</div>';
+  }
+  return '<div class="pv2-note" onclick="recfEditNotes(\'' + ns + '\')" style="cursor:text;">'
+    + '<div style="font-size:14px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'
+    + (val ? esc(ctx.rec.notes) : '<span style="color:var(--faint);font-style:italic;">Click to add a note…</span>') + '</div></div>';
+}
+function recfEditNotes(ns) {
+  var ctx = _recCtx[ns]; if (!ctx.canEdit) return;
+  var body = document.getElementById('recf-body-' + ns + '-notes'); if (!body) return;
+  body.innerHTML = '<textarea id="recf-notes-ta-' + ns + '" rows="4" class="pv2-inp" style="max-width:100%;resize:vertical;line-height:1.5;">' + esc(ctx.rec.notes || '') + '</textarea>'
+    + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;">'
+    + '<button class="btn-secondary" style="font-size:.78rem;" onclick="recfCancelNotes(\'' + ns + '\')">Cancel</button>'
+    + '<button class="btn-primary" style="font-size:.78rem;" onclick="recfSaveNotes(\'' + ns + '\')">Save note</button></div>';
+  var ta = document.getElementById('recf-notes-ta-' + ns); if (ta) ta.focus();
+}
+function recfCancelNotes(ns) {
+  var b = document.getElementById('recf-body-' + ns + '-notes'); if (b) b.innerHTML = recfNotesBody(ns);
+}
+function recfSaveNotes(ns) {
+  var ta = document.getElementById('recf-notes-ta-' + ns); if (!ta) return;
+  var ctx = _recCtx[ns];
+  var val = ta.value; var old = ctx.rec.notes || '';
+  ctx.rec.notes = val;
+  ctx.save('notes', val).then(function(r) {
+    if (r && r.error) { alert('Save failed: ' + r.error); ctx.rec.notes = old; recfCancelNotes(ns); return; }
+    recfCancelNotes(ns); recfToast(ns);
+  }).catch(function() { alert('Save failed. Please try again.'); ctx.rec.notes = old; recfCancelNotes(ns); });
+}
+// Shared address + embedded static-map block for a record view.
+function recfMapEmbed(mapId, addrParts) {
+  if (!addrParts.length) return '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:4px 0;">No address on file</div>';
+  var addrStr = addrParts.map(esc).join(', ');
+  var out = '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--warm-meta);margin-bottom:5px;">Mapped address</div>'
+    + '<div style="font-size:14.5px;color:var(--color-navy);line-height:1.45;">' + addrStr + '</div>';
+  if (addrParts.length >= 2) {
+    out += '<div style="margin-top:10px;"><div id="' + mapId + '" data-addr="' + encodeURIComponent(addrParts.join(', ')) + '" style="display:none;margin-top:2px;border-radius:10px;overflow:hidden;line-height:0;border:1px solid var(--warm-divider);"></div>'
+      + '<button id="' + mapId + '-btn" class="btn-secondary" style="font-size:.72rem;padding:3px 9px;margin-top:8px;" onclick="toggleAddrMap(\'' + mapId + '\')">&#9654; Show Map</button></div>';
+  }
+  return out;
+}
+function toggleAddrMap(mapId) {
+  var el = document.getElementById(mapId), btn = document.getElementById(mapId + '-btn');
+  if (!el) return;
+  if (el.style.display === 'none') {
+    el.style.display = '';
+    if (btn) btn.textContent = '▼ Hide Map';
+    if (el.dataset.loaded) return;
+    var addr = decodeURIComponent(el.dataset.addr);
+    var img = new Image();
+    img.onload = function() { el.innerHTML = ''; img.style.cssText = 'width:100%;height:auto;display:block;'; el.appendChild(img); el.dataset.loaded = '1'; };
+    img.onerror = function() { el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--danger);">Map unavailable. <a href="https://maps.google.com/?q=' + el.dataset.addr + '" target="_blank" rel="noopener">Open in Google Maps</a></div>'; };
+    el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--warm-gray);">Loading map…</div>';
+    img.src = '/admin/api/utils/static-map?address=' + encodeURIComponent(addr);
+  } else {
+    el.style.display = 'none';
+    if (btn) btn.textContent = '&#9654; Show Map';
+  }
+}
+
+// ── HOUSEHOLD VIEW ─────────────────────────────────────────────────────
+function hvfBuildRegistry() {
+  var defs = [
+    {id:'name', label:'Family name', type:'text'},
+    {id:'address1', label:'Street', type:'text'},
+    {id:'address2', label:'Apt / Unit', type:'text', ph:'Apt, suite, etc.'},
+    {id:'city', label:'City', type:'text'},
+    {id:'state', label:'State', type:'text'},
+    {id:'zip', label:'ZIP', type:'text'},
+  ];
+  var fields = {}; defs.forEach(function(d){ fields[d.id] = d; });
+  return fields;
+}
+function hvSave() {
+  var h = _recCtx.hv.rec;
+  var body = {
+    name: h.name || '', address1: h.address1 || '', address2: h.address2 || '',
+    city: h.city || '', state: h.state || 'MO', zip: h.zip || '',
+    notes: h.notes || '', photo_url: h.photo_url || ''
+  };
+  return api('/admin/api/households/' + h.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+}
+function hvfMembersBody(members) {
+  if (!members.length) return '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:6px 0;">No members</div>';
+  return members.map(function(m) {
+    var mName = ((m.first_name||'')+' '+(m.last_name||'')).trim();
+    var ini = ((m.first_name||'').charAt(0)+(m.last_name||'').charAt(0)).toUpperCase();
+    var mTint = avatarTint(m.id);
+    var role = m.family_role ? m.family_role.charAt(0).toUpperCase()+m.family_role.slice(1) : '';
+    return '<div class="hv-member-row" onclick="openPersonDetail('+m.id+')">'
+      + '<div class="hv-member-avatar" style="background:'+mTint.bg+';color:'+mTint.fg+';">'+esc(ini)+'</div>'
+      + '<div style="flex:1;min-width:0;"><div class="hv-member-name">'+esc(mName)+'</div>'
+      + (role ? '<div class="hv-member-role">'+esc(role)+'</div>' : '')
+      + '</div>'
+      + '<div style="flex-shrink:0;">'+typeDotHtml(m.member_type)+'</div>'
+      + '</div>';
+  }).join('');
+}
+function hvfGivingBody(h) {
+  var years = (h.giving_years||[]).slice().sort(function(a,b){ return String(b.yr).localeCompare(String(a.yr)); });
+  if (!years.length) return '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:4px 0;">No giving recorded</div>';
+  function fmtM(c){ return '$'+((c||0)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  var curYear = new Date().getFullYear().toString();
+  var cur = years.find(function(g){ return String(g.yr) === curYear; }) || {total_cents:0};
+  var allTotal = years.reduce(function(s,g){ return s+(g.total_cents||0); }, 0);
+  var html = '<div style="display:flex;gap:12px;margin-bottom:16px;">'
+    + '<div class="pv2-tile"><div class="pv2-tile-lbl">' + curYear + '</div><div class="pv2-tile-val" style="color:var(--color-teal);">' + fmtM(cur.total_cents) + '</div></div>'
+    + '<div class="pv2-tile"><div class="pv2-tile-lbl">All time</div><div class="pv2-tile-val" style="color:var(--color-navy);">' + fmtM(allTotal) + '</div></div></div>';
+  html += '<div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--warm-meta);margin-bottom:6px;">By year</div>';
+  html += years.map(function(g){
+    return '<div class="pv2-gift"><div style="flex:1;"><div style="font-weight:700;font-size:14px;color:var(--color-navy);">' + esc(String(g.yr)) + '</div></div>'
+      + '<div style="font-weight:700;font-size:15px;color:var(--color-navy);">' + fmtM(g.total_cents) + '</div></div>';
+  }).join('');
+  return html;
+}
+function hvfAfterCommit(id) {
+  var h = _recCtx.hv.rec;
+  if (id === 'name') {
+    var dn = h.name || h.display_name || '';
+    var tn = document.getElementById('hv-topbar-name'); if (tn) tn.textContent = dn;
+    var nm = document.querySelector('#hv-info .hv-name'); if (nm) nm.textContent = dn;
+    var cr = document.querySelector('#hv-info .pv2-crumb b'); if (cr) cr.textContent = dn;
+  }
+  if (['address1','city','state','zip'].indexOf(id) >= 0) {
+    var addr = [h.address1, h.city, h.state && h.zip ? h.state + ' ' + h.zip : (h.state || h.zip || '')].filter(Boolean).join(', ');
+    var ae = document.querySelector('#hv-info .hv-addr'); if (ae) ae.textContent = addr;
+    var lb = document.getElementById('recf-body-hv-location');
+    if (lb) {
+      var addrParts = [h.address1, h.city, ((h.state||'')+(h.zip ? ' '+h.zip : '')).trim()].filter(Boolean);
+      lb.innerHTML = recfRowHtml('hv','address1') + recfRowHtml('hv','address2') + recfRowHtml('hv','city') + recfRowHtml('hv','state') + recfRowHtml('hv','zip')
+        + '<div style="margin-top:12px;">' + recfMapEmbed('hv-map-'+h.id, addrParts) + '</div>';
+      if (document.getElementById('hv-map-'+h.id)) toggleAddrMap('hv-map-'+h.id);
+    }
+  }
+}
+function hvfRenderInfo(h, members, dispName) {
+  var infoEl = document.getElementById('hv-info'); if (!infoEl) return;
+  var canEdit = (_userRole !== 'member');
+  _recCtx.hv = { rec: h, fields: hvfBuildRegistry(), save: hvSave, canEdit: canEdit, afterCommit: hvfAfterCommit };
+  var isFinance = (_userRole === 'admin' || _userRole === 'finance');
+
+  var iconHtml = h.photo_url
+    ? '<img src="'+esc(photoSrc(h.photo_url))+'" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:12px;" onerror="this.parentNode.innerHTML=&#39;&#127968;&#39;">'
+    : '&#127968;';
+  var addr = [h.address1, h.city, h.state && h.zip ? h.state + ' ' + h.zip : (h.state || h.zip || '')].filter(Boolean).join(', ');
+  var hdr = '<div class="hv-hdr"><div class="hv-icon-tile">' + iconHtml + '</div>'
+    + '<div style="flex:1;min-width:0;"><div class="hv-name">' + esc(dispName) + '</div>'
+    + '<div class="hv-addr">' + esc(addr) + '</div>'
+    + '<div style="font-size:.82rem;color:var(--warm-gray);margin-top:4px;">' + members.length + ' member' + (members.length !== 1 ? 's' : '') + '</div></div></div>';
+
+  var detailRows = recfRowHtml('hv','name');
+  if (h.envelope_number) detailRows += recfStaticRow('Envelope #', '<span>' + esc(h.envelope_number) + '</span>');
+  if (h.anniversary_date) detailRows += recfStaticRow('Anniversary', '<span>' + esc(fmtDate(h.anniversary_date)) + '</span>');
+  var detailsCard = recfCard('hv','details','Household', { body: detailRows });
+
+  var addBtn = canEdit
+    ? '<button class="btn-secondary" style="font-size:.72rem;padding:3px 9px;" onclick="editHouseholdById(' + h.id + ')">Manage</button>' : '';
+  var membersCard = recfCard('hv','members','Members', { headerBtns: addBtn, pad:true, body: hvfMembersBody(members) });
+
+  var addrParts = [h.address1, h.city, ((h.state||'')+(h.zip ? ' '+h.zip : '')).trim()].filter(Boolean);
+  var locBody = recfRowHtml('hv','address1') + recfRowHtml('hv','address2') + recfRowHtml('hv','city') + recfRowHtml('hv','state') + recfRowHtml('hv','zip')
+    + '<div style="margin-top:12px;">' + recfMapEmbed('hv-map-'+h.id, addrParts) + '</div>';
+  var locationCard = recfCard('hv','location','Address', { body: locBody });
+
+  var givingCard = isFinance ? recfCard('hv','giving','Giving', { tag:'Household', pad:true, body: hvfGivingBody(h) }) : '';
+  var notesCard = recfCard('hv','notes','Notes', { body: recfNotesBody('hv') });
+
+  var navDefs = [['details','Household'],['members','Members'],['location','Address']];
+  if (isFinance) navDefs.push(['giving','Giving']);
+  navDefs.push(['notes','Notes']);
+  var navHtml = '<div class="pv2-nav-lbl">Jump to</div>'
+    + navDefs.map(function(n){ return '<button class="pv2-nav-btn" data-sec="' + n[0] + '" onclick="recfGo(\'hv\',\'' + n[0] + '\')">' + esc(n[1]) + '</button>'; }).join('');
+
+  infoEl.innerHTML = hdr
+    + '<div style="max-width:1120px;margin:0 auto;padding:18px 24px 44px;">'
+    + '<div class="pv2-crumb">Households <span style="opacity:.5">/</span> <b>' + esc(dispName) + '</b></div>'
+    + '<div class="pv2-body">'
+    + pvfNavSelectHtml(navDefs, 'recf-sec-hv-')
+    + '<nav class="pv2-nav">' + navHtml + '</nav>'
+    + '<div class="pv2-grid">'
+    + '<div class="pv2-col">' + detailsCard + membersCard + '</div>'
+    + '<div class="pv2-col">' + locationCard + givingCard + notesCard + '</div>'
+    + '</div></div></div>';
+
+  if (document.getElementById('hv-map-'+h.id)) toggleAddrMap('hv-map-'+h.id);
+}
+
+// ── ORGANIZATION VIEW ──────────────────────────────────────────────────
+function ovfBuildRegistry(o) {
+  var typeOpts = [{value:'',label:'— None —'},{value:'Ministry',label:'Ministry / Church'},{value:'Nonprofit',label:'Nonprofit'},
+    {value:'Business',label:'Business'},{value:'Government',label:'Government'},{value:'School',label:'School'},{value:'Other',label:'Other'}];
+  // Preserve any pre-existing free-text type value not in the list so editing never silently clobbers it.
+  if (o && o.type && !typeOpts.some(function(t){ return String(t.value) === String(o.type); })) {
+    typeOpts.push({value:o.type, label:o.type});
+  }
+  var defs = [
+    {id:'name', label:'Name', type:'text'},
+    {id:'type', label:'Type', type:'select', options:typeOpts},
+    {id:'website', label:'Website', type:'text', ph:'https://'},
+    {id:'contact_name', label:'Contact', type:'text'},
+    {id:'phone', label:'Phone', type:'tel'},
+    {id:'email', label:'Email', type:'email'},
+    {id:'address1', label:'Street', type:'text'},
+    {id:'address2', label:'Apt / Unit', type:'text', ph:'Suite, unit, etc.'},
+    {id:'city', label:'City', type:'text'},
+    {id:'state', label:'State', type:'text'},
+    {id:'zip', label:'ZIP', type:'text'},
+  ];
+  var fields = {}; defs.forEach(function(d){ fields[d.id] = d; });
+  return fields;
+}
+function ovSave() {
+  var o = _recCtx.ov.rec;
+  var body = {
+    name: (o.name||'').trim(), type: o.type||'', contact_name: o.contact_name||'',
+    phone: o.phone||'', email: o.email||'', website: o.website||'',
+    address1: o.address1||'', address2: o.address2||'', city: o.city||'',
+    state: o.state||'MO', zip: o.zip||'', notes: o.notes||''
+  };
+  return api('/admin/api/organizations/' + o.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+}
+function ovfAfterCommit(id) {
+  var o = _recCtx.ov.rec;
+  if (id === 'name') {
+    var tn = document.getElementById('ov-topbar-name'); if (tn) tn.textContent = o.name || '';
+    var nm = document.querySelector('#ov-info .hv-name'); if (nm) nm.textContent = o.name || '';
+    var cr = document.querySelector('#ov-info .pv2-crumb b'); if (cr) cr.textContent = o.name || '';
+    // keep the in-memory list row in sync so a re-open shows the new name
+    if (Array.isArray(_orgRows)) { var row = _orgRows.find(function(r){ return String(r.id) === String(o.id); }); if (row) row.name = o.name; }
+  }
+  if (['address1','city','state','zip'].indexOf(id) >= 0) {
+    var addr = [o.address1, o.city, o.state && o.zip ? o.state + ' ' + o.zip : (o.state || o.zip || '')].filter(Boolean).join(', ');
+    var ae = document.querySelector('#ov-info .hv-addr'); if (ae) ae.textContent = addr;
+    var lb = document.getElementById('recf-body-ov-location');
+    if (lb) {
+      var addrParts = [o.address1, o.city, ((o.state||'')+(o.zip ? ' '+o.zip : '')).trim()].filter(Boolean);
+      lb.innerHTML = recfRowHtml('ov','address1') + recfRowHtml('ov','address2') + recfRowHtml('ov','city') + recfRowHtml('ov','state') + recfRowHtml('ov','zip')
+        + '<div style="margin-top:12px;">' + recfMapEmbed('ov-map-'+o.id, addrParts) + '</div>';
+      if (document.getElementById('ov-map-'+o.id)) toggleAddrMap('ov-map-'+o.id);
+    }
+  }
+  if (id === 'website') {
+    var wb = document.getElementById('recf-body-ov-details');
+    if (wb) wb.innerHTML = ovfDetailsBody();
+  }
+}
+function ovfDetailsBody() {
+  var o = _recCtx.ov.rec;
+  var rows = recfRowHtml('ov','name') + recfRowHtml('ov','type') + recfRowHtml('ov','website');
+  var website = (o.website && /^https?:\/\//i.test(o.website))
+    ? '<a href="' + esc(o.website) + '" target="_blank" rel="noopener">Open website ↗</a>' : '';
+  if (website) rows += recfStaticRow('Link', website);
+  return rows;
+}
+function ovfRenderInfo(o) {
+  var infoEl = document.getElementById('ov-info'); if (!infoEl) return;
+  var canEdit = (_userRole !== 'member');
+  _recCtx.ov = { rec: o, fields: ovfBuildRegistry(o), save: ovSave, canEdit: canEdit, afterCommit: ovfAfterCommit };
+
+  var addr = [o.address1, o.city, o.state && o.zip ? o.state + ' ' + o.zip : (o.state || o.zip || '')].filter(Boolean).join(', ');
+  var hdr = '<div class="hv-hdr"><div class="hv-icon-tile">&#127970;</div>'
+    + '<div style="flex:1;min-width:0;"><div class="hv-name">' + esc(o.name || 'Organization') + '</div>'
+    + '<div class="hv-addr">' + esc(addr) + '</div>'
+    + (o.type ? '<div style="font-size:.82rem;color:var(--warm-gray);margin-top:4px;">' + esc(o.type) + '</div>' : '') + '</div></div>';
+
+  var detailsCard = recfCard('ov','details','Organization', { body: ovfDetailsBody() });
+  var contactCard = recfCard('ov','contact','Primary contact', { body:
+    recfRowHtml('ov','contact_name') + recfRowHtml('ov','phone') + recfRowHtml('ov','email') });
+  var addrParts = [o.address1, o.city, ((o.state||'')+(o.zip ? ' '+o.zip : '')).trim()].filter(Boolean);
+  var locBody = recfRowHtml('ov','address1') + recfRowHtml('ov','address2') + recfRowHtml('ov','city') + recfRowHtml('ov','state') + recfRowHtml('ov','zip')
+    + '<div style="margin-top:12px;">' + recfMapEmbed('ov-map-'+o.id, addrParts) + '</div>';
+  var locationCard = recfCard('ov','location','Address', { body: locBody });
+  var notesCard = recfCard('ov','notes','Notes', { body: recfNotesBody('ov') });
+
+  var navDefs = [['details','Organization'],['contact','Contact'],['location','Address'],['notes','Notes']];
+  var navHtml = '<div class="pv2-nav-lbl">Jump to</div>'
+    + navDefs.map(function(n){ return '<button class="pv2-nav-btn" data-sec="' + n[0] + '" onclick="recfGo(\'ov\',\'' + n[0] + '\')">' + esc(n[1]) + '</button>'; }).join('');
+
+  infoEl.innerHTML = hdr
+    + '<div style="max-width:1120px;margin:0 auto;padding:18px 24px 44px;">'
+    + '<div class="pv2-crumb">Organizations <span style="opacity:.5">/</span> <b>' + esc(o.name || 'Organization') + '</b></div>'
+    + '<div class="pv2-body">'
+    + pvfNavSelectHtml(navDefs, 'recf-sec-ov-')
+    + '<nav class="pv2-nav">' + navHtml + '</nav>'
+    + '<div class="pv2-grid">'
+    + '<div class="pv2-col">' + detailsCard + contactCard + '</div>'
+    + '<div class="pv2-col">' + locationCard + notesCard + '</div>'
+    + '</div></div></div>';
+
+  if (document.getElementById('ov-map-'+o.id)) toggleAddrMap('ov-map-'+o.id);
 }
 
 // ── HOUSEHOLD AUTOCOMPLETE (in person modal) ──────────────────────────

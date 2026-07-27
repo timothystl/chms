@@ -1,6 +1,132 @@
 // Shared utilities used across multiple api-*.js modules.
 import { json, html } from './auth.js';
 
+// ── Configurable role permissions ─────────────────────────────────────────
+// The matrix below is the actual access-control definition threaded through the whole
+// ChMS API. Each configurable role (finance/staff/office/member) gets, per feature ITEM,
+// one of three LEVELS: 'none' (no access), 'view' (read-only) or 'edit' (read + write).
+// handleChmsApi resolves this once and enforces it centrally (a per-item view+edit gate),
+// so every downstream domain handler automatically respects an admin's changes.
+//
+//   admin  — always full access (edit on everything editable), never configurable, so an
+//            admin can never lock themselves out.
+//   member — a structurally different, filtered read-only directory view. It can never be
+//            granted 'edit' anywhere and can only be toggled on the safe, read-only extras
+//            (the general Reports tab); everything else is forced 'none'. clampMemberRow()
+//            enforces this regardless of what's stored.
+//
+// People / Households editing is NOT one of these items — it stays governed by the blanket
+// `canEdit` flag (true for every non-member role), exactly as before. These items are the
+// feature areas layered on top of the baseline directory.
+export const ROLE_PERMISSION_ROLES = ['finance', 'staff', 'office', 'member'];
+export const ROLE_PERMISSION_LEVELS = ['none', 'view', 'edit'];
+// editable:false items (Reports, Audit Log) are inherently read-only — their max level is
+// 'view'; the UI still lets you pick none/view but never edit.
+export const ROLE_PERMISSION_ITEMS = [
+  { key: 'giving',     label: 'Giving',            editable: true  },
+  { key: 'tuitionaid', label: 'Tuition Aid',       editable: true  },
+  { key: 'finance',    label: 'Finance Overview',  editable: true  },
+  { key: 'attendance', label: 'Attendance',        editable: true  },
+  { key: 'followups',  label: 'Follow-ups',        editable: true  },
+  { key: 'audit',      label: 'Audit Log',         editable: false },
+  { key: 'register',   label: 'Register',          editable: true  },
+  { key: 'reports',    label: 'Reports tab',       editable: false },
+];
+export const ROLE_PERMISSION_ITEM_KEYS = ROLE_PERMISSION_ITEMS.map(i => i.key);
+// Per-item ceiling — read-only items cap at 'view'.
+const ITEM_MAX_LEVEL = {};
+for (const it of ROLE_PERMISSION_ITEMS) ITEM_MAX_LEVEL[it.key] = it.editable ? 'edit' : 'view';
+// Which items a member may even be granted (view only), and to what ceiling. Everything
+// not listed here is forced to 'none' for members.
+const MEMBER_ALLOWED_ITEMS = { reports: 'view' };
+
+export const DEFAULT_ROLE_PERMISSIONS = {
+  // Matches the historical fixed behavior exactly: finance → giving/tuition/finance (edit)
+  // + reports (view); staff → attendance/follow-ups/register (edit) + audit/reports (view);
+  // office → register (edit) only; member → filtered directory, nothing extra.
+  finance: { giving: 'edit', tuitionaid: 'edit', finance: 'edit', attendance: 'none', followups: 'none', audit: 'none', register: 'none', reports: 'view' },
+  staff:   { giving: 'none', tuitionaid: 'none', finance: 'none', attendance: 'edit', followups: 'edit', audit: 'view', register: 'edit', reports: 'view' },
+  office:  { giving: 'none', tuitionaid: 'none', finance: 'none', attendance: 'none', followups: 'none', audit: 'none', register: 'edit', reports: 'none' },
+  member:  { giving: 'none', tuitionaid: 'none', finance: 'none', attendance: 'none', followups: 'none', audit: 'none', register: 'none', reports: 'none' },
+};
+
+function levelRank(l) { const i = ROLE_PERMISSION_LEVELS.indexOf(l); return i < 0 ? 0 : i; }
+function clampLevel(level, maxLevel) {
+  if (!ROLE_PERMISSION_LEVELS.includes(level)) return 'none';
+  return levelRank(level) > levelRank(maxLevel) ? maxLevel : level;
+}
+function clampMemberRow(row) {
+  const out = {};
+  for (const item of ROLE_PERMISSION_ITEM_KEYS) {
+    const ceil = MEMBER_ALLOWED_ITEMS[item];
+    out[item] = ceil ? clampLevel(row[item], ceil) : 'none';
+  }
+  return out;
+}
+
+// A stored role object from before this change used boolean values keyed by the old coarse
+// groups {finance,staff,register,reports}. Detect that shape (any boolean value) and map it
+// forward to the granular tri-state model, preserving the old effective access (everything
+// accessible was also editable, so old true → 'edit'; read-only groups → 'view').
+function migrateLegacyRow(row) {
+  const isLegacy = Object.values(row).some(v => typeof v === 'boolean');
+  if (!isLegacy) return row;
+  return {
+    giving:     row.finance ? 'edit' : 'none',
+    tuitionaid: row.finance ? 'edit' : 'none',
+    finance:    row.finance ? 'edit' : 'none',
+    attendance: row.staff ? 'edit' : 'none',
+    followups:  row.staff ? 'edit' : 'none',
+    audit:      row.staff ? 'view' : 'none',
+    register:   row.register ? 'edit' : 'none',
+    reports:    row.reports ? 'view' : 'none',
+  };
+}
+
+// Pure — takes the raw stored JSON string (or null/undefined) and returns the full
+// {finance:{...}, staff:{...}, office:{...}, member:{...}} matrix with every role/item
+// defaulted and clamped, so a partially-edited, legacy, or missing config can never leave
+// an item undefined or over-granted.
+export function resolveRolePermissions(storedJson) {
+  let overrides = {};
+  if (storedJson) { try { overrides = JSON.parse(storedJson) || {}; } catch { overrides = {}; } }
+  const result = {};
+  for (const role of Object.keys(DEFAULT_ROLE_PERMISSIONS)) {
+    const base = Object.assign({}, DEFAULT_ROLE_PERMISSIONS[role]);
+    const ov = overrides[role];
+    if (ov && typeof ov === 'object') {
+      const migrated = migrateLegacyRow(ov);
+      for (const item of ROLE_PERMISSION_ITEM_KEYS) {
+        if (item in migrated) base[item] = clampLevel(migrated[item], ITEM_MAX_LEVEL[item]);
+      }
+    }
+    result[role] = base;
+  }
+  result.member = clampMemberRow(result.member);
+  return result;
+}
+
+export async function getRolePermissions(db) {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key='role_permissions_json'").first();
+  return resolveRolePermissions(row?.value);
+}
+
+// The per-item level map a given role actually gets, folding in admin's always-full-access.
+// Returns { giving:'edit', ..., reports:'view' } — admin gets each item's ceiling, an
+// unknown role gets all 'none'.
+export function permissionsForRole(matrix, role) {
+  const out = {};
+  if (role === 'admin') {
+    for (const item of ROLE_PERMISSION_ITEM_KEYS) out[item] = ITEM_MAX_LEVEL[item];
+    return out;
+  }
+  const row = matrix[role] || {};
+  for (const item of ROLE_PERMISSION_ITEM_KEYS) {
+    out[item] = ROLE_PERMISSION_LEVELS.includes(row[item]) ? row[item] : 'none';
+  }
+  return out;
+}
+
 export function randHex(bytes) {
   const a = new Uint8Array(bytes);
   crypto.getRandomValues(a);
@@ -101,6 +227,98 @@ export function isGivingDup(pid, nthOcc, existingIds) {
   return nthOcc === 1
     ? (existingIds.has(pid) || existingIds.has(pid + '-1'))
     : existingIds.has(pid + '-' + nthOcc);
+}
+
+// ── BOARD REPORT HELPERS ──────────────────────────────────────────────────
+// Pure functions backing GET /admin/api/reports/giving-board. Kept out of the endpoint
+// so they can be unit-tested without a DB (test/giving-board.test.js).
+
+// Bucket a raw giving_entries.method value into the four board-report categories.
+// Returns one of: 'check' | 'ach' | 'cash' | 'other'.
+export function bucketGivingMethod(method) {
+  const m = String(method || '').trim().toLowerCase();
+  if (m === 'check' || m === 'cheque' || m === 'checks') return 'check';
+  if (m === 'cash' || m === 'loose' || m === 'loose plate' || m === 'plate') return 'cash';
+  if (m === 'ach' || m === 'online' || m === 'card' || m === 'credit' || m === 'credit card' ||
+      m === 'debit' || m === 'eft' || m === 'bank' || m === 'auto' || m === 'recurring' ||
+      m === 'paypal' || m === 'venmo' || m === 'zelle') return 'ach';
+  // Everything else — stock, IRA, QCD, in-kind, gift-in-kind, blank, unknown — rolls up as "other".
+  return 'other';
+}
+
+// Project a full-year total from year-to-date giving. When prior-year data covers the same
+// window, extrapolate by the prior year's own seasonal shape ("if the second half behaves like
+// last year's second half"); otherwise fall back to a straight-line month fraction. Returns
+// { projected, method } where method is a human string naming which path was used, so the UI
+// can state the projection method (a data-consistency rule from the handoff).
+export function projectYearEnd(ytdCents, priorCumThroughMonthCents, priorFullYearCents, throughMonth) {
+  const ytd = Math.max(0, Math.round(ytdCents || 0));
+  const tm = Math.min(12, Math.max(1, Math.round(throughMonth || 12)));
+  if (tm >= 12) return { projected: ytd, method: 'actual' };
+  const priorCum = Math.max(0, Math.round(priorCumThroughMonthCents || 0));
+  const priorFull = Math.max(0, Math.round(priorFullYearCents || 0));
+  // Prior-year-seasonal path: scale YTD up by (prior full year / prior year through same month).
+  if (priorCum > 0 && priorFull >= priorCum) {
+    return { projected: Math.round(ytd * (priorFull / priorCum)), method: 'seasonal' };
+  }
+  // Straight-line fallback: assume the rest of the year matches the pace so far.
+  return { projected: Math.round(ytd * (12 / tm)), method: 'linear' };
+}
+
+// Spread an annual budget across the year and return the portion due through `throughMonth`.
+// priorMonthly is a 12-element array (index 0 = Jan) of the prior year's actual monthly cents;
+// when it sums to > 0 the budget follows that seasonal shape (so December carries its real share),
+// otherwise it falls back to an even month/12 spread. Returns cents through the month.
+export function spreadBudgetYtd(annualCents, priorMonthly, throughMonth) {
+  const annual = Math.max(0, Math.round(annualCents || 0));
+  if (!annual) return 0;
+  const tm = Math.min(12, Math.max(1, Math.round(throughMonth || 12)));
+  const monthly = Array.isArray(priorMonthly) ? priorMonthly : [];
+  const priorTotal = monthly.reduce((s, v) => s + (Number(v) || 0), 0);
+  if (priorTotal > 0) {
+    let cum = 0;
+    for (let i = 0; i < tm && i < 12; i++) cum += Number(monthly[i]) || 0;
+    return Math.round(annual * (cum / priorTotal));
+  }
+  return Math.round(annual * (tm / 12));
+}
+
+// Given an array of per-household total-cents figures, compute donor concentration:
+// top-10 share, the count of households that make up half of all giving, and the four
+// stacked-bar segments (Top 10 / Next 20 / Next 40 / everyone else). All shares are
+// derived from the same sorted totals so the board figures can never disagree.
+export function computeConcentration(householdTotals) {
+  const totals = (householdTotals || []).map(v => Math.max(0, Math.round(Number(v) || 0)))
+    .filter(v => v > 0).sort((a, b) => b - a);
+  const n = totals.length;
+  const grand = totals.reduce((s, v) => s + v, 0);
+  const sumRange = (start, end) => {
+    let s = 0;
+    for (let i = start; i < end && i < n; i++) s += totals[i];
+    return s;
+  };
+  const top10 = sumRange(0, 10);
+  const next20 = sumRange(10, 30);
+  const next40 = sumRange(30, 70);
+  const rest = Math.max(0, grand - top10 - next20 - next40);
+  const restCount = Math.max(0, n - 70);
+  // households making up (at least) half of all giving
+  let half = 0, acc = 0;
+  const target = grand / 2;
+  for (let i = 0; i < n; i++) { acc += totals[i]; half = i + 1; if (acc >= target) break; }
+  const pct = (part) => grand > 0 ? Math.round((part / grand) * 100) : 0;
+  return {
+    households: n,
+    grand_total_cents: grand,
+    top10_cents: top10, top10_pct: pct(top10),
+    half_households: grand > 0 ? half : 0,
+    segments: [
+      { key: 'top10',  label: 'Top 10',  count: Math.min(10, n),  cents: top10,  pct: pct(top10) },
+      { key: 'next20', label: 'Next 20', count: Math.max(0, Math.min(20, n - 10)), cents: next20, pct: pct(next20) },
+      { key: 'next40', label: 'Next 40', count: Math.max(0, Math.min(40, n - 30)), cents: next40, pct: pct(next40) },
+      { key: 'rest',   label: 'Other ' + restCount, count: restCount, cents: rest, pct: pct(rest) },
+    ],
+  };
 }
 
 // ── PHONE NORMALIZATION ───────────────────────────────────────────────────
@@ -356,12 +574,19 @@ export async function handleUtilsApi(req, env, url, method, seg, db, isAdmin, ca
   }
 
   // GET /admin/api/utils/static-map?address=... — server-side Google Static Maps proxy.
-  // Keeps GOOGLE_ADDRESS_API_KEY off the client entirely (it's a server-side key with no
-  // HTTP-referrer restriction, unlike a typical embed/JS-API key, so it must never be exposed
-  // in page source). Returns the map image bytes directly.
+  // Keeps the key off the client entirely (it's a server-side key with no HTTP-referrer
+  // restriction, unlike a typical embed/JS-API key, so it must never be exposed in page
+  // source). Returns the map image bytes directly.
+  //
+  // NOTE: this hits the Maps *Static* API, which is a DIFFERENT Google product than the
+  // Address Validation API. A key restricted to Address Validation (per SECRETS.md) will be
+  // rejected here with 403 unless "Maps Static API" is also enabled on the project and the
+  // key's API restrictions allow it. Prefer a dedicated GOOGLE_MAPS_API_KEY; fall back to the
+  // address key only for backwards compatibility.
   if (seg === 'utils/static-map' && method === 'GET') {
     if (!canEdit) return json({ error: 'Access denied' }, 403);
-    if (!env.GOOGLE_ADDRESS_API_KEY) return json({ error: 'Maps not configured' }, 501);
+    const mapKey = env.GOOGLE_MAPS_API_KEY || env.GOOGLE_ADDRESS_API_KEY;
+    if (!mapKey) return json({ error: 'Maps not configured' }, 501);
     const address = (url.searchParams.get('address') || '').trim();
     if (!address) return json({ error: 'address is required' }, 400);
     const mapUrl = 'https://maps.googleapis.com/maps/api/staticmap?' + new URLSearchParams({
@@ -370,10 +595,17 @@ export async function handleUtilsApi(req, env, url, method, seg, db, isAdmin, ca
       size: '600x260',
       scale: '2',
       markers: 'color:0x1E2D4A|' + address,
-      key: env.GOOGLE_ADDRESS_API_KEY,
+      key: mapKey,
     });
     const r = await fetch(mapUrl);
-    if (!r.ok) return json({ error: 'Map lookup failed' }, 502);
+    if (!r.ok) {
+      // Surface Google's own reason (e.g. "API keys with referer restrictions cannot be used
+      // with this API", "The Maps Static API must be enabled") so this is diagnosable from the
+      // Network tab instead of a generic failure.
+      let reason = '';
+      try { reason = (await r.text()).slice(0, 300).trim(); } catch {}
+      return json({ error: 'Map lookup failed', status: r.status, google: reason }, 502);
+    }
     return new Response(r.body, { headers: { 'Content-Type': r.headers.get('Content-Type') || 'image/png', 'Cache-Control': 'private, max-age=3600' } });
   }
 

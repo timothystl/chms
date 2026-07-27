@@ -147,20 +147,19 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
 <!-- ═══ GIVING TAB ═══ -->
 <div id="tab-giving" class="tab-panel">
-  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;flex-shrink:0;">
-    <span style="font-size:22px;font-weight:800;color:var(--color-navy);">Giving</span>
-    <div class="view-toggle" style="margin-left:auto;">
-      <button class="active" id="giv-view-batches-btn" onclick="givSetView('batches')">Batches</button>
-      <button id="giv-view-txns-btn" onclick="givSetView('transactions')">Transactions</button>
-      <button id="giv-view-reports-btn" onclick="givSetView('reports')">Reports</button>
-    </div>
+  <div class="fin-subnav" style="margin-bottom:16px;">
+    <button class="fin-subnav-btn active" id="giv-view-batches-btn" onclick="givSetView('batches')">Batches</button>
+    <button class="fin-subnav-btn" id="giv-view-transactions-btn" onclick="givSetView('transactions')">Transactions</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-board-btn" onclick="givSetView('board')">Board Report</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-reports-btn" onclick="givSetView('reports')">Reports</button>
+    <button class="fin-subnav-btn" id="giv-view-settings-btn" onclick="givSetView('settings')">Settings</button>
   </div>
   <div class="giving-layout" id="giv-view-batches">
     <!-- Batch list -->
     <div class="batch-list-panel">
       <div class="batch-list-hdr">
         <h3>Batches</h3>
-        <button class="btn-primary" style="padding:5px 12px;font-size:.8rem;" onclick="openNewBatch()">+ New</button>
+        <button class="btn-primary require-edit-giving" style="padding:5px 12px;font-size:.8rem;" onclick="openNewBatch()">+ New</button>
       </div>
       <div class="batch-search-wrap">
         <input type="search" id="batch-search-input" placeholder="Search batches&#8230;" oninput="filterBatchSearch(this.value)">
@@ -194,6 +193,25 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <tbody id="giv-txn-tbody"></tbody>
       </table>
     </div>
+  </div>
+
+  <div id="giv-view-board" class="require-finance" style="display:none;">
+    <div class="board-header">
+      <div>
+        <div class="board-title">Giving Report to the Council</div>
+        <div class="board-subtitle" id="board-subtitle">General &amp; designated funds &middot; no individual donors named</div>
+      </div>
+      <div class="board-toolbar">
+        <div class="board-mode-toggle">
+          <button id="board-mode-dashboard-btn" class="active" onclick="boardSetMode('dashboard')">Dashboard</button>
+          <button id="board-mode-narrative-btn" onclick="boardSetMode('narrative')">Narrative</button>
+        </div>
+        <select class="fin-domain-select" id="board-period" onchange="loadBoardReport()"></select>
+        <button class="btn-primary" style="padding:7px 14px;font-size:.85rem;" onclick="printBoardPage()">Print board page</button>
+        <button class="btn-secondary" style="padding:7px 14px;font-size:.85rem;" onclick="boardEmailPacket()">Email packet</button>
+      </div>
+    </div>
+    <div id="board-body"><div class="board-empty">Loading&hellip;</div></div>
   </div>
 
   <div id="giv-view-reports" style="display:none;">
@@ -300,8 +318,100 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <div id="batch-mid-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
         </div>
       </div>
+      <div class="report-tile require-finance" data-tile-id="batch-send-appeal">
+        <div class="tile-icon">&#128140;</div>
+        <div class="tile-title">Send Giving Appeal to All Member Households</div>
+        <div class="tile-desc">
+          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Sends the Mid-Year Update letter to every member household &mdash; not just people who've already given &mdash; one email per household, so it can also prompt households that haven't given yet. Households with $0 recorded will show a $0 total in the letter.</div>
+          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-appeal-year" name="batch-appeal-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchAppealHouseholds()">Load Member Households</button>
+          <div id="batch-appeal-status" class="import-status" style="margin-top:6px;"></div>
+          <div id="batch-appeal-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
+        </div>
+      </div>
     </div>
     <div id="giv-rpt-output" class="report-output"></div>
+  </div>
+
+  <div id="giv-view-settings" style="display:none;max-width:900px;">
+    <div id="giv-settings-status" class="status-msg" style="margin-bottom:8px;"></div>
+    <!-- Church Info Card -->
+    <div class="import-card require-finance" style="margin-bottom:14px;">
+      <h3>&#9962; Church Information</h3>
+      <p>Used in giving letters, email headers, and reports.</p>
+      <div class="modal-2col" style="margin-bottom:10px;">
+        <div class="field"><label>Church Name</label><input type="text" id="st-church-name" name="st-church-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
+        <div class="field"><label>EIN (Tax ID)</label><input type="text" id="st-ein" name="st-ein" placeholder="XX-XXXXXXX" style="width:100%;"></div>
+      </div>
+      <div class="modal-2col" style="margin-bottom:4px;">
+        <div class="field"><label>Sending Name (shown as the "From" name on outgoing emails)</label><input type="text" id="st-from-name" name="st-from-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
+        <div class="field"><label>Sending Email Address (must be a verified sender in Brevo)</label><input type="email" id="st-from-email" name="st-from-email" placeholder="giving@notify.timothystl.org" style="width:100%;"></div>
+      </div>
+      <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:12px;">This is the address giving statements and mid-year updates are emailed from &mdash; not a contact/reply-to address. Giving letters send via Brevo (the same account used for the newsletter sync), so this address&rsquo;s domain needs to show as verified under <a href="https://app.brevo.com/senders/domain/list" target="_blank" rel="noopener">Brevo &rarr; Senders &amp; IP &rarr; Domains</a>; otherwise sends will fail.</div>
+      <div class="field" style="margin-bottom:12px;">
+        <label>Online Giving URL (optional)</label>
+        <input type="text" id="st-giving-url" name="st-giving-url" placeholder="https://timothystl.org/give" style="width:100%;">
+        <div style="font-size:.76rem;color:var(--warm-gray);margin-top:4px;">Shown in the Mid-Year Giving Update letter as a link for setting up recurring/automatic giving. Leave blank to omit.</div>
+      </div>
+      <div class="field" style="margin-bottom:12px;">
+        <label>Letterhead Logo (optional)</label>
+        <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:6px;">Replaces the plain church-name text at the top of giving letters (view, email, and batch send) with this image. Uploaded separately from the buttons below &mdash; no need to click Save Church Info.</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <img id="st-logo-preview" style="max-height:56px;display:none;border:1px solid var(--border);border-radius:6px;padding:4px;background:var(--white);">
+          <input type="file" id="st-logo-file" name="st-logo-file" accept="image/*" style="display:none;" onchange="uploadLetterheadLogo(this.files[0])">
+          <button class="btn-secondary" style="font-size:.82rem;" onclick="document.getElementById('st-logo-file').click()">&#128247; Upload Logo</button>
+          <button class="btn-secondary" id="st-logo-remove-btn" style="font-size:.82rem;display:none;" onclick="removeLetterheadLogo()">Remove Logo</button>
+          <span id="st-logo-status" class="import-status"></span>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="saveSettings()">Save Church Info</button>
+    </div>
+    <!-- Breeze Giving Sync Card -->
+    <div class="import-card require-finance" style="margin-bottom:14px;">
+      <h3>&#9729; Breeze Giving Sync</h3>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed in Settings &rarr; Import/Export after import.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+        <div class="field" style="margin:0;"><label>From</label><input type="date" id="giving-sync-from" name="giving-sync-from" style="font-size:.85rem;padding:4px 8px;"></div>
+        <div class="field" style="margin:0;"><label>To</label><input type="date" id="giving-sync-to" name="giving-sync-to" style="font-size:.85rem;padding:4px 8px;"></div>
+      </div>
+      <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Date Range</button>
+      <div class="import-status" id="giving-sync-status"></div>
+      <pre id="giving-sync-diagnostics" style="display:none;margin-top:10px;padding:10px;background:#f4f0ea;border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
+      <div style="margin-top:12px;">
+        <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+          <div class="field" style="margin:0;"><label>Start Year</label><input type="number" id="giving-sync-start-year" name="giving-sync-start-year" value="2020" min="2000" max="2099" style="width:90px;font-size:.85rem;padding:4px 8px;"></div>
+        </div>
+        <button class="btn-primary" id="giving-all-btn" onclick="runBreezeGivingAll()">Sync All History</button>
+        <div class="import-status" id="giving-all-status"></div>
+      </div>
+      <div style="margin-top:12px;">
+        <p style="margin:0 0 8px;"><strong>Breeze Audit Log Export</strong> — Download every contribution-related event from Breeze (added, updated, deleted) as a CSV for reconciliation. Uses the same date range as the sync above.</p>
+        <button class="btn-secondary" onclick="downloadBreezeAuditLog()">&#128229; Download Audit Log CSV</button>
+      </div>
+    </div>
+    <!-- Letter Template Card -->
+    <div class="import-card require-finance" style="margin-bottom:14px;">
+      <h3>&#128140; Year-End Giving Letter Template</h3>
+      <p>Used when generating giving letters. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{ein}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code></p>
+      <textarea id="st-letter-tpl" name="st-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
+      <div style="margin-top:8px;">
+        <button class="btn-primary" onclick="saveSettings()">Save Template</button>
+        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;year_end&#39;)" style="margin-left:8px;">&#128065; Preview</button>
+        <button class="btn-secondary" onclick="resetLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
+      </div>
+    </div>
+    <!-- Mid-Year Letter Template Card -->
+    <div class="import-card require-finance" style="margin-bottom:14px;">
+      <h3>&#128140; Mid-Year Giving Update Letter Template</h3>
+      <p>Used for the mid-year giving update &mdash; thanks givers, shows year-to-date giving for them to review, and suggests ways to set up recurring/automatic giving. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code>, <code>{{giving_url}}</code></p>
+      <textarea id="st-midyear-letter-tpl" name="st-midyear-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
+      <div style="margin-top:8px;">
+        <button class="btn-primary" onclick="saveSettings()">Save Template</button>
+        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;midyear&#39;)" style="margin-left:8px;">&#128065; Preview</button>
+        <button class="btn-secondary" onclick="resetMidyearLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -373,9 +483,9 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <!-- Controls row -->
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
-      <button class="btn-primary" style="font-size:.85rem;" onclick="openNewSundayEntry()">+ Add Sunday</button>
-      <button class="btn-secondary" style="font-size:.8rem;" onclick="openSpecialServiceEntry()">+ Special</button>
-      <button class="btn-secondary" style="font-size:.8rem;" onclick="seedYearSundays()">&#128197; Pre-fill Year Sundays</button>
+      <button class="btn-primary require-edit-attendance" style="font-size:.85rem;" onclick="openNewSundayEntry()">+ Add Sunday</button>
+      <button class="btn-secondary require-edit-attendance" style="font-size:.8rem;" onclick="openSpecialServiceEntry()">+ Special</button>
+      <button class="btn-secondary require-edit-attendance" style="font-size:.8rem;" onclick="seedYearSundays()">&#128197; Pre-fill Year Sundays</button>
       <div style="flex:1;"></div>
       <input type="date" id="att-from" name="att-from" style="font-size:.78rem;padding:3px 6px;border:1px solid var(--border);border-radius:6px;">
       <span style="font-size:.8rem;color:var(--warm-gray);">to</span>
@@ -441,36 +551,24 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div id="st-users-list" style="margin:12px 0;"></div>
       <button class="btn-primary" style="font-size:.85rem;padding:6px 14px;" onclick="openUserForm(null)">+ Add User</button>
     </div>
-    <!-- Church Info Card -->
-    <div class="import-card" style="margin-bottom:14px;">
-      <h3>&#9962; Church Information</h3>
-      <p>Used in giving letters, email headers, and reports.</p>
-      <div class="modal-2col" style="margin-bottom:10px;">
-        <div class="field"><label>Church Name</label><input type="text" id="st-church-name" name="st-church-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
-        <div class="field"><label>EIN (Tax ID)</label><input type="text" id="st-ein" name="st-ein" placeholder="XX-XXXXXXX" style="width:100%;"></div>
+    <!-- Role Permissions Card (admin only) -->
+    <div class="import-card require-admin" style="margin-bottom:14px;">
+      <h3>&#128274; Role Permissions</h3>
+      <p>Set each feature area to <strong>No access</strong>, <strong>View only</strong>, or <strong>Edit</strong> for every user type. Admin always has full access. Member is the read-only directory view &mdash; it can never edit and only its safe extras (the Reports tab) can be turned on.</p>
+      <div id="role-perm-status" class="status-msg" style="margin-bottom:8px;"></div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:.88rem;min-width:560px;">
+          <thead><tr style="border-bottom:1px solid var(--border);">
+            <th style="text-align:left;padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Access</th>
+            <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Finance</th>
+            <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Staff</th>
+            <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Office</th>
+            <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Member</th>
+          </tr></thead>
+          <tbody id="role-perm-tbody"></tbody>
+        </table>
       </div>
-      <div class="modal-2col" style="margin-bottom:4px;">
-        <div class="field"><label>Sending Name (shown as the "From" name on outgoing emails)</label><input type="text" id="st-from-name" name="st-from-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
-        <div class="field"><label>Sending Email Address (must be on a domain verified in Resend)</label><input type="email" id="st-from-email" name="st-from-email" placeholder="giving@notify.timothystl.org" style="width:100%;"></div>
-      </div>
-      <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:12px;">This is the address giving statements and mid-year updates are emailed from &mdash; not a contact/reply-to address. It only works if its domain shows &ldquo;Verified&rdquo; at <a href="https://resend.com/domains" target="_blank" rel="noopener">resend.com/domains</a>; otherwise sends fail with a domain-not-verified error.</div>
-      <div class="field" style="margin-bottom:12px;">
-        <label>Online Giving URL (optional)</label>
-        <input type="text" id="st-giving-url" name="st-giving-url" placeholder="https://timothystl.org/give" style="width:100%;">
-        <div style="font-size:.76rem;color:var(--warm-gray);margin-top:4px;">Shown in the Mid-Year Giving Update letter as a link for setting up recurring/automatic giving. Leave blank to omit.</div>
-      </div>
-      <div class="field" style="margin-bottom:12px;">
-        <label>Letterhead Logo (optional)</label>
-        <div style="font-size:.76rem;color:var(--warm-gray);margin-bottom:6px;">Replaces the plain church-name text at the top of giving letters (view, email, and batch send) with this image. Uploaded separately from the buttons below &mdash; no need to click Save Church Info.</div>
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-          <img id="st-logo-preview" style="max-height:56px;display:none;border:1px solid var(--border);border-radius:6px;padding:4px;background:var(--white);">
-          <input type="file" id="st-logo-file" name="st-logo-file" accept="image/*" style="display:none;" onchange="uploadLetterheadLogo(this.files[0])">
-          <button class="btn-secondary" style="font-size:.82rem;" onclick="document.getElementById('st-logo-file').click()">&#128247; Upload Logo</button>
-          <button class="btn-secondary" id="st-logo-remove-btn" style="font-size:.82rem;display:none;" onclick="removeLetterheadLogo()">Remove Logo</button>
-          <span id="st-logo-status" class="import-status"></span>
-        </div>
-      </div>
-      <button class="btn-primary" onclick="saveSettings()">Save Church Info</button>
+      <button class="btn-primary" style="margin-top:12px;" onclick="saveRolePermissions()">Save Role Permissions</button>
     </div>
     <!-- Volunteer Site & Notifications Card -->
     <div class="import-card" style="margin-bottom:14px;">
@@ -488,28 +586,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <p style="font-size:.76rem;color:var(--warm-gray);margin-bottom:10px;">The weekly digest isn&rsquo;t built yet &mdash; this just saves the preference for when it is.</p>
       <button class="btn-primary" onclick="saveVolunteerSettings()">Save Volunteer Settings</button>
-    </div>
-    <!-- Letter Template Card -->
-    <div class="import-card" style="margin-bottom:14px;">
-      <h3>&#128140; Year-End Giving Letter Template</h3>
-      <p>Used when generating giving letters. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{ein}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code></p>
-      <textarea id="st-letter-tpl" name="st-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
-      <div style="margin-top:8px;">
-        <button class="btn-primary" onclick="saveSettings()">Save Template</button>
-        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;year_end&#39;)" style="margin-left:8px;">&#128065; Preview</button>
-        <button class="btn-secondary" onclick="resetLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
-      </div>
-    </div>
-    <!-- Mid-Year Letter Template Card -->
-    <div class="import-card" style="margin-bottom:14px;">
-      <h3>&#128140; Mid-Year Giving Update Letter Template</h3>
-      <p>Used for the mid-year giving update &mdash; thanks givers, shows year-to-date giving for them to review, and suggests ways to set up recurring/automatic giving. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code>, <code>{{giving_url}}</code></p>
-      <textarea id="st-midyear-letter-tpl" name="st-midyear-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
-      <div style="margin-top:8px;">
-        <button class="btn-primary" onclick="saveSettings()">Save Template</button>
-        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;midyear&#39;)" style="margin-left:8px;">&#128065; Preview</button>
-        <button class="btn-secondary" onclick="resetMidyearLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
-      </div>
     </div>
     <!-- Tags Card -->
     <div class="import-card" style="margin-bottom:14px;">
@@ -567,41 +643,28 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <div class="import-card">
       <h3>&#9729; Breeze Sync</h3>
-      <p>All direct syncing with the Breeze API, in one place — people, giving, and fund names.</p>
+      <p>Direct syncing with the Breeze API for people and fund names. Giving sync moved to Giving &rarr; Settings.</p>
 
       <h4 style="font-size:.9rem;margin:0 0 6px;">People</h4>
-      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">Existing records (matched by Breeze ID) are updated; new people are added. Dates and photos already in the system are preserved if Breeze doesn't return a value.</p>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;"><strong>Add-only:</strong> brand-new Breeze people are added to Connect. People already here are <strong>never changed</strong> and are never deactivated — Connect is the source of truth for all people data (only giving syncs from Breeze). To connect a Breeze record to someone you already added here, use <em>Link Existing People to Breeze</em> below.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
         <button class="btn-primary" onclick="runBreezeImport()">Sync People from Breeze</button>
         <button class="btn-secondary" onclick="runBreezeTagSync(this)">&#127991; Sync Tags Only</button>
+        <button class="btn-secondary" onclick="runBreezeNameSync(this)">&#128100; Sync Middle &amp; Preferred Names Only</button>
       </div>
+      <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 8px;">&#128100; <strong>Names Only</strong> pulls just the middle name and preferred (nickname) from Breeze for people already linked to Breeze &mdash; nothing else is touched, and a blank in Breeze never clears a name you&rsquo;ve set here.</p>
       <div class="progress-bar" id="breeze-bar"><div class="progress-fill" id="breeze-fill" style="width:0%"></div></div>
       <div class="import-status" id="breeze-status"></div>
       <div class="import-status" id="breeze-tag-status" style="margin-top:4px;"></div>
+      <div class="import-status" id="breeze-name-status" style="margin-top:4px;"></div>
       <div id="breeze-diag" style="display:none;margin-top:10px;font-size:.78rem;font-family:monospace;background:var(--linen);padding:10px;border-radius:6px;white-space:pre-wrap;"></div>
 
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
-      <h4 style="font-size:.9rem;margin:0 0 6px;">Giving</h4>
-      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed below after import.</p>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
-        <div class="field" style="margin:0;"><label>From</label><input type="date" id="giving-sync-from" name="giving-sync-from" style="font-size:.85rem;padding:4px 8px;"></div>
-        <div class="field" style="margin:0;"><label>To</label><input type="date" id="giving-sync-to" name="giving-sync-to" style="font-size:.85rem;padding:4px 8px;"></div>
-      </div>
-      <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Date Range</button>
-      <div class="import-status" id="giving-sync-status"></div>
-      <pre id="giving-sync-diagnostics" style="display:none;margin-top:10px;padding:10px;background:#f4f0ea;border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
-      <div style="margin-top:12px;">
-        <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
-          <div class="field" style="margin:0;"><label>Start Year</label><input type="number" id="giving-sync-start-year" name="giving-sync-start-year" value="2020" min="2000" max="2099" style="width:90px;font-size:.85rem;padding:4px 8px;"></div>
-        </div>
-        <button class="btn-primary" id="giving-all-btn" onclick="runBreezeGivingAll()">Sync All History</button>
-        <div class="import-status" id="giving-all-status"></div>
-      </div>
-      <div style="margin-top:12px;">
-        <p style="margin:0 0 8px;"><strong>Breeze Audit Log Export</strong> — Download every contribution-related event from Breeze (added, updated, deleted) as a CSV for reconciliation. Uses the same date range as the sync above.</p>
-        <button class="btn-secondary" onclick="downloadBreezeAuditLog()">&#128229; Download Audit Log CSV</button>
-      </div>
+      <h4 style="font-size:.9rem;margin:0 0 6px;">Link Existing People to Breeze</h4>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">For someone you added here in Connect who later got their own Breeze record (e.g. once they gave), a plain <strong>Sync People</strong> would create a duplicate — it only matches on Breeze ID. This finds Breeze people who aren&rsquo;t linked yet and suggests a matching Connect person (by email, then name). Review each and click <strong>Link</strong> — it just connects the two records and keeps all your Connect data; future syncs then update that person normally.</p>
+      <button class="btn-secondary" onclick="loadBreezeUnlinked()" style="margin-bottom:10px;">&#128279; Find People to Link</button>
+      <div id="breeze-link-area"></div>
+      <div class="import-status" id="breeze-link-status"></div>
 
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
       <h4 style="font-size:.9rem;margin:0 0 6px;">Fund Names</h4>
@@ -787,7 +850,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <div class="field"><label>Record Type</label><input type="text" id="reg-record-type" name="reg-record-type" placeholder="e.g. Infant, Adult (optional)"></div>
         <div class="field"><label>Notes</label><textarea id="reg-notes" name="reg-notes" placeholder="Optional notes" style="width:100%;height:64px;resize:vertical;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:inherit;"></textarea></div>
         <div style="display:flex;gap:8px;margin-top:4px;">
-          <button class="btn-primary" style="font-size:.85rem;" id="reg-save-btn" onclick="saveRegisterEntry()">Add Entry</button>
+          <button class="btn-primary require-edit-register" style="font-size:.85rem;" id="reg-save-btn" onclick="saveRegisterEntry()">Add Entry</button>
           <button class="btn-secondary" style="font-size:.85rem;display:none;" id="reg-cancel-btn" onclick="cancelRegisterEdit()">Cancel</button>
         </div>
       </div>
@@ -1022,12 +1085,13 @@ export const HTML_TABS_2 = String.raw`
     <div class="pv-hdr">
       <div class="pv-photo-wrap" id="pv-photo-wrap">
         <div class="pv-photo" id="pv-photo"></div>
-        <div class="pv-photo-upload-overlay require-edit" id="pv-photo-overlay" onclick="triggerPhotoUpload()" title="Upload photo" style="display:none;">
+        <div class="pv-photo-upload-overlay require-edit" id="pv-photo-overlay" onclick="togglePvPhotoMenu(event)" title="Edit photo" style="display:none;">
           <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="white" stroke-width="1.8"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
         </div>
-        <button type="button" id="pv-photo-remove-btn" class="require-edit" onclick="removePersonPhoto()" title="Remove photo" style="display:none;position:absolute;top:-4px;right:-4px;width:22px;height:22px;border-radius:50%;border:none;background:var(--clay-red);color:white;font-size:14px;line-height:1;cursor:pointer;padding:0;box-shadow:0 1px 3px rgba(0,0,0,.3);">&times;</button>
-        <button type="button" id="pv-photo-recrop-btn" class="require-edit" onclick="recropPersonPhoto()" title="Re-crop current photo" style="display:none;position:absolute;top:-4px;left:-4px;width:22px;height:22px;border-radius:50%;border:none;background:var(--steel-anchor);color:white;font-size:12px;line-height:1;cursor:pointer;padding:0;box-shadow:0 1px 3px rgba(0,0,0,.3);">&#9986;</button>
-        <button type="button" id="pv-photo-pick-btn" class="require-edit" onclick="openPVPhotoPicker()" title="Use a family member's photo" style="display:none;position:absolute;bottom:-4px;left:-4px;width:22px;height:22px;border-radius:50%;border:none;background:var(--moss-green);color:white;font-size:12px;line-height:1;cursor:pointer;padding:0;box-shadow:0 1px 3px rgba(0,0,0,.3);">&#128100;</button>
+        <button type="button" id="pv-photo-edit-btn" class="require-edit pv-photo-edit-btn" onclick="togglePvPhotoMenu(event)" title="Edit photo" style="display:none;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </button>
+        <div id="pv-photo-menu" class="pv-photo-menu" style="display:none;"></div>
       </div>
       <input type="file" id="pv-photo-input" accept="image/*" style="display:none;" onchange="handlePhotoFileSelected(this)">
       <div class="pv-hdr-info">
@@ -1044,7 +1108,6 @@ export const HTML_TABS_2 = String.raw`
       <div class="pv-tab active" data-ptab="info" onclick="showPvTab('info')">Information</div>
       <div class="pv-tab require-finance" data-ptab="giving" onclick="showPvTab('giving')">Giving</div>
       <div class="pv-tab" data-ptab="attendance" onclick="showPvTab('attendance')">Attendance</div>
-      <div class="pv-tab" data-ptab="timeline" onclick="showPvTab('timeline')">Timeline</div>
     </div>
     <div class="pv-layout">
       <div class="pv-main">
@@ -1075,13 +1138,11 @@ export const HTML_TABS_2 = String.raw`
         <div id="ptab-attendance" class="ptab-panel">
           <div style="color:var(--warm-gray);font-size:13px;padding:20px 0;">Attendance records for this person will appear here.</div>
         </div>
-        <div id="ptab-timeline" class="ptab-panel">
-          <div style="color:var(--warm-gray);font-size:13px;padding:20px 0;font-style:italic;">Timeline coming soon — pastoral notes and visit log.</div>
-        </div>
       </div>
       <div class="pv-aside" id="pv-aside"></div>
     </div>
   </div>
+  <div class="pv2-toast" id="pv2-toast"><span class="ck">&#10003;</span> Changes saved</div>
 </div>
 
 <!-- ═══ HOUSEHOLD VIEW ═══ -->
@@ -1094,20 +1155,10 @@ export const HTML_TABS_2 = String.raw`
       <button class="btn-outline-cream require-edit" id="hv-edit-btn">Edit</button>
     </div>
   </div>
-  <div class="hv-body">
-    <div class="hv-hdr">
-      <div class="hv-icon-tile" id="hv-icon-tile">&#127968;</div>
-      <div style="flex:1;">
-        <div class="hv-name" id="hv-name"></div>
-        <div class="hv-addr" id="hv-addr"></div>
-      </div>
-    </div>
-    <div class="hv-main">
-      <div class="hv-section-title">Household Members</div>
-      <div id="hv-members"></div>
-      <div class="hv-summary" id="hv-summary" style="display:none;"></div>
-    </div>
+  <div class="pv-body">
+    <div id="hv-info"></div>
   </div>
+  <div class="pv2-toast" id="hv-toast"><span class="ck">&#10003;</span> Changes saved</div>
 </div>
 
 <!-- ═══ ORGANIZATION VIEW (full page, mirrors Household View) ═══ -->
@@ -1120,19 +1171,10 @@ export const HTML_TABS_2 = String.raw`
       <button class="btn-outline-cream require-edit" id="ov-edit-btn">Edit</button>
     </div>
   </div>
-  <div class="hv-body">
-    <div class="hv-hdr">
-      <div class="hv-icon-tile" id="ov-icon-tile">&#127970;</div>
-      <div style="flex:1;">
-        <div class="hv-name" id="ov-name"></div>
-        <div class="hv-addr" id="ov-addr"></div>
-      </div>
-    </div>
-    <div class="hv-main">
-      <div class="hv-section-title">Details</div>
-      <div id="ov-details"></div>
-    </div>
+  <div class="pv-body">
+    <div id="ov-info"></div>
   </div>
+  <div class="pv2-toast" id="ov-toast"><span class="ck">&#10003;</span> Changes saved</div>
 </div>
 
 <!-- ═══ TUITION AID PLANNER TAB ═══ -->

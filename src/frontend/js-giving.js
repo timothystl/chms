@@ -2,19 +2,23 @@ export const JS_GIVING = String.raw`<script>
 // ── GIVING ────────────────────────────────────────────────────────────
 // ── Batches / Transactions view toggle (RDS4) ──────────────────────────
 var _givView = 'batches';
+var _GIV_VIEWS = ['batches','transactions','board','reports','settings'];
+var _GIV_VIEW_DISPLAY = { batches:'grid', transactions:'flex' }; // others default to ''
 function givSetView(view) {
   _givView = view;
-  document.getElementById('giv-view-batches-btn').classList.toggle('active', view === 'batches');
-  document.getElementById('giv-view-txns-btn').classList.toggle('active', view === 'transactions');
-  document.getElementById('giv-view-reports-btn').classList.toggle('active', view === 'reports');
-  document.getElementById('giv-view-batches').style.display = view === 'batches' ? 'grid' : 'none';
-  document.getElementById('giv-view-transactions').style.display = view === 'transactions' ? 'flex' : 'none';
-  document.getElementById('giv-view-reports').style.display = view === 'reports' ? '' : 'none';
+  _GIV_VIEWS.forEach(function(v) {
+    var btn = document.getElementById('giv-view-' + v + '-btn');
+    if (btn) btn.classList.toggle('active', v === view);
+    var panel = document.getElementById('giv-view-' + v);
+    if (panel) panel.style.display = (v === view) ? (_GIV_VIEW_DISPLAY[v] || '') : 'none';
+  });
   if (view === 'transactions') {
     givTxnPopulateFundOptions();
     loadGivingTransactions();
   }
+  if (view === 'board') loadBoardReport();
   if (view === 'reports') finInitGivingReports();
+  if (view === 'settings') loadGivingSettings();
 }
 function givTxnPopulateFundOptions() {
   var sel = document.getElementById('giv-txn-fund');
@@ -252,6 +256,357 @@ function createBatch() {
     if (r.ok) { closeModal('batch-modal'); loadBatches(); openBatch(r.id); }
     else alert('Error: ' + (r.error||'unknown'));
   });
+}
+
+// ── Board Report (giving redesign 1A dashboard / 1B narrative) ──────────
+var _boardMode = 'dashboard';
+var _boardData = null;
+var _boardPeriodsBuilt = false;
+var BOARD_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+var BOARD_MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// Whole-dollar money (no cents) with a leading sign for negatives; used throughout the board.
+function boardMoney(cents) {
+  var neg = cents < 0;
+  var d = Math.round(Math.abs(cents || 0) / 100);
+  return (neg ? '−$' : '$') + d.toLocaleString('en-US');
+}
+function boardMoneyK(cents) {
+  return '$' + Math.round(Math.abs(cents || 0) / 100000).toLocaleString('en-US') + 'k';
+}
+
+// Build the period dropdown once: last 12 months + last four quarters + last two annuals.
+function boardBuildPeriods() {
+  if (_boardPeriodsBuilt) return;
+  var sel = document.getElementById('board-period');
+  if (!sel) return;
+  var now = new Date();
+  var y = now.getUTCFullYear(), mo = now.getUTCMonth() + 1;
+  var opts = [];
+  // Months, most recent first, back 12
+  for (var i = 0; i < 12; i++) {
+    var mm = mo - i, yy = y;
+    while (mm <= 0) { mm += 12; yy -= 1; }
+    opts.push({ v: yy + '-' + String(mm).padStart(2, '0'), label: BOARD_MONTHS[mm - 1] + ' ' + yy });
+  }
+  // Current + prior full quarter
+  var curQ = Math.ceil(mo / 3);
+  for (var q = 0; q < 3; q++) {
+    var qq = curQ - q, qy = y;
+    while (qq <= 0) { qq += 4; qy -= 1; }
+    opts.push({ v: qy + '-Q' + qq, label: 'Q' + qq + ' ' + qy });
+  }
+  opts.push({ v: String(y - 1), label: 'Annual ' + (y - 1) });
+  opts.push({ v: String(y - 2), label: 'Annual ' + (y - 2) });
+  sel.innerHTML = opts.map(function(o) { return '<option value="' + o.v + '">' + o.label + '</option>'; }).join('');
+  sel.value = y + '-' + String(mo).padStart(2, '0');
+  _boardPeriodsBuilt = true;
+}
+
+function boardSetMode(mode) {
+  _boardMode = mode;
+  var db = document.getElementById('board-mode-dashboard-btn');
+  var nb = document.getElementById('board-mode-narrative-btn');
+  if (db) db.classList.toggle('active', mode === 'dashboard');
+  if (nb) nb.classList.toggle('active', mode === 'narrative');
+  if (_boardData) boardRender();
+}
+
+function loadBoardReport() {
+  boardBuildPeriods();
+  var sel = document.getElementById('board-period');
+  var period = sel ? sel.value : '';
+  var body = document.getElementById('board-body');
+  if (body) body.innerHTML = '<div class="board-empty">Loading&hellip;</div>';
+  api('/admin/api/reports/giving-board?period=' + encodeURIComponent(period)).then(function(d) {
+    if (!d || d.error) { if (body) body.innerHTML = '<div class="board-empty">Could not load the board report.</div>'; return; }
+    _boardData = d;
+    var sub = document.getElementById('board-subtitle');
+    if (sub) sub.textContent = d.through_label + ' · General & designated funds · no individual donors named';
+    boardRender();
+  }).catch(function() { if (body) body.innerHTML = '<div class="board-empty">Could not load the board report.</div>'; });
+}
+
+function boardRender() {
+  var body = document.getElementById('board-body');
+  if (!body || !_boardData) return;
+  if ((_boardData.totals.actual_cents || 0) === 0) {
+    body.innerHTML = '<div class="board-empty">No giving recorded for ' + esc(_boardData.period_label) + ' yet.</div>';
+    return;
+  }
+  body.innerHTML = _boardMode === 'narrative' ? boardNarrativeHtml(_boardData) : boardDashboardHtml(_boardData);
+}
+
+function boardKpiCard(color, label, value, valueColor, sub) {
+  return '<div class="board-kpi-card" style="border-top-color:' + color + ';">'
+    + '<div class="board-kpi-label">' + esc(label) + '</div>'
+    + '<div class="board-kpi-value"' + (valueColor ? ' style="color:' + valueColor + ';"' : '') + '>' + value + '</div>'
+    + '<div class="board-kpi-sub">' + sub + '</div></div>';
+}
+
+function boardDashboardHtml(d) {
+  var k = d.kpis;
+  // KPI 1 — Given YTD
+  var deltaSub = k.given_ytd_delta_pct == null ? 'No prior-year data for this point'
+    : (k.given_ytd_delta_pct >= 0 ? '+' : '−') + Math.abs(k.given_ytd_delta_pct) + '% vs. same point in ' + d.prior_year;
+  var c1 = boardKpiCard('#2E7EA6', 'Given year to date', boardMoney(k.given_ytd_cents), '', deltaSub);
+  // KPI 2 — Vs budget YTD
+  var c2;
+  if (k.budget_variance_cents == null) {
+    c2 = boardKpiCard('#B85C3A', 'Vs. budget YTD', '—', '#8A8377', 'No fund budgets set yet');
+  } else {
+    var vneg = k.budget_variance_cents < 0;
+    var vsub = Math.abs(k.budget_variance_pct) + '% ' + (vneg ? 'behind' : 'ahead of') + ' the ' + boardMoney(k.budget_ytd_cents) + ' plan';
+    c2 = boardKpiCard('#B85C3A', 'Vs. budget YTD', boardMoney(k.budget_variance_cents), vneg ? '#B85C3A' : '#6B8F71', vsub);
+  }
+  // KPI 3 — Year-end projection
+  var methodNote = k.projection_method === 'seasonal' ? 'Projected on last year’s seasonal pattern'
+    : k.projection_method === 'linear' ? 'Projected straight-line from the pace so far'
+    : 'Full year recorded';
+  var projSub = k.projection_vs_budget_cents == null ? methodNote
+    : boardMoney(Math.abs(k.projection_vs_budget_cents)) + (k.projection_vs_budget_cents < 0 ? ' under' : ' over') + ' a ' + boardMoney(k.annual_budget_cents) + ' budget';
+  var c3 = boardKpiCard('#C9973A', 'Year-end projection', boardMoney(k.projection_cents), '', projSub);
+  // KPI 4 — Giving households
+  var hhDelta = k.households - k.households_prior;
+  var hhSub = (k.households_prior > 0 ? (Math.abs(hhDelta) + (hhDelta === 0 ? ' same as ' : hhDelta < 0 ? ' fewer than ' : ' more than ') + d.prior_year + ' · ') : '')
+    + boardMoney(k.avg_per_household_cents) + ' average';
+  var c4 = boardKpiCard('#6B8F71', 'Giving households', k.households.toLocaleString('en-US'), '', hhSub);
+  var kpis = '<div class="board-kpi-grid">' + c1 + c2 + c3 + c4 + '</div>';
+
+  // Body grid: chart card + navy panel
+  var legend = '<div class="board-legend">'
+    + '<span><span class="board-swatch" style="background:#C4DDE8;"></span>' + d.prior_year + '</span>'
+    + '<span><span class="board-swatch" style="background:#2E7EA6;"></span>' + d.year + '</span>'
+    + (d.has_budget ? '<span><span class="board-swatch" style="background:#F5E0B0;border:1px solid #C9973A;"></span>Budget</span>' : '')
+    + '</div>';
+  var chartNote = d.has_budget
+    ? 'Thousands of dollars, all funds. The budget bar is the council-approved plan spread across the year by last year’s pattern.'
+    : 'Thousands of dollars, all funds. Set fund budgets in Settings to show the budget bars.';
+  var chartCard = '<div class="board-card">'
+    + '<div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px;">'
+    + '<div class="board-card-label">Month by month vs. prior year</div>' + legend + '</div>'
+    + '<div style="font-size:11.5px;color:var(--warm-gray);margin-bottom:10px;">' + chartNote + '</div>'
+    + boardMonthChart(d) + '</div>';
+
+  var navy = boardNavyHtml(d);
+  var bodyGrid = '<div class="board-body-grid">' + chartCard + navy + '</div>';
+
+  // Fund table
+  var fundTable = boardFundTableHtml(d);
+
+  return kpis + bodyGrid + fundTable;
+}
+
+function boardNavyHtml(d) {
+  var mixColors = { check:'#C4DDE8', ach:'#6B8F71', cash:'#C9973A', other:'#8A8377' };
+  var rows = d.method_mix.map(function(m) {
+    return '<div class="board-mix-row">'
+      + '<div class="board-mix-head"><span>' + esc(m.label) + '</span><span style="font-variant-numeric:tabular-nums;">' + boardMoney(m.cents) + ' · ' + m.pct + '%</span></div>'
+      + '<div class="board-mix-track"><div class="board-mix-fill" style="width:' + m.pct + '%;background:' + mixColors[m.key] + ';"></div></div></div>';
+  }).join('');
+  var con = d.concentration;
+  var segColors = ['#C9973A', '#C4DDE8', '#6B8F71', 'rgba(255,255,255,.28)'];
+  var segBar = '<div style="display:flex;height:10px;border-radius:5px;overflow:hidden;margin-top:12px;">'
+    + con.segments.map(function(s, i) { return '<div style="width:' + Math.max(0, s.pct) + '%;background:' + segColors[i] + ';"></div>'; }).join('') + '</div>';
+  var segLabels = '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:rgba(255,255,255,.6);margin-top:5px;">'
+    + con.segments.map(function(s) { return '<span>' + esc(s.label) + '</span>'; }).join('') + '</div>';
+  var conText = 'The ten largest giving households account for <strong style="color:#fff;">' + con.top10_pct + '%</strong> of everything received this year.'
+    + (con.half_households > 0 ? ' Half of all giving comes from ' + con.half_households + ' households.' : '');
+  return '<div class="board-navy">'
+    + '<div class="board-navy-label">Where the money comes from</div>'
+    + '<div>' + rows + '</div>'
+    + '<div style="border-top:1px solid rgba(255,255,255,.16);margin-top:16px;padding-top:14px;">'
+    + '<div class="board-navy-label" style="margin-bottom:8px;">Concentration</div>'
+    + '<div style="font-size:13px;line-height:1.55;color:rgba(255,255,255,.86);">' + conText + '</div>'
+    + segBar + segLabels + '</div></div>';
+}
+
+function boardFundTableHtml(d) {
+  var t = d.totals;
+  function moneyCell(cents, color) {
+    return '<td class="num"' + (color ? ' style="color:' + color + ';"' : '') + '>' + boardMoney(cents) + '</td>';
+  }
+  function dashCell() { return '<td class="num" style="color:#8A8377;">—</td>'; }
+  function varCell(v) {
+    if (v == null) return dashCell();
+    var color = v < 0 ? '#B85C3A' : (v > 0 ? '#6B8F71' : '#8A8377');
+    return '<td class="num" style="color:' + color + ';">' + (v > 0 ? '+' : '') + boardMoney(v) + '</td>';
+  }
+  var body = d.funds.map(function(f) {
+    return '<tr><td>' + esc(f.name) + '</td>'
+      + moneyCell(f.actual_cents)
+      + (f.budget_ytd_cents == null ? dashCell() : moneyCell(f.budget_ytd_cents, '#8A8377'))
+      + varCell(f.variance_cents)
+      + moneyCell(f.prior_cents, '#8A8377') + '</tr>';
+  }).join('');
+  var totalVar = d.has_budget ? (t.actual_cents - t.budget_ytd_cents) : null;
+  var totalRow = '<tr class="rpt-total"><td style="color:var(--color-navy);">Total</td>'
+    + '<td class="num" style="color:var(--color-navy);">' + boardMoney(t.actual_cents) + '</td>'
+    + (d.has_budget ? '<td class="num" style="color:var(--color-navy);">' + boardMoney(t.budget_ytd_cents) + '</td>' : dashCell())
+    + (totalVar == null ? dashCell() : '<td class="num" style="color:' + (totalVar < 0 ? '#B85C3A' : '#6B8F71') + ';">' + (totalVar > 0 ? '+' : '') + boardMoney(totalVar) + '</td>')
+    + '<td class="num" style="color:var(--color-navy);">' + boardMoney(t.prior_cents) + '</td></tr>';
+  return '<div class="board-card board-fund-table">'
+    + '<div class="board-card-label" style="margin-bottom:10px;">By fund</div>'
+    + '<table class="rpt-table"><thead><tr>'
+    + '<th>Fund</th><th class="num">YTD actual</th><th class="num">YTD budget</th><th class="num">Variance</th><th class="num">Prior year</th>'
+    + '</tr></thead><tbody>' + body + totalRow + '</tbody></table></div>';
+}
+
+// Grouped bar chart: prior year (all 12 months) / current year (through the last closed month) /
+// budget (all 12, only when budgets exist). Auto-scales the y-axis to the data.
+function boardMonthChart(d) {
+  var cur = d.monthly.current, prior = d.monthly.prior, tm = d.through_month;
+  // Budget monthly, spread by prior-year shape (or evenly), only if budgets exist
+  var priorTotal = prior.reduce(function(s, v) { return s + v; }, 0);
+  var budgetMonthly = new Array(12).fill(0);
+  if (d.has_budget) {
+    for (var i = 0; i < 12; i++) {
+      budgetMonthly[i] = priorTotal > 0 ? d.totals.annual_budget_cents * (prior[i] / priorTotal) : d.totals.annual_budget_cents / 12;
+    }
+  }
+  // Axis max (in thousands), nice-rounded to 50k, min 100k
+  var maxCents = 0;
+  for (var j = 0; j < 12; j++) {
+    if (j < tm) maxCents = Math.max(maxCents, cur[j]);
+    maxCents = Math.max(maxCents, prior[j], budgetMonthly[j]);
+  }
+  var maxK = maxCents / 100000;
+  var axisMaxK = Math.max(100, Math.ceil(maxK / 50) * 50);
+  var baseline = 120, top = 26, span = baseline - top; // 94px
+  function yOf(cents) { var k = cents / 100000; return baseline - (k / axisMaxK) * span; }
+  function hOf(cents) { return (cents / 100000 / axisMaxK) * span; }
+  var svg = '<svg viewBox="0 0 700 150" style="width:100%;height:150px;">';
+  // gridlines + axis labels at 0, half, full
+  var gl = [0, axisMaxK / 2, axisMaxK];
+  gl.forEach(function(val) {
+    var yy = baseline - (val / axisMaxK) * span;
+    svg += '<line x1="26" y1="' + yy.toFixed(1) + '" x2="700" y2="' + yy.toFixed(1) + '" stroke="' + (val === 0 ? '#E8E0D0' : '#F1EFE9') + '" stroke-width="1"></line>';
+    svg += '<text x="22" y="' + (yy + 3).toFixed(1) + '" text-anchor="end" fill="#A69A88" font-size="9">' + Math.round(val) + '</text>';
+  });
+  var x0 = 30, pitch = (700 - x0 - 6) / 12, barW = 13, gap = 2;
+  for (var mo = 0; mo < 12; mo++) {
+    var bars = [];
+    // prior (ice-blue) always
+    bars.push({ v: prior[mo], fill: '#C4DDE8', stroke: '' });
+    // current (teal) only through last closed month
+    if (mo < tm) bars.push({ v: cur[mo], fill: '#2E7EA6', stroke: '' });
+    // budget (gold outline) if present
+    if (d.has_budget) bars.push({ v: budgetMonthly[mo], fill: '#F5E0B0', stroke: '#C9973A' });
+    var groupW = bars.length * barW + (bars.length - 1) * gap;
+    var gs = x0 + mo * pitch + (pitch - groupW) / 2;
+    bars.forEach(function(b, bi) {
+      var bx = gs + bi * (barW + gap);
+      var bh = Math.max(0, hOf(b.v));
+      svg += '<rect x="' + bx.toFixed(1) + '" y="' + (baseline - bh).toFixed(1) + '" width="' + barW + '" height="' + bh.toFixed(1) + '" fill="' + b.fill + '"'
+        + (b.stroke ? ' stroke="' + b.stroke + '" stroke-width=".8"' : '') + ' rx="2"></rect>';
+    });
+    var lx = x0 + mo * pitch + pitch / 2;
+    svg += '<text x="' + lx.toFixed(1) + '" y="136" text-anchor="middle" fill="' + (mo < tm ? '#8A8377' : '#A69A88') + '" font-size="10">' + BOARD_MONTHS_SHORT[mo] + '</text>';
+  }
+  svg += '</svg>';
+  return svg;
+}
+
+// Narrative page (1B): same data written as prose for the packet.
+function boardNarrativeHtml(d) {
+  var k = d.kpis, t = d.totals, con = d.concentration;
+  var churchName = (typeof _churchConfig !== 'undefined' && _churchConfig && _churchConfig.church_name) || 'Timothy Lutheran Church';
+  var mmName = BOARD_MONTHS[d.through_month - 1];
+  // last day of month
+  var monthEnds = [31,28,31,30,31,30,31,31,30,31,30,31];
+  var isLeap = (d.year % 4 === 0 && d.year % 100 !== 0) || d.year % 400 === 0;
+  var lastDay = (d.through_month === 2 && isLeap) ? 29 : monthEnds[d.through_month - 1];
+  var asOf = mmName + ' ' + lastDay + ', ' + d.year;
+
+  // Lede
+  var deltaPrior = k.given_ytd_cents - k.given_ytd_prior_cents;
+  var ledeParts = 'the congregation has given <strong>' + boardMoney(k.given_ytd_cents) + '</strong>';
+  if (k.given_ytd_prior_cents > 0) ledeParts += ' — about ' + boardMoney(Math.abs(deltaPrior)) + (deltaPrior >= 0 ? ' more' : ' less') + ' than at this point last year';
+  if (k.budget_variance_cents != null) ledeParts += ', and about ' + boardMoney(Math.abs(k.budget_variance_cents)) + (k.budget_variance_cents < 0 ? ' less than' : ' more than') + ' the budget assumed';
+  ledeParts += '.';
+  var lede = '<div style="font-family:var(--font-display);font-size:19px;line-height:1.5;color:var(--charcoal);margin-top:26px;">Through ' + asOf + ', ' + ledeParts + '</div>';
+
+  // Section: Are we on pace?
+  var paceBody;
+  if (k.projection_vs_budget_cents != null) {
+    paceBody = 'On the current pattern the year finishes near <strong>' + boardMoney(k.projection_cents) + '</strong> against a budget of ' + boardMoney(k.annual_budget_cents)
+      + '. That is a gap of roughly <strong>' + boardMoney(Math.abs(k.projection_vs_budget_cents)) + '</strong>'
+      + (k.annual_budget_cents > 0 ? ', or about ' + Math.abs(Math.round((k.projection_vs_budget_cents / k.annual_budget_cents) * 100)) + ' percent' : '') + '. '
+      + (k.projection_method === 'seasonal' ? 'The projection assumes the rest of the year follows last year’s seasonal pattern.' : 'The projection extends the pace of giving so far across the remaining months.');
+  } else {
+    paceBody = 'On the current pattern the year finishes near <strong>' + boardMoney(k.projection_cents) + '</strong>. '
+      + (k.projection_method === 'seasonal' ? 'The projection assumes the rest of the year follows last year’s seasonal pattern.' : 'The projection extends the pace of giving so far across the remaining months.')
+      + ' Set fund budgets in Settings to compare this against plan.';
+  }
+
+  // Section: Who is giving
+  var hhDelta = k.households - k.households_prior;
+  var whoBody = k.households + ' households have given so far'
+    + (k.households_prior > 0 ? ', ' + Math.abs(hhDelta) + (hhDelta === 0 ? ' the same as' : hhDelta < 0 ? ' fewer than' : ' more than') + ' last year' : '')
+    + ', at an average of ' + boardMoney(k.avg_per_household_cents) + ' each. The ten largest giving households account for <strong>' + con.top10_pct + '%</strong> of all money received'
+    + (con.half_households > 0 ? ', and half of all giving comes from ' + con.half_households + ' households' : '')
+    + '. That concentration is the single largest financial risk the council carries: the loss or relocation of a few families would matter more than any line item in the budget.';
+
+  // Section: How gifts arrive
+  var mix = {}; d.method_mix.forEach(function(m) { mix[m.key] = m; });
+  var arriveBody = 'Checks are ' + (mix.check.pct) + '% of giving. Automatic giving — ACH and online — is ' + mix.ach.pct + '%. '
+    + 'Loose-plate cash is ' + mix.cash.pct + '%; it is also the only giving the church cannot acknowledge or attribute.';
+
+  var section = function(eyebrow, body) {
+    return '<div><div class="board-nv-eyebrow">' + esc(eyebrow) + '</div><div class="board-nv-body">' + body + '</div></div>';
+  };
+
+  // Compact fund table
+  function nvNum(cents, color) { return '<td style="padding:7px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;' + (color ? 'color:' + color + ';' : '') + '">' + boardMoney(cents) + '</td>'; }
+  function nvDash() { return '<td style="padding:7px 8px;border-bottom:1px solid var(--linen);text-align:right;color:#8A8377;">—</td>'; }
+  function nvVar(v) {
+    if (v == null) return nvDash();
+    return '<td style="padding:7px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;color:' + (v < 0 ? '#B85C3A' : (v > 0 ? '#6B8F71' : '#8A8377')) + ';">' + (v > 0 ? '+' : '') + boardMoney(v) + '</td>';
+  }
+  var th = 'padding:7px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--warm-meta);border-bottom:1.5px solid var(--color-navy);';
+  var fundRows = d.funds.map(function(f) {
+    return '<tr><td style="padding:7px 8px;border-bottom:1px solid var(--linen);">' + esc(f.name) + '</td>'
+      + nvNum(f.actual_cents) + (f.budget_ytd_cents == null ? nvDash() : nvNum(f.budget_ytd_cents)) + nvVar(f.variance_cents) + nvNum(f.prior_cents, '#8A8377') + '</tr>';
+  }).join('');
+  var totVar = d.has_budget ? (t.actual_cents - t.budget_ytd_cents) : null;
+  var totRow = '<tr><td style="padding:8px;font-weight:700;">Total</td>'
+    + '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(t.actual_cents) + '</td>'
+    + (d.has_budget ? '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(t.budget_ytd_cents) + '</td>' : '<td style="padding:8px;text-align:right;color:#8A8377;">—</td>')
+    + (totVar == null ? '<td style="padding:8px;text-align:right;color:#8A8377;">—</td>' : '<td style="padding:8px;text-align:right;font-weight:700;color:' + (totVar < 0 ? '#B85C3A' : '#6B8F71') + ';font-variant-numeric:tabular-nums;">' + (totVar > 0 ? '+' : '') + boardMoney(totVar) + '</td>')
+    + '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(t.prior_cents) + '</td></tr>';
+  var fundTable = '<table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:26px;"><thead><tr>'
+    + '<th style="text-align:left;' + th + '">Fund</th><th style="text-align:right;' + th + '">YTD</th><th style="text-align:right;' + th + '">Budget</th><th style="text-align:right;' + th + '">Variance</th><th style="text-align:right;' + th + '">' + d.prior_year + '</th>'
+    + '</tr></thead><tbody>' + fundRows + totRow + '</tbody></table>';
+
+  var footnote = '<div style="margin-top:auto;padding-top:28px;font-size:10.5px;color:#A69A88;line-height:1.6;border-top:1px solid var(--linen);">'
+    + 'Figures are drawn from recorded contributions as of ' + asOf + ' and exclude tuition, daycare fees, and grant income. No individual donor is identified in this report; household-level detail is available to the finance committee on request.</div>';
+
+  return '<div class="board-narrative">'
+    + '<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:2px solid var(--color-navy);padding-bottom:10px;">'
+    + '<div><div style="font-family:var(--font-display);font-size:27px;font-weight:700;color:var(--color-navy);line-height:1.1;">Giving Report to the Church Council</div>'
+    + '<div style="font-size:12.5px;color:var(--warm-meta);margin-top:4px;letter-spacing:.02em;">' + esc(churchName) + '</div></div>'
+    + '<div style="text-align:right;font-size:11px;color:var(--warm-meta);line-height:1.5;">Prepared ' + asOf + '<br>Aggregate figures only</div></div>'
+    + lede
+    + '<div style="margin-top:24px;display:flex;flex-direction:column;gap:18px;">'
+    + section('Are we on pace?', paceBody)
+    + section('Who is giving', whoBody)
+    + section('How gifts arrive', arriveBody)
+    + '</div>'
+    + fundTable
+    + footnote
+    + '</div>';
+}
+
+function printBoardPage() {
+  if (!_boardData) return;
+  document.body.classList.add('printing-board');
+  var cleanup = function() { document.body.classList.remove('printing-board'); window.removeEventListener('afterprint', cleanup); };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(function() { window.print(); setTimeout(cleanup, 1000); }, 60);
+}
+
+function boardEmailPacket() {
+  alert('Emailing the board packet is coming in a later phase of the giving redesign. For now, use "Print board page" and attach the PDF, or print the Narrative view to PDF for a written packet.');
 }
 
 `;

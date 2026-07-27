@@ -119,24 +119,36 @@ a.s-item{text-decoration:none;color:inherit;}
 .s-bottom{margin-top:auto;display:flex;flex-direction:column;align-items:stretch;gap:4px;}
 .s-tip{position:static;transform:none;background:transparent;border:none;padding:0;font-size:13px;color:rgba(255,255,255,.7);white-space:nowrap;pointer-events:none;z-index:auto;}
 /* ── ROLE-BASED VISIBILITY ── */
-/* .require-finance  = visible only for admin + finance */
-/* .require-staff    = visible only for admin + staff (not office) */
-/* .require-register = visible for admin + staff + office (data-entry) */
-/* .require-edit     = visible for admin + finance + staff + office (not member) */
-/* .require-admin    = admin only */
+/* .require-finance/.require-staff/.require-register, plus the Reports sidebar item's
+   office exclusion, are admin-configurable per role (Settings -> Giving -> ... no, wait
+   actually admin-configurable via applyPermissionUI() in js-core.js, driven by /admin/api/me's
+   permissions field (see api-utils.js) -- NOT hardcoded CSS below. Member always gets false
+   for all three regardless of config (member is a structurally different, non-configurable
+   view), which is why role-member still has its own static rules here as a belt-and-suspenders
+   fallback in case JS hasn't run yet. */
+/* .require-edit     = visible for admin + finance + staff + office (not member) -- fixed, not configurable */
+/* .require-admin    = admin only -- fixed, not configurable */
 /* .no-member        = hidden for member role */
-/* .no-office        = hidden for the office (data-entry) role */
-.role-staff  .require-finance{display:none!important;}
-.role-office .require-finance{display:none!important;}
 .role-member .require-finance{display:none!important;}
+.role-member .require-tuitionaid{display:none!important;}
+.role-member .require-financeov{display:none!important;}
+.role-member .require-attendance{display:none!important;}
 .role-finance .require-staff{display:none!important;}
-.role-office  .require-staff{display:none!important;}
 .role-member .require-staff{display:none!important;}
-.role-finance .require-register{display:none!important;}
 .role-member  .require-register{display:none!important;}
 .role-member .require-edit{display:none!important;}
 .role-member .no-member{display:none!important;}
-.role-office .no-office{display:none!important;}
+/* Per-feature EDIT affordances (create/edit buttons inside a feature tab) — hidden by
+   default; applyPermissionUI() in js-core.js adds a body.perm-edit-<item> class for the
+   current role when that item's level is 'edit', which reveals them. Buttons are
+   inline-block, so that's what we restore. The server enforces edit regardless. */
+.require-edit-giving,.require-edit-tuitionaid,.require-edit-finance,.require-edit-attendance,.require-edit-followups,.require-edit-register{display:none!important;}
+body.perm-edit-giving .require-edit-giving,
+body.perm-edit-tuitionaid .require-edit-tuitionaid,
+body.perm-edit-finance .require-edit-finance,
+body.perm-edit-attendance .require-edit-attendance,
+body.perm-edit-followups .require-edit-followups,
+body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .role-finance .require-admin{display:none!important;}
 .role-staff   .require-admin{display:none!important;}
 .role-office  .require-admin{display:none!important;}
@@ -309,6 +321,40 @@ a.s-item{text-decoration:none;color:inherit;}
 .rpt-total{font-weight:700;border-top:2px solid var(--border) !important;}
 .rpt-group-hdr td{background:var(--linen);font-weight:700;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);padding:5px 10px;border-bottom:none !important;}
 .rpt-group-sub td{font-style:italic;font-weight:600;background:#faf7f4;border-bottom:1px solid var(--border) !important;}
+/* ── Board Report (giving redesign 1A/1B) ─────────────────────────────── */
+.board-header{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:16px;}
+.board-title{font-size:22px;font-weight:800;color:var(--color-navy);}
+.board-subtitle{font-size:13px;color:var(--warm-meta);margin-top:2px;}
+.board-toolbar{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.board-mode-toggle{display:inline-flex;border:1px solid var(--warm-border);border-radius:8px;overflow:hidden;}
+.board-mode-toggle button{background:var(--white);border:none;padding:7px 12px;font-size:.82rem;font-weight:600;color:var(--warm-meta);cursor:pointer;font-family:var(--font-body);}
+.board-mode-toggle button.active{background:var(--color-navy);color:var(--white);}
+.board-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;}
+.board-kpi-card{background:var(--white);border-radius:18px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:16px 18px;border-top:4px solid var(--color-teal);}
+.board-kpi-label{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);}
+.board-kpi-value{font-size:27px;font-weight:800;color:var(--charcoal);margin:4px 0 6px;font-variant-numeric:tabular-nums;line-height:1;}
+.board-kpi-sub{font-size:11.5px;color:var(--warm-gray);}
+.board-body-grid{display:grid;grid-template-columns:1.55fr 1fr;gap:14px;}
+.board-card{background:var(--white);border-radius:18px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:18px 20px;}
+.board-card-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-ink-label);}
+.board-legend{margin-left:auto;display:flex;gap:12px;font-size:11px;color:var(--warm-gray);align-items:center;}
+.board-legend span{display:flex;align-items:center;gap:5px;}
+.board-swatch{width:9px;height:9px;border-radius:2px;display:inline-block;}
+.board-navy{background:var(--color-navy);border-radius:18px;padding:18px 20px;color:var(--white);}
+.board-navy-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--color-gold);margin-bottom:12px;}
+.board-mix-row{margin-bottom:11px;}
+.board-mix-head{display:flex;justify-content:space-between;font-size:12.5px;font-weight:600;margin-bottom:4px;}
+.board-mix-track{height:7px;border-radius:4px;background:rgba(255,255,255,.14);overflow:hidden;}
+.board-mix-fill{height:100%;}
+.board-fund-table{margin-top:14px;}
+.board-fund-table .rpt-table td.num,.board-fund-table .rpt-table th.num{text-align:right;font-variant-numeric:tabular-nums;}
+.board-empty{background:var(--white);border-radius:18px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:40px;text-align:center;color:var(--warm-gray);font-size:.92rem;}
+/* Narrative page (1B) */
+.board-narrative{width:816px;max-width:100%;margin:0 auto;background:var(--white);min-height:1056px;box-shadow:0 10px 30px rgba(20,20,40,.12);padding:64px 72px;display:flex;flex-direction:column;box-sizing:border-box;}
+.board-nv-eyebrow{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--color-gold);margin-bottom:5px;}
+.board-nv-body{font-size:14px;line-height:1.65;color:#33323C;}
+@media(max-width:900px){.board-kpi-grid{grid-template-columns:repeat(2,1fr);}.board-body-grid{grid-template-columns:1fr;}}
+@media(max-width:520px){.board-kpi-grid{grid-template-columns:1fr;}}
 .rpt-overview{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:14px;}
 .rpt-stat{background:var(--linen);border-radius:12px;padding:10px 16px;min-width:140px;flex:1 1 140px;max-width:220px;}
 .rpt-stat-num{font-size:1.35rem;font-weight:700;font-family:var(--font-head);color:var(--steel-anchor);line-height:1.1;}
@@ -538,6 +584,12 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .ppl-qv-row a:hover{text-decoration:underline;}
 .ppl-qv-hh-chips{display:flex;flex-wrap:wrap;gap:8px;}
 .ppl-qv-chip{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;}
+.ppl-qv-hh-names{display:flex;flex-direction:column;gap:4px;}
+.ppl-qv-hh-name{font-size:13.5px;color:var(--color-teal);font-weight:600;cursor:pointer;}
+.ppl-qv-hh-name:hover{text-decoration:underline;}
+.ppl-qv-hh-name.is-self{color:var(--color-navy);font-weight:700;cursor:default;}
+.ppl-qv-hh-name.is-self:hover{text-decoration:none;}
+.ppl-qv-map{border-radius:10px;overflow:hidden;line-height:0;border:1px solid var(--warm-divider);min-height:20px;}
 .dir-table tbody tr.dir-row-qv td{background:var(--blue-mist)!important;box-shadow:inset 3px 0 0 var(--color-teal);}
 .ppl-card.qv-active{box-shadow:0 0 0 2px var(--color-teal);}
 @media(max-width:1000px){.ppl-quickview{width:280px;padding:22px 18px;}}
@@ -606,6 +658,13 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .pv-photo-upload-overlay{position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;cursor:pointer;}
 .pv-photo-wrap:hover .pv-photo-upload-overlay{opacity:1;}
 .pv-photo-upload-overlay svg{pointer-events:none;}
+.pv-photo-edit-btn{position:absolute;bottom:-2px;right:-2px;width:28px;height:28px;border-radius:50%;border:2px solid var(--white);background:var(--color-navy);cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.28);}
+.pv-photo-edit-btn:hover{background:var(--color-teal);}
+.pv-photo-edit-btn svg{width:14px;height:14px;pointer-events:none;}
+.pv-photo-menu{position:absolute;top:96px;left:0;z-index:30;background:var(--white);border:1px solid var(--warm-divider);border-radius:11px;box-shadow:0 10px 34px rgba(0,0,0,.18);padding:5px;min-width:214px;}
+.pv-photo-menu button{display:block;width:100%;text-align:left;background:none;border:none;padding:9px 12px;font-size:13.5px;color:var(--color-navy);cursor:pointer;border-radius:7px;font-family:var(--font-body);}
+.pv-photo-menu button:hover{background:var(--warm-surface-header);}
+.pv-photo-menu button.danger{color:var(--danger);}
 .pv-hdr-info{flex:1;}
 .pv-fullname{font-family:var(--font-display);font-size:28px;font-weight:700;color:var(--color-navy);line-height:1.2;}
 .pv-meta{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap;}
@@ -679,6 +738,80 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .btn-outline-cream:hover{background:var(--warm-surface-card-page);}
 .pv-pill-btn{display:block;width:100%;text-align:center;padding:8px;border:1.5px solid var(--warm-border);background:var(--warm-surface-card);border-radius:8px;font-size:12px;font-weight:700;color:var(--color-navy);cursor:pointer;}
 .pv-pill-btn:hover{background:var(--warm-surface-header);}
+/* ── PROFILE REDESIGN (single-screen, sticky jump-nav, inline per-field edit) — brand tokens ── */
+.pv2-crumb{font-size:13px;font-weight:600;color:var(--warm-meta);margin-bottom:16px;}
+.pv2-crumb b{color:var(--color-navy);font-weight:600;}
+.pv2-hdr-sub{font-size:14px;color:var(--warm-meta);margin-top:3px;}
+.pv2-hdr-sub b{color:var(--color-navy);}
+.pv2-badges{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center;}
+.pv2-badge{font-weight:700;font-size:12.5px;padding:5px 11px;border-radius:20px;}
+.pv2-badge.status{background:var(--blue-mist);color:var(--color-navy);}
+.pv2-badge.marital{background:var(--pale-gold);color:var(--deep-amber);}
+.pv2-badge.tag{background:var(--linen);color:var(--warm-gray);font-weight:600;}
+.pv2-hdr-btn{display:inline-flex;align-items:center;gap:7px;font-weight:700;font-size:13.5px;padding:8px 13px;border-radius:9px;cursor:pointer;text-decoration:none;border:1px solid var(--warm-border);background:var(--warm-surface-header);color:var(--color-navy);}
+.pv2-hdr-btn:hover{background:var(--warm-surface-card-page);}
+.pv2-hdr-btn.solid{background:var(--color-teal);border-color:var(--color-teal);color:var(--white);}
+.pv2-hdr-btn.solid:hover{opacity:.92;}
+.pv2-hdr-btn.on{background:var(--blue-mist);border-color:var(--sky-steel);color:var(--color-navy);}
+.pv2-hdr-btn.dashed{background:var(--white);border:1px dashed var(--border);color:var(--warm-gray);}
+.pv2-body{display:flex;gap:14px;margin-top:20px;align-items:flex-start;}
+.pv2-nav{position:sticky;top:6px;flex:none;width:186px;display:flex;flex-direction:column;gap:2px;}
+.pv2-nav-lbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--warm-meta);padding:4px 12px 8px;}
+.pv2-nav-btn{text-align:left;background:none;color:var(--warm-gray);font-weight:600;font-size:13.5px;padding:9px 12px;border:none;border-radius:9px;cursor:pointer;font-family:var(--font-body);}
+.pv2-nav-btn:hover{background:var(--warm-surface-header);}
+.pv2-nav-btn.active{background:var(--blue-mist);color:var(--color-navy);font-weight:700;}
+.pv2-nav-select{display:none;width:100%;margin-bottom:14px;font-size:15px;padding:11px 12px;border-radius:10px;border:1px solid var(--warm-border);background:var(--white);color:var(--color-navy);font-family:var(--font-body);}
+.pv2-grid{flex:1;min-width:0;display:grid;grid-template-columns:1fr 380px;gap:20px;align-items:start;}
+.pv2-col{display:flex;flex-direction:column;gap:20px;min-width:0;}
+.pv2-card{background:var(--warm-surface-card);border:1px solid var(--warm-divider);border-radius:16px;overflow:hidden;box-shadow:0 1px 2px rgba(20,40,60,.04);scroll-margin-top:14px;}
+.pv2-card-hd{display:flex;align-items:center;gap:8px;padding:15px 20px;border-bottom:1px solid var(--warm-divider);}
+.pv2-card-hd h3{margin:0;font-size:14px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;color:var(--warm-ink-label);}
+.pv2-card-hd .sp{flex:1;}
+.pv2-card-hd-tag{font-size:12.5px;font-weight:600;color:var(--color-teal);}
+.pv2-card-bd{padding:6px 20px 12px;}
+.pv2-card-bd.pad{padding:16px 20px 18px;}
+.pv2-frow{display:flex;gap:14px;padding:11px 0;border-bottom:1px solid var(--warm-row-divider);align-items:flex-start;}
+.pv2-frow:last-child{border-bottom:none;}
+.pv2-flabel{width:118px;flex:none;color:var(--warm-meta);font-size:13px;font-weight:600;padding-top:8px;}
+.pv2-fval{flex:1;min-width:0;}
+.pv2-ro{display:flex;align-items:center;gap:8px;font-size:15px;padding:8px 0;color:var(--color-navy);}
+.pv2-ro.editable{cursor:text;}
+.pv2-ro.empty{color:var(--faint);}
+.pv2-ro a{color:var(--color-teal);}
+.pv2-pencil{opacity:0;transition:opacity .12s;color:var(--color-teal);font-size:13px;font-weight:600;}
+.pv2-ro:hover .pv2-pencil{opacity:1;}
+.pv2-sub{font-size:12.5px;color:var(--faint);margin-top:2px;}
+.pv2-inp{width:100%;max-width:320px;font-size:15px;color:var(--color-navy);background:var(--white);border:1px solid var(--color-teal);border-radius:9px;padding:9px 11px;box-shadow:0 0 0 3px rgba(46,126,166,.15);outline:none;font-family:var(--font-body);}
+.pv2-inp.sel{cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238A8377' stroke-width='2.5'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 10px center;padding-right:30px;}
+.pv2-mem{display:flex;align-items:center;gap:13px;padding:9px 8px;border-radius:10px;}
+.pv2-mem:hover{background:var(--warm-surface-header);}
+.pv2-mem-av{width:40px;height:40px;flex:none;border-radius:11px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;}
+.pv2-mem-name{font-weight:700;font-size:14.5px;color:var(--color-navy);}
+.pv2-mem-name.link{cursor:pointer;color:var(--color-teal);}
+.pv2-mem-role{font-size:12.5px;color:var(--warm-meta);}
+.pv2-adddash{width:100%;margin-top:6px;background:none;border:1.5px dashed var(--warm-border);color:var(--color-teal);font-weight:700;font-size:13.5px;padding:11px;border-radius:11px;cursor:pointer;font-family:var(--font-body);}
+.pv2-adddash:hover{background:var(--warm-surface-header);}
+.pv2-chip{display:inline-flex;align-items:center;gap:7px;background:var(--blue-mist);color:var(--color-navy);font-weight:600;font-size:13px;padding:6px 8px 6px 12px;border-radius:20px;}
+.pv2-chip-x{background:var(--ice-blue);border:none;color:var(--mid-steel);width:18px;height:18px;border-radius:50%;cursor:pointer;font-size:11px;line-height:1;display:flex;align-items:center;justify-content:center;}
+.pv2-chip-add{background:none;border:1px dashed var(--warm-border);color:var(--warm-gray);font-weight:600;font-size:12.5px;padding:5px 11px;border-radius:16px;cursor:pointer;font-family:var(--font-body);}
+.pv2-tile{flex:1;background:var(--warm-surface-page);border:1px solid var(--warm-divider);border-radius:12px;padding:12px 14px;}
+.pv2-tile-lbl{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--warm-meta);}
+.pv2-tile-val{font-size:22px;font-weight:800;margin-top:3px;}
+.pv2-gift{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--warm-row-divider);}
+.pv2-gift:last-child{border-bottom:none;}
+.pv2-note{padding:11px 13px;background:var(--color-cream);border:1px solid var(--warm-divider);border-radius:11px;}
+.pv2-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--color-navy);color:var(--white);font-weight:600;font-size:14px;padding:11px 20px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.25);display:none;align-items:center;gap:9px;z-index:60;animation:pv2fadeup .18s ease;}
+.pv2-toast.show{display:flex;}
+.pv2-toast .ck{color:var(--sage);}
+@keyframes pv2fadeup{from{opacity:0;transform:translate(-50%,6px)}to{opacity:1;transform:translate(-50%,0)}}
+@media(max-width:900px){
+  .pv2-body{flex-direction:column;}
+  .pv2-grid{grid-template-columns:1fr;}
+  /* Narrow: the side "Jump to" rail is replaced by a compact dropdown menu. */
+  .pv2-nav{display:none;}
+  .pv2-nav-select{display:block;}
+  .pv2-inp{max-width:100%;}
+}
 /* ── HOUSEHOLD VIEW (full page, mirrors Person Profile) ── */
 .content-area.hv-mode > .topbar{display:none;}
 .content-area.hv-mode > .tab-panel{display:none!important;}
@@ -712,24 +845,36 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .hv-summary{display:none!important;}
 }
 /* ── ROLE-BASED VISIBILITY ── */
-/* .require-finance  = visible only for admin + finance */
-/* .require-staff    = visible only for admin + staff (not office) */
-/* .require-register = visible for admin + staff + office (data-entry) */
-/* .require-edit     = visible for admin + finance + staff + office (not member) */
-/* .require-admin    = admin only */
+/* .require-finance/.require-staff/.require-register, plus the Reports sidebar item's
+   office exclusion, are admin-configurable per role (Settings -> Giving -> ... no, wait
+   actually admin-configurable via applyPermissionUI() in js-core.js, driven by /admin/api/me's
+   permissions field (see api-utils.js) -- NOT hardcoded CSS below. Member always gets false
+   for all three regardless of config (member is a structurally different, non-configurable
+   view), which is why role-member still has its own static rules here as a belt-and-suspenders
+   fallback in case JS hasn't run yet. */
+/* .require-edit     = visible for admin + finance + staff + office (not member) -- fixed, not configurable */
+/* .require-admin    = admin only -- fixed, not configurable */
 /* .no-member        = hidden for member role */
-/* .no-office        = hidden for the office (data-entry) role */
-.role-staff  .require-finance{display:none!important;}
-.role-office .require-finance{display:none!important;}
 .role-member .require-finance{display:none!important;}
+.role-member .require-tuitionaid{display:none!important;}
+.role-member .require-financeov{display:none!important;}
+.role-member .require-attendance{display:none!important;}
 .role-finance .require-staff{display:none!important;}
-.role-office  .require-staff{display:none!important;}
 .role-member .require-staff{display:none!important;}
-.role-finance .require-register{display:none!important;}
 .role-member  .require-register{display:none!important;}
 .role-member .require-edit{display:none!important;}
 .role-member .no-member{display:none!important;}
-.role-office .no-office{display:none!important;}
+/* Per-feature EDIT affordances (create/edit buttons inside a feature tab) — hidden by
+   default; applyPermissionUI() in js-core.js adds a body.perm-edit-<item> class for the
+   current role when that item's level is 'edit', which reveals them. Buttons are
+   inline-block, so that's what we restore. The server enforces edit regardless. */
+.require-edit-giving,.require-edit-tuitionaid,.require-edit-finance,.require-edit-attendance,.require-edit-followups,.require-edit-register{display:none!important;}
+body.perm-edit-giving .require-edit-giving,
+body.perm-edit-tuitionaid .require-edit-tuitionaid,
+body.perm-edit-finance .require-edit-finance,
+body.perm-edit-attendance .require-edit-attendance,
+body.perm-edit-followups .require-edit-followups,
+body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .role-finance .require-admin{display:none!important;}
 .role-staff   .require-admin{display:none!important;}
 .role-office  .require-admin{display:none!important;}
@@ -738,8 +883,19 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 @media print{
   .sidebar,.topbar,.toolbar,.modal-overlay,#offline-banner{display:none!important;}
   .tab-panel{display:block!important;padding:0;}
-  .tab-panel:not(#tab-reports):not(#tab-finance):not(#tab-scheduler){display:none!important;}
+  .tab-panel:not(#tab-reports):not(#tab-finance):not(#tab-scheduler):not(#tab-giving){display:none!important;}
+  #tab-giving{display:none!important;}
   body{background:white;}
+  /* Board Report (giving redesign): printBoardPage() sets body.printing-board so only the
+     board panel prints, the shared subnav header + toolbar hide, and the grids stay full-width. */
+  body.printing-board .tab-panel:not(#tab-giving){display:none!important;}
+  body.printing-board #tab-giving{display:block!important;}
+  body.printing-board #tab-giving > div:not(#giv-view-board){display:none!important;}
+  body.printing-board #giv-view-board{display:block!important;}
+  body.printing-board .board-toolbar{display:none!important;}
+  body.printing-board .board-kpi-grid{grid-template-columns:repeat(4,1fr)!important;}
+  body.printing-board .board-body-grid{grid-template-columns:1.55fr 1fr!important;}
+  body.printing-board .board-narrative{box-shadow:none;padding:0;width:100%;min-height:0;}
   .report-output{border:none;padding:0;}
   .report-tiles{display:none;}
   button{display:none!important;}
@@ -903,13 +1059,13 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div class="s-item" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
   <div class="s-item" data-tab="households" onclick="showTab('households')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Households</span></div>
   <div class="s-item" data-tab="organizations" onclick="showTab('organizations')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="1"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg><span class="s-tip">Organizations</span></div>
-  <div class="s-section-hdr require-finance">Finance</div>
+  <div class="s-section-hdr require-finance" id="s-hdr-finance">Finance</div>
   <div class="s-item require-finance" data-tab="giving" onclick="showTab('giving')"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg><span class="s-tip">Giving</span></div>
-  <div class="s-item require-finance" data-tab="tuitionaid" onclick="showTab('tuitionaid')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 2 3 3 6 3s6-1 6-3v-5"/></svg><span class="s-tip">Tuition Aid</span></div>
-  <div class="s-item require-finance" data-tab="finance" onclick="showTab('finance')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.34-2.5-3-2.5s-3 1-3 2.25S10.34 11.5 12 11.5s3 1.1 3 2.25S13.66 16 12 16s-3-1.1-3-2.5"/></svg><span class="s-tip">Financial Reports</span></div>
+  <div class="s-item require-tuitionaid" data-tab="tuitionaid" onclick="showTab('tuitionaid')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 2 3 3 6 3s6-1 6-3v-5"/></svg><span class="s-tip">Tuition Aid</span></div>
+  <div class="s-item require-financeov" data-tab="finance" onclick="showTab('finance')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.34-2.5-3-2.5s-3 1-3 2.25S10.34 11.5 12 11.5s3 1.1 3 2.25S13.66 16 12 16s-3-1.1-3-2.5"/></svg><span class="s-tip">Financial Reports</span></div>
   <div class="s-section-hdr no-member">Ministry</div>
-  <div class="s-item require-staff" data-tab="attendance" onclick="showTab('attendance')"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg><span class="s-tip">Attendance</span></div>
-  <div class="s-item no-member no-office" data-tab="reports" onclick="showTab('reports')"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span class="s-tip">Reports</span></div>
+  <div class="s-item require-attendance" data-tab="attendance" onclick="showTab('attendance')"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg><span class="s-tip">Attendance</span></div>
+  <div class="s-item no-member require-reports" data-tab="reports" onclick="showTab('reports')"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span class="s-tip">Reports</span></div>
   <div class="s-item require-register" data-tab="register" onclick="showTab('register')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="9" y1="7" x2="17" y2="7"/><line x1="9" y1="11" x2="14" y2="11"/></svg><span class="s-tip">Register</span></div>
   <div class="s-section-hdr require-admin">Admin</div>
   <div class="s-item require-admin" data-tab="volunteers" onclick="showTab('volunteers')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg><span class="s-tip">Volunteers</span></div>

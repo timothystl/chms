@@ -46,6 +46,83 @@ function saveMemberTypes() {
   });
 }
 
+// ── ROLE PERMISSIONS ─────────────────────────────────────────────────
+// Admin editor for the granular per-feature access matrix. Each (role, item) cell is a
+// tri-state level: No access / View only / Edit. See api-utils.js for the server-side
+// defaults/resolution/enforcement and applyPermissionUI() in js-core.js for how the
+// resolved levels drive tab visibility + edit affordances for whoever is logged in.
+// Read-only items (Audit Log, Reports tab) offer only No access / View only.
+// Member is the filtered directory view — it can never edit, and only the safe items
+// (Reports tab) are toggleable; everything else is fixed at No access.
+var ROLE_PERM_ITEMS = [
+  { key: 'giving',     label: 'Giving',            editable: true  },
+  { key: 'tuitionaid', label: 'Tuition Aid',       editable: true  },
+  { key: 'finance',    label: 'Finance Overview',  editable: true  },
+  { key: 'attendance', label: 'Attendance',        editable: true  },
+  { key: 'followups',  label: 'Follow-ups',        editable: true  },
+  { key: 'audit',      label: 'Audit Log',         editable: false },
+  { key: 'register',   label: 'Register',          editable: true  },
+  { key: 'reports',    label: 'Reports tab',       editable: false },
+];
+var ROLE_PERM_ROLES = ['finance', 'staff', 'office', 'member'];
+// Items a member is even allowed to be granted (view only). Anything else is locked to none.
+var MEMBER_ALLOWED_ITEMS = { reports: true };
+function loadRolePermissions() {
+  api('/admin/api/config/role-permissions').then(function(d) {
+    renderRolePermTable(d && d.permissions);
+  }).catch(function() {});
+}
+function rolePermLevelOptions(item, role, current) {
+  var isMember = (role === 'member');
+  var locked = isMember && !MEMBER_ALLOWED_ITEMS[item.key]; // member, non-safe item
+  var opts = [{ v: 'none', t: 'No access' }, { v: 'view', t: 'View only' }];
+  // Edit is offered only for editable items and never for members.
+  if (item.editable && !isMember) opts.push({ v: 'edit', t: 'Edit' });
+  var sel = current || 'none';
+  if (locked) sel = 'none';
+  var html = '<select id="rp-' + role + '-' + item.key + '"'
+    + (locked ? ' disabled title="Members are read-only for this area"' : '')
+    + ' style="font-size:.82rem;padding:3px 6px;border:1px solid var(--border);border-radius:6px;">';
+  html += opts.map(function(o) {
+    return '<option value="' + o.v + '"' + (o.v === sel ? ' selected' : '') + '>' + o.t + '</option>';
+  }).join('');
+  html += '</select>';
+  return html;
+}
+function renderRolePermTable(perms) {
+  var tbody = document.getElementById('role-perm-tbody');
+  if (!tbody || !perms) return;
+  tbody.innerHTML = ROLE_PERM_ITEMS.map(function(item) {
+    return '<tr style="border-bottom:1px solid var(--linen);">'
+      + '<td style="padding:8px;">' + esc(item.label) + '</td>'
+      + ROLE_PERM_ROLES.map(function(role) {
+        var cur = (perms[role] && perms[role][item.key]) || 'none';
+        return '<td style="padding:8px;text-align:center;">' + rolePermLevelOptions(item, role, cur) + '</td>';
+      }).join('')
+      + '</tr>';
+  }).join('');
+}
+function saveRolePermissions() {
+  var permissions = {};
+  ROLE_PERM_ROLES.forEach(function(role) {
+    permissions[role] = {};
+    ROLE_PERM_ITEMS.forEach(function(item) {
+      var sel = document.getElementById('rp-' + role + '-' + item.key);
+      permissions[role][item.key] = (sel && sel.value) || 'none';
+    });
+  });
+  api('/admin/api/config/role-permissions', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ permissions: permissions }) }).then(function(d) {
+    if (d && d.ok) {
+      setStatus('role-perm-status', 'Saved! Users with an active session will see the change on their next page load.', 'ok');
+      setTimeout(function(){ setStatus('role-perm-status',''); }, 4000);
+    } else {
+      setStatus('role-perm-status', 'Error: ' + ((d && d.error) || 'unknown'), 'err');
+    }
+  }).catch(function() {
+    setStatus('role-perm-status', 'Network error. Please try again.', 'err');
+  });
+}
+
 // ── USERS MANAGEMENT ──────────────────────────────────────────────────
 var _usersData = [];
 var _editingUserId = null;
@@ -142,7 +219,7 @@ function deleteUser(uid) {
 
 // ── SETTINGS ──────────────────────────────────────────────────────────
 function loadSettings() {
-  if (_userRole === 'admin') loadUsers();
+  if (_userRole === 'admin') { loadUsers(); loadRolePermissions(); }
   // Populate giving export year dropdown
   var yrSel = document.getElementById('export-giving-year');
   if (yrSel && yrSel.options.length <= 1) {
@@ -154,30 +231,13 @@ function loadSettings() {
       yrSel.appendChild(opt);
     }
   }
-  // Disable save buttons until data has loaded to prevent saving empty values
-  document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = true; });
   api('/admin/api/config/church').then(function(d) {
     _churchConfig = d || {};
-    var el = document.getElementById('st-church-name');
-    if (el) el.value = d.church_name || 'Timothy Lutheran Church';
-    el = document.getElementById('st-ein');
-    if (el) el.value = d.church_ein || '';
-    el = document.getElementById('st-from-name');
-    if (el) el.value = d.church_from_name || '';
-    el = document.getElementById('st-from-email');
-    if (el) el.value = d.church_from_email || '';
-    initLetterEditor('st-letter-tpl', 'year_end', d.giving_letter_template || DEFAULT_LETTER_TEMPLATE);
-    initLetterEditor('st-midyear-letter-tpl', 'midyear', d.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE);
-    el = document.getElementById('st-giving-url');
-    if (el) el.value = d.online_giving_url || '';
-    el = document.getElementById('st-vol-address'); if (el) el.value = d.volunteer_address || '';
+    var el = document.getElementById('st-vol-address'); if (el) el.value = d.volunteer_address || '';
     el = document.getElementById('st-vol-email'); if (el) el.value = d.volunteer_public_email || '';
     el = document.getElementById('st-vol-phone'); if (el) el.value = d.volunteer_phone || '';
     el = document.getElementById('st-notify-new-signup'); if (el) el.checked = d.notify_new_signup === '1';
     el = document.getElementById('st-notify-weekly-digest'); if (el) el.checked = d.notify_weekly_digest === '1';
-    renderLetterheadLogoState(d.letterhead_logo_ext);
-    // Re-enable save buttons now that fields are populated
-    document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = false; });
   });
   api('/admin/api/tags').then(function(d) {
     allTags = d.tags || [];
@@ -209,8 +269,33 @@ function saveSettings() {
   v = (document.getElementById('st-midyear-letter-tpl') || {}).value || DEFAULT_MIDYEAR_LETTER_TEMPLATE; if (v) data.giving_midyear_letter_template = v;
   v = (document.getElementById('st-giving-url') || {}).value; if (v) data.online_giving_url = v;
   api('/admin/api/config/church', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(d) {
-    if (d.ok) { _churchConfig = data; setStatus('st-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('st-status','');}, 2500); }
-    else setStatus('st-status', 'Error: ' + (d.error||'unknown'), 'err');
+    if (d.ok) { _churchConfig = data; setStatus('giv-settings-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('giv-settings-status','');}, 2500); }
+    else setStatus('giv-settings-status', 'Error: ' + (d.error||'unknown'), 'err');
+  });
+}
+// Populates the Giving tab's Settings sub-view (Church Info + both letter templates) — moved
+// out of the main Settings tab so giving-related config lives right where it's used, no more
+// switching tabs to edit the letterhead/templates while sending statements. Called from
+// givSetView('settings') (js-giving.js), not from loadSettings(), since this DOM now lives
+// under #tab-giving instead of #tab-settings.
+function loadGivingSettings() {
+  document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = true; });
+  api('/admin/api/config/church').then(function(d) {
+    _churchConfig = d || {};
+    var el = document.getElementById('st-church-name');
+    if (el) el.value = d.church_name || 'Timothy Lutheran Church';
+    el = document.getElementById('st-ein');
+    if (el) el.value = d.church_ein || '';
+    el = document.getElementById('st-from-name');
+    if (el) el.value = d.church_from_name || '';
+    el = document.getElementById('st-from-email');
+    if (el) el.value = d.church_from_email || '';
+    initLetterEditor('st-letter-tpl', 'year_end', d.giving_letter_template || DEFAULT_LETTER_TEMPLATE);
+    initLetterEditor('st-midyear-letter-tpl', 'midyear', d.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE);
+    el = document.getElementById('st-giving-url');
+    if (el) el.value = d.online_giving_url || '';
+    renderLetterheadLogoState(d.letterhead_logo_ext);
+    document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = false; });
   });
 }
 function saveVolunteerSettings() {
