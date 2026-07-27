@@ -1,7 +1,9 @@
 // ── Import, Config, Register, Export, Breeze Sync API handlers ──────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { parseFundSplits, givingEntryId, isGivingDup } from './api-utils.js';
+import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS } from './api-utils.js';
+import { validateImageUpload } from './api-people.js';
+import { sendBrevoTransactionalEmail } from './api-emails.js';
 
 // Cache a Breeze profile photo into our R2 bucket, returning a stable
 // /admin/r2photo/... URL. Mirrors the auth fallbacks in the /admin/photo-proxy
@@ -349,15 +351,45 @@ if (seg === 'config/member-type-map' && method === 'PUT') {
   return json({ ok: true });
 }
 
+// One-time self-heal: a saved giving-letter template that's an EXACT match of the old
+// plain-textarea default (a literal "\n" marker, not a real newline — predates the TinyMCE
+// editor) gets silently upgraded to the same template's new real-HTML form the moment it's
+// next read. Exact-match only, deliberately — a template a user has actually customized
+// (even lightly) won't match and is left untouched, since there's no safe way to guess how
+// to HTML-ify arbitrary hand-edited text.
+const OLD_DEFAULT_LETTER_TEMPLATE = 'Dear {{name}},\n\nThank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.\n\nBelow is a summary of your giving for {{year}}:\n\n{{gift_table}}\n\nTotal Contributions: {{total}}\n\n{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}\n\nWith gratitude,\n\nTimothy Lutheran Church\n\nDate: {{date}}';
+const NEW_DEFAULT_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>Thank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.</p><p>Below is a summary of your giving for {{year}}:</p>{{gift_table}}<p>Total Contributions: {{total}}</p><p>{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}</p><p>With gratitude,</p><p>Timothy Lutheran Church</p><p>Date: {{date}}</p>';
+const OLD_DEFAULT_MIDYEAR_LETTER_TEMPLATE = 'Dear {{name}},\n\nAs we reach the midpoint of {{year}}, we want to pause and say thank you. Your generosity to Timothy Lutheran Church sustains our ministry, our staff, and our mission in this community &mdash; and we do not take that for granted.\n\nBelow is a summary of your recorded giving for {{year}} so far:\n\n{{gift_table}}\n\nTotal Giving to Date: {{total}}\n\nPlease take a moment to look this over. If anything looks off &mdash; a missing gift, an incorrect amount, or a gift recorded under the wrong name &mdash; please let the church office know so we can correct our records.\n\nIf you have been giving by check or cash and would like a simpler way to stay consistent, consider setting up recurring giving:\n{{#if_giving_url}}- Online recurring giving: {{giving_url}}\n{{/if_giving_url}}- Automatic bank draft or bill pay through your bank\n- Contact the church office and we would be glad to help you set it up\n\nThank you again for your generosity and your partnership in ministry.\n\nWith gratitude,\n\nTimothy Lutheran Church\n\nDate: {{date}}';
+const NEW_DEFAULT_MIDYEAR_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>As we reach the midpoint of {{year}}, we want to pause and say thank you. Your generosity to Timothy Lutheran Church sustains our ministry, our staff, and our mission in this community &mdash; and we do not take that for granted.</p><p>Below is a summary of your recorded giving for {{year}} so far:</p>{{gift_table}}<p>Total Giving to Date: {{total}}</p><p>Please take a moment to look this over. If anything looks off &mdash; a missing gift, an incorrect amount, or a gift recorded under the wrong name &mdash; please let the church office know so we can correct our records.</p><p>If you have been giving by check or cash and would like a simpler way to stay consistent, consider setting up recurring giving:</p><ul><li>{{#if_giving_url}}Online recurring giving: <a href="{{giving_url}}">{{giving_url}}</a>{{/if_giving_url}}</li><li>Automatic bank draft or bill pay through your bank</li><li>Contact the church office and we would be glad to help you set it up</li></ul><p>Thank you again for your generosity and your partnership in ministry.</p><p>With gratitude,</p><p>Timothy Lutheran Church</p><p>Date: {{date}}</p>';
+async function healLetterTemplateIfStale(db, key, oldText, newText) {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(key).first();
+  if (row && row.value === oldText) {
+    await db.prepare("UPDATE chms_config SET value=? WHERE key=?").bind(newText, key).run();
+    return newText;
+  }
+  return row ? row.value : null;
+}
+
 if (seg === 'config/church' && method === 'GET') {
   // EIN is admin-only (PII). Non-admins get the rest of the config without it.
+  // letterhead_logo_ext is read-only here (informational — GET-only) so every place that
+  // already loads _churchConfig picks it up for free; it can only be SET via the dedicated
+  // config/letterhead-logo upload/delete endpoints below, not this generic PUT.
   const publicKeys = ['church_from_name','church_from_email','giving_letter_template','giving_midyear_letter_template',
-    'online_giving_url','church_name',
+    'online_giving_url','church_name','letterhead_logo_ext',
     'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
   const keys = isAdmin ? ['church_ein', ...publicKeys] : publicKeys;
   const rows = (await db.prepare(`SELECT key, value FROM chms_config WHERE key IN (${keys.map(()=>'?').join(',')})`).bind(...keys).all()).results || [];
   const config = {};
   for (const r of rows) config[r.key] = r.value;
+  if ('giving_letter_template' in config) {
+    const healed = await healLetterTemplateIfStale(db, 'giving_letter_template', OLD_DEFAULT_LETTER_TEMPLATE, NEW_DEFAULT_LETTER_TEMPLATE);
+    if (healed) config.giving_letter_template = healed;
+  }
+  if ('giving_midyear_letter_template' in config) {
+    const healed = await healLetterTemplateIfStale(db, 'giving_midyear_letter_template', OLD_DEFAULT_MIDYEAR_LETTER_TEMPLATE, NEW_DEFAULT_MIDYEAR_LETTER_TEMPLATE);
+    if (healed) config.giving_midyear_letter_template = healed;
+  }
   return json(config);
 }
 if (seg === 'config/church' && method === 'PUT') {
@@ -365,6 +397,19 @@ if (seg === 'config/church' && method === 'PUT') {
   const allowed = ['church_ein','church_from_name','church_from_email','giving_letter_template','giving_midyear_letter_template',
     'online_giving_url','church_name',
     'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
+  // The two letter-template editors have no image-upload endpoint — an inserted image
+  // (via the toolbar, or paste/drag-drop, which TinyMCE also embeds as base64 by default
+  // with no images_upload_handler configured) becomes a giant base64 text blob saved
+  // directly in the template. Past a certain size that single value can exceed what D1
+  // accepts for one column, which surfaced as an opaque "Internal server error" with no
+  // indication of the actual cause. Catch it here with a specific message instead of
+  // letting the DB write throw and fall through to the generic 500 handler.
+  const TEMPLATE_MAX_CHARS = 1000000; // ~1MB — well past any legitimate template+small-image size
+  for (const k of ['giving_letter_template', 'giving_midyear_letter_template']) {
+    if (b[k] && String(b[k]).length > TEMPLATE_MAX_CHARS) {
+      return json({ error: 'This letter template is too large to save (likely an embedded image) — please use a smaller image (under ~400 KB) or remove it and try again.' }, 400);
+    }
+  }
   for (const k of allowed) {
     // Only save non-empty values — preserves existing config if user saves with a blank field
     if (b[k]) {
@@ -372,6 +417,72 @@ if (seg === 'config/church' && method === 'PUT') {
     }
   }
   return json({ ok: true });
+}
+
+// ── Letterhead logo — shown at the top of giving letters (view/email/preview) in place of
+// the plain church-name text once set. Served publicly (unauthenticated) at
+// /admin/letterhead-logo (tlc-volunteer-worker.js) since outbound HTML emails need a real,
+// non-authenticated image URL — an email client can't send along a session cookie. Stored in
+// the same R2 bucket as person/household photos, at a fixed key so there's only ever one.
+if (seg === 'config/letterhead-logo' && method === 'GET') {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key='letterhead_logo_ext'").first();
+  return json({ ext: row?.value || '' });
+}
+if (seg === 'config/letterhead-logo' && method === 'POST') {
+  if (!isStaff) return json({ error: 'Access denied' }, 403);
+  if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket tlc-chms-photos' }, 503);
+  let file;
+  try { const fd = await req.formData(); file = fd.get('logo'); } catch { return json({ error: 'Invalid form data' }, 400); }
+  const v = await validateImageUpload(file);
+  if (!v.ok) return json({ error: v.error }, v.status);
+  const prev = await db.prepare("SELECT value FROM chms_config WHERE key='letterhead_logo_ext'").first();
+  if (prev?.value && prev.value !== v.ext) {
+    try { await env.PHOTOS.delete(`branding/letterhead-logo.${prev.value}`); } catch {}
+  }
+  await env.PHOTOS.put(`branding/letterhead-logo.${v.ext}`, v.buf, { httpMetadata: { contentType: v.ct } });
+  await db.prepare("INSERT INTO chms_config(key,value) VALUES('letterhead_logo_ext',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(v.ext).run();
+  return json({ ok: true, ext: v.ext });
+}
+if (seg === 'config/letterhead-logo' && method === 'DELETE') {
+  if (!isStaff) return json({ error: 'Access denied' }, 403);
+  const prev = await db.prepare("SELECT value FROM chms_config WHERE key='letterhead_logo_ext'").first();
+  if (prev?.value && env.PHOTOS) {
+    try { await env.PHOTOS.delete(`branding/letterhead-logo.${prev.value}`); } catch {}
+  }
+  await db.prepare("DELETE FROM chms_config WHERE key='letterhead_logo_ext'").run();
+  return json({ ok: true });
+}
+
+// ── Role Permissions ──────────────────────────────────────────────
+// Admin-only in both directions (GET included) — this is the actual access-control matrix
+// for the finance/staff/office roles (see api-utils.js), not informational config like
+// church name, so it isn't exposed to the roles it describes.
+if (seg === 'config/role-permissions' && method === 'GET') {
+  if (!isAdmin) return json({ error: 'Access denied' }, 403);
+  return json({ permissions: await getRolePermissions(db) });
+}
+if (seg === 'config/role-permissions' && method === 'PUT') {
+  if (!isAdmin) return json({ error: 'Access denied' }, 403);
+  let b = {}; try { b = await req.json(); } catch {}
+  const incoming = b.permissions && typeof b.permissions === 'object' ? b.permissions : {};
+  // Validate shape before saving — only known role/item combinations, only the three valid
+  // levels — rather than trusting the request body wholesale into a matrix every ACL check
+  // reads. resolveRolePermissions() re-clamps on read (member restrictions, per-item ceiling
+  // for read-only items), so a hand-crafted request still can't over-grant.
+  const cleaned = {};
+  for (const role of ROLE_PERMISSION_ROLES) {
+    if (!incoming[role] || typeof incoming[role] !== 'object') continue;
+    cleaned[role] = {};
+    for (const item of ROLE_PERMISSION_ITEM_KEYS) {
+      if (item in incoming[role]) {
+        const lvl = incoming[role][item];
+        cleaned[role][item] = ROLE_PERMISSION_LEVELS.includes(lvl) ? lvl : 'none';
+      }
+    }
+  }
+  await db.prepare("INSERT INTO chms_config(key,value) VALUES('role_permissions_json',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+    .bind(JSON.stringify(cleaned)).run();
+  return json({ ok: true, permissions: resolveRolePermissions(JSON.stringify(cleaned)) });
 }
 
 // ── Church Register ──────────────────────────────────────────────
@@ -949,26 +1060,34 @@ if (seg.startsWith('export/') && method === 'GET') {
   }
 }
 
-// ── Send Giving Statement via Resend ─────────────────────────────
+// ── Send Giving Statement via Brevo ───────────────────────────────
+// Pinned to Brevo (not Resend) per an explicit decision: this church's giving-letter volume
+// is sporadic (a handful of batch sends a year, not a steady daily load) alongside one weekly
+// newsletter, and Brevo's free tier caps at 300/day vs. Resend's 100/day — real headroom for
+// the same account already configured for the newsletter/contact sync (BREVO_API_KEY).
 if (seg === 'giving/send-statement' && method === 'POST') {
   let b = {}; try { b = await req.json(); } catch {}
-  const { to_email, to_name, subject, html_body } = b;
+  const { to_email, to_name, subject, html_body, person_id, year, letter_type } = b;
   if (!to_email || !html_body) return json({ error: 'to_email and html_body required' }, 400);
   const fromNameRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_from_name'").first();
   const fromEmailRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_from_email'").first();
   const fromName = fromNameRow?.value || 'Timothy Lutheran Church';
   const fromEmail = fromEmailRow?.value || '';
-  if (!fromEmail) return json({ error: 'church_from_email not configured in Settings' }, 400);
-  const apiKey = env.RESEND_API_KEY;
-  if (!apiKey) return json({ error: 'RESEND_API_KEY not set in Worker environment' }, 500);
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: `${fromName} <${fromEmail}>`, to: [to_email], subject: subject || 'Your Giving Statement', html: html_body })
+  const result = await sendBrevoTransactionalEmail(env, {
+    toEmail: to_email, toName: to_name, subject: subject || 'Your Giving Statement',
+    html: html_body, fromName, fromEmail,
   });
-  const rd = await res.json();
-  if (!res.ok) return json({ error: rd.message || 'Resend error' }, 500);
-  return json({ ok: true, id: rd.id });
+  if (!result.ok) return json({ error: result.error, rate_limited: !!result.rate_limited }, result.status || 500);
+  // Record the send for batch resume/dedup — a manual single send still always goes through
+  // above regardless of any prior record; this just logs it (or refreshes sent_at on a
+  // deliberate resend) so a later batch run knows this person/year/letter is already covered.
+  if (person_id && year && letter_type) {
+    await db.prepare(
+      `INSERT INTO giving_letter_sends(person_id, year, letter_type, sent_at) VALUES(?,?,?,datetime('now'))
+       ON CONFLICT(person_id, year, letter_type) DO UPDATE SET sent_at=excluded.sent_at`
+    ).bind(person_id, year, letter_type).run().catch(() => {});
+  }
+  return json({ ok: true, id: result.id });
 }
 
 // ── Breeze Fund List (with giving totals for mapping UI) ─────────
@@ -2361,334 +2480,221 @@ if (seg === 'import/breeze-photo-test' && method === 'POST') { try {
 } catch (e) { return json({ error: 'Diagnostic error: ' + e.message }, 500); } }
 
 // ── Breeze Per-Person Sync ───────────────────────────────────────
-// Forces a demographic re-sync for a single person identified by their Breeze ID.
-// Returns detailed diagnostics: which profile fields matched, raw Breeze values,
-// and what was written to the database — useful for debugging field-mapping issues.
-if (seg === 'import/breeze-sync-person' && method === 'POST') { try {
+// Targeted bulk sync: pull ONLY middle_name + preferred_name (Breeze "nickname")
+// from Breeze for every locally-linked person. Never touches any other column,
+// and only writes when Breeze actually has a value (so it never clears a name
+// you've set locally). The list endpoint MUST be called with details=1 — without
+// it, Breeze returns only minimal fields (id, first/last name, photo path) and
+// middle_name/nick_name are absent, so nothing ever updated. One db.batch per page.
+if (seg === 'import/breeze-sync-names' && method === 'POST') { try {
   const breeze = makeBreezeClient(env);
   if (!breeze) return json({ error: 'Breeze not configured (BREEZE_SUBDOMAIN / BREEZE_API_KEY missing)' }, 503);
-  const subdomain = breeze.subdomain; // needed for photo CDN URL construction below
-  let b = {}; try { b = await req.json(); } catch {}
-  const breezeId = String(b.breeze_id || '').trim();
-  if (!breezeId) return json({ error: 'breeze_id is required' }, 400);
 
-  // Fetch the individual person from Breeze.
-  // Try /api/people/{id}?details=1 first (standard RESTful form).
-  // Breeze may return a single object OR an array with one element depending on version.
-  // Fall back to the list endpoint with a filter if the individual fetch returns no details.
-  let p = null;
-  let fetchDebug = {};
-  {
-    const pRes = await breeze.person(breezeId);
-    fetchDebug.single_status = pRes.status;
-    if (pRes.ok) {
-      let raw; try { raw = await pRes.json(); } catch { raw = null; }
-      fetchDebug.single_type = Array.isArray(raw) ? 'array' : typeof raw;
-      // Normalise: handle both single-object and wrapped-array responses
-      if (Array.isArray(raw)) p = raw[0] || null;
-      else if (raw && raw.id) p = raw;
-      else if (raw && raw.person) p = raw.person; // some versions wrap in {person: {...}}
-      fetchDebug.single_has_id = !!(p && p.id);
-      fetchDebug.single_detail_keys = p ? Object.keys(p.details || {}).length : 0;
+  // Map of breeze_id -> local person (only those linked to Breeze).
+  const localRows = (await db.prepare(
+    "SELECT id, breeze_id, middle_name, preferred_name FROM people WHERE breeze_id IS NOT NULL AND breeze_id != ''"
+  ).all()).results || [];
+  const byBreezeId = new Map();
+  for (const r of localRows) byBreezeId.set(String(r.breeze_id), r);
+
+  // Pull the middle name / nickname from a Breeze person object, tolerating the
+  // several key spellings Breeze has used across versions (top-level with details=1).
+  const pickName = (bp, keys) => {
+    for (const k of keys) {
+      const v = bp && bp[k];
+      if (typeof v === 'string' && v.trim()) return v.trim();
     }
-  }
-  // If individual fetch returned no usable details, try the list endpoint filtered by Breeze ID.
-  // This is the same call as the bulk import and is known to include details.
-  if (!p || Object.keys(p.details || {}).length === 0) {
-    const listRes = await breeze.people(`details=1&limit=1&filter_json=${encodeURIComponent(JSON.stringify({person_id:breezeId}))}`);
-    fetchDebug.list_status = listRes.status;
-    if (listRes.ok) {
-      let listRaw; try { listRaw = await listRes.json(); } catch { listRaw = null; }
-      const arr = Array.isArray(listRaw) ? listRaw : [];
-      fetchDebug.list_count = arr.length;
-      if (arr.length > 0 && arr[0].id) p = arr[0];
-    }
-  }
-  if (!p || !p.id) return json({ error: 'Person not found in Breeze', breezeId, fetchDebug }, 404);
-
-  // Fetch profile field definitions to discover field IDs
-  let profileFields = [];
-  try {
-    const pr = await breeze.profile();
-    if (pr.ok) profileFields = await pr.json();
-  } catch {}
-
-  // Flatten all fields (same logic as bulk import)
-  const allFields = [];
-  const extractFieldsPS = (fields) => {
-    for (const f of (Array.isArray(fields) ? fields : [])) {
-      if (Array.isArray(f.fields) && f.fields.length > 0) extractFieldsPS(f.fields);
-      else allFields.push(f);
-    }
-  };
-  for (const section of (Array.isArray(profileFields) ? profileFields : [])) extractFieldsPS(section.fields || []);
-
-  // Smart field finder — same logic as bulk import (prefers date fields in fallback)
-  const findFieldPS = (names, fallbackSubstrings = []) => {
-    const ns = names.map(n => n.toLowerCase());
-    let found = allFields.find(f => ns.includes((f.name||'').toLowerCase()));
-    if (!found && fallbackSubstrings.length) {
-      found = allFields.find(f => {
-        const fn = (f.name||'').toLowerCase();
-        return fallbackSubstrings.some(s => fn.includes(s)) && fn.includes('date');
-      });
-      if (!found) found = allFields.find(f => fallbackSubstrings.some(s => (f.name||'').toLowerCase().includes(s)));
-    }
-    return found;
-  };
-
-  // "Age and Birthdate" is Breeze's built-in age field that also stores birthdate
-  const F_DOB_FIELD      = findFieldPS(['birthdate','birth date','dob','date of birth','birthday','age and birthdate','age'], ['birth','birthday','age']);
-  const F_BAPTISM_FIELD  = findFieldPS(['baptism date','baptismal date','date of baptism','baptized date','date baptized','baptism (date)','baptism (adult)','baptism (infant)','baptism_date','baptism','baptized'], ['baptism','baptized','baptismal']);
-  // "Confirmed" is a dropdown field; "Confirmation Date" is the actual date field — only match date-specific names
-  const F_CONFIRM_FIELD  = findFieldPS(['confirmation date','affirmation date','date of confirmation','date affirmed','date confirmed','date of affirmation','affirmation of baptism','confirmation (date)','confirmation_date'], ['confirmation','confirmed','affirm']);
-  // Boolean dropdown/checkbox companions (RI2).
-  const findBoolFieldPS = (substrs) => allFields.find(f => {
-    const fn = (f.name||'').toLowerCase();
-    return substrs.some(s => fn.includes(s)) && !fn.includes('date');
-  });
-  let F_BAPTIZED_BOOL_FIELD_PS  = findBoolFieldPS(['baptized','baptism']);
-  let F_CONFIRMED_BOOL_FIELD_PS = findBoolFieldPS(['confirmed','confirmation','affirmed','affirmation']);
-  if (F_BAPTIZED_BOOL_FIELD_PS && F_BAPTISM_FIELD && String(F_BAPTIZED_BOOL_FIELD_PS.id) === String(F_BAPTISM_FIELD.id))   F_BAPTIZED_BOOL_FIELD_PS  = null;
-  if (F_CONFIRMED_BOOL_FIELD_PS && F_CONFIRM_FIELD && String(F_CONFIRMED_BOOL_FIELD_PS.id) === String(F_CONFIRM_FIELD.id)) F_CONFIRMED_BOOL_FIELD_PS = null;
-  const F_ANNIV_FIELD    = findFieldPS(['anniversary date','anniversary','anniversary_date','wedding anniversary','wedding date'], ['anniversary','wedding']);
-  const F_GENDER_FIELD   = findFieldPS(['gender','sex','gender identity'], ['gender','sex']);
-  const F_MARITAL_FIELD    = findFieldPS(['marital status','marital','marriage status','civil status','married']);
-  const F_STATUS_FIELD_PS  = findFieldPS(['status','member status','membership status','fellowship status','church status','member type','church membership','congregational status','person status'], ['status','membership']);
-  const F_ENVELOPE_FIELD_PS = findFieldPS(['envelope number','envelope','giving number','contribution number'], ['envelope']);
-  const F_DEATH_FIELD_PS   = findFieldPS(['death date','date of death','date passed','date deceased'], ['death','passed']);
-  const F_DECEASED_FIELD_PS = findFieldPS(['deceased','passed away'], ['deceased']);
-
-  // Use field_id if present — some Breeze instances use a separate field_id as the details key
-  const fieldKeyPS = (f) => f ? String(f.field_id || f.id) : '';
-  const F_DOB          = fieldKeyPS(F_DOB_FIELD);
-  const F_BAPTISM      = fieldKeyPS(F_BAPTISM_FIELD);
-  const F_CONFIRMATION = fieldKeyPS(F_CONFIRM_FIELD);
-  const F_BAPTIZED_B   = fieldKeyPS(F_BAPTIZED_BOOL_FIELD_PS);
-  const F_CONFIRMED_B  = fieldKeyPS(F_CONFIRMED_BOOL_FIELD_PS);
-  const F_ANNIVERSARY  = fieldKeyPS(F_ANNIV_FIELD);
-  const F_GENDER       = fieldKeyPS(F_GENDER_FIELD);
-  const F_MARITAL      = fieldKeyPS(F_MARITAL_FIELD);
-  const F_STATUS_PS    = fieldKeyPS(F_STATUS_FIELD_PS);
-  const F_ENVELOPE_PS  = fieldKeyPS(F_ENVELOPE_FIELD_PS);
-  const F_DEATH_PS     = fieldKeyPS(F_DEATH_FIELD_PS);
-  const F_DECEASED_PS  = fieldKeyPS(F_DECEASED_FIELD_PS);
-  const BREEZE_TYPE_FIELD_PS = '1076274773';
-  const BREEZE_TYPE_NUMS_PS  = { '1': 'Member', '2': 'Attender', '3': 'Visitor' };
-
-  const toISOPS = s => {
-    if (!s || typeof s !== 'string') return '';
-    const clean = s.trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
-    const slash = clean.split('/');
-    if (slash.length === 3 && slash[2].length === 4)
-      return slash[2] + '-' + slash[0].padStart(2,'0') + '-' + slash[1].padStart(2,'0');
-    try { const d = new Date(clean); if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10); } catch {}
     return '';
   };
-  const extractDatePS = (raw) => {
-    if (!raw) return '';
-    if (typeof raw === 'string') return raw;
-    const obj = Array.isArray(raw) ? raw[0] : raw;
-    // Also check birth_date/birthday — Breeze "Age and Birthdate" field returns these keys
-    if (obj && typeof obj === 'object') return obj.date || obj.birth_date || obj.birthday || obj.value || obj.name || '';
-    return '';
-  };
-  const optionIdToNamePS = {};
-  for (const f of allFields) {
-    for (const opt of (Array.isArray(f.options) ? f.options : [])) {
-      if (opt.id && opt.name) optionIdToNamePS[String(opt.id)] = opt.name;
-    }
-  }
-  const extractNamePS = (raw) => {
-    const obj = Array.isArray(raw) ? raw[0] : raw;
-    if (obj && typeof obj === 'object') return obj.name || obj.value || '';
-    if (typeof raw === 'string' && raw) return optionIdToNamePS[raw] || raw;
-    return '';
-  };
-  const isYesPS = (raw) => {
-    const s = String(extractNamePS(raw) || '').trim().toLowerCase();
-    return s === 'yes' || s === 'y' || s === 'true' || s === '1' || s === 'baptized' || s === 'confirmed' || s === 'on';
-  };
+  const MIDDLE_KEYS = ['middle_name', 'middle', 'middlename'];
+  const PREF_KEYS   = ['nick_name', 'nickname', 'nick', 'preferred_name'];
 
-  // Load configured member types + map for status resolution
-  const mtCfgRowPS = await db.prepare("SELECT value FROM chms_config WHERE key='member_types'").first();
-  const configuredMemberTypesPS = mtCfgRowPS ? JSON.parse(mtCfgRowPS.value) : ['Member','Attender','Visitor','Vietnamese Congregation','Other'];
-  const mtMapRowPS = await db.prepare("SELECT value FROM chms_config WHERE key='member_type_map'").first();
-  const memberTypeMapPS = mtMapRowPS ? JSON.parse(mtMapRowPS.value) : {};
-
-  const details = p.details || {};
-  const fn = (p.first_name || '').trim();
-  const ln = (p.last_name  || '').trim();
-
-  // Demographic dates, gender, marital
-  const dob             = toISOPS(p.birth_date || extractDatePS(details[F_DOB]) || extractDatePS(details['birthdate']) || '');
-  const baptismDate     = toISOPS(extractDatePS(details[F_BAPTISM]) || extractDatePS(details['baptism_date']) || extractDatePS(details['baptism']) || '');
-  const confirmDate     = toISOPS(extractDatePS(details[F_CONFIRMATION]) || extractDatePS(details['confirmation_date']) || extractDatePS(details['confirmation']) || '');
-  const baptizedFlag    = (baptismDate || (F_BAPTIZED_B  && isYesPS(details[F_BAPTIZED_B])))  ? 1 : 0;
-  const confirmedFlag   = (confirmDate || (F_CONFIRMED_B && isYesPS(details[F_CONFIRMED_B]))) ? 1 : 0;
-  const anniversaryDate = toISOPS(extractDatePS(details[F_ANNIVERSARY]) || extractDatePS(details['anniversary_date']) || extractDatePS(details['anniversary']) || '');
-  const gender          = (F_GENDER  ? extractNamePS(details[F_GENDER])  : '') || extractNamePS(details['gender'])  || extractNamePS(details['sex']) || '';
-  const maritalStatus   = (F_MARITAL ? extractNamePS(details[F_MARITAL]) : '') || extractNamePS(details['marital_status']) || extractNamePS(details['marital']) || '';
-
-  // Deceased + death date
-  const deathDateRaw = extractDatePS(details[F_DEATH_PS]) || extractDatePS(details[F_DECEASED_PS]) || '';
-  const deathDate    = toISOPS(deathDateRaw);
-  const deceasedRaw  = details[F_DECEASED_PS];
-  const deceasedFlag = p.deceased ? 1 : deathDate ? 1
-    : (deceasedRaw && typeof deceasedRaw === 'string' && deceasedRaw !== '0' && deceasedRaw !== 'false') ? 1
-    : (deceasedRaw && typeof deceasedRaw === 'object' && (deceasedRaw.value || deceasedRaw.name)) ? 1 : 0;
-
-  // Envelope number
-  const envelopeNumber = F_ENVELOPE_PS ? (extractNamePS(details[F_ENVELOPE_PS]) || extractDatePS(details[F_ENVELOPE_PS]) || '') : (p.envelope_number || '');
-
-  // Status / member type — same 3-step resolution as bulk import
-  let statusNamePS = '';
-  if (F_STATUS_PS) statusNamePS = extractNamePS(details[F_STATUS_PS]);
-  if (!statusNamePS) {
-    for (const [dk, val] of Object.entries(details)) {
-      if (dk === BREEZE_TYPE_FIELD_PS) continue;
-      const candidate = extractNamePS(val);
-      if (!candidate) continue;
-      const cl = candidate.toLowerCase();
-      if (configuredMemberTypesPS.some(t => t.toLowerCase() === cl) || memberTypeMapPS[candidate] || memberTypeMapPS[cl]) {
-        statusNamePS = candidate; break;
+  let scanned = 0, matched = 0, middleUpdated = 0, preferredUpdated = 0;
+  const updates = [];
+  const sample = []; // diagnostic: raw name fields for the first few matched people
+  const limit = 1000;
+  let offset = 0;
+  // Page through the full Breeze directory. details=1 is required (see note above).
+  for (let guard = 0; guard < 100; guard++) {
+    const res = await breeze.people(`details=1&limit=${limit}&offset=${offset}`);
+    if (!res.ok) return json({ error: 'Breeze people fetch failed (' + res.status + ')' }, 502);
+    let arr; try { arr = await res.json(); } catch { arr = null; }
+    if (!Array.isArray(arr) || arr.length === 0) break;
+    for (const bp of arr) {
+      scanned++;
+      const local = byBreezeId.get(String(bp.id));
+      if (!local) continue;
+      matched++;
+      const bMiddle = pickName(bp, MIDDLE_KEYS);
+      let bPref     = pickName(bp, PREF_KEYS);
+      // A nickname that just repeats the first name isn't a real preferred name — don't store it.
+      if (bPref && bPref.toLowerCase() === (bp.first_name || '').trim().toLowerCase()) bPref = '';
+      if (sample.length < 8) {
+        sample.push({
+          breeze_id: String(bp.id),
+          first_name: bp.first_name || '',
+          last_name: bp.last_name || '',
+          breeze_middle_name: bp.middle_name ?? null,
+          breeze_nick_name: bp.nick_name ?? null,
+          breeze_nickname: bp.nickname ?? null,
+          resolved_middle: bMiddle,
+          resolved_preferred: bPref,
+          local_middle: local.middle_name || '',
+          local_preferred: local.preferred_name || ''
+        });
+      }
+      const sets = [];
+      const binds = [];
+      if (bMiddle && bMiddle !== (local.middle_name || '')) { sets.push('middle_name=?'); binds.push(bMiddle); middleUpdated++; }
+      if (bPref && bPref !== (local.preferred_name || '')) { sets.push('preferred_name=?'); binds.push(bPref); preferredUpdated++; }
+      if (sets.length) {
+        binds.push(local.id);
+        updates.push(db.prepare('UPDATE people SET ' + sets.join(', ') + ' WHERE id=?').bind(...binds));
       }
     }
+    if (arr.length < limit) break;
+    offset += limit;
   }
-  if (!statusNamePS && !F_STATUS_FIELD_PS) {
-    const builtinRaw = details[BREEZE_TYPE_FIELD_PS];
-    if (builtinRaw !== undefined) {
-      const bs = extractNamePS(builtinRaw);
-      statusNamePS = BREEZE_TYPE_NUMS_PS[bs] || memberTypeMapPS[bs] || memberTypeMapPS[bs.toLowerCase()] || bs;
+  // Flush in chunks to stay within D1 batch limits.
+  for (let i = 0; i < updates.length; i += 50) {
+    await db.batch(updates.slice(i, i + 50));
+  }
+  return json({ ok: true, scanned, matched, middle_updated: middleUpdated, preferred_updated: preferredUpdated, changed: updates.length, sample });
+} catch (e) { return json({ error: e.message || 'Breeze name sync failed' }, 500); } }
+
+// ── Link unmatched Breeze people to existing Connect records ──────────
+// Finds Breeze people whose breeze_id is NOT yet linked to any local person,
+// and suggests matches among local people that have NO breeze_id (typically
+// added directly in Connect, then later given a Breeze record when they gave).
+// Read-only preview — writes nothing. The admin confirms each link separately
+// via import/breeze-link. This prevents the duplicate that a plain full import
+// would create (the full import matches on breeze_id only).
+if (seg === 'import/breeze-unlinked' && method === 'GET') { try {
+  const breeze = makeBreezeClient(env);
+  if (!breeze) return json({ error: 'Breeze not configured (BREEZE_SUBDOMAIN / BREEZE_API_KEY missing)' }, 503);
+
+  // Local people with NO breeze_id — the candidates to link against.
+  const unlinkedLocal = (await db.prepare(
+    "SELECT id, first_name, last_name, middle_name, preferred_name, email FROM people " +
+    "WHERE (breeze_id IS NULL OR breeze_id='') AND (active=1 OR active IS NULL)"
+  ).all()).results || [];
+  // Set of breeze_ids already linked, so we skip Breeze people we already have.
+  const linkedBreezeIds = new Set(
+    ((await db.prepare("SELECT breeze_id FROM people WHERE breeze_id IS NOT NULL AND breeze_id != ''").all()).results || [])
+      .map(r => String(r.breeze_id))
+  );
+
+  const norm = s => (s || '').trim().toLowerCase();
+  const byEmail = new Map();      // email -> [local]
+  const byFullName = new Map();   // "first|last" -> [local]
+  const byLast = new Map();       // "last" -> [local] (for fuzzy first-name/nickname)
+  const push = (map, key, v) => { if (!key) return; if (!map.has(key)) map.set(key, []); map.get(key).push(v); };
+  for (const lp of unlinkedLocal) {
+    push(byEmail, norm(lp.email), lp);
+    if (norm(lp.first_name)) push(byFullName, norm(lp.first_name) + '|' + norm(lp.last_name), lp);
+    if (norm(lp.preferred_name)) push(byFullName, norm(lp.preferred_name) + '|' + norm(lp.last_name), lp); // nickname as first name
+    push(byLast, norm(lp.last_name), lp);
+  }
+  const slim = lp => ({ id: lp.id, first_name: lp.first_name || '', last_name: lp.last_name || '', email: lp.email || '' });
+
+  // Extract a primary email from a Breeze person's typed detail arrays.
+  const breezeEmail = (p) => {
+    for (const val of Object.values(p.details || {})) {
+      if (!Array.isArray(val)) continue;
+      for (const item of val) {
+        if (item && typeof item === 'object') {
+          const ft = item.field_type || '';
+          if ((ft === 'email_primary' || ft === 'email') && item.address) return String(item.address).trim();
+        }
+      }
     }
-  }
-  const mappedRawPS  = statusNamePS ? (memberTypeMapPS[statusNamePS] || memberTypeMapPS[statusNamePS.toLowerCase()] || null) : null;
-  const mappedTypePS = mappedRawPS ? (configuredMemberTypesPS.find(t => t.toLowerCase() === mappedRawPS.toLowerCase()) || mappedRawPS) : null;
-  const memberTypeRaw = mappedTypePS || (statusNamePS ? configuredMemberTypesPS.find(t => t.toLowerCase() === statusNamePS.toLowerCase()) : null) || '';
-  const memberType    = memberTypeRaw.toLowerCase();
+    return '';
+  };
 
-  // Contact info from typed detail arrays
-  let email = '', phone = '';
-  let addr  = { street: '', city: '', state: '', zip: '' };
-  for (const val of Object.values(details)) {
-    if (!Array.isArray(val)) continue;
-    for (const item of val) {
-      if (!item || typeof item !== 'object') continue;
-      const ft = item.field_type || '';
-      if ((ft === 'email_primary' || ft === 'email') && !email) email = (item.address || '').trim();
-      else if ((ft === 'phone' || ft.startsWith('phone')) && !phone) phone = (item.phone_number || '').trim();
-      else if ((ft === 'address_primary' || ft === 'address') && !addr.street)
-        addr = { street: (item.street_address||'').trim(), city: (item.city||'').trim(), state: (item.state||'').trim(), zip: (item.zip||'').trim() };
+  const CAP = 300;
+  const items = [];
+  let breezeScanned = 0, unlinkedFound = 0, capped = false;
+  const limit = 1000;
+  let offset = 0;
+  for (let guard = 0; guard < 100; guard++) {
+    const res = await breeze.people(`details=1&limit=${limit}&offset=${offset}`);
+    if (!res.ok) return json({ error: 'Breeze people fetch failed (' + res.status + ')' }, 502);
+    let arr; try { arr = await res.json(); } catch { arr = null; }
+    if (!Array.isArray(arr) || arr.length === 0) break;
+    for (const p of arr) {
+      breezeScanned++;
+      if (linkedBreezeIds.has(String(p.id))) continue; // already linked locally
+      unlinkedFound++;
+      if (items.length >= CAP) { capped = true; continue; }
+      const fn = (p.first_name || '').trim();
+      const ln = (p.last_name  || '').trim();
+      const email = breezeEmail(p);
+      // Match: email first (strongest), then exact full name, then last-name fuzzy.
+      let confidence = 'none', suggested = null, candidates = [];
+      const emailHits = email ? (byEmail.get(norm(email)) || []) : [];
+      const nameHits  = byFullName.get(norm(fn) + '|' + norm(ln)) || [];
+      if (emailHits.length === 1) { confidence = 'exact_email'; suggested = slim(emailHits[0]); }
+      else if (emailHits.length > 1) { confidence = 'ambiguous_name'; candidates = emailHits.map(slim); }
+      else if (nameHits.length === 1) { confidence = 'exact_name'; suggested = slim(nameHits[0]); }
+      else if (nameHits.length > 1) { confidence = 'ambiguous_name'; candidates = nameHits.map(slim); }
+      else {
+        const lastHits = (byLast.get(norm(ln)) || []).filter(lp => {
+          const lf = norm(lp.first_name), pf = norm(lp.preferred_name), bf = norm(fn);
+          return bf && (lf.startsWith(bf) || bf.startsWith(lf) || (pf && (pf === bf || pf.startsWith(bf))));
+        });
+        if (lastHits.length === 1) { confidence = 'fuzzy'; suggested = slim(lastHits[0]); }
+        else if (lastHits.length > 1) { confidence = 'ambiguous_name'; candidates = lastHits.map(slim); }
+      }
+      // Only surface Breeze people that actually matched something — an unlinked
+      // Breeze person with no local counterpart is just a normal "run a full import"
+      // case, not a link candidate, and would bury the real matches.
+      if (confidence === 'none') continue;
+      items.push({ breeze_id: String(p.id), name: (fn + ' ' + ln).trim(), email,
+                   match: { confidence, suggested, candidates } });
     }
+    if (arr.length < limit) break;
+    offset += limit;
   }
+  return json({ ok: true, items, breeze_scanned: breezeScanned, unlinked_in_breeze: unlinkedFound,
+                unlinked_local: unlinkedLocal.length, capped, cap: CAP });
+} catch (e) { return json({ error: e.message || 'Breeze unlinked preview failed' }, 500); } }
 
-  // Photo
-  const GENERIC_PAT_PS = ['/generic/', 'silhouette', 'no-photo', 'placeholder', 'default-avatar', 'profile-generic'];
-  let photoUrl = '';
-  const rawPathPS = (typeof p.path === 'string' && p.path) ? p.path : (typeof p.photo === 'string' && p.photo ? p.photo : '');
-  if (rawPathPS && !GENERIC_PAT_PS.some(pat => rawPathPS.toLowerCase().includes(pat))) {
-    photoUrl = `https://files.breezechms.com/${rawPathPS.replace(/^\/+/, '')}`;
-  } else if (typeof p.thumb === 'string' && p.thumb.startsWith('https://') &&
-             p.thumb.includes('breezechms.com') &&
-             !GENERIC_PAT_PS.some(pat => p.thumb.toLowerCase().includes(pat))) {
-    photoUrl = p.thumb;
-  }
-  // Cache the Breeze image into R2 so it survives even if Breeze later removes it.
-  if (photoUrl) photoUrl = await ingestBreezePhoto(env, String(p.id), photoUrl);
+// ── Commit a single Breeze↔Connect link ──────────────────────────────
+// Sets breeze_id on an existing local person. Does NOT overwrite any of the
+// person's data (future full Breeze syncs update it normally). Refuses to
+// relink a person who already has a breeze_id, or to reuse a breeze_id already
+// linked to a different person.
+if (seg === 'import/breeze-link' && method === 'POST') { try {
+  let b = {}; try { b = await req.json(); } catch {}
+  const breezeId = String(b.breeze_id || '').trim();
+  const personId = parseInt(b.person_id, 10);
+  if (!breezeId) return json({ error: 'breeze_id is required' }, 400);
+  if (!Number.isInteger(personId) || personId <= 0) return json({ error: 'valid person_id is required' }, 400);
 
-  // Household from p.family — look up by breeze_id only, don't create new from per-person sync
-  let familyRole = '', householdId = null;
-  if (Array.isArray(p.family) && p.family.length > 0) {
-    const selfMember = p.family.find(m => String(m.person_id) === String(p.id));
-    if (selfMember) {
-      const rn = (selfMember.role_name || '').toLowerCase();
-      if (rn.includes('head')) familyRole = 'head';
-      else if (rn.includes('spouse') || rn.includes('wife') || rn.includes('husband')) familyRole = 'spouse';
-      else if (rn.includes('child') || rn.includes('son') || rn.includes('daughter')) familyRole = 'child';
-      else if (rn) familyRole = 'other';
-    }
-    const bFamilyId = String(p.family[0].family_id || '');
-    if (bFamilyId) {
-      const hhRow = await db.prepare('SELECT id FROM households WHERE breeze_id=?').bind(bFamilyId).first();
-      if (hhRow) householdId = hhRow.id;
-    }
-  }
+  const person = await db.prepare('SELECT id, first_name, last_name, breeze_id FROM people WHERE id=?').bind(personId).first();
+  if (!person) return json({ error: 'Person not found' }, 404);
+  if (person.breeze_id && String(person.breeze_id).trim())
+    return json({ error: 'That person is already linked to Breeze ID ' + person.breeze_id }, 409);
 
-  // Find this person in the local DB
-  const localPerson = await db.prepare(
-    'SELECT id FROM people WHERE breeze_id=?'
-  ).bind(breezeId).first();
+  const clash = await db.prepare("SELECT id, first_name, last_name FROM people WHERE breeze_id=? AND id!=?")
+    .bind(breezeId, personId).first();
+  if (clash) return json({ error: 'Breeze ID ' + breezeId + ' is already linked to ' +
+    [(clash.first_name||''),(clash.last_name||'')].filter(Boolean).join(' ') + ' (#' + clash.id + ')' }, 409);
 
-  if (!localPerson) return json({ ok: false, error: 'Person not found in local database — run a full Breeze import first', fetch_debug: fetchDebug });
+  await db.prepare('UPDATE people SET breeze_id=? WHERE id=?').bind(breezeId, personId).run();
+  const personName = [(person.first_name||''),(person.last_name||'')].filter(Boolean).join(' ');
+  try {
+    await db.prepare(
+      `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value) VALUES(?,?,?,?,?,?,?)`
+    ).bind('breeze_link','person',personId,personName,'breeze_id','',breezeId).run();
+  } catch {}
+  return json({ ok: true, person_id: personId, breeze_id: breezeId, person_name: personName });
+} catch (e) { return json({ error: e.message || 'Breeze link failed' }, 500); } }
 
-  // Full sync — name/contact/member_type always overwrite; dates/photo only update when non-empty
-  await db.prepare(
-    `UPDATE people SET
-     first_name        = CASE WHEN ? != '' THEN ? ELSE first_name        END,
-     last_name         = CASE WHEN ? != '' THEN ? ELSE last_name         END,
-     email             = CASE WHEN ? != '' THEN ? ELSE email             END,
-     phone             = CASE WHEN ? != '' THEN ? ELSE phone             END,
-     address1          = CASE WHEN ? != '' THEN ? ELSE address1          END,
-     city              = CASE WHEN ? != '' THEN ? ELSE city              END,
-     state             = CASE WHEN ? != '' THEN ? ELSE state             END,
-     zip               = CASE WHEN ? != '' THEN ? ELSE zip               END,
-     member_type       = CASE WHEN ? != '' THEN ? ELSE member_type       END,
-     family_role       = CASE WHEN ? != '' THEN ? ELSE family_role       END,
-     household_id      = CASE WHEN ? IS NOT NULL THEN ? ELSE household_id END,
-     dob               = CASE WHEN ? != '' THEN ? ELSE dob               END,
-     baptism_date      = CASE WHEN ? != '' THEN ? ELSE baptism_date      END,
-     baptized          = CASE WHEN ? = 1 THEN 1 ELSE baptized          END,
-     confirmation_date = CASE WHEN ? != '' THEN ? ELSE confirmation_date END,
-     confirmed         = CASE WHEN ? = 1 THEN 1 ELSE confirmed         END,
-     anniversary_date  = CASE WHEN ? != '' THEN ? ELSE anniversary_date  END,
-     gender            = CASE WHEN ? != '' THEN ? ELSE gender            END,
-     marital_status    = CASE WHEN ? != '' THEN ? ELSE marital_status    END,
-     photo_url         = CASE
-                           WHEN photo_url LIKE '/admin/r2photo/%' THEN photo_url
-                           WHEN ? != '' THEN ?
-                           ELSE photo_url
-                         END,
-     deceased          = CASE WHEN ? = 1 THEN 1 ELSE deceased            END,
-     death_date        = CASE WHEN ? != '' THEN ? ELSE death_date        END,
-     envelope_number   = CASE WHEN ? != '' THEN ? ELSE envelope_number   END,
-     locally_edited    = 0
-     WHERE breeze_id=?`
-  ).bind(
-    fn,fn, ln,ln, email,email, phone,phone,
-    addr.street,addr.street, addr.city,addr.city, addr.state,addr.state, addr.zip,addr.zip,
-    memberType,memberType, familyRole,familyRole, householdId,householdId,
-    dob,dob, baptismDate,baptismDate,baptizedFlag, confirmDate,confirmDate,confirmedFlag, anniversaryDate,anniversaryDate,
-    gender,gender, maritalStatus,maritalStatus, photoUrl,photoUrl,
-    deceasedFlag, deathDate,deathDate, envelopeNumber,envelopeNumber,
-    breezeId
-  ).run();
-
-  const summary = 'Synced from Breeze:'
-    + '\nName: "' + fn + ' ' + ln + '"'
-    + '\nEmail: "' + email + '"  Phone: "' + phone + '"'
-    + '\nAddress: "' + addr.street + ', ' + addr.city + ', ' + addr.state + ' ' + addr.zip + '"'
-    + '\nMember type: "' + memberType + '" (Breeze status: "' + statusNamePS + '")'
-    + '\nFamily role: "' + familyRole + '"  Household ID: ' + (householdId || 'none')
-    + '\nDOB: "' + dob + '"  Baptism: "' + baptismDate + '"  Confirmation: "' + confirmDate + '"'
-    + '\nAnniversary: "' + anniversaryDate + '"  Gender: "' + gender + '"  Marital: "' + maritalStatus + '"'
-    + '\nDeceased: ' + deceasedFlag + '  Death date: "' + deathDate + '"'
-    + '\nEnvelope: "' + envelopeNumber + '"'
-    + '\nPhoto URL: "' + (photoUrl || '(none — p.path=' + (p.path||'') + (p.photo ? ', p.photo='+p.photo : '') + ')') + '"'
-    + '\nFetch: single=' + (fetchDebug.single_status||'?') + (fetchDebug.list_status ? ', list='+fetchDebug.list_status : '')
-    + '\nProfile fields: ' + allFields.length
-    + '\nAll profile field names:\n' + allFields.map(f => '  ' + f.id + ': ' + f.name).join('\n');
-
-  return json({
-    ok: true,
-    updated: { fn, ln, email, phone, addr, memberType, familyRole, householdId,
-               dob, baptismDate, confirmDate, anniversaryDate, gender, maritalStatus,
-               photoUrl, deceasedFlag, deathDate, envelopeNumber },
-    summary
-  });
-} catch (syncErr) {
-  return json({ ok: false, error: 'Sync error: ' + syncErr.message }, 500);
-} }
+// The per-person "Sync from Breeze" endpoint (import/breeze-sync-person) was
+// removed 2026-07-27: under the add-only policy, Connect is the source of truth
+// for all people data and no sync path overwrites a person from Breeze. Only
+// giving records sync from Breeze. Reverse sync (app -> Breeze) is unaffected.
 
 // ── Breeze Import ────────────────────────────────────────────────
 if (seg === 'import/breeze' && method === 'POST') { try {
@@ -2895,6 +2901,12 @@ if (seg === 'import/breeze' && method === 'POST') { try {
   }
   for (const p of people) {
     try {
+      // ADD-ONLY POLICY (2026-07-27): Connect is the source of truth for all
+      // people data — only giving syncs from Breeze. A person already linked to
+      // Breeze is never modified by this sync; we skip them entirely so nothing
+      // (name, contact, member type, household, photo, dates) is overwritten.
+      // Only brand-new Breeze people are inserted below.
+      if (existingPersonIdByBreezeId[String(p.id)]) { seenBreezeIds.add(String(p.id)); skipped++; continue; }
       const fn = (p.first_name || '').trim();
       const ln = (p.last_name  || '').trim();
       const details = p.details || {};
@@ -3056,63 +3068,19 @@ if (seg === 'import/breeze' && method === 'POST') { try {
         }
       }
       seenBreezeIds.add(String(p.id));
-      const existing = existingPersonIdByBreezeId[String(p.id)] ? { id: existingPersonIdByBreezeId[String(p.id)] } : null;
-      if (existing) {
-        // Use COALESCE(NULLIF(newVal,''),existingCol) for date + photo fields so that
-        // manually-entered data and any values Breeze doesn't return are never wiped.
-        // Contact/name/member fields are always overwritten (Breeze is authoritative for those).
-        // Once a person is edited locally, name + contact + address + member_type +
-        // demographic dates + gender + marital + envelope are owned by the app and not
-        // overwritten by sync. Breeze still authoritatively updates household linkage,
-        // family_role, deceased flag, baptized/confirmed flags, and photos.
-        // CASE ... WHEN locally_edited=1 THEN <existing> ELSE <new> END accomplishes
-        // this in a single UPDATE without a SELECT roundtrip.
-        await db.prepare(
-          `UPDATE people SET
-           first_name        = CASE WHEN locally_edited=1 THEN first_name        ELSE ? END,
-           last_name         = CASE WHEN locally_edited=1 THEN last_name         ELSE ? END,
-           email             = CASE WHEN locally_edited=1 THEN email             ELSE ? END,
-           phone             = CASE WHEN locally_edited=1 THEN phone             ELSE ? END,
-           address1          = CASE WHEN locally_edited=1 THEN address1          ELSE ? END,
-           city              = CASE WHEN locally_edited=1 THEN city              ELSE ? END,
-           state             = CASE WHEN locally_edited=1 THEN state             ELSE ? END,
-           zip               = CASE WHEN locally_edited=1 THEN zip               ELSE ? END,
-           member_type       = CASE WHEN locally_edited=1 THEN member_type       ELSE ? END,
-           household_id=?,
-           dob               = CASE WHEN locally_edited=1 THEN dob               ELSE COALESCE(NULLIF(?,''),dob) END,
-           baptism_date      = CASE WHEN locally_edited=1 THEN baptism_date      ELSE COALESCE(NULLIF(?,''),baptism_date) END,
-           baptized=CASE WHEN ?=1 THEN 1 ELSE baptized END,
-           confirmation_date = CASE WHEN locally_edited=1 THEN confirmation_date ELSE COALESCE(NULLIF(?,''),confirmation_date) END,
-           confirmed=CASE WHEN ?=1 THEN 1 ELSE confirmed END,
-           anniversary_date  = CASE WHEN locally_edited=1 THEN anniversary_date  ELSE COALESCE(NULLIF(?,''),anniversary_date) END,
-           family_role=?,
-           photo_url=CASE
-                       WHEN photo_url LIKE '/admin/r2photo/%' THEN photo_url
-                       ELSE COALESCE(NULLIF(?,''),photo_url)
-                     END,
-           gender            = CASE WHEN locally_edited=1 THEN gender            ELSE COALESCE(NULLIF(?,''),gender) END,
-           marital_status    = CASE WHEN locally_edited=1 THEN marital_status    ELSE COALESCE(NULLIF(?,''),marital_status) END,
-           deceased=CASE WHEN ?=1 THEN 1 ELSE deceased END,
-           death_date        = CASE WHEN locally_edited=1 THEN death_date        ELSE COALESCE(NULLIF(?,''),death_date) END,
-           envelope_number   = CASE WHEN locally_edited=1 THEN envelope_number   ELSE COALESCE(NULLIF(?,''),envelope_number) END,
-           active=1
-           WHERE breeze_id=?`
-        ).bind(fn,ln,email,phone,addr.street,addr.city,addr.state,addr.zip,memberType,householdId,
-               dob,baptismDate,baptizedFlag,confirmDate,confirmedFlag,anniversaryDate,familyRole,
-               photoUrl,gender,maritalStatus,deceasedFlag,deathDate,envelopeNumber,String(p.id)).run();
-        updated++;
-      } else {
-        await db.prepare(
-          `INSERT INTO people
-           (first_name,last_name,email,phone,address1,city,state,zip,breeze_id,member_type,
-            household_id,dob,baptism_date,baptized,confirmation_date,confirmed,anniversary_date,family_role,photo_url,
-            gender,marital_status,deceased,death_date,envelope_number)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-        ).bind(fn,ln,email,phone,addr.street,addr.city,addr.state,addr.zip,String(p.id),memberType,
-               householdId,dob,baptismDate,baptizedFlag,confirmDate,confirmedFlag,anniversaryDate,familyRole,photoUrl,
-               gender,maritalStatus,deceasedFlag,deathDate,envelopeNumber).run();
-        imported++;
-      }
+      // ADD-ONLY: existing linked people were already skipped at the top of the
+      // loop, so every person that reaches here is new — insert them. Connect
+      // remains the source of truth for all people data going forward.
+      await db.prepare(
+        `INSERT INTO people
+         (first_name,last_name,email,phone,address1,city,state,zip,breeze_id,member_type,
+          household_id,dob,baptism_date,baptized,confirmation_date,confirmed,anniversary_date,family_role,photo_url,
+          gender,marital_status,deceased,death_date,envelope_number)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(fn,ln,email,phone,addr.street,addr.city,addr.state,addr.zip,String(p.id),memberType,
+             householdId,dob,baptismDate,baptizedFlag,confirmDate,confirmedFlag,anniversaryDate,familyRole,photoUrl,
+             gender,maritalStatus,deceasedFlag,deathDate,envelopeNumber).run();
+      imported++;
     } catch (e) { errors.push({ breeze_id: p.id, error: e.message }); }
   }
   const done = people.length < limit;
@@ -3128,63 +3096,13 @@ if (seg === 'import/breeze' && method === 'POST') { try {
         .bind(JSON.stringify([...existingSeen])).run();
     } catch {}
   }
-  // Accumulate seen breeze_ids across batches so the final batch can deactivate missing people.
-  // On first batch (offset===0) we reset the accumulator; on subsequent batches we append.
+  // ADD-ONLY POLICY: the deactivation pass (which set active=0 on Connect people
+  // whose breeze_id was absent from Breeze) is disabled — Breeze is not allowed to
+  // deactivate a Connect person, since Connect is the source of truth. Likewise the
+  // household anniversary-propagation pass is disabled, as it modified existing
+  // people during a sync. Both left as no-ops so the response shape is unchanged.
   let deactivated = 0;
-  try {
-    const accKey = 'breeze_sync_seen_ids';
-    const existing = offset === 0 ? new Set() : new Set(
-      JSON.parse((await db.prepare(`SELECT value FROM chms_config WHERE key='${accKey}'`).first())?.value || '[]')
-    );
-    seenBreezeIds.forEach(id => existing.add(id));
-    await db.prepare(`INSERT INTO chms_config(key,value) VALUES('${accKey}',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`)
-      .bind(JSON.stringify([...existing])).run();
-    if (done && existing.size > 0) {
-      // Deactivate people whose breeze_id was not seen in any batch this run.
-      // Correct approach: find the TO-DEACTIVATE set in JS, then chunk with IN (not NOT IN).
-      // Using chunked NOT IN on the seen set is wrong — each chunk deactivates everyone
-      // outside that small chunk, wiping the entire database.
-      const allActivePeople = (await db.prepare(
-        `SELECT breeze_id FROM people WHERE active=1 AND breeze_id != '' AND breeze_id IS NOT NULL`
-      ).all()).results || [];
-      const toDeactivate = allActivePeople.map(r => r.breeze_id).filter(id => !existing.has(id));
-      if (toDeactivate.length > 0) {
-        const chunkSize = 90;
-        for (let ci = 0; ci < toDeactivate.length; ci += chunkSize) {
-          const chunk = toDeactivate.slice(ci, ci + chunkSize);
-          const idList = chunk.map(() => '?').join(',');
-          const r = await db.prepare(
-            `UPDATE people SET active=0 WHERE active=1 AND breeze_id IN (${idList})`
-          ).bind(...chunk).run();
-          deactivated += r.meta?.changes ?? 0;
-        }
-      }
-    }
-  } catch {}
-  // Propagate anniversary dates within households: if one spouse has the date and the
-  // other doesn't, copy it over so both records are consistent.
   let anniversaryPropagated = 0;
-  try {
-    const ar = await db.prepare(
-      `UPDATE people SET anniversary_date=(
-         SELECT p2.anniversary_date FROM people p2
-         WHERE p2.household_id=people.household_id AND p2.id!=people.id
-           AND p2.anniversary_date!='' AND p2.family_role IN ('head','spouse')
-           AND (p2.deceased=0 OR p2.deceased IS NULL)
-         LIMIT 1
-       )
-       WHERE active=1 AND (anniversary_date='' OR anniversary_date IS NULL)
-         AND locally_edited=0
-         AND family_role IN ('head','spouse') AND household_id IS NOT NULL
-         AND EXISTS (
-           SELECT 1 FROM people p2 WHERE p2.household_id=people.household_id
-             AND p2.id!=people.id AND p2.anniversary_date!=''
-             AND p2.family_role IN ('head','spouse')
-             AND (p2.deceased=0 OR p2.deceased IS NULL)
-         )`
-    ).run();
-    anniversaryPropagated = ar.meta?.changes ?? 0;
-  } catch {}
   // Tag sync removed from people import — it times out the Worker when run inline.
   // The frontend auto-triggers runBreezeTagSync() after the final people batch.
   return json({ ok: true, imported, updated, skipped, deactivated, anniversaryPropagated, errors, done, next_offset: offset + people.length, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, dob_field: F_DOB_FIELD ? {id: F_DOB_FIELD.id, name: F_DOB_FIELD.name} : null, baptism_field: F_BAPTISM_FIELD ? {id: F_BAPTISM_FIELD.id, name: F_BAPTISM_FIELD.name} : null, confirmation_field: F_CONFIRM_FIELD ? {id: F_CONFIRM_FIELD.id, name: F_CONFIRM_FIELD.name} : null, deceased_field: F_DECEASED_FIELD ? {id: F_DECEASED_FIELD.id, name: F_DECEASED_FIELD.name} : null, death_date_field: F_DEATH_FIELD ? {id: F_DEATH_FIELD.id, name: F_DEATH_FIELD.name} : null, envelope_field: F_ENVELOPE_FIELD ? {id: F_ENVELOPE_FIELD.id, name: F_ENVELOPE_FIELD.name} : null, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });

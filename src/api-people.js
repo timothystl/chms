@@ -1,6 +1,6 @@
 // ── People, Follow-up, Archive, Brevo Sync, Photos API handlers ────────────
 import { json, hashPassword } from './auth.js';
-import { brevoUpsertContact, brevoBulkSync, brevoGetListContacts } from './api-emails.js';
+import { brevoUpsertContact, brevoBulkSync, brevoGetListContacts, brevoContactStatus, brevoRemoveFromList } from './api-emails.js';
 import { disambiguateHHName, normalizePhone, randHex, escLite, authCardPage } from './api-utils.js';
 import { makeBreezeClient } from './breeze.js';
 
@@ -38,7 +38,7 @@ function memberSafeView(p, householdDisplayName) {
 // ── Photo upload validation ──────────────────────────────────────────────────
 // Validates a multipart-form image File against size limit and magic-byte
 // signature. file.type from FormData is client-supplied and spoofable.
-async function validateImageUpload(file, maxBytes = 8 * 1024 * 1024) {
+export async function validateImageUpload(file, maxBytes = 8 * 1024 * 1024) {
   if (!file || !file.size) return { ok: false, status: 400, error: 'No file provided' };
   if (file.size > maxBytes) return { ok: false, status: 413, error: 'Image too large (max 8 MB)' };
   const buf = await file.arrayBuffer();
@@ -783,6 +783,20 @@ if (seg === 'brevo/sync-contact' && method === 'POST') {
   if (!b.email) return json({ error: 'email required' }, 400);
   const result = await brevoUpsertContact(env, b.email, b.first_name || '', b.last_name || '');
   return json(result);
+}
+
+if (seg === 'brevo/contact-status' && method === 'GET') {
+  if (!isStaff) return json({ error: 'Access denied' }, 403);
+  const email = url.searchParams.get('email') || '';
+  if (!email) return json({ error: 'email required' }, 400);
+  return json(await brevoContactStatus(env, email));
+}
+
+if (seg === 'brevo/remove-contact' && method === 'POST') {
+  if (!isStaff) return json({ error: 'Access denied' }, 403);
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  if (!b.email) return json({ error: 'email required' }, 400);
+  return json(await brevoRemoveFromList(env, b.email));
 }
 
 if (seg === 'brevo/bulk-sync' && method === 'POST') {

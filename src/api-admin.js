@@ -2,7 +2,7 @@
 import { html, json, isAuthed, authCookieHeader, getAuthRole, getAuthInfo, hashPassword, verifyPassword } from './auth.js';
 import { handleChmsApi } from './api-chms.js';
 import { LOGIN_HTML } from './html-templates.js';
-import { randHex, authCardPage } from './api-utils.js';
+import { randHex, authCardPage, getRolePermissions, permissionsForRole } from './api-utils.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts } from './api-emails.js';
 import { applyXmasMarketDefaults, handleVolunteerTemplates, handleSignupLinkPerson, handleSignupSendEmail, handleSchedulerVolunteersApi } from './api-scheduler.js';
 
@@ -212,7 +212,12 @@ export async function handleAdminApi(req, env, url, method) {
         .bind(username.toLowerCase()).first().catch(() => null);
       if (u && u.display_name) displayName = u.display_name;
     }
-    return json({ role: role || 'unknown', username, display_name: displayName });
+    // Only the caller's own resolved flags — not the whole cross-role matrix, which is
+    // admin-only (config/role-permissions) since it's the access-control definition itself,
+    // not informational config. Lets the frontend hide tabs a role's admin-configured
+    // permissions don't grant, without exposing what other roles can/can't do.
+    const permissions = role && env.DB ? permissionsForRole(await getRolePermissions(env.DB), role) : null;
+    return json({ role: role || 'unknown', username, display_name: displayName, permissions });
   }
 
   // SC6 Phase 1: relationalized scheduler volunteers (real people rows) — must be checked
@@ -595,7 +600,7 @@ export async function handleAdminApi(req, env, url, method) {
       seg.startsWith('organizations') || seg.startsWith('export/') ||
       seg.startsWith('prayer-requests') || seg.startsWith('engagement') ||
       seg.startsWith('utils/')         || seg.startsWith('tuition-aid') ||
-      seg.startsWith('finance')        ||
+      seg.startsWith('finance')        || seg.startsWith('brevo') ||
       seg === 'dashboard'      || seg === 'board'              ||
       seg === 'directory') {
     try {

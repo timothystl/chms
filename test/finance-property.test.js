@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { handleFinanceApi, computePropertyAnnualSummary } from '../src/api-finance.js';
+import { handleFinanceApi, computePropertyAnnualSummary, parsePropertyMonthlyCsv, parseXlsxAllSheets, findPropertyBudgetDetailSheet } from '../src/api-finance.js';
 
 // Minimal D1-shaped wrapper around node:sqlite, same pattern as test/finance-church.test.js and
 // test/scheduler-volunteers.test.js — runs against real SQL instead of a hand-rolled mock.
@@ -10,6 +10,8 @@ function makeTestDb() {
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   sqlite.exec(readFileSync(new URL('../migrations/0022_finance_property.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0023_finance_property_reserves.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0025_finance_property_budget.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0026_finance_property_loan_payments.sql', import.meta.url), 'utf8'));
   sqlite.exec(`CREATE TABLE finance_daycare_entries (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     period       TEXT    NOT NULL DEFAULT '',
@@ -271,5 +273,179 @@ describe('handleFinanceApi — daycare bulk past-year import', () => {
     expect(res.status).toBe(400);
     const rows = db._raw.prepare('SELECT * FROM finance_daycare_entries').all();
     expect(rows).toHaveLength(0); // nothing committed from the bad batch
+  });
+});
+
+// Minimal ZIP writer (STORED/uncompressed entries only — finZipReadEntryBytes already handles
+// method 0 as a plain passthrough) so the real regression this locks in — some real-world xlsx
+// exporters (confirmed: an AHRA "Budget Detail" export) write `<sheet ...></sheet>` instead of
+// the usual self-closing `<sheet .../>` — can be exercised through the actual zip-reading code
+// path, not just the inner XML-parsing functions.
+function crc32(buf) {
+  let c, crc = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) {
+    c = (crc ^ buf[i]) & 0xFF;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    crc = (crc >>> 8) ^ c;
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+function buildTestXlsxZip(files) {
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  for (const [name, content] of Object.entries(files)) {
+    const nameBuf = Buffer.from(name, 'utf8');
+    const dataBuf = Buffer.from(content, 'utf8');
+    const crc = crc32(dataBuf);
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4); // version needed
+    localHeader.writeUInt16LE(0, 6); // flags
+    localHeader.writeUInt16LE(0, 8); // compression = stored
+    localHeader.writeUInt16LE(0, 10); // mod time
+    localHeader.writeUInt16LE(0, 12); // mod date
+    localHeader.writeUInt32LE(crc, 14);
+    localHeader.writeUInt32LE(dataBuf.length, 18); // compressed size
+    localHeader.writeUInt32LE(dataBuf.length, 22); // uncompressed size
+    localHeader.writeUInt16LE(nameBuf.length, 26);
+    localHeader.writeUInt16LE(0, 28); // extra len
+    chunks.push(localHeader, nameBuf, dataBuf);
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4); // version made by
+    centralHeader.writeUInt16LE(20, 6); // version needed
+    centralHeader.writeUInt16LE(0, 8); // flags
+    centralHeader.writeUInt16LE(0, 10); // compression
+    centralHeader.writeUInt16LE(0, 12); // mod time
+    centralHeader.writeUInt16LE(0, 14); // mod date
+    centralHeader.writeUInt32LE(crc, 16);
+    centralHeader.writeUInt32LE(dataBuf.length, 20);
+    centralHeader.writeUInt32LE(dataBuf.length, 24);
+    centralHeader.writeUInt16LE(nameBuf.length, 28);
+    centralHeader.writeUInt16LE(0, 30); // extra len
+    centralHeader.writeUInt16LE(0, 32); // comment len
+    centralHeader.writeUInt16LE(0, 34); // disk number
+    centralHeader.writeUInt16LE(0, 36); // internal attrs
+    centralHeader.writeUInt32LE(0, 38); // external attrs
+    centralHeader.writeUInt32LE(offset, 42); // local header offset
+    central.push(Buffer.concat([centralHeader, nameBuf]));
+    offset += localHeader.length + nameBuf.length + dataBuf.length;
+  }
+  const centralBuf = Buffer.concat(central);
+  const cdOffset = offset;
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4);
+  eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(Object.keys(files).length, 8);
+  eocd.writeUInt16LE(Object.keys(files).length, 10);
+  eocd.writeUInt32LE(centralBuf.length, 12);
+  eocd.writeUInt32LE(cdOffset, 16);
+  eocd.writeUInt16LE(0, 20);
+  const full = Buffer.concat([...chunks, centralBuf, eocd]);
+  return full.buffer.slice(full.byteOffset, full.byteOffset + full.byteLength);
+}
+
+describe('parseXlsxAllSheets — non-self-closing <sheet> tag regression (real AHRA export bug)', () => {
+  const sheetXml = `<?xml version="1.0"?><worksheet><sheetData><row r="1"><c r="A1" t="str"><v>Account Name</v></c><c r="B1" t="str"><v>Jan 2026</v></c></row></sheetData></worksheet>`;
+  const relsXml = `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`;
+
+  it('finds the sheet when workbook.xml uses a self-closing <sheet/> tag', async () => {
+    const workbookXml = `<?xml version="1.0"?><workbook><sheets><sheet sheetId="1" name="Sheet1" r:id="rId1"/></sheets></workbook>`;
+    const zip = buildTestXlsxZip({ 'xl/workbook.xml': workbookXml, 'xl/_rels/workbook.xml.rels': relsXml, 'xl/worksheets/sheet1.xml': sheetXml });
+    const sheets = await parseXlsxAllSheets(zip);
+    expect(sheets.map(s => s.name)).toEqual(['Sheet1']);
+    expect(findPropertyBudgetDetailSheet(sheets)).toBeTruthy();
+  });
+
+  it('also finds the sheet when workbook.xml uses an explicit open/close <sheet></sheet> tag (the real AHRA Budget Detail export shape)', async () => {
+    const workbookXml = `<?xml version="1.0"?><workbook><sheets><sheet sheetId="1" name="Sheet1" r:id="rId1"></sheet></sheets></workbook>`;
+    const zip = buildTestXlsxZip({ 'xl/workbook.xml': workbookXml, 'xl/_rels/workbook.xml.rels': relsXml, 'xl/worksheets/sheet1.xml': sheetXml });
+    const sheets = await parseXlsxAllSheets(zip);
+    expect(sheets.map(s => s.name)).toEqual(['Sheet1']);
+    expect(findPropertyBudgetDetailSheet(sheets)).toBeTruthy();
+  });
+});
+
+describe('parsePropertyMonthlyCsv', () => {
+  it('parses the real AHRA "monthly financials" CSV row shape (June 2026 export)', () => {
+    const csv = 'period,occupancy_pct,total_revenue,operating_expenses,net_operating_income,non_operating_expenses,net_income,total_revenue_ytd,operating_expenses_ytd,net_operating_income_ytd,non_operating_expenses_ytd,net_income_ytd,management_fee_expense,accounts_receivable,distribution_amount,total_property_reserve\n'
+      + '2026-06,100,9765.27,-3505.43,6259.84,-957.05,5302.79,60633.28,-20916.20,39717.08,-5881.53,33835.55,556.24,1040.96,9321.77,10358.33\n';
+    const { rows, error } = parsePropertyMonthlyCsv(csv);
+    expect(error).toBeUndefined();
+    expect(rows).toHaveLength(1);
+    const r = rows[0];
+    expect(r.period).toBe('2026-06');
+    expect(r.occupancy_pct).toBe(1);
+    expect(r.total_revenue_cents).toBe(976527);
+    expect(r.total_expenses_cents).toBe(446248); // |operating| + |non-operating|, matches the real seeded June row
+    expect(r.net_operating_income_cents).toBe(625984);
+    expect(r.net_income_cents).toBe(530279);
+    expect(r.available_for_distribution_cents).toBe(932177);
+    expect(r.reserve_balance_cents).toBe(1035833);
+  });
+
+  it('supports multiple rows in one paste', () => {
+    const csv = 'period,total_revenue,operating_expenses,net_operating_income,non_operating_expenses,net_income\n'
+      + '2026-05,9000,-3000,6000,-500,5500\n'
+      + '2026-06,9765.27,-3505.43,6259.84,-957.05,5302.79\n';
+    const { rows, error } = parsePropertyMonthlyCsv(csv);
+    expect(error).toBeUndefined();
+    expect(rows.map(r => r.period)).toEqual(['2026-05', '2026-06']);
+  });
+
+  it('rejects a CSV missing required columns', () => {
+    const { rows, error } = parsePropertyMonthlyCsv('period,total_revenue\n2026-06,9765.27\n');
+    expect(rows).toHaveLength(0);
+    expect(error).toMatch(/Missing required column/);
+  });
+
+  it('rejects a row with a malformed period', () => {
+    const csv = 'period,total_revenue,operating_expenses,net_operating_income,non_operating_expenses,net_income\n'
+      + 'June 2026,9000,-3000,6000,-500,5500\n';
+    const { rows, error } = parsePropertyMonthlyCsv(csv);
+    expect(rows).toHaveLength(0);
+    expect(error).toMatch(/period.*must be YYYY-MM/);
+  });
+
+  it('rejects an empty paste', () => {
+    const { rows, error } = parsePropertyMonthlyCsv('');
+    expect(rows).toHaveLength(0);
+    expect(error).toMatch(/Empty/);
+  });
+});
+
+describe('handleFinanceApi — monthly CSV bulk import endpoint', () => {
+  it('imports a pasted CSV row and it is retrievable via GET', async () => {
+    const db = makeTestDb();
+    const csv = 'period,total_revenue,operating_expenses,net_operating_income,non_operating_expenses,net_income\n'
+      + '2026-06,9765.27,-3505.43,6259.84,-957.05,5302.79\n';
+    const res = await handleFinanceApi(makeReq({ csv }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/monthly-import-csv', db, true, true);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.imported).toBe(1);
+    expect(body.periods).toEqual(['2026-06']);
+
+    const getRes = await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/property/ivanhoe', db, true, true);
+    const getBody = await getRes.json();
+    expect(getBody.monthly).toHaveLength(1);
+    expect(getBody.monthly[0].total_revenue_cents).toBe(976527);
+    expect(getBody.monthly[0].total_expenses_cents).toBe(446248);
+  });
+
+  it('rejects from a non-admin', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ csv: 'period,total_revenue\n2026-06,100\n' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/monthly-import-csv', db, false, true);
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects a malformed CSV with a 400 and no partial commit', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ csv: 'period,total_revenue\n2026-06,100\n' }), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/monthly-import-csv', db, true, true);
+    expect(res.status).toBe(400);
+    const getRes = await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/property/ivanhoe', db, true, true);
+    const getBody = await getRes.json();
+    expect(getBody.monthly).toHaveLength(0);
   });
 });

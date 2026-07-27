@@ -126,8 +126,8 @@ function renderRegisterList(entries) {
         + '<td style="font-size:.85rem;">'+familyPart+'</td>'
         + '<td style="font-size:.85rem;">'+rtBadge+officPart+pdfPart+'</td>'
         + '<td style="white-space:nowrap;text-align:right;">'
-        + '<button class="reg-edit-btn" onclick="openRegisterEdit('+e.id+')" title="Edit">Edit</button>'
-        + '<button class="reg-del-btn" onclick="deleteRegisterEntry('+e.id+')" title="Delete">Delete</button>'
+        + '<button class="reg-edit-btn require-edit-register" onclick="openRegisterEdit('+e.id+')" title="Edit">Edit</button>'
+        + '<button class="reg-del-btn require-edit-register" onclick="deleteRegisterEntry('+e.id+')" title="Delete">Delete</button>'
         + '</td>'
         + '</tr>';
     }).join('');

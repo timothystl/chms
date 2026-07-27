@@ -1,7 +1,7 @@
 // ── Reports, Engagement, Prayer API handlers ─────────────────────────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { isoWeekKey } from './api-utils.js';
+import { isoWeekKey, bucketGivingMethod, projectYearEnd, spreadBudgetYtd, computeConcentration } from './api-utils.js';
 
 export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -714,6 +714,158 @@ if (seg === 'reports/giving-vs-attendance' && method === 'GET') {
 }
 
 
+// Board Report (giving redesign 1A/1B): a monthly, aggregate-only giving report for the
+// Church Council. Returns KPIs, month-by-month actual/prior/budget arrays, method mix,
+// donor concentration, and per-fund rows with budget + prior-year — all reconciling to the
+// same YTD total. No individual donors are named. See spreadBudgetYtd/projectYearEnd/
+// computeConcentration/bucketGivingMethod in api-utils.js for the pure math.
+if (seg === 'reports/giving-board' && method === 'GET') {
+  const periodRaw = url.searchParams.get('period') || '';
+  let year, throughMonth, m;
+  if ((m = periodRaw.match(/^(\d{4})-Q([1-4])$/)))     { year = +m[1]; throughMonth = +m[2] * 3; }
+  else if ((m = periodRaw.match(/^(\d{4})-(\d{1,2})$/))) { year = +m[1]; throughMonth = Math.min(12, Math.max(1, +m[2])); }
+  else if ((m = periodRaw.match(/^(\d{4})$/)))           { year = +m[1]; throughMonth = 12; }
+  else { const now = new Date(); year = now.getUTCFullYear(); throughMonth = now.getUTCMonth() + 1; }
+  const priorYear = year - 1;
+  const mm = String(throughMonth).padStart(2, '0');
+  const yearStart      = year + '-01-01';
+  const periodEnd      = year + '-' + mm + '-31';       // string upper-bound catches all days of the month
+  const yearEnd        = year + '-12-31';
+  const priorYearStart = priorYear + '-01-01';
+  const priorPeriodEnd = priorYear + '-' + mm + '-31';
+  const dateExpr = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
+
+  const [monthlyRes, fundRes, hhRes, hhPriorRes, methodRes] = await Promise.all([
+    // Month-by-month sums for current + prior year (chart + budget spread)
+    db.prepare(
+      `SELECT substr(${dateExpr},1,4) AS yr, CAST(substr(${dateExpr},6,2) AS INTEGER) AS mo, SUM(ge.amount) AS cents
+       FROM giving_entries ge LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+       WHERE ${dateExpr} BETWEEN ? AND ?
+       GROUP BY yr, mo`
+    ).bind(priorYearStart, yearEnd).all(),
+    // Per active fund: current YTD, prior YTD (same window last year), annual budget
+    db.prepare(
+      `SELECT f.id, f.name, f.budget_annual_cents,
+              COALESCE(cur.cents,0) AS cur_cents, COALESCE(pri.cents,0) AS prior_cents
+       FROM funds f
+       LEFT JOIN (SELECT ge.fund_id, SUM(ge.amount) cents FROM giving_entries ge
+                  LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+                  WHERE ${dateExpr} BETWEEN ? AND ? GROUP BY ge.fund_id) cur ON cur.fund_id=f.id
+       LEFT JOIN (SELECT ge.fund_id, SUM(ge.amount) cents FROM giving_entries ge
+                  LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+                  WHERE ${dateExpr} BETWEEN ? AND ? GROUP BY ge.fund_id) pri ON pri.fund_id=f.id
+       WHERE f.active=1
+       ORDER BY (CASE WHEN COALESCE(cur.cents,0)=0 AND COALESCE(pri.cents,0)=0 AND COALESCE(f.budget_annual_cents,0)=0 THEN 1 ELSE 0 END), f.sort_order, f.name`
+    ).bind(yearStart, periodEnd, priorYearStart, priorPeriodEnd).all(),
+    // Per-household current-YTD totals (concentration + average). Loose-plate cash (no person)
+    // is excluded — it belongs to no household. Household key: household_id, or -person_id when
+    // the giver has no household, so the two id spaces can never collide.
+    db.prepare(
+      `SELECT COALESCE(NULLIF(p.household_id,0), -ge.person_id) AS hhkey, SUM(ge.amount) AS cents
+       FROM giving_entries ge LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+       LEFT JOIN people p ON p.id=ge.person_id
+       WHERE ${dateExpr} BETWEEN ? AND ? AND ge.person_id IS NOT NULL
+       GROUP BY hhkey`
+    ).bind(yearStart, periodEnd).all(),
+    // Prior-year household count through the same point
+    db.prepare(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT COALESCE(NULLIF(p.household_id,0), -ge.person_id) AS hhkey
+         FROM giving_entries ge LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+         LEFT JOIN people p ON p.id=ge.person_id
+         WHERE ${dateExpr} BETWEEN ? AND ? AND ge.person_id IS NOT NULL
+         GROUP BY hhkey)`
+    ).bind(priorYearStart, priorPeriodEnd).first(),
+    // Method mix for current YTD
+    db.prepare(
+      `SELECT ge.method, SUM(ge.amount) AS cents
+       FROM giving_entries ge LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+       WHERE ${dateExpr} BETWEEN ? AND ?
+       GROUP BY ge.method`
+    ).bind(yearStart, periodEnd).all(),
+  ]);
+
+  // Build monthly arrays (index 0 = Jan)
+  const curMonthly = new Array(12).fill(0), priorMonthly = new Array(12).fill(0);
+  for (const r of (monthlyRes.results || [])) {
+    const mo = (r.mo || 0) - 1; if (mo < 0 || mo > 11) continue;
+    if (String(r.yr) === String(year)) curMonthly[mo] = r.cents || 0;
+    else if (String(r.yr) === String(priorYear)) priorMonthly[mo] = r.cents || 0;
+  }
+
+  // Fund rows with per-fund YTD budget (spread by the church-wide prior-year seasonal shape)
+  const funds = (fundRes.results || []).map(f => {
+    const hasBudget = (f.budget_annual_cents || 0) > 0;
+    const budgetYtd = hasBudget ? spreadBudgetYtd(f.budget_annual_cents, priorMonthly, throughMonth) : null;
+    return {
+      name: f.name,
+      actual_cents: f.cur_cents || 0,
+      budget_ytd_cents: budgetYtd,
+      variance_cents: hasBudget ? (f.cur_cents || 0) - budgetYtd : null,
+      prior_cents: f.prior_cents || 0,
+      annual_budget_cents: f.budget_annual_cents || 0,
+    };
+  });
+  const ytdActual   = funds.reduce((s, f) => s + f.actual_cents, 0);
+  const priorYtd    = funds.reduce((s, f) => s + f.prior_cents, 0);
+  const budgetYtd   = funds.reduce((s, f) => s + (f.budget_ytd_cents || 0), 0);
+  const annualBudget = funds.reduce((s, f) => s + f.annual_budget_cents, 0);
+
+  // Projection uses the prior-year monthly shape so it stays consistent with the chart
+  const priorFull = priorMonthly.reduce((s, v) => s + v, 0);
+  const priorCum  = priorMonthly.slice(0, throughMonth).reduce((s, v) => s + v, 0);
+  const proj = projectYearEnd(ytdActual, priorCum, priorFull, throughMonth);
+
+  // Households / concentration
+  const householdTotals = (hhRes.results || []).map(r => r.cents || 0);
+  const concentration = computeConcentration(householdTotals);
+  const households = concentration.households;
+  const householdsPrior = hhPriorRes?.n || 0;
+
+  // Method mix
+  const buckets = { check: 0, ach: 0, cash: 0, other: 0 };
+  for (const r of (methodRes.results || [])) buckets[bucketGivingMethod(r.method)] += (r.cents || 0);
+  const methodTotal = buckets.check + buckets.ach + buckets.cash + buckets.other;
+  const methodMix = [
+    { key: 'check', label: 'Check',             cents: buckets.check },
+    { key: 'ach',   label: 'ACH / online',      cents: buckets.ach },
+    { key: 'cash',  label: 'Cash / loose plate', cents: buckets.cash },
+    { key: 'other', label: 'Stock, IRA, other', cents: buckets.other },
+  ].map(x => ({ ...x, pct: methodTotal > 0 ? Math.round((x.cents / methodTotal) * 100) : 0 }));
+
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const monthEnds = [31,28,31,30,31,30,31,31,30,31,30,31];
+  const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const lastDay = throughMonth === 2 && isLeap ? 29 : monthEnds[throughMonth - 1];
+  const throughLabel = 'Through ' + MONTHS[throughMonth - 1] + ' ' + lastDay + ', ' + year;
+
+  return json({
+    year, prior_year: priorYear, through_month: throughMonth,
+    period_label: (periodRaw.match(/-Q/) ? 'Q' + Math.ceil(throughMonth / 3) + ' ' + year : MONTHS[throughMonth - 1] + ' ' + year),
+    through_label: throughLabel,
+    kpis: {
+      given_ytd_cents: ytdActual,
+      given_ytd_prior_cents: priorCum,
+      given_ytd_delta_pct: priorCum > 0 ? +(((ytdActual - priorCum) / priorCum) * 100).toFixed(1) : null,
+      budget_ytd_cents: budgetYtd,
+      budget_variance_cents: annualBudget > 0 ? ytdActual - budgetYtd : null,
+      budget_variance_pct: budgetYtd > 0 ? +(((ytdActual - budgetYtd) / budgetYtd) * 100).toFixed(1) : null,
+      projection_cents: proj.projected,
+      projection_method: proj.method,
+      annual_budget_cents: annualBudget,
+      projection_vs_budget_cents: annualBudget > 0 ? proj.projected - annualBudget : null,
+      households, households_prior: householdsPrior,
+      avg_per_household_cents: households > 0 ? Math.round(ytdActual / households) : 0,
+    },
+    monthly: { current: curMonthly, prior: priorMonthly },
+    method_mix: methodMix,
+    concentration,
+    funds,
+    totals: { actual_cents: ytdActual, budget_ytd_cents: budgetYtd, prior_cents: priorYtd, annual_budget_cents: annualBudget },
+    has_budget: annualBudget > 0,
+  });
+}
+
 if (seg === 'reports/giving-summary' && method === 'GET') {
   const from = url.searchParams.get('from') || new Date().getFullYear() + '-01-01';
   const to   = url.searchParams.get('to')   || new Date().getFullYear() + '-12-31';
@@ -1195,6 +1347,7 @@ if (seg === 'reports/giving-by-method' && method === 'GET') {
 
 if (seg === 'reports/giving-statement' && method === 'GET' && url.searchParams.get('list_givers') === '1') {
   const year = url.searchParams.get('year') || new Date().getFullYear();
+  const letterType = url.searchParams.get('letter_type') || '';
   const givers = (await db.prepare(
     `SELECT p.id, p.first_name, p.last_name, p.email,
             SUM(ge.amount) as total_cents
@@ -1205,7 +1358,44 @@ if (seg === 'reports/giving-statement' && method === 'GET' && url.searchParams.g
        AND substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),1,4)=?
      GROUP BY p.id ORDER BY p.last_name, p.first_name`
   ).bind(String(year)).all()).results || [];
+  // Mark who already has this year's letter recorded as sent, so the batch-send UI can
+  // default them unchecked — lets a re-run after a Resend rate-limit interruption (or just a
+  // deliberate second day) pick up only the people who haven't gotten it yet.
+  if (letterType && givers.length) {
+    const sentRows = (await db.prepare(
+      `SELECT person_id FROM giving_letter_sends WHERE year=? AND letter_type=?`
+    ).bind(Number(year), letterType).all()).results || [];
+    const sentIds = new Set(sentRows.map(r => r.person_id));
+    for (const g of givers) g.already_sent = sentIds.has(g.id);
+  }
   return json({ givers });
+}
+
+// Giving-appeal population: every household with at least one active Member (regardless of
+// whether they've given anything this year — unlike list_givers above, which only lists people
+// who already have a gift on record). One recipient per household — the head of household's
+// email if they have one, else the first other active member with an email — so a married
+// couple sharing a household doesn't get the appeal twice. total_cents is included for display
+// only (0 for a household that hasn't given yet, which is the point of this list).
+if (seg === 'reports/giving-statement' && method === 'GET' && url.searchParams.get('list_member_households') === '1') {
+  const year = url.searchParams.get('year') || new Date().getFullYear();
+  const rows = (await db.prepare(
+    `SELECT h.id, h.name,
+            (SELECT p2.email FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.email != ''
+               ORDER BY CASE WHEN p2.family_role='head' THEN 0 ELSE 1 END, p2.id LIMIT 1) as recipient_email,
+            (SELECT p2.first_name || ' ' || p2.last_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.email != ''
+               ORDER BY CASE WHEN p2.family_role='head' THEN 0 ELSE 1 END, p2.id LIMIT 1) as recipient_name,
+            COALESCE((SELECT SUM(ge.amount) FROM giving_entries ge
+                        JOIN giving_batches gb ON ge.batch_id=gb.id
+                        JOIN people p3 ON ge.person_id=p3.id
+                       WHERE p3.household_id=h.id
+                         AND substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),1,4)=?), 0) as total_cents
+     FROM households h
+     WHERE EXISTS (SELECT 1 FROM people p WHERE p.household_id=h.id AND p.active=1 AND LOWER(p.member_type)='member')
+     ORDER BY h.name`
+  ).bind(String(year)).all()).results || [];
+  const households = rows.filter(r => r.recipient_email);
+  return json({ households });
 }
 
 if (seg === 'reports/giving-statement' && method === 'GET') {

@@ -385,8 +385,16 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
     if (method === 'PUT') {
       if (!isAdmin) return json({ error: 'Access denied' }, 403);
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-      await db.prepare(`UPDATE funds SET name=?,description=?,active=?,sort_order=? WHERE id=?`)
-        .bind(b.name||'',b.description||'',b.active?1:0,b.sort_order||0,parseInt(fundmatch[1])).run();
+      // budget_annual_cents is optional: only overwrite it when the caller sends it, so a plain
+      // name/active edit from the Manage Funds card never clobbers a budget set elsewhere.
+      if (b.budget_annual_cents != null) {
+        const budget = Math.max(0, Math.round(Number(b.budget_annual_cents) || 0));
+        await db.prepare(`UPDATE funds SET name=?,description=?,active=?,sort_order=?,budget_annual_cents=? WHERE id=?`)
+          .bind(b.name||'',b.description||'',b.active?1:0,b.sort_order||0,budget,parseInt(fundmatch[1])).run();
+      } else {
+        await db.prepare(`UPDATE funds SET name=?,description=?,active=?,sort_order=? WHERE id=?`)
+          .bind(b.name||'',b.description||'',b.active?1:0,b.sort_order||0,parseInt(fundmatch[1])).run();
+      }
       return json({ ok: true });
     }
   }

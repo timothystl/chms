@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.54.0';
+export const DEPLOY_VERSION = '1.88.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -33,6 +33,11 @@ var _pvGivingEntries = [];
 var _editGiftId = null;
 var _editGiftFilterYear = '';
 var _userRole = 'admin';
+// Admin-configurable per-role flags (Settings -> Role Permissions), resolved server-side
+// and delivered via /admin/api/me — see api-utils.js. Defaults permissive until that
+// response lands (applyRoleUI always runs before the first showTab(), so this default is
+// only a brief bootstrap fallback, never the real access-control decision).
+var _userPermissions = { finance: true, staff: true, register: true, reports: true };
 var _batchSearch = '';
 var _attOrder = 'desc', _attGroupBy = 'none', _attChartMode = 'line', _attTableVisible = true, _attChartH = 210;
 var _yoyRptH = 200, _byServiceRptH = 180, _givingTrendH = 220;
@@ -44,8 +49,12 @@ var _archiveView = false;
 var _selectMode = false, _selectedPeople = new Set();
 var _editingHouseholdId = null;
 var _churchConfig = {};
-var DEFAULT_LETTER_TEMPLATE = 'Dear {{name}},\\n\\nThank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.\\n\\nBelow is a summary of your giving for {{year}}:\\n\\n{{gift_table}}\\n\\nTotal Contributions: {{total}}\\n\\n{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}\\n\\nWith gratitude,\\n\\nTimothy Lutheran Church\\n\\nDate: {{date}}';
-var DEFAULT_MIDYEAR_LETTER_TEMPLATE = 'Dear {{name}},\\n\\nAs we reach the midpoint of {{year}}, we want to pause and say thank you. Your generosity to Timothy Lutheran Church sustains our ministry, our staff, and our mission in this community &mdash; and we do not take that for granted.\\n\\nBelow is a summary of your recorded giving for {{year}} so far:\\n\\n{{gift_table}}\\n\\nTotal Giving to Date: {{total}}\\n\\nPlease take a moment to look this over. If anything looks off &mdash; a missing gift, an incorrect amount, or a gift recorded under the wrong name &mdash; please let the church office know so we can correct our records.\\n\\nIf you have been giving by check or cash and would like a simpler way to stay consistent, consider setting up recurring giving:\\n{{#if_giving_url}}- Online recurring giving: {{giving_url}}\\n{{/if_giving_url}}- Automatic bank draft or bill pay through your bank\\n- Contact the church office and we would be glad to help you set it up\\n\\nThank you again for your generosity and your partnership in ministry.\\n\\nWith gratitude,\\n\\nTimothy Lutheran Church\\n\\nDate: {{date}}';
+// Real HTML (not the old plain-textarea "\n"-marker format renderLetterHTML() still
+// tolerates for pre-TinyMCE saved templates) — these are what TinyMCE actually displays
+// and edits, so they need to look right in the rich editor from the first load, not just
+// after the final \n->  substitution pass.
+var DEFAULT_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>Thank you for your generous contributions to Timothy Lutheran Church during {{year}}. Your gifts make a difference in our ministry and community.</p><p>Below is a summary of your giving for {{year}}:</p>{{gift_table}}<p>Total Contributions: {{total}}</p><p>{{#if_ein}}Our EIN/Tax ID is {{ein}}. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.{{/if_ein}}</p><p>With gratitude,</p><p>Timothy Lutheran Church</p><p>Date: {{date}}</p>';
+var DEFAULT_MIDYEAR_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>As we reach the midpoint of {{year}}, we want to pause and say thank you. Your generosity to Timothy Lutheran Church sustains our ministry, our staff, and our mission in this community &mdash; and we do not take that for granted.</p><p>Below is a summary of your recorded giving for {{year}} so far:</p>{{gift_table}}<p>Total Giving to Date: {{total}}</p><p>Please take a moment to look this over. If anything looks off &mdash; a missing gift, an incorrect amount, or a gift recorded under the wrong name &mdash; please let the church office know so we can correct our records.</p><p>If you have been giving by check or cash and would like a simpler way to stay consistent, consider setting up recurring giving:</p><ul><li>{{#if_giving_url}}Online recurring giving: <a href="{{giving_url}}">{{giving_url}}</a>{{/if_giving_url}}</li><li>Automatic bank draft or bill pay through your bank</li><li>Contact the church office and we would be glad to help you set it up</li></ul><p>Thank you again for your generosity and your partnership in ministry.</p><p>With gratitude,</p><p>Timothy Lutheran Church</p><p>Date: {{date}}</p>';
 
 // ── HELPERS ──────────────────────────────────────────────────────────
 function api(path, opts) {
@@ -159,6 +168,7 @@ var FIN_TOPNAV_ITEMS = [
   { id: 'daycare', label: 'Daycare Report', finSection: 'daycare' },
   { id: 'property', label: 'Commercial Property', finSection: 'property' },
   { id: 'planning', label: 'Planning', finSection: 'planning' },
+  { id: 'compensation', label: 'Compensation', finSection: 'compensation' },
 ];
 var _finActiveNavId = 'overview';
 function renderFinanceSubnav() {
@@ -184,17 +194,15 @@ var _tabFromPopState = false;
 // back/forward, or a bare '#finance' hash on reload), defaulting to 'overview' the first time.
 // See FIN_TOPNAV_ITEMS/finNavGo above.
 function showTab(name, finSection) {
-  // Enforce role-based tab access
-  var isFinancePlus = _userRole === 'admin' || _userRole === 'finance';
-  var isStaffPlus   = _userRole === 'admin' || _userRole === 'staff';
-  var canRegister   = _userRole === 'admin' || _userRole === 'staff' || _userRole === 'office';
-  var canEdit       = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff';
-  if (name === 'giving'     && !isFinancePlus) return;
-  if (name === 'tuitionaid' && !isFinancePlus) return;
-  if (name === 'finance'    && !isFinancePlus) return;
-  if (name === 'attendance' && !isStaffPlus)   return;
-  if (name === 'register'   && !canRegister)   return;
-  if (name === 'reports'    && !canEdit)        return;
+  // Enforce role-based tab access — admin-configurable per role, see _userPermissions above.
+  // This is a UX convenience (avoid landing on a blank/403'd tab); the real enforcement is
+  // server-side in handleChmsApi's ACL block, which reads the same permissions.
+  if (name === 'giving'     && !_userPermissions.finance)  return;
+  if (name === 'tuitionaid' && !_userPermissions.finance)  return;
+  if (name === 'finance'    && !_userPermissions.finance)  return;
+  if (name === 'attendance' && !_userPermissions.staff)    return;
+  if (name === 'register'   && !_userPermissions.register) return;
+  if (name === 'reports'    && !_userPermissions.reports)  return;
   if (name === 'import'     && _userRole !== 'admin') return;
   if (name === 'settings'   && _userRole !== 'admin') return;
   if (name === 'volunteers' && _userRole !== 'admin') return;
@@ -348,7 +356,7 @@ window.addEventListener('load', function() {
   if (bsy) bsy.value = y;
   // Fetch role first so UI restrictions apply before content loads
   api('/admin/api/me').then(function(d) {
-    applyRoleUI(d && d.role ? d.role : 'admin', d && d.display_name);
+    applyRoleUI(d && d.role ? d.role : 'admin', d && d.display_name, d && d.permissions);
   }).catch(function() {
     applyRoleUI('admin');
   }).finally(function() {
@@ -365,11 +373,18 @@ window.addEventListener('load', function() {
   });
 });
 // ── ROLE UI ──────────────────────────────────────────────────────────────
-function applyRoleUI(role, displayName) {
+function applyRoleUI(role, displayName, permissions) {
   _userRole = role || 'admin';
   if (_userRole === 'unknown') { location.href = '/chms'; return; }
+  // Admin always full access (matches the backend's fixed admin bypass); any other missing
+  // permissions payload (e.g. the /me call failed and applyRoleUI('admin') ran instead)
+  // defaults permissive too, consistent with the pre-load default above.
+  _userPermissions = (_userRole === 'admin' || !permissions)
+    ? { finance: true, staff: true, register: true, reports: true }
+    : permissions;
   document.body.classList.remove('role-admin','role-finance','role-staff','role-office','role-member');
   document.body.classList.add('role-' + _userRole);
+  applyPermissionUI(_userPermissions);
   var badge = document.getElementById('topbar-role');
   if (badge) {
     if (_userRole !== 'admin') {
@@ -379,6 +394,40 @@ function applyRoleUI(role, displayName) {
       badge.style.display = 'none';
     }
   }
+}
+// Resolved per-item level map for the current role, e.g. {giving:'edit', reports:'view', …}.
+// Delivered by /admin/api/me (see api-utils.js permissionsForRole). Kept here so any code
+// can ask permView()/permEdit() about the logged-in user.
+var _perm = {};
+function permView(item) { return _userRole === 'admin' || (!!_perm[item] && _perm[item] !== 'none'); }
+function permEdit(item) { return _userRole === 'admin' || _perm[item] === 'edit'; }
+// Drives feature-tab visibility (by VIEW level) and per-feature edit affordances (by EDIT
+// level) from the resolved permissions — these are the admin-configurable areas
+// (Settings -> Users -> Role Permissions). .require-admin/.no-member/.require-edit stay
+// governed by the static role-based CSS in html-head.js (People/Households editing and
+// admin-only surfaces are not part of the configurable matrix).
+function applyPermissionUI(perms) {
+  _perm = perms || {};
+  // Tab / section visibility by VIEW level. require-finance == the Giving/Financial-Reports
+  // area (giving item); tuitionaid/financeov/attendance/register/reports are their own items.
+  var viewMap = {
+    'require-finance': 'giving', 'require-tuitionaid': 'tuitionaid', 'require-financeov': 'finance',
+    'require-attendance': 'attendance', 'require-register': 'register', 'require-reports': 'reports',
+  };
+  Object.keys(viewMap).forEach(function(cls) {
+    var allowed = permView(viewMap[cls]);
+    document.querySelectorAll('.' + cls).forEach(function(el) {
+      el.style.display = allowed ? '' : 'none';
+    });
+  });
+  // The Finance section header shows if ANY of its three items is visible.
+  var finHdr = document.getElementById('s-hdr-finance');
+  if (finHdr) finHdr.style.display = (permView('giving') || permView('tuitionaid') || permView('finance')) ? '' : 'none';
+  // Per-feature edit affordances via body classes (see html-head.js CSS). Robust for
+  // controls rendered after this runs, unlike a one-time el.style pass.
+  ['giving', 'tuitionaid', 'finance', 'attendance', 'followups', 'register'].forEach(function(it) {
+    document.body.classList.toggle('perm-edit-' + it, permEdit(it));
+  });
 }
 
 // ── TAGS ──────────────────────────────────────────────────────────────

@@ -1,31 +1,47 @@
 export const JS_EXPORT_IMPORT = String.raw`// ── BATCH SEND ─────────────────────────────────────────────────────────
-function loadBatchStatementGivers() {
-  var yr = document.getElementById('batch-stmt-year').value;
-  var status = document.getElementById('batch-stmt-status');
-  var listEl = document.getElementById('batch-stmt-list');
+// Shared by the Year-End (prefix 'batch-stmt', letterType 'year_end') and Mid-Year
+// (prefix 'batch-mid', letterType 'midyear') batch-send tiles. Two features on top of the
+// original one-shot loop: (1) already-sent givers (per giving_letter_sends, resolved via
+// list_givers's letter_type param) show "(already sent)" and default unchecked, so reloading
+// the list after a rate-limit interruption — or just coming back the next day — naturally
+// only sends to whoever's still pending; (2) a "Max to send today" cap stops the loop before
+// Resend's own daily limit is hit, and a distinct rate_limited response (see
+// api-import.js) stops the loop immediately instead of marking every remaining recipient
+// "failed" one at a time.
+function loadBatchGivers(prefix, letterType) {
+  var yr = document.getElementById(prefix + '-year').value;
+  var status = document.getElementById(prefix + '-status');
+  var listEl = document.getElementById(prefix + '-list');
   if (!yr) { status.textContent = 'Enter a year.'; status.className = 'import-status err'; return; }
   status.textContent = 'Loading givers for ' + yr + '…'; status.className = 'import-status';
   listEl.innerHTML = '';
-  // Fetch people who gave in this year (via giving summary approach - get all people with giving)
-  api('/admin/api/reports/giving-statement?year=' + yr + '&list_givers=1').then(function(d) {
+  api('/admin/api/reports/giving-statement?year=' + yr + '&list_givers=1&letter_type=' + letterType).then(function(d) {
     var givers = d.givers || [];
     if (!givers.length) {
       status.textContent = 'No givers with email found for ' + yr + '.';
       status.className = 'import-status err';
       return;
     }
-    status.textContent = givers.length + ' givers found with email. Check who to include, then Send.';
+    var alreadySent = givers.filter(function(g) { return g.already_sent; }).length;
+    status.textContent = givers.length + ' givers found with email'
+      + (alreadySent ? ' (' + alreadySent + ' already sent this year — unchecked below, but you can re-check to resend)' : '')
+      + '. Check who to include, then Send.';
     status.className = 'import-status ok';
-    listEl.innerHTML = '<div style="margin-bottom:8px;display:flex;gap:8px;">'
-      + '<button class="btn-sm" onclick="selectAllBatchGivers(true)">Select All</button>'
-      + '<button class="btn-sm" onclick="selectAllBatchGivers(false)">Deselect All</button>'
-      + '<button class="btn-primary" style="font-size:.8rem;padding:4px 12px;" onclick="sendBatchStatements(' + yr + ')">Send Selected</button>'
+    listEl.innerHTML = '<div style="margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+      + '<button class="btn-sm" onclick="selectAllBatchGivers(&#39;' + prefix + '&#39;,true)">Select All</button>'
+      + '<button class="btn-sm" onclick="selectAllBatchGivers(&#39;' + prefix + '&#39;,false)">Deselect All</button>'
+      + '<label style="font-size:.8rem;display:flex;align-items:center;gap:4px;">Max to send today'
+      + '<input type="number" id="' + prefix + '-daily-cap" value="250" min="1" style="width:60px;padding:2px 6px;font-size:.8rem;">'
+      + '</label>'
+      + '<button class="btn-primary" style="font-size:.8rem;padding:4px 12px;" onclick="sendBatchGivers(&#39;' + prefix + '&#39;,' + yr + ',&#39;' + letterType + '&#39;)">Send Selected</button>'
       + '</div>'
-      + '<div id="batch-givers-list">'
+      + '<div style="font-size:.74rem;color:var(--warm-gray);margin-bottom:8px;">Brevo&rsquo;s free plan caps at 300 emails/day &mdash; keep this a bit under 300 if you&rsquo;re also sending the weekly newsletter the same day.</div>'
+      + '<div id="' + prefix + '-givers-list">'
       + givers.map(function(g) {
-        return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.85rem;cursor:pointer;">'
-          + '<input type="checkbox" data-pid="' + g.id + '" checked>'
+        return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.85rem;cursor:pointer;' + (g.already_sent ? 'opacity:.6;' : '') + '">'
+          + '<input type="checkbox" data-pid="' + g.id + '"' + (g.already_sent ? '' : ' checked') + '>'
           + '<span>' + esc(g.first_name + ' ' + g.last_name) + '</span>'
+          + (g.already_sent ? '<span style="font-size:.72rem;color:var(--warm-gray);font-style:italic;">already sent</span>' : '')
           + '<span style="color:var(--warm-gray);font-size:.78rem;">' + esc(g.email) + '</span>'
           + '<span style="margin-left:auto;font-size:.78rem;">' + fmtMoney(g.total_cents) + '</span>'
           + '</label>';
@@ -35,37 +51,46 @@ function loadBatchStatementGivers() {
     status.textContent = 'Error: ' + e.message; status.className = 'import-status err';
   });
 }
-function selectAllBatchGivers(checked) {
-  document.querySelectorAll('#batch-givers-list input[type=checkbox]').forEach(function(cb) { cb.checked = checked; });
+function selectAllBatchGivers(prefix, checked) {
+  document.querySelectorAll('#' + prefix + '-givers-list input[type=checkbox]').forEach(function(cb) { cb.checked = checked; });
 }
-function sendBatchStatements(yr) {
-  var status = document.getElementById('batch-stmt-status');
-  var checks = document.querySelectorAll('#batch-givers-list input[type=checkbox]:checked');
+function sendBatchGivers(prefix, yr, letterType) {
+  var status = document.getElementById(prefix + '-status');
+  var checks = document.querySelectorAll('#' + prefix + '-givers-list input[type=checkbox]:checked');
   if (!checks.length) { status.textContent = 'No givers selected.'; status.className = 'import-status err'; return; }
-  // Ensure church config is loaded
+  var capEl = document.getElementById(prefix + '-daily-cap');
+  var dailyCap = Math.max(1, parseInt((capEl || {}).value, 10) || 250);
   if (!_churchConfig.church_name) {
     api('/admin/api/config/church').then(function(cfg) {
       _churchConfig = cfg || {};
-      doSendBatch(yr, checks, status);
+      doSendGivingBatch(yr, letterType, checks, status, dailyCap);
     });
   } else {
-    doSendBatch(yr, checks, status);
+    doSendGivingBatch(yr, letterType, checks, status, dailyCap);
   }
 }
-function doSendBatch(yr, checks, status) {
+function doSendGivingBatch(yr, letterType, checks, status, dailyCap) {
   var ids = Array.from(checks).map(function(cb){return cb.dataset.pid;});
-  var total = ids.length, done = 0, failed = 0, skipped = 0;
+  var total = ids.length, done = 0, failed = 0, skipped = 0, stoppedByLimit = false;
   status.textContent = 'Sending 0/' + total + '…'; status.className = 'import-status';
-  function sendNext() {
-    if (!ids.length) {
-      var msg = 'Done. ' + done + ' sent';
+  function finish() {
+    var remaining = ids.length;
+    var msg;
+    if (stoppedByLimit) {
+      msg = "Brevo's sending limit was hit after " + done + ' sent. ' + remaining + ' remaining were not attempted — come back later today or tomorrow and click Load Givers again to continue (they will show as pending, not already sent).';
+    } else if (remaining) {
+      msg = "Reached today's cap of " + dailyCap + ' (' + done + ' sent). ' + remaining + ' remaining — click Load Givers again later to continue.';
+    } else {
+      msg = 'Done. ' + done + ' sent';
       if (skipped) msg += ', ' + skipped + ' skipped (no email)';
       if (failed) msg += ', ' + failed + ' failed';
       msg += '.';
-      status.textContent = msg;
-      status.className = failed ? 'import-status' : 'import-status ok';
-      return;
     }
+    status.textContent = msg;
+    status.className = (failed || stoppedByLimit || remaining) ? 'import-status' : 'import-status ok';
+  }
+  function sendNext() {
+    if (!ids.length || done >= dailyCap) { finish(); return; }
     var pid = ids.shift();
     api('/admin/api/reports/giving-statement?person_id=' + pid + '&year=' + yr).then(function(d) {
       if (d.error || !d.person) { failed++; sendNext(); return; }
@@ -73,56 +98,62 @@ function doSendBatch(yr, checks, status) {
       var p = d.person || {};
       if (!p.email) { skipped++; sendNext(); return; }
       var churchName = _churchConfig.church_name || 'Timothy Lutheran Church';
-      var letterHtml = renderLetterHTML(d);
+      var letterHtml = renderLetterHTML(d, letterType);
+      var subject = letterType === 'midyear'
+        ? (yr + ' Mid-Year Giving Update — ' + churchName)
+        : (yr + ' Charitable Contribution Statement — ' + churchName);
       var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
-        + '<div style="font-size:16px;font-weight:bold;margin-bottom:6px;">' + esc(churchName) + '</div><hr style="margin:10px 0;">'
+        + letterheadImgHtml(true, churchName, 'font-size:16px;font-weight:bold;', 6) + '<hr style="margin:10px 0;">'
         + letterHtml + '</div>';
       return api('/admin/api/giving/send-statement', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
           to_email: p.email,
           to_name: (p.first_name + ' ' + p.last_name).trim(),
-          subject: yr + ' Charitable Contribution Statement — ' + churchName,
-          html_body: fullHtml
+          subject: subject,
+          html_body: fullHtml,
+          person_id: pid,
+          year: yr,
+          letter_type: letterType
         })
       });
     }).then(function(r) {
-      if (r && r.ok) done++; else failed++;
-      status.textContent = 'Sending ' + (done+failed+skipped) + '/' + total + '…';
-      sendNext();
+      if (r && r.ok) { done++; status.textContent = 'Sending ' + (done+failed+skipped) + '/' + total + '…'; sendNext(); return; }
+      if (r && r.rate_limited) { stoppedByLimit = true; finish(); return; }
+      failed++; status.textContent = 'Sending ' + (done+failed+skipped) + '/' + total + '…'; sendNext();
     }).catch(function() { failed++; sendNext(); });
   }
   sendNext();
 }
-// ── BATCH SEND — MID-YEAR UPDATE ────────────────────────────────────────
-function loadBatchMidyearGivers() {
-  var yr = document.getElementById('batch-mid-year').value;
-  var status = document.getElementById('batch-mid-status');
-  var listEl = document.getElementById('batch-mid-list');
+// ── BATCH SEND — GIVING APPEAL (all member households, not just existing givers) ───────
+function loadBatchAppealHouseholds() {
+  var yr = document.getElementById('batch-appeal-year').value;
+  var status = document.getElementById('batch-appeal-status');
+  var listEl = document.getElementById('batch-appeal-list');
   if (!yr) { status.textContent = 'Enter a year.'; status.className = 'import-status err'; return; }
-  status.textContent = 'Loading givers for ' + yr + '…'; status.className = 'import-status';
+  status.textContent = 'Loading member households for ' + yr + '…'; status.className = 'import-status';
   listEl.innerHTML = '';
-  api('/admin/api/reports/giving-statement?year=' + yr + '&list_givers=1').then(function(d) {
-    var givers = d.givers || [];
-    if (!givers.length) {
-      status.textContent = 'No givers with email found for ' + yr + '.';
+  api('/admin/api/reports/giving-statement?year=' + yr + '&list_member_households=1').then(function(d) {
+    var households = d.households || [];
+    if (!households.length) {
+      status.textContent = 'No member households with an email on file found.';
       status.className = 'import-status err';
       return;
     }
-    status.textContent = givers.length + ' givers found with email. Check who to include, then Send.';
+    status.textContent = households.length + ' member households found with email. Check who to include, then Send.';
     status.className = 'import-status ok';
     listEl.innerHTML = '<div style="margin-bottom:8px;display:flex;gap:8px;">'
-      + '<button class="btn-sm" onclick="selectAllMidyearGivers(true)">Select All</button>'
-      + '<button class="btn-sm" onclick="selectAllMidyearGivers(false)">Deselect All</button>'
-      + '<button class="btn-primary" style="font-size:.8rem;padding:4px 12px;" onclick="sendBatchMidyearLetters(' + yr + ')">Send Selected</button>'
+      + '<button class="btn-sm" onclick="selectAllAppealHouseholds(true)">Select All</button>'
+      + '<button class="btn-sm" onclick="selectAllAppealHouseholds(false)">Deselect All</button>'
+      + '<button class="btn-primary" style="font-size:.8rem;padding:4px 12px;" onclick="sendBatchAppealLetters(' + yr + ')">Send Selected</button>'
       + '</div>'
-      + '<div id="batch-mid-givers-list">'
-      + givers.map(function(g) {
+      + '<div id="batch-appeal-households-list">'
+      + households.map(function(h) {
         return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.85rem;cursor:pointer;">'
-          + '<input type="checkbox" data-pid="' + g.id + '" checked>'
-          + '<span>' + esc(g.first_name + ' ' + g.last_name) + '</span>'
-          + '<span style="color:var(--warm-gray);font-size:.78rem;">' + esc(g.email) + '</span>'
-          + '<span style="margin-left:auto;font-size:.78rem;">' + fmtMoney(g.total_cents) + '</span>'
+          + '<input type="checkbox" data-hhid="' + h.id + '" data-email="' + esc(h.recipient_email) + '" data-name="' + esc(h.recipient_name) + '" checked>'
+          + '<span>' + esc(h.name) + '</span>'
+          + '<span style="color:var(--warm-gray);font-size:.78rem;">' + esc(h.recipient_name) + ' — ' + esc(h.recipient_email) + '</span>'
+          + '<span style="margin-left:auto;font-size:.78rem;">' + fmtMoney(h.total_cents) + '</span>'
           + '</label>';
       }).join('')
       + '</div>';
@@ -130,28 +161,30 @@ function loadBatchMidyearGivers() {
     status.textContent = 'Error: ' + e.message; status.className = 'import-status err';
   });
 }
-function selectAllMidyearGivers(checked) {
-  document.querySelectorAll('#batch-mid-givers-list input[type=checkbox]').forEach(function(cb) { cb.checked = checked; });
+function selectAllAppealHouseholds(checked) {
+  document.querySelectorAll('#batch-appeal-households-list input[type=checkbox]').forEach(function(cb) { cb.checked = checked; });
 }
-function sendBatchMidyearLetters(yr) {
-  var status = document.getElementById('batch-mid-status');
-  var checks = document.querySelectorAll('#batch-mid-givers-list input[type=checkbox]:checked');
-  if (!checks.length) { status.textContent = 'No givers selected.'; status.className = 'import-status err'; return; }
+function sendBatchAppealLetters(yr) {
+  var status = document.getElementById('batch-appeal-status');
+  var checks = document.querySelectorAll('#batch-appeal-households-list input[type=checkbox]:checked');
+  if (!checks.length) { status.textContent = 'No households selected.'; status.className = 'import-status err'; return; }
   if (!_churchConfig.church_name) {
     api('/admin/api/config/church').then(function(cfg) {
       _churchConfig = cfg || {};
-      doSendMidyearBatch(yr, checks, status);
+      doSendAppealBatch(yr, checks, status);
     });
   } else {
-    doSendMidyearBatch(yr, checks, status);
+    doSendAppealBatch(yr, checks, status);
   }
 }
-function doSendMidyearBatch(yr, checks, status) {
-  var ids = Array.from(checks).map(function(cb){return cb.dataset.pid;});
-  var total = ids.length, done = 0, failed = 0, skipped = 0;
+function doSendAppealBatch(yr, checks, status) {
+  var rows = Array.from(checks).map(function(cb) {
+    return { hhid: cb.dataset.hhid, recipient_name: cb.dataset.name || '', recipient_email: cb.dataset.email || '' };
+  });
+  var total = rows.length, done = 0, failed = 0, skipped = 0;
   status.textContent = 'Sending 0/' + total + '…'; status.className = 'import-status';
   function sendNext() {
-    if (!ids.length) {
+    if (!rows.length) {
       var msg = 'Done. ' + done + ' sent';
       if (skipped) msg += ', ' + skipped + ' skipped (no email)';
       if (failed) msg += ', ' + failed + ' failed';
@@ -160,22 +193,21 @@ function doSendMidyearBatch(yr, checks, status) {
       status.className = failed ? 'import-status' : 'import-status ok';
       return;
     }
-    var pid = ids.shift();
-    api('/admin/api/reports/giving-statement?person_id=' + pid + '&year=' + yr).then(function(d) {
-      if (d.error || !d.person) { failed++; sendNext(); return; }
-      d._mode = 'person';
-      var p = d.person || {};
-      if (!p.email) { skipped++; sendNext(); return; }
+    var row = rows.shift();
+    if (!row.recipient_email) { skipped++; sendNext(); return; }
+    api('/admin/api/reports/giving-statement-household?household_id=' + row.hhid + '&year=' + yr).then(function(d) {
+      if (d.error) { failed++; sendNext(); return; }
+      d._mode = 'household';
       var churchName = _churchConfig.church_name || 'Timothy Lutheran Church';
       var letterHtml = renderLetterHTML(d, 'midyear');
       var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
-        + '<div style="font-size:16px;font-weight:bold;margin-bottom:6px;">' + esc(churchName) + '</div><hr style="margin:10px 0;">'
+        + letterheadImgHtml(true, churchName, 'font-size:16px;font-weight:bold;', 6) + '<hr style="margin:10px 0;">'
         + letterHtml + '</div>';
       return api('/admin/api/giving/send-statement', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
-          to_email: p.email,
-          to_name: (p.first_name + ' ' + p.last_name).trim(),
+          to_email: row.recipient_email,
+          to_name: row.recipient_name,
           subject: yr + ' Mid-Year Giving Update — ' + churchName,
           html_body: fullHtml
         })
@@ -188,6 +220,8 @@ function doSendMidyearBatch(yr, checks, status) {
   }
   sendNext();
 }
+function loadBatchStatementGivers() { loadBatchGivers('batch-stmt', 'year_end'); }
+function loadBatchMidyearGivers() { loadBatchGivers('batch-mid', 'midyear'); }
 // ── GENERATE REGISTER FROM PEOPLE ─────────────────────────────────────
 // Called from the Register tab toolbar — uses the current register type
 function openRegFromPeoplePrompt() {
@@ -301,8 +335,17 @@ function clearAllGiving() {
 }
 
 function addToNewsletter(id, email, firstName, lastName) {
+  // Prefer the live profile record so names/emails with apostrophes or quotes
+  // never have to survive an inline onclick attribute (VUXBUG2 class). The
+  // extra args are kept for backward-compatibility with any other caller.
+  if (email == null && typeof _currentPvPerson !== 'undefined' && _currentPvPerson && String(_currentPvPerson.id) === String(id)) {
+    email = _currentPvPerson.email || '';
+    firstName = _currentPvPerson.first_name || '';
+    lastName = _currentPvPerson.last_name || '';
+  }
   var st = document.getElementById('pv-newsletter-status');
   if (st) st.textContent = 'Adding\u2026';
+  if (!email) { if (st) st.textContent = 'No email on file.'; return; }
   api('/admin/api/brevo/sync-contact', {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({email: email, first_name: firstName, last_name: lastName})
   }).then(function(r) {
@@ -663,14 +706,16 @@ function renderManageFunds() {
   });
   var rows = sorted.map(function(f) {
     var amt = '$' + (f.total_cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    var budgetDollars = Math.round((f.budget_annual_cents || 0) / 100);
     return '<tr style="border-bottom:1px solid #eee;' + (f.active ? '' : 'color:var(--warm-gray);') + '">'
       + '<td style="padding:6px 8px;"><label style="font-size:.82rem;"><input type="checkbox" id="mf-active-' + f.id + '"' + (f.active ? ' checked' : '') + '> Active</label></td>'
       + '<td style="padding:6px 8px;font-size:.82rem;">' + esc(f.name) + '</td>'
       + '<td style="padding:6px 8px;font-size:.82rem;">' + f.entry_count + ' gifts &bull; ' + amt + '</td>'
+      + '<td style="padding:6px 8px;font-size:.82rem;white-space:nowrap;">$<input type="number" min="0" step="1" id="mf-budget-' + f.id + '" value="' + budgetDollars + '" style="width:90px;font-size:.82rem;padding:3px 6px;" title="Annual budget for the Board Report"></td>'
       + '<td style="padding:6px 8px;"><button class="btn-secondary" style="font-size:.78rem;padding:3px 8px;" onclick="saveManageFundActive(' + f.id + ')">Save</button></td></tr>';
   }).join('');
   area.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'
-    + '<tr style="font-size:.75rem;color:var(--warm-gray);text-transform:uppercase;"><th style="text-align:left;padding:6px 8px;">Active</th><th style="text-align:left;padding:6px 8px;">Fund</th><th style="text-align:left;padding:6px 8px;">History</th><th></th></tr>'
+    + '<tr style="font-size:.75rem;color:var(--warm-gray);text-transform:uppercase;"><th style="text-align:left;padding:6px 8px;">Active</th><th style="text-align:left;padding:6px 8px;">Fund</th><th style="text-align:left;padding:6px 8px;">History</th><th style="text-align:left;padding:6px 8px;">Annual budget</th><th></th></tr>'
     + rows + '</table></div>';
 }
 function saveManageFundActive(id) {
@@ -679,12 +724,15 @@ function saveManageFundActive(id) {
   var cb = document.getElementById('mf-active-' + id);
   if (!f || !cb) return;
   var active = cb.checked;
+  var budgetInput = document.getElementById('mf-budget-' + id);
+  var budgetCents = budgetInput ? Math.max(0, Math.round((parseFloat(budgetInput.value) || 0) * 100)) : (f.budget_annual_cents || 0);
   status.textContent = 'Saving…'; status.className = 'import-status';
   api('/admin/api/funds/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
-    name: f.name, description: f.description || '', active: active, sort_order: f.sort_order || 0
+    name: f.name, description: f.description || '', active: active, sort_order: f.sort_order || 0, budget_annual_cents: budgetCents
   })}).then(function(d) {
     if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
     f.active = active ? 1 : 0;
+    f.budget_annual_cents = budgetCents;
     renderManageFunds();
     status.textContent = 'Saved.'; status.className = 'import-status ok';
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
@@ -804,6 +852,112 @@ function svMigCommitAll() {
     status.className = (d.errors && d.errors.length) ? 'import-status err' : 'import-status ok';
     loadSchedulerVolunteerMigration();
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+
+// ── LINK EXISTING PEOPLE TO BREEZE ────────────────────────────────────
+// Finds Breeze people not yet linked to a Connect record and lets the admin
+// confirm each link (setting breeze_id on the existing person, no data touched).
+var _bzlItems = [];
+function bzlConfidenceLabel(c) {
+  var labels = { exact_email: 'Same email', exact_name: 'Exact name match',
+    fuzzy: 'Possible match', ambiguous_name: 'Several possible matches' };
+  return labels[c] || c;
+}
+function bzlConfidenceColor(c) {
+  var colors = { exact_email: '#2e7d32', exact_name: '#2e7d32', fuzzy: '#c9973a', ambiguous_name: '#c0392b' };
+  return colors[c] || '#999';
+}
+function bzlRowHtml(it, i) {
+  var rowName = 'bzl-row-' + i;
+  var m = it.match || { confidence: 'none', suggested: null, candidates: [] };
+  var options = '';
+  var pickedSomething = false;
+  if (m.suggested) {
+    options += '<label style="display:block;font-size:.85rem;margin:2px 0;"><input type="radio" name="' + rowName + '" value="' + m.suggested.id + '" checked> Link to ' + esc(m.suggested.first_name + ' ' + m.suggested.last_name) + ' (' + esc(m.suggested.email || 'no email') + ')</label>';
+    pickedSomething = true;
+  }
+  (m.candidates || []).forEach(function(c) {
+    if (m.suggested && c.id === m.suggested.id) return;
+    options += '<label style="display:block;font-size:.85rem;margin:2px 0;"><input type="radio" name="' + rowName + '" value="' + c.id + '"' + (!pickedSomething ? ' checked' : '') + '> Link to ' + esc(c.first_name + ' ' + c.last_name) + ' (' + esc(c.email || 'no email') + ')</label>';
+    pickedSomething = true;
+  });
+  options += '<div style="margin:4px 0;position:relative;">'
+    + '<input type="text" placeholder="Search a different person…" id="bzl-search-' + i + '" oninput="bzlSearch(' + i + ')" style="font-size:.8rem;padding:4px 6px;border:1px solid var(--border);border-radius:6px;width:240px;">'
+    + '<div id="bzl-search-results-' + i + '" style="position:absolute;background:var(--white);border:1px solid var(--border);border-radius:6px;z-index:20;max-width:280px;"></div>'
+    + '</div>';
+  return '<div class="bzl-row" id="bzl-rowbox-' + i + '" data-breeze-id="' + esc(it.breeze_id) + '" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;">'
+    + '<div style="font-weight:600;font-size:.9rem;">Breeze: ' + esc(it.name || '(no name)')
+    + '<span style="font-weight:400;color:var(--warm-gray);font-size:.78rem;"> — ' + esc(it.email || 'no email') + '</span></div>'
+    + '<div style="font-size:.75rem;color:' + bzlConfidenceColor(m.confidence) + ';font-weight:600;margin:2px 0 4px;">' + bzlConfidenceLabel(m.confidence) + '</div>'
+    + options
+    + '<button class="btn-primary" style="font-size:.8rem;padding:4px 12px;margin-top:4px;" onclick="bzlLink(' + i + ')">Link</button>'
+    + ' <span id="bzl-rowmsg-' + i + '" style="font-size:.78rem;margin-left:6px;"></span>'
+    + '</div>';
+}
+function loadBreezeUnlinked() {
+  var status = document.getElementById('breeze-link-status');
+  var area = document.getElementById('breeze-link-area');
+  status.textContent = 'Scanning Breeze… this can take a moment for a large directory.'; status.className = 'import-status';
+  area.innerHTML = '';
+  api('/admin/api/import/breeze-unlinked').then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    _bzlItems = d.items || [];
+    if (!_bzlItems.length) {
+      status.textContent = 'No unlinked Breeze people matched an existing Connect record. (' + (d.unlinked_in_breeze || 0) + ' Breeze people not yet linked; ' + (d.unlinked_local || 0) + ' Connect people without a Breeze ID.)';
+      status.className = 'import-status ok';
+      return;
+    }
+    area.innerHTML = _bzlItems.map(function(it, i) { return bzlRowHtml(it, i); }).join('');
+    var msg = _bzlItems.length + ' suggested match(es) to review.';
+    if (d.capped) msg += ' Showing the first ' + d.cap + ' — re-run after linking these to see more.';
+    status.textContent = msg; status.className = 'import-status';
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+function bzlSearch(i) {
+  var inp = document.getElementById('bzl-search-' + i);
+  var resultsEl = document.getElementById('bzl-search-results-' + i);
+  var q = inp.value;
+  if (q.length < 2) { resultsEl.innerHTML = ''; return; }
+  api('/admin/api/people?q=' + encodeURIComponent(q)).then(function(d) {
+    var rows = (d.people || []).slice(0, 8);
+    resultsEl.innerHTML = rows.map(function(p) {
+      var name = (p.first_name + ' ' + p.last_name).replace(/'/g, '&#39;');
+      return '<div style="cursor:pointer;padding:3px 6px;font-size:.8rem;" onclick="bzlPickSearchResult(' + i + ',' + p.id + ',&#39;' + esc(name) + '&#39;)">'
+        + esc(p.last_name) + ', ' + esc(p.first_name) + (p.email ? ' — ' + esc(p.email) : '') + '</div>';
+    }).join('');
+  });
+}
+function bzlPickSearchResult(i, personId, name) {
+  var row = document.getElementById('bzl-rowbox-' + i);
+  if (!row) return;
+  var rowName = 'bzl-row-' + i;
+  var existing = row.querySelector('input[value="' + personId + '"]');
+  if (!existing) {
+    var lbl = document.createElement('label');
+    lbl.style.cssText = 'display:block;font-size:.85rem;margin:2px 0;';
+    lbl.innerHTML = '<input type="radio" name="' + rowName + '" value="' + personId + '"> Link to ' + name;
+    var searchBox = document.getElementById('bzl-search-' + i).parentNode;
+    searchBox.parentNode.insertBefore(lbl, searchBox);
+    existing = lbl.querySelector('input');
+  }
+  existing.checked = true;
+  document.getElementById('bzl-search-results-' + i).innerHTML = '';
+  document.getElementById('bzl-search-' + i).value = '';
+}
+function bzlLink(i) {
+  var it = _bzlItems[i];
+  if (!it) return;
+  var msgEl = document.getElementById('bzl-rowmsg-' + i);
+  var checked = document.querySelector('input[name="bzl-row-' + i + '"]:checked');
+  if (!checked) { msgEl.textContent = 'Pick a person first.'; msgEl.style.color = 'var(--danger)'; return; }
+  var personId = parseInt(checked.value, 10);
+  msgEl.textContent = 'Linking…'; msgEl.style.color = 'var(--warm-gray)';
+  api('/admin/api/import/breeze-link', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ breeze_id: it.breeze_id, person_id: personId }) }).then(function(d) {
+    if (d.error) { msgEl.textContent = 'Error: ' + d.error; msgEl.style.color = 'var(--danger)'; return; }
+    var row = document.getElementById('bzl-rowbox-' + i);
+    if (row) row.innerHTML = '<div style="font-size:.85rem;color:#2e7d32;">✓ Linked ' + esc(it.name || '') + ' to ' + esc(d.person_name || ('person #' + personId)) + '.</div>';
+  }).catch(function(e) { msgEl.textContent = 'Error: ' + e.message; msgEl.style.color = 'var(--danger)'; });
 }
 
 function downloadBreezeAuditLog() {
@@ -976,7 +1130,7 @@ function runBreezeImport() {
   var status = document.getElementById('breeze-status');
   bar.style.display = 'block'; fill.style.width = '0%';
   status.textContent = 'Starting import…'; status.className = 'import-status';
-  var totalImported = 0, totalUpdated = 0, totalDeactivated = 0;
+  var totalImported = 0, totalUpdated = 0, totalDeactivated = 0, totalSkipped = 0;
   var lastStatusField = null, allStatusesSeen = new Set();
   function doPage(offset) {
     api('/admin/api/import/breeze', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({offset:offset, limit:100})}).then(function(d) {
@@ -984,6 +1138,7 @@ function runBreezeImport() {
       totalImported += d.imported || 0;
       totalUpdated += d.updated || 0;
       totalDeactivated += d.deactivated || 0;
+      totalSkipped += d.skipped || 0;
       if (d.status_field) lastStatusField = d.status_field;
       if (d.statuses_seen) d.statuses_seen.forEach(function(s) { allStatusesSeen.add(s); });
       if (d._diag && !window._breezeImportDiag) {
@@ -1015,9 +1170,9 @@ function runBreezeImport() {
         }
       }
       fill.style.width = d.done ? '100%' : Math.min(95, (d.next_offset / Math.max(d.next_offset + 100, 200)) * 100) + '%';
-      status.textContent = 'Imported ' + totalImported + ', updated ' + totalUpdated + '…';
+      status.textContent = 'Added ' + totalImported + ' new, skipped ' + totalSkipped + ' already here…';
       if (d.done) {
-        var msg = 'People sync done. ' + totalImported + ' new, ' + totalUpdated + ' updated' + (totalDeactivated ? ', ' + totalDeactivated + ' deactivated' : '') + '.';
+        var msg = 'People sync done (add-only). ' + totalImported + ' new added, ' + totalSkipped + ' already here left unchanged.';
         if (!lastStatusField) {
           msg += ' ⚠ No Breeze status field detected — check Settings › Breeze Status Mapping.';
         } else if (allStatusesSeen.size === 0) {
@@ -1037,6 +1192,23 @@ function runBreezeImport() {
     }).catch(function(e) { status.textContent = 'Network error: ' + e.message; status.className = 'import-status err'; });
   }
   doPage(0);
+}
+function runBreezeNameSync(btnEl) {
+  var btn = btnEl || null;
+  var status = document.getElementById('breeze-name-status');
+  if (btn) { btn.disabled = true; }
+  if (status) { status.textContent = 'Syncing middle & preferred names from Breeze…'; status.className = 'import-status'; }
+  api('/admin/api/import/breeze-sync-names', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' })
+    .then(function(r) {
+      if (!r || !r.ok) { if (status) { status.textContent = 'Error: ' + ((r && r.error) || 'Unknown error'); status.className = 'import-status err'; } return; }
+      if (status) {
+        status.textContent = 'Done — ' + r.matched + ' linked people scanned; ' + r.middle_updated + ' middle name'
+          + (r.middle_updated === 1 ? '' : 's') + ' and ' + r.preferred_updated + ' preferred name'
+          + (r.preferred_updated === 1 ? '' : 's') + ' updated.';
+        status.className = 'import-status ok';
+      }
+    }).catch(function() { if (status) { status.textContent = 'Request failed.'; status.className = 'import-status err'; } })
+    .finally(function() { if (btn) btn.disabled = false; });
 }
 function runBreezeTagSync(btnEl) {
   var btn = btnEl || null;

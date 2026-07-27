@@ -1031,6 +1031,103 @@ async function seedIvanhoePropertyValuationV3(db) {
   ]);
 }
 
+// FIN — June 2026 AHRA property management report (delivered 2026-07-23 as a structured
+// extract: report_summary.md, monthly_financials_row.csv, extract.json). Adds this month's
+// financials + the next tax-reserve-schedule entry, and records the source's own flagged
+// data-quality items as meta notes rather than resolving them by assumption — same
+// "record the note, don't guess" convention as the correction_log/open_items already in
+// FINANCE_PROPERTY_IVANHOE_META. Mortgage balance is untouched (already correctly $279,691.13
+// per FIN9's own marker-gated fix); this report's own $100,785.68 MRI-migration figure is
+// explicitly NOT used, per the source's own flag.
+async function seedIvanhoePropertyJune2026(db) {
+  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_2026_06_seeded'").first();
+  if (marker) return;
+  const ops = [];
+  // total_expenses_cents = operating + non-operating expenses combined (matches how every prior
+  // row in FINANCE_PROPERTY_IVANHOE_MONTHLY is stored — revenue minus this equals net income
+  // exactly, verified against the source's own income statement: $9,765.27 - $4,462.48 = $5,302.79).
+  ops.push(db.prepare(
+    `INSERT INTO finance_property_monthly
+       (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,source_report)
+     VALUES ('ivanhoe','2026-06',1.0,976527,446248,530279,625984,932177,1035833,'2026-06 - 3277 Ivanhoe Property Management Report.pdf')
+     ON CONFLICT(property_key,period) DO UPDATE SET
+       occupancy_pct=excluded.occupancy_pct, total_revenue_cents=excluded.total_revenue_cents, total_expenses_cents=excluded.total_expenses_cents,
+       net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
+       available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
+       source_report=excluded.source_report`
+  ));
+  // Property tax reserve: this report's own reserve section frames itself as computing JULY's
+  // contribution off June's activity (its own stated report_month is "2026-07"), recalculated as
+  // the remaining $6,650.00 gap spread over the 6 months left before the tax is due ($1,108.33/mo)
+  // rather than the flat $950/mo used earlier in the year. The "before" balance ($4,750.00) is
+  // identical to April and May — no distinct June-2026 contribution appears anywhere in this
+  // source, the same report-carryover pattern already flagged on the 2026-05 row.
+  ops.push(db.prepare(
+    `INSERT INTO finance_property_reserves (property_key,reserve_key,report_month,tax_year,target_estimate_cents,reserve_before_cents,contribution_cents,reserve_after_cents,note)
+     VALUES ('ivanhoe','property_tax','2026-07',2026,1140000,475000,110833,585833,?)
+     ON CONFLICT(property_key,reserve_key,report_month) DO NOTHING`
+  ).bind('From the June 2026 report (generated 7/23/2026); its own reserve section computes July’s contribution, recalculated as the remaining $6,650.00 gap spread over the 6 months left before the tax is due ($1,108.33/mo) rather than the flat $950/mo used earlier in the year. No distinct June-2026 contribution row appears anywhere in this source — the $4,750.00 "before" balance is identical to April and May, the same carryover pattern already flagged on the 2026-05 row.'));
+  const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_meta'").first();
+  let meta = {};
+  if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
+  meta.open_items_2026_06 = [
+    'Security Deposits Ledger ending balance (-$4,925.00) does not tie to the Balance Sheet / GL security deposits liability (-$4,450.00). A $1,500 refund to a tenant named "Daniel Pica" (not otherwise appearing anywhere else in this report) plus an offsetting correction entry runs through the GL this period (ref 5178 / CA 000875). Flag to AHRA before treating either figure as authoritative.',
+    'Magnatone’s rent roll lease expiration (4/30/2026) is already past as of this June report, yet the tenant is shown as occupied and current on rent — likely a holdover or an unrecorded renewal. Worth confirming with AHRA.',
+    'Two open plumbing work orders for Emma Taylor (suite 3275) as of this report: a 2nd-bathroom faucet issue and a running master-bathroom toilet, both dated 6/17/2026, still open.',
+  ];
+  ops.push(db.prepare(
+    `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(JSON.stringify(meta)));
+  ops.push(db.prepare(
+    `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_2026_06_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ));
+  await db.batch(ops);
+}
+
+// FIN — follow-up after the June 2026 seed above, per Andrew's own read of the numbers: (1) the
+// AHRA/MRI "Mortgage Payable One" GL account (2500-0010) genuinely does grow every month rather
+// than shrink — the June report's period debit ($2,830.98) exactly equals that month's actual
+// principal payment (bank rec shows a $3,783.03 LCEF loan payment 6/30/2026; the income
+// statement shows $952.05 interest expense for the same month; 3783.03 - 952.05 = 2830.98,
+// dollar-for-dollar). That's strong evidence this GL account tracks a CUMULATIVE total that
+// grows by each month's principal paid, not the live outstanding balance (which actually
+// decreases as principal is paid) — Andrew's own theory, now backed by an exact reconciliation,
+// not just a vague "artifact" label. Recorded as principal-payment history for the audit trail;
+// does NOT change the confirmed running balance, since this payment already posted before the
+// 2026-07-20 lender confirmation date it's anchored to. (2) Daniel Pica: per Andrew, a former
+// tenant who moved out — plausibly not refunded his full security deposit, which would explain
+// both the $475 ledger/GL gap and why he no longer appears anywhere else in this report (rent
+// roll / aged delinquencies only list current tenants). Still worth confirming the exact
+// refunded amount with AHRA, but resolves the "who is this and why" question. Separate marker
+// from the June financials seed above so it's safe regardless of whether that one already ran.
+async function seedIvanhoePropertyJune2026Notes(db) {
+  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_2026_06_notes_seeded'").first();
+  if (marker) return;
+  const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_meta'").first();
+  let meta = {};
+  if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
+  meta.loan = meta.loan || {};
+  meta.loan.principal_payment_history = [
+    { period: '2026-06', total_payment_cents: 378303, interest_cents: 95205, principal_cents: 283098,
+      note: 'Bank reconciliation: $3,783.03 LCEF loan payment, 6/30/2026. Income statement: $952.05 interest expense, June 2026. Principal = 378303 − 95205 = 283098 — exactly matches the $2,830.98 period debit posted to GL account "Mortgage Payable One" (2500-0010) that same month.' },
+  ];
+  meta.loan.note = (meta.loan.note || '') + ' AHRA/MRI\'s "Mortgage Payable One" GL account grows every month rather than shrinking — the June 2026 period debit ($2,830.98) exactly matches that month\'s real principal payment (see principal_payment_history), strong evidence this account tracks a cumulative total paid over time, not the live outstanding balance. The confirmed running balance above ($279,691.13 as of 2026-07-20) is the one to use; it already reflects June\'s payment since it postdates it.';
+  const openItems = meta.open_items_2026_06;
+  if (Array.isArray(openItems)) {
+    meta.open_items_2026_06 = openItems.map((item) => item.indexOf('Daniel Pica') >= 0
+      ? 'Security Deposits Ledger ending balance (-$4,925.00) does not tie to the Balance Sheet / GL security deposits liability (-$4,450.00). Per Andrew: "Daniel Pica" is a former tenant who moved out and may not have been refunded his full security deposit — plausibly explaining both the $475 gap and why he doesn\'t appear anywhere else in this report (rent roll / aged delinquencies list only current tenants). Still worth confirming the exact refunded amount with AHRA.'
+      : item);
+  }
+  await db.batch([
+    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify(meta)),
+    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_2026_06_notes_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`),
+    // Backfill the same figures onto the real loan_payment_cents/interest_expense_cents columns
+    // (added by the same migration this seed ships alongside) so the automatic mortgage-balance
+    // rollforward (finComputeMortgageRemainingCents) has real data for June, not just a meta note.
+    db.prepare(`UPDATE finance_property_monthly SET loan_payment_cents=378303, interest_expense_cents=95205 WHERE property_key='ivanhoe' AND period='2026-06'`),
+  ]);
+}
+
 async function _doInitDb(db) {
   for (const stmt of DB_INIT) {
     await db.prepare(stmt).run();
@@ -1069,6 +1166,8 @@ async function _doInitDb(db) {
     'ALTER TABLE worship_services ADD COLUMN breeze_instance_id TEXT NOT NULL DEFAULT ""',
     // funds: breeze_id to match Breeze fund IDs during giving sync
     'ALTER TABLE funds ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
+    // funds: per-fund annual budget (cents) for the Board Report YTD-budget/variance columns
+    'ALTER TABLE funds ADD COLUMN budget_annual_cents INTEGER NOT NULL DEFAULT 0',
     // people: deceased flag and death date
     'ALTER TABLE people ADD COLUMN deceased INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE people ADD COLUMN death_date TEXT NOT NULL DEFAULT ""',
@@ -1402,6 +1501,32 @@ async function _doInitDb(db) {
       PRIMARY KEY (category, fiscal_year)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_finance_budget_plan_year ON finance_budget_plan(fiscal_year)`,
+    // Commercial Property monthly BUDGET (see migrations/0025_finance_property_budget.sql) —
+    // parallels finance_property_monthly (actuals) but imported from a separate AHRA export.
+    `CREATE TABLE IF NOT EXISTS finance_property_budget_monthly (
+      property_key      TEXT    NOT NULL DEFAULT 'ivanhoe',
+      period             TEXT    NOT NULL,
+      revenue_cents      INTEGER NOT NULL DEFAULT 0,
+      expenses_cents     INTEGER NOT NULL DEFAULT 0,
+      net_income_cents   INTEGER NOT NULL DEFAULT 0,
+      source             TEXT    NOT NULL DEFAULT 'ahra_import',
+      updated_at         TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (property_key, period)
+    )`,
+    // Real per-month loan payment + interest expense (see migrations/0026_...) — lets the
+    // confirmed mortgage balance roll forward automatically instead of needing a fresh lender
+    // confirmation every time (finComputeMortgageRemainingCents in js-finance.js).
+    'ALTER TABLE finance_property_monthly ADD COLUMN loan_payment_cents INTEGER',
+    'ALTER TABLE finance_property_monthly ADD COLUMN interest_expense_cents INTEGER',
+    // Giving-letter batch send resume/dedup (see migrations/0027_giving_letter_sends.sql).
+    `CREATE TABLE IF NOT EXISTS giving_letter_sends (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_id   INTEGER NOT NULL,
+      year        INTEGER NOT NULL,
+      letter_type TEXT    NOT NULL,
+      sent_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(person_id, year, letter_type)
+    )`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
@@ -1450,5 +1575,7 @@ async function _doInitDb(db) {
   await seedIvanhoeProperty(db);
   await seedIvanhoePropertyReservesV2(db);
   await seedIvanhoePropertyValuationV3(db);
+  await seedIvanhoePropertyJune2026(db);
+  await seedIvanhoePropertyJune2026Notes(db);
 }
 

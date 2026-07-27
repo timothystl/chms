@@ -290,18 +290,29 @@ export function finXlsxParseSheetGrid(xml, sharedStrings) {
   }
   return dense;
 }
+// `<sheet .../>` is self-closing in most Excel-generated workbooks, but at least one real AHRA
+// export (the "Budget Detail" report) instead writes `<sheet ...></sheet>` — a valid XML variant
+// the old `[^>]*\/>` regex never matched, silently returning zero sheet names for that file and
+// making its upload always fail with "Could not find a Budget Detail sheet." Matching just the
+// opening `<sheet ...>` tag (self-closed or not) and reading its attributes handles both forms,
+// and also stops assuming `name` comes before `r:id` in the tag.
 function finXlsxListSheetNames(workbookXml) {
   const out = [];
-  const sheetRe = /<sheet\b[^>]*\bname="([^"]*)"[^>]*\/>/g;
+  const sheetRe = /<sheet\b([^>]*?)\/?>/g;
   let sm;
-  while ((sm = sheetRe.exec(workbookXml))) out.push(finXmlUnescape(sm[1]));
+  while ((sm = sheetRe.exec(workbookXml))) {
+    const nameM = /\bname="([^"]*)"/.exec(sm[1]);
+    if (nameM) out.push(finXmlUnescape(nameM[1]));
+  }
   return out;
 }
 function finXlsxFindSheetPath(workbookXml, relsXml, sheetName) {
-  const sheetRe = /<sheet\b[^>]*\bname="([^"]*)"[^>]*\br:id="(rId\d+)"[^>]*\/>/g;
+  const sheetRe = /<sheet\b([^>]*?)\/?>/g;
   let sm, rId = null;
   while ((sm = sheetRe.exec(workbookXml))) {
-    if (finXmlUnescape(sm[1]) === sheetName) { rId = sm[2]; break; }
+    const nameM = /\bname="([^"]*)"/.exec(sm[1]);
+    const idM = /\br:id="(rId\d+)"/.exec(sm[1]);
+    if (nameM && idM && finXmlUnescape(nameM[1]) === sheetName) { rId = idM[1]; break; }
   }
   if (!rId) return null;
   const relMap = {};
@@ -574,6 +585,206 @@ export function findBudgetVsActualsSheet(sheets) {
   return null;
 }
 
+// ── Church Report: "Profit and Loss by Month" Excel import ───────────────────────────────────
+// A genuinely different QuickBooks export from the annual "Budget vs. Actuals" report above:
+// one column per month (Jan/Feb/.../Dec) instead of Actual/Budget, and no Budget figures at all
+// (own_budget_cents is always null, same as the live monthly sync's makeMonthlyExtractor — see
+// FIN2/CONN6-era notes on why monthly data specifically needs its own source: the Overview tab's
+// trend/projection cards need period_month 1-12 rows, which the annual import can never produce).
+// Reuses the exact same leading-space-indentation tree walk as parseBudgetVsActualsGrid (same
+// report family, same export convention from this church's QuickBooks) — only the header
+// detection and per-row amount extraction differ (N month columns instead of 2).
+export function findMonthlyPnLSheet(sheets) {
+  for (const s of sheets) {
+    if (!s.grid) continue;
+    if (s.grid.some(r => r && parseMonthColTitle(r[1]) && parseMonthColTitle(r[2]))) return s;
+  }
+  return null;
+}
+export function parseMonthlyPnLGrid(grid) {
+  const headerIdx = grid.findIndex(r => r && parseMonthColTitle(r[1]) && parseMonthColTitle(r[2]));
+  if (headerIdx === -1) throw new Error('Could not find a month-by-month header row (e.g. "Jan 2026", "Feb 2026", ...) in this sheet.');
+  const header = grid[headerIdx];
+  const monthCols = [];
+  for (let c = 1; c < header.length; c++) {
+    const p = parseMonthColTitle(header[c]);
+    if (p) monthCols.push({ col: c, year: p.year, month: p.month });
+  }
+  if (!monthCols.length) throw new Error('No month columns found in the header row.');
+  const fiscalYear = monthCols[0].year;
+  const stack = [];
+  let classification = null;
+  const rows = [], skipped = [];
+  for (let i = headerIdx + 1; i < grid.length; i++) {
+    const raw = grid[i] && grid[i][0];
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const label = raw.trim();
+    if (/^Total\s/i.test(label)) continue;
+    if (IMPORT_SKIP_LABEL_RE.test(label)) continue;
+    const depth = indentDepthOf(raw);
+    const nextLabel = nextNonBlankLabel(grid, i);
+    const hasChildren = nextLabel != null && indentDepthOf(nextLabel) > depth;
+    if (depth === 0 && !hasChildren) { skipped.push(raw); continue; }
+    while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
+    let path;
+    if (depth === 0) {
+      classification = normalizeChurchClassification(label);
+      path = [classification];
+    } else {
+      const parent = stack.length ? stack[stack.length - 1] : { path: [classification || 'Income'] };
+      path = parent.path.concat(label);
+    }
+    stack.push({ depth, path });
+    const row = grid[i] || [];
+    for (const { col, year, month } of monthCols) {
+      rows.push(makeFlatRow(path, classification, hasChildren, {
+        fiscal_year: year, period_month: month,
+        own_actual_cents: dollarsToCents(row[col]), own_budget_cents: null,
+      }));
+    }
+  }
+  return { fiscalYear, months: monthCols.map(m => m.month), rows, skipped };
+}
+// Wholesale-replaces source='monthly_import' rows for exactly one fiscal year's monthly range —
+// same re-import-is-idempotent pattern as persistChurchEntriesImport, scoped to period_month
+// 1-12 only so it can never touch that function's own annual (period_month=0) rows even though
+// they share a fiscal_year.
+export async function persistChurchEntriesMonthlyImport(db, rows, fiscalYear, importedAt) {
+  const ops = [db.prepare(`DELETE FROM finance_church_entries WHERE source='monthly_import' AND fiscal_year=? AND period_month BETWEEN 1 AND 12`).bind(fiscalYear)];
+  for (const r of rows) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_church_entries
+         (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+       VALUES (?,?,?,?,?,?,?,?,?,'monthly_import',?)
+       ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
+         classification=excluded.classification, account_name=excluded.account_name, depth=excluded.depth,
+         has_children=excluded.has_children, own_actual_cents=excluded.own_actual_cents,
+         own_budget_cents=excluded.own_budget_cents, synced_at=excluded.synced_at`
+    ).bind(fiscalYear, r.period_month, r.classification, r.category_path, r.account_name, r.depth, r.has_children ? 1 : 0, r.own_actual_cents, r.own_budget_cents, importedAt));
+  }
+  await db.batch(ops);
+}
+// Monthly rows can come from two sources (the live sync's 'qbo_sync' or this manual
+// 'monthly_import') — resolved per fiscal year, live sync wins whenever it has data for that
+// year (it's the fresher, always-current source once connected), falling back to the manual
+// import only for a year the live sync has never covered. Mirrors resolveChurchYearPrecedence's
+// per-year (not per-row) resolution, just with the opposite priority order for the reason above.
+const CHURCH_MONTHLY_SOURCE_PRIORITY = ['qbo_sync', 'monthly_import'];
+export function resolveChurchMonthlyYearPrecedence(rows) {
+  const byYear = new Map();
+  for (const r of rows) {
+    if (!byYear.has(r.fiscal_year)) byYear.set(r.fiscal_year, []);
+    byYear.get(r.fiscal_year).push(r);
+  }
+  const out = [];
+  for (const yearRows of byYear.values()) {
+    for (const src of CHURCH_MONTHLY_SOURCE_PRIORITY) {
+      const matching = yearRows.filter(r => r.source === src);
+      if (matching.length) { out.push(...matching); break; }
+    }
+  }
+  return out;
+}
+
+// ── Commercial Property: AHRA "Budget Detail" import ─────────────────────────────────────
+// A property-management export (one row per account, one column per month, "Account Name" +
+// "Jan 2026".."Dec 2026" + "Total" + "Percent" header) — a genuinely different shape from the
+// QuickBooks Church Report exports above, but read with the same generic parseXlsxAllSheets().
+// Rather than walking the whole account tree (unnecessary for the Overview/Property revenue-vs-
+// expense chart, which only needs a monthly total), this reads the export's own two rollup rows
+// directly: "Total Budgeted Operating Income" and "Total Budgeted Operating Expense" — both
+// present verbatim in every AHRA Budget Detail export, confirmed against a real file.
+export function findPropertyBudgetDetailSheet(sheets) {
+  for (const s of sheets) {
+    if (!s.grid) continue;
+    if (s.grid.some(r => r && String(r[0] || '').trim() === 'Account Name' && parseMonthColTitle(r[1]))) return s;
+  }
+  return null;
+}
+export function parsePropertyBudgetDetailGrid(grid) {
+  const headerIdx = grid.findIndex(r => r && String(r[0] || '').trim() === 'Account Name' && parseMonthColTitle(r[1]));
+  if (headerIdx === -1) return { months: [] };
+  const header = grid[headerIdx];
+  const monthCols = []; // { col, year, month }
+  for (let c = 1; c < header.length; c++) {
+    const p = parseMonthColTitle(header[c]);
+    if (p) monthCols.push({ col: c, ...p });
+  }
+  if (!monthCols.length) return { months: [] };
+  const findRow = label => grid.find(r => r && String(r[0] || '').trim().toLowerCase() === label.toLowerCase());
+  const revenueRow = findRow('Total Budgeted Operating Income');
+  const expenseRow = findRow('Total Budgeted Operating Expense');
+  if (!revenueRow || !expenseRow) return { months: [] };
+  const months = monthCols.map(({ col, year, month }) => {
+    const revenueCents = dollarsToCents(revenueRow[col]);
+    const expensesCents = dollarsToCents(expenseRow[col]);
+    return {
+      period: `${year}-${String(month).padStart(2, '0')}`,
+      revenueCents,
+      expensesCents,
+      netIncomeCents: revenueCents - expensesCents,
+    };
+  });
+  return { months };
+}
+
+// ── Commercial Property: monthly-financials CSV import ──────────────────────────────────────
+// Each new AHRA property management report comes with its own single-row CSV export in this
+// exact header shape (confirmed against the real June 2026 export used to seed this table —
+// see seedIvanhoePropertyJune2026 in db.js) — this lets an admin paste/upload that CSV directly
+// instead of retyping every field into the "+ Add Month" modal by hand each time a new report
+// arrives. `management_fee_expense`/`accounts_receivable` aren't tracked by this table (no column
+// for them) and are intentionally ignored, same as `total_revenue_ytd` etc. — this app derives
+// YTD figures itself from the stored monthly rows rather than storing a redundant snapshot.
+const PROPERTY_MONTHLY_CSV_REQUIRED_COLS = ['period', 'total_revenue', 'operating_expenses', 'net_operating_income', 'non_operating_expenses', 'net_income'];
+function parseCsvLine(line) {
+  const out = [];
+  let cur = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else inQuotes = false; }
+      else cur += ch;
+    } else if (ch === '"') inQuotes = true;
+    else if (ch === ',') { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+export function parsePropertyMonthlyCsv(text) {
+  const lines = (text || '').split(/\r\n|\r|\n/).map(l => l.trim()).filter(l => l.length);
+  if (!lines.length) return { rows: [], error: 'Empty file.' };
+  const header = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+  const idx = {};
+  header.forEach((h, i) => { idx[h] = i; });
+  for (const col of PROPERTY_MONTHLY_CSV_REQUIRED_COLS) {
+    if (!(col in idx)) return { rows: [], error: `Missing required column "${col}".` };
+  }
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = parseCsvLine(lines[i]);
+    const get = col => (idx[col] != null ? cells[idx[col]] : undefined);
+    const period = (get('period') || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(period)) return { rows: [], error: `Row ${i + 1}: "period" must be YYYY-MM (got "${period}").` };
+    const occRaw = get('occupancy_pct');
+    const occ = (occRaw === undefined || occRaw === '') ? null : Number(occRaw) / 100;
+    const operatingExpCents = Math.abs(dollarsToCents(get('operating_expenses')));
+    const nonOperatingExpCents = Math.abs(dollarsToCents(get('non_operating_expenses')));
+    rows.push({
+      period,
+      occupancy_pct: occ,
+      total_revenue_cents: dollarsToCents(get('total_revenue')),
+      total_expenses_cents: operatingExpCents + nonOperatingExpCents,
+      net_operating_income_cents: dollarsToCents(get('net_operating_income')),
+      net_income_cents: dollarsToCents(get('net_income')),
+      available_for_distribution_cents: get('distribution_amount') !== undefined ? dollarsToCents(get('distribution_amount')) : null,
+      reserve_balance_cents: get('total_property_reserve') !== undefined ? dollarsToCents(get('total_property_reserve')) : null,
+    });
+  }
+  return { rows };
+}
+
 // ── Church Report: Balance Sheet / Statement of Financial Position import ───────────────────
 // A structurally different report from Budget vs. Actuals — point-in-time account balances
 // (Assets/Liabilities/Equity), one "Total" column, no Actual/Budget split. Two real exports from
@@ -751,6 +962,42 @@ const MDO_CATEGORY_RULES = [
 export function classifyMdoAccountCategory(accountName) {
   for (const rule of MDO_CATEGORY_RULES) if (rule.re.test(accountName)) return rule.category;
   return 'Other Expenses';
+}
+
+// ── Daycare (MDO) Utilities/Insurance cost-share ──────────────────────────────────────────
+// MDO has no Utilities or Insurance accounts of its own — it shares the building with the
+// church — so per the user's explicit choice, these two Daycare Report lines are a live
+// percentage of the CHURCH side's actual Utilities/Insurance expense for the same year,
+// recalculated every time (never a stored dollar figure that can go stale). Matches on
+// category_path (not just account_name) since the church's chart of accounts only tags the
+// grouping label itself (e.g. "34 Utilities") — real postings live on child leaf accounts
+// (Electric/Gas/Water/etc.) that don't contain the word "Utilities" in their own name at all;
+// category_path carries the full colon-joined ancestor chain, matching either the parent or a
+// child correctly without double-counting (own_actual_cents is always non-cumulative — see
+// resolveChurchYearPrecedence's callers elsewhere in this file for the same guarantee).
+const MDO_ALLOCATION_MATCH = { utilities: /utilit/i, insurance: /insuranc/i };
+export function computeChurchCategoryActualCents(resolvedRows, matchRe) {
+  let cents = 0;
+  for (const r of resolvedRows) {
+    if (matchRe.test(r.category_path) || matchRe.test(r.account_name)) cents += (r.own_actual_cents || 0);
+  }
+  return cents;
+}
+// `rowsByYear` = { year: resolvedRows[] } (already precedence-resolved per year, period_month=0
+// only). Returns { [year]: { utilityActualCents, insuranceActualCents, mdoUtilityCents, mdoInsuranceCents } }.
+export function computeMdoUtilityInsuranceAllocation(rowsByYear, utilityPct, insurancePct) {
+  const out = {};
+  for (const year of Object.keys(rowsByYear)) {
+    const utilityActualCents = computeChurchCategoryActualCents(rowsByYear[year], MDO_ALLOCATION_MATCH.utilities);
+    const insuranceActualCents = computeChurchCategoryActualCents(rowsByYear[year], MDO_ALLOCATION_MATCH.insurance);
+    out[year] = {
+      utilityActualCents,
+      insuranceActualCents,
+      mdoUtilityCents: Math.round(utilityActualCents * utilityPct),
+      mdoInsuranceCents: Math.round(insuranceActualCents * insurancePct),
+    };
+  }
+  return out;
 }
 // `entries` should already be precedence-resolved (resolveChurchYearPrecedence) for the target
 // year. Each matching account can produce up to 2 daycare entries (actual + budget) — zero/null
@@ -1040,6 +1287,37 @@ export function computeSuppliesMonthlyBreakdown(currentMonthlyRows, priorMonthly
   };
 }
 
+// Overview tab's "Income vs. Expenses" trend card: 12 months, actual through the current month
+// (from synced monthly rows) then a flat monthly projection for the remaining months, spreading
+// whatever's left of the year's budget evenly across them — a simple, honest placeholder (the
+// mockup's own model) rather than a smarter seasonal projection, since it's a glance-level chart,
+// not the YTD projection figure itself (that's computeYtdComparison's prior-year-ratio, used for
+// the KPI cards). `curYearMonthlyRows` must already be filtered to one fiscal year; pure/no DB
+// access, independently unit-testable.
+export function computeIncomeExpenseMonthlyTrend(curYearMonthlyRows, throughMonth, summary) {
+  if (!curYearMonthlyRows.length) return { available: false, months: [] };
+  const byMonth = {};
+  for (let m = 1; m <= 12; m++) byMonth[m] = { incomeCents: 0, expenseCents: 0 };
+  for (const r of curYearMonthlyRows) {
+    if (r.period_month < 1 || r.period_month > 12) continue;
+    if (r.classification === 'Income') byMonth[r.period_month].incomeCents += (r.own_actual_cents || 0);
+    else if (r.classification === 'Expenses') byMonth[r.period_month].expenseCents += (r.own_actual_cents || 0);
+  }
+  let incomeSoFarCents = 0, expenseSoFarCents = 0;
+  for (let m = 1; m <= throughMonth; m++) { incomeSoFarCents += byMonth[m].incomeCents; expenseSoFarCents += byMonth[m].expenseCents; }
+  const remainingMonths = 12 - throughMonth;
+  const incomeBudgetCents = summary.classificationTotals?.Income?.budgetCents || 0;
+  const expenseBudgetCents = summary.classificationTotals?.Expenses?.budgetCents || 0;
+  const projIncomePerMonth = remainingMonths > 0 ? Math.max(0, incomeBudgetCents - incomeSoFarCents) / remainingMonths : 0;
+  const projExpensePerMonth = remainingMonths > 0 ? Math.max(0, expenseBudgetCents - expenseSoFarCents) / remainingMonths : 0;
+  const months = [];
+  for (let m = 1; m <= 12; m++) {
+    if (m <= throughMonth) months.push({ month: m, incomeCents: byMonth[m].incomeCents, expenseCents: byMonth[m].expenseCents, projected: false });
+    else months.push({ month: m, incomeCents: Math.round(projIncomePerMonth), expenseCents: Math.round(projExpensePerMonth), projected: true });
+  }
+  return { available: true, throughMonth, months };
+}
+
 // ── Commercial Property (Finance tab) ────────────────────────────────────────────────────
 // Groups a property's monthly rows + distributions by calendar year (the "period" field is
 // always 'YYYY-MM') into the same annual shape the 2026-07-20 data export used, plus each
@@ -1097,8 +1375,36 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
     const capitalLedger = (await db.prepare('SELECT * FROM finance_property_capital_ledger WHERE property_key=? ORDER BY sort_order ASC, entry_date ASC, id ASC').bind(propertyKey).all()).results || [];
     const capitalLedgerTotalCents = capitalLedger.reduce((sum, r) => sum + (r.amount_cents || 0), 0);
     const repairs = (await db.prepare('SELECT * FROM finance_property_repairs WHERE property_key=? ORDER BY entry_date ASC, id ASC').bind(propertyKey).all()).results || [];
+    const budgetMonthly = (await db.prepare('SELECT * FROM finance_property_budget_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
 
-    return json({ propertyKey, meta, monthly, distributions, annualSummary, equity, reserves, reserveDisbursements, capitalLedger, capitalLedgerTotalCents, repairs });
+    return json({ propertyKey, meta, monthly, budgetMonthly, distributions, annualSummary, equity, reserves, reserveDisbursements, capitalLedger, capitalLedgerTotalCents, repairs });
+  }
+
+  // Imports a property manager's "Budget Detail" export (AHRA) — see
+  // parsePropertyBudgetDetailGrid() above. Parses and commits in one step (unlike the Church
+  // Report imports' preview-then-commit flow): this export's shape is fixed and the two rollup
+  // rows it reads are unambiguous, so there's little for a human review step to catch; the
+  // response still echoes back exactly what was written so the admin can see it took.
+  if (seg === `finance/property/${propertyKey}/budget-import` && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const form = await req.formData().catch(() => null);
+    const file = form && form.get('file');
+    if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
+    if (file.size > 15 * 1024 * 1024) return json({ error: 'File too large (max 15 MB)' }, 413);
+    let sheets;
+    try { sheets = await parseXlsxAllSheets(await file.arrayBuffer()); }
+    catch (e) { return json({ error: 'Could not read this file as an Excel workbook: ' + e.message }, 400); }
+    const sheet = findPropertyBudgetDetailSheet(sheets);
+    if (!sheet) return json({ error: 'Could not find a "Budget Detail" sheet in this file (expected an "Account Name" / "Jan YYYY" header row).' }, 400);
+    const { months } = parsePropertyBudgetDetailGrid(sheet.grid);
+    if (!months.length) return json({ error: 'Could not find "Total Budgeted Operating Income"/"Total Budgeted Operating Expense" rows in this sheet.' }, 400);
+    const ops = months.map(m => db.prepare(
+      `INSERT INTO finance_property_budget_monthly (property_key, period, revenue_cents, expenses_cents, net_income_cents, source, updated_at)
+       VALUES (?,?,?,?,?,'ahra_import',datetime('now'))
+       ON CONFLICT(property_key, period) DO UPDATE SET revenue_cents=excluded.revenue_cents, expenses_cents=excluded.expenses_cents, net_income_cents=excluded.net_income_cents, source=excluded.source, updated_at=excluded.updated_at`
+    ).bind(propertyKey, m.period, m.revenueCents, m.expensesCents, m.netIncomeCents));
+    await db.batch(ops);
+    return json({ ok: true, imported: months.length, months });
   }
 
   if (seg === `finance/property/${propertyKey}/monthly` && method === 'POST') {
@@ -1115,9 +1421,39 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
       net_operating_income_cents: toCents(b.net_operating_income),
       available_for_distribution_cents: toCents(b.available_for_distribution),
       reserve_balance_cents: toCents(b.reserve_balance),
+      // Real per-month loan payment + interest expense (bank rec + income statement) — lets the
+      // confirmed mortgage balance roll forward automatically instead of needing a fresh lender
+      // confirmation every time (see finComputeMortgageRemainingCents).
+      loan_payment_cents: toCents(b.loan_payment),
+      interest_expense_cents: toCents(b.interest_expense),
     };
     for (const [k, v] of Object.entries(cents)) { if (v !== null && !Number.isFinite(v)) return json({ error: `Invalid ${k}` }, 400); }
     await db.prepare(
+      `INSERT INTO finance_property_monthly
+         (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,loan_payment_cents,interest_expense_cents,source_report,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+       ON CONFLICT(property_key,period) DO UPDATE SET
+         occupancy_pct=excluded.occupancy_pct, total_revenue_cents=excluded.total_revenue_cents, total_expenses_cents=excluded.total_expenses_cents,
+         net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
+         available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
+         loan_payment_cents=excluded.loan_payment_cents, interest_expense_cents=excluded.interest_expense_cents,
+         source_report=excluded.source_report, updated_at=excluded.updated_at`
+    ).bind(propertyKey, b.period, occ, cents.total_revenue_cents, cents.total_expenses_cents, cents.net_income_cents, cents.net_operating_income_cents, cents.available_for_distribution_cents, cents.reserve_balance_cents, cents.loan_payment_cents, cents.interest_expense_cents, b.source_report || '').run();
+    return json({ ok: true });
+  }
+
+  // Bulk import of one or more months from the AHRA report's own monthly-financials CSV row
+  // format (see parsePropertyMonthlyCsv) — an alternative to filling out the "+ Add Month" modal
+  // by hand for each new report. loan_payment_cents/interest_expense_cents aren't in this CSV
+  // shape, so they're left untouched on a re-imported month (upsert only sets the columns this
+  // CSV actually carries) rather than being wiped back to null.
+  if (seg === `finance/property/${propertyKey}/monthly-import-csv` && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const { rows, error } = parsePropertyMonthlyCsv(b.csv || '');
+    if (error) return json({ error }, 400);
+    if (!rows.length) return json({ error: 'No data rows found in this CSV.' }, 400);
+    const ops = rows.map(r => db.prepare(
       `INSERT INTO finance_property_monthly
          (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,source_report,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))
@@ -1126,8 +1462,9 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
          net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
          available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
          source_report=excluded.source_report, updated_at=excluded.updated_at`
-    ).bind(propertyKey, b.period, occ, cents.total_revenue_cents, cents.total_expenses_cents, cents.net_income_cents, cents.net_operating_income_cents, cents.available_for_distribution_cents, cents.reserve_balance_cents, b.source_report || '').run();
-    return json({ ok: true });
+    ).bind(propertyKey, r.period, r.occupancy_pct, r.total_revenue_cents, r.total_expenses_cents, r.net_income_cents, r.net_operating_income_cents, r.available_for_distribution_cents, r.reserve_balance_cents, b.source_report || 'csv_import'));
+    await db.batch(ops);
+    return json({ ok: true, imported: rows.length, periods: rows.map(r => r.period) });
   }
 
   const monthMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/monthly/(\\d{4}-\\d{2})$`));
@@ -1592,6 +1929,68 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ ok: true, imported: ops.length });
   }
 
+  // ── Daycare: per-cell Budget override (editable directly in the Daycare Report table) ────
+  // Actual always comes from the church's own Budget/Actuals import ("Import from Church Budget
+  // (MDO accounts)", source='church_budget_import') — never hand-typed here, per the user's
+  // explicit correction: "Actual should come from the budget from the church." This endpoint
+  // only ever touches the Budget side of one (year, category) cell, tagged
+  // source='manual_budget_override', so a typed-in historical budget figure can coexist with —
+  // and take precedence over, see finAggregateDaycareByYear's override pass — whatever budget
+  // figure the church import may also have brought in for that same cell, without the two
+  // silently summing together. Deleting any existing override first makes re-saving (or clearing
+  // by omitting `budget`) idempotent rather than additive.
+  if (seg === 'finance/daycare/budget-override' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: editing daycare budget data requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const year = parseInt(b.year, 10);
+    if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
+    if (!b.category || !String(b.category).trim()) return json({ error: 'category is required' }, 400);
+    const period = String(year);
+    const category = String(b.category).trim();
+    const ops = [db.prepare(`DELETE FROM finance_daycare_entries WHERE period=? AND category=? AND entry_type='budget' AND source='manual_budget_override'`).bind(period, category)];
+    let cents = null;
+    if (b.budget !== '' && b.budget != null) {
+      cents = Math.round(Number(b.budget) * 100);
+      if (!Number.isFinite(cents)) return json({ error: 'Invalid budget amount' }, 400);
+      ops.push(db.prepare(`INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,source) VALUES (?,?,'budget',?,'manual_budget_override')`).bind(period, category, cents));
+    }
+    await db.batch(ops);
+    return json({ ok: true, year, category, budgetCents: cents });
+  }
+
+  // ── Daycare: Utilities/Insurance cost-share config + live computation ────────────────────
+  if (seg === 'finance/daycare/allocation-config' && method === 'GET') {
+    const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_daycare_allocation_config'").first();
+    let cfg = { utilityPct: 0.5, insurancePct: 0.5 };
+    if (row) { try { cfg = { ...cfg, ...JSON.parse(row.value) }; } catch { /* keep default */ } }
+    return json(cfg);
+  }
+  if (seg === 'finance/daycare/allocation-config' && method === 'PUT') {
+    if (!isAdmin) return json({ error: 'Access denied: editing the daycare cost-share requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const utilityPct = Number(b.utilityPct);
+    const insurancePct = Number(b.insurancePct);
+    if (!Number.isFinite(utilityPct) || !Number.isFinite(insurancePct)) return json({ error: 'utilityPct and insurancePct must be numbers (e.g. 0.5 for 50%)' }, 400);
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_daycare_allocation_config',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(JSON.stringify({ utilityPct, insurancePct })).run();
+    return json({ ok: true });
+  }
+  if (seg === 'finance/daycare/allocation' && method === 'GET') {
+    const yearsParam = url.searchParams.get('years') || '';
+    const years = yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite);
+    if (!years.length) return json({ error: 'years is required (comma-separated)' }, 400);
+    const cfgRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_daycare_allocation_config'").first();
+    let cfg = { utilityPct: 0.5, insurancePct: 0.5 };
+    if (cfgRow) { try { cfg = { ...cfg, ...JSON.parse(cfgRow.value) }; } catch { /* keep default */ } }
+    const placeholders = years.map(() => '?').join(',');
+    const allRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${placeholders}) AND period_month=0`).bind(...years).all()).results || [];
+    const rowsByYear = {};
+    for (const year of years) rowsByYear[year] = resolveChurchYearPrecedence(allRows.filter(r => r.fiscal_year === year));
+    const allocation = computeMdoUtilityInsuranceAllocation(rowsByYear, cfg.utilityPct, cfg.insurancePct);
+    return json({ years, utilityPct: cfg.utilityPct, insurancePct: cfg.insurancePct, allocation });
+  }
+
   const dcMatch = seg.match(/^finance\/daycare\/(\d+)$/);
   if (dcMatch && method === 'PUT') {
     const id = parseInt(dcMatch[1], 10);
@@ -1637,11 +2036,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const now = new Date();
     let yoy = { available: false };
     let supplies = { monthly: [], currentYtdCents: 0, priorYtdCents: 0 };
+    let monthlyTrend = { available: false, months: [] };
     if (year === now.getFullYear()) {
       const throughMonth = now.getMonth() + 1;
-      const monthlyRows = (await db.prepare(
-        `SELECT * FROM finance_church_entries WHERE source='qbo_sync' AND period_month BETWEEN 1 AND 12 AND fiscal_year IN (?,?)`
+      const monthlyRowsAll = (await db.prepare(
+        `SELECT * FROM finance_church_entries WHERE source IN ('qbo_sync','monthly_import') AND period_month BETWEEN 1 AND 12 AND fiscal_year IN (?,?)`
       ).bind(year, year - 1).all()).results || [];
+      const monthlyRows = resolveChurchMonthlyYearPrecedence(monthlyRowsAll);
       const curMonthly = monthlyRows.filter(r => r.fiscal_year === year && r.period_month <= throughMonth);
       const priorMonthly = monthlyRows.filter(r => r.fiscal_year === year - 1 && r.period_month <= throughMonth);
       const priorAnnualRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year - 1).all()).results || [];
@@ -1653,6 +2054,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
         monthlyRows.filter(r => r.fiscal_year === year),
         monthlyRows.filter(r => r.fiscal_year === year - 1)
       );
+      monthlyTrend = computeIncomeExpenseMonthlyTrend(monthlyRows.filter(r => r.fiscal_year === year), throughMonth, summary);
     }
 
     return json({
@@ -1661,6 +2063,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       ...summary,
       givingCents,
       givingByFund,
+      monthlyTrend,
       yoy,
       supplies,
     });
@@ -1718,6 +2121,42 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       || !Number.isFinite(r.own_actual_cents) || !Number.isFinite(r.own_budget_cents));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
     await persistChurchEntriesImport(db, rows, fiscalYear, new Date().toISOString());
+    return json({ ok: true, fiscalYear, imported: rows.length });
+  }
+
+  // ── Church Report: Monthly P&L import (unblocks YoY/Supplies/Trend cards without live
+  // QuickBooks sync — see FIN2). A "Profit and Loss by Month" export has one column per month
+  // instead of one Actual/Budget pair, so it needs its own sheet-finder/parser, but reuses the
+  // same preview-then-commit shape and the same xlsx-reading infrastructure. ─────────────────
+  if (seg === 'finance/church/monthly-import-preview' && method === 'POST') {
+    const form = await req.formData().catch(() => null);
+    const file = form && form.get('file');
+    if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
+    if (file.size > 15 * 1024 * 1024) return json({ error: 'File too large (max 15 MB)' }, 413);
+    let sheets;
+    try { sheets = await parseXlsxAllSheets(await file.arrayBuffer()); }
+    catch (e) { return json({ error: 'Could not read this file as an Excel workbook: ' + e.message }, 400); }
+    const sheet = findMonthlyPnLSheet(sheets);
+    if (!sheet) return json({ error: 'Could not find a month-by-month "Profit and Loss by Month" sheet (a sheet with columns like "Jan 2026", "Feb 2026", ...) in this file.' }, 400);
+    let parsed;
+    try { parsed = parseMonthlyPnLGrid(sheet.grid); }
+    catch (e) { return json({ error: e.message }, 400); }
+    return json({ sheetName: sheet.name, fiscalYear: parsed.fiscalYear, months: parsed.months, rows: parsed.rows, skipped: parsed.skipped });
+  }
+
+  // Commit step: wholesale-replaces any existing source='monthly_import' rows for that fiscal
+  // year (all 12 months at once) — the same replace-per-year pattern as the annual import.
+  if (seg === 'finance/church/monthly-import' && method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    const fiscalYear = parseInt(b.fiscal_year, 10);
+    if (!Number.isFinite(fiscalYear)) return json({ error: 'fiscal_year is required' }, 400);
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) return json({ error: 'No rows to import' }, 400);
+    const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number'
+      || !Number.isInteger(r.period_month) || r.period_month < 1 || r.period_month > 12
+      || !Number.isFinite(r.own_actual_cents));
+    if (bad) return json({ error: 'Malformed row in import payload' }, 400);
+    await persistChurchEntriesMonthlyImport(db, rows, fiscalYear, new Date().toISOString());
     return json({ ok: true, fiscalYear, imported: rows.length });
   }
 

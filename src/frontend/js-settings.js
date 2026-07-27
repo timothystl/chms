@@ -46,6 +46,83 @@ function saveMemberTypes() {
   });
 }
 
+// ── ROLE PERMISSIONS ─────────────────────────────────────────────────
+// Admin editor for the granular per-feature access matrix. Each (role, item) cell is a
+// tri-state level: No access / View only / Edit. See api-utils.js for the server-side
+// defaults/resolution/enforcement and applyPermissionUI() in js-core.js for how the
+// resolved levels drive tab visibility + edit affordances for whoever is logged in.
+// Read-only items (Audit Log, Reports tab) offer only No access / View only.
+// Member is the filtered directory view — it can never edit, and only the safe items
+// (Reports tab) are toggleable; everything else is fixed at No access.
+var ROLE_PERM_ITEMS = [
+  { key: 'giving',     label: 'Giving',            editable: true  },
+  { key: 'tuitionaid', label: 'Tuition Aid',       editable: true  },
+  { key: 'finance',    label: 'Finance Overview',  editable: true  },
+  { key: 'attendance', label: 'Attendance',        editable: true  },
+  { key: 'followups',  label: 'Follow-ups',        editable: true  },
+  { key: 'audit',      label: 'Audit Log',         editable: false },
+  { key: 'register',   label: 'Register',          editable: true  },
+  { key: 'reports',    label: 'Reports tab',       editable: false },
+];
+var ROLE_PERM_ROLES = ['finance', 'staff', 'office', 'member'];
+// Items a member is even allowed to be granted (view only). Anything else is locked to none.
+var MEMBER_ALLOWED_ITEMS = { reports: true };
+function loadRolePermissions() {
+  api('/admin/api/config/role-permissions').then(function(d) {
+    renderRolePermTable(d && d.permissions);
+  }).catch(function() {});
+}
+function rolePermLevelOptions(item, role, current) {
+  var isMember = (role === 'member');
+  var locked = isMember && !MEMBER_ALLOWED_ITEMS[item.key]; // member, non-safe item
+  var opts = [{ v: 'none', t: 'No access' }, { v: 'view', t: 'View only' }];
+  // Edit is offered only for editable items and never for members.
+  if (item.editable && !isMember) opts.push({ v: 'edit', t: 'Edit' });
+  var sel = current || 'none';
+  if (locked) sel = 'none';
+  var html = '<select id="rp-' + role + '-' + item.key + '"'
+    + (locked ? ' disabled title="Members are read-only for this area"' : '')
+    + ' style="font-size:.82rem;padding:3px 6px;border:1px solid var(--border);border-radius:6px;">';
+  html += opts.map(function(o) {
+    return '<option value="' + o.v + '"' + (o.v === sel ? ' selected' : '') + '>' + o.t + '</option>';
+  }).join('');
+  html += '</select>';
+  return html;
+}
+function renderRolePermTable(perms) {
+  var tbody = document.getElementById('role-perm-tbody');
+  if (!tbody || !perms) return;
+  tbody.innerHTML = ROLE_PERM_ITEMS.map(function(item) {
+    return '<tr style="border-bottom:1px solid var(--linen);">'
+      + '<td style="padding:8px;">' + esc(item.label) + '</td>'
+      + ROLE_PERM_ROLES.map(function(role) {
+        var cur = (perms[role] && perms[role][item.key]) || 'none';
+        return '<td style="padding:8px;text-align:center;">' + rolePermLevelOptions(item, role, cur) + '</td>';
+      }).join('')
+      + '</tr>';
+  }).join('');
+}
+function saveRolePermissions() {
+  var permissions = {};
+  ROLE_PERM_ROLES.forEach(function(role) {
+    permissions[role] = {};
+    ROLE_PERM_ITEMS.forEach(function(item) {
+      var sel = document.getElementById('rp-' + role + '-' + item.key);
+      permissions[role][item.key] = (sel && sel.value) || 'none';
+    });
+  });
+  api('/admin/api/config/role-permissions', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ permissions: permissions }) }).then(function(d) {
+    if (d && d.ok) {
+      setStatus('role-perm-status', 'Saved! Users with an active session will see the change on their next page load.', 'ok');
+      setTimeout(function(){ setStatus('role-perm-status',''); }, 4000);
+    } else {
+      setStatus('role-perm-status', 'Error: ' + ((d && d.error) || 'unknown'), 'err');
+    }
+  }).catch(function() {
+    setStatus('role-perm-status', 'Network error. Please try again.', 'err');
+  });
+}
+
 // ── USERS MANAGEMENT ──────────────────────────────────────────────────
 var _usersData = [];
 var _editingUserId = null;
@@ -142,7 +219,7 @@ function deleteUser(uid) {
 
 // ── SETTINGS ──────────────────────────────────────────────────────────
 function loadSettings() {
-  if (_userRole === 'admin') loadUsers();
+  if (_userRole === 'admin') { loadUsers(); loadRolePermissions(); }
   // Populate giving export year dropdown
   var yrSel = document.getElementById('export-giving-year');
   if (yrSel && yrSel.options.length <= 1) {
@@ -154,31 +231,13 @@ function loadSettings() {
       yrSel.appendChild(opt);
     }
   }
-  // Disable save buttons until data has loaded to prevent saving empty values
-  document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = true; });
   api('/admin/api/config/church').then(function(d) {
     _churchConfig = d || {};
-    var el = document.getElementById('st-church-name');
-    if (el) el.value = d.church_name || 'Timothy Lutheran Church';
-    el = document.getElementById('st-ein');
-    if (el) el.value = d.church_ein || '';
-    el = document.getElementById('st-from-name');
-    if (el) el.value = d.church_from_name || '';
-    el = document.getElementById('st-from-email');
-    if (el) el.value = d.church_from_email || '';
-    el = document.getElementById('st-letter-tpl');
-    if (el) el.value = d.giving_letter_template || DEFAULT_LETTER_TEMPLATE;
-    el = document.getElementById('st-midyear-letter-tpl');
-    if (el) el.value = d.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE;
-    el = document.getElementById('st-giving-url');
-    if (el) el.value = d.online_giving_url || '';
-    el = document.getElementById('st-vol-address'); if (el) el.value = d.volunteer_address || '';
+    var el = document.getElementById('st-vol-address'); if (el) el.value = d.volunteer_address || '';
     el = document.getElementById('st-vol-email'); if (el) el.value = d.volunteer_public_email || '';
     el = document.getElementById('st-vol-phone'); if (el) el.value = d.volunteer_phone || '';
     el = document.getElementById('st-notify-new-signup'); if (el) el.checked = d.notify_new_signup === '1';
     el = document.getElementById('st-notify-weekly-digest'); if (el) el.checked = d.notify_weekly_digest === '1';
-    // Re-enable save buttons now that fields are populated
-    document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = false; });
   });
   api('/admin/api/tags').then(function(d) {
     allTags = d.tags || [];
@@ -194,6 +253,10 @@ function loadSettings() {
   });
 }
 function saveSettings() {
+  // TinyMCE only writes its current content back into the underlying <textarea> on an
+  // explicit save() call (or native form submit, which this SPA doesn't use) — sync both
+  // letter editors first so the .value reads below see what's actually in the editor.
+  syncLetterEditors();
   // Only include non-empty values — the API will skip saving empty strings,
   // preserving whatever was previously stored.
   var data = {};
@@ -206,8 +269,33 @@ function saveSettings() {
   v = (document.getElementById('st-midyear-letter-tpl') || {}).value || DEFAULT_MIDYEAR_LETTER_TEMPLATE; if (v) data.giving_midyear_letter_template = v;
   v = (document.getElementById('st-giving-url') || {}).value; if (v) data.online_giving_url = v;
   api('/admin/api/config/church', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(d) {
-    if (d.ok) { _churchConfig = data; setStatus('st-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('st-status','');}, 2500); }
-    else setStatus('st-status', 'Error: ' + (d.error||'unknown'), 'err');
+    if (d.ok) { _churchConfig = data; setStatus('giv-settings-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('giv-settings-status','');}, 2500); }
+    else setStatus('giv-settings-status', 'Error: ' + (d.error||'unknown'), 'err');
+  });
+}
+// Populates the Giving tab's Settings sub-view (Church Info + both letter templates) — moved
+// out of the main Settings tab so giving-related config lives right where it's used, no more
+// switching tabs to edit the letterhead/templates while sending statements. Called from
+// givSetView('settings') (js-giving.js), not from loadSettings(), since this DOM now lives
+// under #tab-giving instead of #tab-settings.
+function loadGivingSettings() {
+  document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = true; });
+  api('/admin/api/config/church').then(function(d) {
+    _churchConfig = d || {};
+    var el = document.getElementById('st-church-name');
+    if (el) el.value = d.church_name || 'Timothy Lutheran Church';
+    el = document.getElementById('st-ein');
+    if (el) el.value = d.church_ein || '';
+    el = document.getElementById('st-from-name');
+    if (el) el.value = d.church_from_name || '';
+    el = document.getElementById('st-from-email');
+    if (el) el.value = d.church_from_email || '';
+    initLetterEditor('st-letter-tpl', 'year_end', d.giving_letter_template || DEFAULT_LETTER_TEMPLATE);
+    initLetterEditor('st-midyear-letter-tpl', 'midyear', d.giving_midyear_letter_template || DEFAULT_MIDYEAR_LETTER_TEMPLATE);
+    el = document.getElementById('st-giving-url');
+    if (el) el.value = d.online_giving_url || '';
+    renderLetterheadLogoState(d.letterhead_logo_ext);
+    document.querySelectorAll('[onclick="saveSettings()"]').forEach(function(b) { b.disabled = false; });
   });
 }
 function saveVolunteerSettings() {
@@ -223,13 +311,224 @@ function saveVolunteerSettings() {
     else setStatus('st-status', 'Error: ' + (d.error||'unknown'), 'err');
   });
 }
+function renderLetterheadLogoState(ext) {
+  var img = document.getElementById('st-logo-preview');
+  var rmBtn = document.getElementById('st-logo-remove-btn');
+  if (ext) {
+    if (img) { img.src = '/admin/letterhead-logo?t=' + Date.now(); img.style.display = 'inline-block'; }
+    if (rmBtn) rmBtn.style.display = 'inline-flex';
+  } else {
+    if (img) { img.style.display = 'none'; img.removeAttribute('src'); }
+    if (rmBtn) rmBtn.style.display = 'none';
+  }
+  _churchConfig.letterhead_logo_ext = ext || '';
+}
+function uploadLetterheadLogo(file) {
+  if (!file) return;
+  var status = document.getElementById('st-logo-status');
+  if (status) { status.textContent = 'Uploading…'; status.className = 'import-status'; }
+  var fd = new FormData();
+  fd.append('logo', file, file.name || 'logo');
+  api('/admin/api/config/letterhead-logo', { method: 'POST', body: fd, credentials: 'same-origin' }).then(function(d) {
+    if (d && d.ok) {
+      renderLetterheadLogoState(d.ext);
+      if (status) { status.textContent = 'Uploaded!'; status.className = 'import-status ok'; setTimeout(function(){status.textContent='';}, 2500); }
+    } else {
+      if (status) { status.textContent = 'Error: ' + ((d && d.error) || 'unknown'); status.className = 'import-status err'; }
+    }
+  }).catch(function() {
+    if (status) { status.textContent = 'Upload failed. Please try again.'; status.className = 'import-status err'; }
+  });
+}
+function removeLetterheadLogo() {
+  if (!confirm('Remove the letterhead logo? Giving letters will go back to showing the plain church name.')) return;
+  api('/admin/api/config/letterhead-logo', { method: 'DELETE' }).then(function(d) {
+    if (d && d.ok) renderLetterheadLogoState('');
+    else alert('Error: ' + ((d && d.error) || 'unknown'));
+  });
+}
 function resetLetterTemplate() {
-  var el = document.getElementById('st-letter-tpl');
-  if (el) el.value = DEFAULT_LETTER_TEMPLATE;
+  setLetterEditorContent('st-letter-tpl', DEFAULT_LETTER_TEMPLATE);
 }
 function resetMidyearLetterTemplate() {
-  var el = document.getElementById('st-midyear-letter-tpl');
-  if (el) el.value = DEFAULT_MIDYEAR_LETTER_TEMPLATE;
+  setLetterEditorContent('st-midyear-letter-tpl', DEFAULT_MIDYEAR_LETTER_TEMPLATE);
+}
+function setLetterEditorContent(id, value) {
+  var editor = window.tinymce && tinymce.get(id);
+  if (editor) editor.setContent(value); else { var el = document.getElementById(id); if (el) el.value = value; }
+}
+
+// ── TinyMCE letter template editors (self-hosted — see /admin/vendor/tinymce/ route) ──
+// Merge tokens are inserted as atomic, non-editable "chip" spans (contenteditable="false")
+// so a user can't partially select/format half of {{name}} and silently split the token
+// across tags. renderLetterHTML() (js-reports.js) unwraps these chips back to plain
+// {{token}} text before running its substitution regexes, so the stored template stays a
+// plain-text mini-template — same format the pre-TinyMCE textarea produced — just with
+// real HTML (bold/lists/images) around it instead of a flat string.
+var MCE_FIELDS_YEAR_END = [
+  {label:'Name', token:'{{name}}'}, {label:'Year', token:'{{year}}'}, {label:'Total', token:'{{total}}'},
+  {label:'Date', token:'{{date}}'}, {label:'Gift Table', token:'{{gift_table}}'}, {label:'EIN / Tax ID', token:'{{ein}}'}
+];
+var MCE_FIELDS_MIDYEAR = [
+  {label:'Name', token:'{{name}}'}, {label:'Year', token:'{{year}}'}, {label:'Total', token:'{{total}}'},
+  {label:'Date', token:'{{date}}'}, {label:'Gift Table', token:'{{gift_table}}'}, {label:'Online Giving URL', token:'{{giving_url}}'}
+];
+function mceTokenChip(token) {
+  return '<span contenteditable="false" data-mce-token="' + token + '" '
+    + 'style="display:inline-block;background:#EDF5F8;color:#1E2D4A;border:1px solid #B8D4E3;'
+    + 'border-radius:4px;padding:0 5px;margin:0 1px;font-family:monospace;font-size:.85em;white-space:nowrap;">'
+    + token + '</span>';
+}
+function mceConditionalHtml(letterType) {
+  if (letterType === 'midyear') {
+    return mceTokenChip('{{#if_giving_url}}') + '- Online recurring giving: ' + mceTokenChip('{{giving_url}}') + '<br>' + mceTokenChip('{{/if_giving_url}}');
+  }
+  return mceTokenChip('{{#if_ein}}') + 'Our EIN/Tax ID is ' + mceTokenChip('{{ein}}') + '. No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.' + mceTokenChip('{{/if_ein}}');
+}
+var _tinyLoading = null;
+function ensureTinyMCE(cb) {
+  if (window.tinymce) { cb(); return; }
+  if (_tinyLoading) { _tinyLoading.push(cb); return; }
+  _tinyLoading = [cb];
+  var s = document.createElement('script');
+  s.src = '/admin/vendor/tinymce/tinymce.min.js?v=' + DEPLOY_VERSION;
+  s.onload = function() {
+    var cbs = _tinyLoading; _tinyLoading = null;
+    cbs.forEach(function(fn) { fn(); });
+  };
+  document.head.appendChild(s);
+}
+function initLetterEditor(id, letterType, value) {
+  var existing = window.tinymce && tinymce.get(id);
+  if (existing) { existing.setContent(value || ''); return; }
+  var ta = document.getElementById(id);
+  if (ta) ta.value = value || ''; // shown briefly until TinyMCE finishes loading/initializing
+  ensureTinyMCE(function() {
+    if (tinymce.get(id)) { tinymce.get(id).setContent(value || ''); return; }
+    var fields = letterType === 'midyear' ? MCE_FIELDS_MIDYEAR : MCE_FIELDS_YEAR_END;
+    tinymce.init({
+      selector: '#' + id,
+      base_url: '/admin/vendor/tinymce',
+      suffix: '.min',
+      license_key: 'gpl',
+      height: 320,
+      menubar: false,
+      branding: false,
+      promotion: false,
+      plugins: 'lists link image code',
+      // This editor is self-hosted from a deliberately minimal vendored TinyMCE subset (see
+      // vendor/tinymce/ — only the code/image/link/lists plugins are actually present, not
+      // the full package). Every button below is either one of those four plugins or a
+      // core-registered command that needs no plugin file at all (confirmed present in the
+      // vendored tinymce.min.js: forecolor, fontsize, blockquote) — deliberately NOT adding
+      // table/charmap/searchreplace/etc., since those plugin files don't exist here and
+      // requesting them would 404 and leave a broken button instead of a missing one.
+      toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline strikethrough subscript superscript | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist indent outdent | blockquote removeformat | link image | mergefield | code',
+      content_css: false,
+      // 600px matches the actual printed/emailed letter's max-width (showGivingLetter's
+      // wrapping div in js-reports.js) — constraining the editable body to the same width,
+      // centered on a gray canvas with a page-like shadow, makes the real line-wrap and
+      // margins visible while typing instead of only showing up once you print/preview.
+      content_style: 'html{background:#e2e0da;}'
+        + 'body{max-width:600px;margin:0 auto;background:#fff;font-family:Georgia,serif;font-size:14px;line-height:1.65;color:#222;padding:28px 32px;box-shadow:0 0 0 1px rgba(0,0,0,.08),0 2px 10px rgba(0,0,0,.1);min-height:calc(100% - 40px);}'
+        + '.mce-content-body span[data-mce-token]{user-select:all;}',
+      // No upload endpoint — images (church logo, four-values graphic, etc.) are embedded as
+      // base64 data: URIs directly in the stored template, same as drag-drop/paste already
+      // does by default with no images_upload_handler configured. img-src already allows
+      // data: under the existing CSP, so this needs no server changes and no new upload route.
+      file_picker_types: 'image',
+      file_picker_callback: function(callback, value, meta) {
+        if (meta.filetype !== 'image') return;
+        var input = document.createElement('input');
+        input.type = 'file'; input.accept = 'image/*';
+        input.onchange = function() {
+          var file = input.files[0];
+          if (!file) return;
+          // No upload endpoint — the whole file becomes a base64 text blob embedded directly
+          // in the saved template (see the comment above). A full-size photo easily produces
+          // a template well past what a single D1 column value / request can hold, which
+          // used to fail Save with a generic "Internal server error" and no indication why.
+          // Cap the raw file here so the failure (if any) is an immediate, specific message
+          // instead of a round-trip to the server.
+          if (file.size > 400 * 1024) {
+            alert('That image is too large (' + Math.round(file.size / 1024) + ' KB — max 400 KB). Please use a smaller image or compress it first; letter templates are limited in size since the image gets embedded directly in the saved letter and every email sent from it.');
+            input.value = '';
+            return;
+          }
+          var reader = new FileReader();
+          reader.onload = function() { callback(reader.result, { alt: file.name }); };
+          reader.readAsDataURL(file);
+        };
+        input.click();
+      },
+      setup: function(editor) {
+        editor.ui.registry.addMenuButton('mergefield', {
+          text: 'Insert Merge Field',
+          fetch: function(callback) {
+            var items = fields.map(function(f) {
+              return { type: 'menuitem', text: f.label, onAction: function() { editor.insertContent(mceTokenChip(f.token)); } };
+            });
+            items.push({ type: 'menuitem', text: (letterType === 'midyear' ? 'Conditional: If Giving URL set' : 'Conditional: If EIN set'), onAction: function() { editor.insertContent(mceConditionalHtml(letterType)); } });
+            callback(items);
+          }
+        });
+        editor.on('init', function() { editor.setContent(value || ''); });
+        editor.on('change input undo redo SetContent', function() {
+          editor.save();
+          liveUpdateLetterPreview(letterType);
+        });
+      }
+    });
+  });
+}
+function syncLetterEditors() {
+  if (!window.tinymce) return;
+  ['st-letter-tpl', 'st-midyear-letter-tpl'].forEach(function(id) {
+    var editor = tinymce.get(id);
+    if (editor) editor.save();
+  });
+}
+function renderLetterPreview(letterType) {
+  var tplId = letterType === 'midyear' ? 'st-midyear-letter-tpl' : 'st-letter-tpl';
+  var cfgKey = letterType === 'midyear' ? 'giving_midyear_letter_template' : 'giving_letter_template';
+  var editor = window.tinymce && tinymce.get(tplId);
+  if (editor) editor.save();
+  var tplVal = (document.getElementById(tplId) || {}).value
+    || (letterType === 'midyear' ? DEFAULT_MIDYEAR_LETTER_TEMPLATE : DEFAULT_LETTER_TEMPLATE);
+  var cfg = Object.assign({}, _churchConfig);
+  cfg[cfgKey] = tplVal;
+  var sampleGifts = [
+    { gift_date: '2026-01-12', fund_name: 'General Fund', amount: 25000, method: 'Check' },
+    { gift_date: '2026-03-08', fund_name: 'Building Fund', amount: 10000, method: 'Online' },
+    { gift_date: '2026-05-24', fund_name: 'General Fund', amount: 25000, method: 'Check' }
+  ];
+  var sampleData = {
+    _mode: 'person',
+    person: { first_name: 'Jane', last_name: 'Sample' },
+    year: new Date().getFullYear(),
+    total_cents: sampleGifts.reduce(function(s,g){ return s + g.amount; }, 0),
+    entries: sampleGifts
+  };
+  var letterHtml = renderLetterHTML(sampleData, letterType, cfg);
+  var churchName = _churchConfig.church_name || 'Timothy Lutheran Church';
+  var title = document.getElementById('letter-preview-title');
+  if (title) title.textContent = (letterType === 'midyear' ? 'Mid-Year Giving Update' : 'Year-End Giving Statement') + ' Letter Preview';
+  var body = document.getElementById('letter-preview-body');
+  if (body) {
+    body.innerHTML = letterheadImgHtml(false, churchName, 'font-family:var(--font-head);font-size:1.05rem;color:var(--steel-anchor);')
+      + '<hr style="margin:10px 0;">' + letterHtml;
+  }
+}
+function previewLetterTemplate(letterType) {
+  var modal = document.getElementById('letter-preview-modal');
+  if (modal) modal.dataset.previewType = letterType;
+  renderLetterPreview(letterType);
+  openModal('letter-preview-modal');
+}
+function liveUpdateLetterPreview(letterType) {
+  var modal = document.getElementById('letter-preview-modal');
+  if (!modal || !modal.classList.contains('open') || modal.dataset.previewType !== letterType) return;
+  renderLetterPreview(letterType);
 }
 function renderSettingsTagsList() {
   var c = document.getElementById('settings-tags-list');
