@@ -24,6 +24,17 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.85.0 — Breeze people sync is now add-only; newsletter moved to Tags & Groups (2026-07-27)
+**Policy change (user):** Connect is the source of truth for **all people data**; only giving syncs from Breeze.
+- **Bulk `import/breeze` is now add-only** (`src/api-import.js`): existing linked people are skipped at the top of the per-person loop — no field (name, contact, member type, household, photo, dates) is ever overwritten. Only brand-new Breeze people are inserted. The dead `locally_edited`-aware UPDATE branch was removed. The **deactivation pass** (which set `active=0` on Connect people missing from Breeze) and the **household anniversary-propagation pass** are both disabled — both modified existing people. Response still returns `deactivated`/`anniversaryPropagated` (now always 0) plus the existing `skipped` count. The `breeze_sync_seen_ids` accumulator is no longer written (was only for deactivation).
+- **Per-person "Sync from Breeze" removed entirely.** Deleted the `import/breeze-sync-person` endpoint (~325 lines) and the `syncPersonFromBreeze()` frontend fn; the 3 profile buttons that called it now show "Push to Breeze" (reverse sync, consistent with Connect-as-truth). (`src/api-import.js`, `src/frontend/js-people.js`)
+- Frontend copy updated: the Sync-People card now says "add-only… never changed… never deactivated," and the result message reads "N new added, M already here left unchanged." (`src/frontend/html-tabs.js`, `src/frontend/js-export-import.js`)
+- Reverse sync (app → Breeze, BR1/BR3) is unaffected — it's Connect pushing its truth outward. The middle-name/nickname sync (`breeze-sync-names`) and the Link tool are additive-only and also unaffected.
+
+**Newsletter indicator moved** (`src/frontend/js-people.js`): the Brevo newsletter button left the profile header action row (next to Call/Text/Email) and now lives in the **Tags & Groups** card. Relabeled "On newsletter ✓" → "Newsletter ✓" (the "Add to newsletter" off-state is unchanged). Added a per-person state cache (`_pvfNewsletterState`) so re-rendering the Tags card on a tag add/remove repaints the button without re-hitting the Brevo status API; `pvfNewsletterInit` is now called after the profile renders and after each tags-body re-render. Members never see it.
+
+Verified: `node --check` on all touched files + the assembled `CHMS_APP_*` bundles; `npm test` (251/251); confirmed in the built output that the new label/markup are present and no `syncPersonFromBreeze` call sites remain. Not verified in a live browser.
+
 ### v1.84.0 — Link existing Connect people to Breeze (dedup on sync) (2026-07-27)
 Problem: someone added directly in Connect (no `breeze_id`) who later gets their own Breeze record — e.g. once they give — would be **duplicated** by a plain "Sync People from Breeze," because that import matches on `breeze_id` only and inserts anyone it can't find. New tool to link the two records instead of duplicating.
 - **Backend** (`src/api-import.js`, both under `import/` so admin-gated centrally):

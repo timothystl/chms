@@ -639,15 +639,10 @@ function showProfile(p) {
   var haEl = document.getElementById('pv-hdr-actions');
   if (haEl) {
     var telDigits = (p.phone||'').replace(/[^0-9]/g,'');
-    var nlWrap = (p.email && _userRole !== 'member')
-      ? '<span id="pv-newsletter-wrap" class="require-edit"></span>'
-        + '<span id="pv-newsletter-status" style="font-size:.75rem;color:var(--color-teal);align-self:center;"></span>'
-      : '';
+    // Newsletter status/toggle moved to the Tags & Groups card (see pvfTagsBody).
     haEl.innerHTML = (p.phone ? '<a class="pv2-hdr-btn" href="tel:'+telDigits+'">&#128222; Call</a>' : '')
       + (p.phone ? '<a class="pv2-hdr-btn" href="sms:'+telDigits+'">&#128172; Text</a>' : '')
-      + (p.email ? '<a class="pv2-hdr-btn solid" href="mailto:'+esc(p.email)+'">&#9993; Email</a>' : '')
-      + nlWrap;
-    if (p.email && _userRole !== 'member') pvfNewsletterInit(p.id);
+      + (p.email ? '<a class="pv2-hdr-btn solid" href="mailto:'+esc(p.email)+'">&#9993; Email</a>' : '');
   }
   var saEl = document.getElementById('pv-status-actions');
   if (saEl && _userRole !== 'member') {
@@ -840,12 +835,17 @@ function pvfToast() {
 // header button to match: "On newsletter ✓" (click to remove) vs "Add to
 // newsletter" (click to add). All state comes from _currentPvPerson so no
 // person data is embedded in an onclick (VUXBUG2 class).
+// Cache the last-known newsletter state per person id so re-rendering the Tags &
+// Groups card (e.g. on a tag add/remove) repaints the button without a refetch.
+var _pvfNewsletterState = {};
 function pvfNewsletterInit(id) {
   var p = _currentPvPerson;
   if (!p || String(p.id) !== String(id) || !p.email) return;
+  var cached = _pvfNewsletterState[id];
+  if (cached === 'on' || cached === 'off') { pvfNewsletterRender(id, cached); return; }
   pvfNewsletterRender(id, 'checking');
   api('/admin/api/brevo/contact-status?email=' + encodeURIComponent(p.email)).then(function(r){
-    if (r && r.ok) pvfNewsletterRender(id, r.subscribed ? 'on' : 'off');
+    if (r && r.ok) { _pvfNewsletterState[id] = r.subscribed ? 'on' : 'off'; pvfNewsletterRender(id, _pvfNewsletterState[id]); }
     else pvfNewsletterRender(id, 'off', (r && r.error) || '');
   }).catch(function(){ pvfNewsletterRender(id, 'off'); });
 }
@@ -855,7 +855,7 @@ function pvfNewsletterRender(id, state, errNote) {
     if (state === 'checking') {
       wrap.innerHTML = '<button class="pv2-hdr-btn dashed" disabled>&#128240; Checking newsletter…</button>';
     } else if (state === 'on') {
-      wrap.innerHTML = '<button class="pv2-hdr-btn on" title="On the newsletter — click to remove" onclick="pvfNewsletterToggle(' + id + ',true)">&#9993; On newsletter &#10003;</button>';
+      wrap.innerHTML = '<button class="pv2-hdr-btn on" title="On the newsletter — click to remove" onclick="pvfNewsletterToggle(' + id + ',true)">&#9993; Newsletter &#10003;</button>';
     } else {
       wrap.innerHTML = '<button class="pv2-hdr-btn dashed" onclick="pvfNewsletterToggle(' + id + ',false)">&#128240; Add to newsletter</button>';
     }
@@ -873,14 +873,14 @@ function pvfNewsletterToggle(id, currentlyOn) {
     if (st) st.textContent = 'Removing…';
     api('/admin/api/brevo/remove-contact', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email: p.email }) })
       .then(function(r){
-        if (r && r.ok) { if (st) st.textContent = ''; pvfNewsletterRender(id, 'off'); pvfToast(); }
+        if (r && r.ok) { if (st) st.textContent = ''; _pvfNewsletterState[id] = 'off'; pvfNewsletterRender(id, 'off'); pvfToast(); }
         else { if (st) st.textContent = 'Error: ' + ((r && r.error) || 'unknown'); }
       }).catch(function(){ if (st) st.textContent = 'Request failed.'; });
   } else {
     if (st) st.textContent = 'Adding…';
     api('/admin/api/brevo/sync-contact', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email: p.email, first_name: p.first_name||'', last_name: p.last_name||'' }) })
       .then(function(r){
-        if (r && r.ok) { if (st) st.textContent = ''; pvfNewsletterRender(id, 'on'); pvfToast(); }
+        if (r && r.ok) { if (st) st.textContent = ''; _pvfNewsletterState[id] = 'on'; pvfNewsletterRender(id, 'on'); pvfToast(); }
         else { if (st) st.textContent = 'Error: ' + ((r && r.error) || 'unknown'); }
       }).catch(function(){ if (st) st.textContent = 'Request failed.'; });
   }
@@ -981,6 +981,15 @@ function pvfTagsBody(p) {
           + '</div>';
       }
     }
+    // Newsletter (Brevo) status/toggle lives here in Tags & Groups. The wrap is
+    // populated asynchronously by pvfNewsletterInit (called after render); it's
+    // shown only when the person has an email.
+    if (p.email) {
+      out += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm-gray-light,#e8e2d8);display:flex;flex-wrap:wrap;gap:8px;align-items:center;">'
+        + '<span id="pv-newsletter-wrap" class="require-edit"></span>'
+        + '<span id="pv-newsletter-status" style="font-size:.75rem;color:var(--color-teal);"></span>'
+        + '</div>';
+    }
   }
   return out;
 }
@@ -988,6 +997,8 @@ function pvfToggleAddTags() {
   _pvfTagAddOpen = !_pvfTagAddOpen;
   var body = document.getElementById('pvf-body-tags');
   if (body) body.innerHTML = pvfTagsBody(_currentPvPerson);
+  var p = _currentPvPerson;
+  if (p && p.email && _userRole !== 'member') pvfNewsletterInit(p.id);
 }
 function pvfSetTags(tagIds) {
   var p = _currentPvPerson;
@@ -996,6 +1007,7 @@ function pvfSetTags(tagIds) {
       if (r && r.error) { alert('Save failed: ' + r.error); return; }
       _currentPvPerson.tags = (typeof allTags !== 'undefined' ? allTags : []).filter(function(t){ return tagIds.indexOf(t.id) >= 0; });
       var body = document.getElementById('pvf-body-tags'); if (body) body.innerHTML = pvfTagsBody(_currentPvPerson);
+      if (p && p.email && _userRole !== 'member') pvfNewsletterInit(p.id);
       pvfToast();
     }).catch(function(){ alert('Save failed. Please try again.'); });
 }
@@ -1139,9 +1151,8 @@ function pvfRenderInfo(p) {
     : '';
   var familyCard = pvfCard('family', 'Family & Household', { headerBtns: addBtn, body: pvfFamilyBody(p) });
 
-  var breezeBtn = _userRole === 'member' ? '' : (p.breeze_id
-    ? '<button class="btn-secondary role-admin" style="font-size:.72rem;padding:3px 9px;" onclick="syncPersonFromBreeze(\'' + esc(p.breeze_id) + '\',' + p.id + ')">&#8635; Breeze</button>'
-    : '<button class="btn-secondary role-admin role-staff" style="font-size:.72rem;padding:3px 9px;" onclick="pushPersonToBreeze(' + p.id + ')">&#8679; Breeze</button>');
+  var breezeBtn = _userRole === 'member' ? ''
+    : '<button class="btn-secondary role-admin role-staff" style="font-size:.72rem;padding:3px 9px;" onclick="pushPersonToBreeze(' + p.id + ')">&#8679; Breeze</button>';
   var demoCard = pvfCard('church', 'Demographics', { headerBtns: breezeBtn, body:
     pvfRowHtml('baptism_date') + pvfRowHtml('confirmation_date') + pvfRowHtml('anniversary_date') });
   var tagsCard = pvfCard('tags', 'Tags & Groups', { pad:true, body: pvfTagsBody(p) });
@@ -1170,6 +1181,8 @@ function pvfRenderInfo(p) {
   if (p.household_id) loadPvFamily(p.household_id, p.id);
   if (isFinance) pvfRenderGivingCard(p.id);
   pvfRenderFollowups(p.id);
+  // Newsletter control now lives in the Tags & Groups card — populate it after render.
+  if (p.email && _userRole !== 'member') pvfNewsletterInit(p.id);
   // Auto-embed the map (togglePersonMap opens the hidden container + loads the static map).
   if (document.getElementById('pv-map-' + p.id)) togglePersonMap(p.id);
 }
@@ -1286,9 +1299,7 @@ function pvEditDemo() {
   var msOpts = ['','Single','Married','Divorced','Widowed'].map(function(v){
     return '<option value="'+v+'"'+((p.marital_status||'')===v&&v?' selected':(!v&&!p.marital_status?' selected':''))+'>'+(v||'—')+'</option>';
   }).join('');
-  var breezeBtn = p.breeze_id
-    ? '<button class="btn-secondary role-admin" style="font-size:.7rem;padding:3px 10px;" onclick="syncPersonFromBreeze(\''+esc(p.breeze_id)+'\','+p.id+')">&#8635; Sync Breeze</button>'
-    : '<button class="btn-secondary role-admin role-staff" style="font-size:.7rem;padding:3px 10px;" onclick="pushPersonToBreeze('+p.id+')">&#8679; Push to Breeze</button>';
+  var breezeBtn = '<button class="btn-secondary role-admin role-staff" style="font-size:.7rem;padding:3px 10px;" onclick="pushPersonToBreeze('+p.id+')">&#8679; Push to Breeze</button>';
   sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
     + '<div class="pv-section-title" style="margin:0;">Demographics / Dates</div>'
     + '<div style="display:flex;gap:6px;">'+breezeBtn
@@ -1337,7 +1348,6 @@ function pvRenderDemo() {
   var p = _currentPvPerson;
   delete sec.dataset.editing;
   sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Demographics / Dates</div><div style="display:flex;gap:5px;">'
-    + (p.breeze_id ? '<button class="btn-secondary role-admin" style="font-size:.7rem;padding:2px 8px;" onclick="syncPersonFromBreeze(\''+esc(p.breeze_id)+'\','+p.id+')">&#8635; Sync Breeze</button>' : '')
     + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditDemo()">Edit</button></div></div>'
     + '<div class="pv-field-grid">'
     + pvField('gender', p.gender)
@@ -1944,28 +1954,9 @@ function cropSkip() {
   canvas.toBlob(function(blob) { _cropCallback(blob); _cropCallback = null; }, 'image/jpeg', 0.85);
 }
 
-function syncPersonFromBreeze(breezeId, personId) {
-  var btn = event && event.currentTarget;
-  var origLabel = btn ? btn.innerHTML : '';
-  if (btn) { btn.disabled = true; btn.textContent = 'Syncing\u2026'; }
-  api('/admin/api/import/breeze-sync-person', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ breeze_id: breezeId })
-  }).then(function(r) {
-    if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
-    if (r && r.ok) {
-      alert(r.summary || 'Synced from Breeze.');
-      // Reload the profile to show updated values
-      api('/admin/api/people/' + personId).then(function(p) { if (p && p.id) showProfile(p); });
-    } else {
-      alert('Breeze sync failed: ' + ((r && r.error) || 'Unknown error'));
-    }
-  }).catch(function(e) {
-    if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
-    alert('Breeze sync error: ' + (e.message || e));
-  });
-}
+// syncPersonFromBreeze() removed 2026-07-27 \u2014 no path pulls a person's data from
+// Breeze anymore (Connect is the source of truth for all people data; only giving
+// syncs from Breeze). Reverse sync (pushPersonToBreeze, below) is unaffected.
 function pushPersonToBreeze(personId) {
   if (!confirm('Create this person in Breeze? Their name and contact info will be pushed. This cannot be undone automatically.')) return;
   var btn = event && event.currentTarget;
