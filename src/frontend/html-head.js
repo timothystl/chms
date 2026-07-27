@@ -130,11 +130,25 @@ a.s-item{text-decoration:none;color:inherit;}
 /* .require-admin    = admin only -- fixed, not configurable */
 /* .no-member        = hidden for member role */
 .role-member .require-finance{display:none!important;}
+.role-member .require-tuitionaid{display:none!important;}
+.role-member .require-financeov{display:none!important;}
+.role-member .require-attendance{display:none!important;}
 .role-finance .require-staff{display:none!important;}
 .role-member .require-staff{display:none!important;}
 .role-member  .require-register{display:none!important;}
 .role-member .require-edit{display:none!important;}
 .role-member .no-member{display:none!important;}
+/* Per-feature EDIT affordances (create/edit buttons inside a feature tab) — hidden by
+   default; applyPermissionUI() in js-core.js adds a body.perm-edit-<item> class for the
+   current role when that item's level is 'edit', which reveals them. Buttons are
+   inline-block, so that's what we restore. The server enforces edit regardless. */
+.require-edit-giving,.require-edit-tuitionaid,.require-edit-finance,.require-edit-attendance,.require-edit-followups,.require-edit-register{display:none!important;}
+body.perm-edit-giving .require-edit-giving,
+body.perm-edit-tuitionaid .require-edit-tuitionaid,
+body.perm-edit-finance .require-edit-finance,
+body.perm-edit-attendance .require-edit-attendance,
+body.perm-edit-followups .require-edit-followups,
+body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .role-finance .require-admin{display:none!important;}
 .role-staff   .require-admin{display:none!important;}
 .role-office  .require-admin{display:none!important;}
@@ -808,11 +822,25 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 /* .require-admin    = admin only -- fixed, not configurable */
 /* .no-member        = hidden for member role */
 .role-member .require-finance{display:none!important;}
+.role-member .require-tuitionaid{display:none!important;}
+.role-member .require-financeov{display:none!important;}
+.role-member .require-attendance{display:none!important;}
 .role-finance .require-staff{display:none!important;}
 .role-member .require-staff{display:none!important;}
 .role-member  .require-register{display:none!important;}
 .role-member .require-edit{display:none!important;}
 .role-member .no-member{display:none!important;}
+/* Per-feature EDIT affordances (create/edit buttons inside a feature tab) — hidden by
+   default; applyPermissionUI() in js-core.js adds a body.perm-edit-<item> class for the
+   current role when that item's level is 'edit', which reveals them. Buttons are
+   inline-block, so that's what we restore. The server enforces edit regardless. */
+.require-edit-giving,.require-edit-tuitionaid,.require-edit-finance,.require-edit-attendance,.require-edit-followups,.require-edit-register{display:none!important;}
+body.perm-edit-giving .require-edit-giving,
+body.perm-edit-tuitionaid .require-edit-tuitionaid,
+body.perm-edit-finance .require-edit-finance,
+body.perm-edit-attendance .require-edit-attendance,
+body.perm-edit-followups .require-edit-followups,
+body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .role-finance .require-admin{display:none!important;}
 .role-staff   .require-admin{display:none!important;}
 .role-office  .require-admin{display:none!important;}
@@ -986,12 +1014,12 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   <div class="s-item" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
   <div class="s-item" data-tab="households" onclick="showTab('households')"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg><span class="s-tip">Households</span></div>
   <div class="s-item" data-tab="organizations" onclick="showTab('organizations')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="1"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg><span class="s-tip">Organizations</span></div>
-  <div class="s-section-hdr require-finance">Finance</div>
+  <div class="s-section-hdr require-finance" id="s-hdr-finance">Finance</div>
   <div class="s-item require-finance" data-tab="giving" onclick="showTab('giving')"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg><span class="s-tip">Giving</span></div>
-  <div class="s-item require-finance" data-tab="tuitionaid" onclick="showTab('tuitionaid')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 2 3 3 6 3s6-1 6-3v-5"/></svg><span class="s-tip">Tuition Aid</span></div>
-  <div class="s-item require-finance" data-tab="finance" onclick="showTab('finance')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.34-2.5-3-2.5s-3 1-3 2.25S10.34 11.5 12 11.5s3 1.1 3 2.25S13.66 16 12 16s-3-1.1-3-2.5"/></svg><span class="s-tip">Financial Reports</span></div>
+  <div class="s-item require-tuitionaid" data-tab="tuitionaid" onclick="showTab('tuitionaid')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 2 3 3 6 3s6-1 6-3v-5"/></svg><span class="s-tip">Tuition Aid</span></div>
+  <div class="s-item require-financeov" data-tab="finance" onclick="showTab('finance')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.34-2.5-3-2.5s-3 1-3 2.25S10.34 11.5 12 11.5s3 1.1 3 2.25S13.66 16 12 16s-3-1.1-3-2.5"/></svg><span class="s-tip">Financial Reports</span></div>
   <div class="s-section-hdr no-member">Ministry</div>
-  <div class="s-item require-staff" data-tab="attendance" onclick="showTab('attendance')"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg><span class="s-tip">Attendance</span></div>
+  <div class="s-item require-attendance" data-tab="attendance" onclick="showTab('attendance')"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg><span class="s-tip">Attendance</span></div>
   <div class="s-item no-member require-reports" data-tab="reports" onclick="showTab('reports')"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span class="s-tip">Reports</span></div>
   <div class="s-item require-register" data-tab="register" onclick="showTab('register')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="9" y1="7" x2="17" y2="7"/><line x1="9" y1="11" x2="14" y2="11"/></svg><span class="s-tip">Register</span></div>
   <div class="s-section-hdr require-admin">Admin</div>

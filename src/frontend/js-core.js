@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.84.0';
+export const DEPLOY_VERSION = '1.85.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -395,17 +395,38 @@ function applyRoleUI(role, displayName, permissions) {
     }
   }
 }
-// Drives .require-finance/.require-staff/.require-register/.require-reports visibility
-// from the resolved permissions instead of a fixed CSS role rule — these four are the
-// admin-configurable ones (Settings -> Users -> Role Permissions); .require-admin/.no-member
-// stay governed by the static role-based CSS in html-head.js since they're not configurable.
+// Resolved per-item level map for the current role, e.g. {giving:'edit', reports:'view', …}.
+// Delivered by /admin/api/me (see api-utils.js permissionsForRole). Kept here so any code
+// can ask permView()/permEdit() about the logged-in user.
+var _perm = {};
+function permView(item) { return _userRole === 'admin' || (!!_perm[item] && _perm[item] !== 'none'); }
+function permEdit(item) { return _userRole === 'admin' || _perm[item] === 'edit'; }
+// Drives feature-tab visibility (by VIEW level) and per-feature edit affordances (by EDIT
+// level) from the resolved permissions — these are the admin-configurable areas
+// (Settings -> Users -> Role Permissions). .require-admin/.no-member/.require-edit stay
+// governed by the static role-based CSS in html-head.js (People/Households editing and
+// admin-only surfaces are not part of the configurable matrix).
 function applyPermissionUI(perms) {
-  var map = { 'require-finance': 'finance', 'require-staff': 'staff', 'require-register': 'register', 'require-reports': 'reports' };
-  Object.keys(map).forEach(function(cls) {
-    var allowed = !!(perms && perms[map[cls]]);
+  _perm = perms || {};
+  // Tab / section visibility by VIEW level. require-finance == the Giving/Financial-Reports
+  // area (giving item); tuitionaid/financeov/attendance/register/reports are their own items.
+  var viewMap = {
+    'require-finance': 'giving', 'require-tuitionaid': 'tuitionaid', 'require-financeov': 'finance',
+    'require-attendance': 'attendance', 'require-register': 'register', 'require-reports': 'reports',
+  };
+  Object.keys(viewMap).forEach(function(cls) {
+    var allowed = permView(viewMap[cls]);
     document.querySelectorAll('.' + cls).forEach(function(el) {
       el.style.display = allowed ? '' : 'none';
     });
+  });
+  // The Finance section header shows if ANY of its three items is visible.
+  var finHdr = document.getElementById('s-hdr-finance');
+  if (finHdr) finHdr.style.display = (permView('giving') || permView('tuitionaid') || permView('finance')) ? '' : 'none';
+  // Per-feature edit affordances via body classes (see html-head.js CSS). Robust for
+  // controls rendered after this runs, unlike a one-time el.style pass.
+  ['giving', 'tuitionaid', 'finance', 'attendance', 'followups', 'register'].forEach(function(it) {
+    document.body.classList.toggle('perm-edit-' + it, permEdit(it));
   });
 }
 

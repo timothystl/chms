@@ -24,38 +24,51 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   const isAdmin = role === 'admin';
   const perms = await getRolePermissions(db);
   const rolePerms = permissionsForRole(perms, role);
-  const isFinance   = rolePerms.finance;
-  const isStaff     = rolePerms.staff;
-  const canRegister = rolePerms.register;
-  const canReports  = rolePerms.reports;
+  // Per-item access helpers off the resolved granular matrix. admin bypasses everything
+  // (never configurable); member's levels come from the matrix but are already clamped in
+  // resolveRolePermissions so it can never carry an 'edit' or a non-safe item.
+  const itemLevel = (item) => (isAdmin ? 'edit' : (rolePerms[item] || 'none'));
+  const canView   = (item) => isAdmin || itemLevel(item) !== 'none';
+  const canEditItem = (item) => isAdmin || itemLevel(item) === 'edit';
+
+  // Legacy flags still threaded into the domain handlers. With central per-item enforcement
+  // below, these only need to be permissive enough for READS within an already-gated
+  // segment — every write is blocked centrally before dispatch if the item isn't 'edit'.
+  //   isFinance  → giving reads (giving handler + giving data in people/reports)
+  //   isStaff    → follow-up / audit / attendance reads (people/reports handlers)
+  //   canRegister→ register access
+  const isFinance   = canView('giving');
+  const isStaff     = canView('attendance') || canView('followups') || canView('audit');
+  const canRegister = canView('register');
+  // People / Households / Tags / Orgs / Funds editing — unchanged blanket flag: every
+  // non-member role can edit the baseline directory (the per-item view/edit toggles above
+  // are the feature areas layered on top, not the directory itself).
   const canEdit    = role === 'admin' || role === 'finance' || role === 'staff' || role === 'office';
 
-  // Giving and giving reports — finance+ only
-  if ((seg.startsWith('giving') || seg.startsWith('reports/giving')) && !isFinance) {
-    return json({ error: 'Access denied: giving data requires finance access' }, 403);
-  }
-  // Tuition Aid Planner — finance+ only (admin + finance roles)
-  if (seg.startsWith('tuition-aid') && !isFinance) {
-    return json({ error: 'Access denied: tuition aid data requires finance access' }, 403);
-  }
-  // Finance Overview (QuickBooks + daycare) — finance+ only (admin + finance roles);
-  // connecting/disconnecting QuickBooks is further restricted to admin inside api-finance.js
-  if (seg.startsWith('finance') && !isFinance) {
-    return json({ error: 'Access denied: finance data requires finance access' }, 403);
-  }
-  // Attendance, follow-ups, audit — staff+ only (NOT finance, NOT office)
-  if ((seg.startsWith('attendance') || seg.startsWith('followup') || seg.startsWith('audit')) && !isStaff) {
-    return json({ error: 'Access denied' }, 403);
-  }
-  // Register — staff or office (the data-entry role's one core job)
-  if (seg.startsWith('register') && !canRegister) {
-    return json({ error: 'Access denied' }, 403);
-  }
-  // Reports — gated by the configurable "reports" permission (defaults to everyone except
-  // office). (Engagement/review-queue endpoints stay open — they back Dashboard widgets,
-  // not the Reports tab, and the dashboard already omits that data for non-staff roles.)
-  if (seg.startsWith('reports') && !canReports) {
-    return json({ error: 'Access denied' }, 403);
+  // ── Central per-item access gate ──────────────────────────────────────────
+  // Each feature segment maps to exactly one configurable item. 'none' → no access at all;
+  // a non-GET request to an item the role only has 'view' on is blocked here, so a
+  // view-only role can read but never write, and no downstream handler has to re-check.
+  // Order matters: reports/giving must resolve to the `giving` item, so it's listed before
+  // the generic reports rule and the first match wins.
+  const ACCESS_GATE = [
+    { match: (s) => s.startsWith('giving') || s.startsWith('reports/giving'), item: 'giving' },
+    { match: (s) => s.startsWith('tuition-aid'), item: 'tuitionaid' },
+    { match: (s) => s.startsWith('finance'), item: 'finance' },
+    { match: (s) => s.startsWith('attendance'), item: 'attendance' },
+    { match: (s) => s.startsWith('followup'), item: 'followups' },
+    { match: (s) => s.startsWith('audit'), item: 'audit' },
+    { match: (s) => s.startsWith('register'), item: 'register' },
+    { match: (s) => s.startsWith('reports'), item: 'reports' },
+  ];
+  for (const rule of ACCESS_GATE) {
+    if (rule.match(seg)) {
+      if (!canView(rule.item)) return json({ error: 'Access denied' }, 403);
+      if (method !== 'GET' && !canEditItem(rule.item)) {
+        return json({ error: 'Access denied: view-only permission for this area' }, 403);
+      }
+      break;
+    }
   }
   // Config (settings) — reads open to any logged-in role (needed for e.g. the
   // member-types dropdown used everywhere); writes admin only
@@ -70,9 +83,13 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   if (seg === 'board' && !isAdmin) {
     return json({ error: 'Access denied' }, 403);
   }
-  // Member role — GET people (filtered) + tags + member-types only; all writes blocked
+  // Member role — GET the filtered people directory + tags + member-types, plus the general
+  // Reports tab IF an admin has toggled it on (canView('reports')). Giving reports are never
+  // reachable here — reports/giving resolves to the `giving` item in the gate above and is
+  // already 403'd for members. All writes are blocked regardless.
   if (role === 'member') {
-    const allowedSegs = seg.startsWith('people') || seg === 'tags' || seg === 'member-types';
+    const allowedSegs = seg.startsWith('people') || seg === 'tags' || seg === 'member-types'
+      || (canView('reports') && seg.startsWith('reports'));
     if (!allowedSegs) return json({ error: 'Access denied' }, 403);
     if (method !== 'GET') return json({ error: 'Access denied' }, 403);
   }
@@ -461,14 +478,17 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   }
 
   // ── Tuition Aid Planner → api-tuition-aid.js ────────────────────────────
+  // Pass the tuition-specific view flag (not the giving one) — the central gate has already
+  // enforced view/edit for this item, so this only needs to satisfy the handler's own guard.
   if (seg.startsWith('tuition-aid')) {
-    const result = await handleTuitionAidApi(req, env, url, method, seg, db, isFinance);
+    const result = await handleTuitionAidApi(req, env, url, method, seg, db, canView('tuitionaid'));
     if (result !== null) return result;
   }
 
   // ── Finance Overview (QuickBooks + daycare) → api-finance.js ───────────
+  // connecting/disconnecting QuickBooks is further restricted to admin inside api-finance.js
   if (seg.startsWith('finance')) {
-    const result = await handleFinanceApi(req, env, url, method, seg, db, isAdmin, isFinance);
+    const result = await handleFinanceApi(req, env, url, method, seg, db, isAdmin, canView('finance'));
     if (result !== null) return result;
   }
 

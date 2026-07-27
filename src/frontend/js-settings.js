@@ -47,31 +47,57 @@ function saveMemberTypes() {
 }
 
 // ── ROLE PERMISSIONS ─────────────────────────────────────────────────
-// Admin editor for the four configurable access flags — see api-utils.js for the
-// server-side defaults/resolution and applyPermissionUI() in js-core.js for how these
-// drive .require-finance/.require-staff/.require-register/.require-reports visibility for
-// whichever role is actually logged in.
-var ROLE_PERM_ROWS = [
-  { key: 'finance',  label: 'Giving, Tuition Aid, Financial Reports' },
-  { key: 'staff',    label: 'Attendance, Follow-ups, Audit Log' },
-  { key: 'register', label: 'Register' },
-  { key: 'reports',  label: 'Reports tab' },
+// Admin editor for the granular per-feature access matrix. Each (role, item) cell is a
+// tri-state level: No access / View only / Edit. See api-utils.js for the server-side
+// defaults/resolution/enforcement and applyPermissionUI() in js-core.js for how the
+// resolved levels drive tab visibility + edit affordances for whoever is logged in.
+// Read-only items (Audit Log, Reports tab) offer only No access / View only.
+// Member is the filtered directory view — it can never edit, and only the safe items
+// (Reports tab) are toggleable; everything else is fixed at No access.
+var ROLE_PERM_ITEMS = [
+  { key: 'giving',     label: 'Giving',            editable: true  },
+  { key: 'tuitionaid', label: 'Tuition Aid',       editable: true  },
+  { key: 'finance',    label: 'Finance Overview',  editable: true  },
+  { key: 'attendance', label: 'Attendance',        editable: true  },
+  { key: 'followups',  label: 'Follow-ups',        editable: true  },
+  { key: 'audit',      label: 'Audit Log',         editable: false },
+  { key: 'register',   label: 'Register',          editable: true  },
+  { key: 'reports',    label: 'Reports tab',       editable: false },
 ];
-var ROLE_PERM_ROLES = ['finance', 'staff', 'office'];
+var ROLE_PERM_ROLES = ['finance', 'staff', 'office', 'member'];
+// Items a member is even allowed to be granted (view only). Anything else is locked to none.
+var MEMBER_ALLOWED_ITEMS = { reports: true };
 function loadRolePermissions() {
   api('/admin/api/config/role-permissions').then(function(d) {
     renderRolePermTable(d && d.permissions);
   }).catch(function() {});
 }
+function rolePermLevelOptions(item, role, current) {
+  var isMember = (role === 'member');
+  var locked = isMember && !MEMBER_ALLOWED_ITEMS[item.key]; // member, non-safe item
+  var opts = [{ v: 'none', t: 'No access' }, { v: 'view', t: 'View only' }];
+  // Edit is offered only for editable items and never for members.
+  if (item.editable && !isMember) opts.push({ v: 'edit', t: 'Edit' });
+  var sel = current || 'none';
+  if (locked) sel = 'none';
+  var html = '<select id="rp-' + role + '-' + item.key + '"'
+    + (locked ? ' disabled title="Members are read-only for this area"' : '')
+    + ' style="font-size:.82rem;padding:3px 6px;border:1px solid var(--border);border-radius:6px;">';
+  html += opts.map(function(o) {
+    return '<option value="' + o.v + '"' + (o.v === sel ? ' selected' : '') + '>' + o.t + '</option>';
+  }).join('');
+  html += '</select>';
+  return html;
+}
 function renderRolePermTable(perms) {
   var tbody = document.getElementById('role-perm-tbody');
   if (!tbody || !perms) return;
-  tbody.innerHTML = ROLE_PERM_ROWS.map(function(row) {
+  tbody.innerHTML = ROLE_PERM_ITEMS.map(function(item) {
     return '<tr style="border-bottom:1px solid var(--linen);">'
-      + '<td style="padding:8px;">' + esc(row.label) + '</td>'
+      + '<td style="padding:8px;">' + esc(item.label) + '</td>'
       + ROLE_PERM_ROLES.map(function(role) {
-        var isChecked = perms[role] && perms[role][row.key];
-        return '<td style="padding:8px;text-align:center;"><input type="checkbox" id="rp-' + role + '-' + row.key + '"' + (isChecked ? ' checked' : '') + '></td>';
+        var cur = (perms[role] && perms[role][item.key]) || 'none';
+        return '<td style="padding:8px;text-align:center;">' + rolePermLevelOptions(item, role, cur) + '</td>';
       }).join('')
       + '</tr>';
   }).join('');
@@ -80,9 +106,9 @@ function saveRolePermissions() {
   var permissions = {};
   ROLE_PERM_ROLES.forEach(function(role) {
     permissions[role] = {};
-    ROLE_PERM_ROWS.forEach(function(row) {
-      var cb = document.getElementById('rp-' + role + '-' + row.key);
-      permissions[role][row.key] = !!(cb && cb.checked);
+    ROLE_PERM_ITEMS.forEach(function(item) {
+      var sel = document.getElementById('rp-' + role + '-' + item.key);
+      permissions[role][item.key] = (sel && sel.value) || 'none';
     });
   });
   api('/admin/api/config/role-permissions', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ permissions: permissions }) }).then(function(d) {

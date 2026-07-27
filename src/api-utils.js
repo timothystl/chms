@@ -2,35 +2,107 @@
 import { json, html } from './auth.js';
 
 // ── Configurable role permissions ─────────────────────────────────────────
-// The four flags below (isFinance/isStaff/canRegister/canReports) are the actual
-// access-control primitives threaded through the whole ChMS API — handleChmsApi computes
-// them once and passes them straight into every domain handler (handleGivingApi,
-// handleReportsApi, etc.), so redefining these four from configurable, per-role storage
-// (rather than the fixed formulas they used to be) is a single point of truth: every
-// downstream consumer automatically respects an admin's changes with no other file
-// touched. admin always gets all four regardless of config (never editable, so an admin
-// can never lock themselves out); member is a structurally different, filtered read-only
-// view handled entirely separately and isn't part of this matrix. canEdit (the fourth
-// original flag) is deliberately NOT included here — it's a blanket "not read-only"
-// flag (true for every non-member role, always), not a specific feature toggle.
-export const ROLE_PERMISSION_KEYS = ['finance', 'staff', 'register', 'reports'];
-export const ROLE_PERMISSION_ROLES = ['finance', 'staff', 'office'];
+// The matrix below is the actual access-control definition threaded through the whole
+// ChMS API. Each configurable role (finance/staff/office/member) gets, per feature ITEM,
+// one of three LEVELS: 'none' (no access), 'view' (read-only) or 'edit' (read + write).
+// handleChmsApi resolves this once and enforces it centrally (a per-item view+edit gate),
+// so every downstream domain handler automatically respects an admin's changes.
+//
+//   admin  — always full access (edit on everything editable), never configurable, so an
+//            admin can never lock themselves out.
+//   member — a structurally different, filtered read-only directory view. It can never be
+//            granted 'edit' anywhere and can only be toggled on the safe, read-only extras
+//            (the general Reports tab); everything else is forced 'none'. clampMemberRow()
+//            enforces this regardless of what's stored.
+//
+// People / Households editing is NOT one of these items — it stays governed by the blanket
+// `canEdit` flag (true for every non-member role), exactly as before. These items are the
+// feature areas layered on top of the baseline directory.
+export const ROLE_PERMISSION_ROLES = ['finance', 'staff', 'office', 'member'];
+export const ROLE_PERMISSION_LEVELS = ['none', 'view', 'edit'];
+// editable:false items (Reports, Audit Log) are inherently read-only — their max level is
+// 'view'; the UI still lets you pick none/view but never edit.
+export const ROLE_PERMISSION_ITEMS = [
+  { key: 'giving',     label: 'Giving',            editable: true  },
+  { key: 'tuitionaid', label: 'Tuition Aid',       editable: true  },
+  { key: 'finance',    label: 'Finance Overview',  editable: true  },
+  { key: 'attendance', label: 'Attendance',        editable: true  },
+  { key: 'followups',  label: 'Follow-ups',        editable: true  },
+  { key: 'audit',      label: 'Audit Log',         editable: false },
+  { key: 'register',   label: 'Register',          editable: true  },
+  { key: 'reports',    label: 'Reports tab',       editable: false },
+];
+export const ROLE_PERMISSION_ITEM_KEYS = ROLE_PERMISSION_ITEMS.map(i => i.key);
+// Per-item ceiling — read-only items cap at 'view'.
+const ITEM_MAX_LEVEL = {};
+for (const it of ROLE_PERMISSION_ITEMS) ITEM_MAX_LEVEL[it.key] = it.editable ? 'edit' : 'view';
+// Which items a member may even be granted (view only), and to what ceiling. Everything
+// not listed here is forced to 'none' for members.
+const MEMBER_ALLOWED_ITEMS = { reports: 'view' };
+
 export const DEFAULT_ROLE_PERMISSIONS = {
-  finance: { finance: true,  staff: false, register: false, reports: true },
-  staff:   { finance: false, staff: true,  register: true,  reports: true },
-  office:  { finance: false, staff: false, register: true,  reports: false },
+  // Matches the historical fixed behavior exactly: finance → giving/tuition/finance (edit)
+  // + reports (view); staff → attendance/follow-ups/register (edit) + audit/reports (view);
+  // office → register (edit) only; member → filtered directory, nothing extra.
+  finance: { giving: 'edit', tuitionaid: 'edit', finance: 'edit', attendance: 'none', followups: 'none', audit: 'none', register: 'none', reports: 'view' },
+  staff:   { giving: 'none', tuitionaid: 'none', finance: 'none', attendance: 'edit', followups: 'edit', audit: 'view', register: 'edit', reports: 'view' },
+  office:  { giving: 'none', tuitionaid: 'none', finance: 'none', attendance: 'none', followups: 'none', audit: 'none', register: 'edit', reports: 'none' },
+  member:  { giving: 'none', tuitionaid: 'none', finance: 'none', attendance: 'none', followups: 'none', audit: 'none', register: 'none', reports: 'none' },
 };
 
+function levelRank(l) { const i = ROLE_PERMISSION_LEVELS.indexOf(l); return i < 0 ? 0 : i; }
+function clampLevel(level, maxLevel) {
+  if (!ROLE_PERMISSION_LEVELS.includes(level)) return 'none';
+  return levelRank(level) > levelRank(maxLevel) ? maxLevel : level;
+}
+function clampMemberRow(row) {
+  const out = {};
+  for (const item of ROLE_PERMISSION_ITEM_KEYS) {
+    const ceil = MEMBER_ALLOWED_ITEMS[item];
+    out[item] = ceil ? clampLevel(row[item], ceil) : 'none';
+  }
+  return out;
+}
+
+// A stored role object from before this change used boolean values keyed by the old coarse
+// groups {finance,staff,register,reports}. Detect that shape (any boolean value) and map it
+// forward to the granular tri-state model, preserving the old effective access (everything
+// accessible was also editable, so old true → 'edit'; read-only groups → 'view').
+function migrateLegacyRow(row) {
+  const isLegacy = Object.values(row).some(v => typeof v === 'boolean');
+  if (!isLegacy) return row;
+  return {
+    giving:     row.finance ? 'edit' : 'none',
+    tuitionaid: row.finance ? 'edit' : 'none',
+    finance:    row.finance ? 'edit' : 'none',
+    attendance: row.staff ? 'edit' : 'none',
+    followups:  row.staff ? 'edit' : 'none',
+    audit:      row.staff ? 'view' : 'none',
+    register:   row.register ? 'edit' : 'none',
+    reports:    row.reports ? 'view' : 'none',
+  };
+}
+
 // Pure — takes the raw stored JSON string (or null/undefined) and returns the full
-// {finance:{...}, staff:{...}, office:{...}} matrix with every role/key defaulted, so a
-// partially-edited or missing config can never leave a key silently undefined.
+// {finance:{...}, staff:{...}, office:{...}, member:{...}} matrix with every role/item
+// defaulted and clamped, so a partially-edited, legacy, or missing config can never leave
+// an item undefined or over-granted.
 export function resolveRolePermissions(storedJson) {
   let overrides = {};
   if (storedJson) { try { overrides = JSON.parse(storedJson) || {}; } catch { overrides = {}; } }
   const result = {};
   for (const role of Object.keys(DEFAULT_ROLE_PERMISSIONS)) {
-    result[role] = Object.assign({}, DEFAULT_ROLE_PERMISSIONS[role], overrides[role] || {});
+    const base = Object.assign({}, DEFAULT_ROLE_PERMISSIONS[role]);
+    const ov = overrides[role];
+    if (ov && typeof ov === 'object') {
+      const migrated = migrateLegacyRow(ov);
+      for (const item of ROLE_PERMISSION_ITEM_KEYS) {
+        if (item in migrated) base[item] = clampLevel(migrated[item], ITEM_MAX_LEVEL[item]);
+      }
+    }
+    result[role] = base;
   }
+  result.member = clampMemberRow(result.member);
   return result;
 }
 
@@ -39,11 +111,20 @@ export async function getRolePermissions(db) {
   return resolveRolePermissions(row?.value);
 }
 
-// The four flags a given role actually gets, folding in admin's always-full-access and
-// member's not-applicable status (member permissions are computed elsewhere entirely).
+// The per-item level map a given role actually gets, folding in admin's always-full-access.
+// Returns { giving:'edit', ..., reports:'view' } — admin gets each item's ceiling, an
+// unknown role gets all 'none'.
 export function permissionsForRole(matrix, role) {
-  if (role === 'admin') return { finance: true, staff: true, register: true, reports: true };
-  return matrix[role] || { finance: false, staff: false, register: false, reports: false };
+  const out = {};
+  if (role === 'admin') {
+    for (const item of ROLE_PERMISSION_ITEM_KEYS) out[item] = ITEM_MAX_LEVEL[item];
+    return out;
+  }
+  const row = matrix[role] || {};
+  for (const item of ROLE_PERMISSION_ITEM_KEYS) {
+    out[item] = ROLE_PERMISSION_LEVELS.includes(row[item]) ? row[item] : 'none';
+  }
+  return out;
 }
 
 export function randHex(bytes) {
