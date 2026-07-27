@@ -42,16 +42,13 @@ export async function handleIntakeApi(req, env, path) {
 
   // Read-only fund list — lets the website admin (Giving tab) suggest real ChMS fund
   // names when setting up give.timothystl.org's fund selector, instead of staff retyping
-  // names by hand and risking a mismatch. `tithely_fund_id` (added alongside the
-  // pre-existing `breeze_id` — two separate columns, two unrelated vendor IDs, never
-  // conflated) is hand-entered by an admin via the Settings → Import/Export → Manage Funds
-  // card and is blank for any fund not used on give.timothystl.org, so the website side
-  // can prefill both the name and the Tithe.ly ID when a fund has one set here. Not
-  // rate-limited like the POST intake routes below (no user-facing form triggers it,
-  // called only from the admin UI).
+  // names by hand and risking a mismatch. ChMS has no Tithe.ly fund ID of its own (only
+  // `breeze_id`, for Breeze giving-sync) — the website still needs that ID entered by hand
+  // per fund; this only saves getting the *name* right. Not rate-limited like the POST
+  // intake routes below (no user-facing form triggers it, called only from the admin UI).
   if (path === '/api/intake/funds' && req.method === 'GET') {
     const { results } = await env.DB.prepare(
-      "SELECT id, name, tithely_fund_id FROM funds WHERE active = 1 ORDER BY sort_order, name"
+      "SELECT id, name FROM funds WHERE active = 1 ORDER BY sort_order, name"
     ).all();
     return json({ funds: results || [] });
   }
