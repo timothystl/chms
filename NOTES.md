@@ -24,6 +24,18 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.92.0 — Giving Plateaus: moved to the Board Report tab (2026-07-27)
+Per user request, relocated the Giving Plateaus & Nudges report from the Giving → Reports tile grid
+into the **Board Report** sub-view (Finance → Giving → Board Report), where the strategic/leadership
+giving analysis belongs. It's now a card below the council report body with its own controls
+(Year / Group by / Min. repeats) and its own dedicated output element `#giv-plat-output` — not routed
+through the shared `showRptOutput` (which broadcasts to the Reports-view targets and would leak other
+reports into this tab). `runGivingPlateaus()` renders straight into that element with a loading/error
+state; the year prefills to the current year when the Board view opens (`givSetView('board')`) and
+also defaults defensively if left blank. No backend change. `npm test` (290/290), `node --check` on
+both built bundles. Not verified in a live browser. (`src/frontend/html-tabs.js`,
+`src/frontend/js-reports.js`, `src/frontend/js-giving.js`)
+
 ### v1.90.0 — Giving Plateaus: per-household mode (2026-07-27)
 Added a **Group by: Household / Person** selector to the Giving Plateaus report (household is the
 new default). In household scope a household is one "giver" — spouses who give separately on the
