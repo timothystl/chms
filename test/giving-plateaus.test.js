@@ -110,6 +110,28 @@ describe('computeGivingPlateaus', () => {
     ]);
   });
 
+  it('defaults link fields to the person when not provided', () => {
+    const rows = [row(9, 'Fay F', 50), row(9, 'Fay F', 50), row(9, 'Fay F', 50)];
+    const p = computeGivingPlateaus(rows, { minRepeat: 3 }).tiers[0].people[0];
+    expect(p.link_kind).toBe('person');
+    expect(p.link_id).toBe(9);
+  });
+
+  it('carries household link fields through (household scope)', () => {
+    // Two spouses' combined household contribution: caller pre-sums per
+    // (household, day) and tags the rows with the household link target.
+    const hh = (dollars) => ({ person_id: 'h:12', name: 'Smith Household', link_id: 12, link_kind: 'household', day_cents: dollars * 100 });
+    const rows = [hh(83), hh(83), hh(83), hh(120)];
+    const r = computeGivingPlateaus(rows, { minRepeat: 3 });
+    expect(r.summary.plateaued_givers).toBe(1);
+    const p = r.tiers[0].people[0];
+    expect(p.name).toBe('Smith Household');
+    expect(p.link_kind).toBe('household');
+    expect(p.link_id).toBe(12);
+    expect(p.plateau_cents).toBe(8300);
+    expect(p.target_cents).toBe(10000);
+  });
+
   it('ignores zero/negative day totals', () => {
     const rows = [
       row(8, 'Eve E', 43), row(8, 'Eve E', 43), row(8, 'Eve E', 43),

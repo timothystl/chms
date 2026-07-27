@@ -357,7 +357,17 @@ export function computeGivingPlateaus(rows, opts = {}) {
     const dollars = Math.round((Number(r.day_cents) || 0) / 100);
     if (dollars <= 0) continue;
     let p = byPerson.get(pid);
-    if (!p) { p = { id: pid, name: r.name || '', counts: new Map(), gifts: 0, total: 0 }; byPerson.set(pid, p); }
+    if (!p) {
+      p = {
+        id: pid, name: r.name || '',
+        // Where a row in this tier should link. Defaults to the person; the
+        // household-scope caller passes link_kind='household' + a household id.
+        link_id: r.link_id != null ? r.link_id : pid,
+        link_kind: r.link_kind || 'person',
+        counts: new Map(), gifts: 0, total: 0,
+      };
+      byPerson.set(pid, p);
+    }
     p.counts.set(dollars, (p.counts.get(dollars) || 0) + 1);
     p.gifts += 1;
     p.total += Number(r.day_cents) || 0;
@@ -378,6 +388,7 @@ export function computeGivingPlateaus(rows, opts = {}) {
     const weeklyIncreaseCents = targetCents - plateauCents;
     plateaued.push({
       id: p.id, name: p.name,
+      link_id: p.link_id, link_kind: p.link_kind,
       plateau_cents: plateauCents,
       repeats: bestCount,
       gifts: p.gifts,
