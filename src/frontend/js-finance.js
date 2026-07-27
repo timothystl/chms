@@ -3674,9 +3674,15 @@ function finRenderSalaryReferenceEditor(isAdminUI) {
   var years = [_finPlanBaseYear, _finPlanTargetYear].filter(function(y, i, arr) { return arr.indexOf(y) === i; });
   var fields = years.map(function(y) {
     var ref = _finSalaryReferenceByYear[y] || {};
-    var baseVal = ref.baseSalaryCents != null ? (ref.baseSalaryCents / 100).toFixed(2) : '';
+    // Deliberately NOT .toFixed(2) here — reformatting the live value on every keystroke (this
+    // whole card re-renders on every oninput) fights the user's typing: the field snaps to
+    // "X.00" after the first digit, so further digits get inserted into an already-reformatted
+    // string instead of appended, scrambling the amount and dropping any cents typed. A plain
+    // number round-trips to the same string the user typed (matches the Benefits Total field's
+    // existing pattern below), so nothing gets rewritten out from under them mid-edit.
+    var baseVal = ref.baseSalaryCents != null ? (ref.baseSalaryCents / 100) : '';
     var baseResolved = finLcmsBaseSalaryCents(y, 0, _finSalaryReferenceByYear);
-    var optOutVal = ref.healthOptOutCents != null ? (ref.healthOptOutCents / 100).toFixed(2) : '';
+    var optOutVal = ref.healthOptOutCents != null ? (ref.healthOptOutCents / 100) : '';
     var optOutResolved = finHealthOptOutCentsFor(y, _finSalaryReferenceByYear);
     return '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
       + '<label style="font-size:.72rem;color:var(--warm-gray);">District Base Salary, FY' + y + (baseVal === '' ? ' <span style="font-weight:400;">(using $' + finFmtMoney(baseResolved.dollars) + ' from FY' + baseResolved.sourceYear + ')</span>' : '') + '<br>$<input type="number" id="fin-salary-ref-base-' + y + '" step="0.01" value="' + baseVal + '" placeholder="' + baseResolved.dollars.toFixed(2) + '" oninput="finSalaryRefBaseChange(' + y + ',this.value)" style="width:100px;"></label>'
@@ -3861,10 +3867,14 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
     + '<tr style="font-weight:700;border-top:2px solid var(--navy);"><td style="padding:5px 6px;">Total Annual Premium</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(calc.totalCents/100) + '</td></tr>'
     + '</table>') : '<p style="font-size:.8rem;color:var(--warm-gray);">Unknown option.</p>';
 
-  // "Is it worth it?" — compared against Renewal (staying in the current plan design) since
-  // that's the do-nothing baseline. Two symmetric cases: a costlier option (does the lower
-  // deductible/OOP-max pay for the extra premium?) and a cheaper option (does the premium
-  // savings outweigh the worse deductible/OOP-max if a claim actually happens?).
+  // "Is it worth it?" — reframed per the user's clarification: the church fully covers Renewal
+  // (Option C) only; a worker who wants a different option pays the premium DIFFERENCE themselves
+  // (e.g. via payroll deduction), so the question is whether it's worth it for THAT WORKER, not a
+  // church-budget decision. The underlying breakeven math is unchanged — a premium difference is
+  // a premium difference regardless of who writes the check — only the framing/copy changed.
+  // Two symmetric cases: a costlier option (does the lower deductible/OOP-max pay the worker back
+  // for the extra premium they're covering?) and a cheaper option (does the premium the worker
+  // pockets outweigh the worse deductible/OOP-max if a claim actually happens?).
   var breakevenHtml = '';
   if (calc && _finHealthPlanSelectedOption !== 'renewal') {
     var baseline = finComputeHealthPlanTotalCents('renewal');
@@ -3894,11 +3904,11 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
         + '<thead><tr><th style="text-align:left;padding:2px 6px;">What the family would actually pay</th><th style="text-align:right;padding:2px 6px;">Renewal</th><th style="text-align:right;padding:2px 6px;">' + esc(selOpt.label) + '</th></tr></thead>'
         + '<tbody>' + actualSpendTableRows + '</tbody></table>';
       breakevenHtml = '<div style="margin-top:10px;padding:8px 10px;background:var(--white);border-radius:6px;font-size:.75rem;color:var(--warm-gray);">'
-        + '<b style="color:var(--charcoal);">Is it worth it?</b> This option costs $' + finFmtMoney(perHouseholdDiffCents/100) + '/yr more per household than staying on Renewal. '
+        + '<b style="color:var(--charcoal);">Is it worth it for the worker?</b> The church fully covers Renewal (Option C); choosing this option instead means the worker personally pays the $' + finFmtMoney(perHouseholdDiffCents/100) + '/yr extra premium (e.g. via payroll deduction) that the church doesn\'t cover. '
         + (breakevenCents != null
-          ? 'If a household\'s medical costs are spread across 2+ family members, the extra premium pays for itself once that household\'s <i>total cost of care for the year</i> (what providers bill in total — not what the family pays out of pocket, which stays capped well below this) reaches about <b>$' + finFmtMoney(breakevenCents/100) + '</b> — below that, the extra premium is a net cost; above it, the lower deductible/out-of-pocket max saves more than the premium costs.'
-          : 'It never fully pays for itself in reduced out-of-pocket costs at any level of care, even spread across the whole family.')
-        + (singleClaimantWorstCaseCents != null ? ' If one family member alone accounts for all the costs (not spread across the family), this option ' + (singleClaimantWorstCaseCents > 0 ? 'never breaks even — it costs up to $' + finFmtMoney(singleClaimantWorstCaseCents/100) + ' more even in a worst-case year' : (singleClaimantWorstCaseCents < 0 ? 'still comes out ahead by up to $' + finFmtMoney(Math.abs(singleClaimantWorstCaseCents)/100) + ' in a worst-case year' : 'comes out exactly even in a worst-case year')) + ', since a lone claimant is held to the same family-size threshold a non-embedded plan uses instead of a smaller individual cap.' : '')
+          ? 'If the worker\'s own household medical costs are spread across 2+ family members, that extra premium pays the worker back once their household\'s <i>total cost of care for the year</i> (what providers bill in total — not what the family pays out of pocket, which stays capped well below this) reaches about <b>$' + finFmtMoney(breakevenCents/100) + '</b> — below that, paying the extra premium is a net cost to the worker; above it, the lower deductible/out-of-pocket max saves the worker more than the premium costs them.'
+          : 'It never fully pays the worker back in reduced out-of-pocket costs at any level of care, even spread across the whole family.')
+        + (singleClaimantWorstCaseCents != null ? ' If one family member alone accounts for all the costs (not spread across the family), paying for this option ' + (singleClaimantWorstCaseCents > 0 ? 'never breaks even for the worker — it costs them up to $' + finFmtMoney(singleClaimantWorstCaseCents/100) + ' more even in a worst-case year' : (singleClaimantWorstCaseCents < 0 ? 'still comes out ahead for the worker by up to $' + finFmtMoney(Math.abs(singleClaimantWorstCaseCents)/100) + ' in a worst-case year' : 'comes out exactly even in a worst-case year')) + ', since a lone claimant is held to the same family-size threshold a non-embedded plan uses instead of a smaller individual cap.' : '')
         + actualSpendTable
         + '</div>';
     } else if (perHouseholdDiffCents < 0) {
@@ -3906,11 +3916,11 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
         + '<thead><tr><th style="text-align:left;padding:2px 6px;">What the family would actually pay</th><th style="text-align:right;padding:2px 6px;">Renewal</th><th style="text-align:right;padding:2px 6px;">' + esc(selOpt.label) + '</th></tr></thead>'
         + '<tbody>' + actualSpendRow('Worst case, costs spread across the family', renewalFamilyWorstCents, selFamilyWorstCents) + actualSpendRow('Worst case, one family member alone', renewalLoneWorstCents, selLoneWorstCents) + '</tbody></table>';
       breakevenHtml = '<div style="margin-top:10px;padding:8px 10px;background:var(--white);border-radius:6px;font-size:.75rem;color:var(--warm-gray);">'
-        + '<b style="color:var(--charcoal);">Is it worth it?</b> This option saves $' + finFmtMoney(Math.abs(perHouseholdDiffCents)/100) + '/yr per household in premium compared to staying on Renewal — guaranteed, whether or not anyone has a claim. '
-        + 'The tradeoff is a higher deductible/out-of-pocket max: in a worst-case year with costs spread across the family, this option could cost up to <b>$' + finFmtMoney(Math.abs(familyWorstCaseCents)/100) + (familyWorstCaseCents > 0 ? ' more' : ' less') + '</b> out-of-pocket than Renewal'
+        + '<b style="color:var(--charcoal);">Is it worth it for the worker?</b> The church fully covers Renewal (Option C); choosing this cheaper option instead would save the worker $' + finFmtMoney(Math.abs(perHouseholdDiffCents)/100) + '/yr in premium — guaranteed, whether or not anyone has a claim. '
+        + 'The tradeoff is a higher deductible/out-of-pocket max: in a worst-case year with costs spread across the family, this option could cost the worker up to <b>$' + finFmtMoney(Math.abs(familyWorstCaseCents)/100) + (familyWorstCaseCents > 0 ? ' more' : ' less') + '</b> out-of-pocket than Renewal'
         + (Math.abs(familyWorstCaseCents) < Math.abs(perHouseholdDiffCents)
-          ? ', which is smaller than the guaranteed premium savings — so even in the worst realistic year, this option comes out ahead overall.'
-          : ', which is larger than the guaranteed premium savings — so a genuinely bad year could cost more overall than staying on Renewal.')
+          ? ', which is smaller than the guaranteed premium savings — so even in the worst realistic year, this option comes out ahead for the worker overall.'
+          : ', which is larger than the guaranteed premium savings — so a genuinely bad year could cost the worker more overall than staying on Renewal.')
         + cheaperSpendTable
         + '</div>';
     }
@@ -3919,12 +3929,18 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
   var expenseLeaves = [];
   (function walk(nodes) { (nodes || []).forEach(function(n) { if (!n.children.length && n.classification !== 'Income') expenseLeaves.push(n); walk(n.children); }); })(_finPlanBaseTree);
   var categoryOptions = expenseLeaves.map(function(n) {
-    var guess = /health|insurance|medical|benefit/i.test(n.label);
+    var guess = /health|medical|dental|vision|disability/i.test(n.label);
     return '<option value="' + esc(n.path) + '"' + (guess && !_finHealthPlanTargetCategory ? ' selected' : (n.path === _finHealthPlanTargetCategory ? ' selected' : '')) + '>' + esc(n.label) + '</option>';
   }).join('');
   // "Pull in last year" — the real FY base-year actual/budget totals across whichever accounts
-  // look like health insurance accounts, same pattern as the Salary Calculator's reference line.
-  var healthAccounts = expenseLeaves.filter(function(n) { return /health|insurance|medical|benefit/i.test(n.label); });
+  // look like EMPLOYEE health/benefits accounts, same pattern as the Salary Calculator's reference
+  // line. Deliberately does NOT match a bare "insurance" or "benefit" — a generic account like
+  // "52040 Insurance" is very likely property/liability coverage, not employee health coverage,
+  // and matching it inflated this reference figure well past the real health-insurance budget
+  // (reported bug: a general Insurance line dragged the shown "budgeted" total up to ~2x the real
+  // per-employee premium cost). Requiring a specific term (health/medical/dental/vision/
+  // disability) still catches "59035 Health Insurance" and "59016 Disability & Accident Insurance".
+  var healthAccounts = expenseLeaves.filter(function(n) { return /health|medical|dental|vision|disability/i.test(n.label); });
   var lastYearHealthActualCents = healthAccounts.reduce(function(sum, n) { return sum + (n.totalActualCents || 0); }, 0);
   var lastYearHealthBudgetCents = healthAccounts.reduce(function(sum, n) { return sum + (n.hasBudgetInfo ? (n.totalBudgetCents || 0) : 0); }, 0);
   var lastYearHealthHtml = healthAccounts.length
@@ -3934,7 +3950,7 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
   return '<div class="fin-card" style="margin-top:16px;">'
     + '<div class="fin-card-title" style="font-size:18px;">Health Insurance Renewal Options <span style="font-family:var(--font-body);font-weight:400;font-size:.72rem;color:var(--warm-gray);">(Concordia Plans quote #0560500326, effective ' + HEALTH_PLAN_QUOTE_2027.effectiveYear + ')</span></div>'
     + lastYearHealthHtml
-    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">One group premium for the whole congregation, not a per-worker figure — Medical varies by plan option; Dental and Vision are the same across Renewal/Option 1/2/3 (only the old Current plan has a lower Dental rate).</p>'
+    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">One group premium for the whole congregation, not a per-worker figure — Medical varies by plan option; Dental and Vision are the same across Renewal/Option 1/2/3 (only the old Current plan has a lower Dental rate). The church fully covers Renewal (Option C); a worker choosing a different option pays the premium difference themselves — see "Is it worth it?" below.</p>'
     + '<label style="font-size:.72rem;color:var(--warm-gray);display:block;margin-bottom:8px;">Plan Option<br>' + optionSelect + '</label>'
     + breakdownHtml
     + breakevenHtml
