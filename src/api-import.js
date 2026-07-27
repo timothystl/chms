@@ -2481,8 +2481,9 @@ if (seg === 'import/breeze-photo-test' && method === 'POST') { try {
 // Targeted bulk sync: pull ONLY middle_name + preferred_name (Breeze "nickname")
 // from Breeze for every locally-linked person. Never touches any other column,
 // and only writes when Breeze actually has a value (so it never clears a name
-// you've set locally). Uses the bulk list endpoint (top-level name fields are
-// returned without needing details=1) and a single db.batch per page.
+// you've set locally). The list endpoint MUST be called with details=1 — without
+// it, Breeze returns only minimal fields (id, first/last name, photo path) and
+// middle_name/nick_name are absent, so nothing ever updated. One db.batch per page.
 if (seg === 'import/breeze-sync-names' && method === 'POST') { try {
   const breeze = makeBreezeClient(env);
   if (!breeze) return json({ error: 'Breeze not configured (BREEZE_SUBDOMAIN / BREEZE_API_KEY missing)' }, 503);
@@ -2494,13 +2495,26 @@ if (seg === 'import/breeze-sync-names' && method === 'POST') { try {
   const byBreezeId = new Map();
   for (const r of localRows) byBreezeId.set(String(r.breeze_id), r);
 
+  // Pull the middle name / nickname from a Breeze person object, tolerating the
+  // several key spellings Breeze has used across versions (top-level with details=1).
+  const pickName = (bp, keys) => {
+    for (const k of keys) {
+      const v = bp && bp[k];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+    return '';
+  };
+  const MIDDLE_KEYS = ['middle_name', 'middle', 'middlename'];
+  const PREF_KEYS   = ['nick_name', 'nickname', 'nick', 'preferred_name'];
+
   let scanned = 0, matched = 0, middleUpdated = 0, preferredUpdated = 0;
   const updates = [];
+  const sample = []; // diagnostic: raw name fields for the first few matched people
   const limit = 1000;
   let offset = 0;
-  // Page through the full Breeze directory.
+  // Page through the full Breeze directory. details=1 is required (see note above).
   for (let guard = 0; guard < 100; guard++) {
-    const res = await breeze.people(`limit=${limit}&offset=${offset}`);
+    const res = await breeze.people(`details=1&limit=${limit}&offset=${offset}`);
     if (!res.ok) return json({ error: 'Breeze people fetch failed (' + res.status + ')' }, 502);
     let arr; try { arr = await res.json(); } catch { arr = null; }
     if (!Array.isArray(arr) || arr.length === 0) break;
@@ -2509,8 +2523,22 @@ if (seg === 'import/breeze-sync-names' && method === 'POST') { try {
       const local = byBreezeId.get(String(bp.id));
       if (!local) continue;
       matched++;
-      const bMiddle = (bp.middle_name || '').trim();
-      const bPref   = (bp.nick_name || bp.nickname || '').trim();
+      const bMiddle = pickName(bp, MIDDLE_KEYS);
+      const bPref   = pickName(bp, PREF_KEYS);
+      if (sample.length < 8) {
+        sample.push({
+          breeze_id: String(bp.id),
+          first_name: bp.first_name || '',
+          last_name: bp.last_name || '',
+          breeze_middle_name: bp.middle_name ?? null,
+          breeze_nick_name: bp.nick_name ?? null,
+          breeze_nickname: bp.nickname ?? null,
+          resolved_middle: bMiddle,
+          resolved_preferred: bPref,
+          local_middle: local.middle_name || '',
+          local_preferred: local.preferred_name || ''
+        });
+      }
       const sets = [];
       const binds = [];
       if (bMiddle && bMiddle !== (local.middle_name || '')) { sets.push('middle_name=?'); binds.push(bMiddle); middleUpdated++; }
@@ -2527,7 +2555,7 @@ if (seg === 'import/breeze-sync-names' && method === 'POST') { try {
   for (let i = 0; i < updates.length; i += 50) {
     await db.batch(updates.slice(i, i + 50));
   }
-  return json({ ok: true, scanned, matched, middle_updated: middleUpdated, preferred_updated: preferredUpdated, changed: updates.length });
+  return json({ ok: true, scanned, matched, middle_updated: middleUpdated, preferred_updated: preferredUpdated, changed: updates.length, sample });
 } catch (e) { return json({ error: e.message || 'Breeze name sync failed' }, 500); } }
 
 if (seg === 'import/breeze-sync-person' && method === 'POST') { try {
