@@ -1125,7 +1125,7 @@ function runBreezeImport() {
   var status = document.getElementById('breeze-status');
   bar.style.display = 'block'; fill.style.width = '0%';
   status.textContent = 'Starting import…'; status.className = 'import-status';
-  var totalImported = 0, totalUpdated = 0, totalDeactivated = 0;
+  var totalImported = 0, totalUpdated = 0, totalDeactivated = 0, totalSkipped = 0;
   var lastStatusField = null, allStatusesSeen = new Set();
   function doPage(offset) {
     api('/admin/api/import/breeze', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({offset:offset, limit:100})}).then(function(d) {
@@ -1133,6 +1133,7 @@ function runBreezeImport() {
       totalImported += d.imported || 0;
       totalUpdated += d.updated || 0;
       totalDeactivated += d.deactivated || 0;
+      totalSkipped += d.skipped || 0;
       if (d.status_field) lastStatusField = d.status_field;
       if (d.statuses_seen) d.statuses_seen.forEach(function(s) { allStatusesSeen.add(s); });
       if (d._diag && !window._breezeImportDiag) {
@@ -1164,9 +1165,9 @@ function runBreezeImport() {
         }
       }
       fill.style.width = d.done ? '100%' : Math.min(95, (d.next_offset / Math.max(d.next_offset + 100, 200)) * 100) + '%';
-      status.textContent = 'Imported ' + totalImported + ', updated ' + totalUpdated + '…';
+      status.textContent = 'Added ' + totalImported + ' new, skipped ' + totalSkipped + ' already here…';
       if (d.done) {
-        var msg = 'People sync done. ' + totalImported + ' new, ' + totalUpdated + ' updated' + (totalDeactivated ? ', ' + totalDeactivated + ' deactivated' : '') + '.';
+        var msg = 'People sync done (add-only). ' + totalImported + ' new added, ' + totalSkipped + ' already here left unchanged.';
         if (!lastStatusField) {
           msg += ' ⚠ No Breeze status field detected — check Settings › Breeze Status Mapping.';
         } else if (allStatusesSeen.size === 0) {

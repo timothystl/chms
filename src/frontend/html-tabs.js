@@ -628,7 +628,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <p>Direct syncing with the Breeze API for people and fund names. Giving sync moved to Giving &rarr; Settings.</p>
 
       <h4 style="font-size:.9rem;margin:0 0 6px;">People</h4>
-      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">Existing records (matched by Breeze ID) are updated; new people are added. Dates and photos already in the system are preserved if Breeze doesn't return a value.</p>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;"><strong>Add-only:</strong> brand-new Breeze people are added to Connect. People already here are <strong>never changed</strong> and are never deactivated — Connect is the source of truth for all people data (only giving syncs from Breeze). To connect a Breeze record to someone you already added here, use <em>Link Existing People to Breeze</em> below.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
         <button class="btn-primary" onclick="runBreezeImport()">Sync People from Breeze</button>
         <button class="btn-secondary" onclick="runBreezeTagSync(this)">&#127991; Sync Tags Only</button>
