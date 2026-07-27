@@ -321,6 +321,40 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .rpt-total{font-weight:700;border-top:2px solid var(--border) !important;}
 .rpt-group-hdr td{background:var(--linen);font-weight:700;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);padding:5px 10px;border-bottom:none !important;}
 .rpt-group-sub td{font-style:italic;font-weight:600;background:#faf7f4;border-bottom:1px solid var(--border) !important;}
+/* ── Board Report (giving redesign 1A/1B) ─────────────────────────────── */
+.board-header{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:16px;}
+.board-title{font-size:22px;font-weight:800;color:var(--color-navy);}
+.board-subtitle{font-size:13px;color:var(--warm-meta);margin-top:2px;}
+.board-toolbar{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.board-mode-toggle{display:inline-flex;border:1px solid var(--warm-border);border-radius:8px;overflow:hidden;}
+.board-mode-toggle button{background:var(--white);border:none;padding:7px 12px;font-size:.82rem;font-weight:600;color:var(--warm-meta);cursor:pointer;font-family:var(--font-body);}
+.board-mode-toggle button.active{background:var(--color-navy);color:var(--white);}
+.board-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;}
+.board-kpi-card{background:var(--white);border-radius:18px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:16px 18px;border-top:4px solid var(--color-teal);}
+.board-kpi-label{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);}
+.board-kpi-value{font-size:27px;font-weight:800;color:var(--charcoal);margin:4px 0 6px;font-variant-numeric:tabular-nums;line-height:1;}
+.board-kpi-sub{font-size:11.5px;color:var(--warm-gray);}
+.board-body-grid{display:grid;grid-template-columns:1.55fr 1fr;gap:14px;}
+.board-card{background:var(--white);border-radius:18px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:18px 20px;}
+.board-card-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-ink-label);}
+.board-legend{margin-left:auto;display:flex;gap:12px;font-size:11px;color:var(--warm-gray);align-items:center;}
+.board-legend span{display:flex;align-items:center;gap:5px;}
+.board-swatch{width:9px;height:9px;border-radius:2px;display:inline-block;}
+.board-navy{background:var(--color-navy);border-radius:18px;padding:18px 20px;color:var(--white);}
+.board-navy-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--color-gold);margin-bottom:12px;}
+.board-mix-row{margin-bottom:11px;}
+.board-mix-head{display:flex;justify-content:space-between;font-size:12.5px;font-weight:600;margin-bottom:4px;}
+.board-mix-track{height:7px;border-radius:4px;background:rgba(255,255,255,.14);overflow:hidden;}
+.board-mix-fill{height:100%;}
+.board-fund-table{margin-top:14px;}
+.board-fund-table .rpt-table td.num,.board-fund-table .rpt-table th.num{text-align:right;font-variant-numeric:tabular-nums;}
+.board-empty{background:var(--white);border-radius:18px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:40px;text-align:center;color:var(--warm-gray);font-size:.92rem;}
+/* Narrative page (1B) */
+.board-narrative{width:816px;max-width:100%;margin:0 auto;background:var(--white);min-height:1056px;box-shadow:0 10px 30px rgba(20,20,40,.12);padding:64px 72px;display:flex;flex-direction:column;box-sizing:border-box;}
+.board-nv-eyebrow{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--color-gold);margin-bottom:5px;}
+.board-nv-body{font-size:14px;line-height:1.65;color:#33323C;}
+@media(max-width:900px){.board-kpi-grid{grid-template-columns:repeat(2,1fr);}.board-body-grid{grid-template-columns:1fr;}}
+@media(max-width:520px){.board-kpi-grid{grid-template-columns:1fr;}}
 .rpt-overview{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:14px;}
 .rpt-stat{background:var(--linen);border-radius:12px;padding:10px 16px;min-width:140px;flex:1 1 140px;max-width:220px;}
 .rpt-stat-num{font-size:1.35rem;font-weight:700;font-family:var(--font-head);color:var(--steel-anchor);line-height:1.1;}
@@ -849,8 +883,19 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 @media print{
   .sidebar,.topbar,.toolbar,.modal-overlay,#offline-banner{display:none!important;}
   .tab-panel{display:block!important;padding:0;}
-  .tab-panel:not(#tab-reports):not(#tab-finance):not(#tab-scheduler){display:none!important;}
+  .tab-panel:not(#tab-reports):not(#tab-finance):not(#tab-scheduler):not(#tab-giving){display:none!important;}
+  #tab-giving{display:none!important;}
   body{background:white;}
+  /* Board Report (giving redesign): printBoardPage() sets body.printing-board so only the
+     board panel prints, the shared subnav header + toolbar hide, and the grids stay full-width. */
+  body.printing-board .tab-panel:not(#tab-giving){display:none!important;}
+  body.printing-board #tab-giving{display:block!important;}
+  body.printing-board #tab-giving > div:not(#giv-view-board){display:none!important;}
+  body.printing-board #giv-view-board{display:block!important;}
+  body.printing-board .board-toolbar{display:none!important;}
+  body.printing-board .board-kpi-grid{grid-template-columns:repeat(4,1fr)!important;}
+  body.printing-board .board-body-grid{grid-template-columns:1.55fr 1fr!important;}
+  body.printing-board .board-narrative{box-shadow:none;padding:0;width:100%;min-height:0;}
   .report-output{border:none;padding:0;}
   .report-tiles{display:none;}
   button{display:none!important;}

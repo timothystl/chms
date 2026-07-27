@@ -147,14 +147,12 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
 <!-- ═══ GIVING TAB ═══ -->
 <div id="tab-giving" class="tab-panel">
-  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;flex-shrink:0;">
-    <span style="font-size:22px;font-weight:800;color:var(--color-navy);">Giving</span>
-    <div class="view-toggle" style="margin-left:auto;">
-      <button class="active" id="giv-view-batches-btn" onclick="givSetView('batches')">Batches</button>
-      <button id="giv-view-txns-btn" onclick="givSetView('transactions')">Transactions</button>
-      <button id="giv-view-reports-btn" onclick="givSetView('reports')">Reports</button>
-      <button id="giv-view-settings-btn" onclick="givSetView('settings')">Settings</button>
-    </div>
+  <div class="fin-subnav" style="margin-bottom:16px;">
+    <button class="fin-subnav-btn active" id="giv-view-batches-btn" onclick="givSetView('batches')">Batches</button>
+    <button class="fin-subnav-btn" id="giv-view-transactions-btn" onclick="givSetView('transactions')">Transactions</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-board-btn" onclick="givSetView('board')">Board Report</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-reports-btn" onclick="givSetView('reports')">Reports</button>
+    <button class="fin-subnav-btn" id="giv-view-settings-btn" onclick="givSetView('settings')">Settings</button>
   </div>
   <div class="giving-layout" id="giv-view-batches">
     <!-- Batch list -->
@@ -195,6 +193,25 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <tbody id="giv-txn-tbody"></tbody>
       </table>
     </div>
+  </div>
+
+  <div id="giv-view-board" class="require-finance" style="display:none;">
+    <div class="board-header">
+      <div>
+        <div class="board-title">Giving Report to the Council</div>
+        <div class="board-subtitle" id="board-subtitle">General &amp; designated funds &middot; no individual donors named</div>
+      </div>
+      <div class="board-toolbar">
+        <div class="board-mode-toggle">
+          <button id="board-mode-dashboard-btn" class="active" onclick="boardSetMode('dashboard')">Dashboard</button>
+          <button id="board-mode-narrative-btn" onclick="boardSetMode('narrative')">Narrative</button>
+        </div>
+        <select class="fin-domain-select" id="board-period" onchange="loadBoardReport()"></select>
+        <button class="btn-primary" style="padding:7px 14px;font-size:.85rem;" onclick="printBoardPage()">Print board page</button>
+        <button class="btn-secondary" style="padding:7px 14px;font-size:.85rem;" onclick="boardEmailPacket()">Email packet</button>
+      </div>
+    </div>
+    <div id="board-body"><div class="board-empty">Loading&hellip;</div></div>
   </div>
 
   <div id="giv-view-reports" style="display:none;">

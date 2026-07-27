@@ -1166,6 +1166,8 @@ async function _doInitDb(db) {
     'ALTER TABLE worship_services ADD COLUMN breeze_instance_id TEXT NOT NULL DEFAULT ""',
     // funds: breeze_id to match Breeze fund IDs during giving sync
     'ALTER TABLE funds ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
+    // funds: per-fund annual budget (cents) for the Board Report YTD-budget/variance columns
+    'ALTER TABLE funds ADD COLUMN budget_annual_cents INTEGER NOT NULL DEFAULT 0',
     // people: deceased flag and death date
     'ALTER TABLE people ADD COLUMN deceased INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE people ADD COLUMN death_date TEXT NOT NULL DEFAULT ""',
