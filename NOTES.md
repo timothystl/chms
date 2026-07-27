@@ -24,6 +24,22 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.90.0 — Church Budget Planning: "FY{base} Projected" column (2026-07-27)
+Added an auto-computed year-end projection column to the Church Budget Planning table
+(`finRenderPlanning` in `js-finance.js`), inserted between `FY{base} Actual` and the untouched
+`FY{target} Plan` column: `Category · FY2026 Bud · FY2026 Actual · FY2026 Projected · FY2027 Plan
+· Δ%`. The new column projects where the in-progress base year will land at year-end by annualizing
+each leaf account's actual-to-date by `12/throughMonth` — the exact same proration `generate-all`
+uses server-side (`api-finance.js`), so the Projected column literally shows the base amount the
+Plan column was grown from. `throughMonth` = current month when the base year is the current year,
+else 12 (a complete past year projects to its own actual). Group rows roll up as the sum of their
+leaves (uniform factor, so subtotals reconcile); base-year projected net inserted into the Net row.
+Display-only — nothing is stored, no data moved (per the user's "auto-compute" choice over
+re-keying existing Plan data). Verified: `npm test` (288/288), `node --check` on both built app-JS
+bundles, and a vm harness rendering the actual served `finRenderPlanning` (confirms 6 columns, the
+new `FY2026 Projected` header, and 6-cell data/net rows). Not verified in a live browser.
+(`src/frontend/js-finance.js`)
+
 ### v1.89.0 — Giving Plateaus & Nudges report (2026-07-27)
 New "Giving Plateaus & Nudges" tile in the Finance tab's Giving Reports section (finance/admin,
 `require-finance`). Answers "where do givers settle, and what should I nudge them to." The church's
