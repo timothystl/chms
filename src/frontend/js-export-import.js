@@ -849,6 +849,112 @@ function svMigCommitAll() {
   }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
+// ── LINK EXISTING PEOPLE TO BREEZE ────────────────────────────────────
+// Finds Breeze people not yet linked to a Connect record and lets the admin
+// confirm each link (setting breeze_id on the existing person, no data touched).
+var _bzlItems = [];
+function bzlConfidenceLabel(c) {
+  var labels = { exact_email: 'Same email', exact_name: 'Exact name match',
+    fuzzy: 'Possible match', ambiguous_name: 'Several possible matches' };
+  return labels[c] || c;
+}
+function bzlConfidenceColor(c) {
+  var colors = { exact_email: '#2e7d32', exact_name: '#2e7d32', fuzzy: '#c9973a', ambiguous_name: '#c0392b' };
+  return colors[c] || '#999';
+}
+function bzlRowHtml(it, i) {
+  var rowName = 'bzl-row-' + i;
+  var m = it.match || { confidence: 'none', suggested: null, candidates: [] };
+  var options = '';
+  var pickedSomething = false;
+  if (m.suggested) {
+    options += '<label style="display:block;font-size:.85rem;margin:2px 0;"><input type="radio" name="' + rowName + '" value="' + m.suggested.id + '" checked> Link to ' + esc(m.suggested.first_name + ' ' + m.suggested.last_name) + ' (' + esc(m.suggested.email || 'no email') + ')</label>';
+    pickedSomething = true;
+  }
+  (m.candidates || []).forEach(function(c) {
+    if (m.suggested && c.id === m.suggested.id) return;
+    options += '<label style="display:block;font-size:.85rem;margin:2px 0;"><input type="radio" name="' + rowName + '" value="' + c.id + '"' + (!pickedSomething ? ' checked' : '') + '> Link to ' + esc(c.first_name + ' ' + c.last_name) + ' (' + esc(c.email || 'no email') + ')</label>';
+    pickedSomething = true;
+  });
+  options += '<div style="margin:4px 0;position:relative;">'
+    + '<input type="text" placeholder="Search a different person…" id="bzl-search-' + i + '" oninput="bzlSearch(' + i + ')" style="font-size:.8rem;padding:4px 6px;border:1px solid var(--border);border-radius:6px;width:240px;">'
+    + '<div id="bzl-search-results-' + i + '" style="position:absolute;background:var(--white);border:1px solid var(--border);border-radius:6px;z-index:20;max-width:280px;"></div>'
+    + '</div>';
+  return '<div class="bzl-row" id="bzl-rowbox-' + i + '" data-breeze-id="' + esc(it.breeze_id) + '" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;">'
+    + '<div style="font-weight:600;font-size:.9rem;">Breeze: ' + esc(it.name || '(no name)')
+    + '<span style="font-weight:400;color:var(--warm-gray);font-size:.78rem;"> — ' + esc(it.email || 'no email') + '</span></div>'
+    + '<div style="font-size:.75rem;color:' + bzlConfidenceColor(m.confidence) + ';font-weight:600;margin:2px 0 4px;">' + bzlConfidenceLabel(m.confidence) + '</div>'
+    + options
+    + '<button class="btn-primary" style="font-size:.8rem;padding:4px 12px;margin-top:4px;" onclick="bzlLink(' + i + ')">Link</button>'
+    + ' <span id="bzl-rowmsg-' + i + '" style="font-size:.78rem;margin-left:6px;"></span>'
+    + '</div>';
+}
+function loadBreezeUnlinked() {
+  var status = document.getElementById('breeze-link-status');
+  var area = document.getElementById('breeze-link-area');
+  status.textContent = 'Scanning Breeze… this can take a moment for a large directory.'; status.className = 'import-status';
+  area.innerHTML = '';
+  api('/admin/api/import/breeze-unlinked').then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    _bzlItems = d.items || [];
+    if (!_bzlItems.length) {
+      status.textContent = 'No unlinked Breeze people matched an existing Connect record. (' + (d.unlinked_in_breeze || 0) + ' Breeze people not yet linked; ' + (d.unlinked_local || 0) + ' Connect people without a Breeze ID.)';
+      status.className = 'import-status ok';
+      return;
+    }
+    area.innerHTML = _bzlItems.map(function(it, i) { return bzlRowHtml(it, i); }).join('');
+    var msg = _bzlItems.length + ' suggested match(es) to review.';
+    if (d.capped) msg += ' Showing the first ' + d.cap + ' — re-run after linking these to see more.';
+    status.textContent = msg; status.className = 'import-status';
+  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+}
+function bzlSearch(i) {
+  var inp = document.getElementById('bzl-search-' + i);
+  var resultsEl = document.getElementById('bzl-search-results-' + i);
+  var q = inp.value;
+  if (q.length < 2) { resultsEl.innerHTML = ''; return; }
+  api('/admin/api/people?q=' + encodeURIComponent(q)).then(function(d) {
+    var rows = (d.people || []).slice(0, 8);
+    resultsEl.innerHTML = rows.map(function(p) {
+      var name = (p.first_name + ' ' + p.last_name).replace(/'/g, '&#39;');
+      return '<div style="cursor:pointer;padding:3px 6px;font-size:.8rem;" onclick="bzlPickSearchResult(' + i + ',' + p.id + ',&#39;' + esc(name) + '&#39;)">'
+        + esc(p.last_name) + ', ' + esc(p.first_name) + (p.email ? ' — ' + esc(p.email) : '') + '</div>';
+    }).join('');
+  });
+}
+function bzlPickSearchResult(i, personId, name) {
+  var row = document.getElementById('bzl-rowbox-' + i);
+  if (!row) return;
+  var rowName = 'bzl-row-' + i;
+  var existing = row.querySelector('input[value="' + personId + '"]');
+  if (!existing) {
+    var lbl = document.createElement('label');
+    lbl.style.cssText = 'display:block;font-size:.85rem;margin:2px 0;';
+    lbl.innerHTML = '<input type="radio" name="' + rowName + '" value="' + personId + '"> Link to ' + name;
+    var searchBox = document.getElementById('bzl-search-' + i).parentNode;
+    searchBox.parentNode.insertBefore(lbl, searchBox);
+    existing = lbl.querySelector('input');
+  }
+  existing.checked = true;
+  document.getElementById('bzl-search-results-' + i).innerHTML = '';
+  document.getElementById('bzl-search-' + i).value = '';
+}
+function bzlLink(i) {
+  var it = _bzlItems[i];
+  if (!it) return;
+  var msgEl = document.getElementById('bzl-rowmsg-' + i);
+  var checked = document.querySelector('input[name="bzl-row-' + i + '"]:checked');
+  if (!checked) { msgEl.textContent = 'Pick a person first.'; msgEl.style.color = 'var(--danger)'; return; }
+  var personId = parseInt(checked.value, 10);
+  msgEl.textContent = 'Linking…'; msgEl.style.color = 'var(--warm-gray)';
+  api('/admin/api/import/breeze-link', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ breeze_id: it.breeze_id, person_id: personId }) }).then(function(d) {
+    if (d.error) { msgEl.textContent = 'Error: ' + d.error; msgEl.style.color = 'var(--danger)'; return; }
+    var row = document.getElementById('bzl-rowbox-' + i);
+    if (row) row.innerHTML = '<div style="font-size:.85rem;color:#2e7d32;">✓ Linked ' + esc(it.name || '') + ' to ' + esc(d.person_name || ('person #' + personId)) + '.</div>';
+  }).catch(function(e) { msgEl.textContent = 'Error: ' + e.message; msgEl.style.color = 'var(--danger)'; });
+}
+
 function downloadBreezeAuditLog() {
   var from = document.getElementById('giving-sync-from').value;
   var to = document.getElementById('giving-sync-to').value;

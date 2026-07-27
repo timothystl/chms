@@ -642,6 +642,13 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div id="breeze-diag" style="display:none;margin-top:10px;font-size:.78rem;font-family:monospace;background:var(--linen);padding:10px;border-radius:6px;white-space:pre-wrap;"></div>
 
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
+      <h4 style="font-size:.9rem;margin:0 0 6px;">Link Existing People to Breeze</h4>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">For someone you added here in Connect who later got their own Breeze record (e.g. once they gave), a plain <strong>Sync People</strong> would create a duplicate — it only matches on Breeze ID. This finds Breeze people who aren&rsquo;t linked yet and suggests a matching Connect person (by email, then name). Review each and click <strong>Link</strong> — it just connects the two records and keeps all your Connect data; future syncs then update that person normally.</p>
+      <button class="btn-secondary" onclick="loadBreezeUnlinked()" style="margin-bottom:10px;">&#128279; Find People to Link</button>
+      <div id="breeze-link-area"></div>
+      <div class="import-status" id="breeze-link-status"></div>
+
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
       <h4 style="font-size:.9rem;margin:0 0 6px;">Fund Names</h4>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">After the giving sync, imported funds may show as "Breeze Fund XXXXXXX". Use <strong>Auto-Fix from Breeze</strong> to look up the real names directly from Breeze and rename them automatically. If any funds still have placeholder names after that, use the manual mapping tool below.</p>
       <button class="btn-primary" onclick="fixFundNames()" style="margin-bottom:8px;">&#128260; Auto-Fix Fund Names from Breeze</button>

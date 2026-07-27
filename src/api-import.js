@@ -2558,6 +2558,135 @@ if (seg === 'import/breeze-sync-names' && method === 'POST') { try {
   return json({ ok: true, scanned, matched, middle_updated: middleUpdated, preferred_updated: preferredUpdated, changed: updates.length, sample });
 } catch (e) { return json({ error: e.message || 'Breeze name sync failed' }, 500); } }
 
+// ── Link unmatched Breeze people to existing Connect records ──────────
+// Finds Breeze people whose breeze_id is NOT yet linked to any local person,
+// and suggests matches among local people that have NO breeze_id (typically
+// added directly in Connect, then later given a Breeze record when they gave).
+// Read-only preview — writes nothing. The admin confirms each link separately
+// via import/breeze-link. This prevents the duplicate that a plain full import
+// would create (the full import matches on breeze_id only).
+if (seg === 'import/breeze-unlinked' && method === 'GET') { try {
+  const breeze = makeBreezeClient(env);
+  if (!breeze) return json({ error: 'Breeze not configured (BREEZE_SUBDOMAIN / BREEZE_API_KEY missing)' }, 503);
+
+  // Local people with NO breeze_id — the candidates to link against.
+  const unlinkedLocal = (await db.prepare(
+    "SELECT id, first_name, last_name, middle_name, preferred_name, email FROM people " +
+    "WHERE (breeze_id IS NULL OR breeze_id='') AND (active=1 OR active IS NULL)"
+  ).all()).results || [];
+  // Set of breeze_ids already linked, so we skip Breeze people we already have.
+  const linkedBreezeIds = new Set(
+    ((await db.prepare("SELECT breeze_id FROM people WHERE breeze_id IS NOT NULL AND breeze_id != ''").all()).results || [])
+      .map(r => String(r.breeze_id))
+  );
+
+  const norm = s => (s || '').trim().toLowerCase();
+  const byEmail = new Map();      // email -> [local]
+  const byFullName = new Map();   // "first|last" -> [local]
+  const byLast = new Map();       // "last" -> [local] (for fuzzy first-name/nickname)
+  const push = (map, key, v) => { if (!key) return; if (!map.has(key)) map.set(key, []); map.get(key).push(v); };
+  for (const lp of unlinkedLocal) {
+    push(byEmail, norm(lp.email), lp);
+    if (norm(lp.first_name)) push(byFullName, norm(lp.first_name) + '|' + norm(lp.last_name), lp);
+    if (norm(lp.preferred_name)) push(byFullName, norm(lp.preferred_name) + '|' + norm(lp.last_name), lp); // nickname as first name
+    push(byLast, norm(lp.last_name), lp);
+  }
+  const slim = lp => ({ id: lp.id, first_name: lp.first_name || '', last_name: lp.last_name || '', email: lp.email || '' });
+
+  // Extract a primary email from a Breeze person's typed detail arrays.
+  const breezeEmail = (p) => {
+    for (const val of Object.values(p.details || {})) {
+      if (!Array.isArray(val)) continue;
+      for (const item of val) {
+        if (item && typeof item === 'object') {
+          const ft = item.field_type || '';
+          if ((ft === 'email_primary' || ft === 'email') && item.address) return String(item.address).trim();
+        }
+      }
+    }
+    return '';
+  };
+
+  const CAP = 300;
+  const items = [];
+  let breezeScanned = 0, unlinkedFound = 0, capped = false;
+  const limit = 1000;
+  let offset = 0;
+  for (let guard = 0; guard < 100; guard++) {
+    const res = await breeze.people(`details=1&limit=${limit}&offset=${offset}`);
+    if (!res.ok) return json({ error: 'Breeze people fetch failed (' + res.status + ')' }, 502);
+    let arr; try { arr = await res.json(); } catch { arr = null; }
+    if (!Array.isArray(arr) || arr.length === 0) break;
+    for (const p of arr) {
+      breezeScanned++;
+      if (linkedBreezeIds.has(String(p.id))) continue; // already linked locally
+      unlinkedFound++;
+      if (items.length >= CAP) { capped = true; continue; }
+      const fn = (p.first_name || '').trim();
+      const ln = (p.last_name  || '').trim();
+      const email = breezeEmail(p);
+      // Match: email first (strongest), then exact full name, then last-name fuzzy.
+      let confidence = 'none', suggested = null, candidates = [];
+      const emailHits = email ? (byEmail.get(norm(email)) || []) : [];
+      const nameHits  = byFullName.get(norm(fn) + '|' + norm(ln)) || [];
+      if (emailHits.length === 1) { confidence = 'exact_email'; suggested = slim(emailHits[0]); }
+      else if (emailHits.length > 1) { confidence = 'ambiguous_name'; candidates = emailHits.map(slim); }
+      else if (nameHits.length === 1) { confidence = 'exact_name'; suggested = slim(nameHits[0]); }
+      else if (nameHits.length > 1) { confidence = 'ambiguous_name'; candidates = nameHits.map(slim); }
+      else {
+        const lastHits = (byLast.get(norm(ln)) || []).filter(lp => {
+          const lf = norm(lp.first_name), pf = norm(lp.preferred_name), bf = norm(fn);
+          return bf && (lf.startsWith(bf) || bf.startsWith(lf) || (pf && (pf === bf || pf.startsWith(bf))));
+        });
+        if (lastHits.length === 1) { confidence = 'fuzzy'; suggested = slim(lastHits[0]); }
+        else if (lastHits.length > 1) { confidence = 'ambiguous_name'; candidates = lastHits.map(slim); }
+      }
+      // Only surface Breeze people that actually matched something — an unlinked
+      // Breeze person with no local counterpart is just a normal "run a full import"
+      // case, not a link candidate, and would bury the real matches.
+      if (confidence === 'none') continue;
+      items.push({ breeze_id: String(p.id), name: (fn + ' ' + ln).trim(), email,
+                   match: { confidence, suggested, candidates } });
+    }
+    if (arr.length < limit) break;
+    offset += limit;
+  }
+  return json({ ok: true, items, breeze_scanned: breezeScanned, unlinked_in_breeze: unlinkedFound,
+                unlinked_local: unlinkedLocal.length, capped, cap: CAP });
+} catch (e) { return json({ error: e.message || 'Breeze unlinked preview failed' }, 500); } }
+
+// ── Commit a single Breeze↔Connect link ──────────────────────────────
+// Sets breeze_id on an existing local person. Does NOT overwrite any of the
+// person's data (future full Breeze syncs update it normally). Refuses to
+// relink a person who already has a breeze_id, or to reuse a breeze_id already
+// linked to a different person.
+if (seg === 'import/breeze-link' && method === 'POST') { try {
+  let b = {}; try { b = await req.json(); } catch {}
+  const breezeId = String(b.breeze_id || '').trim();
+  const personId = parseInt(b.person_id, 10);
+  if (!breezeId) return json({ error: 'breeze_id is required' }, 400);
+  if (!Number.isInteger(personId) || personId <= 0) return json({ error: 'valid person_id is required' }, 400);
+
+  const person = await db.prepare('SELECT id, first_name, last_name, breeze_id FROM people WHERE id=?').bind(personId).first();
+  if (!person) return json({ error: 'Person not found' }, 404);
+  if (person.breeze_id && String(person.breeze_id).trim())
+    return json({ error: 'That person is already linked to Breeze ID ' + person.breeze_id }, 409);
+
+  const clash = await db.prepare("SELECT id, first_name, last_name FROM people WHERE breeze_id=? AND id!=?")
+    .bind(breezeId, personId).first();
+  if (clash) return json({ error: 'Breeze ID ' + breezeId + ' is already linked to ' +
+    [(clash.first_name||''),(clash.last_name||'')].filter(Boolean).join(' ') + ' (#' + clash.id + ')' }, 409);
+
+  await db.prepare('UPDATE people SET breeze_id=? WHERE id=?').bind(breezeId, personId).run();
+  const personName = [(person.first_name||''),(person.last_name||'')].filter(Boolean).join(' ');
+  try {
+    await db.prepare(
+      `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value) VALUES(?,?,?,?,?,?,?)`
+    ).bind('breeze_link','person',personId,personName,'breeze_id','',breezeId).run();
+  } catch {}
+  return json({ ok: true, person_id: personId, breeze_id: breezeId, person_name: personName });
+} catch (e) { return json({ error: e.message || 'Breeze link failed' }, 500); } }
+
 if (seg === 'import/breeze-sync-person' && method === 'POST') { try {
   const breeze = makeBreezeClient(env);
   if (!breeze) return json({ error: 'Breeze not configured (BREEZE_SUBDOMAIN / BREEZE_API_KEY missing)' }, 503);
