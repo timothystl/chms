@@ -224,6 +224,19 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <div id="giv-plat-output" class="report-output"></div>
     </div>
+
+    <div class="import-card require-finance" style="margin-top:18px;">
+      <h3>&#128202; Giving by Weekly / Monthly Band</h3>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">How giving households spread across per-week (or per-month) giving levels, and what a small across-the-board step up would add. A household&rsquo;s weekly figure is its giving &divide; weeks in the period, so monthly and lump-sum givers still land in the right band.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
+        <div class="field" style="margin:0;"><label>Year</label><input type="number" id="rpt-bands-year" name="rpt-bands-year" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>
+        <div class="field" style="margin:0;"><label>Group by</label><select id="rpt-bands-scope" name="rpt-bands-scope" style="font-size:.85rem;padding:4px 8px;"><option value="household">Household</option><option value="person">Person</option></select></div>
+        <div class="field" style="margin:0;"><label>Per</label><select id="rpt-bands-freq" name="rpt-bands-freq" onchange="bandsSyncUpliftDefault()" style="font-size:.85rem;padding:4px 8px;"><option value="weekly">Week</option><option value="monthly">Month</option></select></div>
+        <div class="field" style="margin:0;"><label>If each gives +$</label><input type="number" id="rpt-bands-uplift" name="rpt-bands-uplift" value="10" min="0" style="font-size:.85rem;padding:4px 8px;width:70px;"></div>
+        <button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="runGivingBands()">Run Report</button>
+      </div>
+      <div id="giv-bands-output" class="report-output"></div>
+    </div>
   </div>
 
   <div id="giv-view-reports" style="display:none;">

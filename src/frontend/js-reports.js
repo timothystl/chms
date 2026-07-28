@@ -1125,6 +1125,88 @@ function renderGivingPlateaus(d) {
     + cards + tierBlock + peopleBlock + distBlock;
 }
 
+// ── Giving by Weekly / Monthly Band ─────────────────────────────────────
+// Switch the default uplift when the cadence changes (only if the user hasn't
+// deliberately typed a different value).
+function bandsSyncUpliftDefault() {
+  var freq = document.getElementById('rpt-bands-freq');
+  var up = document.getElementById('rpt-bands-uplift');
+  if (!freq || !up) return;
+  if (up.value === '' || up.value === '10' || up.value === '40') up.value = (freq.value === 'monthly') ? '40' : '10';
+}
+function runGivingBands() {
+  var yrEl = document.getElementById('rpt-bands-year');
+  var yr = parseInt(yrEl && yrEl.value, 10);
+  if (!yr) { yr = new Date().getFullYear(); if (yrEl) yrEl.value = yr; }
+  var scope = (document.getElementById('rpt-bands-scope') || {}).value || 'household';
+  var freq = (document.getElementById('rpt-bands-freq') || {}).value || 'weekly';
+  var upDollars = parseFloat((document.getElementById('rpt-bands-uplift') || {}).value);
+  if (!(upDollars >= 0)) upDollars = (freq === 'monthly') ? 40 : 10;
+  var upCents = Math.round(upDollars * 100);
+  var out = document.getElementById('giv-bands-output');
+  if (out) { out.innerHTML = '<div style="padding:16px;color:var(--warm-gray);">Loading&hellip;</div>'; out.classList.add('visible'); }
+  api('/admin/api/reports/giving-bands?year=' + yr + '&scope=' + scope + '&freq=' + freq + '&uplift_cents=' + upCents).then(function(d) {
+    if (d.error) { if (out) out.innerHTML = '<div style="padding:16px;color:var(--danger);">' + esc(d.error) + '</div>'; else alert(d.error); return; }
+    if (out) { out.innerHTML = renderGivingBands(d); out.scrollIntoView({behavior:'smooth', block:'nearest'}); }
+  }).catch(function() {
+    if (out) out.innerHTML = '<div style="padding:16px;color:var(--danger);">Could not load report.</div>';
+  });
+}
+function renderGivingBands(d) {
+  var s = d.summary || {};
+  var bands = d.bands || [];
+  var per = d.freq === 'monthly' ? 'mo' : 'wk';
+  var perWord = d.freq === 'monthly' ? 'month' : 'week';
+  var noun = d.scope === 'person' ? 'givers' : 'households';
+  var nounCap = d.scope === 'person' ? 'Givers' : 'Households';
+  var up = fmtWholeDollars(d.uplift_cents || 0);
+  function bandLabel(b) {
+    var lo = Math.round((b.low_cents || 0) / 100);
+    if (b.high_cents == null) return '$' + lo.toLocaleString() + '+/' + per;
+    var hi = Math.round(b.high_cents / 100) - 1;
+    return '$' + lo.toLocaleString() + '–' + hi.toLocaleString() + '/' + per;
+  }
+  if (!s.givers) {
+    return '<div style="padding:16px;color:var(--warm-gray);">No giving recorded for ' + d.year + '.</div>';
+  }
+  var maxN = bands.reduce(function(m, b){ return Math.max(m, b.n || 0); }, 1);
+  var rows = bands.map(function(b) {
+    var pct = Math.round((b.n || 0) * 100 / maxN);
+    return '<tr' + (b.n ? '' : ' style="color:var(--warm-gray);"') + '>'
+      + '<td style="font-weight:600;color:var(--steel-anchor);white-space:nowrap;">' + bandLabel(b) + '</td>'
+      + '<td style="min-width:120px;"><div style="background:var(--linen);border-radius:4px;height:12px;overflow:hidden;"><div style="background:#2E7EA6;height:100%;width:' + pct + '%;"></div></div></td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (b.n || 0) + '</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--warm-gray);">' + fmtWholeDollars(b.avg_per_period_cents) + '/' + per + '</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + fmtWholeDollars(b.total_cents) + '</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#5A9E6F;font-weight:' + (b.n ? '600' : '400') + ';">' + (b.n ? '+' + fmtWholeDollars(b.uplift_annual_cents) : '—') + '</td></tr>';
+  }).join('');
+
+  var cards = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px;">'
+    + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;">'
+    + '<div style="font-size:1.5rem;font-weight:700;color:var(--steel-anchor);font-variant-numeric:tabular-nums;">' + (s.givers||0) + '</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);">' + noun + ' who gave</div></div>'
+    + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;">'
+    + '<div style="font-size:1.5rem;font-weight:700;color:#5A9E6F;font-variant-numeric:tabular-nums;">+' + fmtWholeDollars(s.uplift_annual_cents) + '</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);">added / year if every ' + noun.replace(/s$/,'') + ' gave +' + up + '/' + perWord + '</div></div>'
+    + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;">'
+    + '<div style="font-size:1.5rem;font-weight:700;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + fmtWholeDollars(s.current_annualized_cents) + '</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);">current giving' + (d.partial ? ', annualized' : '') + '</div></div>'
+    + '</div>';
+
+  var table = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;">'
+    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128202; ' + nounCap + ' by giving level ($/' + per + ')</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">Each ' + noun.replace(/s$/,'') + '&rsquo;s level is their ' + d.year + ' giving &divide; ' + d.periods_elapsed + ' ' + perWord + 's' + (d.partial ? ' so far' : '') + '. The last column is what that band would add over a full year if each ' + noun.replace(/s$/,'') + ' gave +' + up + ' more per ' + perWord + '.</div>'
+    + '<table class="rpt-table"><thead><tr><th>Band</th><th></th><th style="text-align:right;">' + nounCap + '</th><th style="text-align:right;">Avg</th><th style="text-align:right;">Given ' + d.year + '</th><th style="text-align:right;">+' + up + '/' + per + ' &rarr; +$/yr</th></tr></thead>'
+    + '<tbody>' + rows
+    + '<tr class="rpt-total"><td>Total</td><td></td><td style="text-align:right;">' + (s.givers||0) + '</td><td></td><td style="text-align:right;">' + fmtWholeDollars(s.total_cents) + '</td><td style="text-align:right;">+' + fmtWholeDollars(s.uplift_annual_cents) + '</td></tr>'
+    + '</tbody></table></div>';
+
+  return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+    + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving by Band — ' + d.year + ' (per ' + perWord + ', by ' + (d.scope==='person'?'person':'household') + ')</h3>'
+    + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
+    + cards + table;
+}
+
 // ── R8: Giving × Attendance overlay ─────────────────────────────────────
 function runGivingVsAttendance() {
   var from = document.getElementById('rpt-gva-from').value;

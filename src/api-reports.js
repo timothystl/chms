@@ -1,7 +1,7 @@
 // ── Reports, Engagement, Prayer API handlers ─────────────────────────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { isoWeekKey, bucketGivingMethod, projectYearEnd, spreadBudgetYtd, computeConcentration, computeGivingPlateaus } from './api-utils.js';
+import { isoWeekKey, bucketGivingMethod, projectYearEnd, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, computeGivingBands } from './api-utils.js';
 
 export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -740,6 +740,60 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
   }
   const result = computeGivingPlateaus(rows, { minRepeat });
   return json({ year, min_repeat: minRepeat, scope, ...result });
+}
+
+// ── Giving Bands (weekly/monthly distribution + flat uplift) ────────
+// Distribution of givers (households by default) across weekly- or monthly-
+// equivalent giving bands, with the annual impact of a flat per-period
+// uplift ("+$10/wk"). Gated as `giving` via the central access gate.
+if (seg === 'reports/giving-bands' && method === 'GET') {
+  const year = parseInt(url.searchParams.get('year') || '', 10);
+  if (!year || isNaN(year)) return json({ error: 'year required' }, 400);
+  const scope = url.searchParams.get('scope') === 'person' ? 'person' : 'household';
+  const freq  = url.searchParams.get('freq') === 'monthly' ? 'monthly' : 'weekly';
+  const upliftCents = Math.max(0, Math.min(parseInt(url.searchParams.get('uplift_cents') || '', 10) || (freq === 'monthly' ? 4000 : 1000), 100000));
+  const start = year + '-01-01', end = year + '-12-31';
+  const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
+
+  let rows;
+  if (scope === 'household') {
+    const housed = "p.household_id IS NOT NULL AND p.household_id != 0";
+    const keyExpr = `CASE WHEN ${housed} THEN 'h:' || p.household_id ELSE 'p:' || p.id END`;
+    rows = (await db.prepare(
+      `SELECT ${keyExpr} AS gid, SUM(ge.amount) AS total_cents
+       FROM giving_entries ge
+       JOIN giving_batches gb ON gb.id = ge.batch_id
+       JOIN people p ON p.id = ge.person_id
+       WHERE ${effDate} >= ? AND ${effDate} <= ?
+         AND ge.person_id IS NOT NULL
+         AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+       GROUP BY ${keyExpr}`
+    ).bind(start, end).all()).results || [];
+  } else {
+    rows = (await db.prepare(
+      `SELECT ge.person_id AS gid, SUM(ge.amount) AS total_cents
+       FROM giving_entries ge
+       JOIN giving_batches gb ON gb.id = ge.batch_id
+       JOIN people p ON p.id = ge.person_id
+       WHERE ${effDate} >= ? AND ${effDate} <= ?
+         AND ge.person_id IS NOT NULL
+         AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+       GROUP BY ge.person_id`
+    ).bind(start, end).all()).results || [];
+  }
+
+  // Periods elapsed: full year for a complete past year; for the current
+  // in-progress year, weeks/months so far (so the pace isn't understated).
+  const now = new Date();
+  let weeksElapsed = 52, monthsElapsed = 12;
+  if (year === now.getUTCFullYear()) {
+    const days = Math.floor((Date.now() - Date.UTC(year, 0, 1)) / 86400000) + 1;
+    weeksElapsed  = Math.max(1, Math.min(52, Math.ceil(days / 7)));
+    monthsElapsed = Math.max(1, Math.min(12, now.getUTCMonth() + 1));
+  }
+  const periodsElapsed = freq === 'monthly' ? monthsElapsed : weeksElapsed;
+  const result = computeGivingBands(rows, { freq, periodsElapsed, upliftCents });
+  return json({ year, scope, partial: year === now.getUTCFullYear(), ...result });
 }
 
 // ── Giving × Attendance overlay (R8) ────────────────────────────────

@@ -452,6 +452,70 @@ export function computeGivingPlateaus(rows, opts = {}) {
   };
 }
 
+// ── GIVING BANDS (weekly/monthly distribution + flat uplift) ──────────────
+// Band floors in cents. A giver's per-period figure = their giving in the
+// period ÷ periods elapsed (frequency-agnostic — a monthly giver still lands
+// in the right weekly band). Two floor sets so the bands read naturally in
+// whichever cadence is chosen. Open-ended top band (high = null).
+export const GIVING_BAND_FLOORS_WEEKLY_CENTS  = [0, 2500, 5000, 7500, 10000, 15000, 20000, 30000, 50000];
+export const GIVING_BAND_FLOORS_MONTHLY_CENTS = [0, 10000, 20000, 30000, 40000, 60000, 80000, 120000, 200000];
+
+// rows: [{ total_cents }] one row per giver (household or person) with their
+// TOTAL giving over the period. opts:
+//   freq            'weekly' | 'monthly'
+//   periodsElapsed  weeks/months of giving so far (52/12 for a complete past
+//                   year; fewer for the current in-progress year) — used to
+//                   turn a total into a current per-period pace.
+//   upliftCents     a flat per-period increase to model ("+$10/wk") — its
+//                   annual impact uses a FULL year (52/12), not elapsed, since
+//                   it's a going-forward change.
+export function computeGivingBands(rows, opts = {}) {
+  const freq = opts.freq === 'monthly' ? 'monthly' : 'weekly';
+  const periodsPerYear = freq === 'monthly' ? 12 : 52;
+  const periodsElapsed = Math.max(1, Math.min(periodsPerYear, opts.periodsElapsed || periodsPerYear));
+  const upliftCents = Math.max(0, Math.round(opts.upliftCents || 0));
+  const floors = freq === 'monthly' ? GIVING_BAND_FLOORS_MONTHLY_CENTS : GIVING_BAND_FLOORS_WEEKLY_CENTS;
+
+  const bands = floors.map((low, i) => ({
+    low_cents: low,
+    high_cents: i + 1 < floors.length ? floors[i + 1] : null,
+    n: 0, total_cents: 0, per_period_sum_cents: 0,
+  }));
+  let givers = 0, totalCents = 0, perPeriodSum = 0;
+  for (const r of rows || []) {
+    const total = Number(r.total_cents) || 0;
+    if (total <= 0) continue;
+    const perPeriod = total / periodsElapsed;
+    givers++; totalCents += total; perPeriodSum += perPeriod;
+    let bi = 0;
+    for (let i = 0; i < bands.length; i++) {
+      if (perPeriod >= bands[i].low_cents && (bands[i].high_cents == null || perPeriod < bands[i].high_cents)) { bi = i; break; }
+    }
+    const b = bands[bi];
+    b.n++; b.total_cents += total; b.per_period_sum_cents += perPeriod;
+  }
+  const bandOut = bands.map(b => ({
+    low_cents: b.low_cents,
+    high_cents: b.high_cents,
+    n: b.n,
+    total_cents: Math.round(b.total_cents),
+    avg_per_period_cents: b.n ? Math.round(b.per_period_sum_cents / b.n) : 0,
+    current_annualized_cents: Math.round(b.per_period_sum_cents * periodsPerYear),
+    uplift_annual_cents: b.n * upliftCents * periodsPerYear,
+  }));
+  return {
+    freq, periods_elapsed: periodsElapsed, periods_per_year: periodsPerYear,
+    uplift_cents: upliftCents,
+    summary: {
+      givers,
+      total_cents: Math.round(totalCents),
+      current_annualized_cents: Math.round(perPeriodSum * periodsPerYear),
+      uplift_annual_cents: givers * upliftCents * periodsPerYear,
+    },
+    bands: bandOut,
+  };
+}
+
 // ── PHONE NORMALIZATION ───────────────────────────────────────────────────
 // Strips formatting and returns (XXX) XXX-XXXX for 10-digit US numbers.
 // Returns original string unchanged for international or unusual formats.
