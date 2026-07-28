@@ -48,12 +48,24 @@ function redirectToApp(url, qsParam, qsValue) {
 // it, rather than silently attributing one account's budget to a different account.
 export function mergeLeafCells(cells, ctx) {
   const name = cells[0]?.value || '';
+  const acctId = cells[0]?.id;
   const actual = Number(cells[cells.length - 1]?.value);
   const actualAmt = Number.isFinite(actual) ? actual : 0;
-  const ids = ctx.budgetIdsByName.get(name);
   let budgetAmt = 0;
-  if (ids && ids.size > 1) ctx.ambiguousNames.add(name);
-  else if (ctx.budgetByName.has(name)) budgetAmt = ctx.budgetByName.get(name);
+  // Prefer matching by QuickBooks' own account id when the report cell carries one (the
+  // Reports API's standard behavior for an account-labeled column) — exact and unambiguous,
+  // unlike name matching, which silently fails whenever the P&L report's display label for an
+  // account doesn't byte-for-byte match the Budget entity's AccountRef.name (a real, observed
+  // QuickBooks quirk — reported 2026-07-28 as "budget lines are always 0" while actual still
+  // populated correctly from this same tree, which only made sense as a name-match failure
+  // since actual never depends on this lookup at all).
+  if (acctId != null && ctx.budgetByAccountId && ctx.budgetByAccountId.has(acctId)) {
+    budgetAmt = ctx.budgetByAccountId.get(acctId);
+  } else {
+    const ids = ctx.budgetIdsByName.get(name);
+    if (ids && ids.size > 1) ctx.ambiguousNames.add(name);
+    else if (ctx.budgetByName.has(name)) budgetAmt = ctx.budgetByName.get(name);
+  }
   return {
     cells: [{ value: name }, { value: actualAmt.toFixed(2) }, { value: budgetAmt.toFixed(2) }, { value: (actualAmt - budgetAmt).toFixed(2) }],
     budget: budgetAmt,
@@ -1116,24 +1128,27 @@ async function mergeCurrentYearBudgetAndActual(client, year, warnings, preferred
   );
   if (!plData || !plData.Rows) return null;
 
-  // Sum by name (a single account legitimately has one BudgetDetail line per month), but also
-  // track distinct account IDs per name so a genuine name collision across different accounts
-  // can be told apart from ordinary multi-month lines for the same account.
+  // Sum by account id (the robust, unambiguous key — see mergeLeafCells) AND by name (a
+  // same-name-different-account collision can't happen when matching by id, so budgetIdsByName
+  // is only ever consulted as the name-matching fallback path's own disambiguation check).
   const budgetByName = new Map();
   const budgetIdsByName = new Map();
+  const budgetByAccountId = new Map();
   for (const line of (budget.BudgetDetail || [])) {
     const name = line?.AccountRef?.name;
     const id = line?.AccountRef?.value;
     const amt = Number(line?.Amount);
-    if (!name || !Number.isFinite(amt)) continue;
+    if (!Number.isFinite(amt)) continue;
+    if (id != null) budgetByAccountId.set(id, (budgetByAccountId.get(id) || 0) + amt);
+    if (!name) continue;
     budgetByName.set(name, (budgetByName.get(name) || 0) + amt);
     if (!budgetIdsByName.has(name)) budgetIdsByName.set(name, new Set());
     if (id != null) budgetIdsByName.get(name).add(id);
   }
-  if (!budgetByName.size) { warnings.push('Budget entity: found a Budget but no usable BudgetDetail line items'); return null; }
+  if (!budgetByName.size && !budgetByAccountId.size) { warnings.push('Budget entity: found a Budget but no usable BudgetDetail line items'); return null; }
 
   const ambiguousNames = new Set();
-  const rows = mergeProfitAndLossTree(plData.Rows.Row, { budgetByName, budgetIdsByName, ambiguousNames });
+  const rows = mergeProfitAndLossTree(plData.Rows.Row, { budgetByName, budgetIdsByName, budgetByAccountId, ambiguousNames });
   if (ambiguousNames.size) {
     warnings.push(
       `Budget vs Actual: ${ambiguousNames.size} account name(s) appear on more than one account in different categories (e.g. sub-accounts sharing a name across Income and Expenses) — shown as $0 budget rather than guessed which one: ${[...ambiguousNames].slice(0, 5).join(', ')}${ambiguousNames.size > 5 ? '…' : ''}`

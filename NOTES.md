@@ -24,6 +24,29 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.104.0 — Fixed why the reconstructed Budget vs Actual always showed $0 budget (2026-07-28)
+Reported live: the app's own reconstruction (Budget entity + ProfitAndLoss, now the only thing
+ever displayed per v1.103.0) showed Actual correctly but Budget as $0 on every single line. Traced
+to `mergeLeafCells()` (`src/api-finance.js`) matching a P&L report account to its Budget line by
+**exact string name** — `ctx.budgetByName.get(cells[0].value)` — with no fallback. QuickBooks can
+display the same account with a slightly different label in the P&L report than in the Budget
+entity (a real, known quirk), which silently fails every match with no error, exactly matching
+"budget always 0, actual always populates" (Actual comes straight from the P&L tree and never goes
+through this lookup at all). Confirmed the reconstruction only ever reads the *one* selected Budget
+object (`budget.BudgetDetail`, picked via the new Budget picker or year-match) — ruling out the
+user's "every budget ever" hypothesis; the double-counting risk isn't in this code path.
+
+Fixed by adding a **new primary match key: QuickBooks' own account id** (present as `.id` on a
+report ColData cell — standard Reports API behavior for an account-labeled column), which is
+exact and can't drift the way a display label can. Falls back to the existing name-based matching
+(unchanged) when a cell carries no `.id`, so nothing regresses for any shape that lacks it. New
+`budgetByAccountId` map built alongside the existing `budgetByName`/`budgetIdsByName`.
+
+`npm test` (351/351, 2 new regression tests: id-match succeeds where name-match would find
+nothing; name-fallback still works when no id is present), `node --check` on `api-finance.js` and
+both built app-JS bundles. Not verified against a live sync. (`src/api-finance.js`,
+`test/finance-church.test.js`)
+
 ### v1.103.0 — Stop trusting the native Budget vs Actual report; Multi-Year year-range picker; comma formatting (2026-07-28)
 Live testing right after v1.102.0's endpoint-name fix: the native `BudgetVsActuals` report finally
 responded for the first time (previously always 5020'd), but its numbers didn't hold up — e.g. an
