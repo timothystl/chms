@@ -1,7 +1,7 @@
 // ── Import, Config, Register, Export, Breeze Sync API handlers ──────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS, archiveEnvelope } from './api-utils.js';
+import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS, archiveEnvelope, scanForFeeFields } from './api-utils.js';
 import { validateImageUpload } from './api-people.js';
 import { sendBrevoTransactionalEmail } from './api-emails.js';
 
@@ -316,6 +316,21 @@ if (seg === 'import/breeze-giving-debug' && method === 'GET') {
   const glText = await glR.text();
   let glParsed = null; try { glParsed = JSON.parse(glText); } catch {}
   results.giving_list = { status: glR.status, count: Array.isArray(glParsed) ? glParsed.length : null, sample: Array.isArray(glParsed) ? glParsed.slice(0,3) : glText.slice(0,500) };
+
+  // Plain-language answer to "does Breeze's API carry the processor fee per payment?" —
+  // scans the first real giving/list record (and an audit-log-with-details record) for any
+  // fee/net/deposit/processor field so we know whether the sync can capture the fee straight
+  // from Breeze, or whether the fee has to come from a Breeze report import / the processor.
+  const glFirst = Array.isArray(glParsed) && glParsed[0] ? glParsed[0] : null;
+  const logFirst = Array.isArray(logDParsed) && logDParsed[0] ? logDParsed[0] : null;
+  results.fee_field_analysis = {
+    question: 'Does the Breeze API return a per-payment fee / net / deposit field?',
+    giving_list_first_record: glFirst ? scanForFeeFields(glFirst) : 'no giving/list records in this window',
+    audit_log_first_record: logFirst ? scanForFeeFields(logFirst) : 'no audit-log records',
+    verdict: (glFirst && scanForFeeFields(glFirst).fee_field_found) || (logFirst && scanForFeeFields(logFirst).fee_field_found)
+      ? 'FEE FIELD PRESENT — the sync can capture the fee straight from Breeze.'
+      : 'No fee/net field seen — Breeze keeps fees in its Online Giving Report only; the fee would need a report import or the processor API.',
+  };
 
   return json(results);
 }

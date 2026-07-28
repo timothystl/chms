@@ -516,6 +516,31 @@ export function computeGivingBands(rows, opts = {}) {
   };
 }
 
+// ── Breeze fee-field probe (native giving, does-Breeze-hand-us-the-fee) ────────
+// Pure. Given one sample record from Breeze's giving/list (or an audit-log entry),
+// report its top-level keys and flag any that look like a processor fee / net / deposit /
+// payout field — plus the same scan of a nested funds[] entry (fees can be per-fund). Turns
+// the raw diagnostic dump into a plain yes/no on "does the Breeze API carry the fee?".
+const FEE_FIELD_RE = /fee|net|processor|deposit|payout|gross|charge/i;
+export function scanForFeeFields(sample) {
+  const out = { top_keys: [], top_flagged: [], fund_keys: [], fund_flagged: [] };
+  if (!sample || typeof sample !== 'object') return out;
+  out.top_keys = Object.keys(sample);
+  for (const k of out.top_keys) {
+    if (FEE_FIELD_RE.test(k)) out.top_flagged.push({ key: k, value: sample[k] });
+  }
+  const funds = sample.funds || sample.fund;
+  const f0 = Array.isArray(funds) ? funds[0] : null;
+  if (f0 && typeof f0 === 'object') {
+    out.fund_keys = Object.keys(f0);
+    for (const k of out.fund_keys) {
+      if (FEE_FIELD_RE.test(k)) out.fund_flagged.push({ key: k, value: f0[k] });
+    }
+  }
+  out.fee_field_found = out.top_flagged.length > 0 || out.fund_flagged.length > 0;
+  return out;
+}
+
 // ── Giving deposits: reconciliation (GIV-DEP, native giving Phase 1) ───────────
 // Pure. Roll up a deposit's assigned gifts. gross = what donors gave, fee = processor fees,
 // net = what actually reaches the bank (gross - fee). `bankCents` (if provided) is the amount
