@@ -516,6 +516,28 @@ export function computeGivingBands(rows, opts = {}) {
   };
 }
 
+// ── Giving deposits: reconciliation (GIV-DEP, native giving Phase 1) ───────────
+// Pure. Roll up a deposit's assigned gifts. gross = what donors gave, fee = processor fees,
+// net = what actually reaches the bank (gross - fee). `bankCents` (if provided) is the amount
+// actually seen in the bank; variance = bank - net (should be 0 when reconciled; a non-zero
+// variance is surfaced, never silently absorbed).
+export function computeDepositTotals(gifts, bankCents) {
+  let gross = 0, fee = 0, count = 0;
+  for (const g of gifts || []) {
+    gross += Number(g.amount) || 0;
+    fee   += Number(g.fee_cents) || 0;
+    count += 1;
+  }
+  const net = gross - fee;
+  const out = { count, gross_cents: gross, fee_cents: fee, net_cents: net };
+  if (bankCents != null && bankCents !== '') {
+    out.bank_cents = Number(bankCents) || 0;
+    out.variance_cents = out.bank_cents - net; // + = bank has more than expected, - = short
+    out.balanced = out.variance_cents === 0;
+  }
+  return out;
+}
+
 // ── Giving distribution analysis (GIV-R3 / 2A) ────────────────────────────────
 // Annual-total tiers a giver's full-year contribution falls into. Dollar figures
 // (converted to cents) — chosen to be legible on a board slide, not statistically

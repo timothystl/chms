@@ -1,6 +1,6 @@
 // ── Giving Entries, Batches, Quick Entry API handlers ──────────────────────
 import { json } from './auth.js';
-import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue } from './api-utils.js';
+import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue, computeDepositTotals } from './api-utils.js';
 
 export async function handleGivingApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -365,6 +365,148 @@ if (seg === 'giving/receipts/queue' && method === 'GET') {
 
   const result = computeReceiptQueue(rows, { thresholdCents, includeFirstGift, firstGiftDateByPerson, sentKeys });
   return json({ from, to, threshold_cents: thresholdCents, first_gift: includeFirstGift, ...result });
+}
+
+// ── Giving Deposits: deposit-centered reconciliation (native giving Phase 1) ──
+// A deposit groups the gifts that make up one bank deposit. Reconciling it against the bank
+// stamps its gifts complete ("not a complete gift until reconciled with the bank"). Fees are
+// held per gift so a deposit totals to the net that actually hit the bank. Finance-gated;
+// writes already require isFinance (guard at top of this handler).
+
+// List deposits (optionally by status) with live rolled-up totals.
+if (seg === 'giving/deposits' && method === 'GET') {
+  const status = url.searchParams.get('status') || 'all';
+  let where = '';
+  const binds = [];
+  if (status === 'open' || status === 'reconciled') { where = 'WHERE d.status=?'; binds.push(status); }
+  const rows = (await db.prepare(
+    `SELECT d.*,
+            COUNT(ge.id) AS gift_count,
+            COALESCE(SUM(ge.amount),0) AS gross_cents,
+            COALESCE(SUM(ge.fee_cents),0) AS fee_cents,
+            COALESCE(SUM(ge.amount),0) - COALESCE(SUM(ge.fee_cents),0) AS net_cents
+       FROM giving_deposits d
+       LEFT JOIN giving_entries ge ON ge.deposit_id=d.id
+       ${where}
+       GROUP BY d.id
+       ORDER BY d.deposit_date DESC, d.id DESC
+       LIMIT 200`
+  ).bind(...binds).all()).results || [];
+  return json({ deposits: rows });
+}
+
+if (seg === 'giving/deposits' && method === 'POST') {
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const src = ['check', 'cash', 'online', 'mixed'].includes(b.source) ? b.source : '';
+  const r = await db.prepare(
+    `INSERT INTO giving_deposits (deposit_date, source, processor, external_ref, notes)
+     VALUES (?,?,?,?,?)`
+  ).bind(b.deposit_date || '', src, b.processor || '', b.external_ref || '', b.notes || '').run();
+  return json({ ok: true, id: r.meta?.last_row_id });
+}
+
+const depMatch = seg.match(/^giving\/deposits\/(\d+)$/);
+if (depMatch) {
+  const did = parseInt(depMatch[1]);
+  if (method === 'GET') {
+    const dep = await db.prepare('SELECT * FROM giving_deposits WHERE id=?').bind(did).first();
+    if (!dep) return json({ error: 'Not found' }, 404);
+    const gifts = (await db.prepare(
+      `SELECT ge.id, ge.amount, ge.fee_cents, ge.method, ge.source, ge.processor, ge.reconcile_status,
+              ge.check_number, ge.external_txn_id,
+              COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) AS gift_date,
+              f.name AS fund_name,
+              COALESCE(p.first_name||' '||p.last_name,'(anonymous)') AS person_name
+         FROM giving_entries ge
+         JOIN funds f ON ge.fund_id=f.id
+         JOIN giving_batches gb ON ge.batch_id=gb.id
+         LEFT JOIN people p ON ge.person_id=p.id
+        WHERE ge.deposit_id=? ORDER BY ge.id`
+    ).bind(did).all()).results || [];
+    const totals = computeDepositTotals(gifts, dep.bank_cents);
+    return json({ ...dep, gifts, totals });
+  }
+  if (method === 'PATCH') {
+    const dep = await db.prepare('SELECT * FROM giving_deposits WHERE id=?').bind(did).first();
+    if (!dep) return json({ error: 'Not found' }, 404);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const allowed = { deposit_date: 's', source: 's', processor: 's', external_ref: 's', notes: 's', bank_cents: 'int' };
+    const sets = [], binds = [];
+    for (const [f, k] of Object.entries(allowed)) {
+      if (!(f in b)) continue;
+      let v = b[f];
+      if (k === 's') v = String(v ?? '');
+      else if (k === 'int') v = (v === null || v === '' || v === undefined) ? null : parseInt(v);
+      sets.push(`${f}=?`); binds.push(v);
+    }
+    if (!sets.length) return json({ ok: true });
+    binds.push(did);
+    await db.prepare(`UPDATE giving_deposits SET ${sets.join(',')} WHERE id=?`).bind(...binds).run();
+    return json({ ok: true });
+  }
+  if (method === 'DELETE') {
+    const dep = await db.prepare('SELECT status FROM giving_deposits WHERE id=?').bind(did).first();
+    if (!dep) return json({ error: 'Not found' }, 404);
+    if (dep.status === 'reconciled') return json({ error: 'Reopen the deposit before deleting it.' }, 409);
+    // Release its gifts back to unassigned; never delete the gifts themselves.
+    await db.prepare("UPDATE giving_entries SET deposit_id=NULL, reconcile_status='recorded' WHERE deposit_id=?").bind(did).run();
+    await db.prepare('DELETE FROM giving_deposits WHERE id=?').bind(did).run();
+    return json({ ok: true });
+  }
+}
+
+// Assign / unassign gifts to a deposit (only while it's open).
+const depAssignMatch = seg.match(/^giving\/deposits\/(\d+)\/assign$/);
+if (depAssignMatch && method === 'POST') {
+  const did = parseInt(depAssignMatch[1]);
+  const dep = await db.prepare('SELECT status FROM giving_deposits WHERE id=?').bind(did).first();
+  if (!dep) return json({ error: 'Not found' }, 404);
+  if (dep.status === 'reconciled') return json({ error: 'Deposit is reconciled — reopen it to change gifts.' }, 409);
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const ids = (Array.isArray(b.entry_ids) ? b.entry_ids : []).map(x => parseInt(x)).filter(Number.isInteger);
+  const unassign = !!b.unassign;
+  if (!ids.length) return json({ error: 'entry_ids required' }, 400);
+  const stmts = [];
+  for (let i = 0; i < ids.length; i += 90) {
+    const chunk = ids.slice(i, i + 90);
+    const ph = chunk.map(() => '?').join(',');
+    if (unassign) {
+      stmts.push(db.prepare(`UPDATE giving_entries SET deposit_id=NULL, reconcile_status='recorded' WHERE id IN (${ph})`).bind(...chunk));
+    } else {
+      stmts.push(db.prepare(`UPDATE giving_entries SET deposit_id=?, reconcile_status='deposited' WHERE id IN (${ph})`).bind(did, ...chunk));
+    }
+  }
+  await db.batch(stmts);
+  return json({ ok: true, count: ids.length });
+}
+
+// Reconcile a deposit against the bank → stamps its gifts complete.
+const depReconcileMatch = seg.match(/^giving\/deposits\/(\d+)\/reconcile$/);
+if (depReconcileMatch && method === 'POST') {
+  const did = parseInt(depReconcileMatch[1]);
+  const dep = await db.prepare('SELECT * FROM giving_deposits WHERE id=?').bind(did).first();
+  if (!dep) return json({ error: 'Not found' }, 404);
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const bankCents = (b.bank_cents === null || b.bank_cents === '' || b.bank_cents === undefined) ? null : parseInt(b.bank_cents);
+  const gifts = (await db.prepare('SELECT amount, fee_cents FROM giving_entries WHERE deposit_id=?').bind(did).all()).results || [];
+  const totals = computeDepositTotals(gifts, bankCents);
+  await db.batch([
+    db.prepare("UPDATE giving_deposits SET status='reconciled', bank_cents=?, reconciled_at=datetime('now') WHERE id=?").bind(bankCents, did),
+    db.prepare("UPDATE giving_entries SET reconcile_status='reconciled' WHERE deposit_id=?").bind(did),
+  ]);
+  return json({ ok: true, totals });
+}
+
+const depReopenMatch = seg.match(/^giving\/deposits\/(\d+)\/reopen$/);
+if (depReopenMatch && method === 'POST') {
+  const did = parseInt(depReopenMatch[1]);
+  const dep = await db.prepare('SELECT id FROM giving_deposits WHERE id=?').bind(did).first();
+  if (!dep) return json({ error: 'Not found' }, 404);
+  await db.batch([
+    db.prepare("UPDATE giving_deposits SET status='open', reconciled_at=NULL WHERE id=?").bind(did),
+    db.prepare("UPDATE giving_entries SET reconcile_status='deposited' WHERE deposit_id=?").bind(did),
+  ]);
+  return json({ ok: true });
 }
 
   return null; // not handled
