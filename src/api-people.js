@@ -240,8 +240,10 @@ if (seg === 'people' && method === 'GET') {
   // still be NULL) get silently dropped from totals, causing membership
   // counts to disagree with reports.
   const binds = [];
-  const searchClause = q ? ` AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.preferred_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)` : '';
-  if (q) binds.push(like, like, like, like, like);
+  // Envelope search: match the current number and any prior number (envelope_history is a
+  // JSON array of strings, so a LIKE on the raw JSON finds an old envelope too).
+  const searchClause = q ? ` AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.preferred_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ? OR p.envelope_number LIKE ? OR p.envelope_history LIKE ?)` : '';
+  if (q) binds.push(like, like, like, like, like, like, like);
   if (archivedView) {
     where = `p.status IN ('archived','deceased') AND LOWER(p.member_type) != 'organization'` + searchClause;
   } else {

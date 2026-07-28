@@ -582,6 +582,26 @@ export function computeGivingDistribution(rows) {
   };
 }
 
+// ── Envelope numbers (GIV-R4 / B) ─────────────────────────────────────────────
+// Envelope numbers are reassigned yearly, but old envelopes stay in circulation, so a
+// superseded number must still resolve to its person. This keeps a most-recent-first,
+// de-duplicated JSON list of a person's prior numbers. A blank old number is a no-op.
+export function archiveEnvelope(historyJson, oldNumber) {
+  const old = String(oldNumber || '').trim();
+  let arr = [];
+  if (historyJson) {
+    try { const p = JSON.parse(historyJson); if (Array.isArray(p)) arr = p.map(x => String(x)); } catch { arr = []; }
+  }
+  if (!old || arr.includes(old)) return JSON.stringify(arr);
+  return JSON.stringify([old, ...arr]);
+}
+
+// Parse the stored history JSON into a plain string array (never throws).
+export function parseEnvelopeHistory(historyJson) {
+  if (!historyJson) return [];
+  try { const p = JSON.parse(historyJson); return Array.isArray(p) ? p.map(x => String(x)) : []; } catch { return []; }
+}
+
 // ── Thank-you receipts (GIV-R4 / A) ───────────────────────────────────────────
 // Clean monthly figures we're willing to suggest as a recurring-giving nudge.
 export const MONTHLY_SUGGESTION_LADDER_CENTS = [

@@ -1814,7 +1814,7 @@ export const HTML_TABS_2 = String.raw`
     <div class="tag-picker" id="pm-tag-picker"></div>
     <div class="modal-section">Church Records</div>
     <div class="modal-2col">
-      <div class="field"><label>Envelope #</label><input type="text" id="pm-envelope" name="pm-envelope" placeholder="e.g. 42" maxlength="20"></div>
+      <div class="field"><label>Envelope #</label><input type="text" id="pm-envelope" name="pm-envelope" placeholder="e.g. 42" maxlength="20"><div id="pm-envelope-history" style="font-size:.72rem;color:var(--warm-gray);margin-top:3px;"></div></div>
       <div class="field"><label>Last Seen</label><input type="date" id="pm-last-seen" name="pm-last-seen"></div>
     </div>
     <div class="modal-section">Notes</div>

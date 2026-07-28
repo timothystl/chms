@@ -1,7 +1,7 @@
 // ── Import, Config, Register, Export, Breeze Sync API handlers ──────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS } from './api-utils.js';
+import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS, archiveEnvelope } from './api-utils.js';
 import { validateImageUpload } from './api-people.js';
 import { sendBrevoTransactionalEmail } from './api-emails.js';
 
@@ -2910,14 +2910,26 @@ if (seg === 'import/breeze' && method === 'POST') { try {
     const rows = (await db.prepare(`SELECT id, breeze_id FROM people WHERE breeze_id IN (${ph})`).bind(...chunk).all()).results || [];
     for (const r of rows) existingPersonIdByBreezeId[r.breeze_id] = r.id;
   }
+  // Envelope-number sync exception to the add-only policy (GIV-R4/B): envelope numbers
+  // are reassigned yearly in Breeze, so this ONE field is allowed to update an existing
+  // linked person. Collected here, applied (with prior-number history) after the loop.
+  const envelopeUpdates = [];
   for (const p of people) {
     try {
       // ADD-ONLY POLICY (2026-07-27): Connect is the source of truth for all
       // people data — only giving syncs from Breeze. A person already linked to
       // Breeze is never modified by this sync; we skip them entirely so nothing
       // (name, contact, member type, household, photo, dates) is overwritten.
-      // Only brand-new Breeze people are inserted below.
-      if (existingPersonIdByBreezeId[String(p.id)]) { seenBreezeIds.add(String(p.id)); skipped++; continue; }
+      // Only brand-new Breeze people are inserted below. EXCEPTION: envelope_number
+      // (see the post-loop pass) — reassigned yearly, so it's synced for the linked too.
+      if (existingPersonIdByBreezeId[String(p.id)]) {
+        seenBreezeIds.add(String(p.id));
+        if (F_ENVELOPE) {
+          const newEnv = String(extractName((p.details || {})[F_ENVELOPE]) || '').trim();
+          if (newEnv) envelopeUpdates.push({ id: existingPersonIdByBreezeId[String(p.id)], number: newEnv });
+        }
+        skipped++; continue;
+      }
       const fn = (p.first_name || '').trim();
       const ln = (p.last_name  || '').trim();
       const details = p.details || {};
@@ -3095,6 +3107,32 @@ if (seg === 'import/breeze' && method === 'POST') { try {
     } catch (e) { errors.push({ breeze_id: p.id, error: e.message }); }
   }
   const done = people.length < limit;
+  // Envelope-only update pass for existing linked people (add-only exception, GIV-R4/B):
+  // when Breeze's envelope number differs from the stored one, set the new number and push
+  // the old one into envelope_history so an old envelope still resolves to this person.
+  let envelopesUpdated = 0;
+  if (envelopeUpdates.length) {
+    const byId = new Map();
+    for (const u of envelopeUpdates) byId.set(u.id, u.number); // last write per person wins
+    const ids = [...byId.keys()];
+    const stmts = [];
+    for (let i = 0; i < ids.length; i += 90) {
+      const chunk = ids.slice(i, i + 90);
+      const ph = chunk.map(() => '?').join(',');
+      const cur = (await db.prepare(
+        `SELECT id, envelope_number, envelope_history FROM people WHERE id IN (${ph})`
+      ).bind(...chunk).all()).results || [];
+      for (const row of cur) {
+        const newNum = byId.get(row.id);
+        const oldNum = String(row.envelope_number || '').trim();
+        if (newNum === oldNum) continue; // unchanged — nothing to archive
+        const hist = archiveEnvelope(row.envelope_history, oldNum);
+        stmts.push(db.prepare('UPDATE people SET envelope_number=?, envelope_history=? WHERE id=?').bind(newNum, hist, row.id));
+        envelopesUpdated++;
+      }
+    }
+    if (stmts.length) await db.batch(stmts);
+  }
   // Defensive: ensure no row in this batch left a capitalized member_type behind.
   await db.prepare("UPDATE people SET member_type=LOWER(member_type) WHERE member_type != LOWER(member_type)").run().catch(() => {});
   // Persist newly-seen Breeze statuses
@@ -3116,7 +3154,7 @@ if (seg === 'import/breeze' && method === 'POST') { try {
   let anniversaryPropagated = 0;
   // Tag sync removed from people import — it times out the Worker when run inline.
   // The frontend auto-triggers runBreezeTagSync() after the final people batch.
-  return json({ ok: true, imported, updated, skipped, deactivated, anniversaryPropagated, errors, done, next_offset: offset + people.length, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, dob_field: F_DOB_FIELD ? {id: F_DOB_FIELD.id, name: F_DOB_FIELD.name} : null, baptism_field: F_BAPTISM_FIELD ? {id: F_BAPTISM_FIELD.id, name: F_BAPTISM_FIELD.name} : null, confirmation_field: F_CONFIRM_FIELD ? {id: F_CONFIRM_FIELD.id, name: F_CONFIRM_FIELD.name} : null, deceased_field: F_DECEASED_FIELD ? {id: F_DECEASED_FIELD.id, name: F_DECEASED_FIELD.name} : null, death_date_field: F_DEATH_FIELD ? {id: F_DEATH_FIELD.id, name: F_DEATH_FIELD.name} : null, envelope_field: F_ENVELOPE_FIELD ? {id: F_ENVELOPE_FIELD.id, name: F_ENVELOPE_FIELD.name} : null, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
+  return json({ ok: true, imported, updated, skipped, envelopes_updated: envelopesUpdated, deactivated, anniversaryPropagated, errors, done, next_offset: offset + people.length, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, dob_field: F_DOB_FIELD ? {id: F_DOB_FIELD.id, name: F_DOB_FIELD.name} : null, baptism_field: F_BAPTISM_FIELD ? {id: F_BAPTISM_FIELD.id, name: F_BAPTISM_FIELD.name} : null, confirmation_field: F_CONFIRM_FIELD ? {id: F_CONFIRM_FIELD.id, name: F_CONFIRM_FIELD.name} : null, deceased_field: F_DECEASED_FIELD ? {id: F_DECEASED_FIELD.id, name: F_DECEASED_FIELD.name} : null, death_date_field: F_DEATH_FIELD ? {id: F_DEATH_FIELD.id, name: F_DEATH_FIELD.name} : null, envelope_field: F_ENVELOPE_FIELD ? {id: F_ENVELOPE_FIELD.id, name: F_ENVELOPE_FIELD.name} : null, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
 } catch (importErr) {
   return json({ ok: false, error: 'Bulk import error: ' + importErr.message, _stack: (importErr.stack||'').slice(0, 500) }, 500);
 } }

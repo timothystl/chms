@@ -2494,6 +2494,12 @@ function openPersonEdit(p) {
   var hdEl = document.getElementById('pm-hide-dob');         if (hdEl) hdEl.checked = !isNew && !!p.dir_hide_dob;
   var hanEl = document.getElementById('pm-hide-anniversary'); if (hanEl) hanEl.checked = !isNew && !!p.dir_hide_anniversary;
   document.getElementById('pm-envelope').value = isNew ? '' : (p.envelope_number||'');
+  var pmEnvHist = document.getElementById('pm-envelope-history');
+  if (pmEnvHist) {
+    var hist = [];
+    if (!isNew && p.envelope_history) { try { var parsed = JSON.parse(p.envelope_history); if (Array.isArray(parsed)) hist = parsed; } catch (e) {} }
+    pmEnvHist.innerHTML = hist.length ? 'Prior: ' + esc(hist.join(', ')) + ' <span style="color:var(--warm-meta);">(old envelopes still valid)</span>' : '';
+  }
   document.getElementById('pm-last-seen').value = isNew ? '' : (p.last_seen_date||'');
   document.getElementById('pm-notes').value = isNew ? '' : (p.notes||'');
   var genderEl = document.getElementById('pm-gender'); if (genderEl) genderEl.value = isNew ? '' : (p.gender||'');
