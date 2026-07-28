@@ -1576,10 +1576,11 @@ export const HTML_TABS_2 = String.raw`
               <button id="fin-church-mode-year" class="btn-secondary active" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('year')">This Year</button>
               <button id="fin-church-mode-multiyear" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('multiyear')">Multi-Year</button>
               <button id="fin-church-mode-balances" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('balances')">Balance Sheet</button>
-              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchActivityImport()">Import Statement of Activity</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchImport()">Import Budget</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchMonthlyImport()">Import Monthly P&amp;L</button>
+              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchActivityImport()">Import Statement of Activity (multi-year)</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchBalanceImport()">Import Balance Sheet</button>
+              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchBalanceMultiYearImport()">Import Financial Position (multi-year)</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportChurchCsv()">Export CSV</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
             </div>
@@ -2313,8 +2314,8 @@ export const HTML_TABS_2 = String.raw`
   <div class="modal" style="max-width:640px;width:95vw;">
     <div class="modal-header"><span>Import Budget from Excel</span><button class="modal-close" onclick="closeModal('fin-church-import-modal')">&#10005;</button></div>
     <div style="padding:4px 0;">
-      <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload a QuickBooks "Budget vs. Actuals" export (.xlsx) for one fiscal year. The file is parsed on the server, then you'll get a preview to review and uncheck anything before it's saved — nothing is written until you click Import Selected. Importing a year replaces any previously-imported data for that same year; a live QuickBooks sync for the same year always defers to an import.</p>
-      <input type="file" id="fin-church-import-file" accept=".xlsx" onchange="finChurchImportFileSelected(this)">
+      <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload one or more QuickBooks "Budget vs. Actuals" exports (.xlsx) — select multiple files at once to import several fiscal years in one go, one file per year. Each file is parsed on the server, then you'll get a preview per year to review and uncheck anything before it's saved — nothing is written until you click Import Selected. Importing a year replaces any previously-imported data for that same year; a live QuickBooks sync for a year always takes priority over an import for that same year.</p>
+      <input type="file" id="fin-church-import-file" accept=".xlsx" multiple onchange="finChurchImportFileSelected(this)">
       <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="fin-church-import-status"></div>
       <div id="fin-church-import-preview"></div>
     </div>
@@ -2345,15 +2346,13 @@ export const HTML_TABS_2 = String.raw`
   </div>
 </div>
 
-<!-- Church Report: one-time historical actuals upload — a multi-year "Statement of Activity"
-     export (one column per fiscal year), never Budget data. See FIN36 in CLAUDE.md: this is the
-     preferred path for backfilling old years going forward, kept separate from the Budget vs.
-     Actuals import above so it can never overwrite that import's previously-saved data. -->
+<!-- Church Report: import a "Statement of Activity" multi-year Excel export (nonprofit-wording
+     P&L, one column per year — e.g. 2019 through today in a single file) -->
 <div class="modal-overlay" id="fin-church-activity-import-modal">
-  <div class="modal" style="max-width:760px;width:95vw;">
-    <div class="modal-header"><span>Import Statement of Activity (Actuals Only)</span><button class="modal-close" onclick="closeModal('fin-church-activity-import-modal')">&#10005;</button></div>
+  <div class="modal" style="max-width:720px;width:95vw;">
+    <div class="modal-header"><span>Import Statement of Activity (multi-year) from Excel</span><button class="modal-close" onclick="closeModal('fin-church-activity-import-modal')">&#10005;</button></div>
     <div style="padding:4px 0;">
-      <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload a QuickBooks "Statement of Activity" export (.xlsx) with "Display columns by: Years" set — one column per fiscal year, covering as many years as you like in one file. Actuals only; budget figures are never read or stored by this import. Importing replaces any previously-uploaded Statement of Activity data for the same years only — other years, and any Budget import data, are left untouched. A live QuickBooks sync for a given year (via "Sync Selected Years" on the Overview tab) always takes precedence over this import for that same year.</p>
+      <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload a QuickBooks "Statement of Activity" export (.xlsx) with one column per year (e.g. 2019, 2020, ... today) — actual figures only, no budget. Good for backfilling many years of history in one file. Importing replaces any previously-imported Statement of Activity data for every year present in the file; a Budget vs. Actuals import or a live QuickBooks sync for the same year always takes priority over this.</p>
       <input type="file" id="fin-church-activity-import-file" accept=".xlsx" onchange="finChurchActivityImportFileSelected(this)">
       <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="fin-church-activity-import-status"></div>
       <div id="fin-church-activity-import-preview"></div>
@@ -2378,6 +2377,24 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('fin-church-balance-import-modal')">Close</button>
       <button class="btn-primary" id="fin-church-balance-import-confirm-btn" style="display:none;" onclick="finChurchConfirmBalanceImport()">Import Selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Church Report: import a "Statement of Financial Position" multi-year Excel export
+     (nonprofit-wording Balance Sheet, one column per year) -->
+<div class="modal-overlay" id="fin-church-balance-multi-import-modal">
+  <div class="modal" style="max-width:720px;width:95vw;">
+    <div class="modal-header"><span>Import Financial Position (multi-year) from Excel</span><button class="modal-close" onclick="closeModal('fin-church-balance-multi-import-modal')">&#10005;</button></div>
+    <div style="padding:4px 0;">
+      <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload a QuickBooks "Statement of Financial Position" export (.xlsx) with one column per year — a multi-year history of Assets/Liabilities/Equity balances in a single file, instead of uploading one Balance Sheet at a time. Importing replaces any previously-imported balance data for every year present in the file.</p>
+      <input type="file" id="fin-church-balance-multi-import-file" accept=".xlsx" onchange="finChurchBalanceMultiImportFileSelected(this)">
+      <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="fin-church-balance-multi-import-status"></div>
+      <div id="fin-church-balance-multi-import-preview"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('fin-church-balance-multi-import-modal')">Close</button>
+      <button class="btn-primary" id="fin-church-balance-multi-import-confirm-btn" style="display:none;" onclick="finChurchConfirmBalanceMultiImport()">Import</button>
     </div>
   </div>
 </div>
