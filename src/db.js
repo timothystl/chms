@@ -1184,6 +1184,9 @@ async function _doInitDb(db) {
     'ALTER TABLE church_register ADD COLUMN pdf_page TEXT NOT NULL DEFAULT ""',
     // people: giving envelope number (assigned per-person or per-couple)
     'ALTER TABLE people ADD COLUMN envelope_number TEXT NOT NULL DEFAULT ""',
+    // people: prior envelope numbers, JSON array (GIV-R4/B, migration 0030) — old
+    // envelopes stay in circulation after a yearly reassignment.
+    'ALTER TABLE people ADD COLUMN envelope_history TEXT NOT NULL DEFAULT \'[]\'',
     // people: last-seen date for pastoral tracking
     'ALTER TABLE people ADD COLUMN last_seen_date TEXT NOT NULL DEFAULT ""',
     // people: gender and marital status (imported from Breeze)
