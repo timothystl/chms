@@ -1,8 +1,9 @@
-// ── Public intake endpoints ───────────────────────────────────────────
-// These handle form submissions forwarded from the public website (timothystl.org).
+// ── Cross-Worker server-to-server endpoints ────────────────────────────
+// Called from the timothystl.org website Workers, not from a browser directly.
 // Auth is via the X-Intake-Key header matching env.CHMS_INTAKE_API_KEY — NOT a
-// user session. The only caller should be the timothystl.org admin worker's
-// /api/contact and /api/prayer handlers.
+// user session. Covers: (1) form submissions forwarded from the public website's
+// /api/contact and /api/prayer handlers (POST), and (2) a read-only fund list for
+// admin.timothystl.org's Giving tab (GET /api/intake/funds).
 import { json } from './auth.js';
 
 function splitName(full) {
@@ -38,6 +39,20 @@ export async function handleIntakeApi(req, env, path) {
   if (!expectedKey) return json({ error: 'Intake not configured' }, 503);
   const key = req.headers.get('X-Intake-Key') || '';
   if (key !== expectedKey) return json({ error: 'Unauthorized' }, 401);
+
+  // Read-only fund list — lets the website admin (Giving tab) suggest real ChMS fund
+  // names when setting up give.timothystl.org's fund selector, instead of staff retyping
+  // names by hand and risking a mismatch. ChMS has no Tithe.ly fund ID of its own (only
+  // `breeze_id`, for Breeze giving-sync) — the website still needs that ID entered by hand
+  // per fund; this only saves getting the *name* right. Not rate-limited like the POST
+  // intake routes below (no user-facing form triggers it, called only from the admin UI).
+  if (path === '/api/intake/funds' && req.method === 'GET') {
+    const { results } = await env.DB.prepare(
+      "SELECT id, name FROM funds WHERE active = 1 ORDER BY sort_order, name"
+    ).all();
+    return json({ funds: results || [] });
+  }
+
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   if (!(await intakeRateLimitOk(env, req, path))) {
     return json({ error: 'Rate limit exceeded. Please try again later.' }, 429);

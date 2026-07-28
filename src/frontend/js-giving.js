@@ -2,7 +2,7 @@ export const JS_GIVING = String.raw`<script>
 // ── GIVING ────────────────────────────────────────────────────────────
 // ── Batches / Transactions view toggle (RDS4) ──────────────────────────
 var _givView = 'batches';
-var _GIV_VIEWS = ['batches','transactions','board','reports','settings'];
+var _GIV_VIEWS = ['batches','transactions','deposits','board','letters','receipts','reports','settings'];
 var _GIV_VIEW_DISPLAY = { batches:'grid', transactions:'flex' }; // others default to ''
 function givSetView(view) {
   _givView = view;
@@ -16,12 +16,289 @@ function givSetView(view) {
     givTxnPopulateFundOptions();
     loadGivingTransactions();
   }
-  if (view === 'board') loadBoardReport();
-  if (view === 'reports') finInitGivingReports();
+  if (view === 'board') {
+    loadBoardReport();
+    givPopulateFundSelect('rpt-plateau-fund');
+    givPopulateFundSelect('rpt-bands-fund');
+    var curYr = new Date().getFullYear();
+    var platYr = document.getElementById('rpt-plateau-year');
+    if (platYr && !platYr.value) platYr.value = curYr;
+    var bandsYr = document.getElementById('rpt-bands-year');
+    if (bandsYr && !bandsYr.value) bandsYr.value = curYr;
+  }
+  if (view === 'deposits') loadDeposits();
+  if (view === 'letters') givLettersInit();
+  if (view === 'receipts') givReceiptsInit();
+  if (view === 'reports') { givAnalysisInit(); finInitGivingReports(); }
   if (view === 'settings') loadGivingSettings();
 }
+
+// ── Deposit reconciliation (GIV-DEP) ───────────────────────────────────
+// A deposit groups the gifts that make one bank deposit; entering the amount the
+// bank actually received makes "Given − Deposited = fees" fall out on its own — the
+// donor-covered-fee gifts add equally to both sides and cancel, so the gap is exactly
+// the fees the church absorbed. Fees per gift (fee_cents) come later from the processor.
+var _depFilter = 'all';
+var _depCurrentId = null;
+var _depDetail = null;
+
+function depSourceLabel(s) {
+  return ({ check:'Check', cash:'Cash', online:'Online', mixed:'Mixed' })[s] || 'Unspecified';
+}
+
+function loadDeposits() {
+  var list = document.getElementById('giv-deposits-list');
+  if (!list) return;
+  list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--warm-gray);font-size:.85rem;">Loading&#8230;</div>';
+  api('/admin/api/giving/deposits?status=' + encodeURIComponent(_depFilter)).then(function(d) {
+    depRenderList((d && d.deposits) || []);
+  }).catch(function() {
+    list.innerHTML = '<div style="padding:16px;color:var(--danger);font-size:.85rem;">Could not load deposits.</div>';
+  });
+}
+
+function depSetFilter(btn, f) {
+  _depFilter = f;
+  var pills = btn.parentNode.querySelectorAll('.pill');
+  for (var i = 0; i < pills.length; i++) pills[i].classList.remove('active');
+  btn.classList.add('active');
+  loadDeposits();
+}
+
+function depRenderList(deps) {
+  var list = document.getElementById('giv-deposits-list');
+  if (!list) return;
+  if (!deps.length) {
+    list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--warm-gray);font-size:.85rem;">No deposits yet.</div>';
+    return;
+  }
+  list.innerHTML = deps.map(function(d) {
+    var gross = d.gross_cents || 0;
+    var recon = d.status === 'reconciled';
+    var bank = (d.bank_cents === null || d.bank_cents === undefined) ? null : d.bank_cents;
+    var feeGap = (bank === null) ? null : (gross - bank);
+    var sel = (d.id === _depCurrentId);
+    var badge = recon
+      ? '<span style="background:var(--sage,#4A5E3A);color:var(--white,#fff);font-size:.66rem;padding:2px 7px;border-radius:10px;">Reconciled</span>'
+      : '<span style="background:var(--amber,#C9973A);color:var(--white,#fff);font-size:.66rem;padding:2px 7px;border-radius:10px;">Open</span>';
+    return '<div onclick="depOpen(' + d.id + ')" style="cursor:pointer;padding:10px 12px;border-radius:8px;margin-bottom:7px;border:1px solid var(--linen,#EDE9E0);'
+      + (sel ? 'background:var(--linen,#EDE9E0);' : 'background:var(--warm-white,#FBF8F3);') + '">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">'
+      + '<strong style="font-size:.9rem;">' + (d.deposit_date ? fmtDate(d.deposit_date) : 'No date') + '</strong>' + badge + '</div>'
+      + '<div style="font-size:.76rem;color:var(--warm-gray);margin-top:3px;">'
+      + depSourceLabel(d.source) + ' &middot; ' + (d.gift_count || 0) + ' gift' + ((d.gift_count === 1) ? '' : 's') + ' &middot; ' + fmtMoney(gross) + '</div>'
+      + (feeGap !== null ? '<div style="font-size:.76rem;margin-top:2px;color:' + (feeGap < 0 ? 'var(--danger)' : 'var(--warm-gray)') + ';">Fees ' + fmtMoney(feeGap) + '</div>' : '')
+      + '</div>';
+  }).join('');
+}
+
+function depNew() {
+  _depCurrentId = null; _depDetail = null;
+  loadDeposits();
+  var el = document.getElementById('giv-deposit-detail');
+  if (!el) return;
+  var today = new Date().toISOString().slice(0, 10);
+  el.innerHTML =
+    '<h3 style="margin:0 0 14px;">New Deposit</h3>'
+    + '<div class="field" style="margin-bottom:10px;"><label>Deposit date</label><input type="date" id="dep-new-date" value="' + today + '"></div>'
+    + '<div class="field" style="margin-bottom:10px;"><label>Source</label><select id="dep-new-source"><option value="">Unspecified</option><option value="check">Check</option><option value="cash">Cash</option><option value="online">Online (Tithe.ly)</option><option value="mixed">Mixed</option></select></div>'
+    + '<div class="field" style="margin-bottom:10px;"><label>Reference / payout id (optional)</label><input type="text" id="dep-new-ref" placeholder="e.g. Tithe.ly payout #"></div>'
+    + '<div class="field" style="margin-bottom:14px;"><label>Notes (optional)</label><input type="text" id="dep-new-notes"></div>'
+    + '<button class="btn-primary" onclick="depCreate()">Create Deposit</button> '
+    + '<button class="btn-secondary" onclick="depClearDetail()">Cancel</button>';
+}
+
+function depCreate() {
+  var src = document.getElementById('dep-new-source').value;
+  var body = {
+    deposit_date: document.getElementById('dep-new-date').value,
+    source: src,
+    external_ref: document.getElementById('dep-new-ref').value,
+    notes: document.getElementById('dep-new-notes').value
+  };
+  if (src === 'online') body.processor = 'tithely';
+  api('/admin/api/giving/deposits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } loadDeposits(); depOpen(r.id); })
+    .catch(function() { alert('Could not create the deposit.'); });
+}
+
+function depClearDetail() {
+  _depCurrentId = null; _depDetail = null;
+  var el = document.getElementById('giv-deposit-detail');
+  if (el) el.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:180px;color:var(--warm-gray);gap:10px;text-align:center;"><div style="font-size:.9rem;">Select a deposit, or click <strong>+ New</strong>.</div></div>';
+  loadDeposits();
+}
+
+function depOpen(id) {
+  _depCurrentId = id;
+  api('/admin/api/giving/deposits/' + id).then(function(d) {
+    if (d && d.error) { alert(d.error); return; }
+    _depDetail = d;
+    depRenderDetail();
+    loadDeposits();
+  }).catch(function() { alert('Could not load the deposit.'); });
+}
+
+function depRenderDetail() {
+  var d = _depDetail; if (!d) return;
+  var el = document.getElementById('giv-deposit-detail'); if (!el) return;
+  var recon = d.status === 'reconciled';
+  var gross = (d.totals && d.totals.gross_cents) || 0;
+  var recordedFees = (d.totals && d.totals.fee_cents) || 0;
+  var bankCents = (d.bank_cents === null || d.bank_cents === undefined) ? null : d.bank_cents;
+  var bankVal = (bankCents === null) ? '' : (bankCents / 100).toFixed(2);
+  var feeGap = (bankCents === null) ? null : (gross - bankCents);
+  var gifts = d.gifts || [];
+
+  var giftRows = gifts.length ? gifts.map(function(g) {
+    return '<tr><td>' + fmtDate(g.gift_date) + '</td><td>' + esc(g.person_name) + '</td><td>' + esc(g.fund_name) + '</td><td>' + esc(g.method) + '</td>'
+      + '<td class="amt-col">' + fmtMoney(g.amount) + '</td>'
+      + (recon ? '' : '<td><button class="btn-secondary" style="padding:2px 8px;font-size:.72rem;" onclick="depRemoveGift(' + g.id + ')">Remove</button></td>')
+      + '</tr>';
+  }).join('') : '<tr><td colspan="' + (recon ? 5 : 6) + '" style="padding:14px;text-align:center;color:var(--warm-gray);">No gifts assigned yet.</td></tr>';
+
+  var html = '';
+  html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:14px;">';
+  html += '<div><h3 style="margin:0;">' + (d.deposit_date ? fmtDate(d.deposit_date) : 'New deposit') + '</h3>';
+  html += '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:2px;">' + depSourceLabel(d.source) + (d.external_ref ? ' &middot; ' + esc(d.external_ref) : '') + '</div>';
+  if (d.notes) html += '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:2px;">' + esc(d.notes) + '</div>';
+  html += '</div><div>' + (recon
+    ? '<span style="background:var(--sage,#4A5E3A);color:var(--white,#fff);font-size:.7rem;padding:3px 9px;border-radius:11px;">Reconciled</span>'
+    : '<span style="background:var(--amber,#C9973A);color:var(--white,#fff);font-size:.7rem;padding:3px 9px;border-radius:11px;">Open</span>') + '</div></div>';
+
+  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">';
+  html += '<div class="dash-stat" style="padding:12px;"><div style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.03em;">Given</div><div style="font-size:1.25rem;font-weight:700;">' + fmtMoney(gross) + '</div></div>';
+  if (recon) {
+    html += '<div class="dash-stat" style="padding:12px;"><div style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.03em;">Deposited</div><div style="font-size:1.25rem;font-weight:700;">' + (bankCents === null ? '&mdash;' : fmtMoney(bankCents)) + '</div></div>';
+  } else {
+    html += '<div class="dash-stat" style="padding:12px;"><div style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.03em;">Bank deposit</div>'
+      + '<div style="display:flex;align-items:center;gap:3px;margin-top:3px;"><span style="font-size:1.05rem;">$</span><input type="number" step="0.01" id="dep-bank-input" value="' + bankVal + '" oninput="depRecalcFees()" style="width:100%;font-size:1.05rem;padding:4px 6px;"></div></div>';
+  }
+  html += '<div class="dash-stat" style="padding:12px;"><div style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.03em;">Fees (Given &minus; Deposited)</div><div id="dep-fee-figure" style="font-size:1.25rem;font-weight:700;">' + (feeGap === null ? '&mdash;' : fmtMoney(feeGap)) + '</div></div>';
+  html += '</div>';
+
+  if (recordedFees) html += '<div style="font-size:.78rem;color:var(--warm-gray);margin:-4px 0 14px;">Processor-reported fees on these gifts: ' + fmtMoney(recordedFees) + ' (cross-check for the figure above once the payment system supplies fees).</div>';
+
+  html += '<div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;">';
+  if (recon) {
+    html += '<button class="btn-secondary" onclick="depReopen()">Reopen</button>';
+  } else {
+    html += '<button class="btn-primary" onclick="depReconcile()">Reconcile to Bank</button>';
+    html += '<button class="btn-secondary" onclick="depSaveBank()">Save Bank Amount</button>';
+    html += '<button class="btn-danger" onclick="depDelete()" style="margin-left:auto;">Delete</button>';
+  }
+  html += '</div>';
+
+  html += '<h4 style="margin:0 0 8px;">Gifts in this deposit</h4>';
+  html += '<div style="overflow-x:auto;"><table class="entries-table"><thead><tr><th>Date</th><th>Donor</th><th>Fund</th><th>Method</th><th class="amt-col">Amount</th>' + (recon ? '' : '<th></th>') + '</tr></thead><tbody>' + giftRows + '</tbody></table></div>';
+
+  if (!recon) {
+    html += '<div style="margin-top:14px;"><button class="btn-secondary" onclick="depToggleAddGifts()">+ Add gifts</button><div id="dep-add-box" style="display:none;margin-top:10px;"></div></div>';
+  }
+
+  el.innerHTML = html;
+  depRecalcFees();
+}
+
+function depRecalcFees() {
+  var d = _depDetail; if (!d) return;
+  var gross = (d.totals && d.totals.gross_cents) || 0;
+  var inp = document.getElementById('dep-bank-input');
+  var span = document.getElementById('dep-fee-figure');
+  if (!span || !inp) return;
+  if (inp.value === '') { span.textContent = '—'; span.style.color = 'var(--warm-gray)'; return; }
+  var bankCents = Math.round(parseFloat(inp.value) * 100);
+  if (isNaN(bankCents)) { span.textContent = '—'; span.style.color = 'var(--warm-gray)'; return; }
+  var fee = gross - bankCents;
+  span.textContent = fmtMoney(fee);
+  span.style.color = (fee < 0) ? 'var(--danger)' : 'var(--charcoal,#1A1A2A)';
+}
+
+function depToggleAddGifts() {
+  var box = document.getElementById('dep-add-box');
+  if (!box) return;
+  if (box.style.display === 'none') { box.style.display = 'block'; depLoadUnassigned(); }
+  else { box.style.display = 'none'; }
+}
+
+function depLoadUnassigned() {
+  var box = document.getElementById('dep-add-box');
+  if (!box) return;
+  box.innerHTML = '<div style="padding:10px;color:var(--warm-gray);font-size:.82rem;">Loading gifts&#8230;</div>';
+  api('/admin/api/giving/unassigned-gifts').then(function(d) {
+    var gifts = (d && d.gifts) || [];
+    if (!gifts.length) { box.innerHTML = '<div style="padding:10px;color:var(--warm-gray);font-size:.82rem;">No unassigned gifts &mdash; every recorded gift is already in a deposit.</div>'; return; }
+    var rows = gifts.map(function(g) {
+      return '<tr><td><input type="checkbox" class="dep-add-cb" value="' + g.id + '"></td><td>' + fmtDate(g.gift_date) + '</td><td>' + esc(g.person_name) + '</td><td>' + esc(g.fund_name) + '</td><td>' + esc(g.method) + '</td><td class="amt-col">' + fmtMoney(g.amount) + '</td></tr>';
+    }).join('');
+    box.innerHTML = '<div style="margin:2px 0 8px;"><label style="font-size:.8rem;"><input type="checkbox" onclick="depToggleAllUnassigned(this)"> Select all</label> <button class="btn-primary" style="padding:4px 10px;font-size:.78rem;margin-left:8px;" onclick="depAddSelected()">Add selected</button></div>'
+      + '<div style="max-height:280px;overflow:auto;"><table class="entries-table"><thead><tr><th></th><th>Date</th><th>Donor</th><th>Fund</th><th>Method</th><th class="amt-col">Amount</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }).catch(function() { box.innerHTML = '<div style="padding:10px;color:var(--danger);font-size:.82rem;">Could not load gifts.</div>'; });
+}
+
+function depToggleAllUnassigned(cb) {
+  var cbs = document.querySelectorAll('.dep-add-cb');
+  for (var i = 0; i < cbs.length; i++) cbs[i].checked = cb.checked;
+}
+
+function depAddSelected() {
+  var cbs = document.querySelectorAll('.dep-add-cb');
+  var ids = [];
+  for (var i = 0; i < cbs.length; i++) if (cbs[i].checked) ids.push(parseInt(cbs[i].value));
+  if (!ids.length) { alert('Select at least one gift to add.'); return; }
+  api('/admin/api/giving/deposits/' + _depCurrentId + '/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entry_ids: ids }) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } depOpen(_depCurrentId); })
+    .catch(function() { alert('Could not add the gifts.'); });
+}
+
+function depRemoveGift(entryId) {
+  api('/admin/api/giving/deposits/' + _depCurrentId + '/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entry_ids: [entryId], unassign: true }) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } depOpen(_depCurrentId); })
+    .catch(function() { alert('Could not remove the gift.'); });
+}
+
+function depSaveBank() {
+  var inp = document.getElementById('dep-bank-input');
+  var bankCents = null;
+  if (inp && inp.value !== '') {
+    bankCents = Math.round(parseFloat(inp.value) * 100);
+    if (isNaN(bankCents)) { alert('Enter a valid dollar amount.'); return; }
+  }
+  api('/admin/api/giving/deposits/' + _depCurrentId, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bank_cents: bankCents }) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } depOpen(_depCurrentId); })
+    .catch(function() { alert('Could not save.'); });
+}
+
+function depReconcile() {
+  var inp = document.getElementById('dep-bank-input');
+  if (!inp || inp.value === '') { alert('Enter the bank deposit amount first.'); return; }
+  var bankCents = Math.round(parseFloat(inp.value) * 100);
+  if (isNaN(bankCents)) { alert('Enter a valid dollar amount.'); return; }
+  api('/admin/api/giving/deposits/' + _depCurrentId + '/reconcile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bank_cents: bankCents }) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } depOpen(_depCurrentId); })
+    .catch(function() { alert('Could not reconcile.'); });
+}
+
+function depReopen() {
+  api('/admin/api/giving/deposits/' + _depCurrentId + '/reopen', { method: 'POST' })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } depOpen(_depCurrentId); })
+    .catch(function() { alert('Could not reopen.'); });
+}
+
+function depDelete() {
+  if (!confirm('Delete this deposit? Its gifts are released back to unassigned — no gift is deleted.')) return;
+  api('/admin/api/giving/deposits/' + _depCurrentId, { method: 'DELETE' })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } depClearDetail(); })
+    .catch(function() { alert('Could not delete.'); });
+}
+
 function givTxnPopulateFundOptions() {
   var sel = document.getElementById('giv-txn-fund');
+  if (!sel || sel.options.length > 1) return; // already populated
+  allFunds.forEach(function(f) { sel.appendChild(new Option(f.name, f.id)); });
+}
+function givPopulateFundSelect(id) {
+  var sel = document.getElementById(id);
   if (!sel || sel.options.length > 1) return; // already populated
   allFunds.forEach(function(f) { sel.appendChild(new Option(f.name, f.id)); });
 }
@@ -607,6 +884,640 @@ function printBoardPage() {
 
 function boardEmailPacket() {
   alert('Emailing the board packet is coming in a later phase of the giving redesign. For now, use "Print board page" and attach the PDF, or print the Narrative view to PDF for a written packet.');
+}
+
+// ── LETTERS & STATEMENTS WORKSPACE (GIV-R2) ─────────────────────────────
+// One workspace replacing the old four Batch-Send report tiles. Pick a letter type, a year,
+// and a channel (email or print); the recipient list is resolved server-side (no "Load
+// Givers" step) with real per-recipient sent/pending status, so a batch can be resumed after
+// an interruption. Reuses the existing renderLetterHTML/letterheadImgHtml helpers for the
+// actual letter body and the existing giving/send-statement endpoint for email delivery.
+var _givLettersState = { type: 'year_end', year: 0, channel: 'email', scope: '', recipients: [], counts: null };
+var _GIV_LETTER_TYPES = [
+  { key: 'year_end',  label: 'Year-End Statement',  desc: 'Annual charitable-contribution statement for tax purposes.' },
+  { key: 'midyear',   label: 'Mid-Year Update',     desc: 'A mid-year thank-you with giving to date and a recurring-giving nudge.' },
+  { key: 'quarterly', label: 'Quarterly Statement', desc: 'A quarterly giving statement for review.' },
+  { key: 'thank_you', label: 'Thank-You Letter',    desc: 'A warm thank-you to those who gave this year.' },
+  { key: 'appeal',    label: 'Giving Appeal',       desc: 'Sent to every member household, whether or not they have given yet.' },
+  { key: 'memorial',  label: 'Memorial Letter',     desc: 'Composed one at a time from the Reports tab statement tool.' }
+];
+function givLettersTemplateType(t) { return (t === 'midyear' || t === 'appeal' || t === 'thank_you') ? 'midyear' : 'year_end'; }
+function givLettersSubject(t, yr, churchName) {
+  if (t === 'midyear' || t === 'appeal') return yr + ' Mid-Year Giving Update — ' + churchName;
+  if (t === 'thank_you') return 'Thank You for Your Generosity — ' + churchName;
+  if (t === 'quarterly') return yr + ' Giving Statement — ' + churchName;
+  return yr + ' Charitable Contribution Statement — ' + churchName;
+}
+function givLettersInit() {
+  if (!_givLettersState.year) _givLettersState.year = new Date().getFullYear();
+  givLettersRenderShell();
+  givLettersLoadStatus();
+}
+function givLettersRenderShell() {
+  var root = document.getElementById('giv-letters-root');
+  if (!root) return;
+  var st = _givLettersState;
+  var pills = _GIV_LETTER_TYPES.map(function(t) {
+    var active = t.key === st.type;
+    return '<button class="fin-subnav-btn' + (active ? ' active' : '') + '" style="font-size:.8rem;" '
+      + 'onclick="givLettersSetType(&#39;' + t.key + '&#39;)">' + esc(t.label) + '</button>';
+  }).join('');
+  var curType = _GIV_LETTER_TYPES.filter(function(t){return t.key===st.type;})[0] || _GIV_LETTER_TYPES[0];
+  root.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px;">'
+    +   '<div>'
+    +     '<div class="board-title">Letters &amp; Statements</div>'
+    +     '<div class="board-subtitle">Send or print giving letters &middot; per-recipient status &middot; resumable</div>'
+    +   '</div>'
+    +   '<button class="btn-secondary" style="padding:7px 14px;font-size:.85rem;" onclick="givSetView(&#39;settings&#39;)">Edit letter templates</button>'
+    + '</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">' + pills + '</div>'
+    + '<div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:12px;">' + esc(curType.desc) + '</div>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;margin-bottom:14px;">'
+    +   '<div class="field" style="margin:0;"><label>Year</label>'
+    +     '<input type="number" id="giv-letters-year" value="' + st.year + '" min="2000" max="2099" style="width:100px;font-size:.85rem;padding:5px 8px;" onchange="givLettersRefresh()"></div>'
+    +   '<div class="field" style="margin:0;"><label>Recipients</label>'
+    +     '<select id="giv-letters-scope" style="font-size:.85rem;padding:5px 8px;" onchange="givLettersRefresh()">'
+    +       '<option value="givers">People who gave</option>'
+    +       '<option value="member_households">Member households</option>'
+    +       '<option value="both">Both (deduped by household)</option>'
+    +     '</select></div>'
+    +   '<div class="field" style="margin:0;"><label>Channel</label>'
+    +     '<div class="board-mode-toggle">'
+    +       '<button id="giv-letters-ch-email" class="' + (st.channel==='email'?'active':'') + '" onclick="givLettersSetChannel(&#39;email&#39;)">Email</button>'
+    +       '<button id="giv-letters-ch-print" class="' + (st.channel==='print'?'active':'') + '" onclick="givLettersSetChannel(&#39;print&#39;)">Print</button>'
+    +     '</div></div>'
+    + '</div>'
+    + '<div id="giv-letters-status" class="import-status" style="margin-bottom:8px;"></div>'
+    + '<div id="giv-letters-body"></div>';
+  var scopeSel = document.getElementById('giv-letters-scope');
+  if (scopeSel && st.scope) scopeSel.value = st.scope;
+}
+function givLettersSetType(t) {
+  _givLettersState.type = t;
+  _givLettersState.scope = ''; // reset to the type's server default
+  givLettersRenderShell();
+  givLettersLoadStatus();
+}
+function givLettersSetChannel(c) {
+  _givLettersState.channel = c;
+  document.getElementById('giv-letters-ch-email').classList.toggle('active', c === 'email');
+  document.getElementById('giv-letters-ch-print').classList.toggle('active', c === 'print');
+  givLettersLoadStatus();
+}
+function givLettersRefresh() {
+  var yrEl = document.getElementById('giv-letters-year');
+  var scEl = document.getElementById('giv-letters-scope');
+  if (yrEl) _givLettersState.year = parseInt(yrEl.value, 10) || new Date().getFullYear();
+  if (scEl) _givLettersState.scope = scEl.value;
+  givLettersLoadStatus();
+}
+function givLettersLoadStatus() {
+  var st = _givLettersState;
+  var statusEl = document.getElementById('giv-letters-status');
+  var body = document.getElementById('giv-letters-body');
+  if (!body) return;
+  body.innerHTML = '<div class="board-empty">Loading recipients&hellip;</div>';
+  if (statusEl) { statusEl.textContent = ''; statusEl.className = 'import-status'; }
+  var qs = 'year=' + st.year + '&letter_type=' + st.type + '&channel=' + st.channel + (st.scope ? '&scope=' + st.scope : '');
+  api('/admin/api/giving/letters/status?' + qs).then(function(d) {
+    st.recipients = d.recipients || [];
+    st.counts = d.counts || { total: 0, sent: 0, unsent: 0, no_email: 0 };
+    st.scope = d.scope;
+    var scEl = document.getElementById('giv-letters-scope');
+    if (scEl && d.scope && scEl.value !== d.scope) scEl.value = d.scope;
+    givLettersRenderRecipients();
+  }).catch(function(e) {
+    body.innerHTML = '<div class="board-empty">Could not load recipients: ' + esc(e.message) + '</div>';
+  });
+}
+function givLettersRenderRecipients() {
+  var st = _givLettersState;
+  var body = document.getElementById('giv-letters-body');
+  if (!body) return;
+  if (st.type === 'memorial') {
+    body.innerHTML = '<div class="import-card" style="margin:0;"><p style="margin:0;font-size:.88rem;color:var(--warm-gray);">'
+      + 'Memorial letters are written one at a time. Use the <strong>Giving Statement</strong> tool under the Reports tab to pull a person&rsquo;s giving, then send or print an individual letter.</p></div>';
+    return;
+  }
+  var recips = st.recipients;
+  if (!recips.length) {
+    body.innerHTML = '<div class="board-empty">No recipients for ' + st.year + '.</div>';
+    return;
+  }
+  var c = st.counts;
+  var chLabel = st.channel === 'print' ? 'printed' : 'sent';
+  var actionBtn = st.channel === 'print'
+    ? '<button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="givLettersPrint()">Print Selected</button>'
+    : '<button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="givLettersSend()">Email Selected</button>';
+  var head =
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;">'
+    + givLettersStatChip(c.total, 'recipients')
+    + givLettersStatChip(c.sent, 'already ' + chLabel)
+    + givLettersStatChip(c.unsent, 'pending')
+    + (st.channel === 'email' ? givLettersStatChip(c.no_email, 'no email') : '')
+    + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">'
+    +   '<button class="btn-sm" onclick="givLettersSelectAll(true)">Select pending</button>'
+    +   '<button class="btn-sm" onclick="givLettersSelectAll(false)">Deselect all</button>'
+    +   actionBtn
+    + '</div>';
+  var th = 'padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-meta);border-bottom:1.5px solid var(--color-navy);text-align:left;';
+  var rows = recips.map(function(r, i) {
+    var canPick = (st.channel === 'print') ? true : r.has_email;
+    var sub = r.kind === 'household'
+      ? (r.recipient_name ? esc(r.recipient_name) + ' &middot; ' : '') + (r.email ? esc(r.email) : '<span style="color:var(--danger);">no email</span>')
+      : (r.email ? esc(r.email) : '<span style="color:var(--danger);">no email</span>');
+    var statusPill = r.sent
+      ? '<span style="font-size:.72rem;color:var(--sage);font-weight:600;">&#10003; ' + chLabel + '</span>'
+      : '<span style="font-size:.72rem;color:var(--warm-gray);">pending</span>';
+    return '<tr style="border-bottom:1px solid var(--border);">'
+      + '<td style="padding:6px 8px;text-align:center;">'
+      +   (canPick ? '<input type="checkbox" data-i="' + i + '"' + (r.sent ? '' : ' checked') + '>' : '<span title="No email on file" style="color:var(--warm-gray);">&mdash;</span>')
+      + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;">' + esc(r.name)
+      +   ' <span style="font-size:.68rem;color:var(--warm-meta);text-transform:uppercase;">' + (r.kind === 'household' ? 'HH' : '') + '</span>'
+      +   '<div style="font-size:.75rem;color:var(--warm-gray);">' + sub + '</div>'
+      + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;">' + fmtMoney(r.total_cents || 0) + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;white-space:nowrap;">' + statusPill
+      +   ' <button class="btn-sm" style="font-size:.68rem;padding:1px 6px;" onclick="givLettersToggleMark(' + i + ')">' + (r.sent ? 'undo' : 'mark') + '</button>'
+      + '</td>'
+      + '</tr>';
+  }).join('');
+  body.innerHTML = head
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'
+    + '<thead><tr>'
+    +   '<th style="' + th + 'text-align:center;width:36px;"></th>'
+    +   '<th style="' + th + '">Recipient</th>'
+    +   '<th style="' + th + 'text-align:right;">' + st.year + ' Total</th>'
+    +   '<th style="' + th + 'text-align:right;">Status</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+function givLettersStatChip(n, label) {
+  return '<div style="background:var(--warm-white,#fff);border:1px solid var(--border);border-radius:8px;padding:8px 14px;min-width:80px;">'
+    + '<div style="font-size:1.25rem;font-weight:700;color:var(--color-navy);">' + (n || 0) + '</div>'
+    + '<div style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.04em;">' + esc(label) + '</div></div>';
+}
+function givLettersSelectAll(pendingOnly) {
+  var st = _givLettersState;
+  document.querySelectorAll('#giv-letters-body tbody input[type=checkbox]').forEach(function(cb) {
+    var r = st.recipients[parseInt(cb.dataset.i, 10)];
+    cb.checked = pendingOnly ? !(r && r.sent) : false;
+  });
+}
+function givLettersSelectedRecipients() {
+  var st = _givLettersState, out = [];
+  document.querySelectorAll('#giv-letters-body tbody input[type=checkbox]:checked').forEach(function(cb) {
+    var r = st.recipients[parseInt(cb.dataset.i, 10)];
+    if (r) out.push(r);
+  });
+  return out;
+}
+// Fetch the statement data + render the letter HTML for one recipient (person or household).
+function givLettersBuildLetter(r, cb) {
+  var st = _givLettersState;
+  var churchName = (_churchConfig && _churchConfig.church_name) || 'Timothy Lutheran Church';
+  var url = (r.kind === 'household')
+    ? '/admin/api/reports/giving-statement-household?household_id=' + r.id + '&year=' + st.year
+    : '/admin/api/reports/giving-statement?person_id=' + r.id + '&year=' + st.year;
+  api(url).then(function(d) {
+    if (!d || d.error) { cb(null); return; }
+    d._mode = (r.kind === 'household') ? 'household' : 'person';
+    var letterHtml = renderLetterHTML(d, givLettersTemplateType(st.type));
+    var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
+      + letterheadImgHtml(true, churchName, 'font-size:16px;font-weight:bold;', 6) + '<hr style="margin:10px 0;">'
+      + letterHtml + '</div>';
+    cb({ html: fullHtml, churchName: churchName });
+  }).catch(function() { cb(null); });
+}
+function givLettersSend() {
+  var st = _givLettersState;
+  var statusEl = document.getElementById('giv-letters-status');
+  var recips = givLettersSelectedRecipients().filter(function(r){ return r.has_email; });
+  if (!recips.length) { statusEl.textContent = 'No emailable recipients selected.'; statusEl.className = 'import-status err'; return; }
+  var loadCfg = (_churchConfig && _churchConfig.church_name)
+    ? function(next){ next(); }
+    : function(next){ api('/admin/api/config/church').then(function(cfg){ _churchConfig = cfg || {}; next(); }); };
+  loadCfg(function() {
+    var total = recips.length, done = 0, failed = 0, stopped = false, i = 0;
+    statusEl.className = 'import-status';
+    function finish() {
+      var msg = 'Done. ' + done + ' emailed';
+      if (failed) msg += ', ' + failed + ' failed';
+      if (stopped) msg = "Brevo's sending limit was hit after " + done + ' emailed. Come back later and click Email Selected again — already-sent recipients are skipped.';
+      statusEl.textContent = msg;
+      statusEl.className = (failed || stopped) ? 'import-status' : 'import-status ok';
+      givLettersLoadStatus();
+    }
+    function next() {
+      if (i >= recips.length || stopped) { finish(); return; }
+      var r = recips[i++];
+      statusEl.textContent = 'Emailing ' + (done + failed + 1) + '/' + total + '…';
+      givLettersBuildLetter(r, function(built) {
+        if (!built) { failed++; next(); return; }
+        api('/admin/api/giving/send-statement', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to_email: r.email, to_name: r.recipient_name || r.name,
+            subject: givLettersSubject(st.type, st.year, built.churchName),
+            html_body: built.html,
+            person_id: (r.kind === 'household') ? (r.recipient_person_id || 0) : r.id,
+            household_id: (r.kind === 'household') ? r.id : null,
+            year: st.year, letter_type: st.type, recipient_key: r.recipient_key
+          })
+        }).then(function(res) {
+          if (res && res.ok) { done++; next(); return; }
+          if (res && res.rate_limited) { stopped = true; finish(); return; }
+          failed++; next();
+        }).catch(function(){ failed++; next(); });
+      });
+    }
+    next();
+  });
+}
+function givLettersPrint() {
+  var st = _givLettersState;
+  var statusEl = document.getElementById('giv-letters-status');
+  var recips = givLettersSelectedRecipients();
+  if (!recips.length) { statusEl.textContent = 'No recipients selected.'; statusEl.className = 'import-status err'; return; }
+  var loadCfg = (_churchConfig && _churchConfig.church_name)
+    ? function(next){ next(); }
+    : function(next){ api('/admin/api/config/church').then(function(cfg){ _churchConfig = cfg || {}; next(); }); };
+  loadCfg(function() {
+    statusEl.textContent = 'Building ' + recips.length + ' letters for print…'; statusEl.className = 'import-status';
+    var built = [], i = 0;
+    function next() {
+      if (i >= recips.length) { finalizePrint(); return; }
+      var r = recips[i++];
+      givLettersBuildLetter(r, function(b) {
+        if (b) built.push({ r: r, html: b.html });
+        statusEl.textContent = 'Building ' + built.length + '/' + recips.length + ' letters…';
+        next();
+      });
+    }
+    function finalizePrint() {
+      if (!built.length) { statusEl.textContent = 'Nothing to print.'; statusEl.className = 'import-status err'; return; }
+      var pages = built.map(function(b) {
+        return '<div style="page-break-after:always;padding:24px;">' + b.html + '</div>';
+      }).join('');
+      var w = window.open('', '_blank');
+      if (!w) { statusEl.textContent = 'Popup blocked — allow popups to print.'; statusEl.className = 'import-status err'; return; }
+      w.document.write('<html><head><title>Giving Letters ' + st.year + '</title></head><body>' + pages
+        + '<scr' + 'ipt>window.onload=function(){window.print();};</scr' + 'ipt></body></html>');
+      w.document.close();
+      // Record each printed letter so the workspace status reflects it.
+      var marks = built.map(function(b) {
+        return api('/admin/api/giving/letters/mark', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipient_key: b.r.recipient_key, year: st.year, letter_type: st.type, channel: 'print',
+            person_id: (b.r.kind === 'household') ? (b.r.recipient_person_id || 0) : b.r.id,
+            household_id: (b.r.kind === 'household') ? b.r.id : null
+          })
+        }).catch(function(){});
+      });
+      Promise.all(marks).then(function() {
+        statusEl.textContent = built.length + ' letters sent to print and marked as printed.';
+        statusEl.className = 'import-status ok';
+        givLettersLoadStatus();
+      });
+    }
+    next();
+  });
+}
+// ── THANK-YOU RECEIPTS (GIV-R4 / A): manual thank-you + recurring-giving nudge ──
+// Donations >= threshold ($250 default) or a donor's first-ever gift. Manual send/print,
+// per-donation status tracked so nothing double-sends while testing. Reuses the Phase 2
+// send-statement + letters/mark endpoints; letter body built client-side from the row.
+var _givReceiptsState = { from: '', to: '', threshold: 250, firstGift: true, receipts: [], counts: null };
+function givReceiptsInit() {
+  var st = _givReceiptsState;
+  if (!st.from || !st.to) {
+    var now = new Date();
+    st.to = now.toISOString().slice(0, 10);
+    st.from = now.toISOString().slice(0, 7) + '-01';
+  }
+  givReceiptsRenderShell();
+  givReceiptsLoad();
+}
+function givReceiptsRenderShell() {
+  var root = document.getElementById('giv-receipts-root');
+  if (!root) return;
+  var st = _givReceiptsState;
+  root.innerHTML =
+    '<div style="margin-bottom:14px;">'
+    +   '<div class="board-title">Thank-You Receipts</div>'
+    +   '<div class="board-subtitle">Gifts worth a personal thank-you &middot; manual send &middot; nudge toward recurring giving</div>'
+    + '</div>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;margin-bottom:14px;">'
+    +   '<div class="field" style="margin:0;"><label>From</label><input type="date" id="giv-rcpt-from" value="' + st.from + '" style="font-size:.85rem;padding:5px 8px;" onchange="givReceiptsRefresh()"></div>'
+    +   '<div class="field" style="margin:0;"><label>To</label><input type="date" id="giv-rcpt-to" value="' + st.to + '" style="font-size:.85rem;padding:5px 8px;" onchange="givReceiptsRefresh()"></div>'
+    +   '<div class="field" style="margin:0;"><label>Threshold ($)</label><input type="number" id="giv-rcpt-threshold" value="' + st.threshold + '" min="0" step="25" style="width:90px;font-size:.85rem;padding:5px 8px;" onchange="givReceiptsRefresh()"></div>'
+    +   '<label style="display:flex;align-items:center;gap:6px;font-size:.85rem;cursor:pointer;"><input type="checkbox" id="giv-rcpt-first"' + (st.firstGift ? ' checked' : '') + ' onchange="givReceiptsRefresh()"> Include first-time gifts</label>'
+    + '</div>'
+    + '<div id="giv-rcpt-status" class="import-status" style="margin-bottom:8px;"></div>'
+    + '<div id="giv-rcpt-body"><div class="board-empty">Loading&hellip;</div></div>';
+}
+function givReceiptsRefresh() {
+  var st = _givReceiptsState;
+  var f = document.getElementById('giv-rcpt-from'), t = document.getElementById('giv-rcpt-to');
+  var th = document.getElementById('giv-rcpt-threshold'), fg = document.getElementById('giv-rcpt-first');
+  if (f) st.from = f.value; if (t) st.to = t.value;
+  if (th) st.threshold = Math.max(0, parseInt(th.value, 10) || 0);
+  if (fg) st.firstGift = fg.checked;
+  givReceiptsLoad();
+}
+function givReceiptsLoad() {
+  var st = _givReceiptsState;
+  var body = document.getElementById('giv-rcpt-body');
+  if (!body) return;
+  body.innerHTML = '<div class="board-empty">Loading gifts&hellip;</div>';
+  var qs = 'from=' + st.from + '&to=' + st.to + '&threshold_cents=' + (st.threshold * 100) + '&first_gift=' + (st.firstGift ? '1' : '0');
+  api('/admin/api/giving/receipts/queue?' + qs).then(function(d) {
+    st.receipts = d.receipts || [];
+    st.counts = d.counts || { total: 0, sent: 0, unsent: 0, no_email: 0 };
+    givReceiptsRenderTable();
+  }).catch(function(e) {
+    body.innerHTML = '<div class="board-empty">Could not load: ' + esc(e.message) + '</div>';
+  });
+}
+function givReceiptsRenderTable() {
+  var st = _givReceiptsState, body = document.getElementById('giv-rcpt-body');
+  if (!body) return;
+  var recips = st.receipts;
+  if (!recips.length) {
+    body.innerHTML = '<div class="board-empty">No gifts qualify for ' + esc(st.from) + ' &ndash; ' + esc(st.to) + '. Try a wider date range or a lower threshold.</div>';
+    return;
+  }
+  var c = st.counts;
+  var head = '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;">'
+    + givLettersStatChip(c.total, 'to thank')
+    + givLettersStatChip(c.sent, 'already thanked')
+    + givLettersStatChip(c.unsent, 'pending')
+    + givLettersStatChip(c.no_email, 'no email')
+    + '</div>';
+  var th = 'padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-meta);border-bottom:1.5px solid var(--color-navy);text-align:left;';
+  var rows = recips.map(function(r, i) {
+    var reasonPills = r.reasons.map(function(rs) {
+      var label = rs === 'first_gift' ? 'First gift' : ('Over $' + st.threshold);
+      var bg = rs === 'first_gift' ? 'var(--color-gold)' : 'var(--color-teal)';
+      return '<span style="display:inline-block;background:' + bg + ';color:var(--white,#fff);font-size:.68rem;padding:1px 6px;border-radius:8px;margin-right:4px;">' + label + '</span>';
+    }).join('');
+    var statusPill = r.sent
+      ? '<span style="font-size:.72rem;color:var(--sage);font-weight:600;">&#10003; thanked</span>'
+      : '<span style="font-size:.72rem;color:var(--warm-gray);">pending</span>';
+    var actions = '<button class="btn-sm" style="font-size:.68rem;padding:1px 6px;" onclick="givReceiptPreview(' + i + ')">Preview</button> '
+      + (r.has_email ? '<button class="btn-sm" style="font-size:.68rem;padding:1px 6px;" onclick="givReceiptSend(' + i + ')">Email</button> ' : '')
+      + '<button class="btn-sm" style="font-size:.68rem;padding:1px 6px;" onclick="givReceiptPrint(' + i + ')">Print</button> '
+      + '<button class="btn-sm" style="font-size:.68rem;padding:1px 6px;" onclick="givReceiptToggleMark(' + i + ')">' + (r.sent ? 'undo' : 'mark') + '</button>';
+    return '<tr style="border-bottom:1px solid var(--border);">'
+      + '<td style="padding:6px 8px;font-size:.85rem;">' + esc(r.name)
+      +   '<div style="font-size:.74rem;color:var(--warm-gray);">' + (r.email ? esc(r.email) : '<span style="color:var(--danger);">no email</span>') + '</div>'
+      +   '<div style="margin-top:2px;">' + reasonPills + '</div></td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;">' + fmtMoney(r.amount_cents)
+      +   '<div style="font-size:.72rem;color:var(--warm-gray);">' + fmtDate(r.gift_date) + '</div></td>'
+      + '<td style="padding:6px 8px;font-size:.8rem;color:var(--warm-gray);">' + esc(r.funds || '') + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;">' + fmtMoney(r.suggested_monthly_cents) + '/mo</td>'
+      + '<td style="padding:6px 8px;white-space:nowrap;">' + statusPill + '<div style="margin-top:3px;">' + actions + '</div></td>'
+      + '</tr>';
+  }).join('');
+  body.innerHTML = head
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'
+    + '<thead><tr>'
+    +   '<th style="' + th + '">Donor</th>'
+    +   '<th style="' + th + 'text-align:right;">Gift</th>'
+    +   '<th style="' + th + '">Fund</th>'
+    +   '<th style="' + th + 'text-align:right;">Suggest</th>'
+    +   '<th style="' + th + '">Status &amp; actions</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+// Editable default copy lives here for now; the "impact" sentence is deliberately generic
+// until the church supplies its own wording (GIV-R4 follow-up).
+function givReceiptLetterHtml(r) {
+  var church = (_churchConfig && _churchConfig.church_name) || 'Timothy Lutheran Church';
+  var givingUrl = (_churchConfig && _churchConfig.giving_url) || '';
+  var isFirst = r.reasons.indexOf('first_gift') >= 0;
+  var body = '<p>Dear ' + esc(r.name) + ',</p>'
+    + '<p>Thank you for your generous gift of <strong>' + fmtMoney(r.amount_cents) + '</strong> on '
+    + fmtDate(r.gift_date) + (r.funds ? ' to ' + esc(r.funds) : '') + '. '
+    + 'Your generosity directly supports the ministry and mission of ' + esc(church) + '.</p>'
+    + (isFirst ? '<p>We are especially grateful for your first gift &mdash; welcome, and thank you for partnering with us.</p>' : '')
+    + '<p>Would you consider making an ongoing impact? A recurring gift of about <strong>' + fmtMoney(r.suggested_monthly_cents) + ' a month</strong> '
+    + 'would help sustain our ministries throughout the year and let you give without having to remember each week.'
+    + (givingUrl ? ' You can set up automatic monthly giving in about a minute at <a href="' + esc(givingUrl) + '">' + esc(givingUrl) + '</a>.' : '')
+    + '</p>'
+    + '<p>With gratitude,</p><p>' + esc(church) + '</p>';
+  return '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
+    + letterheadImgHtml(true, church, 'font-size:16px;font-weight:bold;', 6) + '<hr style="margin:10px 0;">'
+    + body + '</div>';
+}
+function givReceiptSubject(r) {
+  var church = (_churchConfig && _churchConfig.church_name) || 'Timothy Lutheran Church';
+  return 'Thank you for your gift — ' + church;
+}
+function givReceiptWithCfg(next) {
+  if (_churchConfig && _churchConfig.church_name) { next(); return; }
+  api('/admin/api/config/church').then(function(cfg) { _churchConfig = cfg || {}; next(); });
+}
+function givReceiptPreview(i) {
+  var r = _givReceiptsState.receipts[i];
+  if (!r) return;
+  givReceiptWithCfg(function() {
+    var w = window.open('', '_blank');
+    if (!w) { alert('Allow popups to preview the letter.'); return; }
+    w.document.write('<html><head><title>Thank-You Preview</title></head><body style="margin:24px;">' + givReceiptLetterHtml(r) + '</body></html>');
+    w.document.close();
+  });
+}
+function givReceiptSend(i) {
+  var r = _givReceiptsState.receipts[i];
+  if (!r || !r.has_email) return;
+  var statusEl = document.getElementById('giv-rcpt-status');
+  givReceiptWithCfg(function() {
+    statusEl.textContent = 'Emailing ' + r.name + '…'; statusEl.className = 'import-status';
+    api('/admin/api/giving/send-statement', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to_email: r.email, to_name: r.name, subject: givReceiptSubject(r),
+        html_body: givReceiptLetterHtml(r),
+        person_id: r.person_id, household_id: r.household_id,
+        year: parseInt((r.gift_date || '').slice(0, 4), 10) || new Date().getFullYear(),
+        letter_type: 'thank_you', recipient_key: r.recipient_key
+      })
+    }).then(function(res) {
+      if (res && res.ok) { statusEl.textContent = 'Thank-you emailed to ' + r.name + '.'; statusEl.className = 'import-status ok'; givReceiptsLoad(); }
+      else if (res && res.rate_limited) { statusEl.textContent = "Brevo's sending limit was hit — try again later."; statusEl.className = 'import-status err'; }
+      else { statusEl.textContent = 'Send failed: ' + (res && res.error || 'unknown'); statusEl.className = 'import-status err'; }
+    }).catch(function(e) { statusEl.textContent = 'Send failed: ' + e.message; statusEl.className = 'import-status err'; });
+  });
+}
+function givReceiptPrint(i) {
+  var r = _givReceiptsState.receipts[i];
+  if (!r) return;
+  givReceiptWithCfg(function() {
+    var w = window.open('', '_blank');
+    if (!w) { alert('Allow popups to print.'); return; }
+    w.document.write('<html><head><title>Thank-You Letter</title></head><body style="margin:24px;">'
+      + givReceiptLetterHtml(r)
+      + '<scr' + 'ipt>window.onload=function(){window.print();};</scr' + 'ipt></body></html>');
+    w.document.close();
+    api('/admin/api/giving/letters/mark', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient_key: r.recipient_key, letter_type: 'thank_you', channel: 'print',
+        year: parseInt((r.gift_date || '').slice(0, 4), 10) || new Date().getFullYear(),
+        person_id: r.person_id, household_id: r.household_id
+      })
+    }).then(function() { givReceiptsLoad(); }).catch(function() {});
+  });
+}
+function givReceiptToggleMark(i) {
+  var r = _givReceiptsState.receipts[i];
+  if (!r) return;
+  var yr = parseInt((r.gift_date || '').slice(0, 4), 10) || new Date().getFullYear();
+  function mark(channel) {
+    return api('/admin/api/giving/letters/mark', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient_key: r.recipient_key, letter_type: 'thank_you', channel: channel, year: yr,
+        unmark: !!r.sent, person_id: r.person_id, household_id: r.household_id
+      })
+    });
+  }
+  // Marking records one channel (email); un-marking clears both, since the queue counts a
+  // gift thanked on any channel.
+  var ops = r.sent ? [mark('email'), mark('print')] : [mark('email')];
+  Promise.all(ops).then(function() { givReceiptsLoad(); }).catch(function() {});
+}
+
+// ── GIVING ANALYSIS (GIV-R3): distribution + multi-year inflation-adjusted trend ──
+function givAnalysisInit() {
+  var yrEl = document.getElementById('giv-analysis-year');
+  if (yrEl && !yrEl.value) yrEl.value = new Date().getFullYear();
+  givAnalysisLoad();
+}
+function givAnalysisLoad() {
+  var yr = parseInt((document.getElementById('giv-analysis-year') || {}).value, 10) || new Date().getFullYear();
+  var distEl = document.getElementById('giv-analysis-dist');
+  var trendEl = document.getElementById('giv-analysis-trend');
+  if (distEl) distEl.innerHTML = '<div class="board-empty">Loading distribution&hellip;</div>';
+  if (trendEl) trendEl.innerHTML = '<div class="board-empty">Loading trend&hellip;</div>';
+  api('/admin/api/reports/giving-distribution?year=' + yr + '&scope=household')
+    .then(function(d) { givRenderDistribution(d); })
+    .catch(function(e) { if (distEl) distEl.innerHTML = '<div class="board-empty">Could not load distribution: ' + esc(e.message) + '</div>'; });
+  api('/admin/api/reports/giving-multiyear?end=' + yr + '&years=5')
+    .then(function(d) { givRenderMultiyear(d); })
+    .catch(function(e) { if (trendEl) trendEl.innerHTML = '<div class="board-empty">Could not load trend: ' + esc(e.message) + '</div>'; });
+}
+function givAnalysisChip(label, val, sub) {
+  return '<div style="background:var(--white,#fff);border:1px solid var(--border);border-radius:8px;padding:10px 16px;min-width:110px;">'
+    + '<div style="font-size:1.3rem;font-weight:700;color:var(--color-navy);">' + val + '</div>'
+    + '<div style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.04em;">' + esc(label) + '</div>'
+    + (sub ? '<div style="font-size:.72rem;color:var(--warm-meta);margin-top:2px;">' + esc(sub) + '</div>' : '')
+    + '</div>';
+}
+function givRenderDistribution(d) {
+  var el = document.getElementById('giv-analysis-dist');
+  if (!el) return;
+  if (!d || !d.givers) {
+    el.innerHTML = '<h3 style="margin-top:0;">&#128202; Giving Distribution</h3><div class="board-empty">No giving recorded for ' + (d && d.year ? d.year : '') + '.</div>';
+    return;
+  }
+  var chips = givAnalysisChip('Giving households', d.givers.toLocaleString())
+    + givAnalysisChip('Total', fmtMoney(d.total_cents))
+    + givAnalysisChip('Mean gift/yr', fmtMoney(d.mean_cents))
+    + givAnalysisChip('Median gift/yr', fmtMoney(d.median_cents), 'the typical household')
+    + givAnalysisChip('Top 10% share', d.top10_share_pct + '%', d.top10_givers + ' households');
+  var th = 'padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-meta);border-bottom:1.5px solid var(--color-navy);';
+  var maxTotal = 0;
+  (d.tiers || []).forEach(function(t) { if (t.total_cents > maxTotal) maxTotal = t.total_cents; });
+  var rows = (d.tiers || []).filter(function(t){ return t.givers > 0; }).map(function(t) {
+    var barW = maxTotal ? Math.round((t.total_cents / maxTotal) * 100) : 0;
+    return '<tr style="border-bottom:1px solid var(--border);">'
+      + '<td style="padding:6px 8px;font-size:.85rem;white-space:nowrap;">' + esc(t.label) + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;">' + t.givers + '</td>'
+      + '<td style="padding:6px 8px;font-size:.8rem;text-align:right;color:var(--warm-gray);">' + t.givers_pct + '%</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;">' + fmtMoney(t.total_cents) + '</td>'
+      + '<td style="padding:6px 8px;width:38%;">'
+      +   '<div style="background:var(--linen,#eee);border-radius:3px;height:14px;position:relative;">'
+      +     '<div style="background:var(--color-teal);height:14px;border-radius:3px;width:' + barW + '%;"></div></div>'
+      +   '<div style="font-size:.72rem;color:var(--warm-gray);margin-top:1px;">' + t.total_pct + '% of total</div>'
+      + '</td></tr>';
+  }).join('');
+  el.innerHTML = '<h3 style="margin-top:0;">&#128202; Giving Distribution &middot; ' + d.year + '</h3>'
+    + '<p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 12px;">Households grouped by their full-year giving. The <strong>median</strong> is the honest &ldquo;typical&rdquo; gift &mdash; a few large gifts pull the mean up.</p>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">' + chips + '</div>'
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'
+    + '<thead><tr>'
+    +   '<th style="' + th + 'text-align:left;">Annual giving</th>'
+    +   '<th style="' + th + 'text-align:right;">Households</th>'
+    +   '<th style="' + th + 'text-align:right;">%</th>'
+    +   '<th style="' + th + 'text-align:right;">Total</th>'
+    +   '<th style="' + th + 'text-align:left;">Share of total</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+function givRenderMultiyear(d) {
+  var el = document.getElementById('giv-analysis-trend');
+  if (!el) return;
+  var years = (d && d.years) || [];
+  if (!years.length) { el.innerHTML = '<h3 style="margin-top:0;">&#128200; Five-Year Trend</h3><div class="board-empty">No data.</div>'; return; }
+  var base = d.base_year;
+  var anyEst = years.some(function(y){ return y.cpi_estimated; });
+  var chart = renderGroupedBarChart({
+    groups: years.map(function(y){ return { key: String(y.year), label: String(y.year) }; }),
+    series: [
+      { key: 'nominal',  label: 'Actual dollars',            color: 'var(--color-navy)' },
+      { key: 'adjusted', label: base + ' dollars (inflation-adjusted)', color: 'var(--color-gold)' }
+    ],
+    value: function(gk, sk) {
+      var row = years.filter(function(y){ return String(y.year) === gk; })[0];
+      if (!row) return null;
+      return (sk === 'nominal' ? row.total_cents : row.adjusted_cents) / 100;
+    },
+    tooltip: function(gk, sk, v) {
+      var s = sk === 'nominal' ? 'Actual' : ('In ' + base + ' dollars');
+      return s + ' ' + gk + ': $' + Math.round(v).toLocaleString();
+    },
+    barLabel: function(v) { return '$' + Math.round(v / 1000) + 'k'; },
+    chartH: 200
+  });
+  var th = 'padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-meta);border-bottom:1.5px solid var(--color-navy);';
+  var rows = years.map(function(y) {
+    return '<tr style="border-bottom:1px solid var(--border);">'
+      + '<td style="padding:6px 8px;font-size:.85rem;">' + y.year + (y.cpi_estimated ? ' <span style="color:var(--warm-meta);font-size:.7rem;">est.</span>' : '') + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;">' + y.givers + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;">' + fmtMoney(y.total_cents) + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;">' + fmtMoney(y.avg_giver_cents) + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;color:var(--warm-gray);">' + fmtMoney(y.adjusted_cents) + '</td>'
+      + '</tr>';
+  }).join('');
+  el.innerHTML = '<h3 style="margin-top:0;">&#128200; Five-Year Trend' + (base ? ' &middot; through ' + base : '') + '</h3>'
+    + '<p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 10px;">Actual giving vs. the same totals restated in ' + base + ' dollars (CPI-U). If the gold bars are flat while the navy bars rise, giving is only keeping pace with inflation.</p>'
+    + (chart || '')
+    + '<div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;">'
+    + '<thead><tr>'
+    +   '<th style="' + th + 'text-align:left;">Year</th>'
+    +   '<th style="' + th + 'text-align:right;">Givers</th>'
+    +   '<th style="' + th + 'text-align:right;">Total</th>'
+    +   '<th style="' + th + 'text-align:right;">Avg / giver</th>'
+    +   '<th style="' + th + 'text-align:right;">In ' + base + ' $</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+    + (anyEst ? '<div style="font-size:.72rem;color:var(--warm-meta);margin-top:6px;">&ldquo;est.&rdquo; years use an estimated CPI until the BLS annual average is published.</div>' : '');
+}
+function givLettersToggleMark(i) {
+  var st = _givLettersState;
+  var r = st.recipients[i];
+  if (!r) return;
+  api('/admin/api/giving/letters/mark', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      recipient_key: r.recipient_key, year: st.year, letter_type: st.type, channel: st.channel,
+      unmark: !!r.sent,
+      person_id: (r.kind === 'household') ? (r.recipient_person_id || 0) : r.id,
+      household_id: (r.kind === 'household') ? r.id : null
+    })
+  }).then(function() { givLettersLoadStatus(); }).catch(function(){});
 }
 
 `;

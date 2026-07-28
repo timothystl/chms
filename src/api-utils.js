@@ -321,9 +321,569 @@ export function computeConcentration(householdTotals) {
   };
 }
 
+// ── GIVING PLATEAUS / NUDGE OPTIONS ────────────────────────────────────────
+// Three increase options (Modest/Standard/Generous), each a genuinely FIXED,
+// familiar round number — not a percentage-derived figure. The ladder below
+// starts with the same hand-picked round numbers as the original design
+// (10, 15, 20 … 1000, validated against real asks: 43→50, 83→100) and then
+// DENSIFIES from $1,000 up — $100 steps to $5,000, $250 to $10,000, $500 to
+// $25,000, $1,000 above — so the "next rung" stays a modest ask even at high
+// giving levels, without ever landing on an odd non-round number the way a
+// percentage-scaled target could.
+const GIVING_NUDGE_LADDER = (() => {
+  const ladder = [10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 200, 250, 300, 400, 500, 600, 750, 1000];
+  for (let v = 1100; v <= 5000; v += 100) ladder.push(v);
+  for (let v = 5250; v <= 10000; v += 250) ladder.push(v);
+  for (let v = 10500; v <= 25000; v += 500) ladder.push(v);
+  for (let v = 26000; v <= 50000; v += 1000) ladder.push(v);
+  return ladder;
+})();
+export const NUDGE_OPTION_LABELS = ['Modest', 'Standard', 'Generous'];
+
+// Returns the next 3 ladder rungs strictly above `baseDollars`, e.g. for
+// base=43: Modest $50, Standard $60, Generous $75 — the same "43→50" a
+// board member would recognize, plus two clearly bigger (but still round)
+// asks. For base=2500: $2,600 / $2,700 / $2,800 — gentle at the top because
+// the ladder itself is dense there, not because of any percentage formula.
+export function computeNudgeOptions(baseDollars) {
+  const base = Math.max(0, Number(baseDollars) || 0);
+  if (base <= 0) return [];
+  const above = [];
+  for (const rung of GIVING_NUDGE_LADDER) {
+    if (rung > base) { above.push(rung); if (above.length === 3) break; }
+  }
+  // Base is beyond the ladder's top (an unusually large weekly-equivalent
+  // giver) — extend in flat $1,000 steps rather than leave options short.
+  while (above.length < 3) {
+    const last = above.length ? above[above.length - 1] : Math.max(base, GIVING_NUDGE_LADDER[GIVING_NUDGE_LADDER.length - 1]);
+    above.push(last + 1000);
+  }
+  return above.map((target, i) => ({
+    label: NUDGE_OPTION_LABELS[i],
+    target_dollars: target,
+    delta_dollars: target - base,
+    pct_increase: Math.round(((target - base) / base) * 1000) / 10,
+  }));
+}
+
+// Admin-configured "if you gave $X more a month, that could provide Y"
+// statements — [{ monthly_cents, label }], e.g. { monthly_cents: 1800,
+// label: "one more week of Tuition Aid support" }. Picks the richest
+// statement the giver's monthly increase actually clears (largest threshold
+// <= the delta); returns null rather than guessing when nothing qualifies or
+// none are configured — this app never fabricates ministry-cost figures. The
+// plain annualized dollar amount (computed alongside this, not by it) is
+// always shown regardless, so every increase — even a modest one — is tied
+// to a concrete number even when no custom phrase is configured.
+export function pickImpactPhrase(monthlyDeltaCents, statements) {
+  if (!Array.isArray(statements) || !statements.length) return null;
+  const sorted = statements
+    .filter(s => s && Number(s.monthly_cents) > 0 && s.label)
+    .slice().sort((a, b) => a.monthly_cents - b.monthly_cents);
+  let best = null;
+  for (const s of sorted) {
+    if (monthlyDeltaCents >= s.monthly_cents) best = s; else break;
+  }
+  return best ? best.label : null;
+}
+
+// Given one row per giver — { person_id, name, link_id, link_kind,
+// total_cents, gifts } where total_cents is EVERY gift they made in the
+// period, across EVERY fund (no fund discounted) — this gives every giver a
+// single "weekly-equivalent" figure: their total ÷ periodsElapsed (default
+// 52, i.e. their whole year's giving spread evenly across the year). This
+// applies uniformly whether someone gives every Sunday, once a month, or as
+// a single stock/IRA (QCD) transfer in December — a one-time $2,600 gift and
+// 52 weekly $50 gifts both read as "$50/wk" here, so nobody (including
+// occasional/major givers, who previously fell into a separate "variable"
+// bucket) is silently excluded from a nudge. `gifts` (their actual count of
+// distinct contributions) is carried through so the UI can still frame an
+// infrequent giver's ask narratively ("you gave $X last year — about $Y/wk")
+// rather than implying they should literally write 52 checks.
+export function computeGivingPlateaus(rows, opts = {}) {
+  const periodsElapsed = Math.max(1, Math.min(52, opts.periodsElapsed || 52));
+  const peopleCap = opts.peopleCap || 500;
+  const impactStatements = opts.impactStatements || [];
+  const lowFrequencyMax = opts.lowFrequencyMax || 3;
+
+  const byPerson = new Map();
+  for (const r of rows || []) {
+    const pid = r.person_id;
+    if (pid == null) continue;
+    const cents = Math.round(Number(r.total_cents) || 0);
+    if (cents <= 0) continue;
+    byPerson.set(pid, {
+      id: pid, name: r.name || '',
+      // Where a row in this tier should link. Defaults to the person; the
+      // household-scope caller passes link_kind='household' + a household id.
+      link_id: r.link_id != null ? r.link_id : pid,
+      link_kind: r.link_kind || 'person',
+      total_cents: cents,
+      gifts: Math.max(0, Math.round(Number(r.gifts) || 0)),
+    });
+  }
+
+  const givers = [];
+  for (const p of byPerson.values()) {
+    const weeklyDollars = Math.round(p.total_cents / periodsElapsed / 100);
+    if (weeklyDollars <= 0) continue;
+    const weeklyCents = weeklyDollars * 100;
+    const options = computeNudgeOptions(weeklyDollars).map(o => {
+      const deltaCents = o.delta_dollars * 100;
+      const annualDeltaCents = deltaCents * 52;
+      const monthlyDeltaCents = Math.round(deltaCents * 52 / 12);
+      return {
+        label: o.label,
+        target_cents: o.target_dollars * 100,
+        delta_cents: deltaCents,
+        pct_increase: o.pct_increase,
+        // Always a concrete annual dollar figure — the baseline "impact" —
+        // whether or not a custom ministry phrase is configured below.
+        annual_delta_cents: annualDeltaCents,
+        new_annual_total_cents: o.target_dollars * 100 * 52,
+        impact_text: pickImpactPhrase(monthlyDeltaCents, impactStatements),
+      };
+    });
+    const standard = options[1] || options[options.length - 1];
+    givers.push({
+      id: p.id, name: p.name,
+      link_id: p.link_id, link_kind: p.link_kind,
+      weekly_cents: weeklyCents,
+      total_cents: p.total_cents,
+      gifts: p.gifts,
+      low_frequency: p.gifts > 0 && p.gifts <= lowFrequencyMax,
+      options,
+      // Backward-compatible "primary" fields — the Standard option — used
+      // for tier grouping and the summary headline.
+      target_cents: standard ? standard.target_cents : weeklyCents,
+      weekly_increase_cents: standard ? standard.delta_cents : 0,
+      upside_annual_cents: standard ? standard.annual_delta_cents : 0,
+    });
+  }
+
+  // Fine histogram: how many givers land at each weekly-equivalent dollar amount.
+  const distMap = new Map();
+  for (const g of givers) {
+    const d = g.weekly_cents / 100;
+    distMap.set(d, (distMap.get(d) || 0) + 1);
+  }
+  const distribution = [...distMap.entries()]
+    .map(([plateau_dollars, n]) => ({ plateau_dollars, n }))
+    .sort((a, b) => a.plateau_dollars - b.plateau_dollars);
+
+  // Tiers grouped by the Standard option's target.
+  const tierMap = new Map();
+  for (const g of givers) {
+    let t = tierMap.get(g.target_cents);
+    if (!t) {
+      t = { target_cents: g.target_cents, people: [], num_people: 0,
+            upside_annual_cents: 0, upside_modest_annual_cents: 0, upside_generous_annual_cents: 0,
+            plateau_min_cents: Infinity, plateau_max_cents: 0, sum_plateau_cents: 0, sum_weekly_inc: 0 };
+      tierMap.set(g.target_cents, t);
+    }
+    t.people.push(g);
+    t.num_people++;
+    t.upside_annual_cents += g.upside_annual_cents;
+    t.upside_modest_annual_cents += (g.options[0] || g.options[g.options.length - 1]).annual_delta_cents;
+    t.upside_generous_annual_cents += (g.options[g.options.length - 1]).annual_delta_cents;
+    t.plateau_min_cents = Math.min(t.plateau_min_cents, g.weekly_cents);
+    t.plateau_max_cents = Math.max(t.plateau_max_cents, g.weekly_cents);
+    t.sum_plateau_cents += g.weekly_cents;
+    t.sum_weekly_inc += g.weekly_increase_cents;
+  }
+  const tiers = [...tierMap.values()].map(t => {
+    t.people.sort((a, b) => b.upside_annual_cents - a.upside_annual_cents);
+    return {
+      target_cents: t.target_cents,
+      num_people: t.num_people,
+      plateau_min_cents: t.plateau_min_cents === Infinity ? 0 : t.plateau_min_cents,
+      plateau_max_cents: t.plateau_max_cents,
+      avg_plateau_cents: t.num_people ? Math.round(t.sum_plateau_cents / t.num_people) : 0,
+      avg_weekly_increase_cents: t.num_people ? Math.round(t.sum_weekly_inc / t.num_people) : 0,
+      upside_annual_cents: t.upside_annual_cents,
+      upside_modest_annual_cents: t.upside_modest_annual_cents,
+      upside_generous_annual_cents: t.upside_generous_annual_cents,
+      people: t.people.slice(0, peopleCap),
+    };
+  }).sort((a, b) => a.target_cents - b.target_cents);
+
+  return {
+    summary: {
+      total_givers: givers.length,
+      low_frequency_givers: givers.filter(g => g.low_frequency).length,
+      total_weekly_cents: givers.reduce((s, g) => s + g.weekly_cents, 0),
+      total_upside_annual_cents: givers.reduce((s, g) => s + g.upside_annual_cents, 0),
+      total_upside_modest_annual_cents: tiers.reduce((s, t) => s + t.upside_modest_annual_cents, 0),
+      total_upside_generous_annual_cents: tiers.reduce((s, t) => s + t.upside_generous_annual_cents, 0),
+    },
+    tiers,
+    distribution,
+  };
+}
+
+// ── GIVING BANDS (weekly/monthly distribution + flat uplift) ──────────────
+// Band floors in cents. A giver's per-period figure = their giving in the
+// period ÷ periods elapsed (frequency-agnostic — a monthly giver still lands
+// in the right weekly band). Two floor sets so the bands read naturally in
+// whichever cadence is chosen. Open-ended top band (high = null).
+export const GIVING_BAND_FLOORS_WEEKLY_CENTS  = [0, 2500, 5000, 7500, 10000, 15000, 20000, 30000, 50000];
+export const GIVING_BAND_FLOORS_MONTHLY_CENTS = [0, 10000, 20000, 30000, 40000, 60000, 80000, 120000, 200000];
+
+// rows: [{ total_cents }] one row per giver (household or person) with their
+// TOTAL giving over the period. opts:
+//   freq            'weekly' | 'monthly'
+//   periodsElapsed  weeks/months of giving so far (52/12 for a complete past
+//                   year; fewer for the current in-progress year) — used to
+//                   turn a total into a current per-period pace.
+//   upliftCents     a flat per-period increase to model ("+$10/wk") — its
+//                   annual impact uses a FULL year (52/12), not elapsed, since
+//                   it's a going-forward change.
+export function computeGivingBands(rows, opts = {}) {
+  const freq = opts.freq === 'monthly' ? 'monthly' : 'weekly';
+  const periodsPerYear = freq === 'monthly' ? 12 : 52;
+  const periodsElapsed = Math.max(1, Math.min(periodsPerYear, opts.periodsElapsed || periodsPerYear));
+  const upliftCents = Math.max(0, Math.round(opts.upliftCents || 0));
+  const floors = freq === 'monthly' ? GIVING_BAND_FLOORS_MONTHLY_CENTS : GIVING_BAND_FLOORS_WEEKLY_CENTS;
+
+  const bands = floors.map((low, i) => ({
+    low_cents: low,
+    high_cents: i + 1 < floors.length ? floors[i + 1] : null,
+    n: 0, total_cents: 0, per_period_sum_cents: 0,
+  }));
+  let givers = 0, totalCents = 0, perPeriodSum = 0;
+  for (const r of rows || []) {
+    const total = Number(r.total_cents) || 0;
+    if (total <= 0) continue;
+    const perPeriod = total / periodsElapsed;
+    givers++; totalCents += total; perPeriodSum += perPeriod;
+    let bi = 0;
+    for (let i = 0; i < bands.length; i++) {
+      if (perPeriod >= bands[i].low_cents && (bands[i].high_cents == null || perPeriod < bands[i].high_cents)) { bi = i; break; }
+    }
+    const b = bands[bi];
+    b.n++; b.total_cents += total; b.per_period_sum_cents += perPeriod;
+  }
+  const bandOut = bands.map(b => ({
+    low_cents: b.low_cents,
+    high_cents: b.high_cents,
+    n: b.n,
+    total_cents: Math.round(b.total_cents),
+    avg_per_period_cents: b.n ? Math.round(b.per_period_sum_cents / b.n) : 0,
+    current_annualized_cents: Math.round(b.per_period_sum_cents * periodsPerYear),
+    uplift_annual_cents: b.n * upliftCents * periodsPerYear,
+  }));
+  return {
+    freq, periods_elapsed: periodsElapsed, periods_per_year: periodsPerYear,
+    uplift_cents: upliftCents,
+    summary: {
+      givers,
+      total_cents: Math.round(totalCents),
+      current_annualized_cents: Math.round(perPeriodSum * periodsPerYear),
+      uplift_annual_cents: givers * upliftCents * periodsPerYear,
+    },
+    bands: bandOut,
+  };
+}
+
+// ── Breeze fee-field probe (native giving, does-Breeze-hand-us-the-fee) ────────
+// Pure. Given one sample record from Breeze's giving/list (or an audit-log entry),
+// report its top-level keys and flag any that look like a processor fee / net / deposit /
+// payout field — plus the same scan of a nested funds[] entry (fees can be per-fund). Turns
+// the raw diagnostic dump into a plain yes/no on "does the Breeze API carry the fee?".
+const FEE_FIELD_RE = /fee|net|processor|deposit|payout|gross|charge/i;
+export function scanForFeeFields(sample) {
+  const out = { top_keys: [], top_flagged: [], fund_keys: [], fund_flagged: [] };
+  if (!sample || typeof sample !== 'object') return out;
+  out.top_keys = Object.keys(sample);
+  for (const k of out.top_keys) {
+    if (FEE_FIELD_RE.test(k)) out.top_flagged.push({ key: k, value: sample[k] });
+  }
+  const funds = sample.funds || sample.fund;
+  const f0 = Array.isArray(funds) ? funds[0] : null;
+  if (f0 && typeof f0 === 'object') {
+    out.fund_keys = Object.keys(f0);
+    for (const k of out.fund_keys) {
+      if (FEE_FIELD_RE.test(k)) out.fund_flagged.push({ key: k, value: f0[k] });
+    }
+  }
+  out.fee_field_found = out.top_flagged.length > 0 || out.fund_flagged.length > 0;
+  return out;
+}
+
+// ── Giving deposits: reconciliation (GIV-DEP, native giving Phase 1) ───────────
+// Pure. Roll up a deposit's assigned gifts. gross = what donors gave, fee = processor fees,
+// net = what actually reaches the bank (gross - fee). `bankCents` (if provided) is the amount
+// actually seen in the bank; variance = bank - net (should be 0 when reconciled; a non-zero
+// variance is surfaced, never silently absorbed).
+export function computeDepositTotals(gifts, bankCents) {
+  let gross = 0, fee = 0, count = 0;
+  for (const g of gifts || []) {
+    gross += Number(g.amount) || 0;
+    fee   += Number(g.fee_cents) || 0;
+    count += 1;
+  }
+  const net = gross - fee;
+  const out = { count, gross_cents: gross, fee_cents: fee, net_cents: net };
+  if (bankCents != null && bankCents !== '') {
+    out.bank_cents = Number(bankCents) || 0;
+    out.variance_cents = out.bank_cents - net; // + = bank has more than expected, - = short
+    out.balanced = out.variance_cents === 0;
+  }
+  return out;
+}
+
+// ── Giving distribution analysis (GIV-R3 / 2A) ────────────────────────────────
+// Annual-total tiers a giver's full-year contribution falls into. Dollar figures
+// (converted to cents) — chosen to be legible on a board slide, not statistically
+// optimal. low inclusive, high exclusive (null = open-ended top tier).
+export const GIVING_TIER_FLOORS_CENTS = [
+  0, 10000, 50000, 100000, 250000, 500000, 1000000, 2500000,
+]; // $0, $100, $500, $1k, $2.5k, $5k, $10k, $25k+
+
+function tierLabel(lowCents, highCents) {
+  const d = c => '$' + Math.round(c / 100).toLocaleString('en-US');
+  if (highCents == null) return d(lowCents) + '+';
+  if (lowCents === 0) return 'Under ' + d(highCents);
+  return d(lowCents) + '–' + d(highCents - 1);
+}
+
+// Pure. Given an array of per-giver annual totals (rows with total_cents), return
+// distribution stats a board actually asks about: how many givers, mean vs median
+// (the median is the honest "typical gift" when a few large gifts pull the mean up),
+// what share the top 10% of givers contribute, and a tier table. No individuals named.
+export function computeGivingDistribution(rows) {
+  const totals = (rows || [])
+    .map(r => Number(r.total_cents) || 0)
+    .filter(v => v > 0)
+    .sort((a, b) => a - b);
+  const count = totals.length;
+  const totalCents = totals.reduce((s, v) => s + v, 0);
+  const mean = count ? Math.round(totalCents / count) : 0;
+  let median = 0;
+  if (count) {
+    const mid = Math.floor(count / 2);
+    median = count % 2 ? totals[mid] : Math.round((totals[mid - 1] + totals[mid]) / 2);
+  }
+  // Share of the total given by the top 10% of givers (min 1 giver).
+  const topN = count ? Math.max(1, Math.round(count * 0.1)) : 0;
+  const topCents = totals.slice(count - topN).reduce((s, v) => s + v, 0);
+  const top10SharePct = totalCents ? Math.round((topCents / totalCents) * 1000) / 10 : 0;
+
+  const floors = GIVING_TIER_FLOORS_CENTS;
+  const tiers = floors.map((low, i) => {
+    const high = i + 1 < floors.length ? floors[i + 1] : null;
+    return { low_cents: low, high_cents: high, label: tierLabel(low, high), givers: 0, total_cents: 0 };
+  });
+  for (const v of totals) {
+    let ti = 0;
+    for (let i = 0; i < tiers.length; i++) {
+      if (v >= tiers[i].low_cents && (tiers[i].high_cents == null || v < tiers[i].high_cents)) { ti = i; break; }
+    }
+    tiers[ti].givers++;
+    tiers[ti].total_cents += v;
+  }
+  const tierOut = tiers.map(t => ({
+    ...t,
+    givers_pct: count ? Math.round((t.givers / count) * 1000) / 10 : 0,
+    total_pct: totalCents ? Math.round((t.total_cents / totalCents) * 1000) / 10 : 0,
+  }));
+  return {
+    givers: count,
+    total_cents: totalCents,
+    mean_cents: mean,
+    median_cents: median,
+    top10_givers: topN,
+    top10_share_pct: top10SharePct,
+    tiers: tierOut,
+  };
+}
+
+// ── Envelope numbers (GIV-R4 / B) ─────────────────────────────────────────────
+// Envelope numbers are reassigned yearly, but old envelopes stay in circulation, so a
+// superseded number must still resolve to its person. This keeps a most-recent-first,
+// de-duplicated JSON list of a person's prior numbers. A blank old number is a no-op.
+export function archiveEnvelope(historyJson, oldNumber) {
+  const old = String(oldNumber || '').trim();
+  let arr = [];
+  if (historyJson) {
+    try { const p = JSON.parse(historyJson); if (Array.isArray(p)) arr = p.map(x => String(x)); } catch { arr = []; }
+  }
+  if (!old || arr.includes(old)) return JSON.stringify(arr);
+  return JSON.stringify([old, ...arr]);
+}
+
+// Parse the stored history JSON into a plain string array (never throws).
+export function parseEnvelopeHistory(historyJson) {
+  if (!historyJson) return [];
+  try { const p = JSON.parse(historyJson); return Array.isArray(p) ? p.map(x => String(x)) : []; } catch { return []; }
+}
+
+// ── Thank-you receipts (GIV-R4 / A) ───────────────────────────────────────────
+// Clean monthly figures we're willing to suggest as a recurring-giving nudge.
+export const MONTHLY_SUGGESTION_LADDER_CENTS = [
+  1000, 1500, 2000, 2500, 3000, 4000, 5000, 7500, 10000, 15000, 20000, 25000, 50000,
+]; // $10 … $500
+
+// Pure. Suggest a clean monthly recurring amount to nudge toward, given a one-time
+// gift. Aims at roughly a quarter of the gift (so a $100 gift suggests ~$25/mo, an
+// aspirational-but-reachable ask) then snaps to the nearest clean ladder rung, floored
+// at $10. Returns 0 for a non-positive gift.
+export function suggestMonthlyFromGift(giftCents) {
+  const target = (Number(giftCents) || 0) / 4;
+  if (target <= 0) return 0;
+  let best = MONTHLY_SUGGESTION_LADDER_CENTS[0], bestD = Infinity;
+  for (const rung of MONTHLY_SUGGESTION_LADDER_CENTS) {
+    const d = Math.abs(rung - target);
+    if (d < bestD) { bestD = d; best = rung; }
+  }
+  return best;
+}
+
+// Pure. Given per-donation rows and the qualifying rules, return the receipt queue:
+// each donation flagged with why it qualifies (>= threshold and/or the donor's first
+// ever gift) plus a suggested monthly nudge. `rows` are donation events already grouped
+// per person+date (amount_cents summed across split funds). `firstGiftDateByPerson` maps
+// person_id -> their earliest-ever gift date (YYYY-MM-DD). `sentKeys` is the set of
+// recipient_keys already thanked. Non-qualifying donations are dropped.
+export function computeReceiptQueue(rows, opts = {}) {
+  const threshold = Math.max(0, Math.round(opts.thresholdCents != null ? opts.thresholdCents : 25000));
+  const includeFirst = opts.includeFirstGift !== false;
+  const firstByPerson = opts.firstGiftDateByPerson || {};
+  const sentKeys = opts.sentKeys || new Set();
+  const out = [];
+  for (const r of rows || []) {
+    const amt = Number(r.amount_cents) || 0;
+    if (amt <= 0) continue;
+    const overThreshold = amt >= threshold;
+    const isFirst = includeFirst && r.person_id != null
+      && firstByPerson[r.person_id] && r.gift_date && firstByPerson[r.person_id] === r.gift_date;
+    if (!overThreshold && !isFirst) continue;
+    const reasons = [];
+    if (overThreshold) reasons.push('over_threshold');
+    if (isFirst) reasons.push('first_gift');
+    const key = 'ge' + r.person_id + ':' + r.gift_date;
+    out.push({
+      person_id: r.person_id,
+      household_id: r.household_id || null,
+      name: r.name || '(anonymous)',
+      email: r.email || '',
+      amount_cents: amt,
+      gift_date: r.gift_date,
+      funds: r.funds || '',
+      reasons,
+      suggested_monthly_cents: suggestMonthlyFromGift(amt),
+      recipient_key: key,
+      has_email: !!(r.email && r.email.trim()),
+      sent: sentKeys.has(key),
+    });
+  }
+  // Largest gifts first — the ones most worth a personal thank-you.
+  out.sort((a, b) => b.amount_cents - a.amount_cents);
+  const counts = {
+    total: out.length,
+    sent: out.filter(r => r.sent).length,
+    unsent: out.filter(r => !r.sent).length,
+    no_email: out.filter(r => !r.has_email).length,
+  };
+  return { receipts: out, counts };
+}
+
+// ── Inflation adjustment (GIV-R3 / 3A five-year trend) ────────────────────────
+// CPI-U (U.S. all-items, annual average, 1982-84=100). Update once a year when
+// the BLS annual average is published; the current/next year are estimates until
+// then (flagged as such in the trend caption). Used to restate prior-year giving
+// in the most recent year's dollars, so a "flat" nominal trend that's actually
+// losing ground to inflation is visible on the board report.
+export const CPI_U_ANNUAL = {
+  2015: 237.017, 2016: 240.007, 2017: 245.120, 2018: 251.107, 2019: 255.657,
+  2020: 258.811, 2021: 270.970, 2022: 292.655, 2023: 304.702, 2024: 313.689,
+  2025: 322.100, 2026: 330.200, // 2025-26 estimated until BLS annual averages post
+};
+
+// Restate `cents` from `fromYear` dollars into `toYear` dollars. Returns the input
+// unchanged if either year's CPI isn't known (so a missing year never zeroes data).
+export function inflationAdjustCents(cents, fromYear, toYear, cpi = CPI_U_ANNUAL) {
+  const a = cpi[fromYear], b = cpi[toYear];
+  if (!a || !b) return Math.round(cents);
+  return Math.round((Number(cents) || 0) * (b / a));
+}
+
 // ── PHONE NORMALIZATION ───────────────────────────────────────────────────
 // Strips formatting and returns (XXX) XXX-XXXX for 10-digit US numbers.
 // Returns original string unchanged for international or unusual formats.
+// ── Giving Letters & Statements workspace (GIV-R2) ────────────────────────────
+// The letter types the Letters workspace can send/track, each with a default recipient
+// scope. 'givers' = everyone who gave in the period (per person). 'member_households' =
+// every member household (one recipient each), whether or not they've given. 'none' =
+// no auto-resolved list (memorial letters are composed ad-hoc against a chosen person).
+export const LETTER_TYPES = {
+  year_end:  { label: 'Year-End Statement',   defaultScope: 'givers',            hasTemplate: true  },
+  midyear:   { label: 'Mid-Year Update',      defaultScope: 'givers',            hasTemplate: true  },
+  quarterly: { label: 'Quarterly Statement',  defaultScope: 'givers',            hasTemplate: false },
+  thank_you: { label: 'Thank-You Letter',     defaultScope: 'givers',            hasTemplate: false },
+  appeal:    { label: 'Giving Appeal',        defaultScope: 'member_households', hasTemplate: false },
+  memorial:  { label: 'Memorial Letter',      defaultScope: 'none',              hasTemplate: false },
+};
+
+// Stable dedup identity for a recorded send, independent of which person inside a household
+// was the actual recipient. 'p<id>' for a person-scoped send, 'h<id>' for a household one.
+export function letterRecipientKey(kind, id) {
+  return (kind === 'household' ? 'h' : 'p') + String(id);
+}
+
+// Merge the two server-resolved candidate pools (people who gave, member households) into a
+// single recipient list for a given scope, annotate each with whether it's already been sent
+// on this channel, and tally counts. Pure — takes plain rows, returns plain data — so it can
+// be unit-tested without a DB. For scope 'both' the design's rule is "gave OR member household,
+// deduped per household": every member household is one recipient, plus any giver who is NOT in
+// a member household (household_id null or not in the member-household set) as their own person
+// recipient — so a couple in a member household is never counted twice.
+export function mergeLetterRecipients(givers, households, scope, sentKeys, channel) {
+  sentKeys = sentKeys || new Set();
+  const memberHhIds = new Set((households || []).map(h => h.id));
+  const out = [];
+  const pushPerson = g => {
+    const key = letterRecipientKey('person', g.id);
+    out.push({
+      kind: 'person', id: g.id, household_id: g.household_id || null,
+      name: ((g.first_name || '') + ' ' + (g.last_name || '')).trim() || '(no name)',
+      email: g.email || '', total_cents: g.total_cents || 0,
+      recipient_key: key, has_email: !!(g.email && g.email.trim()),
+      sent: sentKeys.has(channel === 'print' ? key : key),
+    });
+  };
+  const pushHousehold = h => {
+    const key = letterRecipientKey('household', h.id);
+    out.push({
+      kind: 'household', id: h.id, household_id: h.id,
+      name: h.name || '(household)',
+      email: h.recipient_email || '', recipient_name: h.recipient_name || '',
+      total_cents: h.total_cents || 0,
+      recipient_key: key, has_email: !!(h.recipient_email && h.recipient_email.trim()),
+      sent: sentKeys.has(key),
+    });
+  };
+  if (scope === 'member_households') {
+    (households || []).forEach(pushHousehold);
+  } else if (scope === 'both') {
+    (households || []).forEach(pushHousehold);
+    (givers || []).forEach(g => {
+      if (!g.household_id || !memberHhIds.has(g.household_id)) pushPerson(g);
+    });
+  } else { // 'givers' (default)
+    (givers || []).forEach(pushPerson);
+  }
+  // Recompute each row's sent flag against the channel-specific key set the caller passed.
+  out.forEach(r => { r.sent = sentKeys.has(r.recipient_key); });
+  const counts = {
+    total: out.length,
+    sent: out.filter(r => r.sent).length,
+    unsent: out.filter(r => !r.sent).length,
+    no_email: out.filter(r => !r.has_email).length,
+  };
+  return { recipients: out, counts };
+}
+
 export function normalizePhone(raw) {
   if (!raw || typeof raw !== 'string') return '';
   const digits = raw.replace(/\D/g, '');
@@ -334,6 +894,52 @@ export function normalizePhone(raw) {
     return '(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6);
   }
   return raw;
+}
+
+// Giving-letter templates are hand-authored HTML (TinyMCE, see js-settings.js
+// initLetterEditor()). Two real ways a base64 image payload can end up mangled
+// in there, both reported live: (1) an image accidentally dropped into the
+// Insert Link dialog instead of Insert Image, producing `<a href="data:...">`
+// whose visible link text defaults to the href itself — the whole base64
+// string renders as literal text; (2) a raw base64 string pasted directly as
+// plain text (e.g. copied from an EXIF/base64-conversion tool) with no
+// surrounding tag at all. Neither is recoverable as "the image the admin
+// meant" — there's no way to tell where it was meant to go — so this strips
+// both forms out entirely rather than leaving garbage text in a donor's inbox.
+// A legitimate `<img src="data:...">` (inserted via the toolbar's file picker)
+// is left untouched by protecting `src="..."` attributes before the sweep.
+export function sanitizeLetterTemplateHtml(html) {
+  if (!html || typeof html !== 'string') return { cleaned: html, changed: false };
+  let cleaned = html;
+  let changed = false;
+
+  // 1. A whole <a href="data:...">...</a> — the link text is always the
+  // leaked base64 payload, so the entire anchor is dropped, not just unwrapped.
+  const dataLinkRe = /<a\b[^>]*\bhref\s*=\s*(["'])data:[\s\S]*?\1[^>]*>[\s\S]*?<\/a>/gi;
+  if (dataLinkRe.test(cleaned)) {
+    cleaned = cleaned.replace(dataLinkRe, '');
+    changed = true;
+  }
+
+  // 2. A bare data: URI sitting in the text itself, outside any tag attribute
+  // (pasted as plain text). Protect real `src="data:..."` occurrences first
+  // so a legitimate embedded <img> survives the sweep.
+  const placeholders = [];
+  const marker = 'LTRPLACEHOLDERMARKER';
+  const protectedHtml = cleaned.replace(/\bsrc\s*=\s*(["'])data:[\s\S]*?\1/gi, (m) => {
+    placeholders.push(m);
+    return marker + (placeholders.length - 1) + marker;
+  });
+  const strayRe = /data:[a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]{200,}/g;
+  let swept = protectedHtml;
+  if (strayRe.test(swept)) {
+    swept = swept.replace(strayRe, '');
+    changed = true;
+  }
+  const markerRe = new RegExp(marker + '(\\d+)' + marker, 'g');
+  cleaned = swept.replace(markerRe, (_, i) => placeholders[Number(i)]);
+
+  return { cleaned, changed };
 }
 
 // ── ADDRESS VALIDATION HELPERS ───────────────────────────────────────────

@@ -150,8 +150,11 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
   <div class="fin-subnav" style="margin-bottom:16px;">
     <button class="fin-subnav-btn active" id="giv-view-batches-btn" onclick="givSetView('batches')">Batches</button>
     <button class="fin-subnav-btn" id="giv-view-transactions-btn" onclick="givSetView('transactions')">Transactions</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-deposits-btn" onclick="givSetView('deposits')">Deposits</button>
     <button class="fin-subnav-btn require-finance" id="giv-view-board-btn" onclick="givSetView('board')">Board Report</button>
-    <button class="fin-subnav-btn require-finance" id="giv-view-reports-btn" onclick="givSetView('reports')">Reports</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-letters-btn" onclick="givSetView('letters')">Letters</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-receipts-btn" onclick="givSetView('receipts')">Receipts</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-reports-btn" onclick="givSetView('reports')">Analysis</button>
     <button class="fin-subnav-btn" id="giv-view-settings-btn" onclick="givSetView('settings')">Settings</button>
   </div>
   <div class="giving-layout" id="giv-view-batches">
@@ -195,6 +198,32 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
   </div>
 
+  <div id="giv-view-deposits" class="require-finance" style="display:none;">
+    <div class="giv-dep-layout" style="display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start;">
+      <div class="dash-card" style="padding:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <h3 style="margin:0;font-size:1rem;">Deposits</h3>
+          <button class="btn-primary" style="padding:5px 12px;font-size:.8rem;" onclick="depNew()">+ New</button>
+        </div>
+        <div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;line-height:1.45;">
+          Match each bank deposit to the gifts that make it up, then enter the amount the bank actually received. <strong>Given &minus; Deposited = fees.</strong>
+        </div>
+        <div class="batch-filter-pills" style="margin-bottom:10px;">
+          <button class="pill active" data-ds="all" onclick="depSetFilter(this,'all')">All</button>
+          <button class="pill" data-ds="open" onclick="depSetFilter(this,'open')">Open</button>
+          <button class="pill" data-ds="reconciled" onclick="depSetFilter(this,'reconciled')">Reconciled</button>
+        </div>
+        <div id="giv-deposits-list"></div>
+      </div>
+      <div class="dash-card" id="giv-deposit-detail" style="padding:18px;min-height:220px;">
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:180px;color:var(--warm-gray);gap:10px;text-align:center;">
+          <svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+          <div style="font-size:.9rem;">Select a deposit, or click <strong>+ New</strong> to reconcile a bank deposit.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="giv-view-board" class="require-finance" style="display:none;">
     <div class="board-header">
       <div>
@@ -212,9 +241,70 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
     </div>
     <div id="board-body"><div class="board-empty">Loading&hellip;</div></div>
+
+    <div class="import-card require-finance" style="margin-top:18px;">
+      <h3>&#128201; Giving Plateaus &amp; Nudges</h3>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">Every giver's weekly level = their whole year's giving, every fund, &divide; 52 weeks &mdash; so a weekly regular, a monthly giver, and someone who made one large gift (e.g. a stock or IRA/QCD transfer) all get the same treatment. Offers 3 fixed, familiar round-number increase options. By default this sums <strong>everything a giver gives across every fund</strong> &mdash; General, Tuition Aid, Food Pantry, etc.; no fund is discounted. Pick a specific fund below to analyze just that fund instead (e.g. a designated pass-through fund).</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
+        <div class="field" style="margin:0;"><label>Year</label><input type="number" id="rpt-plateau-year" name="rpt-plateau-year" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>
+        <div class="field" style="margin:0;"><label>Fund</label><select id="rpt-plateau-fund" name="rpt-plateau-fund" style="font-size:.85rem;padding:4px 8px;"><option value="">All Funds</option></select></div>
+        <div class="field" style="margin:0;"><label>Group by</label><select id="rpt-plateau-scope" name="rpt-plateau-scope" style="font-size:.85rem;padding:4px 8px;"><option value="household">Household</option><option value="person">Person</option></select></div>
+        <button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="runGivingPlateaus()">Run Report</button>
+        <button class="btn-secondary" style="font-size:.82rem;padding:6px 14px;" onclick="platOpenImpactEditor()">Impact statements&hellip;</button>
+      </div>
+      <div id="giv-plat-output" class="report-output"></div>
+    </div>
+
+    <div class="import-card require-finance" style="margin-top:18px;">
+      <h3>&#128202; Giving by Weekly / Monthly Band</h3>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">How giving households spread across per-week (or per-month) giving levels, and what a small across-the-board step up would add. A household&rsquo;s weekly figure is its giving &divide; weeks in the period, so monthly and lump-sum givers still land in the right band.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
+        <div class="field" style="margin:0;"><label>Year</label><input type="number" id="rpt-bands-year" name="rpt-bands-year" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>
+        <div class="field" style="margin:0;"><label>Fund</label><select id="rpt-bands-fund" name="rpt-bands-fund" style="font-size:.85rem;padding:4px 8px;"><option value="">All Funds</option></select></div>
+        <div class="field" style="margin:0;"><label>Group by</label><select id="rpt-bands-scope" name="rpt-bands-scope" style="font-size:.85rem;padding:4px 8px;"><option value="household">Household</option><option value="person">Person</option></select></div>
+        <div class="field" style="margin:0;"><label>Per</label><select id="rpt-bands-freq" name="rpt-bands-freq" onchange="bandsSyncUpliftDefault()" style="font-size:.85rem;padding:4px 8px;"><option value="weekly">Week</option><option value="monthly">Month</option></select></div>
+        <div class="field" style="margin:0;"><label>If each gives +$</label><input type="number" id="rpt-bands-uplift" name="rpt-bands-uplift" value="10" min="0" style="font-size:.85rem;padding:4px 8px;width:70px;"></div>
+        <button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="runGivingBands()">Run Report</button>
+      </div>
+      <div id="giv-bands-output" class="report-output"></div>
+    </div>
+  </div>
+
+  <div id="giv-view-letters" class="require-finance" style="display:none;">
+    <div id="giv-letters-root"><div class="board-empty">Loading&hellip;</div></div>
+  </div>
+
+  <div id="giv-view-receipts" class="require-finance" style="display:none;">
+    <div id="giv-receipts-root"><div class="board-empty">Loading&hellip;</div></div>
+  </div>
+
+  <div id="plat-impact-modal" class="modal-overlay">
+    <div class="modal" style="max-width:560px;">
+      <h3>Giving Impact Statements</h3>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">When a suggested increase clears one of these monthly thresholds, the Plateaus report shows the matching phrase next to it (e.g. "if you gave $18 more a month, that could provide&hellip;"). These are your own numbers &mdash; nothing here is pre-filled or guessed. Leave empty and increases just show as dollar amounts.</p>
+      <div id="plat-impact-rows"></div>
+      <button class="btn-secondary" style="font-size:.82rem;margin-top:6px;" onclick="platAddImpactRow()">+ Add statement</button>
+      <div id="plat-impact-status" class="status-msg" style="margin-top:8px;"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+        <button class="btn-secondary" onclick="closeModal('plat-impact-modal')">Close</button>
+        <button class="btn-primary" onclick="platSaveImpactStatements()">Save</button>
+      </div>
+    </div>
   </div>
 
   <div id="giv-view-reports" style="display:none;">
+    <div id="giv-analysis" class="require-finance" style="margin-bottom:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+        <div>
+          <div class="board-title">Giving Analysis</div>
+          <div class="board-subtitle">Distribution &amp; multi-year trends &middot; no individual donors named</div>
+        </div>
+        <div class="field" style="margin:0;"><label>Year</label>
+          <input type="number" id="giv-analysis-year" name="giv-analysis-year" min="2000" max="2099" style="width:100px;font-size:.85rem;padding:5px 8px;" onchange="givAnalysisLoad()"></div>
+      </div>
+      <div id="giv-analysis-dist" class="import-card" style="margin-bottom:16px;"><div class="board-empty">Loading&hellip;</div></div>
+      <div id="giv-analysis-trend" class="import-card" style="margin-bottom:4px;"><div class="board-empty">Loading&hellip;</div></div>
+    </div>
     <div class="report-tiles" id="giv-rpt-tiles-grid">
       <div class="report-tile require-finance" data-tile-id="giving-by-fund">
         <div class="tile-icon">&#128200;</div>
@@ -296,37 +386,12 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingVsAttendance()">Run Report</button>
         </div>
       </div>
-      <div class="report-tile require-finance" data-tile-id="batch-send-statements">
+      <div class="report-tile require-finance" data-tile-id="letters-moved" style="cursor:pointer;" onclick="givSetView('letters')">
         <div class="tile-icon">&#128140;</div>
-        <div class="tile-title">Batch Send Statements</div>
+        <div class="tile-title">Letters &amp; Statements</div>
         <div class="tile-desc">
-          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Send year-end giving letters via email to all givers for a year.</div>
-          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-stmt-year" name="batch-stmt-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchStatementGivers()">Load Givers</button>
-          <div id="batch-stmt-status" class="import-status" style="margin-top:6px;"></div>
-          <div id="batch-stmt-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
-        </div>
-      </div>
-      <div class="report-tile require-finance" data-tile-id="batch-send-midyear">
-        <div class="tile-icon">&#128140;</div>
-        <div class="tile-title">Batch Send Mid-Year Update</div>
-        <div class="tile-desc">
-          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Send a mid-year giving update &mdash; thanks them, shows year-to-date giving for review, and suggests ways to set up recurring giving.</div>
-          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-mid-year" name="batch-mid-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchMidyearGivers()">Load Givers</button>
-          <div id="batch-mid-status" class="import-status" style="margin-top:6px;"></div>
-          <div id="batch-mid-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
-        </div>
-      </div>
-      <div class="report-tile require-finance" data-tile-id="batch-send-appeal">
-        <div class="tile-icon">&#128140;</div>
-        <div class="tile-title">Send Giving Appeal to All Member Households</div>
-        <div class="tile-desc">
-          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Sends the Mid-Year Update letter to every member household &mdash; not just people who've already given &mdash; one email per household, so it can also prompt households that haven't given yet. Households with $0 recorded will show a $0 total in the letter.</div>
-          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-appeal-year" name="batch-appeal-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchAppealHouseholds()">Load Member Households</button>
-          <div id="batch-appeal-status" class="import-status" style="margin-top:6px;"></div>
-          <div id="batch-appeal-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
+          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-end statements, mid-year updates, appeals, and thank-you letters &mdash; with per-recipient send status &mdash; now live in the <strong>Letters</strong> tab above.</div>
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="event.stopPropagation();givSetView('letters')">Go to Letters &rarr;</button>
         </div>
       </div>
     </div>
@@ -388,6 +453,12 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div style="margin-top:12px;">
         <p style="margin:0 0 8px;"><strong>Breeze Audit Log Export</strong> — Download every contribution-related event from Breeze (added, updated, deleted) as a CSV for reconciliation. Uses the same date range as the sync above.</p>
         <button class="btn-secondary" onclick="downloadBreezeAuditLog()">&#128229; Download Audit Log CSV</button>
+      </div>
+      <div style="margin-top:12px;" class="require-admin">
+        <p style="margin:0 0 8px;"><strong>Processor Fee Check</strong> — Ask the Breeze API whether it returns a per-payment fee / net / deposit field. Answers whether native giving can capture the processor fee straight from Breeze, or whether it has to come from a report import.</p>
+        <button class="btn-secondary" onclick="runBreezeFeeCheck()">&#128269; Check for Fee Field</button>
+        <div class="import-status" id="breeze-fee-check-status"></div>
+        <pre id="breeze-fee-check-out" style="display:none;margin-top:10px;padding:10px;background:#f4f0ea;border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
       </div>
     </div>
     <!-- Letter Template Card -->
@@ -1792,7 +1863,7 @@ export const HTML_TABS_2 = String.raw`
     <div class="tag-picker" id="pm-tag-picker"></div>
     <div class="modal-section">Church Records</div>
     <div class="modal-2col">
-      <div class="field"><label>Envelope #</label><input type="text" id="pm-envelope" name="pm-envelope" placeholder="e.g. 42" maxlength="20"></div>
+      <div class="field"><label>Envelope #</label><input type="text" id="pm-envelope" name="pm-envelope" placeholder="e.g. 42" maxlength="20"><div id="pm-envelope-history" style="font-size:.72rem;color:var(--warm-gray);margin-top:3px;"></div></div>
       <div class="field"><label>Last Seen</label><input type="date" id="pm-last-seen" name="pm-last-seen"></div>
     </div>
     <div class="modal-section">Notes</div>

@@ -1,7 +1,7 @@
 // ── Import, Config, Register, Export, Breeze Sync API handlers ──────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS } from './api-utils.js';
+import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS, archiveEnvelope, scanForFeeFields, sanitizeLetterTemplateHtml } from './api-utils.js';
 import { validateImageUpload } from './api-people.js';
 import { sendBrevoTransactionalEmail } from './api-emails.js';
 
@@ -317,6 +317,21 @@ if (seg === 'import/breeze-giving-debug' && method === 'GET') {
   let glParsed = null; try { glParsed = JSON.parse(glText); } catch {}
   results.giving_list = { status: glR.status, count: Array.isArray(glParsed) ? glParsed.length : null, sample: Array.isArray(glParsed) ? glParsed.slice(0,3) : glText.slice(0,500) };
 
+  // Plain-language answer to "does Breeze's API carry the processor fee per payment?" —
+  // scans the first real giving/list record (and an audit-log-with-details record) for any
+  // fee/net/deposit/processor field so we know whether the sync can capture the fee straight
+  // from Breeze, or whether the fee has to come from a Breeze report import / the processor.
+  const glFirst = Array.isArray(glParsed) && glParsed[0] ? glParsed[0] : null;
+  const logFirst = Array.isArray(logDParsed) && logDParsed[0] ? logDParsed[0] : null;
+  results.fee_field_analysis = {
+    question: 'Does the Breeze API return a per-payment fee / net / deposit field?',
+    giving_list_first_record: glFirst ? scanForFeeFields(glFirst) : 'no giving/list records in this window',
+    audit_log_first_record: logFirst ? scanForFeeFields(logFirst) : 'no audit-log records',
+    verdict: (glFirst && scanForFeeFields(glFirst).fee_field_found) || (logFirst && scanForFeeFields(logFirst).fee_field_found)
+      ? 'FEE FIELD PRESENT — the sync can capture the fee straight from Breeze.'
+      : 'No fee/net field seen — Breeze keeps fees in its Online Giving Report only; the fee would need a report import or the processor API.',
+  };
+
   return json(results);
 }
 
@@ -390,6 +405,20 @@ if (seg === 'config/church' && method === 'GET') {
     const healed = await healLetterTemplateIfStale(db, 'giving_midyear_letter_template', OLD_DEFAULT_MIDYEAR_LETTER_TEMPLATE, NEW_DEFAULT_MIDYEAR_LETTER_TEMPLATE);
     if (healed) config.giving_midyear_letter_template = healed;
   }
+  // Self-heal a template that was previously corrupted by a base64 image pasted
+  // into the Link dialog (instead of Insert Image) or pasted directly as raw
+  // text — either shows up in the sent email as a giant literal base64 string
+  // instead of a picture. Persist the cleaned version back so this only needs
+  // fixing once per template, not on every read.
+  for (const key of ['giving_letter_template', 'giving_midyear_letter_template']) {
+    if (config[key]) {
+      const { cleaned, changed } = sanitizeLetterTemplateHtml(config[key]);
+      if (changed) {
+        await db.prepare("UPDATE chms_config SET value=? WHERE key=?").bind(cleaned, key).run();
+        config[key] = cleaned;
+      }
+    }
+  }
   return json(config);
 }
 if (seg === 'config/church' && method === 'PUT') {
@@ -409,6 +438,9 @@ if (seg === 'config/church' && method === 'PUT') {
     if (b[k] && String(b[k]).length > TEMPLATE_MAX_CHARS) {
       return json({ error: 'This letter template is too large to save (likely an embedded image) — please use a smaller image (under ~400 KB) or remove it and try again.' }, 400);
     }
+    // Strip a base64 image dropped into the Link dialog or pasted as raw text —
+    // see sanitizeLetterTemplateHtml() — before it ever reaches storage.
+    if (b[k]) b[k] = sanitizeLetterTemplateHtml(String(b[k])).cleaned;
   }
   for (const k of allowed) {
     // Only save non-empty values — preserves existing config if user saves with a blank field
@@ -417,6 +449,32 @@ if (seg === 'config/church' && method === 'PUT') {
     }
   }
   return json({ ok: true });
+}
+
+// ── Giving impact statements — admin-entered "$X/month more could provide Y"
+// reference used by the Giving Plateaus report to turn a suggested increase
+// into a concrete impact instead of a bare "give more" ask. Real ministry
+// costs are church-specific and never fabricated by the app — this is purely
+// what an admin types in. Stored as one JSON array in chms_config.
+if (seg === 'config/giving-impact' && method === 'GET') {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key='giving_impact_statements_json'").first();
+  let statements = [];
+  try { statements = row?.value ? JSON.parse(row.value) : []; } catch {}
+  return json({ statements: Array.isArray(statements) ? statements : [] });
+}
+if (seg === 'config/giving-impact' && method === 'PUT') {
+  let b = {}; try { b = await req.json(); } catch {}
+  const list = Array.isArray(b.statements) ? b.statements : [];
+  const cleaned = list
+    .map(s => ({
+      monthly_cents: Math.max(0, Math.round(Number(s?.monthly_cents) || 0)),
+      label: String(s?.label || '').trim().slice(0, 200),
+    }))
+    .filter(s => s.monthly_cents > 0 && s.label)
+    .slice(0, 50);
+  await db.prepare("INSERT INTO chms_config(key,value) VALUES('giving_impact_statements_json',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+    .bind(JSON.stringify(cleaned)).run();
+  return json({ ok: true, statements: cleaned });
 }
 
 // ── Letterhead logo — shown at the top of giving letters (view/email/preview) in place of
@@ -1067,7 +1125,7 @@ if (seg.startsWith('export/') && method === 'GET') {
 // the same account already configured for the newsletter/contact sync (BREVO_API_KEY).
 if (seg === 'giving/send-statement' && method === 'POST') {
   let b = {}; try { b = await req.json(); } catch {}
-  const { to_email, to_name, subject, html_body, person_id, year, letter_type } = b;
+  const { to_email, to_name, subject, html_body, person_id, year, letter_type, household_id, recipient_key } = b;
   if (!to_email || !html_body) return json({ error: 'to_email and html_body required' }, 400);
   const fromNameRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_from_name'").first();
   const fromEmailRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_from_email'").first();
@@ -1081,7 +1139,18 @@ if (seg === 'giving/send-statement' && method === 'POST') {
   // Record the send for batch resume/dedup — a manual single send still always goes through
   // above regardless of any prior record; this just logs it (or refreshes sent_at on a
   // deliberate resend) so a later batch run knows this person/year/letter is already covered.
-  if (person_id && year && letter_type) {
+  // The Letters workspace (GIV-R2) passes recipient_key — record on the stable per-recipient
+  // identity (email channel) so its status view and resume logic see this send. Older callers
+  // pass only person_id/year/letter_type — keep the legacy per-person record for them.
+  if (recipient_key && year && letter_type) {
+    await db.prepare(
+      `INSERT INTO giving_letter_sends(person_id, household_id, year, letter_type, channel, recipient_key, sent_at)
+       VALUES(?,?,?,?,'email',?,datetime('now'))
+       ON CONFLICT(recipient_key, year, letter_type, channel) WHERE recipient_key IS NOT NULL
+       DO UPDATE SET sent_at=excluded.sent_at, person_id=excluded.person_id, household_id=excluded.household_id`
+    ).bind(person_id ? parseInt(person_id) : 0, household_id ? parseInt(household_id) : null,
+           Number(year), letter_type, recipient_key).run().catch(() => {});
+  } else if (person_id && year && letter_type) {
     await db.prepare(
       `INSERT INTO giving_letter_sends(person_id, year, letter_type, sent_at) VALUES(?,?,?,datetime('now'))
        ON CONFLICT(person_id, year, letter_type) DO UPDATE SET sent_at=excluded.sent_at`
@@ -2899,14 +2968,26 @@ if (seg === 'import/breeze' && method === 'POST') { try {
     const rows = (await db.prepare(`SELECT id, breeze_id FROM people WHERE breeze_id IN (${ph})`).bind(...chunk).all()).results || [];
     for (const r of rows) existingPersonIdByBreezeId[r.breeze_id] = r.id;
   }
+  // Envelope-number sync exception to the add-only policy (GIV-R4/B): envelope numbers
+  // are reassigned yearly in Breeze, so this ONE field is allowed to update an existing
+  // linked person. Collected here, applied (with prior-number history) after the loop.
+  const envelopeUpdates = [];
   for (const p of people) {
     try {
       // ADD-ONLY POLICY (2026-07-27): Connect is the source of truth for all
       // people data — only giving syncs from Breeze. A person already linked to
       // Breeze is never modified by this sync; we skip them entirely so nothing
       // (name, contact, member type, household, photo, dates) is overwritten.
-      // Only brand-new Breeze people are inserted below.
-      if (existingPersonIdByBreezeId[String(p.id)]) { seenBreezeIds.add(String(p.id)); skipped++; continue; }
+      // Only brand-new Breeze people are inserted below. EXCEPTION: envelope_number
+      // (see the post-loop pass) — reassigned yearly, so it's synced for the linked too.
+      if (existingPersonIdByBreezeId[String(p.id)]) {
+        seenBreezeIds.add(String(p.id));
+        if (F_ENVELOPE) {
+          const newEnv = String(extractName((p.details || {})[F_ENVELOPE]) || '').trim();
+          if (newEnv) envelopeUpdates.push({ id: existingPersonIdByBreezeId[String(p.id)], number: newEnv });
+        }
+        skipped++; continue;
+      }
       const fn = (p.first_name || '').trim();
       const ln = (p.last_name  || '').trim();
       const details = p.details || {};
@@ -3084,6 +3165,32 @@ if (seg === 'import/breeze' && method === 'POST') { try {
     } catch (e) { errors.push({ breeze_id: p.id, error: e.message }); }
   }
   const done = people.length < limit;
+  // Envelope-only update pass for existing linked people (add-only exception, GIV-R4/B):
+  // when Breeze's envelope number differs from the stored one, set the new number and push
+  // the old one into envelope_history so an old envelope still resolves to this person.
+  let envelopesUpdated = 0;
+  if (envelopeUpdates.length) {
+    const byId = new Map();
+    for (const u of envelopeUpdates) byId.set(u.id, u.number); // last write per person wins
+    const ids = [...byId.keys()];
+    const stmts = [];
+    for (let i = 0; i < ids.length; i += 90) {
+      const chunk = ids.slice(i, i + 90);
+      const ph = chunk.map(() => '?').join(',');
+      const cur = (await db.prepare(
+        `SELECT id, envelope_number, envelope_history FROM people WHERE id IN (${ph})`
+      ).bind(...chunk).all()).results || [];
+      for (const row of cur) {
+        const newNum = byId.get(row.id);
+        const oldNum = String(row.envelope_number || '').trim();
+        if (newNum === oldNum) continue; // unchanged — nothing to archive
+        const hist = archiveEnvelope(row.envelope_history, oldNum);
+        stmts.push(db.prepare('UPDATE people SET envelope_number=?, envelope_history=? WHERE id=?').bind(newNum, hist, row.id));
+        envelopesUpdated++;
+      }
+    }
+    if (stmts.length) await db.batch(stmts);
+  }
   // Defensive: ensure no row in this batch left a capitalized member_type behind.
   await db.prepare("UPDATE people SET member_type=LOWER(member_type) WHERE member_type != LOWER(member_type)").run().catch(() => {});
   // Persist newly-seen Breeze statuses
@@ -3105,7 +3212,7 @@ if (seg === 'import/breeze' && method === 'POST') { try {
   let anniversaryPropagated = 0;
   // Tag sync removed from people import — it times out the Worker when run inline.
   // The frontend auto-triggers runBreezeTagSync() after the final people batch.
-  return json({ ok: true, imported, updated, skipped, deactivated, anniversaryPropagated, errors, done, next_offset: offset + people.length, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, dob_field: F_DOB_FIELD ? {id: F_DOB_FIELD.id, name: F_DOB_FIELD.name} : null, baptism_field: F_BAPTISM_FIELD ? {id: F_BAPTISM_FIELD.id, name: F_BAPTISM_FIELD.name} : null, confirmation_field: F_CONFIRM_FIELD ? {id: F_CONFIRM_FIELD.id, name: F_CONFIRM_FIELD.name} : null, deceased_field: F_DECEASED_FIELD ? {id: F_DECEASED_FIELD.id, name: F_DECEASED_FIELD.name} : null, death_date_field: F_DEATH_FIELD ? {id: F_DEATH_FIELD.id, name: F_DEATH_FIELD.name} : null, envelope_field: F_ENVELOPE_FIELD ? {id: F_ENVELOPE_FIELD.id, name: F_ENVELOPE_FIELD.name} : null, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
+  return json({ ok: true, imported, updated, skipped, envelopes_updated: envelopesUpdated, deactivated, anniversaryPropagated, errors, done, next_offset: offset + people.length, status_field: F_STATUS_FIELD ? { id: F_STATUS_FIELD.id, name: F_STATUS_FIELD.name } : null, statuses_seen: [...statusesSeen], _diag: offset === 0 ? { status_field_id: F_STATUS, dob_field: F_DOB_FIELD ? {id: F_DOB_FIELD.id, name: F_DOB_FIELD.name} : null, baptism_field: F_BAPTISM_FIELD ? {id: F_BAPTISM_FIELD.id, name: F_BAPTISM_FIELD.name} : null, confirmation_field: F_CONFIRM_FIELD ? {id: F_CONFIRM_FIELD.id, name: F_CONFIRM_FIELD.name} : null, deceased_field: F_DECEASED_FIELD ? {id: F_DECEASED_FIELD.id, name: F_DECEASED_FIELD.name} : null, death_date_field: F_DEATH_FIELD ? {id: F_DEATH_FIELD.id, name: F_DEATH_FIELD.name} : null, envelope_field: F_ENVELOPE_FIELD ? {id: F_ENVELOPE_FIELD.id, name: F_ENVELOPE_FIELD.name} : null, sample_detail_keys: sampleDetailKeys, sample_status_raw: sampleStatusRaw, sample_detail_entries: sampleDetailEntries, sample_top_level_keys: sampleTopLevelKeys, all_profile_fields: allFields.map(f=>({id:String(f.id),name:f.name})) } : undefined });
 } catch (importErr) {
   return json({ ok: false, error: 'Bulk import error: ' + importErr.message, _stack: (importErr.stack||'').slice(0, 500) }, 500);
 } }

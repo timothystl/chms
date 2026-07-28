@@ -1,7 +1,7 @@
 // ── People, Follow-up, Archive, Brevo Sync, Photos API handlers ────────────
 import { json, hashPassword } from './auth.js';
 import { brevoUpsertContact, brevoBulkSync, brevoGetListContacts, brevoContactStatus, brevoRemoveFromList } from './api-emails.js';
-import { disambiguateHHName, normalizePhone, randHex, escLite, authCardPage } from './api-utils.js';
+import { disambiguateHHName, normalizePhone, randHex, escLite, authCardPage, archiveEnvelope } from './api-utils.js';
 import { makeBreezeClient } from './breeze.js';
 
 // ── Member-directory view (Connect) ───────────────────────────────────────────
@@ -9,6 +9,18 @@ import { makeBreezeClient } from './breeze.js';
 // person's record — a future new `people` column defaults to NOT being exposed to
 // members until someone deliberately adds it here. Strips staff-only fields (notes,
 // tags, breeze_id, etc.) entirely and respects each person's own dir_hide_* opt-outs.
+// Retain a person's prior envelope number when it changes, from any edit path (manual
+// or sync). Returns the envelope_history JSON to store: archives the old number if the
+// new one differs and the old was non-empty, else leaves history untouched. (GIV-R4/B —
+// Connect keeps the full history, not just Breeze-driven changes.)
+function envelopeHistoryOnChange(oldPerson, newNumber) {
+  const oldNum = String((oldPerson && oldPerson.envelope_number) || '').trim();
+  const newNum = String(newNumber || '').trim();
+  const hist = (oldPerson && oldPerson.envelope_history) || '[]';
+  if (newNum === oldNum || !oldNum) return hist;
+  return archiveEnvelope(hist, oldNum);
+}
+
 function memberSafeView(p, householdDisplayName) {
   return {
     id: p.id,
@@ -240,8 +252,10 @@ if (seg === 'people' && method === 'GET') {
   // still be NULL) get silently dropped from totals, causing membership
   // counts to disagree with reports.
   const binds = [];
-  const searchClause = q ? ` AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.preferred_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ?)` : '';
-  if (q) binds.push(like, like, like, like, like);
+  // Envelope search: match the current number and any prior number (envelope_history is a
+  // JSON array of strings, so a LIKE on the raw JSON finds an old envelope too).
+  const searchClause = q ? ` AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.preferred_name LIKE ? OR p.email LIKE ? OR p.phone LIKE ? OR p.envelope_number LIKE ? OR p.envelope_history LIKE ?)` : '';
+  if (q) binds.push(like, like, like, like, like, like, like);
   if (archivedView) {
     where = `p.status IN ('archived','deceased') AND LOWER(p.member_type) != 'organization'` + searchClause;
   } else {
@@ -570,11 +584,13 @@ if (pmatch) {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     // Capture old values for audit log
     const oldPerson = await db.prepare('SELECT * FROM people WHERE id=?').bind(pid).first();
+    // Envelope-number history: retain the prior number whenever it changes (GIV-R4/B).
+    const envHist = envelopeHistoryOnChange(oldPerson, b.envelope_number || '');
     await db.prepare(
       `UPDATE people SET first_name=?,last_name=?,middle_name=?,preferred_name=?,email=?,phone=?,address1=?,address2=?,
        city=?,state=?,zip=?,member_type=?,dob=?,baptism_date=?,confirmation_date=?,
        anniversary_date=?,death_date=?,deceased=?,household_id=?,family_role=?,photo_url=?,notes=?,
-       public_directory=?,envelope_number=?,last_seen_date=?,gender=?,marital_status=?,
+       public_directory=?,envelope_number=?,envelope_history=?,last_seen_date=?,gender=?,marital_status=?,
        dir_hide_address=?,dir_hide_phone=?,dir_hide_email=?,dir_hide_dob=?,dir_hide_anniversary=?,
        baptized=?,confirmed=?,sms_opt_in=?,locally_edited=1 WHERE id=?`
     ).bind(b.first_name||'',b.last_name||'',b.middle_name||'',b.preferred_name||'',b.email||'',normalizePhone(b.phone||''),
@@ -583,7 +599,7 @@ if (pmatch) {
            b.confirmation_date||'',b.anniversary_date||'',b.death_date||'',b.deceased?1:0,
            b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',
            b.public_directory!=null?(b.public_directory?1:0):1,
-           b.envelope_number||'',b.last_seen_date||'',b.gender||'',b.marital_status||'',
+           b.envelope_number||'',envHist,b.last_seen_date||'',b.gender||'',b.marital_status||'',
            b.dir_hide_address?1:0, b.dir_hide_phone?1:0, b.dir_hide_email?1:0,
            b.dir_hide_dob?1:0, b.dir_hide_anniversary?1:0,
            b.baptized?1:0, b.confirmed?1:0, b.sms_opt_in?1:0, pid
@@ -675,6 +691,10 @@ if (pmatch) {
       else if (kind === 'bool')      v = v ? 1 : 0;
       else if (kind === 'int_or_null') v = (v === null || v === '' || v === undefined) ? null : parseInt(v);
       sets.push(`${field}=?`); binds.push(v);
+    }
+    // Envelope-number history: when a sparse edit changes the number, retain the old one.
+    if ('envelope_number' in b) {
+      sets.push('envelope_history=?'); binds.push(envelopeHistoryOnChange(oldPerson, b.envelope_number));
     }
     if (sets.length) {
       sets.push('locally_edited=1');

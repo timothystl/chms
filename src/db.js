@@ -124,6 +124,25 @@ export const DB_INIT = [
     notes        TEXT    NOT NULL DEFAULT '',
     created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
   )`,
+  // Native giving system, Phase 1: deposit-centered reconciliation (migration 0031).
+  `CREATE TABLE IF NOT EXISTS giving_deposits (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    deposit_date  TEXT    NOT NULL DEFAULT '',
+    source        TEXT    NOT NULL DEFAULT '',
+    processor     TEXT    NOT NULL DEFAULT '',
+    external_ref  TEXT    NOT NULL DEFAULT '',
+    bank_cents    INTEGER,
+    status        TEXT    NOT NULL DEFAULT 'open',
+    reconciled_at TEXT,
+    reconciled_by TEXT    NOT NULL DEFAULT '',
+    notes         TEXT    NOT NULL DEFAULT '',
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_deposits_status ON giving_deposits(status, deposit_date)`,
+  // NOTE: the giving_entries ALTER COLUMN statements + idx_entries_deposit for the deposit
+  // system live in the `migrations` array below (they are NOT idempotent — an ALTER ADD COLUMN
+  // that has already run throws "duplicate column name", which the migrations loop catches but
+  // DB_INIT does not).
   `CREATE INDEX IF NOT EXISTS idx_people_household ON people(household_id)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_people_breeze ON people(breeze_id) WHERE breeze_id != ''`,
   `CREATE INDEX IF NOT EXISTS idx_people_name ON people(last_name, first_name)`,
@@ -1207,6 +1226,9 @@ async function _doInitDb(db) {
     'ALTER TABLE church_register ADD COLUMN pdf_page TEXT NOT NULL DEFAULT ""',
     // people: giving envelope number (assigned per-person or per-couple)
     'ALTER TABLE people ADD COLUMN envelope_number TEXT NOT NULL DEFAULT ""',
+    // people: prior envelope numbers, JSON array (GIV-R4/B, migration 0030) — old
+    // envelopes stay in circulation after a yearly reassignment.
+    'ALTER TABLE people ADD COLUMN envelope_history TEXT NOT NULL DEFAULT \'[]\'',
     // people: last-seen date for pastoral tracking
     'ALTER TABLE people ADD COLUMN last_seen_date TEXT NOT NULL DEFAULT ""',
     // people: gender and marital status (imported from Breeze)
@@ -1550,6 +1572,23 @@ async function _doInitDb(db) {
       sent_at     TEXT    NOT NULL DEFAULT (datetime('now')),
       UNIQUE(person_id, year, letter_type)
     )`,
+    // Letters & Statements workspace (GIV-R2, see migrations/0029_giving_letters_workspace.sql):
+    // household-scoped sends, print channel, and a stable per-recipient dedup identity.
+    'ALTER TABLE giving_letter_sends ADD COLUMN household_id INTEGER',
+    "ALTER TABLE giving_letter_sends ADD COLUMN channel TEXT NOT NULL DEFAULT 'email'",
+    'ALTER TABLE giving_letter_sends ADD COLUMN recipient_key TEXT',
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_gls_recipient
+       ON giving_letter_sends(recipient_key, year, letter_type, channel)
+       WHERE recipient_key IS NOT NULL`,
+    // Native giving deposit/reconciliation columns (migration 0031). Kept here, not in DB_INIT,
+    // because ALTER ADD COLUMN throws "duplicate column name" on re-run and only this loop catches it.
+    'ALTER TABLE giving_entries ADD COLUMN deposit_id INTEGER',
+    "ALTER TABLE giving_entries ADD COLUMN fee_cents INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE giving_entries ADD COLUMN source TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE giving_entries ADD COLUMN processor TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE giving_entries ADD COLUMN external_txn_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE giving_entries ADD COLUMN reconcile_status TEXT NOT NULL DEFAULT 'recorded'",
+    `CREATE INDEX IF NOT EXISTS idx_entries_deposit ON giving_entries(deposit_id)`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

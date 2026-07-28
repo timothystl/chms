@@ -458,7 +458,17 @@ export function flattenReportTree(rows, pathPrefix, classification, extractAmoun
   for (const row of (rows || [])) {
     if (row.type === 'Section') {
       const label = row.Header?.ColData?.[0]?.value || '';
-      const newClass = classification || label; // a top-level Section IS the classification
+      // A top-level Section IS the classification — but this company's live QuickBooks report
+      // labels its sections "Revenue"/"Expenditures" (not QuickBooks' internal "Income"/
+      // "Expenses"), the same real-world quirk normalizeChurchClassification() already handles
+      // for the Excel-import path (see its own comment above). Without this, live-synced rows'
+      // classification never matches FIN_CHURCH_CLASS_ORDER's keys client-side, so the Income
+      // group silently sorts to the bottom and the Revenue/Earned-Income/Restricted-Income
+      // regrouping (finReorganizeChurchTree) never fires for synced data — reported 2026-07-28
+      // right after CHURCH_SOURCE_PRIORITY started preferring qbo_sync over a hand-imported
+      // file, which is what made the pre-existing gap in this function visible for the first
+      // time (the import path was always normalized; the live-sync path never was).
+      const newClass = classification || normalizeChurchClassification(label);
       const newPath = pathPrefix.concat(label);
       const children = row.Rows?.Row || [];
       const headerCells = row.Header?.ColData;
@@ -1087,11 +1097,16 @@ export async function persistChurchEntriesImport(db, rows, fiscalYear, importedA
 // published schema but could not be confirmed against a live response while building this (docs
 // site blocked automated fetches) — if this returns no usable data, check the real shape of a
 // `SELECT * FROM Budget` response against what's read below and adjust field names accordingly.
-async function mergeCurrentYearBudgetAndActual(client, year, warnings) {
+async function mergeCurrentYearBudgetAndActual(client, year, warnings, preferredBudgetId) {
   const budgetsData = await fetchQboJson('Budget entity', client.budgets(), warnings);
   if (!budgetsData) return null;
   const budgetList = budgetsData?.QueryResponse?.Budget || [];
-  const budget = budgetList.find(b => (b.StartDate || '').startsWith(String(year))) || budgetList[0];
+  // A company can have more than one Budget object (e.g. a leftover test budget alongside the
+  // real one) — an admin-selected preferredBudgetId always wins; otherwise fall back to the
+  // best year-match guess, then the first budget found. See GET/PATCH finance/qb/budgets below
+  // for the picker UI this threads through from.
+  const budget = (preferredBudgetId && budgetList.find(b => b.Id === preferredBudgetId))
+    || budgetList.find(b => (b.StartDate || '').startsWith(String(year))) || budgetList[0];
   if (!budget) { warnings.push(`Budget entity: no Budget found for ${year}`); return null; }
 
   const plData = await fetchQboJson(
@@ -1132,8 +1147,8 @@ async function mergeCurrentYearBudgetAndActual(client, year, warnings) {
 // Admin access) but entity-level/other-report access still works. Wraps
 // mergeCurrentYearBudgetAndActual()'s merged tree in the same Columns/Rows report shape the
 // frontend already renders generically, so no frontend changes are needed to display it.
-async function buildBudgetVsActualFallback(client, year, warnings) {
-  const merged = await mergeCurrentYearBudgetAndActual(client, year, warnings);
+async function buildBudgetVsActualFallback(client, year, warnings, preferredBudgetId) {
+  const merged = await mergeCurrentYearBudgetAndActual(client, year, warnings, preferredBudgetId);
   if (!merged) return null;
   return {
     Columns: { Column: [{ ColTitle: 'Account' }, { ColTitle: 'Actual' }, { ColTitle: 'Budget' }, { ColTitle: 'Over Budget By' }] },
@@ -1171,16 +1186,20 @@ async function fetchQboJson(label, resPromise, warnings, hint) {
 }
 
 // Given all finance_church_entries rows for a set of years (any source), resolves per-year
-// source precedence: a year with any 'import' or 'manual' row uses ONLY those rows (an import is
-// always a deliberate override/backfill — see migrations/0018_finance_church_entries.sql); a
-// year with only 'qbo_sync' rows uses those. One bulk query + JS grouping, not a correlated
-// subquery per year, matching this app's existing performance conventions.
-// Highest to lowest priority. 'import' (a hand-uploaded Excel export) always wins over a live
-// QBO sync, same as before this list existed. 'plan_committed' (a forward Budget Planning
-// projection committed to a future year — see FIN12) is deliberately LOWEST priority: it's a
-// placeholder for a year with no real data yet, and must get out of the way the moment either a
-// live sync or a real import exists for that year, rather than permanently overriding them.
-const CHURCH_SOURCE_PRIORITY = ['import', 'qbo_sync', 'plan_committed'];
+// source precedence: a year with any 'qbo_sync' row uses ONLY those rows — once the live
+// QuickBooks connection works, it's the authority (per user decision 2026-07-28: sync should
+// supersede a file import, not be permanently shadowed by one, since a mid-year import used as
+// a stopgap shouldn't outlive the live connection it was covering for). A year with no sync
+// rows falls back to 'import' (a hand-uploaded Excel export) — useful for years QuickBooks
+// wasn't connected for yet, or before this app tracked live data at all. Rows for a superseded
+// source are never deleted (still visible via the Import UI / audit trail), just deprioritized
+// at read time — an import is never silently lost, only shadowed. One bulk query + JS grouping,
+// not a correlated subquery per year, matching this app's existing performance conventions.
+// Highest to lowest priority. 'plan_committed' (a forward Budget Planning projection committed
+// to a future year — see FIN12) is deliberately LOWEST priority: it's a placeholder for a year
+// with no real data yet, and must get out of the way the moment either a live sync or a real
+// import exists for that year, rather than permanently overriding them.
+const CHURCH_SOURCE_PRIORITY = ['qbo_sync', 'import', 'plan_committed'];
 export function resolveChurchYearPrecedence(rows) {
   const byYear = new Map();
   for (const r of rows) {
@@ -1702,6 +1721,36 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ ok: true });
   }
 
+  // ── List every Budget object in the connected company, so an admin can pick which one to
+  // use instead of the sync silently guessing (relevant when a company has more than one — e.g.
+  // a leftover test budget alongside the real one). Also returns the currently-selected id.
+  if (seg === 'finance/qb/budgets' && method === 'GET') {
+    const conn = await getConnection(db);
+    if (!conn || !conn.realm_id) return json({ error: 'QuickBooks is not connected yet.' }, 400);
+    let fresh;
+    try { fresh = await ensureFreshAccessToken(env, db, conn); }
+    catch (e) { return json({ error: 'QuickBooks re-authentication failed — try disconnecting and reconnecting. (' + e.message + ')' }, 502); }
+    const client = makeQboClient(env, fresh);
+    const warnings = [];
+    const budgetsData = await fetchQboJson('Budget entity', client.budgets(), warnings);
+    const budgetList = (budgetsData?.QueryResponse?.Budget || []).map(b => ({
+      id: b.Id, name: b.Name || '(unnamed budget)', startDate: b.StartDate, endDate: b.EndDate,
+      entryType: b.BudgetEntryType, active: !!b.Active,
+    }));
+    const selectedRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_qb_selected_budget_id'").first();
+    return json({ budgets: budgetList, selectedBudgetId: selectedRow?.value || null, warnings });
+  }
+  if (seg === 'finance/qb/budgets' && method === 'PATCH') {
+    if (!isAdmin) return json({ error: 'Access denied: selecting the QuickBooks budget requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const id = (b.budget_id == null || b.budget_id === '') ? null : String(b.budget_id);
+    if (id === null) await db.prepare("DELETE FROM chms_config WHERE key='finance_qb_selected_budget_id'").run();
+    else await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_qb_selected_budget_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(id).run();
+    return json({ ok: true });
+  }
+
   // ── Sync: pull Budget vs Actual + account balances, cache them ────────
   if (seg === 'finance/qb/sync' && method === 'POST') {
     const conn = await getConnection(db);
@@ -1712,27 +1761,42 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const client = makeQboClient(env, fresh);
     const year = new Date().getFullYear();
     const warnings = [];
+    const preferredBudgetRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_qb_selected_budget_id'").first();
+    const preferredBudgetId = preferredBudgetRow?.value || null;
 
     // Built once via our own trusted merge pipeline (known, tested Columns shape) — used both
     // to persist finance_church_entries below (always) and as the Overview tab's fallback
     // display when QuickBooks' own BudgetVsActual report call fails. Never flatten the real
     // budgetVsActual report itself into finance_church_entries: its exact column layout isn't
     // guaranteed to match this function's known 4-column shape.
-    const currentYearMerge = await mergeCurrentYearBudgetAndActual(client, year, warnings);
+    const currentYearMerge = await mergeCurrentYearBudgetAndActual(client, year, warnings, preferredBudgetId);
 
-    let budgetVsActual = await fetchQboJson(
-      'Budget vs Actual',
+    // The native BudgetVsActuals report is a confirmed-undocumented, Intuit-unsupported
+    // endpoint (see FIN2 in CLAUDE.md) — it spent months returning a "5020 Permission Denied"
+    // error, and once the endpoint-name bug was fixed (2026-07-28) it started responding but
+    // with numbers that don't hold up (e.g. an "Actual" many times larger than its own "Budget"
+    // for the same account, consistent with the report not honoring start_date/end_date and
+    // instead summing since the QuickBooks company's inception rather than just this fiscal
+    // year). Still called here — a genuine failure is worth surfacing as a warning — but its
+    // Rows/Columns are deliberately never shown to the user; the always-trusted reconstruction
+    // below (Budget entity + a date-scoped ProfitAndLoss report, both confirmed to respect
+    // start_date/end_date correctly) is the only thing ever rendered.
+    const nativeBudgetVsActual = await fetchQboJson(
+      'Budget vs Actual (native report)',
       client.budgetVsActual({ start_date: `${year}-01-01`, end_date: `${year}-12-31` }),
       warnings,
       `make sure a Budget for ${year} exists in QuickBooks under Settings > Budgeting`
     );
-    if (!budgetVsActual && currentYearMerge) {
+    if (nativeBudgetVsActual) warnings.push('Budget vs Actual: QuickBooks\' native report responded, but its figures are not used — see the reconstructed report below instead (the native report is unsupported by Intuit and has returned unreliable totals).');
+    let budgetVsActual = null;
+    if (currentYearMerge) {
       budgetVsActual = {
         Columns: { Column: [{ ColTitle: 'Account' }, { ColTitle: 'Actual' }, { ColTitle: 'Budget' }, { ColTitle: 'Over Budget By' }] },
         Rows: { Row: currentYearMerge.rows },
         _synthesized: true,
       };
-      warnings.push('Budget vs Actual: showing data reconstructed from the raw Budget entity + Profit and Loss report instead, since the standard report endpoint failed above.');
+    } else if (!nativeBudgetVsActual) {
+      warnings.push('Budget vs Actual: could not build any Budget vs Actual data this sync — both the native report and the Budget-entity reconstruction failed.');
     }
     const accounts = await fetchQboJson('Account balances', client.accounts(), warnings);
     // Board-level "Church Report": one P&L column per calendar year over a 5-year trailing

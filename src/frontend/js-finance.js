@@ -406,8 +406,39 @@ function finRenderConnection() {
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
     + '<button class="btn-primary" onclick="finSync(this)">Sync Now</button>'
     + (isAdminUI ? '<button class="btn-secondary" onclick="finDisconnect()">Disconnect</button>' : '')
+    + (isAdminUI ? '<button class="btn-secondary" onclick="finLoadBudgetPicker(this)">Choose Budget…</button>' : '')
     + '</div>'
+    + '<div id="fin-budget-picker" style="margin-top:10px;"></div>'
     + '<div id="fin-sync-msg" style="font-size:.78rem;margin-top:8px;"></div>';
+}
+// A company can have more than one Budget object in QuickBooks (e.g. a leftover test budget
+// alongside the real one) — the sync otherwise guesses (best year-match, else the first found).
+// This lets an admin see every budget QuickBooks actually has and pin the right one explicitly.
+function finLoadBudgetPicker(btn) {
+  var el = document.getElementById('fin-budget-picker');
+  el.innerHTML = '<p style="font-size:.8rem;color:var(--warm-gray);">Loading budgets…</p>';
+  api('/admin/api/finance/qb/budgets').then(function(d) {
+    if (!d || d.error) { el.innerHTML = '<p style="font-size:.8rem;color:var(--danger);">' + esc((d && d.error) || 'Could not load budgets.') + '</p>'; return; }
+    if (!d.budgets || !d.budgets.length) { el.innerHTML = '<p style="font-size:.8rem;color:var(--warm-gray);">No Budget objects found in QuickBooks. Create one under Settings &gt; Budgeting.</p>'; return; }
+    var opts = d.budgets.map(function(b) {
+      var label = b.name + ' (' + (b.startDate || '?') + ' – ' + (b.endDate || '?') + ')' + (b.active ? '' : ' [inactive]');
+      var sel = (String(d.selectedBudgetId || '') === String(b.id)) ? ' selected' : '';
+      return '<option value="' + esc(b.id) + '"' + sel + '>' + esc(label) + '</option>';
+    }).join('');
+    el.innerHTML = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+      + '<select id="fin-budget-select" style="max-width:340px;"><option value="">Auto (best year match)</option>' + opts + '</select>'
+      + '<button class="btn-primary" onclick="finSaveBudgetChoice()">Save &amp; Re-sync</button>'
+      + '</div>';
+  });
+}
+function finSaveBudgetChoice() {
+  var sel = document.getElementById('fin-budget-select');
+  var id = sel ? sel.value : '';
+  api('/admin/api/finance/qb/budgets', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ budget_id: id || null }) }).then(function(d) {
+    if (d && d.error) { finToast('Could not save: ' + d.error); return; }
+    finToast('Budget selection saved. Syncing…');
+    finSync();
+  });
 }
 function finFmtTs(iso) {
   try { return new Date(iso).toLocaleString('en-US', {dateStyle: 'medium', timeStyle: 'short'}); }
@@ -474,11 +505,21 @@ function finRenderReportRows(rows, depth) {
   });
   return html;
 }
+// Adds thousands separators to a report cell's raw QuickBooks value without disturbing
+// anything that isn't a plain number — a trailing "%" (e.g. "882.44 %") is left as-is, and
+// non-numeric text (account names) passes through unchanged.
+function finFmtReportCellValue(raw) {
+  var v = raw == null ? '' : String(raw);
+  if (!v || /%\s*$/.test(v)) return v;
+  if (!/^-?\d+(\.\d+)?$/.test(v.trim())) return v;
+  return finFmtMoney(v);
+}
 function finRenderReportRow(cells, depth, bold) {
   var tds = cells.map(function(c, i) {
     var align = i === 0 ? 'left' : 'right';
     var leftPad = 10 + depth * 16;
-    return '<td style="text-align:' + align + ';padding:5px 8px 5px ' + (i === 0 ? leftPad : 8) + 'px;">' + esc(c.value || '') + '</td>';
+    var text = i === 0 ? (c.value || '') : finFmtReportCellValue(c.value);
+    return '<td style="text-align:' + align + ';padding:5px 8px 5px ' + (i === 0 ? leftPad : 8) + 'px;">' + esc(text) + '</td>';
   }).join('');
   return '<tr' + (bold ? ' style="font-weight:600;border-top:1px solid var(--navy);"' : '') + '>' + tds + '</tr>';
 }
@@ -1472,11 +1513,15 @@ function finRenderChurchThisYear(d) {
   el.innerHTML = html;
 }
 
-function finLoadChurchMultiYear() {
+// The server defaults to a rolling 5-year window (currentYear-4..currentYear) when no years
+// param is given — an older import (e.g. 2018) saves fine but is otherwise never visible on any
+// screen, since nothing ever asks for it. This picker lets an admin explicitly widen the range.
+function finLoadChurchMultiYear(explicitYears) {
   var el = document.getElementById('fin-church-multiyear-view');
   if (!el) return;
   el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
-  api('/admin/api/finance/church/multi-year').then(function(d) {
+  var url = '/admin/api/finance/church/multi-year' + (explicitYears ? '?years=' + explicitYears.join(',') : '');
+  api(url).then(function(d) {
     _finChurchMultiYearData = d;
     finRenderChurchMultiYear(d);
   }).catch(function(err) {
@@ -1484,13 +1529,32 @@ function finLoadChurchMultiYear() {
     el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load multi-year church data.</p>';
   });
 }
+function finChurchMultiYearLoadRange() {
+  var fromEl = document.getElementById('fin-church-my-from');
+  var toEl = document.getElementById('fin-church-my-to');
+  var from = parseInt(fromEl && fromEl.value, 10);
+  var to = parseInt(toEl && toEl.value, 10);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) { finToast('Enter a valid From/To year range.'); return; }
+  if (to - from > 20) { finToast('Please request 20 years or fewer at a time.'); return; }
+  var years = [];
+  for (var y = from; y <= to; y++) years.push(y);
+  finLoadChurchMultiYear(years);
+}
 function finRenderChurchMultiYear(d) {
   var el = document.getElementById('fin-church-multiyear-view');
   if (!el) return;
   var years = d.years || [];
+  var curYear = new Date().getFullYear();
+  var rangeFrom = years.length ? years[0] : (curYear - 4);
+  var rangeTo = years.length ? years[years.length - 1] : curYear;
+  var rangePicker = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;font-size:.8rem;">'
+    + '<label>From <input type="number" id="fin-church-my-from" value="' + rangeFrom + '" style="width:80px;"></label>'
+    + '<label>To <input type="number" id="fin-church-my-to" value="' + rangeTo + '" style="width:80px;"></label>'
+    + '<button class="btn-secondary" style="padding:3px 10px;font-size:.78rem;" onclick="finChurchMultiYearLoadRange()">Load Range</button>'
+    + '</div>';
   var anyData = years.some(function(y) { var s = d.byYear[y]; return s && Object.keys(s.classificationTotals).length; });
   if (!anyData) {
-    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No multi-year church data yet. Connect QuickBooks in the Overview tab and click "Sync Now".</p>';
+    el.innerHTML = rangePicker + '<p style="font-size:.85rem;color:var(--warm-gray);">No church data for this range. Connect QuickBooks in the Overview tab and click "Sync Now", or widen the year range above if you\'ve imported older data.</p>';
     return;
   }
   var rowsDef = [{ label: 'Total Revenue', key: 'Income' }, { label: 'Cost of Goods Sold', key: 'Cost of Goods Sold' }, { label: 'Total Expenses', key: 'Expenses' }];
@@ -1553,7 +1617,7 @@ function finRenderChurchMultiYear(d) {
       + tieRow('Daycare Total Expenses', function(y) { return agg.byYear[y] ? agg.byYear[y].expenseActual : null; })
       + '</tbody></table></div>';
   }
-  el.innerHTML = html;
+  el.innerHTML = rangePicker + html;
 }
 // ── Balance Sheet view (point-in-time Assets/Liabilities/Equity) ────────────────────────────
 // A structurally different report from This Year/Multi-Year (no actual-vs-budget split, no
@@ -3037,6 +3101,29 @@ function finRenderPlanning() {
     });
   })(_finPlanBaseTree);
 
+  // "FY{base} Projected" column — the base year's projected YEAR-END total, computed exactly the
+  // way generate-all annualizes it (see api-finance.js): while the base year is still in progress,
+  // each leaf account's actual-to-date is annualized by 12/throughMonth; a complete past year (or a
+  // line with only a budget and no actual) is used as-is. Group rows roll up as the sum of their
+  // leaves, so the annualization factor stays uniform and the column always reconciles to its own
+  // subtotals. Read-only and display-only — nothing is stored (see the auto-compute decision).
+  var _finPlanNow = new Date();
+  var baseThroughMonth = (_finPlanBaseYear === _finPlanNow.getFullYear()) ? (_finPlanNow.getMonth() + 1) : 12;
+  var baseProrated = baseThroughMonth < 12;
+  var baseProjByPath = {};
+  (function computeBaseProj(nodes) {
+    (nodes || []).forEach(function(node) {
+      if (!node.children.length) {
+        var actual = node.totalActualCents || 0;
+        var budget = node.totalBudgetCents || 0;
+        baseProjByPath[node.path] = (actual && baseProrated) ? Math.round(actual * (12 / baseThroughMonth)) : (actual || budget || 0);
+      } else {
+        computeBaseProj(node.children);
+        baseProjByPath[node.path] = node.children.reduce(function(sum, c) { return sum + (baseProjByPath[c.path] || 0); }, 0);
+      }
+    });
+  })(_finPlanBaseTree);
+
   // Δ% — (Projected − FY Budget) / FY Budget, matching the Finance Workspace handoff's Planning
   // column: terracotta when spending is projected to grow more than 4%, green when it's projected
   // to shrink, muted otherwise. No budget to compare against (a brand-new line) renders as "—".
@@ -3062,16 +3149,18 @@ function finRenderPlanning() {
         + '<td style="padding:4px 8px 4px ' + (10 + node.depth * 16) + 'px;">' + esc(node.label) + '</td>'
         + '<td style="text-align:right;padding:4px 8px;">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
         + '<td style="text-align:right;padding:4px 8px;">$' + finFmtMoney(node.totalActualCents/100) + '</td>'
+        + '<td style="text-align:right;padding:4px 8px;color:var(--warm-ink-label);">$' + finFmtMoney((baseProjByPath[node.path] || 0)/100) + '</td>'
         + projectedCell
         + deltaCell(node.totalBudgetCents, projCents)
         + '</tr>');
       walk(node.children);
     });
   }
-  function subtotalRow(label, budgetCents, hasAnyBudget, actualCents, projectedCents) {
+  function subtotalRow(label, budgetCents, hasAnyBudget, actualCents, baseProjectedCents, projectedCents) {
     return '<tr style="font-weight:700;background:var(--warm-surface-page);border-top:1px solid var(--warm-border);"><td style="padding:5px 8px;">' + label + '</td>'
       + (hasAnyBudget ? '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(budgetCents/100) + '</td>' : '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">—</td>')
       + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(actualCents/100) + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(baseProjectedCents/100) + '</td>'
       + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(projectedCents/100) + '</td>'
       + deltaCell(hasAnyBudget ? budgetCents : 0, projectedCents)
       + '</tr>';
@@ -3081,10 +3170,12 @@ function finRenderPlanning() {
   function sumRoots(roots, field) { return roots.reduce(function(sum, n) { return sum + (n[field] || 0); }, 0); }
   var revenueProjectedCents = revenueRoots.reduce(function(sum, n) { return sum + (projectedCentsByPath[n.path] || 0); }, 0);
   var expenseProjectedCents = expenseRoots.reduce(function(sum, n) { return sum + (projectedCentsByPath[n.path] || 0); }, 0);
+  var baseRevenueProjCents = revenueRoots.reduce(function(sum, n) { return sum + (baseProjByPath[n.path] || 0); }, 0);
+  var baseExpenseProjCents = expenseRoots.reduce(function(sum, n) { return sum + (baseProjByPath[n.path] || 0); }, 0);
   walk(revenueRoots);
-  if (revenueRoots.length) rowsHtml.push(subtotalRow('Total Revenue', sumRoots(revenueRoots, 'totalBudgetCents'), revenueRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(revenueRoots, 'totalActualCents'), revenueProjectedCents));
+  if (revenueRoots.length) rowsHtml.push(subtotalRow('Total Revenue', sumRoots(revenueRoots, 'totalBudgetCents'), revenueRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(revenueRoots, 'totalActualCents'), baseRevenueProjCents, revenueProjectedCents));
   walk(expenseRoots);
-  if (expenseRoots.length) rowsHtml.push(subtotalRow('Total Expenses', sumRoots(expenseRoots, 'totalBudgetCents'), expenseRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(expenseRoots, 'totalActualCents'), expenseProjectedCents));
+  if (expenseRoots.length) rowsHtml.push(subtotalRow('Total Expenses', sumRoots(expenseRoots, 'totalBudgetCents'), expenseRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(expenseRoots, 'totalActualCents'), baseExpenseProjCents, expenseProjectedCents));
   var projectedRevenueCents = revenueProjectedCents, projectedExpenseCents = expenseProjectedCents;
   var projectedNetCents = projectedRevenueCents - projectedExpenseCents;
   function netCell(cents) {
@@ -3093,6 +3184,7 @@ function finRenderPlanning() {
   var netRow = '<tr style="font-weight:700;border-top:2px solid var(--navy);"><td style="padding:5px 8px;">Net (Revenue − Expenses)</td>'
     + (_finPlanBaseNet.budgetCents ? netCell(_finPlanBaseNet.budgetCents) : '<td style="padding:5px 8px;text-align:right;color:var(--warm-gray);">—</td>')
     + netCell(_finPlanBaseNet.actualCents)
+    + netCell(baseRevenueProjCents - baseExpenseProjCents)
     + netCell(projectedNetCents)
     + '<td></td>'
     + '</tr>';
@@ -3103,10 +3195,11 @@ function finRenderPlanning() {
     + '<th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Category</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanBaseYear + ' Bud</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanBaseYear + ' Actual</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);"' + (baseProrated ? ' title="Projected year-end total — base-year actuals annualized from ' + baseThroughMonth + ' month(s) of data"' : '') + '>FY' + _finPlanBaseYear + ' Projected</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanTargetYear + ' Plan</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">&Delta;%</th>'
     + '</tr></thead>'
-    + '<tbody>' + (rowsHtml.join('') || '<tr><td colspan="5" style="padding:10px;color:var(--warm-gray);">No Church Budget data found for ' + _finPlanBaseYear + ' — sync or import that year first (Church Report tab).</td></tr>')
+    + '<tbody>' + (rowsHtml.join('') || '<tr><td colspan="6" style="padding:10px;color:var(--warm-gray);">No Church Budget data found for ' + _finPlanBaseYear + ' — sync or import that year first (Church Report tab).</td></tr>')
     + (rowsHtml.length ? netRow : '') + '</tbody></table></div>';
 
   var actionsHtml = isAdminUI
@@ -3677,9 +3770,15 @@ function finRenderSalaryReferenceEditor(isAdminUI) {
   var years = [_finPlanBaseYear, _finPlanTargetYear].filter(function(y, i, arr) { return arr.indexOf(y) === i; });
   var fields = years.map(function(y) {
     var ref = _finSalaryReferenceByYear[y] || {};
-    var baseVal = ref.baseSalaryCents != null ? (ref.baseSalaryCents / 100).toFixed(2) : '';
+    // Deliberately NOT .toFixed(2) here — reformatting the live value on every keystroke (this
+    // whole card re-renders on every oninput) fights the user's typing: the field snaps to
+    // "X.00" after the first digit, so further digits get inserted into an already-reformatted
+    // string instead of appended, scrambling the amount and dropping any cents typed. A plain
+    // number round-trips to the same string the user typed (matches the Benefits Total field's
+    // existing pattern below), so nothing gets rewritten out from under them mid-edit.
+    var baseVal = ref.baseSalaryCents != null ? (ref.baseSalaryCents / 100) : '';
     var baseResolved = finLcmsBaseSalaryCents(y, 0, _finSalaryReferenceByYear);
-    var optOutVal = ref.healthOptOutCents != null ? (ref.healthOptOutCents / 100).toFixed(2) : '';
+    var optOutVal = ref.healthOptOutCents != null ? (ref.healthOptOutCents / 100) : '';
     var optOutResolved = finHealthOptOutCentsFor(y, _finSalaryReferenceByYear);
     return '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
       + '<label style="font-size:.72rem;color:var(--warm-gray);">District Base Salary, FY' + y + (baseVal === '' ? ' <span style="font-weight:400;">(using $' + finFmtMoney(baseResolved.dollars) + ' from FY' + baseResolved.sourceYear + ')</span>' : '') + '<br>$<input type="number" id="fin-salary-ref-base-' + y + '" step="0.01" value="' + baseVal + '" placeholder="' + baseResolved.dollars.toFixed(2) + '" oninput="finSalaryRefBaseChange(' + y + ',this.value)" style="width:100px;"></label>'
@@ -3864,10 +3963,14 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
     + '<tr style="font-weight:700;border-top:2px solid var(--navy);"><td style="padding:5px 6px;">Total Annual Premium</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(calc.totalCents/100) + '</td></tr>'
     + '</table>') : '<p style="font-size:.8rem;color:var(--warm-gray);">Unknown option.</p>';
 
-  // "Is it worth it?" — compared against Renewal (staying in the current plan design) since
-  // that's the do-nothing baseline. Two symmetric cases: a costlier option (does the lower
-  // deductible/OOP-max pay for the extra premium?) and a cheaper option (does the premium
-  // savings outweigh the worse deductible/OOP-max if a claim actually happens?).
+  // "Is it worth it?" — reframed per the user's clarification: the church fully covers Renewal
+  // (Option C) only; a worker who wants a different option pays the premium DIFFERENCE themselves
+  // (e.g. via payroll deduction), so the question is whether it's worth it for THAT WORKER, not a
+  // church-budget decision. The underlying breakeven math is unchanged — a premium difference is
+  // a premium difference regardless of who writes the check — only the framing/copy changed.
+  // Two symmetric cases: a costlier option (does the lower deductible/OOP-max pay the worker back
+  // for the extra premium they're covering?) and a cheaper option (does the premium the worker
+  // pockets outweigh the worse deductible/OOP-max if a claim actually happens?).
   var breakevenHtml = '';
   if (calc && _finHealthPlanSelectedOption !== 'renewal') {
     var baseline = finComputeHealthPlanTotalCents('renewal');
@@ -3897,11 +4000,11 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
         + '<thead><tr><th style="text-align:left;padding:2px 6px;">What the family would actually pay</th><th style="text-align:right;padding:2px 6px;">Renewal</th><th style="text-align:right;padding:2px 6px;">' + esc(selOpt.label) + '</th></tr></thead>'
         + '<tbody>' + actualSpendTableRows + '</tbody></table>';
       breakevenHtml = '<div style="margin-top:10px;padding:8px 10px;background:var(--white);border-radius:6px;font-size:.75rem;color:var(--warm-gray);">'
-        + '<b style="color:var(--charcoal);">Is it worth it?</b> This option costs $' + finFmtMoney(perHouseholdDiffCents/100) + '/yr more per household than staying on Renewal. '
+        + '<b style="color:var(--charcoal);">Is it worth it for the worker?</b> The church fully covers Renewal (Option C); choosing this option instead means the worker personally pays the $' + finFmtMoney(perHouseholdDiffCents/100) + '/yr extra premium (e.g. via payroll deduction) that the church doesn\'t cover. '
         + (breakevenCents != null
-          ? 'If a household\'s medical costs are spread across 2+ family members, the extra premium pays for itself once that household\'s <i>total cost of care for the year</i> (what providers bill in total — not what the family pays out of pocket, which stays capped well below this) reaches about <b>$' + finFmtMoney(breakevenCents/100) + '</b> — below that, the extra premium is a net cost; above it, the lower deductible/out-of-pocket max saves more than the premium costs.'
-          : 'It never fully pays for itself in reduced out-of-pocket costs at any level of care, even spread across the whole family.')
-        + (singleClaimantWorstCaseCents != null ? ' If one family member alone accounts for all the costs (not spread across the family), this option ' + (singleClaimantWorstCaseCents > 0 ? 'never breaks even — it costs up to $' + finFmtMoney(singleClaimantWorstCaseCents/100) + ' more even in a worst-case year' : (singleClaimantWorstCaseCents < 0 ? 'still comes out ahead by up to $' + finFmtMoney(Math.abs(singleClaimantWorstCaseCents)/100) + ' in a worst-case year' : 'comes out exactly even in a worst-case year')) + ', since a lone claimant is held to the same family-size threshold a non-embedded plan uses instead of a smaller individual cap.' : '')
+          ? 'If the worker\'s own household medical costs are spread across 2+ family members, that extra premium pays the worker back once their household\'s <i>total cost of care for the year</i> (what providers bill in total — not what the family pays out of pocket, which stays capped well below this) reaches about <b>$' + finFmtMoney(breakevenCents/100) + '</b> — below that, paying the extra premium is a net cost to the worker; above it, the lower deductible/out-of-pocket max saves the worker more than the premium costs them.'
+          : 'It never fully pays the worker back in reduced out-of-pocket costs at any level of care, even spread across the whole family.')
+        + (singleClaimantWorstCaseCents != null ? ' If one family member alone accounts for all the costs (not spread across the family), paying for this option ' + (singleClaimantWorstCaseCents > 0 ? 'never breaks even for the worker — it costs them up to $' + finFmtMoney(singleClaimantWorstCaseCents/100) + ' more even in a worst-case year' : (singleClaimantWorstCaseCents < 0 ? 'still comes out ahead for the worker by up to $' + finFmtMoney(Math.abs(singleClaimantWorstCaseCents)/100) + ' in a worst-case year' : 'comes out exactly even in a worst-case year')) + ', since a lone claimant is held to the same family-size threshold a non-embedded plan uses instead of a smaller individual cap.' : '')
         + actualSpendTable
         + '</div>';
     } else if (perHouseholdDiffCents < 0) {
@@ -3909,11 +4012,11 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
         + '<thead><tr><th style="text-align:left;padding:2px 6px;">What the family would actually pay</th><th style="text-align:right;padding:2px 6px;">Renewal</th><th style="text-align:right;padding:2px 6px;">' + esc(selOpt.label) + '</th></tr></thead>'
         + '<tbody>' + actualSpendRow('Worst case, costs spread across the family', renewalFamilyWorstCents, selFamilyWorstCents) + actualSpendRow('Worst case, one family member alone', renewalLoneWorstCents, selLoneWorstCents) + '</tbody></table>';
       breakevenHtml = '<div style="margin-top:10px;padding:8px 10px;background:var(--white);border-radius:6px;font-size:.75rem;color:var(--warm-gray);">'
-        + '<b style="color:var(--charcoal);">Is it worth it?</b> This option saves $' + finFmtMoney(Math.abs(perHouseholdDiffCents)/100) + '/yr per household in premium compared to staying on Renewal — guaranteed, whether or not anyone has a claim. '
-        + 'The tradeoff is a higher deductible/out-of-pocket max: in a worst-case year with costs spread across the family, this option could cost up to <b>$' + finFmtMoney(Math.abs(familyWorstCaseCents)/100) + (familyWorstCaseCents > 0 ? ' more' : ' less') + '</b> out-of-pocket than Renewal'
+        + '<b style="color:var(--charcoal);">Is it worth it for the worker?</b> The church fully covers Renewal (Option C); choosing this cheaper option instead would save the worker $' + finFmtMoney(Math.abs(perHouseholdDiffCents)/100) + '/yr in premium — guaranteed, whether or not anyone has a claim. '
+        + 'The tradeoff is a higher deductible/out-of-pocket max: in a worst-case year with costs spread across the family, this option could cost the worker up to <b>$' + finFmtMoney(Math.abs(familyWorstCaseCents)/100) + (familyWorstCaseCents > 0 ? ' more' : ' less') + '</b> out-of-pocket than Renewal'
         + (Math.abs(familyWorstCaseCents) < Math.abs(perHouseholdDiffCents)
-          ? ', which is smaller than the guaranteed premium savings — so even in the worst realistic year, this option comes out ahead overall.'
-          : ', which is larger than the guaranteed premium savings — so a genuinely bad year could cost more overall than staying on Renewal.')
+          ? ', which is smaller than the guaranteed premium savings — so even in the worst realistic year, this option comes out ahead for the worker overall.'
+          : ', which is larger than the guaranteed premium savings — so a genuinely bad year could cost the worker more overall than staying on Renewal.')
         + cheaperSpendTable
         + '</div>';
     }
@@ -3922,12 +4025,18 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
   var expenseLeaves = [];
   (function walk(nodes) { (nodes || []).forEach(function(n) { if (!n.children.length && n.classification !== 'Income') expenseLeaves.push(n); walk(n.children); }); })(_finPlanBaseTree);
   var categoryOptions = expenseLeaves.map(function(n) {
-    var guess = /health|insurance|medical|benefit/i.test(n.label);
+    var guess = /health|medical|dental|vision|disability/i.test(n.label);
     return '<option value="' + esc(n.path) + '"' + (guess && !_finHealthPlanTargetCategory ? ' selected' : (n.path === _finHealthPlanTargetCategory ? ' selected' : '')) + '>' + esc(n.label) + '</option>';
   }).join('');
   // "Pull in last year" — the real FY base-year actual/budget totals across whichever accounts
-  // look like health insurance accounts, same pattern as the Salary Calculator's reference line.
-  var healthAccounts = expenseLeaves.filter(function(n) { return /health|insurance|medical|benefit/i.test(n.label); });
+  // look like EMPLOYEE health/benefits accounts, same pattern as the Salary Calculator's reference
+  // line. Deliberately does NOT match a bare "insurance" or "benefit" — a generic account like
+  // "52040 Insurance" is very likely property/liability coverage, not employee health coverage,
+  // and matching it inflated this reference figure well past the real health-insurance budget
+  // (reported bug: a general Insurance line dragged the shown "budgeted" total up to ~2x the real
+  // per-employee premium cost). Requiring a specific term (health/medical/dental/vision/
+  // disability) still catches "59035 Health Insurance" and "59016 Disability & Accident Insurance".
+  var healthAccounts = expenseLeaves.filter(function(n) { return /health|medical|dental|vision|disability/i.test(n.label); });
   var lastYearHealthActualCents = healthAccounts.reduce(function(sum, n) { return sum + (n.totalActualCents || 0); }, 0);
   var lastYearHealthBudgetCents = healthAccounts.reduce(function(sum, n) { return sum + (n.hasBudgetInfo ? (n.totalBudgetCents || 0) : 0); }, 0);
   var lastYearHealthHtml = healthAccounts.length
@@ -3937,7 +4046,7 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
   return '<div class="fin-card" style="margin-top:16px;">'
     + '<div class="fin-card-title" style="font-size:18px;">Health Insurance Renewal Options <span style="font-family:var(--font-body);font-weight:400;font-size:.72rem;color:var(--warm-gray);">(Concordia Plans quote #0560500326, effective ' + HEALTH_PLAN_QUOTE_2027.effectiveYear + ')</span></div>'
     + lastYearHealthHtml
-    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">One group premium for the whole congregation, not a per-worker figure — Medical varies by plan option; Dental and Vision are the same across Renewal/Option 1/2/3 (only the old Current plan has a lower Dental rate).</p>'
+    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">One group premium for the whole congregation, not a per-worker figure — Medical varies by plan option; Dental and Vision are the same across Renewal/Option 1/2/3 (only the old Current plan has a lower Dental rate). The church fully covers Renewal (Option C); a worker choosing a different option pays the premium difference themselves — see "Is it worth it?" below.</p>'
     + '<label style="font-size:.72rem;color:var(--warm-gray);display:block;margin-bottom:8px;">Plan Option<br>' + optionSelect + '</label>'
     + breakdownHtml
     + breakevenHtml

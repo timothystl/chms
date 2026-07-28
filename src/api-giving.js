@@ -1,6 +1,6 @@
 // ── Giving Entries, Batches, Quick Entry API handlers ──────────────────────
 import { json } from './auth.js';
-import { isoWeekKey } from './api-utils.js';
+import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue, computeDepositTotals } from './api-utils.js';
 
 export async function handleGivingApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -220,6 +220,317 @@ if (seg === 'giving/quick-entry' && method === 'POST') {
   ).bind(batchId, person_id ? parseInt(person_id) : null, parseInt(fund_id),
          amtCents, payMethod || 'cash', check_number || '', notes || '', date).run();
   return json({ ok: true, id: er.meta?.last_row_id, batch_id: batchId });
+}
+
+// ── Letters & Statements workspace (GIV-R2) ──────────────────────────────────
+// Resolves the recipient list for a letter type server-side (no "Load Givers" step) and
+// annotates each recipient with whether it's already been sent on the requested channel,
+// so the workspace can show real per-recipient status and resume an interrupted run.
+if (seg === 'giving/letters/status' && method === 'GET') {
+  const year = parseInt(url.searchParams.get('year')) || new Date().getFullYear();
+  const letterType = url.searchParams.get('letter_type') || 'year_end';
+  const channel = url.searchParams.get('channel') === 'print' ? 'print' : 'email';
+  const cfg = LETTER_TYPES[letterType];
+  if (!cfg) return json({ error: 'Unknown letter_type' }, 400);
+  const scope = url.searchParams.get('scope') || cfg.defaultScope;
+  const empty = { year, letter_type: letterType, channel, scope, recipients: [], counts: { total: 0, sent: 0, unsent: 0, no_email: 0 } };
+  if (scope === 'none') return json(empty);
+
+  let givers = [];
+  if (scope === 'givers' || scope === 'both') {
+    givers = (await db.prepare(
+      `SELECT p.id, p.first_name, p.last_name, p.email, p.household_id, SUM(ge.amount) as total_cents
+       FROM people p
+       JOIN giving_entries ge ON ge.person_id=p.id
+       JOIN giving_batches gb ON ge.batch_id=gb.id
+       WHERE p.active=1
+         AND substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),1,4)=?
+       GROUP BY p.id ORDER BY p.last_name, p.first_name`
+    ).bind(String(year)).all()).results || [];
+  }
+  let households = [];
+  if (scope === 'member_households' || scope === 'both') {
+    households = (await db.prepare(
+      `SELECT h.id, h.name,
+              (SELECT p2.email FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.email != ''
+                 ORDER BY CASE WHEN p2.family_role='head' THEN 0 ELSE 1 END, p2.id LIMIT 1) as recipient_email,
+              (SELECT p2.first_name || ' ' || p2.last_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.email != ''
+                 ORDER BY CASE WHEN p2.family_role='head' THEN 0 ELSE 1 END, p2.id LIMIT 1) as recipient_name,
+              (SELECT p3.id FROM people p3 WHERE p3.household_id=h.id AND p3.active=1 AND p3.email != ''
+                 ORDER BY CASE WHEN p3.family_role='head' THEN 0 ELSE 1 END, p3.id LIMIT 1) as recipient_person_id,
+              COALESCE((SELECT SUM(ge.amount) FROM giving_entries ge
+                          JOIN giving_batches gb ON ge.batch_id=gb.id
+                          JOIN people p4 ON ge.person_id=p4.id
+                         WHERE p4.household_id=h.id
+                           AND substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),1,4)=?), 0) as total_cents
+       FROM households h
+       WHERE EXISTS (SELECT 1 FROM people p WHERE p.household_id=h.id AND p.active=1 AND LOWER(p.member_type)='member')
+       ORDER BY h.name`
+    ).bind(String(year)).all()).results || [];
+  }
+  const sentRows = (await db.prepare(
+    `SELECT recipient_key FROM giving_letter_sends
+      WHERE year=? AND letter_type=? AND channel=? AND recipient_key IS NOT NULL`
+  ).bind(year, letterType, channel).all()).results || [];
+  const sentKeys = new Set(sentRows.map(r => r.recipient_key));
+  const merged = mergeLetterRecipients(givers, households, scope, sentKeys, channel);
+  // Thread the household's resolved recipient person id back onto each household row so the
+  // frontend can render/send its statement without a second lookup.
+  const hhPid = {};
+  for (const h of households) hhPid['h' + h.id] = h.recipient_person_id || null;
+  for (const r of merged.recipients) {
+    if (r.kind === 'household') r.recipient_person_id = hhPid[r.recipient_key] || null;
+  }
+  return json({ year, letter_type: letterType, channel, scope, ...merged });
+}
+
+// Record a letter send/print without emailing (print channel, or marking an emailed letter
+// done from a path that didn't go through giving/send-statement). Idempotent on the
+// (recipient_key, year, letter_type, channel) identity. `unmark:true` removes the record.
+if (seg === 'giving/letters/mark' && method === 'POST') {
+  let b = {}; try { b = await req.json(); } catch {}
+  const { person_id, household_id, year, letter_type, recipient_key, unmark } = b;
+  const channel = b.channel === 'print' ? 'print' : 'email';
+  if (!recipient_key || !year || !letter_type) return json({ error: 'recipient_key, year, letter_type required' }, 400);
+  if (!LETTER_TYPES[letter_type]) return json({ error: 'Unknown letter_type' }, 400);
+  if (unmark) {
+    await db.prepare(
+      `DELETE FROM giving_letter_sends WHERE recipient_key=? AND year=? AND letter_type=? AND channel=?`
+    ).bind(recipient_key, Number(year), letter_type, channel).run();
+    return json({ ok: true, unmarked: true });
+  }
+  await db.prepare(
+    `INSERT INTO giving_letter_sends(person_id, household_id, year, letter_type, channel, recipient_key, sent_at)
+     VALUES(?,?,?,?,?,?,datetime('now'))
+     ON CONFLICT(recipient_key, year, letter_type, channel) WHERE recipient_key IS NOT NULL
+     DO UPDATE SET sent_at=excluded.sent_at, person_id=excluded.person_id, household_id=excluded.household_id`
+  ).bind(person_id ? parseInt(person_id) : 0, household_id ? parseInt(household_id) : null,
+         Number(year), letter_type, channel, recipient_key).run();
+  return json({ ok: true });
+}
+
+// ── Thank-you receipt queue (GIV-R4 / A) ─────────────────────────────────────
+// Donations in a date range that warrant a manual thank-you: any donation >= threshold
+// (default $250) OR a donor's first-ever recorded gift. Donations are grouped per
+// person+date (split-fund gifts summed) so one donation event = one receipt, keyed
+// 'ge<person>:<date>'. Reuses giving/letters/mark + giving/send-statement to send/track.
+if (seg === 'giving/receipts/queue' && method === 'GET') {
+  const now = new Date();
+  const from = url.searchParams.get('from') || (now.toISOString().slice(0, 7) + '-01');
+  const to   = url.searchParams.get('to')   || now.toISOString().slice(0, 10);
+  const thresholdCents = Math.max(0, parseInt(url.searchParams.get('threshold_cents') || '25000', 10) || 25000);
+  const includeFirstGift = url.searchParams.get('first_gift') !== '0';
+  const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
+
+  // Donation events in range (one row per person per day, split funds summed).
+  const rows = (await db.prepare(
+    `SELECT ge.person_id AS person_id,
+            ${effDate} AS gift_date,
+            SUM(ge.amount) AS amount_cents,
+            MAX(p.first_name || ' ' || p.last_name) AS name,
+            MAX(p.email) AS email,
+            MAX(p.household_id) AS household_id,
+            GROUP_CONCAT(DISTINCT f.name) AS funds
+       FROM giving_entries ge
+       JOIN giving_batches gb ON gb.id = ge.batch_id
+       JOIN people p ON p.id = ge.person_id
+       JOIN funds f ON f.id = ge.fund_id
+      WHERE ${effDate} >= ? AND ${effDate} <= ?
+        AND ge.person_id IS NOT NULL
+        AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+      GROUP BY ge.person_id, ${effDate}`
+  ).bind(from, to).all()).results || [];
+
+  // Each candidate donor's earliest-ever gift date (to flag first-time gifts).
+  const firstGiftDateByPerson = {};
+  const pids = [...new Set(rows.map(r => r.person_id).filter(v => v != null))];
+  for (let i = 0; i < pids.length; i += 90) {
+    const chunk = pids.slice(i, i + 90);
+    const ph = chunk.map(() => '?').join(',');
+    const mins = (await db.prepare(
+      `SELECT ge.person_id AS person_id, MIN(${effDate}) AS first_date
+         FROM giving_entries ge JOIN giving_batches gb ON gb.id = ge.batch_id
+        WHERE ge.person_id IN (${ph})
+        GROUP BY ge.person_id`
+    ).bind(...chunk).all()).results || [];
+    for (const m of mins) firstGiftDateByPerson[m.person_id] = m.first_date;
+  }
+
+  // Already-thanked donations (any channel).
+  const sentRows = (await db.prepare(
+    `SELECT recipient_key FROM giving_letter_sends
+      WHERE letter_type='thank_you' AND recipient_key IS NOT NULL`
+  ).all()).results || [];
+  const sentKeys = new Set(sentRows.map(r => r.recipient_key));
+
+  const result = computeReceiptQueue(rows, { thresholdCents, includeFirstGift, firstGiftDateByPerson, sentKeys });
+  return json({ from, to, threshold_cents: thresholdCents, first_gift: includeFirstGift, ...result });
+}
+
+// ── Giving Deposits: deposit-centered reconciliation (native giving Phase 1) ──
+// A deposit groups the gifts that make up one bank deposit. Reconciling it against the bank
+// stamps its gifts complete ("not a complete gift until reconciled with the bank"). Fees are
+// held per gift so a deposit totals to the net that actually hit the bank. Finance-gated;
+// writes already require isFinance (guard at top of this handler).
+
+// List deposits (optionally by status) with live rolled-up totals.
+if (seg === 'giving/deposits' && method === 'GET') {
+  const status = url.searchParams.get('status') || 'all';
+  let where = '';
+  const binds = [];
+  if (status === 'open' || status === 'reconciled') { where = 'WHERE d.status=?'; binds.push(status); }
+  const rows = (await db.prepare(
+    `SELECT d.*,
+            COUNT(ge.id) AS gift_count,
+            COALESCE(SUM(ge.amount),0) AS gross_cents,
+            COALESCE(SUM(ge.fee_cents),0) AS fee_cents,
+            COALESCE(SUM(ge.amount),0) - COALESCE(SUM(ge.fee_cents),0) AS net_cents
+       FROM giving_deposits d
+       LEFT JOIN giving_entries ge ON ge.deposit_id=d.id
+       ${where}
+       GROUP BY d.id
+       ORDER BY d.deposit_date DESC, d.id DESC
+       LIMIT 200`
+  ).bind(...binds).all()).results || [];
+  return json({ deposits: rows });
+}
+
+if (seg === 'giving/deposits' && method === 'POST') {
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const src = ['check', 'cash', 'online', 'mixed'].includes(b.source) ? b.source : '';
+  const r = await db.prepare(
+    `INSERT INTO giving_deposits (deposit_date, source, processor, external_ref, notes)
+     VALUES (?,?,?,?,?)`
+  ).bind(b.deposit_date || '', src, b.processor || '', b.external_ref || '', b.notes || '').run();
+  return json({ ok: true, id: r.meta?.last_row_id });
+}
+
+const depMatch = seg.match(/^giving\/deposits\/(\d+)$/);
+if (depMatch) {
+  const did = parseInt(depMatch[1]);
+  if (method === 'GET') {
+    const dep = await db.prepare('SELECT * FROM giving_deposits WHERE id=?').bind(did).first();
+    if (!dep) return json({ error: 'Not found' }, 404);
+    const gifts = (await db.prepare(
+      `SELECT ge.id, ge.amount, ge.fee_cents, ge.method, ge.source, ge.processor, ge.reconcile_status,
+              ge.check_number, ge.external_txn_id,
+              COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) AS gift_date,
+              f.name AS fund_name,
+              COALESCE(p.first_name||' '||p.last_name,'(anonymous)') AS person_name
+         FROM giving_entries ge
+         JOIN funds f ON ge.fund_id=f.id
+         JOIN giving_batches gb ON ge.batch_id=gb.id
+         LEFT JOIN people p ON ge.person_id=p.id
+        WHERE ge.deposit_id=? ORDER BY ge.id`
+    ).bind(did).all()).results || [];
+    const totals = computeDepositTotals(gifts, dep.bank_cents);
+    return json({ ...dep, gifts, totals });
+  }
+  if (method === 'PATCH') {
+    const dep = await db.prepare('SELECT * FROM giving_deposits WHERE id=?').bind(did).first();
+    if (!dep) return json({ error: 'Not found' }, 404);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const allowed = { deposit_date: 's', source: 's', processor: 's', external_ref: 's', notes: 's', bank_cents: 'int' };
+    const sets = [], binds = [];
+    for (const [f, k] of Object.entries(allowed)) {
+      if (!(f in b)) continue;
+      let v = b[f];
+      if (k === 's') v = String(v ?? '');
+      else if (k === 'int') v = (v === null || v === '' || v === undefined) ? null : parseInt(v);
+      sets.push(`${f}=?`); binds.push(v);
+    }
+    if (!sets.length) return json({ ok: true });
+    binds.push(did);
+    await db.prepare(`UPDATE giving_deposits SET ${sets.join(',')} WHERE id=?`).bind(...binds).run();
+    return json({ ok: true });
+  }
+  if (method === 'DELETE') {
+    const dep = await db.prepare('SELECT status FROM giving_deposits WHERE id=?').bind(did).first();
+    if (!dep) return json({ error: 'Not found' }, 404);
+    if (dep.status === 'reconciled') return json({ error: 'Reopen the deposit before deleting it.' }, 409);
+    // Release its gifts back to unassigned; never delete the gifts themselves.
+    await db.prepare("UPDATE giving_entries SET deposit_id=NULL, reconcile_status='recorded' WHERE deposit_id=?").bind(did).run();
+    await db.prepare('DELETE FROM giving_deposits WHERE id=?').bind(did).run();
+    return json({ ok: true });
+  }
+}
+
+// Assign / unassign gifts to a deposit (only while it's open).
+const depAssignMatch = seg.match(/^giving\/deposits\/(\d+)\/assign$/);
+if (depAssignMatch && method === 'POST') {
+  const did = parseInt(depAssignMatch[1]);
+  const dep = await db.prepare('SELECT status FROM giving_deposits WHERE id=?').bind(did).first();
+  if (!dep) return json({ error: 'Not found' }, 404);
+  if (dep.status === 'reconciled') return json({ error: 'Deposit is reconciled — reopen it to change gifts.' }, 409);
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const ids = (Array.isArray(b.entry_ids) ? b.entry_ids : []).map(x => parseInt(x)).filter(Number.isInteger);
+  const unassign = !!b.unassign;
+  if (!ids.length) return json({ error: 'entry_ids required' }, 400);
+  const stmts = [];
+  for (let i = 0; i < ids.length; i += 90) {
+    const chunk = ids.slice(i, i + 90);
+    const ph = chunk.map(() => '?').join(',');
+    if (unassign) {
+      stmts.push(db.prepare(`UPDATE giving_entries SET deposit_id=NULL, reconcile_status='recorded' WHERE id IN (${ph})`).bind(...chunk));
+    } else {
+      stmts.push(db.prepare(`UPDATE giving_entries SET deposit_id=?, reconcile_status='deposited' WHERE id IN (${ph})`).bind(did, ...chunk));
+    }
+  }
+  await db.batch(stmts);
+  return json({ ok: true, count: ids.length });
+}
+
+// Reconcile a deposit against the bank → stamps its gifts complete.
+const depReconcileMatch = seg.match(/^giving\/deposits\/(\d+)\/reconcile$/);
+if (depReconcileMatch && method === 'POST') {
+  const did = parseInt(depReconcileMatch[1]);
+  const dep = await db.prepare('SELECT * FROM giving_deposits WHERE id=?').bind(did).first();
+  if (!dep) return json({ error: 'Not found' }, 404);
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const bankCents = (b.bank_cents === null || b.bank_cents === '' || b.bank_cents === undefined) ? null : parseInt(b.bank_cents);
+  const gifts = (await db.prepare('SELECT amount, fee_cents FROM giving_entries WHERE deposit_id=?').bind(did).all()).results || [];
+  const totals = computeDepositTotals(gifts, bankCents);
+  await db.batch([
+    db.prepare("UPDATE giving_deposits SET status='reconciled', bank_cents=?, reconciled_at=datetime('now') WHERE id=?").bind(bankCents, did),
+    db.prepare("UPDATE giving_entries SET reconcile_status='reconciled' WHERE deposit_id=?").bind(did),
+  ]);
+  return json({ ok: true, totals });
+}
+
+const depReopenMatch = seg.match(/^giving\/deposits\/(\d+)\/reopen$/);
+if (depReopenMatch && method === 'POST') {
+  const did = parseInt(depReopenMatch[1]);
+  const dep = await db.prepare('SELECT id FROM giving_deposits WHERE id=?').bind(did).first();
+  if (!dep) return json({ error: 'Not found' }, 404);
+  await db.batch([
+    db.prepare("UPDATE giving_deposits SET status='open', reconciled_at=NULL WHERE id=?").bind(did),
+    db.prepare("UPDATE giving_entries SET reconcile_status='deposited' WHERE deposit_id=?").bind(did),
+  ]);
+  return json({ ok: true });
+}
+
+// Gifts not yet attached to any deposit — the pool a deposit's gifts are drawn from.
+// Optional date/batch filter so a whole weekly batch can be pulled in at once.
+if (seg === 'giving/unassigned-gifts' && method === 'GET') {
+  const from    = url.searchParams.get('from') || '';
+  const to      = url.searchParams.get('to') || '';
+  const batchId = url.searchParams.get('batch_id');
+  let sql = `SELECT ge.id, ge.amount, ge.fee_cents, ge.method, ge.check_number, ge.source, ge.batch_id,
+                    COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) AS gift_date,
+                    f.name AS fund_name,
+                    COALESCE(p.first_name||' '||p.last_name,'(anonymous)') AS person_name
+               FROM giving_entries ge
+               JOIN funds f ON ge.fund_id=f.id
+               JOIN giving_batches gb ON ge.batch_id=gb.id
+               LEFT JOIN people p ON ge.person_id=p.id
+              WHERE ge.deposit_id IS NULL`;
+  const binds = [];
+  if (batchId) { sql += ` AND ge.batch_id=?`; binds.push(parseInt(batchId)); }
+  if (from)    { sql += ` AND COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) >= ?`; binds.push(from); }
+  if (to)      { sql += ` AND COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) <= ?`; binds.push(to); }
+  sql += ` ORDER BY gift_date DESC, ge.id DESC LIMIT 500`;
+  const gifts = (await db.prepare(sql).bind(...binds).all()).results || [];
+  return json({ gifts });
 }
 
   return null; // not handled

@@ -24,6 +24,340 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.103.0 — Stop trusting the native Budget vs Actual report; Multi-Year year-range picker; comma formatting (2026-07-28)
+Live testing right after v1.102.0's endpoint-name fix: the native `BudgetVsActuals` report finally
+responded for the first time (previously always 5020'd), but its numbers didn't hold up — e.g. an
+"Actual" many times larger than its own "Budget" for the same account. Consistent with everything
+found this session (Intuit's own developer-community forum confirms this report is undocumented and
+unsupported), the most likely explanation is the report isn't honoring `start_date`/`end_date` and is
+summing since the QuickBooks company's inception rather than the requested fiscal year. Given the
+app's own reconstruction (`mergeCurrentYearBudgetAndActual` — Budget entity + a date-scoped
+`ProfitAndLoss` report, both confirmed to respect date filtering correctly) has been reliable this
+whole time, **the sync now always uses the reconstruction for display, never the native report's
+numbers** — the native call still runs (so a real failure surfaces as a warning) but its Rows are
+never rendered. This also incidentally fixes the missing-column-header symptom reported (the native
+report's real column shape wasn't something the generic renderer handled).
+
+Two more items from the same live-testing round:
+- **Multi-Year view year-range picker.** `finance/church/multi-year` has always defaulted to a
+  rolling 5-year window (currentYear-4..currentYear) with no way to request anything older — so an
+  older import (e.g. 2018) saved correctly but was invisible on every screen, which read as "the
+  import isn't saving." New From/To year inputs + "Load Range" button on the Multi-Year view request
+  an explicit `years=` range (capped at 20 years per request).
+- **Comma formatting** on the Budget vs Actual table's dollar cells (new `finFmtReportCellValue()`,
+  skips percent-suffixed values and non-numeric text).
+
+`npm test` (340/340), `node --check` on `api-finance.js` and both built app-JS bundles. A stray
+backtick in a comment briefly broke the build (the recurring `String.raw`-escaping bug class
+documented elsewhere in this file) — caught by `npm test` itself before shipping, not a live report.
+Not verified against a live sync. (`src/api-finance.js`, `src/frontend/js-finance.js`)
+
+### v1.102.0 — Two real QuickBooks bugs found + Budget picker (2026-07-28)
+Live sync testing (immediately after the CHURCH_SOURCE_PRIORITY flip above made qbo_sync-sourced
+data visible for the first time) surfaced two genuine, previously-hidden bugs, plus a real feature
+request. Full detail logged in `CLAUDE.md` under FIN2 for reference in later sessions.
+
+1. **Wrong report endpoint name.** `client.budgetVsActual()` (`src/quickbooks.js`) called
+   `/reports/BudgetVsActual` (singular) the entire time this was blocked by a "5020 Permission
+   Denied" error — QuickBooks' real (undocumented, per Intuit's own developer community) report
+   name is `BudgetVsActuals` (plural). A misnamed report is a very plausible explanation for a
+   misleading permission error instead of a clean 404. Fixed to the plural name. Confirmed via a
+   user-supplied community reference that this endpoint is genuinely undocumented/unsupported by
+   Intuit regardless — the entity-query + ProfitAndLoss reconstruction this app already builds
+   (`mergeCurrentYearBudgetAndActual`) is the actual sanctioned approach, not a fallback.
+2. **Classification normalization gap, live-sync-only.** `flattenReportTree()` used a QuickBooks
+   report Section's raw label as `classification` with no normalization — but this church's live
+   QuickBooks report labels top-level sections "Revenue"/"Expenditures", not "Income"/"Expenses"
+   (the exact synonym set `normalizeChurchClassification()` already handles for the Excel-import
+   path). Unnormalized, live-synced rows' classification never matched `FIN_CHURCH_CLASS_ORDER`'s
+   keys, so `finReorganizeChurchTree()` silently sorted Income to the bottom and skipped the
+   Revenue/Earned-Income/Restricted-Income regrouping for synced data — invisible until sync
+   started winning over import. Fixed by routing the Section label through
+   `normalizeChurchClassification()`. New regression test in `test/finance-church.test.js`.
+3. **Budget picker.** A company can have more than one `Budget` object in QuickBooks (e.g. a
+   leftover test budget); the merge previously guessed (best year-match, else the first found)
+   with no way to override. New `GET`/`PATCH /admin/api/finance/qb/budgets` (admin-gated write)
+   lists every Budget object and lets an admin pin one explicitly (`chms_config` key
+   `finance_qb_selected_budget_id`), threaded through `mergeCurrentYearBudgetAndActual()`. New
+   "Choose Budget…" control on the Finance Overview QuickBooks Connection card.
+
+`npm test` (340/340), `node --check` on `api-finance.js`, `quickbooks.js`, and both built app-JS
+bundles. Not verified against a live sync — this session's Production connection work is ongoing.
+(`src/quickbooks.js`, `src/api-finance.js`, `src/frontend/js-finance.js`,
+`test/finance-church.test.js`)
+
+### Doc update — FIN2 confirmed reproducing in Production, not just sandbox (2026-07-28)
+No code change. Live Production OAuth connection completed (real QB keys, `QB_ENVIRONMENT=production`,
+redirect URI registered under both Intuit app tabs), and a real sync against the real church
+QuickBooks company hit the identical `5020 Permission Denied` error on Budget vs Actual — ruling out
+"sandbox-only artifact." Intuit will not open a support ticket for this app/tier, so the earlier
+"ticket filed, no ETA" status is closed off with no resolution. The existing reconstruction fallback
+(raw `Budget` entity query + `ProfitAndLoss` merge) fired correctly and the sync completed. See FIN2
+in `CLAUDE.md` for full detail — treating the direct report endpoint as permanently unavailable for
+this app; next real step is verifying the reconstructed numbers against this company's actual live
+data, not chasing the report endpoint further.
+### v1.103.0 — Giving Plateaus: fixed-ladder nudges, always-on impact, total÷52 for everyone (2026-07-27)
+Four corrections to G27 (the graduated-percentage redesign), requested right after seeing it.
+
+1. **Back to fixed round numbers, not percentages.** `computeNudgeOptions()` no longer scales a
+   percentage by giving level — `NUDGE_PCT_TIERS`/floating-point-prone percentage math is gone
+   entirely. Instead, a single curated `GIVING_NUDGE_LADDER`: the original hand-picked low/mid
+   numbers (10, 15, 20 … 1000 — the exact values behind the well-liked 43→50 and 83→100 examples),
+   densified from $1,000 up ($100 steps to $5,000, $250 to $10,000, $500 to $25,000, $1,000 above) so
+   the *next 3 rungs* stay a modest, still-round ask even at high levels — $2,500/wk now offers
+   $2,600/$2,700/$2,800, not a jump straight to $3,000. `computeNudgeOptions(base)` is just "the next
+   3 ladder rungs above base," extending in flat $1,000 steps past the ladder's top for the rare
+   giver beyond it. Zero floating-point risk (no more `100 * 1.10 !== 110`) since it's pure integer
+   comparison against a precomputed array.
+2. **Every increase option always shows a concrete dollar impact**, even the Modest one. Each option
+   now carries `annual_delta_cents` (the plain "+$X/year" figure, always present) alongside the
+   optional `impact_text` (only shown when a configured statement's threshold is actually cleared) —
+   previously a Modest option with a small delta could show a bare dollar figure with nothing tying
+   it to a reason; now the annualized total is unconditional, per the explicit ask that "$5 more a
+   week gets to $250 a year" should always be stated.
+3. **Retirement/IRA (QCD)/stock/occasional givers get the exact same treatment as everyone else** —
+   the separate "Large & Occasional Gifts" exclusion list from G27 is gone. A giver who wrote one
+   $2,600 December check now reads identically to a giver who gave $50 every Sunday: both show as
+   "$50/wk," both get the same 3 nudge options. A `low_frequency` flag (gifts ≤ 3/year, configurable)
+   is still carried per giver so the UI can show the explicit narrative framing requested — "gave $X
+   in N gifts last year — about $Y/wk spread over the year" — right under a low-frequency giver's name
+   in the per-tier breakdown, rather than hiding them in a separate table with no suggested action.
+4. **Every giver's weekly figure = their whole year's giving (every fund) ÷ 52.** Replaces the old
+   "find the modal repeated per-gift amount" plateau-finding entirely — that model structurally
+   couldn't handle a giver who doesn't repeat an identical amount (which is most occasional/major
+   givers, item 3 above). The endpoint's SQL simplified to match `reports/giving-bands`'s existing
+   shape (one row per giver: `SUM(amount)`, `COUNT(*)` — no more per-day grouping), reusing the same
+   `periodsElapsed` convention (52 for a complete past year; weeks-so-far for the current
+   in-progress year, so pace isn't understated). `min_repeat` — the whole concept — is gone from the
+   API and the UI (the "Min. repeats" field was removed from the Plateaus card).
+
+`npm test` (348/348, `test/giving-plateaus.test.js` rewritten — 21 cases including a same-treatment
+regression test proving a weekly $50/wk giver and a one-time $2,600 giver produce byte-identical
+nudge options). `node --check` on both built app-JS bundles and touched backend files; scanned the
+served bundle for the double-backslash escaping bug class (VUXBUG2/SC3-BUG1) — 3 hits, all
+pre-existing and unrelated to this change, none in the touched code. Not verified in a live browser.
+(`src/api-utils.js`, `src/api-reports.js`, `src/frontend/js-reports.js`, `src/frontend/html-tabs.js`,
+`test/giving-plateaus.test.js`)
+
+### v1.102.0 — Giving Plateaus: graduated nudge options, impact framing, occasional givers, fund scope (2026-07-27)
+Four follow-ups on the Giving Plateaus report, all requested together after first review.
+
+1. **Less aggressive nudges at the top, via 3 graduated options instead of 1 fixed target.**
+   `givingNudgeTarget()`/`GIVING_NUDGE_LADDER` (a fixed round-number ladder — always jump to the
+   next rung, e.g. 2500→3000, a 20%/$500-a-week ask) replaced with `computeNudgeOptions(baseDollars)`
+   in `api-utils.js`: returns 3 options (**Modest/Standard/Generous**), each a "nice" round number,
+   where the **percentage step shrinks as the base amount grows** (`NUDGE_PCT_TIERS`: 30–100% under
+   $15/wk down to 3–10% above $1,500/wk) — the same relative ask reads very differently in absolute
+   dollars at different giving levels. $43/wk → $50/$56/$66 (was a flat $50); $2,500/wk → $2,600/
+   $2,700/$2,800 (was $3,000). **Real bug caught before shipping**: `base * (1 + pct)` hits IEEE 754
+   floating-point noise (`100 * 1.10 === 110.00000000000001`), which `Math.ceil`-to-increment was
+   amplifying into overshooting to the NEXT increment entirely (110→120 instead of landing on 110) —
+   fixed by rounding to the nearest cent before the ceil step; caught by hand-verifying computed
+   values against a Node harness, not by the unit tests alone (they'd have locked in the wrong
+   numbers). Nudge Targets table now groups by the Standard option (unchanged shape) with a Modest–
+   Generous upside range; the per-tier people drill-down shows all 3 options per row.
+2. **Impact framing** ("if you gave $18 more a month, that could provide X") — new admin-editable
+   "Giving Impact Statements" list (`config/giving-impact` GET/PUT in `api-import.js`, one JSON array
+   in `chms_config`; "Impact statements…" button + modal on the Plateaus card). Deliberately **never
+   pre-filled or fabricated** — real ministry costs are church-specific and this app doesn't invent
+   them; empty by default, admin types their own `$X/month → label` rows. New pure
+   `pickImpactPhrase(monthlyDeltaCents, statements)` picks the richest statement a given option's
+   monthly-equivalent increase actually clears; each nudge option carries its own `impact_text`
+   (null if nothing configured or nothing qualifies). Impact-editor input rows use the `data-*` +
+   delegated-handler pattern (`platImpactRowInput`), not inline `onclick` with string args — the
+   exact quote-escaping bug class documented elsewhere in this file (VUXBUG2/SC3-BUG1); also caught
+   and fixed a literal double-backslash (`\\'`) that had crept into two OTHER lines in this same edit
+   (the impact-editor markup and the exclusion-note copy) via the standard extract-and-`node --check`
+   verification step, before it could reintroduce that exact bug class into the served bundle.
+3. **Retirement/IRA (QCD)/stock givers weren't visible.** These rarely repeat the same dollar amount
+   3+ times (by nature, a QCD or stock gift is usually once or a few times a year), so they were
+   silently folded into "variable" with no visibility. New **"Large & Occasional Gifts"** section
+   (`occasional_givers` in `computeGivingPlateaus`'s return, sorted by total given, capped and
+   flagged with a truncation count) — no automatic dollar nudge (an occasional gift style doesn't
+   fit a "+$X/week" ask), just visibility for a personal follow-up. Also added an
+   **excluded-organizations diagnostic**: gifts recorded under an organization-type person record
+   (e.g. a brokerage/custodian entered as its own record) are still excluded from every giver query
+   by design — a business shouldn't count as a pledging household — but the endpoint now returns a
+   count + total for what was excluded, shown as a callout, so a QCD accidentally filed under a
+   custodian's name doesn't just vanish with zero trace.
+4. **Multi-fund handling clarified + a Fund filter added (solves the Concordia Children's Fund ask
+   too).** Confirmed via a real-SQLite harness: the report already sums **every fund** a giver gives
+   to on the same day into one combined amount — a Tuition Aid or Food Pantry gift was never
+   discounted, already included in the day total. New `&fund_id=` param (both
+   `reports/giving-plateaus` and `reports/giving-bands`) plus a Fund `<select>` on both Board Report
+   cards (populated from the existing `allFunds`/`GET /admin/api/funds`) lets the same analysis run
+   scoped to just one fund — including a designated pass-through fund like Concordia Children's Fund,
+   which functions as a separate organization the church only handles US-side fundraising for. No
+   fund-specific code — any fund in the dropdown works the same way.
+
+`npm test` (347/347, 20 in the rewritten `test/giving-plateaus.test.js` — including a regression
+guard locking in the exact floating-point-fix values). `node --check` on both built app-JS bundles
+and all touched backend files. A real in-memory-SQLite harness confirms the fund filter correctly
+isolates one fund's giving while leaving "All Funds" mode summing everything (nothing discounted).
+Not verified in a live browser.
+(`src/api-utils.js`, `src/api-reports.js`, `src/api-import.js`, `src/frontend/js-reports.js`,
+`src/frontend/js-giving.js`, `src/frontend/html-tabs.js`, `test/giving-plateaus.test.js`)
+
+### v1.101.0 — Church Report: QuickBooks sync now outranks a file import (2026-07-28)
+Per user decision 2026-07-28 (Finance/FIN2 QuickBooks Production rollout in progress): a mid-year
+file import was originally meant as a stopgap while the live QuickBooks connection wasn't working
+yet — it shouldn't permanently shadow sync once the connection is confirmed. `CHURCH_SOURCE_PRIORITY`
+(`resolveChurchYearPrecedence()`, `src/api-finance.js`) flipped from `['import', 'qbo_sync',
+'plan_committed']` to `['qbo_sync', 'import', 'plan_committed']` — a year with any `qbo_sync` row now
+uses ONLY those rows; `import` is the fallback for a year QuickBooks was never connected for (or
+predates this app's live sync), not an override once sync exists. No data is deleted — an existing
+import stays in the database untouched and reappears automatically the moment a year's `qbo_sync`
+rows are removed (there's no removal path today, so this is a pure read-order flip, not yet paired
+with a UI to un-sync a year — flag if that's wanted later). Applies everywhere
+`resolveChurchYearPrecedence()` is used: Church Report (This Year/Multi-Year), Board Report,
+Budget Planning's base-year figures, and the giving/attendance reference lines. `CHURCH_MONTHLY_SOURCE_PRIORITY`
+(`['qbo_sync', 'monthly_import']`) already had sync-wins-over-import for the monthly-granularity
+path — this brings the annual path in line with it, so the two no longer disagree. Updated 2
+`test/finance-church.test.js` cases that asserted the old (now-reversed) precedence, added a new
+case for the import-only-fallback path. `npm test` (339/339), `node --check` on both built app-JS
+bundles. Not verified against a live QuickBooks sync (still in progress per FIN2/this session).
+(`src/api-finance.js`, `test/finance-church.test.js`)
+
+### v1.100.0 — Deposit reconciliation UI (GIV-DEP frontend) (2026-07-28)
+The deposit-reconciliation **backend** (GIV-DEP, migration `0031`) was already committed on this
+branch by a prior run — `giving_deposits` table, per-gift `fee_cents`/`source`/`processor`/
+`external_txn_id`/`reconcile_status`, and the full finance-gated endpoint set (list / create /
+detail / patch / delete / assign / reconcile / reopen), with `computeDepositTotals()` unit-tested.
+This slice adds the **frontend workflow** that was missing (nothing in `js-giving.js` referenced it):
+a new **Deposits** sub-nav view in the Giving tab (finance-gated), master-detail like Batches —
+list of deposits (Open/Reconciled filter) on the left, detail on the right. Detail shows the
+two-number model the church actually wants: **Given** (gross, from synced gifts) vs. **Bank deposit**
+(entered by the bookkeeper) vs. **Fees = Given − Deposited**, computed live as the bank amount is
+typed. Workflow: **+ New** deposit (date / source check|cash|online|mixed / optional payout ref) →
+**+ Add gifts** pulls the pool of unassigned gifts (new `GET giving/unassigned-gifts`, `deposit_id
+IS NULL`) with select-all → enter the bank amount → **Reconcile to Bank** stamps the gifts complete;
+**Reopen**/**Delete** available; Delete releases gifts back to unassigned (never deletes a gift).
+This is the "some cover the fee, some don't" self-correcting design — donor-covered gifts add equally
+to Given and Deposited so they cancel, leaving exactly the church-absorbed fee in the gap. The
+per-gift `fee_cents` (processor-reported, e.g. Tithe.ly) is surfaced as a cross-check line when
+present but is 0 until a processor adapter feeds it. **Not verified in a live browser.** Verified:
+`npm test` (338/338), `node --check` on `api-giving.js` + both served app-JS bundles (SC3-BUG1
+extract-and-check technique), and a `node:sqlite` harness confirming the unassigned-gifts filter
+excludes already-assigned gifts. (`src/api-giving.js`, `src/frontend/js-giving.js`,
+`src/frontend/html-tabs.js`, `src/frontend/js-core.js`)
+
+### v1.93.0 — Giving by Weekly/Monthly Band report (2026-07-27)
+New "Giving by Weekly / Monthly Band" card in the Board Report tab (below the Plateaus card),
+answering "how do households spread across per-week giving levels, and what would a small
+across-the-board step up add." Distinct from the Plateaus report (which finds each giver's modal
+repeated gift and nudges to the next clean rung): this one is a **distribution across granular
+dollar bands** with a flat, configurable uplift — the "$50/wk now, $60/wk = +$520/yr" framing.
+- Endpoint `GET /admin/api/reports/giving-bands?year=&scope=household|person&freq=weekly|monthly&uplift_cents=`
+  (gated `giving`). SUMs each giver's whole-year giving (household = spouses combined, same key-expr
+  pattern as the plateaus household mode), then bands them.
+- Pure `computeGivingBands()` in `api-utils.js` (7 unit tests): a giver's per-period figure =
+  their giving ÷ periods elapsed (frequency-agnostic — monthly/lump-sum givers land in the right
+  weekly band). Two floor sets (`GIVING_BAND_FLOORS_WEEKLY_CENTS` $0/25/50/75/100/150/200/300/500,
+  monthly ≈×4). The uplift's annual impact uses a FULL year (52/12), while the pace uses periods
+  *elapsed* — so a partial current year isn't understated but the uplift isn't overstated.
+- UI (`js-reports.js` `runGivingBands`/`renderGivingBands`): summary cards (givers / +$ per year if
+  all step up / current annualized), a band table (band · bar · count · avg · given · +$X→+$/yr),
+  Week/Month + Household/Person + uplift-$ controls; renders into its own `#giv-bands-output`.
+- `npm test` (297/297), `node --check` on both built bundles + backend, plus an in-memory-SQLite
+  harness confirming the household SUM/band bucketing ($50/wk household, $100/wk person). Not
+  verified in a live browser. (`src/api-utils.js`, `src/api-reports.js`, `src/frontend/js-reports.js`,
+  `src/frontend/js-giving.js`, `src/frontend/html-tabs.js`, `test/giving-bands.test.js`)
+
+### v1.92.0 — Giving Plateaus: moved to the Board Report tab (2026-07-27)
+Per user request, relocated the Giving Plateaus & Nudges report from the Giving → Reports tile grid
+into the **Board Report** sub-view (Finance → Giving → Board Report), where the strategic/leadership
+giving analysis belongs. It's now a card below the council report body with its own controls
+(Year / Group by / Min. repeats) and its own dedicated output element `#giv-plat-output` — not routed
+through the shared `showRptOutput` (which broadcasts to the Reports-view targets and would leak other
+reports into this tab). `runGivingPlateaus()` renders straight into that element with a loading/error
+state; the year prefills to the current year when the Board view opens (`givSetView('board')`) and
+also defaults defensively if left blank. No backend change. `npm test` (290/290), `node --check` on
+both built bundles. Not verified in a live browser. (`src/frontend/html-tabs.js`,
+`src/frontend/js-reports.js`, `src/frontend/js-giving.js`)
+
+### v1.90.0 — Giving Plateaus: per-household mode (2026-07-27)
+Added a **Group by: Household / Person** selector to the Giving Plateaus report (household is the
+new default). In household scope a household is one "giver" — spouses who give separately on the
+same day are summed into one contribution, so a couple that together drops $43/wk shows a $43
+plateau, not two smaller ones. Givers with no household stand alone (link back to the person).
+- Endpoint gained `&scope=household|person`. Household query keys/GROUP BYs on a
+  `CASE … 'h:'||household_id … 'p:'||id` expression joined to `households` for the display name
+  (falls back to `<lastname> Household`, then `Household #<id>` when the household name is blank).
+- **Real bug caught by an in-memory-SQLite harness before shipping**: the group key was first
+  aliased `person_id`, which collides with the `ge.person_id` column — SQLite grouped by the
+  person, not the household, so spouses' same-day gifts never merged (Smith household read $25
+  instead of $43). Fixed by grouping on the key *expression*, not the ambiguous alias; harness now
+  confirms $43→$50.
+- `computeGivingPlateaus()` carries `link_id`/`link_kind` through per row so the UI opens the
+  household view (or person) on click; person scope defaults them to the person (unchanged
+  behavior). Labels ("givers"/"households", "People"/"Households") switch with scope.
+- `npm test` (290/290, 2 new pure-function tests for the link passthrough), `node --check` on both
+  built bundles + backend, plus the SQLite harness above. Not verified in a live browser.
+### v1.90.0 — Church Budget Planning: "FY{base} Projected" column (2026-07-27)
+Added an auto-computed year-end projection column to the Church Budget Planning table
+(`finRenderPlanning` in `js-finance.js`), inserted between `FY{base} Actual` and the untouched
+`FY{target} Plan` column: `Category · FY2026 Bud · FY2026 Actual · FY2026 Projected · FY2027 Plan
+· Δ%`. The new column projects where the in-progress base year will land at year-end by annualizing
+each leaf account's actual-to-date by `12/throughMonth` — the exact same proration `generate-all`
+uses server-side (`api-finance.js`), so the Projected column literally shows the base amount the
+Plan column was grown from. `throughMonth` = current month when the base year is the current year,
+else 12 (a complete past year projects to its own actual). Group rows roll up as the sum of their
+leaves (uniform factor, so subtotals reconcile); base-year projected net inserted into the Net row.
+Display-only — nothing is stored, no data moved (per the user's "auto-compute" choice over
+re-keying existing Plan data). Verified: `npm test` (288/288), `node --check` on both built app-JS
+bundles, and a vm harness rendering the actual served `finRenderPlanning` (confirms 6 columns, the
+new `FY2026 Projected` header, and 6-cell data/net rows). Not verified in a live browser.
+(`src/frontend/js-finance.js`)
+### v1.91.0 — Giving Plateaus: per-household mode (2026-07-27)
+Added a **Group by: Household / Person** selector to the Giving Plateaus report (household is the
+new default). In household scope a household is one "giver" — spouses who give separately on the
+same day are summed into one contribution, so a couple that together drops $43/wk shows a $43
+plateau, not two smaller ones. Givers with no household stand alone (link back to the person).
+- Endpoint gained `&scope=household|person`. Household query keys/GROUP BYs on a
+  `CASE … 'h:'||household_id … 'p:'||id` expression joined to `households` for the display name
+  (falls back to `<lastname> Household`, then `Household #<id>` when the household name is blank).
+- **Real bug caught by an in-memory-SQLite harness before shipping**: the group key was first
+  aliased `person_id`, which collides with the `ge.person_id` column — SQLite grouped by the
+  person, not the household, so spouses' same-day gifts never merged (Smith household read $25
+  instead of $43). Fixed by grouping on the key *expression*, not the ambiguous alias; harness now
+  confirms $43→$50.
+- `computeGivingPlateaus()` carries `link_id`/`link_kind` through per row so the UI opens the
+  household view (or person) on click; person scope defaults them to the person (unchanged
+  behavior). Labels ("givers"/"households", "People"/"Households") switch with scope.
+- `npm test` (290/290, 2 new pure-function tests for the link passthrough), `node --check` on both
+  built bundles + backend, plus the SQLite harness above. Not verified in a live browser.
+
+### v1.89.0 — Giving Plateaus & Nudges report (2026-07-27)
+New "Giving Plateaus & Nudges" tile in the Finance tab's Giving Reports section (finance/admin,
+`require-finance`). Answers "where do givers settle, and what should I nudge them to." The church's
+actual giving page is external (Tithe.ly at give.timothystl.org — confirmed not in this repo), so
+this is the in-app analysis half: it hands the pastor the tier→target table to then set as suggested
+amounts in Tithe.ly.
+- **Endpoint** `GET /admin/api/reports/giving-plateaus?year=YYYY&min_repeat=N` (`src/api-reports.js`).
+  Pulls one row per (person, giving-day) with that day's SUMmed contribution (so a fund-split gift
+  counts as the single amount the giver actually gave), excludes organizations. Gated as `giving`
+  via the central `ACCESS_GATE` (seg starts with `reports/giving`) — same path as giving-insights,
+  no per-handler check needed.
+- **Pure math** in `src/api-utils.js`, unit-tested (`test/giving-plateaus.test.js`, 10 cases):
+  - `givingNudgeTarget(dollars)` — next rung up a fixed "attractive amounts" ladder. Reproduces the
+    user's own examples exactly: 43→50, 83→100; 50→60, 100→125; above the top rung rounds up to the
+    next $1,000.
+  - `computeGivingPlateaus(rows, {minRepeat})` — each giver's plateau = the whole-dollar per-gift
+    amount they repeat most (modal; tie-break to the HIGHER amount so upside is never overstated).
+    A giver only counts as "plateaued" if that amount recurs ≥ `minRepeat` times (default 3) —
+    screens out one-off/variable givers (counted separately). Per-person upside = (target−plateau)
+    × number of gifts they already make; grouped into tiers by nudge target, plus a fine per-dollar
+    histogram.
+- **UI** (`src/frontend/js-reports.js` `runGivingPlateaus`/`renderGivingPlateaus`, tile in
+  `html-tabs.js`): summary stat cards (plateaued givers / est. added giving per year / variable
+  givers), a Nudge Targets table (target · #people · plateau range · avg increase · est. +$/yr),
+  a collapsible per-tier people list (click a name → profile), and a plateau-distribution histogram.
+  Year defaults to current; a "Min. repeats" input is exposed on the tile.
+- **Upside is an estimate**, stated in the UI: assumes each plateaued giver keeps their current
+  giving frequency but at the nudged amount — it does not predict who will actually say yes.
+- `npm test` (288/288), `node --check` on both built app-JS bundles + `api-utils.js`/`api-reports.js`.
+  **Not verified**: a live browser or against live giving data (no D1 access in-session).
+
 ### v1.86.0 — Giving redesign Phase 1: sub-nav restructure + Board Report (2026-07-27)
 First phase of the Giving tab redesign (design handoff: board reports, donor letters, receipts).
 Delivered as phased PRs, foundation first (user decision); this PR is the sub-nav restructure and

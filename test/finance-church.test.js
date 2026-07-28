@@ -137,6 +137,23 @@ describe('flattenReportTree — current-year (single-value) extractor', () => {
     expect(designIncome.own_actual_cents).toBe(225000);
     expect(designIncome.own_budget_cents).toBe(200000);
   });
+
+  // 2026-07-28 — reported live: a qbo_sync year showed Income re-sorted to the bottom after
+  // CHURCH_SOURCE_PRIORITY started preferring qbo_sync over import. Root cause: this church's
+  // live QuickBooks report labels its top-level Sections "Revenue"/"Expenditures" (confirmed —
+  // same wording as their own Excel export, which normalizeChurchClassification() already
+  // handled for the import path), but flattenReportTree() used the raw Section label as
+  // classification with no normalization, so it never matched FIN_CHURCH_CLASS_ORDER's keys.
+  it('normalizes a top-level Section labeled "Revenue" (this church\'s real QuickBooks wording) to classification "Income"', () => {
+    const rows = flattenReportTree([
+      { type: 'Section', Header: { ColData: [{ value: 'Revenue' }] }, Rows: { Row: [
+        { ColData: [{ value: 'Offerings' }, { value: '500.00' }] },
+      ] } },
+    ], [], null, makeCurrentYearExtractor(2026));
+    const offerings = rows.find(r => r.category_path === 'Revenue:Offerings');
+    expect(offerings).toBeDefined();
+    expect(offerings.classification).toBe('Income');
+  });
 });
 
 describe('flattenReportTree — multi-year extractor', () => {
@@ -354,11 +371,19 @@ describe('resolveChurchYearPrecedence', () => {
     expect(resolved.length).toBe(2);
   });
 
-  it('uses ONLY import rows for a year that has any import/manual row, discarding qbo_sync rows for that year', () => {
+  it('uses ONLY qbo_sync rows for a year that has both qbo_sync and import rows, discarding import rows for that year', () => {
     const rows = [
       { fiscal_year: 2026, source: 'qbo_sync', category_path: 'Income:A', own_actual_cents: 100 },
       { fiscal_year: 2026, source: 'import', category_path: 'Income:A', own_actual_cents: 999 },
     ];
+    const resolved = resolveChurchYearPrecedence(rows);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].source).toBe('qbo_sync');
+    expect(resolved[0].own_actual_cents).toBe(100);
+  });
+
+  it('falls back to an import row for a year with no qbo_sync row', () => {
+    const rows = [{ fiscal_year: 2026, source: 'import', category_path: 'Income:A', own_actual_cents: 999 }];
     const resolved = resolveChurchYearPrecedence(rows);
     expect(resolved.length).toBe(1);
     expect(resolved[0].source).toBe('import');
@@ -396,7 +421,7 @@ describe('resolveChurchYearPrecedence', () => {
     expect(resolved[0].source).toBe('qbo_sync');
   });
 
-  it('an import row still wins over both qbo_sync and plan_committed for the same year', () => {
+  it('a qbo_sync row still wins over both import and plan_committed for the same year', () => {
     const rows = [
       { fiscal_year: 2027, source: 'plan_committed', category_path: 'Utilities', own_budget_cents: 500000 },
       { fiscal_year: 2027, source: 'qbo_sync', category_path: 'Utilities', own_actual_cents: 480000 },
@@ -404,7 +429,7 @@ describe('resolveChurchYearPrecedence', () => {
     ];
     const resolved = resolveChurchYearPrecedence(rows);
     expect(resolved.length).toBe(1);
-    expect(resolved[0].source).toBe('import');
+    expect(resolved[0].source).toBe('qbo_sync');
   });
 });
 
