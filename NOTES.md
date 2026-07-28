@@ -24,6 +24,55 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.111.0 — Bulk Church Report imports: multi-file Budget upload + two new multi-year importers (2026-07-28)
+Follow-up to the QuickBooks sync being set aside (v1.110.0): the user has real reports to bring
+in by hand — many years of "Budget vs. Actuals" (one file per year), a current Balance Sheet, a
+multi-year "Statement of Activity" (2019–today, one column per year, Actual only), and a
+multi-year "Statement of Financial Position" (same shape, for Assets/Liabilities/Equity). Three
+pieces of work:
+
+1. **Multi-file Budget vs. Actuals upload** — frontend-only, no backend change. The file input
+   (`#fin-church-import-file`) now has `multiple`; `finChurchImportFileSelected()` loops the
+   selected files sequentially against the existing single-file preview endpoint, collecting
+   `{fileName, fiscalYear, rows, skipped, checked, error}` per file. New
+   `finChurchRenderMultiImportPreview()` renders one collapsible `<details>` section per detected
+   fiscal year (a file that fails to parse shows its error inline without blocking the others);
+   new `finChurchConfirmImport()` commits each year sequentially against the existing single-year
+   commit endpoint, reporting a running status and a final "imported N years, failed M" summary
+   rather than all-or-nothing.
+2. **New "Statement of Activity" multi-year importer** (Actual only, one column per year). New
+   `parseYearColTitle()`, `findActivityMultiYearSheet()`, `parseActivityMultiYearGrid()` (same
+   leading-space-indentation tree walk as the existing Budget/Monthly importers — deliberately
+   duplicated rather than refactored, to minimize risk to the working parsers), new
+   `persistChurchEntriesActivityImport()` (wholesale-replaces `source='import_activity'` rows for
+   every fiscal year present in one file, not just one year). `CHURCH_SOURCE_PRIORITY` extended
+   to `['qbo_sync', 'import', 'import_activity', 'plan_committed']` — a full Budget-vs-Actuals
+   import (has real budget data) always outranks the Activity-only import for a year both cover;
+   Activity only fills years nothing richer covers. New routes
+   `finance/church/activity-import-preview`/`activity-import`; new modal + "Import Statement of
+   Activity (multi-year)" button on the Church Report card.
+3. **New "Statement of Financial Position" multi-year importer** (Balance Sheet, one column per
+   year). New `findFinancialPositionMultiYearSheet()`, `parseFinancialPositionMultiYearGrid()`
+   (same classification-reset/stack-clear tree walk as the existing single-file Balance Sheet
+   importer), new `persistChurchBalancesMultiYearImport()` — reuses `source='import'` (no
+   precedence system exists for balance snapshots, unlike Church Report actual-vs-budget, so no
+   new source tag needed). New routes `finance/church/balances/multi-year-import-preview`/
+   `multi-year-import`; new modal + "Import Financial Position (multi-year)" button.
+4. **Current Balance Sheet** — no change needed; the existing single-file "Import Balance Sheet"
+   button already covers this.
+
+**Assumption flagged, not independently verified**: the Statement of Financial Position's exact
+column shape (one column per year, same convention as the confirmed Statement of Activity shape)
+was inferred by symmetry rather than confirmed against a real file — if the real export doesn't
+match, the parser's "could not find a year-by-year header row" error will say so plainly rather
+than misimporting.
+
+`npm test` (393/393, 21 new tests across `parseYearColTitle`, both new find/parse/persist
+function sets, and a `CHURCH_SOURCE_PRIORITY` precedence test), `node --check` on `api-finance.js`
+and both built app-JS bundles. Not verified in a live browser — no D1/browser access this
+session. (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/html-tabs.js`,
+`test/finance-church.test.js`)
+
 ### v1.110.0 — "Clear Church Budget/Actuals Data" admin tool; live QuickBooks sync set aside (2026-07-28)
 After repeated data-quality issues found this session (wrong report endpoint, classification
 mismatches, a duplicate-write bug inflating totals, $0 budget matching — see FIN2 in `CLAUDE.md`

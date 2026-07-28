@@ -706,6 +706,91 @@ export async function persistChurchEntriesMonthlyImport(db, rows, fiscalYear, im
   }
   await db.batch(ops);
 }
+// ── Church Report: "Statement of Activity" multi-year Excel import ──────────────────────────
+// A nonprofit-terminology export (QuickBooks' "Statement of Activity" = a regular Profit and
+// Loss report under a different name — same as the "Statement of Financial Position" wording
+// already handled for Balance Sheet imports below) with one column per YEAR instead of the
+// annual import's Actual/Budget pair or the monthly import's one-column-per-month — e.g. "2019",
+// "2020", ... "2026" spanning many years in a single file. Actual only, no Budget column (this
+// export doesn't carry budget data). Reuses the exact same leading-space-indentation tree walk
+// as parseBudgetVsActualsGrid/parseMonthlyPnLGrid (same report family, same export convention) —
+// only the header detection and per-row amount extraction differ (bare-year columns instead of
+// Actual/Budget or month-titled columns).
+export function parseYearColTitle(title) {
+  const m = /^(19|20)\d{2}$/.exec((title == null ? '' : String(title)).trim());
+  return m ? parseInt(m[0], 10) : null;
+}
+export function findActivityMultiYearSheet(sheets) {
+  for (const s of sheets) {
+    if (!s.grid) continue;
+    if (s.grid.some(r => r && [1, 2].filter(c => parseYearColTitle(r[c]) != null).length >= 2)) return s;
+  }
+  return null;
+}
+export function parseActivityMultiYearGrid(grid) {
+  const headerIdx = grid.findIndex(r => r && [1, 2].filter(c => parseYearColTitle(r[c]) != null).length >= 2);
+  if (headerIdx === -1) throw new Error('Could not find a year-by-year header row (e.g. "2019", "2020", ...) in this sheet.');
+  const header = grid[headerIdx];
+  const yearCols = [];
+  for (let c = 1; c < header.length; c++) {
+    const y = parseYearColTitle(header[c]);
+    if (y != null) yearCols.push({ col: c, year: y });
+  }
+  if (!yearCols.length) throw new Error('No year columns found in the header row.');
+  const stack = [];
+  let classification = null;
+  const rows = [], skipped = [];
+  for (let i = headerIdx + 1; i < grid.length; i++) {
+    const raw = grid[i] && grid[i][0];
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const label = raw.trim();
+    if (/^Total\s/i.test(label)) continue;
+    if (IMPORT_SKIP_LABEL_RE.test(label)) continue;
+    const depth = indentDepthOf(raw);
+    const nextLabel = nextNonBlankLabel(grid, i);
+    const hasChildren = nextLabel != null && indentDepthOf(nextLabel) > depth;
+    if (depth === 0 && !hasChildren) { skipped.push(raw); continue; }
+    while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
+    let path;
+    if (depth === 0) {
+      classification = normalizeChurchClassification(label);
+      path = [classification];
+    } else {
+      const parent = stack.length ? stack[stack.length - 1] : { path: [classification || 'Income'] };
+      path = parent.path.concat(label);
+    }
+    stack.push({ depth, path });
+    const row = grid[i] || [];
+    for (const { col, year } of yearCols) {
+      rows.push(makeFlatRow(path, classification, hasChildren, {
+        fiscal_year: year,
+        own_actual_cents: dollarsToCents(row[col]), own_budget_cents: null,
+      }));
+    }
+  }
+  return { years: yearCols.map(y => y.year), rows, skipped };
+}
+// Wholesale-replaces source='import_activity' rows for exactly the set of fiscal years present —
+// same re-import-is-idempotent pattern as the other Church Report importers, but keyed by an
+// explicit years array (not one fiscal_year, and not a contiguous month range) since one file
+// spans many non-contiguous years.
+export async function persistChurchEntriesActivityImport(db, rows, years, importedAt) {
+  if (!years.length) return;
+  const ops = years.map(y => db.prepare(`DELETE FROM finance_church_entries WHERE source='import_activity' AND fiscal_year=?`).bind(y));
+  for (const r of rows) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_church_entries
+         (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+       VALUES (?,0,?,?,?,?,?,?,?,'import_activity',?)
+       ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
+         classification=excluded.classification, account_name=excluded.account_name, depth=excluded.depth,
+         has_children=excluded.has_children, own_actual_cents=excluded.own_actual_cents,
+         own_budget_cents=excluded.own_budget_cents, synced_at=excluded.synced_at`
+    ).bind(r.fiscal_year, r.classification, r.category_path, r.account_name, r.depth, r.has_children ? 1 : 0, r.own_actual_cents, r.own_budget_cents, importedAt));
+  }
+  await db.batch(ops);
+}
+
 // Monthly rows can come from two sources (the live sync's 'qbo_sync' or this manual
 // 'monthly_import') — resolved per fiscal year, live sync wins whenever it has data for that
 // year (it's the fresher, always-current source once connected), falling back to the manual
@@ -965,6 +1050,87 @@ export async function persistChurchBalancesImport(db, rows, fiscalYear, asOfDate
   }
   await db.batch(ops);
 }
+// ── Church Report: "Statement of Financial Position" multi-year Excel import ────────────────
+// Nonprofit-terminology multi-year Balance Sheet — one column per YEAR (e.g. "2019", "2020", ...)
+// instead of the single-file Balance Sheet import's one as-of-date snapshot. Reuses the same
+// classification-reset/stack-clear tree walk as parseBalanceSheetGrid (Assets/Liabilities/Equity
+// each restart the path stack, since a real export's indentation isn't guaranteed consistent
+// across classifications — see that function's own comment) — only the header detection and
+// per-row amount extraction differ (year columns instead of a single "Total" balance column).
+// Uses the same generic bare-year-column header detection as findActivityMultiYearSheet
+// (parseYearColTitle) rather than the single-file importer's "Total" convention, since this
+// report's real header shape wasn't observed firsthand — if it turns out not to match, the
+// "could not find a header row" error below will say so plainly rather than misimporting.
+export function findFinancialPositionMultiYearSheet(sheets) {
+  for (const s of sheets) {
+    if (!s.grid) continue;
+    if (s.grid.some(r => r && [1, 2].filter(c => parseYearColTitle(r[c]) != null).length >= 2)) return s;
+  }
+  return null;
+}
+export function parseFinancialPositionMultiYearGrid(grid, colAIndent) {
+  colAIndent = colAIndent || [];
+  const headerIdx = grid.findIndex(r => r && [1, 2].filter(c => parseYearColTitle(r[c]) != null).length >= 2);
+  if (headerIdx === -1) throw new Error('Could not find a year-by-year "Statement of Financial Position" header row (e.g. "2019", "2020", ...) in this sheet.');
+  const header = grid[headerIdx];
+  const yearCols = [];
+  for (let c = 1; c < header.length; c++) {
+    const y = parseYearColTitle(header[c]);
+    if (y != null) yearCols.push({ col: c, year: y });
+  }
+  if (!yearCols.length) throw new Error('No year columns found in the header row.');
+  const stack = [];
+  let classification = null;
+  const rows = [], skipped = [];
+  for (let i = headerIdx + 1; i < grid.length; i++) {
+    const raw = grid[i] && grid[i][0];
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const label = raw.trim();
+    if (/^Total\s/i.test(label)) continue;
+    if (/^Liabilities and Equity$/i.test(label)) continue;
+    const depth = balanceRowDepth(raw, colAIndent[i]);
+    const nextIdx = nextNonBlankRowIndex(grid, i);
+    const hasChildren = nextIdx !== -1 && balanceRowDepth(grid[nextIdx][0], colAIndent[nextIdx]) > depth;
+    const norm = normalizeBalanceClassification(label);
+    const row = grid[i] || [];
+    if (norm) {
+      classification = norm;
+      stack.length = 0;
+      stack.push({ depth, path: [classification] });
+      for (const { col, year } of yearCols) rows.push(makeBalanceRow([classification], classification, hasChildren, year, dollarsToCents(row[col])));
+      continue;
+    }
+    if (depth === 0 && !hasChildren) { skipped.push(raw); continue; }
+    if (!classification) { skipped.push(raw); continue; }
+    while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
+    const parent = stack.length ? stack[stack.length - 1] : { path: [classification] };
+    const path = parent.path.concat(label);
+    stack.push({ depth, path });
+    for (const { col, year } of yearCols) rows.push(makeBalanceRow(path, classification, hasChildren, year, dollarsToCents(row[col])));
+  }
+  return { years: yearCols.map(y => y.year), rows, skipped };
+}
+// Wholesale-replaces source='import' rows for exactly the set of fiscal years present — same
+// source tag as the single-file Balance Sheet import (there's no precedence system for balance
+// snapshots the way Church Report actual-vs-budget has one; a balance is just "the balance as of
+// that year," so both importers sharing 'import' is correct, not a collision).
+export async function persistChurchBalancesMultiYearImport(db, rows, years, importedAt) {
+  if (!years.length) return;
+  const ops = years.map(y => db.prepare(`DELETE FROM finance_church_balances WHERE source='import' AND fiscal_year=?`).bind(y));
+  for (const r of rows) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_church_balances
+         (fiscal_year, as_of_date, classification, category_path, account_name, depth, has_children, own_balance_cents, source, synced_at)
+       VALUES (?,?,?,?,?,?,?,?,'import',?)
+       ON CONFLICT(fiscal_year, category_path, source) DO UPDATE SET
+         as_of_date=excluded.as_of_date, classification=excluded.classification, account_name=excluded.account_name,
+         depth=excluded.depth, has_children=excluded.has_children, own_balance_cents=excluded.own_balance_cents,
+         synced_at=excluded.synced_at`
+    ).bind(r.fiscal_year, `FY${r.fiscal_year}`, r.classification, r.category_path, r.account_name, r.depth, r.has_children ? 1 : 0, r.own_balance_cents, importedAt));
+  }
+  await db.batch(ops);
+}
+
 // Rolls a set of (already fiscal-year-filtered) balance rows into per-classification totals —
 // mirrors computeYearSummary()'s shape for the Income Statement side, so the frontend can reuse
 // the same summary-card rendering pattern. Assets should equal Liabilities + Equity in a correct
@@ -1239,11 +1405,15 @@ async function fetchQboJson(label, resPromise, warnings, hint) {
 // source are never deleted (still visible via the Import UI / audit trail), just deprioritized
 // at read time — an import is never silently lost, only shadowed. One bulk query + JS grouping,
 // not a correlated subquery per year, matching this app's existing performance conventions.
+// 'import_activity' (the multi-year "Statement of Activity" import — actual only, no budget)
+// sits between 'import' and 'plan_committed': a full Budget-vs-Actuals import always wins for a
+// year it covers (it has real budget data the Activity-only import can never provide), but
+// Activity data is still a genuine historical record, so it outranks the Planning placeholder.
 // Highest to lowest priority. 'plan_committed' (a forward Budget Planning projection committed
 // to a future year — see FIN12) is deliberately LOWEST priority: it's a placeholder for a year
 // with no real data yet, and must get out of the way the moment either a live sync or a real
 // import exists for that year, rather than permanently overriding them.
-const CHURCH_SOURCE_PRIORITY = ['qbo_sync', 'import', 'plan_committed'];
+const CHURCH_SOURCE_PRIORITY = ['qbo_sync', 'import', 'import_activity', 'plan_committed'];
 export function resolveChurchYearPrecedence(rows) {
   const byYear = new Map();
   for (const r of rows) {
@@ -2322,6 +2492,41 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ ok: true, fiscalYear, imported: rows.length });
   }
 
+  // ── Church Report: "Statement of Activity" multi-year import (nonprofit-wording P&L, one
+  // column per year, Actual only — see parseActivityMultiYearGrid's own comment above). One
+  // file spans many fiscal years, unlike the annual/monthly imports above, so the commit step
+  // takes a `years` array and persists all of them in a single call. ─────────────────────────
+  if (seg === 'finance/church/activity-import-preview' && method === 'POST') {
+    const form = await req.formData().catch(() => null);
+    const file = form && form.get('file');
+    if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
+    if (file.size > 15 * 1024 * 1024) return json({ error: 'File too large (max 15 MB)' }, 413);
+    let sheets;
+    try { sheets = await parseXlsxAllSheets(await file.arrayBuffer()); }
+    catch (e) { return json({ error: 'Could not read this file as an Excel workbook: ' + e.message }, 400); }
+    const sheet = findActivityMultiYearSheet(sheets);
+    if (!sheet) return json({ error: 'Could not find a year-by-year "Statement of Activity" sheet (a sheet with columns like "2019", "2020", ...) in this file.' }, 400);
+    let parsed;
+    try { parsed = parseActivityMultiYearGrid(sheet.grid); }
+    catch (e) { return json({ error: e.message }, 400); }
+    return json({ sheetName: sheet.name, years: parsed.years, rows: parsed.rows, skipped: parsed.skipped });
+  }
+
+  // Commit step: wholesale-replaces any existing source='import_activity' rows for every year
+  // present in this file, in one call.
+  if (seg === 'finance/church/activity-import' && method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    const years = Array.isArray(b.years) ? b.years.map(y => parseInt(y, 10)).filter(Number.isFinite) : [];
+    if (!years.length) return json({ error: 'years is required' }, 400);
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) return json({ error: 'No rows to import' }, 400);
+    const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number'
+      || !Number.isInteger(r.fiscal_year) || !Number.isFinite(r.own_actual_cents));
+    if (bad) return json({ error: 'Malformed row in import payload' }, 400);
+    await persistChurchEntriesActivityImport(db, rows, years, new Date().toISOString());
+    return json({ ok: true, years, imported: rows.length });
+  }
+
   // ── Church Report: Balance Sheet / Statement of Financial Position import ───────────────────
   // Same preview-then-commit shape as the Budget import above; a separate parser/table since a
   // balance sheet is a fundamentally different report (point-in-time Assets/Liabilities/Equity,
@@ -2353,6 +2558,37 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
     await persistChurchBalancesImport(db, rows, fiscalYear, String(b.as_of_date || ''), new Date().toISOString());
     return json({ ok: true, fiscalYear, imported: rows.length });
+  }
+
+  // ── Church Report: "Statement of Financial Position" multi-year import (one file spans many
+  // fiscal years, like the Statement of Activity import above) ───────────────────────────────
+  if (seg === 'finance/church/balances/multi-year-import-preview' && method === 'POST') {
+    const form = await req.formData().catch(() => null);
+    const file = form && form.get('file');
+    if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
+    if (file.size > 15 * 1024 * 1024) return json({ error: 'File too large (max 15 MB)' }, 413);
+    let sheets;
+    try { sheets = await parseXlsxAllSheets(await file.arrayBuffer()); }
+    catch (e) { return json({ error: 'Could not read this file as an Excel workbook: ' + e.message }, 400); }
+    const sheet = findFinancialPositionMultiYearSheet(sheets);
+    if (!sheet) return json({ error: 'Could not find a year-by-year "Statement of Financial Position" sheet (a sheet with columns like "2019", "2020", ...) in this file.' }, 400);
+    let parsed;
+    try { parsed = parseFinancialPositionMultiYearGrid(sheet.grid, sheet.colAIndent); }
+    catch (e) { return json({ error: e.message }, 400); }
+    return json({ sheetName: sheet.name, years: parsed.years, rows: parsed.rows, skipped: parsed.skipped });
+  }
+
+  if (seg === 'finance/church/balances/multi-year-import' && method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    const years = Array.isArray(b.years) ? b.years.map(y => parseInt(y, 10)).filter(Number.isFinite) : [];
+    if (!years.length) return json({ error: 'years is required' }, 400);
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) return json({ error: 'No rows to import' }, 400);
+    const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number'
+      || !Number.isInteger(r.fiscal_year) || !Number.isFinite(r.own_balance_cents));
+    if (bad) return json({ error: 'Malformed row in import payload' }, 400);
+    await persistChurchBalancesMultiYearImport(db, rows, years, new Date().toISOString());
+    return json({ ok: true, years, imported: rows.length });
   }
 
   // Read: the latest imported balance sheet for a given year (defaults to current year) — a
