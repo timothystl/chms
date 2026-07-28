@@ -152,6 +152,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <button class="fin-subnav-btn" id="giv-view-transactions-btn" onclick="givSetView('transactions')">Transactions</button>
     <button class="fin-subnav-btn require-finance" id="giv-view-board-btn" onclick="givSetView('board')">Board Report</button>
     <button class="fin-subnav-btn require-finance" id="giv-view-letters-btn" onclick="givSetView('letters')">Letters</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-receipts-btn" onclick="givSetView('receipts')">Receipts</button>
     <button class="fin-subnav-btn require-finance" id="giv-view-reports-btn" onclick="givSetView('reports')">Analysis</button>
     <button class="fin-subnav-btn" id="giv-view-settings-btn" onclick="givSetView('settings')">Settings</button>
   </div>
@@ -242,6 +243,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
   <div id="giv-view-letters" class="require-finance" style="display:none;">
     <div id="giv-letters-root"><div class="board-empty">Loading&hellip;</div></div>
+  </div>
+
+  <div id="giv-view-receipts" class="require-finance" style="display:none;">
+    <div id="giv-receipts-root"><div class="board-empty">Loading&hellip;</div></div>
   </div>
 
   <div id="giv-view-reports" style="display:none;">
