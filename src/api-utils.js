@@ -582,6 +582,76 @@ export function computeGivingDistribution(rows) {
   };
 }
 
+// ── Thank-you receipts (GIV-R4 / A) ───────────────────────────────────────────
+// Clean monthly figures we're willing to suggest as a recurring-giving nudge.
+export const MONTHLY_SUGGESTION_LADDER_CENTS = [
+  1000, 1500, 2000, 2500, 3000, 4000, 5000, 7500, 10000, 15000, 20000, 25000, 50000,
+]; // $10 … $500
+
+// Pure. Suggest a clean monthly recurring amount to nudge toward, given a one-time
+// gift. Aims at roughly a quarter of the gift (so a $100 gift suggests ~$25/mo, an
+// aspirational-but-reachable ask) then snaps to the nearest clean ladder rung, floored
+// at $10. Returns 0 for a non-positive gift.
+export function suggestMonthlyFromGift(giftCents) {
+  const target = (Number(giftCents) || 0) / 4;
+  if (target <= 0) return 0;
+  let best = MONTHLY_SUGGESTION_LADDER_CENTS[0], bestD = Infinity;
+  for (const rung of MONTHLY_SUGGESTION_LADDER_CENTS) {
+    const d = Math.abs(rung - target);
+    if (d < bestD) { bestD = d; best = rung; }
+  }
+  return best;
+}
+
+// Pure. Given per-donation rows and the qualifying rules, return the receipt queue:
+// each donation flagged with why it qualifies (>= threshold and/or the donor's first
+// ever gift) plus a suggested monthly nudge. `rows` are donation events already grouped
+// per person+date (amount_cents summed across split funds). `firstGiftDateByPerson` maps
+// person_id -> their earliest-ever gift date (YYYY-MM-DD). `sentKeys` is the set of
+// recipient_keys already thanked. Non-qualifying donations are dropped.
+export function computeReceiptQueue(rows, opts = {}) {
+  const threshold = Math.max(0, Math.round(opts.thresholdCents != null ? opts.thresholdCents : 25000));
+  const includeFirst = opts.includeFirstGift !== false;
+  const firstByPerson = opts.firstGiftDateByPerson || {};
+  const sentKeys = opts.sentKeys || new Set();
+  const out = [];
+  for (const r of rows || []) {
+    const amt = Number(r.amount_cents) || 0;
+    if (amt <= 0) continue;
+    const overThreshold = amt >= threshold;
+    const isFirst = includeFirst && r.person_id != null
+      && firstByPerson[r.person_id] && r.gift_date && firstByPerson[r.person_id] === r.gift_date;
+    if (!overThreshold && !isFirst) continue;
+    const reasons = [];
+    if (overThreshold) reasons.push('over_threshold');
+    if (isFirst) reasons.push('first_gift');
+    const key = 'ge' + r.person_id + ':' + r.gift_date;
+    out.push({
+      person_id: r.person_id,
+      household_id: r.household_id || null,
+      name: r.name || '(anonymous)',
+      email: r.email || '',
+      amount_cents: amt,
+      gift_date: r.gift_date,
+      funds: r.funds || '',
+      reasons,
+      suggested_monthly_cents: suggestMonthlyFromGift(amt),
+      recipient_key: key,
+      has_email: !!(r.email && r.email.trim()),
+      sent: sentKeys.has(key),
+    });
+  }
+  // Largest gifts first — the ones most worth a personal thank-you.
+  out.sort((a, b) => b.amount_cents - a.amount_cents);
+  const counts = {
+    total: out.length,
+    sent: out.filter(r => r.sent).length,
+    unsent: out.filter(r => !r.sent).length,
+    no_email: out.filter(r => !r.has_email).length,
+  };
+  return { receipts: out, counts };
+}
+
 // ── Inflation adjustment (GIV-R3 / 3A five-year trend) ────────────────────────
 // CPI-U (U.S. all-items, annual average, 1982-84=100). Update once a year when
 // the BLS annual average is published; the current/next year are estimates until

@@ -2,7 +2,7 @@ export const JS_GIVING = String.raw`<script>
 // ── GIVING ────────────────────────────────────────────────────────────
 // ── Batches / Transactions view toggle (RDS4) ──────────────────────────
 var _givView = 'batches';
-var _GIV_VIEWS = ['batches','transactions','board','letters','reports','settings'];
+var _GIV_VIEWS = ['batches','transactions','board','letters','receipts','reports','settings'];
 var _GIV_VIEW_DISPLAY = { batches:'grid', transactions:'flex' }; // others default to ''
 function givSetView(view) {
   _givView = view;
@@ -25,6 +25,7 @@ function givSetView(view) {
     if (bandsYr && !bandsYr.value) bandsYr.value = curYr;
   }
   if (view === 'letters') givLettersInit();
+  if (view === 'receipts') givReceiptsInit();
   if (view === 'reports') { givAnalysisInit(); finInitGivingReports(); }
   if (view === 'settings') loadGivingSettings();
 }
@@ -917,6 +918,211 @@ function givLettersPrint() {
     next();
   });
 }
+// ── THANK-YOU RECEIPTS (GIV-R4 / A): manual thank-you + recurring-giving nudge ──
+// Donations >= threshold ($250 default) or a donor's first-ever gift. Manual send/print,
+// per-donation status tracked so nothing double-sends while testing. Reuses the Phase 2
+// send-statement + letters/mark endpoints; letter body built client-side from the row.
+var _givReceiptsState = { from: '', to: '', threshold: 250, firstGift: true, receipts: [], counts: null };
+function givReceiptsInit() {
+  var st = _givReceiptsState;
+  if (!st.from || !st.to) {
+    var now = new Date();
+    st.to = now.toISOString().slice(0, 10);
+    st.from = now.toISOString().slice(0, 7) + '-01';
+  }
+  givReceiptsRenderShell();
+  givReceiptsLoad();
+}
+function givReceiptsRenderShell() {
+  var root = document.getElementById('giv-receipts-root');
+  if (!root) return;
+  var st = _givReceiptsState;
+  root.innerHTML =
+    '<div style="margin-bottom:14px;">'
+    +   '<div class="board-title">Thank-You Receipts</div>'
+    +   '<div class="board-subtitle">Gifts worth a personal thank-you &middot; manual send &middot; nudge toward recurring giving</div>'
+    + '</div>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;margin-bottom:14px;">'
+    +   '<div class="field" style="margin:0;"><label>From</label><input type="date" id="giv-rcpt-from" value="' + st.from + '" style="font-size:.85rem;padding:5px 8px;" onchange="givReceiptsRefresh()"></div>'
+    +   '<div class="field" style="margin:0;"><label>To</label><input type="date" id="giv-rcpt-to" value="' + st.to + '" style="font-size:.85rem;padding:5px 8px;" onchange="givReceiptsRefresh()"></div>'
+    +   '<div class="field" style="margin:0;"><label>Threshold ($)</label><input type="number" id="giv-rcpt-threshold" value="' + st.threshold + '" min="0" step="25" style="width:90px;font-size:.85rem;padding:5px 8px;" onchange="givReceiptsRefresh()"></div>'
+    +   '<label style="display:flex;align-items:center;gap:6px;font-size:.85rem;cursor:pointer;"><input type="checkbox" id="giv-rcpt-first"' + (st.firstGift ? ' checked' : '') + ' onchange="givReceiptsRefresh()"> Include first-time gifts</label>'
+    + '</div>'
+    + '<div id="giv-rcpt-status" class="import-status" style="margin-bottom:8px;"></div>'
+    + '<div id="giv-rcpt-body"><div class="board-empty">Loading&hellip;</div></div>';
+}
+function givReceiptsRefresh() {
+  var st = _givReceiptsState;
+  var f = document.getElementById('giv-rcpt-from'), t = document.getElementById('giv-rcpt-to');
+  var th = document.getElementById('giv-rcpt-threshold'), fg = document.getElementById('giv-rcpt-first');
+  if (f) st.from = f.value; if (t) st.to = t.value;
+  if (th) st.threshold = Math.max(0, parseInt(th.value, 10) || 0);
+  if (fg) st.firstGift = fg.checked;
+  givReceiptsLoad();
+}
+function givReceiptsLoad() {
+  var st = _givReceiptsState;
+  var body = document.getElementById('giv-rcpt-body');
+  if (!body) return;
+  body.innerHTML = '<div class="board-empty">Loading gifts&hellip;</div>';
+  var qs = 'from=' + st.from + '&to=' + st.to + '&threshold_cents=' + (st.threshold * 100) + '&first_gift=' + (st.firstGift ? '1' : '0');
+  api('/admin/api/giving/receipts/queue?' + qs).then(function(d) {
+    st.receipts = d.receipts || [];
+    st.counts = d.counts || { total: 0, sent: 0, unsent: 0, no_email: 0 };
+    givReceiptsRenderTable();
+  }).catch(function(e) {
+    body.innerHTML = '<div class="board-empty">Could not load: ' + esc(e.message) + '</div>';
+  });
+}
+function givReceiptsRenderTable() {
+  var st = _givReceiptsState, body = document.getElementById('giv-rcpt-body');
+  if (!body) return;
+  var recips = st.receipts;
+  if (!recips.length) {
+    body.innerHTML = '<div class="board-empty">No gifts qualify for ' + esc(st.from) + ' &ndash; ' + esc(st.to) + '. Try a wider date range or a lower threshold.</div>';
+    return;
+  }
+  var c = st.counts;
+  var head = '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;">'
+    + givLettersStatChip(c.total, 'to thank')
+    + givLettersStatChip(c.sent, 'already thanked')
+    + givLettersStatChip(c.unsent, 'pending')
+    + givLettersStatChip(c.no_email, 'no email')
+    + '</div>';
+  var th = 'padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-meta);border-bottom:1.5px solid var(--color-navy);text-align:left;';
+  var rows = recips.map(function(r, i) {
+    var reasonPills = r.reasons.map(function(rs) {
+      var label = rs === 'first_gift' ? 'First gift' : ('Over $' + st.threshold);
+      var bg = rs === 'first_gift' ? 'var(--color-gold)' : 'var(--color-teal)';
+      return '<span style="display:inline-block;background:' + bg + ';color:var(--white,#fff);font-size:.68rem;padding:1px 6px;border-radius:8px;margin-right:4px;">' + label + '</span>';
+    }).join('');
+    var statusPill = r.sent
+      ? '<span style="font-size:.72rem;color:var(--sage);font-weight:600;">&#10003; thanked</span>'
+      : '<span style="font-size:.72rem;color:var(--warm-gray);">pending</span>';
+    var actions = '<button class="btn-sm" style="font-size:.68rem;padding:1px 6px;" onclick="givReceiptPreview(' + i + ')">Preview</button> '
+      + (r.has_email ? '<button class="btn-sm" style="font-size:.68rem;padding:1px 6px;" onclick="givReceiptSend(' + i + ')">Email</button> ' : '')
+      + '<button class="btn-sm" style="font-size:.68rem;padding:1px 6px;" onclick="givReceiptPrint(' + i + ')">Print</button> '
+      + '<button class="btn-sm" style="font-size:.68rem;padding:1px 6px;" onclick="givReceiptToggleMark(' + i + ')">' + (r.sent ? 'undo' : 'mark') + '</button>';
+    return '<tr style="border-bottom:1px solid var(--border);">'
+      + '<td style="padding:6px 8px;font-size:.85rem;">' + esc(r.name)
+      +   '<div style="font-size:.74rem;color:var(--warm-gray);">' + (r.email ? esc(r.email) : '<span style="color:var(--danger);">no email</span>') + '</div>'
+      +   '<div style="margin-top:2px;">' + reasonPills + '</div></td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;">' + fmtMoney(r.amount_cents)
+      +   '<div style="font-size:.72rem;color:var(--warm-gray);">' + fmtDate(r.gift_date) + '</div></td>'
+      + '<td style="padding:6px 8px;font-size:.8rem;color:var(--warm-gray);">' + esc(r.funds || '') + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;">' + fmtMoney(r.suggested_monthly_cents) + '/mo</td>'
+      + '<td style="padding:6px 8px;white-space:nowrap;">' + statusPill + '<div style="margin-top:3px;">' + actions + '</div></td>'
+      + '</tr>';
+  }).join('');
+  body.innerHTML = head
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'
+    + '<thead><tr>'
+    +   '<th style="' + th + '">Donor</th>'
+    +   '<th style="' + th + 'text-align:right;">Gift</th>'
+    +   '<th style="' + th + '">Fund</th>'
+    +   '<th style="' + th + 'text-align:right;">Suggest</th>'
+    +   '<th style="' + th + '">Status &amp; actions</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+// Editable default copy lives here for now; the "impact" sentence is deliberately generic
+// until the church supplies its own wording (GIV-R4 follow-up).
+function givReceiptLetterHtml(r) {
+  var church = (_churchConfig && _churchConfig.church_name) || 'Timothy Lutheran Church';
+  var givingUrl = (_churchConfig && _churchConfig.giving_url) || '';
+  var isFirst = r.reasons.indexOf('first_gift') >= 0;
+  var body = '<p>Dear ' + esc(r.name) + ',</p>'
+    + '<p>Thank you for your generous gift of <strong>' + fmtMoney(r.amount_cents) + '</strong> on '
+    + fmtDate(r.gift_date) + (r.funds ? ' to ' + esc(r.funds) : '') + '. '
+    + 'Your generosity directly supports the ministry and mission of ' + esc(church) + '.</p>'
+    + (isFirst ? '<p>We are especially grateful for your first gift &mdash; welcome, and thank you for partnering with us.</p>' : '')
+    + '<p>Would you consider making an ongoing impact? A recurring gift of about <strong>' + fmtMoney(r.suggested_monthly_cents) + ' a month</strong> '
+    + 'would help sustain our ministries throughout the year and let you give without having to remember each week.'
+    + (givingUrl ? ' You can set up automatic monthly giving in about a minute at <a href="' + esc(givingUrl) + '">' + esc(givingUrl) + '</a>.' : '')
+    + '</p>'
+    + '<p>With gratitude,</p><p>' + esc(church) + '</p>';
+  return '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
+    + letterheadImgHtml(true, church, 'font-size:16px;font-weight:bold;', 6) + '<hr style="margin:10px 0;">'
+    + body + '</div>';
+}
+function givReceiptSubject(r) {
+  var church = (_churchConfig && _churchConfig.church_name) || 'Timothy Lutheran Church';
+  return 'Thank you for your gift — ' + church;
+}
+function givReceiptWithCfg(next) {
+  if (_churchConfig && _churchConfig.church_name) { next(); return; }
+  api('/admin/api/config/church').then(function(cfg) { _churchConfig = cfg || {}; next(); });
+}
+function givReceiptPreview(i) {
+  var r = _givReceiptsState.receipts[i];
+  if (!r) return;
+  givReceiptWithCfg(function() {
+    var w = window.open('', '_blank');
+    if (!w) { alert('Allow popups to preview the letter.'); return; }
+    w.document.write('<html><head><title>Thank-You Preview</title></head><body style="margin:24px;">' + givReceiptLetterHtml(r) + '</body></html>');
+    w.document.close();
+  });
+}
+function givReceiptSend(i) {
+  var r = _givReceiptsState.receipts[i];
+  if (!r || !r.has_email) return;
+  var statusEl = document.getElementById('giv-rcpt-status');
+  givReceiptWithCfg(function() {
+    statusEl.textContent = 'Emailing ' + r.name + '…'; statusEl.className = 'import-status';
+    api('/admin/api/giving/send-statement', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to_email: r.email, to_name: r.name, subject: givReceiptSubject(r),
+        html_body: givReceiptLetterHtml(r),
+        person_id: r.person_id, household_id: r.household_id,
+        year: parseInt((r.gift_date || '').slice(0, 4), 10) || new Date().getFullYear(),
+        letter_type: 'thank_you', recipient_key: r.recipient_key
+      })
+    }).then(function(res) {
+      if (res && res.ok) { statusEl.textContent = 'Thank-you emailed to ' + r.name + '.'; statusEl.className = 'import-status ok'; givReceiptsLoad(); }
+      else if (res && res.rate_limited) { statusEl.textContent = "Brevo's sending limit was hit — try again later."; statusEl.className = 'import-status err'; }
+      else { statusEl.textContent = 'Send failed: ' + (res && res.error || 'unknown'); statusEl.className = 'import-status err'; }
+    }).catch(function(e) { statusEl.textContent = 'Send failed: ' + e.message; statusEl.className = 'import-status err'; });
+  });
+}
+function givReceiptPrint(i) {
+  var r = _givReceiptsState.receipts[i];
+  if (!r) return;
+  givReceiptWithCfg(function() {
+    var w = window.open('', '_blank');
+    if (!w) { alert('Allow popups to print.'); return; }
+    w.document.write('<html><head><title>Thank-You Letter</title></head><body style="margin:24px;">'
+      + givReceiptLetterHtml(r)
+      + '<scr' + 'ipt>window.onload=function(){window.print();};</scr' + 'ipt></body></html>');
+    w.document.close();
+    api('/admin/api/giving/letters/mark', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient_key: r.recipient_key, letter_type: 'thank_you', channel: 'print',
+        year: parseInt((r.gift_date || '').slice(0, 4), 10) || new Date().getFullYear(),
+        person_id: r.person_id, household_id: r.household_id
+      })
+    }).then(function() { givReceiptsLoad(); }).catch(function() {});
+  });
+}
+function givReceiptToggleMark(i) {
+  var r = _givReceiptsState.receipts[i];
+  if (!r) return;
+  var yr = parseInt((r.gift_date || '').slice(0, 4), 10) || new Date().getFullYear();
+  function mark(channel) {
+    return api('/admin/api/giving/letters/mark', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient_key: r.recipient_key, letter_type: 'thank_you', channel: channel, year: yr,
+        unmark: !!r.sent, person_id: r.person_id, household_id: r.household_id
+      })
+    });
+  }
+  // Marking records one channel (email); un-marking clears both, since the queue counts a
+  // gift thanked on any channel.
+  var ops = r.sent ? [mark('email'), mark('print')] : [mark('email')];
+  Promise.all(ops).then(function() { givReceiptsLoad(); }).catch(function() {});
+}
+
 // ── GIVING ANALYSIS (GIV-R3): distribution + multi-year inflation-adjusted trend ──
 function givAnalysisInit() {
   var yrEl = document.getElementById('giv-analysis-year');

@@ -1,6 +1,6 @@
 // ── Giving Entries, Batches, Quick Entry API handlers ──────────────────────
 import { json } from './auth.js';
-import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients } from './api-utils.js';
+import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue } from './api-utils.js';
 
 export async function handleGivingApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -307,6 +307,64 @@ if (seg === 'giving/letters/mark' && method === 'POST') {
   ).bind(person_id ? parseInt(person_id) : 0, household_id ? parseInt(household_id) : null,
          Number(year), letter_type, channel, recipient_key).run();
   return json({ ok: true });
+}
+
+// ── Thank-you receipt queue (GIV-R4 / A) ─────────────────────────────────────
+// Donations in a date range that warrant a manual thank-you: any donation >= threshold
+// (default $250) OR a donor's first-ever recorded gift. Donations are grouped per
+// person+date (split-fund gifts summed) so one donation event = one receipt, keyed
+// 'ge<person>:<date>'. Reuses giving/letters/mark + giving/send-statement to send/track.
+if (seg === 'giving/receipts/queue' && method === 'GET') {
+  const now = new Date();
+  const from = url.searchParams.get('from') || (now.toISOString().slice(0, 7) + '-01');
+  const to   = url.searchParams.get('to')   || now.toISOString().slice(0, 10);
+  const thresholdCents = Math.max(0, parseInt(url.searchParams.get('threshold_cents') || '25000', 10) || 25000);
+  const includeFirstGift = url.searchParams.get('first_gift') !== '0';
+  const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
+
+  // Donation events in range (one row per person per day, split funds summed).
+  const rows = (await db.prepare(
+    `SELECT ge.person_id AS person_id,
+            ${effDate} AS gift_date,
+            SUM(ge.amount) AS amount_cents,
+            MAX(p.first_name || ' ' || p.last_name) AS name,
+            MAX(p.email) AS email,
+            MAX(p.household_id) AS household_id,
+            GROUP_CONCAT(DISTINCT f.name) AS funds
+       FROM giving_entries ge
+       JOIN giving_batches gb ON gb.id = ge.batch_id
+       JOIN people p ON p.id = ge.person_id
+       JOIN funds f ON f.id = ge.fund_id
+      WHERE ${effDate} >= ? AND ${effDate} <= ?
+        AND ge.person_id IS NOT NULL
+        AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+      GROUP BY ge.person_id, ${effDate}`
+  ).bind(from, to).all()).results || [];
+
+  // Each candidate donor's earliest-ever gift date (to flag first-time gifts).
+  const firstGiftDateByPerson = {};
+  const pids = [...new Set(rows.map(r => r.person_id).filter(v => v != null))];
+  for (let i = 0; i < pids.length; i += 90) {
+    const chunk = pids.slice(i, i + 90);
+    const ph = chunk.map(() => '?').join(',');
+    const mins = (await db.prepare(
+      `SELECT ge.person_id AS person_id, MIN(${effDate}) AS first_date
+         FROM giving_entries ge JOIN giving_batches gb ON gb.id = ge.batch_id
+        WHERE ge.person_id IN (${ph})
+        GROUP BY ge.person_id`
+    ).bind(...chunk).all()).results || [];
+    for (const m of mins) firstGiftDateByPerson[m.person_id] = m.first_date;
+  }
+
+  // Already-thanked donations (any channel).
+  const sentRows = (await db.prepare(
+    `SELECT recipient_key FROM giving_letter_sends
+      WHERE letter_type='thank_you' AND recipient_key IS NOT NULL`
+  ).all()).results || [];
+  const sentKeys = new Set(sentRows.map(r => r.recipient_key));
+
+  const result = computeReceiptQueue(rows, { thresholdCents, includeFirstGift, firstGiftDateByPerson, sentKeys });
+  return json({ from, to, threshold_cents: thresholdCents, first_gift: includeFirstGift, ...result });
 }
 
   return null; // not handled
