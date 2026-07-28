@@ -467,6 +467,36 @@ function finDisconnect() {
   api('/admin/api/finance/qb/disconnect', { method: 'POST' }).then(function() { loadFinance(); });
 }
 
+// Clears only finance_church_entries + finance_qb_snapshot (the church budget/actuals and their
+// cached Budget vs Actual blob) — never Daycare Report, Balance Sheet, Budget Planning, Commercial
+// Property, or giving data, per an explicit, narrowly-scoped user decision. Preview-then-confirm,
+// same pattern as the giving reconcile tools: the confirm step echoes back the exact counts shown
+// in preview, so a stale page can't silently wipe data that changed in between.
+var _finClearDataCounts = null;
+function finLoadClearDataPreview() {
+  var el = document.getElementById('fin-clear-data-panel');
+  el.innerHTML = '<p style="font-size:.8rem;color:var(--warm-gray);">Loading…</p>';
+  api('/admin/api/finance/church/clear-all-preview').then(function(d) {
+    if (!d || d.error) { el.innerHTML = '<p style="font-size:.8rem;color:var(--danger);">' + esc((d && d.error) || 'Could not load preview.') + '</p>'; return; }
+    _finClearDataCounts = d.counts;
+    var total = Object.keys(d.counts).reduce(function(s, k) { return s + d.counts[k]; }, 0);
+    if (!total) { el.innerHTML = '<p style="font-size:.8rem;color:var(--warm-gray);">Nothing to clear — church budget/actuals data is already empty.</p>'; return; }
+    el.innerHTML = '<p style="font-size:.82rem;margin:0 0 8px;">This will permanently delete <b>' + total + ' row(s)</b>: ' + d.counts.finance_church_entries + ' Church Report line item(s), ' + d.counts.finance_qb_snapshot + ' cached QuickBooks report snapshot(s). Daycare, Balance Sheet, Budget Planning, Commercial Property, and Giving data are not affected.</p>'
+      + '<button class="btn-danger" onclick="finConfirmClearData()">Yes, permanently clear this data</button>';
+  });
+}
+function finConfirmClearData() {
+  if (!_finClearDataCounts) return;
+  if (!confirm('This cannot be undone. Permanently delete the stored church budget and actuals data?')) return;
+  api('/admin/api/finance/church/clear-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm_counts: _finClearDataCounts }) }).then(function(d) {
+    if (d && d.error) { finToast('Could not clear: ' + d.error); finLoadClearDataPreview(); return; }
+    _finClearDataCounts = null;
+    document.getElementById('fin-clear-data-panel').innerHTML = '<p style="font-size:.8rem;color:var(--sage);">Cleared. Sync QuickBooks or import a report to repopulate.</p>';
+    finToast('Church budget/actuals data cleared.');
+    loadFinance();
+  });
+}
+
 // ── Budget vs Actual — generic renderer for QuickBooks' Columns/Rows report shape ──
 // QBO's own column set varies by report/params, so this walks whatever it returns rather
 // than assuming fixed "budget"/"actual" columns. Section rows carry their label in

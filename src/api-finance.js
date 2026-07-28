@@ -2202,6 +2202,51 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ years, byYear });
   }
 
+  // ── Clear stored Church budget/actuals data (user decision 2026-07-28: after repeated
+  // QuickBooks live-sync issues, starting fresh from re-downloaded QuickBooks exports imported
+  // month-by-month via the existing CSV import tools). Deliberately narrow, per the user's
+  // explicit correction mid-session — only the church budget/actuals themselves, NOT Daycare
+  // Report, Balance Sheet, or Budget Planning data (all of which stay untouched), and never
+  // Commercial Property or any giving data. finance_qb_snapshot is included alongside
+  // finance_church_entries because it's the same data under a different cache — the Overview
+  // tab's "Budget vs. Actual" card reads directly from this snapshot, not from
+  // finance_church_entries, so leaving it out would let stale numbers linger there after a
+  // clear. Same confirm-count safety pattern as giving/force-remove-orphans: preview returns
+  // exact row counts, the clear call must echo them back exactly, so a stale page (data changed
+  // between preview and click) is refused rather than blindly wiping.
+  const CLEAR_TABLES = ['finance_church_entries', 'finance_qb_snapshot'];
+  if (seg === 'finance/church/clear-all-preview' && method === 'GET') {
+    if (!isAdmin) return json({ error: 'Access denied: clearing financial report data requires admin access' }, 403);
+    const counts = {};
+    for (const t of CLEAR_TABLES) {
+      const r = await db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).first();
+      counts[t] = r?.n || 0;
+    }
+    return json({ counts });
+  }
+  if (seg === 'finance/church/clear-all' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: clearing financial report data requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const confirmCounts = b.confirm_counts || {};
+    const actualCounts = {};
+    for (const t of CLEAR_TABLES) {
+      const r = await db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).first();
+      actualCounts[t] = r?.n || 0;
+    }
+    const mismatch = CLEAR_TABLES.some(t => confirmCounts[t] !== actualCounts[t]);
+    if (mismatch) {
+      return json({ error: 'Confirmation mismatch — data has changed since the preview ran. Re-load and try again.', expected: confirmCounts, actual: actualCounts }, 409);
+    }
+    const ops = CLEAR_TABLES.map(t => db.prepare(`DELETE FROM ${t}`));
+    await db.batch(ops);
+    try {
+      await db.prepare(
+        `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value) VALUES(?,?,?,?,?,?,?)`
+      ).bind('clear_finance_report_data', 'finance', null, '', CLEAR_TABLES.join(','), '', JSON.stringify(actualCounts)).run();
+    } catch { /* audit log is best-effort, never block the clear on it */ }
+    return json({ ok: true, cleared: actualCounts });
+  }
+
   // ── Church Report v2: Budget import (backfill/resilience path when live QuickBooks sync
   // isn't available — see FIN2 — or to correct a bad sync) ─────────────────────────────────
   // Preview step: parse the uploaded "Budget vs. Actuals" .xlsx server-side and return the flat

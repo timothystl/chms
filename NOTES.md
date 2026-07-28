@@ -24,6 +24,31 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.110.0 — "Clear Church Budget/Actuals Data" admin tool; live QuickBooks sync set aside (2026-07-28)
+After repeated data-quality issues found this session (wrong report endpoint, classification
+mismatches, a duplicate-write bug inflating totals, $0 budget matching — see FIN2 in `CLAUDE.md`
+for the full trail), the user decided to set live QuickBooks API sync aside and instead
+re-download reports directly from QuickBooks and re-upload them month-by-month via the app's
+existing CSV/Excel import tools. First step: a clean slate for the currently-stored (buggy-sync-
+era) data.
+
+New admin-only **"Clear Budget & Report Data…"** button in Finance → Overview (a new "Danger
+Zone" card, `require-admin`-gated). Deliberately narrow, per the user's explicit scope
+correction: clears only `finance_church_entries` (Church Report budget/actuals) and
+`finance_qb_snapshot` (the cached Budget vs Actual blob the Overview card reads directly, kept
+in step so stale numbers can't linger there after a clear). **Daycare Report, Balance Sheet, and
+Budget Planning data are explicitly NOT touched**, nor is Commercial Property or any giving
+data. New `GET finance/church/clear-all-preview` / `POST finance/church/clear-all` endpoints,
+same confirm-count safety pattern as the existing `giving/force-remove-orphans` tool — the
+confirm call must echo back the exact row counts shown in preview or it's refused with 409,
+protecting against a stale page double-click. Writes an `audit_log` row on success.
+
+`npm test` (376/376), `node --check` on `api-finance.js` and both built app-JS bundles
+(confirmed `finLoadClearDataPreview`/`finConfirmClearData` present in the built `app-ext.js`).
+Not verified in a live browser — no DB access exists in this session (no `wrangler`/D1
+credentials), so nothing has actually been cleared yet; this only builds the tool. (`src/api-finance.js`,
+`src/frontend/js-finance.js`, `src/frontend/html-tabs.js`)
+
 ### v1.109.0 — Fixed a real duplicate-write bug inflating Overview KPI totals; "Revenue"-wording bottom-line fixes (2026-07-28)
 Live testing after the $0-budget fix (below) surfaced a much bigger problem: the Overview tab's
 KPI cards (Income YTD/Expenses YTD/Net Position) showed roughly double the correct total (~$1.18M

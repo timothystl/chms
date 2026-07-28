@@ -1497,6 +1497,15 @@ export const HTML_TABS_2 = String.raw`
           <div class="dash-card-body" style="padding:14px 18px;" id="fin-connection"></div>
         </section>
 
+        <section class="dash-card require-admin" style="margin-bottom:16px;border-color:var(--danger);">
+          <div class="dash-card-hdr" style="color:var(--danger);">Danger Zone</div>
+          <div class="dash-card-body" style="padding:14px 18px;">
+            <p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 12px;">Permanently clears stored Church Report, Balance Sheet, Daycare Report, and Budget Planning data (from QuickBooks sync and imports). <b>Commercial Property and all Giving data are never touched by this.</b> Use this to start fresh before re-importing corrected reports.</p>
+            <button class="btn-danger" onclick="finLoadClearDataPreview()">Clear Budget &amp; Report Data…</button>
+            <div id="fin-clear-data-panel" style="margin-top:10px;"></div>
+          </div>
+        </section>
+
         <section class="dash-card" style="margin-bottom:16px;">
           <div class="dash-card-hdr">Budget vs. Actual</div>
           <div class="dash-card-body" style="padding:14px 18px;" id="fin-budget"></div>
