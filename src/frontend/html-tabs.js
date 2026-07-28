@@ -151,6 +151,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <button class="fin-subnav-btn active" id="giv-view-batches-btn" onclick="givSetView('batches')">Batches</button>
     <button class="fin-subnav-btn" id="giv-view-transactions-btn" onclick="givSetView('transactions')">Transactions</button>
     <button class="fin-subnav-btn require-finance" id="giv-view-board-btn" onclick="givSetView('board')">Board Report</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-letters-btn" onclick="givSetView('letters')">Letters</button>
     <button class="fin-subnav-btn require-finance" id="giv-view-reports-btn" onclick="givSetView('reports')">Reports</button>
     <button class="fin-subnav-btn" id="giv-view-settings-btn" onclick="givSetView('settings')">Settings</button>
   </div>
@@ -239,6 +240,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
   </div>
 
+  <div id="giv-view-letters" class="require-finance" style="display:none;">
+    <div id="giv-letters-root"><div class="board-empty">Loading&hellip;</div></div>
+  </div>
+
   <div id="giv-view-reports" style="display:none;">
     <div class="report-tiles" id="giv-rpt-tiles-grid">
       <div class="report-tile require-finance" data-tile-id="giving-by-fund">
@@ -321,37 +326,12 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingVsAttendance()">Run Report</button>
         </div>
       </div>
-      <div class="report-tile require-finance" data-tile-id="batch-send-statements">
+      <div class="report-tile require-finance" data-tile-id="letters-moved" style="cursor:pointer;" onclick="givSetView('letters')">
         <div class="tile-icon">&#128140;</div>
-        <div class="tile-title">Batch Send Statements</div>
+        <div class="tile-title">Letters &amp; Statements</div>
         <div class="tile-desc">
-          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Send year-end giving letters via email to all givers for a year.</div>
-          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-stmt-year" name="batch-stmt-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchStatementGivers()">Load Givers</button>
-          <div id="batch-stmt-status" class="import-status" style="margin-top:6px;"></div>
-          <div id="batch-stmt-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
-        </div>
-      </div>
-      <div class="report-tile require-finance" data-tile-id="batch-send-midyear">
-        <div class="tile-icon">&#128140;</div>
-        <div class="tile-title">Batch Send Mid-Year Update</div>
-        <div class="tile-desc">
-          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Send a mid-year giving update &mdash; thanks them, shows year-to-date giving for review, and suggests ways to set up recurring giving.</div>
-          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-mid-year" name="batch-mid-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchMidyearGivers()">Load Givers</button>
-          <div id="batch-mid-status" class="import-status" style="margin-top:6px;"></div>
-          <div id="batch-mid-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
-        </div>
-      </div>
-      <div class="report-tile require-finance" data-tile-id="batch-send-appeal">
-        <div class="tile-icon">&#128140;</div>
-        <div class="tile-title">Send Giving Appeal to All Member Households</div>
-        <div class="tile-desc">
-          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Sends the Mid-Year Update letter to every member household &mdash; not just people who've already given &mdash; one email per household, so it can also prompt households that haven't given yet. Households with $0 recorded will show a $0 total in the letter.</div>
-          <div class="field" style="margin:4px 0;"><label>Year</label><input type="number" id="batch-appeal-year" name="batch-appeal-year" value="" style="font-size:.82rem;padding:4px 8px;width:90px;"></div>
-          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="loadBatchAppealHouseholds()">Load Member Households</button>
-          <div id="batch-appeal-status" class="import-status" style="margin-top:6px;"></div>
-          <div id="batch-appeal-list" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
+          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-end statements, mid-year updates, appeals, and thank-you letters &mdash; with per-recipient send status &mdash; now live in the <strong>Letters</strong> tab above.</div>
+          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="event.stopPropagation();givSetView('letters')">Go to Letters &rarr;</button>
         </div>
       </div>
     </div>
