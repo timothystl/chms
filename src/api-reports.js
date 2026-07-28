@@ -1,7 +1,7 @@
 // ── Reports, Engagement, Prayer API handlers ─────────────────────────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { isoWeekKey, bucketGivingMethod, projectYearEnd, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, computeGivingBands } from './api-utils.js';
+import { isoWeekKey, bucketGivingMethod, projectYearEnd, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL } from './api-utils.js';
 
 export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -794,6 +794,75 @@ if (seg === 'reports/giving-bands' && method === 'GET') {
   const periodsElapsed = freq === 'monthly' ? monthsElapsed : weeksElapsed;
   const result = computeGivingBands(rows, { freq, periodsElapsed, upliftCents });
   return json({ year, scope, partial: year === now.getUTCFullYear(), ...result });
+}
+
+// ── Giving distribution (GIV-R3 / 2A) ───────────────────────────────
+// Per-giver annual totals → distribution stats (mean/median/top-10% share) + a
+// tier table. Scope household (default) or person; organizations excluded.
+// Finance-gated via the central `giving` access gate (seg starts with reports/giving).
+if (seg === 'reports/giving-distribution' && method === 'GET') {
+  const year = parseInt(url.searchParams.get('year') || '', 10);
+  if (!year || isNaN(year)) return json({ error: 'year required' }, 400);
+  const scope = url.searchParams.get('scope') === 'person' ? 'person' : 'household';
+  const start = year + '-01-01', end = year + '-12-31';
+  const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
+  let rows;
+  if (scope === 'household') {
+    const housed = "p.household_id IS NOT NULL AND p.household_id != 0";
+    const keyExpr = `CASE WHEN ${housed} THEN 'h:' || p.household_id ELSE 'p:' || p.id END`;
+    rows = (await db.prepare(
+      `SELECT ${keyExpr} AS gid, SUM(ge.amount) AS total_cents
+       FROM giving_entries ge
+       JOIN giving_batches gb ON gb.id = ge.batch_id
+       JOIN people p ON p.id = ge.person_id
+       WHERE ${effDate} >= ? AND ${effDate} <= ?
+         AND ge.person_id IS NOT NULL
+         AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+       GROUP BY ${keyExpr}`
+    ).bind(start, end).all()).results || [];
+  } else {
+    rows = (await db.prepare(
+      `SELECT ge.person_id AS gid, SUM(ge.amount) AS total_cents
+       FROM giving_entries ge
+       JOIN giving_batches gb ON gb.id = ge.batch_id
+       JOIN people p ON p.id = ge.person_id
+       WHERE ${effDate} >= ? AND ${effDate} <= ?
+         AND ge.person_id IS NOT NULL
+         AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+       GROUP BY ge.person_id`
+    ).bind(start, end).all()).results || [];
+  }
+  return json({ year, scope, ...computeGivingDistribution(rows) });
+}
+
+// ── Giving multi-year trend, inflation-adjusted (GIV-R3 / 3A) ────────
+// Nominal per-year giving alongside the same totals restated in the most recent
+// year's dollars (CPI-U), so a flat nominal line that's actually losing ground to
+// inflation is visible. `years` defaults to 5, capped 2..10; ends at `end` (or this year).
+if (seg === 'reports/giving-multiyear' && method === 'GET') {
+  const now = new Date();
+  const endYear = parseInt(url.searchParams.get('end') || '', 10) || now.getUTCFullYear();
+  const nYears  = Math.max(2, Math.min(10, parseInt(url.searchParams.get('years') || '5', 10) || 5));
+  const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
+  const years = [];
+  for (let y = endYear - (nYears - 1); y <= endYear; y++) years.push(y);
+  const rows = await Promise.all(years.map(async y => {
+    const s = y + '-01-01', e = y + '-12-31';
+    const r = await db.prepare(
+      `SELECT COUNT(*) AS gifts, COUNT(DISTINCT ge.person_id) AS givers, SUM(ge.amount) AS total_cents
+       FROM giving_entries ge JOIN giving_batches gb ON gb.id = ge.batch_id
+       WHERE ${effDate} >= ? AND ${effDate} <= ?`
+    ).bind(s, e).first();
+    const gifts = r?.gifts || 0, givers = r?.givers || 0, tot = r?.total_cents || 0;
+    return {
+      year: y, gifts, givers, total_cents: tot,
+      avg_gift_cents:  gifts  > 0 ? Math.round(tot / gifts)  : 0,
+      avg_giver_cents: givers > 0 ? Math.round(tot / givers) : 0,
+      adjusted_cents:  inflationAdjustCents(tot, y, endYear),
+      cpi_estimated:   !CPI_U_ANNUAL[y] || y >= 2025,
+    };
+  }));
+  return json({ end_year: endYear, base_year: endYear, years: rows });
 }
 
 // ── Giving × Attendance overlay (R8) ────────────────────────────────

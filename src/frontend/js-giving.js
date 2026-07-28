@@ -25,7 +25,7 @@ function givSetView(view) {
     if (bandsYr && !bandsYr.value) bandsYr.value = curYr;
   }
   if (view === 'letters') givLettersInit();
-  if (view === 'reports') finInitGivingReports();
+  if (view === 'reports') { givAnalysisInit(); finInitGivingReports(); }
   if (view === 'settings') loadGivingSettings();
 }
 function givTxnPopulateFundOptions() {
@@ -916,6 +916,120 @@ function givLettersPrint() {
     }
     next();
   });
+}
+// ── GIVING ANALYSIS (GIV-R3): distribution + multi-year inflation-adjusted trend ──
+function givAnalysisInit() {
+  var yrEl = document.getElementById('giv-analysis-year');
+  if (yrEl && !yrEl.value) yrEl.value = new Date().getFullYear();
+  givAnalysisLoad();
+}
+function givAnalysisLoad() {
+  var yr = parseInt((document.getElementById('giv-analysis-year') || {}).value, 10) || new Date().getFullYear();
+  var distEl = document.getElementById('giv-analysis-dist');
+  var trendEl = document.getElementById('giv-analysis-trend');
+  if (distEl) distEl.innerHTML = '<div class="board-empty">Loading distribution&hellip;</div>';
+  if (trendEl) trendEl.innerHTML = '<div class="board-empty">Loading trend&hellip;</div>';
+  api('/admin/api/reports/giving-distribution?year=' + yr + '&scope=household')
+    .then(function(d) { givRenderDistribution(d); })
+    .catch(function(e) { if (distEl) distEl.innerHTML = '<div class="board-empty">Could not load distribution: ' + esc(e.message) + '</div>'; });
+  api('/admin/api/reports/giving-multiyear?end=' + yr + '&years=5')
+    .then(function(d) { givRenderMultiyear(d); })
+    .catch(function(e) { if (trendEl) trendEl.innerHTML = '<div class="board-empty">Could not load trend: ' + esc(e.message) + '</div>'; });
+}
+function givAnalysisChip(label, val, sub) {
+  return '<div style="background:var(--white,#fff);border:1px solid var(--border);border-radius:8px;padding:10px 16px;min-width:110px;">'
+    + '<div style="font-size:1.3rem;font-weight:700;color:var(--color-navy);">' + val + '</div>'
+    + '<div style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.04em;">' + esc(label) + '</div>'
+    + (sub ? '<div style="font-size:.72rem;color:var(--warm-meta);margin-top:2px;">' + esc(sub) + '</div>' : '')
+    + '</div>';
+}
+function givRenderDistribution(d) {
+  var el = document.getElementById('giv-analysis-dist');
+  if (!el) return;
+  if (!d || !d.givers) {
+    el.innerHTML = '<h3 style="margin-top:0;">&#128202; Giving Distribution</h3><div class="board-empty">No giving recorded for ' + (d && d.year ? d.year : '') + '.</div>';
+    return;
+  }
+  var chips = givAnalysisChip('Giving households', d.givers.toLocaleString())
+    + givAnalysisChip('Total', fmtMoney(d.total_cents))
+    + givAnalysisChip('Mean gift/yr', fmtMoney(d.mean_cents))
+    + givAnalysisChip('Median gift/yr', fmtMoney(d.median_cents), 'the typical household')
+    + givAnalysisChip('Top 10% share', d.top10_share_pct + '%', d.top10_givers + ' households');
+  var th = 'padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-meta);border-bottom:1.5px solid var(--color-navy);';
+  var maxTotal = 0;
+  (d.tiers || []).forEach(function(t) { if (t.total_cents > maxTotal) maxTotal = t.total_cents; });
+  var rows = (d.tiers || []).filter(function(t){ return t.givers > 0; }).map(function(t) {
+    var barW = maxTotal ? Math.round((t.total_cents / maxTotal) * 100) : 0;
+    return '<tr style="border-bottom:1px solid var(--border);">'
+      + '<td style="padding:6px 8px;font-size:.85rem;white-space:nowrap;">' + esc(t.label) + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;">' + t.givers + '</td>'
+      + '<td style="padding:6px 8px;font-size:.8rem;text-align:right;color:var(--warm-gray);">' + t.givers_pct + '%</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;">' + fmtMoney(t.total_cents) + '</td>'
+      + '<td style="padding:6px 8px;width:38%;">'
+      +   '<div style="background:var(--linen,#eee);border-radius:3px;height:14px;position:relative;">'
+      +     '<div style="background:var(--color-teal);height:14px;border-radius:3px;width:' + barW + '%;"></div></div>'
+      +   '<div style="font-size:.72rem;color:var(--warm-gray);margin-top:1px;">' + t.total_pct + '% of total</div>'
+      + '</td></tr>';
+  }).join('');
+  el.innerHTML = '<h3 style="margin-top:0;">&#128202; Giving Distribution &middot; ' + d.year + '</h3>'
+    + '<p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 12px;">Households grouped by their full-year giving. The <strong>median</strong> is the honest &ldquo;typical&rdquo; gift &mdash; a few large gifts pull the mean up.</p>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">' + chips + '</div>'
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'
+    + '<thead><tr>'
+    +   '<th style="' + th + 'text-align:left;">Annual giving</th>'
+    +   '<th style="' + th + 'text-align:right;">Households</th>'
+    +   '<th style="' + th + 'text-align:right;">%</th>'
+    +   '<th style="' + th + 'text-align:right;">Total</th>'
+    +   '<th style="' + th + 'text-align:left;">Share of total</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+function givRenderMultiyear(d) {
+  var el = document.getElementById('giv-analysis-trend');
+  if (!el) return;
+  var years = (d && d.years) || [];
+  if (!years.length) { el.innerHTML = '<h3 style="margin-top:0;">&#128200; Five-Year Trend</h3><div class="board-empty">No data.</div>'; return; }
+  var base = d.base_year;
+  var anyEst = years.some(function(y){ return y.cpi_estimated; });
+  var chart = renderGroupedBarChart({
+    groups: years.map(function(y){ return { key: String(y.year), label: String(y.year) }; }),
+    series: [
+      { key: 'nominal',  label: 'Actual dollars',            color: 'var(--color-navy)' },
+      { key: 'adjusted', label: base + ' dollars (inflation-adjusted)', color: 'var(--color-gold)' }
+    ],
+    value: function(gk, sk) {
+      var row = years.filter(function(y){ return String(y.year) === gk; })[0];
+      if (!row) return null;
+      return (sk === 'nominal' ? row.total_cents : row.adjusted_cents) / 100;
+    },
+    tooltip: function(gk, sk, v) {
+      var s = sk === 'nominal' ? 'Actual' : ('In ' + base + ' dollars');
+      return s + ' ' + gk + ': $' + Math.round(v).toLocaleString();
+    },
+    barLabel: function(v) { return '$' + Math.round(v / 1000) + 'k'; },
+    chartH: 200
+  });
+  var th = 'padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-meta);border-bottom:1.5px solid var(--color-navy);';
+  var rows = years.map(function(y) {
+    return '<tr style="border-bottom:1px solid var(--border);">'
+      + '<td style="padding:6px 8px;font-size:.85rem;">' + y.year + (y.cpi_estimated ? ' <span style="color:var(--warm-meta);font-size:.7rem;">est.</span>' : '') + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;">' + y.givers + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;">' + fmtMoney(y.total_cents) + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;">' + fmtMoney(y.avg_giver_cents) + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;color:var(--warm-gray);">' + fmtMoney(y.adjusted_cents) + '</td>'
+      + '</tr>';
+  }).join('');
+  el.innerHTML = '<h3 style="margin-top:0;">&#128200; Five-Year Trend' + (base ? ' &middot; through ' + base : '') + '</h3>'
+    + '<p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 10px;">Actual giving vs. the same totals restated in ' + base + ' dollars (CPI-U). If the gold bars are flat while the navy bars rise, giving is only keeping pace with inflation.</p>'
+    + (chart || '')
+    + '<div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;">'
+    + '<thead><tr>'
+    +   '<th style="' + th + 'text-align:left;">Year</th>'
+    +   '<th style="' + th + 'text-align:right;">Givers</th>'
+    +   '<th style="' + th + 'text-align:right;">Total</th>'
+    +   '<th style="' + th + 'text-align:right;">Avg / giver</th>'
+    +   '<th style="' + th + 'text-align:right;">In ' + base + ' $</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+    + (anyEst ? '<div style="font-size:.72rem;color:var(--warm-meta);margin-top:6px;">&ldquo;est.&rdquo; years use an estimated CPI until the BLS annual average is published.</div>' : '');
 }
 function givLettersToggleMark(i) {
   var st = _givLettersState;
