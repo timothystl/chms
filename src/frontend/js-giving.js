@@ -2,7 +2,7 @@ export const JS_GIVING = String.raw`<script>
 // ── GIVING ────────────────────────────────────────────────────────────
 // ── Batches / Transactions view toggle (RDS4) ──────────────────────────
 var _givView = 'batches';
-var _GIV_VIEWS = ['batches','transactions','board','reports','settings'];
+var _GIV_VIEWS = ['batches','transactions','board','letters','reports','settings'];
 var _GIV_VIEW_DISPLAY = { batches:'grid', transactions:'flex' }; // others default to ''
 function givSetView(view) {
   _givView = view;
@@ -21,6 +21,7 @@ function givSetView(view) {
     var platYr = document.getElementById('rpt-plateau-year');
     if (platYr && !platYr.value) platYr.value = new Date().getFullYear();
   }
+  if (view === 'letters') givLettersInit();
   if (view === 'reports') finInitGivingReports();
   if (view === 'settings') loadGivingSettings();
 }
@@ -611,6 +612,321 @@ function printBoardPage() {
 
 function boardEmailPacket() {
   alert('Emailing the board packet is coming in a later phase of the giving redesign. For now, use "Print board page" and attach the PDF, or print the Narrative view to PDF for a written packet.');
+}
+
+// ── LETTERS & STATEMENTS WORKSPACE (GIV-R2) ─────────────────────────────
+// One workspace replacing the old four Batch-Send report tiles. Pick a letter type, a year,
+// and a channel (email or print); the recipient list is resolved server-side (no "Load
+// Givers" step) with real per-recipient sent/pending status, so a batch can be resumed after
+// an interruption. Reuses the existing renderLetterHTML/letterheadImgHtml helpers for the
+// actual letter body and the existing giving/send-statement endpoint for email delivery.
+var _givLettersState = { type: 'year_end', year: 0, channel: 'email', scope: '', recipients: [], counts: null };
+var _GIV_LETTER_TYPES = [
+  { key: 'year_end',  label: 'Year-End Statement',  desc: 'Annual charitable-contribution statement for tax purposes.' },
+  { key: 'midyear',   label: 'Mid-Year Update',     desc: 'A mid-year thank-you with giving to date and a recurring-giving nudge.' },
+  { key: 'quarterly', label: 'Quarterly Statement', desc: 'A quarterly giving statement for review.' },
+  { key: 'thank_you', label: 'Thank-You Letter',    desc: 'A warm thank-you to those who gave this year.' },
+  { key: 'appeal',    label: 'Giving Appeal',       desc: 'Sent to every member household, whether or not they have given yet.' },
+  { key: 'memorial',  label: 'Memorial Letter',     desc: 'Composed one at a time from the Reports tab statement tool.' }
+];
+function givLettersTemplateType(t) { return (t === 'midyear' || t === 'appeal' || t === 'thank_you') ? 'midyear' : 'year_end'; }
+function givLettersSubject(t, yr, churchName) {
+  if (t === 'midyear' || t === 'appeal') return yr + ' Mid-Year Giving Update — ' + churchName;
+  if (t === 'thank_you') return 'Thank You for Your Generosity — ' + churchName;
+  if (t === 'quarterly') return yr + ' Giving Statement — ' + churchName;
+  return yr + ' Charitable Contribution Statement — ' + churchName;
+}
+function givLettersInit() {
+  if (!_givLettersState.year) _givLettersState.year = new Date().getFullYear();
+  givLettersRenderShell();
+  givLettersLoadStatus();
+}
+function givLettersRenderShell() {
+  var root = document.getElementById('giv-letters-root');
+  if (!root) return;
+  var st = _givLettersState;
+  var pills = _GIV_LETTER_TYPES.map(function(t) {
+    var active = t.key === st.type;
+    return '<button class="fin-subnav-btn' + (active ? ' active' : '') + '" style="font-size:.8rem;" '
+      + 'onclick="givLettersSetType(&#39;' + t.key + '&#39;)">' + esc(t.label) + '</button>';
+  }).join('');
+  var curType = _GIV_LETTER_TYPES.filter(function(t){return t.key===st.type;})[0] || _GIV_LETTER_TYPES[0];
+  root.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px;">'
+    +   '<div>'
+    +     '<div class="board-title">Letters &amp; Statements</div>'
+    +     '<div class="board-subtitle">Send or print giving letters &middot; per-recipient status &middot; resumable</div>'
+    +   '</div>'
+    +   '<button class="btn-secondary" style="padding:7px 14px;font-size:.85rem;" onclick="givSetView(&#39;settings&#39;)">Edit letter templates</button>'
+    + '</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">' + pills + '</div>'
+    + '<div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:12px;">' + esc(curType.desc) + '</div>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;margin-bottom:14px;">'
+    +   '<div class="field" style="margin:0;"><label>Year</label>'
+    +     '<input type="number" id="giv-letters-year" value="' + st.year + '" min="2000" max="2099" style="width:100px;font-size:.85rem;padding:5px 8px;" onchange="givLettersRefresh()"></div>'
+    +   '<div class="field" style="margin:0;"><label>Recipients</label>'
+    +     '<select id="giv-letters-scope" style="font-size:.85rem;padding:5px 8px;" onchange="givLettersRefresh()">'
+    +       '<option value="givers">People who gave</option>'
+    +       '<option value="member_households">Member households</option>'
+    +       '<option value="both">Both (deduped by household)</option>'
+    +     '</select></div>'
+    +   '<div class="field" style="margin:0;"><label>Channel</label>'
+    +     '<div class="board-mode-toggle">'
+    +       '<button id="giv-letters-ch-email" class="' + (st.channel==='email'?'active':'') + '" onclick="givLettersSetChannel(&#39;email&#39;)">Email</button>'
+    +       '<button id="giv-letters-ch-print" class="' + (st.channel==='print'?'active':'') + '" onclick="givLettersSetChannel(&#39;print&#39;)">Print</button>'
+    +     '</div></div>'
+    + '</div>'
+    + '<div id="giv-letters-status" class="import-status" style="margin-bottom:8px;"></div>'
+    + '<div id="giv-letters-body"></div>';
+  var scopeSel = document.getElementById('giv-letters-scope');
+  if (scopeSel && st.scope) scopeSel.value = st.scope;
+}
+function givLettersSetType(t) {
+  _givLettersState.type = t;
+  _givLettersState.scope = ''; // reset to the type's server default
+  givLettersRenderShell();
+  givLettersLoadStatus();
+}
+function givLettersSetChannel(c) {
+  _givLettersState.channel = c;
+  document.getElementById('giv-letters-ch-email').classList.toggle('active', c === 'email');
+  document.getElementById('giv-letters-ch-print').classList.toggle('active', c === 'print');
+  givLettersLoadStatus();
+}
+function givLettersRefresh() {
+  var yrEl = document.getElementById('giv-letters-year');
+  var scEl = document.getElementById('giv-letters-scope');
+  if (yrEl) _givLettersState.year = parseInt(yrEl.value, 10) || new Date().getFullYear();
+  if (scEl) _givLettersState.scope = scEl.value;
+  givLettersLoadStatus();
+}
+function givLettersLoadStatus() {
+  var st = _givLettersState;
+  var statusEl = document.getElementById('giv-letters-status');
+  var body = document.getElementById('giv-letters-body');
+  if (!body) return;
+  body.innerHTML = '<div class="board-empty">Loading recipients&hellip;</div>';
+  if (statusEl) { statusEl.textContent = ''; statusEl.className = 'import-status'; }
+  var qs = 'year=' + st.year + '&letter_type=' + st.type + '&channel=' + st.channel + (st.scope ? '&scope=' + st.scope : '');
+  api('/admin/api/giving/letters/status?' + qs).then(function(d) {
+    st.recipients = d.recipients || [];
+    st.counts = d.counts || { total: 0, sent: 0, unsent: 0, no_email: 0 };
+    st.scope = d.scope;
+    var scEl = document.getElementById('giv-letters-scope');
+    if (scEl && d.scope && scEl.value !== d.scope) scEl.value = d.scope;
+    givLettersRenderRecipients();
+  }).catch(function(e) {
+    body.innerHTML = '<div class="board-empty">Could not load recipients: ' + esc(e.message) + '</div>';
+  });
+}
+function givLettersRenderRecipients() {
+  var st = _givLettersState;
+  var body = document.getElementById('giv-letters-body');
+  if (!body) return;
+  if (st.type === 'memorial') {
+    body.innerHTML = '<div class="import-card" style="margin:0;"><p style="margin:0;font-size:.88rem;color:var(--warm-gray);">'
+      + 'Memorial letters are written one at a time. Use the <strong>Giving Statement</strong> tool under the Reports tab to pull a person&rsquo;s giving, then send or print an individual letter.</p></div>';
+    return;
+  }
+  var recips = st.recipients;
+  if (!recips.length) {
+    body.innerHTML = '<div class="board-empty">No recipients for ' + st.year + '.</div>';
+    return;
+  }
+  var c = st.counts;
+  var chLabel = st.channel === 'print' ? 'printed' : 'sent';
+  var actionBtn = st.channel === 'print'
+    ? '<button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="givLettersPrint()">Print Selected</button>'
+    : '<button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="givLettersSend()">Email Selected</button>';
+  var head =
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;">'
+    + givLettersStatChip(c.total, 'recipients')
+    + givLettersStatChip(c.sent, 'already ' + chLabel)
+    + givLettersStatChip(c.unsent, 'pending')
+    + (st.channel === 'email' ? givLettersStatChip(c.no_email, 'no email') : '')
+    + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">'
+    +   '<button class="btn-sm" onclick="givLettersSelectAll(true)">Select pending</button>'
+    +   '<button class="btn-sm" onclick="givLettersSelectAll(false)">Deselect all</button>'
+    +   actionBtn
+    + '</div>';
+  var th = 'padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-meta);border-bottom:1.5px solid var(--color-navy);text-align:left;';
+  var rows = recips.map(function(r, i) {
+    var canPick = (st.channel === 'print') ? true : r.has_email;
+    var sub = r.kind === 'household'
+      ? (r.recipient_name ? esc(r.recipient_name) + ' &middot; ' : '') + (r.email ? esc(r.email) : '<span style="color:var(--danger);">no email</span>')
+      : (r.email ? esc(r.email) : '<span style="color:var(--danger);">no email</span>');
+    var statusPill = r.sent
+      ? '<span style="font-size:.72rem;color:var(--sage);font-weight:600;">&#10003; ' + chLabel + '</span>'
+      : '<span style="font-size:.72rem;color:var(--warm-gray);">pending</span>';
+    return '<tr style="border-bottom:1px solid var(--border);">'
+      + '<td style="padding:6px 8px;text-align:center;">'
+      +   (canPick ? '<input type="checkbox" data-i="' + i + '"' + (r.sent ? '' : ' checked') + '>' : '<span title="No email on file" style="color:var(--warm-gray);">&mdash;</span>')
+      + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;">' + esc(r.name)
+      +   ' <span style="font-size:.68rem;color:var(--warm-meta);text-transform:uppercase;">' + (r.kind === 'household' ? 'HH' : '') + '</span>'
+      +   '<div style="font-size:.75rem;color:var(--warm-gray);">' + sub + '</div>'
+      + '</td>'
+      + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;">' + fmtMoney(r.total_cents || 0) + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;white-space:nowrap;">' + statusPill
+      +   ' <button class="btn-sm" style="font-size:.68rem;padding:1px 6px;" onclick="givLettersToggleMark(' + i + ')">' + (r.sent ? 'undo' : 'mark') + '</button>'
+      + '</td>'
+      + '</tr>';
+  }).join('');
+  body.innerHTML = head
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'
+    + '<thead><tr>'
+    +   '<th style="' + th + 'text-align:center;width:36px;"></th>'
+    +   '<th style="' + th + '">Recipient</th>'
+    +   '<th style="' + th + 'text-align:right;">' + st.year + ' Total</th>'
+    +   '<th style="' + th + 'text-align:right;">Status</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+function givLettersStatChip(n, label) {
+  return '<div style="background:var(--warm-white,#fff);border:1px solid var(--border);border-radius:8px;padding:8px 14px;min-width:80px;">'
+    + '<div style="font-size:1.25rem;font-weight:700;color:var(--color-navy);">' + (n || 0) + '</div>'
+    + '<div style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.04em;">' + esc(label) + '</div></div>';
+}
+function givLettersSelectAll(pendingOnly) {
+  var st = _givLettersState;
+  document.querySelectorAll('#giv-letters-body tbody input[type=checkbox]').forEach(function(cb) {
+    var r = st.recipients[parseInt(cb.dataset.i, 10)];
+    cb.checked = pendingOnly ? !(r && r.sent) : false;
+  });
+}
+function givLettersSelectedRecipients() {
+  var st = _givLettersState, out = [];
+  document.querySelectorAll('#giv-letters-body tbody input[type=checkbox]:checked').forEach(function(cb) {
+    var r = st.recipients[parseInt(cb.dataset.i, 10)];
+    if (r) out.push(r);
+  });
+  return out;
+}
+// Fetch the statement data + render the letter HTML for one recipient (person or household).
+function givLettersBuildLetter(r, cb) {
+  var st = _givLettersState;
+  var churchName = (_churchConfig && _churchConfig.church_name) || 'Timothy Lutheran Church';
+  var url = (r.kind === 'household')
+    ? '/admin/api/reports/giving-statement-household?household_id=' + r.id + '&year=' + st.year
+    : '/admin/api/reports/giving-statement?person_id=' + r.id + '&year=' + st.year;
+  api(url).then(function(d) {
+    if (!d || d.error) { cb(null); return; }
+    d._mode = (r.kind === 'household') ? 'household' : 'person';
+    var letterHtml = renderLetterHTML(d, givLettersTemplateType(st.type));
+    var fullHtml = '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
+      + letterheadImgHtml(true, churchName, 'font-size:16px;font-weight:bold;', 6) + '<hr style="margin:10px 0;">'
+      + letterHtml + '</div>';
+    cb({ html: fullHtml, churchName: churchName });
+  }).catch(function() { cb(null); });
+}
+function givLettersSend() {
+  var st = _givLettersState;
+  var statusEl = document.getElementById('giv-letters-status');
+  var recips = givLettersSelectedRecipients().filter(function(r){ return r.has_email; });
+  if (!recips.length) { statusEl.textContent = 'No emailable recipients selected.'; statusEl.className = 'import-status err'; return; }
+  var loadCfg = (_churchConfig && _churchConfig.church_name)
+    ? function(next){ next(); }
+    : function(next){ api('/admin/api/config/church').then(function(cfg){ _churchConfig = cfg || {}; next(); }); };
+  loadCfg(function() {
+    var total = recips.length, done = 0, failed = 0, stopped = false, i = 0;
+    statusEl.className = 'import-status';
+    function finish() {
+      var msg = 'Done. ' + done + ' emailed';
+      if (failed) msg += ', ' + failed + ' failed';
+      if (stopped) msg = "Brevo's sending limit was hit after " + done + ' emailed. Come back later and click Email Selected again — already-sent recipients are skipped.';
+      statusEl.textContent = msg;
+      statusEl.className = (failed || stopped) ? 'import-status' : 'import-status ok';
+      givLettersLoadStatus();
+    }
+    function next() {
+      if (i >= recips.length || stopped) { finish(); return; }
+      var r = recips[i++];
+      statusEl.textContent = 'Emailing ' + (done + failed + 1) + '/' + total + '…';
+      givLettersBuildLetter(r, function(built) {
+        if (!built) { failed++; next(); return; }
+        api('/admin/api/giving/send-statement', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to_email: r.email, to_name: r.recipient_name || r.name,
+            subject: givLettersSubject(st.type, st.year, built.churchName),
+            html_body: built.html,
+            person_id: (r.kind === 'household') ? (r.recipient_person_id || 0) : r.id,
+            household_id: (r.kind === 'household') ? r.id : null,
+            year: st.year, letter_type: st.type, recipient_key: r.recipient_key
+          })
+        }).then(function(res) {
+          if (res && res.ok) { done++; next(); return; }
+          if (res && res.rate_limited) { stopped = true; finish(); return; }
+          failed++; next();
+        }).catch(function(){ failed++; next(); });
+      });
+    }
+    next();
+  });
+}
+function givLettersPrint() {
+  var st = _givLettersState;
+  var statusEl = document.getElementById('giv-letters-status');
+  var recips = givLettersSelectedRecipients();
+  if (!recips.length) { statusEl.textContent = 'No recipients selected.'; statusEl.className = 'import-status err'; return; }
+  var loadCfg = (_churchConfig && _churchConfig.church_name)
+    ? function(next){ next(); }
+    : function(next){ api('/admin/api/config/church').then(function(cfg){ _churchConfig = cfg || {}; next(); }); };
+  loadCfg(function() {
+    statusEl.textContent = 'Building ' + recips.length + ' letters for print…'; statusEl.className = 'import-status';
+    var built = [], i = 0;
+    function next() {
+      if (i >= recips.length) { finalizePrint(); return; }
+      var r = recips[i++];
+      givLettersBuildLetter(r, function(b) {
+        if (b) built.push({ r: r, html: b.html });
+        statusEl.textContent = 'Building ' + built.length + '/' + recips.length + ' letters…';
+        next();
+      });
+    }
+    function finalizePrint() {
+      if (!built.length) { statusEl.textContent = 'Nothing to print.'; statusEl.className = 'import-status err'; return; }
+      var pages = built.map(function(b) {
+        return '<div style="page-break-after:always;padding:24px;">' + b.html + '</div>';
+      }).join('');
+      var w = window.open('', '_blank');
+      if (!w) { statusEl.textContent = 'Popup blocked — allow popups to print.'; statusEl.className = 'import-status err'; return; }
+      w.document.write('<html><head><title>Giving Letters ' + st.year + '</title></head><body>' + pages
+        + '<scr' + 'ipt>window.onload=function(){window.print();};</scr' + 'ipt></body></html>');
+      w.document.close();
+      // Record each printed letter so the workspace status reflects it.
+      var marks = built.map(function(b) {
+        return api('/admin/api/giving/letters/mark', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipient_key: b.r.recipient_key, year: st.year, letter_type: st.type, channel: 'print',
+            person_id: (b.r.kind === 'household') ? (b.r.recipient_person_id || 0) : b.r.id,
+            household_id: (b.r.kind === 'household') ? b.r.id : null
+          })
+        }).catch(function(){});
+      });
+      Promise.all(marks).then(function() {
+        statusEl.textContent = built.length + ' letters sent to print and marked as printed.';
+        statusEl.className = 'import-status ok';
+        givLettersLoadStatus();
+      });
+    }
+    next();
+  });
+}
+function givLettersToggleMark(i) {
+  var st = _givLettersState;
+  var r = st.recipients[i];
+  if (!r) return;
+  api('/admin/api/giving/letters/mark', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      recipient_key: r.recipient_key, year: st.year, letter_type: st.type, channel: st.channel,
+      unmark: !!r.sent,
+      person_id: (r.kind === 'household') ? (r.recipient_person_id || 0) : r.id,
+      household_id: (r.kind === 'household') ? r.id : null
+    })
+  }).then(function() { givLettersLoadStatus(); }).catch(function(){});
 }
 
 `;

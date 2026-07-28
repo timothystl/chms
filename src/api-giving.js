@@ -1,6 +1,6 @@
 // ── Giving Entries, Batches, Quick Entry API handlers ──────────────────────
 import { json } from './auth.js';
-import { isoWeekKey } from './api-utils.js';
+import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients } from './api-utils.js';
 
 export async function handleGivingApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -220,6 +220,93 @@ if (seg === 'giving/quick-entry' && method === 'POST') {
   ).bind(batchId, person_id ? parseInt(person_id) : null, parseInt(fund_id),
          amtCents, payMethod || 'cash', check_number || '', notes || '', date).run();
   return json({ ok: true, id: er.meta?.last_row_id, batch_id: batchId });
+}
+
+// ── Letters & Statements workspace (GIV-R2) ──────────────────────────────────
+// Resolves the recipient list for a letter type server-side (no "Load Givers" step) and
+// annotates each recipient with whether it's already been sent on the requested channel,
+// so the workspace can show real per-recipient status and resume an interrupted run.
+if (seg === 'giving/letters/status' && method === 'GET') {
+  const year = parseInt(url.searchParams.get('year')) || new Date().getFullYear();
+  const letterType = url.searchParams.get('letter_type') || 'year_end';
+  const channel = url.searchParams.get('channel') === 'print' ? 'print' : 'email';
+  const cfg = LETTER_TYPES[letterType];
+  if (!cfg) return json({ error: 'Unknown letter_type' }, 400);
+  const scope = url.searchParams.get('scope') || cfg.defaultScope;
+  const empty = { year, letter_type: letterType, channel, scope, recipients: [], counts: { total: 0, sent: 0, unsent: 0, no_email: 0 } };
+  if (scope === 'none') return json(empty);
+
+  let givers = [];
+  if (scope === 'givers' || scope === 'both') {
+    givers = (await db.prepare(
+      `SELECT p.id, p.first_name, p.last_name, p.email, p.household_id, SUM(ge.amount) as total_cents
+       FROM people p
+       JOIN giving_entries ge ON ge.person_id=p.id
+       JOIN giving_batches gb ON ge.batch_id=gb.id
+       WHERE p.active=1
+         AND substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),1,4)=?
+       GROUP BY p.id ORDER BY p.last_name, p.first_name`
+    ).bind(String(year)).all()).results || [];
+  }
+  let households = [];
+  if (scope === 'member_households' || scope === 'both') {
+    households = (await db.prepare(
+      `SELECT h.id, h.name,
+              (SELECT p2.email FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.email != ''
+                 ORDER BY CASE WHEN p2.family_role='head' THEN 0 ELSE 1 END, p2.id LIMIT 1) as recipient_email,
+              (SELECT p2.first_name || ' ' || p2.last_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.email != ''
+                 ORDER BY CASE WHEN p2.family_role='head' THEN 0 ELSE 1 END, p2.id LIMIT 1) as recipient_name,
+              (SELECT p3.id FROM people p3 WHERE p3.household_id=h.id AND p3.active=1 AND p3.email != ''
+                 ORDER BY CASE WHEN p3.family_role='head' THEN 0 ELSE 1 END, p3.id LIMIT 1) as recipient_person_id,
+              COALESCE((SELECT SUM(ge.amount) FROM giving_entries ge
+                          JOIN giving_batches gb ON ge.batch_id=gb.id
+                          JOIN people p4 ON ge.person_id=p4.id
+                         WHERE p4.household_id=h.id
+                           AND substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),1,4)=?), 0) as total_cents
+       FROM households h
+       WHERE EXISTS (SELECT 1 FROM people p WHERE p.household_id=h.id AND p.active=1 AND LOWER(p.member_type)='member')
+       ORDER BY h.name`
+    ).bind(String(year)).all()).results || [];
+  }
+  const sentRows = (await db.prepare(
+    `SELECT recipient_key FROM giving_letter_sends
+      WHERE year=? AND letter_type=? AND channel=? AND recipient_key IS NOT NULL`
+  ).bind(year, letterType, channel).all()).results || [];
+  const sentKeys = new Set(sentRows.map(r => r.recipient_key));
+  const merged = mergeLetterRecipients(givers, households, scope, sentKeys, channel);
+  // Thread the household's resolved recipient person id back onto each household row so the
+  // frontend can render/send its statement without a second lookup.
+  const hhPid = {};
+  for (const h of households) hhPid['h' + h.id] = h.recipient_person_id || null;
+  for (const r of merged.recipients) {
+    if (r.kind === 'household') r.recipient_person_id = hhPid[r.recipient_key] || null;
+  }
+  return json({ year, letter_type: letterType, channel, scope, ...merged });
+}
+
+// Record a letter send/print without emailing (print channel, or marking an emailed letter
+// done from a path that didn't go through giving/send-statement). Idempotent on the
+// (recipient_key, year, letter_type, channel) identity. `unmark:true` removes the record.
+if (seg === 'giving/letters/mark' && method === 'POST') {
+  let b = {}; try { b = await req.json(); } catch {}
+  const { person_id, household_id, year, letter_type, recipient_key, unmark } = b;
+  const channel = b.channel === 'print' ? 'print' : 'email';
+  if (!recipient_key || !year || !letter_type) return json({ error: 'recipient_key, year, letter_type required' }, 400);
+  if (!LETTER_TYPES[letter_type]) return json({ error: 'Unknown letter_type' }, 400);
+  if (unmark) {
+    await db.prepare(
+      `DELETE FROM giving_letter_sends WHERE recipient_key=? AND year=? AND letter_type=? AND channel=?`
+    ).bind(recipient_key, Number(year), letter_type, channel).run();
+    return json({ ok: true, unmarked: true });
+  }
+  await db.prepare(
+    `INSERT INTO giving_letter_sends(person_id, household_id, year, letter_type, channel, recipient_key, sent_at)
+     VALUES(?,?,?,?,?,?,datetime('now'))
+     ON CONFLICT(recipient_key, year, letter_type, channel) WHERE recipient_key IS NOT NULL
+     DO UPDATE SET sent_at=excluded.sent_at, person_id=excluded.person_id, household_id=excluded.household_id`
+  ).bind(person_id ? parseInt(person_id) : 0, household_id ? parseInt(household_id) : null,
+         Number(year), letter_type, channel, recipient_key).run();
+  return json({ ok: true });
 }
 
   return null; // not handled

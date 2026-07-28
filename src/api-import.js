@@ -1067,7 +1067,7 @@ if (seg.startsWith('export/') && method === 'GET') {
 // the same account already configured for the newsletter/contact sync (BREVO_API_KEY).
 if (seg === 'giving/send-statement' && method === 'POST') {
   let b = {}; try { b = await req.json(); } catch {}
-  const { to_email, to_name, subject, html_body, person_id, year, letter_type } = b;
+  const { to_email, to_name, subject, html_body, person_id, year, letter_type, household_id, recipient_key } = b;
   if (!to_email || !html_body) return json({ error: 'to_email and html_body required' }, 400);
   const fromNameRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_from_name'").first();
   const fromEmailRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_from_email'").first();
@@ -1081,7 +1081,18 @@ if (seg === 'giving/send-statement' && method === 'POST') {
   // Record the send for batch resume/dedup — a manual single send still always goes through
   // above regardless of any prior record; this just logs it (or refreshes sent_at on a
   // deliberate resend) so a later batch run knows this person/year/letter is already covered.
-  if (person_id && year && letter_type) {
+  // The Letters workspace (GIV-R2) passes recipient_key — record on the stable per-recipient
+  // identity (email channel) so its status view and resume logic see this send. Older callers
+  // pass only person_id/year/letter_type — keep the legacy per-person record for them.
+  if (recipient_key && year && letter_type) {
+    await db.prepare(
+      `INSERT INTO giving_letter_sends(person_id, household_id, year, letter_type, channel, recipient_key, sent_at)
+       VALUES(?,?,?,?,'email',?,datetime('now'))
+       ON CONFLICT(recipient_key, year, letter_type, channel) WHERE recipient_key IS NOT NULL
+       DO UPDATE SET sent_at=excluded.sent_at, person_id=excluded.person_id, household_id=excluded.household_id`
+    ).bind(person_id ? parseInt(person_id) : 0, household_id ? parseInt(household_id) : null,
+           Number(year), letter_type, recipient_key).run().catch(() => {});
+  } else if (person_id && year && letter_type) {
     await db.prepare(
       `INSERT INTO giving_letter_sends(person_id, year, letter_type, sent_at) VALUES(?,?,?,datetime('now'))
        ON CONFLICT(person_id, year, letter_type) DO UPDATE SET sent_at=excluded.sent_at`

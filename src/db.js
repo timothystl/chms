@@ -1527,6 +1527,14 @@ async function _doInitDb(db) {
       sent_at     TEXT    NOT NULL DEFAULT (datetime('now')),
       UNIQUE(person_id, year, letter_type)
     )`,
+    // Letters & Statements workspace (GIV-R2, see migrations/0029_giving_letters_workspace.sql):
+    // household-scoped sends, print channel, and a stable per-recipient dedup identity.
+    'ALTER TABLE giving_letter_sends ADD COLUMN household_id INTEGER',
+    "ALTER TABLE giving_letter_sends ADD COLUMN channel TEXT NOT NULL DEFAULT 'email'",
+    'ALTER TABLE giving_letter_sends ADD COLUMN recipient_key TEXT',
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_gls_recipient
+       ON giving_letter_sends(recipient_key, year, letter_type, channel)
+       WHERE recipient_key IS NOT NULL`,
   ];
   for (const m of migrations) {
     try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }

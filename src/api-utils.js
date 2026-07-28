@@ -455,6 +455,79 @@ export function computeGivingPlateaus(rows, opts = {}) {
 // ── PHONE NORMALIZATION ───────────────────────────────────────────────────
 // Strips formatting and returns (XXX) XXX-XXXX for 10-digit US numbers.
 // Returns original string unchanged for international or unusual formats.
+// ── Giving Letters & Statements workspace (GIV-R2) ────────────────────────────
+// The letter types the Letters workspace can send/track, each with a default recipient
+// scope. 'givers' = everyone who gave in the period (per person). 'member_households' =
+// every member household (one recipient each), whether or not they've given. 'none' =
+// no auto-resolved list (memorial letters are composed ad-hoc against a chosen person).
+export const LETTER_TYPES = {
+  year_end:  { label: 'Year-End Statement',   defaultScope: 'givers',            hasTemplate: true  },
+  midyear:   { label: 'Mid-Year Update',      defaultScope: 'givers',            hasTemplate: true  },
+  quarterly: { label: 'Quarterly Statement',  defaultScope: 'givers',            hasTemplate: false },
+  thank_you: { label: 'Thank-You Letter',     defaultScope: 'givers',            hasTemplate: false },
+  appeal:    { label: 'Giving Appeal',        defaultScope: 'member_households', hasTemplate: false },
+  memorial:  { label: 'Memorial Letter',      defaultScope: 'none',              hasTemplate: false },
+};
+
+// Stable dedup identity for a recorded send, independent of which person inside a household
+// was the actual recipient. 'p<id>' for a person-scoped send, 'h<id>' for a household one.
+export function letterRecipientKey(kind, id) {
+  return (kind === 'household' ? 'h' : 'p') + String(id);
+}
+
+// Merge the two server-resolved candidate pools (people who gave, member households) into a
+// single recipient list for a given scope, annotate each with whether it's already been sent
+// on this channel, and tally counts. Pure — takes plain rows, returns plain data — so it can
+// be unit-tested without a DB. For scope 'both' the design's rule is "gave OR member household,
+// deduped per household": every member household is one recipient, plus any giver who is NOT in
+// a member household (household_id null or not in the member-household set) as their own person
+// recipient — so a couple in a member household is never counted twice.
+export function mergeLetterRecipients(givers, households, scope, sentKeys, channel) {
+  sentKeys = sentKeys || new Set();
+  const memberHhIds = new Set((households || []).map(h => h.id));
+  const out = [];
+  const pushPerson = g => {
+    const key = letterRecipientKey('person', g.id);
+    out.push({
+      kind: 'person', id: g.id, household_id: g.household_id || null,
+      name: ((g.first_name || '') + ' ' + (g.last_name || '')).trim() || '(no name)',
+      email: g.email || '', total_cents: g.total_cents || 0,
+      recipient_key: key, has_email: !!(g.email && g.email.trim()),
+      sent: sentKeys.has(channel === 'print' ? key : key),
+    });
+  };
+  const pushHousehold = h => {
+    const key = letterRecipientKey('household', h.id);
+    out.push({
+      kind: 'household', id: h.id, household_id: h.id,
+      name: h.name || '(household)',
+      email: h.recipient_email || '', recipient_name: h.recipient_name || '',
+      total_cents: h.total_cents || 0,
+      recipient_key: key, has_email: !!(h.recipient_email && h.recipient_email.trim()),
+      sent: sentKeys.has(key),
+    });
+  };
+  if (scope === 'member_households') {
+    (households || []).forEach(pushHousehold);
+  } else if (scope === 'both') {
+    (households || []).forEach(pushHousehold);
+    (givers || []).forEach(g => {
+      if (!g.household_id || !memberHhIds.has(g.household_id)) pushPerson(g);
+    });
+  } else { // 'givers' (default)
+    (givers || []).forEach(pushPerson);
+  }
+  // Recompute each row's sent flag against the channel-specific key set the caller passed.
+  out.forEach(r => { r.sent = sentKeys.has(r.recipient_key); });
+  const counts = {
+    total: out.length,
+    sent: out.filter(r => r.sent).length,
+    unsent: out.filter(r => !r.sent).length,
+    no_email: out.filter(r => !r.has_email).length,
+  };
+  return { recipients: out, counts };
+}
+
 export function normalizePhone(raw) {
   if (!raw || typeof raw !== 'string') return '';
   const digits = raw.replace(/\D/g, '');
