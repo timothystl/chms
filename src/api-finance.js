@@ -59,12 +59,22 @@ export function mergeLeafCells(cells, ctx) {
   // QuickBooks quirk — reported 2026-07-28 as "budget lines are always 0" while actual still
   // populated correctly from this same tree, which only made sense as a name-match failure
   // since actual never depends on this lookup at all).
+  let matchedById = false;
   if (acctId != null && ctx.budgetByAccountId && ctx.budgetByAccountId.has(acctId)) {
     budgetAmt = ctx.budgetByAccountId.get(acctId);
+    matchedById = true;
   } else {
     const ids = ctx.budgetIdsByName.get(name);
     if (ids && ids.size > 1) ctx.ambiguousNames.add(name);
     else if (ctx.budgetByName.has(name)) budgetAmt = ctx.budgetByName.get(name);
+  }
+  // Diagnostic only (see mergeCurrentYearBudgetAndActual's warning) — a real, non-trivial
+  // actual amount with zero matched budget is worth surfacing by name so a genuine residual
+  // matching gap (id present but not found in the Budget entity at all, or no id and the name
+  // didn't match either) can be told apart from "QuickBooks genuinely has no budget for this
+  // line" without guessing which case it is.
+  if (ctx.unmatched && budgetAmt === 0 && Math.abs(actualAmt) >= 1 && !matchedById) {
+    ctx.unmatched.push({ name, actualAmt, hadId: acctId != null });
   }
   return {
     cells: [{ value: name }, { value: actualAmt.toFixed(2) }, { value: budgetAmt.toFixed(2) }, { value: (actualAmt - budgetAmt).toFixed(2) }],
@@ -124,12 +134,21 @@ export function mergeTree(rows, ctx) {
 // running-subtotal rows (Gross Profit / Net Operating Income / Net Other Income / Net Income).
 // "Other Income" starts a second, independent running total that only merges back in at "Net
 // Income" — this is standard P&L structure, confirmed against a real exported QuickBooks report.
+// This company's live QuickBooks report uses "Revenue"/"Expenditures" wording (see
+// normalizeChurchClassification's own comment) — which extends to these bottom-line labels
+// too: "Net Revenue" instead of "Net Income", "Other Revenue" instead of "Other Income". Both
+// checks below were hardcoded to the English "Income" wording only, confirmed live 2026-07-28
+// as a real bug: "Net Operating Revenue"/"Net Revenue" showed $0.00 budget in the Budget vs
+// Actual table (the combined-budget special case never matched "Net Revenue"), and the
+// Other-Income budget thread never activated (folding its budget into the main thread instead).
+const FINAL_NET_LABEL_RE = /^Net (Income|Revenue)$/i;
+const OTHER_INCOME_SECTION_RE = /^Other (Income|Revenue)$/i;
 export function mergeProfitAndLossTree(rows, ctx) {
   let mainBudget = 0, otherBudget = 0, inOtherThread = false;
   return (rows || []).map(row => {
     if (row.type === 'Section') {
       const label = row.Header?.ColData?.[0]?.value || '';
-      if (label === 'Other Income') inOtherThread = true;
+      if (OTHER_INCOME_SECTION_RE.test(label)) inOtherThread = true;
       const { row: newRow, budget } = mergeSection(row, ctx);
       if (inOtherThread) otherBudget += budget; else mainBudget += budget;
       return newRow;
@@ -138,15 +157,16 @@ export function mergeProfitAndLossTree(rows, ctx) {
     if (!cells || cells.length < 2) return row;
     const label = cells[0]?.value || '';
     const actual = Number(cells[cells.length - 1]?.value) || 0;
-    const budgetVal = label === 'Net Income' ? (mainBudget + otherBudget) : (inOtherThread ? otherBudget : mainBudget);
+    const budgetVal = FINAL_NET_LABEL_RE.test(label) ? (mainBudget + otherBudget) : (inOtherThread ? otherBudget : mainBudget);
     return { ColData: [{ value: label }, { value: actual.toFixed(2) }, { value: budgetVal.toFixed(2) }, { value: (actual - budgetVal).toFixed(2) }] };
   });
 }
 
-// Rows whose label is one of these are QuickBooks' own computed running subtotals (Gross
-// Profit, Net Operating Income, etc.) rather than a real account — flattenReportTree() skips
-// them, since they're always re-derivable from the classification totals at query time.
-const RUNNING_SUBTOTAL_LABELS = new Set(['Gross Profit', 'Net Operating Income', 'Net Other Income', 'Net Income']);
+// Rows whose label matches this are QuickBooks' own computed running subtotals (Gross Profit,
+// Net Operating Income/Revenue, etc.) rather than a real account — flattenReportTree() skips
+// them, since they're always re-derivable from the classification totals at query time. Covers
+// both QuickBooks' internal "Income" wording and this company's real report wording ("Revenue").
+const RUNNING_SUBTOTAL_LABEL_RE = /^(Gross Profit|Net Operating (Income|Revenue)|Net Other (Income|Revenue)|Net (Income|Revenue))$/i;
 
 function dollarsToCents(v) {
   const n = parseFloat(v);
@@ -492,7 +512,7 @@ export function flattenReportTree(rows, pathPrefix, classification, extractAmoun
       const cells = row.ColData;
       if (!cells || cells.length < 2) continue; // bare label row, e.g. an empty "Other Income"
       const label = cells[0]?.value || '';
-      if (RUNNING_SUBTOTAL_LABELS.has(label)) continue;
+      if (RUNNING_SUBTOTAL_LABEL_RE.test(label)) continue;
       const newPath = pathPrefix.concat(label);
       for (const amt of extractAmounts(cells)) out.push(makeFlatRow(newPath, classification, false, amt));
     }
@@ -1148,10 +1168,19 @@ async function mergeCurrentYearBudgetAndActual(client, year, warnings, preferred
   if (!budgetByName.size && !budgetByAccountId.size) { warnings.push('Budget entity: found a Budget but no usable BudgetDetail line items'); return null; }
 
   const ambiguousNames = new Set();
-  const rows = mergeProfitAndLossTree(plData.Rows.Row, { budgetByName, budgetIdsByName, budgetByAccountId, ambiguousNames });
+  const unmatched = [];
+  const rows = mergeProfitAndLossTree(plData.Rows.Row, { budgetByName, budgetIdsByName, budgetByAccountId, ambiguousNames, unmatched });
   if (ambiguousNames.size) {
     warnings.push(
       `Budget vs Actual: ${ambiguousNames.size} account name(s) appear on more than one account in different categories (e.g. sub-accounts sharing a name across Income and Expenses) — shown as $0 budget rather than guessed which one: ${[...ambiguousNames].slice(0, 5).join(', ')}${ambiguousNames.size > 5 ? '…' : ''}`
+    );
+  }
+  if (unmatched.length) {
+    const withId = unmatched.filter(u => u.hadId).length;
+    const noId = unmatched.length - withId;
+    const sample = unmatched.slice(0, 8).map(u => `${u.name} ($${(u.actualAmt).toFixed(2)}${u.hadId ? '' : ', no account id on this cell'})`).join('; ');
+    warnings.push(
+      `Budget vs Actual: ${unmatched.length} account(s) with real activity had no matching Budget line (${withId} had an account id that just wasn't in this Budget's BudgetDetail, ${noId} had no account id at all so only name-matching was possible) — showing $0 budget for these rather than guessing: ${sample}${unmatched.length > 8 ? '…' : ''}`
     );
   }
   return { rows };
@@ -1844,14 +1873,23 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     if (ops.length) await db.batch(ops);
 
     // ── Persist into finance_church_entries ────────────────────────────
-    // Order matters: multi-year (actuals-only) rows are flattened FIRST, then the current-year
-    // budget-merge rows SECOND, so the richer current-year row's ON CONFLICT DO UPDATE
-    // overwrites whatever the multi-year pass just wrote for that same year — see
-    // migrations/0018_finance_church_entries.sql for the full design rationale.
+    // The multi-year (actuals-only) pass is EXCLUDED from writing the current year at all —
+    // reported live 2026-07-28: the Overview KPI cards (read from finance_church_entries via
+    // computeYearSummary) showed roughly double the correct total (~$1.18M expenses) compared
+    // to the fresh, verified-correct Budget vs Actual reconstruction (~$605K) for the identical
+    // sync. The original design relied on "current-year rows are written second, so their ON
+    // CONFLICT DO UPDATE overwrites the multi-year pass's row for that year" — but that only
+    // self-heals when both passes produce byte-identical category_path strings for the same
+    // account; QuickBooks' multi-year summarized report (summarize_column_by:'Year') doesn't
+    // reliably match the single-year report's account tree shape, so a mismatched path becomes
+    // a second, un-overwritten row instead of a correction — silently doubling the total. Since
+    // currentYearMerge already covers the current year (with real budget data, unlike this
+    // actuals-only pass), the multi-year pass now only contributes PRIOR years, where there's no
+    // second pass to conflict or duplicate with.
     const churchRows = [];
     if (profitAndLoss && profitAndLoss.Rows) {
       const cols = (profitAndLoss.Columns && profitAndLoss.Columns.Column) || [];
-      const colYears = cols.map(c => { const m = /(\d{4})/.exec(c.ColTitle || ''); return m ? parseInt(m[1], 10) : null; });
+      const colYears = cols.map(c => { const m = /(\d{4})/.exec(c.ColTitle || ''); const y = m ? parseInt(m[1], 10) : null; return (y === year) ? null : y; });
       flattenReportTree(profitAndLoss.Rows.Row, [], null, makeMultiYearExtractor(colYears), churchRows);
     }
     if (currentYearMerge) {
