@@ -24,6 +24,26 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.101.0 — Church Report: QuickBooks sync now outranks a file import (2026-07-28)
+Per user decision 2026-07-28 (Finance/FIN2 QuickBooks Production rollout in progress): a mid-year
+file import was originally meant as a stopgap while the live QuickBooks connection wasn't working
+yet — it shouldn't permanently shadow sync once the connection is confirmed. `CHURCH_SOURCE_PRIORITY`
+(`resolveChurchYearPrecedence()`, `src/api-finance.js`) flipped from `['import', 'qbo_sync',
+'plan_committed']` to `['qbo_sync', 'import', 'plan_committed']` — a year with any `qbo_sync` row now
+uses ONLY those rows; `import` is the fallback for a year QuickBooks was never connected for (or
+predates this app's live sync), not an override once sync exists. No data is deleted — an existing
+import stays in the database untouched and reappears automatically the moment a year's `qbo_sync`
+rows are removed (there's no removal path today, so this is a pure read-order flip, not yet paired
+with a UI to un-sync a year — flag if that's wanted later). Applies everywhere
+`resolveChurchYearPrecedence()` is used: Church Report (This Year/Multi-Year), Board Report,
+Budget Planning's base-year figures, and the giving/attendance reference lines. `CHURCH_MONTHLY_SOURCE_PRIORITY`
+(`['qbo_sync', 'monthly_import']`) already had sync-wins-over-import for the monthly-granularity
+path — this brings the annual path in line with it, so the two no longer disagree. Updated 2
+`test/finance-church.test.js` cases that asserted the old (now-reversed) precedence, added a new
+case for the import-only-fallback path. `npm test` (339/339), `node --check` on both built app-JS
+bundles. Not verified against a live QuickBooks sync (still in progress per FIN2/this session).
+(`src/api-finance.js`, `test/finance-church.test.js`)
+
 ### v1.100.0 — Deposit reconciliation UI (GIV-DEP frontend) (2026-07-28)
 The deposit-reconciliation **backend** (GIV-DEP, migration `0031`) was already committed on this
 branch by a prior run — `giving_deposits` table, per-gift `fee_cents`/`source`/`processor`/
