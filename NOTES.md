@@ -24,6 +24,17 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### Doc update — FIN2 confirmed reproducing in Production, not just sandbox (2026-07-28)
+No code change. Live Production OAuth connection completed (real QB keys, `QB_ENVIRONMENT=production`,
+redirect URI registered under both Intuit app tabs), and a real sync against the real church
+QuickBooks company hit the identical `5020 Permission Denied` error on Budget vs Actual — ruling out
+"sandbox-only artifact." Intuit will not open a support ticket for this app/tier, so the earlier
+"ticket filed, no ETA" status is closed off with no resolution. The existing reconstruction fallback
+(raw `Budget` entity query + `ProfitAndLoss` merge) fired correctly and the sync completed. See FIN2
+in `CLAUDE.md` for full detail — treating the direct report endpoint as permanently unavailable for
+this app; next real step is verifying the reconstructed numbers against this company's actual live
+data, not chasing the report endpoint further.
+
 ### v1.101.0 — Church Report: QuickBooks sync now outranks a file import (2026-07-28)
 Per user decision 2026-07-28 (Finance/FIN2 QuickBooks Production rollout in progress): a mid-year
 file import was originally meant as a stopgap while the live QuickBooks connection wasn't working
