@@ -141,7 +141,13 @@ export function makeQboClient(env, conn) {
     // rather than guessing. Response is QBO's generic Columns/Rows report shape; render it
     // generically on the frontend rather than assuming fixed column semantics, since QBO's
     // exact column set for this report can vary by account/report params.
-    budgetVsActual: (params) => get(`/reports/BudgetVsActual?${new URLSearchParams(params)}&minorversion=${MINOR_VERSION}`),
+    // NOTE (2026-07-28): this was "BudgetVsActual" (singular) for the entire time this app had
+    // a persistent 5020 Permission Denied on this call (see FIN2) — QuickBooks' real canned
+    // report name is "BudgetVsActuals" (plural), confirmed by the user against a live community
+    // report of the same undocumented endpoint. A misnamed report is a very plausible explanation
+    // for a misleading "Permission Denied" instead of a clean 404 — worth re-testing against a
+    // live sync before assuming the report is still broken.
+    budgetVsActual: (params) => get(`/reports/BudgetVsActuals?${new URLSearchParams(params)}&minorversion=${MINOR_VERSION}`),
 
     // Fallback data sources for when budgetVsActual itself is blocked (hit a persistent 5020
     // Permission Denied on the report endpoint during live testing even with a verified Budget

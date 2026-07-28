@@ -397,8 +397,39 @@ function finRenderConnection() {
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
     + '<button class="btn-primary" onclick="finSync(this)">Sync Now</button>'
     + (isAdminUI ? '<button class="btn-secondary" onclick="finDisconnect()">Disconnect</button>' : '')
+    + (isAdminUI ? '<button class="btn-secondary" onclick="finLoadBudgetPicker(this)">Choose Budget…</button>' : '')
     + '</div>'
+    + '<div id="fin-budget-picker" style="margin-top:10px;"></div>'
     + '<div id="fin-sync-msg" style="font-size:.78rem;margin-top:8px;"></div>';
+}
+// A company can have more than one Budget object in QuickBooks (e.g. a leftover test budget
+// alongside the real one) — the sync otherwise guesses (best year-match, else the first found).
+// This lets an admin see every budget QuickBooks actually has and pin the right one explicitly.
+function finLoadBudgetPicker(btn) {
+  var el = document.getElementById('fin-budget-picker');
+  el.innerHTML = '<p style="font-size:.8rem;color:var(--warm-gray);">Loading budgets…</p>';
+  api('/admin/api/finance/qb/budgets').then(function(d) {
+    if (!d || d.error) { el.innerHTML = '<p style="font-size:.8rem;color:var(--danger);">' + esc((d && d.error) || 'Could not load budgets.') + '</p>'; return; }
+    if (!d.budgets || !d.budgets.length) { el.innerHTML = '<p style="font-size:.8rem;color:var(--warm-gray);">No Budget objects found in QuickBooks. Create one under Settings &gt; Budgeting.</p>'; return; }
+    var opts = d.budgets.map(function(b) {
+      var label = b.name + ' (' + (b.startDate || '?') + ' – ' + (b.endDate || '?') + ')' + (b.active ? '' : ' [inactive]');
+      var sel = (String(d.selectedBudgetId || '') === String(b.id)) ? ' selected' : '';
+      return '<option value="' + esc(b.id) + '"' + sel + '>' + esc(label) + '</option>';
+    }).join('');
+    el.innerHTML = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+      + '<select id="fin-budget-select" style="max-width:340px;"><option value="">Auto (best year match)</option>' + opts + '</select>'
+      + '<button class="btn-primary" onclick="finSaveBudgetChoice()">Save &amp; Re-sync</button>'
+      + '</div>';
+  });
+}
+function finSaveBudgetChoice() {
+  var sel = document.getElementById('fin-budget-select');
+  var id = sel ? sel.value : '';
+  api('/admin/api/finance/qb/budgets', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ budget_id: id || null }) }).then(function(d) {
+    if (d && d.error) { finToast('Could not save: ' + d.error); return; }
+    finToast('Budget selection saved. Syncing…');
+    finSync();
+  });
 }
 function finFmtTs(iso) {
   try { return new Date(iso).toLocaleString('en-US', {dateStyle: 'medium', timeStyle: 'short'}); }
