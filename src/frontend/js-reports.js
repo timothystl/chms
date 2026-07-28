@@ -1013,11 +1013,16 @@ function runGivingPlateaus() {
   var rep = parseInt(document.getElementById('rpt-plateau-repeat').value, 10) || 3;
   var scopeEl = document.getElementById('rpt-plateau-scope');
   var scope = scopeEl ? scopeEl.value : 'household';
+  var fundEl = document.getElementById('rpt-plateau-fund');
+  var fundId = fundEl ? fundEl.value : '';
+  var fundName = (fundEl && fundEl.selectedIndex > 0) ? fundEl.options[fundEl.selectedIndex].text : '';
   // Lives in the Board Report view with its own output target.
   var out = document.getElementById('giv-plat-output');
   if (out) { out.innerHTML = '<div style="padding:16px;color:var(--warm-gray);">Loading&hellip;</div>'; out.classList.add('visible'); }
-  api('/admin/api/reports/giving-plateaus?year=' + yr + '&min_repeat=' + rep + '&scope=' + scope).then(function(d) {
+  var qs = '/admin/api/reports/giving-plateaus?year=' + yr + '&min_repeat=' + rep + '&scope=' + scope + (fundId ? '&fund_id=' + fundId : '');
+  api(qs).then(function(d) {
     if (d.error) { if (out) out.innerHTML = '<div style="padding:16px;color:var(--danger);">' + esc(d.error) + '</div>'; else alert(d.error); return; }
+    d.fund_name = fundName;
     if (out) { out.innerHTML = renderGivingPlateaus(d); out.scrollIntoView({behavior:'smooth', block:'nearest'}); }
   }).catch(function(e) {
     if (out) out.innerHTML = '<div style="padding:16px;color:var(--danger);">Could not load report.</div>';
@@ -1031,20 +1036,43 @@ function rptTogglePlateauPeople(idx) {
   var btn = document.getElementById('rpt-plat-toggle-' + idx);
   if (btn) btn.innerHTML = (open ? '&#9656; Show ' : '&#9662; Hide ') + btn.dataset.count + ' ' + (btn.dataset.noun || 'people');
 }
+function platOptionCell(opt) {
+  if (!opt) return '<td></td>';
+  return '<td style="text-align:right;">'
+    + '<div style="font-weight:600;color:var(--steel-anchor);">' + fmtWholeDollars(opt.target_cents) + '</div>'
+    + '<div style="font-size:.74rem;color:var(--warm-gray);">+' + fmtWholeDollars(opt.delta_cents) + ' &middot; +' + opt.pct_increase + '%</div>'
+    + (opt.impact_text ? '<div style="font-size:.74rem;color:#2E7EA6;margin-top:2px;">' + esc(opt.impact_text) + '</div>' : '')
+    + '</td>';
+}
 function renderGivingPlateaus(d) {
   var s = d.summary || {};
   var tiers = d.tiers || [];
   var dist = d.distribution || [];
+  var occasional = d.occasional_givers || [];
   var yr = d.year;
   var byHh = d.scope === 'household';
   var noun = byHh ? 'households' : 'givers';       // plural subject
   var nounP = byHh ? 'households' : 'people';       // "N people/households"
-  var titleSuffix = byHh ? ' (by household)' : ' (by person)';
+  var titleSuffix = (byHh ? ' (by household)' : ' (by person)') + (d.fund_name ? ' — ' + esc(d.fund_name) : '');
+  var excl = d.excluded_organizations || {};
 
+  var exclNote = (excl.count > 0)
+    ? '<div style="font-size:.78rem;color:var(--warm-gray);background:var(--linen);border-radius:8px;padding:8px 12px;margin-bottom:14px;">'
+      + '&#9888;&#65039; ' + excl.count + ' gift-day' + (excl.count===1?'':'s') + ' totaling ' + fmtWholeDollars(excl.total_cents) + ' ' + (excl.count===1?'was':'were') + ' recorded under an organization-type record in ' + yr + ' and excluded from this report. If any of these are actually a donor\'s stock/IRA (QCD) custodian rather than a real organization, consider re-linking the gift to the giver\'s own person record so it counts toward their giving.</div>'
+    : '';
+
+  if (!tiers.length && !occasional.length) {
+    return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+      + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving Plateaus &amp; Nudges — ' + yr + titleSuffix + '</h3></div>'
+      + exclNote
+      + '<div style="padding:20px;color:var(--warm-gray);">No giving found for ' + yr + (d.fund_name ? ' in ' + esc(d.fund_name) : '') + '.</div>';
+  }
   if (!tiers.length) {
     return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
       + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving Plateaus &amp; Nudges — ' + yr + titleSuffix + '</h3></div>'
-      + '<div style="padding:20px;color:var(--warm-gray);">No ' + noun + ' reached ' + (d.min_repeat||3) + ' gifts at the same amount in ' + yr + '. Lower the "Min. repeats" value, or pick a year with more giving history.</div>';
+      + exclNote
+      + '<div style="padding:20px;color:var(--warm-gray);">No ' + noun + ' reached ' + (d.min_repeat||3) + ' gifts at the same amount in ' + yr + '. Lower the "Min. repeats" value, or see the Large &amp; Occasional Gifts list below.</div>'
+      + platOccasionalBlock(occasional, d.occasional_givers_total, byHh);
   }
 
   // Summary stat cards
@@ -1053,14 +1081,14 @@ function renderGivingPlateaus(d) {
     + '<div style="font-size:1.5rem;font-weight:700;color:var(--steel-anchor);font-variant-numeric:tabular-nums;">' + (s.plateaued_givers||0) + '</div>'
     + '<div style="font-size:.78rem;color:var(--warm-gray);">' + noun + ' with a settled amount</div></div>'
     + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;">'
-    + '<div style="font-size:1.5rem;font-weight:700;color:#5A9E6F;font-variant-numeric:tabular-nums;">' + fmtWholeDollars(s.total_upside_annual_cents) + '</div>'
-    + '<div style="font-size:.78rem;color:var(--warm-gray);">est. added giving / year if all nudged up one rung</div></div>'
+    + '<div style="font-size:1.5rem;font-weight:700;color:#5A9E6F;font-variant-numeric:tabular-nums;">' + fmtWholeDollars(s.total_upside_modest_annual_cents) + '&ndash;' + fmtWholeDollars(s.total_upside_generous_annual_cents) + '</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);">est. added giving / year across Modest&ndash;Generous options</div></div>'
     + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;">'
     + '<div style="font-size:1.5rem;font-weight:700;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + (s.variable_givers||0) + '</div>'
-    + '<div style="font-size:.78rem;color:var(--warm-gray);">variable ' + noun + ' (no repeating amount)</div></div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);">occasional / large givers (no repeating amount)</div></div>'
     + '</div>';
 
-  // Nudge tier table
+  // Nudge tier table — grouped by the Standard option, with the Modest/Generous range for context.
   var tierRows = tiers.map(function(t) {
     var range = (t.plateau_min_cents === t.plateau_max_cents)
       ? fmtWholeDollars(t.plateau_min_cents)
@@ -1070,32 +1098,32 @@ function renderGivingPlateaus(d) {
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (t.num_people||0) + '</td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--warm-gray);">' + range + '</td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;">+' + fmtWholeDollars(t.avg_weekly_increase_cents) + '/gift</td>'
-      + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#5A9E6F;font-weight:600;">' + fmtWholeDollars(t.upside_annual_cents) + '</td></tr>';
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#5A9E6F;font-weight:600;">' + fmtWholeDollars(t.upside_modest_annual_cents) + '&ndash;' + fmtWholeDollars(t.upside_generous_annual_cents) + '</td></tr>';
   }).join('');
   var tierBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128201; Nudge Targets</div>'
-    + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">Each ' + (byHh ? 'household' : 'giver') + '&rsquo;s settled per-gift amount, grouped by the next clean number up. Upside assumes they keep giving at the same frequency, just at the nudged amount.</div>'
-    + '<table class="rpt-table"><thead><tr><th>Nudge to</th><th style="text-align:right;">' + (byHh ? 'Households' : 'People') + '</th><th style="text-align:right;">Now (plateau range)</th><th style="text-align:right;">Avg increase</th><th style="text-align:right;">Est. +$/yr</th></tr></thead>'
+    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128201; Nudge Targets (Standard option)</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">Each ' + (byHh ? 'household' : 'giver') + '&rsquo;s settled per-gift amount, grouped by their Standard increase option. Expand a tier below for the full Modest / Standard / Generous choice per ' + (byHh?'household':'person') + '.</div>'
+    + '<table class="rpt-table"><thead><tr><th>Nudge to</th><th style="text-align:right;">' + (byHh ? 'Households' : 'People') + '</th><th style="text-align:right;">Now (plateau range)</th><th style="text-align:right;">Avg increase</th><th style="text-align:right;">Est. +$/yr (Modest&ndash;Generous)</th></tr></thead>'
     + '<tbody>' + tierRows
-    + '<tr class="rpt-total"><td>Total</td><td style="text-align:right;">' + (s.plateaued_givers||0) + '</td><td></td><td></td><td style="text-align:right;">' + fmtWholeDollars(s.total_upside_annual_cents) + '</td></tr>'
+    + '<tr class="rpt-total"><td>Total</td><td style="text-align:right;">' + (s.plateaued_givers||0) + '</td><td></td><td></td><td style="text-align:right;">' + fmtWholeDollars(s.total_upside_modest_annual_cents) + '&ndash;' + fmtWholeDollars(s.total_upside_generous_annual_cents) + '</td></tr>'
     + '</tbody></table></div>';
 
-  // Per-tier people breakdown (collapsible)
+  // Per-tier people breakdown (collapsible) — each row shows all 3 graduated options.
   var peopleBlocks = tiers.map(function(t, i) {
     var rows = (t.people||[]).map(function(p) {
       var open = (p.link_kind === 'household') ? 'openHouseholdDetail(' : 'openPersonDetail(';
+      var opts = p.options || [];
       return '<tr style="cursor:pointer;" onclick="' + open + p.link_id + ')">'
         + '<td style="color:var(--steel-anchor);font-weight:600;">' + esc(p.name||'') + '</td>'
-        + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + fmtWholeDollars(p.plateau_cents) + '</td>'
-        + '<td style="text-align:center;color:var(--warm-gray);">&rarr; ' + fmtWholeDollars(p.target_cents) + '</td>'
-        + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--warm-gray);">' + (p.gifts||0) + ' gifts</td>'
-        + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#5A9E6F;">' + fmtWholeDollars(p.upside_annual_cents) + '</td></tr>';
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--warm-gray);">' + fmtWholeDollars(p.plateau_cents) + '<br><span style="font-size:.72rem;">' + (p.gifts||0) + ' gifts</span></td>'
+        + platOptionCell(opts[0]) + platOptionCell(opts[1]) + platOptionCell(opts[2])
+        + '</tr>';
     }).join('');
     return '<div style="margin-bottom:8px;">'
       + '<button id="rpt-plat-toggle-' + i + '" data-count="' + (t.num_people||0) + '" data-noun="' + nounP + '" class="btn-secondary" style="font-size:.82rem;padding:5px 12px;width:100%;text-align:left;" onclick="rptTogglePlateauPeople(' + i + ')">'
       + '&#9656; Show ' + (t.num_people||0) + ' ' + nounP + ' nudging to ' + fmtWholeDollars(t.target_cents) + '</button>'
-      + '<div id="rpt-plat-people-' + i + '" style="display:none;margin-top:6px;">'
-      + '<table class="rpt-table"><thead><tr><th>' + (byHh ? 'Household' : 'Name') + '</th><th style="text-align:right;">Plateau</th><th style="text-align:center;">Nudge</th><th style="text-align:right;">Frequency</th><th style="text-align:right;">Est. +$/yr</th></tr></thead>'
+      + '<div id="rpt-plat-people-' + i + '" style="display:none;margin-top:6px;overflow-x:auto;">'
+      + '<table class="rpt-table"><thead><tr><th>' + (byHh ? 'Household' : 'Name') + '</th><th style="text-align:right;">Now</th><th style="text-align:right;">Modest</th><th style="text-align:right;">Standard</th><th style="text-align:right;">Generous</th></tr></thead>'
       + '<tbody>' + rows + '</tbody></table>'
       + ((t.people||[]).length < (t.num_people||0) ? '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:4px;">Showing first ' + (t.people||[]).length + ' of ' + t.num_people + '.</div>' : '')
       + '</div></div>';
@@ -1114,7 +1142,7 @@ function renderGivingPlateaus(d) {
       + '<div style="background:#C9973A;height:100%;width:' + pct + '%;"></div></div>'
       + '<div style="flex:0 0 46px;text-align:right;font-size:.8rem;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + (r.n||0) + '</div></div>';
   }).join('');
-  var distBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;">'
+  var distBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
     + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128200; Plateau Distribution</div>'
     + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">Number of ' + noun + ' settled at each per-gift amount &mdash; the spikes are your real plateaus.</div>'
     + distRows + '</div>';
@@ -1122,7 +1150,93 @@ function renderGivingPlateaus(d) {
   return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
     + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving Plateaus &amp; Nudges — ' + yr + titleSuffix + '</h3>'
     + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
-    + cards + tierBlock + peopleBlock + distBlock;
+    + exclNote + cards + tierBlock + peopleBlock + distBlock + platOccasionalBlock(occasional, d.occasional_givers_total, byHh);
+}
+// "Large & Occasional Gifts" — givers whose amount doesn't repeat 3+ times,
+// most commonly one-time or a few-times-a-year gifts (stock, IRA/QCD
+// transfers, special appeals). Sorted by total given, not filtered by an
+// arbitrary dollar floor. No automatic dollar nudge is suggested here —
+// asking someone to increase "$X more a week" doesn't fit an occasional
+// gift, so this is visibility for a personal follow-up, not a formula.
+function platOccasionalBlock(occasional, total, byHh) {
+  if (!occasional || !occasional.length) return '';
+  var rows = occasional.map(function(p) {
+    var open = (p.link_kind === 'household') ? 'openHouseholdDetail(' : 'openPersonDetail(';
+    return '<tr style="cursor:pointer;" onclick="' + open + p.link_id + ')">'
+      + '<td style="color:var(--steel-anchor);font-weight:600;">' + esc(p.name||'') + '</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (p.gifts||0) + '</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--warm-gray);">' + fmtWholeDollars(p.avg_gift_cents) + '</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + fmtWholeDollars(p.total_cents) + '</td></tr>';
+  }).join('');
+  return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px;">'
+    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128181; Large &amp; Occasional Gifts</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">' + (byHh?'Households':'Givers') + ' whose gifts don&rsquo;t repeat at the same amount &mdash; often stock, IRA (QCD), or other occasional gifts. No automatic increase is suggested; consider a personal conversation about a modest step next time.</div>'
+    + '<table class="rpt-table"><thead><tr><th>' + (byHh?'Household':'Name') + '</th><th style="text-align:right;">Gifts</th><th style="text-align:right;">Avg gift</th><th style="text-align:right;">Total ' + '</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table>'
+    + (total > occasional.length ? '<div style="font-size:.78rem;color:var(--warm-gray);margin-top:4px;">Showing the top ' + occasional.length + ' of ' + total + ' by total given.</div>' : '')
+    + '</div>';
+}
+
+// ── Giving Impact Statements editor ─────────────────────────────────────
+var _platImpactRows = [];
+function platImpactRowHtml(row, i) {
+  // data-* + delegated handler (platImpactRowInput), not an inline onclick with a
+  // string argument — a quote-escaping mismatch in that pattern is exactly the bug
+  // class documented elsewhere in this app (VUXBUG2/SC3-BUG1); this sidesteps it.
+  return '<div class="modal-2col" style="margin-bottom:6px;align-items:end;">'
+    + '<div class="field" style="margin:0;"><label>$ more per month</label><input type="number" min="0" step="1" value="' + esc(String(row.monthly_dollars||'')) + '" data-row="' + i + '" data-field="monthly_dollars" oninput="platImpactRowInput(this)"></div>'
+    + '<div class="field" style="margin:0;display:flex;gap:6px;"><div style="flex:1;"><label>could provide&hellip;</label><input type="text" value="' + esc(row.label||'') + '" placeholder="e.g. one more week of Tuition Aid support" data-row="' + i + '" data-field="label" oninput="platImpactRowInput(this)"></div>'
+    + '<button class="btn-secondary" style="padding:6px 10px;align-self:end;" title="Remove" data-row="' + i + '" onclick="platRemoveImpactRow(parseInt(this.dataset.row,10))">&times;</button></div></div>';
+}
+function platImpactRowInput(el) {
+  platUpdateImpactRow(parseInt(el.dataset.row, 10), el.dataset.field, el.value);
+}
+function platRenderImpactRows() {
+  var el = document.getElementById('plat-impact-rows');
+  if (!el) return;
+  el.innerHTML = _platImpactRows.length
+    ? _platImpactRows.map(platImpactRowHtml).join('')
+    : '<div style="font-size:.82rem;color:var(--warm-gray);padding:8px 0;">No impact statements yet — click "+ Add statement" below.</div>';
+}
+function platUpdateImpactRow(i, field, val) {
+  if (!_platImpactRows[i]) return;
+  _platImpactRows[i][field] = val;
+}
+function platAddImpactRow() {
+  _platImpactRows.push({ monthly_dollars: '', label: '' });
+  platRenderImpactRows();
+}
+function platRemoveImpactRow(i) {
+  _platImpactRows.splice(i, 1);
+  platRenderImpactRows();
+}
+function platOpenImpactEditor() {
+  setStatus('plat-impact-status', '');
+  api('/admin/api/config/giving-impact').then(function(d) {
+    var statements = (d && d.statements) || [];
+    _platImpactRows = statements.map(function(s) {
+      return { monthly_dollars: Math.round((s.monthly_cents||0)/100), label: s.label||'' };
+    });
+    if (!_platImpactRows.length) _platImpactRows = [{ monthly_dollars: '', label: '' }];
+    platRenderImpactRows();
+    openModal('plat-impact-modal');
+  }).catch(function() {
+    _platImpactRows = [{ monthly_dollars: '', label: '' }];
+    platRenderImpactRows();
+    openModal('plat-impact-modal');
+  });
+}
+function platSaveImpactStatements() {
+  var statements = _platImpactRows
+    .filter(function(r) { return r.label && parseFloat(r.monthly_dollars) > 0; })
+    .map(function(r) { return { monthly_cents: Math.round(parseFloat(r.monthly_dollars) * 100), label: String(r.label).trim() }; });
+  api('/admin/api/config/giving-impact', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ statements: statements }) })
+    .then(function() {
+      setStatus('plat-impact-status', 'Saved.', 'success');
+      setTimeout(function() { closeModal('plat-impact-modal'); }, 500);
+    }).catch(function() {
+      setStatus('plat-impact-status', 'Could not save.', 'error');
+    });
 }
 
 // ── Giving by Weekly / Monthly Band ─────────────────────────────────────
@@ -1143,10 +1257,15 @@ function runGivingBands() {
   var upDollars = parseFloat((document.getElementById('rpt-bands-uplift') || {}).value);
   if (!(upDollars >= 0)) upDollars = (freq === 'monthly') ? 40 : 10;
   var upCents = Math.round(upDollars * 100);
+  var fundEl = document.getElementById('rpt-bands-fund');
+  var fundId = fundEl ? fundEl.value : '';
+  var fundName = (fundEl && fundEl.selectedIndex > 0) ? fundEl.options[fundEl.selectedIndex].text : '';
   var out = document.getElementById('giv-bands-output');
   if (out) { out.innerHTML = '<div style="padding:16px;color:var(--warm-gray);">Loading&hellip;</div>'; out.classList.add('visible'); }
-  api('/admin/api/reports/giving-bands?year=' + yr + '&scope=' + scope + '&freq=' + freq + '&uplift_cents=' + upCents).then(function(d) {
+  var qs = '/admin/api/reports/giving-bands?year=' + yr + '&scope=' + scope + '&freq=' + freq + '&uplift_cents=' + upCents + (fundId ? '&fund_id=' + fundId : '');
+  api(qs).then(function(d) {
     if (d.error) { if (out) out.innerHTML = '<div style="padding:16px;color:var(--danger);">' + esc(d.error) + '</div>'; else alert(d.error); return; }
+    d.fund_name = fundName;
     if (out) { out.innerHTML = renderGivingBands(d); out.scrollIntoView({behavior:'smooth', block:'nearest'}); }
   }).catch(function() {
     if (out) out.innerHTML = '<div style="padding:16px;color:var(--danger);">Could not load report.</div>';
@@ -1202,7 +1321,7 @@ function renderGivingBands(d) {
     + '</tbody></table></div>';
 
   return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
-    + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving by Band — ' + d.year + ' (per ' + perWord + ', by ' + (d.scope==='person'?'person':'household') + ')</h3>'
+    + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving by Band — ' + d.year + ' (per ' + perWord + ', by ' + (d.scope==='person'?'person':'household') + ')' + (d.fund_name ? ' — ' + esc(d.fund_name) : '') + '</h3>'
     + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
     + cards + table;
 }

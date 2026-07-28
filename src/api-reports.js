@@ -674,21 +674,28 @@ if (seg === 'reports/giving-insights' && method === 'GET') {
   });
 }
 
-// ── Giving Plateaus / Nudge Targets ─────────────────────────────────
+// ── Giving Plateaus / Nudge Options ─────────────────────────────────
 // For each regular giver, find the per-gift amount they've settled at (the
-// whole-dollar amount they repeat most often that year), group them by the
-// next clean nudge target (43→50, 83→100), and estimate the annual upside of
-// moving each tier up one rung. Gated as `giving` (finance/admin) via the
-// central access gate — seg starts with "reports/giving".
+// whole-dollar amount they repeat most often that year) and offer 3
+// graduated increase options (Modest/Standard/Generous — see
+// computeNudgeOptions in api-utils.js for why the percentage step shrinks as
+// the base grows). Gated as `giving` (finance/admin) via the central access
+// gate — seg starts with "reports/giving".
 if (seg === 'reports/giving-plateaus' && method === 'GET') {
   const year = parseInt(url.searchParams.get('year') || '', 10);
   if (!year || isNaN(year)) return json({ error: 'year required' }, 400);
   const minRepeat = Math.max(2, Math.min(parseInt(url.searchParams.get('min_repeat') || '3', 10) || 3, 52));
   const scope = url.searchParams.get('scope') === 'household' ? 'household' : 'person';
+  const fundId = parseInt(url.searchParams.get('fund_id') || '', 10) || 0;
   const start = year + '-01-01', end = year + '-12-31';
   const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
+  const fundClause = fundId ? ' AND ge.fund_id = ?' : '';
+  const fundBind = fundId ? [fundId] : [];
   // One row per (giver, giving-day) with that day's total contribution, so a
-  // gift split across funds counts as the single amount actually given.
+  // gift split across funds counts as the single amount actually given — no
+  // fund is discounted (see computeGivingPlateaus's comment). Pass fund_id to
+  // scope the whole analysis to one fund instead (e.g. only Tuition Aid, or
+  // a designated pass-through fund like Concordia Children's Fund).
   // In household scope the "giver" is the household — spouses who give
   // separately on the same day are summed into one household contribution;
   // givers with no household stand alone (link_kind='person'). The grouping
@@ -719,9 +726,9 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
        LEFT JOIN households h ON h.id = p.household_id
        WHERE ${effDate} >= ? AND ${effDate} <= ?
          AND ge.person_id IS NOT NULL
-         AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+         AND LOWER(COALESCE(p.member_type,'')) != 'organization'${fundClause}
        GROUP BY ${keyExpr}, d`
-    ).bind(start, end).all()).results || [];
+    ).bind(start, end, ...fundBind).all()).results || [];
   } else {
     rows = (await db.prepare(
       `SELECT ge.person_id AS person_id,
@@ -734,12 +741,41 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
        JOIN people p ON p.id = ge.person_id
        WHERE ${effDate} >= ? AND ${effDate} <= ?
          AND ge.person_id IS NOT NULL
-         AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+         AND LOWER(COALESCE(p.member_type,'')) != 'organization'${fundClause}
        GROUP BY ge.person_id, d`
-    ).bind(start, end).all()).results || [];
+    ).bind(start, end, ...fundBind).all()).results || [];
   }
-  const result = computeGivingPlateaus(rows, { minRepeat });
-  return json({ year, min_repeat: minRepeat, scope, ...result });
+
+  // Admin-configured impact statements ("$18/mo more → one more Tuition Aid
+  // week") — see config/giving-impact in api-import.js. Never fabricated here.
+  let impactStatements = [];
+  try {
+    const impRow = await db.prepare("SELECT value FROM chms_config WHERE key='giving_impact_statements_json'").first();
+    if (impRow?.value) impactStatements = JSON.parse(impRow.value);
+  } catch {}
+
+  // Visibility, not silence: gifts recorded under an organization-type person
+  // record (e.g. a brokerage/custodian name for a stock or IRA/QCD transfer
+  // entered as its own record) are excluded from every giver query above —
+  // by design, so a real organization/business isn't counted as a household
+  // pledging unit. Surface what that excluded, so a QCD accidentally filed
+  // under "Charles Schwab" instead of the actual donor doesn't just vanish.
+  const orgExclRow = await db.prepare(
+    `SELECT COUNT(DISTINCT ${effDate} || ':' || ge.person_id) AS n, COALESCE(SUM(ge.amount),0) AS total_cents
+     FROM giving_entries ge
+     JOIN giving_batches gb ON gb.id = ge.batch_id
+     JOIN people p ON p.id = ge.person_id
+     WHERE ${effDate} >= ? AND ${effDate} <= ?
+       AND ge.person_id IS NOT NULL
+       AND LOWER(COALESCE(p.member_type,'')) = 'organization'${fundClause}`
+  ).bind(start, end, ...fundBind).first();
+
+  const result = computeGivingPlateaus(rows, { minRepeat, impactStatements });
+  return json({
+    year, min_repeat: minRepeat, scope, fund_id: fundId || null,
+    excluded_organizations: { count: orgExclRow?.n || 0, total_cents: orgExclRow?.total_cents || 0 },
+    ...result,
+  });
 }
 
 // ── Giving Bands (weekly/monthly distribution + flat uplift) ────────
@@ -752,8 +788,11 @@ if (seg === 'reports/giving-bands' && method === 'GET') {
   const scope = url.searchParams.get('scope') === 'person' ? 'person' : 'household';
   const freq  = url.searchParams.get('freq') === 'monthly' ? 'monthly' : 'weekly';
   const upliftCents = Math.max(0, Math.min(parseInt(url.searchParams.get('uplift_cents') || '', 10) || (freq === 'monthly' ? 4000 : 1000), 100000));
+  const fundId = parseInt(url.searchParams.get('fund_id') || '', 10) || 0;
   const start = year + '-01-01', end = year + '-12-31';
   const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
+  const fundClause = fundId ? ' AND ge.fund_id = ?' : '';
+  const fundBind = fundId ? [fundId] : [];
 
   let rows;
   if (scope === 'household') {
@@ -766,9 +805,9 @@ if (seg === 'reports/giving-bands' && method === 'GET') {
        JOIN people p ON p.id = ge.person_id
        WHERE ${effDate} >= ? AND ${effDate} <= ?
          AND ge.person_id IS NOT NULL
-         AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+         AND LOWER(COALESCE(p.member_type,'')) != 'organization'${fundClause}
        GROUP BY ${keyExpr}`
-    ).bind(start, end).all()).results || [];
+    ).bind(start, end, ...fundBind).all()).results || [];
   } else {
     rows = (await db.prepare(
       `SELECT ge.person_id AS gid, SUM(ge.amount) AS total_cents
@@ -777,9 +816,9 @@ if (seg === 'reports/giving-bands' && method === 'GET') {
        JOIN people p ON p.id = ge.person_id
        WHERE ${effDate} >= ? AND ${effDate} <= ?
          AND ge.person_id IS NOT NULL
-         AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+         AND LOWER(COALESCE(p.member_type,'')) != 'organization'${fundClause}
        GROUP BY ge.person_id`
-    ).bind(start, end).all()).results || [];
+    ).bind(start, end, ...fundBind).all()).results || [];
   }
 
   // Periods elapsed: full year for a complete past year; for the current
@@ -793,7 +832,7 @@ if (seg === 'reports/giving-bands' && method === 'GET') {
   }
   const periodsElapsed = freq === 'monthly' ? monthsElapsed : weeksElapsed;
   const result = computeGivingBands(rows, { freq, periodsElapsed, upliftCents });
-  return json({ year, scope, partial: year === now.getUTCFullYear(), ...result });
+  return json({ year, scope, fund_id: fundId || null, partial: year === now.getUTCFullYear(), ...result });
 }
 
 // ── Giving distribution (GIV-R3 / 2A) ───────────────────────────────
