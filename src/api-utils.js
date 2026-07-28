@@ -942,6 +942,20 @@ export function sanitizeLetterTemplateHtml(html) {
   return { cleaned, changed };
 }
 
+// The letterhead logo (see letterheadImgHtml(), js-reports.js) is shown at a tiny fixed
+// height (44px) in giving letters, with no server-side resizing anywhere in its upload
+// path. An oversized/EXIF-heavy source photo is a confirmed cause of the logo rendering
+// as a blank "blob" in email clients (see GIV-BUG1) — most clients size a blocked-remote-
+// image placeholder off the byte size / dimensions of the source, not the display CSS.
+// This is a soft warning, not a hard cap: a large-but-otherwise-fine image still uploads.
+export const LOGO_WARN_BYTES = 300 * 1024; // 300 KB
+export function logoSizeWarning(fileBytes) {
+  if (!fileBytes || fileBytes <= LOGO_WARN_BYTES) return '';
+  const mb = (fileBytes / 1024 / 1024).toFixed(1);
+  const kb = Math.round(LOGO_WARN_BYTES / 1024);
+  return `This image is ${mb} MB — large for a logo shown at a small size in emails. Some email clients may render it as a blank box instead of a small crisp logo. Consider cropping/resizing to a smaller image (under ${kb} KB) before uploading.`;
+}
+
 // ── ADDRESS VALIDATION HELPERS ───────────────────────────────────────────
 // Service priority:
 //   1. Google Address Validation (GOOGLE_ADDRESS_API_KEY) — no rate-limit ceiling, best for bulk

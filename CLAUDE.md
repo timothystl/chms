@@ -464,6 +464,23 @@ oversized/EXIF-heavy photo is uploaded there (no server-side resizing exists in 
 and consider re-uploading a smaller, cleanly-cropped logo file. Done 2026-07-28 (v1.104.0).
 (`src/api-utils.js`, `src/api-import.js`, `src/frontend/js-reports.js`, `test/giving-letter-sanitize.test.js`)
 
+### GIV-BUG2 — Warn on an oversized letterhead logo upload (2026-07-28)
+Follow-up to GIV-BUG1: that fix addressed the base64-leak half of the reported bug, but flagged the
+logo-blob half as "less certain without seeing the live template" and suggested the uploaded logo
+photo itself might be the oversized/EXIF-heavy culprit. Requested: warn (not silently accept) when
+that's the case. New `logoSizeWarning()`/`LOGO_WARN_BYTES` (`src/api-utils.js`, 300 KB soft
+threshold) — a pure, unit-tested function, not a hard cap, since a large-but-otherwise-fine image
+should still be allowed to upload. Wired into `POST /admin/api/config/letterhead-logo`
+(`src/api-import.js`): the response now always includes a `warning` field (empty string when under
+the threshold). Settings UI (`uploadLetterheadLogo()`, `src/frontend/js-settings.js`) shows this
+twice — an immediate client-side check before the upload even starts (using the browser's own
+`file.size`, no round-trip needed), and again from the server's own warning after upload completes
+(covers the same check from a source of truth, in case the client-side check is ever bypassed).
+Uses the existing `.import-status.warn` CSS class (already defined in `html-head.js`, amber). `npm
+test` (360/360, 4 new tests for `logoSizeWarning` in `test/giving-letter-sanitize.test.js`), `node
+--check` on both built app-JS bundles. Not verified in a live browser. Done 2026-07-28 (v1.106.0).
+(`src/api-utils.js`, `src/api-import.js`, `src/frontend/js-settings.js`, `test/giving-letter-sanitize.test.js`)
+
 ### Giving Tab Redesign — board reports, donor letters, receipts (2026-07-27, in progress, phased)
 Design handoff (`design_handoff_giving_reports/`: README + 9 HTML prototypes + screenshots)
 reorganizes the Giving tab from ten flat report tiles into a
