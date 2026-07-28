@@ -96,6 +96,107 @@ QuickBooks company hit the identical `5020 Permission Denied` error on Budget vs
 in `CLAUDE.md` for full detail — treating the direct report endpoint as permanently unavailable for
 this app; next real step is verifying the reconstructed numbers against this company's actual live
 data, not chasing the report endpoint further.
+### v1.103.0 — Giving Plateaus: fixed-ladder nudges, always-on impact, total÷52 for everyone (2026-07-27)
+Four corrections to G27 (the graduated-percentage redesign), requested right after seeing it.
+
+1. **Back to fixed round numbers, not percentages.** `computeNudgeOptions()` no longer scales a
+   percentage by giving level — `NUDGE_PCT_TIERS`/floating-point-prone percentage math is gone
+   entirely. Instead, a single curated `GIVING_NUDGE_LADDER`: the original hand-picked low/mid
+   numbers (10, 15, 20 … 1000 — the exact values behind the well-liked 43→50 and 83→100 examples),
+   densified from $1,000 up ($100 steps to $5,000, $250 to $10,000, $500 to $25,000, $1,000 above) so
+   the *next 3 rungs* stay a modest, still-round ask even at high levels — $2,500/wk now offers
+   $2,600/$2,700/$2,800, not a jump straight to $3,000. `computeNudgeOptions(base)` is just "the next
+   3 ladder rungs above base," extending in flat $1,000 steps past the ladder's top for the rare
+   giver beyond it. Zero floating-point risk (no more `100 * 1.10 !== 110`) since it's pure integer
+   comparison against a precomputed array.
+2. **Every increase option always shows a concrete dollar impact**, even the Modest one. Each option
+   now carries `annual_delta_cents` (the plain "+$X/year" figure, always present) alongside the
+   optional `impact_text` (only shown when a configured statement's threshold is actually cleared) —
+   previously a Modest option with a small delta could show a bare dollar figure with nothing tying
+   it to a reason; now the annualized total is unconditional, per the explicit ask that "$5 more a
+   week gets to $250 a year" should always be stated.
+3. **Retirement/IRA (QCD)/stock/occasional givers get the exact same treatment as everyone else** —
+   the separate "Large & Occasional Gifts" exclusion list from G27 is gone. A giver who wrote one
+   $2,600 December check now reads identically to a giver who gave $50 every Sunday: both show as
+   "$50/wk," both get the same 3 nudge options. A `low_frequency` flag (gifts ≤ 3/year, configurable)
+   is still carried per giver so the UI can show the explicit narrative framing requested — "gave $X
+   in N gifts last year — about $Y/wk spread over the year" — right under a low-frequency giver's name
+   in the per-tier breakdown, rather than hiding them in a separate table with no suggested action.
+4. **Every giver's weekly figure = their whole year's giving (every fund) ÷ 52.** Replaces the old
+   "find the modal repeated per-gift amount" plateau-finding entirely — that model structurally
+   couldn't handle a giver who doesn't repeat an identical amount (which is most occasional/major
+   givers, item 3 above). The endpoint's SQL simplified to match `reports/giving-bands`'s existing
+   shape (one row per giver: `SUM(amount)`, `COUNT(*)` — no more per-day grouping), reusing the same
+   `periodsElapsed` convention (52 for a complete past year; weeks-so-far for the current
+   in-progress year, so pace isn't understated). `min_repeat` — the whole concept — is gone from the
+   API and the UI (the "Min. repeats" field was removed from the Plateaus card).
+
+`npm test` (348/348, `test/giving-plateaus.test.js` rewritten — 21 cases including a same-treatment
+regression test proving a weekly $50/wk giver and a one-time $2,600 giver produce byte-identical
+nudge options). `node --check` on both built app-JS bundles and touched backend files; scanned the
+served bundle for the double-backslash escaping bug class (VUXBUG2/SC3-BUG1) — 3 hits, all
+pre-existing and unrelated to this change, none in the touched code. Not verified in a live browser.
+(`src/api-utils.js`, `src/api-reports.js`, `src/frontend/js-reports.js`, `src/frontend/html-tabs.js`,
+`test/giving-plateaus.test.js`)
+
+### v1.102.0 — Giving Plateaus: graduated nudge options, impact framing, occasional givers, fund scope (2026-07-27)
+Four follow-ups on the Giving Plateaus report, all requested together after first review.
+
+1. **Less aggressive nudges at the top, via 3 graduated options instead of 1 fixed target.**
+   `givingNudgeTarget()`/`GIVING_NUDGE_LADDER` (a fixed round-number ladder — always jump to the
+   next rung, e.g. 2500→3000, a 20%/$500-a-week ask) replaced with `computeNudgeOptions(baseDollars)`
+   in `api-utils.js`: returns 3 options (**Modest/Standard/Generous**), each a "nice" round number,
+   where the **percentage step shrinks as the base amount grows** (`NUDGE_PCT_TIERS`: 30–100% under
+   $15/wk down to 3–10% above $1,500/wk) — the same relative ask reads very differently in absolute
+   dollars at different giving levels. $43/wk → $50/$56/$66 (was a flat $50); $2,500/wk → $2,600/
+   $2,700/$2,800 (was $3,000). **Real bug caught before shipping**: `base * (1 + pct)` hits IEEE 754
+   floating-point noise (`100 * 1.10 === 110.00000000000001`), which `Math.ceil`-to-increment was
+   amplifying into overshooting to the NEXT increment entirely (110→120 instead of landing on 110) —
+   fixed by rounding to the nearest cent before the ceil step; caught by hand-verifying computed
+   values against a Node harness, not by the unit tests alone (they'd have locked in the wrong
+   numbers). Nudge Targets table now groups by the Standard option (unchanged shape) with a Modest–
+   Generous upside range; the per-tier people drill-down shows all 3 options per row.
+2. **Impact framing** ("if you gave $18 more a month, that could provide X") — new admin-editable
+   "Giving Impact Statements" list (`config/giving-impact` GET/PUT in `api-import.js`, one JSON array
+   in `chms_config`; "Impact statements…" button + modal on the Plateaus card). Deliberately **never
+   pre-filled or fabricated** — real ministry costs are church-specific and this app doesn't invent
+   them; empty by default, admin types their own `$X/month → label` rows. New pure
+   `pickImpactPhrase(monthlyDeltaCents, statements)` picks the richest statement a given option's
+   monthly-equivalent increase actually clears; each nudge option carries its own `impact_text`
+   (null if nothing configured or nothing qualifies). Impact-editor input rows use the `data-*` +
+   delegated-handler pattern (`platImpactRowInput`), not inline `onclick` with string args — the
+   exact quote-escaping bug class documented elsewhere in this file (VUXBUG2/SC3-BUG1); also caught
+   and fixed a literal double-backslash (`\\'`) that had crept into two OTHER lines in this same edit
+   (the impact-editor markup and the exclusion-note copy) via the standard extract-and-`node --check`
+   verification step, before it could reintroduce that exact bug class into the served bundle.
+3. **Retirement/IRA (QCD)/stock givers weren't visible.** These rarely repeat the same dollar amount
+   3+ times (by nature, a QCD or stock gift is usually once or a few times a year), so they were
+   silently folded into "variable" with no visibility. New **"Large & Occasional Gifts"** section
+   (`occasional_givers` in `computeGivingPlateaus`'s return, sorted by total given, capped and
+   flagged with a truncation count) — no automatic dollar nudge (an occasional gift style doesn't
+   fit a "+$X/week" ask), just visibility for a personal follow-up. Also added an
+   **excluded-organizations diagnostic**: gifts recorded under an organization-type person record
+   (e.g. a brokerage/custodian entered as its own record) are still excluded from every giver query
+   by design — a business shouldn't count as a pledging household — but the endpoint now returns a
+   count + total for what was excluded, shown as a callout, so a QCD accidentally filed under a
+   custodian's name doesn't just vanish with zero trace.
+4. **Multi-fund handling clarified + a Fund filter added (solves the Concordia Children's Fund ask
+   too).** Confirmed via a real-SQLite harness: the report already sums **every fund** a giver gives
+   to on the same day into one combined amount — a Tuition Aid or Food Pantry gift was never
+   discounted, already included in the day total. New `&fund_id=` param (both
+   `reports/giving-plateaus` and `reports/giving-bands`) plus a Fund `<select>` on both Board Report
+   cards (populated from the existing `allFunds`/`GET /admin/api/funds`) lets the same analysis run
+   scoped to just one fund — including a designated pass-through fund like Concordia Children's Fund,
+   which functions as a separate organization the church only handles US-side fundraising for. No
+   fund-specific code — any fund in the dropdown works the same way.
+
+`npm test` (347/347, 20 in the rewritten `test/giving-plateaus.test.js` — including a regression
+guard locking in the exact floating-point-fix values). `node --check` on both built app-JS bundles
+and all touched backend files. A real in-memory-SQLite harness confirms the fund filter correctly
+isolates one fund's giving while leaving "All Funds" mode summing everything (nothing discounted).
+Not verified in a live browser.
+(`src/api-utils.js`, `src/api-reports.js`, `src/api-import.js`, `src/frontend/js-reports.js`,
+`src/frontend/js-giving.js`, `src/frontend/html-tabs.js`, `test/giving-plateaus.test.js`)
 
 ### v1.101.0 — Church Report: QuickBooks sync now outranks a file import (2026-07-28)
 Per user decision 2026-07-28 (Finance/FIN2 QuickBooks Production rollout in progress): a mid-year

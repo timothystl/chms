@@ -434,6 +434,32 @@ if (seg === 'config/church' && method === 'PUT') {
   return json({ ok: true });
 }
 
+// ── Giving impact statements — admin-entered "$X/month more could provide Y"
+// reference used by the Giving Plateaus report to turn a suggested increase
+// into a concrete impact instead of a bare "give more" ask. Real ministry
+// costs are church-specific and never fabricated by the app — this is purely
+// what an admin types in. Stored as one JSON array in chms_config.
+if (seg === 'config/giving-impact' && method === 'GET') {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key='giving_impact_statements_json'").first();
+  let statements = [];
+  try { statements = row?.value ? JSON.parse(row.value) : []; } catch {}
+  return json({ statements: Array.isArray(statements) ? statements : [] });
+}
+if (seg === 'config/giving-impact' && method === 'PUT') {
+  let b = {}; try { b = await req.json(); } catch {}
+  const list = Array.isArray(b.statements) ? b.statements : [];
+  const cleaned = list
+    .map(s => ({
+      monthly_cents: Math.max(0, Math.round(Number(s?.monthly_cents) || 0)),
+      label: String(s?.label || '').trim().slice(0, 200),
+    }))
+    .filter(s => s.monthly_cents > 0 && s.label)
+    .slice(0, 50);
+  await db.prepare("INSERT INTO chms_config(key,value) VALUES('giving_impact_statements_json',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+    .bind(JSON.stringify(cleaned)).run();
+  return json({ ok: true, statements: cleaned });
+}
+
 // ── Letterhead logo — shown at the top of giving letters (view/email/preview) in place of
 // the plain church-name text once set. Served publicly (unauthenticated) at
 // /admin/letterhead-logo (tlc-volunteer-worker.js) since outbound HTML emails need a real,

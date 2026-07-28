@@ -244,12 +244,13 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
     <div class="import-card require-finance" style="margin-top:18px;">
       <h3>&#128201; Giving Plateaus &amp; Nudges</h3>
-      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">Finds the per-gift amount givers settle at (e.g. $43/wk), then suggests a nudge to the next clean number (&rarr; $50) and the estimated annual upside. Use the tiers to set suggested amounts on the online giving page.</p>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">Every giver's weekly level = their whole year's giving, every fund, &divide; 52 weeks &mdash; so a weekly regular, a monthly giver, and someone who made one large gift (e.g. a stock or IRA/QCD transfer) all get the same treatment. Offers 3 fixed, familiar round-number increase options. By default this sums <strong>everything a giver gives across every fund</strong> &mdash; General, Tuition Aid, Food Pantry, etc.; no fund is discounted. Pick a specific fund below to analyze just that fund instead (e.g. a designated pass-through fund).</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
         <div class="field" style="margin:0;"><label>Year</label><input type="number" id="rpt-plateau-year" name="rpt-plateau-year" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>
+        <div class="field" style="margin:0;"><label>Fund</label><select id="rpt-plateau-fund" name="rpt-plateau-fund" style="font-size:.85rem;padding:4px 8px;"><option value="">All Funds</option></select></div>
         <div class="field" style="margin:0;"><label>Group by</label><select id="rpt-plateau-scope" name="rpt-plateau-scope" style="font-size:.85rem;padding:4px 8px;"><option value="household">Household</option><option value="person">Person</option></select></div>
-        <div class="field" style="margin:0;"><label>Min. repeats</label><input type="number" id="rpt-plateau-repeat" name="rpt-plateau-repeat" value="3" min="2" style="font-size:.85rem;padding:4px 8px;width:70px;"></div>
         <button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="runGivingPlateaus()">Run Report</button>
+        <button class="btn-secondary" style="font-size:.82rem;padding:6px 14px;" onclick="platOpenImpactEditor()">Impact statements&hellip;</button>
       </div>
       <div id="giv-plat-output" class="report-output"></div>
     </div>
@@ -259,6 +260,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">How giving households spread across per-week (or per-month) giving levels, and what a small across-the-board step up would add. A household&rsquo;s weekly figure is its giving &divide; weeks in the period, so monthly and lump-sum givers still land in the right band.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
         <div class="field" style="margin:0;"><label>Year</label><input type="number" id="rpt-bands-year" name="rpt-bands-year" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>
+        <div class="field" style="margin:0;"><label>Fund</label><select id="rpt-bands-fund" name="rpt-bands-fund" style="font-size:.85rem;padding:4px 8px;"><option value="">All Funds</option></select></div>
         <div class="field" style="margin:0;"><label>Group by</label><select id="rpt-bands-scope" name="rpt-bands-scope" style="font-size:.85rem;padding:4px 8px;"><option value="household">Household</option><option value="person">Person</option></select></div>
         <div class="field" style="margin:0;"><label>Per</label><select id="rpt-bands-freq" name="rpt-bands-freq" onchange="bandsSyncUpliftDefault()" style="font-size:.85rem;padding:4px 8px;"><option value="weekly">Week</option><option value="monthly">Month</option></select></div>
         <div class="field" style="margin:0;"><label>If each gives +$</label><input type="number" id="rpt-bands-uplift" name="rpt-bands-uplift" value="10" min="0" style="font-size:.85rem;padding:4px 8px;width:70px;"></div>
@@ -274,6 +276,20 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
   <div id="giv-view-receipts" class="require-finance" style="display:none;">
     <div id="giv-receipts-root"><div class="board-empty">Loading&hellip;</div></div>
+  </div>
+
+  <div id="plat-impact-modal" class="modal-overlay">
+    <div class="modal" style="max-width:560px;">
+      <h3>Giving Impact Statements</h3>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">When a suggested increase clears one of these monthly thresholds, the Plateaus report shows the matching phrase next to it (e.g. "if you gave $18 more a month, that could provide&hellip;"). These are your own numbers &mdash; nothing here is pre-filled or guessed. Leave empty and increases just show as dollar amounts.</p>
+      <div id="plat-impact-rows"></div>
+      <button class="btn-secondary" style="font-size:.82rem;margin-top:6px;" onclick="platAddImpactRow()">+ Add statement</button>
+      <div id="plat-impact-status" class="status-msg" style="margin-top:8px;"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+        <button class="btn-secondary" onclick="closeModal('plat-impact-modal')">Close</button>
+        <button class="btn-primary" onclick="platSaveImpactStatements()">Save</button>
+      </div>
+    </div>
   </div>
 
   <div id="giv-view-reports" style="display:none;">
