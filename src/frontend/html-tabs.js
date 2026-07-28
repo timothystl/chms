@@ -249,6 +249,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <div class="field" style="margin:0;"><label>Year</label><input type="number" id="rpt-plateau-year" name="rpt-plateau-year" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>
         <div class="field" style="margin:0;"><label>Fund</label><select id="rpt-plateau-fund" name="rpt-plateau-fund" style="font-size:.85rem;padding:4px 8px;"><option value="">All Funds</option></select></div>
         <div class="field" style="margin:0;"><label>Group by</label><select id="rpt-plateau-scope" name="rpt-plateau-scope" style="font-size:.85rem;padding:4px 8px;"><option value="household">Household</option><option value="person">Person</option></select></div>
+        <div class="field" style="margin:0;"><label>Occasional = &le; X gifts/yr</label><input type="number" id="rpt-plateau-lowfreq" name="rpt-plateau-lowfreq" value="3" min="1" max="51" style="font-size:.85rem;padding:4px 8px;width:60px;"></div>
         <button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="runGivingPlateaus()">Run Report</button>
         <button class="btn-secondary" style="font-size:.82rem;padding:6px 14px;" onclick="platOpenImpactEditor()">Impact statements&hellip;</button>
       </div>

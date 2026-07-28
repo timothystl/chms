@@ -142,8 +142,23 @@ function loadReservesOnHandHelper() {
 describe('finComputePropertyReservesOnHandCents', () => {
   const finComputePropertyReservesOnHandCents = loadReservesOnHandHelper();
 
-  it('reconciles exactly to AHRA\'s own "Total Property Reserve" figure from the real July 2026 report ($10,358.33 = $5,858.33 tax reserve + $4,500 base minimum)', () => {
+  it('prefers the latest month\'s reserve_balance_cents (AHRA\'s own verbatim "Total Property Reserve" figure) when one has been recorded, per the real July 2026 report ($10,358.33)', () => {
     const d = {
+      monthly: [
+        { period: '2026-05', reserve_balance_cents: 900000 },
+        { period: '2026-06', reserve_balance_cents: 1035833 },
+      ],
+      // A stale/incomplete reserve ledger sitting alongside it should NOT be used once a real
+      // monthly reserve_balance_cents exists — the report's own figure always wins.
+      reserves: { property_tax: [{ report_month: '2026-06', reserve_after_cents: 1 }] },
+      meta: { reserves: { base_minimum_cents: 1 } },
+    };
+    expect(finComputePropertyReservesOnHandCents(d)).toBe(1035833);
+  });
+
+  it('falls back to reconstructing from the reserve-schedule ledger + base minimum when no month has a recorded reserve_balance_cents yet', () => {
+    const d = {
+      monthly: [{ period: '2026-06', reserve_balance_cents: null }],
       reserves: {
         property_tax: [
           { report_month: '2026-06', reserve_after_cents: 475000 },
@@ -155,7 +170,7 @@ describe('finComputePropertyReservesOnHandCents', () => {
     expect(finComputePropertyReservesOnHandCents(d)).toBe(1035833);
   });
 
-  it('sums the latest row of every reserve bucket (tax, capital, insurance, ...)', () => {
+  it('falls back to the ledger + base minimum when there is no monthly data at all', () => {
     const d = {
       reserves: {
         property_tax: [{ report_month: '2026-06', reserve_after_cents: 100000 }],
@@ -166,7 +181,7 @@ describe('finComputePropertyReservesOnHandCents', () => {
     expect(finComputePropertyReservesOnHandCents(d)).toBe(130000);
   });
 
-  it('handles no reserves or meta at all', () => {
+  it('handles no reserves, monthly, or meta at all', () => {
     expect(finComputePropertyReservesOnHandCents({})).toBe(0);
   });
 });

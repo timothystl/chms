@@ -190,4 +190,40 @@ describe('computeGivingPlateaus', () => {
     const r = computeGivingPlateaus([row(1, 'A', 0, 0), row(2, 'B', -20, 1), row(3, 'C', 2600, 52)], { periodsElapsed: 52 });
     expect(r.summary.total_givers).toBe(1);
   });
+
+  describe('low_frequency_givers_list', () => {
+    it('lists low-frequency givers sorted by total given — a one-time large gift surfaces first', () => {
+      const rows = [
+        row(1, 'Small Occasional', 200, 2),
+        row(2, 'One-Time Major Gift', 9000, 1, { auto_gifts: 0 }),
+        row(3, 'Regular Weekly', 2600, 52), // not low-frequency, excluded from this list
+      ];
+      const r = computeGivingPlateaus(rows, { periodsElapsed: 52, lowFrequencyMax: 3 });
+      expect(r.low_frequency_givers_list.map(g => g.name)).toEqual(['One-Time Major Gift', 'Small Occasional']);
+      expect(r.low_frequency_givers_list.length).toBe(2);
+    });
+
+    it('still includes low-frequency givers in the normal tiers — this list is informational, not exclusionary', () => {
+      const r = computeGivingPlateaus([row(1, 'Otto', 2600, 1)], { periodsElapsed: 52, lowFrequencyMax: 3 });
+      expect(r.summary.total_givers).toBe(1);
+      expect(r.tiers[0].people.some(p => p.name === 'Otto')).toBe(true);
+      expect(r.low_frequency_givers_list.some(g => g.name === 'Otto')).toBe(true);
+    });
+
+    it('flags whether a low-frequency giver already gives via an automatic method', () => {
+      const manual = row(1, 'Otto Manual', 2600, 1, { auto_gifts: 0 });
+      const auto = row(2, 'Amy Auto', 2600, 2, { auto_gifts: 2 });
+      const r = computeGivingPlateaus([manual, auto], { periodsElapsed: 52, lowFrequencyMax: 3 });
+      const otto = r.low_frequency_givers_list.find(g => g.name === 'Otto Manual');
+      const amy = r.low_frequency_givers_list.find(g => g.name === 'Amy Auto');
+      expect(otto.all_manual_methods).toBe(true);
+      expect(amy.all_manual_methods).toBe(false);
+    });
+
+    it('respects a custom low_frequency_max threshold for the list too', () => {
+      const rows = [row(1, 'P', 260, 4)];
+      expect(computeGivingPlateaus(rows, { periodsElapsed: 52, lowFrequencyMax: 3 }).low_frequency_givers_list.length).toBe(0);
+      expect(computeGivingPlateaus(rows, { periodsElapsed: 52, lowFrequencyMax: 5 }).low_frequency_givers_list.length).toBe(1);
+    });
+  });
 });

@@ -420,6 +420,10 @@ export function computeGivingPlateaus(rows, opts = {}) {
       link_kind: r.link_kind || 'person',
       total_cents: cents,
       gifts: Math.max(0, Math.round(Number(r.gifts) || 0)),
+      // Gifts recorded under an automatic/recurring method (ACH, card, auto-
+      // draft, etc. — see bucketGivingMethod) — used only to flag whether a
+      // low-frequency giver is already on some form of autopay.
+      auto_gifts: Math.max(0, Math.round(Number(r.auto_gifts) || 0)),
     });
   }
 
@@ -452,6 +456,7 @@ export function computeGivingPlateaus(rows, opts = {}) {
       total_cents: p.total_cents,
       gifts: p.gifts,
       low_frequency: p.gifts > 0 && p.gifts <= lowFrequencyMax,
+      all_manual_methods: p.gifts > 0 && p.auto_gifts === 0,
       options,
       // Backward-compatible "primary" fields — the Standard option — used
       // for tier grouping and the summary headline.
@@ -507,6 +512,25 @@ export function computeGivingPlateaus(rows, opts = {}) {
     };
   }).sort((a, b) => a.target_cents - b.target_cents);
 
+  // Low-frequency givers — a dedicated, staff-facing list (not a correction
+  // list; nobody here needs to change anything). Sorted by total given, so a
+  // one-time LARGE gift (e.g. stock/IRA transfer) surfaces at the top, not
+  // buried under smaller occasional givers. Still included in `tiers` above
+  // like everyone else — this is a convenience view for spotting who gives
+  // occasionally, e.g. as a starting point for someone who might want to ask
+  // about setting up recurring/automatic giving, never a suggestion that an
+  // occasional or one-time giver is doing something that needs fixing.
+  const lowFrequencyGivers = givers
+    .filter(g => g.low_frequency)
+    .map(g => ({
+      id: g.id, name: g.name, link_id: g.link_id, link_kind: g.link_kind,
+      total_cents: g.total_cents, gifts: g.gifts,
+      avg_gift_cents: g.gifts ? Math.round(g.total_cents / g.gifts) : 0,
+      all_manual_methods: g.all_manual_methods,
+    }))
+    .sort((a, b) => b.total_cents - a.total_cents)
+    .slice(0, peopleCap);
+
   return {
     summary: {
       total_givers: givers.length,
@@ -518,6 +542,7 @@ export function computeGivingPlateaus(rows, opts = {}) {
     },
     tiers,
     distribution,
+    low_frequency_givers_list: lowFrequencyGivers,
   };
 }
 
