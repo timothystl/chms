@@ -1576,6 +1576,7 @@ export const HTML_TABS_2 = String.raw`
               <button id="fin-church-mode-year" class="btn-secondary active" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('year')">This Year</button>
               <button id="fin-church-mode-multiyear" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('multiyear')">Multi-Year</button>
               <button id="fin-church-mode-balances" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('balances')">Balance Sheet</button>
+              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchActivityImport()">Import Statement of Activity</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchImport()">Import Budget</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchMonthlyImport()">Import Monthly P&amp;L</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchBalanceImport()">Import Balance Sheet</button>
@@ -2340,6 +2341,26 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('fin-church-monthly-import-modal')">Close</button>
       <button class="btn-primary" id="fin-church-monthly-import-confirm-btn" style="display:none;" onclick="finChurchConfirmMonthlyImport()">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- Church Report: one-time historical actuals upload — a multi-year "Statement of Activity"
+     export (one column per fiscal year), never Budget data. See FIN36 in CLAUDE.md: this is the
+     preferred path for backfilling old years going forward, kept separate from the Budget vs.
+     Actuals import above so it can never overwrite that import's previously-saved data. -->
+<div class="modal-overlay" id="fin-church-activity-import-modal">
+  <div class="modal" style="max-width:760px;width:95vw;">
+    <div class="modal-header"><span>Import Statement of Activity (Actuals Only)</span><button class="modal-close" onclick="closeModal('fin-church-activity-import-modal')">&#10005;</button></div>
+    <div style="padding:4px 0;">
+      <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload a QuickBooks "Statement of Activity" export (.xlsx) with "Display columns by: Years" set — one column per fiscal year, covering as many years as you like in one file. Actuals only; budget figures are never read or stored by this import. Importing replaces any previously-uploaded Statement of Activity data for the same years only — other years, and any Budget import data, are left untouched. A live QuickBooks sync for a given year (via "Sync Selected Years" on the Overview tab) always takes precedence over this import for that same year.</p>
+      <input type="file" id="fin-church-activity-import-file" accept=".xlsx" onchange="finChurchActivityImportFileSelected(this)">
+      <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="fin-church-activity-import-status"></div>
+      <div id="fin-church-activity-import-preview"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('fin-church-activity-import-modal')">Close</button>
+      <button class="btn-primary" id="fin-church-activity-import-confirm-btn" style="display:none;" onclick="finChurchConfirmActivityImport()">Import</button>
     </div>
   </div>
 </div>

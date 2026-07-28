@@ -426,10 +426,12 @@ function finRenderConnection() {
     + '<p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 10px;">Last synced: ' + esc(lastSync) + '</p>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
     + '<button class="btn-primary" onclick="finSync(this)">Sync Now</button>'
+    + '<button class="btn-secondary" onclick="finOpenSyncYears()">Sync Selected Years (Actuals Only)…</button>'
     + (isAdminUI ? '<button class="btn-secondary" onclick="finDisconnect()">Disconnect</button>' : '')
     + (isAdminUI ? '<button class="btn-secondary" onclick="finLoadBudgetPicker(this)">Choose Budget…</button>' : '')
     + '</div>'
     + '<div id="fin-budget-picker" style="margin-top:10px;"></div>'
+    + '<div id="fin-sync-years-picker" style="margin-top:10px;display:none;"></div>'
     + '<div id="fin-sync-msg" style="font-size:.78rem;margin-top:8px;"></div>';
 }
 // A company can have more than one Budget object in QuickBooks (e.g. a leftover test budget
@@ -2103,6 +2105,160 @@ function finChurchConfirmMonthlyImport() {
   }).catch(function(err) {
     btn.disabled = false;
     if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
+  });
+}
+
+// ── Statement of Activity multi-year import: preview-then-commit, one-time historical actuals
+// upload (see FIN36 in CLAUDE.md). Same shape as the monthly import above (one column per period
+// instead of Actual/Budget), just years instead of months, and the commit payload's rows already
+// carry their own fiscal_year per row (spanning several years at once) rather than one shared
+// fiscal_year for the whole payload. ──────────────────────────────────────────────────────────
+var _finChurchActivityImportPreview = null;
+
+function finOpenChurchActivityImport() {
+  _finChurchActivityImportPreview = null;
+  var fileEl = document.getElementById('fin-church-activity-import-file');
+  if (fileEl) fileEl.value = '';
+  var statusEl = document.getElementById('fin-church-activity-import-status');
+  if (statusEl) statusEl.textContent = '';
+  var previewEl = document.getElementById('fin-church-activity-import-preview');
+  if (previewEl) previewEl.innerHTML = '';
+  var confirmBtn = document.getElementById('fin-church-activity-import-confirm-btn');
+  if (confirmBtn) confirmBtn.style.display = 'none';
+  openModal('fin-church-activity-import-modal');
+}
+
+function finChurchActivityImportFileSelected(inputEl) {
+  var file = inputEl.files && inputEl.files[0];
+  if (!file) return;
+  var statusEl = document.getElementById('fin-church-activity-import-status');
+  var previewEl = document.getElementById('fin-church-activity-import-preview');
+  var confirmBtn = document.getElementById('fin-church-activity-import-confirm-btn');
+  statusEl.textContent = 'Reading file…';
+  previewEl.innerHTML = '';
+  confirmBtn.style.display = 'none';
+  _finChurchActivityImportPreview = null;
+  var fd = new FormData();
+  fd.append('file', file);
+  fetch('/admin/api/finance/church/activity-import-preview', { method: 'POST', body: fd, credentials: 'include' })
+    .then(function(r) {
+      return r.json().then(function(d) {
+        if (r.status === 401) { location.href = '/chms'; throw new Error('Unauthorized'); }
+        if (!r.ok) throw new Error(d.error || 'Could not read this file.');
+        return d;
+      });
+    })
+    .then(function(d) {
+      _finChurchActivityImportPreview = d;
+      statusEl.textContent = 'Parsed "' + d.sheetName + '" — ' + d.years.join(', ') + ', ' + d.rows.length + ' account/year row(s).'
+        + (d.partialYears.length ? ' (' + d.partialYears.join(', ') + ' is a partial year-to-date, not a complete year.)' : '')
+        + (d.skipped.length ? ' ' + d.skipped.length + ' line(s) not recognized as accounts (shown below).' : '');
+      previewEl.innerHTML = finChurchRenderActivityImportPreview(d);
+      confirmBtn.style.display = '';
+    })
+    .catch(function(err) {
+      if (err.message !== 'Unauthorized') statusEl.textContent = 'Error: ' + err.message;
+    });
+}
+
+function finChurchRenderActivityImportPreview(d) {
+  var byPath = {};
+  var order = [];
+  d.rows.forEach(function(r) {
+    if (!byPath[r.category_path]) { byPath[r.category_path] = { row: r, years: {} }; order.push(r.category_path); }
+    byPath[r.category_path].years[r.fiscal_year] = r.own_actual_cents;
+  });
+  var yearHeaders = d.years.map(function(y) {
+    return '<th style="text-align:right;padding:4px 6px;">' + y + (d.partialYears.indexOf(y) !== -1 ? ' (partial)' : '') + '</th>';
+  }).join('');
+  var rowsHtml = order.map(function(path) {
+    var entry = byPath[path];
+    var cells = d.years.map(function(y) {
+      var v = entry.years[y];
+      return '<td style="padding:3px 6px;text-align:right;">' + (v == null ? '' : '$' + finFmtMoney(v / 100)) + '</td>';
+    }).join('');
+    return '<tr>'
+      + '<td style="padding:3px 6px 3px ' + (8 + 14 * entry.row.depth) + 'px;">' + esc(entry.row.account_name) + '</td>'
+      + '<td style="padding:3px 6px;color:var(--warm-gray);">' + esc(entry.row.classification) + '</td>'
+      + cells + '</tr>';
+  }).join('');
+  var skippedHtml = d.skipped.length
+    ? '<p style="font-size:.76rem;color:var(--warm-gray);margin-top:10px;">Ignored (not recognized as accounts): ' + d.skipped.map(esc).join('; ') + '</p>'
+    : '';
+  return '<div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">'
+    + '<table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
+    + '<thead style="position:sticky;top:0;background:var(--white);"><tr style="border-bottom:1px solid var(--border);">'
+    + '<th style="text-align:left;padding:4px 6px;">Account</th><th style="text-align:left;padding:4px 6px;">Classification</th>'
+    + yearHeaders + '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+    + skippedHtml;
+}
+
+function finChurchConfirmActivityImport() {
+  if (!_finChurchActivityImportPreview) return;
+  var btn = document.getElementById('fin-church-activity-import-confirm-btn');
+  btn.disabled = true;
+  api('/admin/api/finance/church/activity-import', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rows: _finChurchActivityImportPreview.rows }),
+  }).then(function(d) {
+    btn.disabled = false;
+    if (d && d.error) { finToast('Import failed: ' + d.error); return; }
+    closeModal('fin-church-activity-import-modal');
+    finToast('Imported ' + d.imported + ' row(s) across ' + d.years.join(', ') + '.');
+    finRenderChurchReport();
+    if (_finOverviewDomain === 'church') finLoadOverviewDomain();
+  }).catch(function(err) {
+    btn.disabled = false;
+    if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
+  });
+}
+
+// ── Sync Selected Fiscal Years: actuals-only QuickBooks sync for admin-picked years, decoupled
+// from the always-on "Sync Now" (which also pulls Budget vs Actual + the rolling window). ──────
+var _finSyncYearsChecked = {}; // { [year]: true }
+
+function finOpenSyncYears() {
+  var thisYear = new Date().getFullYear();
+  var years = [];
+  for (var y = thisYear; y >= thisYear - 15; y--) years.push(y);
+  var el = document.getElementById('fin-sync-years-picker');
+  if (!el) return;
+  var checked = _finSyncYearsChecked;
+  el.innerHTML = '<p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 8px;">Pull QuickBooks actuals (Statement of Activity / Profit &amp; Loss) for just the years checked below — budget data is never touched by this. A year synced here overrides any uploaded actuals for that same year.</p>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">'
+    + years.map(function(y) {
+      return '<label style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:3px 8px;cursor:pointer;">'
+        + '<input type="checkbox" style="margin-right:4px;" ' + (checked[y] ? 'checked' : '') + ' onchange="finSyncYearsToggle(' + y + ',this.checked)">' + y + '</label>';
+    }).join('')
+    + '</div>'
+    + '<button class="btn-primary" style="font-size:.78rem;padding:4px 10px;" onclick="finSyncYears(this)">Sync Selected Years</button>'
+    + '<div id="fin-sync-years-msg" style="font-size:.78rem;margin-top:6px;"></div>';
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+function finSyncYearsToggle(year, checked) {
+  if (checked) _finSyncYearsChecked[year] = true;
+  else delete _finSyncYearsChecked[year];
+}
+
+function finSyncYears(btn) {
+  var years = Object.keys(_finSyncYearsChecked).map(Number);
+  var msgEl = document.getElementById('fin-sync-years-msg');
+  if (!years.length) { if (msgEl) msgEl.textContent = 'Check at least one year first.'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+  if (msgEl) msgEl.textContent = 'Syncing ' + years.join(', ') + '…';
+  api('/admin/api/finance/qb/sync-years', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fiscal_years: years }),
+  }).then(function(d) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sync Selected Years'; }
+    if (d && d.error) { if (msgEl) msgEl.textContent = 'Error: ' + d.error; return; }
+    if (msgEl) msgEl.textContent = (d.warnings && d.warnings.length) ? 'Synced with warnings: ' + d.warnings.join(' ') : 'Synced ' + d.years.join(', ') + '.';
+    finRenderChurchReport();
+    if (_finOverviewDomain === 'church') finLoadOverviewDomain();
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sync Selected Years'; }
+    if (msgEl) msgEl.textContent = 'Error: ' + (err && err.message || 'Unknown error');
   });
 }
 
