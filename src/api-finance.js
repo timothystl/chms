@@ -1171,16 +1171,20 @@ async function fetchQboJson(label, resPromise, warnings, hint) {
 }
 
 // Given all finance_church_entries rows for a set of years (any source), resolves per-year
-// source precedence: a year with any 'import' or 'manual' row uses ONLY those rows (an import is
-// always a deliberate override/backfill — see migrations/0018_finance_church_entries.sql); a
-// year with only 'qbo_sync' rows uses those. One bulk query + JS grouping, not a correlated
-// subquery per year, matching this app's existing performance conventions.
-// Highest to lowest priority. 'import' (a hand-uploaded Excel export) always wins over a live
-// QBO sync, same as before this list existed. 'plan_committed' (a forward Budget Planning
-// projection committed to a future year — see FIN12) is deliberately LOWEST priority: it's a
-// placeholder for a year with no real data yet, and must get out of the way the moment either a
-// live sync or a real import exists for that year, rather than permanently overriding them.
-const CHURCH_SOURCE_PRIORITY = ['import', 'qbo_sync', 'plan_committed'];
+// source precedence: a year with any 'qbo_sync' row uses ONLY those rows — once the live
+// QuickBooks connection works, it's the authority (per user decision 2026-07-28: sync should
+// supersede a file import, not be permanently shadowed by one, since a mid-year import used as
+// a stopgap shouldn't outlive the live connection it was covering for). A year with no sync
+// rows falls back to 'import' (a hand-uploaded Excel export) — useful for years QuickBooks
+// wasn't connected for yet, or before this app tracked live data at all. Rows for a superseded
+// source are never deleted (still visible via the Import UI / audit trail), just deprioritized
+// at read time — an import is never silently lost, only shadowed. One bulk query + JS grouping,
+// not a correlated subquery per year, matching this app's existing performance conventions.
+// Highest to lowest priority. 'plan_committed' (a forward Budget Planning projection committed
+// to a future year — see FIN12) is deliberately LOWEST priority: it's a placeholder for a year
+// with no real data yet, and must get out of the way the moment either a live sync or a real
+// import exists for that year, rather than permanently overriding them.
+const CHURCH_SOURCE_PRIORITY = ['qbo_sync', 'import', 'plan_committed'];
 export function resolveChurchYearPrecedence(rows) {
   const byYear = new Map();
   for (const r of rows) {

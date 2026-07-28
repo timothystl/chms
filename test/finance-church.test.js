@@ -354,11 +354,19 @@ describe('resolveChurchYearPrecedence', () => {
     expect(resolved.length).toBe(2);
   });
 
-  it('uses ONLY import rows for a year that has any import/manual row, discarding qbo_sync rows for that year', () => {
+  it('uses ONLY qbo_sync rows for a year that has both qbo_sync and import rows, discarding import rows for that year', () => {
     const rows = [
       { fiscal_year: 2026, source: 'qbo_sync', category_path: 'Income:A', own_actual_cents: 100 },
       { fiscal_year: 2026, source: 'import', category_path: 'Income:A', own_actual_cents: 999 },
     ];
+    const resolved = resolveChurchYearPrecedence(rows);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].source).toBe('qbo_sync');
+    expect(resolved[0].own_actual_cents).toBe(100);
+  });
+
+  it('falls back to an import row for a year with no qbo_sync row', () => {
+    const rows = [{ fiscal_year: 2026, source: 'import', category_path: 'Income:A', own_actual_cents: 999 }];
     const resolved = resolveChurchYearPrecedence(rows);
     expect(resolved.length).toBe(1);
     expect(resolved[0].source).toBe('import');
@@ -396,7 +404,7 @@ describe('resolveChurchYearPrecedence', () => {
     expect(resolved[0].source).toBe('qbo_sync');
   });
 
-  it('an import row still wins over both qbo_sync and plan_committed for the same year', () => {
+  it('a qbo_sync row still wins over both import and plan_committed for the same year', () => {
     const rows = [
       { fiscal_year: 2027, source: 'plan_committed', category_path: 'Utilities', own_budget_cents: 500000 },
       { fiscal_year: 2027, source: 'qbo_sync', category_path: 'Utilities', own_actual_cents: 480000 },
@@ -404,7 +412,7 @@ describe('resolveChurchYearPrecedence', () => {
     ];
     const resolved = resolveChurchYearPrecedence(rows);
     expect(resolved.length).toBe(1);
-    expect(resolved[0].source).toBe('import');
+    expect(resolved[0].source).toBe('qbo_sync');
   });
 });
 
