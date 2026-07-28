@@ -18,6 +18,8 @@ function givSetView(view) {
   }
   if (view === 'board') {
     loadBoardReport();
+    givPopulateFundSelect('rpt-plateau-fund');
+    givPopulateFundSelect('rpt-bands-fund');
     var curYr = new Date().getFullYear();
     var platYr = document.getElementById('rpt-plateau-year');
     if (platYr && !platYr.value) platYr.value = curYr;
@@ -292,6 +294,11 @@ function depDelete() {
 
 function givTxnPopulateFundOptions() {
   var sel = document.getElementById('giv-txn-fund');
+  if (!sel || sel.options.length > 1) return; // already populated
+  allFunds.forEach(function(f) { sel.appendChild(new Option(f.name, f.id)); });
+}
+function givPopulateFundSelect(id) {
+  var sel = document.getElementById(id);
   if (!sel || sel.options.length > 1) return; // already populated
   allFunds.forEach(function(f) { sel.appendChild(new Option(f.name, f.id)); });
 }
