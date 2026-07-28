@@ -516,6 +516,92 @@ export function computeGivingBands(rows, opts = {}) {
   };
 }
 
+// ── Giving distribution analysis (GIV-R3 / 2A) ────────────────────────────────
+// Annual-total tiers a giver's full-year contribution falls into. Dollar figures
+// (converted to cents) — chosen to be legible on a board slide, not statistically
+// optimal. low inclusive, high exclusive (null = open-ended top tier).
+export const GIVING_TIER_FLOORS_CENTS = [
+  0, 10000, 50000, 100000, 250000, 500000, 1000000, 2500000,
+]; // $0, $100, $500, $1k, $2.5k, $5k, $10k, $25k+
+
+function tierLabel(lowCents, highCents) {
+  const d = c => '$' + Math.round(c / 100).toLocaleString('en-US');
+  if (highCents == null) return d(lowCents) + '+';
+  if (lowCents === 0) return 'Under ' + d(highCents);
+  return d(lowCents) + '–' + d(highCents - 1);
+}
+
+// Pure. Given an array of per-giver annual totals (rows with total_cents), return
+// distribution stats a board actually asks about: how many givers, mean vs median
+// (the median is the honest "typical gift" when a few large gifts pull the mean up),
+// what share the top 10% of givers contribute, and a tier table. No individuals named.
+export function computeGivingDistribution(rows) {
+  const totals = (rows || [])
+    .map(r => Number(r.total_cents) || 0)
+    .filter(v => v > 0)
+    .sort((a, b) => a - b);
+  const count = totals.length;
+  const totalCents = totals.reduce((s, v) => s + v, 0);
+  const mean = count ? Math.round(totalCents / count) : 0;
+  let median = 0;
+  if (count) {
+    const mid = Math.floor(count / 2);
+    median = count % 2 ? totals[mid] : Math.round((totals[mid - 1] + totals[mid]) / 2);
+  }
+  // Share of the total given by the top 10% of givers (min 1 giver).
+  const topN = count ? Math.max(1, Math.round(count * 0.1)) : 0;
+  const topCents = totals.slice(count - topN).reduce((s, v) => s + v, 0);
+  const top10SharePct = totalCents ? Math.round((topCents / totalCents) * 1000) / 10 : 0;
+
+  const floors = GIVING_TIER_FLOORS_CENTS;
+  const tiers = floors.map((low, i) => {
+    const high = i + 1 < floors.length ? floors[i + 1] : null;
+    return { low_cents: low, high_cents: high, label: tierLabel(low, high), givers: 0, total_cents: 0 };
+  });
+  for (const v of totals) {
+    let ti = 0;
+    for (let i = 0; i < tiers.length; i++) {
+      if (v >= tiers[i].low_cents && (tiers[i].high_cents == null || v < tiers[i].high_cents)) { ti = i; break; }
+    }
+    tiers[ti].givers++;
+    tiers[ti].total_cents += v;
+  }
+  const tierOut = tiers.map(t => ({
+    ...t,
+    givers_pct: count ? Math.round((t.givers / count) * 1000) / 10 : 0,
+    total_pct: totalCents ? Math.round((t.total_cents / totalCents) * 1000) / 10 : 0,
+  }));
+  return {
+    givers: count,
+    total_cents: totalCents,
+    mean_cents: mean,
+    median_cents: median,
+    top10_givers: topN,
+    top10_share_pct: top10SharePct,
+    tiers: tierOut,
+  };
+}
+
+// ── Inflation adjustment (GIV-R3 / 3A five-year trend) ────────────────────────
+// CPI-U (U.S. all-items, annual average, 1982-84=100). Update once a year when
+// the BLS annual average is published; the current/next year are estimates until
+// then (flagged as such in the trend caption). Used to restate prior-year giving
+// in the most recent year's dollars, so a "flat" nominal trend that's actually
+// losing ground to inflation is visible on the board report.
+export const CPI_U_ANNUAL = {
+  2015: 237.017, 2016: 240.007, 2017: 245.120, 2018: 251.107, 2019: 255.657,
+  2020: 258.811, 2021: 270.970, 2022: 292.655, 2023: 304.702, 2024: 313.689,
+  2025: 322.100, 2026: 330.200, // 2025-26 estimated until BLS annual averages post
+};
+
+// Restate `cents` from `fromYear` dollars into `toYear` dollars. Returns the input
+// unchanged if either year's CPI isn't known (so a missing year never zeroes data).
+export function inflationAdjustCents(cents, fromYear, toYear, cpi = CPI_U_ANNUAL) {
+  const a = cpi[fromYear], b = cpi[toYear];
+  if (!a || !b) return Math.round(cents);
+  return Math.round((Number(cents) || 0) * (b / a));
+}
+
 // ── PHONE NORMALIZATION ───────────────────────────────────────────────────
 // Strips formatting and returns (XXX) XXX-XXXX for 10-digit US numbers.
 // Returns original string unchanged for international or unusual formats.

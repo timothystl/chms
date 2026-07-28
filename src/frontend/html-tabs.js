@@ -152,7 +152,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <button class="fin-subnav-btn" id="giv-view-transactions-btn" onclick="givSetView('transactions')">Transactions</button>
     <button class="fin-subnav-btn require-finance" id="giv-view-board-btn" onclick="givSetView('board')">Board Report</button>
     <button class="fin-subnav-btn require-finance" id="giv-view-letters-btn" onclick="givSetView('letters')">Letters</button>
-    <button class="fin-subnav-btn require-finance" id="giv-view-reports-btn" onclick="givSetView('reports')">Reports</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-reports-btn" onclick="givSetView('reports')">Analysis</button>
     <button class="fin-subnav-btn" id="giv-view-settings-btn" onclick="givSetView('settings')">Settings</button>
   </div>
   <div class="giving-layout" id="giv-view-batches">
@@ -245,6 +245,18 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
   </div>
 
   <div id="giv-view-reports" style="display:none;">
+    <div id="giv-analysis" class="require-finance" style="margin-bottom:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+        <div>
+          <div class="board-title">Giving Analysis</div>
+          <div class="board-subtitle">Distribution &amp; multi-year trends &middot; no individual donors named</div>
+        </div>
+        <div class="field" style="margin:0;"><label>Year</label>
+          <input type="number" id="giv-analysis-year" name="giv-analysis-year" min="2000" max="2099" style="width:100px;font-size:.85rem;padding:5px 8px;" onchange="givAnalysisLoad()"></div>
+      </div>
+      <div id="giv-analysis-dist" class="import-card" style="margin-bottom:16px;"><div class="board-empty">Loading&hellip;</div></div>
+      <div id="giv-analysis-trend" class="import-card" style="margin-bottom:4px;"><div class="board-empty">Loading&hellip;</div></div>
+    </div>
     <div class="report-tiles" id="giv-rpt-tiles-grid">
       <div class="report-tile require-finance" data-tile-id="giving-by-fund">
         <div class="tile-icon">&#128200;</div>
