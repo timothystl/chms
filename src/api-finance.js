@@ -1771,19 +1771,32 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     // guaranteed to match this function's known 4-column shape.
     const currentYearMerge = await mergeCurrentYearBudgetAndActual(client, year, warnings, preferredBudgetId);
 
-    let budgetVsActual = await fetchQboJson(
-      'Budget vs Actual',
+    // The native BudgetVsActuals report is a confirmed-undocumented, Intuit-unsupported
+    // endpoint (see FIN2 in CLAUDE.md) — it spent months returning a "5020 Permission Denied"
+    // error, and once the endpoint-name bug was fixed (2026-07-28) it started responding but
+    // with numbers that don't hold up (e.g. an "Actual" many times larger than its own "Budget"
+    // for the same account, consistent with the report not honoring start_date/end_date and
+    // instead summing since the QuickBooks company's inception rather than just this fiscal
+    // year). Still called here — a genuine failure is worth surfacing as a warning — but its
+    // Rows/Columns are deliberately never shown to the user; the always-trusted reconstruction
+    // below (Budget entity + a date-scoped ProfitAndLoss report, both confirmed to respect
+    // start_date/end_date correctly) is the only thing ever rendered.
+    const nativeBudgetVsActual = await fetchQboJson(
+      'Budget vs Actual (native report)',
       client.budgetVsActual({ start_date: `${year}-01-01`, end_date: `${year}-12-31` }),
       warnings,
       `make sure a Budget for ${year} exists in QuickBooks under Settings > Budgeting`
     );
-    if (!budgetVsActual && currentYearMerge) {
+    if (nativeBudgetVsActual) warnings.push('Budget vs Actual: QuickBooks\' native report responded, but its figures are not used — see the reconstructed report below instead (the native report is unsupported by Intuit and has returned unreliable totals).');
+    let budgetVsActual = null;
+    if (currentYearMerge) {
       budgetVsActual = {
         Columns: { Column: [{ ColTitle: 'Account' }, { ColTitle: 'Actual' }, { ColTitle: 'Budget' }, { ColTitle: 'Over Budget By' }] },
         Rows: { Row: currentYearMerge.rows },
         _synthesized: true,
       };
-      warnings.push('Budget vs Actual: showing data reconstructed from the raw Budget entity + Profit and Loss report instead, since the standard report endpoint failed above.');
+    } else if (!nativeBudgetVsActual) {
+      warnings.push('Budget vs Actual: could not build any Budget vs Actual data this sync — both the native report and the Budget-entity reconstruction failed.');
     }
     const accounts = await fetchQboJson('Account balances', client.accounts(), warnings);
     // Board-level "Church Report": one P&L column per calendar year over a 5-year trailing

@@ -496,11 +496,21 @@ function finRenderReportRows(rows, depth) {
   });
   return html;
 }
+// Adds thousands separators to a report cell's raw QuickBooks value without disturbing
+// anything that isn't a plain number — a trailing "%" (e.g. "882.44 %") is left as-is, and
+// non-numeric text (account names) passes through unchanged.
+function finFmtReportCellValue(raw) {
+  var v = raw == null ? '' : String(raw);
+  if (!v || /%\s*$/.test(v)) return v;
+  if (!/^-?\d+(\.\d+)?$/.test(v.trim())) return v;
+  return finFmtMoney(v);
+}
 function finRenderReportRow(cells, depth, bold) {
   var tds = cells.map(function(c, i) {
     var align = i === 0 ? 'left' : 'right';
     var leftPad = 10 + depth * 16;
-    return '<td style="text-align:' + align + ';padding:5px 8px 5px ' + (i === 0 ? leftPad : 8) + 'px;">' + esc(c.value || '') + '</td>';
+    var text = i === 0 ? (c.value || '') : finFmtReportCellValue(c.value);
+    return '<td style="text-align:' + align + ';padding:5px 8px 5px ' + (i === 0 ? leftPad : 8) + 'px;">' + esc(text) + '</td>';
   }).join('');
   return '<tr' + (bold ? ' style="font-weight:600;border-top:1px solid var(--navy);"' : '') + '>' + tds + '</tr>';
 }
@@ -1494,11 +1504,15 @@ function finRenderChurchThisYear(d) {
   el.innerHTML = html;
 }
 
-function finLoadChurchMultiYear() {
+// The server defaults to a rolling 5-year window (currentYear-4..currentYear) when no years
+// param is given — an older import (e.g. 2018) saves fine but is otherwise never visible on any
+// screen, since nothing ever asks for it. This picker lets an admin explicitly widen the range.
+function finLoadChurchMultiYear(explicitYears) {
   var el = document.getElementById('fin-church-multiyear-view');
   if (!el) return;
   el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
-  api('/admin/api/finance/church/multi-year').then(function(d) {
+  var url = '/admin/api/finance/church/multi-year' + (explicitYears ? '?years=' + explicitYears.join(',') : '');
+  api(url).then(function(d) {
     _finChurchMultiYearData = d;
     finRenderChurchMultiYear(d);
   }).catch(function(err) {
@@ -1506,13 +1520,32 @@ function finLoadChurchMultiYear() {
     el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load multi-year church data.</p>';
   });
 }
+function finChurchMultiYearLoadRange() {
+  var fromEl = document.getElementById('fin-church-my-from');
+  var toEl = document.getElementById('fin-church-my-to');
+  var from = parseInt(fromEl && fromEl.value, 10);
+  var to = parseInt(toEl && toEl.value, 10);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) { finToast('Enter a valid From/To year range.'); return; }
+  if (to - from > 20) { finToast('Please request 20 years or fewer at a time.'); return; }
+  var years = [];
+  for (var y = from; y <= to; y++) years.push(y);
+  finLoadChurchMultiYear(years);
+}
 function finRenderChurchMultiYear(d) {
   var el = document.getElementById('fin-church-multiyear-view');
   if (!el) return;
   var years = d.years || [];
+  var curYear = new Date().getFullYear();
+  var rangeFrom = years.length ? years[0] : (curYear - 4);
+  var rangeTo = years.length ? years[years.length - 1] : curYear;
+  var rangePicker = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;font-size:.8rem;">'
+    + '<label>From <input type="number" id="fin-church-my-from" value="' + rangeFrom + '" style="width:80px;"></label>'
+    + '<label>To <input type="number" id="fin-church-my-to" value="' + rangeTo + '" style="width:80px;"></label>'
+    + '<button class="btn-secondary" style="padding:3px 10px;font-size:.78rem;" onclick="finChurchMultiYearLoadRange()">Load Range</button>'
+    + '</div>';
   var anyData = years.some(function(y) { var s = d.byYear[y]; return s && Object.keys(s.classificationTotals).length; });
   if (!anyData) {
-    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No multi-year church data yet. Connect QuickBooks in the Overview tab and click "Sync Now".</p>';
+    el.innerHTML = rangePicker + '<p style="font-size:.85rem;color:var(--warm-gray);">No church data for this range. Connect QuickBooks in the Overview tab and click "Sync Now", or widen the year range above if you\'ve imported older data.</p>';
     return;
   }
   var rowsDef = [{ label: 'Total Revenue', key: 'Income' }, { label: 'Cost of Goods Sold', key: 'Cost of Goods Sold' }, { label: 'Total Expenses', key: 'Expenses' }];
@@ -1575,7 +1608,7 @@ function finRenderChurchMultiYear(d) {
       + tieRow('Daycare Total Expenses', function(y) { return agg.byYear[y] ? agg.byYear[y].expenseActual : null; })
       + '</tbody></table></div>';
   }
-  el.innerHTML = html;
+  el.innerHTML = rangePicker + html;
 }
 // ── Balance Sheet view (point-in-time Assets/Liabilities/Equity) ────────────────────────────
 // A structurally different report from This Year/Multi-Year (no actual-vs-budget split, no
