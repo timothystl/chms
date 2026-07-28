@@ -185,3 +185,39 @@ describe('finComputePropertyReservesOnHandCents', () => {
     expect(finComputePropertyReservesOnHandCents({})).toBe(0);
   });
 });
+
+function loadLatestDistributionHelper() {
+  const m = CHMS_APP_EXT_JS.match(/function finComputeLatestDistributionAmount\([^)]*\) \{[\s\S]*?\n\}/);
+  if (!m) throw new Error('finComputeLatestDistributionAmount not found in built script');
+  // eslint-disable-next-line no-eval
+  return eval(`(function() { ${m[0]} return finComputeLatestDistributionAmount; })()`);
+}
+
+describe('finComputeLatestDistributionAmount', () => {
+  const finComputeLatestDistributionAmount = loadLatestDistributionHelper();
+
+  it('returns the latest month\'s AHRA "distribution amount (cash minus reserves)" figure, per the real July 2026 report ($9,321.77)', () => {
+    const d = {
+      monthly: [
+        { period: '2026-05', available_for_distribution_cents: 800000 },
+        { period: '2026-06', available_for_distribution_cents: 932177 },
+      ],
+    };
+    expect(finComputeLatestDistributionAmount(d)).toEqual({ period: '2026-06', cents: 932177 });
+  });
+
+  it('skips back to the most recent month that actually has a distribution figure recorded', () => {
+    const d = {
+      monthly: [
+        { period: '2026-05', available_for_distribution_cents: 800000 },
+        { period: '2026-06', available_for_distribution_cents: null },
+      ],
+    };
+    expect(finComputeLatestDistributionAmount(d)).toEqual({ period: '2026-05', cents: 800000 });
+  });
+
+  it('returns null when no month has a distribution figure', () => {
+    expect(finComputeLatestDistributionAmount({ monthly: [{ period: '2026-06', available_for_distribution_cents: null }] })).toBeNull();
+    expect(finComputeLatestDistributionAmount({})).toBeNull();
+  });
+});

@@ -271,6 +271,20 @@ function finRenderOverviewDaycare() {
   root.innerHTML = kpiHtml + paceHtml + '<p style="font-size:.78rem;color:var(--warm-gray);">Full year-by-year detail is in the <b>Daycare Report</b> tab.</p>';
 }
 
+// AHRA's monthly report states this verbatim as "Distribution amount (cash minus reserves)" —
+// its literal cash-on-hand-right-now calc (current cash balance, less outstanding bills, less
+// the Total Property Reserve), already imported into available_for_distribution_cents on each
+// monthly row (from the CSV's distribution_amount column) but never previously surfaced anywhere
+// in the UI. Distinct from the "Available for Distribution" navy-bar card below, which is a
+// deliberately different ANNUAL ESTIMATE (this year's net income less reserve contributions and
+// capital spend) — that estimate is for planning ahead; this is AHRA's own literal monthly figure.
+function finComputeLatestDistributionAmount(d) {
+  var monthly = (d.monthly || []).slice().sort(function(a, b) { return a.period < b.period ? -1 : 1; });
+  for (var i = monthly.length - 1; i >= 0; i--) {
+    if (monthly[i].available_for_distribution_cents != null) return { period: monthly[i].period, cents: monthly[i].available_for_distribution_cents };
+  }
+  return null;
+}
 // Shared by the Overview tab's Property domain and the Property tab's own top-of-page KPI row
 // (Phase 3 of the Finance Workspace redesign) — one source of truth for these 4 figures so the
 // two views can never disagree.
@@ -281,11 +295,13 @@ function finComputePropertyKpis(d) {
   var years = (d.annualSummary || []).slice().sort(function(a,b){ return b.year - a.year; });
   var curYear = years[0];
   var reserves = finComputePropertyReservesOnHandCents(d) / 100;
+  var latestDist = finComputeLatestDistributionAmount(d);
   return [
     { lbl: 'Occupancy', val: occCount ? Math.round(occSum/occCount*100) + '%' : '—', chip: monthly.length + ' months tracked', chipCls: 'fin-chip-positive', border: 'var(--sage)' },
     { lbl: 'Monthly Net (avg)', val: '$' + finFmtMoney((monthly.length ? netSum/monthly.length : 0)/100), chip: null, border: 'var(--color-teal)' },
     { lbl: 'Annual Net (this year)', val: curYear ? '$' + finFmtMoney(curYear.net_income_cents/100) : '—', chip: 'to General Fund', chipCls: 'fin-chip-info', border: 'var(--color-navy)' },
     { lbl: 'Reserves On-Hand', val: '$' + finFmtMoney(reserves), chip: 'tax + capital + base minimum', chipCls: 'fin-chip-info', border: 'var(--color-gold)' },
+    { lbl: 'Distribution Amount', val: latestDist ? '$' + finFmtMoney(latestDist.cents/100) : '—', chip: latestDist ? ('cash minus reserves, ' + latestDist.period) : 'no report data yet', chipCls: 'fin-chip-positive', border: 'var(--sage)' },
   ];
 }
 // AHRA's own monthly report already states a single "Total Property Reserve" figure (imported
@@ -2600,11 +2616,12 @@ function finRenderProperty(d) {
       + '<td style="padding:5px 8px;text-align:right;">' + cell(m.net_income_cents) + '</td>'
       + '<td style="padding:5px 8px;text-align:right;">' + cell(m.net_operating_income_cents) + '</td>'
       + '<td style="padding:5px 8px;text-align:right;">' + cell(m.reserve_balance_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + cell(m.available_for_distribution_cents) + '</td>'
       + (isAdminUI ? '<td style="padding:5px 8px;white-space:nowrap;"><button class="btn-secondary" style="font-size:.72rem;padding:2px 6px;" onclick="finPropertyOpenMonthModal(\'' + esc(m.period) + '\')">Edit</button> <button class="btn-secondary" style="font-size:.72rem;padding:2px 6px;color:var(--danger);" onclick="finPropertyDeleteMonth(\'' + esc(m.period) + '\')">Delete</button></td>' : '') + '</tr>';
   }).join('');
   var monthlyHtml = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
-    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:5px 8px;">Period</th><th style="text-align:right;padding:5px 8px;">Occ.</th><th style="text-align:right;padding:5px 8px;">Revenue</th><th style="text-align:right;padding:5px 8px;">Expenses</th><th style="text-align:right;padding:5px 8px;">Net Income</th><th style="text-align:right;padding:5px 8px;">NOI</th><th style="text-align:right;padding:5px 8px;">Reserve</th>' + (isAdminUI ? '<th></th>' : '') + '</tr></thead>'
-    + '<tbody>' + (monthRows || '<tr><td colspan="8" style="padding:10px;color:var(--warm-gray);">No months recorded yet.</td></tr>') + '</tbody>'
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:5px 8px;">Period</th><th style="text-align:right;padding:5px 8px;">Occ.</th><th style="text-align:right;padding:5px 8px;">Revenue</th><th style="text-align:right;padding:5px 8px;">Expenses</th><th style="text-align:right;padding:5px 8px;">Net Income</th><th style="text-align:right;padding:5px 8px;">NOI</th><th style="text-align:right;padding:5px 8px;">Reserve</th><th style="text-align:right;padding:5px 8px;">Distribution</th>' + (isAdminUI ? '<th></th>' : '') + '</tr></thead>'
+    + '<tbody>' + (monthRows || '<tr><td colspan="9" style="padding:10px;color:var(--warm-gray);">No months recorded yet.</td></tr>') + '</tbody>'
     + '</table></div>';
 
   // Distributions to church
