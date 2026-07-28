@@ -138,6 +138,39 @@ describe('flattenReportTree — current-year (single-value) extractor', () => {
     expect(designIncome.own_budget_cents).toBe(200000);
   });
 
+  // 2026-07-28 — reported live: "Net Operating Revenue"/"Net Revenue" showed $0.00 budget in
+  // the Budget vs Actual table for this church's real QuickBooks report, which uses "Revenue"
+  // wording instead of QuickBooks' internal "Income" wording. mergeProfitAndLossTree's combined-
+  // budget special case only ever matched the literal string "Net Income".
+  it('computes the combined Net Revenue budget for a report using "Revenue" wording, not just "Net Income"', () => {
+    const revenueWordingRows = [
+      section('Income', null, [leaf('Design income', 2250.00)], true),
+      section('Expenses', null, [leaf('Job Expenses', 155.07)], true),
+      leaf('Net Revenue', 2094.93), // this church's real wording, not "Net Income"
+    ];
+    const budgetByName = new Map([['Design income', 2000], ['Job Expenses', 100]]);
+    const budgetIdsByName = new Map([['Design income', new Set(['acct-1'])], ['Job Expenses', new Set(['acct-2'])]]);
+    const merged = mergeProfitAndLossTree(revenueWordingRows, { budgetByName, budgetIdsByName, ambiguousNames: new Set() });
+    const netRow = merged.find(r => r.ColData && r.ColData[0].value === 'Net Revenue');
+    // mainBudget is a running sum across every section's own budget total in document order
+    // (2000 + 100 here) — the fix under test is that this combined figure is computed AT ALL
+    // for "Net Revenue" (previously always "0.00", since only the literal string "Net Income"
+    // triggered the combined-budget branch).
+    expect(netRow.ColData[2].value).toBe('2100.00');
+    expect(netRow.ColData[2].value).not.toBe('0.00');
+  });
+
+  it('flattenReportTree skips "Net Revenue"/"Net Operating Revenue" as running subtotals, same as the "Income"-wording variants', () => {
+    const revenueWordingRows = [
+      section('Income', null, [leaf('Design income', 2250.00)], true),
+      leaf('Net Operating Revenue', 2250.00),
+      leaf('Net Revenue', 2250.00),
+    ];
+    const rows = flattenReportTree(revenueWordingRows, [], null, makeCurrentYearExtractor(2026));
+    expect(rows.some(r => r.account_name === 'Net Operating Revenue')).toBe(false);
+    expect(rows.some(r => r.account_name === 'Net Revenue')).toBe(false);
+  });
+
   // 2026-07-28 — reported live: the Budget column was always $0 in the reconstructed report,
   // even though Actual populated correctly (since Actual never depends on this lookup at all).
   // Root cause: exact-string name matching between the P&L report's account label and the
@@ -167,6 +200,31 @@ describe('flattenReportTree — current-year (single-value) extractor', () => {
     const cells = [{ value: 'Sunday Offering' }, { value: '750.00' }]; // no .id
     const result = mergeLeafCells(cells, ctx);
     expect(result.budget).toBe(500);
+  });
+
+  // 2026-07-28 — follow-up: after the id-matching fix, a residual gap was still reported for one
+  // category (real activity, $0 budget). Rather than guess further, mergeLeafCells now records
+  // which accounts fail to match at all (distinguishing "had an id, just wasn't in this Budget's
+  // BudgetDetail" from "no id present, name didn't match either") so the next sync's warning can
+  // show exactly what's unmatched instead of another blind guess.
+  it('records an unmatched account (has an id, but that id is not in the Budget) for diagnostics', () => {
+    const ctx = {
+      budgetByName: new Map(),
+      budgetIdsByName: new Map(),
+      budgetByAccountId: new Map([['acct-1', 100]]), // some other account, not this one
+      ambiguousNames: new Set(),
+      unmatched: [],
+    };
+    const cells = [{ value: '50010 Worship Supplies', id: 'acct-99' }, { value: '531731.78' }];
+    mergeLeafCells(cells, ctx);
+    expect(ctx.unmatched).toEqual([{ name: '50010 Worship Supplies', actualAmt: 531731.78, hadId: true }]);
+  });
+
+  it('does not record a diagnostic when the actual amount is negligible (near-$0 accounts are not "unmatched", just unused)', () => {
+    const ctx = { budgetByName: new Map(), budgetIdsByName: new Map(), budgetByAccountId: new Map(), ambiguousNames: new Set(), unmatched: [] };
+    const cells = [{ value: 'Unused Account', id: 'acct-1' }, { value: '0.00' }];
+    mergeLeafCells(cells, ctx);
+    expect(ctx.unmatched).toEqual([]);
   });
 
   // 2026-07-28 — reported live: a qbo_sync year showed Income re-sorted to the bottom after
