@@ -853,6 +853,24 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
   live. Done 2026-07-27 (v1.102.0). (`src/api-utils.js`, `src/api-reports.js`, `src/api-import.js`,
   `src/frontend/js-reports.js`, `src/frontend/js-giving.js`, `src/frontend/html-tabs.js`,
   `test/giving-plateaus.test.js`)
+- [x] **G28** — Four corrections to G27, requested right after seeing it. (1) **Fixed round numbers,
+  not percentages** — `computeNudgeOptions()` rebuilt around a single curated `GIVING_NUDGE_LADDER`
+  (the original hand-picked 10/15/20…1000 values behind the liked 43→50/83→100 examples, densified
+  from $1,000 up: $100 steps to $5k, $250 to $10k, $500 to $25k) instead of percentage math — options
+  are just "the next 3 ladder rungs above base," zero floating-point risk. (2) **Every option always
+  shows a concrete annual dollar impact**, even Modest — `annual_delta_cents` is now unconditional;
+  `impact_text` (the ministry-specific phrase) layers on top only when configured. (3) **Occasional/
+  IRA-QCD/stock givers get identical treatment to everyone else** — the separate exclusion list is
+  gone; a `low_frequency` flag (≤3 gifts/yr) instead drives an inline narrative ("gave $X in N gifts
+  last year — about $Y/wk") right in the normal tier breakdown. (4) **Every giver's weekly figure =
+  whole-year total (every fund) ÷ 52** — replaces modal-repeat plateau-finding entirely; endpoint SQL
+  simplified to match `reports/giving-bands`'s one-row-per-giver shape, same `periodsElapsed`
+  convention for a partial current year. `min_repeat` removed from API and UI. `npm test` (348/348,
+  21 rewritten tests including a same-treatment regression proving a weekly $50/wk giver and a
+  one-time $2,600 giver produce identical options), `node --check` both bundles + backend, scanned
+  the served bundle for the double-backslash escaping bug class (3 hits, all pre-existing/unrelated).
+  Not verified live. Done 2026-07-27 (v1.103.0). (`src/api-utils.js`, `src/api-reports.js`,
+  `src/frontend/js-reports.js`, `src/frontend/html-tabs.js`, `test/giving-plateaus.test.js`)
 - [ ] **G24** — Manual follow-up needed, outside code: `CHMS_INTAKE_API_KEY` (the same secret value already set on this Worker) needs to also be set as a secret on the website repo's `tlc-newsletter-admin` Worker (admin.timothystl.org) — it isn't there today (that Worker has never called out to ChMS before). Without it, `GET /api/intake/funds` calls from the Giving tab will always get a 401. `wrangler secret put CHMS_INTAKE_API_KEY --name tlc-newsletter-admin`, using the exact same value already configured for this Worker.
 
 ### Dashboard

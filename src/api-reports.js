@@ -675,38 +675,32 @@ if (seg === 'reports/giving-insights' && method === 'GET') {
 }
 
 // ── Giving Plateaus / Nudge Options ─────────────────────────────────
-// For each regular giver, find the per-gift amount they've settled at (the
-// whole-dollar amount they repeat most often that year) and offer 3
-// graduated increase options (Modest/Standard/Generous — see
-// computeNudgeOptions in api-utils.js for why the percentage step shrinks as
-// the base grows). Gated as `giving` (finance/admin) via the central access
-// gate — seg starts with "reports/giving".
+// Every giver's weekly-equivalent figure = their total giving this year
+// (every gift, every fund — no fund discounted) ÷ weeks elapsed, offered 3
+// fixed-round-number increase options (Modest/Standard/Generous — see
+// computeNudgeOptions in api-utils.js). Gated as `giving` (finance/admin)
+// via the central access gate — seg starts with "reports/giving".
 if (seg === 'reports/giving-plateaus' && method === 'GET') {
   const year = parseInt(url.searchParams.get('year') || '', 10);
   if (!year || isNaN(year)) return json({ error: 'year required' }, 400);
-  const minRepeat = Math.max(2, Math.min(parseInt(url.searchParams.get('min_repeat') || '3', 10) || 3, 52));
   const scope = url.searchParams.get('scope') === 'household' ? 'household' : 'person';
   const fundId = parseInt(url.searchParams.get('fund_id') || '', 10) || 0;
   const start = year + '-01-01', end = year + '-12-31';
   const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
   const fundClause = fundId ? ' AND ge.fund_id = ?' : '';
   const fundBind = fundId ? [fundId] : [];
-  // One row per (giver, giving-day) with that day's total contribution, so a
-  // gift split across funds counts as the single amount actually given — no
-  // fund is discounted (see computeGivingPlateaus's comment). Pass fund_id to
+  // One row per giver with their WHOLE-YEAR total + gift count — every fund
+  // they gave to sums into one figure, nothing discounted. Pass fund_id to
   // scope the whole analysis to one fund instead (e.g. only Tuition Aid, or
   // a designated pass-through fund like Concordia Children's Fund).
-  // In household scope the "giver" is the household — spouses who give
-  // separately on the same day are summed into one household contribution;
-  // givers with no household stand alone (link_kind='person'). The grouping
-  // key is aliased to `person_id` so the pure helper is unchanged.
+  // In household scope the "giver" is the household — spouses' gifts are
+  // combined; givers with no household stand alone (link_kind='person').
   let rows;
   if (scope === 'household') {
     const housed = "p.household_id IS NOT NULL AND p.household_id != 0";
     // Group key as an expression (NOT aliased "person_id" — that would collide
     // with the ge.person_id column and SQLite would group by the person, not
-    // the household, so spouses' same-day gifts wouldn't merge). Repeated in
-    // GROUP BY so the sum is per (household, day).
+    // the household, so spouses' gifts wouldn't merge).
     const keyExpr = `CASE WHEN ${housed} THEN 'h:' || p.household_id ELSE 'p:' || p.id END`;
     rows = (await db.prepare(
       `SELECT ${keyExpr} AS person_id,
@@ -718,8 +712,8 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
                    ELSE (p.first_name || ' ' || p.last_name) END AS name,
               CASE WHEN ${housed} THEN p.household_id ELSE p.id END AS link_id,
               CASE WHEN ${housed} THEN 'household' ELSE 'person' END AS link_kind,
-              ${effDate} AS d,
-              SUM(ge.amount) AS day_cents
+              SUM(ge.amount) AS total_cents,
+              COUNT(*) AS gifts
        FROM giving_entries ge
        JOIN giving_batches gb ON gb.id = ge.batch_id
        JOIN people p ON p.id = ge.person_id
@@ -727,22 +721,22 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
        WHERE ${effDate} >= ? AND ${effDate} <= ?
          AND ge.person_id IS NOT NULL
          AND LOWER(COALESCE(p.member_type,'')) != 'organization'${fundClause}
-       GROUP BY ${keyExpr}, d`
+       GROUP BY ${keyExpr}`
     ).bind(start, end, ...fundBind).all()).results || [];
   } else {
     rows = (await db.prepare(
       `SELECT ge.person_id AS person_id,
               (p.first_name || ' ' || p.last_name) AS name,
               p.id AS link_id, 'person' AS link_kind,
-              ${effDate} AS d,
-              SUM(ge.amount) AS day_cents
+              SUM(ge.amount) AS total_cents,
+              COUNT(*) AS gifts
        FROM giving_entries ge
        JOIN giving_batches gb ON gb.id = ge.batch_id
        JOIN people p ON p.id = ge.person_id
        WHERE ${effDate} >= ? AND ${effDate} <= ?
          AND ge.person_id IS NOT NULL
          AND LOWER(COALESCE(p.member_type,'')) != 'organization'${fundClause}
-       GROUP BY ge.person_id, d`
+       GROUP BY ge.person_id`
     ).bind(start, end, ...fundBind).all()).results || [];
   }
 
@@ -761,7 +755,7 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
   // pledging unit. Surface what that excluded, so a QCD accidentally filed
   // under "Charles Schwab" instead of the actual donor doesn't just vanish.
   const orgExclRow = await db.prepare(
-    `SELECT COUNT(DISTINCT ${effDate} || ':' || ge.person_id) AS n, COALESCE(SUM(ge.amount),0) AS total_cents
+    `SELECT COUNT(DISTINCT ge.person_id) AS n, COALESCE(SUM(ge.amount),0) AS total_cents
      FROM giving_entries ge
      JOIN giving_batches gb ON gb.id = ge.batch_id
      JOIN people p ON p.id = ge.person_id
@@ -770,9 +764,19 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
        AND LOWER(COALESCE(p.member_type,'')) = 'organization'${fundClause}`
   ).bind(start, end, ...fundBind).first();
 
-  const result = computeGivingPlateaus(rows, { minRepeat, impactStatements });
+  // Periods elapsed (weeks): full year for a complete past year; for the
+  // current in-progress year, weeks so far, so pace isn't understated —
+  // same convention as reports/giving-bands.
+  const now = new Date();
+  let weeksElapsed = 52;
+  if (year === now.getUTCFullYear()) {
+    const days = Math.floor((Date.now() - Date.UTC(year, 0, 1)) / 86400000) + 1;
+    weeksElapsed = Math.max(1, Math.min(52, Math.ceil(days / 7)));
+  }
+
+  const result = computeGivingPlateaus(rows, { periodsElapsed: weeksElapsed, impactStatements });
   return json({
-    year, min_repeat: minRepeat, scope, fund_id: fundId || null,
+    year, scope, fund_id: fundId || null, partial: year === now.getUTCFullYear(),
     excluded_organizations: { count: orgExclRow?.n || 0, total_cents: orgExclRow?.total_cents || 0 },
     ...result,
   });

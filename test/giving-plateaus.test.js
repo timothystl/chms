@@ -2,34 +2,27 @@ import { describe, it, expect } from 'vitest';
 import { computeNudgeOptions, pickImpactPhrase, computeGivingPlateaus } from '../src/api-utils.js';
 
 describe('computeNudgeOptions', () => {
-  it('offers a gentler percentage step as the base amount grows — the core fix', () => {
-    // A $5/wk giver can reasonably be asked to double ($5→$10, the Generous
-    // option); the same %-style ask at $2,500/wk would be +$2,500/wk, which
-    // this deliberately avoids — the top tier caps out around +12%.
-    const low = computeNudgeOptions(5);
-    const high = computeNudgeOptions(2500);
-    expect(low.map(o => o.target_dollars)).toEqual([7, 8, 10]);
-    expect(low[2].pct_increase).toBe(100); // Generous = the "5→10" case is still available
-    expect(high.map(o => o.target_dollars)).toEqual([2600, 2700, 2800]);
-    // Every option for the $2,500 giver stays under 15% — nowhere near doubling.
-    high.forEach(o => expect(o.pct_increase).toBeLessThan(15));
+  it('returns fixed, familiar round numbers — not percentage-derived figures', () => {
+    expect(computeNudgeOptions(43).map(o => o.target_dollars)).toEqual([50, 60, 75]);
+    expect(computeNudgeOptions(83).map(o => o.target_dollars)).toEqual([100, 125, 150]);
+    expect(computeNudgeOptions(5).map(o => o.target_dollars)).toEqual([10, 15, 20]);
   });
 
-  it('matches the user-stated examples as one of the three options, not a forced single jump', () => {
-    const opts43 = computeNudgeOptions(43);
-    const opts83 = computeNudgeOptions(83);
-    expect(opts43.map(o => o.target_dollars)).toEqual([50, 56, 66]);
-    expect(opts83.map(o => o.target_dollars)).toEqual([95, 100, 115]);
+  it('stays a modest jump at high amounts by densifying the ladder, not by scaling percentages', () => {
+    // $2,500/wk no longer jumps straight to $3,000 (+20%) — the ladder itself
+    // has $100 rungs in this range, so "next rung" is naturally gentle.
+    const opts = computeNudgeOptions(2500);
+    expect(opts.map(o => o.target_dollars)).toEqual([2600, 2700, 2800]);
+    expect(opts[0].pct_increase).toBeCloseTo(4, 5);
+    expect(opts[2].pct_increase).toBeCloseTo(12, 5);
   });
 
-  it('is not thrown off by floating-point noise in the percentage math', () => {
-    // 100 * 1.10 === 110.00000000000001 in IEEE 754 — regression guard for
-    // the ceil-to-increment step overshooting to the next whole increment.
-    expect(computeNudgeOptions(100).map(o => o.target_dollars)).toEqual([110, 120, 140]);
+  it('extends in flat $1,000 steps beyond the top of the curated ladder', () => {
+    expect(computeNudgeOptions(60000).map(o => o.target_dollars)).toEqual([61000, 62000, 63000]);
   });
 
   it('always returns 3 strictly increasing options, each above the base', () => {
-    for (const base of [1, 5, 20, 43, 83, 100, 250, 1000, 2500, 10000]) {
+    for (const base of [1, 5, 20, 43, 83, 100, 250, 1000, 2500, 10000, 30000]) {
       const opts = computeNudgeOptions(base);
       expect(opts.length).toBe(3);
       let prev = base;
@@ -74,150 +67,127 @@ describe('pickImpactPhrase', () => {
   });
 });
 
-// Helper to build (person, day) rows quickly.
-function row(person_id, name, dollars, member_type) {
-  return { person_id, name, member_type: member_type || 'member', day_cents: dollars * 100 };
+// Helper to build one giver-summary row (the new shape: whole-year total +
+// gift count, no per-day grouping — the endpoint now sums everything up
+// front, same as reports/giving-bands).
+function row(person_id, name, totalDollars, gifts, extra) {
+  return Object.assign({ person_id, name, total_cents: totalDollars * 100, gifts }, extra || {});
 }
 
 describe('computeGivingPlateaus', () => {
-  it('finds the modal per-gift amount and attaches 3 nudge options', () => {
-    // Alice gives $43 four times, plus one odd $60.
+  it('gives every giver a weekly-equivalent = total ÷ 52, regardless of how often they actually gave', () => {
+    // A weekly giver ($50 × 52 = $2,600) and a single December stock/IRA (QCD)
+    // gift of $2,600 both read as the exact same $50/wk level.
+    const weekly = row(1, 'Weekly Wanda', 2600, 52);
+    const oneTime = row(2, 'One-Time Otto', 2600, 1);
+    const r = computeGivingPlateaus([weekly, oneTime], { periodsElapsed: 52 });
+    expect(r.summary.total_givers).toBe(2);
+    const wanda = r.tiers[0].people.find(p => p.name === 'Weekly Wanda');
+    const otto = r.tiers[0].people.find(p => p.name === 'One-Time Otto');
+    expect(wanda.weekly_cents).toBe(5000);
+    expect(otto.weekly_cents).toBe(5000);
+    expect(wanda.options).toEqual(otto.options); // identical nudge treatment
+  });
+
+  it('flags low-frequency givers (occasional/stock/IRA-style) for narrative framing, without excluding them', () => {
+    const oneTime = row(9, 'Otto', 2600, 1);
+    const weekly = row(10, 'Wanda', 2600, 52);
+    const r = computeGivingPlateaus([oneTime, weekly], { periodsElapsed: 52 });
+    expect(r.summary.total_givers).toBe(2); // nobody excluded
+    expect(r.summary.low_frequency_givers).toBe(1);
+    const otto = r.tiers[0].people.find(p => p.name === 'Otto');
+    const wanda = r.tiers[0].people.find(p => p.name === 'Wanda');
+    expect(otto.low_frequency).toBe(true);
+    expect(wanda.low_frequency).toBe(false);
+  });
+
+  it('respects a custom low-frequency threshold', () => {
+    const r = computeGivingPlateaus([row(1, 'P', 260, 4)], { periodsElapsed: 52, lowFrequencyMax: 3 });
+    expect(r.tiers[0].people[0].low_frequency).toBe(false);
+    const r2 = computeGivingPlateaus([row(1, 'P', 260, 4)], { periodsElapsed: 52, lowFrequencyMax: 5 });
+    expect(r2.tiers[0].people[0].low_frequency).toBe(true);
+  });
+
+  it('every option always carries a concrete annual dollar figure, even the Modest one', () => {
+    const r = computeGivingPlateaus([row(1, 'P', 2600, 52)], { periodsElapsed: 52 });
+    const opts = r.tiers[0].people[0].options;
+    // $50/wk -> Modest $60 (+$10/wk = +$520/yr)
+    expect(opts[0].annual_delta_cents).toBe(1000 * 52);
+    expect(opts[0].new_annual_total_cents).toBe(6000 * 52);
+    opts.forEach(o => expect(o.annual_delta_cents).toBeGreaterThan(0));
+  });
+
+  it('attaches an impact phrase to whichever option clears a configured monthly threshold', () => {
+    const impactStatements = [{ monthly_cents: 4000, label: 'a week of Food Pantry groceries' }];
+    // $50/wk: Modest +$10/wk = $520/yr = ~$43.33/mo -> clears $40/mo threshold.
+    const r = computeGivingPlateaus([row(1, 'P', 2600, 52)], { periodsElapsed: 52, impactStatements });
+    const opts = r.tiers[0].people[0].options;
+    expect(opts[0].impact_text).toBe('a week of Food Pantry groceries');
+  });
+
+  it('never shows an impact phrase when no statements are configured', () => {
+    const r = computeGivingPlateaus([row(1, 'P', 2600, 52)], { periodsElapsed: 52 });
+    r.tiers[0].people[0].options.forEach(o => expect(o.impact_text).toBeNull());
+  });
+
+  it('uses periodsElapsed for a partial current year so pace is not understated', () => {
+    // $1,300 given in the first 26 weeks of the year -> $50/wk pace, same as a
+    // giver who gave $2,600 across the full 52 weeks.
+    const r = computeGivingPlateaus([row(1, 'P', 1300, 26)], { periodsElapsed: 26 });
+    expect(r.tiers[0].people[0].weekly_cents).toBe(5000);
+  });
+
+  it('groups givers by their Standard option into tiers', () => {
     const rows = [
-      row(1, 'Alice A', 43), row(1, 'Alice A', 43), row(1, 'Alice A', 43),
-      row(1, 'Alice A', 43), row(1, 'Alice A', 60),
+      row(1, 'A', 2600, 52), row(2, 'B', 2600, 52), row(3, 'C', 2600, 52), // $50/wk -> Standard $75
+      row(4, 'D', 4316, 52), row(5, 'E', 4316, 52), // $83/wk -> Standard $125
     ];
-    const r = computeGivingPlateaus(rows, { minRepeat: 3 });
-    expect(r.summary.plateaued_givers).toBe(1);
-    const p = r.tiers[0].people[0];
-    expect(p.plateau_cents).toBe(4300);
-    expect(p.options.map(o => o.target_cents)).toEqual([5000, 5600, 6600]);
-    // Primary/tier-grouping fields mirror the Standard (middle) option.
-    expect(p.target_cents).toBe(5600);
-    expect(p.weekly_increase_cents).toBe(1300);
-    // Upside = ($56 − $43) × 5 gifts = $65/yr
-    expect(p.upside_annual_cents).toBe(1300 * 5);
-  });
-
-  it('screens out givers whose amount does not repeat enough, but keeps them visible as occasional givers', () => {
-    // Bob gives 5 different amounts once each — no plateau.
-    const rows = [
-      row(2, 'Bob B', 20), row(2, 'Bob B', 35), row(2, 'Bob B', 41),
-      row(2, 'Bob B', 55), row(2, 'Bob B', 70),
-    ];
-    const r = computeGivingPlateaus(rows, { minRepeat: 3 });
-    expect(r.summary.plateaued_givers).toBe(0);
-    expect(r.summary.variable_givers).toBe(1);
-    expect(r.tiers.length).toBe(0);
-    expect(r.occasional_givers.length).toBe(1);
-    expect(r.occasional_givers[0].name).toBe('Bob B');
-    expect(r.occasional_givers[0].total_cents).toBe((20+35+41+55+70) * 100);
-    expect(r.occasional_givers[0].gifts).toBe(5);
-  });
-
-  it('sorts occasional givers by total descending and reports a truncation count', () => {
-    const rows = [];
-    for (let i = 0; i < 3; i++) rows.push(row(100 + i, 'Small ' + i, 5 + i)); // small one-off gifts
-    rows.push(row(200, 'Big One-Timer', 9000));
-    const r = computeGivingPlateaus(rows, { minRepeat: 3, occasionalCap: 2 });
-    expect(r.occasional_givers_total).toBe(4);
-    expect(r.occasional_givers.length).toBe(2);
-    expect(r.occasional_givers[0].name).toBe('Big One-Timer');
-  });
-
-  it('groups people by their Standard option into tiers', () => {
-    const rows = [];
-    // 3 people plateau at $43 → Standard tier $56
-    for (const id of [1, 2, 3]) for (let k = 0; k < 4; k++) rows.push(row(id, 'P' + id, 43));
-    // 2 people plateau at $83 → Standard tier $100
-    for (const id of [4, 5]) for (let k = 0; k < 4; k++) rows.push(row(id, 'P' + id, 83));
-    const r = computeGivingPlateaus(rows, { minRepeat: 3 });
+    const r = computeGivingPlateaus(rows, { periodsElapsed: 52 });
     expect(r.tiers.length).toBe(2);
-    const t56 = r.tiers.find(t => t.target_cents === 5600);
-    const t100 = r.tiers.find(t => t.target_cents === 10000);
-    expect(t56.num_people).toBe(3);
-    expect(t100.num_people).toBe(2);
-    // tiers sorted ascending by target
+    const t75 = r.tiers.find(t => t.target_cents === 7500);
+    const t125 = r.tiers.find(t => t.target_cents === 12500);
+    expect(t75.num_people).toBe(3);
+    expect(t125.num_people).toBe(2);
     expect(r.tiers[0].target_cents).toBeLessThan(r.tiers[1].target_cents);
-    // Modest/Generous aggregate ranges are present and bracket Standard.
-    expect(t56.upside_modest_annual_cents).toBeLessThanOrEqual(t56.upside_annual_cents);
-    expect(t56.upside_generous_annual_cents).toBeGreaterThanOrEqual(t56.upside_annual_cents);
   });
 
-  it('aggregates same-day split gifts into one contribution amount (no fund discounted)', () => {
-    // Carol gives $30 General + $13 Tuition Aid on each of 3 Sundays — the
-    // caller's SQL sums same-day/same-giver rows across every fund before
-    // this function ever sees them, so this arrives pre-summed as $43/day.
-    const rows = [];
-    for (let k = 0; k < 3; k++) rows.push(row(6, 'Carol C', 43));
-    const r = computeGivingPlateaus(rows, { minRepeat: 3 });
-    expect(r.tiers[0].people[0].plateau_cents).toBe(4300);
+  it('sums every fund into one figure at the SQL layer — this function just receives the total (no fund discounted)', () => {
+    // The caller's SQL already sums General + Tuition Aid + Food Pantry etc.
+    // into total_cents before this function ever sees it; verify a giver's
+    // full combined total drives the weekly-equivalent, not a partial figure.
+    const r = computeGivingPlateaus([row(1, 'Carol', 2600, 52)], { periodsElapsed: 52 });
+    expect(r.tiers[0].people[0].weekly_cents).toBe(5000);
+    expect(r.tiers[0].people[0].total_cents).toBe(260000);
   });
 
-  it('tie-breaks the modal amount to the higher value (conservative upside)', () => {
-    // Dan: $50 three times, $100 three times → tie, pick $100.
-    const rows = [
-      row(7, 'Dan D', 50), row(7, 'Dan D', 50), row(7, 'Dan D', 50),
-      row(7, 'Dan D', 100), row(7, 'Dan D', 100), row(7, 'Dan D', 100),
-    ];
-    const r = computeGivingPlateaus(rows, { minRepeat: 3 });
-    expect(r.tiers[0].people[0].plateau_cents).toBe(10000);
-  });
-
-  it('builds a per-dollar distribution histogram', () => {
-    const rows = [];
-    for (const id of [1, 2]) for (let k = 0; k < 3; k++) rows.push(row(id, 'P' + id, 43));
-    for (let k = 0; k < 3; k++) rows.push(row(3, 'P3', 83));
-    const r = computeGivingPlateaus(rows, { minRepeat: 3 });
+  it('builds a per-dollar distribution histogram of weekly-equivalent levels', () => {
+    const rows = [row(1, 'A', 2600, 52), row(2, 'B', 2600, 52), row(3, 'C', 4316, 52)];
+    const r = computeGivingPlateaus(rows, { periodsElapsed: 52 });
     expect(r.distribution).toEqual([
-      { plateau_dollars: 43, n: 2 },
+      { plateau_dollars: 50, n: 2 },
       { plateau_dollars: 83, n: 1 },
     ]);
   });
 
   it('defaults link fields to the person when not provided', () => {
-    const rows = [row(9, 'Fay F', 50), row(9, 'Fay F', 50), row(9, 'Fay F', 50)];
-    const p = computeGivingPlateaus(rows, { minRepeat: 3 }).tiers[0].people[0];
+    const r = computeGivingPlateaus([row(9, 'Fay F', 2600, 52)], { periodsElapsed: 52 });
+    const p = r.tiers[0].people[0];
     expect(p.link_kind).toBe('person');
     expect(p.link_id).toBe(9);
   });
 
   it('carries household link fields through (household scope)', () => {
-    const hh = (dollars) => ({ person_id: 'h:12', name: 'Smith Household', link_id: 12, link_kind: 'household', day_cents: dollars * 100 });
-    const rows = [hh(83), hh(83), hh(83), hh(120)];
-    const r = computeGivingPlateaus(rows, { minRepeat: 3 });
-    expect(r.summary.plateaued_givers).toBe(1);
+    const hh = row('h:12', 'Smith Household', 4316, 52, { link_id: 12, link_kind: 'household' });
+    const r = computeGivingPlateaus([hh], { periodsElapsed: 52 });
     const p = r.tiers[0].people[0];
     expect(p.name).toBe('Smith Household');
     expect(p.link_kind).toBe('household');
     expect(p.link_id).toBe(12);
-    expect(p.plateau_cents).toBe(8300);
+    expect(p.weekly_cents).toBe(8300);
   });
 
-  it('ignores zero/negative day totals', () => {
-    const rows = [
-      row(8, 'Eve E', 43), row(8, 'Eve E', 43), row(8, 'Eve E', 43),
-      row(8, 'Eve E', 0), row(8, 'Eve E', -20),
-    ];
-    const r = computeGivingPlateaus(rows, { minRepeat: 3 });
-    const p = r.tiers[0].people[0];
-    expect(p.plateau_cents).toBe(4300);
-    expect(p.gifts).toBe(3); // the 0 and -20 rows are dropped
-  });
-
-  it('attaches an impact phrase to an option when its monthly delta clears a configured statement', () => {
-    // $43/wk plateau: Standard option delta is $13/wk → $13*52/12 ≈ $56.33/mo.
-    const impactStatements = [{ monthly_cents: 5000, label: 'a week of Food Pantry groceries' }];
-    const rows = [row(1, 'Alice A', 43), row(1, 'Alice A', 43), row(1, 'Alice A', 43)];
-    const r = computeGivingPlateaus(rows, { minRepeat: 3, impactStatements });
-    const standard = r.tiers[0].people[0].options[1];
-    expect(standard.impact_text).toBe('a week of Food Pantry groceries');
-    // Modest option's smaller delta ($7/wk ≈ $30/mo) doesn't clear the $50/mo threshold.
-    expect(r.tiers[0].people[0].options[0].impact_text).toBeNull();
-  });
-
-  it('never shows an impact phrase when no statements are configured', () => {
-    const rows = [row(1, 'Alice A', 43), row(1, 'Alice A', 43), row(1, 'Alice A', 43)];
-    const r = computeGivingPlateaus(rows, { minRepeat: 3 });
-    r.tiers[0].people[0].options.forEach(o => expect(o.impact_text).toBeNull());
+  it('ignores zero/negative totals', () => {
+    const r = computeGivingPlateaus([row(1, 'A', 0, 0), row(2, 'B', -20, 1), row(3, 'C', 2600, 52)], { periodsElapsed: 52 });
+    expect(r.summary.total_givers).toBe(1);
   });
 });
