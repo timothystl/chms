@@ -433,6 +433,37 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### GIV-BUG1 — Emailed giving letter showed a blank logo "blob" and a raw base64 text dump (2026-07-28)
+Reported: a mid-year giving letter emailed to a donor rendered with (1) the church logo showing as
+just a blank blob, and (2) a huge literal base64 string visible as text at the very bottom of the
+email instead of a picture. Root cause of (2), confirmed against the exact TinyMCE editor
+(`initLetterEditor()`, `js-settings.js`) used for the two letter templates: the toolbar's Insert Link
+and Insert Image buttons sit right next to each other, and an image dropped/pasted into the **Link**
+dialog instead of Image produces `<a href="data:image/...;base64,...">` whose visible link text
+defaults to the href itself — the entire base64 payload renders as literal text. A bare base64 string
+pasted directly as plain text (no tag at all) hits the same failure. Neither is recoverable as "the
+image the admin meant," so new `sanitizeLetterTemplateHtml()` (`src/api-utils.js`) strips both forms
+entirely — a whole `<a href="data:...">` anchor, or a stray un-tagged `data:...;base64,` run 200+
+chars long — while explicitly protecting a real `<img src="data:...">` (the one path, via the
+toolbar's file-picker, that already worked correctly) so a legitimately embedded logo image is left
+alone. Wired in two places in `api-import.js`'s `config/church` handler: **on save** (`PUT`, prevents
+recurrence) and **on read** (`GET`, self-heals the already-corrupted stored template the first time
+it's loaded after this ships — no manual DB fix needed). Root cause of (1) is less certain without
+seeing the live template, but the most likely mechanism is the same oversized photo being *also*
+present as an `<img>` (not just leaked as link text) — `letterheadImgHtml()` (`src/frontend/js-reports.js`)
+had no `width`/`height` attributes, only a `max-height` CSS style; most email clients block remote
+images by default and use `width`/`height` attributes (not CSS) to size the blocked-image placeholder,
+so a missing attribute (or an oversized source photo) renders as an oversized blank box instead of a
+small logo-sized placeholder. Added explicit `width`/`height` attributes matching the existing
+`max-height`. `npm test` (356/356, 8 new tests in `test/giving-letter-sanitize.test.js` reproducing
+the exact reported Link-dialog and bare-paste cases), `node --check` on both built app-JS bundles.
+**Not verified**: an actual sent email in a live mail client — the email-client image-blocking
+behavior described above is standard behavior, not something directly observable in this environment.
+If the logo still shows blank after this ships, check Settings → Letterhead Logo for whether an
+oversized/EXIF-heavy photo is uploaded there (no server-side resizing exists in the R2 upload path)
+and consider re-uploading a smaller, cleanly-cropped logo file. Done 2026-07-28 (v1.104.0).
+(`src/api-utils.js`, `src/api-import.js`, `src/frontend/js-reports.js`, `test/giving-letter-sanitize.test.js`)
+
 ### Giving Tab Redesign — board reports, donor letters, receipts (2026-07-27, in progress, phased)
 Design handoff (`design_handoff_giving_reports/`: README + 9 HTML prototypes + screenshots)
 reorganizes the Giving tab from ten flat report tiles into a

@@ -1520,7 +1520,13 @@ function letterheadImgHtml(absolute, churchName, nameStyle, rowMarginBottom, max
   var nameDiv = '<div style="' + (nameStyle || '') + '">' + esc(name) + '</div>';
   if (!_churchConfig.letterhead_logo_ext) return nameDiv;
   var src = (absolute ? 'https://connect.timothystl.org' : '') + '/admin/letterhead-logo';
-  var img = '<img src="' + src + '" alt="' + esc(name) + '" style="max-height:' + (maxHeight || 44) + 'px;display:block;flex-shrink:0;">';
+  var h = maxHeight || 44;
+  // Explicit width/height attributes (not just CSS) matter for outbound email: most
+  // clients block remote images by default and reserve space for the broken-image
+  // placeholder using these attributes. Without them, an oversized source photo (or a
+  // blocked-image placeholder with no size hint) renders as a large blank/broken box
+  // instead of a small logo-sized placeholder.
+  var img = '<img src="' + src + '" alt="' + esc(name) + '" width="' + h + '" height="' + h + '" style="max-height:' + h + 'px;max-width:' + h + 'px;width:auto;height:auto;display:block;flex-shrink:0;">';
   return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:' + (rowMarginBottom == null ? 4 : rowMarginBottom) + 'px;">' + img + nameDiv + '</div>';
 }
 function renderLetterHTML(d, letterType, cfgOverride) {

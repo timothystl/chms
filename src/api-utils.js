@@ -896,6 +896,52 @@ export function normalizePhone(raw) {
   return raw;
 }
 
+// Giving-letter templates are hand-authored HTML (TinyMCE, see js-settings.js
+// initLetterEditor()). Two real ways a base64 image payload can end up mangled
+// in there, both reported live: (1) an image accidentally dropped into the
+// Insert Link dialog instead of Insert Image, producing `<a href="data:...">`
+// whose visible link text defaults to the href itself — the whole base64
+// string renders as literal text; (2) a raw base64 string pasted directly as
+// plain text (e.g. copied from an EXIF/base64-conversion tool) with no
+// surrounding tag at all. Neither is recoverable as "the image the admin
+// meant" — there's no way to tell where it was meant to go — so this strips
+// both forms out entirely rather than leaving garbage text in a donor's inbox.
+// A legitimate `<img src="data:...">` (inserted via the toolbar's file picker)
+// is left untouched by protecting `src="..."` attributes before the sweep.
+export function sanitizeLetterTemplateHtml(html) {
+  if (!html || typeof html !== 'string') return { cleaned: html, changed: false };
+  let cleaned = html;
+  let changed = false;
+
+  // 1. A whole <a href="data:...">...</a> — the link text is always the
+  // leaked base64 payload, so the entire anchor is dropped, not just unwrapped.
+  const dataLinkRe = /<a\b[^>]*\bhref\s*=\s*(["'])data:[\s\S]*?\1[^>]*>[\s\S]*?<\/a>/gi;
+  if (dataLinkRe.test(cleaned)) {
+    cleaned = cleaned.replace(dataLinkRe, '');
+    changed = true;
+  }
+
+  // 2. A bare data: URI sitting in the text itself, outside any tag attribute
+  // (pasted as plain text). Protect real `src="data:..."` occurrences first
+  // so a legitimate embedded <img> survives the sweep.
+  const placeholders = [];
+  const marker = 'LTRPLACEHOLDERMARKER';
+  const protectedHtml = cleaned.replace(/\bsrc\s*=\s*(["'])data:[\s\S]*?\1/gi, (m) => {
+    placeholders.push(m);
+    return marker + (placeholders.length - 1) + marker;
+  });
+  const strayRe = /data:[a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]{200,}/g;
+  let swept = protectedHtml;
+  if (strayRe.test(swept)) {
+    swept = swept.replace(strayRe, '');
+    changed = true;
+  }
+  const markerRe = new RegExp(marker + '(\\d+)' + marker, 'g');
+  cleaned = swept.replace(markerRe, (_, i) => placeholders[Number(i)]);
+
+  return { cleaned, changed };
+}
+
 // ── ADDRESS VALIDATION HELPERS ───────────────────────────────────────────
 // Service priority:
 //   1. Google Address Validation (GOOGLE_ADDRESS_API_KEY) — no rate-limit ceiling, best for bulk
