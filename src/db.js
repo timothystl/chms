@@ -124,6 +124,28 @@ export const DB_INIT = [
     notes        TEXT    NOT NULL DEFAULT '',
     created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
   )`,
+  // Native giving system, Phase 1: deposit-centered reconciliation (migration 0031).
+  `CREATE TABLE IF NOT EXISTS giving_deposits (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    deposit_date  TEXT    NOT NULL DEFAULT '',
+    source        TEXT    NOT NULL DEFAULT '',
+    processor     TEXT    NOT NULL DEFAULT '',
+    external_ref  TEXT    NOT NULL DEFAULT '',
+    bank_cents    INTEGER,
+    status        TEXT    NOT NULL DEFAULT 'open',
+    reconciled_at TEXT,
+    reconciled_by TEXT    NOT NULL DEFAULT '',
+    notes         TEXT    NOT NULL DEFAULT '',
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_deposits_status ON giving_deposits(status, deposit_date)`,
+  'ALTER TABLE giving_entries ADD COLUMN deposit_id INTEGER',
+  "ALTER TABLE giving_entries ADD COLUMN fee_cents INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE giving_entries ADD COLUMN source TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE giving_entries ADD COLUMN processor TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE giving_entries ADD COLUMN external_txn_id TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE giving_entries ADD COLUMN reconcile_status TEXT NOT NULL DEFAULT 'recorded'",
+  `CREATE INDEX IF NOT EXISTS idx_entries_deposit ON giving_entries(deposit_id)`,
   `CREATE INDEX IF NOT EXISTS idx_people_household ON people(household_id)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_people_breeze ON people(breeze_id) WHERE breeze_id != ''`,
   `CREATE INDEX IF NOT EXISTS idx_people_name ON people(last_name, first_name)`,
