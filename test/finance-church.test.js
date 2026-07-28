@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, computeSuppliesMonthlyBreakdown, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport, classifyMdoAccountCategory, extractMdoDaycareEntries, persistDaycareEntriesFromChurchBudget, finXlsxParseSheetGrid } from '../src/api-finance.js';
+import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, mergeLeafCells, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, computeSuppliesMonthlyBreakdown, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport, classifyMdoAccountCategory, extractMdoDaycareEntries, persistDaycareEntriesFromChurchBudget, finXlsxParseSheetGrid } from '../src/api-finance.js';
 
 // ── Minimal D1-shaped wrapper around node:sqlite, so persistChurchEntries() runs against real
 // SQL (real UNIQUE/ON CONFLICT semantics) instead of a hand-rolled re-implementation of what the
@@ -136,6 +136,37 @@ describe('flattenReportTree — current-year (single-value) extractor', () => {
     const designIncome = flat.find(r => r.category_path === 'Income:Design income');
     expect(designIncome.own_actual_cents).toBe(225000);
     expect(designIncome.own_budget_cents).toBe(200000);
+  });
+
+  // 2026-07-28 — reported live: the Budget column was always $0 in the reconstructed report,
+  // even though Actual populated correctly (since Actual never depends on this lookup at all).
+  // Root cause: exact-string name matching between the P&L report's account label and the
+  // Budget entity's AccountRef.name silently fails whenever QuickBooks displays the same
+  // account slightly differently in each place. Fixed by preferring a match on QuickBooks' own
+  // account id (present on a report ColData cell as `.id`) when available.
+  it('mergeLeafCells matches by account id even when the P&L label text does not match the Budget entity name at all', () => {
+    const ctx = {
+      budgetByName: new Map(), // deliberately empty — name matching would find nothing
+      budgetIdsByName: new Map(),
+      budgetByAccountId: new Map([['acct-42', 500]]),
+      ambiguousNames: new Set(),
+    };
+    const cells = [{ value: '40085 Sunday Offering', id: 'acct-42' }, { value: '750.00' }];
+    const result = mergeLeafCells(cells, ctx);
+    expect(result.budget).toBe(500);
+    expect(result.cells[2].value).toBe('500.00');
+  });
+
+  it('mergeLeafCells falls back to name matching when the cell carries no account id', () => {
+    const ctx = {
+      budgetByName: new Map([['Sunday Offering', 500]]),
+      budgetIdsByName: new Map([['Sunday Offering', new Set(['acct-42'])]]),
+      budgetByAccountId: new Map([['acct-42', 500]]),
+      ambiguousNames: new Set(),
+    };
+    const cells = [{ value: 'Sunday Offering' }, { value: '750.00' }]; // no .id
+    const result = mergeLeafCells(cells, ctx);
+    expect(result.budget).toBe(500);
   });
 
   // 2026-07-28 — reported live: a qbo_sync year showed Income re-sorted to the bottom after
