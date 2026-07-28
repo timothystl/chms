@@ -150,6 +150,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
   <div class="fin-subnav" style="margin-bottom:16px;">
     <button class="fin-subnav-btn active" id="giv-view-batches-btn" onclick="givSetView('batches')">Batches</button>
     <button class="fin-subnav-btn" id="giv-view-transactions-btn" onclick="givSetView('transactions')">Transactions</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-deposits-btn" onclick="givSetView('deposits')">Deposits</button>
     <button class="fin-subnav-btn require-finance" id="giv-view-board-btn" onclick="givSetView('board')">Board Report</button>
     <button class="fin-subnav-btn require-finance" id="giv-view-letters-btn" onclick="givSetView('letters')">Letters</button>
     <button class="fin-subnav-btn require-finance" id="giv-view-receipts-btn" onclick="givSetView('receipts')">Receipts</button>
@@ -194,6 +195,32 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <thead><tr><th>Donor</th><th>Fund</th><th>Method</th><th>Date</th><th class="amt-col">Amount</th></tr></thead>
         <tbody id="giv-txn-tbody"></tbody>
       </table>
+    </div>
+  </div>
+
+  <div id="giv-view-deposits" class="require-finance" style="display:none;">
+    <div class="giv-dep-layout" style="display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start;">
+      <div class="dash-card" style="padding:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <h3 style="margin:0;font-size:1rem;">Deposits</h3>
+          <button class="btn-primary" style="padding:5px 12px;font-size:.8rem;" onclick="depNew()">+ New</button>
+        </div>
+        <div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;line-height:1.45;">
+          Match each bank deposit to the gifts that make it up, then enter the amount the bank actually received. <strong>Given &minus; Deposited = fees.</strong>
+        </div>
+        <div class="batch-filter-pills" style="margin-bottom:10px;">
+          <button class="pill active" data-ds="all" onclick="depSetFilter(this,'all')">All</button>
+          <button class="pill" data-ds="open" onclick="depSetFilter(this,'open')">Open</button>
+          <button class="pill" data-ds="reconciled" onclick="depSetFilter(this,'reconciled')">Reconciled</button>
+        </div>
+        <div id="giv-deposits-list"></div>
+      </div>
+      <div class="dash-card" id="giv-deposit-detail" style="padding:18px;min-height:220px;">
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:180px;color:var(--warm-gray);gap:10px;text-align:center;">
+          <svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+          <div style="font-size:.9rem;">Select a deposit, or click <strong>+ New</strong> to reconcile a bank deposit.</div>
+        </div>
+      </div>
     </div>
   </div>
 
