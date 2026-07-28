@@ -845,6 +845,46 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
   `npm test` (297/297), `node --check` both bundles + SQLite harness. Not verified live. Done
   2026-07-27 (v1.93.0). (`src/api-utils.js`, `src/api-reports.js`, `src/frontend/js-reports.js`,
   `src/frontend/js-giving.js`, `src/frontend/html-tabs.js`, `test/giving-bands.test.js`)
+- [x] **G27** — Four follow-ups on G25 (Plateaus), requested together. (1) **Nudges were too
+  aggressive at high amounts** ($2,500→$3,000, a 20%/$500-a-week ask) — `givingNudgeTarget`'s fixed
+  round-number ladder replaced with `computeNudgeOptions()`: 3 graduated options (Modest/Standard/
+  Generous) whose percentage step shrinks as the base grows (30–100% under $15/wk → 3–10% above
+  $1,500/wk); $2,500/wk now nudges to $2,600/$2,700/$2,800, not $3,000. Caught and fixed a real
+  floating-point bug in the process (`100*1.10 !== 110` in IEEE 754, throwing off the ceil-to-
+  increment rounding by a whole increment). (2) **Impact framing** ("if you gave $18 more a month,
+  that could provide X") — new admin-editable "Giving Impact Statements" (`config/giving-impact`,
+  never pre-filled/fabricated) matched against each option's monthly-equivalent delta via
+  `pickImpactPhrase()`. (3) **Retirement/IRA (QCD)/stock givers weren't visible** — these rarely
+  repeat 3+ times so fell into invisible "variable"; new "Large & Occasional Gifts" section surfaces
+  them sorted by total (no automatic nudge — a personal-conversation flag instead), plus an
+  excluded-organizations diagnostic (count/total of gifts filed under an org-type record, in case a
+  QCD custodian got mis-filed there). (4) **Multi-fund handling clarified + a Fund filter** — verified
+  via a real-SQLite harness that every fund a giver gives to same-day was already summed, not
+  discounted; new `&fund_id=` param + dropdown on both Plateaus and Bands lets the same analysis run
+  scoped to one fund, which also directly serves the Concordia Children's Fund ask (a designated
+  pass-through fund) with zero fund-specific code. `npm test` (347/347, 20 rewritten plateau tests),
+  `node --check` both bundles + backend, SQLite harness confirming the fund isolation. Not verified
+  live. Done 2026-07-27 (v1.102.0). (`src/api-utils.js`, `src/api-reports.js`, `src/api-import.js`,
+  `src/frontend/js-reports.js`, `src/frontend/js-giving.js`, `src/frontend/html-tabs.js`,
+  `test/giving-plateaus.test.js`)
+- [x] **G28** — Four corrections to G27, requested right after seeing it. (1) **Fixed round numbers,
+  not percentages** — `computeNudgeOptions()` rebuilt around a single curated `GIVING_NUDGE_LADDER`
+  (the original hand-picked 10/15/20…1000 values behind the liked 43→50/83→100 examples, densified
+  from $1,000 up: $100 steps to $5k, $250 to $10k, $500 to $25k) instead of percentage math — options
+  are just "the next 3 ladder rungs above base," zero floating-point risk. (2) **Every option always
+  shows a concrete annual dollar impact**, even Modest — `annual_delta_cents` is now unconditional;
+  `impact_text` (the ministry-specific phrase) layers on top only when configured. (3) **Occasional/
+  IRA-QCD/stock givers get identical treatment to everyone else** — the separate exclusion list is
+  gone; a `low_frequency` flag (≤3 gifts/yr) instead drives an inline narrative ("gave $X in N gifts
+  last year — about $Y/wk") right in the normal tier breakdown. (4) **Every giver's weekly figure =
+  whole-year total (every fund) ÷ 52** — replaces modal-repeat plateau-finding entirely; endpoint SQL
+  simplified to match `reports/giving-bands`'s one-row-per-giver shape, same `periodsElapsed`
+  convention for a partial current year. `min_repeat` removed from API and UI. `npm test` (348/348,
+  21 rewritten tests including a same-treatment regression proving a weekly $50/wk giver and a
+  one-time $2,600 giver produce identical options), `node --check` both bundles + backend, scanned
+  the served bundle for the double-backslash escaping bug class (3 hits, all pre-existing/unrelated).
+  Not verified live. Done 2026-07-27 (v1.103.0). (`src/api-utils.js`, `src/api-reports.js`,
+  `src/frontend/js-reports.js`, `src/frontend/html-tabs.js`, `test/giving-plateaus.test.js`)
 - [ ] **G24** — Manual follow-up needed, outside code: `CHMS_INTAKE_API_KEY` (the same secret value already set on this Worker) needs to also be set as a secret on the website repo's `tlc-newsletter-admin` Worker (admin.timothystl.org) — it isn't there today (that Worker has never called out to ChMS before). Without it, `GET /api/intake/funds` calls from the Giving tab will always get a 401. `wrangler secret put CHMS_INTAKE_API_KEY --name tlc-newsletter-admin`, using the exact same value already configured for this Worker.
 
 ### Dashboard

@@ -321,110 +321,175 @@ export function computeConcentration(householdTotals) {
   };
 }
 
-// ── GIVING PLATEAUS / NUDGE TARGETS ───────────────────────────────────────
-// Ladder of "attractive" per-gift giving amounts (whole dollars). A nudge
-// target is the smallest rung strictly greater than a giver's plateau, so
-// 43→50, 83→100, 50→60, 100→125, etc. Above the top rung we round up to the
-// next $1,000.
-export const GIVING_NUDGE_LADDER = [
-  10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 200, 250, 300, 400, 500,
-  600, 750, 1000, 1250, 1500, 2000, 2500, 3000, 4000, 5000,
-];
+// ── GIVING PLATEAUS / NUDGE OPTIONS ────────────────────────────────────────
+// Three increase options (Modest/Standard/Generous), each a genuinely FIXED,
+// familiar round number — not a percentage-derived figure. The ladder below
+// starts with the same hand-picked round numbers as the original design
+// (10, 15, 20 … 1000, validated against real asks: 43→50, 83→100) and then
+// DENSIFIES from $1,000 up — $100 steps to $5,000, $250 to $10,000, $500 to
+// $25,000, $1,000 above — so the "next rung" stays a modest ask even at high
+// giving levels, without ever landing on an odd non-round number the way a
+// percentage-scaled target could.
+const GIVING_NUDGE_LADDER = (() => {
+  const ladder = [10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 200, 250, 300, 400, 500, 600, 750, 1000];
+  for (let v = 1100; v <= 5000; v += 100) ladder.push(v);
+  for (let v = 5250; v <= 10000; v += 250) ladder.push(v);
+  for (let v = 10500; v <= 25000; v += 500) ladder.push(v);
+  for (let v = 26000; v <= 50000; v += 1000) ladder.push(v);
+  return ladder;
+})();
+export const NUDGE_OPTION_LABELS = ['Modest', 'Standard', 'Generous'];
 
-export function givingNudgeTarget(dollars) {
-  const d = Number(dollars) || 0;
-  for (const rung of GIVING_NUDGE_LADDER) if (rung > d) return rung;
-  return Math.ceil((d + 1) / 1000) * 1000;
+// Returns the next 3 ladder rungs strictly above `baseDollars`, e.g. for
+// base=43: Modest $50, Standard $60, Generous $75 — the same "43→50" a
+// board member would recognize, plus two clearly bigger (but still round)
+// asks. For base=2500: $2,600 / $2,700 / $2,800 — gentle at the top because
+// the ladder itself is dense there, not because of any percentage formula.
+export function computeNudgeOptions(baseDollars) {
+  const base = Math.max(0, Number(baseDollars) || 0);
+  if (base <= 0) return [];
+  const above = [];
+  for (const rung of GIVING_NUDGE_LADDER) {
+    if (rung > base) { above.push(rung); if (above.length === 3) break; }
+  }
+  // Base is beyond the ladder's top (an unusually large weekly-equivalent
+  // giver) — extend in flat $1,000 steps rather than leave options short.
+  while (above.length < 3) {
+    const last = above.length ? above[above.length - 1] : Math.max(base, GIVING_NUDGE_LADDER[GIVING_NUDGE_LADDER.length - 1]);
+    above.push(last + 1000);
+  }
+  return above.map((target, i) => ({
+    label: NUDGE_OPTION_LABELS[i],
+    target_dollars: target,
+    delta_dollars: target - base,
+    pct_increase: Math.round(((target - base) / base) * 1000) / 10,
+  }));
 }
 
-// Given one row per (person, giving-day) — { person_id, name, member_type,
-// day_cents } where day_cents is that person's TOTAL contribution that day —
-// find each regular giver's "plateau": the whole-dollar per-gift amount they
-// repeat most often across the period. A giver counts as plateaued only if
-// their modal amount recurs at least `minRepeat` times (default 3), which
-// screens out one-off and highly variable givers. Each plateaued giver is
-// assigned a nudge target (next ladder rung up) and an estimated annual
-// upside = (target − plateau) × number of gifts they already make. Results
-// are grouped into tiers by nudge target and a fine per-dollar histogram.
+// Admin-configured "if you gave $X more a month, that could provide Y"
+// statements — [{ monthly_cents, label }], e.g. { monthly_cents: 1800,
+// label: "one more week of Tuition Aid support" }. Picks the richest
+// statement the giver's monthly increase actually clears (largest threshold
+// <= the delta); returns null rather than guessing when nothing qualifies or
+// none are configured — this app never fabricates ministry-cost figures. The
+// plain annualized dollar amount (computed alongside this, not by it) is
+// always shown regardless, so every increase — even a modest one — is tied
+// to a concrete number even when no custom phrase is configured.
+export function pickImpactPhrase(monthlyDeltaCents, statements) {
+  if (!Array.isArray(statements) || !statements.length) return null;
+  const sorted = statements
+    .filter(s => s && Number(s.monthly_cents) > 0 && s.label)
+    .slice().sort((a, b) => a.monthly_cents - b.monthly_cents);
+  let best = null;
+  for (const s of sorted) {
+    if (monthlyDeltaCents >= s.monthly_cents) best = s; else break;
+  }
+  return best ? best.label : null;
+}
+
+// Given one row per giver — { person_id, name, link_id, link_kind,
+// total_cents, gifts } where total_cents is EVERY gift they made in the
+// period, across EVERY fund (no fund discounted) — this gives every giver a
+// single "weekly-equivalent" figure: their total ÷ periodsElapsed (default
+// 52, i.e. their whole year's giving spread evenly across the year). This
+// applies uniformly whether someone gives every Sunday, once a month, or as
+// a single stock/IRA (QCD) transfer in December — a one-time $2,600 gift and
+// 52 weekly $50 gifts both read as "$50/wk" here, so nobody (including
+// occasional/major givers, who previously fell into a separate "variable"
+// bucket) is silently excluded from a nudge. `gifts` (their actual count of
+// distinct contributions) is carried through so the UI can still frame an
+// infrequent giver's ask narratively ("you gave $X last year — about $Y/wk")
+// rather than implying they should literally write 52 checks.
 export function computeGivingPlateaus(rows, opts = {}) {
-  const minRepeat = Math.max(2, opts.minRepeat || 3);
+  const periodsElapsed = Math.max(1, Math.min(52, opts.periodsElapsed || 52));
   const peopleCap = opts.peopleCap || 500;
+  const impactStatements = opts.impactStatements || [];
+  const lowFrequencyMax = opts.lowFrequencyMax || 3;
 
   const byPerson = new Map();
   for (const r of rows || []) {
     const pid = r.person_id;
     if (pid == null) continue;
-    const dollars = Math.round((Number(r.day_cents) || 0) / 100);
-    if (dollars <= 0) continue;
-    let p = byPerson.get(pid);
-    if (!p) {
-      p = {
-        id: pid, name: r.name || '',
-        // Where a row in this tier should link. Defaults to the person; the
-        // household-scope caller passes link_kind='household' + a household id.
-        link_id: r.link_id != null ? r.link_id : pid,
-        link_kind: r.link_kind || 'person',
-        counts: new Map(), gifts: 0, total: 0,
-      };
-      byPerson.set(pid, p);
-    }
-    p.counts.set(dollars, (p.counts.get(dollars) || 0) + 1);
-    p.gifts += 1;
-    p.total += Number(r.day_cents) || 0;
-  }
-
-  const plateaued = [];
-  let variable = 0;
-  for (const p of byPerson.values()) {
-    // Modal whole-dollar amount: highest count; tie-break to the HIGHER amount
-    // (keeps the plateau baseline conservative, so upside is never overstated).
-    let best = 0, bestCount = 0;
-    for (const [d, c] of p.counts) {
-      if (c > bestCount || (c === bestCount && d > best)) { best = d; bestCount = c; }
-    }
-    if (bestCount < minRepeat) { variable++; continue; }
-    const plateauCents = best * 100;
-    const targetCents = givingNudgeTarget(best) * 100;
-    const weeklyIncreaseCents = targetCents - plateauCents;
-    plateaued.push({
-      id: p.id, name: p.name,
-      link_id: p.link_id, link_kind: p.link_kind,
-      plateau_cents: plateauCents,
-      repeats: bestCount,
-      gifts: p.gifts,
-      total_cents: p.total,
-      target_cents: targetCents,
-      weekly_increase_cents: weeklyIncreaseCents,
-      upside_annual_cents: weeklyIncreaseCents * p.gifts,
+    const cents = Math.round(Number(r.total_cents) || 0);
+    if (cents <= 0) continue;
+    byPerson.set(pid, {
+      id: pid, name: r.name || '',
+      // Where a row in this tier should link. Defaults to the person; the
+      // household-scope caller passes link_kind='household' + a household id.
+      link_id: r.link_id != null ? r.link_id : pid,
+      link_kind: r.link_kind || 'person',
+      total_cents: cents,
+      gifts: Math.max(0, Math.round(Number(r.gifts) || 0)),
     });
   }
 
-  // Fine histogram: how many givers plateau at each whole-dollar amount.
+  const givers = [];
+  for (const p of byPerson.values()) {
+    const weeklyDollars = Math.round(p.total_cents / periodsElapsed / 100);
+    if (weeklyDollars <= 0) continue;
+    const weeklyCents = weeklyDollars * 100;
+    const options = computeNudgeOptions(weeklyDollars).map(o => {
+      const deltaCents = o.delta_dollars * 100;
+      const annualDeltaCents = deltaCents * 52;
+      const monthlyDeltaCents = Math.round(deltaCents * 52 / 12);
+      return {
+        label: o.label,
+        target_cents: o.target_dollars * 100,
+        delta_cents: deltaCents,
+        pct_increase: o.pct_increase,
+        // Always a concrete annual dollar figure — the baseline "impact" —
+        // whether or not a custom ministry phrase is configured below.
+        annual_delta_cents: annualDeltaCents,
+        new_annual_total_cents: o.target_dollars * 100 * 52,
+        impact_text: pickImpactPhrase(monthlyDeltaCents, impactStatements),
+      };
+    });
+    const standard = options[1] || options[options.length - 1];
+    givers.push({
+      id: p.id, name: p.name,
+      link_id: p.link_id, link_kind: p.link_kind,
+      weekly_cents: weeklyCents,
+      total_cents: p.total_cents,
+      gifts: p.gifts,
+      low_frequency: p.gifts > 0 && p.gifts <= lowFrequencyMax,
+      options,
+      // Backward-compatible "primary" fields — the Standard option — used
+      // for tier grouping and the summary headline.
+      target_cents: standard ? standard.target_cents : weeklyCents,
+      weekly_increase_cents: standard ? standard.delta_cents : 0,
+      upside_annual_cents: standard ? standard.annual_delta_cents : 0,
+    });
+  }
+
+  // Fine histogram: how many givers land at each weekly-equivalent dollar amount.
   const distMap = new Map();
-  for (const pp of plateaued) {
-    const d = pp.plateau_cents / 100;
+  for (const g of givers) {
+    const d = g.weekly_cents / 100;
     distMap.set(d, (distMap.get(d) || 0) + 1);
   }
   const distribution = [...distMap.entries()]
     .map(([plateau_dollars, n]) => ({ plateau_dollars, n }))
     .sort((a, b) => a.plateau_dollars - b.plateau_dollars);
 
-  // Tiers grouped by nudge target.
+  // Tiers grouped by the Standard option's target.
   const tierMap = new Map();
-  for (const pp of plateaued) {
-    let t = tierMap.get(pp.target_cents);
+  for (const g of givers) {
+    let t = tierMap.get(g.target_cents);
     if (!t) {
-      t = { target_cents: pp.target_cents, people: [], num_people: 0, upside_annual_cents: 0,
+      t = { target_cents: g.target_cents, people: [], num_people: 0,
+            upside_annual_cents: 0, upside_modest_annual_cents: 0, upside_generous_annual_cents: 0,
             plateau_min_cents: Infinity, plateau_max_cents: 0, sum_plateau_cents: 0, sum_weekly_inc: 0 };
-      tierMap.set(pp.target_cents, t);
+      tierMap.set(g.target_cents, t);
     }
-    t.people.push(pp);
+    t.people.push(g);
     t.num_people++;
-    t.upside_annual_cents += pp.upside_annual_cents;
-    t.plateau_min_cents = Math.min(t.plateau_min_cents, pp.plateau_cents);
-    t.plateau_max_cents = Math.max(t.plateau_max_cents, pp.plateau_cents);
-    t.sum_plateau_cents += pp.plateau_cents;
-    t.sum_weekly_inc += pp.weekly_increase_cents;
+    t.upside_annual_cents += g.upside_annual_cents;
+    t.upside_modest_annual_cents += (g.options[0] || g.options[g.options.length - 1]).annual_delta_cents;
+    t.upside_generous_annual_cents += (g.options[g.options.length - 1]).annual_delta_cents;
+    t.plateau_min_cents = Math.min(t.plateau_min_cents, g.weekly_cents);
+    t.plateau_max_cents = Math.max(t.plateau_max_cents, g.weekly_cents);
+    t.sum_plateau_cents += g.weekly_cents;
+    t.sum_weekly_inc += g.weekly_increase_cents;
   }
   const tiers = [...tierMap.values()].map(t => {
     t.people.sort((a, b) => b.upside_annual_cents - a.upside_annual_cents);
@@ -436,16 +501,20 @@ export function computeGivingPlateaus(rows, opts = {}) {
       avg_plateau_cents: t.num_people ? Math.round(t.sum_plateau_cents / t.num_people) : 0,
       avg_weekly_increase_cents: t.num_people ? Math.round(t.sum_weekly_inc / t.num_people) : 0,
       upside_annual_cents: t.upside_annual_cents,
+      upside_modest_annual_cents: t.upside_modest_annual_cents,
+      upside_generous_annual_cents: t.upside_generous_annual_cents,
       people: t.people.slice(0, peopleCap),
     };
   }).sort((a, b) => a.target_cents - b.target_cents);
 
   return {
     summary: {
-      plateaued_givers: plateaued.length,
-      variable_givers: variable,
-      total_weekly_plateau_cents: plateaued.reduce((s, p) => s + p.plateau_cents, 0),
-      total_upside_annual_cents: plateaued.reduce((s, p) => s + p.upside_annual_cents, 0),
+      total_givers: givers.length,
+      low_frequency_givers: givers.filter(g => g.low_frequency).length,
+      total_weekly_cents: givers.reduce((s, g) => s + g.weekly_cents, 0),
+      total_upside_annual_cents: givers.reduce((s, g) => s + g.upside_annual_cents, 0),
+      total_upside_modest_annual_cents: tiers.reduce((s, t) => s + t.upside_modest_annual_cents, 0),
+      total_upside_generous_annual_cents: tiers.reduce((s, t) => s + t.upside_generous_annual_cents, 0),
     },
     tiers,
     distribution,
