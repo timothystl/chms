@@ -426,10 +426,12 @@ function finRenderConnection() {
     + '<p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 10px;">Last synced: ' + esc(lastSync) + '</p>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
     + '<button class="btn-primary" onclick="finSync(this)">Sync Now</button>'
+    + '<button class="btn-secondary" onclick="finOpenSyncYears()">Sync Selected Years (Actuals Only)…</button>'
     + (isAdminUI ? '<button class="btn-secondary" onclick="finDisconnect()">Disconnect</button>' : '')
     + (isAdminUI ? '<button class="btn-secondary" onclick="finLoadBudgetPicker(this)">Choose Budget…</button>' : '')
     + '</div>'
     + '<div id="fin-budget-picker" style="margin-top:10px;"></div>'
+    + '<div id="fin-sync-years-picker" style="margin-top:10px;display:none;"></div>'
     + '<div id="fin-sync-msg" style="font-size:.78rem;margin-top:8px;"></div>';
 }
 // A company can have more than one Budget object in QuickBooks (e.g. a leftover test budget
@@ -2332,6 +2334,55 @@ function finChurchConfirmBalanceMultiImport() {
   }).catch(function(err) {
     btn.disabled = false;
     if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
+  });
+}
+
+// ── Sync Selected Fiscal Years: actuals-only QuickBooks sync for admin-picked years, decoupled
+// from the always-on "Sync Now" (which also pulls Budget vs Actual + the rolling window). ──────
+var _finSyncYearsChecked = {}; // { [year]: true }
+
+function finOpenSyncYears() {
+  var thisYear = new Date().getFullYear();
+  var years = [];
+  for (var y = thisYear; y >= thisYear - 15; y--) years.push(y);
+  var el = document.getElementById('fin-sync-years-picker');
+  if (!el) return;
+  var checked = _finSyncYearsChecked;
+  el.innerHTML = '<p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 8px;">Pull QuickBooks actuals (Statement of Activity / Profit &amp; Loss) for just the years checked below — budget data is never touched by this. A year synced here overrides any uploaded actuals for that same year.</p>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">'
+    + years.map(function(y) {
+      return '<label style="font-size:.78rem;border:1px solid var(--border);border-radius:6px;padding:3px 8px;cursor:pointer;">'
+        + '<input type="checkbox" style="margin-right:4px;" ' + (checked[y] ? 'checked' : '') + ' onchange="finSyncYearsToggle(' + y + ',this.checked)">' + y + '</label>';
+    }).join('')
+    + '</div>'
+    + '<button class="btn-primary" style="font-size:.78rem;padding:4px 10px;" onclick="finSyncYears(this)">Sync Selected Years</button>'
+    + '<div id="fin-sync-years-msg" style="font-size:.78rem;margin-top:6px;"></div>';
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+function finSyncYearsToggle(year, checked) {
+  if (checked) _finSyncYearsChecked[year] = true;
+  else delete _finSyncYearsChecked[year];
+}
+
+function finSyncYears(btn) {
+  var years = Object.keys(_finSyncYearsChecked).map(Number);
+  var msgEl = document.getElementById('fin-sync-years-msg');
+  if (!years.length) { if (msgEl) msgEl.textContent = 'Check at least one year first.'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+  if (msgEl) msgEl.textContent = 'Syncing ' + years.join(', ') + '…';
+  api('/admin/api/finance/qb/sync-years', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fiscal_years: years }),
+  }).then(function(d) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sync Selected Years'; }
+    if (d && d.error) { if (msgEl) msgEl.textContent = 'Error: ' + d.error; return; }
+    if (msgEl) msgEl.textContent = (d.warnings && d.warnings.length) ? 'Synced with warnings: ' + d.warnings.join(' ') : 'Synced ' + d.years.join(', ') + '.';
+    finRenderChurchReport();
+    if (_finOverviewDomain === 'church') finLoadOverviewDomain();
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sync Selected Years'; }
+    if (msgEl) msgEl.textContent = 'Error: ' + (err && err.message || 'Unknown error');
   });
 }
 

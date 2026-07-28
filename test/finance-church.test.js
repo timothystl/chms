@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, mergeLeafCells, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, computeSuppliesMonthlyBreakdown, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport, classifyMdoAccountCategory, extractMdoDaycareEntries, persistDaycareEntriesFromChurchBudget, finXlsxParseSheetGrid, parseYearColTitle, findActivityMultiYearSheet, parseActivityMultiYearGrid, persistChurchEntriesActivityImport, findFinancialPositionMultiYearSheet, parseFinancialPositionMultiYearGrid, persistChurchBalancesMultiYearImport } from '../src/api-finance.js';
+import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, makeSingleYearActualExtractor, parseMonthColTitle, mergeProfitAndLossTree, mergeLeafCells, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, computeSuppliesMonthlyBreakdown, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport, classifyMdoAccountCategory, extractMdoDaycareEntries, persistDaycareEntriesFromChurchBudget, finXlsxParseSheetGrid, parseYearColTitle, findActivityMultiYearSheet, parseActivityMultiYearGrid, persistChurchEntriesActivityImport, findFinancialPositionMultiYearSheet, parseFinancialPositionMultiYearGrid, persistChurchBalancesMultiYearImport } from '../src/api-finance.js';
 
 // ── Minimal D1-shaped wrapper around node:sqlite, so persistChurchEntries() runs against real
 // SQL (real UNIQUE/ON CONFLICT semantics) instead of a hand-rolled re-implementation of what the
@@ -520,6 +520,9 @@ describe('resolveChurchYearPrecedence', () => {
     expect(resolved.length).toBe(1);
     expect(resolved[0].source).toBe('qbo_sync');
   });
+  // Precedence involving 'import_activity' (the multi-year Statement of Activity import) is
+  // covered by the dedicated CHURCH_SOURCE_PRIORITY test in the
+  // 'findActivityMultiYearSheet / parseActivityMultiYearGrid' describe block below.
 });
 
 describe('computeYearSummary', () => {
@@ -605,6 +608,10 @@ describe('normalizeChurchClassification', () => {
     expect(normalizeChurchClassification('Expenses')).toBe('Expenses');
     expect(normalizeChurchClassification('Other Income')).toBe('Other Income');
     expect(normalizeChurchClassification('Other Expenditures')).toBe('Other Expenses');
+    // 'other revenue' was missing until a real multi-year Statement of Activity export surfaced
+    // it — without this mapping, the section silently fell out of netOtherIncome/netIncome
+    // entirely (confirmed against real data — see FIN36).
+    expect(normalizeChurchClassification('Other Revenue')).toBe('Other Income');
   });
 });
 
@@ -673,6 +680,23 @@ describe('parseBudgetVsActualsGrid', () => {
   });
 });
 
+describe('makeSingleYearActualExtractor', () => {
+  it('reads only cells[1] as the actual amount and always leaves budget null (2-column plain P&L shape)', () => {
+    const cells = [{ value: 'Sunday Offering' }, { value: '431682.61' }];
+    const [amt] = makeSingleYearActualExtractor(2026)(cells);
+    expect(amt).toEqual({ fiscal_year: 2026, own_actual_cents: 43168261, own_budget_cents: null });
+  });
+
+  it('flattens a small QBO report tree end to end for one requested year', () => {
+    const tree = [section('Income', null, [leaf('Sunday Offering', 500)])];
+    const out = flattenReportTree(tree, [], null, makeSingleYearActualExtractor(2019), []);
+    const row = out.find(r => r.account_name === 'Sunday Offering');
+    expect(row.fiscal_year).toBe(2019);
+    expect(row.own_actual_cents).toBe(50000);
+    expect(row.own_budget_cents).toBeNull();
+  });
+});
+
 describe('parseYearColTitle', () => {
   it('parses a bare 4-digit year in range 1900-2099', () => {
     expect(parseYearColTitle('2019')).toBe(2019);
@@ -680,10 +704,18 @@ describe('parseYearColTitle', () => {
     expect(parseYearColTitle(2027)).toBe(2027);
   });
   it('rejects anything that is not a bare year', () => {
-    expect(parseYearColTitle('Jan 2026')).toBe(null);
+    expect(parseYearColTitle('Jan 2026')).toBe(null); // a Monthly P&L column title, not this report's
     expect(parseYearColTitle('Actual')).toBe(null);
     expect(parseYearColTitle('')).toBe(null);
     expect(parseYearColTitle(null)).toBe(null);
+  });
+  // FIN36 — a real Statement of Activity export includes a trailing partial year-to-date RANGE
+  // column (e.g. "Jan 1 - Jul 28 2026") alongside its bare-year columns. The dash distinguishes
+  // this from a Monthly P&L title ("Jan 2026", asserted null above) so the two report types'
+  // headers can never be confused with each other.
+  it('parses a partial year-to-date date-range column by its trailing year', () => {
+    expect(parseYearColTitle('Jan 1 - Jul 28 2026')).toBe(2026);
+    expect(parseYearColTitle('Jan 1, 2026-Jul 28, 2026')).toBe(2026);
   });
 });
 
@@ -775,6 +807,95 @@ describe('findActivityMultiYearSheet / parseActivityMultiYearGrid', () => {
     const resolvedPlan = resolveChurchYearPrecedence(withPlanCommitted);
     expect(resolvedPlan.length).toBe(1);
     expect(resolvedPlan[0].source).toBe('import_activity');
+  });
+});
+
+// FIN36 — real regression coverage for a genuinely different real-world export convention.
+// activityMultiYearFixtureGrid() above uses literal leading-space indentation (matching the
+// Budget vs. Actuals report's own convention) — but two real Statement of Activity exports from
+// this exact church confirmed NO leading-space indentation at all; hierarchy is carried purely
+// via the workbook's own cell-indent style metadata (colAIndent). Before this fix,
+// parseActivityMultiYearGrid() only ever read leading spaces (indentDepthOf/nextNonBlankLabel),
+// so every row in a real file read as depth 0 with no children and landed in `skipped` — a
+// live-merged import that appeared to succeed but silently stored zero rows, confirmed by
+// running the actual pre-fix code against both real uploaded files. This fixture also covers a
+// partial year-to-date range column ("Jan 1 - Jul 1 2026") and an "Other Revenue"/"Other
+// Expenditures" pair (the exact classification wording that surfaced the missing
+// CHURCH_CLASSIFICATION_SYNONYMS['other revenue'] entry fixed alongside this).
+function activityMultiYearColAIndentFixture() {
+  const grid = [
+    ['Timothy Evangelical Lutheran Church', null, null, null],
+    ['Statement of Activity', null, null, null],
+    ['January 1, 2025-July 1, 2026', null, null, null],
+    [null, null, null, null],
+    ['', '2025', 'Jan 1 - Jul 1 2026', 'Total'],
+    ['Revenue', null, null, null],
+    ['40 Donor Income', 500, 300, 800],
+    ['40085 Sunday Offering', 1000, 600, 1600],
+    ['Total for 40 Donor Income', 1500, 900, 2400],
+    ['Total for Revenue', 1500, 900, 2400],
+    ['Expenditures', null, null, null],
+    ['50 Program Expenses', 300, 200, 500],
+    ['Total for Expenditures', 300, 200, 500],
+    ['Net Operating Revenue', 1200, 700, 1900],
+    ['Other Revenue', null, null, null],
+    ['60 Misc', 400, 0, 400],
+    ['Total for Other Revenue', 400, 0, 400],
+    ['Other Expenditures', null, null, null],
+    ['70 Misc Exp', 100, 0, 100],
+    ['Total for Other Expenditures', 100, 0, 100],
+    ['Net Other Revenue', 300, 0, 300],
+    ['Net Revenue', 1500, 700, 2200],
+    [null, null, null, null],
+    ['Cash Basis Tuesday, July 28, 2026 03:26 PM GMT-05:00', null, null, null],
+  ];
+  const colAIndent = [0, 0, 0, 0, 0, 0, 1, 2, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0];
+  return { grid, colAIndent };
+}
+describe('parseActivityMultiYearGrid — real cell-indent-metadata convention (no leading spaces)', () => {
+  it('reads correct hierarchy/depth from colAIndent, including the partial year-to-date column', () => {
+    const { grid, colAIndent } = activityMultiYearColAIndentFixture();
+    const { years, rows, skipped } = parseActivityMultiYearGrid(grid, colAIndent);
+    expect(years).toEqual([2025, 2026]);
+    expect(skipped).toEqual(['Cash Basis Tuesday, July 28, 2026 03:26 PM GMT-05:00']);
+    const labels = rows.map(r => r.account_name);
+    expect(labels).not.toContain('Total for Revenue');
+    expect(labels).not.toContain('Net Operating Revenue');
+    expect(labels).not.toContain('Net Other Revenue'); // the exact label the broadened skip regex now covers
+    expect(labels).not.toContain('Net Revenue');
+    const sunday2025 = rows.find(r => r.account_name === '40085 Sunday Offering' && r.fiscal_year === 2025);
+    expect(sunday2025.category_path).toBe('Income:40 Donor Income:40085 Sunday Offering');
+    expect(sunday2025.own_actual_cents).toBe(100000);
+    const sunday2026 = rows.find(r => r.account_name === '40085 Sunday Offering' && r.fiscal_year === 2026);
+    expect(sunday2026.own_actual_cents).toBe(60000); // the partial year-to-date column
+  });
+
+  it('falls back to reading every row as depth 0 (and skipping all of them) when no colAIndent is given at all', () => {
+    // Documents the exact failure mode this fix closes: calling the parser with no colAIndent
+    // argument against a real no-leading-space export stores nothing, silently.
+    const { grid } = activityMultiYearColAIndentFixture();
+    const { rows, skipped } = parseActivityMultiYearGrid(grid);
+    expect(rows.length).toBe(0);
+    expect(skipped.length).toBeGreaterThan(0);
+  });
+
+  it('resolves to the correct rollups end to end via persistChurchEntriesActivityImport, normalizing Other Revenue', async () => {
+    const db = makeTestDb();
+    const { grid, colAIndent } = activityMultiYearColAIndentFixture();
+    const { years, rows } = parseActivityMultiYearGrid(grid, colAIndent);
+    await persistChurchEntriesActivityImport(db, rows, years, '2026-07-28T00:00:00Z');
+    const stored = allChurchRows(db);
+    expect(stored.every(r => r.source === 'import_activity' && r.own_budget_cents === null)).toBe(true);
+    for (const [year, expected] of [[2025, { income: 150000, expenses: 30000, netOp: 120000, otherIncome: 40000, otherExpenses: 10000, net: 150000 }], [2026, { income: 90000, expenses: 20000, netOp: 70000, otherIncome: 0, otherExpenses: 0, net: 70000 }]]) {
+      const resolved = resolveChurchYearPrecedence(stored.filter(r => r.fiscal_year === year));
+      const summary = computeYearSummary(resolved);
+      expect(summary.classificationTotals.Income.actualCents).toBe(expected.income);
+      expect(summary.classificationTotals.Expenses.actualCents).toBe(expected.expenses);
+      expect(summary.netOperatingIncome.actualCents).toBe(expected.netOp);
+      expect(summary.classificationTotals['Other Income'].actualCents).toBe(expected.otherIncome); // normalized from 'Other Revenue'
+      expect(summary.classificationTotals['Other Expenses'].actualCents).toBe(expected.otherExpenses);
+      expect(summary.netIncome.actualCents).toBe(expected.net);
+    }
   });
 });
 

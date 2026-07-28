@@ -453,6 +453,13 @@ export function makeMultiYearExtractor(colYears) {
     own_budget_cents: null,
   }).filter(Boolean);
 }
+// A plain (non-summarized) ProfitAndLoss report requested for exactly one year has only 2
+// columns (Account, Amount) — unlike makeCurrentYearExtractor, which expects a 3rd Budget
+// column from the Budget-entity-merged tree. Used by the per-fiscal-year "Sync Selected Years"
+// route (finance/qb/sync-years), which deliberately never touches Budget data — see that route.
+export function makeSingleYearActualExtractor(year) {
+  return (cells) => [{ fiscal_year: year, own_actual_cents: dollarsToCents(cells[1]?.value), own_budget_cents: null }];
+}
 
 // QBO's monthly-column ColTitle format is "Jan 2026", "Feb 2026", etc. Returns null for any
 // title that doesn't match (e.g. a trailing "Total" column), so callers can skip it the same
@@ -543,11 +550,17 @@ function makeFlatRow(path, classification, hasChildren, amt) {
 // exact church uses "Revenue"/"Expenditures", not "Income"/"Expenses" — so those must be
 // normalized back to the canonical names computeYearSummary() expects, or every dollar would
 // silently vanish from the This Year/Multi-Year rollups (a wrong-but-plausible bug, not a crash).
+// 'other revenue' was missing until a real multi-year Statement of Activity export surfaced it
+// (this church's own top-level label for that section, same "Revenue" wording used everywhere
+// else) — without it, normalizeChurchClassification() left "Other Revenue" un-mapped to the
+// canonical "Other Income" key computeYearSummary() looks up, so Other Revenue silently dropped
+// out of netOtherIncome/netIncome entirely (confirmed against real 2021 data: Net Other Revenue
+// read as -$478,540.14, the Other Expenses figure alone, instead of the correct -$123,736.37).
 const CHURCH_CLASSIFICATION_SYNONYMS = {
   revenue: 'Income', income: 'Income',
   expenditures: 'Expenses', expenses: 'Expenses',
   'cost of goods sold': 'Cost of Goods Sold', cogs: 'Cost of Goods Sold',
-  'other income': 'Other Income',
+  'other income': 'Other Income', 'other revenue': 'Other Income',
   'other expenses': 'Other Expenses', 'other expenditures': 'Other Expenses',
 };
 export function normalizeChurchClassification(label) {
@@ -557,8 +570,12 @@ export function normalizeChurchClassification(label) {
 // Rows matching this are QuickBooks' own computed running subtotals under this report's own
 // wording variants (e.g. "Net Operating Revenue" instead of the live-API's "Net Operating
 // Income") — never a real account, always skipped (re-derivable at query time, same as
-// RUNNING_SUBTOTAL_LABELS above).
-const IMPORT_SKIP_LABEL_RE = /^(Gross Profit|Net Operating (Income|Revenue)|Net Other Income|Net (Income|Revenue))$/i;
+// RUNNING_SUBTOTAL_LABELS above). Collapsed into one Net (Operating |Other )?(Income|Revenue)
+// alternation (was 4 separate alternatives) after a real multi-year Statement of Activity export
+// surfaced "Net Other Revenue" — a combination the old regex genuinely didn't cover (it only had
+// "Net Other Income" and "Net (Income|Revenue)", never their cross product) — this form covers
+// every combination without needing to keep enumerating this church's Revenue/Income wording swap.
+const IMPORT_SKIP_LABEL_RE = /^(Gross Profit|Net (Operating |Other )?(Income|Revenue))$/i;
 function indentDepthOf(raw) {
   const stripped = raw.replace(/^ +/, '');
   return Math.round((raw.length - stripped.length) / 3);
@@ -711,14 +728,26 @@ export async function persistChurchEntriesMonthlyImport(db, rows, fiscalYear, im
 // Loss report under a different name — same as the "Statement of Financial Position" wording
 // already handled for Balance Sheet imports below) with one column per YEAR instead of the
 // annual import's Actual/Budget pair or the monthly import's one-column-per-month — e.g. "2019",
-// "2020", ... "2026" spanning many years in a single file. Actual only, no Budget column (this
-// export doesn't carry budget data). Reuses the exact same leading-space-indentation tree walk
-// as parseBudgetVsActualsGrid/parseMonthlyPnLGrid (same report family, same export convention) —
-// only the header detection and per-row amount extraction differ (bare-year columns instead of
-// Actual/Budget or month-titled columns).
+// "2020", ... "2026" spanning many years in a single file, plus an optional trailing partial
+// year-to-date column (e.g. "Jan 1 - Jul 28 2026") and a Total column. Actual only, no Budget
+// column (this export doesn't carry budget data). Depth detection uses balanceRowDepth() — the
+// same leading-space-first, cell-style-indent-metadata-fallback convention parseBalanceSheetGrid()
+// already established — NOT indentDepthOf()/nextNonBlankLabel() (leading-space only): confirmed
+// against two real exports from this exact church that this report carries NO leading-space
+// indentation at all, only cell-indent style metadata, so a leading-space-only depth check reads
+// every row as depth 0 and silently classifies the entire sheet as "skipped" (verified — this
+// was the actual, live-merged behavior before this comment was written; a hand-built leading-
+// space fixture in the test suite never caught it since it doesn't reflect the real file shape).
 export function parseYearColTitle(title) {
-  const m = /^(19|20)\d{2}$/.exec((title == null ? '' : String(title)).trim());
-  return m ? parseInt(m[0], 10) : null;
+  const t = (title == null ? '' : String(title)).trim();
+  const m = /^(19|20)\d{2}$/.exec(t);
+  if (m) return parseInt(m[0], 10);
+  // A partial year-to-date RANGE column (e.g. "Jan 1 - Jul 28 2026") — requires a date-range
+  // dash before the trailing year, specifically so this never collides with a Monthly P&L
+  // import's own column titles ("Jan 2026", parsed by parseMonthColTitle instead) — those have
+  // no dash, so "Jan 2026" alone still correctly returns null here (see the dedicated test).
+  const partial = /[-–].*\b((19|20)\d{2})\s*$/.exec(t);
+  return partial ? parseInt(partial[1], 10) : null;
 }
 export function findActivityMultiYearSheet(sheets) {
   for (const s of sheets) {
@@ -727,7 +756,8 @@ export function findActivityMultiYearSheet(sheets) {
   }
   return null;
 }
-export function parseActivityMultiYearGrid(grid) {
+export function parseActivityMultiYearGrid(grid, colAIndent) {
+  colAIndent = colAIndent || [];
   const headerIdx = grid.findIndex(r => r && [1, 2].filter(c => parseYearColTitle(r[c]) != null).length >= 2);
   if (headerIdx === -1) throw new Error('Could not find a year-by-year header row (e.g. "2019", "2020", ...) in this sheet.');
   const header = grid[headerIdx];
@@ -746,9 +776,9 @@ export function parseActivityMultiYearGrid(grid) {
     const label = raw.trim();
     if (/^Total\s/i.test(label)) continue;
     if (IMPORT_SKIP_LABEL_RE.test(label)) continue;
-    const depth = indentDepthOf(raw);
-    const nextLabel = nextNonBlankLabel(grid, i);
-    const hasChildren = nextLabel != null && indentDepthOf(nextLabel) > depth;
+    const depth = balanceRowDepth(raw, colAIndent[i]);
+    const nextIdx = nextNonBlankRowIndex(grid, i);
+    const hasChildren = nextIdx !== -1 && balanceRowDepth(grid[nextIdx][0], colAIndent[nextIdx]) > depth;
     if (depth === 0 && !hasChildren) { skipped.push(raw); continue; }
     while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
     let path;
@@ -768,7 +798,7 @@ export function parseActivityMultiYearGrid(grid) {
       }));
     }
   }
-  return { years: yearCols.map(y => y.year), rows, skipped };
+  return { years: [...new Set(yearCols.map(y => y.year))], rows, skipped };
 }
 // Wholesale-replaces source='import_activity' rows for exactly the set of fiscal years present —
 // same re-import-is-idempotent pattern as the other Church Report importers, but keyed by an
@@ -2079,6 +2109,44 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ ok: true, syncedAt, warnings, fetched: { budgetVsActual: !!budgetVsActual, accounts: !!accounts, profitAndLoss: !!profitAndLoss, profitAndLossMonthly: !!profitAndLossMonthly }, churchEntriesSynced: churchRows.length });
   }
 
+  // ── Sync: actuals only, for specific admin-picked fiscal years (Statement of Activity /
+  // Profit & Loss) ────────────────────────────────────────────────────────────────────────────
+  // A deliberately narrower sibling of finance/qb/sync above: no Budget entity, no native
+  // BudgetVsActuals report call, no finance_qb_snapshot writes — this never touches budget data
+  // at all, sidestepping that whole unsupported-endpoint saga (see FIN2) entirely. One
+  // profitAndLoss() call per requested year (not a single summarize_column_by:'Year' call, so
+  // non-contiguous years — e.g. 2019 and 2026 with nothing in between — work the same as a
+  // contiguous range), persisted under the SAME 'qbo_sync' source as the main sync so precedence
+  // against 'activity_import'/'import' for those specific years resolves exactly like a full
+  // sync would (see CHURCH_SOURCE_PRIORITY) — persistChurchEntries() only deletes/rewrites the
+  // years actually present in `rows`, so every year not selected here is left completely alone.
+  if (seg === 'finance/qb/sync-years' && method === 'POST') {
+    const conn = await getConnection(db);
+    if (!conn || !conn.realm_id) return json({ error: 'QuickBooks is not connected yet.' }, 400);
+    const b = await req.json().catch(() => ({}));
+    const years = Array.isArray(b.fiscal_years) ? [...new Set(b.fiscal_years.map(y => parseInt(y, 10)))].filter(Number.isFinite) : [];
+    if (!years.length) return json({ error: 'fiscal_years is required (a non-empty array of years)' }, 400);
+    const thisYear = new Date().getFullYear();
+    if (years.some(y => y < 2000 || y > thisYear + 1)) return json({ error: 'fiscal_years contains an implausible year' }, 400);
+    let fresh;
+    try { fresh = await ensureFreshAccessToken(env, db, conn); }
+    catch (e) { return json({ error: 'QuickBooks re-authentication failed — try disconnecting and reconnecting. (' + e.message + ')' }, 502); }
+    const client = makeQboClient(env, fresh);
+    const warnings = [];
+    const churchRows = [];
+    for (const year of years.sort((a, c) => a - c)) {
+      const pnl = await fetchQboJson(
+        `Profit & Loss (${year})`,
+        client.profitAndLoss({ start_date: `${year}-01-01`, end_date: `${year}-12-31` }),
+        warnings
+      );
+      if (pnl && pnl.Rows) flattenReportTree(pnl.Rows.Row, [], null, makeSingleYearActualExtractor(year), churchRows);
+    }
+    const syncedAt = new Date().toISOString();
+    await persistChurchEntries(db, churchRows, syncedAt);
+    return json({ ok: true, syncedAt, warnings, years, churchEntriesSynced: churchRows.length });
+  }
+
   // ── Overview: cached QBO data + daycare summary, for the Finance tab ──
   if (seg === 'finance/overview' && method === 'GET') {
     const conn = await getConnection(db);
@@ -2507,7 +2575,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const sheet = findActivityMultiYearSheet(sheets);
     if (!sheet) return json({ error: 'Could not find a year-by-year "Statement of Activity" sheet (a sheet with columns like "2019", "2020", ...) in this file.' }, 400);
     let parsed;
-    try { parsed = parseActivityMultiYearGrid(sheet.grid); }
+    try { parsed = parseActivityMultiYearGrid(sheet.grid, sheet.colAIndent); }
     catch (e) { return json({ error: e.message }, 400); }
     return json({ sheetName: sheet.name, years: parsed.years, rows: parsed.rows, skipped: parsed.skipped });
   }
