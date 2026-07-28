@@ -848,7 +848,7 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
   via a real-SQLite harness that every fund a giver gives to same-day was already summed, not
   discounted; new `&fund_id=` param + dropdown on both Plateaus and Bands lets the same analysis run
   scoped to one fund, which also directly serves the Concordia Children's Fund ask (a designated
-  pass-through fund) with zero fund-specific code. `npm test` (305/305, 20 rewritten plateau tests),
+  pass-through fund) with zero fund-specific code. `npm test` (347/347, 20 rewritten plateau tests),
   `node --check` both bundles + backend, SQLite harness confirming the fund isolation. Not verified
   live. Done 2026-07-27 (v1.102.0). (`src/api-utils.js`, `src/api-reports.js`, `src/api-import.js`,
   `src/frontend/js-reports.js`, `src/frontend/js-giving.js`, `src/frontend/html-tabs.js`,

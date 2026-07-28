@@ -75,8 +75,11 @@ Four follow-ups on the Giving Plateaus report, all requested together after firs
    which functions as a separate organization the church only handles US-side fundraising for. No
    fund-specific code — any fund in the dropdown works the same way.
 
-See the end of this entry for final verification counts (updated after rebasing onto the
-QuickBooks-precedence and deposit-reconciliation work below, which landed on `main` first).
+`npm test` (347/347, 20 in the rewritten `test/giving-plateaus.test.js` — including a regression
+guard locking in the exact floating-point-fix values). `node --check` on both built app-JS bundles
+and all touched backend files. A real in-memory-SQLite harness confirms the fund filter correctly
+isolates one fund's giving while leaving "All Funds" mode summing everything (nothing discounted).
+Not verified in a live browser.
 (`src/api-utils.js`, `src/api-reports.js`, `src/api-import.js`, `src/frontend/js-reports.js`,
 `src/frontend/js-giving.js`, `src/frontend/html-tabs.js`, `test/giving-plateaus.test.js`)
 
