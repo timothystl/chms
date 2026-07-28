@@ -957,7 +957,7 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
   configured. **Found and flagged (not fixed, out of scope) a pre-existing bug**: a different,
   unrelated giving-statement function reads `_churchConfig.giving_url`, but the real config key is
   `online_giving_url` — that link has silently always been blank; new code here uses the correct key.
-  `npm test` (352/352, 4 new tests), `node --check` both bundles + backend, `auto_gifts` SQL verified
+  `npm test` (371/371, 4 new tests), `node --check` both bundles + backend, `auto_gifts` SQL verified
   against real SQLite. Not verified live. Done 2026-07-27 (v1.104.0). (`src/api-utils.js`,
   `src/api-reports.js`, `src/frontend/js-reports.js`, `src/frontend/html-tabs.js`,
   `test/giving-plateaus.test.js`)

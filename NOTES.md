@@ -50,7 +50,7 @@ informational only — nobody on it needs to change anything.
   key returned by `config/church` is `online_giving_url` — that existing code path's link has
   silently always been blank; not touched here (out of scope, flagging for a follow-up), but this
   new code correctly reads `online_giving_url`.
-- `npm test` (352/352, 4 new tests: sort-by-total-with-major-gift-first, informational-not-
+- `npm test` (371/371, 4 new tests: sort-by-total-with-major-gift-first, informational-not-
   exclusionary, manual-vs-automatic-method flag, custom threshold). `node --check` on both built
   bundles + backend; verified the `auto_gifts` SQL against a real in-memory SQLite database. Not
   verified in a live browser. (`src/api-utils.js`, `src/api-reports.js`, `src/frontend/js-reports.js`,
