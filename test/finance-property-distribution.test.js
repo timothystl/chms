@@ -131,3 +131,42 @@ describe('finComputeMortgageRemainingCents', () => {
     expect(result.monthsApplied).toEqual([]);
   });
 });
+
+function loadReservesOnHandHelper() {
+  const m = CHMS_APP_EXT_JS.match(/function finComputePropertyReservesOnHandCents\([^)]*\) \{[\s\S]*?\n\}/);
+  if (!m) throw new Error('finComputePropertyReservesOnHandCents not found in built script');
+  // eslint-disable-next-line no-eval
+  return eval(`(function() { ${m[0]} return finComputePropertyReservesOnHandCents; })()`);
+}
+
+describe('finComputePropertyReservesOnHandCents', () => {
+  const finComputePropertyReservesOnHandCents = loadReservesOnHandHelper();
+
+  it('reconciles exactly to AHRA\'s own "Total Property Reserve" figure from the real July 2026 report ($10,358.33 = $5,858.33 tax reserve + $4,500 base minimum)', () => {
+    const d = {
+      reserves: {
+        property_tax: [
+          { report_month: '2026-06', reserve_after_cents: 475000 },
+          { report_month: '2026-07', reserve_after_cents: 585833 },
+        ],
+      },
+      meta: { reserves: { base_minimum_cents: 450000 } },
+    };
+    expect(finComputePropertyReservesOnHandCents(d)).toBe(1035833);
+  });
+
+  it('sums the latest row of every reserve bucket (tax, capital, insurance, ...)', () => {
+    const d = {
+      reserves: {
+        property_tax: [{ report_month: '2026-06', reserve_after_cents: 100000 }],
+        capital: [{ report_month: '2026-05', reserve_after_cents: 20000 }, { report_month: '2026-06', reserve_after_cents: 30000 }],
+      },
+      meta: {},
+    };
+    expect(finComputePropertyReservesOnHandCents(d)).toBe(130000);
+  });
+
+  it('handles no reserves or meta at all', () => {
+    expect(finComputePropertyReservesOnHandCents({})).toBe(0);
+  });
+});

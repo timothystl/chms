@@ -184,13 +184,7 @@ function finRenderBalancesRow() {
   }
   var checking = sumMatching(/checking/i);
   var savings = sumMatching(/saving|reserve/i);
-  var reserves = 0;
-  if (_finProperty && _finProperty.reserves) {
-    Object.keys(_finProperty.reserves).forEach(function(key) {
-      var rows = _finProperty.reserves[key];
-      if (rows && rows.length) reserves += (rows[rows.length-1].reserve_after_cents || 0) / 100;
-    });
-  }
+  var reserves = _finProperty ? finComputePropertyReservesOnHandCents(_finProperty) / 100 : 0;
   return '<div class="fin-balance-row">'
     + '<div class="fin-balance-card"><div class="fin-balance-icon">&#127974;</div><div><div class="fin-balance-lbl">Operating Checking</div><div class="fin-balance-val">$' + finFmtMoney(checking) + '</div></div></div>'
     + '<div class="fin-balance-card"><div class="fin-balance-icon">&#128737;</div><div><div class="fin-balance-lbl">Reserves &amp; Savings</div><div class="fin-balance-val">$' + finFmtMoney(savings) + '</div></div></div>'
@@ -286,17 +280,32 @@ function finComputePropertyKpis(d) {
   monthly.forEach(function(m) { if (m.occupancy_pct != null) { occSum += m.occupancy_pct; occCount++; } netSum += (m.net_income_cents || 0); });
   var years = (d.annualSummary || []).slice().sort(function(a,b){ return b.year - a.year; });
   var curYear = years[0];
-  var reserves = 0;
-  if (d.reserves) Object.keys(d.reserves).forEach(function(key) {
-    var rows = d.reserves[key];
-    if (rows && rows.length) reserves += (rows[rows.length-1].reserve_after_cents || 0) / 100;
-  });
+  var reserves = finComputePropertyReservesOnHandCents(d) / 100;
   return [
     { lbl: 'Occupancy', val: occCount ? Math.round(occSum/occCount*100) + '%' : '—', chip: monthly.length + ' months tracked', chipCls: 'fin-chip-positive', border: 'var(--sage)' },
     { lbl: 'Monthly Net (avg)', val: '$' + finFmtMoney((monthly.length ? netSum/monthly.length : 0)/100), chip: null, border: 'var(--color-teal)' },
     { lbl: 'Annual Net (this year)', val: curYear ? '$' + finFmtMoney(curYear.net_income_cents/100) : '—', chip: 'to General Fund', chipCls: 'fin-chip-info', border: 'var(--color-navy)' },
-    { lbl: 'Reserves On-Hand', val: '$' + finFmtMoney(reserves), chip: 'tax + capital', chipCls: 'fin-chip-info', border: 'var(--color-gold)' },
+    { lbl: 'Reserves On-Hand', val: '$' + finFmtMoney(reserves), chip: 'tax + capital + base minimum', chipCls: 'fin-chip-info', border: 'var(--color-gold)' },
   ];
+}
+// Named reserve schedules (finance_property_reserves — property_tax today, capital/insurance once
+// funded) track money actually accumulating in that specific bucket. AHRA's own "Total Property
+// Reserve" figure — the one used in its monthly Property Reserve and Distribution Report to
+// compute cash available to distribute — additionally includes a flat "Base Minimum Reserve" cash
+// cushion that is NOT an accumulating bucket. Confirmed against the real July 2026 report: Total
+// Property Reserve ($10,358.33) = Property Tax Reserve after ($5,858.33) + Base Minimum Reserve
+// ($4,500.00) exactly. Stored as a flat, admin-editable figure in meta.reserves.base_minimum_cents
+// (not a monthly ledger — AHRA's report treats it as a constant policy floor, not something that
+// accrues month to month) so "Reserves On-Hand" can reconcile to AHRA's own figure instead of
+// silently under-counting by that flat amount.
+function finComputePropertyReservesOnHandCents(d) {
+  var cents = 0;
+  if (d.reserves) Object.keys(d.reserves).forEach(function(key) {
+    var rows = d.reserves[key];
+    if (rows && rows.length) cents += (rows[rows.length - 1].reserve_after_cents || 0);
+  });
+  cents += (d.meta && d.meta.reserves && d.meta.reserves.base_minimum_cents) || 0;
+  return cents;
 }
 function finRenderKpiGrid(kpis) {
   return '<div class="fin-kpi-grid">' + kpis.map(function(k) {
@@ -2544,6 +2553,7 @@ function finRenderProperty(d) {
     + monthlyCsvImportHtml
     + monthlyHtml
     + '<h4 style="margin:18px 0 8px;font-size:.9rem;">Distributions to Church</h4>' + distHtml
+    + finRenderBaseMinimumReserve(d, isAdminUI)
     + finRenderPropertyTaxReserve(d, isAdminUI)
     + finRenderCapitalImprovements(d, isAdminUI)
     + finRenderRepairs(d, isAdminUI)
@@ -2554,6 +2564,28 @@ function finRenderProperty(d) {
 // ── Property Tax Reserve ─────────────────────────────────────────────────────────────────────
 // AHRA maintains a running monthly reserve toward the annual property tax bill — the schedule
 // zeroes out each November when the actual bill is paid, then rebuilds at a revised monthly rate.
+// AHRA's flat cash cushion (see finComputePropertyReservesOnHandCents above) — shown and
+// editable here since it's otherwise an invisible number baked into "Reserves On-Hand."
+function finRenderBaseMinimumReserve(d, isAdminUI) {
+  var cents = (d.meta && d.meta.reserves && d.meta.reserves.base_minimum_cents) || 0;
+  return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Base Minimum Reserve</h4>'
+    + '<p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 8px;">A flat operating-cash cushion AHRA holds back before computing a distribution — not an accumulating bucket like the Property Tax Reserve below. Included in "Reserves On-Hand" above so it reconciles with AHRA\'s own "Total Property Reserve" figure.</p>'
+    + (isAdminUI
+      ? '<div style="display:flex;gap:8px;align-items:flex-end;">'
+        + '<label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-basemin-amount" step="0.01" value="' + (cents/100) + '" style="width:120px;"></label>'
+        + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finPropertySaveBaseMinimum()">Save</button>'
+        + '</div>'
+      : '<div class="fin-kpi-val" style="font-size:20px;">$' + finFmtMoney(cents/100) + '</div>');
+}
+function finPropertySaveBaseMinimum() {
+  var val = document.getElementById('fin-basemin-amount').value;
+  var cents = Math.round(Number(val) * 100);
+  if (!Number.isFinite(cents) || cents < 0) { finToast('Invalid amount.'); return; }
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/meta', { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ reserves: { base_minimum_cents: cents } }) }).then(function(d) {
+    if (d && d.error) { finToast(d.error); return; }
+    finLoadProperty();
+  }).catch(function(err) { finToast(err && err.message || 'Save failed.'); });
+}
 function finRenderPropertyTaxReserve(d, isAdminUI) {
   var rows = ((d.reserves && d.reserves.property_tax) || []).slice().sort(function(a,b){ return a.report_month < b.report_month ? 1 : -1; });
   var paid = ((d.reserveDisbursements && d.reserveDisbursements.property_tax) || []).slice().sort(function(a,b){ return b.period_key - a.period_key; });

@@ -1128,6 +1128,29 @@ async function seedIvanhoePropertyJune2026Notes(db) {
   ]);
 }
 
+// The July 2026 "Property Reserve and Distribution Report" page (same source document as the
+// June 2026 report, just its reserve-calc section — AHRA computes that section looking one month
+// ahead of the operating financials, dated when the report was generated) revealed a real
+// discrepancy: the app's "Reserves On-Hand" figure ($5,858.33, the Property Tax Reserve's own
+// running balance) didn't match AHRA's own "Total Property Reserve" line ($10,358.33). Reconciled
+// exactly: $10,358.33 = $5,858.33 (property tax reserve after) + $4,500.00 (AHRA's flat "Base
+// Minimum Reserve" cash cushion, a constant policy floor, not an accumulating bucket). Seeds that
+// $4,500 figure into meta.reserves.base_minimum_cents so "Reserves On-Hand" reconciles to AHRA's
+// own total (see finComputePropertyReservesOnHandCents in js-finance.js); admin-editable
+// afterward via the new "Base Minimum Reserve" card.
+async function seedIvanhoePropertyBaseMinimumReserve(db) {
+  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_base_minimum_seeded'").first();
+  if (marker) return;
+  const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_meta'").first();
+  let meta = {};
+  if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
+  meta.reserves = { ...(meta.reserves || {}), base_minimum_cents: 450000 };
+  await db.batch([
+    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify(meta)),
+    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_base_minimum_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`),
+  ]);
+}
+
 async function _doInitDb(db) {
   for (const stmt of DB_INIT) {
     await db.prepare(stmt).run();
@@ -1577,5 +1600,6 @@ async function _doInitDb(db) {
   await seedIvanhoePropertyValuationV3(db);
   await seedIvanhoePropertyJune2026(db);
   await seedIvanhoePropertyJune2026Notes(db);
+  await seedIvanhoePropertyBaseMinimumReserve(db);
 }
 
