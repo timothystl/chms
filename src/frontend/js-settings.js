@@ -323,16 +323,33 @@ function renderLetterheadLogoState(ext) {
   }
   _churchConfig.letterhead_logo_ext = ext || '';
 }
+var LOGO_WARN_BYTES = 300 * 1024; // 300 KB — mirrors the server-side soft threshold (api-import.js)
 function uploadLetterheadLogo(file) {
   if (!file) return;
   var status = document.getElementById('st-logo-status');
-  if (status) { status.textContent = 'Uploading…'; status.className = 'import-status'; }
+  // Instant client-side feedback before the upload even starts — the server re-checks and
+  // returns its own warning too (in case this ever gets bypassed), but there's no reason to
+  // make the admin wait on a round-trip just to learn the file is too big for a small logo.
+  if (file.size > LOGO_WARN_BYTES && status) {
+    status.textContent = 'Heads up: this image is ' + (file.size / 1024 / 1024).toFixed(1) + ' MB — large for a small logo. Uploading anyway…';
+    status.className = 'import-status warn';
+  } else if (status) {
+    status.textContent = 'Uploading…'; status.className = 'import-status';
+  }
   var fd = new FormData();
   fd.append('logo', file, file.name || 'logo');
   api('/admin/api/config/letterhead-logo', { method: 'POST', body: fd, credentials: 'same-origin' }).then(function(d) {
     if (d && d.ok) {
       renderLetterheadLogoState(d.ext);
-      if (status) { status.textContent = 'Uploaded!'; status.className = 'import-status ok'; setTimeout(function(){status.textContent='';}, 2500); }
+      if (status) {
+        if (d.warning) {
+          status.textContent = 'Uploaded — ' + d.warning;
+          status.className = 'import-status warn';
+        } else {
+          status.textContent = 'Uploaded!'; status.className = 'import-status ok';
+          setTimeout(function(){status.textContent='';}, 2500);
+        }
+      }
     } else {
       if (status) { status.textContent = 'Error: ' + ((d && d.error) || 'unknown'); status.className = 'import-status err'; }
     }

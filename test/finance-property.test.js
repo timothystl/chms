@@ -154,6 +154,18 @@ describe('handleFinanceApi — commercial property routes', () => {
     const res = await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/property/ivanhoe', db, false, false);
     expect(res.status).toBe(403);
   });
+
+  it('PATCH meta merges the reserves section (base_minimum_cents) without clobbering other sections', async () => {
+    const db = makeTestDb();
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?)`
+    ).bind(JSON.stringify({ loan: { balance_cents: 29733600 }, reserves: { base_minimum_cents: 100000 } })).run();
+    const res = await handleFinanceApi(makeReq({ reserves: { base_minimum_cents: 450000 } }), {}, new URL('https://x/'), 'PATCH', 'finance/property/ivanhoe/meta', db, true, true);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.meta.reserves.base_minimum_cents).toBe(450000);
+    expect(body.meta.loan.balance_cents).toBe(29733600); // untouched sibling section survives
+  });
 });
 
 describe('handleFinanceApi — reserve schedules (property tax, capital, ...)', () => {

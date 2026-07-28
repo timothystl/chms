@@ -1,7 +1,7 @@
 // ── Import, Config, Register, Export, Breeze Sync API handlers ──────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS, archiveEnvelope, scanForFeeFields } from './api-utils.js';
+import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS, archiveEnvelope, scanForFeeFields, sanitizeLetterTemplateHtml, logoSizeWarning } from './api-utils.js';
 import { validateImageUpload } from './api-people.js';
 import { sendBrevoTransactionalEmail } from './api-emails.js';
 
@@ -405,6 +405,20 @@ if (seg === 'config/church' && method === 'GET') {
     const healed = await healLetterTemplateIfStale(db, 'giving_midyear_letter_template', OLD_DEFAULT_MIDYEAR_LETTER_TEMPLATE, NEW_DEFAULT_MIDYEAR_LETTER_TEMPLATE);
     if (healed) config.giving_midyear_letter_template = healed;
   }
+  // Self-heal a template that was previously corrupted by a base64 image pasted
+  // into the Link dialog (instead of Insert Image) or pasted directly as raw
+  // text — either shows up in the sent email as a giant literal base64 string
+  // instead of a picture. Persist the cleaned version back so this only needs
+  // fixing once per template, not on every read.
+  for (const key of ['giving_letter_template', 'giving_midyear_letter_template']) {
+    if (config[key]) {
+      const { cleaned, changed } = sanitizeLetterTemplateHtml(config[key]);
+      if (changed) {
+        await db.prepare("UPDATE chms_config SET value=? WHERE key=?").bind(cleaned, key).run();
+        config[key] = cleaned;
+      }
+    }
+  }
   return json(config);
 }
 if (seg === 'config/church' && method === 'PUT') {
@@ -424,6 +438,9 @@ if (seg === 'config/church' && method === 'PUT') {
     if (b[k] && String(b[k]).length > TEMPLATE_MAX_CHARS) {
       return json({ error: 'This letter template is too large to save (likely an embedded image) — please use a smaller image (under ~400 KB) or remove it and try again.' }, 400);
     }
+    // Strip a base64 image dropped into the Link dialog or pasted as raw text —
+    // see sanitizeLetterTemplateHtml() — before it ever reaches storage.
+    if (b[k]) b[k] = sanitizeLetterTemplateHtml(String(b[k])).cleaned;
   }
   for (const k of allowed) {
     // Only save non-empty values — preserves existing config if user saves with a blank field
@@ -474,6 +491,7 @@ if (seg === 'config/letterhead-logo' && method === 'POST') {
   if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket tlc-chms-photos' }, 503);
   let file;
   try { const fd = await req.formData(); file = fd.get('logo'); } catch { return json({ error: 'Invalid form data' }, 400); }
+  const fileSize = file && file.size ? file.size : 0;
   const v = await validateImageUpload(file);
   if (!v.ok) return json({ error: v.error }, v.status);
   const prev = await db.prepare("SELECT value FROM chms_config WHERE key='letterhead_logo_ext'").first();
@@ -482,7 +500,9 @@ if (seg === 'config/letterhead-logo' && method === 'POST') {
   }
   await env.PHOTOS.put(`branding/letterhead-logo.${v.ext}`, v.buf, { httpMetadata: { contentType: v.ct } });
   await db.prepare("INSERT INTO chms_config(key,value) VALUES('letterhead_logo_ext',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(v.ext).run();
-  return json({ ok: true, ext: v.ext });
+  // Warn (don't block) if this is oversized for a small logo — see logoSizeWarning() in
+  // api-utils.js for why (a confirmed cause of GIV-BUG1's blank-blob logo).
+  return json({ ok: true, ext: v.ext, warning: logoSizeWarning(fileSize) });
 }
 if (seg === 'config/letterhead-logo' && method === 'DELETE') {
   if (!isStaff) return json({ error: 'Access denied' }, 403);
