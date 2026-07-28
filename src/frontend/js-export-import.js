@@ -967,6 +967,25 @@ function downloadBreezeAuditLog() {
   window.location.href = '/admin/api/giving/breeze-audit-export?start=' + encodeURIComponent(from) + '&end=' + encodeURIComponent(to);
 }
 
+function runBreezeFeeCheck() {
+  var status = document.getElementById('breeze-fee-check-status');
+  var out = document.getElementById('breeze-fee-check-out');
+  status.textContent = 'Asking Breeze…'; status.className = 'import-status';
+  out.style.display = 'none';
+  api('/admin/api/import/breeze-giving-debug').then(function(d) {
+    if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
+    var fa = d.fee_field_analysis;
+    if (!fa) { status.textContent = 'No fee analysis returned (endpoint may be out of date).'; status.className = 'import-status err'; return; }
+    var present = /FEE FIELD PRESENT/.test(fa.verdict || '');
+    status.textContent = fa.verdict || 'Done.';
+    status.className = 'import-status ' + (present ? 'ok' : '');
+    out.textContent = JSON.stringify(fa, null, 2);
+    out.style.display = 'block';
+  }).catch(function(e) {
+    status.textContent = 'Error: ' + (e && e.message ? e.message : e); status.className = 'import-status err';
+  });
+}
+
 function runBreezeGivingSync() {
   var from = document.getElementById('giving-sync-from').value;
   var to = document.getElementById('giving-sync-to').value;

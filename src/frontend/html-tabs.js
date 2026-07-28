@@ -411,6 +411,12 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <p style="margin:0 0 8px;"><strong>Breeze Audit Log Export</strong> — Download every contribution-related event from Breeze (added, updated, deleted) as a CSV for reconciliation. Uses the same date range as the sync above.</p>
         <button class="btn-secondary" onclick="downloadBreezeAuditLog()">&#128229; Download Audit Log CSV</button>
       </div>
+      <div style="margin-top:12px;" class="require-admin">
+        <p style="margin:0 0 8px;"><strong>Processor Fee Check</strong> — Ask the Breeze API whether it returns a per-payment fee / net / deposit field. Answers whether native giving can capture the processor fee straight from Breeze, or whether it has to come from a report import.</p>
+        <button class="btn-secondary" onclick="runBreezeFeeCheck()">&#128269; Check for Fee Field</button>
+        <div class="import-status" id="breeze-fee-check-status"></div>
+        <pre id="breeze-fee-check-out" style="display:none;margin-top:10px;padding:10px;background:#f4f0ea;border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
+      </div>
     </div>
     <!-- Letter Template Card -->
     <div class="import-card require-finance" style="margin-bottom:14px;">
