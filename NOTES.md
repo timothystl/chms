@@ -24,6 +24,35 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.109.0 — Fixed a real duplicate-write bug inflating Overview KPI totals; "Revenue"-wording bottom-line fixes (2026-07-28)
+Live testing after the $0-budget fix (below) surfaced a much bigger problem: the Overview tab's
+KPI cards (Income YTD/Expenses YTD/Net Position) showed roughly double the correct total (~$1.18M
+expenses) compared to the same sync's own Budget vs Actual reconstruction (~$605K, independently
+verified plausible). Root cause: `finance_church_entries` is built from THREE separate flatten
+passes per sync (multi-year actuals, current-year budget-merge, monthly) sharing one table keyed
+`UNIQUE(fiscal_year, period_month, category_path, source)` — the multi-year pass and the
+current-year pass both write period_month=0 rows for the current year, relying on the second
+pass's `ON CONFLICT DO UPDATE` to overwrite the first. That self-heals only when both passes
+produce byte-identical `category_path` strings for the same account — QuickBooks' multi-year
+summarized report (`summarize_column_by:'Year'`) doesn't reliably match the single-year report's
+account tree shape, so a mismatched path became a second, un-overwritten row instead of a
+correction, silently doubling the total. **Fixed by excluding the current year from the
+multi-year pass entirely** — the current-year pass already covers it (with real budget data,
+unlike the actuals-only multi-year pass), so there's no second pass left to conflict with.
+
+Also fixed, from the same live screenshots: **"Net Operating Revenue"/"Net Revenue" showed $0.00
+budget** in the Budget vs Actual table — `mergeProfitAndLossTree`'s combined-budget special case
+only ever matched the literal string `'Net Income'`, and this church's real QuickBooks report uses
+"Revenue" wording throughout (already known from `normalizeChurchClassification`, now extended to
+the bottom-line rows too). New `FINAL_NET_LABEL_RE`/`OTHER_INCOME_SECTION_RE`/
+`RUNNING_SUBTOTAL_LABEL_RE` replace the hardcoded English-only string checks with patterns
+matching both wordings.
+
+`npm test` (371/371, 4 new tests), `node --check` on `api-finance.js`. Not verified against a live
+sync — per the user's decision this session, live QuickBooks API sync is being set aside in favor
+of the existing CSV/Excel import path; see FIN2 in `CLAUDE.md`. (`src/api-finance.js`,
+`test/finance-church.test.js`)
+
 ### v1.108.0 — Giving Plateaus: Occasional Givers list restored (2026-07-27)
 G28 merged occasional/low-frequency givers into the unified total÷52 model with just an
 inline `low_frequency` marker — user follow-up: still want a dedicated place to SEE them, specifically
