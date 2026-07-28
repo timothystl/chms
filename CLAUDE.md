@@ -944,6 +944,31 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
   the served bundle for the double-backslash escaping bug class (3 hits, all pre-existing/unrelated).
   Not verified live. Done 2026-07-27 (v1.103.0). (`src/api-utils.js`, `src/api-reports.js`,
   `src/frontend/js-reports.js`, `src/frontend/html-tabs.js`, `test/giving-plateaus.test.js`)
+- [x] **G29** — Follow-up on G28: user still wanted a dedicated, visible place to see occasional/
+  low-frequency givers (folded into the unified model in G28) — specifically as a natural starting
+  point for a recurring/automatic-giving conversation — and asked that one-time LARGE gifts (stock/
+  IRA/QCD) surface there too, explicit that the list is informational, nobody on it needs to change
+  anything. New `low_frequency_givers_list` in `computeGivingPlateaus()` — every low-frequency giver
+  (still also in the normal tiers, not excluded), sorted by total given descending so a major one-time
+  gift sorts first. New `all_manual_methods` flag per giver (mirrors `bucketGivingMethod()`'s 'ach'
+  bucket via SQL) distinguishes "check/cash only" from "already has automatic gifts." New "Occasional
+  = ≤ X gifts/yr" input (was a hardcoded 3) + an "Occasional Givers" card on the Plateaus report,
+  copy explicitly framed as reference only, with a link to the church's Online Giving URL when
+  configured. **Found and flagged (not fixed, out of scope) a pre-existing bug**: a different,
+  unrelated giving-statement function reads `_churchConfig.giving_url`, but the real config key is
+  `online_giving_url` — that link has silently always been blank; new code here uses the correct key.
+  `npm test` (371/371, 4 new tests), `node --check` both bundles + backend, `auto_gifts` SQL verified
+  against real SQLite. Not verified live. Done 2026-07-27 (v1.104.0). (`src/api-utils.js`,
+  `src/api-reports.js`, `src/frontend/js-reports.js`, `src/frontend/html-tabs.js`,
+  `test/giving-plateaus.test.js`)
+- [ ] **G30** — Pre-existing bug found while building G29, not fixed (out of scope for that session):
+  the giving-statement view function in `js-giving.js` (~line 1299) reads `_churchConfig.giving_url`
+  to build a "set up recurring giving" link, but `GET /admin/api/config/church` actually returns that
+  value under the key `online_giving_url` — so `givingUrl` there has always evaluated to `''`/falsy,
+  meaning that specific link has silently never rendered even when an admin has set the URL in
+  Settings. Fix: change `_churchConfig.giving_url` to `_churchConfig.online_giving_url` at that call
+  site (and any other occurrence of the wrong key — grep for `.giving_url` excluding
+  `online_giving_url`). (noted 2026-07-27)
 - [ ] **G24** — Manual follow-up needed, outside code: `CHMS_INTAKE_API_KEY` (the same secret value already set on this Worker) needs to also be set as a secret on the website repo's `tlc-newsletter-admin` Worker (admin.timothystl.org) — it isn't there today (that Worker has never called out to ChMS before). Without it, `GET /api/intake/funds` calls from the Giving tab will always get a 401. `wrangler secret put CHMS_INTAKE_API_KEY --name tlc-newsletter-admin`, using the exact same value already configured for this Worker.
 
 ### Dashboard
