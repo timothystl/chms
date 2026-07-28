@@ -24,6 +24,34 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.103.0 — Stop trusting the native Budget vs Actual report; Multi-Year year-range picker; comma formatting (2026-07-28)
+Live testing right after v1.102.0's endpoint-name fix: the native `BudgetVsActuals` report finally
+responded for the first time (previously always 5020'd), but its numbers didn't hold up — e.g. an
+"Actual" many times larger than its own "Budget" for the same account. Consistent with everything
+found this session (Intuit's own developer-community forum confirms this report is undocumented and
+unsupported), the most likely explanation is the report isn't honoring `start_date`/`end_date` and is
+summing since the QuickBooks company's inception rather than the requested fiscal year. Given the
+app's own reconstruction (`mergeCurrentYearBudgetAndActual` — Budget entity + a date-scoped
+`ProfitAndLoss` report, both confirmed to respect date filtering correctly) has been reliable this
+whole time, **the sync now always uses the reconstruction for display, never the native report's
+numbers** — the native call still runs (so a real failure surfaces as a warning) but its Rows are
+never rendered. This also incidentally fixes the missing-column-header symptom reported (the native
+report's real column shape wasn't something the generic renderer handled).
+
+Two more items from the same live-testing round:
+- **Multi-Year view year-range picker.** `finance/church/multi-year` has always defaulted to a
+  rolling 5-year window (currentYear-4..currentYear) with no way to request anything older — so an
+  older import (e.g. 2018) saved correctly but was invisible on every screen, which read as "the
+  import isn't saving." New From/To year inputs + "Load Range" button on the Multi-Year view request
+  an explicit `years=` range (capped at 20 years per request).
+- **Comma formatting** on the Budget vs Actual table's dollar cells (new `finFmtReportCellValue()`,
+  skips percent-suffixed values and non-numeric text).
+
+`npm test` (340/340), `node --check` on `api-finance.js` and both built app-JS bundles. A stray
+backtick in a comment briefly broke the build (the recurring `String.raw`-escaping bug class
+documented elsewhere in this file) — caught by `npm test` itself before shipping, not a live report.
+Not verified against a live sync. (`src/api-finance.js`, `src/frontend/js-finance.js`)
+
 ### v1.102.0 — Two real QuickBooks bugs found + Budget picker (2026-07-28)
 Live sync testing (immediately after the CHURCH_SOURCE_PRIORITY flip above made qbo_sync-sourced
 data visible for the first time) surfaced two genuine, previously-hidden bugs, plus a real feature
