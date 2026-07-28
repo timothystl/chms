@@ -509,5 +509,29 @@ if (depReopenMatch && method === 'POST') {
   return json({ ok: true });
 }
 
+// Gifts not yet attached to any deposit — the pool a deposit's gifts are drawn from.
+// Optional date/batch filter so a whole weekly batch can be pulled in at once.
+if (seg === 'giving/unassigned-gifts' && method === 'GET') {
+  const from    = url.searchParams.get('from') || '';
+  const to      = url.searchParams.get('to') || '';
+  const batchId = url.searchParams.get('batch_id');
+  let sql = `SELECT ge.id, ge.amount, ge.fee_cents, ge.method, ge.check_number, ge.source, ge.batch_id,
+                    COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) AS gift_date,
+                    f.name AS fund_name,
+                    COALESCE(p.first_name||' '||p.last_name,'(anonymous)') AS person_name
+               FROM giving_entries ge
+               JOIN funds f ON ge.fund_id=f.id
+               JOIN giving_batches gb ON ge.batch_id=gb.id
+               LEFT JOIN people p ON ge.person_id=p.id
+              WHERE ge.deposit_id IS NULL`;
+  const binds = [];
+  if (batchId) { sql += ` AND ge.batch_id=?`; binds.push(parseInt(batchId)); }
+  if (from)    { sql += ` AND COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) >= ?`; binds.push(from); }
+  if (to)      { sql += ` AND COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) <= ?`; binds.push(to); }
+  sql += ` ORDER BY gift_date DESC, ge.id DESC LIMIT 500`;
+  const gifts = (await db.prepare(sql).bind(...binds).all()).results || [];
+  return json({ gifts });
+}
+
   return null; // not handled
 }

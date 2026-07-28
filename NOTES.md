@@ -24,6 +24,29 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.100.0 — Deposit reconciliation UI (GIV-DEP frontend) (2026-07-28)
+The deposit-reconciliation **backend** (GIV-DEP, migration `0031`) was already committed on this
+branch by a prior run — `giving_deposits` table, per-gift `fee_cents`/`source`/`processor`/
+`external_txn_id`/`reconcile_status`, and the full finance-gated endpoint set (list / create /
+detail / patch / delete / assign / reconcile / reopen), with `computeDepositTotals()` unit-tested.
+This slice adds the **frontend workflow** that was missing (nothing in `js-giving.js` referenced it):
+a new **Deposits** sub-nav view in the Giving tab (finance-gated), master-detail like Batches —
+list of deposits (Open/Reconciled filter) on the left, detail on the right. Detail shows the
+two-number model the church actually wants: **Given** (gross, from synced gifts) vs. **Bank deposit**
+(entered by the bookkeeper) vs. **Fees = Given − Deposited**, computed live as the bank amount is
+typed. Workflow: **+ New** deposit (date / source check|cash|online|mixed / optional payout ref) →
+**+ Add gifts** pulls the pool of unassigned gifts (new `GET giving/unassigned-gifts`, `deposit_id
+IS NULL`) with select-all → enter the bank amount → **Reconcile to Bank** stamps the gifts complete;
+**Reopen**/**Delete** available; Delete releases gifts back to unassigned (never deletes a gift).
+This is the "some cover the fee, some don't" self-correcting design — donor-covered gifts add equally
+to Given and Deposited so they cancel, leaving exactly the church-absorbed fee in the gap. The
+per-gift `fee_cents` (processor-reported, e.g. Tithe.ly) is surfaced as a cross-check line when
+present but is 0 until a processor adapter feeds it. **Not verified in a live browser.** Verified:
+`npm test` (338/338), `node --check` on `api-giving.js` + both served app-JS bundles (SC3-BUG1
+extract-and-check technique), and a `node:sqlite` harness confirming the unassigned-gifts filter
+excludes already-assigned gifts. (`src/api-giving.js`, `src/frontend/js-giving.js`,
+`src/frontend/html-tabs.js`, `src/frontend/js-core.js`)
+
 ### v1.93.0 — Giving by Weekly/Monthly Band report (2026-07-27)
 New "Giving by Weekly / Monthly Band" card in the Board Report tab (below the Plateaus card),
 answering "how do households spread across per-week giving levels, and what would a small

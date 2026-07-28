@@ -2,7 +2,7 @@ export const JS_GIVING = String.raw`<script>
 // ── GIVING ────────────────────────────────────────────────────────────
 // ── Batches / Transactions view toggle (RDS4) ──────────────────────────
 var _givView = 'batches';
-var _GIV_VIEWS = ['batches','transactions','board','letters','receipts','reports','settings'];
+var _GIV_VIEWS = ['batches','transactions','deposits','board','letters','receipts','reports','settings'];
 var _GIV_VIEW_DISPLAY = { batches:'grid', transactions:'flex' }; // others default to ''
 function givSetView(view) {
   _givView = view;
@@ -24,11 +24,272 @@ function givSetView(view) {
     var bandsYr = document.getElementById('rpt-bands-year');
     if (bandsYr && !bandsYr.value) bandsYr.value = curYr;
   }
+  if (view === 'deposits') loadDeposits();
   if (view === 'letters') givLettersInit();
   if (view === 'receipts') givReceiptsInit();
   if (view === 'reports') { givAnalysisInit(); finInitGivingReports(); }
   if (view === 'settings') loadGivingSettings();
 }
+
+// ── Deposit reconciliation (GIV-DEP) ───────────────────────────────────
+// A deposit groups the gifts that make one bank deposit; entering the amount the
+// bank actually received makes "Given − Deposited = fees" fall out on its own — the
+// donor-covered-fee gifts add equally to both sides and cancel, so the gap is exactly
+// the fees the church absorbed. Fees per gift (fee_cents) come later from the processor.
+var _depFilter = 'all';
+var _depCurrentId = null;
+var _depDetail = null;
+
+function depSourceLabel(s) {
+  return ({ check:'Check', cash:'Cash', online:'Online', mixed:'Mixed' })[s] || 'Unspecified';
+}
+
+function loadDeposits() {
+  var list = document.getElementById('giv-deposits-list');
+  if (!list) return;
+  list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--warm-gray);font-size:.85rem;">Loading&#8230;</div>';
+  api('/admin/api/giving/deposits?status=' + encodeURIComponent(_depFilter)).then(function(d) {
+    depRenderList((d && d.deposits) || []);
+  }).catch(function() {
+    list.innerHTML = '<div style="padding:16px;color:var(--danger);font-size:.85rem;">Could not load deposits.</div>';
+  });
+}
+
+function depSetFilter(btn, f) {
+  _depFilter = f;
+  var pills = btn.parentNode.querySelectorAll('.pill');
+  for (var i = 0; i < pills.length; i++) pills[i].classList.remove('active');
+  btn.classList.add('active');
+  loadDeposits();
+}
+
+function depRenderList(deps) {
+  var list = document.getElementById('giv-deposits-list');
+  if (!list) return;
+  if (!deps.length) {
+    list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--warm-gray);font-size:.85rem;">No deposits yet.</div>';
+    return;
+  }
+  list.innerHTML = deps.map(function(d) {
+    var gross = d.gross_cents || 0;
+    var recon = d.status === 'reconciled';
+    var bank = (d.bank_cents === null || d.bank_cents === undefined) ? null : d.bank_cents;
+    var feeGap = (bank === null) ? null : (gross - bank);
+    var sel = (d.id === _depCurrentId);
+    var badge = recon
+      ? '<span style="background:var(--sage,#4A5E3A);color:var(--white,#fff);font-size:.66rem;padding:2px 7px;border-radius:10px;">Reconciled</span>'
+      : '<span style="background:var(--amber,#C9973A);color:var(--white,#fff);font-size:.66rem;padding:2px 7px;border-radius:10px;">Open</span>';
+    return '<div onclick="depOpen(' + d.id + ')" style="cursor:pointer;padding:10px 12px;border-radius:8px;margin-bottom:7px;border:1px solid var(--linen,#EDE9E0);'
+      + (sel ? 'background:var(--linen,#EDE9E0);' : 'background:var(--warm-white,#FBF8F3);') + '">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">'
+      + '<strong style="font-size:.9rem;">' + (d.deposit_date ? fmtDate(d.deposit_date) : 'No date') + '</strong>' + badge + '</div>'
+      + '<div style="font-size:.76rem;color:var(--warm-gray);margin-top:3px;">'
+      + depSourceLabel(d.source) + ' &middot; ' + (d.gift_count || 0) + ' gift' + ((d.gift_count === 1) ? '' : 's') + ' &middot; ' + fmtMoney(gross) + '</div>'
+      + (feeGap !== null ? '<div style="font-size:.76rem;margin-top:2px;color:' + (feeGap < 0 ? 'var(--danger)' : 'var(--warm-gray)') + ';">Fees ' + fmtMoney(feeGap) + '</div>' : '')
+      + '</div>';
+  }).join('');
+}
+
+function depNew() {
+  _depCurrentId = null; _depDetail = null;
+  loadDeposits();
+  var el = document.getElementById('giv-deposit-detail');
+  if (!el) return;
+  var today = new Date().toISOString().slice(0, 10);
+  el.innerHTML =
+    '<h3 style="margin:0 0 14px;">New Deposit</h3>'
+    + '<div class="field" style="margin-bottom:10px;"><label>Deposit date</label><input type="date" id="dep-new-date" value="' + today + '"></div>'
+    + '<div class="field" style="margin-bottom:10px;"><label>Source</label><select id="dep-new-source"><option value="">Unspecified</option><option value="check">Check</option><option value="cash">Cash</option><option value="online">Online (Tithe.ly)</option><option value="mixed">Mixed</option></select></div>'
+    + '<div class="field" style="margin-bottom:10px;"><label>Reference / payout id (optional)</label><input type="text" id="dep-new-ref" placeholder="e.g. Tithe.ly payout #"></div>'
+    + '<div class="field" style="margin-bottom:14px;"><label>Notes (optional)</label><input type="text" id="dep-new-notes"></div>'
+    + '<button class="btn-primary" onclick="depCreate()">Create Deposit</button> '
+    + '<button class="btn-secondary" onclick="depClearDetail()">Cancel</button>';
+}
+
+function depCreate() {
+  var src = document.getElementById('dep-new-source').value;
+  var body = {
+    deposit_date: document.getElementById('dep-new-date').value,
+    source: src,
+    external_ref: document.getElementById('dep-new-ref').value,
+    notes: document.getElementById('dep-new-notes').value
+  };
+  if (src === 'online') body.processor = 'tithely';
+  api('/admin/api/giving/deposits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } loadDeposits(); depOpen(r.id); })
+    .catch(function() { alert('Could not create the deposit.'); });
+}
+
+function depClearDetail() {
+  _depCurrentId = null; _depDetail = null;
+  var el = document.getElementById('giv-deposit-detail');
+  if (el) el.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:180px;color:var(--warm-gray);gap:10px;text-align:center;"><div style="font-size:.9rem;">Select a deposit, or click <strong>+ New</strong>.</div></div>';
+  loadDeposits();
+}
+
+function depOpen(id) {
+  _depCurrentId = id;
+  api('/admin/api/giving/deposits/' + id).then(function(d) {
+    if (d && d.error) { alert(d.error); return; }
+    _depDetail = d;
+    depRenderDetail();
+    loadDeposits();
+  }).catch(function() { alert('Could not load the deposit.'); });
+}
+
+function depRenderDetail() {
+  var d = _depDetail; if (!d) return;
+  var el = document.getElementById('giv-deposit-detail'); if (!el) return;
+  var recon = d.status === 'reconciled';
+  var gross = (d.totals && d.totals.gross_cents) || 0;
+  var recordedFees = (d.totals && d.totals.fee_cents) || 0;
+  var bankCents = (d.bank_cents === null || d.bank_cents === undefined) ? null : d.bank_cents;
+  var bankVal = (bankCents === null) ? '' : (bankCents / 100).toFixed(2);
+  var feeGap = (bankCents === null) ? null : (gross - bankCents);
+  var gifts = d.gifts || [];
+
+  var giftRows = gifts.length ? gifts.map(function(g) {
+    return '<tr><td>' + fmtDate(g.gift_date) + '</td><td>' + esc(g.person_name) + '</td><td>' + esc(g.fund_name) + '</td><td>' + esc(g.method) + '</td>'
+      + '<td class="amt-col">' + fmtMoney(g.amount) + '</td>'
+      + (recon ? '' : '<td><button class="btn-secondary" style="padding:2px 8px;font-size:.72rem;" onclick="depRemoveGift(' + g.id + ')">Remove</button></td>')
+      + '</tr>';
+  }).join('') : '<tr><td colspan="' + (recon ? 5 : 6) + '" style="padding:14px;text-align:center;color:var(--warm-gray);">No gifts assigned yet.</td></tr>';
+
+  var html = '';
+  html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:14px;">';
+  html += '<div><h3 style="margin:0;">' + (d.deposit_date ? fmtDate(d.deposit_date) : 'New deposit') + '</h3>';
+  html += '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:2px;">' + depSourceLabel(d.source) + (d.external_ref ? ' &middot; ' + esc(d.external_ref) : '') + '</div>';
+  if (d.notes) html += '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:2px;">' + esc(d.notes) + '</div>';
+  html += '</div><div>' + (recon
+    ? '<span style="background:var(--sage,#4A5E3A);color:var(--white,#fff);font-size:.7rem;padding:3px 9px;border-radius:11px;">Reconciled</span>'
+    : '<span style="background:var(--amber,#C9973A);color:var(--white,#fff);font-size:.7rem;padding:3px 9px;border-radius:11px;">Open</span>') + '</div></div>';
+
+  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">';
+  html += '<div class="dash-stat" style="padding:12px;"><div style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.03em;">Given</div><div style="font-size:1.25rem;font-weight:700;">' + fmtMoney(gross) + '</div></div>';
+  if (recon) {
+    html += '<div class="dash-stat" style="padding:12px;"><div style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.03em;">Deposited</div><div style="font-size:1.25rem;font-weight:700;">' + (bankCents === null ? '&mdash;' : fmtMoney(bankCents)) + '</div></div>';
+  } else {
+    html += '<div class="dash-stat" style="padding:12px;"><div style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.03em;">Bank deposit</div>'
+      + '<div style="display:flex;align-items:center;gap:3px;margin-top:3px;"><span style="font-size:1.05rem;">$</span><input type="number" step="0.01" id="dep-bank-input" value="' + bankVal + '" oninput="depRecalcFees()" style="width:100%;font-size:1.05rem;padding:4px 6px;"></div></div>';
+  }
+  html += '<div class="dash-stat" style="padding:12px;"><div style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.03em;">Fees (Given &minus; Deposited)</div><div id="dep-fee-figure" style="font-size:1.25rem;font-weight:700;">' + (feeGap === null ? '&mdash;' : fmtMoney(feeGap)) + '</div></div>';
+  html += '</div>';
+
+  if (recordedFees) html += '<div style="font-size:.78rem;color:var(--warm-gray);margin:-4px 0 14px;">Processor-reported fees on these gifts: ' + fmtMoney(recordedFees) + ' (cross-check for the figure above once the payment system supplies fees).</div>';
+
+  html += '<div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;">';
+  if (recon) {
+    html += '<button class="btn-secondary" onclick="depReopen()">Reopen</button>';
+  } else {
+    html += '<button class="btn-primary" onclick="depReconcile()">Reconcile to Bank</button>';
+    html += '<button class="btn-secondary" onclick="depSaveBank()">Save Bank Amount</button>';
+    html += '<button class="btn-danger" onclick="depDelete()" style="margin-left:auto;">Delete</button>';
+  }
+  html += '</div>';
+
+  html += '<h4 style="margin:0 0 8px;">Gifts in this deposit</h4>';
+  html += '<div style="overflow-x:auto;"><table class="entries-table"><thead><tr><th>Date</th><th>Donor</th><th>Fund</th><th>Method</th><th class="amt-col">Amount</th>' + (recon ? '' : '<th></th>') + '</tr></thead><tbody>' + giftRows + '</tbody></table></div>';
+
+  if (!recon) {
+    html += '<div style="margin-top:14px;"><button class="btn-secondary" onclick="depToggleAddGifts()">+ Add gifts</button><div id="dep-add-box" style="display:none;margin-top:10px;"></div></div>';
+  }
+
+  el.innerHTML = html;
+  depRecalcFees();
+}
+
+function depRecalcFees() {
+  var d = _depDetail; if (!d) return;
+  var gross = (d.totals && d.totals.gross_cents) || 0;
+  var inp = document.getElementById('dep-bank-input');
+  var span = document.getElementById('dep-fee-figure');
+  if (!span || !inp) return;
+  if (inp.value === '') { span.textContent = '—'; span.style.color = 'var(--warm-gray)'; return; }
+  var bankCents = Math.round(parseFloat(inp.value) * 100);
+  if (isNaN(bankCents)) { span.textContent = '—'; span.style.color = 'var(--warm-gray)'; return; }
+  var fee = gross - bankCents;
+  span.textContent = fmtMoney(fee);
+  span.style.color = (fee < 0) ? 'var(--danger)' : 'var(--charcoal,#1A1A2A)';
+}
+
+function depToggleAddGifts() {
+  var box = document.getElementById('dep-add-box');
+  if (!box) return;
+  if (box.style.display === 'none') { box.style.display = 'block'; depLoadUnassigned(); }
+  else { box.style.display = 'none'; }
+}
+
+function depLoadUnassigned() {
+  var box = document.getElementById('dep-add-box');
+  if (!box) return;
+  box.innerHTML = '<div style="padding:10px;color:var(--warm-gray);font-size:.82rem;">Loading gifts&#8230;</div>';
+  api('/admin/api/giving/unassigned-gifts').then(function(d) {
+    var gifts = (d && d.gifts) || [];
+    if (!gifts.length) { box.innerHTML = '<div style="padding:10px;color:var(--warm-gray);font-size:.82rem;">No unassigned gifts &mdash; every recorded gift is already in a deposit.</div>'; return; }
+    var rows = gifts.map(function(g) {
+      return '<tr><td><input type="checkbox" class="dep-add-cb" value="' + g.id + '"></td><td>' + fmtDate(g.gift_date) + '</td><td>' + esc(g.person_name) + '</td><td>' + esc(g.fund_name) + '</td><td>' + esc(g.method) + '</td><td class="amt-col">' + fmtMoney(g.amount) + '</td></tr>';
+    }).join('');
+    box.innerHTML = '<div style="margin:2px 0 8px;"><label style="font-size:.8rem;"><input type="checkbox" onclick="depToggleAllUnassigned(this)"> Select all</label> <button class="btn-primary" style="padding:4px 10px;font-size:.78rem;margin-left:8px;" onclick="depAddSelected()">Add selected</button></div>'
+      + '<div style="max-height:280px;overflow:auto;"><table class="entries-table"><thead><tr><th></th><th>Date</th><th>Donor</th><th>Fund</th><th>Method</th><th class="amt-col">Amount</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }).catch(function() { box.innerHTML = '<div style="padding:10px;color:var(--danger);font-size:.82rem;">Could not load gifts.</div>'; });
+}
+
+function depToggleAllUnassigned(cb) {
+  var cbs = document.querySelectorAll('.dep-add-cb');
+  for (var i = 0; i < cbs.length; i++) cbs[i].checked = cb.checked;
+}
+
+function depAddSelected() {
+  var cbs = document.querySelectorAll('.dep-add-cb');
+  var ids = [];
+  for (var i = 0; i < cbs.length; i++) if (cbs[i].checked) ids.push(parseInt(cbs[i].value));
+  if (!ids.length) { alert('Select at least one gift to add.'); return; }
+  api('/admin/api/giving/deposits/' + _depCurrentId + '/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entry_ids: ids }) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } depOpen(_depCurrentId); })
+    .catch(function() { alert('Could not add the gifts.'); });
+}
+
+function depRemoveGift(entryId) {
+  api('/admin/api/giving/deposits/' + _depCurrentId + '/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entry_ids: [entryId], unassign: true }) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } depOpen(_depCurrentId); })
+    .catch(function() { alert('Could not remove the gift.'); });
+}
+
+function depSaveBank() {
+  var inp = document.getElementById('dep-bank-input');
+  var bankCents = null;
+  if (inp && inp.value !== '') {
+    bankCents = Math.round(parseFloat(inp.value) * 100);
+    if (isNaN(bankCents)) { alert('Enter a valid dollar amount.'); return; }
+  }
+  api('/admin/api/giving/deposits/' + _depCurrentId, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bank_cents: bankCents }) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } depOpen(_depCurrentId); })
+    .catch(function() { alert('Could not save.'); });
+}
+
+function depReconcile() {
+  var inp = document.getElementById('dep-bank-input');
+  if (!inp || inp.value === '') { alert('Enter the bank deposit amount first.'); return; }
+  var bankCents = Math.round(parseFloat(inp.value) * 100);
+  if (isNaN(bankCents)) { alert('Enter a valid dollar amount.'); return; }
+  api('/admin/api/giving/deposits/' + _depCurrentId + '/reconcile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bank_cents: bankCents }) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } depOpen(_depCurrentId); })
+    .catch(function() { alert('Could not reconcile.'); });
+}
+
+function depReopen() {
+  api('/admin/api/giving/deposits/' + _depCurrentId + '/reopen', { method: 'POST' })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } depOpen(_depCurrentId); })
+    .catch(function() { alert('Could not reopen.'); });
+}
+
+function depDelete() {
+  if (!confirm('Delete this deposit? Its gifts are released back to unassigned — no gift is deleted.')) return;
+  api('/admin/api/giving/deposits/' + _depCurrentId, { method: 'DELETE' })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } depClearDetail(); })
+    .catch(function() { alert('Could not delete.'); });
+}
+
 function givTxnPopulateFundOptions() {
   var sel = document.getElementById('giv-txn-fund');
   if (!sel || sel.options.length > 1) return; // already populated
