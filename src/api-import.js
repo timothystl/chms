@@ -1,7 +1,7 @@
 // ── Import, Config, Register, Export, Breeze Sync API handlers ──────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS, archiveEnvelope, scanForFeeFields, sanitizeLetterTemplateHtml } from './api-utils.js';
+import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS, archiveEnvelope, scanForFeeFields, sanitizeLetterTemplateHtml, logoSizeWarning } from './api-utils.js';
 import { validateImageUpload } from './api-people.js';
 import { sendBrevoTransactionalEmail } from './api-emails.js';
 
@@ -491,6 +491,7 @@ if (seg === 'config/letterhead-logo' && method === 'POST') {
   if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket tlc-chms-photos' }, 503);
   let file;
   try { const fd = await req.formData(); file = fd.get('logo'); } catch { return json({ error: 'Invalid form data' }, 400); }
+  const fileSize = file && file.size ? file.size : 0;
   const v = await validateImageUpload(file);
   if (!v.ok) return json({ error: v.error }, v.status);
   const prev = await db.prepare("SELECT value FROM chms_config WHERE key='letterhead_logo_ext'").first();
@@ -499,7 +500,9 @@ if (seg === 'config/letterhead-logo' && method === 'POST') {
   }
   await env.PHOTOS.put(`branding/letterhead-logo.${v.ext}`, v.buf, { httpMetadata: { contentType: v.ct } });
   await db.prepare("INSERT INTO chms_config(key,value) VALUES('letterhead_logo_ext',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(v.ext).run();
-  return json({ ok: true, ext: v.ext });
+  // Warn (don't block) if this is oversized for a small logo — see logoSizeWarning() in
+  // api-utils.js for why (a confirmed cause of GIV-BUG1's blank-blob logo).
+  return json({ ok: true, ext: v.ext, warning: logoSizeWarning(fileSize) });
 }
 if (seg === 'config/letterhead-logo' && method === 'DELETE') {
   if (!isStaff) return json({ error: 'Access denied' }, 403);

@@ -24,6 +24,61 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.108.0 — Giving Plateaus: Occasional Givers list restored (2026-07-27)
+G28 merged occasional/low-frequency givers into the unified total÷52 model with just an
+inline `low_frequency` marker — user follow-up: still want a dedicated place to SEE them, specifically
+because it's a natural starting point for inviting someone to set up recurring/automatic giving; also
+asked that one-time LARGE gifts (stock/IRA/QCD) surface there too, and was explicit that this list is
+informational only — nobody on it needs to change anything.
+- `computeGivingPlateaus()` gains `low_frequency_givers_list` — every low-frequency giver (still also
+  present in the normal tiers, not excluded), **sorted by total given descending** so a one-time major
+  gift sorts to the top, not buried under small occasional gifts. Each entry carries a new
+  `all_manual_methods` flag (true only if every one of their gifts this year used a non-automatic
+  method — check/cash/other) so someone already on ACH/card/auto-draft isn't wrongly flagged as a
+  recurring-giving candidate.
+- Endpoint: new `SUM(CASE WHEN <automatic-method-list> THEN 1 ELSE 0 END) AS auto_gifts` in both the
+  household and person SQL branches (mirrors `bucketGivingMethod()`'s existing 'ach' bucket exactly,
+  so this doesn't invent a second classification), plus a new `low_frequency_max` query param
+  (default 3, admin-configurable, replaces the hardcoded threshold).
+- UI: new "Occasional = ≤ X gifts/yr" input on the Plateaus card; a new "Occasional Givers" card
+  (Name/Total/Gifts/Avg/Method) rendered right after the summary stat cards — copy is explicitly
+  framed as staff reference ("not a suggestion anything needs to change"), with a "check/cash only"
+  vs. "already has automatic gifts" badge per row, and — when the church's Online Giving URL is
+  configured (Giving → Settings) — a direct link shown as the natural next step for that
+  conversation. **Fixed a pre-existing, unrelated latent bug found while wiring this up**: a
+  different giving-statement function already read `_churchConfig.giving_url`, but the real config
+  key returned by `config/church` is `online_giving_url` — that existing code path's link has
+  silently always been blank; not touched here (out of scope, flagging for a follow-up), but this
+  new code correctly reads `online_giving_url`.
+- `npm test` (371/371, 4 new tests: sort-by-total-with-major-gift-first, informational-not-
+  exclusionary, manual-vs-automatic-method flag, custom threshold). `node --check` on both built
+  bundles + backend; verified the `auto_gifts` SQL against a real in-memory SQLite database. Not
+  verified in a live browser. (`src/api-utils.js`, `src/api-reports.js`, `src/frontend/js-reports.js`,
+  `src/frontend/html-tabs.js`, `test/giving-plateaus.test.js`)
+
+### v1.104.0 — Fixed why the reconstructed Budget vs Actual always showed $0 budget (2026-07-28)
+Reported live: the app's own reconstruction (Budget entity + ProfitAndLoss, now the only thing
+ever displayed per v1.103.0) showed Actual correctly but Budget as $0 on every single line. Traced
+to `mergeLeafCells()` (`src/api-finance.js`) matching a P&L report account to its Budget line by
+**exact string name** — `ctx.budgetByName.get(cells[0].value)` — with no fallback. QuickBooks can
+display the same account with a slightly different label in the P&L report than in the Budget
+entity (a real, known quirk), which silently fails every match with no error, exactly matching
+"budget always 0, actual always populates" (Actual comes straight from the P&L tree and never goes
+through this lookup at all). Confirmed the reconstruction only ever reads the *one* selected Budget
+object (`budget.BudgetDetail`, picked via the new Budget picker or year-match) — ruling out the
+user's "every budget ever" hypothesis; the double-counting risk isn't in this code path.
+
+Fixed by adding a **new primary match key: QuickBooks' own account id** (present as `.id` on a
+report ColData cell — standard Reports API behavior for an account-labeled column), which is
+exact and can't drift the way a display label can. Falls back to the existing name-based matching
+(unchanged) when a cell carries no `.id`, so nothing regresses for any shape that lacks it. New
+`budgetByAccountId` map built alongside the existing `budgetByName`/`budgetIdsByName`.
+
+`npm test` (351/351, 2 new regression tests: id-match succeeds where name-match would find
+nothing; name-fallback still works when no id is present), `node --check` on `api-finance.js` and
+both built app-JS bundles. Not verified against a live sync. (`src/api-finance.js`,
+`test/finance-church.test.js`)
+
 ### v1.103.0 — Stop trusting the native Budget vs Actual report; Multi-Year year-range picker; comma formatting (2026-07-28)
 Live testing right after v1.102.0's endpoint-name fix: the native `BudgetVsActuals` report finally
 responded for the first time (previously always 5020'd), but its numbers didn't hold up — e.g. an
@@ -96,6 +151,7 @@ QuickBooks company hit the identical `5020 Permission Denied` error on Budget vs
 in `CLAUDE.md` for full detail — treating the direct report endpoint as permanently unavailable for
 this app; next real step is verifying the reconstructed numbers against this company's actual live
 data, not chasing the report endpoint further.
+
 ### v1.103.0 — Giving Plateaus: fixed-ladder nudges, always-on impact, total÷52 for everyone (2026-07-27)
 Four corrections to G27 (the graduated-percentage redesign), requested right after seeing it.
 
