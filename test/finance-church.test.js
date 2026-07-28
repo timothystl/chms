@@ -137,6 +137,23 @@ describe('flattenReportTree — current-year (single-value) extractor', () => {
     expect(designIncome.own_actual_cents).toBe(225000);
     expect(designIncome.own_budget_cents).toBe(200000);
   });
+
+  // 2026-07-28 — reported live: a qbo_sync year showed Income re-sorted to the bottom after
+  // CHURCH_SOURCE_PRIORITY started preferring qbo_sync over import. Root cause: this church's
+  // live QuickBooks report labels its top-level Sections "Revenue"/"Expenditures" (confirmed —
+  // same wording as their own Excel export, which normalizeChurchClassification() already
+  // handled for the import path), but flattenReportTree() used the raw Section label as
+  // classification with no normalization, so it never matched FIN_CHURCH_CLASS_ORDER's keys.
+  it('normalizes a top-level Section labeled "Revenue" (this church\'s real QuickBooks wording) to classification "Income"', () => {
+    const rows = flattenReportTree([
+      { type: 'Section', Header: { ColData: [{ value: 'Revenue' }] }, Rows: { Row: [
+        { ColData: [{ value: 'Offerings' }, { value: '500.00' }] },
+      ] } },
+    ], [], null, makeCurrentYearExtractor(2026));
+    const offerings = rows.find(r => r.category_path === 'Revenue:Offerings');
+    expect(offerings).toBeDefined();
+    expect(offerings.classification).toBe('Income');
+  });
 });
 
 describe('flattenReportTree — multi-year extractor', () => {

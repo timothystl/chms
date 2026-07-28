@@ -24,6 +24,40 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.102.0 — Two real QuickBooks bugs found + Budget picker (2026-07-28)
+Live sync testing (immediately after the CHURCH_SOURCE_PRIORITY flip above made qbo_sync-sourced
+data visible for the first time) surfaced two genuine, previously-hidden bugs, plus a real feature
+request. Full detail logged in `CLAUDE.md` under FIN2 for reference in later sessions.
+
+1. **Wrong report endpoint name.** `client.budgetVsActual()` (`src/quickbooks.js`) called
+   `/reports/BudgetVsActual` (singular) the entire time this was blocked by a "5020 Permission
+   Denied" error — QuickBooks' real (undocumented, per Intuit's own developer community) report
+   name is `BudgetVsActuals` (plural). A misnamed report is a very plausible explanation for a
+   misleading permission error instead of a clean 404. Fixed to the plural name. Confirmed via a
+   user-supplied community reference that this endpoint is genuinely undocumented/unsupported by
+   Intuit regardless — the entity-query + ProfitAndLoss reconstruction this app already builds
+   (`mergeCurrentYearBudgetAndActual`) is the actual sanctioned approach, not a fallback.
+2. **Classification normalization gap, live-sync-only.** `flattenReportTree()` used a QuickBooks
+   report Section's raw label as `classification` with no normalization — but this church's live
+   QuickBooks report labels top-level sections "Revenue"/"Expenditures", not "Income"/"Expenses"
+   (the exact synonym set `normalizeChurchClassification()` already handles for the Excel-import
+   path). Unnormalized, live-synced rows' classification never matched `FIN_CHURCH_CLASS_ORDER`'s
+   keys, so `finReorganizeChurchTree()` silently sorted Income to the bottom and skipped the
+   Revenue/Earned-Income/Restricted-Income regrouping for synced data — invisible until sync
+   started winning over import. Fixed by routing the Section label through
+   `normalizeChurchClassification()`. New regression test in `test/finance-church.test.js`.
+3. **Budget picker.** A company can have more than one `Budget` object in QuickBooks (e.g. a
+   leftover test budget); the merge previously guessed (best year-match, else the first found)
+   with no way to override. New `GET`/`PATCH /admin/api/finance/qb/budgets` (admin-gated write)
+   lists every Budget object and lets an admin pin one explicitly (`chms_config` key
+   `finance_qb_selected_budget_id`), threaded through `mergeCurrentYearBudgetAndActual()`. New
+   "Choose Budget…" control on the Finance Overview QuickBooks Connection card.
+
+`npm test` (340/340), `node --check` on `api-finance.js`, `quickbooks.js`, and both built app-JS
+bundles. Not verified against a live sync — this session's Production connection work is ongoing.
+(`src/quickbooks.js`, `src/api-finance.js`, `src/frontend/js-finance.js`,
+`test/finance-church.test.js`)
+
 ### Doc update — FIN2 confirmed reproducing in Production, not just sandbox (2026-07-28)
 No code change. Live Production OAuth connection completed (real QB keys, `QB_ENVIRONMENT=production`,
 redirect URI registered under both Intuit app tabs), and a real sync against the real church
