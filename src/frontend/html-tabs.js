@@ -244,12 +244,11 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
     <div class="import-card require-finance" style="margin-top:18px;">
       <h3>&#128201; Giving Plateaus &amp; Nudges</h3>
-      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">Finds the per-gift amount givers settle at (e.g. $43/wk) and offers 3 graduated increase options &mdash; the ask gets gentler in percentage terms as the amount grows, so a step that's trivial at $5/wk isn't repeated at $2,500/wk. By default this sums <strong>everything a giver gives that day across every fund</strong> &mdash; General, Tuition Aid, Food Pantry, etc. &mdash; into one combined amount; no fund is discounted. Pick a specific fund below to analyze just that fund instead (e.g. a designated pass-through fund).</p>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">Every giver's weekly level = their whole year's giving, every fund, &divide; 52 weeks &mdash; so a weekly regular, a monthly giver, and someone who made one large gift (e.g. a stock or IRA/QCD transfer) all get the same treatment. Offers 3 fixed, familiar round-number increase options. By default this sums <strong>everything a giver gives across every fund</strong> &mdash; General, Tuition Aid, Food Pantry, etc.; no fund is discounted. Pick a specific fund below to analyze just that fund instead (e.g. a designated pass-through fund).</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
         <div class="field" style="margin:0;"><label>Year</label><input type="number" id="rpt-plateau-year" name="rpt-plateau-year" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>
         <div class="field" style="margin:0;"><label>Fund</label><select id="rpt-plateau-fund" name="rpt-plateau-fund" style="font-size:.85rem;padding:4px 8px;"><option value="">All Funds</option></select></div>
         <div class="field" style="margin:0;"><label>Group by</label><select id="rpt-plateau-scope" name="rpt-plateau-scope" style="font-size:.85rem;padding:4px 8px;"><option value="household">Household</option><option value="person">Person</option></select></div>
-        <div class="field" style="margin:0;"><label>Min. repeats</label><input type="number" id="rpt-plateau-repeat" name="rpt-plateau-repeat" value="3" min="2" style="font-size:.85rem;padding:4px 8px;width:70px;"></div>
         <button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="runGivingPlateaus()">Run Report</button>
         <button class="btn-secondary" style="font-size:.82rem;padding:6px 14px;" onclick="platOpenImpactEditor()">Impact statements&hellip;</button>
       </div>
