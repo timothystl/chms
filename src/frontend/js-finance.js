@@ -288,17 +288,22 @@ function finComputePropertyKpis(d) {
     { lbl: 'Reserves On-Hand', val: '$' + finFmtMoney(reserves), chip: 'tax + capital + base minimum', chipCls: 'fin-chip-info', border: 'var(--color-gold)' },
   ];
 }
-// Named reserve schedules (finance_property_reserves — property_tax today, capital/insurance once
-// funded) track money actually accumulating in that specific bucket. AHRA's own "Total Property
-// Reserve" figure — the one used in its monthly Property Reserve and Distribution Report to
-// compute cash available to distribute — additionally includes a flat "Base Minimum Reserve" cash
-// cushion that is NOT an accumulating bucket. Confirmed against the real July 2026 report: Total
-// Property Reserve ($10,358.33) = Property Tax Reserve after ($5,858.33) + Base Minimum Reserve
-// ($4,500.00) exactly. Stored as a flat, admin-editable figure in meta.reserves.base_minimum_cents
-// (not a monthly ledger — AHRA's report treats it as a constant policy floor, not something that
-// accrues month to month) so "Reserves On-Hand" can reconcile to AHRA's own figure instead of
-// silently under-counting by that flat amount.
+// AHRA's own monthly report already states a single "Total Property Reserve" figure (imported
+// verbatim into finance_property_monthly.reserve_balance_cents via the CSV/xlsx importers, or
+// typed into the "+ Add Month" modal's Reserve Balance field) — that figure is always the
+// authoritative one, since it already bakes in AHRA's flat "Base Minimum Reserve" cash cushion
+// (confirmed against the real July 2026 report: Total Property Reserve $10,358.33 = Property Tax
+// Reserve after $5,858.33 + Base Minimum Reserve $4,500.00) alongside whatever named reserve
+// buckets (tax, capital, insurance) this app separately tracks in finance_property_reserves. So
+// "Reserves On-Hand" prefers the LATEST month's reserve_balance_cents whenever one has been
+// entered — no separate monthly bookkeeping step needed to keep this KPI correct, just keep
+// entering each new month's financials. It only falls back to reconstructing a total from the
+// reserve-schedule ledger + the flat base-minimum figure (meta.reserves.base_minimum_cents,
+// admin-editable) for a period where no monthly reserve_balance_cents has been recorded yet.
 function finComputePropertyReservesOnHandCents(d) {
+  var monthly = (d.monthly || []).slice().sort(function(a, b) { return a.period < b.period ? -1 : 1; });
+  var latest = monthly.length ? monthly[monthly.length - 1] : null;
+  if (latest && latest.reserve_balance_cents != null) return latest.reserve_balance_cents;
   var cents = 0;
   if (d.reserves) Object.keys(d.reserves).forEach(function(key) {
     var rows = d.reserves[key];
