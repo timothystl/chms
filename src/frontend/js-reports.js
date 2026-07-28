@@ -1015,11 +1015,18 @@ function runGivingPlateaus() {
   var fundEl = document.getElementById('rpt-plateau-fund');
   var fundId = fundEl ? fundEl.value : '';
   var fundName = (fundEl && fundEl.selectedIndex > 0) ? fundEl.options[fundEl.selectedIndex].text : '';
+  var lowFreq = parseInt((document.getElementById('rpt-plateau-lowfreq') || {}).value, 10) || 3;
   // Lives in the Board Report view with its own output target.
   var out = document.getElementById('giv-plat-output');
   if (out) { out.innerHTML = '<div style="padding:16px;color:var(--warm-gray);">Loading&hellip;</div>'; out.classList.add('visible'); }
-  var qs = '/admin/api/reports/giving-plateaus?year=' + yr + '&scope=' + scope + (fundId ? '&fund_id=' + fundId : '');
-  api(qs).then(function(d) {
+  var qs = '/admin/api/reports/giving-plateaus?year=' + yr + '&scope=' + scope + '&low_frequency_max=' + lowFreq + (fundId ? '&fund_id=' + fundId : '');
+  // Referenced by the Occasional Givers section (recurring-giving link, if
+  // one's configured). Loaded lazily so a direct visit to Board Report still
+  // picks it up, without an extra fetch on every run once it's cached.
+  var cfgLoad = (_churchConfig && _churchConfig.church_name) ? Promise.resolve() : api('/admin/api/config/church').then(function(cfg) { _churchConfig = cfg || {}; }).catch(function(){});
+  cfgLoad.then(function() {
+    return api(qs);
+  }).then(function(d) {
     if (d.error) { if (out) out.innerHTML = '<div style="padding:16px;color:var(--danger);">' + esc(d.error) + '</div>'; else alert(d.error); return; }
     d.fund_name = fundName;
     if (out) { out.innerHTML = renderGivingPlateaus(d); out.scrollIntoView({behavior:'smooth', block:'nearest'}); }
@@ -1080,7 +1087,7 @@ function renderGivingPlateaus(d) {
     + '<div style="font-size:.78rem;color:var(--warm-gray);">est. added giving / year across Modest&ndash;Generous options</div></div>'
     + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;">'
     + '<div style="font-size:1.5rem;font-weight:700;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + (s.low_frequency_givers||0) + '</div>'
-    + '<div style="font-size:.78rem;color:var(--warm-gray);">give 3&times;/yr or less &mdash; often one-time or stock/IRA gifts</div></div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);">give ' + (d.low_frequency_max||3) + '&times;/yr or less &mdash; see the list below</div></div>'
     + '</div>';
 
   // Nudge tier table — grouped by the Standard option, with the Modest/Generous range for context.
@@ -1148,10 +1155,44 @@ function renderGivingPlateaus(d) {
     + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">Number of ' + noun + ' at each weekly-equivalent giving level (whole-year total &divide; 52) &mdash; the spikes are your real plateaus.</div>'
     + distRows + '</div>';
 
+  var occasionalBlock = platOccasionalBlock(d.low_frequency_givers_list || [], d.low_frequency_max || 3, byHh);
+
   return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
     + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving Plateaus &amp; Nudges — ' + yr + titleSuffix + '</h3>'
     + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
-    + exclNote + cards + tierBlock + peopleBlock + distBlock;
+    + exclNote + cards + occasionalBlock + tierBlock + peopleBlock + distBlock;
+}
+// Occasional Givers — a staff-facing reference list, not a correction list.
+// Nobody on it needs to change anything; it's simply a place to see who
+// gives infrequently (including one-time large gifts, e.g. stock/IRA — those
+// sort to the top since the list is ordered by total given). Useful mainly
+// as a starting point if staff ever want to mention recurring/automatic
+// giving to someone whose gifts are all manual (check/cash) — a badge flags
+// anyone already giving via some automatic method, since they don't need
+// that conversation.
+function platOccasionalBlock(list, maxGifts, byHh) {
+  if (!list || !list.length) return '';
+  var givingUrl = (typeof _churchConfig !== 'undefined' && _churchConfig && _churchConfig.online_giving_url) || '';
+  var rows = list.map(function(p) {
+    var open = (p.link_kind === 'household') ? 'openHouseholdDetail(' : 'openPersonDetail(';
+    var badge = p.all_manual_methods
+      ? '<span style="font-size:.72rem;color:var(--warm-gray);">check/cash only</span>'
+      : '<span style="font-size:.72rem;color:#5A9E6F;">already has automatic gifts</span>';
+    return '<tr style="cursor:pointer;" onclick="' + open + p.link_id + ')">'
+      + '<td style="color:var(--steel-anchor);font-weight:600;">' + esc(p.name||'') + '</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + fmtWholeDollars(p.total_cents) + '</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--warm-gray);">' + (p.gifts||0) + '</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--warm-gray);">' + fmtWholeDollars(p.avg_gift_cents) + '</td>'
+      + '<td>' + badge + '</td></tr>';
+  }).join('');
+  return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
+    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128197; Occasional Givers (' + maxGifts + '&times;/yr or less)</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">For your reference &mdash; not a suggestion anything needs to change. Sorted by total given, so a large one-time gift (e.g. a stock or IRA/QCD transfer) shows first. If it&rsquo;s ever useful, this is a natural starting point for mentioning recurring/automatic giving to someone whose gifts are all check/cash.'
+    + (givingUrl ? ' Online giving: <a href="' + esc(givingUrl) + '" target="_blank" rel="noopener">' + esc(givingUrl) + '</a>.' : ' (Set an Online Giving URL in Giving &rarr; Settings to show it here.)')
+    + '</div>'
+    + '<table class="rpt-table"><thead><tr><th>' + (byHh?'Household':'Name') + '</th><th style="text-align:right;">Total</th><th style="text-align:right;">Gifts</th><th style="text-align:right;">Avg gift</th><th>Method</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table>'
+    + '</div>';
 }
 
 // ── Giving Impact Statements editor ─────────────────────────────────────

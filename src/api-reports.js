@@ -685,10 +685,15 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
   if (!year || isNaN(year)) return json({ error: 'year required' }, 400);
   const scope = url.searchParams.get('scope') === 'household' ? 'household' : 'person';
   const fundId = parseInt(url.searchParams.get('fund_id') || '', 10) || 0;
+  const lowFrequencyMax = Math.max(1, Math.min(parseInt(url.searchParams.get('low_frequency_max') || '3', 10) || 3, 51));
   const start = year + '-01-01', end = year + '-12-31';
   const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
   const fundClause = fundId ? ' AND ge.fund_id = ?' : '';
   const fundBind = fundId ? [fundId] : [];
+  // Same automatic/recurring method set as bucketGivingMethod()'s 'ach'
+  // bucket — used only to flag whether a low-frequency giver already gives
+  // via some form of autopay, informational for the recurring-giving list.
+  const autoMethodClause = "LOWER(ge.method) IN ('ach','online','card','credit','credit card','debit','eft','bank','auto','recurring','paypal','venmo','zelle')";
   // One row per giver with their WHOLE-YEAR total + gift count — every fund
   // they gave to sums into one figure, nothing discounted. Pass fund_id to
   // scope the whole analysis to one fund instead (e.g. only Tuition Aid, or
@@ -713,7 +718,8 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
               CASE WHEN ${housed} THEN p.household_id ELSE p.id END AS link_id,
               CASE WHEN ${housed} THEN 'household' ELSE 'person' END AS link_kind,
               SUM(ge.amount) AS total_cents,
-              COUNT(*) AS gifts
+              COUNT(*) AS gifts,
+              SUM(CASE WHEN ${autoMethodClause} THEN 1 ELSE 0 END) AS auto_gifts
        FROM giving_entries ge
        JOIN giving_batches gb ON gb.id = ge.batch_id
        JOIN people p ON p.id = ge.person_id
@@ -729,7 +735,8 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
               (p.first_name || ' ' || p.last_name) AS name,
               p.id AS link_id, 'person' AS link_kind,
               SUM(ge.amount) AS total_cents,
-              COUNT(*) AS gifts
+              COUNT(*) AS gifts,
+              SUM(CASE WHEN ${autoMethodClause} THEN 1 ELSE 0 END) AS auto_gifts
        FROM giving_entries ge
        JOIN giving_batches gb ON gb.id = ge.batch_id
        JOIN people p ON p.id = ge.person_id
@@ -774,9 +781,9 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
     weeksElapsed = Math.max(1, Math.min(52, Math.ceil(days / 7)));
   }
 
-  const result = computeGivingPlateaus(rows, { periodsElapsed: weeksElapsed, impactStatements });
+  const result = computeGivingPlateaus(rows, { periodsElapsed: weeksElapsed, impactStatements, lowFrequencyMax });
   return json({
-    year, scope, fund_id: fundId || null, partial: year === now.getUTCFullYear(),
+    year, scope, fund_id: fundId || null, partial: year === now.getUTCFullYear(), low_frequency_max: lowFrequencyMax,
     excluded_organizations: { count: orgExclRow?.n || 0, total_cents: orgExclRow?.total_cents || 0 },
     ...result,
   });
