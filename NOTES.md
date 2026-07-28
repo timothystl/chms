@@ -24,6 +24,28 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.93.0 — Giving by Weekly/Monthly Band report (2026-07-27)
+New "Giving by Weekly / Monthly Band" card in the Board Report tab (below the Plateaus card),
+answering "how do households spread across per-week giving levels, and what would a small
+across-the-board step up add." Distinct from the Plateaus report (which finds each giver's modal
+repeated gift and nudges to the next clean rung): this one is a **distribution across granular
+dollar bands** with a flat, configurable uplift — the "$50/wk now, $60/wk = +$520/yr" framing.
+- Endpoint `GET /admin/api/reports/giving-bands?year=&scope=household|person&freq=weekly|monthly&uplift_cents=`
+  (gated `giving`). SUMs each giver's whole-year giving (household = spouses combined, same key-expr
+  pattern as the plateaus household mode), then bands them.
+- Pure `computeGivingBands()` in `api-utils.js` (7 unit tests): a giver's per-period figure =
+  their giving ÷ periods elapsed (frequency-agnostic — monthly/lump-sum givers land in the right
+  weekly band). Two floor sets (`GIVING_BAND_FLOORS_WEEKLY_CENTS` $0/25/50/75/100/150/200/300/500,
+  monthly ≈×4). The uplift's annual impact uses a FULL year (52/12), while the pace uses periods
+  *elapsed* — so a partial current year isn't understated but the uplift isn't overstated.
+- UI (`js-reports.js` `runGivingBands`/`renderGivingBands`): summary cards (givers / +$ per year if
+  all step up / current annualized), a band table (band · bar · count · avg · given · +$X→+$/yr),
+  Week/Month + Household/Person + uplift-$ controls; renders into its own `#giv-bands-output`.
+- `npm test` (297/297), `node --check` on both built bundles + backend, plus an in-memory-SQLite
+  harness confirming the household SUM/band bucketing ($50/wk household, $100/wk person). Not
+  verified in a live browser. (`src/api-utils.js`, `src/api-reports.js`, `src/frontend/js-reports.js`,
+  `src/frontend/js-giving.js`, `src/frontend/html-tabs.js`, `test/giving-bands.test.js`)
+
 ### v1.92.0 — Giving Plateaus: moved to the Board Report tab (2026-07-27)
 Per user request, relocated the Giving Plateaus & Nudges report from the Giving → Reports tile grid
 into the **Board Report** sub-view (Finance → Giving → Board Report), where the strategic/leadership

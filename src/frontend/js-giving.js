@@ -18,8 +18,11 @@ function givSetView(view) {
   }
   if (view === 'board') {
     loadBoardReport();
+    var curYr = new Date().getFullYear();
     var platYr = document.getElementById('rpt-plateau-year');
-    if (platYr && !platYr.value) platYr.value = new Date().getFullYear();
+    if (platYr && !platYr.value) platYr.value = curYr;
+    var bandsYr = document.getElementById('rpt-bands-year');
+    if (bandsYr && !bandsYr.value) bandsYr.value = curYr;
   }
   if (view === 'reports') finInitGivingReports();
   if (view === 'settings') loadGivingSettings();
