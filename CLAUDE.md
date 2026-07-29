@@ -787,6 +787,20 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   2026-07-28 (v1.112.0). See NOTES.md for full detail. (`src/api-finance.js`,
   `src/frontend/js-finance.js`, `src/frontend/html-tabs.js`, `src/frontend/html-head.js`,
   `test/finance-church.test.js`, `test/finance-property.test.js`)
+- [x] **FIN39** — Follow-up on FIN38, same day: walked through the numbers year-by-year with
+  Pastor Dinger and found the original spec's Section 3b ("Purpose/Time Restricted" — 12019
+  Thrivent-Bequests, 12020 Edward Jones, 12021 Reserve for Caring Ministry) was wrong — those
+  three are NOT donor-restricted. The real restricted-accounts list is exactly the endowment six
+  (12010/11/12/13/14/15) + the unchanged "25000 Funds" designated list. Moved 12019/12020/12021
+  into `EQUITY_RECLASS_IGNORE_CODES` (confirmed-not-restricted, not "needs review") alongside
+  12016/17/18 (already excluded pending review) — the `purpose_time` bucket is now empty.
+  **Verified against the real reference workbook**: the corrected 2019 split ($401,449.78 Donor-
+  Restricted / $439,786.11 Without Donor Restrictions) matches Pastor Dinger's own hand-computed
+  figure ($146,354.75 + $255,095.03) to the penny, for every one of the 8 real years. `npm test`
+  (421/421, rewrote `test/finance-equity-reclass.test.js`'s fixture to match the real row set and
+  added a direct regression for the corrected split), `node --check` on `api-finance.js` and both
+  built app-JS bundles. Not verified in a live browser. Done 2026-07-29 (v1.114.0). See NOTES.md
+  for full detail. (`src/api-finance.js`, `test/finance-equity-reclass.test.js`)
 - [x] **FIN38** — Equity reclassification: Donor-Restricted vs. Without Donor Restrictions, from
   `Timothy_Equity_Reclassification_Spec.md` (user-provided spec) — replaces QuickBooks' four-way
   equity split (Unrestricted/Board Restricted/Temp. Restricted/Perm. Restricted) with the real

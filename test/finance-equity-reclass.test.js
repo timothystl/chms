@@ -52,13 +52,19 @@ describe('computeEquityReclassification', () => {
   // Reproduces the real 2026 figures from the combined multi-year workbook
   // (Timothy_Statement_of_Financial_Position_by_Year.xlsx) referenced by the spec — the
   // designated-funds total below matches that file's own "Total for 25000 Funds" line
-  // ($119,049.51) and the spec's own stated historical-baseline figure to the penny.
+  // ($119,049.51) and the spec's own stated historical-baseline figure to the penny. Includes
+  // 12012/12015 (confirmed-restricted, 2026-07-29) and 12019/12020/12021 (confirmed NOT
+  // restricted, same review — real accounts present in the file, but excluded from the
+  // calculation) so the fixture matches the real file's actual row set, not just the accounts
+  // that happen to count.
   function real2026Rows() {
     return [
       row(['Assets', '12010 95-8633 Thriv.- Iris Guen.'], 'Assets', 109518),
       row(['Assets', '12011 95-8632 Thriv.- Min. End'], 'Assets', 99426.74),
+      row(['Assets', '12012 95-3285 Thriv. Manu'], 'Assets', 0),
       row(['Assets', '12013 91-8633 Thriv. Ir Gu MM'], 'Assets', 373.82),
       row(['Assets', '12014 91-8632 Thriv.- Mi En MM'], 'Assets', 339.38),
+      row(['Assets', '12015 91-3285 Thriv. Manu'], 'Assets', 0),
       row(['Assets', '12019 5244306 Thrivent-Bequests'], 'Assets', 119461.15),
       row(['Assets', '12020 6022642018 Edward Jones'], 'Assets', 236388.18),
       row(['Assets', '12021 Reserve for Caring Ministry'], 'Assets', 0),
@@ -89,6 +95,11 @@ describe('computeEquityReclassification', () => {
     expect(result.breakdown.designated.cents).toBe(11904951);
   });
 
+  it('matches the real 2026 endowment total ($209,657.94 — the six perpetual accounts)', () => {
+    const result = computeEquityReclassification(real2026Rows());
+    expect(result.breakdown.perpetual.cents).toBe(20965794);
+  });
+
   it('matches the real 2026 Total for Equity ($730,257.79) via the classification sum, not a printed cell', () => {
     const result = computeEquityReclassification(real2026Rows());
     expect(result.totalEquityCents).toBe(73025779);
@@ -102,9 +113,17 @@ describe('computeEquityReclassification', () => {
     expect(result.unrestrictedCents).not.toBe(22489679);
   });
 
-  it('ignores the four legacy QuickBooks equity plug lines and the Net Revenue plug', () => {
+  it('confirms the corrected 2026 DonorRestricted/Unrestricted split (endowment + designated only)', () => {
+    // Real hand-verified figures: $209,657.94 (endowment) + $119,049.51 (designated) = $328,707.45;
+    // Unrestricted = $730,257.79 (Total Equity) − $328,707.45 = $401,550.34.
     const result = computeEquityReclassification(real2026Rows());
-    expect(result.unclassified).toEqual([]); // none of 31000/31500/32000/33000/Net Revenue should be flagged
+    expect(result.donorRestrictedCents).toBe(32870745);
+    expect(result.unrestrictedCents).toBe(40155034);
+  });
+
+  it('ignores the legacy QuickBooks equity plug lines, Net Revenue, and the confirmed-not-restricted 12019/12020/12021', () => {
+    const result = computeEquityReclassification(real2026Rows());
+    expect(result.unclassified).toEqual([]);
   });
 
   it('never double-counts a "has_children" group row alongside its own leaf children', () => {
@@ -118,20 +137,15 @@ describe('computeEquityReclassification', () => {
     expect(result.breakdown.designated.cents).toBe(11904951); // unchanged — the group row must be skipped
   });
 
-  it('flags a new investment sub-account under "12000 Investment Accounts" as unclassified, not silently included or excluded', () => {
+  it('flags a genuinely new investment sub-account under "12000 Investment Accounts" as unclassified, not silently included or excluded', () => {
     const rows = real2026Rows().concat([
-      row(['Assets', 'Current Assets', 'Bank Accounts', '12000 Investment Accounts', '120001 Endowment Funds', '12012 95-3285 Thriv. Manu'], 'Assets', 34802.56),
+      row(['Assets', 'Current Assets', 'Bank Accounts', '12000 Investment Accounts', '120001 Endowment Funds', '12099 Brand New Endowment Sub-Account'], 'Assets', 5000),
     ]);
     const result = computeEquityReclassification(rows);
     expect(result.unclassified).toHaveLength(1);
-    expect(result.unclassified[0].account_name).toBe('12012 95-3285 Thriv. Manu');
+    expect(result.unclassified[0].account_name).toBe('12099 Brand New Endowment Sub-Account');
     // Not counted toward either bucket until a human classifies it.
-    expect(result.breakdown.perpetual.cents + result.breakdown.purpose_time.cents + result.breakdown.designated.cents).toBe(
-      real2026Rows().filter(r => !r.has_children).reduce((sum, r) => {
-        const code = extractAccountCode(r.account_name);
-        return EQUITY_RECLASS_ACCOUNTS[code] ? sum + r.own_balance_cents : sum;
-      }, 0)
-    );
+    expect(result.donorRestrictedCents).toBe(computeEquityReclassification(real2026Rows()).donorRestrictedCents);
   });
 
   it('flags a new leaf under the "25000 Funds" group as unclassified (e.g. a brand-new fund)', () => {
@@ -158,12 +172,17 @@ describe('computeEquityReclassification', () => {
     expect(result.unclassified.map(u => u.account_name)).toContain('34000 Some New Equity Line');
   });
 
-  it('every code in the classification table is Donor-Restricted (no board-designated bucket)', () => {
+  it('every code in the classification table is Donor-Restricted, and only the perpetual/designated buckets are used', () => {
+    // The spec's original 3b "purpose/time restricted" bucket is now empty — 12019/12020/12021
+    // were confirmed 2026-07-29 to NOT be donor-restricted after all (see EQUITY_RECLASS_IGNORE_CODES).
     const buckets = new Set(Object.values(EQUITY_RECLASS_ACCOUNTS));
-    expect(buckets).toEqual(new Set(['perpetual', 'purpose_time', 'designated']));
+    expect(buckets).toEqual(new Set(['perpetual', 'designated']));
   });
 
-  it('the ignore set covers exactly the four legacy plug lines plus the opening-balance line', () => {
-    expect(EQUITY_RECLASS_IGNORE_CODES).toEqual(new Set(['30000', '31000', '31500', '32000', '33000']));
+  it('the ignore set covers the legacy plug lines plus the confirmed-not-restricted investment accounts', () => {
+    expect(EQUITY_RECLASS_IGNORE_CODES).toEqual(new Set([
+      '30000', '31000', '31500', '32000', '33000',
+      '12016', '12017', '12018', '12019', '12020', '12021',
+    ]));
   });
 });

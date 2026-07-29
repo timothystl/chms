@@ -1249,11 +1249,18 @@ export function computeBalanceSummary(rows) {
 //
 // Every code below is Donor-Restricted; there is no board-designated bucket in this fund list
 // (Board Restricted folds into Unrestricted going forward — see EQUITY_RECLASS_IGNORE_CODES).
+//
+// Confirmed with Pastor Dinger 2026-07-29 (revises the original spec's 3b bucket): the restricted
+// accounts are exactly the endowment six below plus the "25000 Funds" designated list — 12019
+// (Thrivent-Bequests), 12020 (Edward Jones), and 12021 (Reserve for Caring Ministry), originally
+// listed in the spec's Section 3b as "Purpose/Time Restricted," are NOT donor-restricted after
+// all. They're moved to EQUITY_RECLASS_IGNORE_CODES (confirmed-not-restricted, not "needs
+// review") below, alongside three sibling 12000-Investment-Accounts-group accounts (12016/17/18)
+// that were already excluded pending review — the whole "purpose_time" bucket is now empty.
 export const EQUITY_RECLASS_ACCOUNTS = {
-  // 3a — Perpetual endowments (principal never spent)
-  '12010': 'perpetual', '12011': 'perpetual', '12013': 'perpetual', '12014': 'perpetual',
-  // 3b — Purpose/time restricted (bequests, investment reserves)
-  '12019': 'purpose_time', '12020': 'purpose_time', '12021': 'purpose_time',
+  // 3a — Perpetual endowments (principal never spent) — the six Thrivent sub-accounts (the
+  // "8632/8633" pair and the "3285" pair)
+  '12010': 'perpetual', '12011': 'perpetual', '12012': 'perpetual', '12013': 'perpetual', '12014': 'perpetual', '12015': 'perpetual',
   // 3c — Designated ministry/purpose funds (the "25000 Funds" list)
   '25001': 'designated', '25004': 'designated', '25005': 'designated', '25006': 'designated',
   '25007': 'designated', '25008': 'designated', '25009': 'designated', '25010': 'designated',
@@ -1270,11 +1277,19 @@ export const EQUITY_RECLASS_ACCOUNTS = {
 const EQUITY_RECLASS_BUCKET_LABELS = {
   perpetual: 'Perpetual endowments', purpose_time: 'Purpose/time restricted', designated: 'Designated ministry/purpose funds',
 };
-// Legacy QuickBooks equity plug lines — always ignored as calculation inputs (see the module
-// comment above). '30000 Opening Balance Equity' is always $0 in every period on file; 'Net
-// Revenue' is a current-period plug folded into Unrestricted via the residual formula below, not
-// summed directly.
-export const EQUITY_RECLASS_IGNORE_CODES = new Set(['30000', '31000', '31500', '32000', '33000']);
+// Two different reasons an account is ignored, same practical treatment (excluded from
+// DonorRestricted, never flagged as needing review): (1) legacy QuickBooks equity plug lines —
+// always ignored as calculation inputs (see the module comment above). '30000 Opening Balance
+// Equity' is always $0 in every period on file; 'Net Revenue' is a current-period plug folded
+// into Unrestricted via the residual formula below, not summed directly. (2) the three other
+// accounts under the real "12000 Investment Accounts" group (12016 Ameritrade, 12017/12018 —
+// Thrivent 5244304/5244305, numeric siblings of the now-ignored 12019 Thrivent-Bequests) —
+// confirmed 2026-07-29 as not donor-restricted, same review that moved 12019/12020/12021 out of
+// EQUITY_RECLASS_ACCOUNTS above.
+export const EQUITY_RECLASS_IGNORE_CODES = new Set([
+  '30000', '31000', '31500', '32000', '33000',
+  '12016', '12017', '12018', '12019', '12020', '12021',
+]);
 const EQUITY_RECLASS_IGNORE_LABELS = new Set(['net revenue']);
 // Account labels in this report are "<code> <description>" — the code is the stable key (a
 // description can drift — "(deleted)", "reclass to X" suffixes seen in the real export — the
