@@ -24,6 +24,63 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.113.0 — Equity reclassification: Donor-Restricted vs. Without Donor Restrictions (2026-07-28)
+Implemented from `Timothy_Equity_Reclassification_Spec.md` (user-provided design spec): replaces
+QuickBooks' four-way equity split (Unrestricted/Board Restricted/Temp. Restricted/Perm. Restricted)
+with the real post-ASU-2016-14 two-bucket nonprofit model, computed automatically on every Balance
+Sheet import/read instead of trusting the legacy equity lines — those have drifted from reality
+(32000 Perm. Restricted Net Assets has been frozen at exactly $223,828.47 every year since 2019
+despite the underlying endowments moving with the market every year, confirmed against the real
+combined multi-year workbook).
+
+New `EQUITY_RECLASS_ACCOUNTS` (the spec's Section 3a/3b/3c classification table, all Donor-
+Restricted — perpetual endowments, purpose/time-restricted bequests, and the "25000 Funds"
+designated-fund list) + `EQUITY_RECLASS_IGNORE_CODES` (the four legacy plug lines + Opening
+Balance Equity) + `extractAccountCode()` (stable leading-code match, tolerant of description
+drift) + `computeEquityReclassification(rows)` (`src/api-finance.js`) — sums every classified
+leaf account (regardless of whether it sits under Assets, Liabilities, or Equity in this church's
+chart of accounts) into DonorRestricted, then derives Unrestricted as the **residual against real
+Total Equity** (summed from all Equity-classified rows, not a printed cell) — never a direct sum
+of the legacy lines, per the spec's explicit instruction, so the two buckets always reconcile to
+total equity regardless of any drift in QuickBooks' own sub-accounts.
+
+**Verified against the real reference workbook the spec itself names** (`Timothy_Statement_of_
+Financial_Position_by_Year.xlsx`, the same file already in this session from the earlier importer
+work) — the 2026 designated-funds total matches the spec's own stated baseline ($119,049.51) and
+the source file's own "Total for 25000 Funds" line to the penny; Assets = Liabilities + Equity
+reconciles to $0.00 for all 8 real years.
+
+**A real gap found and correctly handled, not silently papered over**: running the classification
+against all 8 real years surfaced 5 accounts under the real "12000 Investment Accounts" group
+(`12012`/`12015`/`12016`/`12017`/`12018` — clearly investment/endowment sub-accounts structurally
+identical to the already-classified 12010/12011/12013/12014/12019/12020, just never reviewed with
+Pastor Dinger) that the spec's table doesn't cover. Per Section 5.4 of the spec, these are
+surfaced as an "unclassified accounts" list for manual review, not silently defaulted into either
+bucket — new `isEquityReclassCandidate()` scopes this check narrowly to the two real account
+neighborhoods (leaves under "12000 Investment Accounts" or "25000 Funds", or any Equity-classified
+leaf not in the ignore set) after an initial broader `120xx`-code-prefix attempt produced false
+positives on unrelated operational accounts (`12001 Undeposited Funds`, `12200 Employee Loan`,
+`12400 Prepaid Expense` — confirmed these sit under "Other Current Assets"/"Other Assets", not the
+Investment Accounts group, via the real file's own category paths).
+
+New `detectBalanceSheetBasis()` flags a Cash vs. Accrual basis footer line (2025's real export was
+run on Accrual while every other year on file is Cash, per the spec) — surfaced as a warning
+banner on import, not silently treated as comparable to Cash-basis periods.
+
+Wired into both Balance Sheet import routes (single-file preview shows the calculated buckets +
+basis warning + unclassified-account list before commit; multi-year preview shows a compact
+per-year table) and both read routes (`finance/church/balances` and `.../multi-year`, so the
+figures are visible any time the Balance Sheet is viewed, not just at import time). New frontend
+`finRenderEquityReclassCard()`/`finRenderEquityReclassMultiYearTable()`/
+`finRenderEquityReclassMultiYearPreview()`/`finBasisWarningHtml()` (`src/frontend/js-finance.js`).
+
+`npm test` (419/419, 17 new tests in `test/finance-equity-reclass.test.js` — including the exact
+spec-baseline reproduction, the residual-not-legacy-sum assertion, the has-children double-count
+guard, and both the true-positive and false-positive unclassified-account cases found against the
+real file), `node --check` on `api-finance.js` and both built app-JS bundles. Not verified in a
+live browser. Done 2026-07-28 (v1.113.0). (`src/api-finance.js`, `src/frontend/js-finance.js`,
+`test/finance-equity-reclass.test.js`)
+
 ### v1.112.0 — Multi-year importers rebuilt against the real files + drag-and-drop everywhere (2026-07-28)
 User uploaded the three actual files (`Timothy_Statement_of_Activity_RESTRUCTURED_2.xlsx`,
 `Timothy_Budget_by_Year_2.xlsx`, `Timothy_Statement_of_Financial_Position_by_Year.xlsx`) that

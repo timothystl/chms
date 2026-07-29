@@ -1763,6 +1763,57 @@ function finRenderBalanceMultiYearChart(multiYear) {
   });
   return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Multi-Year Trend</h4>' + chart + '</div>';
 }
+// ── Net Assets — Donor-Restricted vs. Without Donor Restrictions ────────────────────────────
+// Per Timothy_Equity_Reclassification_Spec.md: replaces QuickBooks' four-way equity split with
+// the real post-ASU-2016-14 two-bucket model, computed bottom-up from real account balances
+// server-side (computeEquityReclassification, api-finance.js) — never from the legacy 31000/
+// 31500/32000/33000 lines directly, since those have drifted from reality (32000 has been frozen
+// at exactly $223,828.47 every year since 2019 despite the underlying endowments moving with the
+// market). This card is what actually surfaces that calculation; "unclassified" accounts are
+// listed for manual review rather than silently defaulted into either bucket.
+// Per the spec: 2025's real export was run on Accrual basis while every other year on file is
+// Cash — flag distinctly rather than silently treating an Accrual-basis import as comparable to
+// Cash-basis periods elsewhere in Church Report.
+function finBasisWarningHtml(basis) {
+  if (basis !== 'Accrual') return '';
+  return '<div style="padding:8px 12px;background:var(--chip-warn-bg);border-radius:8px;margin-bottom:12px;font-size:.78rem;color:var(--deep-amber);">'
+    + '⚠ This file is <b>Accrual basis</b> — other years on file may be Cash basis. Figures here are not directly comparable to a Cash-basis period.</div>';
+}
+function finRenderEquityReclassCard(equityReclass) {
+  if (!equityReclass) return '';
+  var b = equityReclass.breakdown;
+  var bucketRows = ['perpetual', 'purpose_time', 'designated'].map(function(k) {
+    var it = b[k];
+    if (!it || !it.cents) return '';
+    return '<tr><td style="padding:4px 8px;color:var(--warm-gray);">' + esc(it.label) + '</td>'
+      + '<td style="padding:4px 8px;text-align:right;">$' + finFmtMoney(it.cents / 100) + '</td></tr>';
+  }).join('');
+  var unclassifiedHtml = '';
+  if (equityReclass.unclassified && equityReclass.unclassified.length) {
+    var rows = equityReclass.unclassified.map(function(u) {
+      return '<tr><td style="padding:3px 8px;">' + esc(u.account_name) + '</td>'
+        + '<td style="padding:3px 8px;text-align:right;">$' + finFmtMoney(u.own_balance_cents / 100) + '</td></tr>';
+    }).join('');
+    unclassifiedHtml = '<div style="margin-top:10px;padding:10px 12px;background:var(--chip-warn-bg);border-radius:8px;">'
+      + '<div style="font-size:.78rem;font-weight:600;color:var(--deep-amber);margin-bottom:4px;">⚠ ' + equityReclass.unclassified.length + ' account(s) need a Donor-Restricted classification decision</div>'
+      + '<div style="font-size:.74rem;color:var(--warm-gray);margin-bottom:6px;">New or renamed accounts near the existing restricted-fund groups — not counted in either bucket below until reviewed and added to the classification table.</div>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:.76rem;"><tbody>' + rows + '</tbody></table></div>';
+  }
+  return '<div class="fin-card" style="margin-bottom:18px;">'
+    + '<h4 style="margin:0 0 4px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Net Assets — Donor-Restricted vs. Without Donor Restrictions</h4>'
+    + '<p style="font-size:.74rem;color:var(--warm-gray);margin:0 0 10px;">Replaces QuickBooks’ four-way equity split; computed bottom-up from real fund/endowment balances, not the (drifted) legacy equity lines.</p>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px;">'
+    + '<div style="flex:1;min-width:200px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">'
+    + '<div style="font-size:.7rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Donor-Restricted Net Assets</div>'
+    + '<div style="font-size:1.3rem;font-weight:700;color:var(--color-teal);">$' + finFmtMoney(equityReclass.donorRestrictedCents / 100) + '</div></div>'
+    + '<div style="flex:1;min-width:200px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">'
+    + '<div style="font-size:.7rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Net Assets Without Donor Restrictions</div>'
+    + '<div style="font-size:1.3rem;font-weight:700;color:var(--steel-anchor);">$' + finFmtMoney(equityReclass.unrestrictedCents / 100) + '</div></div>'
+    + '</div>'
+    + (bucketRows ? '<table style="width:100%;border-collapse:collapse;font-size:.78rem;margin-top:6px;"><tbody>' + bucketRows + '</tbody></table>' : '')
+    + unclassifiedHtml
+    + '</div>';
+}
 function finRenderChurchBalances(d, multiYear) {
   var el = document.getElementById('fin-church-balances-view');
   if (!el) return;
@@ -1788,17 +1839,41 @@ function finRenderChurchBalances(d, multiYear) {
     + '<div style="font-size:1.3rem;font-weight:700;color:var(--steel-anchor);">$' + finFmtMoney(s.equityCents / 100) + '</div></div>'
     + '</div>'
     + '<div style="font-size:.82rem;margin-bottom:18px;">' + checkHtml + '</div>';
+  html += finRenderEquityReclassCard(d.equityReclass);
   var tree = finBuildBalanceTreeFromFlatRows(d.rows);
   var assetPie = finPieItemsFromTree(tree, 'Assets', 'totalBalanceCents');
   if (assetPie.length) {
     html += '<div style="margin-bottom:18px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Asset Composition</h4>' + renderPieChart(assetPie, 170) + '</div>';
   }
   html += finRenderBalanceMultiYearChart(multiYear);
+  html += finRenderEquityReclassMultiYearTable(multiYear);
   html += '<details open><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail</summary>'
     + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
     + '<thead><tr style="background:var(--warm-surface-header);"><th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Account</th><th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Balance</th></tr></thead>'
     + '<tbody>' + finRenderBalanceTreeRows(tree).join('') + '</tbody></table></div></details>';
   el.innerHTML = html;
+}
+// Year-by-year Donor-Restricted vs. Without Donor Restrictions, from the multi-year balances
+// route's equityReclassByYear (one computeEquityReclassification() result per year with data).
+function finRenderEquityReclassMultiYearTable(multiYear) {
+  if (!multiYear || !multiYear.years || !multiYear.equityReclassByYear) return '';
+  var rows = multiYear.years.filter(function(y) { return multiYear.equityReclassByYear[y]; }).map(function(y) {
+    var er = multiYear.equityReclassByYear[y];
+    return '<tr><td style="padding:4px 8px;">' + y + '</td>'
+      + '<td style="padding:4px 8px;text-align:right;">$' + finFmtMoney(er.donorRestrictedCents / 100) + '</td>'
+      + '<td style="padding:4px 8px;text-align:right;">$' + finFmtMoney(er.unrestrictedCents / 100) + '</td>'
+      + '<td style="padding:4px 8px;text-align:right;">$' + finFmtMoney(er.totalEquityCents / 100) + '</td>'
+      + (er.unclassified.length ? '<td style="padding:4px 8px;color:var(--deep-amber);font-size:.74rem;">⚠ ' + er.unclassified.length + ' unclassified</td>' : '<td></td>')
+      + '</tr>';
+  }).join('');
+  if (!rows) return '';
+  return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Net Assets by Year</h4>'
+    + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead><tr style="background:var(--warm-surface-header);"><th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Year</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Donor-Restricted</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Without Restrictions</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Total Equity</th><th></th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div></div>';
 }
 
 // ── Balance Sheet import: preview-then-commit (same pattern as the Budget import below) ─────
@@ -1846,7 +1921,7 @@ function finChurchBalanceImportFileSelected(inputEl) {
       statusEl.textContent = 'Parsed "' + d.sheetName + '" — as of ' + d.asOfDate + ' (fiscal year ' + d.fiscalYear + '), ' + d.rows.length + ' account row(s).'
         + (d.skipped.length ? ' ' + d.skipped.length + ' line(s) not recognized as accounts (shown below).' : '')
         + ' Assets $' + finFmtMoney(summary.assetsCents / 100) + ' vs. Liabilities + Equity $' + finFmtMoney(summary.liabilitiesPlusEquityCents / 100) + '.';
-      previewEl.innerHTML = finChurchRenderBalanceImportPreview(d);
+      previewEl.innerHTML = finBasisWarningHtml(d.basis) + finRenderEquityReclassCard(d.equityReclass) + finChurchRenderBalanceImportPreview(d);
       confirmBtn.style.display = '';
     })
     .catch(function(err) {
@@ -2401,12 +2476,36 @@ function finChurchBalanceMultiImportFileSelected(inputEl) {
       _finChurchBalanceMultiImportPreview = d;
       statusEl.textContent = 'Parsed "' + d.sheetName + '" — ' + d.years.length + ' year(s) (' + d.years.join(', ') + '), ' + d.rows.length + ' account/year row(s).'
         + (d.skipped.length ? ' ' + d.skipped.length + ' line(s) not recognized as accounts (shown below).' : '');
-      previewEl.innerHTML = finChurchRenderBalanceMultiImportPreview(d);
+      previewEl.innerHTML = finBasisWarningHtml(d.basis) + finRenderEquityReclassMultiYearPreview(d) + finChurchRenderBalanceMultiImportPreview(d);
       confirmBtn.style.display = '';
     })
     .catch(function(err) {
       if (err.message !== 'Unauthorized') statusEl.textContent = 'Error: ' + err.message;
     });
+}
+// Compact per-year equity-reclassification summary shown during a multi-year Financial Position
+// import preview — full detail is the single-year card (finRenderEquityReclassCard), shown once
+// the data is actually committed and viewed via the normal Balance Sheet mode.
+function finRenderEquityReclassMultiYearPreview(d) {
+  if (!d.equityReclassByYear) return '';
+  var totalUnclassified = 0;
+  var rows = d.years.map(function(y) {
+    var er = d.equityReclassByYear[y];
+    if (!er) return '';
+    totalUnclassified += er.unclassified.length;
+    return '<tr><td style="padding:3px 8px;">' + y + '</td>'
+      + '<td style="padding:3px 8px;text-align:right;">$' + finFmtMoney(er.donorRestrictedCents / 100) + '</td>'
+      + '<td style="padding:3px 8px;text-align:right;">$' + finFmtMoney(er.unrestrictedCents / 100) + '</td>'
+      + (er.unclassified.length ? '<td style="padding:3px 8px;color:var(--deep-amber);font-size:.72rem;">⚠ ' + er.unclassified.length + '</td>' : '<td></td>')
+      + '</tr>';
+  }).join('');
+  return '<div class="fin-card" style="margin-bottom:12px;">'
+    + '<h4 style="margin:0 0 6px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.86rem;">Net Assets — Donor-Restricted vs. Without Donor Restrictions, by year</h4>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:.78rem;"><thead><tr style="color:var(--warm-gray);">'
+    + '<th style="text-align:left;padding:3px 8px;">Year</th><th style="text-align:right;padding:3px 8px;">Donor-Restricted</th>'
+    + '<th style="text-align:right;padding:3px 8px;">Without Restrictions</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>'
+    + (totalUnclassified ? '<p style="font-size:.74rem;color:var(--deep-amber);margin:6px 0 0;">⚠ ' + totalUnclassified + ' account/year combination(s) need a classification decision — see the account detail below.</p>' : '')
+    + '</div>';
 }
 function finChurchRenderBalanceMultiImportPreview(d) {
   var byPath = {};

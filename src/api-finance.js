@@ -1106,7 +1106,7 @@ export function parseBalanceSheetGrid(grid, colAIndent) {
     stack.push({ depth, path });
     rows.push(makeBalanceRow(path, classification, hasChildren, fiscalYear, dollarsToCents((grid[i] || [])[1])));
   }
-  return { fiscalYear, asOfDate, rows, skipped };
+  return { fiscalYear, asOfDate, rows, skipped, basis: detectBalanceSheetBasis(grid) };
 }
 export function findBalanceSheetSheet(sheets) {
   for (const s of sheets) {
@@ -1196,7 +1196,7 @@ export function parseFinancialPositionMultiYearGrid(grid, colAIndent) {
     stack.push({ depth, path });
     for (const { col, year } of yearCols) rows.push(makeBalanceRow(path, classification, hasChildren, year, dollarsToCents(row[col])));
   }
-  return { years: yearCols.map(y => y.year), rows, skipped };
+  return { years: yearCols.map(y => y.year), rows, skipped, basis: detectBalanceSheetBasis(grid) };
 }
 // Wholesale-replaces source='import' rows for exactly the set of fiscal years present — same
 // source tag as the single-file Balance Sheet import (there's no precedence system for balance
@@ -1232,6 +1232,130 @@ export function computeBalanceSummary(rows) {
   const assets = byClass.Assets || 0, liabilities = byClass.Liabilities || 0, equity = byClass.Equity || 0;
   return { classificationTotals: byClass, assetsCents: assets, liabilitiesCents: liabilities, equityCents: equity,
     liabilitiesPlusEquityCents: liabilities + equity, balancedCents: assets - (liabilities + equity) };
+}
+
+// ── Equity reclassification: Donor-Restricted vs. Without Donor Restrictions ────────────────
+// Per Timothy_Equity_Reclassification_Spec.md — replaces QuickBooks' four-way equity split
+// (Unrestricted / Board Restricted / Temp. Restricted / Perm. Restricted) with the real
+// post-ASU-2016-14 nonprofit two-bucket model. The four legacy equity lines have drifted from
+// reality (32000 Perm. Restricted has been frozen at exactly $223,828.47 every year since 2019
+// despite the underlying endowments moving with the market every year) and are NEVER used as
+// inputs — this is computed bottom-up from real account balances instead, wherever in the
+// report they happen to sit (several of the accounts below are under Assets — endowment/
+// investment sub-accounts — not Equity; the "25000 Funds" designated-fund list sits under
+// Liabilities in this church's chart of accounts). Account codes below matched against the real
+// combined multi-year workbook and reconcile exactly (2026 designated-funds total: $119,049.51,
+// matching "Total for 25000 Funds" in the source file to the penny).
+//
+// Every code below is Donor-Restricted; there is no board-designated bucket in this fund list
+// (Board Restricted folds into Unrestricted going forward — see EQUITY_RECLASS_IGNORE_CODES).
+export const EQUITY_RECLASS_ACCOUNTS = {
+  // 3a — Perpetual endowments (principal never spent)
+  '12010': 'perpetual', '12011': 'perpetual', '12013': 'perpetual', '12014': 'perpetual',
+  // 3b — Purpose/time restricted (bequests, investment reserves)
+  '12019': 'purpose_time', '12020': 'purpose_time', '12021': 'purpose_time',
+  // 3c — Designated ministry/purpose funds (the "25000 Funds" list)
+  '25001': 'designated', '25004': 'designated', '25005': 'designated', '25006': 'designated',
+  '25007': 'designated', '25008': 'designated', '25009': 'designated', '25010': 'designated',
+  '25011': 'designated', '25015': 'designated', '25016': 'designated', '25017': 'designated',
+  '25018': 'designated', '25019': 'designated', '25019a': 'designated', '25020': 'designated',
+  '25022': 'designated', '25023': 'designated', '25023x': 'designated', '25024': 'designated',
+  '25025': 'designated', '25026': 'designated', '25027': 'designated', '25028': 'designated',
+  '25029': 'designated', '25030': 'designated', '25031': 'designated', '25031a': 'designated',
+  '25032': 'designated', '25033': 'designated', '25034': 'designated', '25035': 'designated',
+  '25036': 'designated', '25037': 'designated', '25038': 'designated', '25039': 'designated',
+  '25040': 'designated', '25041': 'designated', '25042': 'designated', '25043': 'designated',
+  '25044': 'designated', '25099': 'designated',
+};
+const EQUITY_RECLASS_BUCKET_LABELS = {
+  perpetual: 'Perpetual endowments', purpose_time: 'Purpose/time restricted', designated: 'Designated ministry/purpose funds',
+};
+// Legacy QuickBooks equity plug lines — always ignored as calculation inputs (see the module
+// comment above). '30000 Opening Balance Equity' is always $0 in every period on file; 'Net
+// Revenue' is a current-period plug folded into Unrestricted via the residual formula below, not
+// summed directly.
+export const EQUITY_RECLASS_IGNORE_CODES = new Set(['30000', '31000', '31500', '32000', '33000']);
+const EQUITY_RECLASS_IGNORE_LABELS = new Set(['net revenue']);
+// Account labels in this report are "<code> <description>" — the code is the stable key (a
+// description can drift — "(deleted)", "reclass to X" suffixes seen in the real export — the
+// leading code does not). Codes are typically 4-6 digits, occasionally with one trailing letter
+// (e.g. "25019a", "25023x").
+export function extractAccountCode(accountName) {
+  const m = /^(\d{4,6}[a-z]{0,2})\b/i.exec((accountName || '').trim());
+  return m ? m[1].toLowerCase() : null;
+}
+// Restricted to the account "neighborhoods" the classification table actually covers — a generic
+// sweep of every leaf account in the report (bank accounts, AP, prepaid expense, etc.) would
+// produce false-positive noise unrelated to donor restrictions. Verified against the real
+// combined multi-year workbook: a bare 120xx code prefix is too broad (matches unrelated
+// operational accounts like "12001 Undeposited Funds"/"12200 Employee Loan"/"12400 Prepaid
+// Expense", which sit under "Other Current Assets"/"Other Assets", not investments) — narrowed to
+// only leaves nested under the real "12000 Investment Accounts" group, which is exactly where
+// every already-classified 3a/3b account sits. This did surface 4 real gaps in the classification
+// table itself when checked against that workbook (12012/12015/12017/12018 — clearly investment/
+// endowment sub-accounts under the same "12000 Investment Accounts" group as the accounts already
+// in Section 3a/3b, just never reviewed with Pastor Dinger) — flagged for manual review rather
+// than silently added, per Section 5.4 of the spec. A leaf under the "25000 Funds" group that
+// isn't in the table is a plausible new designated fund (e.g. "25044 Kaleo Coffee" first appeared
+// in a recent year); any other Equity-classified leaf that isn't in the ignore set is a plausible
+// new/renamed legacy-style equity line. None of these are silently defaulted to a bucket — see the
+// "unclassified" list in computeEquityReclassification below.
+function isEquityReclassCandidate(row, code) {
+  if (!code) return false;
+  const pathWithSep = (row.category_path || '') + ':';
+  if (/(^|:)12000[^:]*:/.test(pathWithSep)) return true;
+  if (/(^|:)25000[^:]*:/.test(pathWithSep)) return true;
+  if (row.classification === 'Equity') return true;
+  return false;
+}
+// Computes {DonorRestricted, Unrestricted} for one fiscal year's set of already-parsed/persisted
+// balance rows (leaf rows with own_balance_cents; classification-header and "has_children" group
+// rows are safe to include too — they carry a $0 own value in every real export observed, per
+// computeBalanceSummary's own long-standing $0.00-diff reconciliation). TotalEquity is derived by
+// summing every row classified 'Equity' (computeBalanceSummary's equityCents) rather than reading
+// a literal printed "Total for Equity" cell — mathematically identical given that reconciliation
+// guarantee, and avoids needing the raw Total-row text captured by a parser rewrite. Per the
+// spec, Unrestricted is always the RESIDUAL against TotalEquity, never a direct sum of the legacy
+// lines — this is what keeps the two buckets exactly summing to real total equity regardless of
+// any drift in QuickBooks' own internal sub-accounts.
+export function computeEquityReclassification(rows) {
+  const breakdown = { perpetual: 0, purpose_time: 0, designated: 0 };
+  const unclassified = [];
+  const seenCodes = new Set();
+  for (const r of rows) {
+    if (r.has_children) continue; // leaf-only, to avoid double-counting a group's own subtotal row
+    const code = extractAccountCode(r.account_name);
+    const label = (r.account_name || '').trim().toLowerCase();
+    if (code && EQUITY_RECLASS_ACCOUNTS[code]) {
+      breakdown[EQUITY_RECLASS_ACCOUNTS[code]] += r.own_balance_cents;
+      seenCodes.add(code);
+      continue;
+    }
+    if ((code && EQUITY_RECLASS_IGNORE_CODES.has(code)) || EQUITY_RECLASS_IGNORE_LABELS.has(label)) continue;
+    if (isEquityReclassCandidate(r, code)) {
+      unclassified.push({ account_name: r.account_name, category_path: r.category_path, own_balance_cents: r.own_balance_cents });
+    }
+  }
+  const donorRestrictedCents = breakdown.perpetual + breakdown.purpose_time + breakdown.designated;
+  const totalEquityCents = computeBalanceSummary(rows).equityCents;
+  const unrestrictedCents = totalEquityCents - donorRestrictedCents;
+  return {
+    donorRestrictedCents, unrestrictedCents, totalEquityCents,
+    breakdown: Object.fromEntries(Object.entries(breakdown).map(([k, v]) => [k, { label: EQUITY_RECLASS_BUCKET_LABELS[k], cents: v }])),
+    unclassified,
+  };
+}
+// The real export's trailing footer line names its accounting basis (e.g. "Cash Basis Tuesday,
+// July 28, 2026 03:11 PM GMT-05:00") — 2025's export was run on Accrual while every other year on
+// file is Cash, so this is surfaced rather than silently assumed, per the spec.
+export function detectBalanceSheetBasis(grid) {
+  for (const row of grid) {
+    const cell = row && row[0];
+    if (typeof cell !== 'string') continue;
+    const m = /^(Cash|Accrual)\s+Basis\b/i.exec(cell.trim());
+    if (m) return m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+  }
+  return null;
 }
 
 // ── Daycare data from an already-imported Church Budget year ────────────────────────────────
@@ -2704,7 +2828,10 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     try { parsed = parseBalanceSheetGrid(sheet.grid, sheet.colAIndent); }
     catch (e) { return json({ error: e.message }, 400); }
     if (!parsed.fiscalYear) return json({ error: 'Could not determine the fiscal year from this sheet — expected an "As of ..." date line above the header row.' }, 400);
-    return json({ sheetName: sheet.name, fiscalYear: parsed.fiscalYear, asOfDate: parsed.asOfDate, rows: parsed.rows, skipped: parsed.skipped });
+    return json({
+      sheetName: sheet.name, fiscalYear: parsed.fiscalYear, asOfDate: parsed.asOfDate, rows: parsed.rows, skipped: parsed.skipped,
+      basis: parsed.basis, equityReclass: computeEquityReclassification(parsed.rows),
+    });
   }
 
   if (seg === 'finance/church/balances/import' && method === 'POST') {
@@ -2734,7 +2861,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     let parsed;
     try { parsed = parseFinancialPositionMultiYearGrid(sheet.grid, sheet.colAIndent); }
     catch (e) { return json({ error: e.message }, 400); }
-    return json({ sheetName: sheet.name, years: parsed.years, rows: parsed.rows, skipped: parsed.skipped });
+    const equityReclassByYear = {};
+    for (const y of parsed.years) equityReclassByYear[y] = computeEquityReclassification(parsed.rows.filter(r => r.fiscal_year === y));
+    return json({ sheetName: sheet.name, years: parsed.years, rows: parsed.rows, skipped: parsed.skipped, basis: parsed.basis, equityReclassByYear });
   }
 
   if (seg === 'finance/church/balances/multi-year-import' && method === 'POST') {
@@ -2755,8 +2884,8 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/church/balances' && method === 'GET') {
     const year = parseInt(url.searchParams.get('year'), 10) || new Date().getFullYear();
     const rows = (await db.prepare('SELECT * FROM finance_church_balances WHERE fiscal_year=? ORDER BY category_path').bind(year).all()).results || [];
-    if (!rows.length) return json({ year, rows: [], summary: null, asOfDate: '' });
-    return json({ year, rows, summary: computeBalanceSummary(rows), asOfDate: rows[0].as_of_date || '' });
+    if (!rows.length) return json({ year, rows: [], summary: null, asOfDate: '', equityReclass: null });
+    return json({ year, rows, summary: computeBalanceSummary(rows), asOfDate: rows[0].as_of_date || '', equityReclass: computeEquityReclassification(rows) });
   }
 
   // Multi-year trend: one bulk query + JS grouping (matches this app's existing performance
@@ -2771,8 +2900,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const placeholders = years.map(() => '?').join(',');
     const allRows = (await db.prepare(`SELECT * FROM finance_church_balances WHERE fiscal_year IN (${placeholders})`).bind(...years).all()).results || [];
     const byYear = {};
-    years.forEach(y => { byYear[y] = computeBalanceSummary(allRows.filter(r => r.fiscal_year === y)); });
-    return json({ years, byYear });
+    const equityReclassByYear = {};
+    years.forEach(y => {
+      const yearRows = allRows.filter(r => r.fiscal_year === y);
+      byYear[y] = computeBalanceSummary(yearRows);
+      equityReclassByYear[y] = yearRows.length ? computeEquityReclassification(yearRows) : null;
+    });
+    return json({ years, byYear, equityReclassByYear });
   }
 
   // ── Church Budget Planning — forward multi-year what-if planning (Property Expenses,
