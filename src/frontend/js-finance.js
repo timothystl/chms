@@ -1918,6 +1918,27 @@ function finChurchConfirmBalanceImport() {
 var _finChurchImportPreview = null;
 var _finChurchMonthlyImportPreview = null;
 
+// ── Drag-and-drop for every Church Report import modal's file input. Assigning a dropped
+// DataTransfer's FileList straight onto the <input>'s .files is a standard, well-supported
+// technique — then dispatching a real 'change' event reuses each input's existing onchange
+// handler verbatim, so drag-and-drop and click-to-browse always run the exact same code path.
+function finDropZoneOver(ev) {
+  ev.preventDefault();
+  if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.add('fin-dropzone-active');
+}
+function finDropZoneLeave(ev) {
+  if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.remove('fin-dropzone-active');
+}
+function finDropZoneDrop(ev, inputId) {
+  ev.preventDefault();
+  if (ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.remove('fin-dropzone-active');
+  var inputEl = document.getElementById(inputId);
+  var files = ev.dataTransfer && ev.dataTransfer.files;
+  if (!inputEl || !files || !files.length) return;
+  inputEl.files = files;
+  inputEl.dispatchEvent(new Event('change'));
+}
+
 function finOpenChurchImport() {
   _finChurchImportPreview = null;
   var fileEl = document.getElementById('fin-church-import-file');
@@ -2234,6 +2255,104 @@ function finChurchConfirmActivityImport() {
     btn.disabled = false;
     if (d && d.error) { finToast('Import failed: ' + d.error); return; }
     closeModal('fin-church-activity-import-modal');
+    finToast('Imported ' + d.imported + ' row(s) across ' + d.years.length + ' year(s).');
+    finRenderChurchReport();
+  }).catch(function(err) {
+    btn.disabled = false;
+    if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
+  });
+}
+
+// ── Church Report: "Budget by Year" multi-year import (one file, one column per year, Budget
+// only — the real QuickBooks export splits Actual and Budget into two separate multi-year
+// files, unlike the single-year Budget vs. Actuals import above). Same shape as the Statement
+// of Activity import above, just populating own_budget_cents instead of own_actual_cents; the
+// two merge together in finance_church_entries (field-preserving upsert on the server) so
+// uploading both for the same year fills in both figures rather than one clobbering the other.
+var _finChurchBudgetMultiYearImportPreview = null;
+function finOpenChurchBudgetMultiYearImport() {
+  _finChurchBudgetMultiYearImportPreview = null;
+  var fileEl = document.getElementById('fin-church-budget-multi-import-file');
+  if (fileEl) fileEl.value = '';
+  var statusEl = document.getElementById('fin-church-budget-multi-import-status');
+  if (statusEl) statusEl.textContent = '';
+  var previewEl = document.getElementById('fin-church-budget-multi-import-preview');
+  if (previewEl) previewEl.innerHTML = '';
+  var confirmBtn = document.getElementById('fin-church-budget-multi-import-confirm-btn');
+  if (confirmBtn) confirmBtn.style.display = 'none';
+  openModal('fin-church-budget-multi-import-modal');
+}
+function finChurchBudgetMultiYearImportFileSelected(inputEl) {
+  var file = inputEl.files && inputEl.files[0];
+  if (!file) return;
+  var statusEl = document.getElementById('fin-church-budget-multi-import-status');
+  var previewEl = document.getElementById('fin-church-budget-multi-import-preview');
+  var confirmBtn = document.getElementById('fin-church-budget-multi-import-confirm-btn');
+  statusEl.textContent = 'Reading file…';
+  previewEl.innerHTML = '';
+  confirmBtn.style.display = 'none';
+  _finChurchBudgetMultiYearImportPreview = null;
+  var fd = new FormData();
+  fd.append('file', file);
+  fetch('/admin/api/finance/church/budget-multi-year-import-preview', { method: 'POST', body: fd, credentials: 'include' })
+    .then(function(r) {
+      return r.json().then(function(d) {
+        if (r.status === 401) { location.href = '/chms'; throw new Error('Unauthorized'); }
+        if (!r.ok) throw new Error(d.error || 'Could not read this file.');
+        return d;
+      });
+    })
+    .then(function(d) {
+      _finChurchBudgetMultiYearImportPreview = d;
+      statusEl.textContent = 'Parsed "' + d.sheetName + '" — ' + d.years.length + ' year(s) (' + d.years.join(', ') + '), ' + d.rows.length + ' account/year row(s).'
+        + (d.skipped.length ? ' ' + d.skipped.length + ' line(s) not recognized as accounts (shown below).' : '');
+      previewEl.innerHTML = finChurchRenderBudgetMultiYearImportPreview(d);
+      confirmBtn.style.display = '';
+    })
+    .catch(function(err) {
+      if (err.message !== 'Unauthorized') statusEl.textContent = 'Error: ' + err.message;
+    });
+}
+function finChurchRenderBudgetMultiYearImportPreview(d) {
+  var byPath = {};
+  var order = [];
+  d.rows.forEach(function(r) {
+    if (!byPath[r.category_path]) { byPath[r.category_path] = { row: r, years: {} }; order.push(r.category_path); }
+    byPath[r.category_path].years[r.fiscal_year] = r.own_budget_cents;
+  });
+  var yearHeaders = d.years.map(function(y) { return '<th style="text-align:right;padding:4px 6px;">' + y + '</th>'; }).join('');
+  var rowsHtml = order.map(function(path) {
+    var entry = byPath[path];
+    var cells = d.years.map(function(y) {
+      var v = entry.years[y];
+      return '<td style="padding:3px 6px;text-align:right;">' + (v == null ? '' : '$' + finFmtMoney(v / 100)) + '</td>';
+    }).join('');
+    return '<tr>'
+      + '<td style="padding:3px 6px 3px ' + (8 + 14 * entry.row.depth) + 'px;">' + esc(entry.row.account_name) + '</td>'
+      + '<td style="padding:3px 6px;color:var(--warm-gray);">' + esc(entry.row.classification) + '</td>'
+      + cells + '</tr>';
+  }).join('');
+  var skippedHtml = d.skipped.length
+    ? '<p style="font-size:.76rem;color:var(--warm-gray);margin-top:10px;">Ignored (not recognized as accounts): ' + d.skipped.map(esc).join('; ') + '</p>'
+    : '';
+  return '<div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">'
+    + '<table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
+    + '<thead style="position:sticky;top:0;background:var(--white);"><tr style="border-bottom:1px solid var(--border);">'
+    + '<th style="text-align:left;padding:4px 6px;">Account</th><th style="text-align:left;padding:4px 6px;">Classification</th>'
+    + yearHeaders + '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+    + skippedHtml;
+}
+function finChurchConfirmBudgetMultiYearImport() {
+  if (!_finChurchBudgetMultiYearImportPreview) return;
+  var btn = document.getElementById('fin-church-budget-multi-import-confirm-btn');
+  btn.disabled = true;
+  api('/admin/api/finance/church/budget-multi-year-import', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ years: _finChurchBudgetMultiYearImportPreview.years, rows: _finChurchBudgetMultiYearImportPreview.rows }),
+  }).then(function(d) {
+    btn.disabled = false;
+    if (d && d.error) { finToast('Import failed: ' + d.error); return; }
+    closeModal('fin-church-budget-multi-import-modal');
     finToast('Imported ' + d.imported + ' row(s) across ' + d.years.length + ' year(s).');
     finRenderChurchReport();
   }).catch(function(err) {

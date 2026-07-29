@@ -378,6 +378,22 @@ describe('parseXlsxAllSheets — non-self-closing <sheet> tag regression (real A
     expect(sheets.map(s => s.name)).toEqual(['Sheet1']);
     expect(findPropertyBudgetDetailSheet(sheets)).toBeTruthy();
   });
+
+  // 2026-07-29 — real bug found against a real uploaded "Statement of Activity" export: its
+  // xl/_rels/workbook.xml.rels wrote an ABSOLUTE Relationship Target ("/xl/worksheets/sheet1.xml")
+  // instead of the usual relative one ("worksheets/sheet1.xml"). finXlsxFindSheetPath always
+  // prepended "xl/" to whatever it found, so an absolute target produced a garbage
+  // double-prefixed path ("xl//xl/worksheets/sheet1.xml") matching no real zip entry — the sheet
+  // silently came back with grid:null, failing every importer for this exact file shape.
+  it('resolves a sheet whose Relationship Target is an absolute path rooted at the zip ("/xl/worksheets/sheet1.xml")', async () => {
+    const workbookXml = `<?xml version="1.0"?><workbook><sheets><sheet sheetId="1" name="Sheet1" r:id="rId1"/></sheets></workbook>`;
+    const absoluteRelsXml = `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="/xl/worksheets/sheet1.xml"/></Relationships>`;
+    const zip = buildTestXlsxZip({ 'xl/workbook.xml': workbookXml, 'xl/_rels/workbook.xml.rels': absoluteRelsXml, 'xl/worksheets/sheet1.xml': sheetXml });
+    const sheets = await parseXlsxAllSheets(zip);
+    expect(sheets).toHaveLength(1);
+    expect(sheets[0].grid).not.toBeNull();
+    expect(sheets[0].grid[0][0]).toBe('Account Name');
+  });
 });
 
 describe('parsePropertyMonthlyCsv', () => {

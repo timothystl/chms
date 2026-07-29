@@ -503,6 +503,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-card{background:var(--white);border-radius:20px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:22px 24px;}
 .fin-card-title{font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--color-navy);margin:0 0 4px;}
 .fin-card-sub{font-size:.82rem;color:var(--warm-gray);margin:0 0 14px;}
+.fin-dropzone{border:2px dashed var(--border);border-radius:10px;padding:14px;text-align:center;transition:border-color .15s,background .15s;}
+.fin-dropzone-active{border-color:var(--color-teal);background:var(--color-light-teal);}
+.fin-dropzone-hint{font-size:.74rem;color:var(--warm-gray);margin-top:6px;}
 .fin-navy-card{background:var(--color-navy);border-radius:20px;box-shadow:0 10px 24px rgba(30,45,74,.2);padding:22px 24px;color:var(--white);}
 .fin-navy-card .fin-card-title{color:var(--white);}
 .fin-navy-label{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:rgba(255,255,255,.65);}
