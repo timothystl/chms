@@ -24,6 +24,27 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.114.0 — Equity reclassification: restricted-accounts list corrected with Pastor Dinger (2026-07-29)
+Follow-up on v1.113.0, same day, walked through year-by-year with Pastor Dinger before shipping —
+caught by hand-checking the app's own numbers against his own math rather than trusting the first
+cut. The original spec's Section 3b ("Purpose/Time Restricted") listed 12019 (Thrivent-Bequests),
+12020 (Edward Jones), and 12021 (Reserve for Caring Ministry) as Donor-Restricted; confirmed this
+was wrong — the real restricted-accounts list is exactly the endowment six (12010/11/12/13/14/15,
+the "8632/8633" and "3285" Thrivent sub-account pairs — 12012/12015 added, previously flagged
+unclassified) plus the unchanged "25000 Funds" designated list. 12019/12020/12021 move from
+`EQUITY_RECLASS_ACCOUNTS` into `EQUITY_RECLASS_IGNORE_CODES` (confirmed-not-restricted, not
+"needs review") alongside the three sibling investment accounts (12016/17/18) already excluded
+pending review — the whole `purpose_time` bucket is now empty. **Verified against the real
+reference workbook**: 2019's corrected split ($401,449.78 Donor-Restricted / $439,786.11 Without
+Donor Restrictions) matches Pastor Dinger's own hand-computed figure ($146,354.75 designated +
+$255,095.03 endowment) to the penny, and the `unclassified` warning list is now empty for every
+year 2019–2026 (previously flagged 5 accounts/year that are now correctly excluded outright
+rather than perpetually flagged). `npm test` (421/421, 19 tests in
+`test/finance-equity-reclass.test.js` — rewrote the fixture to match the real 2026 row set
+including the now-ignored accounts, added a direct real-figure regression for the corrected split).
+`node --check` on `api-finance.js` and both built app-JS bundles. Not verified in a live browser.
+Done 2026-07-29 (v1.114.0). (`src/api-finance.js`, `test/finance-equity-reclass.test.js`)
+
 ### v1.113.0 — Equity reclassification: Donor-Restricted vs. Without Donor Restrictions (2026-07-28)
 Implemented from `Timothy_Equity_Reclassification_Spec.md` (user-provided design spec): replaces
 QuickBooks' four-way equity split (Unrestricted/Board Restricted/Temp. Restricted/Perm. Restricted)
