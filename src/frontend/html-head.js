@@ -359,26 +359,174 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .rpt-stat{background:var(--linen);border-radius:12px;padding:10px 16px;min-width:140px;flex:1 1 140px;max-width:220px;}
 .rpt-stat-num{font-size:1.35rem;font-weight:700;font-family:var(--font-head);color:var(--steel-anchor);line-height:1.1;}
 .rpt-stat-lbl{font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);margin-top:3px;}
-/* ── ATTENDANCE ── */
-.att-chart-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px 10px;margin-bottom:14px;}
-.att-stats-row{display:flex;gap:22px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end;}
-.att-stat-val{font-size:1.75rem;font-weight:700;font-family:var(--font-head);color:var(--steel-anchor);line-height:1;}
-.att-stat-lbl{font-size:.7rem;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-top:3px;}
-.att-stat-primary .att-stat-val{font-size:2.6rem;}
-.att-stat-divider{width:1px;height:36px;background:var(--border);flex-shrink:0;}
-.att-list-card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
-.att-date-group{border-bottom:1px solid var(--border);}
-.att-date-group:last-child{border-bottom:none;}
-.att-date-hdr{display:flex;align-items:center;gap:6px;padding:10px 14px 4px;cursor:pointer;transition:background .15s;}
-.att-date-hdr:hover{background:var(--linen);}
-.att-date-group.future{background:var(--linen);opacity:.5;}
-.att-date-group.future .att-date-hdr:hover{background:var(--linen);}
-.att-combined{margin-left:auto;font-size:.78rem;font-weight:700;color:var(--steel-anchor);background:var(--ice-blue);padding:2px 8px;border-radius:100px;}
-.att-svc-nums{display:flex;gap:20px;padding:2px 14px 8px;font-size:.88rem;}
-.att-svc-lbl{font-size:.7rem;font-weight:700;color:var(--warm-gray);text-transform:uppercase;margin-right:4px;}
-.att-svc-v{font-size:1rem;font-weight:700;color:var(--charcoal);}
-.att-inline-form{padding:12px 14px 14px;background:var(--blue-mist);border-top:1px solid var(--ice-blue);}
+/* ── ATTENDANCE (1a redesign, "This Week · Trends · Festivals · History · Reports") ──
+   Scoped tokens under .att-root — most map 1:1 onto the app's existing brand tokens
+   (see README Design Tokens: navy/teal/gold/border/white already match exactly), a few
+   are new values introduced by this design with no existing equivalent (page/inset
+   surfaces, hairlines, the semantic pos/neg + attention-pill colors, the 4-step year/heat
+   ramps). Kept local to .att-root rather than promoted to :root since nothing else in the
+   app uses them yet — see CLAUDE.md Attendance/Reports queued item for detail. */
+.att-root{
+  --att-page:#FAF7F2;--att-inset:#F5F1E8;--att-hairline:#EFE6D6;--att-table-hairline:#F6F2EA;--att-track:#F2EDE3;
+  --att-text-2:#8B7355;--att-text-3:#A0937F;--att-text-lbl:#4A4437;
+  --att-gold-text:#B8862B;
+  --att-yr-1:#DCE9F0;--att-yr-2:#9FC4D8;--att-yr-3:var(--color-teal);--att-yr-4:var(--color-navy);
+  --att-heat-1:#E3E9EE;--att-heat-2:#A9C8D9;--att-heat-3:#4C87A9;--att-heat-4:var(--color-navy);--att-heat-empty:var(--att-table-hairline);
+  --att-pos:#4F7D4F;--att-neg:#B03A2E;--att-pill-text:#8A6A17;--att-pill-bg:#F7E7BF;
+  background:var(--att-page);
+}
+.att-tabbar{display:flex;gap:26px;padding:0 24px;background:var(--att-page);border-bottom:1px solid var(--att-hairline);flex-wrap:wrap;}
+.att-tab{padding:14px 2px 12px;font-size:15px;font-weight:600;color:var(--att-text-2);background:none;border:none;cursor:pointer;font-family:var(--font-body);}
+.att-tab.active{font-weight:700;color:var(--color-navy);box-shadow:inset 0 -2px 0 var(--color-navy);}
+.att-panel{display:none;padding:20px 24px 28px;flex-direction:column;gap:16px;}
+.att-panel.active{display:flex;}
+.att-card{background:var(--white);border-radius:18px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:20px;}
+.att-card-title{font-size:1.2rem;font-weight:700;color:var(--color-navy);font-family:var(--font-head);}
+.att-card-subtitle{font-size:.84rem;color:var(--att-text-2);margin-top:2px;}
+.att-row2{display:grid;grid-template-columns:404px 1fr;gap:16px;align-items:start;}
+.att-row2b{display:grid;grid-template-columns:1fr 424px;gap:16px;align-items:start;}
+@media(max-width:1100px){.att-row2,.att-row2b{grid-template-columns:1fr;}}
+/* -- Entry card -- */
+.att-entry-card{display:flex;flex-direction:column;gap:14px;}
+.att-eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--att-text-2);}
+.att-pill-due{font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--att-pill-text);background:var(--att-pill-bg);padding:3px 10px;border-radius:100px;white-space:nowrap;}
+.att-entry-date{font-size:1.9rem;font-weight:700;color:var(--color-navy);letter-spacing:-.01em;font-family:var(--font-head);}
+.att-entry-sub{font-size:.88rem;color:var(--att-text-2);margin-top:2px;}
+.att-input-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.att-input-label{font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--color-navy);margin-bottom:4px;display:block;}
+.att-input{height:60px;padding:0 14px;border:1.5px solid var(--border);border-radius:12px;background:var(--att-page);font-size:1.65rem;font-weight:700;color:var(--color-navy);font-variant-numeric:tabular-nums;width:100%;font-family:var(--font-body);}
+.att-input:focus{border-color:var(--color-navy);background:var(--white);outline:none;}
+.att-combined-strip{padding:12px 15px;background:var(--att-inset);border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.att-combined-label{font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--att-text-2);}
+.att-combined-val{font-size:1.5rem;font-weight:700;color:var(--color-navy);font-variant-numeric:tabular-nums;}
+.att-delta{font-size:.8rem;font-weight:600;}
+.att-delta.pos{color:var(--att-pos);}
+.att-delta.neg{color:var(--att-neg);}
+.att-btn-row{display:flex;gap:10px;flex-wrap:wrap;}
+.att-btn-primary{padding:12px 22px;background:var(--color-navy);color:var(--white);border-radius:10px;font-size:.94rem;font-weight:700;border:none;cursor:pointer;font-family:var(--font-body);}
+.att-btn-primary:hover{background:var(--deep-steel);}
+.att-btn-secondary{padding:12px 22px;background:var(--white);border:1.5px solid var(--att-hairline);border-radius:10px;color:var(--color-navy);font-size:.9rem;font-weight:700;cursor:pointer;font-family:var(--font-body);}
+.att-btn-secondary:hover{background:var(--att-inset);}
+.att-still{border-top:1px solid var(--att-hairline);padding-top:13px;}
+.att-still-hdr{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:2px;}
+.att-still-title{font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--att-text-2);}
+.att-still-badge{font-size:.78rem;font-weight:700;color:var(--att-pill-text);background:var(--att-pill-bg);padding:3px 10px;border-radius:100px;white-space:nowrap;}
+.att-still-row{display:flex;align-items:center;gap:10px;border-top:1px solid var(--att-table-hairline);padding:10px 0;}
+.att-still-date{font-size:.86rem;font-weight:700;color:var(--color-navy);min-width:60px;}
+.att-still-desc{font-size:.78rem;color:var(--att-text-2);flex:1;}
+.att-still-enter{font-size:.78rem;font-weight:700;color:var(--color-navy);background:var(--att-inset);padding:6px 13px;border-radius:100px;border:none;cursor:pointer;font-family:var(--font-body);white-space:nowrap;}
+.att-still-enter:hover{background:var(--att-hairline);}
+.att-still-empty{font-size:.82rem;color:var(--att-text-3);padding:10px 0;}
+/* -- Pulse card -- */
+.att-pulse-card{display:flex;flex-direction:column;gap:18px;padding:20px 22px 16px;}
+.att-pulse-stats{display:flex;gap:28px;flex-wrap:wrap;align-items:center;}
+.att-pulse-primary{display:flex;flex-direction:column;}
+.att-pulse-primary-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
+.att-pulse-value{font-size:3rem;font-weight:700;color:var(--color-navy);letter-spacing:-.02em;font-family:var(--font-head);line-height:1;}
+.att-pulse-caption{font-size:.7rem;text-transform:uppercase;letter-spacing:.09em;color:var(--att-text-2);margin-top:4px;}
+.att-pulse-divider{width:1px;height:46px;background:var(--att-hairline);flex-shrink:0;}
+.att-pulse-stat-val{font-size:1.6rem;font-weight:700;color:var(--color-navy);font-family:var(--font-head);line-height:1;}
+.att-bars26{display:flex;align-items:flex-end;gap:6px;height:150px;border-bottom:1px solid var(--att-hairline);overflow-x:auto;}
+.att-bar26-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:1;min-width:8px;height:100%;}
+.att-bar26-val{font-size:.66rem;font-weight:600;color:var(--att-text-3);margin-bottom:2px;white-space:nowrap;}
+.att-bar26-bar{width:100%;border-radius:4px 4px 0 0;min-height:2px;}
+.att-bar26-bar.gold{background:var(--color-gold);}
+.att-bar26-bar.teal{background:var(--color-teal);}
+.att-bars-foot{display:flex;justify-content:space-between;font-size:.72rem;color:var(--att-text-3);}
+/* -- Heat grid -- */
+.att-heat-row{display:flex;align-items:center;gap:8px;margin-bottom:3px;}
+.att-heat-year{width:38px;font-size:.8rem;font-weight:700;color:var(--att-text-2);flex-shrink:0;}
+.att-heat-cells{display:flex;gap:3px;flex:1;min-width:0;overflow-x:auto;}
+.att-heat-cell{height:22px;border-radius:3px;flex:1;min-width:6px;}
+.att-heat-cell.heat-empty,.att-heat-legend-cell.heat-empty{background:var(--att-heat-empty);}
+.att-heat-cell.heat-1,.att-heat-legend-cell.heat-1{background:var(--att-heat-1);}
+.att-heat-cell.heat-2,.att-heat-legend-cell.heat-2{background:var(--att-heat-2);}
+.att-heat-cell.heat-3,.att-heat-legend-cell.heat-3{background:var(--att-heat-3);}
+.att-heat-cell.heat-4,.att-heat-legend-cell.heat-4{background:var(--att-heat-4);}
+.att-heat-avg{font-size:.82rem;font-weight:700;color:var(--color-navy);width:44px;text-align:right;flex-shrink:0;}
+.att-heat-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding-left:46px;padding-right:44px;font-size:.72rem;color:var(--att-text-2);flex-wrap:wrap;gap:8px;}
+.att-heat-legend{display:flex;align-items:center;gap:4px;color:var(--att-text-3);}
+.att-heat-legend-cell{width:12px;height:12px;border-radius:2px;display:inline-block;}
+/* -- Recent Sundays -- */
+.att-recent-row{display:grid;grid-template-columns:88px 1fr 52px 52px 66px;gap:8px;padding:10px 0;border-top:1px solid var(--att-table-hairline);align-items:center;}
+.att-recent-row:first-child{border-top:none;}
+.att-recent-date{font-size:.86rem;font-weight:700;color:var(--color-navy);}
+.att-recent-name{font-size:.78rem;color:var(--att-text-2);}
+.att-recent-8{font-size:.86rem;font-weight:700;color:var(--att-gold-text);text-align:right;}
+.att-recent-1045{font-size:.86rem;font-weight:700;color:var(--color-teal);text-align:right;}
+.att-recent-total{font-size:.86rem;font-weight:700;color:var(--color-navy);text-align:center;background:var(--att-inset);border-radius:100px;padding:2px 0;}
+.att-card-hdr{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;flex-wrap:wrap;}
+.att-link{font-size:.8rem;font-weight:700;color:var(--color-teal);text-decoration:none;cursor:pointer;background:none;border:none;font-family:var(--font-body);}
+.att-link:hover{text-decoration:underline;}
+/* -- Trends: monthly rhythm -- */
+.att-month-wrap{display:flex;align-items:flex-end;gap:8px;height:200px;overflow-x:auto;}
+.att-month-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:1;min-width:32px;height:100%;}
+.att-month-val{font-size:.88rem;font-weight:700;color:var(--color-navy);margin-bottom:4px;}
+.att-month-bar{width:100%;max-width:64px;border-radius:6px 6px 0 0;min-height:2px;}
+.att-month-bar.hi{background:var(--color-navy);}
+.att-month-bar.lo{background:#9FC4D8;}
+.att-month-foot{display:flex;gap:8px;border-top:1px solid var(--att-hairline);margin-top:4px;padding-top:6px;}
+.att-month-foot-col{flex:1;min-width:32px;text-align:center;}
+.att-month-label{font-size:.78rem;font-weight:700;color:var(--att-text-lbl);}
+.att-month-season{font-size:.68rem;color:var(--att-text-3);}
+/* -- Trends: service mix -- */
+.att-mix-row{margin-bottom:12px;}
+.att-mix-hdr{display:flex;justify-content:space-between;gap:8px;font-size:.82rem;margin-bottom:5px;flex-wrap:wrap;}
+.att-mix-label{font-weight:700;color:var(--att-text-lbl);}
+.att-mix-track{height:16px;border-radius:5px;background:var(--att-track);overflow:hidden;display:flex;}
+.att-mix-fill-8{background:var(--color-gold);height:100%;}
+.att-mix-fill-1045{background:var(--color-teal);height:100%;}
+/* -- Trends: YoY table -- */
+.att-yoy-hdr,.att-yoy-row{display:grid;grid-template-columns:48px 1fr 1fr 1fr 62px;gap:0 10px;align-items:center;}
+.att-yoy-hdr{font-size:.68rem;font-weight:700;text-transform:uppercase;color:var(--att-text-2);border-bottom:1px solid var(--att-hairline);padding-bottom:6px;}
+.att-yoy-row{padding:6px 0;border-bottom:1px solid var(--att-table-hairline);}
+.att-yoy-cell{display:flex;align-items:center;gap:6px;}
+.att-yoy-bar{height:9px;border-radius:2px;min-width:2px;}
+.att-yoy-num{font-size:.82rem;color:var(--att-text-lbl);}
+.att-yoy-delta{font-size:.8rem;font-weight:700;text-align:right;}
+/* -- Festivals -- */
+.att-fest-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;}
+@media(max-width:800px){.att-fest-grid{grid-template-columns:repeat(2,1fr);}}
+.att-fest-hdr{display:flex;justify-content:space-between;align-items:baseline;gap:6px;margin-bottom:10px;flex-wrap:wrap;}
+.att-fest-name{font-size:.92rem;font-weight:700;color:var(--color-navy);}
+.att-fest-delta{font-size:.78rem;font-weight:700;}
+.att-fest-bars{display:flex;align-items:flex-end;gap:8px;height:132px;border-bottom:1px solid var(--att-hairline);}
+.att-fest-bar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:1;height:100%;}
+.att-fest-val{font-size:.78rem;font-weight:700;color:var(--color-navy);margin-bottom:3px;}
+.att-fest-bar{width:100%;border-radius:5px 5px 0 0;min-height:2px;}
+.att-fest-bar.latest{background:var(--color-navy);}
+.att-fest-bar.prior{background:#9FC4D8;}
+.att-fest-foot{display:flex;gap:8px;margin-top:6px;}
+.att-fest-yr{flex:1;text-align:center;font-size:.7rem;color:var(--att-text-3);}
+/* -- History -- */
+.att-hist-hdr,.att-hist-row{display:grid;grid-template-columns:104px 1fr 60px 60px 74px 84px;gap:10px;align-items:center;}
+.att-hist-hdr{font-size:.68rem;font-weight:700;text-transform:uppercase;color:var(--att-text-2);border-bottom:1px solid var(--att-hairline);padding-bottom:6px;}
+.att-hist-row{padding:10px 0;border-bottom:1px solid var(--att-table-hairline);cursor:pointer;}
+.att-hist-row:hover{background:var(--att-page);}
+.att-hist-date{font-size:.85rem;font-weight:700;color:var(--color-navy);}
+.att-hist-name{font-size:.8rem;color:var(--att-text-2);}
+.att-hist-8{font-size:.85rem;font-weight:700;color:var(--att-gold-text);text-align:right;}
+.att-hist-1045{font-size:.85rem;font-weight:700;color:var(--color-teal);text-align:right;}
+.att-hist-total{font-size:.85rem;font-weight:700;color:var(--color-navy);text-align:center;background:var(--att-inset);border-radius:100px;padding:2px 0;}
+.att-hist-delta{font-size:.82rem;font-weight:700;text-align:right;}
+/* -- Reports grid -- */
+.att-report-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+@media(max-width:800px){.att-report-grid{grid-template-columns:1fr;}}
+.att-report-title{font-size:1.05rem;font-weight:700;color:var(--color-navy);font-family:var(--font-head);}
+.att-report-desc{font-size:.84rem;color:var(--att-text-2);margin:4px 0 12px;}
+.att-report-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.att-report-inputs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+.att-report-inputs .field{margin:0;}
+/* Legacy list/edit classes still used by the History tab's inline correction form */
+.att-inline-form{padding:12px 14px 14px;background:var(--blue-mist);border-top:1px solid var(--ice-blue);border-radius:0 0 12px 12px;}
 .att-edit-hint{font-size:.72rem;color:var(--warm-gray);margin-left:6px;}
+@media(max-width:700px){
+  .att-hist-hdr,.att-hist-row{grid-template-columns:84px 1fr 44px 44px 58px;}
+  .att-hist-1045{display:none;}
+  .att-yoy-hdr,.att-yoy-row{grid-template-columns:40px 1fr 1fr 50px;}
+  .att-recent-row{grid-template-columns:70px 1fr 46px 46px;}
+  .att-recent-1045{display:none;}
+}
 /* ── IMPORT ── */
 .import-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:14px;}
 .import-card h3{font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin-bottom:6px;}
@@ -886,9 +1034,15 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 @media print{
   .sidebar,.topbar,.toolbar,.modal-overlay,#offline-banner{display:none!important;}
   .tab-panel{display:block!important;padding:0;}
-  .tab-panel:not(#tab-reports):not(#tab-finance):not(#tab-scheduler):not(#tab-giving){display:none!important;}
+  .tab-panel:not(#tab-reports):not(#tab-finance):not(#tab-scheduler):not(#tab-giving):not(#tab-attendance){display:none!important;}
   #tab-giving{display:none!important;}
   body{background:white;}
+  /* Attendance tab: only the active att-panel prints (tab bar + inactive panels hidden). The
+     Council Packet report additionally sets body.printing-att-packet to print just that card. */
+  #tab-attendance .att-tabbar{display:none!important;}
+  body.printing-att-packet .tab-panel:not(#tab-attendance){display:none!important;}
+  body.printing-att-packet #tab-attendance .att-panel:not(#att-panel-reports){display:none!important;}
+  body.printing-att-packet .att-report-grid{display:none!important;}
   /* Board Report (giving redesign): printBoardPage() sets body.printing-board so only the
      board panel prints, the shared subnav header + toolbar hide, and the grids stay full-width. */
   body.printing-board .tab-panel:not(#tab-giving){display:none!important;}
