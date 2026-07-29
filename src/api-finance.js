@@ -357,7 +357,15 @@ function finXlsxFindSheetPath(workbookXml, relsXml, sheetName) {
     if (idM && targetM) relMap[idM[1]] = targetM[1];
   }
   const target = relMap[rId];
-  return target ? 'xl/' + target : null;
+  if (!target) return null;
+  // Per the OOXML spec a Relationship Target is normally relative to the .rels file's own folder
+  // (xl/_rels/ → so "worksheets/sheet1.xml" means "xl/worksheets/sheet1.xml"), but some export
+  // tools instead write an absolute path rooted at the zip itself (e.g. "/xl/worksheets/sheet1.xml"
+  // — confirmed against a real uploaded file). Blindly prepending "xl/" to an already-absolute
+  // target produced a garbage double-prefixed path that matched no real zip entry, silently
+  // failing this file's import (and would fail identically for every other importer in this app,
+  // not just the ones added alongside this fix).
+  return target.startsWith('/') ? target.slice(1) : 'xl/' + target;
 }
 // Reads xl/styles.xml's cellXfs list (in document order, so array index === the style index a
 // cell's s="N" attribute references) and returns just each entry's alignment indent (default 0)
@@ -716,18 +724,41 @@ export async function persistChurchEntriesMonthlyImport(db, rows, fiscalYear, im
 // as parseBudgetVsActualsGrid/parseMonthlyPnLGrid (same report family, same export convention) —
 // only the header detection and per-row amount extraction differ (bare-year columns instead of
 // Actual/Budget or month-titled columns).
+// Not anchored to the whole string — a partial-current-year column is often titled something
+// like "Jan 1 - Jul 28 2026" rather than a bare "2026" (confirmed against a real export), so this
+// extracts any embedded 4-digit 19xx/20xx year rather than requiring the cell to contain nothing
+// else.
 export function parseYearColTitle(title) {
-  const m = /^(19|20)\d{2}$/.exec((title == null ? '' : String(title)).trim());
+  const m = /(19|20)\d{2}/.exec((title == null ? '' : String(title)).trim());
   return m ? parseInt(m[0], 10) : null;
 }
-export function findActivityMultiYearSheet(sheets) {
+function findYearMultiColSheet(sheets) {
   for (const s of sheets) {
     if (!s.grid) continue;
     if (s.grid.some(r => r && [1, 2].filter(c => parseYearColTitle(r[c]) != null).length >= 2)) return s;
   }
   return null;
 }
-export function parseActivityMultiYearGrid(grid) {
+export function findActivityMultiYearSheet(sheets) { return findYearMultiColSheet(sheets); }
+// The user's real multi-year exports carry a substantial trailing free-text notes/commentary
+// section (dozens of lines documenting reclassification decisions) below the real data, headed
+// by a line starting "NOTES" (e.g. "NOTES ON THIS RESTRUCTURING", "NOTES ON THIS BUDGET
+// DOCUMENT") — confirmed against real files, both examples seen. Those lines are indented like
+// real accounts (not depth 0), so the ordinary "depth 0 with no children = noise" skip rule can't
+// catch them; parsing stops outright the moment this sentinel is seen; whatever data was already
+// found survives.
+const NOTES_SECTION_RE = /^NOTES\b/i;
+// Shared tree walk for the two multi-year Income Statement imports (Statement of Activity =
+// actual only; Budget by Year = budget only) — same report family/export convention as each
+// other, confirmed against real files to use QuickBooks' cell-style indent metadata (not literal
+// leading spaces the way the single-file Budget vs. Actuals/Monthly P&L exports do), so this
+// reuses balanceRowDepth/nextNonBlankRowIndex (built for the Balance Sheet import) rather than
+// indentDepthOf/nextNonBlankLabel. `field` is 'actual' or 'budget' — only that one field is
+// populated per row; the other importer supplies the rest when both files are uploaded (see
+// persistChurchEntriesMultiYearImport's field-preserving upsert, which is why these two importers
+// don't need to be combined into one file).
+function parseIncomeStatementMultiYearGrid(grid, colAIndent, field) {
+  colAIndent = colAIndent || [];
   const headerIdx = grid.findIndex(r => r && [1, 2].filter(c => parseYearColTitle(r[c]) != null).length >= 2);
   if (headerIdx === -1) throw new Error('Could not find a year-by-year header row (e.g. "2019", "2020", ...) in this sheet.');
   const header = grid[headerIdx];
@@ -744,11 +775,12 @@ export function parseActivityMultiYearGrid(grid) {
     const raw = grid[i] && grid[i][0];
     if (typeof raw !== 'string' || !raw.trim()) continue;
     const label = raw.trim();
+    if (NOTES_SECTION_RE.test(label)) break;
     if (/^Total\s/i.test(label)) continue;
     if (IMPORT_SKIP_LABEL_RE.test(label)) continue;
-    const depth = indentDepthOf(raw);
-    const nextLabel = nextNonBlankLabel(grid, i);
-    const hasChildren = nextLabel != null && indentDepthOf(nextLabel) > depth;
+    const depth = balanceRowDepth(raw, colAIndent[i]);
+    const nextIdx = nextNonBlankRowIndex(grid, i);
+    const hasChildren = nextIdx !== -1 && balanceRowDepth(grid[nextIdx][0], colAIndent[nextIdx]) > depth;
     if (depth === 0 && !hasChildren) { skipped.push(raw); continue; }
     while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
     let path;
@@ -762,34 +794,66 @@ export function parseActivityMultiYearGrid(grid) {
     stack.push({ depth, path });
     const row = grid[i] || [];
     for (const { col, year } of yearCols) {
+      const cents = dollarsToCents(row[col]);
       rows.push(makeFlatRow(path, classification, hasChildren, {
         fiscal_year: year,
-        own_actual_cents: dollarsToCents(row[col]), own_budget_cents: null,
+        own_actual_cents: field === 'actual' ? cents : null,
+        own_budget_cents: field === 'budget' ? cents : null,
       }));
     }
   }
   return { years: yearCols.map(y => y.year), rows, skipped };
 }
+export function parseActivityMultiYearGrid(grid, colAIndent) {
+  return parseIncomeStatementMultiYearGrid(grid, colAIndent, 'actual');
+}
+export function findBudgetMultiYearSheet(sheets) { return findYearMultiColSheet(sheets); }
+export function parseBudgetMultiYearGrid(grid, colAIndent) {
+  return parseIncomeStatementMultiYearGrid(grid, colAIndent, 'budget');
+}
 // Wholesale-replaces source='import_activity' rows for exactly the set of fiscal years present —
 // same re-import-is-idempotent pattern as the other Church Report importers, but keyed by an
 // explicit years array (not one fiscal_year, and not a contiguous month range) since one file
 // spans many non-contiguous years.
+// Deliberately NOT a delete-then-insert like the other Church Report importers — the user's real
+// files split Actual and Budget into two SEPARATE multi-year exports ("Statement of Activity" and
+// "Budget by Year"), each carrying only one of the two fields (own_actual_cents XOR
+// own_budget_cents, the other always null on every row this function receives). Both share the
+// 'import_activity' source, and a field-preserving upsert (COALESCE against the existing stored
+// value) is what lets uploading Activity then Budget — in either order, or just one of the two —
+// correctly combine into complete rows instead of one file wiping out the other's contribution,
+// which a wholesale per-year DELETE-first would do. Trade-off, stated plainly: an account removed
+// from a re-uploaded file (rather than corrected) keeps its last known value here rather than
+// being deleted, since there's no reliable way to tell "removed on purpose" apart from "the field
+// this file doesn't carry" from a single file's contents alone.
 export async function persistChurchEntriesActivityImport(db, rows, years, importedAt) {
-  if (!years.length) return;
-  const ops = years.map(y => db.prepare(`DELETE FROM finance_church_entries WHERE source='import_activity' AND fiscal_year=?`).bind(y));
-  for (const r of rows) {
-    ops.push(db.prepare(
+  if (!years.length || !rows.length) return;
+  // own_actual_cents is NOT NULL in the schema (own_budget_cents is nullable — NULL there already
+  // means "no budget known," so COALESCE works directly for it) — a budget-only row's null actual
+  // has to be coerced to 0 to satisfy that constraint on a fresh insert. That makes 0 ambiguous
+  // between "really zero" and "this import doesn't know," so an explicit hasActual flag (not the
+  // value itself) is what the ON CONFLICT branch below uses to decide whether to touch the
+  // existing stored value at all.
+  const ops = rows.map(r => {
+    const hasActual = r.own_actual_cents != null ? 1 : 0;
+    return db.prepare(
       `INSERT INTO finance_church_entries
          (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
        VALUES (?,0,?,?,?,?,?,?,?,'import_activity',?)
        ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
          classification=excluded.classification, account_name=excluded.account_name, depth=excluded.depth,
-         has_children=excluded.has_children, own_actual_cents=excluded.own_actual_cents,
-         own_budget_cents=excluded.own_budget_cents, synced_at=excluded.synced_at`
-    ).bind(r.fiscal_year, r.classification, r.category_path, r.account_name, r.depth, r.has_children ? 1 : 0, r.own_actual_cents, r.own_budget_cents, importedAt));
-  }
+         has_children=excluded.has_children,
+         own_actual_cents=CASE WHEN ?=1 THEN excluded.own_actual_cents ELSE finance_church_entries.own_actual_cents END,
+         own_budget_cents=COALESCE(excluded.own_budget_cents, finance_church_entries.own_budget_cents),
+         synced_at=excluded.synced_at`
+    ).bind(r.fiscal_year, r.classification, r.category_path, r.account_name, r.depth, r.has_children ? 1 : 0,
+      hasActual ? r.own_actual_cents : 0, r.own_budget_cents, importedAt, hasActual);
+  });
   await db.batch(ops);
 }
+// Same function, different name for the Budget-by-Year import route — makes each call site read
+// clearly without duplicating the (identical) merge logic above.
+export const persistChurchEntriesBudgetMultiYearImport = persistChurchEntriesActivityImport;
 
 // Monthly rows can come from two sources (the live sync's 'qbo_sync' or this manual
 // 'monthly_import') — resolved per fiscal year, live sync wins whenever it has data for that
@@ -1086,6 +1150,7 @@ export function parseFinancialPositionMultiYearGrid(grid, colAIndent) {
     const raw = grid[i] && grid[i][0];
     if (typeof raw !== 'string' || !raw.trim()) continue;
     const label = raw.trim();
+    if (NOTES_SECTION_RE.test(label)) break; // see its definition above — a trailing notes/commentary section, not real data
     if (/^Total\s/i.test(label)) continue;
     if (/^Liabilities and Equity$/i.test(label)) continue;
     const depth = balanceRowDepth(raw, colAIndent[i]);
@@ -2507,13 +2572,14 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const sheet = findActivityMultiYearSheet(sheets);
     if (!sheet) return json({ error: 'Could not find a year-by-year "Statement of Activity" sheet (a sheet with columns like "2019", "2020", ...) in this file.' }, 400);
     let parsed;
-    try { parsed = parseActivityMultiYearGrid(sheet.grid); }
+    try { parsed = parseActivityMultiYearGrid(sheet.grid, sheet.colAIndent); }
     catch (e) { return json({ error: e.message }, 400); }
     return json({ sheetName: sheet.name, years: parsed.years, rows: parsed.rows, skipped: parsed.skipped });
   }
 
-  // Commit step: wholesale-replaces any existing source='import_activity' rows for every year
-  // present in this file, in one call.
+  // Commit step: field-preserving upsert (see persistChurchEntriesActivityImport's own comment) —
+  // a row only ever carries own_actual_cents OR own_budget_cents, never both, since Activity and
+  // Budget by Year are two separate files each supplying one field.
   if (seg === 'finance/church/activity-import' && method === 'POST') {
     const b = await req.json().catch(() => ({}));
     const years = Array.isArray(b.years) ? b.years.map(y => parseInt(y, 10)).filter(Number.isFinite) : [];
@@ -2521,9 +2587,41 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const rows = Array.isArray(b.rows) ? b.rows : [];
     if (!rows.length) return json({ error: 'No rows to import' }, 400);
     const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number'
-      || !Number.isInteger(r.fiscal_year) || !Number.isFinite(r.own_actual_cents));
+      || !Number.isInteger(r.fiscal_year) || !(Number.isFinite(r.own_actual_cents) || Number.isFinite(r.own_budget_cents)));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
     await persistChurchEntriesActivityImport(db, rows, years, new Date().toISOString());
+    return json({ ok: true, years, imported: rows.length });
+  }
+
+  // ── Church Report: "Budget by Year" multi-year import — same shape as the Statement of
+  // Activity import above (one file, one column per year), but budget-only instead of
+  // actual-only. Shares the 'import_activity' source and the same field-preserving merge, so
+  // uploading this and the Activity file (in either order) combines into complete rows.
+  if (seg === 'finance/church/budget-multi-year-import-preview' && method === 'POST') {
+    const form = await req.formData().catch(() => null);
+    const file = form && form.get('file');
+    if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
+    if (file.size > 15 * 1024 * 1024) return json({ error: 'File too large (max 15 MB)' }, 413);
+    let sheets;
+    try { sheets = await parseXlsxAllSheets(await file.arrayBuffer()); }
+    catch (e) { return json({ error: 'Could not read this file as an Excel workbook: ' + e.message }, 400); }
+    const sheet = findBudgetMultiYearSheet(sheets);
+    if (!sheet) return json({ error: 'Could not find a year-by-year "Budget by Year" sheet (a sheet with columns like "2019", "2020", ...) in this file.' }, 400);
+    let parsed;
+    try { parsed = parseBudgetMultiYearGrid(sheet.grid, sheet.colAIndent); }
+    catch (e) { return json({ error: e.message }, 400); }
+    return json({ sheetName: sheet.name, years: parsed.years, rows: parsed.rows, skipped: parsed.skipped });
+  }
+  if (seg === 'finance/church/budget-multi-year-import' && method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    const years = Array.isArray(b.years) ? b.years.map(y => parseInt(y, 10)).filter(Number.isFinite) : [];
+    if (!years.length) return json({ error: 'years is required' }, 400);
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) return json({ error: 'No rows to import' }, 400);
+    const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number'
+      || !Number.isInteger(r.fiscal_year) || !(Number.isFinite(r.own_actual_cents) || Number.isFinite(r.own_budget_cents)));
+    if (bad) return json({ error: 'Malformed row in import payload' }, 400);
+    await persistChurchEntriesBudgetMultiYearImport(db, rows, years, new Date().toISOString());
     return json({ ok: true, years, imported: rows.length });
   }
 

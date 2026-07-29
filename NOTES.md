@@ -24,6 +24,71 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.112.0 — Multi-year importers rebuilt against the real files + drag-and-drop everywhere (2026-07-28)
+User uploaded the three actual files (`Timothy_Statement_of_Activity_RESTRUCTURED_2.xlsx`,
+`Timothy_Budget_by_Year_2.xlsx`, `Timothy_Statement_of_Financial_Position_by_Year.xlsx`) that
+v1.111.0's multi-year importers were built to accept — testing directly against them (not just
+synthetic fixtures) surfaced real structural mismatches, all now fixed and re-verified end-to-end
+by running the actual served parser code against the real file bytes:
+
+1. **Critical, previously-undiscovered bug affecting every importer in the app**:
+   `finXlsxFindSheetPath()` always unconditionally prepended `'xl/'` to a sheet's
+   `Relationship Target` from `xl/_rels/workbook.xml.rels`. The real Statement of Activity file
+   writes that Target as an absolute, zip-rooted path (`/xl/worksheets/sheet1.xml`) instead of the
+   usual relative form (`worksheets/sheet1.xml`) — prepending `'xl/'` onto an absolute path
+   produced an unresolvable double-prefixed string, silently returning `grid: null` for the whole
+   sheet with no error. This wasn't specific to the new multi-year importers — any future upload
+   of a file exported this way, through ANY of this app's importers, would have silently failed
+   the same way. Fixed: `target.startsWith('/') ? target.slice(1) : 'xl/' + target`.
+2. **The real files use cell-style `alignment.indent` metadata for hierarchy, not leading
+   spaces** — `parseActivityMultiYearGrid`/`parseBudgetMultiYearGrid` rewritten around a new
+   shared `parseIncomeStatementMultiYearGrid()` using `balanceRowDepth()`/
+   `nextNonBlankRowIndex()` (the same cell-indent-aware walk already built for the Balance Sheet
+   importer) instead of the old leading-space-only walk — while staying backward-compatible with
+   leading-space-formatted files (falls back automatically when no indent metadata is present).
+3. **The real current-year column header isn't a bare year** — e.g. "Jan 1 - Jul 28 2026" for a
+   partial year. `parseYearColTitle()` broadened from an anchored `^(19|20)\d{2}$` match to an
+   unanchored search, so a year embedded anywhere in the header text is still recognized.
+4. **Both files have a trailing free-text commentary section** ("NOTES ON THIS
+   RESTRUCTURING…"/"NOTES ON THIS BUDGET DOCUMENT…", indented like real accounts) that would
+   otherwise have been misparsed as bogus line items. New `NOTES_SECTION_RE` sentinel stops the
+   parse loop entirely (not just skips a line) the moment it's hit.
+5. **Budget by Year turned out to be a genuinely separate file from Statement of Activity**, not
+   a combined Actual+Budget shape as originally planned — QuickBooks exports these as two
+   distinct multi-year files (Actual-only and Budget-only). Rather than a duplicate importer, the
+   two are designed to merge: `persistChurchEntriesActivityImport()` (shared by both) rewritten
+   from a wholesale delete-then-insert to a field-preserving UPSERT — an Activity import (actual
+   only) and a Budget by Year import (budget only) for the same account+year now combine into one
+   row with both fields populated, regardless of which is uploaded first (verified both orders).
+   New routes `finance/church/budget-multi-year-import-preview`/`budget-multi-year-import`; new
+   "Import Budget by Year (multi-year)" button + modal, mirroring the Statement of Activity flow.
+6. **Statement of Financial Position (multi-year Balance Sheet) reconciles exactly** — Assets =
+   Liabilities + Equity, $0.00 diff, for all 8 real years (2019–2026) once the above fixes were
+   in place; the "assumption flagged, not independently verified" note from v1.111.0 is resolved.
+7. **Drag-and-drop added to every Church Report import modal** (all 6: Budget vs. Actuals,
+   Monthly P&L, Statement of Activity, Budget by Year, Balance Sheet, Financial Position), per
+   explicit request — new shared `finDropZoneOver()`/`finDropZoneLeave()`/`finDropZoneDrop()`
+   helpers assign a dropped `DataTransfer`'s `FileList` onto the existing `<input>`'s `.files`
+   and dispatch a real `change` event, so drag-and-drop runs through the exact same
+   `*FileSelected()` handler as click-to-browse — no duplicated logic. New `.fin-dropzone`/
+   `.fin-dropzone-active`/`.fin-dropzone-hint` CSS. Scoped to the Church Report import modals
+   (the ones actively being built this session) — other upload flows elsewhere in the app
+   (photo uploads, letterhead logo, giving/register CSV import, Tuition Aid) use a different
+   hidden-input-behind-a-button pattern and weren't touched; flag if drag-and-drop is wanted
+   there too.
+
+`npm test` (397/397, unchanged — this was pure real-file/integration verification, not new unit
+coverage, though the existing `parseYearColTitle`/multi-year/precedence tests in
+`test/finance-church.test.js` were updated to match the corrected behavior and a new
+`persistChurchEntriesActivityImport` merge test was added), `node --check` on `api-finance.js`
+and both built app-JS bundles, a full div-balance scan of the built `CHMS_HTML`. **Verified
+against the real uploaded files directly** (not just synthetic fixtures) via a Node harness
+importing the actual served parser functions — all three files parse completely and correctly,
+with known real dollar figures (e.g. Sunday Offering) matching previously-observed live app data.
+**Not verified**: an actual browser — same standing caveat as the rest of Finance this session;
+the file input's native picker and the new drag-and-drop path both need a real click-through to
+confirm, though the underlying parsing/merge logic is now proven correct against real data.
+
 ### v1.111.0 — Bulk Church Report imports: multi-file Budget upload + two new multi-year importers (2026-07-28)
 Follow-up to the QuickBooks sync being set aside (v1.110.0): the user has real reports to bring
 in by hand — many years of "Budget vs. Actuals" (one file per year), a current Balance Sheet, a

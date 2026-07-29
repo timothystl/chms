@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, mergeLeafCells, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, computeSuppliesMonthlyBreakdown, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport, classifyMdoAccountCategory, extractMdoDaycareEntries, persistDaycareEntriesFromChurchBudget, finXlsxParseSheetGrid, parseYearColTitle, findActivityMultiYearSheet, parseActivityMultiYearGrid, persistChurchEntriesActivityImport, findFinancialPositionMultiYearSheet, parseFinancialPositionMultiYearGrid, persistChurchBalancesMultiYearImport } from '../src/api-finance.js';
+import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, parseMonthColTitle, mergeProfitAndLossTree, mergeLeafCells, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, computeSuppliesMonthlyBreakdown, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport, classifyMdoAccountCategory, extractMdoDaycareEntries, persistDaycareEntriesFromChurchBudget, finXlsxParseSheetGrid, parseYearColTitle, findActivityMultiYearSheet, parseActivityMultiYearGrid, persistChurchEntriesActivityImport, findFinancialPositionMultiYearSheet, parseFinancialPositionMultiYearGrid, persistChurchBalancesMultiYearImport, findBudgetMultiYearSheet, parseBudgetMultiYearGrid } from '../src/api-finance.js';
 
 // ── Minimal D1-shaped wrapper around node:sqlite, so persistChurchEntries() runs against real
 // SQL (real UNIQUE/ON CONFLICT semantics) instead of a hand-rolled re-implementation of what the
@@ -679,8 +679,14 @@ describe('parseYearColTitle', () => {
     expect(parseYearColTitle(' 2026 ')).toBe(2026);
     expect(parseYearColTitle(2027)).toBe(2027);
   });
-  it('rejects anything that is not a bare year', () => {
-    expect(parseYearColTitle('Jan 2026')).toBe(null);
+  // Confirmed against a real export: the current (partial) year's column is often titled
+  // something like "Jan 1 - Jul 28 2026" rather than a bare "2026" — the year just needs to
+  // appear somewhere in the cell, not be the cell's entire content.
+  it('extracts an embedded year from a partial-year date-range label', () => {
+    expect(parseYearColTitle('Jan 2026')).toBe(2026);
+    expect(parseYearColTitle('Jan 1 - Jul 28 2026')).toBe(2026);
+  });
+  it('rejects text with no 4-digit 19xx/20xx year at all', () => {
     expect(parseYearColTitle('Actual')).toBe(null);
     expect(parseYearColTitle('')).toBe(null);
     expect(parseYearColTitle(null)).toBe(null);
@@ -775,6 +781,81 @@ describe('findActivityMultiYearSheet / parseActivityMultiYearGrid', () => {
     const resolvedPlan = resolveChurchYearPrecedence(withPlanCommitted);
     expect(resolvedPlan.length).toBe(1);
     expect(resolvedPlan[0].source).toBe('import_activity');
+  });
+
+  // 2026-07-29 — the user's real files split Actual and Budget into two SEPARATE multi-year
+  // exports ("Statement of Activity" and "Budget by Year"), each carrying only one of the two
+  // fields. persistChurchEntriesActivityImport must merge them into one row per account+year
+  // (field-preserving upsert), not let the second import wipe the first's contribution the way a
+  // delete-then-insert would.
+  it('persistChurchEntriesActivityImport merges an Activity (actual-only) import with a later Budget-by-Year (budget-only) import for the same account+year', async () => {
+    const db = makeTestDb();
+    const actualRows = [{ fiscal_year: 2019, period_month: 0, classification: 'Income', category_path: 'Income:40085 Sunday Offering', account_name: '40085 Sunday Offering', depth: 1, has_children: 0, own_actual_cents: 45872212, own_budget_cents: null }];
+    await persistChurchEntriesActivityImport(db, actualRows, [2019], '2026-07-29T00:00:00Z');
+    let stored = allChurchRows(db);
+    expect(stored.length).toBe(1);
+    expect(stored[0].own_actual_cents).toBe(45872212);
+    expect(stored[0].own_budget_cents).toBe(null);
+
+    const budgetRows = [{ fiscal_year: 2019, period_month: 0, classification: 'Income', category_path: 'Income:40085 Sunday Offering', account_name: '40085 Sunday Offering', depth: 1, has_children: 0, own_actual_cents: null, own_budget_cents: 51000000 }];
+    await persistChurchEntriesActivityImport(db, budgetRows, [2019], '2026-07-29T01:00:00Z');
+    stored = allChurchRows(db);
+    // Still one row, not two -- and the Activity import's actual figure survived the Budget
+    // import instead of being nulled out by it.
+    expect(stored.length).toBe(1);
+    expect(stored[0].own_actual_cents).toBe(45872212);
+    expect(stored[0].own_budget_cents).toBe(51000000);
+
+    // And the reverse order (Budget first, then Activity) merges the same way.
+    const db2 = makeTestDb();
+    await persistChurchEntriesActivityImport(db2, budgetRows, [2019], '2026-07-29T00:00:00Z');
+    await persistChurchEntriesActivityImport(db2, actualRows, [2019], '2026-07-29T01:00:00Z');
+    const stored2 = allChurchRows(db2);
+    expect(stored2.length).toBe(1);
+    expect(stored2[0].own_actual_cents).toBe(45872212);
+    expect(stored2[0].own_budget_cents).toBe(51000000);
+  });
+});
+
+// ── "Budget by Year" multi-year import: same shape as Statement of Activity, budget only ────
+function budgetMultiYearFixtureGrid() {
+  return [
+    ['Timothy Evangelical Lutheran Church', null, null],
+    ["Annual Budget by Year (from each year's Budget vs. Actuals report)", null, null],
+    ['FY 2019 - FY 2026', null, null],
+    [null, '2019', '2020'],
+    ['Revenue', null, null],
+    ['   40 Donor Income', 400, 500],
+    ['      40085 Sunday Offering', 900, 1000],
+    ['   Total for 40 Donor Income', 1300, 1500],
+    ['Total for Revenue', 1300, 1500],
+    ['Expenditures', null, null],
+    ['   50 Program Expenses', 250, 300],
+    ['   Total for 50 Program Expenses', 250, 300],
+    ['Total for Expenditures', 250, 300],
+    ['Net Budget (Revenue less Expenditures)', 1050, 1200],
+    [null, null, null],
+    ['NOTES ON THIS BUDGET DOCUMENT', null, null],
+    ['   This workbook pulls the BUDGET column only.', null, null],
+    ['   Discontinued lines folded into their closest active match.', null, null],
+  ];
+}
+describe('findBudgetMultiYearSheet / parseBudgetMultiYearGrid', () => {
+  it('finds the sheet and extracts budget-only rows, stopping at the trailing NOTES section', () => {
+    const sheets = [{ name: 'Cover', grid: [['not', 'a', 'report']] }, { name: 'Budget', grid: budgetMultiYearFixtureGrid() }];
+    const found = findBudgetMultiYearSheet(sheets);
+    expect(found.name).toBe('Budget');
+    const { years, rows, skipped } = parseBudgetMultiYearGrid(budgetMultiYearFixtureGrid());
+    expect(years).toEqual([2019, 2020]);
+    const labels = rows.map(r => r.account_name);
+    expect(labels).not.toContain('This workbook pulls the BUDGET column only.');
+    expect(labels).not.toContain('Discontinued lines folded into their closest active match.');
+    const sunday2019 = rows.find(r => r.account_name === '40085 Sunday Offering' && r.fiscal_year === 2019);
+    expect(sunday2019.own_budget_cents).toBe(90000);
+    expect(sunday2019.own_actual_cents).toBe(null);
+    // "Net Budget (Revenue less Expenditures)" doesn't match any known running-subtotal wording,
+    // but it's still correctly excluded as depth-0-with-no-children noise, not stored as an account.
+    expect(labels).not.toContain('Net Budget (Revenue less Expenditures)');
   });
 });
 

@@ -1579,6 +1579,7 @@ export const HTML_TABS_2 = String.raw`
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchImport()">Import Budget</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchMonthlyImport()">Import Monthly P&amp;L</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchActivityImport()">Import Statement of Activity (multi-year)</button>
+              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchBudgetMultiYearImport()">Import Budget by Year (multi-year)</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchBalanceImport()">Import Balance Sheet</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchBalanceMultiYearImport()">Import Financial Position (multi-year)</button>
               <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportChurchCsv()">Export CSV</button>
@@ -2315,7 +2316,10 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-header"><span>Import Budget from Excel</span><button class="modal-close" onclick="closeModal('fin-church-import-modal')">&#10005;</button></div>
     <div style="padding:4px 0;">
       <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload one or more QuickBooks "Budget vs. Actuals" exports (.xlsx) — select multiple files at once to import several fiscal years in one go, one file per year. Each file is parsed on the server, then you'll get a preview per year to review and uncheck anything before it's saved — nothing is written until you click Import Selected. Importing a year replaces any previously-imported data for that same year; a live QuickBooks sync for a year always takes priority over an import for that same year.</p>
-      <input type="file" id="fin-church-import-file" accept=".xlsx" multiple onchange="finChurchImportFileSelected(this)">
+      <div class="fin-dropzone" ondragover="finDropZoneOver(event)" ondragleave="finDropZoneLeave(event)" ondrop="finDropZoneDrop(event,'fin-church-import-file')">
+        <input type="file" id="fin-church-import-file" accept=".xlsx" multiple onchange="finChurchImportFileSelected(this)">
+        <div class="fin-dropzone-hint">or drag and drop .xlsx file(s) here</div>
+      </div>
       <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="fin-church-import-status"></div>
       <div id="fin-church-import-preview"></div>
     </div>
@@ -2335,7 +2339,10 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-header"><span>Import Monthly P&amp;L from Excel</span><button class="modal-close" onclick="closeModal('fin-church-monthly-import-modal')">&#10005;</button></div>
     <div style="padding:4px 0;">
       <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload a QuickBooks "Profit and Loss by Month" export (.xlsx) — one column per month, not the Actual/Budget shape the Budget import above expects. This is what feeds the Overview tab's Income vs. Expenses trend and Year-End Projection cards. Importing a year replaces any previously-imported monthly data for that year; a live QuickBooks monthly sync (once connected) always takes precedence over this import for the same year.</p>
-      <input type="file" id="fin-church-monthly-import-file" accept=".xlsx" onchange="finChurchMonthlyImportFileSelected(this)">
+      <div class="fin-dropzone" ondragover="finDropZoneOver(event)" ondragleave="finDropZoneLeave(event)" ondrop="finDropZoneDrop(event,'fin-church-monthly-import-file')">
+        <input type="file" id="fin-church-monthly-import-file" accept=".xlsx" onchange="finChurchMonthlyImportFileSelected(this)">
+        <div class="fin-dropzone-hint">or drag and drop an .xlsx file here</div>
+      </div>
       <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="fin-church-monthly-import-status"></div>
       <div id="fin-church-monthly-import-preview"></div>
     </div>
@@ -2353,7 +2360,10 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-header"><span>Import Statement of Activity (multi-year) from Excel</span><button class="modal-close" onclick="closeModal('fin-church-activity-import-modal')">&#10005;</button></div>
     <div style="padding:4px 0;">
       <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload a QuickBooks "Statement of Activity" export (.xlsx) with one column per year (e.g. 2019, 2020, ... today) — actual figures only, no budget. Good for backfilling many years of history in one file. Importing replaces any previously-imported Statement of Activity data for every year present in the file; a Budget vs. Actuals import or a live QuickBooks sync for the same year always takes priority over this.</p>
-      <input type="file" id="fin-church-activity-import-file" accept=".xlsx" onchange="finChurchActivityImportFileSelected(this)">
+      <div class="fin-dropzone" ondragover="finDropZoneOver(event)" ondragleave="finDropZoneLeave(event)" ondrop="finDropZoneDrop(event,'fin-church-activity-import-file')">
+        <input type="file" id="fin-church-activity-import-file" accept=".xlsx" onchange="finChurchActivityImportFileSelected(this)">
+        <div class="fin-dropzone-hint">or drag and drop an .xlsx file here</div>
+      </div>
       <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="fin-church-activity-import-status"></div>
       <div id="fin-church-activity-import-preview"></div>
     </div>
@@ -2364,13 +2374,38 @@ export const HTML_TABS_2 = String.raw`
   </div>
 </div>
 
+<!-- Church Report: import a "Budget by Year" multi-year Excel export (companion to Statement of
+     Activity above — QuickBooks exports Actual and Budget as two separate multi-year files; the
+     two merge on the server so uploading both for the same year fills in both figures) -->
+<div class="modal-overlay" id="fin-church-budget-multi-import-modal">
+  <div class="modal" style="max-width:720px;width:95vw;">
+    <div class="modal-header"><span>Import Budget by Year (multi-year) from Excel</span><button class="modal-close" onclick="closeModal('fin-church-budget-multi-import-modal')">&#10005;</button></div>
+    <div style="padding:4px 0;">
+      <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload a QuickBooks "Budget by Year" export (.xlsx) with one column per year — budget figures only, no actuals. Pairs with the Statement of Activity import above (which has actuals only, no budget) — the two merge together per account/year instead of overwriting each other, so upload both to get complete Actual + Budget history. Importing replaces any previously-imported budget-by-year data for every year present in the file; a Budget vs. Actuals import or a live QuickBooks sync for the same year always takes priority over this.</p>
+      <div class="fin-dropzone" ondragover="finDropZoneOver(event)" ondragleave="finDropZoneLeave(event)" ondrop="finDropZoneDrop(event,'fin-church-budget-multi-import-file')">
+        <input type="file" id="fin-church-budget-multi-import-file" accept=".xlsx" onchange="finChurchBudgetMultiYearImportFileSelected(this)">
+        <div class="fin-dropzone-hint">or drag and drop an .xlsx file here</div>
+      </div>
+      <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="fin-church-budget-multi-import-status"></div>
+      <div id="fin-church-budget-multi-import-preview"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('fin-church-budget-multi-import-modal')">Close</button>
+      <button class="btn-primary" id="fin-church-budget-multi-import-confirm-btn" style="display:none;" onclick="finChurchConfirmBudgetMultiYearImport()">Import</button>
+    </div>
+  </div>
+</div>
+
 <!-- Church Report: import a Balance Sheet / Statement of Financial Position Excel export -->
 <div class="modal-overlay" id="fin-church-balance-import-modal">
   <div class="modal" style="max-width:640px;width:95vw;">
     <div class="modal-header"><span>Import Balance Sheet from Excel</span><button class="modal-close" onclick="closeModal('fin-church-balance-import-modal')">&#10005;</button></div>
     <div style="padding:4px 0;">
       <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload a QuickBooks "Balance Sheet" or "Statement of Financial Position" export (.xlsx) — a point-in-time snapshot of Assets/Liabilities/Equity. The file is parsed on the server, then you'll get a preview to review and uncheck anything before it's saved — nothing is written until you click Import Selected. Importing a year replaces any previously-imported balance sheet for that same year.</p>
-      <input type="file" id="fin-church-balance-import-file" accept=".xlsx" onchange="finChurchBalanceImportFileSelected(this)">
+      <div class="fin-dropzone" ondragover="finDropZoneOver(event)" ondragleave="finDropZoneLeave(event)" ondrop="finDropZoneDrop(event,'fin-church-balance-import-file')">
+        <input type="file" id="fin-church-balance-import-file" accept=".xlsx" onchange="finChurchBalanceImportFileSelected(this)">
+        <div class="fin-dropzone-hint">or drag and drop an .xlsx file here</div>
+      </div>
       <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="fin-church-balance-import-status"></div>
       <div id="fin-church-balance-import-preview"></div>
     </div>
@@ -2388,7 +2423,10 @@ export const HTML_TABS_2 = String.raw`
     <div class="modal-header"><span>Import Financial Position (multi-year) from Excel</span><button class="modal-close" onclick="closeModal('fin-church-balance-multi-import-modal')">&#10005;</button></div>
     <div style="padding:4px 0;">
       <p style="font-size:.8rem;color:var(--warm-gray);margin:0 0 12px;">Upload a QuickBooks "Statement of Financial Position" export (.xlsx) with one column per year — a multi-year history of Assets/Liabilities/Equity balances in a single file, instead of uploading one Balance Sheet at a time. Importing replaces any previously-imported balance data for every year present in the file.</p>
-      <input type="file" id="fin-church-balance-multi-import-file" accept=".xlsx" onchange="finChurchBalanceMultiImportFileSelected(this)">
+      <div class="fin-dropzone" ondragover="finDropZoneOver(event)" ondragleave="finDropZoneLeave(event)" ondrop="finDropZoneDrop(event,'fin-church-balance-multi-import-file')">
+        <input type="file" id="fin-church-balance-multi-import-file" accept=".xlsx" onchange="finChurchBalanceMultiImportFileSelected(this)">
+        <div class="fin-dropzone-hint">or drag and drop an .xlsx file here</div>
+      </div>
       <div style="font-size:.8rem;color:var(--warm-gray);margin:10px 0;" id="fin-church-balance-multi-import-status"></div>
       <div id="fin-church-balance-multi-import-preview"></div>
     </div>
