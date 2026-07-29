@@ -1,42 +1,690 @@
 export const JS_ATTENDANCE = String.raw`// ── ATTENDANCE ────────────────────────────────────────────────────────
+// 1a redesign ("This Week · Trends · Festivals · History · Reports") — see CLAUDE.md
+// "Attendance / Reports" queued item for the design-handoff summary. Everything below is
+// derived client-side from one wide GET /admin/api/attendance load (loadAttendance()); no
+// new backend endpoints were added except the pre-existing sunday-name lookup.
 var MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var _attTotalInDb = 0;
+var ATT_LOOKBACK_YEARS = 5; // heat grid needs the current year + 4 previous years
+var _attTab = 'week';
+var _attEntryDate = '';
+var _attEntryTrailAvg4 = 0;
+var ATT_TABS = ['week','trends','festivals','history','reports'];
 
 function loadAttendance() {
-  var from = document.getElementById('att-from').value;
-  var to = document.getElementById('att-to').value;
-  var q = '/admin/api/attendance?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + '&order=' + _attOrder;
-  api(q).then(function(d) {
+  var y = new Date().getFullYear();
+  var from = (y - (ATT_LOOKBACK_YEARS - 1)) + '-01-01';
+  var to = (y + 1) + '-12-31';
+  return api('/admin/api/attendance?from=' + from + '&to=' + to + '&order=asc').then(function(d) {
     _loadedServices = d.services || [];
     _attTotalInDb = d.total_in_db || 0;
-    renderAttendanceChart(_loadedServices);
-    renderAttendanceList(_loadedServices, _attTotalInDb);
+    attRenderAll();
   });
 }
-function renderAttendanceListFromLoaded() {
-  _attGroupBy = (document.getElementById('att-group-by') || {}).value || 'none';
-  renderAttendanceList(_loadedServices, _attTotalInDb || 0);
-}
-var _attTotalInDb = 0;
-function toggleAttTable() {
-  _attTableVisible = !_attTableVisible;
-  var el = document.getElementById('att-list');
-  var btn = document.getElementById('att-table-toggle');
-  if (el)  el.style.display  = _attTableVisible ? '' : 'none';
-  if (btn) btn.innerHTML = _attTableVisible ? '&#9660; Hide Table' : '&#9654; Show Table';
-}
-function toggleAttOrder() {
-  _attOrder = _attOrder === 'desc' ? 'asc' : 'desc';
-  var btn = document.getElementById('att-order-btn');
-  if (btn) btn.textContent = _attOrder === 'asc' ? '&#8593; Asc' : '&#8595; Desc';
-  loadAttendance();
-}
-function setAttChartMode(m) {
-  _attChartMode = m;
-  ['line','yoy','bars'].forEach(function(k){
-    var b = document.getElementById('att-mode-'+k);
-    if (b) b.style.opacity = m === k ? '1' : '.55';
+
+function attSetTab(tab) {
+  _attTab = tab;
+  ATT_TABS.forEach(function(t) {
+    var b = document.getElementById('att-tab-' + t);
+    if (b) b.classList.toggle('active', t === tab);
+    var p = document.getElementById('att-panel-' + t);
+    if (p) p.classList.toggle('active', t === tab);
   });
-  renderAttendanceChart(_loadedServices);
+}
+
+function attRenderAll() {
+  if (!_attEntryDate) _attEntryDate = attNextToRecordDate();
+  attEntryLoad(_attEntryDate);
+  attRenderStillToEnter();
+  attRenderPulse();
+  attRenderBars26();
+  attRenderHeatGrid();
+  attRenderRecent();
+  attRenderTrends();
+  attRenderFestivals();
+  attRenderHistory();
+}
+
+// ── Data model ───────────────────────────────────────────────────────
+// One row per Sunday date, combining the 08:00 and 10:45 service records (if present).
+function attSundayMap() {
+  var map = {};
+  (_loadedServices || []).forEach(function(s) {
+    if (s.service_type !== 'sunday') return;
+    if (!map[s.service_date]) map[s.service_date] = { date: s.service_date, att8: 0, att1045: 0, id8: null, id1045: null, name: '', notes: '' };
+    var row = map[s.service_date];
+    if (s.service_time === '08:00') { row.att8 = s.attendance || 0; row.id8 = s.id; }
+    else if (s.service_time === '10:45') { row.att1045 = s.attendance || 0; row.id1045 = s.id; }
+    if (s.service_name) row.name = s.service_name;
+    if (s.notes) row.notes = s.notes;
+  });
+  Object.keys(map).forEach(function(d) { map[d].combined = map[d].att8 + map[d].att1045; });
+  return map;
+}
+// Sundays with a recorded (nonzero) combined count, today or earlier, ascending by date.
+function attEnteredSundaysAsc() {
+  var map = attSundayMap();
+  var today = new Date().toISOString().slice(0, 10);
+  return Object.keys(map).filter(function(d) { return map[d].combined > 0 && d <= today; })
+    .sort().map(function(d) { return map[d]; });
+}
+function attEnteredBefore(date) {
+  return attEnteredSundaysAsc().filter(function(r) { return r.date < date; });
+}
+function attTrailingAvg(rows, n) {
+  if (!rows.length) return 0;
+  var slice = rows.slice(Math.max(0, rows.length - n));
+  var sum = slice.reduce(function(a, r) { return a + r.combined; }, 0);
+  return Math.round(sum / slice.length);
+}
+function attFmtShort(d) {
+  var p = d.split('-');
+  return MONTH_NAMES[parseInt(p[1]) - 1] + ' ' + parseInt(p[2]);
+}
+function attNextSundayOnOrAfter(dateStr) {
+  var d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + ((7 - d.getDay()) % 7));
+  return d.toISOString().slice(0, 10);
+}
+function attTotalOnDate(date) {
+  return (_loadedServices || []).filter(function(s) { return s.service_date === date; })
+    .reduce(function(s, r) { return s + (r.attendance || 0); }, 0);
+}
+
+// ── Still to enter (This Week entry card) ───────────────────────────────
+// Every 8:00/10:45 leg with no recorded count, from 8 weeks back through the upcoming
+// Sunday (inclusive), so the imminent Sunday shows even before it happens.
+function attComputeStillToEnter() {
+  var today = new Date().toISOString().slice(0, 10);
+  var map = attSundayMap();
+  var lookbackWeeks = 8;
+  var next = new Date(attNextSundayOnOrAfter(today) + 'T00:00:00');
+  var start = new Date(next);
+  start.setDate(start.getDate() - 7 * lookbackWeeks);
+  var out = [];
+  for (var cur = new Date(start); cur <= next; cur.setDate(cur.getDate() + 7)) {
+    var ds = cur.toISOString().slice(0, 10);
+    var row = map[ds];
+    var nm = (row && row.name) || '';
+    if (!row || !row.att8) out.push({ date: ds, time: '08:00', label: '8:00 Service', name: nm });
+    if (!row || !row.att1045) out.push({ date: ds, time: '10:45', label: '10:45 Service', name: nm });
+  }
+  return out; // ascending by date, 8:00 before 10:45
+}
+function attNextToRecordDate() {
+  var still = attComputeStillToEnter();
+  if (still.length) return still[0].date;
+  return attNextSundayOnOrAfter(new Date().toISOString().slice(0, 10));
+}
+function attRenderStillToEnter() {
+  var still = attComputeStillToEnter();
+  var badge = document.getElementById('att-still-badge');
+  if (badge) badge.textContent = still.length + ' open';
+  var el = document.getElementById('att-still-list');
+  if (!el) return;
+  if (!still.length) { el.innerHTML = '<div class="att-still-empty">All caught up &mdash; nothing missing in the last 8 weeks.</div>'; return; }
+  el.innerHTML = still.slice(0, 8).map(function(r) {
+    var d2 = new Date(r.date + 'T00:00:00');
+    var disp = (d2.getMonth() + 1) + '/' + d2.getDate();
+    var desc = (r.name ? esc(r.name) + ' &middot; ' : '') + r.label;
+    return '<div class="att-still-row"><div class="att-still-date">' + disp + '</div><div class="att-still-desc">' + desc + '</div>'
+      + '<button class="att-still-enter require-edit-attendance" onclick="attEntryLoad(&#39;' + r.date + '&#39;);attSetTab(&#39;week&#39;);">Enter</button></div>';
+  }).join('');
+}
+
+// ── Entry card ───────────────────────────────────────────────────────
+function attEntryLoad(date) {
+  _attEntryDate = date;
+  var map = attSundayMap();
+  var row = map[date] || { att8: 0, att1045: 0, name: '' };
+  var in8 = document.getElementById('att-entry-8'), in1045 = document.getElementById('att-entry-1045');
+  if (in8) in8.value = row.att8 || '';
+  if (in1045) in1045.value = row.att1045 || '';
+  var d2 = new Date(date + 'T00:00:00');
+  var dispDate = d2.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  var dEl = document.getElementById('att-entry-date');
+  if (dEl) dEl.textContent = dispDate;
+  var today = new Date().toISOString().slice(0, 10);
+  var pillEl = document.getElementById('att-entry-pill');
+  if (pillEl) pillEl.textContent = date === today ? 'Due today' : (date < today ? 'Past due' : 'Upcoming');
+  var subEl = document.getElementById('att-entry-sub');
+  if (subEl) subEl.textContent = row.name || '';
+  if (!row.name) attFetchSundayName(date);
+  _attEntryTrailAvg4 = attTrailingAvg(attEnteredBefore(date), 4);
+  attEntryInputChanged();
+}
+function attFetchSundayName(date) {
+  api('/admin/api/attendance/sunday-name?date=' + encodeURIComponent(date)).then(function(d) {
+    if (d && d.name && _attEntryDate === date) {
+      var subEl = document.getElementById('att-entry-sub');
+      if (subEl) subEl.textContent = d.name;
+    }
+  });
+}
+function attEntryInputChanged() {
+  var a8 = parseInt((document.getElementById('att-entry-8') || {}).value) || 0;
+  var a1045 = parseInt((document.getElementById('att-entry-1045') || {}).value) || 0;
+  var combined = a8 + a1045;
+  var cEl = document.getElementById('att-entry-combined');
+  if (cEl) cEl.textContent = combined;
+  var dEl = document.getElementById('att-entry-delta');
+  if (!dEl) return;
+  if (_attEntryTrailAvg4 > 0) {
+    var delta = combined - _attEntryTrailAvg4;
+    dEl.textContent = (delta >= 0 ? '+' : '') + delta + ' vs 4-wk avg';
+    dEl.className = 'att-delta ' + (delta >= 0 ? 'pos' : 'neg');
+  } else {
+    dEl.textContent = '';
+    dEl.className = 'att-delta';
+  }
+}
+function attSaveEntry() {
+  var date = _attEntryDate;
+  if (!date) return;
+  var a8 = parseInt((document.getElementById('att-entry-8') || {}).value) || 0;
+  var a1045 = parseInt((document.getElementById('att-entry-1045') || {}).value) || 0;
+  var map = attSundayMap();
+  var row = map[date];
+  var saves = [];
+  if (row && (row.id8 || row.id1045)) {
+    // Existing rows for this date — update in place rather than calling bulk-sunday, which
+    // always INSERTs new rows (no upsert) and would create duplicates.
+    if (row.id8) saves.push(api('/admin/api/attendance/' + row.id8, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attendance: a8 }) }));
+    else if (a8) saves.push(api('/admin/api/attendance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ service_date: date, service_time: '08:00', service_name: row.name || '', service_type: 'sunday', attendance: a8 }) }));
+    if (row.id1045) saves.push(api('/admin/api/attendance/' + row.id1045, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attendance: a1045 }) }));
+    else if (a1045) saves.push(api('/admin/api/attendance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ service_date: date, service_time: '10:45', service_name: row.name || '', service_type: 'sunday', attendance: a1045 }) }));
+  } else {
+    saves.push(api('/admin/api/attendance/bulk-sunday', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ service_date: date, service_name: (row && row.name) || '', att_8: a8, att_1045: a1045 }) }));
+  }
+  Promise.all(saves).then(function(results) {
+    var err = results.filter(Boolean).find(function(r) { return r && r.error; });
+    if (err) { alert('Error: ' + err.error); return; }
+    loadAttendance().then(function() { attEntryLoad(attNextToRecordDate()); });
+  });
+}
+
+// ── Pulse card ───────────────────────────────────────────────────────
+function attRenderPulse() {
+  var entered = attEnteredSundaysAsc();
+  var el = document.getElementById('att-pulse-stats');
+  if (!el) return;
+  if (!entered.length) {
+    el.innerHTML = '<span style="font-size:.85rem;color:var(--att-text-2);">No attendance recorded yet.</span>';
+    var footE = document.getElementById('att-bars26-foot'); if (footE) footE.innerHTML = '';
+    return;
+  }
+  var latest = entered[entered.length - 1];
+  var prior = entered.length > 1 ? entered[entered.length - 2] : null;
+  var delta = prior ? latest.combined - prior.combined : null;
+  var avg4 = attTrailingAvg(entered, 4);
+  var avg52 = attTrailingAvg(entered, 52);
+  var today = new Date().toISOString().slice(0, 10);
+  var curYear = today.slice(0, 4), priorYear = String(parseInt(curYear) - 1);
+  var todayMD = today.slice(5);
+  var ytdCur = entered.filter(function(r) { return r.date.slice(0, 4) === curYear; }).reduce(function(s, r) { return s + r.combined; }, 0);
+  var ytdPrior = entered.filter(function(r) { return r.date.slice(0, 4) === priorYear && r.date.slice(5) <= todayMD; }).reduce(function(s, r) { return s + r.combined; }, 0);
+  var ytdHtml = '';
+  if (ytdCur > 0 && ytdPrior > 0) {
+    var pct = Math.round((ytdCur - ytdPrior) / ytdPrior * 100);
+    ytdHtml = '<div><div class="att-pulse-stat-val" style="color:' + (pct >= 0 ? 'var(--att-pos)' : 'var(--att-neg)') + ';">' + (pct >= 0 ? '+' : '') + pct + '%</div><div class="att-pulse-caption">YTD vs ' + priorYear + '</div></div>';
+  }
+  var sundaysThisYear = entered.filter(function(r) { return r.date.slice(0, 4) === curYear; }).length;
+  var latestParts = latest.date.split('-');
+  var latestLbl = MONTH_NAMES[parseInt(latestParts[1]) - 1].toUpperCase() + ' ' + parseInt(latestParts[2]);
+  el.innerHTML =
+    '<div class="att-pulse-primary"><div class="att-pulse-primary-row"><div class="att-pulse-value">' + latest.combined + '</div>'
+    + (delta !== null ? '<div class="att-delta ' + (delta >= 0 ? 'pos' : 'neg') + '" style="font-size:.92rem;font-weight:700;">' + (delta >= 0 ? '+' : '') + delta + ' vs prior week</div>' : '') + '</div>'
+    + '<div class="att-pulse-caption">LATEST &middot; ' + latestLbl + '</div></div>'
+    + '<div class="att-pulse-divider"></div>'
+    + '<div><div class="att-pulse-stat-val">' + avg4 + '</div><div class="att-pulse-caption">4-week avg</div></div>'
+    + '<div><div class="att-pulse-stat-val">' + avg52 + '</div><div class="att-pulse-caption">52-week avg</div></div>'
+    + ytdHtml
+    + '<div><div class="att-pulse-stat-val">' + sundaysThisYear + '</div><div class="att-pulse-caption">Sundays recorded</div></div>';
+}
+function attRenderBars26() {
+  var entered = attEnteredSundaysAsc();
+  var last26 = entered.slice(-26);
+  var wrap = document.getElementById('att-bars26');
+  var foot = document.getElementById('att-bars26-foot');
+  if (!wrap || !foot) return;
+  if (!last26.length) { wrap.innerHTML = ''; foot.innerHTML = ''; return; }
+  var maxV = Math.max.apply(null, last26.map(function(r) { return r.combined; })) || 1;
+  wrap.innerHTML = last26.map(function(r) {
+    var priorIdx = entered.indexOf(r);
+    var priorSlice = entered.slice(Math.max(0, priorIdx - 4), priorIdx);
+    var mean = priorSlice.length ? Math.round(priorSlice.reduce(function(a, x) { return a + x.combined; }, 0) / priorSlice.length) : null;
+    var cls = (mean === null || r.combined >= mean) ? 'gold' : 'teal';
+    var h = Math.max(2, Math.round(r.combined / maxV * 100));
+    return '<div class="att-bar26-col"><div class="att-bar26-val">' + r.combined + '</div><div class="att-bar26-bar ' + cls + '" style="height:' + h + '%;" title="' + r.date + ': ' + r.combined + '"></div></div>';
+  }).join('');
+  foot.innerHTML = '<span>' + attFmtShort(last26[0].date) + '</span><span>' + attFmtShort(last26[last26.length - 1].date) + '</span>';
+}
+
+// ── Heat grid: every Sunday, five years ─────────────────────────────────
+function attHeatLevelClass(v, q1, q2, q3) {
+  if (v <= q1) return '1';
+  if (v <= q2) return '2';
+  if (v <= q3) return '3';
+  return '4';
+}
+function attRenderHeatGrid() {
+  var entered = attEnteredSundaysAsc();
+  var wrap = document.getElementById('att-heat-grid');
+  var footEl = document.getElementById('att-heat-foot');
+  if (!wrap || !footEl) return;
+  if (!entered.length) { wrap.innerHTML = '<div style="font-size:.85rem;color:var(--att-text-2);">No attendance recorded yet.</div>'; footEl.innerHTML = ''; return; }
+  var vals = entered.map(function(r) { return r.combined; }).sort(function(a, b) { return a - b; });
+  function pctile(p) { var idx = Math.min(vals.length - 1, Math.floor(p * vals.length)); return vals[idx]; }
+  var q1 = pctile(.25), q2 = pctile(.5), q3 = pctile(.75);
+  var byDate = {};
+  entered.forEach(function(r) { byDate[r.date] = r.combined; });
+  var curYear = new Date().getFullYear();
+  var years = [];
+  for (var i = ATT_LOOKBACK_YEARS - 1; i >= 0; i--) years.push(curYear - i);
+  var rows = years.map(function(yr) {
+    var sundays = [];
+    var d = new Date(yr, 0, 1);
+    d.setDate(d.getDate() + ((7 - d.getDay()) % 7));
+    while (d.getFullYear() === yr) { sundays.push(d.toISOString().slice(0, 10)); d.setDate(d.getDate() + 7); }
+    sundays = sundays.slice(0, 52);
+    var cells = sundays.map(function(ds) {
+      var v = byDate[ds] || 0;
+      var cls = v > 0 ? attHeatLevelClass(v, q1, q2, q3) : 'empty';
+      return '<div class="att-heat-cell heat-' + cls + '" title="' + ds + ': ' + (v || 'no data') + '"></div>';
+    }).join('');
+    var yrVals = sundays.map(function(ds) { return byDate[ds] || 0; }).filter(function(v) { return v > 0; });
+    var avg = yrVals.length ? Math.round(yrVals.reduce(function(a, b) { return a + b; }, 0) / yrVals.length) : 0;
+    return '<div class="att-heat-row"><div class="att-heat-year">' + yr + '</div><div class="att-heat-cells">' + cells + '</div><div class="att-heat-avg">' + (avg || '&#8212;') + '</div></div>';
+  }).join('');
+  wrap.innerHTML = rows;
+  var monthTicks = MONTH_NAMES.map(function(m) { return '<span style="flex:1;text-align:center;">' + m + '</span>'; }).join('');
+  footEl.innerHTML = '<div style="display:flex;flex:1;">' + monthTicks + '</div>'
+    + '<div class="att-heat-legend">fewer '
+    + '<span class="att-heat-legend-cell heat-1"></span><span class="att-heat-legend-cell heat-2"></span>'
+    + '<span class="att-heat-legend-cell heat-3"></span><span class="att-heat-legend-cell heat-4"></span> fuller</div>';
+}
+
+// ── Recent Sundays ───────────────────────────────────────────────────
+function attRenderRecent() {
+  var entered = attEnteredSundaysAsc();
+  var recent = entered.slice(-6).reverse();
+  var el = document.getElementById('att-recent-list');
+  if (!el) return;
+  if (!recent.length) { el.innerHTML = '<div style="padding:10px 0;color:var(--att-text-2);font-size:.85rem;">No Sundays recorded yet.</div>'; return; }
+  el.innerHTML = recent.map(function(r) {
+    var p = r.date.split('-');
+    var disp = (p[1] | 0) + '/' + (p[2] | 0) + '/' + p[0];
+    return '<div class="att-recent-row"><div class="att-recent-date">' + disp + '</div><div class="att-recent-name">' + esc(r.name || '') + '</div>'
+      + '<div class="att-recent-8">' + r.att8 + '</div><div class="att-recent-1045">' + r.att1045 + '</div><div class="att-recent-total">' + r.combined + '</div></div>';
+  }).join('');
+}
+
+// ── Trends: monthly rhythm, service mix, year-over-year ─────────────────
+var ATT_SEASON = { '01': 'Epiphany', '02': 'Lent', '03': 'Lent', '04': 'Easter', '05': 'Easter', '06': 'summer', '07': 'summer', '08': 'summer', '09': 'fall', '10': 'fall', '11': 'Advent', '12': 'Advent' };
+function attRenderTrends() {
+  attRenderMonthlyRhythm();
+  attRenderServiceMix();
+  attRenderYoYTable();
+}
+function attMonthKeysLast(n) {
+  var out = [];
+  var d = new Date();
+  d.setDate(1);
+  for (var i = n - 1; i >= 0; i--) {
+    var dd = new Date(d.getFullYear(), d.getMonth() - i, 1);
+    out.push(dd.getFullYear() + '-' + String(dd.getMonth() + 1).padStart(2, '0'));
+  }
+  return out;
+}
+function attFmtMonthYr(k) {
+  var p = k.split('-');
+  return MONTH_NAMES[parseInt(p[1]) - 1] + " '" + p[0].slice(2);
+}
+function attRenderMonthlyRhythm() {
+  var entered = attEnteredSundaysAsc();
+  var byMonth = {};
+  entered.forEach(function(r) { var mk = r.date.slice(0, 7); if (!byMonth[mk]) byMonth[mk] = []; byMonth[mk].push(r.combined); });
+  var keys = attMonthKeysLast(12);
+  var avg52 = attTrailingAvg(entered, 52);
+  var wrap = document.getElementById('att-month-bars');
+  var footWrap = document.getElementById('att-month-foot');
+  var subEl = document.getElementById('att-month-subtitle');
+  if (!wrap || !footWrap) return;
+  var vals = keys.map(function(k) { var arr = byMonth[k]; return arr && arr.length ? Math.round(arr.reduce(function(a, b) { return a + b; }, 0) / arr.length) : null; });
+  var withVals = vals.filter(function(v) { return v != null; });
+  if (!withVals.length) {
+    wrap.innerHTML = '<div style="font-size:.85rem;color:var(--att-text-2);">No attendance recorded yet.</div>';
+    footWrap.innerHTML = '';
+    if (subEl) subEl.textContent = 'Average Sunday attendance per month';
+    return;
+  }
+  var maxV = Math.max.apply(null, withVals.concat([1]));
+  if (subEl) subEl.textContent = 'Average Sunday attendance per month · ' + attFmtMonthYr(keys[0]) + ' – ' + attFmtMonthYr(keys[keys.length - 1]);
+  wrap.innerHTML = keys.map(function(k, i) {
+    var v = vals[i];
+    var h = v ? Math.max(2, Math.round(v / maxV * 100)) : 0;
+    var cls = (v != null && v >= avg52) ? 'hi' : 'lo';
+    return '<div class="att-month-col"><div class="att-month-val">' + (v != null ? v : '') + '</div><div class="att-month-bar ' + cls + '" style="height:' + h + '%;"></div></div>';
+  }).join('');
+  footWrap.innerHTML = keys.map(function(k) {
+    var mo = k.slice(5, 7);
+    return '<div class="att-month-foot-col"><div class="att-month-label">' + MONTH_NAMES[parseInt(mo) - 1] + '</div><div class="att-month-season">' + (ATT_SEASON[mo] || '') + '</div></div>';
+  }).join('');
+}
+function attQuarterKeysLast(n) {
+  var now = new Date();
+  var y = now.getFullYear(), q = Math.floor(now.getMonth() / 3);
+  var out = [];
+  for (var i = n - 1; i >= 0; i--) {
+    var idx = y * 4 + q - i;
+    out.push(Math.floor(idx / 4) + '-Q' + ((idx % 4) + 1));
+  }
+  return out;
+}
+function attRenderServiceMix() {
+  var byQ = {};
+  var today = new Date().toISOString().slice(0, 10);
+  (_loadedServices || []).forEach(function(s) {
+    if (s.service_type !== 'sunday' || !s.attendance || s.service_date > today) return;
+    var y = parseInt(s.service_date.slice(0, 4)), mo = parseInt(s.service_date.slice(5, 7));
+    var q = Math.floor((mo - 1) / 3) + 1;
+    var k = y + '-Q' + q;
+    if (!byQ[k]) byQ[k] = { a8: 0, a1045: 0 };
+    if (s.service_time === '08:00') byQ[k].a8 += s.attendance;
+    else if (s.service_time === '10:45') byQ[k].a1045 += s.attendance;
+  });
+  var keys = attQuarterKeysLast(8);
+  var el = document.getElementById('att-service-mix');
+  if (!el) return;
+  var any = keys.some(function(k) { return byQ[k]; });
+  if (!any) { el.innerHTML = '<div style="font-size:.85rem;color:var(--att-text-2);">No data yet.</div>'; return; }
+  el.innerHTML = keys.map(function(k) {
+    var v = byQ[k] || { a8: 0, a1045: 0 };
+    var total = v.a8 + v.a1045;
+    var pct1045 = total ? Math.round(v.a1045 / total * 100) : 0;
+    var w8 = total ? (v.a8 / total * 100) : 0, w1045 = total ? (v.a1045 / total * 100) : 0;
+    return '<div class="att-mix-row"><div class="att-mix-hdr"><div class="att-mix-label">' + k + '</div>'
+      + '<div><span style="color:var(--att-gold-text);font-weight:700;">' + v.a8 + '</span> &middot; <span style="color:var(--color-teal);font-weight:700;">' + v.a1045 + '</span> &middot; ' + pct1045 + '% at 10:45</div></div>'
+      + '<div class="att-mix-track"><div class="att-mix-fill-8" style="width:' + w8 + '%;"></div><div class="att-mix-fill-1045" style="width:' + w1045 + '%;"></div></div></div>';
+  }).join('');
+}
+function attRenderYoYTable() {
+  var curYear = new Date().getFullYear();
+  var years = [curYear - 2, curYear - 1, curYear];
+  var byYM = {};
+  attEnteredSundaysAsc().forEach(function(r) {
+    var y = parseInt(r.date.slice(0, 4)), m = r.date.slice(5, 7);
+    if (years.indexOf(y) < 0) return;
+    var k = y + '-' + m;
+    if (!byYM[k]) byYM[k] = [];
+    byYM[k].push(r.combined);
+  });
+  function avgFor(y, m) { var arr = byYM[y + '-' + m]; return arr && arr.length ? Math.round(arr.reduce(function(a, b) { return a + b; }, 0) / arr.length) : null; }
+  var maxV = 1;
+  for (var mm = 1; mm <= 12; mm++) years.forEach(function(y) { var v = avgFor(y, String(mm).padStart(2, '0')); if (v && v > maxV) maxV = v; });
+  var yrColors = ['var(--att-yr-1)', 'var(--att-yr-2)', 'var(--att-yr-3)'];
+  var hdr = '<div class="att-yoy-hdr"><div></div>' + years.map(function(y) { return '<div style="text-align:right;">' + y + '</div>'; }).join('') + '<div style="text-align:right;">&Delta;</div></div>';
+  var rows = '';
+  for (var m = 1; m <= 12; m++) {
+    var mk = String(m).padStart(2, '0');
+    var cells = years.map(function(y, yi) {
+      var v = avgFor(y, mk);
+      if (v == null) return '<div class="att-yoy-cell"><span style="color:var(--att-text-3);">&#8212;</span></div>';
+      var w = Math.max(2, Math.round(v / maxV * 100));
+      return '<div class="att-yoy-cell"><div class="att-yoy-bar" style="width:' + w + '%;background:' + yrColors[yi] + ';"></div><div class="att-yoy-num">' + v + '</div></div>';
+    }).join('');
+    var vLast = avgFor(years[2], mk), vPrior = avgFor(years[1], mk);
+    var deltaHtml = '<span style="color:var(--att-text-3);">&#8212;</span>';
+    if (vLast != null && vPrior != null) {
+      var dv = vLast - vPrior;
+      deltaHtml = '<span style="color:' + (dv >= 0 ? 'var(--att-pos)' : 'var(--att-neg)') + ';">' + (dv >= 0 ? '+' : '') + dv + '</span>';
+    }
+    rows += '<div class="att-yoy-row"><div style="font-size:.78rem;color:var(--att-text-lbl);font-weight:700;">' + MONTH_NAMES[m - 1] + '</div>' + cells + '<div class="att-yoy-delta">' + deltaHtml + '</div></div>';
+  }
+  var elT = document.getElementById('att-yoy-table');
+  if (elT) elT.innerHTML = hdr + rows;
+}
+
+// ── Festivals ────────────────────────────────────────────────────────
+// Easter via the Meeus/Jones/Butcher Gregorian algorithm (same math previously used for the
+// old line chart's Easter marker). Attendance totals sum ALL rows on that date — Easter
+// Sunday is normally logged as a regular 'sunday' type service, not 'special'.
+function attEasterDate(year) {
+  var a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  var d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  var g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  var i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+  var m = Math.floor((a + 11 * h + 22 * l) / 451);
+  var mo = Math.floor((h + l - 7 * m + 114) / 31), dy = (h + l - 7 * m + 114) % 31 + 1;
+  return year + '-' + String(mo).padStart(2, '0') + '-' + String(dy).padStart(2, '0');
+}
+function attAshWednesday(year) {
+  var e = new Date(attEasterDate(year) + 'T00:00:00');
+  e.setDate(e.getDate() - 46);
+  return e.toISOString().slice(0, 10);
+}
+function attThanksgivingEve(year) {
+  var d = new Date(year, 10, 1); // Nov 1
+  var day = d.getDay();
+  var firstThu = 1 + ((4 - day + 7) % 7);
+  var thu = new Date(year, 10, firstThu + 21); // 4th Thursday
+  thu.setDate(thu.getDate() - 1);
+  return thu.toISOString().slice(0, 10);
+}
+function attRenderFestivals() {
+  var curYear = new Date().getFullYear();
+  var years = [curYear - 3, curYear - 2, curYear - 1, curYear];
+  var fests = [
+    { name: 'Easter', fn: attEasterDate },
+    { name: 'Christmas Eve', fn: function(y) { return y + '-12-24'; } },
+    { name: 'Ash Wednesday', fn: attAshWednesday },
+    { name: 'Thanksgiving Eve', fn: attThanksgivingEve },
+  ];
+  var el = document.getElementById('att-festivals-grid');
+  if (!el) return;
+  el.innerHTML = fests.map(function(f) {
+    var vals = years.map(function(y) { return { year: y, v: attTotalOnDate(f.fn(y)) }; });
+    var withData = vals.filter(function(x) { return x.v > 0; });
+    var maxV = Math.max.apply(null, withData.map(function(x) { return x.v; }).concat([1]));
+    var last = vals[vals.length - 1], prev = vals[vals.length - 2];
+    var deltaHtml = '';
+    if (last.v > 0 && prev.v > 0) {
+      var pct = Math.round((last.v - prev.v) / prev.v * 100);
+      deltaHtml = '<div class="att-fest-delta" style="color:' + (pct >= 0 ? 'var(--att-pos)' : 'var(--att-neg)') + ';">' + (pct >= 0 ? '+' : '') + pct + '% vs last year</div>';
+    }
+    var bars = vals.map(function(x, i) {
+      var h = x.v ? Math.max(3, Math.round(x.v / maxV * 100)) : 0;
+      var cls = i === vals.length - 1 ? 'latest' : 'prior';
+      return '<div class="att-fest-bar-col"><div class="att-fest-val">' + (x.v || '') + '</div><div class="att-fest-bar ' + cls + '" style="height:' + h + '%;"></div></div>';
+    }).join('');
+    var yrFoot = vals.map(function(x) { return '<div class="att-fest-yr">' + x.year + '</div>'; }).join('');
+    return '<div><div class="att-fest-hdr"><div class="att-fest-name">' + f.name + '</div>' + deltaHtml + '</div>'
+      + '<div class="att-fest-bars">' + bars + '</div><div class="att-fest-foot">' + yrFoot + '</div></div>';
+  }).join('');
+}
+
+// ── History ──────────────────────────────────────────────────────────
+function attRenderHistory() {
+  var full = attEnteredSundaysAsc();
+  var el = document.getElementById('att-hist-rows');
+  if (!el) return;
+  if (!full.length) { el.innerHTML = '<div style="padding:16px 0;color:var(--att-text-2);font-size:.85rem;">No Sundays recorded yet.</div>'; return; }
+  var entered = full.slice().reverse(); // newest first
+  el.innerHTML = entered.map(function(r) {
+    var idx = full.indexOf(r);
+    var priorSlice = full.slice(Math.max(0, idx - 4), idx);
+    var mean = priorSlice.length ? Math.round(priorSlice.reduce(function(a, x) { return a + x.combined; }, 0) / priorSlice.length) : null;
+    var delta = mean != null ? r.combined - mean : null;
+    var p = r.date.split('-');
+    var disp = (p[1] | 0) + '/' + (p[2] | 0) + '/' + p[0];
+    var dk = r.date.replace(/-/g, '_');
+    var deltaHtml = delta != null
+      ? '<span style="color:' + (delta >= 0 ? 'var(--att-pos)' : 'var(--att-neg)') + ';">' + (delta >= 0 ? '+' : '') + delta + '</span>'
+      : '<span style="color:var(--att-text-3);">&#8212;</span>';
+    return '<div>'
+      + '<div class="att-hist-row" onclick="toggleAttEdit(&#39;' + dk + '&#39;)">'
+      + '<div class="att-hist-date">' + disp + '</div><div class="att-hist-name">' + esc(r.name || '') + '</div>'
+      + '<div class="att-hist-8">' + r.att8 + '</div><div class="att-hist-1045">' + r.att1045 + '</div>'
+      + '<div class="att-hist-total">' + r.combined + '</div><div class="att-hist-delta">' + deltaHtml + '</div>'
+      + '</div>'
+      + '<div id="att-edit-' + dk + '" class="att-inline-form" style="display:none;">'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">'
+      + '<div><div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--color-navy);margin-bottom:3px;">8:00 Attendance</div>'
+      + '<input type="number" id="ai8-' + dk + '" min="0" value="' + r.att8 + '" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:1rem;font-weight:700;"></div>'
+      + '<div><div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--color-navy);margin-bottom:3px;">10:45 Attendance</div>'
+      + '<input type="number" id="ai1045-' + dk + '" min="0" value="' + r.att1045 + '" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:1rem;font-weight:700;"></div>'
+      + '</div>'
+      + '<div style="margin-bottom:10px;"><input type="text" id="ainotes-' + dk + '" value="' + esc(r.notes || '') + '" placeholder="Notes&hellip;" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;"></div>'
+      + '<div class="att-btn-row require-edit-attendance">'
+      + '<button class="att-btn-primary" style="padding:7px 16px;" onclick="saveInlineAttEdit(&#39;' + dk + '&#39;,' + (r.id8 || 'null') + ',' + (r.id1045 || 'null') + ')">Save</button>'
+      + '<button class="att-btn-secondary" style="padding:7px 16px;" onclick="toggleAttEdit(&#39;' + dk + '&#39;)">Cancel</button>'
+      + '<button class="btn-danger" style="margin-left:auto;" onclick="deleteAttDate(&#39;' + dk + '&#39;,[' + [r.id8, r.id1045].filter(Boolean).join(',') + '])">Delete</button>'
+      + '</div>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+function attCsvCell(v) {
+  v = (v === null || v === undefined) ? '' : String(v);
+  if (/^[=+\-@]/.test(v)) v = "'" + v; // guard against Excel formula injection, same pattern as SW15
+  if (/[",\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
+  return v;
+}
+function attExportHistoryCsv() {
+  var rows = [['Date', 'Sunday', '8:00', '10:45', 'Total']];
+  attEnteredSundaysAsc().slice().reverse().forEach(function(r) {
+    rows.push([r.date, r.name || '', r.att8, r.att1045, r.combined]);
+  });
+  var csv = rows.map(function(r) { return r.map(attCsvCell).join(','); }).join('\n');
+  var blob = new Blob([csv + '\n'], { type: 'text/csv' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'attendance-history-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+function toggleAttEdit(dk) {
+  var form = document.getElementById('att-edit-' + dk);
+  if (!form) return;
+  var isOpen = form.style.display !== 'none';
+  document.querySelectorAll('.att-inline-form').forEach(function(f) { f.style.display = 'none'; });
+  if (!isOpen) {
+    form.style.display = '';
+    form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    var inp = form.querySelector('input[type=number]');
+    if (inp) { inp.focus(); inp.select(); }
+  }
+}
+function saveInlineAttEdit(dk, id8, id1045) {
+  var att8 = parseInt(document.getElementById('ai8-' + dk).value) || 0;
+  var att1045 = parseInt(document.getElementById('ai1045-' + dk).value) || 0;
+  var notes = document.getElementById('ainotes-' + dk).value;
+  var saves = [];
+  if (id8) saves.push(api('/admin/api/attendance/' + id8, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attendance: att8, notes: notes }) }));
+  if (id1045) saves.push(api('/admin/api/attendance/' + id1045, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attendance: att1045, notes: notes }) }));
+  Promise.all(saves).then(function() { loadAttendance(); });
+}
+function saveInlineSingle(ids, dk) {
+  var saves = ids.map(function(id) {
+    var val = parseInt(document.getElementById('aisingle-' + id).value) || 0;
+    return api('/admin/api/attendance/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attendance: val }) });
+  });
+  Promise.all(saves).then(function() { loadAttendance(); });
+}
+function deleteAttDate(dk, ids) {
+  if (!confirm('Delete these service records?')) return;
+  Promise.all(ids.map(function(id) { return api('/admin/api/attendance/' + id, { method: 'DELETE' }); })).then(function() { loadAttendance(); });
+}
+function seedYearSundays() {
+  var year = new Date().getFullYear();
+  var yn = prompt('Seed all Sundays for which year?', year);
+  if (!yn) return;
+  year = parseInt(yn);
+  if (isNaN(year)) return;
+  api('/admin/api/attendance/seed-year', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year: year }) }).then(function(d) {
+    if (d.ok) { alert('Added ' + (d.inserted / 2) + ' Sundays for ' + d.year + ' (' + (d.skipped / 2) + ' already existed).'); loadAttendance(); }
+  });
+}
+
+// ── Add special / midweek service (entry card secondary action) ────────
+function openSpecialServiceEntry() {
+  var el = document.getElementById('att-add-form');
+  el.style.display = '';
+  el.innerHTML = '<div style="font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin-bottom:14px;">Add Special / Midweek Service</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">'
+    + '<div><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--warm-gray);">Date</label><input type="date" id="spf-date" value="'+new Date().toISOString().slice(0,10)+'" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;"></div>'
+    + '<div><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--warm-gray);">Type</label>'
+    + '<select id="spf-type" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:.9rem;">'
+    + '<option value="special">Special (Christmas, Easter Vigil, Good Friday…)</option>'
+    + '<option value="midweek">Midweek (Ash Wednesday, Lent, Advent…)</option>'
+    + '</select></div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">'
+    + '<div><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--warm-gray);">Service Name</label>'
+    + '<input type="text" id="spf-name" list="spf-name-suggestions" placeholder="e.g. Christmas Eve" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;">'
+    + '<datalist id="spf-name-suggestions"><option value="Christmas Eve"><option value="Christmas Day"><option value="Good Friday"><option value="Maundy Thursday"><option value="Easter Vigil"><option value="Ash Wednesday"><option value="Thanksgiving Eve"><option value="Advent Midweek"><option value="Lenten Midweek"></datalist></div>'
+    + '<div><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--steel-anchor);">Attendance</label><input type="number" id="spf-att" min="0" placeholder="0" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:1rem;font-weight:700;"></div>'
+    + '</div>'
+    + '<div style="margin-bottom:12px;"><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--warm-gray);">Time (optional)</label><input type="time" id="spf-time" placeholder="e.g. 19:00" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;"></div>'
+    + '<div style="display:flex;gap:8px;"><button class="btn-primary" onclick="saveSpecialService()">Save</button><button class="btn-secondary" onclick="document.getElementById(\'att-add-form\').style.display=\'none\'">Cancel</button></div>';
+}
+function saveSpecialService() {
+  var date = document.getElementById('spf-date').value;
+  var name = (document.getElementById('spf-name').value || '').trim();
+  var att  = parseInt(document.getElementById('spf-att').value) || 0;
+  var type = document.getElementById('spf-type').value;
+  var time = document.getElementById('spf-time').value || '';
+  if (!date) { alert('Please enter a date.'); return; }
+  if (!name) { alert('Please enter a service name.'); return; }
+  if (!att)  { alert('Please enter attendance.'); return; }
+  api('/admin/api/attendance', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ service_date:date, service_name:name, service_type:type, service_time:time, attendance:att })
+  }).then(function(d) {
+    if (d.error) { alert('Error: ' + d.error); return; }
+    document.getElementById('att-add-form').style.display = 'none';
+    loadAttendance();
+  });
+}
+
+// ── Reports tab ──────────────────────────────────────────────────────
+function attRunGivingVsAttendance() {
+  var from = document.getElementById('att-gva-from').value;
+  var to = document.getElementById('att-gva-to').value;
+  if (!from || !to) { alert('Please select a date range.'); return; }
+  api('/admin/api/reports/giving-vs-attendance?from=' + from + '&to=' + to).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    showAttRptOutput(renderGivingVsAttendance(d));
+  });
+}
+function attRunCouncilPacket() {
+  var entered = attEnteredSundaysAsc();
+  var last8 = entered.slice(-8).reverse();
+  var latest = entered.length ? entered[entered.length - 1] : null;
+  var avg4 = attTrailingAvg(entered, 4), avg52 = attTrailingAvg(entered, 52);
+  var rows = last8.map(function(r) {
+    var p = r.date.split('-');
+    return '<tr><td>' + ((p[1] | 0) + '/' + (p[2] | 0) + '/' + p[0]) + '</td><td>' + esc(r.name || '') + '</td><td style="text-align:right;">' + r.att8 + '</td><td style="text-align:right;">' + r.att1045 + '</td><td style="text-align:right;font-weight:700;">' + r.combined + '</td></tr>';
+  }).join('');
+  var html = '<div id="att-packet"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+    + '<h3 style="font-family:var(--font-head);color:var(--color-navy);">Council Attendance Packet</h3>'
+    + '<button class="att-btn-secondary" onclick="attPrintPacket()">Print</button></div>'
+    + '<div class="rpt-overview" style="margin-bottom:14px;">'
+    + (latest ? '<div class="rpt-stat"><div class="rpt-stat-num">' + latest.combined + '</div><div class="rpt-stat-lbl">Latest Sunday</div></div>' : '')
+    + '<div class="rpt-stat"><div class="rpt-stat-num">' + avg4 + '</div><div class="rpt-stat-lbl">4-week avg</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">' + avg52 + '</div><div class="rpt-stat-lbl">52-week avg</div></div>'
+    + '</div>'
+    + (rows ? '<table class="rpt-table"><thead><tr><th>Date</th><th>Sunday</th><th style="text-align:right;">8:00</th><th style="text-align:right;">10:45</th><th style="text-align:right;">Total</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<div style="color:var(--att-text-2);">No Sundays recorded yet.</div>')
+    + '</div>';
+  showAttRptOutput(html);
+}
+function attPrintPacket() {
+  document.body.classList.add('printing-att-packet');
+  var cleanup = function() { document.body.classList.remove('printing-att-packet'); window.removeEventListener('afterprint', cleanup); };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(function() { window.print(); setTimeout(cleanup, 1000); }, 60);
 }
 
 function _chartResizeHandle(fnName) {
@@ -50,38 +698,7 @@ function _ptrY(e) {
   return e.clientY;
 }
 
-var _attResizing = false, _attResizeStartY = 0, _attResizeStartH = 0, _attResizeRaf = 0;
-function attChartResizeStart(e) {
-  _attResizing = true;
-  _attResizeStartY = _ptrY(e);
-  _attResizeStartH = _attChartH;
-  if (e.preventDefault) e.preventDefault();
-  document.addEventListener('mousemove', _attResizeMove);
-  document.addEventListener('mouseup', _attResizeEnd);
-  document.addEventListener('touchmove', _attResizeMove, { passive: false });
-  document.addEventListener('touchend', _attResizeEnd);
-  document.addEventListener('touchcancel', _attResizeEnd);
-}
-var _attResizeMove = function(e) {
-  if (!_attResizing) return;
-  if (e.cancelable && e.touches) e.preventDefault();
-  var y = _ptrY(e);
-  cancelAnimationFrame(_attResizeRaf);
-  _attResizeRaf = requestAnimationFrame(function() {
-    _attChartH = Math.max(120, Math.min(600, _attResizeStartH + y - _attResizeStartY));
-    renderAttendanceChart(_loadedServices);
-  });
-};
-var _attResizeEnd = function() {
-  _attResizing = false;
-  document.removeEventListener('mousemove', _attResizeMove);
-  document.removeEventListener('mouseup', _attResizeEnd);
-  document.removeEventListener('touchmove', _attResizeMove);
-  document.removeEventListener('touchend', _attResizeEnd);
-  document.removeEventListener('touchcancel', _attResizeEnd);
-};
-
-// ── Report chart resize (YoY att, by-service att, giving trend) ───────
+// ── Report chart resize (YoY att, by-service att, giving trend) — shared with js-reports.js ──
 var _rptResizing = false, _rptResizeStartY = 0, _rptResizeStartH = 0, _rptResizeRaf = 0, _rptResizeKey = '';
 function _rptResizeStart(e, key, h0) {
   _rptResizing = true; _rptResizeKey = key; _rptResizeStartY = _ptrY(e); _rptResizeStartH = h0;
@@ -136,309 +753,6 @@ var _rptResizeEndH = function() {
 function yoyRptResizeStart(e) { _rptResizeStart(e, 'yoy', _yoyRptH); }
 function byServiceResizeStart(e) { _rptResizeStart(e, 'byService', _byServiceRptH); }
 function givingTrendResizeStart(e) { _rptResizeStart(e, 'givingTrend', _givingTrendH); }
-
-function renderAttendanceChart(services) {
-  renderSpecialServicesChart(services);
-  var today = new Date().toISOString().slice(0,10);
-  var byDate = {};
-  services.forEach(function(s) {
-    if (s.service_type === 'sunday' && s.service_date <= today) {
-      byDate[s.service_date] = (byDate[s.service_date]||0) + (s.attendance||0);
-    }
-  });
-  var allDates = Object.keys(byDate).sort();
-  var dataPts = allDates.filter(function(d){return byDate[d]>0;});
-
-  var statsEl = document.getElementById('att-stats');
-  if (!dataPts.length) {
-    if (statsEl) statsEl.innerHTML = '<span style="color:var(--warm-gray);font-size:.85rem;">No past attendance data in this range. Try widening the date filter to include earlier years, or run Sync Counts from Breeze.</span>';
-    var cw = document.getElementById('att-chart-wrap');
-    if (cw) cw.innerHTML = '';
-    return;
-  }
-  var vals = dataPts.map(function(d){return byDate[d];});
-  var avg = Math.round(vals.reduce(function(a,b){return a+b;},0)/vals.length);
-  var latest = byDate[dataPts[dataPts.length-1]];
-  var latestDate = dataPts[dataPts.length-1].split('-');
-  var latestLbl = MONTH_NAMES[parseInt(latestDate[1])-1]+' '+parseInt(latestDate[2]);
-  var peakVal = Math.max.apply(null, vals);
-  var peakIdx = vals.indexOf(peakVal);
-  var peakParts = dataPts[peakIdx].split('-');
-  var peakLbl = MONTH_NAMES[parseInt(peakParts[1])-1]+' '+parseInt(peakParts[2])+', '+peakParts[0];
-  var curYear = today.slice(0,4);
-  var priorYear = String(parseInt(curYear)-1);
-  var todayMD = today.slice(5);
-  var annualTotal = dataPts.reduce(function(s,d){return d.slice(0,4)===curYear?s+byDate[d]:s;},0);
-  var ytdCur = annualTotal;
-  var ytdPrior = dataPts.reduce(function(s,d){return d.slice(0,4)===priorYear&&d.slice(5)<=todayMD?s+byDate[d]:s;},0);
-  var ytdHtml = '';
-  if (ytdCur>0 && ytdPrior>0) {
-    var pct = Math.round((ytdCur-ytdPrior)/ytdPrior*100);
-    var pctColor = pct>=0 ? '#3a7d44' : '#b03a2e';
-    ytdHtml = '<div><div class="att-stat-val" style="color:'+pctColor+';">'+(pct>=0?'+':'')+pct+'%</div><div class="att-stat-lbl">YTD vs '+priorYear+'</div></div>';
-  }
-  if (statsEl) statsEl.innerHTML =
-    '<div class="att-stat-primary"><div class="att-stat-val">'+latest+'</div><div class="att-stat-lbl">Latest \u00b7 '+latestLbl+'</div></div>'
-    +'<div class="att-stat-divider"></div>'
-    +'<div><div class="att-stat-val">'+avg+'</div><div class="att-stat-lbl">Weekly Avg</div></div>'
-    +'<div><div class="att-stat-val">'+peakVal+'</div><div class="att-stat-lbl">Peak \u00b7 '+peakLbl+'</div></div>'
-    +(annualTotal?'<div><div class="att-stat-val">'+annualTotal+'</div><div class="att-stat-lbl">'+curYear+' Total</div></div>':'')
-    +ytdHtml
-    +'<div><div class="att-stat-val">'+dataPts.length+'</div><div class="att-stat-lbl">Sundays</div></div>';
-
-  var n=dataPts.length;
-  var H=_attChartH,pL=32,pR=12,pT=10,pB=30;
-  var cw=document.getElementById('att-chart-wrap');
-
-  if (_attChartMode === 'yoy') {
-    // Build YoY data from loaded services
-    var byYM={}, yrsAll=[];
-    services.forEach(function(s){
-      if(s.service_type!=='sunday'||!s.attendance||s.service_date>today) return;
-      var yr2=s.service_date.slice(0,4), mo2=s.service_date.slice(5,7);
-      if(!byYM[yr2]){byYM[yr2]={};yrsAll.push(yr2);}
-      if(!byYM[yr2][mo2]){byYM[yr2][mo2]={sum:0,cnt:{}};}
-      byYM[yr2][mo2].sum+=s.attendance;
-      byYM[yr2][mo2].cnt[s.service_date]=1;
-    });
-    yrsAll=yrsAll.filter(function(v,i,a){return a.indexOf(v)===i;}).sort();
-    var dYoY={years:yrsAll, monthly:{}};
-    yrsAll.forEach(function(yr2){
-      dYoY.monthly[yr2]=[];
-      Object.keys(byYM[yr2]).sort().forEach(function(mo2){
-        var b=byYM[yr2][mo2], nSun=Object.keys(b.cnt).length;
-        dYoY.monthly[yr2].push({month:mo2, total:Math.round(b.sum/nSun)});
-      });
-    });
-    if(statsEl) statsEl.innerHTML='<span style="font-size:.82rem;color:var(--warm-gray);">Year-over-Year — avg Sunday attendance per month. Use date filter to choose years.</span>';
-    if(cw) cw.innerHTML=renderYoYChart(dYoY, _attChartH);
-    return;
-  }
-
-  if (_attChartMode === 'bars') {
-    var byMonth={}, bMonths=[];
-    dataPts.forEach(function(d){
-      var mk=d.slice(0,7);
-      if(!byMonth[mk]){byMonth[mk]=0;bMonths.push(mk);}
-      byMonth[mk]+=byDate[d];
-    });
-    var bVals=bMonths.map(function(m){return byMonth[m];});
-    var maxV2=Math.max.apply(null,bVals)*1.1||1;
-    var nb=bMonths.length;
-    var W=Math.max(800, nb*28); // scalable: 28px min per bar
-    var cH2=H-pT-pB;
-    var slotW=(W-pL-pR)/nb;
-    var barW=Math.max(4,Math.min(32,slotW*0.7));
-    var px2=function(i){return pL+(i+0.5)*slotW;};
-    var py2=function(v){return pT+cH2-(v/maxV2)*cH2;};
-    var baseY=pT+cH2;
-    var grid2='',ylbls2='',xlbls2='',bars2='';
-    [0,Math.round(maxV2*0.5/1.1),Math.round(maxV2/1.1)].forEach(function(v){
-      var yy=py2(v);
-      grid2+='<line x1="'+pL+'" y1="'+yy.toFixed(1)+'" x2="'+(W-pR)+'" y2="'+yy.toFixed(1)+'" stroke="#f0ece8" stroke-width="1"/>';
-      ylbls2+='<text x="'+(pL-3)+'" y="'+(yy+3).toFixed(1)+'" text-anchor="end" fill="#9A8A78" font-size="9">'+Math.round(v)+'</text>';
-    });
-    var stepB=Math.max(1,Math.ceil(nb/10));
-    for(var bi=0;bi<nb;bi+=stepB){
-      var mp=bMonths[bi].split('-');
-      xlbls2+='<text x="'+px2(bi).toFixed(1)+'" y="'+(H-5)+'" text-anchor="middle" fill="#9A8A78" font-size="9">'+MONTH_NAMES[parseInt(mp[1])-1]+' '+mp[0].slice(2)+'</text>';
-    }
-    bars2=bMonths.map(function(m,bi2){
-      var bx=px2(bi2),bv=byMonth[m],by=py2(bv),bh=baseY-by;
-      return '<rect x="'+(bx-barW/2).toFixed(1)+'" y="'+by.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bh.toFixed(1)+'" fill="#2E7EA6" rx="2" opacity="0.85"><title>'+m+': '+bv+'</title></rect>';
-    }).join('');
-    if(cw) cw.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" style="min-width:'+W+'px;width:100%;height:'+H+'px;">'+grid2+bars2+xlbls2+ylbls2+'</svg>';
-    return;
-  }
-
-  var W=Math.max(800, n*10); // scalable: at least 10px per Sunday
-  var cW=W-pL-pR, cH=H-pT-pB;
-  var maxV=Math.max.apply(null,vals)*1.1||1;
-  var px=function(i){return pL+(i/(n>1?n-1:1))*cW;};
-  var py=function(v){return pT+cH-(v/maxV)*cH;};
-  var pts=dataPts.map(function(d,i){return [px(i),py(byDate[d])];});
-  var line=pts.map(function(p,i){return(i?'L ':'M ')+p[0].toFixed(1)+','+p[1].toFixed(1);}).join(' ');
-  var area=line+' L '+px(n-1).toFixed(1)+','+(pT+cH)+' L '+pL+','+(pT+cH)+' Z';
-  var yearsInRange={};
-  dataPts.forEach(function(d){yearsInRange[d.slice(0,4)]=1;});
-  var multiYear=Object.keys(yearsInRange).length>1;
-  var step=Math.max(1,Math.ceil(n/10));
-  var xlbls='',ylbls='',grid='';
-  [0,Math.round(maxV*0.5/1.1),Math.round(maxV/1.1)].forEach(function(v){
-    var yy=py(v);
-    grid+='<line x1="'+pL+'" y1="'+yy.toFixed(1)+'" x2="'+(W-pR)+'" y2="'+yy.toFixed(1)+'" stroke="#f0ece8" stroke-width="1"/>';
-    ylbls+='<text x="'+(pL-3)+'" y="'+(yy+3).toFixed(1)+'" text-anchor="end" fill="#9A8A78" font-size="9">'+v+'</text>';
-  });
-  for(var i=0;i<n;i+=step){
-    var p=dataPts[i].split('-');
-    var xlbl=MONTH_NAMES[parseInt(p[1])-1]+' '+parseInt(p[2])+(multiYear?' \''+p[0].slice(2):'');
-    xlbls+='<text x="'+px(i).toFixed(1)+'" y="'+(H-5)+'" text-anchor="middle" fill="#9A8A78" font-size="9">'+xlbl+'</text>';
-  }
-  var avgPts=[];
-  for(var ai=3;ai<n;ai++){
-    avgPts.push([px(ai),py((vals[ai]+vals[ai-1]+vals[ai-2]+vals[ai-3])/4)]);
-  }
-  var avgLine=avgPts.length>1?'<path d="'+avgPts.map(function(p2,j){return(j?'L ':'M ')+p2[0].toFixed(1)+','+p2[1].toFixed(1);}).join(' ')+'" fill="none" stroke="#C9973A" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>':'';
-  // Interpolate x position for any date even if it's not a Sunday data point
-  var xAtAnyDate=function(ds){
-    if(!dataPts.length||ds<dataPts[0]||ds>dataPts[dataPts.length-1])return -1;
-    var lo=0,hi=dataPts.length-1;
-    while(lo<hi-1){var mid=Math.floor((lo+hi)/2);if(dataPts[mid]<=ds)lo=mid;else hi=mid;}
-    if(dataPts[lo]===ds)return px(lo);
-    if(dataPts[hi]===ds)return px(hi);
-    var t=(new Date(ds)-new Date(dataPts[lo]))/(new Date(dataPts[hi])-new Date(dataPts[lo]));
-    return px(lo)+t*(px(hi)-px(lo));
-  };
-  var markers='';
-  Object.keys(yearsInRange).forEach(function(yr){
-    var yr2=multiYear?' \''+yr.slice(2):'';
-    var ey=parseInt(yr),ea=ey%19,eb=Math.floor(ey/100),ec=ey%100;
-    var edd=Math.floor(eb/4),ee=eb%4,ef=Math.floor((eb+8)/25);
-    var eg=Math.floor((eb-ef+1)/3),eh=(19*ea+eb-edd-eg+15)%30;
-    var eii=Math.floor(ec/4),ek=ec%4,el=(32+2*ee+2*eii-eh-ek)%7;
-    var emm=Math.floor((ea+11*eh+22*el)/451);
-    var emo=Math.floor((eh+el-7*emm+114)/31),edy2=(eh+el-7*emm+114)%31+1;
-    var eDate=yr+'-'+(emo<10?'0'+emo:''+emo)+'-'+(edy2<10?'0'+edy2:''+edy2);
-    var ex=xAtAnyDate(eDate);
-    if(ex>=0){
-      markers+='<line x1="'+ex.toFixed(1)+'" y1="'+pT+'" x2="'+ex.toFixed(1)+'" y2="'+(pT+cH)+'" stroke="#5A9E6F" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>';
-      markers+='<text x="'+ex.toFixed(1)+'" y="'+(pT+9)+'" text-anchor="middle" fill="#5A9E6F" font-size="8">Easter'+yr2+'</text>';
-    }
-    [yr+'-12-24',yr+'-12-25'].forEach(function(xd,xi){
-      var xx=xAtAnyDate(xd);
-      if(xx>=0){
-        markers+='<line x1="'+xx.toFixed(1)+'" y1="'+pT+'" x2="'+xx.toFixed(1)+'" y2="'+(pT+cH)+'" stroke="#9B59B6" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>';
-        markers+='<text x="'+xx.toFixed(1)+'" y="'+(pT+9)+'" text-anchor="middle" fill="#9B59B6" font-size="8">'+(xi===0?'Xmas Eve':'Christmas')+yr2+'</text>';
-      }
-    });
-  });
-  var dots=pts.map(function(p,i){
-    var d=dataPts[i].split('-');
-    var tip=MONTH_NAMES[parseInt(d[1])-1]+' '+parseInt(d[2])+' '+d[0]+': '+byDate[dataPts[i]];
-    return '<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="3" fill="#2E7EA6" style="cursor:default;"><title>'+tip+'</title></circle>';
-  }).join('');
-  var avgLegend='<div style="display:flex;gap:16px;margin-top:4px;flex-wrap:wrap;">'
-    +'<span style="display:flex;align-items:center;gap:4px;font-size:.75rem;color:var(--warm-gray);"><span style="display:inline-block;width:20px;height:2px;background:#2E7EA6;"></span>Weekly</span>'
-    +(avgLine?'<span style="display:flex;align-items:center;gap:4px;font-size:.75rem;color:var(--warm-gray);"><span style="display:inline-block;width:20px;height:2px;background:#C9973A;border-top:2px dashed #C9973A;"></span>4-wk avg</span>':'')
-    +'<span style="display:flex;align-items:center;gap:4px;font-size:.75rem;color:var(--warm-gray);"><span style="display:inline-block;width:2px;height:12px;background:#5A9E6F;border-left:2px dashed #5A9E6F;"></span>Easter</span>'
-    +'<span style="display:flex;align-items:center;gap:4px;font-size:.75rem;color:var(--warm-gray);"><span style="display:inline-block;width:2px;height:12px;background:#9B59B6;border-left:2px dashed #9B59B6;"></span>Christmas</span>'
-    +'</div>';
-  if(cw) cw.innerHTML='<svg id="att-chart-svg" viewBox="0 0 '+W+' '+H+'" style="min-width:'+W+'px;width:100%;height:'+H+'px;">'+grid
-    +'<path d="'+area+'" fill="rgba(46,126,166,0.12)"/>'
-    +'<path d="'+line+'" fill="none" stroke="#2E7EA6" stroke-width="2" stroke-linejoin="round"/>'
-    +avgLine+markers+dots+xlbls+ylbls+'</svg>'+avgLegend;
-}
-
-function downloadAttChart() {
-  var svg = document.getElementById('att-chart-svg');
-  if (!svg) { alert('No chart to download. Switch to Line view first.'); return; }
-  var svgData = new XMLSerializer().serializeToString(svg);
-  var canvas = document.createElement('canvas');
-  var vb = svg.viewBox.baseVal;
-  canvas.width = vb.width * 2;
-  canvas.height = vb.height * 2;
-  var ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#faf7f2';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  var img = new Image();
-  var blob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
-  var url = URL.createObjectURL(blob);
-  img.onload = function() {
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    URL.revokeObjectURL(url);
-    var link = document.createElement('a');
-    link.download = 'attendance-' + new Date().toISOString().slice(0,10) + '.png';
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-  };
-  img.src = url;
-}
-
-function renderSpecialServicesChart(services) {
-  var wrap = document.getElementById('att-special-wrap');
-  if (!wrap) return;
-  var today = new Date().toISOString().slice(0,10);
-  var specials = (services || []).filter(function(s) {
-    return s.service_type !== 'sunday' && (s.attendance||0) > 0 && s.service_date <= today;
-  }).sort(function(a,b){return a.service_date<b.service_date?-1:a.service_date>b.service_date?1:0;});
-  if (!specials.length) { wrap.innerHTML=''; return; }
-  var n=specials.length;
-  var vals=specials.map(function(s){return s.attendance||0;});
-  var maxV=Math.max.apply(null,vals)*1.15||1;
-  var W=Math.max(400,n*44), H=130, pL=34, pR=12, pT=22, pB=28;
-  var cW=W-pL-pR, cH=H-pT-pB;
-  var slotW=cW/n, barW=Math.max(6,Math.min(30,slotW*0.65));
-  var bx2=function(i){return pL+(i+0.5)*slotW;};
-  var by2=function(v){return pT+cH-(v/maxV)*cH;};
-  var baseY=pT+cH;
-  var typeColor={special:'#C9973A',midweek:'#9B59B6'};
-  var bars='',xlbls='',ylbls='',grid='';
-  [0,Math.round(maxV/1.15)].forEach(function(v){
-    var yy=by2(v);
-    grid+='<line x1="'+pL+'" y1="'+yy.toFixed(1)+'" x2="'+(W-pR)+'" y2="'+yy.toFixed(1)+'" stroke="#f0ece8" stroke-width="1"/>';
-    ylbls+='<text x="'+(pL-3)+'" y="'+(yy+3).toFixed(1)+'" text-anchor="end" fill="#9A8A78" font-size="9">'+Math.round(v)+'</text>';
-  });
-  var labelStep=Math.max(1,Math.ceil(n/14));
-  specials.forEach(function(s,i){
-    var bxv=bx2(i), bv=s.attendance||0, byv=by2(bv), bhv=baseY-byv;
-    var color=typeColor[s.service_type]||'#888';
-    var tip=s.service_date+' · '+esc(s.service_name||s.service_type)+': '+bv;
-    bars+='<rect x="'+(bxv-barW/2).toFixed(1)+'" y="'+byv.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bhv.toFixed(1)+'" fill="'+color+'" rx="2" opacity="0.85"><title>'+tip+'</title></rect>';
-    bars+='<text x="'+bxv.toFixed(1)+'" y="'+(byv-2).toFixed(1)+'" text-anchor="middle" fill="#5a4a3a" font-size="8">'+bv+'</text>';
-    if(i%labelStep===0){
-      var dp=s.service_date.split('-');
-      xlbls+='<text x="'+bxv.toFixed(1)+'" y="'+(H-4)+'" text-anchor="middle" fill="#9A8A78" font-size="8">'+MONTH_NAMES[parseInt(dp[1])-1]+' '+parseInt(dp[2])+'\''+dp[0].slice(2)+'</text>';
-    }
-  });
-  wrap.innerHTML='<div style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--warm-gray);margin-bottom:6px;">Special &amp; Midweek Services</div>'
-    +'<div style="overflow-x:auto;"><svg viewBox="0 0 '+W+' '+H+'" style="min-width:'+W+'px;width:100%;height:'+H+'px;">'+grid+bars+xlbls+ylbls+'</svg></div>'
-    +'<div style="display:flex;gap:14px;margin-top:4px;flex-wrap:wrap;">'
-    +'<span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:var(--warm-gray);"><span style="display:inline-block;width:12px;height:10px;background:#C9973A;border-radius:2px;opacity:.85;"></span>Special (Christmas, Easter Vigil, etc.)</span>'
-    +'<span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:var(--warm-gray);"><span style="display:inline-block;width:12px;height:10px;background:#9B59B6;border-radius:2px;opacity:.85;"></span>Midweek (Ash Wednesday, Lent, etc.)</span>'
-    +'</div>';
-}
-
-function openSpecialServiceEntry() {
-  var el = document.getElementById('att-add-form');
-  el.style.display = '';
-  el.innerHTML = '<div style="font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin-bottom:14px;">Add Special / Midweek Service</div>'
-    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">'
-    + '<div><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--warm-gray);">Date</label><input type="date" id="spf-date" value="'+new Date().toISOString().slice(0,10)+'" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;"></div>'
-    + '<div><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--warm-gray);">Type</label>'
-    + '<select id="spf-type" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:.9rem;">'
-    + '<option value="special">Special (Christmas, Easter Vigil, Good Friday…)</option>'
-    + '<option value="midweek">Midweek (Ash Wednesday, Lent, Advent…)</option>'
-    + '</select></div>'
-    + '</div>'
-    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">'
-    + '<div><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--warm-gray);">Service Name</label>'
-    + '<input type="text" id="spf-name" list="spf-name-suggestions" placeholder="e.g. Christmas Eve" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;">'
-    + '<datalist id="spf-name-suggestions"><option value="Christmas Eve"><option value="Christmas Day"><option value="Good Friday"><option value="Maundy Thursday"><option value="Easter Vigil"><option value="Ash Wednesday"><option value="Thanksgiving Eve"><option value="Advent Midweek"><option value="Lenten Midweek"></datalist></div>'
-    + '<div><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--steel-anchor);">Attendance</label><input type="number" id="spf-att" min="0" placeholder="0" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:1rem;font-weight:700;"></div>'
-    + '</div>'
-    + '<div style="margin-bottom:12px;"><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--warm-gray);">Time (optional)</label><input type="time" id="spf-time" placeholder="e.g. 19:00" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;"></div>'
-    + '<div style="display:flex;gap:8px;"><button class="btn-primary" onclick="saveSpecialService()">Save</button><button class="btn-secondary" onclick="document.getElementById(\'att-add-form\').style.display=\'none\'">Cancel</button></div>';
-}
-
-function saveSpecialService() {
-  var date = document.getElementById('spf-date').value;
-  var name = (document.getElementById('spf-name').value || '').trim();
-  var att  = parseInt(document.getElementById('spf-att').value) || 0;
-  var type = document.getElementById('spf-type').value;
-  var time = document.getElementById('spf-time').value || '';
-  if (!date) { alert('Please enter a date.'); return; }
-  if (!name) { alert('Please enter a service name.'); return; }
-  if (!att)  { alert('Please enter attendance.'); return; }
-  api('/admin/api/attendance', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ service_date:date, service_name:name, service_type:type, service_time:time, attendance:att })
-  }).then(function(d) {
-    if (d.error) { alert('Error: ' + d.error); return; }
-    document.getElementById('att-add-form').style.display = 'none';
-    loadAttendance();
-  });
-}
 
 function renderYoYChart(d, chartH) {
   var palette=['#2E7EA6','#C9973A','#5A9E6F','#9B59B6','#E74C3C'];
@@ -530,194 +844,6 @@ function renderByServiceChart(d, chartH) {
   var svg='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:'+H+'px;">'+grid+line8+line1045+xlbls+ylbls+'</svg>';
   return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 16px 8px;margin-bottom:16px;"><div style="font-weight:700;color:var(--steel-anchor);font-size:.9rem;margin-bottom:8px;">8am vs 10:45am Trend</div>'+svg+legend+'</div>';
 }
-
-function renderAttendanceList(services, totalInDb) {
-  var el = document.getElementById('att-list');
-  if (!services.length) {
-    var dbNote = totalInDb > 0
-      ? '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:6px;">&#9432; ' + totalInDb + ' service record(s) exist in the database — try widening the date filter to find them.</div>'
-      : '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:6px;">&#9432; No records in the database yet. Run the attendance import from the Import tab first.</div>';
-    el.innerHTML = '<div style="padding:32px 24px;text-align:center;background:var(--white);border:1px solid var(--border);border-radius:12px;">'
-      + '<div style="font-size:1rem;font-weight:600;color:var(--steel-anchor);margin-bottom:8px;">No services recorded for this period.</div>'
-      + '<div style="font-size:.85rem;color:var(--warm-gray);margin-bottom:4px;">Click <strong>+ Add Sunday</strong> to enter attendance manually, or <strong>Pre-fill Year Sundays</strong> to pre-populate the calendar.</div>'
-      + dbNote
-      + '</div>';
-    return;
-  }
-  var groupBy = (document.getElementById('att-group-by') || {}).value || _attGroupBy || 'none';
-  // Group by date
-  var byDate = {};
-  var dates = [];
-  services.forEach(function(s) {
-    if (!byDate[s.service_date]) { byDate[s.service_date] = []; dates.push(s.service_date); }
-    byDate[s.service_date].push(s);
-  });
-  var today2 = new Date().toISOString().slice(0,10);
-  var html = '';
-  var lastMonth = '';
-  var MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  dates.forEach(function(date) {
-    // Month group header
-    if (groupBy === 'month') {
-      var parts2 = date.split('-');
-      var monthKey = parts2[0] + '-' + parts2[1];
-      if (monthKey !== lastMonth) {
-        lastMonth = monthKey;
-        html += '<div style="padding:8px 14px 4px;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--warm-gray);background:var(--linen);border-bottom:1px solid var(--border);">'
-          + MONTH_FULL[parseInt(parts2[1])-1] + ' ' + parts2[0] + '</div>';
-      }
-    }
-    var rows = byDate[date];
-    var combined = rows.reduce(function(sum, r) { return sum + (r.attendance || 0); }, 0);
-    var parts = date.split('-');
-    var displayDate = (parts[1]|0) + '/' + (parts[2]|0) + '/' + parts[0];
-    var s8 = rows.find(function(r){return r.service_time==='08:00';}) || {};
-    var s1045 = rows.find(function(r){return r.service_time==='10:45';}) || {};
-    var isSunday = rows.some(function(r){return r.service_type==='sunday';});
-    var sundayName = (s8.service_name || s1045.service_name || (rows[0]&&rows[0].service_name) || '');
-    var dk = date.replace(/-/g,'_');
-    var isFuture = date > today2;
-    html += '<div class="att-date-group' + (isFuture ? ' future' : '') + '">';
-    html += '<div class="att-date-hdr" onclick="toggleAttEdit(&#39;'+dk+'&#39;)">'
-      + '<span style="font-weight:700;color:var(--steel-anchor);min-width:88px;">'+displayDate+'</span>'
-      + (sundayName ? '<span style="font-size:.75rem;color:var(--warm-gray);">'+esc(sundayName)+'</span>' : '')
-      + '<span style="flex:1;"></span>'
-      + (combined ? '<span class="att-combined">&#931; '+combined+'</span>' : '')
-      + '<span class="att-edit-hint">&#9998;</span>'
-      + '</div>';
-    // Read-only summary
-    if (isSunday) {
-      html += '<div class="att-svc-nums">'
-        + '<span><span class="att-svc-lbl">8am</span><span class="att-svc-v">'+(s8.attendance||0)+'</span></span>'
-        + '<span><span class="att-svc-lbl">10:45am</span><span class="att-svc-v">'+(s1045.attendance||0)+'</span></span>'
-        + '</div>';
-    } else {
-      html += '<div class="att-svc-nums">' + rows.map(function(s){
-        return '<span><span class="att-svc-lbl">'+esc(s.service_name||s.service_time)+'</span><span class="att-svc-v">'+(s.attendance||0)+'</span></span>';
-      }).join('') + '</div>';
-    }
-    // Inline edit form (hidden)
-    html += '<div id="att-edit-'+dk+'" class="att-inline-form" style="display:none;">';
-    if (isSunday) {
-      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">'
-        + '<div><div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--steel-anchor);margin-bottom:3px;">8am Attendance</div>'
-        + '<input type="number" id="ai8-'+dk+'" min="0" value="'+(s8.attendance||0)+'" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:1rem;font-weight:700;"></div>'
-        + '<div><div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--steel-anchor);margin-bottom:3px;">10:45am Attendance</div>'
-        + '<input type="number" id="ai1045-'+dk+'" min="0" value="'+(s1045.attendance||0)+'" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:1rem;font-weight:700;"></div>'
-        + '</div>'
-        + '<div style="margin-bottom:10px;"><input type="text" id="ainotes-'+dk+'" value="'+esc(s8.notes||s1045.notes||'')+'" placeholder="Notes…" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;"></div>'
-        + '<div style="display:flex;gap:8px;">'
-        + '<button class="btn-primary" style="font-size:.82rem;padding:5px 14px;" onclick="saveInlineAttEdit(&#39;'+dk+'&#39;,'+((s8.id)||'null')+','+((s1045.id)||'null')+')">Save</button>'
-        + '<button class="btn-secondary" style="font-size:.82rem;padding:5px 14px;" onclick="toggleAttEdit(&#39;'+dk+'&#39;)">Cancel</button>'
-        + (s8.id||s1045.id ? '<button class="btn-danger" style="font-size:.82rem;padding:5px 12px;margin-left:auto;" onclick="deleteAttDate(&#39;'+dk+'&#39;,['+[s8.id,s1045.id].filter(Boolean).join(',')+'])">Delete</button>' : '')
-        + '</div>';
-    } else {
-      html += rows.map(function(s){
-        return '<div style="margin-bottom:8px;"><div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--steel-anchor);margin-bottom:3px;">'+esc(s.service_name||s.service_time)+' Attendance</div>'
-          + '<input type="number" id="aisingle-'+s.id+'" min="0" value="'+(s.attendance||0)+'" style="width:120px;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:1rem;font-weight:700;"></div>';
-      }).join('')
-        + '<div style="display:flex;gap:8px;">'
-        + '<button class="btn-primary" style="font-size:.82rem;padding:5px 14px;" onclick="saveInlineSingle(['+rows.map(function(s){return s.id;}).join(',')+'],&#39;'+dk+'&#39;)">Save</button>'
-        + '<button class="btn-secondary" style="font-size:.82rem;padding:5px 14px;" onclick="toggleAttEdit(&#39;'+dk+'&#39;)">Cancel</button>'
-        + '<button class="btn-danger" style="font-size:.82rem;padding:5px 12px;margin-left:auto;" onclick="deleteAttDate(&#39;'+dk+'&#39;,['+rows.map(function(s){return s.id;}).join(',')+'])">Delete</button>'
-        + '</div>';
-    }
-    html += '</div></div>'; // end form + group
-  });
-  el.innerHTML = '<div class="att-list-card">' + html + '</div>';
-}
-
-function toggleAttEdit(dk) {
-  var form = document.getElementById('att-edit-'+dk);
-  if (!form) return;
-  var isOpen = form.style.display !== 'none';
-  document.querySelectorAll('.att-inline-form').forEach(function(f){f.style.display='none';});
-  if (!isOpen) {
-    form.style.display = '';
-    form.scrollIntoView({behavior:'smooth', block:'nearest'});
-    var inp = form.querySelector('input[type=number]');
-    if (inp) { inp.focus(); inp.select(); }
-  }
-}
-function saveInlineAttEdit(dk, id8, id1045) {
-  var att8 = parseInt(document.getElementById('ai8-'+dk).value)||0;
-  var att1045 = parseInt(document.getElementById('ai1045-'+dk).value)||0;
-  var notes = document.getElementById('ainotes-'+dk).value;
-  var saves = [];
-  if (id8) saves.push(api('/admin/api/attendance/'+id8,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({attendance:att8,notes:notes})}));
-  if (id1045) saves.push(api('/admin/api/attendance/'+id1045,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({attendance:att1045,notes:notes})}));
-  Promise.all(saves).then(function(){loadAttendance();});
-}
-function saveInlineSingle(ids, dk) {
-  var saves = ids.map(function(id){
-    var val = parseInt(document.getElementById('aisingle-'+id).value)||0;
-    return api('/admin/api/attendance/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({attendance:val})});
-  });
-  Promise.all(saves).then(function(){loadAttendance();});
-}
-function deleteAttDate(dk, ids) {
-  if (!confirm('Delete these service records?')) return;
-  Promise.all(ids.map(function(id){return api('/admin/api/attendance/'+id,{method:'DELETE'});})).then(function(){loadAttendance();});
-}
-
-function seedYearSundays() {
-  var year = new Date().getFullYear();
-  var yn = prompt('Seed all Sundays for which year?', year);
-  if (!yn) return;
-  year = parseInt(yn);
-  if (isNaN(year)) return;
-  api('/admin/api/attendance/seed-year', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year:year})}).then(function(d) {
-    if (d.ok) { alert('Added '+(d.inserted/2)+' Sundays for '+d.year+' ('+(d.skipped/2)+' already existed).'); loadAttendance(); }
-  });
-}
-
-function openNewSundayEntry() {
-  var today = new Date().toISOString().slice(0,10);
-  var el = document.getElementById('att-add-form');
-  el.style.display = '';
-  el.innerHTML = '<div style="font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);margin-bottom:14px;">Add Sunday Services</div>'
-    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">'
-    + '<div><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--warm-gray);">Date</label><input type="date" id="sf-date" value="'+today+'" onchange="fetchSundayName(this.value)" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;"></div>'
-    + '<div><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--warm-gray);">Sunday Name</label><input type="text" id="sf-name" placeholder="e.g. Second Sunday of Easter" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;"></div>'
-    + '</div>'
-    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">'
-    + '<div><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--steel-anchor);">8am Attendance</label><input type="number" id="sf-att-8" min="0" placeholder="0" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:1rem;font-weight:700;"></div>'
-    + '<div><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--steel-anchor);">10:45am Attendance</label><input type="number" id="sf-att-1045" min="0" placeholder="0" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;font-size:1rem;font-weight:700;"></div>'
-    + '</div>'
-    + '<div style="margin-bottom:12px;"><label style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--warm-gray);">Notes</label><input type="text" id="sf-notes" placeholder="Optional" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;"></div>'
-    + '<div style="display:flex;gap:8px;"><button class="btn-primary" onclick="saveBulkSunday()">Save</button><button class="btn-secondary" onclick="document.getElementById(&#39;att-add-form&#39;).style.display=&#39;none&#39;">Cancel</button></div>';
-  fetchSundayName(today);
-}
-
-
-function fetchSundayName(date) {
-  if (!date) return;
-  api('/admin/api/attendance/sunday-name?date=' + encodeURIComponent(date)).then(function(d) {
-    var el = document.getElementById('sf-name');
-    if (el && d.name) el.value = d.name;
-  });
-}
-
-function saveBulkSunday() {
-  var date = document.getElementById('sf-date').value;
-  var name = document.getElementById('sf-name').value;
-  if (!date) { alert('Please enter a date.'); return; }
-  api('/admin/api/attendance/bulk-sunday', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      service_date: date, service_name: name,
-      att_8: document.getElementById('sf-att-8').value,
-      att_1045: document.getElementById('sf-att-1045').value,
-      notes: document.getElementById('sf-notes').value
-    })
-  }).then(function(d) {
-    if (d.error) { alert('Error: ' + d.error); return; }
-    document.getElementById('att-add-form').style.display = 'none';
-    loadAttendance();
-  });
-}
-
 
 function _buildAttYoYHtml(d, h) {
   var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];

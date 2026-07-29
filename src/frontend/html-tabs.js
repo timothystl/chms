@@ -537,73 +537,187 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
 <!-- ═══ ATTENDANCE TAB ═══ -->
 <div id="tab-attendance" class="tab-panel">
-  <div style="padding:16px 20px 20px;">
-    <!-- Chart card -->
-    <div class="att-chart-card">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
-        <div class="att-stats-row" id="att-stats" style="flex:1;flex-wrap:wrap;"></div>
-        <div style="display:flex;gap:4px;flex-shrink:0;padding-left:8px;">
-          <button class="btn-sm" id="att-mode-line" onclick="setAttChartMode(&#39;line&#39;)" style="padding:3px 8px;font-size:.75rem;" title="Weekly timeline">Line</button>
-          <button class="btn-sm" id="att-mode-yoy" onclick="setAttChartMode(&#39;yoy&#39;)" style="padding:3px 8px;font-size:.75rem;opacity:.55;" title="Year-over-year comparison">YoY</button>
-          <button class="btn-sm" id="att-mode-bars" onclick="setAttChartMode(&#39;bars&#39;)" style="padding:3px 8px;font-size:.75rem;opacity:.55;" title="Monthly bars">Bars</button>
-          <button class="btn-sm" onclick="downloadAttChart()" style="padding:3px 8px;font-size:.75rem;opacity:.7;" title="Download chart as PNG">&#8595; PNG</button>
+  <div class="att-root">
+    <div class="att-tabbar">
+      <button class="att-tab active" id="att-tab-week" onclick="attSetTab(&#39;week&#39;)">This Week</button>
+      <button class="att-tab" id="att-tab-trends" onclick="attSetTab(&#39;trends&#39;)">Trends</button>
+      <button class="att-tab" id="att-tab-festivals" onclick="attSetTab(&#39;festivals&#39;)">Festivals</button>
+      <button class="att-tab" id="att-tab-history" onclick="attSetTab(&#39;history&#39;)">History</button>
+      <button class="att-tab" id="att-tab-reports" onclick="attSetTab(&#39;reports&#39;)">Reports</button>
+    </div>
+
+    <!-- ═══ THIS WEEK ═══ -->
+    <div class="att-panel active" id="att-panel-week">
+      <div class="att-row2">
+        <!-- A. Entry card -->
+        <div class="att-card att-entry-card">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+            <div class="att-eyebrow">Next to record</div>
+            <div class="att-pill-due" id="att-entry-pill">Due today</div>
+          </div>
+          <div>
+            <div class="att-entry-date" id="att-entry-date">&#8212;</div>
+            <div class="att-entry-sub" id="att-entry-sub"></div>
+          </div>
+          <div class="att-input-grid">
+            <div><label class="att-input-label" for="att-entry-8">8:00 service</label>
+              <input type="number" min="0" class="att-input" id="att-entry-8" name="att-entry-8" placeholder="0" oninput="attEntryInputChanged()" onfocus="this.select()"></div>
+            <div><label class="att-input-label" for="att-entry-1045">10:45 service</label>
+              <input type="number" min="0" class="att-input" id="att-entry-1045" name="att-entry-1045" placeholder="0" oninput="attEntryInputChanged()" onfocus="this.select()"></div>
+          </div>
+          <div class="att-combined-strip">
+            <div><div class="att-combined-label">Combined</div><div class="att-combined-val" id="att-entry-combined">0</div></div>
+            <div class="att-delta" id="att-entry-delta"></div>
+          </div>
+          <div class="att-btn-row require-edit-attendance">
+            <button class="att-btn-primary" onclick="attSaveEntry()">Save Sunday</button>
+            <button class="att-btn-secondary" onclick="openSpecialServiceEntry()">Add special service</button>
+          </div>
+          <div id="att-add-form" style="display:none;background:var(--att-page);border:1px solid var(--att-hairline);border-radius:12px;padding:16px;"></div>
+          <div class="att-still">
+            <div class="att-still-hdr">
+              <div class="att-still-title">Still to enter</div>
+              <div class="att-still-badge" id="att-still-badge">0 open</div>
+            </div>
+            <div id="att-still-list"></div>
+          </div>
+        </div>
+        <!-- B. Pulse card -->
+        <div class="att-card att-pulse-card">
+          <div class="att-pulse-stats" id="att-pulse-stats"></div>
+          <div>
+            <div class="att-card-hdr" style="margin-bottom:8px;">
+              <div class="att-card-title" style="font-size:1rem;">Last 26 Sundays</div>
+              <div class="att-card-subtitle" style="margin:0;">Gold bars sit above the 4-week average</div>
+            </div>
+            <div class="att-bars26" id="att-bars26"></div>
+            <div class="att-bars-foot" id="att-bars26-foot"></div>
+          </div>
         </div>
       </div>
-      <div id="att-chart-wrap" style="overflow-x:auto;overflow-y:hidden;"></div>
-      <div id="att-chart-resize" style="height:8px;cursor:ns-resize;display:flex;align-items:center;justify-content:center;margin-top:2px;opacity:0.4;" onmousedown="attChartResizeStart(event)" title="Drag to resize chart"><div style="width:32px;height:3px;background:var(--warm-gray);border-radius:2px;"></div></div>
-      <div id="att-special-wrap" style="margin-top:14px;"></div>
-    </div>
-    <!-- Controls row -->
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
-      <button class="btn-primary require-edit-attendance" style="font-size:.85rem;" onclick="openNewSundayEntry()">+ Add Sunday</button>
-      <button class="btn-secondary require-edit-attendance" style="font-size:.8rem;" onclick="openSpecialServiceEntry()">+ Special</button>
-      <button class="btn-secondary require-edit-attendance" style="font-size:.8rem;" onclick="seedYearSundays()">&#128197; Pre-fill Year Sundays</button>
-      <div style="flex:1;"></div>
-      <input type="date" id="att-from" name="att-from" style="font-size:.78rem;padding:3px 6px;border:1px solid var(--border);border-radius:6px;">
-      <span style="font-size:.8rem;color:var(--warm-gray);">to</span>
-      <input type="date" id="att-to" name="att-to" style="font-size:.78rem;padding:3px 6px;border:1px solid var(--border);border-radius:6px;">
-      <button class="btn-sm" onclick="loadAttendance()" style="padding:4px 8px;font-size:.75rem;">Filter</button>
-      <button class="btn-sm" id="att-order-btn" onclick="toggleAttOrder()" style="padding:4px 8px;font-size:.75rem;min-width:56px;" title="Toggle sort order">&#8595; Desc</button>
-      <select id="att-group-by" name="att-group-by" onchange="renderAttendanceListFromLoaded()" style="font-size:.78rem;padding:3px 6px;border:1px solid var(--border);border-radius:6px;">
-        <option value="none">No grouping</option>
-        <option value="month">By Month</option>
-      </select>
-    </div>
-    <!-- "Add Sunday" inline form slot -->
-    <div id="att-add-form" style="display:none;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:12px;"></div>
-    <!-- Service list -->
-    <div style="display:flex;justify-content:flex-end;margin-bottom:4px;">
-      <button id="att-table-toggle" class="btn-sm" style="padding:3px 10px;font-size:.75rem;" onclick="toggleAttTable()">&#9660; Hide Table</button>
-    </div>
-    <div id="att-list"></div>
-    <!-- ── Inline Attendance Reports ── -->
-    <div style="margin-top:28px;border-top:2px solid var(--border);padding-top:20px;">
-      <div style="font-family:var(--font-head);font-size:1.05rem;font-weight:700;color:var(--steel-anchor);margin-bottom:16px;">Attendance Reports</div>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-bottom:16px;">
-        <div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;flex:1;min-width:220px;">
-          <div style="font-weight:700;font-size:.88rem;color:var(--steel-anchor);margin-bottom:6px;">&#128101; Year-over-Year</div>
-          <div style="font-size:.8rem;color:var(--warm-gray);margin-bottom:8px;">Select years to compare:</div>
-          <div id="rpt-att-years" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
-          <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runAttendanceSummary()">Run Report</button>
+      <div class="att-row2b">
+        <!-- C. Heat grid -->
+        <div class="att-card">
+          <div class="att-card-title">Every Sunday, five years</div>
+          <div class="att-card-subtitle" style="margin-bottom:14px;">Darker &#61; fuller. Hover any week for the exact count.</div>
+          <div id="att-heat-grid"></div>
+          <div class="att-heat-foot" id="att-heat-foot"></div>
         </div>
-        <div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;flex:1;min-width:220px;">
-          <div style="font-weight:700;font-size:.88rem;color:var(--steel-anchor);margin-bottom:6px;">&#128337; Attendance by Service</div>
-          <div style="display:flex;gap:6px;margin-bottom:8px;">
-            <button id="att-svc-mode-range" class="btn-secondary active" style="font-size:.78rem;padding:3px 10px;" onclick="setAttByServiceMode(\'range\')">Date Range</button>
-            <button id="att-svc-mode-years" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="setAttByServiceMode(\'years\')">Multi-Year</button>
+        <!-- D. Recent Sundays -->
+        <div class="att-card">
+          <div class="att-card-hdr">
+            <div class="att-card-title" style="font-size:1rem;">Recent Sundays</div>
+            <button class="att-link" onclick="attSetTab(&#39;history&#39;)">Full history &rarr;</button>
           </div>
-          <div id="att-svc-range-inputs">
-            <div class="field" style="margin:6px 0 4px;"><label>From</label><input type="date" id="rpt-att-from" name="rpt-att-from" style="font-size:.82rem;padding:4px 8px;"></div>
-            <div class="field" style="margin:4px 0;"><label>To</label><input type="date" id="rpt-att-to" name="rpt-att-to" style="font-size:.82rem;padding:4px 8px;"></div>
-          </div>
-          <div id="att-svc-years-inputs" style="display:none;">
-            <div style="font-size:.8rem;color:var(--warm-gray);margin-bottom:6px;">Select years to compare:</div>
-            <div id="rpt-att-svc-years" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px;"></div>
-          </div>
-          <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runAttendanceByTime()">Run Report</button>
+          <div id="att-recent-list"></div>
         </div>
       </div>
-      <div id="att-rpt-output" style="display:none;"></div>
+    </div>
+
+    <!-- ═══ TRENDS ═══ -->
+    <div class="att-panel" id="att-panel-trends">
+      <div class="att-card">
+        <div class="att-card-title">Monthly rhythm</div>
+        <div class="att-card-subtitle" id="att-month-subtitle" style="margin-bottom:14px;">Average Sunday attendance per month</div>
+        <div class="att-month-wrap" id="att-month-bars"></div>
+        <div class="att-month-foot" id="att-month-foot"></div>
+      </div>
+      <div class="att-row2b">
+        <div class="att-card">
+          <div class="att-card-title">Year over year</div>
+          <div class="att-card-subtitle" style="margin-bottom:14px;">Average Sunday attendance by month</div>
+          <div id="att-yoy-table"></div>
+        </div>
+        <div class="att-card">
+          <div class="att-card-title">Service mix</div>
+          <div class="att-card-subtitle" style="margin-bottom:14px;">8:00 vs. 10:45, by quarter</div>
+          <div id="att-service-mix"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ FESTIVALS ═══ -->
+    <div class="att-panel" id="att-panel-festivals">
+      <div class="att-card">
+        <div class="att-card-title">Festivals, side by side</div>
+        <div class="att-card-subtitle" style="margin-bottom:16px;">The comparisons people actually ask about</div>
+        <div class="att-fest-grid" id="att-festivals-grid"></div>
+      </div>
+    </div>
+
+    <!-- ═══ HISTORY ═══ -->
+    <div class="att-panel" id="att-panel-history">
+      <div class="att-card">
+        <div class="att-card-hdr">
+          <div>
+            <div class="att-card-title" style="font-size:1rem;">History</div>
+            <div class="att-card-subtitle" style="margin:2px 0 0;">Newest first &middot; click a row to correct a count</div>
+          </div>
+          <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+            <button class="att-link require-edit-attendance" onclick="seedYearSundays()">Pre-fill year&hellip;</button>
+            <button class="att-link" onclick="attExportHistoryCsv()">Export CSV</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto;">
+          <div class="att-hist-hdr" style="min-width:520px;"><div>Date</div><div>Sunday</div><div style="text-align:right;">8:00</div><div style="text-align:right;">10:45</div><div style="text-align:center;">Total</div><div style="text-align:right;">vs 4-wk</div></div>
+          <div id="att-hist-rows" style="min-width:520px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ REPORTS ═══ -->
+    <div class="att-panel" id="att-panel-reports">
+      <div class="att-report-grid">
+        <div class="att-card">
+          <div class="att-report-title">Year-over-Year summary</div>
+          <div class="att-report-desc">Monthly averages for any set of years, with annual totals.</div>
+          <div class="att-report-inputs" id="rpt-att-years"></div>
+          <div class="att-report-actions">
+            <button class="att-btn-primary" onclick="runAttendanceSummary()">Run report</button>
+            <button class="att-btn-secondary" onclick="window.print()">Print</button>
+          </div>
+        </div>
+        <div class="att-card">
+          <div class="att-report-title">Attendance by service time</div>
+          <div class="att-report-desc">8:00 vs. 10:45 across a date range or several years.</div>
+          <div class="att-report-inputs">
+            <button id="att-svc-mode-range" class="btn-secondary active" style="font-size:.78rem;padding:5px 10px;" onclick="setAttByServiceMode(&#39;range&#39;)">Date Range</button>
+            <button id="att-svc-mode-years" class="btn-secondary" style="font-size:.78rem;padding:5px 10px;" onclick="setAttByServiceMode(&#39;years&#39;)">Multi-Year</button>
+          </div>
+          <div id="att-svc-range-inputs" class="att-report-inputs">
+            <div class="field"><label>From</label><input type="date" id="rpt-att-from" name="rpt-att-from" style="font-size:.82rem;padding:4px 8px;"></div>
+            <div class="field"><label>To</label><input type="date" id="rpt-att-to" name="rpt-att-to" style="font-size:.82rem;padding:4px 8px;"></div>
+          </div>
+          <div id="att-svc-years-inputs" class="att-report-inputs" style="display:none;">
+            <div id="rpt-att-svc-years" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+          </div>
+          <div class="att-report-actions">
+            <button class="att-btn-primary" onclick="runAttendanceByTime()">Run report</button>
+            <button class="att-btn-secondary" onclick="window.print()">Print</button>
+          </div>
+        </div>
+        <div class="att-card require-finance">
+          <div class="att-report-title">Giving &times; Attendance</div>
+          <div class="att-report-desc">Weekly giving beside weekly attendance to see the correlation.</div>
+          <div class="att-report-inputs">
+            <div class="field"><label>From</label><input type="date" id="att-gva-from" name="att-gva-from" style="font-size:.82rem;padding:4px 8px;"></div>
+            <div class="field"><label>To</label><input type="date" id="att-gva-to" name="att-gva-to" style="font-size:.82rem;padding:4px 8px;"></div>
+          </div>
+          <div class="att-report-actions">
+            <button class="att-btn-primary" onclick="attRunGivingVsAttendance()">Run report</button>
+            <button class="att-btn-secondary" onclick="showTab(&#39;giving&#39;);givSetView(&#39;reports&#39;);">Open</button>
+          </div>
+        </div>
+        <div class="att-card">
+          <div class="att-report-title">Council packet page</div>
+          <div class="att-report-desc">One printable page &mdash; this week&#39;s numbers, the pulse stats, and recent Sundays.</div>
+          <div class="att-report-actions">
+            <button class="att-btn-primary" onclick="attRunCouncilPacket()">Run report</button>
+            <button class="att-btn-secondary" onclick="attPrintPacket()">Print</button>
+          </div>
+        </div>
+      </div>
+      <div id="att-rpt-output" style="display:none;margin-top:16px;"></div>
     </div>
   </div>
 </div>

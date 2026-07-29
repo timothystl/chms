@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.114.0';
+export const DEPLOY_VERSION = '1.115.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -320,9 +320,12 @@ window.addEventListener('load', function() {
   var mt = document.getElementById('rpt-method-to');     if (mt && !mt.value) mt.value = y + '-12-31';
   var gvf = document.getElementById('rpt-gva-from');     if (gvf && !gvf.value) gvf.value = y + '-01-01';
   var gvt = document.getElementById('rpt-gva-to');       if (gvt && !gvt.value) gvt.value = y + '-12-31';
-  // Attendance date range defaults
-  document.getElementById('att-from').value = (y - 5) + '-01-01';
-  document.getElementById('att-to').value = y + '-12-31';
+  // Attendance date range defaults (the 1a redesign's This-Week/Trends/Festivals/History/
+  // Reports tabs load a fixed wide window themselves — see loadAttendance() in
+  // js-attendance.js — these two filter inputs no longer exist in the redesigned tab, but
+  // are guarded rather than removed here in case a future view reintroduces them)
+  var attFromEl = document.getElementById('att-from'); if (attFromEl) attFromEl.value = (y - 5) + '-01-01';
+  var attToEl = document.getElementById('att-to');     if (attToEl) attToEl.value = y + '-12-31';
   // Giving sync defaults
   document.getElementById('giving-sync-from').value = y + '-01-01';
   document.getElementById('giving-sync-to').value = now.toISOString().slice(0, 10);

@@ -1075,6 +1075,67 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
 - [x] **AT4** — Year-over-year giving/attendance report: overlapping graphs to compare current year vs prior year on the same chart. Done 2026-04-20 (v79) — Giving Trend tile in Reports tab; YoY attendance was already implemented.
 - [x] **AT5** — Christmas/Easter markers on attendance chart + separate Special/Midweek bar chart. Done 2026-04-23 (v109). Easter/Christmas dashed markers on Sunday chart use `xAtAnyDate` interpolation so Dec 24/25 always render even when not Sunday. New `renderSpecialServicesChart` below the main chart shows amber (special) and purple (midweek) bars; midweek/special services excluded from Sunday average. New "+ Special" button adds `service_type=special` or `midweek` entries.
 - [x] **AT6** — Attendance by Service report: multi-year comparison. Date Range / Multi-Year toggle buttons on tile; year checkboxes (last 5 years, 2 most recent pre-checked); `years=` param on API runs parallel D1 queries; `renderMultiYearServiceChart` draws grouped bar chart (X = service times, one bar per year). Done 2026-04-24 (v112).
+- [x] **AT7 — Attendance tab full redesign ("1a" direction from design handoff), replacing the
+  single 230-Sunday line chart + infinite date-grouped list.** New tab bar under the topbar:
+  **This Week · Trends · Festivals · History · Reports**, entirely frontend — one wide
+  `GET /admin/api/attendance` load (current year − 4 through next year) drives everything
+  client-side, no new backend endpoints beyond the pre-existing `attendance/sunday-name`
+  lookup. **This Week**: an entry card (date, 8:00/10:45 inputs, live combined + "vs 4-wk avg"
+  delta, Save Sunday / Add special service, a "Still to enter" list derived from an 8-week
+  lookback of missing 8:00/10:45 legs) + a Pulse card (latest + prior-week delta, 4-/52-week
+  avg, YTD vs last year, Sundays recorded, a last-26-Sundays bar chart colored gold/teal
+  against each bar's own trailing 4-week mean) + a 5-year heat grid (quartile-based 4-step
+  ramp) + a Recent Sundays list. **Trends**: monthly rhythm (12 months, navy bars ≥ 52-wk avg
+  else light blue, with an approximate liturgical-season caption per month), a quarterly
+  8:00/10:45 stacked service-mix chart, and a 3-year year-over-year numbers table. **Festivals**:
+  Easter/Christmas Eve/Ash Wednesday/Thanksgiving Eve, 4 years side by side (Easter via the
+  existing Meeus/Jones/Butcher algorithm, extracted into `attEasterDate()`; Ash Wednesday =
+  Easter − 46 days; Thanksgiving Eve = day before the 4th Thursday of November). **History**:
+  a sortable-by-date, click-to-correct table (reuses the existing `toggleAttEdit`/
+  `saveInlineAttEdit`/`deleteAttDate` functions unchanged) + a client-side CSV export. **Reports**:
+  a 2×2 card grid — Year-over-Year summary and Attendance by Service (both reuse the existing
+  `runAttendanceSummary`/`runAttendanceByTime` + `_buildAttYoYHtml`/`_buildAttByServiceHtml`
+  unchanged), Giving × Attendance (reuses `renderGivingVsAttendance` from `js-reports.js`), and
+  a new one-page "Council packet" (`attRunCouncilPacket`/`attPrintPacket`, same
+  print-body-class pattern as `printBoardPage()`). New CSS: a scoped `.att-root` token set
+  (`src/frontend/html-head.js`, mapping the design handoff's literal hex values onto
+  `var(--color-navy)`/`var(--color-teal)`/`var(--color-gold)`/`var(--border)` where they
+  matched exactly, new custom properties for the rest — page/inset surfaces, hairlines,
+  pos/neg colors, the 4-step heat/year-series ramps); print CSS extended so `#tab-attendance`
+  isn't force-hidden and a `body.printing-att-packet` mode isolates just the Council Packet
+  card. **Removed** (fully superseded by the redesign, confirmed zero other callers via a
+  repo-wide grep before deleting): the old single Line/YoY/Bars line chart + its drag-resize
+  handle, the Special/Midweek services bar chart, the date-grouped infinite service list, and
+  the from/to date-range + group-by-month + show/hide-table controls — `js-core.js`'s
+  `window.load` handler had two unguarded `document.getElementById('att-from'/'att-to').value=`
+  lines that would have thrown once those inputs were removed; null-guarded rather than
+  deleting the block, since the rest of that handler (report-tile defaults, year checkboxes)
+  still needs to run. **Simplified/deferred vs. the design handoff**: (1) the old
+  Special/Midweek services chart (all specials, not just the 4 named festivals) was dropped
+  rather than kept alongside Festivals — its function (highlighting non-Sunday attendance
+  spikes) is judged subsumed by the Festivals tab for the cases that matter; a broader
+  "all specials" view isn't in the 1a spec and can be added back if missed. (2) The Reports
+  tab's report cards keep small inline inputs (year checkboxes / date range / years toggle)
+  rather than the handoff's implied "just click Run report" simplicity, since the underlying
+  reports genuinely need a year/date-range selection and the app has no existing "remember
+  last params" mechanism to lean on instead. (3) Season labels on the Monthly Rhythm chart
+  (Lent/Easter/Advent/summer/fall) are a fixed calendar-month lookup, not real per-year
+  liturgical-calendar dates — decorative only, cosmetic risk if a season's dates shift enough
+  in a given year to look slightly off. **Verified**: `npm test` (421/421, no attendance-specific
+  test file exists in `test/` so no test changes were needed/possible); `node --check` on the
+  built `<script>` blocks for both `CHMS_APP_CORE_JS`/`CHMS_APP_EXT_JS` and on the standalone
+  `JS_ATTENDANCE` module export; an HTML div-balance scan of the fully assembled `CHMS_HTML`
+  (0 open/close mismatch, confirmed the `#tab-attendance` subtree specifically balances); a
+  Node `vm`-based harness (fake DOM, ~5 years of realistic Sunday+special fixture data) that
+  ran every render function (`attRenderAll`, all 5 panels, `attSetTab`, `attEntryInputChanged`,
+  `attSaveEntry`'s PUT-existing-rows path, `attExportHistoryCsv`, `attRunCouncilPacket`/
+  `attPrintPacket`, `attRunGivingVsAttendance`, History's `toggleAttEdit`) end-to-end without
+  throwing. **Not verified**: an actual browser — no live browser exists in this environment, so
+  none of the pixel-level spacing/typography, the heat-grid/bar hover tooltips, or the
+  drag-to-resize-free layout at real 1440px/mobile widths were visually confirmed against the
+  design handoff's screenshots; also not exercised against a live D1 database (harness used a
+  synthetic in-memory fixture, not the real API). Done 2026-07-29 (v1.115.0). (`src/frontend/js-attendance.js`,
+  `src/frontend/html-tabs.js`, `src/frontend/html-head.js`, `src/frontend/js-core.js`)
 
 ### Communications / Email
 - [x] **EM1** — Brevo newsletter sync: (1) "Add to newsletter" button on person profile → Brevo Contacts API, (2) bulk sync in Settings, (3) auto-sync on person save if email changes, (4) reconciliation view shows ChMS vs Brevo comparison with "Add All Missing" button. Done 2026-04-20 (v84).
