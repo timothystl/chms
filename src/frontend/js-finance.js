@@ -4065,15 +4065,18 @@ function finComputePensionCents(salaryCents, pensionPct) {
 function finSalaryScenarioYear() {
   return _finSalaryColaSource === 'none' ? _finPlanBaseYear : _finPlanTargetYear;
 }
-// Real paychecks get rounded to the nearest $5 — the exact LCMS-formula figure (what
-// finComputeLcmsSalary returns, and what the tests reconcile against the guideline PDF's own
-// worked examples) carries odd cents that never divide evenly across any number of pay periods
-// anyway, so a clean round number is strictly better for actual payroll use. Deliberately NOT
-// applied inside finComputeLcmsSalary itself — that function's exactness is what the PDF
+// Real paychecks: divide the exact LCMS-formula annual figure by the number of pay periods,
+// round THAT per-period amount to the nearest $5, then multiply back by the period count — so the
+// annual salary is always an exact whole multiple of a clean per-period paycheck (26 biweekly
+// periods/yr), rather than a round annual figure that itself doesn't divide evenly. Deliberately
+// NOT applied inside finComputeLcmsSalary itself — that function's exactness is what the PDF
 // reconciliation tests depend on; this rounding only touches the "real compensation" computation
 // path (roster table, Total Compensation, scenario comparison, bottom line).
+var FIN_SALARY_PAY_PERIODS = 26;
 function finRoundSalaryCents(cents) {
-  return Math.round(cents / 500) * 500;
+  var perPeriodCents = cents / FIN_SALARY_PAY_PERIODS;
+  var perPeriodRounded = Math.round(perPeriodCents / 500) * 500;
+  return perPeriodRounded * FIN_SALARY_PAY_PERIODS;
 }
 function finSalaryComputeAll(colaPct, pensionPct) {
   var year = finSalaryScenarioYear();
