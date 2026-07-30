@@ -132,15 +132,31 @@ describe('finComputeMortgageRemainingCents', () => {
   });
 });
 
-function loadReservesOnHandHelper() {
-  const m = CHMS_APP_EXT_JS.match(/function finComputePropertyReservesOnHandCents\([^)]*\) \{[\s\S]*?\n\}/);
-  if (!m) throw new Error('finComputePropertyReservesOnHandCents not found in built script');
+// finComputePropertyReservesOnHandCents shares its "which month carries the authoritative
+// reserve figure" check with finPropertyReservesChip via finPropertyLatestReserveMonth, so all
+// three come out of the built script together.
+function loadReservesOnHandHelpers() {
+  const names = ['finPropertyLatestReserveMonth', 'finComputePropertyReservesOnHandCents', 'finPropertyReservesChip'];
+  const srcs = names.map((n) => {
+    const m = CHMS_APP_EXT_JS.match(new RegExp(`function ${n}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
+    if (!m) throw new Error(`${n} not found in built script`);
+    return m[0];
+  });
   // eslint-disable-next-line no-eval
-  return eval(`(function() { ${m[0]} return finComputePropertyReservesOnHandCents; })()`);
+  return eval(`(function() { ${srcs.join('\n')} return { ${names.join(', ')} }; })()`);
 }
 
 describe('finComputePropertyReservesOnHandCents', () => {
-  const finComputePropertyReservesOnHandCents = loadReservesOnHandHelper();
+  const { finComputePropertyReservesOnHandCents, finPropertyReservesChip } = loadReservesOnHandHelpers();
+
+  // The KPI chip must describe what the number actually contains: AHRA's own Total Property
+  // Reserve is tax + base minimum and carries no capital bucket, so the old fixed
+  // "tax + capital + base minimum" caption was wrong on the path that figure comes from.
+  it('captions the AHRA-figure path with that report period, and the reconstructed path as ledger + base minimum', () => {
+    expect(finPropertyReservesChip({ monthly: [{ period: '2026-06', reserve_balance_cents: 1035833 }] })).toBe('AHRA total, 2026-06');
+    expect(finPropertyReservesChip({ monthly: [{ period: '2026-06', reserve_balance_cents: null }] })).toBe('reserve ledger + base minimum');
+    expect(finPropertyReservesChip({})).toBe('reserve ledger + base minimum');
+  });
 
   it('prefers the latest month\'s reserve_balance_cents (AHRA\'s own verbatim "Total Property Reserve" figure) when one has been recorded, per the real July 2026 report ($10,358.33)', () => {
     const d = {
