@@ -296,11 +296,16 @@ function finComputePropertyKpis(d) {
   var curYear = years[0];
   var reserves = finComputePropertyReservesOnHandCents(d) / 100;
   var latestDist = finComputeLatestDistributionAmount(d);
+  // Two adjacent tiles cover deliberately different windows (trailing 12 months vs. one calendar
+  // year), so each states its own window — otherwise "Monthly Net (avg) x 12" reads like it should
+  // equal "Annual Net" and doesn't (the trailing window reaches back into the prior year).
+  var thisYear = new Date().getFullYear();
+  var netLbl = curYear ? 'Annual Net (' + curYear.year + (curYear.year === thisYear ? ' YTD' : '') + ')' : 'Annual Net';
   return [
-    { lbl: 'Occupancy', val: occCount ? Math.round(occSum/occCount*100) + '%' : '—', chip: monthly.length + ' months tracked', chipCls: 'fin-chip-positive', border: 'var(--sage)' },
-    { lbl: 'Monthly Net (avg)', val: '$' + finFmtMoney((monthly.length ? netSum/monthly.length : 0)/100), chip: null, border: 'var(--color-teal)' },
-    { lbl: 'Annual Net (this year)', val: curYear ? '$' + finFmtMoney(curYear.net_income_cents/100) : '—', chip: 'to General Fund', chipCls: 'fin-chip-info', border: 'var(--color-navy)' },
-    { lbl: 'Reserves On-Hand', val: '$' + finFmtMoney(reserves), chip: 'tax + capital + base minimum', chipCls: 'fin-chip-info', border: 'var(--color-gold)' },
+    { lbl: 'Occupancy', val: occCount ? Math.round(occSum/occCount*100) + '%' : '—', chip: 'avg, trailing ' + monthly.length + ' mo', chipCls: 'fin-chip-positive', border: 'var(--sage)' },
+    { lbl: 'Monthly Net (avg)', val: '$' + finFmtMoney((monthly.length ? netSum/monthly.length : 0)/100), chip: 'trailing ' + monthly.length + ' mo', chipCls: 'fin-chip-info', border: 'var(--color-teal)' },
+    { lbl: netLbl, val: curYear ? '$' + finFmtMoney(curYear.net_income_cents/100) : '—', chip: 'to General Fund', chipCls: 'fin-chip-info', border: 'var(--color-navy)' },
+    { lbl: 'Reserves On-Hand', val: '$' + finFmtMoney(reserves), chip: finPropertyReservesChip(d), chipCls: 'fin-chip-info', border: 'var(--color-gold)' },
     { lbl: 'Distribution Amount', val: latestDist ? '$' + finFmtMoney(latestDist.cents/100) : '—', chip: latestDist ? ('cash minus reserves, ' + latestDist.period) : 'no report data yet', chipCls: 'fin-chip-positive', border: 'var(--sage)' },
   ];
 }
@@ -316,10 +321,22 @@ function finComputePropertyKpis(d) {
 // entering each new month's financials. It only falls back to reconstructing a total from the
 // reserve-schedule ledger + the flat base-minimum figure (meta.reserves.base_minimum_cents,
 // admin-editable) for a period where no monthly reserve_balance_cents has been recorded yet.
-function finComputePropertyReservesOnHandCents(d) {
+// Which of the two paths in finComputePropertyReservesOnHandCents actually produced the figure —
+// so the KPI chip describes what the number really contains instead of always claiming
+// "tax + capital + base minimum" (AHRA's own Total Property Reserve is tax + base minimum; it
+// carries no capital-reserve bucket).
+function finPropertyReservesChip(d) {
+  var m = finPropertyLatestReserveMonth(d);
+  return m ? 'AHRA total, ' + m.period : 'reserve ledger + base minimum';
+}
+function finPropertyLatestReserveMonth(d) {
   var monthly = (d.monthly || []).slice().sort(function(a, b) { return a.period < b.period ? -1 : 1; });
   var latest = monthly.length ? monthly[monthly.length - 1] : null;
-  if (latest && latest.reserve_balance_cents != null) return latest.reserve_balance_cents;
+  return (latest && latest.reserve_balance_cents != null) ? latest : null;
+}
+function finComputePropertyReservesOnHandCents(d) {
+  var latest = finPropertyLatestReserveMonth(d);
+  if (latest) return latest.reserve_balance_cents;
   var cents = 0;
   if (d.reserves) Object.keys(d.reserves).forEach(function(key) {
     var rows = d.reserves[key];
@@ -3025,15 +3042,23 @@ function finComputeDistributedThisYear(d) {
 function finRenderAvailableForDistributionBar(d) {
   var a = finComputeAvailableForDistribution(d);
   var dispersed = finComputeDistributedThisYear(d);
+  // The KPI row above shows two other reserve/distribution figures that intentionally differ from
+  // this one; spell out the relationship here so the page doesn't look like it contradicts itself.
+  var onHand = finComputePropertyReservesOnHandCents(d);
+  var latestDist = finComputeLatestDistributionAmount(d);
+  var recon = '';
+  if (onHand) recon += 'The &ldquo;Reserves On-Hand&rdquo; tile above ($' + finFmtMoney(onHand/100) + ') is the total reserve <i>balance</i> AHRA is holding, including the flat base-minimum cash cushion carried over from prior years &mdash; not the same thing as the ' + a.year + ' contributions deducted here.';
+  if (latestDist) recon += (recon ? ' ' : '') + 'The &ldquo;Distribution Amount&rdquo; tile ($' + finFmtMoney(latestDist.cents/100) + ') is AHRA&rsquo;s own cash-on-hand-minus-reserves figure for ' + latestDist.period + ' alone; this card is a full-year accrual estimate, so the two will not agree.';
   return '<div class="fin-navy-card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;margin:18px 0;">'
     + '<div style="max-width:340px;"><div class="fin-card-title" style="font-size:18px;">Available for Distribution</div>'
     + '<div style="font-size:.8rem;color:rgba(255,255,255,.75);">' + a.year + ' net income, less amounts set aside for reserves and committed to capital projects this year. An estimate for planning — see "Distributions to Church" below for the actual record.</div>'
+    + (recon ? '<div style="font-size:.72rem;color:rgba(255,255,255,.6);margin-top:8px;">' + recon + '</div>' : '')
     + '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.3);"><div style="font-size:.75rem;color:rgba(255,255,255,.75);">Amount Dispersed (' + dispersed.year + ', confirmed)</div><div class="fin-navy-val positive" style="font-size:22px;">$' + finFmtMoney(dispersed.cents/100) + '</div></div>'
     + '</div>'
     + '<div style="text-align:right;">'
-    + '<div style="font-size:.82rem;color:rgba(255,255,255,.75);">Annual Net &nbsp; $' + finFmtMoney(a.annualNetCents/100) + '</div>'
-    + '<div style="font-size:.82rem;color:var(--negative-on-navy);">&minus; Reserves &nbsp; $' + finFmtMoney(a.reserveContribCents/100) + '</div>'
-    + '<div style="font-size:.82rem;color:var(--negative-on-navy);">&minus; Capital &nbsp; $' + finFmtMoney(a.capitalCents/100) + '</div>'
+    + '<div style="font-size:.82rem;color:rgba(255,255,255,.75);">Annual Net (' + a.year + ' YTD) &nbsp; $' + finFmtMoney(a.annualNetCents/100) + '</div>'
+    + '<div style="font-size:.82rem;color:var(--negative-on-navy);">&minus; Reserve contributions (' + a.year + ') &nbsp; $' + finFmtMoney(a.reserveContribCents/100) + '</div>'
+    + '<div style="font-size:.82rem;color:var(--negative-on-navy);">&minus; Capital spend (' + a.year + ') &nbsp; $' + finFmtMoney(a.capitalCents/100) + '</div>'
     + '<div style="border-top:1px solid rgba(255,255,255,.3);margin:6px 0;"></div>'
     + '<div class="fin-navy-val ' + (a.availableCents >= 0 ? 'positive' : 'negative') + '" style="font-size:30px;">$' + finFmtMoney(a.availableCents/100) + '</div>'
     + '</div></div>';
