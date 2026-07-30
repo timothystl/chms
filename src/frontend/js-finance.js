@@ -3787,7 +3787,32 @@ function finRenderCompensation() {
   var isAdminUI = (_userRole === 'admin');
   var yearLabelEl = document.getElementById('fin-comp-year-label');
   if (yearLabelEl) yearLabelEl.textContent = _finPlanTargetYear;
-  el.innerHTML = finRenderSalaryCalculator(isAdminUI) + finRenderHealthInsuranceCalculator(isAdminUI);
+  el.innerHTML = finRenderSalaryCalculator(isAdminUI) + finRenderHealthInsuranceCalculator(isAdminUI) + finRenderCompensationBottomLine();
+}
+// Bottom line — the single number answering "what do all these Compensation decisions add up to,
+// combined?" (salary growth scenario, pension %, and the currently-selected Health Insurance plan
+// option all feed into finSalaryComputeAll's per-worker totalCompCents already, so no double
+// counting: this just sums that against last year's real spend on the same matching accounts).
+function finRenderCompensationBottomLine() {
+  if (!_finPlanBaseTree || !_finSalaryRoster.length) return '';
+  var expenseLeaves = [];
+  (function walk(nodes) { (nodes || []).forEach(function(n) { if (!n.children.length && n.classification !== 'Income') expenseLeaves.push(n); walk(n.children); }); })(_finPlanBaseTree);
+  var salaryAccounts = expenseLeaves.filter(function(n) { return /salar|payroll|compensation|wages/i.test(n.label); });
+  var healthAccounts = expenseLeaves.filter(function(n) { return /health|medical|dental|vision|disability/i.test(n.label); });
+  var baselineCents = salaryAccounts.reduce(function(sum, n) { return sum + (n.totalActualCents || 0); }, 0)
+                     + healthAccounts.reduce(function(sum, n) { return sum + (n.totalActualCents || 0); }, 0);
+  var pensionPctUsed = _finSalaryPensionPct != null ? _finSalaryPensionPct : finConcordiaPensionRateFor(_finPlanTargetYear).rate;
+  var computed = finSalaryComputeAll(_finSalaryColaPct, pensionPctUsed);
+  var totalCompCents = computed.reduce(function(sum, c) { return sum + (c.totalCompCents || 0); }, 0) + Math.round((_finSalaryBenefitsDollars || 0) * 100);
+  var deltaCents = totalCompCents - baselineCents;
+  var pct = baselineCents ? (deltaCents / baselineCents * 100) : null;
+  return '<div class="fin-navy-card" style="margin-top:16px;">'
+    + '<div class="fin-card-title" style="font-size:18px;">Bottom Line — Total Compensation Budget Impact</div>'
+    + '<div class="fin-navy-label" style="margin-top:10px;">FY' + _finPlanBaseYear + ' Actual (matching salary + health accounts)</div><div style="font-size:18px;font-weight:700;">$' + finFmtMoney(baselineCents/100) + '</div>'
+    + '<div class="fin-navy-label" style="margin-top:8px;">FY' + _finPlanTargetYear + ' Computed Total <span style="font-weight:400;">(current growth scenario + pension % + health plan choice above)</span></div><div style="font-size:18px;font-weight:700;">$' + finFmtMoney(totalCompCents/100) + '</div>'
+    + '<div style="border-top:1px solid rgba(255,255,255,.3);margin:10px 0;"></div>'
+    + '<div class="fin-navy-label">Net Change to Budget</div><div class="fin-navy-val ' + (deltaCents > 0 ? 'negative' : 'positive') + '">' + finFmtSigned(deltaCents) + (pct != null ? ' (' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)' : '') + '</div>'
+    + '</div>';
 }
 // Three-year outlook (Finance Workspace handoff, Planning section): current target year plus 3
 // forward years, income growing 2.5%/yr and expenses 3%/yr beyond the target year — the handoff's
@@ -4040,10 +4065,21 @@ function finComputePensionCents(salaryCents, pensionPct) {
 function finSalaryScenarioYear() {
   return _finSalaryColaSource === 'none' ? _finPlanBaseYear : _finPlanTargetYear;
 }
+// Real paychecks get rounded to the nearest $5 — the exact LCMS-formula figure (what
+// finComputeLcmsSalary returns, and what the tests reconcile against the guideline PDF's own
+// worked examples) carries odd cents that never divide evenly across any number of pay periods
+// anyway, so a clean round number is strictly better for actual payroll use. Deliberately NOT
+// applied inside finComputeLcmsSalary itself — that function's exactness is what the PDF
+// reconciliation tests depend on; this rounding only touches the "real compensation" computation
+// path (roster table, Total Compensation, scenario comparison, bottom line).
+function finRoundSalaryCents(cents) {
+  return Math.round(cents / 500) * 500;
+}
 function finSalaryComputeAll(colaPct, pensionPct) {
   var year = finSalaryScenarioYear();
   return _finSalaryRoster.map(function(w) {
-    var calc = finComputeLcmsSalary({ year: year, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus, colaPct: colaPct, referenceByYear: _finSalaryReferenceByYear });
+    var rawCalc = finComputeLcmsSalary({ year: year, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus, colaPct: colaPct, referenceByYear: _finSalaryReferenceByYear });
+    var calc = rawCalc ? Object.assign({}, rawCalc, { salaryCents: finRoundSalaryCents(rawCalc.salaryCents) }) : null;
     var employerFicaCents = calc ? finComputeEmployerFicaCents(calc.salaryCents, w.selfEmployedFica) : 0;
     var hypotheticalFicaCents = calc ? finComputeEmployerFicaCents(calc.salaryCents, false) : 0;
     var pensionCents = calc ? finComputePensionCents(calc.salaryCents, pensionPct) : 0;
@@ -4271,8 +4307,9 @@ function finRenderSalaryScenarioComparison(baseInfo) {
   var rows = _finSalaryRoster.map(function(w) {
     var cells = scenarios.map(function(s) {
       var calc = finComputeLcmsSalary({ year: s.year, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus, colaPct: s.pct, referenceByYear: _finSalaryReferenceByYear });
+      var displayCents = calc ? finRoundSalaryCents(calc.salaryCents) : null;
       var active = _finSalaryColaSource === s.key;
-      return '<td style="padding:3px 6px;text-align:right;' + (active ? 'font-weight:700;background:var(--white);border-radius:4px;' : '') + '">' + (calc ? '$' + finFmtMoney(calc.salaryCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>';
+      return '<td style="padding:3px 6px;text-align:right;' + (active ? 'font-weight:700;background:var(--white);border-radius:4px;' : '') + '">' + (calc ? '$' + finFmtMoney(displayCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>';
     }).join('');
     return '<tr><td style="padding:3px 6px;">' + esc(w.name || '(unnamed)') + '</td>' + cells + '</tr>';
   }).join('');
