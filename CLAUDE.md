@@ -481,44 +481,49 @@ test` (360/360, 4 new tests for `logoSizeWarning` in `test/giving-letter-sanitiz
 --check` on both built app-JS bundles. Not verified in a live browser. Done 2026-07-28 (v1.106.0).
 (`src/api-utils.js`, `src/api-import.js`, `src/frontend/js-settings.js`, `test/giving-letter-sanitize.test.js`)
 
-### Giving Tab Redesign — board reports, donor letters, receipts (2026-07-27, in progress, phased)
+### Giving Tab Redesign — board reports, donor letters, receipts (2026-07-27 → 2026-07-28, COMPLETE, phased)
 Design handoff (`design_handoff_giving_reports/`: README + 9 HTML prototypes + screenshots)
-reorganizes the Giving tab from ten flat report tiles into a
-`Batches · Transactions · Board Report · Letters · Analysis · Settings` sub-nav and adds four new
+reorganized the Giving tab from ten flat report tiles into a per-view sub-nav and added four new
 capabilities. Two decisions taken with the user up front: **receipts** (handoff Section 8, an
 explicit church choice) → build **both A (batch-close queue) and B (envelope + quarterly) scaffolding**;
-**delivery** → **phased PRs, foundation first**, reviewed between phases.
+**delivery** → **phased PRs, foundation first**, reviewed between phases. **All four phases shipped and
+are live** (as of v1.115.2). The live sub-nav grew past the original six-item target to eight:
+`Batches · Transactions · Deposits · Board Report · Letters · Receipts · Analysis · Settings` — the
+extra **Deposits** view is the native deposit-reconciliation system (GIV-DEP, below), and Analysis is
+the renamed "Reports" slot. Per-phase specifics/versions are in NOTES.md; the checkboxes below are a
+retroactive reconciliation of the tracking doc to the shipped code (phases R2–R4 were completed across
+subsequent sessions after R1).
 - [x] **GIV-R1 — Phase 1: Sub-nav restructure + Board Report (1A dashboard + 1B narrative).** Done
-  2026-07-27 (v1.86.0). `.view-toggle`→`.fin-subnav` (transitional nav keeps "Reports" until Letters/
-  Analysis land); new finance-gated `#giv-view-board` with a Dashboard/Narrative toggle; new
-  `GET /admin/api/reports/giving-board` (pure math in `api-utils.js`, unit-tested); new
-  `funds.budget_annual_cents` (migration 0028) editable in the Manage Funds card; `printBoardPage()`
-  uses `body.printing-board` in-place print. Not verified in a live browser. See NOTES.md for full detail.
-- [ ] **GIV-R2 — Phase 2: Letters & Statements (1C workspace + 1D letters).** The "highest-value
-  screen." Replaces the four Batch-Send tiles + both letter-template cards with one workspace of
-  per-letter-type cards showing real per-person send status. Requires extending
-  `giving_letter_sends` (migration 0027) with `household_id` (nullable) + `channel` (email|print)
-  and `letter_type` values `year_end|midyear|quarterly|thank_you|appeal|memorial`; new endpoints
-  `GET /giving/letters/status`, `POST /giving/letters/send` (idempotent, resumable); no "Load Givers"
-  step (recipients resolved server-side); year preloaded to current year; recipient scope explicit +
-  additive (gave OR member household, dedup per household); split email/print delivery. 1D: editable
-  letter templates with `{{gift_table}}` (+ new `{{amount}}`/`{{fund}}`/`{{memorial_name}}` tokens),
-  reorder person-mode gift table to Date/Fund/Method/Amount. When this lands, remove the batch-send +
-  statement/letter tiles from the transitional Reports view.
-- [ ] **GIV-R3 — Phase 3: Analysis (2A) + Trends (3A five-year, 3B giving-and-attendance).** Giving
-  distribution (mode/median/tier table + amount-band histogram), five-year trend with inflation-
-  adjusted column (stored annual CPI factor, not a constant), and the retooled giving-and-attendance
-  (retire the ≈0-correlation weekly chart; keep per-attender giving + the come-apart quadrants, board
-  sees counts only, names require pastor/admin). New endpoints `giving-distribution`,
-  `giving-multiyear`, `giving-attendance`. When this lands, retire the transitional "Reports" nav item
-  and reach the final six-item sub-nav.
-- [ ] **GIV-R4 — Phase 4: Receipts (both A + B scaffolding).** Shared: threshold settings, receipt
-  queue, `thank_you` letter_sends rows. A (1E): replace `closeBatch()`'s bare `confirm()` with the
-  receipt-queue interstitial + `GET /giving/batches/:id/receipt-preview`. B (1F): pew-envelope numbers
-  on the household record + quarterly recap. Per the handoff's own recommendation, B's envelope numbers
-  are the prerequisite for receipting cash at all; A's threshold queue rides on top.
+  2026-07-27 (v1.86.0). `.view-toggle`→`.fin-subnav`; new finance-gated `#giv-view-board` with a
+  Dashboard/Narrative toggle; new `GET /admin/api/reports/giving-board` (pure math in `api-utils.js`,
+  unit-tested); new `funds.budget_annual_cents` (migration 0028) editable in the Manage Funds card;
+  `printBoardPage()` uses `body.printing-board` in-place print. Board Report later also absorbed the
+  Giving Plateaus & Nudges card (v1.89.0→v1.108.0) and the Giving-by-Weekly/Monthly-Band card
+  (v1.93.0) as the home for strategic/leadership giving analysis. See NOTES.md for full detail.
+- [x] **GIV-R2 — Phase 2: Letters & Statements (1C workspace + 1D letters).** Done. New
+  `#giv-view-letters` workspace (`givLetters*` in `js-giving.js`) with per-letter-type cards
+  (year_end / midyear / quarterly / thank_you / appeal), real per-recipient send status, select-all,
+  email/print channel toggle, and no "Load Givers" step (recipients resolved server-side). Migration
+  `0029_giving_letters_workspace.sql` extends the send ledger; endpoints `GET /giving/letters/status`
+  and `POST /giving/letters/mark` (idempotent, resumable) back it. Editable letter templates + gift
+  table (1D) via the existing TinyMCE editor / `renderLetterHTML()`/`buildGiftTable()`.
+- [x] **GIV-R3 — Phase 3: Analysis (2A) + Trends (3A/3B).** Done. The "Reports" nav slot is now
+  **Analysis** (`#giv-view-reports`, `givAnalysis*`): giving distribution (mode/median/tier table +
+  amount-band histogram, `GET /reports/giving-distribution`) and a five-year trend with a real
+  inflation-adjusted (CPI-U) column (`GET /reports/giving-multiyear`, inflation helper in
+  `api-utils.js`). `GET /reports/giving-vs-attendance` retained for the per-attender / come-apart view.
+- [x] **GIV-R4 — Phase 4: Receipts (both A + B scaffolding).** Done. New `#giv-view-receipts`
+  (`givReceipts*`) with a threshold ($250 default) + first-gift receipt queue (`GET /giving/receipts/queue`),
+  manual send/print writing `thank_you` rows via `giving/letters/mark` — **Approach A**. **Approach B**
+  pew-envelope-number history lives on the person record via migration `0030_envelope_history.sql`.
+- [x] **GIV-DEP — Native deposit reconciliation (beyond the original handoff).** New **Deposits**
+  sub-nav view (finance-gated, master-detail like Batches) for deposit-centered reconciliation;
+  migration `0031_giving_deposits.sql`; endpoints `GET`/`POST /giving/deposits`,
+  `GET /giving/unassigned-gifts`. Frontend done v1.100.0.
 - Design bundle lives at `design_handoff_giving_reports/` (in the uploaded zip, not committed).
   All prototype figures are illustrative; use the app's own `:root` tokens, not the prototype hex.
+- **Doc reconciliation only (this edit):** verified each phase's migrations/endpoints/view functions
+  are present in the deployed code (v1.115.2), not via a live-browser click-through.
 
 
 ### Connect — Tiered Member Login (2026-07-20, in progress, phased)
