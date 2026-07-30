@@ -24,6 +24,53 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.115.3 — Commercial Property: two cards labeled "Reserves" meant two different things (2026-07-30)
+Reported from two screenshots of the Property tab: "numbers here dont match." **Every figure
+reconciles exactly against the seeded AHRA data — there was no arithmetic bug.** Three labeling
+problems, all real:
+1. **"Reserves" named two different quantities on one screen.** The `Reserves On-Hand` KPI tile
+   ($10,358.33) is AHRA's total reserve *balance* — property tax $5,858.33 plus the flat $4,500
+   base-minimum cash cushion carried over from prior years (FIN33). The "Available for
+   Distribution" bar's `− Reserves` ($5,858.33) is only *this year's* contributions into the tax
+   reserve. They differ by exactly the base minimum, and they're extra confusable because the tax
+   reserve was zeroed in Nov 2025 and rebuilt entirely within 2026, so "2026 contributions"
+   coincidentally equals "current tax-reserve balance" to the cent. Bar lines now read
+   `Annual Net (2026 YTD)` / `− Reserve contributions (2026)` / `− Capital spend (2026)`.
+2. **`Monthly Net (avg) × 12` ≠ `Annual Net`** — the average is trailing-12-month (2025-07→2026-06,
+   including three negative months: Aug −$3,147.71, Sep −$2,435.56, Dec −$4,217.88), while Annual
+   Net is calendar-2026 YTD (6 months). $3,583.65 × 12 = $43,003.75, not $33,835.55. Neither label
+   stated its window and the adjacent occupancy chip said "12 months tracked," which made them read
+   as multipliable. Both tiles now name their own window; the year is explicit in the label
+   (`Annual Net (2026 YTD)`), derived from the row's own `year` rather than the literal "this year"
+   — which also fixes a latent mislabel, since that tile takes the most recent year *present* and
+   would have called 2026 "this year" all through Jan 2027.
+3. **The `Reserves On-Hand` chip was factually wrong** on the path the figure comes from — it always
+   claimed "tax + capital + base minimum," but AHRA's own Total Property Reserve carries no capital
+   bucket (and no capital reserve bucket is even seeded; only `property_tax`). New
+   `finPropertyReservesChip()` names the real source per path (`AHRA total, 2026-06` vs.
+   `reserve ledger + base minimum`), sharing the latest-month check with
+   `finComputePropertyReservesOnHandCents()` via new `finPropertyLatestReserveMonth()` so the chip
+   can't drift from the number it captions.
+Also added a reconciliation note to the navy bar explaining why it differs from both the
+`Reserves On-Hand` tile and AHRA's own `Distribution Amount` ($9,321.77 — a single-month
+cash-minus-reserves figure vs. this card's full-year accrual estimate; the FIN33/FIN35 comments
+already documented these as intentionally different, but nothing said so on screen).
+**Verified** by running the *built* bundles' `finComputePropertyKpis()` and
+`finRenderAvailableForDistributionBar()` in a `vm` harness against the real seeded 2026 data (all
+five tiles + both chip paths), plus hand-reconciliation of every displayed figure against
+`src/db.js`. `npm test` (422/422, 1 new test locking in both chip paths — the existing
+extract-and-eval loader in `test/finance-property-distribution.test.js` needed updating for the new
+shared helper), `node --check` on both built app-JS bundles. **Not verified**: a live browser —
+labels/copy only, no computation changed. **Two items left for the user to decide, not changed**:
+(a) whether `Available for Distribution` should also deduct the $4,500 base minimum (it's cash AHRA
+will never release, so the $23,977.22 figure is arguably that much optimistic — but the cushion was
+funded in a prior year, so deducting it from *this* year's income is defensible either way);
+(b) `− Capital spend $4,000.00` and `Amount Dispersed $4,000.00` being identical is a verified real
+coincidence (2026-04-08 Vail Contracting washer/dryer final payment vs. the 2026-04 distribution to
+the church — two separate source entries), not a double-count, but equal amounts in the same month
+are the shape a double-entry would take and it's worth a glance against AHRA's records.
+(`src/frontend/js-finance.js`, `test/finance-property-distribution.test.js`)
+
 ### v1.114.0 — Equity reclassification: restricted-accounts list corrected with Pastor Dinger (2026-07-29)
 Follow-up on v1.113.0, same day, walked through year-by-year with Pastor Dinger before shipping —
 caught by hand-checking the app's own numbers against his own math rather than trusting the first
