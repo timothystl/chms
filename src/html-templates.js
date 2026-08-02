@@ -225,7 +225,14 @@ function doLogout() {
     w=setTimeout(function(){
       if(!b){b=document.createElement('div');b.id='inact-warn';
         b.style.cssText='position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;text-align:center;padding:10px 16px;z-index:99999;font-size:.9rem;font-family:sans-serif;';
-        b.innerHTML='Signing out in 2 minutes due to inactivity. <button onclick="document.getElementById(\'inact-warn\').style.display=\'none\';reset()" style="margin-left:10px;background:#fff;color:#c0392b;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-weight:600;">Stay Signed In</button>';
+        // See the matching note in html-chms.js: escaped inner quotes in a plain template
+        // literal collapse and break the served <script>, so build the node directly.
+        b.appendChild(document.createTextNode('Signing out in 2 minutes due to inactivity. '));
+        var sb=document.createElement('button');
+        sb.textContent='Stay Signed In';
+        sb.style.cssText='margin-left:10px;background:#fff;color:#c0392b;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-weight:600;';
+        sb.addEventListener('click',function(){b.style.display='none';reset();});
+        b.appendChild(sb);
         document.body.appendChild(b);}
       else b.style.display='block';
     },MS-WARN);

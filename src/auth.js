@@ -13,8 +13,24 @@
 //     is rejected and the user is forced back to the login page.
 export const IDLE_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours
 
+// Per-request memoization. A single API request resolves auth several times over —
+// the worker entry (for the sliding-cookie refresh), the /admin/api/ gate, and again
+// inside the handler dispatch — and each resolution costs an HMAC verify plus a D1
+// round-trip against app_users. Keying the in-flight promise off the Request object
+// collapses those to one. WeakMap so entries are collected with the request; nothing is
+// shared between requests, so a deactivation still takes effect on the very next one.
+const _authCache = new WeakMap();
+
 // Parse and verify the auth cookie. Returns { role, username } or null.
 export async function getAuthInfo(req, env) {
+  const cached = _authCache.get(req);
+  if (cached) return cached;
+  const p = _resolveAuthInfo(req, env);
+  _authCache.set(req, p);
+  return p;
+}
+
+async function _resolveAuthInfo(req, env) {
   const cookie = req.headers.get('cookie') || '';
   const m = cookie.match(/vol_auth=([^;\s]+)/);
   if (!m) return null;

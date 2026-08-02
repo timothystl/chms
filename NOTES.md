@@ -24,6 +24,66 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.116.0 — Code review: R2 proxy access control, per-request auth memoization, dashboard query batching (2026-08-02)
+A review pass over UI consistency, load speed, and security. Five fixes shipped; the larger
+architectural findings are written up in CLAUDE.md's queued items rather than changed here.
+
+**Security**
+
+- **`/admin/r2photo/` served any object in the bucket to any authenticated caller (the important
+  one).** The proxy took a caller-supplied R2 key with no restriction and did a bare
+  `isAuthed()` check, so the lowest-privilege tier — a `role='member'` directory account, which
+  is by design handed out to ordinary congregation members — could read anything in
+  `tlc-chms-photos` by key. That bucket is not photos-only: this repo's own D1 backup runbook
+  (CLAUDE.md → *D1 Backup & Restore*, Option 3) writes full database SQL dumps to
+  `backups/db-YYYYMMDD.sql` in the same bucket, so `GET /admin/r2photo/backups/db-20260801.sql`
+  would have returned every giving record, note, and contact detail in the database — including
+  the rows `memberSafeView()`/`dir_hide_*` exist to keep from members. Now allowlisted to the
+  three prefixes the app actually writes (`people/`, `households/`, `branding/` — confirmed
+  against every `PHOTOS.put` call site); anything else 404s. No legitimate photo URL is
+  affected: all of them are generated server-side as `people/<id>/photo.<ext>`,
+  `people/breeze_<id>/photo.jpg`, or `households/<id>/photo.<ext>`.
+- **`/admin/backlog` was reachable by any authenticated role**, including `member`, while the
+  `/admin/api/board` endpoints behind it are admin-only. Now admin-only too, so the page matches
+  its own API.
+- **Dev board rendered `item.text`/`item.note`/`item.type` straight into `innerHTML`** — the one
+  place in the app that skipped the otherwise-consistent `esc()` discipline. Escaped, and the id
+  is coerced with `parseInt` before it lands in an `onclick`. Admin-only data, so low severity;
+  fixed for consistency.
+
+**Recurrence of the SC3-BUG1 escaping bug, found by applying its own documented technique**
+
+Syntax-checking every inline `<script>` block extracted from each *built* page (not the source)
+turned up two more instances of the recurring bug class: `\'inact-warn\'` inside a plain
+(non-`String.raw`) template literal collapses to a bare `'` at module-load time and kills the
+whole block. `CHMS_HTML` and `LOGIN_HTML` are clean; **`BACKLOG_HTML` was affected and is
+served**, so the idle-timeout auto-logout warning on `/admin/backlog` had silently never worked.
+`ADMIN_HTML` was also affected but is imported-and-never-routed dead code. Both rebuilt using
+the DOM-construction pattern `scheduler-html.js` already uses for this same banner — no escaped
+inner quotes left to collapse. All five pages' inline scripts now parse.
+
+**Performance**
+
+- **Auth was resolved 3× per API request, each with its own D1 round-trip.** The worker entry
+  (for the sliding-cookie refresh), the `/admin/api/` gate, and the handler dispatch each called
+  `getAuthInfo`/`isAuthed`/`getAuthRole` independently, and since SW3 every one of those does a
+  live `app_users` lookup. Memoized per-request via a `WeakMap` keyed on the `Request` object.
+  Nothing is shared between requests, so SW3's deactivate/demote-takes-effect-immediately
+  property is unchanged — verified by test, along with the live-DB-role, deactivated-user, and
+  wrong-signature paths (`test/auth-memo.test.js`, 5 new tests).
+- **Dashboard ran 33 D1 queries strictly serially** with no `Promise.all` anywhere — on the
+  app's landing screen, so it is on the critical path for every login. Two independent batches
+  (12 stat reads, 9 list reads) now run in parallel; the genuinely dependent parts (anniversary
+  partner pairing, the `annIssueCandidates` chunked household lookup, weekly-task seeding) still
+  run in order afterwards. **33 awaited queries → 11.** Verified the refactor is behaviour-neutral:
+  all 27 SQL statements in the handler are byte-identical after whitespace normalization, and
+  every result variable is re-bound under its original name with the same `?.n || 0` /
+  `.results || []` fallback.
+
+`npm test` 427/427 (5 new). `node --check` on every touched file and on the built `app-core.js`,
+`app-ext.js`, and all five pages' inline scripts. **Not verified**: a live browser or a live D1 —
+this environment has neither, which is the standing caveat on this project.
+
 ### v1.115.3 — Commercial Property: two cards labeled "Reserves" meant two different things (2026-07-30)
 Reported from two screenshots of the Property tab: "numbers here dont match." **Every figure
 reconciles exactly against the seeded AHRA data — there was no arithmetic bug.** Three labeling

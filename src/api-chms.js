@@ -103,68 +103,89 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
 
   // ── Dashboard ────────────────────────────────────────────────────
   if (seg === 'dashboard' && method === 'GET') {
-    // Membership counts by type — GROUP BY LOWER() to merge case variants (e.g. "member" vs "Member")
-    const mtCfgRowDash = await db.prepare("SELECT value FROM chms_config WHERE key='member_types'").first();
-    const configuredTypesDash = mtCfgRowDash ? JSON.parse(mtCfgRowDash.value) : ['Member','Friend','Visitor','Inactive','Organization','Other'];
-    const typeNameMapDash = {};
-    for (const t of configuredTypesDash) typeNameMapDash[t.toLowerCase()] = t;
-    const typeCounts = (await db.prepare(
-      `SELECT LOWER(member_type) as member_type, COUNT(*) as n FROM people WHERE active=1 GROUP BY LOWER(member_type) ORDER BY n DESC`
-    ).all()).results || [];
-    for (const r of typeCounts) r.member_type = typeNameMapDash[r.member_type] || (r.member_type.charAt(0).toUpperCase() + r.member_type.slice(1));
-    const totalPeople = typeCounts.reduce(function(s,r){return s+r.n;},0);
-    const totalHouseholds = (await db.prepare(`SELECT COUNT(*) as n FROM households`).first())?.n || 0;
-    // DB1: member-only count for dashboard stat card
-    const memberCount = (await db.prepare(
-      `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)='member'`
-    ).first())?.n || 0;
-    // DB2: households that contain at least one member
-    const memberHHCount = (await db.prepare(
-      `SELECT COUNT(DISTINCT household_id) as n FROM people
-       WHERE active=1 AND LOWER(member_type)='member'
-         AND household_id IS NOT NULL AND household_id != ''`
-    ).first())?.n || 0;
-    // Confirmed / baptized counts (members only) for the dashboard quick-stat card
-    const confirmedCount = (await db.prepare(
-      `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)='member' AND confirmed=1`
-    ).first())?.n || 0;
-    const baptizedCount = (await db.prepare(
-      `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)='member' AND baptized=1`
-    ).first())?.n || 0;
-    // Added this month / this year
-    const addedThisMonth = (await db.prepare(
-      `SELECT COUNT(*) as n FROM people WHERE active=1 AND created_at >= date('now','start of month')`
-    ).first())?.n || 0;
-    const addedThisYear = (await db.prepare(
-      `SELECT COUNT(*) as n FROM people WHERE active=1 AND created_at >= date('now','start of year')`
-    ).first())?.n || 0;
-    // Giving dashboard stats — General Fund only (funds whose name starts with '40085')
-    const gfYtd = (await db.prepare(
-      `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
-       JOIN giving_batches gb ON ge.batch_id=gb.id
-       JOIN funds f ON ge.fund_id=f.id
-       WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=strftime('%Y','now')
-         AND f.name LIKE '40085%'`
-    ).first())?.total || 0;
-    const gfLastYearYtd = (await db.prepare(
-      `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
-       JOIN giving_batches gb ON ge.batch_id=gb.id
-       JOIN funds f ON ge.fund_id=f.id
-       WHERE COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date)
-               BETWEEN strftime('%Y','now','-1 year')||'-01-01'
-                   AND strftime('%Y-%m-%d','now','-1 year')
-         AND f.name LIKE '40085%'`
-    ).first())?.total || 0;
-    const gfLastYearTotal = (await db.prepare(
-      `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
-       JOIN giving_batches gb ON ge.batch_id=gb.id
-       JOIN funds f ON ge.fund_id=f.id
-       WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=cast(strftime('%Y','now')-1 as text)
-         AND f.name LIKE '40085%'`
-    ).first())?.total || 0;
     // DB4: Month-at-a-time birthdays & anniversaries (exclude visitor/inactive/other/org)
     const dashMonth = Math.max(1, Math.min(12, parseInt(url.searchParams.get('month') || '') || (new Date().getMonth() + 1)));
     const dashMonthStr = String(dashMonth).padStart(2, '0');
+    // These 12 reads are mutually independent, so they run as one parallel batch rather than
+    // 12 serial D1 round-trips. The dashboard is the app's landing screen, so this latency is
+    // on the critical path for every login. Anything below that depends on a result here
+    // (the anniversary partner lookup) still runs afterwards.
+    const [
+      mtCfgRowDash, typeCountsRes, totalHouseholdsRow, memberCountRow, memberHHCountRow,
+      confirmedCountRow, baptizedCountRow, addedThisMonthRow, addedThisYearRow,
+      gfYtdRow, gfLastYearYtdRow, gfLastYearTotalRow,
+    ] = await Promise.all([
+      // Membership counts by type — GROUP BY LOWER() to merge case variants (e.g. "member" vs "Member")
+      db.prepare("SELECT value FROM chms_config WHERE key='member_types'").first(),
+      db.prepare(
+        `SELECT LOWER(member_type) as member_type, COUNT(*) as n FROM people WHERE active=1 GROUP BY LOWER(member_type) ORDER BY n DESC`
+      ).all(),
+      db.prepare(`SELECT COUNT(*) as n FROM households`).first(),
+      // DB1: member-only count for dashboard stat card
+      db.prepare(
+        `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)='member'`
+      ).first(),
+      // DB2: households that contain at least one member
+      db.prepare(
+        `SELECT COUNT(DISTINCT household_id) as n FROM people
+         WHERE active=1 AND LOWER(member_type)='member'
+           AND household_id IS NOT NULL AND household_id != ''`
+      ).first(),
+      // Confirmed / baptized counts (members only) for the dashboard quick-stat card
+      db.prepare(
+        `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)='member' AND confirmed=1`
+      ).first(),
+      db.prepare(
+        `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)='member' AND baptized=1`
+      ).first(),
+      // Added this month / this year
+      db.prepare(
+        `SELECT COUNT(*) as n FROM people WHERE active=1 AND created_at >= date('now','start of month')`
+      ).first(),
+      db.prepare(
+        `SELECT COUNT(*) as n FROM people WHERE active=1 AND created_at >= date('now','start of year')`
+      ).first(),
+      // Giving dashboard stats — General Fund only (funds whose name starts with '40085')
+      db.prepare(
+        `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
+         JOIN giving_batches gb ON ge.batch_id=gb.id
+         JOIN funds f ON ge.fund_id=f.id
+         WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=strftime('%Y','now')
+           AND f.name LIKE '40085%'`
+      ).first(),
+      db.prepare(
+        `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
+         JOIN giving_batches gb ON ge.batch_id=gb.id
+         JOIN funds f ON ge.fund_id=f.id
+         WHERE COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date)
+                 BETWEEN strftime('%Y','now','-1 year')||'-01-01'
+                     AND strftime('%Y-%m-%d','now','-1 year')
+           AND f.name LIKE '40085%'`
+      ).first(),
+      db.prepare(
+        `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
+         JOIN giving_batches gb ON ge.batch_id=gb.id
+         JOIN funds f ON ge.fund_id=f.id
+         WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=cast(strftime('%Y','now')-1 as text)
+           AND f.name LIKE '40085%'`
+      ).first(),
+    ]);
+    const configuredTypesDash = mtCfgRowDash ? JSON.parse(mtCfgRowDash.value) : ['Member','Friend','Visitor','Inactive','Organization','Other'];
+    const typeNameMapDash = {};
+    for (const t of configuredTypesDash) typeNameMapDash[t.toLowerCase()] = t;
+    const typeCounts = typeCountsRes.results || [];
+    for (const r of typeCounts) r.member_type = typeNameMapDash[r.member_type] || (r.member_type.charAt(0).toUpperCase() + r.member_type.slice(1));
+    const totalPeople = typeCounts.reduce(function(s,r){return s+r.n;},0);
+    const totalHouseholds = totalHouseholdsRow?.n || 0;
+    const memberCount = memberCountRow?.n || 0;
+    const memberHHCount = memberHHCountRow?.n || 0;
+    const confirmedCount = confirmedCountRow?.n || 0;
+    const baptizedCount = baptizedCountRow?.n || 0;
+    const addedThisMonth = addedThisMonthRow?.n || 0;
+    const addedThisYear = addedThisYearRow?.n || 0;
+    const gfYtd = gfYtdRow?.total || 0;
+    const gfLastYearYtd = gfLastYearYtdRow?.total || 0;
+    const gfLastYearTotal = gfLastYearTotalRow?.total || 0;
     const birthdays = (await db.prepare(
       `SELECT id, first_name, last_name, dob FROM people
        WHERE active=1 AND (status IS NULL OR status='active')
@@ -295,86 +316,103 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       anniversaryIssueTotal = flagged.length;
       anniversaryIssues = flagged.slice(0, 20);
     }
-    // Recent additions
-    const recentPeople = (await db.prepare(
-      `SELECT p.id, p.first_name, p.last_name, p.member_type, p.created_at, h.name as household_name
-       FROM people p LEFT JOIN households h ON p.household_id=h.id
-       WHERE p.active=1 ORDER BY p.created_at DESC LIMIT 10`
-    ).all()).results || [];
-    // Most recent attendance
-    // DB3: Last 2 services (show both Sunday services)
-    const recentAttendance = (await db.prepare(
-      `SELECT service_date, service_time, service_name, attendance
-       FROM worship_services WHERE attendance > 0
-       ORDER BY service_date DESC, service_time DESC LIMIT 2`
-    ).all()).results || [];
-    // Open follow-up items (pastoral queue)
-    const followUpItems = (await db.prepare(
-      `SELECT f.*, p.first_name, p.last_name FROM follow_up_items f
-       LEFT JOIN people p ON p.id=f.person_id
-       WHERE f.completed=0 ORDER BY f.created_at DESC LIMIT 50`
-    ).all()).results || [];
-    // First-time givers in the last 60 days (exclude dismissed records)
-    const firstGivers = (await db.prepare(
-      `SELECT p.id, p.first_name, p.last_name, MIN(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date)) as first_gift_date
-       FROM giving_entries ge
-       JOIN giving_batches gb ON ge.batch_id=gb.id
-       JOIN people p ON p.id=ge.person_id
-       WHERE p.first_gift_noted = 0
-       GROUP BY ge.person_id
-       HAVING first_gift_date >= date('now','-60 days')
-       ORDER BY first_gift_date DESC LIMIT 20`
-    ).all()).results || [];
-    // People not seen recently (last_seen_date set more than 8 weeks ago, or never seen but added 8+ weeks ago)
-    const notSeenRecently = (await db.prepare(
-      `SELECT id, first_name, last_name, member_type, last_seen_date, created_at FROM people
-       WHERE active=1 AND (
-         (last_seen_date != '' AND last_seen_date < date('now','-56 days'))
-       ) ORDER BY last_seen_date ASC LIMIT 20`
-    ).all()).results || [];
-    // Weekly review queue (DC1): small batch of stale visitor/friend records due for triage.
-    // "Stale" = never reviewed OR last_reviewed_at older than 365 days.
-    const reviewQueueBatch = (await db.prepare(
-      `SELECT id, first_name, last_name, member_type, email, phone,
-              created_at, last_reviewed_at, last_seen_date,
-              (SELECT MAX(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date))
-                 FROM giving_entries ge
-                 JOIN giving_batches gb ON gb.id = ge.batch_id
-                 WHERE ge.person_id = people.id) AS last_gift_date
-       FROM people
-       WHERE status='active'
-         AND LOWER(member_type) NOT IN ('member','organization','')
-         AND (last_reviewed_at = '' OR date(last_reviewed_at) < date('now','-365 days'))
-       ORDER BY CASE WHEN last_reviewed_at = '' THEN 0 ELSE 1 END,
-                last_reviewed_at ASC,
-                created_at ASC
-       LIMIT 5`
-    ).all()).results || [];
-    const reviewQueueTotal = (await db.prepare(
-      `SELECT COUNT(*) AS n FROM people
-       WHERE status='active'
-         AND LOWER(member_type) NOT IN ('member','organization','')
-         AND (last_reviewed_at = '' OR date(last_reviewed_at) < date('now','-365 days'))`
-    ).first())?.n || 0;
-    // New-contact follow-up queue (FU2/DB9)
-    const followupQueueBatch = (await db.prepare(
-      `SELECT id, first_name, last_name, member_type, email, phone,
-              first_contact_date, followup_status, followup_notes
-       FROM people
-       WHERE status='active'
-         AND first_contact_date != ''
-         AND (followup_status IS NULL OR followup_status != 'done')
-         AND LOWER(member_type) NOT IN ('member','organization')
-       ORDER BY first_contact_date DESC, id DESC
-       LIMIT 5`
-    ).all()).results || [];
-    const followupQueueTotal = (await db.prepare(
-      `SELECT COUNT(*) AS n FROM people
-       WHERE status='active'
-         AND first_contact_date != ''
-         AND (followup_status IS NULL OR followup_status != 'done')
-         AND LOWER(member_type) NOT IN ('member','organization')`
-    ).first())?.n || 0;
+    // Second independent batch — same reasoning as the stat batch above: none of these nine
+    // reads depend on each other or on anything computed since, so they run in parallel.
+    const [
+      recentPeopleRes, recentAttendanceRes, followUpItemsRes, firstGiversRes,
+      notSeenRecentlyRes, reviewQueueBatchRes, reviewQueueTotalRow,
+      followupQueueBatchRes, followupQueueTotalRow,
+    ] = await Promise.all([
+      // Recent additions
+      db.prepare(
+        `SELECT p.id, p.first_name, p.last_name, p.member_type, p.created_at, h.name as household_name
+         FROM people p LEFT JOIN households h ON p.household_id=h.id
+         WHERE p.active=1 ORDER BY p.created_at DESC LIMIT 10`
+      ).all(),
+      // Most recent attendance
+      // DB3: Last 2 services (show both Sunday services)
+      db.prepare(
+        `SELECT service_date, service_time, service_name, attendance
+         FROM worship_services WHERE attendance > 0
+         ORDER BY service_date DESC, service_time DESC LIMIT 2`
+      ).all(),
+      // Open follow-up items (pastoral queue)
+      db.prepare(
+        `SELECT f.*, p.first_name, p.last_name FROM follow_up_items f
+         LEFT JOIN people p ON p.id=f.person_id
+         WHERE f.completed=0 ORDER BY f.created_at DESC LIMIT 50`
+      ).all(),
+      // First-time givers in the last 60 days (exclude dismissed records)
+      db.prepare(
+        `SELECT p.id, p.first_name, p.last_name, MIN(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date)) as first_gift_date
+         FROM giving_entries ge
+         JOIN giving_batches gb ON ge.batch_id=gb.id
+         JOIN people p ON p.id=ge.person_id
+         WHERE p.first_gift_noted = 0
+         GROUP BY ge.person_id
+         HAVING first_gift_date >= date('now','-60 days')
+         ORDER BY first_gift_date DESC LIMIT 20`
+      ).all(),
+      // People not seen recently (last_seen_date set more than 8 weeks ago, or never seen but added 8+ weeks ago)
+      db.prepare(
+        `SELECT id, first_name, last_name, member_type, last_seen_date, created_at FROM people
+         WHERE active=1 AND (
+           (last_seen_date != '' AND last_seen_date < date('now','-56 days'))
+         ) ORDER BY last_seen_date ASC LIMIT 20`
+      ).all(),
+      // Weekly review queue (DC1): small batch of stale visitor/friend records due for triage.
+      // "Stale" = never reviewed OR last_reviewed_at older than 365 days.
+      db.prepare(
+        `SELECT id, first_name, last_name, member_type, email, phone,
+                created_at, last_reviewed_at, last_seen_date,
+                (SELECT MAX(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date))
+                   FROM giving_entries ge
+                   JOIN giving_batches gb ON gb.id = ge.batch_id
+                   WHERE ge.person_id = people.id) AS last_gift_date
+         FROM people
+         WHERE status='active'
+           AND LOWER(member_type) NOT IN ('member','organization','')
+           AND (last_reviewed_at = '' OR date(last_reviewed_at) < date('now','-365 days'))
+         ORDER BY CASE WHEN last_reviewed_at = '' THEN 0 ELSE 1 END,
+                  last_reviewed_at ASC,
+                  created_at ASC
+         LIMIT 5`
+      ).all(),
+      db.prepare(
+        `SELECT COUNT(*) AS n FROM people
+         WHERE status='active'
+           AND LOWER(member_type) NOT IN ('member','organization','')
+           AND (last_reviewed_at = '' OR date(last_reviewed_at) < date('now','-365 days'))`
+      ).first(),
+      // New-contact follow-up queue (FU2/DB9)
+      db.prepare(
+        `SELECT id, first_name, last_name, member_type, email, phone,
+                first_contact_date, followup_status, followup_notes
+         FROM people
+         WHERE status='active'
+           AND first_contact_date != ''
+           AND (followup_status IS NULL OR followup_status != 'done')
+           AND LOWER(member_type) NOT IN ('member','organization')
+         ORDER BY first_contact_date DESC, id DESC
+         LIMIT 5`
+      ).all(),
+      db.prepare(
+        `SELECT COUNT(*) AS n FROM people
+         WHERE status='active'
+           AND first_contact_date != ''
+           AND (followup_status IS NULL OR followup_status != 'done')
+           AND LOWER(member_type) NOT IN ('member','organization')`
+      ).first(),
+    ]);
+    const recentPeople = recentPeopleRes.results || [];
+    const recentAttendance = recentAttendanceRes.results || [];
+    const followUpItems = followUpItemsRes.results || [];
+    const firstGivers = firstGiversRes.results || [];
+    const notSeenRecently = notSeenRecentlyRes.results || [];
+    const reviewQueueBatch = reviewQueueBatchRes.results || [];
+    const reviewQueueTotal = reviewQueueTotalRow?.n || 0;
+    const followupQueueBatch = followupQueueBatchRes.results || [];
+    const followupQueueTotal = followupQueueTotalRow?.n || 0;
     // Weekly task checklist (engagement_tasks) — auto-seed defaults on first access each week
     let weeklyTasks = [], weeklyTasksWeek = '';
     if (canEdit) {

@@ -433,6 +433,66 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### Code Review — UI consistency / load speed / security (2026-08-02)
+A review pass across the three axes. Five items were fixed and shipped in v1.116.0 (see NOTES.md
+for the full write-up): the `/admin/r2photo/` bucket-wide read (the significant one), `/admin/backlog`
+role gate, dev-board `esc()`, a recurrence of the SC3-BUG1 escaping bug in `BACKLOG_HTML`/`ADMIN_HTML`,
+per-request auth memoization, and dashboard query batching. What follows is what the review found but
+deliberately did **not** change, because each is architectural and needs its own scoped session.
+
+- [ ] **CR1 — `CHMS_HTML` is 622 KB and served `Cache-Control: no-store`, so it is re-downloaded in
+  full on every single page load.** v1.35.0 moved ~1.2 MB of app JS out to long-cached
+  `/admin/app-core.js` + `/admin/app-ext.js` for exactly this reason, but the *shell* was never
+  revisited and has since grown to be the dominant uncached cost. Breakdown: `getSchedulerInline()`
+  **321 KB** (the entire Scheduler UI — markup, CSS and JS — inlined into the page, for a tab most
+  sessions never open), `HTML_HEAD` 108 KB (all app CSS), `HTML_TABS_1/2` 192 KB (every tab's markup,
+  all present at load). The page must stay `no-store` (it is per-user and auth-gated), so the fix is
+  to move the static parts *out* of it, the same trick already used for the JS: serve the CSS and the
+  Scheduler bundle as `?v=${DEPLOY_VERSION}` immutable assets and leave the shell as the small
+  per-user part. Biggest single available load-time win, especially on the church's slower networks.
+- [ ] **CR2 — Login page first paint is blocked on Google Fonts.** Same root cause as AU2 above, which
+  is already queued against the redesign — noting here only that the review independently confirmed
+  it, and that the CSP would get to drop its `fonts.googleapis.com`/`fonts.gstatic.com` allowances if
+  the fonts were self-hosted, which is a security tidy-up as well as a speed one.
+- [ ] **CR3 — Boot is a serial waterfall.** `js-core.js`'s `load` handler awaits `/admin/api/me` and
+  only then, in `.finally()`, fires `loadTags()` / `loadFunds()` / `loadMemberTypes()` / `showTab()`.
+  The role is needed before the UI renders, but tags/funds/member-types do not depend on it and could
+  be in flight concurrently — currently they cost a second round trip after the first completes. With
+  CR5 also in play the landing sequence is: 622 KB HTML → JS parse → `/me` → dashboard.
+- [ ] **CR4 — 3,752 inline `style="…"` attributes across `src/frontend/`** (`html-tabs.js` 977,
+  `js-finance.js` 958, `js-reports.js` 441, `js-people.js` 304, `js-giving.js` 247…), plus 746
+  hardcoded hex colours, 113 of them inside those inline styles. This is RD2/RD4/PAL5 restated with
+  current numbers — the count has grown substantially since PAL5 recorded 171, because Finance and the
+  Giving redesign were both built in the inline-style idiom. Worth knowing before the redesign that
+  the surface is now roughly 4× what the tracked estimate says.
+- [ ] **CR5 — The dashboard still issues 11 serial D1 queries after the v1.116.0 batching.** What is
+  left is genuinely dependency-ordered (anniversary partner pairing, the chunked `annIssueCandidates`
+  household lookup, weekly-task seeding, prayer counts). Getting further would mean restructuring
+  those into `db.batch()` or a single query with joins, which is a real change to logic rather than a
+  mechanical reorder — hence deferred rather than done blind with no live D1 to test against.
+- [ ] **CR6 — Seven `fetch()` calls in `js-finance.js` hand-roll the `api()` helper.** Checked all
+  seven: every one *does* handle 401 correctly, so this is duplication rather than a defect (they use
+  `FormData`, which is presumably why they skipped the helper — though `api()` passes `opts` straight
+  through and would work). Left alone deliberately: touching seven file-upload flows with no browser
+  to test them is not worth it for a style fix.
+- [ ] **CR7 — Minor, noted for completeness.** (a) The `X-Intake-Key` check in `api-intake.js` uses
+  `!==` rather than a constant-time compare; over a network, against a high-entropy key, this is not
+  realistically exploitable, but it is the one shared secret compared this way. (b) The blanket
+  `OPTIONS → SCHED_CORS` handler in the worker answers preflight for *every* path with
+  `Access-Control-Allow-Origin: *`; not exploitable today (only the scheduler routes echo CORS headers
+  on real responses, and `vol_auth` is `SameSite=Lax`), but it is broader than the scheduler routes it
+  exists for. (c) `ADMIN_HTML` in `html-templates.js` is imported but never routed — dead code, and
+  the review only noticed because its dead inline script showed up in the syntax sweep.
+
+**What the review checked and found clean**, so it does not get re-litigated next time: SQL injection
+(every dynamic `SET`/`ORDER BY`/table name traces to a hardcoded allowlist or a map lookup — the
+`entry.field` audit-undo path, the sparse-update builders, `SORT_COLS`, `sortDir`, and
+`CLEAR_TABLES` were each confirmed individually); frontend XSS (`esc()` is applied consistently —
+the sweep for unescaped person data in attribute and `innerHTML` contexts turned up only the dev
+board, now fixed); loading/error states (every `Loading…` path checked has a matching `.catch`, so
+the FH11 work held); and the SW1/SW2 scheduler role guards.
+
+
 ### GIV-BUG1 — Emailed giving letter showed a blank logo "blob" and a raw base64 text dump (2026-07-28)
 Reported: a mid-year giving letter emailed to a donor rendered with (1) the church logo showing as
 just a blank blob, and (2) a huge literal base64 string visible as text at the very bottom of the
