@@ -25,6 +25,11 @@ import { PRIVACY_HTML, TERMS_HTML } from './src/legal-pages.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts, centralDayOfWeek } from './src/api-emails.js';
 import { sendWebPush } from './src/push-sender.js';
 
+// Key prefixes the /admin/r2photo/ proxy is allowed to serve. The R2 bucket is shared with
+// non-photo objects (branding assets, and per the backup runbook, full D1 SQL dumps under
+// backups/), so the proxy must never take an arbitrary caller-supplied key.
+const R2_PHOTO_PREFIXES = ['people/', 'households/', 'branding/'];
+
 // ── MAIN FETCH HANDLER ────────────────────────────────────────────────
 export default {
   async fetch(req, env) {
@@ -309,7 +314,12 @@ async function _fetch(req, env) {
       });
     }
     if (path === '/admin/backlog' && method === 'GET') {
-      if (!await isAuthed(req, env)) return html(LOGIN_HTML);
+      // Admin-only, matching the GET/POST /admin/api/board endpoints this page talks to.
+      // Previously any authenticated role (including member) could load the page; the data
+      // calls behind it still 403'd, so this just aligns the page with its own API.
+      const backlogAuth = await getAuthInfo(req, env);
+      if (!backlogAuth) return html(LOGIN_HTML);
+      if (backlogAuth.role !== 'admin') return html('<h1>Not found</h1>', 404);
       return html(BACKLOG_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
     }
     // ── Letterhead logo — deliberately UNAUTHENTICATED, unlike /admin/r2photo/ below. Shown at
@@ -333,6 +343,14 @@ async function _fetch(req, env) {
       if (!env.PHOTOS) return new Response('Photo storage not configured', { status: 503 });
       const r2Key = decodeURIComponent(path.slice('/admin/r2photo/'.length));
       if (!r2Key) return new Response('Missing key', { status: 400 });
+      // Restrict to the prefixes this app actually writes photos under (see api-people.js /
+      // api-import.js). Without this the proxy hands ANY authenticated caller — including a
+      // role='member' directory account, the lowest tier — any object in the bucket by key,
+      // and the documented D1 backup runbook stores full database dumps in this same bucket
+      // under backups/ (see CLAUDE.md "D1 Backup & Restore", Option 3).
+      if (!R2_PHOTO_PREFIXES.some(p => r2Key.startsWith(p))) {
+        return new Response('Not found', { status: 404 });
+      }
       const obj = await env.PHOTOS.get(r2Key);
       if (!obj) return new Response('Not found', { status: 404 });
       return new Response(obj.body, {
