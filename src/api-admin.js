@@ -259,8 +259,26 @@ export async function handleAdminApi(req, env, url, method) {
 
   // ── Users management (admin only) ────────────────────────────────
   if (seg.startsWith('users')) {
-    const reqRole = await getAuthRole(req, env);
+    const reqInfo = await getAuthInfo(req, env);
+    const reqRole = reqInfo ? reqInfo.role : null;
     if (reqRole !== 'admin') return json({ error: 'Access denied' }, 403);
+    // Caller's own app_users username, lowercased. Empty for a break-glass ADMIN_PASSWORD
+    // session (no DB row), which is exactly the account that must stay able to repair a
+    // lockout — so every self-guard below is a no-op for it, by design.
+    const reqUser = (reqInfo && reqInfo.username || '').toLowerCase();
+
+    /** The app_users row a /users/:id call targets, or null. */
+    const loadTarget = async (uid) => await env.DB.prepare(
+      `SELECT id, username, role, active FROM app_users WHERE id=?`
+    ).bind(uid).first().catch(() => null);
+
+    /** Count of active admins other than `exceptId`. Guards the last-admin case. */
+    const otherActiveAdmins = async (exceptId) => {
+      const r = await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM app_users WHERE role='admin' AND active=1 AND id!=?`
+      ).bind(exceptId).first().catch(() => null);
+      return r ? r.n : 0;
+    };
 
     // GET /admin/api/users — list all users
     if (seg === 'users' && method === 'GET') {
@@ -296,6 +314,30 @@ export async function handleAdminApi(req, env, url, method) {
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
       const validRoles = ['admin', 'finance', 'staff', 'office', 'member'];
       const role = validRoles.includes(b.role) ? b.role : undefined;
+
+      // ── Lockout guards ──────────────────────────────────────────────
+      // Without these an admin could demote or deactivate their own account and instantly
+      // lose the ability to undo it — the users endpoints require role='admin', so the very
+      // next request 403s. That happened for real (2026-08-03): an admin set their own role
+      // to member and was locked out, recoverable only via the ADMIN_PASSWORD break-glass
+      // login. Demoting the last remaining admin is the same failure with a wider blast
+      // radius, since nobody is left who can undo it.
+      const target = await loadTarget(uid);
+      if (!target) return json({ error: 'User not found' }, 404);
+      const isSelf = !!reqUser && (target.username || '').toLowerCase() === reqUser;
+
+      if (isSelf && role && role !== 'admin') {
+        return json({ error: "You can't change your own role — you'd lose admin access and be unable to undo it. Ask another administrator, or use a second admin account." }, 400);
+      }
+      if (isSelf && b.active !== undefined && !b.active) {
+        return json({ error: "You can't deactivate your own account." }, 400);
+      }
+      const losesAdmin = target.role === 'admin' &&
+        ((role && role !== 'admin') || (b.active !== undefined && !b.active));
+      if (losesAdmin && await otherActiveAdmins(uid) === 0) {
+        return json({ error: 'This is the only active administrator. Promote another user to admin first.' }, 400);
+      }
+
       // Build update
       const fields = [];
       const vals = [];
@@ -321,6 +363,14 @@ export async function handleAdminApi(req, env, url, method) {
     // DELETE /admin/api/users/:id
     if (umatch && method === 'DELETE') {
       const uid = parseInt(umatch[1]);
+      const target = await loadTarget(uid);
+      if (!target) return json({ error: 'User not found' }, 404);
+      if (reqUser && (target.username || '').toLowerCase() === reqUser) {
+        return json({ error: "You can't delete your own account." }, 400);
+      }
+      if (target.role === 'admin' && target.active && await otherActiveAdmins(uid) === 0) {
+        return json({ error: 'This is the only active administrator. Promote another user to admin first.' }, 400);
+      }
       await env.DB.prepare(`DELETE FROM app_users WHERE id=?`).bind(uid).run();
       return json({ ok: true });
     }

@@ -24,6 +24,54 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.121.0 — Admin self-lockout guards + fail-closed role UI (2026-08-03)
+
+**Incident.** An admin set their own account's role to `member` in Settings → Users and was
+immediately locked out: every `/admin/api/users` route requires `role='admin'`, so the very next
+request 403'd and there was no way to undo it from inside the app. Reported alongside two
+confusing symptoms that turned out to be the *same* second bug, not separate ones.
+
+**Bug 1 — nothing stopped an admin from locking themselves out.** `PUT /admin/api/users/:id` had
+no guard against changing your own role, deactivating yourself, or deleting yourself, and none
+against removing the last active admin. Now guarded, with the error text explaining the way out.
+
+The break-glass `ADMIN_PASSWORD` session is deliberately exempt from the *self* guards: it has no
+`app_users` row (username `''`), so it stays able to repair exactly the lockout these prevent.
+The last-admin guard still applies to it, since that protects the organization rather than the
+caller.
+
+Worth recording: for a normal admin caller the last-admin guard is **unreachable** — the caller is
+themselves an active admin, so demoting somebody else can never leave zero. Its reachable cases
+are the uncounted break-glass session and self-demotion (caught earlier, with a better message).
+Kept as a backstop; the tests say so rather than implying broader coverage.
+
+**Bug 2 — the role UI failed OPEN.** `js-core.js` ran `applyRoleUI('admin')` both when
+`/admin/api/me` returned no role *and* when the call rejected. A single flaky request on a phone
+therefore rendered the **full admin UI** for whoever was signed in — every tab visible and
+clickable. `applyRoleUI` compounded it: any role with a missing permissions payload got
+`{finance,staff,register,reports: true}`.
+
+Data was never exposed — `ACCESS_GATE` enforces server-side regardless, which is *why* the
+reporter saw a bare "Access denied" banner after clicking through. But that is exactly the
+reported "I'm logged in as a member but can still see every tab," and it's also why the demotion
+looked like it had "reverted to admin": the UI was lying, the DB role was `member` the whole time.
+
+Both defaults now fail closed — an unresolved `/me` yields the most restrictive role plus an
+explicit banner ("Could not confirm your account permissions, so access has been limited") rather
+than silently over-showing. Also fixed a third CONN6 leftover found in the same function:
+`location.href = '/chms'` on an unknown role, now `location.reload()`, which lands on the login
+page from any host.
+
+**Verified:** `npm test` 477/477, 14 new in `test/user-lockout-guards.test.js` running the real
+`handleAdminApi` against real SQLite — each self-guard, the last-admin guard, break-glass exemption
+and the documented recovery, plus proof that a demoted admin's existing session 403s immediately
+(SW3). Three of those tests initially failed with 403-instead-of-400 and the *tests* were wrong,
+not the code: they demoted a user and then acted as that user, whose session correctly stopped
+working. Fixing them is what surfaced the unreachability note above. `node --check` on
+`api-admin.js` and both built bundles.
+
+**Not verified:** a live browser.
+
 ### v1.120.0 — MOB4: service worker revived (was inert on the live hostname) (2026-08-03)
 
 **Why now.** Testing the Connect directory behind a Tithe.ly Church App weblink tab established
