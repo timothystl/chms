@@ -440,8 +440,31 @@ role gate, dev-board `esc()`, a recurrence of the SC3-BUG1 escaping bug in `BACK
 per-request auth memoization, and dashboard query batching. What follows is what the review found but
 deliberately did **not** change, because each is architectural and needs its own scoped session.
 
-- [ ] **CR1 — `CHMS_HTML` is 622 KB and served `Cache-Control: no-store`, so it is re-downloaded in
-  full on every single page load.** v1.35.0 moved ~1.2 MB of app JS out to long-cached
+- [x] **CR1 — DONE 2026-08-03 (v1.118.0). Shell cut from 622 KB to 200 KB.** Two of the three big
+  pieces moved out to immutable `?v=DEPLOY_VERSION` routes, same trick as the v1.35.0 app-JS split:
+  the **Scheduler embed (321 KB)** is now lazy-loaded on first tab open via
+  `/admin/scheduler-embed.html` + `/admin/scheduler-embed.js` (and since the tab is admin-only, most
+  sessions never fetch it at all), and the **app CSS (101 KB)** is now `/admin/app.css` referenced by
+  `<link>`. `HTML_TABS_1/2` (~192 KB) deliberately stayed inline — see CR1b. Verified the
+  scheduler bundle is byte-identical to before the split and the CSS extraction round-trips exactly;
+  lazy-load flow (including the failure/retry path) exercised against the real `showTab` in a `vm`
+  harness. See NOTES.md. (`src/html-chms.js`, `src/scheduler-inline.js`, `tlc-volunteer-worker.js`,
+  `src/frontend/js-core.js`)
+- [ ] **CR1b — The remaining ~192 KB of the shell is `HTML_TABS_1/2`**, every tab's markup, all
+  present at load. It's static (role visibility is CSS-driven), so it *could* be served as a cached
+  fragment — but unlike the Scheduler it has no natural lazy trigger: it would have to be fetched and
+  injected during boot, which delays first paint and puts the `getElementById` calls that run in the
+  `load` handler at risk of firing against an empty DOM. Worth doing only alongside a real look at
+  the boot sequence (see CR3), not as another mechanical extraction. (noted 2026-08-03)
+- [x] **CR8 — Closed 2026-08-03, not worth doing.** Benchmarked the people-search scan against a
+  realistic fixture at this church's actual scale (1,000 people / 340 households): the 7-column
+  leading-wildcard `LIKE` runs in **0.2–0.5 ms**. An FTS5 virtual table or prefix-match fast path
+  would add real sync complexity to save half a millisecond. The original note was calibrated for a
+  dataset orders of magnitude larger than this one. Revisit only if the row count grows by ~100×.
+  Also worth remembering: the People tab defaults to Members-only (`mt:'member'`), so a typical
+  search is already scoped to ~300 rows, not 1,000.
+- [ ] **CR1-OLD — original write-up, kept for context: `CHMS_HTML` was 622 KB and served
+  `Cache-Control: no-store`, so it was re-downloaded in full on every single page load.** v1.35.0 moved ~1.2 MB of app JS out to long-cached
   `/admin/app-core.js` + `/admin/app-ext.js` for exactly this reason, but the *shell* was never
   revisited and has since grown to be the dominant uncached cost. Breakdown: `getSchedulerInline()`
   **321 KB** (the entire Scheduler UI — markup, CSS and JS — inlined into the page, for a tab most

@@ -24,6 +24,51 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.118.0 — CR1: page shell 622 KB → 200 KB (Scheduler lazy-loaded, CSS externalized) (2026-08-03)
+Follow-on from v1.117.0. With search ruled out as the bottleneck (the scan is ~0.5ms at this
+church's ~1,000 rows — measured, see below), the remaining load cost is the page shell itself,
+which is served `no-store` because it's per-user and auth-gated, so **all of it is re-downloaded
+on every single page load**. v1.35.0 moved ~1.2 MB of app JS out to long-cached routes for exactly
+this reason but never revisited the shell. Two of its three big pieces are now out as well.
+
+**Scheduler embed: 321 KB, now lazy-loaded and usually never fetched at all.**
+The entire Scheduler UI — markup, scoped CSS and JS — was inlined into every page load, for every
+user, despite the tab being **admin-only** (`showTab` returns early for non-admins). It now lives at
+`/admin/scheduler-embed.html` + `/admin/scheduler-embed.js` (immutable, `?v=DEPLOY_VERSION`) and
+`ensureSchedulerLoaded()` in `js-core.js` fetches it the first time the tab is opened.
+Two-step by necessity: markup is injected via `innerHTML` (a `<style>` inserted that way *is*
+applied; a `<script>` would *not* execute), then a real `<script>` element is appended, and only
+then does `schedInitScheduler()` run. Concurrent opens while a load is in flight queue onto the
+same fetch; a failed load shows a message, resets state, and the next tab click retries.
+`getSchedulerInlineParts()` in `scheduler-inline.js` exposes the pieces; `getSchedulerInline()`
+still composes them, so the embed shape stays defined in one place.
+
+**App CSS: 101 KB, now `/admin/app.css`.** `HTML_HEAD`'s single `<style>` block is entirely static
+with nothing per-user in it. Extracted to its own immutable route and referenced by `<link>`, which
+is still render-blocking so there's no flash of unstyled content — the only cost is one extra
+same-origin round trip on a cold cache, repaid on every reload. The split throws at module load if
+the `<style>` markers ever move, rather than silently shipping an unstyled page.
+
+Left inline deliberately: `HTML_TABS_1/2` (~192 KB of tab markup). Moving it means injecting the
+whole tab tree at boot, which delays first paint and risks the `getElementById` calls that run
+during load — a materially riskier change than these two, and worth its own pass.
+
+**Verified**: `getSchedulerInline()` output is **byte-identical** to the pre-change version (328,952
+chars), and the split parts recompose to it exactly — so `scheduler/index.html` needs no resync.
+CSS extraction round-trips to the original `HTML_HEAD` byte-for-byte. Shell `<div>` balance holds
+(1093/1093). `npm test` (427/427); `node --check` on the worker, both built app-JS bundles, and the
+new `scheduler-embed.js`. The lazy-load itself was exercised by running the *built* `app-core.js` in
+a `vm` harness driving the **real** `showTab('scheduler')`: nothing is fetched at page load; three
+tab opens produce exactly one fetch, one `<script>`, one `schedInitScheduler()` call, and no throw;
+and a simulated 500 shows the error, resets, and recovers on the next click.
+**Not verified**: a live browser. The measured shell size drop (622 KB → 200 KB, 68%) is real, but
+first-paint timing on the church's actual network is not something this environment can observe.
+
+Also recorded from this session: benchmarked the People search scan at 1,000 people / 340
+households — 0.2–0.5 ms per query. **CR8 (FTS5 / prefix-index for people search) is closed as
+not-worth-doing at this scale**; the earlier note suggesting it was calibrated for a far larger
+dataset.
+
 ### v1.117.0 — People search: stale-response guard + fewer round trips per search (2026-08-03)
 Reported as "people searching sometimes seems slow," with the specific question of whether the
 search bar re-scans on every keystroke.
