@@ -475,6 +475,23 @@ deliberately did **not** change, because each is architectural and needs its own
   `FormData`, which is presumably why they skipped the helper — though `api()` passes `opts` straight
   through and would work). Left alone deliberately: touching seven file-upload flows with no browser
   to test them is not worth it for a style fix.
+- [x] **PS1 — People search: stale-response guard + fewer round trips.** Asked whether the search bar
+  re-scans on every keystroke. It doesn't — `debouncePeople()` has debounced at 300ms all along — but
+  a real bug meant a slow broad query ("s") could land *after* a fast narrow one ("smith") and repaint
+  the list with the wrong results, which reads as slowness. Fixed with a sequence-number guard. Also
+  cut the per-search D1 round trips from 4 to 2: `COUNT(*)` is skipped when a short first page makes it
+  derivable, tags + household disambiguation now share one `db.batch()`, and the disambiguation query
+  no longer `GROUP BY`s the entire `households` table per request (bounded `EXISTS` instead, verified
+  identical against real SQLite). Done 2026-08-03 (v1.117.0). See NOTES.md. (`src/frontend/js-people.js`,
+  `src/api-people.js`)
+- [ ] **CR8 — People search's remaining floor is the unindexable `LIKE '%q%'` scan** across 7 columns
+  (`first_name`, `last_name`, `preferred_name`, `email`, `phone`, `envelope_number`,
+  `envelope_history`). A leading wildcard means no index can ever serve it, so every search is a full
+  scan of `people` no matter how few round trips wrap it. PS1 removed the duplicated scan and the
+  extra latency; going further means an actual index — an FTS5 virtual table over the searchable
+  columns kept in sync by trigger, or a prefix-match fast path (`q%`, index-servable via
+  `idx_people_name`) tried before falling back to the substring scan. Worth doing only if search still
+  drags at the church's real row count; not worth the sync complexity blind. (noted 2026-08-03)
 - [ ] **CR7 — Minor, noted for completeness.** (a) The `X-Intake-Key` check in `api-intake.js` uses
   `!==` rather than a constant-time compare; over a network, against a high-entropy key, this is not
   realistically exploitable, but it is the one shared secret compared this way. (b) The blanket

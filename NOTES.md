@@ -24,6 +24,45 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.117.0 — People search: stale-response guard + fewer round trips per search (2026-08-03)
+Reported as "people searching sometimes seems slow," with the specific question of whether the
+search bar re-scans on every keystroke.
+
+**It does not fire per keystroke** — `debouncePeople()` (`js-people.js`) has waited 300ms since
+before this change. But each fire was more expensive than it needed to be, and one real bug made
+the results look wrong rather than merely late.
+
+**Bug: out-of-order responses repainted the list (`src/frontend/js-people.js`).**
+The debounce cancels a *pending* timer, not an *already-issued* request. Pause mid-word for >300ms
+and two searches are in flight at once. The broad one ("s") scans far more rows than the narrow one
+("smith"), so it frequently lands *second* — and unconditionally repainted the list with results for
+a query the user had already typed past. Fixed with a monotonic `_pLoadSeq` sequence number captured
+per call and re-checked in both the `.then` and the `.catch`. Verified by running the actual built
+bundles in a `vm` harness with a fake DOM, resolving two in-flight searches out of order: the late
+broad response is now discarded (confirmed the same harness fails on the pre-fix code).
+`debouncePeople()` also now returns early when the input's value hasn't actually changed.
+
+**Perf: 4 serial D1 round trips per search → 2 (`src/api-people.js`).**
+The search predicate is a leading-wildcard `LIKE` across 7 columns, so no index can serve it and
+every request is a full scan of `people`. The handler ran `COUNT(*)`, the page `SELECT`, the tag
+lookup, and the household-disambiguation lookup as four sequential awaits — paying the scan twice
+and the latency four times.
+- **`COUNT(*)` is now skipped when it's derivable**: on the first page, a page shorter than `limit`
+  *is* the total. That's the common case while typing, since each keystroke narrows the result set.
+  Falls back to the real `COUNT` for full pages and any `offset > 0`.
+- **Tags + household disambiguation now go out in one `db.batch()`** instead of two awaits.
+- **The disambiguation query no longer groups the whole `households` table on every request.**
+  `LOWER(h.name) IN (SELECT LOWER(name) FROM households GROUP BY LOWER(name) HAVING COUNT(*)>1)`
+  became an `EXISTS` bounded to the ≤25 households on the current page, which can stop at the first
+  match. Semantics are identical (a name shared by 2+ households); verified against real SQLite over
+  7 id-set variants including case-insensitive duplicates and the `head_first_name` COALESCE
+  fallback — byte-identical results to the previous query in every case.
+
+`npm test` (427/427), `node --check` on `api-people.js` and both built app-JS bundles.
+**Not verified**: a live browser or a real D1 database — the round-trip reduction is a structural
+argument plus the SQL-equivalence check above, not a measured timing against production data.
+The remaining floor is the unindexable `%q%` scan itself; see CR8 in CLAUDE.md.
+
 ### v1.116.0 — Code review: R2 proxy access control, per-request auth memoization, dashboard query batching (2026-08-02)
 A review pass over UI consistency, load speed, and security. Five fixes shipped; the larger
 architectural findings are written up in CLAUDE.md's queued items rather than changed here.

@@ -14,12 +14,22 @@ function setPeopleFilter(btn, mt) {
 function debouncePeople() {
   clearTimeout(_pDebounce);
   _pDebounce = setTimeout(function() {
-    peopleFilter.q = document.getElementById('p-search').value;
+    var v = document.getElementById('p-search').value;
+    // oninput can fire without the effective query changing (e.g. trailing
+    // whitespace typed then removed) — don't pay for a round trip for that.
+    if (v === peopleFilter.q) return;
+    peopleFilter.q = v;
     loadPeople(true);
   }, 300);
 }
+// Stale-response guard: the debounce only cancels a *pending* timer, not an
+// already-issued request. Without this, a slow broad query ("s") can land after
+// a fast narrow one ("smith") and repaint the list with the wrong results —
+// which reads to the user as the search being laggy or plain wrong.
+var _pLoadSeq = 0;
 function loadPeople(resetPage) {
   if (resetPage) peopleFilter.offset = 0;
+  var mySeq = ++_pLoadSeq;
   var params = new URLSearchParams();
   if (peopleFilter.q) params.set('q', peopleFilter.q);
   if (peopleFilter.mt) params.set('member_type', peopleFilter.mt);
@@ -36,6 +46,7 @@ function loadPeople(resetPage) {
   if (_archiveView) params.set('archived', '1');
   setStatus('p-status', 'Loading…');
   api('/admin/api/people?' + params).then(function(d) {
+    if (mySeq !== _pLoadSeq) return; // a newer search has since been issued
     setStatus('p-status', '');
     if (d.offline) document.getElementById('offline-banner').style.display = 'block';
     _peopleTotal = d.total || 0;
@@ -49,6 +60,7 @@ function loadPeople(resetPage) {
     updateFilterBadge();
     if (_peopleViewMode === 'household') loadPeopleHouseholdView(resetPage);
   }).catch(function() {
+    if (mySeq !== _pLoadSeq) return;
     _peopleTotal = 0;
     renderPeopleDesktop([]);
     renderPeopleCards([]);
