@@ -13,6 +13,35 @@
 //     is rejected and the user is forced back to the login page.
 export const IDLE_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours
 
+// ── Hostname helpers ────────────────────────────────────────────────
+// The app is served at the ROOT path on connect.timothystl.org, but at /chms on every
+// other host (staging, workers.dev). Anything that redirects a browser *into* the app has
+// to pick the right one, and the cost of getting it wrong is silent: the user lands on a
+// path that still works, so nothing errors — they just never end up on the canonical URL,
+// and /chms is what accumulates in their history and bookmarks.
+//
+// This lives here, in the module both the worker entry and api-admin.js already depend on,
+// specifically so the hostname is stated ONCE. The CONN6 rename (chms.timothystl.org →
+// connect.timothystl.org, app moved from /chms to /) had to update every redirect
+// individually, and the post-login redirect in handleAdminLogin was missed for ~12 days
+// because the knowledge was spread across two files with no shared definition.
+export const CONNECT_HOST = 'connect.timothystl.org';
+
+/** True when this request arrived on the hostname that serves the app at `/`. */
+export function isConnectHost(reqOrUrl) {
+  try {
+    const u = typeof reqOrUrl === 'string' ? new URL(reqOrUrl)
+      : reqOrUrl instanceof URL ? reqOrUrl
+      : new URL(reqOrUrl.url);
+    return u.hostname === CONNECT_HOST;
+  } catch { return false; }
+}
+
+/** The in-app landing path for this request's host: `/` on Connect, `/chms` elsewhere. */
+export function appRootPath(reqOrUrl) {
+  return isConnectHost(reqOrUrl) ? '/' : '/chms';
+}
+
 // Per-request memoization. A single API request resolves auth several times over —
 // the worker entry (for the sliding-cookie refresh), the /admin/api/ gate, and again
 // inside the handler dispatch — and each resolution costs an HMAC verify plus a D1
