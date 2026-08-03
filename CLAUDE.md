@@ -433,6 +433,35 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### Connect directory in the Tithe.ly Church App — VIABLE, confirmed on a device (2026-08-03)
+Scoped, built, and verified end to end in one session. **Outcome: a `role='member'` session in the
+Tithe.ly Church App's in-app browser survives a full app shutdown and restart.** The directory can
+live in a Tithe.ly **weblink tab** — no external browser, no PWA install required.
+- **How it's wired:** Tithe.ly → Apps → Tabs → Addable Tabs → **Link**, pointed at
+  `connect.timothystl.org`. A weblink is a top-level navigation, so the app's
+  `X-Frame-Options: DENY` / `frame-ancestors 'none'` don't apply. **An App Page *iframe* embed is
+  blocked and should stay blocked** — that's the clickjacking protection on an authenticated app,
+  and iOS blocks third-party cookies in iframes anyway, so the login wouldn't stick regardless.
+- **What made it work:** v1.119.0's role-split session lifetime — `role='member'` gets a
+  persistent cookie (`Max-Age`) and a 30-day sliding window; every other role keeps the 8-hour
+  session cookie. See `idleTimeoutForRole()` in `src/auth.js`.
+- **⚠ Correction worth carrying forward:** an intermediate diagnosis (v1.120.0's entry in NOTES.md)
+  concluded Tithe.ly's webview used a non-persistent in-memory cookie jar that no cookie attribute
+  could survive. **That was wrong.** The first failing test was almost certainly signed in as a
+  non-member account, which correctly gets a session cookie and correctly dies on force-quit. The
+  general trap: a role-conditional behavior reads as a platform limitation unless the test
+  account's role is pinned down first.
+- **No SSO exists** between the Tithe.ly app and a third-party site — members sign into Tithe.ly
+  and into Connect separately. That's one login each, not a blocker, but don't promise otherwise.
+- [ ] **TLY1 — the remaining gate is organizational, not technical: member accounts have to
+  exist.** CONN2's invite flow is built (`POST /admin/api/people/:id/invite`, "Invite to Connect"
+  on the People tab, 7-day token, account created only on completed setup) but nobody has been
+  invited at scale, so the directory currently has an audience of one. This is the next real step.
+- [ ] **TLY2 — not verified:** which link-open mode (Default / External in browser / Stay in the
+  app) was in effect for the successful test, so it's unknown whether persistence comes from an
+  in-app `SFSafariViewController` sharing Safari's jar or a persistent `WKWebView` store. Works
+  either way; only matters if it regresses after a Tithe.ly update.
+
 ### Mobile Readiness — scoping pass (2026-08-03)
 Asked what it would take to make this a mobile-friendly app. Scoped only — **nothing implemented**.
 Full write-up with all measurements in **`MOBILE_SCOPE.md`**; summary here so it's visible from the

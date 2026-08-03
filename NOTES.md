@@ -24,6 +24,52 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.121.2 — Tithe.ly in-app session CONFIRMED persistent; earlier diagnosis corrected (2026-08-03)
+
+**Docs only — no code change.** Recording a verified outcome and correcting a wrong conclusion,
+because the wrong one is written into the v1.120.0 entry and would mislead the next reader.
+
+**Confirmed on a real device:** a `role='member'` session in the **Tithe.ly Church App's in-app
+browser survives a full app shutdown and restart.** That closes the question the whole Tithe.ly
+thread was blocked on, and it closes it in favor of the simplest option — the directory can live
+in an in-app weblink tab. No external browser required, no PWA install required.
+
+**The earlier diagnosis was wrong.** After the first round of testing (background-and-return kept
+the session, force-quit lost it) v1.120.0 concluded that Tithe.ly's webview uses a non-persistent,
+in-memory cookie jar, and that no cookie attribute could survive it. Those two observations *are*
+the classic signature of an in-memory store, and it was a reasonable read of the evidence
+available — but it was the wrong explanation, and the real one is more mundane.
+
+**Most likely actual cause of the first failure: the account under test wasn't a member.**
+v1.119.0 deliberately splits session lifetime by role — **only `role='member'` gets `Max-Age`**;
+`admin`/`finance`/`staff`/`office` keep a session cookie that dies with the browser, by design.
+A force-quit test signed in as an admin (or as an account that was still admin at the time) would
+lose the session *exactly* as observed, on a perfectly persistent store. This is the role split
+working correctly, misread as a platform limitation. Worth remembering as a general trap: a
+role-conditional behavior looks like a platform bug when the test account's role isn't pinned
+down first.
+
+**What this does and doesn't change:**
+- **v1.119.0 (member `Max-Age` + 30-day sliding window) is load-bearing.** It's the reason this
+  works at all. Unchanged.
+- **v1.120.0 (MOB4, the service worker) is still correct and still worth having** — the three
+  defects it fixed were independently verified against the old worker (dead `/chms` navigation
+  branch, shell never cached, ~1.3MB of immutable assets never intercepted). It just wasn't
+  *required* for session persistence, which is what its entry implies. PWA install is now an
+  optional nicety rather than the fallback plan.
+- **The `frame-ancestors 'none'` finding still stands.** An App Page *iframe* embed remains
+  blocked and should stay blocked; the working path is a weblink **tab**, which is a top-level
+  navigation and unaffected by frame policy.
+
+**Remaining gate is organizational, not technical:** member accounts have to exist. CONN2's invite
+flow is built but nobody has been invited at scale, so the directory has an audience of one.
+
+**Not verified:** which of Tithe.ly's three link-open modes (Default / External in browser / Stay
+in the app) was in effect for the successful test, and therefore whether the persistence comes
+from an in-app `SFSafariViewController` sharing Safari's cookie jar or from a genuinely persistent
+`WKWebView` store. It works either way; the distinction only matters if the behavior regresses
+after a Tithe.ly update.
+
 ### v1.121.1 — Member tier: stop the 403 banner and the dead-end tabs (2026-08-03)
 
 **Reported:** with in-app load and persistent login finally working, a member account still
@@ -118,7 +164,10 @@ working. Fixing them is what surfaced the unreachability note above. `node --che
 ### v1.120.0 — MOB4: service worker revived (was inert on the live hostname) (2026-08-03)
 
 **Why now.** Testing the Connect directory behind a Tithe.ly Church App weblink tab established
-that Tithe.ly's in-app browser keeps cookies in a **non-persistent, process-bound store**:
+that Tithe.ly's in-app browser keeps cookies in a **non-persistent, process-bound store**
+(**⚠ this conclusion was later disproved — see v1.121.2 below; the session does survive a
+force-quit once the account is genuinely `role='member'`. The work in this entry stands on
+its own merits, but it was not needed for the reason stated here.**):
 backgrounding the host app preserved the session, force-quitting it lost the session. A
 persistent store honors `Max-Age`; that one doesn't, so v1.119.0's 30-day member cookie — while
 necessary — cannot survive it. No cookie attribute can. Decision: open the tab in the external
