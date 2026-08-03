@@ -13,6 +13,30 @@
 //     is rejected and the user is forced back to the login page.
 export const IDLE_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours
 
+// Members get a much longer, *persistent* session than staff. Two different jobs:
+//
+//   staff/office/finance/admin — a shared office computer, giving records, member PII,
+//     financial reports. A short idle window and a cookie that dies with the browser is
+//     the right posture and stays unchanged.
+//
+//   member — a read-only, self-redacting directory view (see memberSafeView in
+//     api-people.js) on someone's personal phone, opened for fifteen seconds to get a
+//     phone number, often from a Tithe.ly Church App weblink tab. A session cookie plus an
+//     8-hour window means logging in on essentially every visit, which is the thing that
+//     kills adoption of a directory outright.
+//
+// Blast radius of the longer window is bounded by what the member role can actually reach:
+// no writes anywhere (the ACCESS_GATE in api-chms.js 403s every non-GET), no giving, no
+// notes, no tags. Revocation is unaffected — _resolveAuthInfo live-checks app_users.active
+// and .role on every single request, so deactivating a member kills their session on the
+// very next request no matter how long the cookie is good for.
+export const MEMBER_IDLE_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+/** Idle window for a role. Anything that isn't explicitly `member` gets the short one. */
+export function idleTimeoutForRole(role) {
+  return role === 'member' ? MEMBER_IDLE_TIMEOUT_MS : IDLE_TIMEOUT_MS;
+}
+
 // ── Hostname helpers ────────────────────────────────────────────────
 // The app is served at the ROOT path on connect.timothystl.org, but at /chms on every
 // other host (staging, workers.dev). Anything that redirects a browser *into* the app has
@@ -76,7 +100,12 @@ async function _resolveAuthInfo(req, env) {
     return null;
   }
   if (!ts || !sig) return null;
-  if (Date.now() - parseInt(ts, 10) > IDLE_TIMEOUT_MS) return null;
+  // First gate uses the role claimed by the cookie. That claim is trustworthy *as a claim*
+  // — it's covered by the HMAC below, so it can't be edited to buy a longer window without
+  // invalidating the signature. It is not necessarily the user's CURRENT role, though, so
+  // the effective role gets re-checked against its own window after the DB lookup.
+  const age = Date.now() - parseInt(ts, 10);
+  if (age > idleTimeoutForRole(role)) return null;
   try {
     const key = await crypto.subtle.importKey(
       'raw', new TextEncoder().encode(env.ADMIN_PASSWORD || ''),
@@ -99,6 +128,11 @@ async function _resolveAuthInfo(req, env) {
     ).bind(username.toLowerCase()).first().catch(() => undefined);
     if (dbUser === undefined) return null; // DB error — fail closed
     if (!dbUser || !dbUser.active) return null;
+    // Re-gate against the CURRENT role's window. Without this, a member promoted to staff
+    // would keep riding their old 30-day member cookie while holding staff permissions —
+    // the authorization below correctly uses the new role, so the session lifetime has to
+    // tighten with it. Always re-checked (not just on a role change) so the two can't drift.
+    if (age > idleTimeoutForRole(dbUser.role)) return null;
     return { role: dbUser.role, username };
   }
   return { role, username };
@@ -123,13 +157,19 @@ export async function authCookieHeader(env, role = 'admin', username = '') {
   const b64url = btoa(String.fromCharCode(...new Uint8Array(sig)))
     .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const cookieVal = safeUser ? `${ts}.${role}.${safeUser}.${b64url}` : `${ts}.${role}.${b64url}`;
-  // Session cookie (no Expires/Max-Age) — browser discards on close.
+  // Members get Max-Age so the cookie survives the browser/webview closing; every other role
+  // stays a session cookie that dies on close. Without Max-Age a Tithe.ly Church App weblink
+  // tab (or any in-app browser) drops the cookie the moment the view is dismissed, so a
+  // member re-authenticates on essentially every visit. Max-Age is re-sent on each request by
+  // refreshAuthCookie, so the window slides forward with use rather than expiring at a fixed
+  // wall-clock time from first login.
+  const maxAge = role === 'member' ? `; Max-Age=${Math.floor(MEMBER_IDLE_TIMEOUT_MS / 1000)}` : '';
   // SameSite=Lax (not Strict): the QuickBooks OAuth callback (FIN1) lands back on this app via
   // a cross-site-initiated top-level GET redirect from Intuit's consent screen — SameSite=Strict
   // silently drops the cookie on exactly that kind of request, breaking the whole connect flow.
   // Lax still blocks the cookie on cross-site subresource/POST requests (the real CSRF risk);
   // the OAuth flow itself is separately CSRF-protected via the single-use `state` parameter.
-  return `vol_auth=${cookieVal}; Path=/; HttpOnly; Secure; SameSite=Lax`;
+  return `vol_auth=${cookieVal}; Path=/; HttpOnly; Secure; SameSite=Lax${maxAge}`;
 }
 
 // Wrap an authenticated response with a refreshed Set-Cookie so the idle
