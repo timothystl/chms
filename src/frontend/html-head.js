@@ -593,8 +593,10 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
      #p-pager itself has an inline justify-content/padding, so a rule targeting it here would
      be silently defeated (inline beats a media query — the VUX15 bug, and the reason CR4
      tracks the 3,752 inline styles as a blocker for any systematic mobile work). */
-  .ppl-master-detail{flex:0 0 auto;order:2;}
-  .ppl-list-col{overflow:visible;}
+     The two rules this needs — .ppl-master-detail and .ppl-list-col — are NOT here: their base
+     declarations live further down this stylesheet, and a media query adds no specificity, so
+     an override placed here would be beaten by the later base rule and silently do nothing.
+     They sit immediately after those base rules instead. See "MOBILE PEOPLE PAGINATION" below. */
 }
 /* ── MULTI-SELECT ── */
 .p-card.selectable{cursor:pointer;position:relative;}
@@ -735,6 +737,20 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
    the panel still opens the existing full Person Profile page. ── */
 .ppl-master-detail{display:flex;flex:1;min-height:0;}
 .ppl-list-col{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;}
+/* ── MOBILE PEOPLE PAGINATION ──
+   Must come AFTER the two base rules directly above. #p-pager sits inside
+   .ppl-list-col > .ppl-master-detail, but the mobile list (.contact-list) is a SIBLING of
+   .ppl-master-detail. Under 767px the grids inside are display:none, so that subtree holds
+   nothing visible but the pager while still claiming flex:1 — and with a full page of contact
+   cards already overflowing the panel there is no free space to grow into, so it collapses to
+   zero height and overflow:hidden clips the pager away. Phone users could not reach page 2.
+   Placement is load-bearing: a media query carries no extra specificity, so putting these in
+   the 767px block further up (next to the .contact-list rules) let the base rules above win
+   and the override did nothing at all. */
+@media(max-width:767px){
+  .ppl-master-detail{flex:0 0 auto;order:2;}
+  .ppl-list-col{overflow:visible;}
+}
 .ppl-quickview{width:340px;flex-shrink:0;background:var(--white);border-left:1px solid var(--linen);padding:28px 26px;overflow-y:auto;display:flex;flex-direction:column;}
 .ppl-qv-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--warm-gray);gap:10px;padding:40px 20px;text-align:center;font-size:.9rem;margin:auto 0;}
 .ppl-qv-avatar{width:64px;height:64px;border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin-bottom:14px;flex-shrink:0;overflow:hidden;}

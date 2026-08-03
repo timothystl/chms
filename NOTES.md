@@ -24,6 +24,47 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.121.4 — v1.121.3's pagination fix did nothing; corrected (2026-08-03)
+
+**v1.121.3 shipped broken, and its tests passed anyway.** Recording this because the failure mode
+matters more than the fix.
+
+The two overrides it added — `.ppl-master-detail{flex:0 0 auto}` and `.ppl-list-col{overflow:visible}`
+— were written into the `@media(max-width:767px)` block at ~line 566, but the **base** rules for
+those selectors live at ~line 736, *later in the same stylesheet*. A media query carries **no extra
+specificity**, so between two same-specificity rules only source order decides — and the later base
+rules won. `flex:1` and `overflow:hidden` still applied on mobile. The pager stayed exactly as
+unreachable as before.
+
+Caught by fetching the deployed `app.css` and reading the rules back in source order:
+
+```
+.ppl-master-detail{flex:0 0 auto;order:2;}      ← the override
+.ppl-master-detail{display:flex;flex:1;...}     ← base rule, AFTER it — wins
+.ppl-list-col{overflow:visible;}                ← the override
+.ppl-list-col{...overflow:hidden;}              ← base rule, AFTER it — wins
+```
+
+**Why the tests didn't catch it.** They asserted the override was *present inside a media block*
+and the base rule was *present outside one*. Both were true. Both were irrelevant. Presence is not
+effect — the tests never modelled the cascade, so they were compatible with a fix that did nothing.
+That is the same class of mistake as the session-lifetime tests earlier today (which passed because
+a rewritten timestamp made every cookie *forged* rather than *expired*), in a new costume.
+
+**Fix.** The two overrides now sit in their own `@media(max-width:767px)` block placed immediately
+after the base rules they have to beat, with a comment stating that the placement is load-bearing.
+`.contact-list` never had this problem — its base rule precedes the mobile block — so it stays
+merged where it was.
+
+`winningDecl()` in the test file now walks *every* matching rule in source order and returns the
+last declaration for a property, mirroring the cascade. Assertions check the winning value rather
+than mere presence, plus an explicit check that both overrides appear after their base rules.
+**Verified by reproducing the broken arrangement and confirming the suite goes red** — 3 failures,
+the two dead declarations and the ordering check — then restoring.
+
+**Verified:** `npm test` 497/497. **Not verified:** a live browser; the cascade is modelled from the
+generated stylesheet, not observed rendering.
+
 ### v1.121.3 — Mobile People pagination was unreachable (2026-08-03)
 
 **Reported:** "on mobile the people scroll down stops at the C names. How to go farther in scroll?
