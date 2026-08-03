@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.120.0';
+export const DEPLOY_VERSION = '1.121.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -405,10 +405,23 @@ window.addEventListener('load', function() {
   var bsy = document.getElementById('batch-stmt-year');
   if (bsy) bsy.value = y;
   // Fetch role first so UI restrictions apply before content loads
+  // Fail CLOSED. This used to default to applyRoleUI('admin') both when /me returned no role
+  // and when the call rejected outright — so a single flaky request on a phone rendered the
+  // FULL admin UI for whoever was signed in. The data was never exposed (ACCESS_GATE 403s
+  // server-side regardless), but every tab was visible and clickable, and clicking one
+  // produced a bare "Access denied" with no explanation — which is exactly what a member
+  // account hit on 2026-08-03. Defaulting to the most restrictive role instead means a
+  // failed /me under-shows rather than over-shows, and the banner tells the user to reload.
   api('/admin/api/me').then(function(d) {
-    applyRoleUI(d && d.role ? d.role : 'admin', d && d.display_name, d && d.permissions);
+    if (!d || !d.role || d.role === 'unknown') {
+      applyRoleUI('member');
+      showRoleLoadError();
+      return;
+    }
+    applyRoleUI(d.role, d.display_name, d.permissions);
   }).catch(function() {
-    applyRoleUI('admin');
+    applyRoleUI('member');
+    showRoleLoadError();
   }).finally(function() {
     loadTags();
     loadFunds();
@@ -423,15 +436,27 @@ window.addEventListener('load', function() {
   });
 });
 // ── ROLE UI ──────────────────────────────────────────────────────────────
+// Shown when /admin/api/me couldn't be resolved. The UI has fallen back to the most
+// restrictive role, so tabs are missing rather than wrongly present — say so plainly instead
+// of letting the user think their account was changed.
+function showRoleLoadError() {
+  showErrorBanner('Could not confirm your account permissions, so access has been limited. Reload to try again.');
+}
+
 function applyRoleUI(role, displayName, permissions) {
-  _userRole = role || 'admin';
-  if (_userRole === 'unknown') { location.href = '/chms'; return; }
-  // Admin always full access (matches the backend's fixed admin bypass); any other missing
-  // permissions payload (e.g. the /me call failed and applyRoleUI('admin') ran instead)
-  // defaults permissive too, consistent with the pre-load default above.
-  _userPermissions = (_userRole === 'admin' || !permissions)
+  _userRole = role || 'member';
+  // Reload rather than navigating to a hardcoded '/chms' (the pre-CONN6 path — the app is
+  // served at '/' on connect.timothystl.org). A reload lands on the login page from any host.
+  if (_userRole === 'unknown') { location.reload(); return; }
+  // Admin always full access (matches the backend's fixed admin bypass). Every other role
+  // with a missing permissions payload now falls back to NOTHING rather than to everything:
+  // the old permissive default was the second half of the same fail-open bug as the /me
+  // handler above, granting a non-admin the full permission set whenever the payload was
+  // absent. Server-side ACCESS_GATE was always the real enforcement; this just stops the UI
+  // from advertising controls the caller will only get a 403 from.
+  _userPermissions = _userRole === 'admin'
     ? { finance: true, staff: true, register: true, reports: true }
-    : permissions;
+    : (permissions || { finance: false, staff: false, register: false, reports: false });
   document.body.classList.remove('role-admin','role-finance','role-staff','role-office','role-member');
   document.body.classList.add('role-' + _userRole);
   applyPermissionUI(_userPermissions);
