@@ -20,32 +20,105 @@ export const CHMS_MANIFEST_JSON = '{"name":"Connect","short_name":"Connect","des
 
 // ── SERVICE WORKER ──────────────────────────────────────────────────
 export const SW_JS = `
-const STATIC_CACHE = 'chms-static-v1';
+// Cache name is versioned by DEPLOY_VERSION, so every deploy starts a fresh cache and the
+// activate handler below evicts the previous one. That's what keeps a stale app-core.js from
+// outliving its deploy — the ?v= query string already makes each version its own cache key,
+// so without the eviction old versions would accumulate forever.
+const VERSION      = '${DEPLOY_VERSION}';
+const STATIC_CACHE = 'chms-static-' + VERSION;
 const API_CACHE    = 'chms-api-v1';
-const STATIC_ASSETS = ['/chms.webmanifest'];
+
+// The app shell. Served no-store over the wire (it is auth-gated, and that header keeps it out
+// of any shared proxy cache), but the markup itself is completely static — it interpolates
+// nothing per-user, and role visibility is applied client-side from /admin/api/me. Caching it
+// in the SW is therefore origin-scoped, device-local, and carries no user data; it is what lets
+// an installed PWA launch at all without a network. Every byte of actual data still comes from
+// /admin/api/*, which returns 401 when the session is gone.
+//
+// Both paths are listed because the app is served at the ROOT on connect.timothystl.org and at
+// /chms everywhere else. Checking only '/chms' — as this worker did before — meant the offline
+// fallback was dead code on the one hostname anyone actually uses (a leftover from the CONN6
+// rename, tracked as MOB4).
+function isAppShell(url) {
+  return url.pathname === '/' || url.pathname === '/chms';
+}
+
+// Long-cached, immutable, versioned by ?v= — the ideal cache-first targets, and ~1.3MB of the
+// app's total weight. Deliberately NOT precached in install: they are fetched by the very page
+// load that registers this worker, so precaching would double the download on a first visit.
+// They get cached on first fetch instead, which costs nothing extra and is just as durable.
+function isVersionedAsset(url) {
+  return url.pathname === '/admin/app-core.js'
+      || url.pathname === '/admin/app-ext.js'
+      || url.pathname === '/admin/app.css';
+}
+
 self.addEventListener('install', function(event) {
   event.waitUntil(
     caches.open(STATIC_CACHE).then(function(cache) {
-      return cache.addAll(STATIC_ASSETS).catch(function(){});
+      return cache.addAll(['/chms.webmanifest']).catch(function(){});
     })
   );
   self.skipWaiting();
 });
+
 self.addEventListener('activate', function(event) {
   event.waitUntil(
     caches.keys().then(function(keys) {
-      return Promise.all(keys.filter(function(k){return k!==STATIC_CACHE&&k!==API_CACHE;}).map(function(k){return caches.delete(k);}));
+      return Promise.all(keys.filter(function(k){
+        return k !== STATIC_CACHE && k !== API_CACHE;
+      }).map(function(k){ return caches.delete(k); }));
     }).then(function(){ return self.clients.claim(); })
   );
 });
+
 self.addEventListener('fetch', function(event) {
   var url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
-  if (url.pathname === '/chms') {
-    event.respondWith(fetch(event.request).catch(function(){ return caches.match('/chms'); }));
+  if (event.request.method !== 'GET') return;
+
+  // App shell — network-first so a fresh deploy is picked up immediately, falling back to the
+  // cached copy when offline. The previous version had this fallback but nothing ever populated
+  // the cache, so caches.match() always missed and the fallback could never fire.
+  if (isAppShell(url)) {
+    event.respondWith(
+      fetch(event.request).then(function(resp) {
+        if (resp && resp.ok) {
+          var copy = resp.clone();
+          caches.open(STATIC_CACHE).then(function(c){ c.put('/', copy); });
+        }
+        return resp;
+      }).catch(function() {
+        return caches.match('/').then(function(cached) {
+          return cached || new Response(
+            '<!DOCTYPE html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offline</title><body style="font-family:system-ui;padding:2rem;text-align:center;color:#1E2D4A;background:#F8F4EE"><h1 style="font-weight:500">Offline</h1><p>Connect needs a network connection to load the first time.</p>',
+            { status: 503, headers: { 'Content-Type': 'text/html;charset=UTF-8' } }
+          );
+        });
+      })
+    );
     return;
   }
-  if (url.pathname === '/admin/api/people' && event.request.method === 'GET') {
+
+  // Immutable versioned assets — cache-first. This is the change that makes a relaunch feel
+  // instant instead of re-fetching ~1.3MB, and it is what the church's slow network most needs.
+  if (isVersionedAsset(url)) {
+    event.respondWith(
+      caches.match(event.request).then(function(cached) {
+        if (cached) return cached;
+        return fetch(event.request).then(function(resp) {
+          if (resp && resp.ok) {
+            var copy = resp.clone();
+            caches.open(STATIC_CACHE).then(function(c){ c.put(event.request, copy); });
+          }
+          return resp;
+        });
+      })
+    );
+    return;
+  }
+
+  if (url.pathname === '/admin/api/people') {
     event.respondWith(
       fetch(event.request.clone()).then(function(resp) {
         if (resp.ok) {
@@ -66,6 +139,7 @@ self.addEventListener('fetch', function(event) {
     );
     return;
   }
+
   if (url.pathname === '/chms.webmanifest' || url.pathname.startsWith('/icons/')) {
     event.respondWith(caches.match(event.request).then(function(c){ return c || fetch(event.request); }));
   }

@@ -457,7 +457,16 @@ structural problem that makes a *systematic* pass expensive and a *targeted* one
 - [ ] **MOB3 (M4) — Eleven distinct breakpoints**, each added per-feature (700px ×7, 900px ×5,
   480px ×4, then 800/767/600/1000/520/720/820/1100). Nothing broken, but there's no shared
   definition of "phone." Consolidate to ~3 *before* MOB1/MOB2 so those land on the clean set.
-- [ ] **MOB4 (M5) — The service worker is dead on the primary hostname.** `SW_JS`
+- [x] **MOB4 (M5) — DONE 2026-08-03 (v1.120.0).** Service worker revived. All three defects
+  confirmed by running the *old* generated `SW_JS` in a harness, not by reading it: `/` fell
+  through unhandled (the branch gated on the pre-CONN6 `/chms`), the shell was never cached so
+  the fallback could never hit, and the three `?v=`-versioned assets weren't intercepted at all.
+  Now: both paths handled, shell network-first *and* cached with a real offline page, assets
+  cache-first (cached on first fetch, not precached — they're already fetched by the registering
+  page load), cache name versioned by `DEPLOY_VERSION` so `activate` evicts the prior deploy.
+  Caching the auth-gated shell is deliberate and reasoned in NOTES.md — the markup interpolates
+  nothing per-user. 14 new tests execute the real generated worker. Not verified on a device.
+  **Original note follows.** ~~The service worker is dead on the primary hostname.~~ `SW_JS`
   (`src/html-chms.js`) gates its navigation fallback on `url.pathname === '/chms'`, but since CONN6
   the app serves at `/` on `connect.timothystl.org` (`tlc-volunteer-worker.js:286`) — leftover from
   the rename. Also `STATIC_ASSETS` precaches only the manifest, not `/admin/app-core.js`,

@@ -24,6 +24,57 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.120.0 — MOB4: service worker revived (was inert on the live hostname) (2026-08-03)
+
+**Why now.** Testing the Connect directory behind a Tithe.ly Church App weblink tab established
+that Tithe.ly's in-app browser keeps cookies in a **non-persistent, process-bound store**:
+backgrounding the host app preserved the session, force-quitting it lost the session. A
+persistent store honors `Max-Age`; that one doesn't, so v1.119.0's 30-day member cookie — while
+necessary — cannot survive it. No cookie attribute can. Decision: open the tab in the external
+browser and have members install the PWA instead. That makes the PWA the real delivery vehicle,
+so the service worker had to actually work.
+
+**It didn't.** Three separate defects, all confirmed empirically by running the *old* generated
+`SW_JS` in a harness rather than by reading it:
+
+1. The navigation fallback gated on `url.pathname === '/chms'` — the pre-CONN6 path. On
+   `connect.timothystl.org` the app is served at `/`, so **the branch never ran at all** on the
+   one hostname anyone uses. (Harness: `handles "/" -> NO (falls through, unhandled)`.)
+2. Nothing ever wrote the shell into a cache, so the `caches.match('/chms')` fallback **could
+   never hit** even at `/chms`. Dead code guarding dead code. (Harness: `caches the shell -> NO`.)
+3. `STATIC_ASSETS` precached only the manifest. `/admin/app-core.js`, `/admin/app-ext.js` and
+   `/admin/app.css` — ~1.3MB, already `immutable` and `?v=`-versioned, the textbook cache
+   targets — were **not intercepted at all**, so they came off the network on every launch.
+
+**Fix.** Rewritten `SW_JS`: `isAppShell()` accepts both `/` and `/chms`; the shell is
+network-first and now actually cached, with a real styled offline page instead of the browser's
+error on a cold first launch; the three versioned assets are cache-first, cached on first fetch
+rather than precached (they're already fetched by the page load that registers the worker, so
+precaching would double a first visit's download); the cache name is versioned by
+`DEPLOY_VERSION` so `activate` evicts the previous deploy's assets automatically. Non-GET and
+cross-origin requests are now explicitly ignored. The `/admin/api/people` offline behavior is
+unchanged.
+
+**Caching the shell is a deliberate call worth recording.** `CHMS_HTML` is served `no-store`
+because it's auth-gated, and that header should stay — it keeps the page out of any shared
+proxy cache. But the markup itself interpolates **nothing** per-user (verified: it is
+`HTML_HEAD_LINKED + HTML_TABS_1 + placeholder + HTML_TABS_2 + two versioned script tags`), and
+role visibility is applied client-side from `/admin/api/me`. So the SW copy is origin-scoped,
+device-local, and carries no user data, and every byte of real data still comes from
+`/admin/api/*`, which 401s without a session. That's what makes an installed PWA able to launch
+at all without a network.
+
+**Verified:** `npm test` 463/463, 14 new in `test/service-worker.test.js` that execute the real
+generated worker source (not a reimplementation) in a `ServiceWorkerGlobalScope` stand-in —
+shell handling at both paths, caching on success and *not* on a 500, offline fallback, the cold
+-launch offline page, cache-first assets with no second network hit, `?v=` change forcing a
+refetch, cross-deploy cache eviction, cross-origin and non-GET pass-through, and the preserved
+people-list offline behavior. Each of the three defects above was additionally re-proved against
+the pre-fix source so the new tests can't pass vacuously.
+
+**Not verified:** an actual device. Whether an installed iOS PWA holds the session across
+relaunch is the open question this is meant to answer, and it needs a phone.
+
 ### v1.119.0 — Persistent member sessions (30-day sliding); staff unchanged (2026-08-03)
 
 **Reported:** "Login is not persistent." Context: evaluating putting the Connect member
