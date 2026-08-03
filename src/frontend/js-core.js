@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.121.0';
+export const DEPLOY_VERSION = '1.121.1';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -194,6 +194,15 @@ var _tabFromPopState = false;
 // back/forward, or a bare '#finance' hash on reload), defaulting to 'overview' the first time.
 // See FIN_TOPNAV_ITEMS/finNavGo above.
 function showTab(name, finSection) {
+  // Member tier: the filtered directory, plus Reports only where an admin granted it. The
+  // server's member allowlist covers people/tags/config-member-types/reports and nothing else,
+  // so Home (dashboard), Households and Organizations have no member-readable data behind them
+  // — landing on one renders an empty tab and fires a 403 banner, which is what a member hit on
+  // 2026-08-03. Redirect to People rather than returning early, so a stale '#home' in the URL
+  // (or a bookmark from an admin session) can't leave the app on a blank screen.
+  if (_userRole === 'member' && !(name === 'people' || (name === 'reports' && _userPermissions.reports))) {
+    name = 'people';
+  }
   // Enforce role-based tab access — admin-configurable per role, see _userPermissions above.
   // This is a UX convenience (avoid landing on a blank/403'd tab); the real enforcement is
   // server-side in handleChmsApi's ACL block, which reads the same permissions.
@@ -424,7 +433,10 @@ window.addEventListener('load', function() {
     showRoleLoadError();
   }).finally(function() {
     loadTags();
-    loadFunds();
+    // Funds are giving data — the member allowlist doesn't include them, so for a member this
+    // is a guaranteed 403. It fails silently, but it's still a wasted round trip on exactly the
+    // connection (a phone, on the church's network) where the member tier actually lives.
+    if (_userRole !== 'member') loadFunds();
     loadMemberTypes();
     initPeopleViewMode();
     // Restore tab from URL hash (back/forward or bookmarked link), otherwise default
