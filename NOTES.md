@@ -24,7 +24,48 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
-### v1.121.2 — Tithe.ly in-app session CONFIRMED persistent; earlier diagnosis corrected (2026-08-03)
+### v1.121.3 — Mobile People pagination was unreachable (2026-08-03)
+
+**Reported:** "on mobile the people scroll down stops at the C names. How to go farther in scroll?
+There is no next page button."
+
+**The list was never truncated.** A full first page is 25 people sorted by last name, which for
+this church ends around C — so the scroll was correct and complete. What was missing was the pager.
+
+**Mechanism.** `#p-pager` lives inside `.ppl-list-col` > `.ppl-master-detail`, but the mobile list
+(`.contact-list` / `#p-contact-list`) is a **sibling** of `.ppl-master-detail`, not a child. Under
+767px `#p-grid` and `#p-card-grid` are `display:none!important`, so on a phone the master-detail
+subtree contains nothing visible except the pager — while still claiming `flex:1`. With a full
+page of contact cards already overflowing the tab panel there was no free space left to grow into,
+so `.ppl-master-detail` collapsed to zero height and `.ppl-list-col`'s `overflow:hidden` clipped
+the pager out of existence. A phone user could never reach page 2 of the directory.
+
+Notably this is a layout that only fails once the list is long enough to fill the viewport — which
+is why it survived review: on a short list there's free space and the pager appears fine.
+
+**Fix** (3 declarations, all inside the existing `@media(max-width:767px)` block, desktop
+untouched): `.ppl-master-detail` sizes to its content instead of claiming `flex:1`;
+`.ppl-list-col` stops clipping; `.contact-list` is ordered before it and made non-shrinkable so
+the pager reads as pagination under the list rather than a header above it.
+
+**Deliberately did NOT add a `#p-pager` rule.** That element carries an inline
+`justify-content`/`padding`, and an inline style beats a media query — the rule would have been
+silently dead. This is the VUX15 bug and exactly why CR4 tracks the 3,752 inline styles as the
+blocker for systematic mobile work. All three selectors used here are class-only with no inline
+styles, so they can actually win. A test asserts both halves of that.
+
+**Verified:** `npm test` 497/497, 11 new in `test/people-mobile-pagination.test.js` — the DOM
+assumption the fix rests on (contact list is a sibling, pager is inside the master-detail subtree),
+each of the three declarations, that no defeated `#p-pager` rule was added, that `#p-pager` really
+does carry the conflicting inline style, and that the base desktop rules still say `flex:1` /
+`overflow:hidden` outside the media query. Writing those tests caught a second `.contact-list`
+rule I had introduced in the same block — functionally fine (later wins) but merged into the
+existing rule so there's one declaration site.
+
+**Not verified:** a live browser or device. The flex resolution was reasoned from the generated CSS
+and asserted against it, not observed rendering.
+
+### v1.121.2 (docs only — no deploy) — Tithe.ly in-app session CONFIRMED persistent; earlier diagnosis corrected (2026-08-03)
 
 **Docs only — no code change.** Recording a verified outcome and correcting a wrong conclusion,
 because the wrong one is written into the v1.120.0 entry and would mislead the next reader.

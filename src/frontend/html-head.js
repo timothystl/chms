@@ -565,7 +565,7 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .contact-list{display:none;}
 @media(max-width:767px){
   #p-grid,#p-card-grid,#tab-people .view-toggle{display:none!important;}
-  .contact-list{display:flex;flex-direction:column;background:var(--warm-surface-card);}
+  .contact-list{display:flex;flex-direction:column;background:var(--warm-surface-card);order:1;flex:0 0 auto;}
   .toolbar .filter-pills{display:none;}
   .c-card{display:flex;align-items:center;gap:14px;padding:14px 16px;border-bottom:1px solid var(--warm-row-divider);background:var(--warm-surface-card);cursor:pointer;}
   .c-avatar{width:50px;height:50px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-head);font-size:1rem;font-weight:800;overflow:hidden;}
@@ -578,6 +578,23 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
   .c-btn svg{width:14px;height:14px;flex-shrink:0;}
   .c-btn-call{background:var(--color-teal);color:var(--white);}
   .c-btn-outline{background:var(--warm-surface-header);border:1.5px solid var(--warm-border);color:var(--color-navy);}
+  /* Pagination reachability on mobile.
+     #p-pager lives inside .ppl-list-col > .ppl-master-detail, but the mobile list
+     (.contact-list) is a SIBLING of .ppl-master-detail, not a child. So on a phone the
+     master-detail subtree holds nothing visible except the pager — #p-grid and #p-card-grid
+     are display:none above — while still claiming flex:1. With a full page of contact cards
+     already overflowing the tab panel there is no free space left to grow into, so
+     .ppl-master-detail collapsed to zero height and .ppl-list-col's overflow:hidden clipped
+     the pager away entirely. The list itself was fine; the Prev/Next buttons simply did not
+     exist on screen, so a phone user could never get past the first 25 people.
+     Fix: let the master-detail size to its content, stop the column clipping, and order the
+     pager after the list so it reads as pagination rather than a header. */
+     All three selectors below are class-only and carry no inline styles, which matters:
+     #p-pager itself has an inline justify-content/padding, so a rule targeting it here would
+     be silently defeated (inline beats a media query — the VUX15 bug, and the reason CR4
+     tracks the 3,752 inline styles as a blocker for any systematic mobile work). */
+  .ppl-master-detail{flex:0 0 auto;order:2;}
+  .ppl-list-col{overflow:visible;}
 }
 /* ── MULTI-SELECT ── */
 .p-card.selectable{cursor:pointer;position:relative;}
