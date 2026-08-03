@@ -433,6 +433,49 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### Mobile Readiness — scoping pass (2026-08-03)
+Asked what it would take to make this a mobile-friendly app. Scoped only — **nothing implemented**.
+Full write-up with all measurements in **`MOBILE_SCOPE.md`**; summary here so it's visible from the
+backlog. Every figure was scripted against the source at v1.118.0, not estimated. **No live browser
+or device was involved** — the standing caveat on all frontend work here.
+Headline: the foundation is better than the ask implies (viewport meta, off-canvas sidebar at all
+widths per VUX10, 29 media queries, 44px touch targets per MO3, adapted modals per MO4, charts that
+scale via `viewBox`). What's missing is two defects that break pages outright on a phone, plus one
+structural problem that makes a *systematic* pass expensive and a *targeted* one cheap.
+- [ ] **MOB1 (M1) — Every input in the app is under 16px, so iOS zooms the viewport on every field
+  focus, on every form, on every tab.** Measured: `.9rem`/`.84rem`/`13px`/`.82rem`/`.78rem` across
+  `.field`, `select`, scheduler inputs, and number inputs. One media query setting `font-size:16px`
+  under ~768px fixes it app-wide; the number inputs pinned to `width:56px` need widening alongside.
+  Highest impact-per-effort item available.
+- [ ] **MOB2 (M2) — 55 of 99 tables have no horizontal scroll container**, so they widen the page
+  instead of scrolling (`js-reports.js` 20 bare of 23, `js-finance.js` 16 of 40, `js-attendance.js`
+  5 of 5). Complication: **65 of the 99 tables carry no CSS class at all** (inline-styled in JS
+  string concat), so a class-targeted rule reaches only a third. Two candidate approaches, both in
+  the doc — a `.tab-panel table` descendant rule (one rule, covers all 99, but `display:block`
+  needs a device check) or a boot-time wrap pass (preserves layout, costs a DOM pass per render).
+  **Do not hand-edit 55 call sites** — expensive and regression-prone.
+- [ ] **MOB3 (M4) — Eleven distinct breakpoints**, each added per-feature (700px ×7, 900px ×5,
+  480px ×4, then 800/767/600/1000/520/720/820/1100). Nothing broken, but there's no shared
+  definition of "phone." Consolidate to ~3 *before* MOB1/MOB2 so those land on the clean set.
+- [ ] **MOB4 (M5) — The service worker is dead on the primary hostname.** `SW_JS`
+  (`src/html-chms.js`) gates its navigation fallback on `url.pathname === '/chms'`, but since CONN6
+  the app serves at `/` on `connect.timothystl.org` (`tlc-volunteer-worker.js:286`) — leftover from
+  the rename. Also `STATIC_ASSETS` precaches only the manifest, not `/admin/app-core.js`,
+  `/admin/app-ext.js`, `/admin/app.css` (~1.3 MB, already `immutable`, the ideal precache targets).
+  Net: installable but behaves like a website. Small, self-contained; worth it given the church's
+  known-slow network (AU2).
+- **(M3/M6/M7) — deliberately NOT scoped as mobile work.** The 3,752 inline `style="…"` attributes
+  (`html-tabs.js` 977, `js-finance.js` 958, …) are the reason a systematic pass is expensive — an
+  inline style beats a media-query rule, which is exactly the VUX15 bug. That's CR4/RD2/RD4/PAL5 and
+  should ride with the redesign that owns it. Load-time work is AU2/CR1b/CR3. Finance (958 inline
+  styles, 40 tables) and Scheduler (6 media queries, 6 fixed `min-width`s) are multi-year-grid
+  workflows — honest target is tablet-minimum, not phone-native.
+- **Open decision, for the user:** MOB1–MOB4 are defect fixes worth doing regardless. The question
+  is whether to follow with a phone-first pass (Phase C in the doc) on Dashboard / People / Attendance
+  entry / Giving quick entry — including a mobile equivalent for the People quickview panel, which
+  currently just vanishes under 767px. The strongest argument for it is the **member tier**: the one
+  role whose users are mostly on phones, and the smallest surface to get right.
+
 ### Code Review — UI consistency / load speed / security (2026-08-02)
 A review pass across the three axes. Five items were fixed and shipped in v1.116.0 (see NOTES.md
 for the full write-up): the `/admin/r2photo/` bucket-wide read (the significant one), `/admin/backlog`
