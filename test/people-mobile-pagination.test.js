@@ -24,6 +24,27 @@ function ruleFor(css, selector) {
   return m ? m[1] : '';
 }
 
+/**
+ * Which declaration actually WINS for `prop` on `selector`, honouring source order.
+ *
+ * This exists because the first version of this fix shipped broken and the tests still passed.
+ * They asserted the override was *present in a media block* and that the base rule was
+ * *present outside it* — both true, and both irrelevant, because the base rule came LATER in
+ * the stylesheet. A media query adds no specificity, so the later base rule won and the
+ * override did nothing. Presence is not effect; only source order decides between two
+ * same-specificity rules.
+ */
+function winningDecl(selector, prop) {
+  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(esc + '\\{([^}]*)\\}', 'g');
+  let m, winner = null;
+  while ((m = re.exec(HTML_HEAD)) !== null) {
+    const d = m[1].match(new RegExp('(?:^|;)\\s*' + prop + '\\s*:([^;]*)'));
+    if (d) winner = d[1].trim(); // later match overwrites — mirrors the cascade
+  }
+  return winner;
+}
+
 describe('DOM assumption the fix depends on', () => {
   it('has the mobile contact list as a SIBLING of .ppl-master-detail, not a child', () => {
     const md = HTML_TABS_1.indexOf('class="ppl-master-detail"');
@@ -37,27 +58,42 @@ describe('DOM assumption the fix depends on', () => {
   });
 });
 
-describe('mobile People pagination is reachable', () => {
+describe('mobile People pagination actually wins the cascade', () => {
+  // These assert the WINNING declaration, not merely that a rule exists somewhere. The
+  // presence-only version of these tests passed against a completely broken fix.
   it('finds the 767px block at all', () => {
     expect(MOBILE_BLOCK).not.toBe('');
   });
 
   it('stops .ppl-master-detail claiming vertical space it has no content for', () => {
-    expect(ruleFor(MOBILE_BLOCK, '.ppl-master-detail')).toContain('flex:0 0 auto');
+    expect(winningDecl('.ppl-master-detail', 'flex')).toBe('0 0 auto');
   });
 
   it('stops .ppl-list-col clipping the pager out of existence', () => {
-    // This is the declaration that actually made the button unreachable.
-    expect(ruleFor(MOBILE_BLOCK, '.ppl-list-col')).toContain('overflow:visible');
+    // The single declaration that made the button unreachable.
+    expect(winningDecl('.ppl-list-col', 'overflow')).toBe('visible');
   });
 
   it('orders the pager after the list, so it reads as pagination not a header', () => {
-    expect(ruleFor(MOBILE_BLOCK, '.contact-list')).toContain('order:1');
-    expect(ruleFor(MOBILE_BLOCK, '.ppl-master-detail')).toContain('order:2');
+    expect(winningDecl('.contact-list', 'order')).toBe('1');
+    expect(winningDecl('.ppl-master-detail', 'order')).toBe('2');
   });
 
   it('keeps the mobile list from being shrunk by a competing flex sibling', () => {
-    expect(ruleFor(MOBILE_BLOCK, '.contact-list')).toContain('flex:0 0 auto');
+    expect(winningDecl('.contact-list', 'flex')).toBe('0 0 auto');
+  });
+
+  it('places both overrides after the base rules they have to beat', () => {
+    // The specific defect that shipped: a media query adds no specificity, so an override
+    // written before the base rule loses outright.
+    for (const sel of ['.ppl-master-detail', '.ppl-list-col']) {
+      const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const positions = [...HTML_HEAD.matchAll(new RegExp(esc + '\\{', 'g'))].map((m) => m.index);
+      expect(positions.length, sel + ' should have a base rule and an override').toBeGreaterThan(1);
+      const baseIdx = HTML_HEAD.indexOf(sel + '{flex:1');
+      const overrideIdx = Math.max(...positions);
+      if (baseIdx > -1) expect(overrideIdx, sel).toBeGreaterThan(baseIdx);
+    }
   });
 });
 
@@ -80,6 +116,7 @@ describe('desktop layout is untouched', () => {
   // The base rules live outside the media query and must keep their original values, or the
   // desktop master-detail stops working.
   const base = HTML_HEAD.replace(MOBILE_BLOCK, '');
+  // Base rules must still declare the desktop values; the mobile block overrides them later.
 
   it('keeps .ppl-master-detail at flex:1 outside the mobile block', () => {
     expect(ruleFor(base, '.ppl-master-detail')).toContain('flex:1');
