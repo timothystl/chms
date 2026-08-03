@@ -331,45 +331,73 @@ if (seg === 'people' && method === 'GET') {
     neither:         `(p.baptized=0 AND p.confirmed=0)`,
   };
   if (sacramentClauses[sacrament]) where += ' AND ' + sacramentClauses[sacrament];
-  // Total count
-  const countRow = await db.prepare(`SELECT COUNT(*) as n FROM people p${hhJoin} WHERE ${where}`).bind(...binds).first();
-  const total = countRow?.n || 0;
-  // Paged results
+  // Paged results.
+  //
+  // Perf: the search predicate is a leading-wildcard LIKE across 7 columns, which
+  // no index can serve — every request is a full scan of `people`. This handler
+  // used to run four *serial* D1 round trips (COUNT, page, tags, household
+  // disambiguation), so the scan was paid twice and the latency three times over.
+  // The page query runs first so the COUNT can often be skipped outright (below),
+  // and the two follow-up lookups are batched into a single round trip.
   const rows = (await db.prepare(
     `SELECT p.*, h.name as household_name FROM people p
      LEFT JOIN households h ON p.household_id=h.id${hhJoin}
      WHERE ${where} ORDER BY ${sortCol} ${sortDir}, p.last_name ASC, p.first_name ASC LIMIT ? OFFSET ?`
   ).bind(...binds, limit, offset).all()).results || [];
+  // Total count. On the first page, a short page *is* the total — no second full
+  // scan needed. That's the common case while someone is typing a search, since
+  // each keystroke narrows the result set further.
+  let total;
+  if (offset === 0 && rows.length < limit) {
+    total = rows.length;
+  } else {
+    const countRow = await db.prepare(`SELECT COUNT(*) as n FROM people p${hhJoin} WHERE ${where}`).bind(...binds).first();
+    total = countRow?.n || 0;
+  }
   // Batch-load tags for all returned people in a single query (avoids N+1) — skipped
   // entirely for member-role viewers, who never see tags (memberSafeView strips them).
   const ids = rows.map(r => r.id);
-  const tagsByPerson = {};
-  if (canEdit && ids.length) {
-    const ph = ids.map(() => '?').join(',');
-    const allTagRows = (await db.prepare(
-      `SELECT pt.person_id, t.id, t.name, t.color FROM tags t
-       JOIN person_tags pt ON pt.tag_id=t.id WHERE pt.person_id IN (${ph})`
-    ).bind(...ids).all()).results || [];
-    for (const tr of allTagRows) {
-      if (!tagsByPerson[tr.person_id]) tagsByPerson[tr.person_id] = [];
-      tagsByPerson[tr.person_id].push({ id: tr.id, name: tr.name, color: tr.color });
-    }
-  }
   // HQ4: disambiguate household names that are shared across multiple households
   const hhIdsUniq = [...new Set(rows.map(r => r.household_id).filter(Boolean))];
-  const hhDisambigMap = {};
-  if (hhIdsUniq.length) {
+  const wantTags = canEdit && ids.length > 0;
+  const wantDisambig = hhIdsUniq.length > 0;
+  const followups = [];
+  if (wantTags) {
+    const ph = ids.map(() => '?').join(',');
+    followups.push(db.prepare(
+      `SELECT pt.person_id, t.id, t.name, t.color FROM tags t
+       JOIN person_tags pt ON pt.tag_id=t.id WHERE pt.person_id IN (${ph})`
+    ).bind(...ids));
+  }
+  if (wantDisambig) {
     const ph2 = hhIdsUniq.map(() => '?').join(',');
-    const dRows = (await db.prepare(
+    // The duplicate-name test is an EXISTS bounded to this page's households rather
+    // than `LOWER(name) IN (SELECT ... GROUP BY LOWER(name) HAVING COUNT(*)>1)`,
+    // which grouped the entire households table on every keystroke. Same semantics
+    // (a name shared by 2+ households), but it can stop at the first match.
+    followups.push(db.prepare(
       `SELECT h.id, h.name,
        COALESCE(
          (SELECT p2.first_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.family_role='head' LIMIT 1),
          (SELECT p2.first_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 ORDER BY p2.id LIMIT 1)
        ) as head_first_name
        FROM households h WHERE h.id IN (${ph2})
-       AND LOWER(h.name) IN (SELECT LOWER(name) FROM households GROUP BY LOWER(name) HAVING COUNT(*)>1)`
-    ).bind(...hhIdsUniq).all()).results || [];
-    for (const r of dRows) hhDisambigMap[r.id] = disambiguateHHName(r.name, r.head_first_name);
+       AND EXISTS (SELECT 1 FROM households h2 WHERE LOWER(h2.name)=LOWER(h.name) AND h2.id<>h.id)`
+    ).bind(...hhIdsUniq));
+  }
+  const followupRes = followups.length ? await db.batch(followups) : [];
+  const tagsByPerson = {};
+  if (wantTags) {
+    for (const tr of (followupRes[0]?.results || [])) {
+      if (!tagsByPerson[tr.person_id]) tagsByPerson[tr.person_id] = [];
+      tagsByPerson[tr.person_id].push({ id: tr.id, name: tr.name, color: tr.color });
+    }
+  }
+  const hhDisambigMap = {};
+  if (wantDisambig) {
+    for (const r of (followupRes[wantTags ? 1 : 0]?.results || [])) {
+      hhDisambigMap[r.id] = disambiguateHHName(r.name, r.head_first_name);
+    }
   }
   const people = rows.map(p => {
     const householdDisplayName = hhDisambigMap[p.household_id] || p.household_name || null;
