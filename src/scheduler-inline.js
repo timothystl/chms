@@ -5,13 +5,31 @@
 //                              <script>…transformed JS…</script>
 //
 // Called once at module load time; result is cached.
+//
+// getSchedulerInlineParts() exposes the same three pieces separately so the
+// ~321KB bundle can be served as two long-cached assets and fetched only when
+// someone actually opens the Scheduler tab (which is admin-only, so most
+// sessions never load it at all) instead of being inlined into every single
+// page load. getSchedulerInline() still composes them exactly as before, so
+// the embedded-markup shape is defined in one place, not duplicated.
 import { SCHEDULER_HTML } from './scheduler-html.js';
 
 let _cached = null;
+let _cachedParts = null;
 
 export function getSchedulerInline() {
-  if (!_cached) _cached = _build();
+  const p = getSchedulerInlineParts();
+  if (!_cached) _cached = `${p.markup}\n<script>\n${p.js}\n</script>`;
   return _cached;
+}
+
+// { markup, js } — `markup` is the <style> block plus the .sched-root subtree
+// (safe to drop straight into an element's innerHTML; a <style> inserted that
+// way is applied by the browser, whereas a <script> would NOT execute — which
+// is exactly why the JS is kept separate and loaded via its own <script src>).
+export function getSchedulerInlineParts() {
+  if (!_cachedParts) _cachedParts = _build();
+  return _cachedParts;
 }
 
 function _build() {
@@ -56,7 +74,10 @@ function _build() {
   const jsMatch = raw.match(/<script>([\s\S]*?)<\/script>/);
   const js = jsMatch ? _transformJs(jsMatch[1]) : '';
 
-  return `<style>\n${css}\n</style>\n<div class="sched-root">\n${body}\n</div>\n<script>\n${js}\n</script>`;
+  return {
+    markup: `<style>\n${css}\n</style>\n<div class="sched-root">\n${body}\n</div>`,
+    js,
+  };
 }
 
 // ── CSS transformer ──────────────────────────────────────────────────────────

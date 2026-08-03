@@ -20,7 +20,7 @@ import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPass
 import { handleIntakeApi } from './src/api-intake.js';
 import { handleMemberSetup } from './src/api-people.js';
 import { LOGIN_HTML, PUBLIC_HTML, ADMIN_HTML } from './src/html-templates.js';
-import { CHMS_HTML, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from './src/html-chms.js';
+import { CHMS_HTML, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_CORE_JS, CHMS_APP_EXT_JS, CHMS_APP_CSS, CHMS_SCHEDULER_HTML, CHMS_SCHEDULER_JS } from './src/html-chms.js';
 import { PRIVACY_HTML, TERMS_HTML } from './src/legal-pages.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts, centralDayOfWeek } from './src/api-emails.js';
 import { sendWebPush } from './src/push-sender.js';
@@ -310,6 +310,33 @@ async function _fetch(req, env) {
     }
     if (path === '/admin/app-ext.js') {
       return new Response(CHMS_APP_EXT_JS, {
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=31536000, immutable' }
+      });
+    }
+    // ── ChMS app CSS + lazy-loaded Scheduler embed — same rationale and same caching model
+    // as the two app JS routes above: static client-side UI with no secrets or data, pulled
+    // out of the no-store shell so the browser can keep it across page loads.
+    if (path === '/admin/app.css') {
+      return new Response(CHMS_APP_CSS, {
+        headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' }
+      });
+    }
+    if (path === '/admin/scheduler-embed.html') {
+      // Fetched by js-core.js and injected into #tab-scheduler. nosniff + DENY are set
+      // explicitly here (the raw asset routes bypass the html()/json() helpers that would
+      // normally apply SEC_HEADERS) since unlike the JS/CSS routes this one is markup a
+      // browser would happily render if navigated to directly.
+      return new Response(CHMS_SCHEDULER_HTML, {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'X-Content-Type-Options': 'nosniff',
+          'X-Frame-Options': 'DENY',
+        }
+      });
+    }
+    if (path === '/admin/scheduler-embed.js') {
+      return new Response(CHMS_SCHEDULER_JS, {
         headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=31536000, immutable' }
       });
     }

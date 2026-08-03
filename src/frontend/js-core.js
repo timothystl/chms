@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.117.0';
+export const DEPLOY_VERSION = '1.118.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -251,14 +251,61 @@ function showTab(name, finSection) {
   if (name === 'settings') loadSettings();
   if (name === 'volunteers') { volLoadSignups(); volLoadMinistryRoles(); volLoadEvents(); volLoadTemplates(); }
   if (name === 'scheduler') {
-    // Set month label directly — bypasses all silent try/catch in schedInitScheduler.
-    // Scheduler's own currentMonthKey is always today's month at init time; match that.
-    var _sml = document.getElementById('sched-current-month-label');
-    if (_sml) _sml.textContent = new Date().toLocaleDateString('en-US', {month:'long', year:'numeric'});
-    if (window.schedInitScheduler && !window._schedInited) {
-      window.schedInitScheduler();
-    }
+    ensureSchedulerLoaded(function() {
+      // Set month label directly — bypasses all silent try/catch in schedInitScheduler.
+      // Scheduler's own currentMonthKey is always today's month at init time; match that.
+      var _sml = document.getElementById('sched-current-month-label');
+      if (_sml) _sml.textContent = new Date().toLocaleDateString('en-US', {month:'long', year:'numeric'});
+      if (window.schedInitScheduler && !window._schedInited) {
+        window.schedInitScheduler();
+      }
+    });
   }
+}
+// ── Lazy-load the Scheduler embed ───────────────────────────────────────────
+// The Scheduler's markup/CSS/JS is ~321KB and used to be inlined into the page
+// shell, which is served no-store — so every page load re-downloaded it, for
+// every user, even though the tab is admin-only and most sessions never open
+// it. It now lives at two immutable ?v=DEPLOY_VERSION routes and is fetched the
+// first time this tab is opened; after that it's a browser cache hit.
+//
+// Order matters: the markup has to be in the DOM before the script runs, and a
+// <script> inside an innerHTML assignment never executes — hence the explicit
+// two-step (inject markup, then append a real <script> element).
+var _schedLoadState = 0; // 0 = not loaded, 1 = in flight, 2 = ready
+var _schedWaiting = [];
+function ensureSchedulerLoaded(cb) {
+  if (_schedLoadState === 2) { cb(); return; }
+  _schedWaiting.push(cb);
+  if (_schedLoadState === 1) return; // a load is already running; cb rides along
+  _schedLoadState = 1;
+  var host = document.getElementById('tab-scheduler');
+  if (!host) { _schedLoadState = 0; _schedWaiting = []; return; }
+  host.innerHTML = '<div style="padding:48px 24px;text-align:center;color:var(--warm-gray);">Loading Scheduler&hellip;</div>';
+  fetch('/admin/scheduler-embed.html?v=' + DEPLOY_VERSION, { credentials: 'same-origin' })
+    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+    .then(function(markup) {
+      host.innerHTML = markup;
+      return new Promise(function(resolve, reject) {
+        var s = document.createElement('script');
+        s.src = '/admin/scheduler-embed.js?v=' + DEPLOY_VERSION;
+        s.onload = resolve;
+        s.onerror = function() { reject(new Error('Scheduler script failed to load')); };
+        document.body.appendChild(s);
+      });
+    })
+    .then(function() {
+      _schedLoadState = 2;
+      var queued = _schedWaiting; _schedWaiting = [];
+      queued.forEach(function(fn) { try { fn(); } catch (e) { console.error(e); } });
+    })
+    .catch(function(e) {
+      console.error('Scheduler load failed:', e);
+      _schedLoadState = 0;
+      _schedWaiting = [];
+      host.innerHTML = '<div style="padding:48px 24px;text-align:center;color:var(--warm-gray);">'
+        + 'Could not load the Scheduler. Check your connection and try the tab again.</div>';
+    });
 }
 // Navigate to a person's profile from any tab (fetches person, switches to People tab)
 function goToProfile(id) {

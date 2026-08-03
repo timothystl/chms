@@ -1,5 +1,5 @@
 // ── ChMS HTML app, service worker, manifest, and backlog ──────────────────────
-import { getSchedulerInline } from './scheduler-inline.js';
+import { getSchedulerInlineParts } from './scheduler-inline.js';
 import { HTML_HEAD } from './frontend/html-head.js';
 import { HTML_TABS_1, HTML_TABS_2 } from './frontend/html-tabs.js';
 import { JS_CORE, DEPLOY_VERSION } from './frontend/js-core.js';
@@ -88,10 +88,36 @@ const APP_EXT_JS_RAW = JS_GIVING + JS_REPORTS + JS_EXPORT_IMPORT + JS_ATTENDANCE
 export const CHMS_APP_CORE_JS = APP_CORE_JS_RAW.replace(/^<script>\n/, '').replace(/<\/script>\n$/, '');
 export const CHMS_APP_EXT_JS = APP_EXT_JS_RAW.replace(/^<script>\n/, '').replace(/<\/script>\n$/, '');
 
+// ── App CSS, split out of the page for the same reason as the app JS above ─────────────────
+// HTML_HEAD's single <style> block is ~101KB of entirely static app CSS with nothing per-user
+// in it, yet it rode along inside the no-store shell on every page load. Served as its own
+// immutable route and referenced with the same ?v=DEPLOY_VERSION cache-buster instead.
+// A <link> in <head> is still render-blocking, so there's no flash of unstyled content — the
+// only cost is one extra same-origin round trip on a cold cache, paid back on every reload.
+const _headStyleStart = HTML_HEAD.indexOf('<style>');
+const _headStyleEnd = HTML_HEAD.indexOf('</style>');
+if (_headStyleStart === -1 || _headStyleEnd === -1) {
+  // Fail loudly at module load rather than silently shipping a page with no styles.
+  throw new Error('html-chms.js: could not locate the <style> block in HTML_HEAD');
+}
+export const CHMS_APP_CSS = HTML_HEAD.slice(_headStyleStart + '<style>'.length, _headStyleEnd);
+const HTML_HEAD_LINKED = HTML_HEAD.slice(0, _headStyleStart)
+  + `<link rel="stylesheet" href="/admin/app.css?v=${DEPLOY_VERSION}">`
+  + HTML_HEAD.slice(_headStyleEnd + '</style>'.length);
+
+// ── Scheduler embed, lazy-loaded instead of inlined ────────────────────────────────────────
+// This bundle is ~321KB — over half of what the shell used to weigh — and the Scheduler tab is
+// admin-only (see the role guard in showTab), so every non-admin was downloading a tab they can
+// never open, on every page load. Now the shell ships an empty placeholder and js-core.js
+// fetches these two routes the first time someone actually opens the tab.
+const _schedParts = getSchedulerInlineParts();
+export const CHMS_SCHEDULER_HTML = _schedParts.markup;
+export const CHMS_SCHEDULER_JS = _schedParts.js;
+
 // ── ChMS ADMIN HTML ────────────────────────────────────────────────
-export const CHMS_HTML = HTML_HEAD
+export const CHMS_HTML = HTML_HEAD_LINKED
   + HTML_TABS_1
-  + '<div id="tab-scheduler" class="tab-panel">\n' + getSchedulerInline() + '\n</div>\n'
+  + '<div id="tab-scheduler" class="tab-panel"></div>\n'
   + HTML_TABS_2
   + `<script src="/admin/app-core.js?v=${DEPLOY_VERSION}"></script>\n`
   + `<script src="/admin/app-ext.js?v=${DEPLOY_VERSION}"></script>\n`;
