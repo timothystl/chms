@@ -88,7 +88,12 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // reachable here — reports/giving resolves to the `giving` item in the gate above and is
   // already 403'd for members. All writes are blocked regardless.
   if (role === 'member') {
-    const allowedSegs = seg.startsWith('people') || seg === 'tags' || seg === 'member-types'
+    // `config/member-types` is the REAL path (see api-import.js) — the bare `member-types`
+    // below is a legacy dispatch alias that the frontend never calls. Listing only the alias
+    // meant loadMemberTypes() 403'd on every single member page load, which surfaced as a
+    // bare "Access denied" banner on an otherwise working directory (reported 2026-08-03).
+    const allowedSegs = seg.startsWith('people') || seg === 'tags'
+      || seg === 'member-types' || seg === 'config/member-types'
       || (canView('reports') && seg.startsWith('reports'));
     if (!allowedSegs) return json({ error: 'Access denied' }, 403);
     if (method !== 'GET') return json({ error: 'Access denied' }, 403);

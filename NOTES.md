@@ -24,6 +24,49 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.121.1 — Member tier: stop the 403 banner and the dead-end tabs (2026-08-03)
+
+**Reported:** with in-app load and persistent login finally working, a member account still
+showed a red "Something went wrong. Access denied" banner, and "it pulls up dashboard by default
+but member has no access to any of that info."
+
+Two separate causes.
+
+**1. A path that never matched.** The member allowlist in `api-chms.js` listed `member-types`,
+but the route the frontend actually calls is **`config/member-types`** (`api-import.js:340`) —
+the bare name is a legacy dispatch alias nothing calls. So `loadMemberTypes()` 403'd on *every*
+member page load. It was also the only one of the three unconditional boot calls without a
+`.catch()` (`loadTags` and `loadFunds` both had one), so the rejection escaped to the global
+handler and painted a banner over an otherwise working directory. Fixed both ends: the allowlist
+now accepts the real path, and `loadMemberTypes()` catches like its siblings.
+
+**2. Three tabs a member can open with nothing behind them.** The `Home`, `Households` and
+`Organizations` sidebar items carried no `no-member` class, so members saw four tabs — and the
+member allowlist covers only people / tags / config-member-types / reports, so three of them
+render empty and 403. `showTab()` had role guards for giving, finance, attendance, register,
+reports, import, settings, volunteers and scheduler, but none for these three.
+
+Now: the three items are `no-member`, and `showTab()` redirects a member to People for anything
+outside their tier. Redirect rather than an early `return` on purpose — a stale `#home` in the
+URL, or a bookmark from an admin session, would otherwise leave the app on a blank screen.
+`loadFunds()` is also skipped for members: guaranteed 403, and a wasted round trip on exactly the
+phone-and-church-network connection the member tier lives on.
+
+**Verified:** `npm test` 486/486, 9 new in `test/member-access.test.js` exercising the real
+`handleChmsApi` ACL — the `config/member-types` regression, the people/tags reads, denial of
+dashboard/households/organizations/giving/finance/attendance/funds, denial of every write
+including to readable paths, and that staff/admin are unaffected. The regression test was
+explicitly re-run against the pre-fix allowlist to confirm it fails there rather than passing
+vacuously.
+
+**Caught before shipping:** the first version of the `showTab` comment wrote a word in backticks.
+That comment lives inside `JS_CORE = String.raw\`<script>…\``, so the backtick closed the
+template literal early and broke the entire served script — the SC3-BUG1 / FIN15 bug class,
+recurred. `npm test` caught it via a Rolldown parse error, which is exactly how FIN15 was caught;
+`node --check` on the built bundles confirmed the fix.
+
+**Not verified:** a live browser.
+
 ### v1.121.0 — Admin self-lockout guards + fail-closed role UI (2026-08-03)
 
 **Incident.** An admin set their own account's role to `member` in Settings → Users and was
