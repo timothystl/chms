@@ -7,7 +7,7 @@
 // v2 — modular build (src/)
 
 // ── Imports ────────────────────────────────────────────────────────────────────
-import { html, json, isAuthed, getAuthInfo, refreshAuthCookie, SCHED_CORS } from './src/auth.js';
+import { html, json, isAuthed, getAuthInfo, refreshAuthCookie, SCHED_CORS, isConnectHost, appRootPath } from './src/auth.js';
 import { initDb } from './src/db.js';
 import { LCMS_CALENDAR_JSON } from './src/lectionary.js';
 import {
@@ -164,7 +164,7 @@ async function _fetch(req, env) {
     // frontend, not by a separate hostname (an earlier two-host design, Phase 1, was tried
     // and dropped in favor of this simpler single-host approach — see CLAUDE.md). The old
     // chms.timothystl.org hostname is kept alive below purely to 301-redirect bookmarks.
-    const isChmsHost = host === 'connect.timothystl.org';
+    const isChmsHost = isConnectHost(url);
     const isLegacyChmsHost = host === 'chms.timothystl.org';
 
     // CORS preflight for scheduler backend routes
@@ -249,7 +249,7 @@ async function _fetch(req, env) {
     }
     if (path === '/admin' && method === 'GET') {
       if (!await isAuthed(req, env)) return html(LOGIN_HTML);
-      return new Response(null, { status: 302, headers: { 'Location': isChmsHost ? '/' : '/chms' } });
+      return new Response(null, { status: 302, headers: { 'Location': appRootPath(url) } });
     }
     // Permanent redirect: old serve.timothystl.org/chms (or any other non-primary host) → connect.timothystl.org
     if (!isChmsHost && !isLegacyChmsHost && path === '/chms' && method === 'GET') {

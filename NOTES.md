@@ -24,6 +24,54 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.118.1 — Fix: every login landed on /chms instead of the Connect root (2026-08-03)
+
+**Reported:** "connect.timothystl.org doesn't seem to load, you have to have /chms for it to load."
+
+**Not what it looked like.** The server was fine the whole time — verified against the live
+site that `https://connect.timothystl.org/` returns HTTP 200 with the correct login page, byte
+for byte the same as `/chms`. The worker's root handler (`tlc-volunteer-worker.js:215`) has
+always served `CHMS_HTML`/`LOGIN_HTML` correctly for `isChmsHost`.
+
+**Actual cause:** `handleAdminLogin` (`src/api-admin.js`) hardcoded `Location: '/chms'` on its
+success 302 — the pre-CONN6 path, from before the app moved to serving at the root on
+`connect.timothystl.org`. So *every successful login* bounced the user to `/chms`. Nothing
+errored, because `/chms` still works on that host — the user just never ended up on the bare
+domain, so `/chms` is what accumulated in browser history, URL-bar autocomplete, and bookmarks.
+The bare domain then "doesn't load" in the sense that it isn't what the browser offers you and
+isn't where the app leaves you.
+
+This was a CONN6 leftover, and specifically a *partial* one: the sibling `/admin` handler two
+dozen lines away in the worker (`tlc-volunteer-worker.js:252`) was correctly updated to
+`isChmsHost ? '/' : '/chms'` at rename time. The login POST lives in a different file and was
+missed.
+
+**Fix.** New shared `CONNECT_HOST` / `isConnectHost()` / `appRootPath()` in `src/auth.js` — the
+module both `tlc-volunteer-worker.js` and `src/api-admin.js` already import, and a leaf in the
+import graph (`api-utils.js` imports *from* `auth.js`, not the reverse), so there's no circular
+risk. `handleAdminLogin` now redirects to `appRootPath(req)`, and the worker's own two host
+checks route through the same helper instead of repeating the hostname literal.
+
+The point of the helper is the recurrence, not the line count: this broke *because* the
+hostname was stated in two files with no shared definition, so the rename had to find every
+site individually and missed one silently. It's now stated once.
+
+**Verified:** live `curl` against `connect.timothystl.org` `/` and `/chms` (both 200, identical
+login page) established the server was never the problem; `npm test` 436/436 with 9 new cases in
+`test/app-root-path.test.js` locking in the redirect target per host — including that a lookalike
+host (`evilconnect.timothystl.org`, `connect.timothystl.org.example.com`) does *not* match, since
+the helper is now the single place that decision is made; `node --check` on all three touched files.
+
+**Not verified:** the logged-in redirect end to end — that needs real credentials against the live
+site, which this environment doesn't have. The unauthenticated half of the flow was verified
+directly.
+
+**Related, deliberately not fixed here:** the service worker (`SW_JS` in `src/html-chms.js`) has
+the *same* CONN6 leftover — it gates its offline navigation fallback on
+`url.pathname === '/chms'`, so that fallback is dead on the hostname everyone uses. Left alone to
+keep this fix small and independently revertable, since it changes offline behavior that can't be
+tested from here. Tracked as **MOB4** in CLAUDE.md with the exact fix.
+
 ### v1.118.0 — CR1: page shell 622 KB → 200 KB (Scheduler lazy-loaded, CSS externalized) (2026-08-03)
 Follow-on from v1.117.0. With search ruled out as the bottleneck (the scan is ~0.5ms at this
 church's ~1,000 rows — measured, see below), the remaining load cost is the page shell itself,

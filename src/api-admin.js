@@ -1,5 +1,5 @@
 // ── Admin API handlers ─────────────────────────────────────────────────────────
-import { html, json, isAuthed, authCookieHeader, getAuthRole, getAuthInfo, hashPassword, verifyPassword } from './auth.js';
+import { html, json, isAuthed, authCookieHeader, getAuthRole, getAuthInfo, hashPassword, verifyPassword, appRootPath } from './auth.js';
 import { handleChmsApi } from './api-chms.js';
 import { LOGIN_HTML } from './html-templates.js';
 import { randHex, authCardPage, getRolePermissions, permissionsForRole } from './api-utils.js';
@@ -182,8 +182,12 @@ export async function handleAdminLogin(req, env) {
 
   if (matchedRole) {
     if (env.RSVP_STORE) await env.RSVP_STORE.delete(rlKey).catch(() => {});
+    // Host-aware: `/` on connect.timothystl.org, `/chms` anywhere else. Hardcoding /chms
+    // here (the pre-CONN6 path) sent every successful Connect login to /chms even though
+    // the app is served at the root there — so /chms, not the bare domain, is what ended up
+    // in everyone's history and bookmarks. See appRootPath's note in auth.js.
     return new Response('', { status: 302, headers: {
-      Location: '/chms',
+      Location: appRootPath(req),
       'Set-Cookie': await authCookieHeader(env, matchedRole, matchedUsername)
     }});
   }
