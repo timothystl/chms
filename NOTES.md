@@ -24,6 +24,58 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.119.0 — Persistent member sessions (30-day sliding); staff unchanged (2026-08-03)
+
+**Reported:** "Login is not persistent." Context: evaluating putting the Connect member
+directory behind a Tithe.ly Church App weblink tab, where a member taps a Directory tab, gets
+an in-app browser, and has to sign in essentially every visit.
+
+**Two independent causes, both deliberate policy in `src/auth.js`, neither of them infrastructure:**
+
+1. `authCookieHeader` issued a **session cookie** — no `Max-Age`/`Expires`, so the browser (and
+   any in-app webview) discards it the moment the view closes. The code said so in a comment.
+2. `IDLE_TIMEOUT_MS` was **8 hours for every role**, so even a surviving cookie is expired by
+   the time a member checks the directory the following Sunday.
+
+**Fix — role-split session lifetime.** New `MEMBER_IDLE_TIMEOUT_MS` (30 days) and
+`idleTimeoutForRole()`. `role='member'` now gets a persistent cookie (`Max-Age`) and a 30-day
+sliding window; **every other role is byte-for-byte unchanged** — still a session cookie, still
+8 hours. The split is the point: a member sees a read-only, self-redacting directory
+(`memberSafeView`) with every write already 403'd by `ACCESS_GATE`, so the longer window has a
+small blast radius. Staff/finance/admin see giving records, PII, and financial reports, and
+keep the short window.
+
+Revocation is unaffected in both cases — `_resolveAuthInfo` live-checks `app_users.active`/`.role`
+on every single request (SW3), so deactivating a member ends their session on the next request
+no matter how long the cookie is valid for.
+
+**One subtlety worth recording.** The idle window is gated twice. The first check uses the role
+the cookie was *signed with* (tamper-proof — the HMAC covers `ts.role.username` — but possibly
+stale). After the DB lookup it is re-checked against the user's **current** role. Without that
+second gate, a member promoted to staff would keep riding a 30-day cookie while holding staff
+permissions, since authorization correctly uses the new role. It re-checks unconditionally, not
+only on a detected change, so the two can't drift.
+
+**Verified:** `npm test` 449/449, 13 new in `test/session-lifetime.test.js` covering the window
+per role, `Max-Age` presence/absence per role, the promotion re-gate, immediate revocation of a
+deactivated member, and a forged cookie whose role claim was edited to buy the longer window.
+`node --check` on `src/auth.js`.
+
+A first pass at those tests **passed for the wrong reason** and was rewritten: the helper aged a
+cookie by rewriting its timestamp, which invalidates the HMAC — so every "expired" case was
+actually being rejected as *forged*, not as expired. The helper now moves the clock back with
+fake timers and signs there, so expiry is genuinely what's under test.
+
+**Not verified:** real-device behavior in a Tithe.ly in-app webview — whether "Stay in the app"
+uses `SFSafariViewController` (shares Safari's cookie jar) or a raw `WKWebView` (isolated jar)
+isn't documented anywhere findable, and this environment has no device. `Max-Age` is the
+necessary condition either way; whether it's sufficient needs a phone.
+
+**Deliberately NOT changed:** staff/office/finance/admin session lifetime. If the original report
+was about an *admin* login on a phone rather than a member one, this fix does nothing for it —
+extending privileged sessions is a real security trade-off and needs an explicit decision, not
+an assumption.
+
 ### v1.118.1 — Fix: every login landed on /chms instead of the Connect root (2026-08-03)
 
 **Reported:** "connect.timothystl.org doesn't seem to load, you have to have /chms for it to load."
