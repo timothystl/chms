@@ -21,7 +21,7 @@ function envelopeHistoryOnChange(oldPerson, newNumber) {
   return archiveEnvelope(hist, oldNum);
 }
 
-function memberSafeView(p, householdDisplayName) {
+export function memberSafeView(p, householdDisplayName) {
   return {
     id: p.id,
     first_name: p.first_name || '',
@@ -34,6 +34,14 @@ function memberSafeView(p, householdDisplayName) {
     household_display_name: householdDisplayName || null,
     household_photo_url: p.household_photo_url || '',
     family_role: p.family_role || '',
+    // Not sensitive — this is the directory's own classification (Member/Visitor/Associate/
+    // Friend/Inactive/Organization), and the People tab's default filter already scopes
+    // members-only by this exact field. Omitting it here was a genuine allowlist gap from
+    // CONN3, not a deliberate redaction: every rendering path that colors/labels this badge
+    // (typeDotHtml/typeColor in js-core.js) falls back to 'Visitor' on a falsy value, so a
+    // stripped member_type didn't error or blank the badge — it silently mislabeled every
+    // person as Visitor regardless of their real status. Reported 2026-08-03.
+    member_type: p.member_type || '',
     email: p.dir_hide_email ? '' : (p.email || ''),
     phone: p.dir_hide_phone ? '' : (p.phone || ''),
     address1: p.dir_hide_address ? '' : (p.address1 || ''),
