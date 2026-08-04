@@ -65,6 +65,43 @@ when this path is used, so it's never presented as more precise than it is. `npm
 verified in a live browser. (`src/frontend/js-attendance.js`, `src/frontend/html-head.js`,
 `src/frontend/js-giving.js`, `src/api-finance.js`, `test/finance-church.test.js`)
 
+### v1.122.0 — Member directory always showed "Visitor", regardless of real status (2026-08-03)
+
+**Reported:** "When searching as a member user the people status all show as visitor even when
+they are members."
+
+**Root cause: a genuine allowlist gap, not a rendering bug.** `memberSafeView()`
+(`src/api-people.js`, built for CONN3's security pass) is an explicit allowlist of what a
+`role='member'` viewer sees of another person's record — strips `notes`/`tags`/`breeze_id`,
+respects `dir_hide_*` opt-outs. `member_type` (Member/Visitor/Associate/Friend/Inactive/
+Organization) was simply never added to it. Not a deliberate redaction — it isn't remotely
+sensitive, and it's literally the field the People tab's own default filter (`mt:'member'`)
+scopes by. It was left out of CONN3's original allowlist and nobody's added it since.
+
+Every frontend renderer that colors/labels the status badge — `typeColor`/`typeDotHtml` in
+`js-core.js` — falls back to `'visitor'` on a **falsy** value, by design, for a genuinely unset
+type. Since a member-role response always had `member_type` entirely absent, every person
+rendered with the Visitor dot and label regardless of their real status. The fallback itself was
+never the bug; the missing field feeding it was.
+
+**Fix:** added `member_type: p.member_type || ''` to `memberSafeView()`'s allowlist. Exported the
+function (previously module-private) so it's directly testable.
+
+**Verified:** `npm test` 507/507, 7 new in `test/member-safe-view.test.js` — `member_type` passes
+through for every real status value, defaults to `''` rather than being omitted, the pre-existing
+CONN3 redactions (`notes`/`tags`/`breeze_id`/`locally_edited`/`dir_hide_*`) are unaffected, and an
+end-to-end case that extracts the **real** `typeColor`/`typeDotHtml` source out of `JS_CORE`
+(not a reimplementation) and confirms a `member_type:'Member'` person now renders `>Member<`, not
+`>Visitor<`. The full `JS_CORE` string runs boot-time `window`/`document` side effects this test
+has no browser for, so only the two self-contained functions were sliced out and evaluated —
+enough of the real source to catch a genuine mismatch, without needing to fake a whole DOM.
+
+**Re-verified against the pre-fix code**, per the standing practice after tonight's two
+presence-vs-effect test mistakes: reverted the allowlist addition and confirmed 4 of the 7 tests
+correctly go red, including the end-to-end one, before restoring.
+
+**Not verified:** a live browser.
+
 ### v1.121.4 — v1.121.3's pagination fix did nothing; corrected (2026-08-03)
 
 **v1.121.3 shipped broken, and its tests passed anyway.** Recording this because the failure mode
