@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.123.0';
+export const DEPLOY_VERSION = '1.124.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -149,6 +149,40 @@ function typeColor(mt) {
 // Color-coded dot + label — replaces the filled pill badge for member type everywhere.
 function mapUrl(addr) {
   return addr ? 'https://maps.apple.com/?q=' + encodeURIComponent(addr) : '';
+}
+// A real "open this address" action, styled as an action rather than the red "Map unavailable"
+// error. Used where the embedded static map isn't available — for members (who can't reach the
+// static-map endpoint, and shouldn't cost a paid API call), and as the fallback when the map
+// image fails to load. Takes an ALREADY encodeURIComponent-encoded address, matching what the
+// map call sites pass around.
+function openInMapsHtml(encAddr) {
+  return '<a href="https://maps.google.com/?q=' + encAddr + '" target="_blank" rel="noopener"'
+    + ' style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:99px;'
+    + 'background:var(--color-teal);color:var(--white);font-size:.85rem;font-weight:700;'
+    + 'text-decoration:none;min-height:36px;box-sizing:border-box;">Open in Maps</a>';
+}
+// The static-map image failed. An img onerror cannot read the response body, so the old
+// handling could only ever say "Map unavailable" with no reason — which is why this stayed
+// unexplained for so long. Re-request the same URL as JSON to surface the server's actual
+// reason: 501 means no GOOGLE_MAPS_API_KEY is configured, and a 502 carries Google's own text
+// (commonly that the key is restricted to Address Validation and Maps Static API is not
+// enabled on the project - see SECRETS.md). Only runs in the failure path.
+function showMapError(el, encAddr) {
+  el.innerHTML = '<div style="padding:8px;">' + openInMapsHtml(encAddr)
+    + '<div id="map-err-why" style="margin-top:8px;font-size:12px;color:var(--warm-gray);">Map image could not be loaded.</div></div>';
+  fetch('/admin/api/utils/static-map?address=' + encAddr)
+    .then(function(r) { return r.json().then(function(d) { return { s: r.status, d: d }; }); })
+    .then(function(res) {
+      var why = document.getElementById('map-err-why');
+      if (!why) return;
+      var msg = res.s === 501
+        ? 'Maps are not configured — set the GOOGLE_MAPS_API_KEY secret (see SECRETS.md).'
+        : (res.d && res.d.google) ? 'Google says: ' + res.d.google
+        : (res.d && res.d.error) ? res.d.error
+        : 'Map image could not be loaded.';
+      why.textContent = msg;
+    })
+    .catch(function() { /* leave the generic message */ });
 }
 function typeDotHtml(mt, size) {
   size = size || 8;

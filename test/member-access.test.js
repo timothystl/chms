@@ -101,3 +101,29 @@ describe('other roles are unaffected by the member allowlist', () => {
     expect(await denied('admin', 'config/member-types')).toBe(false);
   });
 });
+
+describe('member household access (2026-08-04)', () => {
+  it('allows GET of a single household, for the directory family chips', () => {
+    // Needed by loadQuickViewHousehold. The handler returns a redacted shape for this role.
+    return expect(denied('member', 'households/7')).resolves.toBe(false);
+  });
+
+  it('still denies the household LIST and every other household route', async () => {
+    for (const p of ['households', 'households/no-head-count', 'households/fix-heads',
+                     'households/7/sync-address', 'households/7/use-member-photo',
+                     'households/7/apply-photo-to-members']) {
+      expect(await denied('member', p), p).toBe(true);
+    }
+  });
+
+  it('still denies writes to a household it can read', async () => {
+    for (const m of ['PUT', 'POST', 'DELETE']) {
+      expect(await denied('member', 'households/7', m), m).toBe(true);
+    }
+  });
+
+  it('does not accidentally allow a non-numeric household segment', async () => {
+    expect(await denied('member', 'households/abc')).toBe(true);
+    expect(await denied('member', 'households/7/giving')).toBe(true);
+  });
+});

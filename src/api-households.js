@@ -2,7 +2,10 @@
 import { json } from './auth.js';
 import { disambiguateHHName } from './api-utils.js';
 
-export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmin, canEdit) {
+// `role` is appended LAST deliberately: SW4 was a real bug caused by this function being called
+// with more arguments than its signature declared, so a value silently landed in the wrong slot.
+// Adding at the end means every existing positional argument keeps its meaning.
+export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmin, canEdit, role) {
 
   // ── Households ────────────────────────────────────────────────────
   if (seg === 'households' && method === 'GET') {
@@ -80,6 +83,28 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
           if (head?.first_name) display_name = disambiguateHHName(h.name, head.first_name);
         }
       }
+      // Member-role viewers get the family-chip essentials and nothing else. Returning the
+      // full shape here would hand a member this household's giving history, envelope number,
+      // anniversary, private household notes, and every member's phone/email regardless of
+      // their own dir_hide_* opt-outs — none of which memberSafeView would ever have let
+      // through on the person endpoints. The early return also skips the giving query
+      // entirely rather than running it and discarding the result.
+      if (role === 'member') {
+        return json({
+          id: h.id,
+          name: h.name || '',
+          display_name,
+          photo_url: h.photo_url || '',
+          members: members.map((m) => ({
+            id: m.id,
+            first_name: m.first_name || '',
+            last_name: m.last_name || '',
+            photo_url: m.photo_url || '',
+            member_type: m.member_type || '',
+          })),
+        });
+      }
+
       // H3: household giving summary — last 5 years, grouped by year
       const givingYears = (await db.prepare(
         `SELECT substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4) as yr,

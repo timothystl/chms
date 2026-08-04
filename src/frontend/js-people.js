@@ -305,6 +305,12 @@ function renderPersonQuickView(p) {
 function loadQuickViewMap(personId, encAddr) {
   var el = document.getElementById('ppl-qv-map');
   if (!el) return;
+  // Members never get the embedded map. Two reasons it could not work for them anyway
+  // (utils/static-map is outside the member allowlist, and the handler itself requires
+  // canEdit), and one reason we would not want it to: it is a paid per-request Google Static
+  // Maps call, and members are the largest user tier. The link below opens the device's own
+  // maps app, costs nothing, needs no API key, and is what someone on a phone actually wants.
+  if (_userRole === 'member') { el.innerHTML = openInMapsHtml(encAddr); return; }
   var img = new Image();
   img.onload = function() {
     if (_qvPersonId !== personId) return; // selection changed while loading
@@ -314,7 +320,7 @@ function loadQuickViewMap(personId, encAddr) {
   };
   img.onerror = function() {
     if (_qvPersonId !== personId) return;
-    el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--danger);">Map unavailable. <a href="https://maps.google.com/?q=' + encAddr + '" target="_blank" rel="noopener">Open in Google Maps</a></div>';
+    showMapError(el, encAddr);
   };
   img.src = '/admin/api/utils/static-map?address=' + encAddr;
 }
@@ -2793,6 +2799,12 @@ function togglePersonMap(personId) {
     el.style.display = '';
     if (btn) btn.textContent = '▼ Hide Map';
     if (el.dataset.loaded) return;
+    // Members get the maps link rather than the paid embedded map — see loadQuickViewMap.
+    if (_userRole === 'member') {
+      el.innerHTML = '<div style="padding:8px;">' + openInMapsHtml(el.dataset.addr) + '</div>';
+      el.dataset.loaded = '1';
+      return;
+    }
     var addr = decodeURIComponent(el.dataset.addr);
     var img = new Image();
     img.onload = function() {
@@ -2802,7 +2814,7 @@ function togglePersonMap(personId) {
       el.dataset.loaded = '1';
     };
     img.onerror = function() {
-      el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--danger);">Map unavailable. <a href="https://maps.google.com/?q='+el.dataset.addr+'" target="_blank" rel="noopener">Open in Google Maps</a></div>';
+      showMapError(el, el.dataset.addr);
     };
     el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--warm-gray);">Loading map…</div>';
     img.src = '/admin/api/utils/static-map?address=' + encodeURIComponent(addr);

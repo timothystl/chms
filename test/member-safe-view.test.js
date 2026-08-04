@@ -100,3 +100,42 @@ describe('the reported symptom, reproduced end to end against the real served fr
     expect(typeDotHtml(v.member_type)).toContain('>Visitor<');
   });
 });
+
+describe('member field gating — "only name and contact info" (2026-08-04)', () => {
+  const v = () => memberSafeView(samplePerson({
+    dob: '1980-01-01', anniversary_date: '2005-06-01', family_role: 'head',
+  }));
+
+  it('never exposes date of birth, even when the person has not opted out', () => {
+    // Previously included subject to dir_hide_dob, which made exposure opt-OUT. A birthday is
+    // personal data, not contact info, so it is now never sent to a member at all.
+    expect(v().dob).toBeUndefined();
+  });
+
+  it('never exposes anniversary date', () => {
+    expect(v().anniversary_date).toBeUndefined();
+  });
+
+  it('never exposes family role (head/spouse/child)', () => {
+    expect(v().family_role).toBeUndefined();
+  });
+
+  it('still exposes name, contact details, member type, photo and household', () => {
+    const r = v();
+    for (const k of ['first_name', 'last_name', 'middle_name', 'preferred_name',
+                     'email', 'phone', 'address1', 'city', 'state', 'zip',
+                     'member_type', 'photo_url', 'household_id', 'household_name']) {
+      expect(r[k], k + ' should still be present').toBeDefined();
+    }
+  });
+
+  it('exposes no key outside the agreed set', () => {
+    // Catches a future field being added to the allowlist without a deliberate decision.
+    expect(Object.keys(v()).sort()).toEqual([
+      'address1', 'address2', 'city', 'email', 'first_name', 'household_display_name',
+      'household_id', 'household_name', 'household_photo_url', 'id', 'last_name',
+      'member_type', 'middle_name', 'phone', 'photo_url', 'preferred_name', 'state',
+      'tags', 'zip',
+    ]);
+  });
+});
