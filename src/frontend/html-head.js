@@ -432,6 +432,10 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .att-bar26-bar{width:100%;border-radius:4px 4px 0 0;min-height:2px;}
 .att-bar26-bar.gold{background:var(--color-gold);}
 .att-bar26-bar.teal{background:var(--color-teal);}
+.att-bar-stack{width:100%;display:flex;flex-direction:column;border-radius:4px 4px 0 0;overflow:hidden;min-height:2px;}
+.att-bar-seg{width:100%;}
+.att-bar-seg-1045{background:var(--color-teal);}
+.att-bar-seg-8{background:var(--color-gold);}
 .att-bars-foot{display:flex;justify-content:space-between;font-size:.72rem;color:var(--att-text-3);}
 /* -- Heat grid -- */
 .att-heat-row{display:flex;align-items:center;gap:8px;margin-bottom:3px;}
@@ -1066,8 +1070,13 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 /* ── PRINT ── */
 @media print{
   .sidebar,.topbar,.toolbar,.modal-overlay,#offline-banner{display:none!important;}
-  .tab-panel{display:block!important;padding:0;}
-  .tab-panel:not(#tab-reports):not(#tab-finance):not(#tab-scheduler):not(#tab-giving):not(#tab-attendance){display:none!important;}
+  /* Only the currently-active tab prints — a plain window.print() (Finance's Church Report,
+     Commercial Property, etc. all just call window.print() with no scoping class) used to force
+     EVERY tab in a hardcoded whitelist (#tab-reports/#tab-finance/#tab-scheduler/#tab-giving/
+     #tab-attendance) visible at once, so printing from Finance also printed whatever was left
+     rendered inside the Attendance tab. Scope to .active instead so exactly one tab prints. */
+  .tab-panel{display:none!important;}
+  .tab-panel.active{display:block!important;padding:0;}
   #tab-giving{display:none!important;}
   body{background:white;}
   /* Attendance tab: only the active att-panel prints (tab bar + inactive panels hidden). The

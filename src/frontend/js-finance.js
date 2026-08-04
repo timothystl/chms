@@ -155,7 +155,7 @@ function finRenderTrendChart(months, title) {
     + '<div class="fin-trend-labels">' + labels + '</div>'
     + '</div>';
 }
-function finRenderYearEndProjection(income, expenses) {
+function finRenderYearEndProjection(income, expenses, isStraightLineEstimate) {
   function bar(label, cls, series) {
     if (!series) return '';
     var maxVal = Math.max(series.projectedFullYearCents, series.currentYtdCents, 1);
@@ -173,6 +173,7 @@ function finRenderYearEndProjection(income, expenses) {
     + (income || expenses
       ? bar('Income', 'income', income) + bar('Expenses', 'expense', expenses)
         + '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--warm-row-divider);"><div class="fin-kpi-lbl">Projected surplus / (deficit)</div><div class="fin-navy-val ' + netCls + '" style="color:' + (netProjected >= 0 ? 'var(--sage-text)' : 'var(--danger)') + ';">' + finFmtSigned(netProjected) + '</div></div>'
+        + (isStraightLineEstimate ? '<div style="margin-top:8px;font-size:.74rem;color:var(--warm-gray);">Straight-line estimate — no monthly-granularity sync/import data for this year or last year to project the real seasonal pattern from.</div>' : '')
       : '<p style="font-size:.82rem;color:var(--warm-gray);">Not yet available — needs at least one month of monthly-granularity QuickBooks sync data for this year and last year.</p>')
     + '</div>';
 }
@@ -212,7 +213,7 @@ function finRenderOverviewChurch(d) {
       chip: d.hasBudgetData ? (finFmtSigned(netVariance) + ' vs. budget') : null, chipCls: netVariance >= 0 ? 'fin-chip-positive' : 'fin-chip-negative', border: net.actualCents >= 0 ? 'var(--sage)' : 'var(--danger)' },
     { lbl: 'Income YTD', val: '$' + finFmtMoney(income.actualCents/100), chip: income.budgetCents > 0 ? (Math.round(income.actualCents/income.budgetCents*100) + '% of $' + finFmtMoney(income.budgetCents/100) + ' budget') : null, chipCls: 'fin-chip-info', border: 'var(--color-teal)' },
     { lbl: 'Expenses YTD', val: '$' + finFmtMoney(expenses.actualCents/100), chip: expenses.budgetCents > 0 ? (Math.round(expenses.actualCents/expenses.budgetCents*100) + '% of $' + finFmtMoney(expenses.budgetCents/100) + ' budget') : null, chipCls: 'fin-chip-warn', border: 'var(--color-gold)' },
-    { lbl: 'Projected Year-End', val: d.yoy && d.yoy.available ? finFmtSigned(d.yoy.net.projectedFullYearCents) : '—', chip: d.yoy && d.yoy.available ? ((d.yoy.net.projectedFullYearCents >= 0 ? 'Surplus' : 'Deficit') + ' est. Dec 31') : 'Not yet available', chipCls: (d.yoy && d.yoy.available && d.yoy.net.projectedFullYearCents >= 0) ? 'fin-chip-positive' : 'fin-chip-negative', border: (d.yoy && d.yoy.available && d.yoy.net.projectedFullYearCents < 0) ? 'var(--danger)' : 'var(--sage)' },
+    { lbl: 'Projected Year-End', val: d.yoy && d.yoy.available ? finFmtSigned(d.yoy.net.projectedFullYearCents) : '—', chip: d.yoy && d.yoy.available ? ((d.yoy.net.projectedFullYearCents >= 0 ? 'Surplus' : 'Deficit') + ' est. Dec 31' + (d.yoy.seasonal === false ? ' (straight-line estimate)' : '')) : 'Not yet available', chipCls: (d.yoy && d.yoy.available && d.yoy.net.projectedFullYearCents >= 0) ? 'fin-chip-positive' : 'fin-chip-negative', border: (d.yoy && d.yoy.available && d.yoy.net.projectedFullYearCents < 0) ? 'var(--danger)' : 'var(--sage)' },
   ];
   var kpiHtml = '<div class="fin-kpi-grid">' + kpis.map(function(k) {
     return '<div class="fin-kpi-card" style="border-top-color:' + k.border + ';"><div class="fin-kpi-lbl">' + k.lbl + '</div><div class="fin-kpi-val">' + k.val + '</div>'
@@ -230,7 +231,7 @@ function finRenderOverviewChurch(d) {
   var paceHtml = finRenderPacePanel(categories, elapsedPct);
 
   var trendHtml = (d.monthlyTrend && d.monthlyTrend.available) ? finRenderTrendChart(d.monthlyTrend.months, 'Income vs. Expenses') : '<div class="fin-card"><div class="fin-card-title" style="font-size:18px;">Income vs. Expenses</div><p style="font-size:.82rem;color:var(--warm-gray);">Not yet available — needs monthly-granularity QuickBooks sync data for this year.</p></div>';
-  var projHtml = finRenderYearEndProjection(d.yoy && d.yoy.available ? d.yoy.income : null, d.yoy && d.yoy.available ? d.yoy.expenses : null);
+  var projHtml = finRenderYearEndProjection(d.yoy && d.yoy.available ? d.yoy.income : null, d.yoy && d.yoy.available ? d.yoy.expenses : null, d.yoy && d.yoy.available === true && d.yoy.seasonal === false);
 
   root.innerHTML = kpiHtml + paceHtml
     + '<div style="display:grid;grid-template-columns:1.5fr 1fr;gap:22px;margin-bottom:22px;">' + trendHtml + projHtml + '</div>'

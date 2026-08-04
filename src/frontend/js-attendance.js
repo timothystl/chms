@@ -243,21 +243,26 @@ function attRenderPulse() {
 }
 function attRenderBars26() {
   var entered = attEnteredSundaysAsc();
-  var last26 = entered.slice(-26);
+  var curYear = String(new Date().getFullYear());
+  var ytd = entered.filter(function(r) { return r.date.slice(0, 4) === curYear; });
   var wrap = document.getElementById('att-bars26');
   var foot = document.getElementById('att-bars26-foot');
   if (!wrap || !foot) return;
-  if (!last26.length) { wrap.innerHTML = ''; foot.innerHTML = ''; return; }
-  var maxV = Math.max.apply(null, last26.map(function(r) { return r.combined; })) || 1;
-  wrap.innerHTML = last26.map(function(r) {
-    var priorIdx = entered.indexOf(r);
-    var priorSlice = entered.slice(Math.max(0, priorIdx - 4), priorIdx);
-    var mean = priorSlice.length ? Math.round(priorSlice.reduce(function(a, x) { return a + x.combined; }, 0) / priorSlice.length) : null;
-    var cls = (mean === null || r.combined >= mean) ? 'gold' : 'teal';
+  if (!ytd.length) { wrap.innerHTML = ''; foot.innerHTML = ''; return; }
+  var maxV = Math.max.apply(null, ytd.map(function(r) { return r.combined; })) || 1;
+  wrap.innerHTML = ytd.map(function(r) {
     var h = Math.max(2, Math.round(r.combined / maxV * 100));
-    return '<div class="att-bar26-col"><div class="att-bar26-val">' + r.combined + '</div><div class="att-bar26-bar ' + cls + '" style="height:' + h + '%;" title="' + r.date + ': ' + r.combined + '"></div></div>';
+    var g8 = r.att8 || 0, g1045 = r.att1045 || 0;
+    // Stacked bar: 10:45 on top, 8:00 on the bottom (flex-direction:column, DOM order = visual
+    // order top-to-bottom). flex-grow:0 on an empty leg still renders (0-height), so a Sunday
+    // with only one service recorded still shows correctly as a single-color bar.
+    return '<div class="att-bar26-col"><div class="att-bar26-val">' + r.combined + '</div>'
+      + '<div class="att-bar-stack" style="height:' + h + '%;" title="' + r.date + ': 8:00 service ' + g8 + ', 10:45 service ' + g1045 + '">'
+      + '<div class="att-bar-seg att-bar-seg-1045" style="flex-grow:' + g1045 + ';"></div>'
+      + '<div class="att-bar-seg att-bar-seg-8" style="flex-grow:' + g8 + ';"></div>'
+      + '</div></div>';
   }).join('');
-  foot.innerHTML = '<span>' + attFmtShort(last26[0].date) + '</span><span>' + attFmtShort(last26[last26.length - 1].date) + '</span>';
+  foot.innerHTML = '<span>' + attFmtShort(ytd[0].date) + '</span><span>' + attFmtShort(ytd[ytd.length - 1].date) + '</span>';
 }
 
 // ── Heat grid: every Sunday, five years ─────────────────────────────────

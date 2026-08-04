@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, makeSingleYearActualExtractor, parseMonthColTitle, mergeProfitAndLossTree, mergeLeafCells, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, computeSuppliesMonthlyBreakdown, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport, classifyMdoAccountCategory, extractMdoDaycareEntries, persistDaycareEntriesFromChurchBudget, finXlsxParseSheetGrid, parseYearColTitle, findActivityMultiYearSheet, parseActivityMultiYearGrid, persistChurchEntriesActivityImport, findFinancialPositionMultiYearSheet, parseFinancialPositionMultiYearGrid, persistChurchBalancesMultiYearImport, findBudgetMultiYearSheet, parseBudgetMultiYearGrid } from '../src/api-finance.js';
+import { flattenReportTree, makeCurrentYearExtractor, makeMultiYearExtractor, makeMonthlyExtractor, makeSingleYearActualExtractor, parseMonthColTitle, mergeProfitAndLossTree, mergeLeafCells, persistChurchEntries, persistChurchEntriesImport, resolveChurchYearPrecedence, computeYearSummary, computeYtdComparison, fallbackAnnualProjection, computeSuppliesMonthlyBreakdown, parseBudgetVsActualsGrid, normalizeChurchClassification, parseBalanceSheetGrid, normalizeBalanceClassification, computeBalanceSummary, persistChurchBalancesImport, classifyMdoAccountCategory, extractMdoDaycareEntries, persistDaycareEntriesFromChurchBudget, finXlsxParseSheetGrid, parseYearColTitle, findActivityMultiYearSheet, parseActivityMultiYearGrid, persistChurchEntriesActivityImport, findFinancialPositionMultiYearSheet, parseFinancialPositionMultiYearGrid, persistChurchBalancesMultiYearImport, findBudgetMultiYearSheet, parseBudgetMultiYearGrid } from '../src/api-finance.js';
 
 // ── Minimal D1-shaped wrapper around node:sqlite, so persistChurchEntries() runs against real
 // SQL (real UNIQUE/ON CONFLICT semantics) instead of a hand-rolled re-implementation of what the
@@ -346,6 +346,29 @@ describe('computeYtdComparison', () => {
     const result = computeYtdComparison(curMonthly, priorMonthly, priorAnnual, 6);
     expect(result.income.method).toBe('straight-line');
     expect(result.income.projectedFullYearCents).toBe(120000); // 60000 * (12/6)
+  });
+});
+
+describe('fallbackAnnualProjection', () => {
+  it('projects straight-line off the annual actual-to-date total when no monthly rows exist', () => {
+    // Through month 6 (half the year): Income 60000 actual -> projected 60000*2=120000.
+    const summary = computeYearSummary([
+      { classification: 'Income', own_actual_cents: 60000 },
+      { classification: 'Expenses', own_actual_cents: 30000 },
+    ]);
+    const result = fallbackAnnualProjection(summary, 6);
+    expect(result.available).toBe(true);
+    expect(result.seasonal).toBe(false);
+    expect(result.income.method).toBe('straight-line-annual');
+    expect(result.income.projectedFullYearCents).toBe(120000);
+    expect(result.expenses.projectedFullYearCents).toBe(60000);
+    expect(result.net.projectedFullYearCents).toBe(60000); // (60000-30000) * 2
+  });
+
+  it('does not project past the actual once the year is complete', () => {
+    const summary = computeYearSummary([{ classification: 'Income', own_actual_cents: 100000 }]);
+    const result = fallbackAnnualProjection(summary, 12);
+    expect(result.income.projectedFullYearCents).toBe(100000);
   });
 });
 

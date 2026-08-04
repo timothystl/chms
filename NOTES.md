@@ -24,6 +24,47 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.122.0 — Attendance YTD chart, cross-tab print leak, General Fund KPI split, year-end
+projection fallback (2026-08-04)
+
+Four reported issues, addressed together. (1) **Attendance "This Week" bar chart** was fixed at
+"Last 26 Sundays" with gold/teal bars colored by whether that Sunday beat its own trailing 4-week
+average — changed to show every Sunday recorded **this calendar year** (YTD), and each bar is now
+a stacked 8:00 (bottom, gold)/10:45 (top, teal) split instead of a single combined bar colored by
+a pace comparison. `attRenderBars26()` in `src/frontend/js-attendance.js`; new `.att-bar-stack`/
+`.att-bar-seg-8`/`.att-bar-seg-1045` CSS. (2) **Print bug**: printing from Finance (Church Report,
+Commercial Property) also printed whatever was rendered in the Attendance tab underneath it. Root
+cause: the `@media print` block in `html-head.js` force-showed a hardcoded whitelist of 5 tab ids
+(`#tab-reports`/`#tab-finance`/`#tab-scheduler`/`#tab-giving`/`#tab-attendance`) all at once,
+because Church Report/Commercial Property just call plain `window.print()` with no scoping class —
+so every one of those 5 tabs printed simultaneously regardless of which was actually open. Fixed to
+key off `.tab-panel.active` (only the currently-open tab) instead of the whitelist; `#tab-giving`
+stays force-hidden by default since normal Giving-tab printing still needs to go through
+`printBoardPage()`'s `body.printing-board` mechanism, unchanged. (3) **Giving Board Report
+Dashboard**: the "Given year to date" KPI card lumped every fund into one total. Split into
+"General Fund YTD" (matched by name, `/general\s*fund/i`, same convention as the rest of the app)
+as the primary figure, with a sub-line folding every other fund into "+ $X other giving (N funds)
+= $Y total" and a YoY delta computed from the General Fund's own actual/prior figures rather than
+the blended total. New `boardGeneralFundSplit()` in `src/frontend/js-giving.js` — display-only,
+reads the same `d.funds` array the endpoint already returns, no backend change. **Budget YTD**
+(same card) still requires a fund-level `budget_annual_cents` set in Settings → Manage Funds — the
+request to have it pull from the Finance tab's uploaded Church Report budget instead needs a
+decision on which Church Report account represents "General Fund" giving (there's no existing
+link between the `funds` table and `finance_church_entries` account rows), flagged for a follow-up
+rather than guessed. (4) **Finance Overview "Projected Year-End" showing "Not yet available"**:
+that KPI (`computeYtdComparison`) has always deliberately required monthly-granularity rows
+(`period_month` 1-12) for both this year and last year — but this church settled on annual-only
+Excel imports (see FIN36 in CLAUDE.md), which store `period_month=0`, so the monthly comparison
+never had data to run on. New `fallbackAnnualProjection()` in `src/api-finance.js`: when no
+monthly rows exist, projects a straight-line estimate off the annual actual-to-date total instead
+(`actual * 12/monthsElapsed`) — less accurate than the seasonal prior-year-ratio (no month-shape
+awareness), but a real number instead of a permanent blank. Marked `seasonal:false` in the
+response; the KPI chip and the Year-End Projection card both now say "(straight-line estimate)"
+when this path is used, so it's never presented as more precise than it is. `npm test` (508/508,
+4 new tests in `test/finance-church.test.js`), `node --check` on both rebuilt app-JS bundles. Not
+verified in a live browser. (`src/frontend/js-attendance.js`, `src/frontend/html-head.js`,
+`src/frontend/js-giving.js`, `src/api-finance.js`, `test/finance-church.test.js`)
+
 ### v1.121.4 — v1.121.3's pagination fix did nothing; corrected (2026-08-03)
 
 **v1.121.3 shipped broken, and its tests passed anyway.** Recording this because the failure mode
