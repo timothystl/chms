@@ -1166,8 +1166,13 @@ function pvfRenderInfo(p) {
   var nameCard = pvfCard('name', 'Name', { body:
     pvfRowHtml('first_name') + pvfRowHtml('last_name')
     + (_prefRedundant ? '' : pvfRowHtml('preferred_name')) + pvfRowHtml('middle_name') });
-  var personalCard = pvfCard('personal', 'Personal', { body:
-    pvfRowHtml('gender') + pvfRowHtml('marital_status') + pvfRowHtml('member_type') + pvfRowHtml('dob') });
+  // gender, marital_status and dob are all absent from memberSafeView, so for a member this
+  // card was three empty rows under a "Personal" heading. Member type is the one field here a
+  // member does get, and it belongs in a directory.
+  var personalCard = _userRole === 'member'
+    ? pvfCard('personal', 'Personal', { body: pvfRowHtml('member_type') })
+    : pvfCard('personal', 'Personal', { body:
+        pvfRowHtml('gender') + pvfRowHtml('marital_status') + pvfRowHtml('member_type') + pvfRowHtml('dob') });
   var contactCard = pvfCard('contact', 'Contact', { body:
     pvfRowHtml('phone') + pvfRowHtml('email') + pvfRowHtml('address1') + pvfRowHtml('city') + pvfRowHtml('state') + pvfRowHtml('zip')
     + pvfContactExtras(p) });
@@ -1178,18 +1183,25 @@ function pvfRenderInfo(p) {
 
   var breezeBtn = _userRole === 'member' ? ''
     : '<button class="btn-secondary role-admin role-staff" style="font-size:.72rem;padding:3px 9px;" onclick="pushPersonToBreeze(' + p.id + ')">&#8679; Breeze</button>';
-  var demoCard = pvfCard('church', 'Demographics', { headerBtns: breezeBtn, body:
+  // Members get name / contact / family / location and nothing else. The server already strips
+  // the underlying data (memberSafeView), so these cards rendered as empty shells with real
+  // headings — which reads to a member as "the app is showing me Demographics, Tags,
+  // Follow-ups and Notes" whether or not any values appear. Giving was already gated this way
+  // on isFinance; these four simply never got the same treatment.
+  var isMemberView = _userRole === 'member';
+  var demoCard = isMemberView ? '' : pvfCard('church', 'Demographics', { headerBtns: breezeBtn, body:
     pvfRowHtml('baptism_date') + pvfRowHtml('confirmation_date') + pvfRowHtml('anniversary_date') });
-  var tagsCard = pvfCard('tags', 'Tags & Groups', { pad:true, body: pvfTagsBody(p) });
+  var tagsCard = isMemberView ? '' : pvfCard('tags', 'Tags & Groups', { pad:true, body: pvfTagsBody(p) });
   var locationCard = pvfCard('location', 'Location', { pad:true, body: pvfLocationBody(p) });
   var givingCard = isFinance ? pvfCard('giving', 'Giving', { tag:'This year', pad:true, body: pvfGivingBody() }) : '';
-  var followCard = pvfCard('followups', 'Follow-ups', { pad:true, body: pvfFollowupsBody(p) });
-  var notesCard = pvfCard('notes', 'Notes', { body: pvfNotesBody(p) });
+  var followCard = isMemberView ? '' : pvfCard('followups', 'Follow-ups', { pad:true, body: pvfFollowupsBody(p) });
+  var notesCard = isMemberView ? '' : pvfCard('notes', 'Notes', { body: pvfNotesBody(p) });
 
-  var navDefs = [['name','Name'],['personal','Personal'],['contact','Contact'],['family','Family'],
-    ['church','Demographics'],['tags','Tags & Groups'],['location','Location']];
+  var navDefs = [['name','Name'],['personal','Personal'],['contact','Contact'],['family','Family']];
+  if (!isMemberView) navDefs.push(['church','Demographics'],['tags','Tags & Groups']);
+  navDefs.push(['location','Location']);
   if (isFinance) navDefs.push(['giving','Giving']);
-  navDefs.push(['followups','Follow-ups'],['notes','Notes']);
+  if (!isMemberView) navDefs.push(['followups','Follow-ups'],['notes','Notes']);
   var navHtml = '<div class="pv2-nav-lbl">Jump to</div>'
     + navDefs.map(function(n){ return '<button class="pv2-nav-btn" data-sec="' + n[0] + '" onclick="pvfGo(\'' + n[0] + '\')">' + esc(n[1]) + '</button>'; }).join('');
 
@@ -1205,7 +1217,9 @@ function pvfRenderInfo(p) {
 
   if (p.household_id) loadPvFamily(p.household_id, p.id);
   if (isFinance) pvfRenderGivingCard(p.id);
-  pvfRenderFollowups(p.id);
+  // /admin/api/followup is outside the member allowlist, so for a member this was a guaranteed
+  // 403 on every profile open — and there is no Follow-ups card to fill any more either way.
+  if (!isMemberView) pvfRenderFollowups(p.id);
   // Newsletter control now lives in the Tags & Groups card — populate it after render.
   if (p.email && _userRole !== 'member') pvfNewsletterInit(p.id);
   // Auto-embed the map (togglePersonMap opens the hidden container + loads the static map).

@@ -17,10 +17,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       Filters
       <span id="p-filter-count" style="display:none;background:var(--teal);color:var(--white);border-radius:99px;padding:1px 7px;font-size:.72rem;font-weight:700;"></span>
     </button>
-    <button class="btn-secondary" id="p-members-btn" onclick="toggleMemberFilter()" title="Toggle between Members only and all types" style="margin-left:auto;">Members</button>
-    <button class="btn-secondary" id="p-select-btn" onclick="toggleSelectMode()">&#9745; Select</button>
-    <button class="btn-secondary" id="p-archive-btn" onclick="toggleArchiveView()" title="View archived &amp; deceased people">Archived</button>
-    <button class="btn-secondary" onclick="printDirectory()" title="Print directory">&#128438; Directory</button>
+    <button class="btn-secondary no-member" id="p-members-btn" onclick="toggleMemberFilter()" title="Toggle between Members only and all types" style="margin-left:auto;">Members</button>
+    <button class="btn-secondary no-member" id="p-select-btn" onclick="toggleSelectMode()">&#9745; Select</button>
+    <button class="btn-secondary no-member" id="p-archive-btn" onclick="toggleArchiveView()" title="View archived &amp; deceased people">Archived</button>
+    <button class="btn-secondary no-member" onclick="printDirectory()" title="Print directory">&#128438; Directory</button>
     <button class="btn-primary require-edit" onclick="openPersonEdit(null)">+ Add Person</button>
   </div>
   <!-- Active filter chips -->

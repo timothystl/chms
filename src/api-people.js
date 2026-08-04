@@ -245,15 +245,23 @@ async function autoUpdatePersonInBreeze(env, db, breezeId, person, changedDateKe
   }
 }
 
-export async function handlePeopleApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit, canRegister = isStaff) {
+// `role` appended LAST — see the same note on handleHouseholdsApi. SW4 was a real bug caused by
+// calling one of these with more arguments than its signature declared.
+export async function handlePeopleApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit, canRegister = isStaff, role) {
 
 // ── People ──────────────────────────────────────────────────────
 if (seg === 'people' && method === 'GET') {
   const q = url.searchParams.get('q') || '';
-  const mt = url.searchParams.get('member_type') || '';
+  // Member-role scoping is enforced HERE, on the query, not just by redacting the rows that
+  // come back. memberSafeView strips fields; it does not decide which PEOPLE are listed. Until
+  // now a member could pass ?archived=1 and get the archived-and-deceased list, or flip
+  // ?member_type= and browse visitors — both reachable from buttons that were visible to them.
+  // Query params are client-controlled, so this ignores them rather than trusting the frontend.
+  const isMemberRole = role === 'member';
+  const mt = isMemberRole ? 'member' : (url.searchParams.get('member_type') || '');
   const tagId = url.searchParams.get('tag_id') || '';
   const tagIdsRaw = url.searchParams.get('tag_ids') || '';
-  const archivedView = url.searchParams.get('archived') === '1';
+  const archivedView = !isMemberRole && url.searchParams.get('archived') === '1';
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '100'), 200);
   const offset = parseInt(url.searchParams.get('offset') || '0');
   const SORT_COLS = { last_name: 'p.last_name', first_name: 'p.first_name', member_type: 'p.member_type', created_at: 'p.created_at', household: 'h.name', dob: 'p.dob', baptism: 'p.baptism_date', confirmation: 'p.confirmation_date', anniversary: 'p.anniversary_date' };
