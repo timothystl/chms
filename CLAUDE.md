@@ -502,9 +502,14 @@ structural problem that makes a *systematic* pass expensive and a *targeted* one
   the doc — a `.tab-panel table` descendant rule (one rule, covers all 99, but `display:block`
   needs a device check) or a boot-time wrap pass (preserves layout, costs a DOM pass per render).
   **Do not hand-edit 55 call sites** — expensive and regression-prone.
-- [ ] **MOB3 (M4) — Eleven distinct breakpoints**, each added per-feature (700px ×7, 900px ×5,
-  480px ×4, then 800/767/600/1000/520/720/820/1100). Nothing broken, but there's no shared
-  definition of "phone." Consolidate to ~3 *before* MOB1/MOB2 so those land on the clean set.
+- [x] **MOB3 (M4) — DONE 2026-08-04 (v1.126.0).** Eleven breakpoints → **767 (phone) / 900
+  (tablet) / 1100 (wide)**, documented at the top of the stylesheet. Verified by script first
+  that no two blocks landing on the same tier declare the same selector. Blocks were rewritten
+  **in place, not merged** — a media query adds no specificity, so relocating one past a base
+  rule changes which wins (v1.121.3's bug). `test/breakpoints.test.js` fails if a fourth tier
+  appears. Exposed and fixed a latent test-helper bug: the media-block regex couldn't handle
+  single-line blocks and was silently reading unrelated CSS. Not verified on a device — some
+  layouts now switch at a different width, which is the intended effect.
 - [x] **MOB4 (M5) — DONE 2026-08-03 (v1.120.0).** Service worker revived. All three defects
   confirmed by running the *old* generated `SW_JS` in a harness, not by reading it: `/` fell
   through unhandled (the branch gated on the pre-CONN6 `/chms`), the shell was never cached so

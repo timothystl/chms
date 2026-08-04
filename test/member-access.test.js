@@ -127,3 +127,38 @@ describe('member household access (2026-08-04)', () => {
     expect(await denied('member', 'households/7/giving')).toBe(true);
   });
 });
+
+describe('member list scoping is enforced server-side, not by the frontend (2026-08-04)', () => {
+  // memberSafeView strips FIELDS; it never decided which PEOPLE are listed. A member could pass
+  // ?archived=1 and get the archived-and-deceased list, or flip ?member_type= to browse
+  // visitors — both reachable from toolbar buttons that were visible to them. Query params are
+  // client-controlled, so the server has to ignore them rather than trust the UI.
+  it('ignores ?archived=1 for a member', async () => {
+    const seen = [];
+    const env = { DB: { prepare: (sql) => { seen.push(sql); return {
+      bind: () => ({ first: async () => ({ n: 0 }), all: async () => ({ results: [] }), run: async () => ({ meta: {} }) }),
+      first: async () => ({ n: 0 }), all: async () => ({ results: [] }), run: async () => ({ meta: {} }),
+    }; }, batch: async () => [] } };
+    const url = new URL('https://connect.timothystl.org/admin/api/people?archived=1');
+    await handleChmsApi(new Request(url), env, url, 'GET', 'people', 'member').catch(() => {});
+    const q = seen.join(' ');
+    expect(q).not.toMatch(/status IN \('archived','deceased'\)/);
+  });
+
+  it('forces member_type=member for a member regardless of the query string', async () => {
+    const binds = [];
+    const env = { DB: { prepare: () => ({
+      bind: (...a) => { binds.push(a); return { first: async () => ({ n: 0 }), all: async () => ({ results: [] }), run: async () => ({ meta: {} }) }; },
+      first: async () => ({ n: 0 }), all: async () => ({ results: [] }), run: async () => ({ meta: {} }),
+    }), batch: async () => [] } };
+    const url = new URL('https://connect.timothystl.org/admin/api/people?member_type=visitor');
+    await handleChmsApi(new Request(url), env, url, 'GET', 'people', 'member').catch(() => {});
+    const flat = binds.flat().map(String);
+    expect(flat).toContain('member');
+    expect(flat).not.toContain('visitor');
+  });
+
+  it('still denies the print-directory endpoint the Directory button called', async () => {
+    expect(await denied('member', 'directory')).toBe(true);
+  });
+});

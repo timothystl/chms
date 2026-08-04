@@ -12,10 +12,37 @@ import { HTML_TABS_1 } from '../src/frontend/html-tabs.js';
 // no free space to grow into, so it collapsed to zero height and .ppl-list-col's overflow:hidden
 // clipped the pager away. A phone user could never reach page 2.
 
-const MOBILE_BLOCK = (() => {
-  const m = HTML_HEAD.match(/@media\(max-width:767px\)\{[\s\S]*?\n\}/);
-  return m ? m[0] : '';
-})();
+/**
+ * All @media(max-width:<bp>px) blocks, extracted by counting braces.
+ *
+ * A regex cannot do this. The obvious `[\s\S]*?\n\}` fails on single-line blocks: it matches the
+ * opening one, finds no line-starting `}` inside it, and runs on for hundreds of lines to the
+ * next one — swallowing unrelated base rules. That silently made an earlier version of these
+ * tests read the wrong CSS entirely (it found a base `width:56px` rule and reported it as the
+ * mobile override). MOB3's breakpoint consolidation is what exposed it, by putting a single-line
+ * block and a multi-line block on the same breakpoint for the first time.
+ */
+function mediaBlocks(css, bp) {
+  const open = '@media(max-width:' + bp + 'px){';
+  const out = [];
+  let i = css.indexOf(open);
+  while (i !== -1) {
+    let depth = 0, j = i + open.length - 1;
+    for (; j < css.length; j++) {
+      if (css[j] === '{') depth++;
+      else if (css[j] === '}' && --depth === 0) break;
+    }
+    out.push({ text: css.slice(i, j + 1), index: i });
+    i = css.indexOf(open, j + 1);
+  }
+  return out;
+}
+
+// MOB3 consolidated eleven breakpoints into three, so there are now many 767px blocks rather
+// than one. Pick the block that actually carries the mobile contact-card rules — matching
+// merely the FIRST would silently test the wrong one.
+const MOBILE_BLOCK = (mediaBlocks(HTML_HEAD, 767)
+  .find((b) => /#p-grid,#p-card-grid/.test(b.text)) || { text: '' }).text;
 
 /** The declarations for `selector` within a CSS chunk, or '' if the rule isn't there. */
 function ruleFor(css, selector) {

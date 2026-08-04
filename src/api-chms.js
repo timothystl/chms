@@ -508,7 +508,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // ── People / Archive / Brevo / Photos / Follow-ups → api-people.js ────────
   if (seg.startsWith('people') || seg === 'member-types' ||
       seg.startsWith('brevo/') || seg.startsWith('followup') || seg === 'audit' || seg === 'audit/undo') {
-    const result = await handlePeopleApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit, canRegister);
+    const result = await handlePeopleApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit, canRegister, role);
     if (result !== null) return result;
   }
 

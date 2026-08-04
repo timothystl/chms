@@ -14,10 +14,33 @@ import { HTML_TABS_1, HTML_TABS_2 } from '../src/frontend/html-tabs.js';
 const STYLE = HTML_HEAD.slice(0, HTML_HEAD.indexOf('</style>'));
 const MARKUP = HTML_TABS_1 + HTML_TABS_2;
 
-/** Every @media(max-width:767px) block, in source order. */
-const mobileBlocks = [...STYLE.matchAll(/@media\(max-width:767px\)\{[\s\S]*?\n\}/g)].map((m) => ({
-  text: m[0], index: m.index,
-}));
+/**
+ * All @media(max-width:<bp>px) blocks, extracted by counting braces.
+ *
+ * A regex cannot do this. The obvious `[\s\S]*?\n\}` fails on single-line blocks: it matches the
+ * opening one, finds no line-starting `}` inside it, and runs on for hundreds of lines to the
+ * next one — swallowing unrelated base rules. That silently made an earlier version of these
+ * tests read the wrong CSS entirely (it found a base `width:56px` rule and reported it as the
+ * mobile override). MOB3's breakpoint consolidation is what exposed it, by putting a single-line
+ * block and a multi-line block on the same breakpoint for the first time.
+ */
+function mediaBlocks(css, bp) {
+  const open = '@media(max-width:' + bp + 'px){';
+  const out = [];
+  let i = css.indexOf(open);
+  while (i !== -1) {
+    let depth = 0, j = i + open.length - 1;
+    for (; j < css.length; j++) {
+      if (css[j] === '{') depth++;
+      else if (css[j] === '}' && --depth === 0) break;
+    }
+    out.push({ text: css.slice(i, j + 1), index: i });
+    i = css.indexOf(open, j + 1);
+  }
+  return out;
+}
+
+const mobileBlocks = mediaBlocks(STYLE, 767);
 
 /** Declarations for `selector` inside a chunk, or '' if absent. */
 function ruleFor(css, selector) {
@@ -71,7 +94,12 @@ describe('MOB1 — scope', () => {
   });
 
   it('widens the one input pinned too narrow to hold 16px text', () => {
-    expect(ruleFor(zoomBlock.text, '.tap-slider-row input[type=number]')).toMatch(/width:7\dpx/);
+    // Search the block itself, not the whole sheet: the base rule elsewhere still says 56px,
+    // and matching that would pass for the wrong reason.
+    const body = zoomBlock.text.slice(zoomBlock.text.indexOf('{') + 1);
+    const m = body.match(/\.tap-slider-row input\[type=number\]\{([^}]*)\}/);
+    expect(m, 'rule should live inside the MOB1 block').toBeTruthy();
+    expect(m[1]).toMatch(/width:7\dpx/);
   });
 
   it('changes nothing on desktop — every declaration is inside the media query', () => {

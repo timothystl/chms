@@ -38,6 +38,23 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
    See CLAUDE.md "Pre-Redesign Palette Consolidation" for the full sweep
    plan (PAL2 admin usages, PAL3 public site, PAL4 scheduler, PAL5 inline
    hex cleanup). ── */
+/* ══ RESPONSIVE BREAKPOINTS — three tiers, and only three ═══════════════════════════════════
+   phone   @media(max-width:767px)    tablet  @media(max-width:900px)    wide  @media(max-width:1100px)
+
+   Before MOB3 this stylesheet used ELEVEN different max-widths (480/520/600/700/720/767/800/
+   820/900/1000/1100), each added for one feature, so layouts changed at inconsistent widths as
+   a device rotated and there was no shared definition of "phone" for new work to target.
+   Consolidated 2026-08-04 by rewriting each value to its nearest tier — verified first that no
+   two blocks landing on the same tier declare the same selector, so nothing silently overrides
+   anything else.
+
+   Blocks were rewritten IN PLACE, deliberately not merged into three combined blocks. A media
+   query carries no extra specificity, so between same-specificity rules only source order
+   decides — relocating a block past a base rule silently changes which one wins. That is
+   exactly how v1.121.3's pagination fix shipped doing nothing. Keeping every block where it sat
+   preserves the cascade exactly while still giving three consistent switch points.
+
+   Adding responsive CSS? Use one of the three above. Do not invent a fourth. */
 :root{
   /* ── Connect brand tokens ── */
   --color-navy:#1E2D4A;--color-teal:#2E7EA6;--color-gold:#C9973A;
@@ -189,7 +206,7 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .btn-danger{padding:7px 14px;background:none;color:var(--danger);border:1.5px solid var(--danger);border-radius:7px;font-family:var(--font-body);font-size:.85rem;font-weight:600;cursor:pointer;}
 .btn-danger:hover{background:#fdf0ec;}
 /* Larger touch targets on small screens (WCAG 2.5.5: 44px minimum). */
-@media(max-width:600px){
+@media(max-width:767px){
   .btn-primary,.btn-secondary,.btn-danger{padding-top:11px;padding-bottom:11px;min-height:44px;}
 }
 /* ── PERSON CARDS ── */
@@ -305,7 +322,7 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .reg-edit-btn:hover{opacity:1;background:var(--blue-mist);}
 .reg-del-btn{background:none;border:none;color:var(--danger);cursor:pointer;font-size:.78rem;padding:2px 6px;border-radius:4px;opacity:.7;margin-left:2px;}
 .reg-del-btn:hover{opacity:1;background:var(--linen);}
-@media(max-width:700px){.reg-form-panel{display:none;}.reg-body{flex-direction:column;}.reg-add-toggle{display:inline-flex !important;}}
+@media(max-width:767px){.reg-form-panel{display:none;}.reg-body{flex-direction:column;}.reg-add-toggle{display:inline-flex !important;}}
 /* ── REPORTS ── */
 .report-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-bottom:20px;}
 .report-tile{background:var(--white);border-radius:16px;box-shadow:0 1px 3px rgba(20,20,40,.05);padding:20px;cursor:pointer;transition:box-shadow .15s;}
@@ -354,7 +371,7 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .board-nv-eyebrow{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--color-gold);margin-bottom:5px;}
 .board-nv-body{font-size:14px;line-height:1.65;color:#33323C;}
 @media(max-width:900px){.board-kpi-grid{grid-template-columns:repeat(2,1fr);}.board-body-grid{grid-template-columns:1fr;}}
-@media(max-width:520px){.board-kpi-grid{grid-template-columns:1fr;}}
+@media(max-width:767px){.board-kpi-grid{grid-template-columns:1fr;}}
 .rpt-overview{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:14px;}
 .rpt-stat{background:var(--linen);border-radius:12px;padding:10px 16px;min-width:140px;flex:1 1 140px;max-width:220px;}
 .rpt-stat-num{font-size:1.35rem;font-weight:700;font-family:var(--font-head);color:var(--steel-anchor);line-height:1.1;}
@@ -490,7 +507,7 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .att-yoy-delta{font-size:.8rem;font-weight:700;text-align:right;}
 /* -- Festivals -- */
 .att-fest-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;}
-@media(max-width:800px){.att-fest-grid{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:900px){.att-fest-grid{grid-template-columns:repeat(2,1fr);}}
 .att-fest-hdr{display:flex;justify-content:space-between;align-items:baseline;gap:6px;margin-bottom:10px;flex-wrap:wrap;}
 .att-fest-name{font-size:.92rem;font-weight:700;color:var(--color-navy);}
 .att-fest-delta{font-size:.78rem;font-weight:700;}
@@ -515,7 +532,7 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .att-hist-delta{font-size:.82rem;font-weight:700;text-align:right;}
 /* -- Reports grid -- */
 .att-report-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
-@media(max-width:800px){.att-report-grid{grid-template-columns:1fr;}}
+@media(max-width:900px){.att-report-grid{grid-template-columns:1fr;}}
 .att-report-title{font-size:1.05rem;font-weight:700;color:var(--color-navy);font-family:var(--font-head);}
 .att-report-desc{font-size:.84rem;color:var(--att-text-2);margin:4px 0 12px;}
 .att-report-actions{display:flex;gap:8px;flex-wrap:wrap;}
@@ -524,7 +541,7 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 /* Legacy list/edit classes still used by the History tab's inline correction form */
 .att-inline-form{padding:12px 14px 14px;background:var(--blue-mist);border-top:1px solid var(--ice-blue);border-radius:0 0 12px 12px;}
 .att-edit-hint{font-size:.72rem;color:var(--warm-gray);margin-left:6px;}
-@media(max-width:700px){
+@media(max-width:767px){
   .att-hist-hdr,.att-hist-row{grid-template-columns:84px 1fr 44px 44px 58px;}
   .att-hist-1045{display:none;}
   .att-yoy-hdr,.att-yoy-row{grid-template-columns:40px 1fr 1fr 50px;}
@@ -545,10 +562,10 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .modal-overlay{position:fixed;inset:0;z-index:8000;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;padding:16px;}
 .modal-overlay.open{display:flex;}
 .modal{background:var(--white);border-radius:14px;padding:28px 26px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 6px 32px rgba(0,0,0,.15);}
-@media(max-width:480px){.modal{padding:18px 16px;max-height:95vh;border-radius:10px;}}
+@media(max-width:767px){.modal{padding:18px 16px;max-height:95vh;border-radius:10px;}}
 .modal h2{font-family:var(--font-head);font-size:1.1rem;color:var(--steel-anchor);margin-bottom:18px;}
 .modal-2col{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-@media(max-width:480px){.modal-2col{grid-template-columns:1fr;}}
+@media(max-width:767px){.modal-2col{grid-template-columns:1fr;}}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--border);}
 .modal-section{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--warm-gray);margin:16px 0 8px;border-bottom:1px solid var(--linen);padding-bottom:4px;}
 .tag-picker{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0;}
@@ -661,7 +678,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 }
 .fin-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px;}
 @media(max-width:900px){.fin-kpi-grid{grid-template-columns:1fr 1fr;}}
-@media(max-width:480px){.fin-kpi-grid{grid-template-columns:1fr;}}
+@media(max-width:767px){.fin-kpi-grid{grid-template-columns:1fr;}}
 .fin-kpi-card{background:var(--white);border-radius:18px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:18px 20px;border-top:4px solid var(--color-teal);}
 .fin-kpi-lbl{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);}
 .fin-kpi-val{font-family:var(--font-body);font-size:27px;font-weight:800;color:var(--charcoal);margin:4px 0 8px;font-variant-numeric:tabular-nums;line-height:1;}
@@ -705,7 +722,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-sync-pill{display:inline-flex;align-items:center;gap:6px;font-size:.76rem;font-weight:600;color:var(--sage-text);background:var(--chip-positive-bg);padding:4px 10px;border-radius:99px;}
 .fin-sync-pill::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--sage-text);}
 .fin-balance-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
-@media(max-width:700px){.fin-balance-row{grid-template-columns:1fr;}}
+@media(max-width:767px){.fin-balance-row{grid-template-columns:1fr;}}
 .fin-balance-card{background:var(--white);border-radius:16px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:16px 18px;display:flex;align-items:center;gap:12px;}
 .fin-balance-icon{width:42px;height:42px;border-radius:10px;background:var(--color-light-teal);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
 .fin-balance-lbl{font-size:11.5px;color:var(--warm-gray);font-weight:600;}
@@ -725,7 +742,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-yearend-bar-row.expense .fin-yearend-bar-actual,.fin-yearend-bar-row.expense .fin-yearend-bar-projected{background:var(--color-gold);}
 .fin-yearend-marker{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--color-navy);}
 .ppl-card-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:var(--warm-surface-card-page);padding:16px;border-radius:12px;}
-@media(max-width:1000px){.ppl-card-grid{grid-template-columns:1fr;}}
+@media(max-width:1100px){.ppl-card-grid{grid-template-columns:1fr;}}
 .ppl-card{background:var(--warm-surface-card);border-radius:12px;border-left:4px solid var(--status-member);box-shadow:0 2px 10px rgba(120,90,30,.08);padding:14px 16px;cursor:pointer;position:relative;transition:box-shadow .15s;}
 .ppl-card:hover{box-shadow:0 4px 16px rgba(120,90,30,.14);}
 .ppl-card.selected{box-shadow:0 0 0 3px var(--color-navy);}
@@ -780,14 +797,14 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .ppl-qv-map{border-radius:10px;overflow:hidden;line-height:0;border:1px solid var(--warm-divider);min-height:20px;}
 .dir-table tbody tr.dir-row-qv td{background:var(--blue-mist)!important;box-shadow:inset 3px 0 0 var(--color-teal);}
 .ppl-card.qv-active{box-shadow:0 0 0 2px var(--color-teal);}
-@media(max-width:1000px){.ppl-quickview{width:280px;padding:22px 18px;}}
+@media(max-width:1100px){.ppl-quickview{width:280px;padding:22px 18px;}}
 @media(max-width:767px){.ppl-quickview{display:none!important;}}
 /* ── DASHBOARD ──
    Card spec follows the design-handoff mockup exactly: soft dual box-shadow,
    20px radius, no 1px border (replaces the old bordered/flat-shadow cards). ── */
 .dash-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-bottom:28px;}
 @media(max-width:900px){.dash-stats{grid-template-columns:repeat(2,1fr);}}
-@media(max-width:480px){.dash-stats{grid-template-columns:1fr 1fr;}}
+@media(max-width:767px){.dash-stats{grid-template-columns:1fr 1fr;}}
 .dash-stat{background:var(--white);border-radius:20px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:22px 24px;display:flex;flex-direction:column;gap:4px;}
 .dash-stat-val{font-size:30px;font-weight:800;color:var(--charcoal);line-height:1;letter-spacing:-.02em;}
 .dash-stat-lbl{font-size:12px;font-weight:500;color:var(--warm-gray);margin-top:1px;}
@@ -795,7 +812,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .dash-stat-quad-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;}
 .dash-stat-quad-grid .dash-stat-val{font-size:22px;}
 .dash-row{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;}
-@media(max-width:700px){.dash-row{grid-template-columns:1fr;}}
+@media(max-width:767px){.dash-row{grid-template-columns:1fr;}}
 .dash-card{background:var(--white);border-radius:20px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);overflow:hidden;}
 .dash-card-hdr{padding:20px 24px 12px;font-size:15px;font-weight:700;color:var(--charcoal);display:flex;align-items:center;gap:8px;}
 .dash-card-body{padding:0 0 6px;}
@@ -872,7 +889,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .ptab-panel.active{display:block;}
 /* Two-column info layout */
 .pv-info-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;}
-@media(max-width:700px){
+@media(max-width:767px){
   .pv-info-cols{grid-template-columns:1fr;}
   .pv-layout{flex-direction:column;overflow:visible;flex:none;}
   .pv-main{flex:none;overflow:visible;}
@@ -1025,7 +1042,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .hv-summary{margin-top:20px;padding:16px 18px;background:var(--warm-surface-header);border-radius:10px;display:flex;gap:28px;flex-wrap:wrap;}
 .hv-summary-lbl{font-size:11px;font-weight:700;text-transform:uppercase;color:var(--warm-meta);margin-bottom:3px;}
 .hv-summary-val{font-size:22px;font-weight:800;color:var(--color-navy);}
-@media(max-width:700px){
+@media(max-width:767px){
   .hv-hdr{flex-direction:column;align-items:center;text-align:center;padding:18px;}
   .hv-icon-tile{width:60px;height:60px;font-size:22px;}
   .hv-name{font-size:20px;}
@@ -1116,7 +1133,7 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 /* Below ~700px the fixed-width dark rail no longer fits next to the content
    pane (it was squeezing everything else into a sliver) — stack it above
    the content as a horizontal scrollable pill row instead. */
-@media(max-width:700px){
+@media(max-width:767px){
   .vol-shell{flex-direction:column;}
   .vol-subnav{width:100%;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:10px 12px;gap:6px;}
   .vol-subtab-btn{white-space:nowrap;flex-shrink:0;}
@@ -1160,7 +1177,7 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .ev-badge-visible{background:rgba(46,126,166,.1);color:var(--ev-teal);font-size:.69rem;font-weight:600;padding:3px 9px;border-radius:100px;}
 .ev-badge-hidden{background:rgba(192,57,43,.08);color:var(--ev-danger);font-size:.7rem;font-weight:600;padding:3px 9px;border-radius:100px;}
 .ev-field-row{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:14px;}
-@media(max-width:600px){.ev-field-row{grid-template-columns:1fr;}}
+@media(max-width:767px){.ev-field-row{grid-template-columns:1fr;}}
 .ev-delete-link{color:var(--ev-danger);font-size:.78rem;font-weight:600;text-decoration:none;cursor:pointer;}
 .ev-fields{display:flex;flex-direction:column;gap:14px;max-width:480px;}
 .ev-fields label,.ev-field-row label{display:block;font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);margin-bottom:5px;}
@@ -1184,7 +1201,7 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .ev-fill-bar>div{height:100%;}
 .ev-fill-count{font-size:.75rem;font-weight:700;text-align:center;}
 .ev-edit-link{font-size:.75rem;font-weight:600;color:var(--ev-teal);text-align:center;}
-@media(max-width:720px){.ev-master-detail{flex-direction:column;}.ev-list-col{width:100%;border-right:none;border-bottom:1px solid var(--ev-border);}}
+@media(max-width:767px){.ev-master-detail{flex-direction:column;}.ev-list-col{width:100%;border-right:none;border-bottom:1px solid var(--ev-border);}}
 /* ── Reusable pill toggle switch (Ministry Roles, Settings) ── */
 .toggle-switch{display:inline-flex;align-items:center;gap:10px;cursor:pointer;}
 .toggle-switch input{display:none;}
@@ -1222,7 +1239,7 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .tap-flag b{color:var(--navy);}
 .tap-grid2{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-bottom:16px;}
 .tap-grid2b{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
-@media(max-width:820px){.tap-grid2,.tap-grid2b{grid-template-columns:1fr;}}
+@media(max-width:900px){.tap-grid2,.tap-grid2b{grid-template-columns:1fr;}}
 .tap-gauge-track{width:100%;height:20px;background:var(--linen);border-radius:10px;overflow:hidden;}
 .tap-gauge-fill{height:100%;background:linear-gradient(90deg,var(--navy),var(--sky-steel));width:0%;transition:width .2s ease,background .2s ease;}
 .tap-gauge-fill.over{background:linear-gradient(90deg,var(--danger),#D9534F);}

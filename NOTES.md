@@ -65,6 +65,60 @@ when this path is used, so it's never presented as more precise than it is. `npm
 verified in a live browser. (`src/frontend/js-attendance.js`, `src/frontend/html-head.js`,
 `src/frontend/js-giving.js`, `src/api-finance.js`, `test/finance-church.test.js`)
 
+### v1.126.0 — MOB3 breakpoint consolidation + member gating gaps (2026-08-04)
+
+**MOB3 — eleven breakpoints down to three.** The stylesheet used 480/520/600/700/720/767/800/
+820/900/1000/1100px, each added for one feature, so layouts switched at inconsistent widths as a
+device rotated and there was no shared definition of "phone" for new work to target. Now:
+**767 (phone) / 900 (tablet) / 1100 (wide)**, documented at the top of the stylesheet.
+
+Two deliberate choices:
+- **Verified before applying**, by script, that no two blocks landing on the same tier declare
+  the same selector — so consolidation cannot silently make one rule override another.
+- **Blocks were rewritten in place, NOT merged** into three combined blocks. A media query
+  carries no extra specificity, so relocating a block past a base rule changes which one wins —
+  exactly how v1.121.3's pagination fix shipped doing nothing. Keeping every block where it sat
+  preserves the cascade while still giving three consistent switch points. A new
+  `test/breakpoints.test.js` fails if a fourth tier appears, and spot-checks that the
+  placement-dependent fixes from earlier today still sit after the rules they must beat.
+
+**MOB3 exposed a latent bug in the test helpers, worth recording.** `mobile-input-zoom` and
+`people-mobile-pagination` extracted media blocks with `@media(...)\{[\s\S]*?\n\}`. That regex
+cannot handle a **single-line** media block: it matches the opening one, finds no line-starting
+`}` inside, and runs on for hundreds of lines to the next one — swallowing unrelated base rules.
+It only surfaced now because consolidation put a single-line block and a multi-line block on the
+same breakpoint for the first time, and the symptom was a test reading a base `width:56px` rule
+and reporting it as the mobile override. Both files now extract blocks by **counting braces**.
+
+**Member gating — the reported bug, plus two the report led to.**
+
+*Reported:* the People toolbar's **Directory** button called `/admin/api/directory`, outside the
+member allowlist, so it 403'd. That button had no role gating at all — and neither did its
+neighbours. Also reported: the profile "is still showing demographic data, tags, follow ups and
+notes." The data was already stripped by `memberSafeView`, so those cards rendered as **empty
+shells under real headings**, which reads exactly like the app showing them. Giving was already
+gated on `isFinance`; these four never got the same treatment. Demographics / Tags / Follow-ups /
+Notes are now member-gated (cards *and* their jump-to nav entries), `pvfRenderFollowups` is
+skipped for members (it was a guaranteed 403 on every profile open), and the Personal card shows
+members only `member_type` rather than three blank rows for stripped fields.
+
+*Found while fixing it — the more serious pair.* `memberSafeView` strips FIELDS; it never decided
+which PEOPLE are listed, and nothing server-side scoped the member list. So a member could pass
+`?archived=1` and get the **archived-and-deceased** list, or flip `?member_type=` to browse
+visitors — and both were reachable from the **Archived** and **Members** buttons, visible to them.
+Query params are client-controlled, so the fix ignores them for `role='member'` on the server
+rather than trusting hidden buttons; the buttons are gated too, as defence in depth. `role` was
+appended as the **last** parameter of `handlePeopleApi`, same reasoning as SW4.
+
+**Verified:** `npm test` 554/554, 15 new across four files. The two server-scoping tests were
+re-run against the reverted code and confirmed to fail. The real generated CSS was checked
+directly after consolidation — all five placement-dependent rules from today still present and
+winning.
+
+**Not verified:** a live browser. Consolidation moves the width at which some layouts switch (a
+480px two-column grid now switches at 767px, for instance); that is the intended effect, but how
+each grid looks at the new switch point needs eyes on a device.
+
 ### v1.125.0 — MOB1: iOS no longer zooms the viewport on every field focus (2026-08-04)
 
 **The symptom.** On an iPhone, tapping any text field zoomed the whole page in — and iOS does not
