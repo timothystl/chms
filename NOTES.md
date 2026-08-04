@@ -65,6 +65,36 @@ when this path is used, so it's never presented as more precise than it is. `npm
 verified in a live browser. (`src/frontend/js-attendance.js`, `src/frontend/html-head.js`,
 `src/frontend/js-giving.js`, `src/api-finance.js`, `test/finance-church.test.js`)
 
+### v1.126.1 — Recover a poisoned immutable asset URL (2026-08-04)
+
+**v1.126.0's CSS never went live**, and the cause is an operational hazard worth recording
+because it can bite real users, not just deploy tooling.
+
+`/admin/app.css` and `/admin/app-*.js` are served `Cache-Control: public, max-age=31536000,
+immutable`, with `?v=${DEPLOY_VERSION}` as the cache buster. That is correct — but it means the
+FIRST response for a given `?v=` value is what every later request gets, for a year.
+
+During the v1.126.0 deploy the version-check poll fetched `app.css?v=1.126.0` while the rollout
+was still in flight, hit an edge still serving the previous worker, and that stale body was
+cached under the **new** URL as immutable. Result: `app.css?v=1.126.0` returned v1.125.0's
+stylesheet — 109,489 bytes, all eleven old breakpoints, no MOB3 — while a fresh
+`?v=probe-<ts>` URL returned the correct 110,799-byte file. `app-core.js?v=1.126.0` was checked
+and is byte-identical to a fresh fetch, so only the stylesheet was affected: MOB1 and the
+pagination fix were present (they shipped in 1.125.0), MOB3 was not.
+
+**Recovery:** bump the version. 1.126.1 mints URLs that were never requested mid-deploy.
+
+**The practice that caused it, now changed.** Polling `asset?v=<new version>` in a loop to detect
+a deploy is actively harmful: it guarantees a request lands during the rollout window, and
+whatever comes back gets pinned for a year. Deploy checks must poll something **uncacheable** —
+`/` is `no-store` and carries the version in its script tags — and only fetch the real versioned
+URL once the deploy is confirmed complete. Verification of asset CONTENT should use a throwaway
+`?v=probe-<timestamp>` so a mid-flight response can never be pinned to a real version.
+
+This is not purely a tooling problem: a real user loading the page mid-deploy can poison their own
+edge node the same way. Cloudflare rollouts are near-atomic so the window is small, and a version
+bump always clears it — but it explains a whole class of "I deployed and it didn't change".
+
 ### v1.126.0 — MOB3 breakpoint consolidation + member gating gaps (2026-08-04)
 
 **MOB3 — eleven breakpoints down to three.** The stylesheet used 480/520/600/700/720/767/800/
