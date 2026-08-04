@@ -65,6 +65,51 @@ when this path is used, so it's never presented as more precise than it is. `npm
 verified in a live browser. (`src/frontend/js-attendance.js`, `src/frontend/html-head.js`,
 `src/frontend/js-giving.js`, `src/api-finance.js`, `test/finance-church.test.js`)
 
+### v1.127.1 — Fix the root cause of poisoned immutable asset URLs (2026-08-04)
+
+v1.126.1 recorded this as a tooling hazard and changed how deploys are verified. **That was not
+enough — it happened again on the v1.127.0 deploy**, this time using the "safe" method:
+
+```
+probe URL      -> 112,861 bytes, MOB2 present   (what the worker actually generates)
+?v=1.127.0     -> 110,799 bytes, MOB2 absent    (v1.126.1's CSS, pinned)
+/sw.js         -> VERSION = '1.127.0'
+```
+
+Polling `/sw.js` confirms the version **at the edge that answered that request**. Cloudflare rolls
+out per-colo, so the very next request can still land on an edge running the previous worker. No
+client-side verification order can close that window — which also means **a real user loading the
+page mid-rollout poisons their own edge the same way**, for a year, with no action on their part.
+
+**Root-cause fix, server-side.** The three versioned asset routes now emit
+`public, max-age=31536000, immutable` **only when `?v=` equals the worker's own
+`DEPLOY_VERSION`**, and `no-store` otherwise:
+
+```js
+const assetCacheControl = () =>
+  url.searchParams.get('v') === DEPLOY_VERSION
+    ? 'public, max-age=31536000, immutable'
+    : 'no-store';
+```
+
+Mid-rollout, an old worker asked for the new version returns `no-store`, so nothing can be pinned.
+The mirror case is covered too: a new worker answering a stale page's old-version request serves
+the NEW body, which is equally wrong to store under the old URL. The body is always served either
+way — availability never depends on the version matching, only cacheability does. Once a rollout
+completes every request matches and normal year-long caching resumes unchanged.
+
+`DEPLOY_VERSION` is now imported into `tlc-volunteer-worker.js` (it previously only reached the
+worker indirectly, interpolated into `CHMS_HTML`).
+
+**Verified:** `npm test` 572/572, 7 new in `test/asset-cache-policy.test.js` exercising the real
+worker fetch handler — immutable on an exact match, `no-store` for a newer version, an older
+version and no version at all, identical body in every case, and content types preserved.
+Re-verified by restoring the unconditional header and confirming the three mismatch tests go red.
+
+**Note on the two already-poisoned URLs.** `app.css?v=1.126.0` and `?v=1.127.0` are pinned at
+those edges until their TTL expires; a version bump is the only way past them, which is what
+1.127.1 is. From this release forward the window cannot be entered at all.
+
 ### v1.127.0 — MOB2: wide tables scroll instead of widening the page (2026-08-04)
 
 **55 of the app's 99 tables had no horizontal scroll container** — `js-reports.js` 20 bare of 23,
