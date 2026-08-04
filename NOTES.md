@@ -95,6 +95,14 @@ This is not purely a tooling problem: a real user loading the page mid-deploy ca
 edge node the same way. Cloudflare rollouts are near-atomic so the window is small, and a version
 bump always clears it — but it explains a whole class of "I deployed and it didn't change".
 
+**Use `/sw.js` as the deploy probe.** The first replacement idea — poll `/` and read the version
+out of its script tags — does not work: unauthenticated `/` serves `LOGIN_HTML`, which has inline
+CSS and no reference to the app bundle at all, so the poll never resolves a version. `/sw.js` is
+the right endpoint: it is served `Cache-Control: no-cache, no-store` (so it can never be pinned)
+and contains `const VERSION = '<DEPLOY_VERSION>'` because MOB4 versioned the SW cache name. Verify
+asset CONTENT separately with a throwaway `?v=probe-<timestamp>` while the deploy is in flight,
+and only touch the real `?v=<version>` URL once `/sw.js` confirms the rollout is complete.
+
 ### v1.126.0 — MOB3 breakpoint consolidation + member gating gaps (2026-08-04)
 
 **MOB3 — eleven breakpoints down to three.** The stylesheet used 480/520/600/700/720/767/800/
