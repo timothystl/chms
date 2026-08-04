@@ -1263,6 +1263,36 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .tap-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;font-size:.85rem;}
 .tap-controls select{padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--white);color:var(--charcoal);font-family:var(--font-body);}
 
+/* ══ MOB2 — wide tables scroll instead of widening the page ════════════════════════════
+   55 of this app's 99 tables had no horizontal scroll container (js-reports.js 20 bare of 23,
+   js-finance.js 16 of 40, js-attendance.js 5 of 5). A bare wide table does not scroll — it
+   widens the PAGE, so the whole layout shifts and the user can pan the entire UI sideways off
+   screen with no way back. That is the worst-feeling class of mobile breakage.
+
+   Done as one descendant rule rather than 55 markup edits, for a specific reason: 65 of the 99
+   tables carry no CSS class at all — they are built with inline styles in JS string concat — so
+   a class-targeted rule would reach barely a third of them, and hand-editing 55 call sites is
+   both expensive and exactly the kind of change that regresses silently.
+
+   Scoped to phones only. The defect exists only where the viewport is narrower than the table,
+   so desktop keeps normal table layout untouched and the blast radius is limited to the place
+   the bug actually lives. Tables already wrapped in an overflow-x container are unaffected in
+   practice — the table scrolls itself and the wrapper simply never needs to.
+
+   .content-area covers the tab panels, the profile view and the household/organization views;
+   .modal covers dialog tables, which sit outside .content-area because they are position:fixed.
+
+   .dir-table is excluded: its <th> uses position:sticky for a frozen header, which display:block
+   defeats. It is the desktop People table and is already display:none on phones (see the
+   #p-grid rule above), so excluding it costs nothing and avoids a pointless interaction.
+
+   No white-space:nowrap here on purpose. Letting cells wrap means a table that CAN fit does
+   fit, and only genuinely wide ones scroll — gentler than forcing every table into a scroller. */
+@media(max-width:767px){
+  .content-area table:not(.dir-table),
+  .modal table:not(.dir-table){display:block;overflow-x:auto;max-width:100%;}
+}
+
 /* ══ MOB1 — stop iOS zooming the viewport on every field focus ══════════════════════════
    iOS Safari zooms the whole page whenever a focused form field's text is under 16px, on the
    assumption it would otherwise be unreadable while typing. It does NOT zoom back out, so the
