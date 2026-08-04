@@ -587,8 +587,8 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <div class="att-pulse-stats" id="att-pulse-stats"></div>
           <div>
             <div class="att-card-hdr" style="margin-bottom:8px;">
-              <div class="att-card-title" style="font-size:1rem;">Last 26 Sundays</div>
-              <div class="att-card-subtitle" style="margin:0;">Gold bars sit above the 4-week average</div>
+              <div class="att-card-title" style="font-size:1rem;">Sundays This Year</div>
+              <div class="att-card-subtitle" style="margin:0;">Gold = 8:00 service &middot; Teal = 10:45 service</div>
             </div>
             <div class="att-bars26" id="att-bars26"></div>
             <div class="att-bars-foot" id="att-bars26-foot"></div>

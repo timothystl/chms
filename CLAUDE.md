@@ -433,6 +433,18 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### Board Report — Budget YTD source (2026-08-04)
+Fixed alongside G/FIN follow-ups the same day (see NOTES.md v1.122.0): the Giving Board Report
+Dashboard's "General Fund YTD" KPI card is now split from other-fund giving, but its companion
+"Vs. Budget YTD" card still reads `funds.budget_annual_cents` (set per-fund in Settings → Manage
+Funds) and shows "No fund budgets set yet" if that's empty — it was asked to instead pull the
+budget from whatever's uploaded in Finance → Church Report. **Not done**: there's no existing link
+between the `funds` table (Giving) and `finance_church_entries` account rows (Finance) — a Church
+Report account like "40010 Sunday Offering" isn't automatically the same thing as Giving's
+"General Fund." Needs a decision on which Church Report account (or account-name pattern) should
+serve as the General Fund giving budget before wiring this up, rather than guessing at a mapping
+for a number a board will see. (noted 2026-08-04)
+
 ### Connect directory in the Tithe.ly Church App — VIABLE, confirmed on a device (2026-08-03)
 Scoped, built, and verified end to end in one session. **Outcome: a `role='member'` session in the
 Tithe.ly Church App's in-app browser survives a full app shutdown and restart.** The directory can

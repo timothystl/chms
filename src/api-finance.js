@@ -1711,10 +1711,36 @@ export function computeYtdComparison(currentMonthlyRows, priorMonthlyRows, prior
   const get = (s, c) => (s.classificationTotals[c] || { actualCents: 0 }).actualCents;
   return {
     available: true,
+    seasonal: true,
     throughMonth,
     income: series(get(curYtd, 'Income'), get(priorYtd, 'Income'), get(priorAnnual, 'Income')),
     expenses: series(get(curYtd, 'Expenses'), get(priorYtd, 'Expenses'), get(priorAnnual, 'Expenses')),
     net: series(curYtd.netIncome.actualCents, priorYtd.netIncome.actualCents, priorAnnual.netIncome.actualCents),
+  };
+}
+
+// Fallback for computeYtdComparison when no monthly-granularity rows exist for this year and
+// last year (the common case now — see FIN36 — since this church settled on annual-only Excel
+// imports rather than chasing live QuickBooks sync). Projects a straight-line estimate off the
+// annual actual-to-date total instead of leaving the KPI permanently blank: less accurate than
+// the seasonal prior-year-ratio (no month-shape awareness), but still a real number for the
+// board to look at. `summary` is the already-computed computeYearSummary() for the current
+// year's annual (period_month=0) rows.
+export function fallbackAnnualProjection(summary, throughMonth) {
+  const tm = Math.min(12, Math.max(1, Math.round(throughMonth || 12)));
+  const series = (curCents) => ({
+    currentYtdCents: curCents, priorYtdCents: 0, priorFullYearCents: 0,
+    projectedFullYearCents: Math.round(curCents * (12 / tm)),
+    method: 'straight-line-annual',
+  });
+  const get = (c) => (summary.classificationTotals[c] || { actualCents: 0 }).actualCents;
+  return {
+    available: true,
+    seasonal: false,
+    throughMonth: tm,
+    income: series(get('Income')),
+    expenses: series(get('Expenses')),
+    net: series(summary.netIncome.actualCents),
   };
 }
 
@@ -2599,6 +2625,11 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       const priorMonthly = monthlyRows.filter(r => r.fiscal_year === year - 1 && r.period_month <= throughMonth);
       const priorAnnualRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year - 1).all()).results || [];
       yoy = computeYtdComparison(curMonthly, priorMonthly, priorAnnualRows, throughMonth);
+      // No monthly rows for this year/last year yet — fall back to a straight-line estimate off
+      // the annual actual-to-date total rather than showing "Not yet available" forever.
+      if (!yoy.available && (summary.classificationTotals.Income || summary.classificationTotals.Expenses)) {
+        yoy = fallbackAnnualProjection(summary, throughMonth);
+      }
       // Uses the full (uncapped) monthly rows, not the throughMonth-filtered slices above —
       // a month-by-month supplies chart is more useful showing all synced months than being
       // clipped to "so far this year" like the YTD projection needs to be.

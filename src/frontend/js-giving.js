@@ -621,12 +621,31 @@ function boardKpiCard(color, label, value, valueColor, sub) {
     + '<div class="board-kpi-sub">' + sub + '</div></div>';
 }
 
+// General Fund is what the board cares about most — split it out from every other
+// (designated/restricted) fund rather than showing one lump "all funds" total. Matched by
+// name, same "40085 General Fund" naming convention used throughout Giving/Settings.
+function boardGeneralFundSplit(d) {
+  var funds = d.funds || [];
+  var isGeneral = function(f) { return /general\s*fund/i.test(f.name || ''); };
+  var gen = funds.filter(isGeneral), other = funds.filter(function(f) { return !isGeneral(f); });
+  var sum = function(arr, key) { return arr.reduce(function(s, f) { return s + (f[key] || 0); }, 0); };
+  return {
+    general_cents: sum(gen, 'actual_cents'), general_prior_cents: sum(gen, 'prior_cents'),
+    other_cents: sum(other, 'actual_cents'), other_prior_cents: sum(other, 'prior_cents'),
+    other_count: other.filter(function(f) { return f.actual_cents > 0; }).length,
+  };
+}
 function boardDashboardHtml(d) {
   var k = d.kpis;
-  // KPI 1 — Given YTD
-  var deltaSub = k.given_ytd_delta_pct == null ? 'No prior-year data for this point'
-    : (k.given_ytd_delta_pct >= 0 ? '+' : '−') + Math.abs(k.given_ytd_delta_pct) + '% vs. same point in ' + d.prior_year;
-  var c1 = boardKpiCard('#2E7EA6', 'Given year to date', boardMoney(k.given_ytd_cents), '', deltaSub);
+  // KPI 1 — General Fund YTD (primary), with all other giving folded in as a sub-line
+  var gf = boardGeneralFundSplit(d);
+  var gfDelta = gf.general_cents - gf.general_prior_cents;
+  var deltaSub = gf.general_prior_cents <= 0 ? 'No prior-year data for this point'
+    : (gfDelta >= 0 ? '+' : '−') + Math.abs(Math.round(gfDelta / gf.general_prior_cents * 100)) + '% vs. same point in ' + d.prior_year;
+  var otherSub = gf.other_cents > 0
+    ? '<div style="margin-top:3px;opacity:.8;">+ ' + boardMoney(gf.other_cents) + ' other giving (' + gf.other_count + ' fund' + (gf.other_count === 1 ? '' : 's') + ') &middot; ' + boardMoney(gf.general_cents + gf.other_cents) + ' total</div>'
+    : '';
+  var c1 = boardKpiCard('#2E7EA6', 'General Fund YTD', boardMoney(gf.general_cents), '', deltaSub + otherSub);
   // KPI 2 — Vs budget YTD
   var c2;
   if (k.budget_variance_cents == null) {
