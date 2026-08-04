@@ -5,6 +5,25 @@ import { XMAS_MARKET_ROLES } from './db.js';
 // Centralized office reply-to so it can be overridden via env.
 function officeEmail(env) { return (env && env.REPLY_TO_EMAIL) || 'office@timothystl.org'; }
 
+// Ring admin staff's phones via the website repo's existing web-push relay
+// (admin.timothystl.org/api/push/notify → pushToAllSubscribers), rather than
+// building a second push_subscriptions table + a second RFC 8291/8292
+// implementation in this repo. Same shared-secret pattern as the ChMS intake
+// key, just the other direction — this Worker is the caller here. Always
+// best-effort: a missing ADMIN_PUSH_API_KEY, a network hiccup, or the relay
+// itself being down must never turn into a failed sign-up or a failed RSVP
+// response, so this never throws and its result is never awaited by a caller
+// that would otherwise wait on it.
+export async function notifyAdminPush(env, { title, body, tag, url }) {
+  const key = env.ADMIN_PUSH_API_KEY || '';
+  if (!key) return;
+  await fetch('https://admin.timothystl.org/api/push/notify', {
+    method: 'POST',
+    headers: { 'X-Push-Key': key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, body, tag, url }),
+  }).catch(() => { /* non-fatal, per file convention (see the Resend calls below) */ });
+}
+
 // Pretty service time from internal token.
 function formatServiceTime(svc) {
   if (svc === '8am') return '8:00 AM';
@@ -163,6 +182,16 @@ export async function handleSignup(req, env) {
       }).catch(() => { /* non-fatal */ });
     }
   }
+
+  // Ring admin staff's phones, alongside the office-notification email above
+  // (independent of whether notify_new_signup is on — this is the sidebar
+  // "Notifications" opt-in, a different audience than volunteer_public_email).
+  await notifyAdminPush(env, {
+    title: 'New volunteer sign-up',
+    body: name + ' signed up' + (data.ministry ? ' — ' + data.ministry : ''),
+    tag: 'connect-signup',
+    url: '/#volunteers',
+  });
 
   return json({ ok: true, signup_id: signupId });
 }
@@ -494,6 +523,19 @@ export async function handleSchedRsvp(req, env, url) {
       }).catch(function(){});
     }
   }
+  // Push notification only for confirmed/declined — the two decisions
+  // (per the "volunteer confirms/declines" ask). needs_changes is a
+  // still-in-progress state, not yet a resolved outcome worth a buzz.
+  if (status === 'confirmed' || status === 'declined') {
+    const statusLabel = formatRsvpStatus(status) || status;
+    await notifyAdminPush(env, {
+      title: 'Scheduler: ' + statusLabel,
+      body: (record.name || 'A volunteer') + ' ' + (status === 'confirmed' ? 'confirmed' : 'declined') + ' their worship service assignment.',
+      tag: 'connect-rsvp',
+      url: '/#scheduler',
+    });
+  }
+
   const msgMap = {
     confirmed:     { h: 'Thank you!',         b: "You're confirmed. We look forward to serving with you." },
     needs_changes: { h: 'Got it!',            b: "We'll be in touch to work out the details." },

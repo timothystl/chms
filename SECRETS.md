@@ -43,6 +43,13 @@ All secrets are stored as Cloudflare Worker secrets (`wrangler secret put <NAME>
 - **Rotation**: `wrangler secret put CHMS_INTAKE_API_KEY`, then update the same value in the website Worker.
 - **Risk if leaked**: Ability to create person records and prayer requests via the intake endpoints.
 
+### `ADMIN_PUSH_API_KEY`
+- **Purpose**: Shared secret this Worker sends as `X-Push-Key` when calling `POST https://admin.timothystl.org/api/push/notify` — the website repo's cross-app web-push relay. Lets a new volunteer sign-up or an RSVP response ring admin staff's phones without this repo building its own push infrastructure (the website repo already has one, hand-rolled RFC 8291/8292, in `admin/webpush.js`). The reverse direction of `CHMS_INTAKE_API_KEY` above — same pattern, this repo is the caller here.
+- **Format**: Any strong random string (≥32 chars); must be the exact same value as `ADMIN_PUSH_API_KEY` on the website Worker (`tlc-newsletter-admin`).
+- **Rotation**: `wrangler secret put ADMIN_PUSH_API_KEY`, then update the same value on the website Worker.
+- **Risk if leaked**: Ability to push an arbitrary title/body notification to every subscribed admin device — a nuisance/social-engineering vector, not a data-access one (the relay only accepts `{title, body, tag, url}`, no way to read anything back).
+- **Fails safe**: if this secret is unset (or the website Worker hasn't set its matching copy), the push call is best-effort and `.catch()`'d — a new sign-up or an RSVP response is never blocked or delayed by a missing/misconfigured key.
+
 ### `BREVO_API_KEY`
 - **Purpose**: Authenticates calls to the Brevo API. Used for (1) newsletter contact sync, (2) transactional SMS (birthday/anniversary texts), and (3) giving statement/mid-year-update emails (`giving/send-statement`, pinned to Brevo rather than Resend for its higher 300/day free-tier cap).
 - **Format**: `xkeysib-` prefixed key from brevo.com → SMTP & API → API Keys.

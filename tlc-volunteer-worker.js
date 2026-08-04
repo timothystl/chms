@@ -25,6 +25,7 @@ import { DEPLOY_VERSION } from './src/frontend/js-core.js';
 import { PRIVACY_HTML, TERMS_HTML } from './src/legal-pages.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts, centralDayOfWeek } from './src/api-emails.js';
 import { sendWebPush } from './src/push-sender.js';
+import { notifyAdminPush } from './src/api-scheduler.js';
 
 // Key prefixes the /admin/r2photo/ proxy is allowed to serve. The R2 bucket is shared with
 // non-photo objects (branding assets, and per the backup runbook, full D1 SQL dumps under
@@ -55,15 +56,16 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
       try { await initDb(env.DB); } catch (e) { console.error('Cron DB init error:', e.message); return; }
-      const [bday, ann, bdaySms, annSms, prune, schedPush] = await Promise.all([
+      const [bday, ann, bdaySms, annSms, prune, schedPush, unfilledPush] = await Promise.all([
         sendBirthdayEmails(env).catch(e => ({ error: e.message })),
         sendAnniversaryEmails(env).catch(e => ({ error: e.message })),
         sendBirthdayTexts(env).catch(e => ({ error: e.message })),
         sendAnniversaryTexts(env).catch(e => ({ error: e.message })),
         pruneAuditLog(env.DB).catch(e => ({ error: e.message })),
         sendScheduleReminders(env).catch(e => ({ error: e.message })),
+        checkUnfilledShifts(env).catch(e => ({ error: e.message })),
       ]);
-      console.log('Daily cron:', JSON.stringify({ birthdays: bday, anniversaries: ann, birthday_sms: bdaySms, anniversary_sms: annSms, audit_prune: prune, schedule_push: schedPush }));
+      console.log('Daily cron:', JSON.stringify({ birthdays: bday, anniversaries: ann, birthday_sms: bdaySms, anniversary_sms: annSms, audit_prune: prune, schedule_push: schedPush, unfilled_shifts_push: unfilledPush }));
     })());
   },
 };
@@ -146,6 +148,55 @@ async function sendScheduleReminders(env) {
   }
 
   return { sent, failed };
+}
+
+// Push an admin-facing summary when an upcoming Sunday (within the next 7
+// days) still has an open assignment slot. Runs off the same daily cron and
+// the same `ws_schedule_v2` KV blob as sendScheduleReminders — that blob is
+// the only place "who's assigned to what" lives server-side. **Deliberately
+// does NOT cover "unconfirmed"** (an assignment made but not yet RSVP'd) —
+// RSVP status lives in per-token records in RSVP_STORE with no index/prefix
+// linking a token back to its schedule row, so there's no reliable way to
+// enumerate "still-pending" responses from the Worker side without adding a
+// whole new indexing scheme. Confirm/decline pushes (see handleSchedRsvp)
+// cover the moment a volunteer DOES respond; a stale, never-responded
+// assignment is a gap left for a future pass if it turns out to matter.
+// Fires once/day while any slot for the coming week is open — not deduped
+// beyond that, so it repeats daily until filled, same as a real to-do would.
+async function checkUnfilledShifts(env) {
+  if (!env.RSVP_STORE) return { skipped: 'no KV store' };
+  let schedule = [];
+  try {
+    const raw = await env.RSVP_STORE.get('ws_schedule_v2');
+    if (raw) schedule = JSON.parse(raw);
+  } catch { return { skipped: 'KV error' }; }
+  if (!Array.isArray(schedule)) return { skipped: 'no schedule data' };
+
+  const now = new Date();
+  const todayISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(now);
+  const weekOutISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' })
+    .format(new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000));
+
+  const openDates = new Set();
+  for (const row of schedule) {
+    if (row.type !== 'sunday') continue;
+    const dateISO = (typeof row.date === 'string' ? row.date : new Date(row.date).toISOString()).slice(0, 10);
+    if (dateISO < todayISO || dateISO > weekOutISO) continue;
+    for (const svcs of Object.values(row.assignments || {})) {
+      if (Object.values(svcs || {}).some((pid) => !pid)) { openDates.add(dateISO); break; }
+    }
+  }
+  if (!openDates.size) return { open: 0 };
+
+  await notifyAdminPush(env, {
+    title: 'Open worship service slots',
+    body: openDates.size === 1
+      ? 'One Sunday in the next week still has an open role to fill.'
+      : openDates.size + ' Sundays in the next week still have an open role to fill.',
+    tag: 'connect-unfilled',
+    url: '/#scheduler',
+  });
+  return { open: openDates.size };
 }
 
 async function _fetch(req, env) {

@@ -433,6 +433,54 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### Admin push notifications from the Scheduler/Serve side (2026-08-04)
+Requested: ring the same admin devices that admin.timothystl.org's web push already
+reaches, for (1) a new volunteer sign-up and (2) a scheduler notification — clarified via
+follow-up as "volunteer confirms/declines and unconfirmed, unfilled." Per the website
+repo's own CLAUDE.md ("The admin is a PWA, with web push"), this repo does **not** build
+its own push-sending implementation or `push_subscriptions` table — it calls the website
+repo's existing `POST /api/push/notify` relay (new, added there as part of this change),
+gated by a new shared secret `ADMIN_PUSH_API_KEY` (same pattern as `CHMS_INTAKE_API_KEY`,
+reversed direction), via a small `notifyAdminPush(env, {title, body, tag, url})` helper in
+`src/api-scheduler.js` — a plain best-effort `fetch()` + `.catch()`, no service binding
+(none exists to the website Worker in `wrangler.toml`, and none was added — a normal HTTPS
+call matches this repo's existing cross-Worker pattern, e.g. `getChmsFundSuggestions` on
+the other side).
+- **New volunteer sign-up** — wired into `handleSignup()` (`src/api-scheduler.js`), right
+  after the existing office-notification email, independent of the `notify_new_signup`
+  Settings toggle (that toggle is a different audience — the office inbox — from the
+  sidebar's per-device "Notifications" opt-in this push rides).
+- **A volunteer confirms/declines** — wired into `handleSchedRsvp()`, the `/rsvp` public
+  link handler. Only fires for `confirmed`/`declined`, not `needs_changes` — the latter is
+  still an open conversation, not a resolved outcome worth a buzz.
+- **Unfilled shifts** — new `checkUnfilledShifts(env)` in `tlc-volunteer-worker.js`, run
+  daily off the existing cron (`scheduled()`, alongside `sendScheduleReminders`). Reads the
+  same `ws_schedule_v2` KV blob `sendScheduleReminders` already reads and pushes one summary
+  whenever any Sunday in the next 7 days still has a blank assignment slot. Fires daily
+  while unfilled, same shape as `sendScheduleReminders`'s own reminder — no separate dedup
+  table.
+- **⚠ "Unconfirmed" was scoped OUT, deliberately, not overlooked.** An "unconfirmed"
+  assignment (a slot that's filled on paper but the RSVP link was never clicked) would need
+  enumerating every outstanding RSVP token in `RSVP_STORE` — but tokens are stored as bare
+  keys with no prefix/index tying a token back to which schedule row it belongs to (see
+  `schedKvGet`/`schedKvPut`), so there's no reliable way to answer "which assignments are
+  still pending" from the Worker side without building a real index first. That's a genuine
+  new piece of work, not a quick addition to this pass — flag if it's wanted, since it would
+  need its own schema/KV-key-shape decision.
+- **Manual step needed outside this repo** (same shape as `CHMS_INTAKE_API_KEY` before it):
+  `ADMIN_PUSH_API_KEY` must be set as a secret on **both** Workers with the identical value —
+  `wrangler secret put ADMIN_PUSH_API_KEY` here (`tlc-chms`) and
+  `wrangler secret put ADMIN_PUSH_API_KEY --name tlc-newsletter-admin` on the website side.
+  Until both are set, the push call is a silent no-op (fails open, per the file's own
+  best-effort convention) — nothing else in either app is affected.
+- `node --check` on both touched files (`src/api-scheduler.js`, `tlc-volunteer-worker.js`)
+  and the website repo's `tlc-admin-worker.js`. **Not verified**: `npm test` in either repo
+  (no `node_modules` installed in this session), and no live call to the real relay endpoint
+  (needs both `ADMIN_PUSH_API_KEY` secrets set, which is the manual step above). Done
+  2026-08-04. (`src/api-scheduler.js`, `tlc-volunteer-worker.js`, and on the website repo:
+  `tlc-admin-worker.js`, `SECRETS.md` equivalent doc in this repo, `CLAUDE.md`)
+
+
 ### Board Report — Budget YTD source (2026-08-04)
 Fixed alongside G/FIN follow-ups the same day (see NOTES.md v1.122.0): the Giving Board Report
 Dashboard's "General Fund YTD" KPI card is now split from other-fund giving, but its companion
