@@ -65,6 +65,55 @@ when this path is used, so it's never presented as more precise than it is. `npm
 verified in a live browser. (`src/frontend/js-attendance.js`, `src/frontend/html-head.js`,
 `src/frontend/js-giving.js`, `src/api-finance.js`, `test/finance-church.test.js`)
 
+### v1.123.0 — Cold-start DB init made every page load take ~7 seconds (2026-08-04)
+
+**Reported:** "The website is taking a long time to open. This seems to be an ongoing problem.
+Longer than any other website."
+
+**Measured against production before touching anything** — this was not an inference:
+
+```
+run 1  ttfb=6.95s      run 3  ttfb=0.20s
+run 2  ttfb=6.51s      run 4  ttfb=6.99s
+```
+
+~6.5–7.0s TTFB for a **5 KB** login page, with the occasional 0.2s. That bimodal split is the
+signature of a per-isolate cold-start cost, not payload, network, or Cloudflare.
+
+**Cause.** `_fetch` awaits `initDb(env.DB)` before any routing, on every request. `initDb` is
+memoized — but **per Worker isolate**, and Cloudflare spins up many. Every cold isolate re-ran
+`_doInitDb` in full: every `CREATE TABLE`/`CREATE INDEX` in `DB_INIT`, then ~84 `ALTER TABLE`
+migrations applied serially in a loop where each one *throws* "duplicate column" on an
+already-migrated database and is swallowed, then a dozen seed functions. Counted against real
+SQLite: **463 statements, each its own serial D1 round trip.** On a live database essentially
+every one is a no-op, and the user waited for all of them before the first byte.
+
+**Fix — a schema fingerprint fast path.** One read decides whether any of it is needed:
+463 round trips become **1** when the schema is already current.
+
+The fingerprint is derived from the **actual source text** of `_doInitDb`, `DB_INIT`, and every
+seed function it calls (FNV-1a over `Function.prototype.toString()`). Any edit to a migration, a
+DDL statement, or a seed body changes it automatically and the full init runs again on the next
+request. There is deliberately **no constant to bump** — a forgotten bump would mean a silently
+skipped migration, which is far worse than the slow start being fixed. The marker is written
+**last and only on success**, so a partial failure leaves no fingerprint and the next request
+redoes the work rather than assuming a half-applied schema is current.
+
+**Verified:** `npm test` 514/514, 7 new in `test/db-init-fastpath.test.js` running the real
+`initDb` against real SQLite with a statement counter — full build on a new database (463
+statements), fingerprint recorded on success, **1 statement** for a fresh isolate against an
+already-migrated database, full re-run when the fingerprint is stale or the marker row is
+missing, and that concurrent callers share one in-flight init. Re-verified by deleting the fast
+path and confirming exactly the two count-based tests go red.
+
+**Dialect note found while testing:** 39 statements in `db.js` use double-quoted string literals
+(`start_time=""`). SQLite's legacy DQS misfeature accepts these and D1 has it enabled, so
+production is fine; `node:sqlite` compiles it OFF and reads them as identifiers. The test shims
+only `=""` → `=''`. Worth knowing those 39 statements depend on a misfeature — not fixed here.
+
+**Not verified:** the live TTFB after deploy. The first request to each cold isolate still pays
+one round trip plus normal Worker startup; the ~463-statement penalty is what's gone.
+
 ### v1.122.0 — Member directory always showed "Visitor", regardless of real status (2026-08-03)
 
 **Reported:** "When searching as a member user the people status all show as visitor even when

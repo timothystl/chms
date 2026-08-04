@@ -543,6 +543,13 @@ export function initDb(db) {
   return _initPromise;
 }
 
+/**
+ * Clears the per-isolate memo. Tests only — it's how a fresh Worker isolate hitting an
+ * already-migrated database is simulated, which is the exact case the fingerprint fast path
+ * exists for and the one that was costing ~7s per cold start in production.
+ */
+export function _resetInitForTests() { _initPromise = null; }
+
 // Tuition Aid Planner: one-time seed of 2026-27 budgeted awards (Tuition_Awards_2026.xlsx)
 // so the tab isn't empty on first load. Guarded by a NOT-EXISTS check on tuition_config —
 // runs once per database. Rows are seeded with person_id/household_id left NULL; staff link
@@ -1170,7 +1177,52 @@ async function seedIvanhoePropertyBaseMinimumReserve(db) {
   ]);
 }
 
+// ── Schema fingerprint ───────────────────────────────────────────────────────
+// _doInitDb applies ~220 statements serially, each its own D1 round trip: every CREATE TABLE
+// / CREATE INDEX in DB_INIT, then ~84 ALTER TABLE migrations (each of which *throws*
+// "duplicate column" on an already-migrated database and is swallowed), then a dozen seed
+// functions. All of it is idempotent, so on a live database essentially every statement is a
+// no-op — but it is awaited before the Worker serves a single byte, and initDb's memoization
+// is per-ISOLATE, so every cold isolate paid the full cost again. Measured against production
+// on 2026-08-04: ~6.5–7.0s TTFB on a cold isolate versus ~0.2s on a warm one, for a 5 KB
+// login page. That is the entire reason the site felt slower than any other website.
+//
+// The fast path below collapses that to ONE round trip when the schema is already current.
+//
+// The fingerprint is derived from the actual source text of _doInitDb and every seed it
+// calls, so any edit to a migration, a DDL statement, or a seed body changes it automatically
+// and the full init runs again on the next request. There is deliberately no constant to
+// remember to bump — that would be a silent-skipped-migration footgun, which is far worse
+// than the slow start this replaces.
+function _schemaFingerprint() {
+  const parts = [
+    _doInitDb, seedChmsDefaults, seedEvents, seedIvanhoeProperty,
+    seedIvanhoePropertyBaseMinimumReserve, seedIvanhoePropertyJune2026,
+    seedIvanhoePropertyJune2026Notes, seedIvanhoePropertyReservesV2,
+    seedIvanhoePropertyValuationV3, seedMinistryRolesFromStatic,
+    seedStudentTuitionHistory, seedTuitionAid, seedTuitionYearRates,
+  ].map((f) => f.toString());
+  parts.push(DB_INIT.join('\n'));
+  const src = parts.join('\n');
+  // FNV-1a. Not cryptographic — it only needs to change when the source changes.
+  let h = 2166136261;
+  for (let i = 0; i < src.length; i++) {
+    h ^= src.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36) + '-' + src.length.toString(36);
+}
+
 async function _doInitDb(db) {
+  const fingerprint = _schemaFingerprint();
+  // One cheap read decides whether any of the rest is needed. Throws on a brand-new database
+  // (no chms_config table yet), which the catch turns into "not current" — so a first-ever
+  // deploy still runs the full init and creates everything.
+  const current = await db.prepare(
+    `SELECT value FROM chms_config WHERE key='schema_fingerprint'`
+  ).first().catch(() => null);
+  if (current && current.value === fingerprint) return;
+
   for (const stmt of DB_INIT) {
     await db.prepare(stmt).run();
   }
@@ -1640,5 +1692,14 @@ async function _doInitDb(db) {
   await seedIvanhoePropertyJune2026(db);
   await seedIvanhoePropertyJune2026Notes(db);
   await seedIvanhoePropertyBaseMinimumReserve(db);
+
+  // Recorded LAST, and only on success. If anything above threw, initDb's own catch clears
+  // its memoized promise so the next request retries — and because no fingerprint was
+  // written, that retry does the full work again rather than assuming a half-applied schema
+  // is current.
+  await db.prepare(
+    `INSERT INTO chms_config (key, value) VALUES ('schema_fingerprint', ?)
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(fingerprint).run().catch(() => {});
 }
 
