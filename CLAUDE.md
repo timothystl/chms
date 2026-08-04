@@ -495,7 +495,14 @@ structural problem that makes a *systematic* pass expensive and a *targeted* one
   `.field`, `select`, scheduler inputs, and number inputs. One media query setting `font-size:16px`
   under ~768px fixes it app-wide; the number inputs pinned to `width:56px` need widening alongside.
   Highest impact-per-effort item available.
-- [ ] **MOB2 (M2) — 55 of 99 tables have no horizontal scroll container**, so they widen the page
+- [x] **MOB2 (M2) — DONE 2026-08-04 (v1.127.0).** One phone-scoped descendant rule
+  (`.content-area table:not(.dir-table), .modal table:not(.dir-table){display:block;
+  overflow-x:auto;max-width:100%;}`) rather than 55 markup edits — 65 of the 99 tables carry no
+  class, so a class-targeted rule would reach a third. `.dir-table` excluded (sticky header,
+  already hidden on phones); no `nowrap`, so a table that fits still fits. 11 tests; a first
+  placement test proved vacuous on deliberate breakage and was rewritten around the real
+  mechanism (specificity, not source order). Not verified on a device. **Original note follows.**
+  ~~55 of 99 tables have no horizontal scroll container~~, so they widen the page
   instead of scrolling (`js-reports.js` 20 bare of 23, `js-finance.js` 16 of 40, `js-attendance.js`
   5 of 5). Complication: **65 of the 99 tables carry no CSS class at all** (inline-styled in JS
   string concat), so a class-targeted rule reaches only a third. Two candidate approaches, both in

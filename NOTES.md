@@ -65,6 +65,58 @@ when this path is used, so it's never presented as more precise than it is. `npm
 verified in a live browser. (`src/frontend/js-attendance.js`, `src/frontend/html-head.js`,
 `src/frontend/js-giving.js`, `src/api-finance.js`, `test/finance-church.test.js`)
 
+### v1.127.0 — MOB2: wide tables scroll instead of widening the page (2026-08-04)
+
+**55 of the app's 99 tables had no horizontal scroll container** — `js-reports.js` 20 bare of 23,
+`js-finance.js` 16 of 40, `js-attendance.js` 5 of 5. A bare wide table does not scroll: it widens
+the **page**, so the whole layout shifts and the user can pan the entire UI sideways with no
+obvious way back. That is the worst-feeling class of mobile breakage, and it was the last open
+item from the mobile scope.
+
+**One descendant rule, not 55 markup edits**, for a concrete reason: **65 of the 99 tables carry
+no CSS class at all** — they are built with inline styles in JS string concatenation — so a
+class-targeted rule would reach barely a third, and hand-editing 55 call sites is both expensive
+and exactly the kind of change that regresses silently.
+
+```
+@media(max-width:767px){
+  .content-area table:not(.dir-table),
+  .modal table:not(.dir-table){display:block;overflow-x:auto;max-width:100%;}
+}
+```
+
+Four deliberate choices:
+- **Phone-scoped.** The defect only exists where the viewport is narrower than the table, so
+  desktop keeps normal table layout entirely untouched and the blast radius is limited to where
+  the bug lives.
+- **`.content-area` + `.modal`.** The former covers tab panels, the profile view and the
+  household/organization views; modals are `position:fixed` and sit outside it, so they need
+  naming separately.
+- **`.dir-table` excluded.** Its `<th>` uses `position:sticky` for a frozen header, which
+  `display:block` defeats. It is the desktop People table and is already `display:none` on
+  phones, so excluding it costs nothing.
+- **No `white-space:nowrap`.** Letting cells wrap means a table that *can* fit still fits, and
+  only genuinely wide ones scroll — gentler than forcing every table into a scroller.
+
+**A test that would have passed for no reason, caught and rewritten.** The first placement test
+asserted the block sits after the base table rules — reflexively, after v1.121.4. Deliberately
+breaking it proved the assertion was vacuous: moving the block earlier changed nothing. The real
+mechanism is specificity, not order. The only base rule touching overflow on a table selector is
+`.reg-table{overflow:hidden}` — one class, (0,1,0) — while this rule is `.content-area table`, a
+class plus an element, (0,1,1), so it wins regardless of position. The tests now assert that
+mechanism instead of an ordering constraint that does not exist.
+
+**Verified:** `npm test` 565/565, 11 new in `test/mobile-table-scroll.test.js`. Re-verified against
+deliberate breakages: rule removed (8 of 10 fail), and narrowed to a class-targeted selector
+(3 fail, including the "reaches tables regardless of class" check). Also asserts the premises —
+that most tables really do lack a wrapper and really do lack a class — so if the markup is ever
+cleaned up the tests say so rather than silently protecting nothing.
+
+**Not verified:** a real device. `display:block` on a table is the standard technique for this and
+no rule in this stylesheet depends on table layout mode (checked), but how each of the 99 tables
+looks once it becomes its own scroll container is the part that needs eyes. Finance's multi-year
+grids and the Reports trend tables are the widest and the most likely to look different.
+
 ### v1.126.1 — Recover a poisoned immutable asset URL (2026-08-04)
 
 **v1.126.0's CSS never went live**, and the cause is an operational hazard worth recording
