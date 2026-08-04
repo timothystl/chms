@@ -65,6 +65,50 @@ when this path is used, so it's never presented as more precise than it is. `npm
 verified in a live browser. (`src/frontend/js-attendance.js`, `src/frontend/html-head.js`,
 `src/frontend/js-giving.js`, `src/api-finance.js`, `test/finance-church.test.js`)
 
+### v1.125.0 — MOB1: iOS no longer zooms the viewport on every field focus (2026-08-04)
+
+**The symptom.** On an iPhone, tapping any text field zoomed the whole page in — and iOS does not
+zoom back out, so the user pinched out, tapped the next field, and it happened again. Every form,
+every tab. The first field a member ever touches is the login username box, so it was also the
+first impression of Connect on a phone.
+
+**Not a bug in our code.** iOS Safari zooms the viewport whenever a focused field's text is below
+16px, assuming it would otherwise be unreadable while typing. Every input in the app was under
+that line — `.9rem` / `.85rem` / `.82rem` / `15px` / `13px` / `.78rem` / `.72rem` — sizes chosen
+for a desktop layout where they read fine.
+
+**Fix:** one `@media(max-width:767px)` block setting `font-size:16px` on text inputs, selects and
+textareas. Three details are load-bearing, each one a lesson from a bug earlier in the same
+session:
+
+1. **`!important`.** 56 inputs in `html-tabs.js` carry an inline `font-size`, and an inline style
+   beats a media query — a plain rule would have silently skipped every one of them. That is the
+   VUX15 failure, and the same shape as the `#p-pager` rule nearly shipped in v1.121.3. Stripping
+   those 56 inline styles is the cleaner answer but belongs with the CR4 cleanup.
+2. **Placed at the very end of the stylesheet.** A media query carries no extra specificity, so
+   source order decides between same-specificity rules — exactly what made v1.121.3's pagination
+   fix do nothing at all until v1.121.4 moved it.
+3. **Not a blanket bump.** `.att-input` is deliberately `1.65rem` (~26px) for thumb-friendly
+   attendance entry; `16px!important` would have *shrunk* it, so it is restored explicitly.
+   Non-text controls (`checkbox`/`radio`/`range`/`color`/`file`) are excluded — they never trigger
+   zoom and sizing them can disturb layout. `.tap-slider-row input[type=number]`, pinned to 56px,
+   is widened to 78px so 16px text does not clip.
+
+Scoped to 767px to match this app's existing definition of "phone". iPad portrait (768px) has the
+same iOS behavior but gets the desktop layout where the smaller type is correct — revisit with
+MOB3's breakpoint consolidation if tablet typing becomes a real complaint.
+
+**Verified:** `npm test` 539/539, 9 new in `test/mobile-input-zoom.test.js`. They assert the
+*winning* declaration and the rule's ability to beat inline styles, not merely that a rule exists —
+presence-only tests passed against two completely dead fixes earlier tonight. Re-verified against
+**three** separate breakages: the rule removed (9 fail), `!important` dropped (9 fail), and the
+block moved before the base rules (the cascade-order test fails). CSS brace balance checked on the
+generated stylesheet.
+
+**Not verified:** a real iPhone. The 16px threshold is documented iOS Safari behavior, but how the
+larger type looks in every form on a real device is the part that needs eyes — the most likely
+follow-up is a tight layout somewhere that now wraps.
+
 ### v1.124.0 — Member directory field gating + the "Map unavailable" mystery (2026-08-04)
 
 Two requests: gate the member directory to "name and contact info" only, and the map still says

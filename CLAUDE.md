@@ -483,8 +483,15 @@ Headline: the foundation is better than the ask implies (viewport meta, off-canv
 widths per VUX10, 29 media queries, 44px touch targets per MO3, adapted modals per MO4, charts that
 scale via `viewBox`). What's missing is two defects that break pages outright on a phone, plus one
 structural problem that makes a *systematic* pass expensive and a *targeted* one cheap.
-- [ ] **MOB1 (M1) — Every input in the app is under 16px, so iOS zooms the viewport on every field
-  focus, on every form, on every tab.** Measured: `.9rem`/`.84rem`/`13px`/`.82rem`/`.78rem` across
+- [x] **MOB1 (M1) — DONE 2026-08-04 (v1.125.0).** One `@media(max-width:767px)` block setting
+  `font-size:16px` on text inputs/selects/textareas, at the END of the stylesheet, with
+  `!important` — 56 inputs carry an inline `font-size` that would otherwise defeat it (VUX15),
+  and a media query adds no specificity so placement decides the cascade (v1.121.4). `.att-input`
+  (deliberately 1.65rem) is restored rather than shrunk; non-text controls excluded; the one
+  56px-wide number input widened. 9 tests assert the winning declaration, verified against three
+  separate breakages. Not verified on a real iPhone. **Original note follows.** ~~Every input in
+  the app is under 16px, so iOS zooms the viewport on every field focus, on every form, on every
+  tab.~~ Measured: `.9rem`/`.84rem`/`13px`/`.82rem`/`.78rem` across
   `.field`, `select`, scheduler inputs, and number inputs. One media query setting `font-size:16px`
   under ~768px fixes it app-wide; the number inputs pinned to `width:56px` need widening alongside.
   Highest impact-per-effort item available.
