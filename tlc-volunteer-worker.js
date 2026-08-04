@@ -21,6 +21,7 @@ import { handleIntakeApi } from './src/api-intake.js';
 import { handleMemberSetup } from './src/api-people.js';
 import { LOGIN_HTML, PUBLIC_HTML, ADMIN_HTML } from './src/html-templates.js';
 import { CHMS_HTML, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_CORE_JS, CHMS_APP_EXT_JS, CHMS_APP_CSS, CHMS_SCHEDULER_HTML, CHMS_SCHEDULER_JS } from './src/html-chms.js';
+import { DEPLOY_VERSION } from './src/frontend/js-core.js';
 import { PRIVACY_HTML, TERMS_HTML } from './src/legal-pages.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts, centralDayOfWeek } from './src/api-emails.js';
 import { sendWebPush } from './src/push-sender.js';
@@ -303,14 +304,34 @@ async function _fetch(req, env) {
     // service worker above. The ?v= query param is DEPLOY_VERSION, so a version bump busts this
     // cache automatically; `immutable` tells the browser to skip revalidation entirely for the
     // life of that version.
+    // ── Versioned-asset cache policy ────────────────────────────────────────────────
+    // These assets are cached for a year as `immutable`, keyed by ?v=DEPLOY_VERSION. That is
+    // correct once a deploy has fully rolled out — but Cloudflare rolls out per-colo, so during
+    // the window there are edges still running the PREVIOUS worker. If one of them answers a
+    // request for the NEW ?v= value, its stale body gets pinned under the new URL as immutable,
+    // and every later request for that version gets last version's asset. For a year.
+    //
+    // That is not hypothetical: it happened on the v1.126.0 and v1.127.0 deploys (see NOTES.md),
+    // where app.css?v=<new> served the previous stylesheet while a throwaway probe URL returned
+    // the correct one. Any user who loads the page mid-rollout can do the same to their own edge.
+    //
+    // Fix: only allow caching when the version being asked for is the version this worker
+    // actually IS. A mismatch in either direction means the body cannot be correct for that URL,
+    // so it must not be stored. Once the rollout completes, every request matches and normal
+    // long-lived caching resumes with no other change.
+    const assetCacheControl = () =>
+      url.searchParams.get('v') === DEPLOY_VERSION
+        ? 'public, max-age=31536000, immutable'
+        : 'no-store';
+
     if (path === '/admin/app-core.js') {
       return new Response(CHMS_APP_CORE_JS, {
-        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=31536000, immutable' }
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
       });
     }
     if (path === '/admin/app-ext.js') {
       return new Response(CHMS_APP_EXT_JS, {
-        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=31536000, immutable' }
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
       });
     }
     // ── ChMS app CSS + lazy-loaded Scheduler embed — same rationale and same caching model
@@ -318,7 +339,7 @@ async function _fetch(req, env) {
     // out of the no-store shell so the browser can keep it across page loads.
     if (path === '/admin/app.css') {
       return new Response(CHMS_APP_CSS, {
-        headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' }
+        headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': assetCacheControl() }
       });
     }
     if (path === '/admin/scheduler-embed.html') {
