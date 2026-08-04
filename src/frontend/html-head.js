@@ -1245,6 +1245,43 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .tap-lhs-toggle input{vertical-align:middle;margin-right:3px;cursor:pointer;}
 .tap-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;font-size:.85rem;}
 .tap-controls select{padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--white);color:var(--charcoal);font-family:var(--font-body);}
+
+/* ══ MOB1 — stop iOS zooming the viewport on every field focus ══════════════════════════
+   iOS Safari zooms the whole page whenever a focused form field's text is under 16px, on the
+   assumption it would otherwise be unreadable while typing. It does NOT zoom back out, so the
+   user pinches out, taps the next field, and it happens again. Every input in this app was
+   under the line (.9rem / .85rem / .82rem / 15px / 13px / .78rem / .72rem), so this affected
+   every form on every tab — and the very first field a member ever touches is the login
+   username box.
+
+   Three things about this rule are deliberate:
+
+   1. !important. 56 inputs in html-tabs.js carry an INLINE font-size, and an inline style beats
+      a media query — a plain rule would silently skip all of them. That is the same
+      presence-vs-effect failure as VUX15 and as the mobile-pagination fix that shipped doing
+      nothing (v1.121.3). Stripping those 56 inline styles is the cleaner answer but belongs
+      with the CR4 inline-style cleanup, not here. The mobile block above already uses
+      !important for the same reason.
+   2. Placed at the very END of the stylesheet, after every base rule. A media query carries no
+      extra specificity, so source order decides between same-specificity rules — the lesson
+      from v1.121.4.
+   3. 16px exactly, not a bump to everything. .att-input is deliberately 1.65rem (~26px) for
+      thumb-friendly attendance entry; a blanket 16px would SHRINK it, so it is restored below.
+      Non-text controls are excluded — they never trigger zoom and sizing them can disturb
+      layout.
+
+   Scoped to 767px to match this app's existing definition of "phone". iPad portrait (768px)
+   has the same iOS behavior but gets the desktop layout, where the smaller type is correct;
+   revisit with MOB3's breakpoint consolidation if tablet typing becomes a real complaint. */
+@media(max-width:767px){
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]),
+  select,
+  textarea{font-size:16px!important;}
+  /* Keep the intentionally-oversized attendance entry fields oversized. */
+  .att-input{font-size:1.65rem!important;}
+  /* The one input pinned narrow enough to clip its own text at 16px. */
+  .tap-slider-row input[type=number]{width:78px;}
+}
 </style>
 </head>
 <body>
