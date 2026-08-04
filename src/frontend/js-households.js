@@ -558,7 +558,7 @@ function toggleAddrMap(mapId) {
     var addr = decodeURIComponent(el.dataset.addr);
     var img = new Image();
     img.onload = function() { el.innerHTML = ''; img.style.cssText = 'width:100%;height:auto;display:block;'; el.appendChild(img); el.dataset.loaded = '1'; };
-    img.onerror = function() { el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--danger);">Map unavailable. <a href="https://maps.google.com/?q=' + el.dataset.addr + '" target="_blank" rel="noopener">Open in Google Maps</a></div>'; };
+    img.onerror = function() { showMapError(el, el.dataset.addr); };
     el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--warm-gray);">Loading map…</div>';
     img.src = '/admin/api/utils/static-map?address=' + encodeURIComponent(addr);
   } else {

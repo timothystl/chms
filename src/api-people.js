@@ -33,7 +33,6 @@ export function memberSafeView(p, householdDisplayName) {
     household_name: p.household_name || '',
     household_display_name: householdDisplayName || null,
     household_photo_url: p.household_photo_url || '',
-    family_role: p.family_role || '',
     // Not sensitive — this is the directory's own classification (Member/Visitor/Associate/
     // Friend/Inactive/Organization), and the People tab's default filter already scopes
     // members-only by this exact field. Omitting it here was a genuine allowlist gap from
@@ -49,8 +48,16 @@ export function memberSafeView(p, householdDisplayName) {
     city: p.dir_hide_address ? '' : (p.city || ''),
     state: p.dir_hide_address ? '' : (p.state || ''),
     zip: p.dir_hide_address ? '' : (p.zip || ''),
-    dob: p.dir_hide_dob ? '' : (p.dob || ''),
-    anniversary_date: p.dir_hide_anniversary ? '' : (p.anniversary_date || ''),
+    // Deliberately NOT exposed to members (decision 2026-08-04, "only show name and contact
+    // info"): `dob`, `anniversary_date` and `family_role`. Birthdays and anniversaries are
+    // personal data rather than contact details, and family_role ('head'/'spouse'/'child')
+    // describes household structure. They were previously included subject to each person's
+    // own dir_hide_* opt-out, which made exposure opt-OUT; now they are never sent to a member
+    // at all, regardless of opt-out state. Staff/office/finance/admin views are unaffected —
+    // this function only ever runs for role='member'.
+    //
+    // What a member DOES get: name, email, phone, address, member_type, photo, and household
+    // grouping (name + which household), which is what a printed church directory shows.
     tags: [],
   };
 }

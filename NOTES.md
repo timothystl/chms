@@ -65,6 +65,55 @@ when this path is used, so it's never presented as more precise than it is. `npm
 verified in a live browser. (`src/frontend/js-attendance.js`, `src/frontend/html-head.js`,
 `src/frontend/js-giving.js`, `src/api-finance.js`, `test/finance-church.test.js`)
 
+### v1.124.0 — Member directory field gating + the "Map unavailable" mystery (2026-08-04)
+
+Two requests: gate the member directory to "name and contact info" only, and the map still says
+unavailable. Both scoped with the user before implementing — the field list and whether members
+should get maps at all were product decisions, not obvious defaults.
+
+**Field gating.** `memberSafeView()` no longer exposes `dob`, `anniversary_date` or `family_role`.
+Those were previously included *subject to each person's own `dir_hide_*` opt-out*, which made
+exposure opt-OUT; a birthday is personal data rather than contact info, so it is now never sent
+to a member at all regardless of opt-out state. Members keep name, email, phone, address,
+`member_type`, photo, and household grouping — what a printed church directory shows (user's
+choice among three options). A test asserts the **exact** key set, so a future field added to the
+allowlist fails until someone decides deliberately.
+
+**Household grouping needed a second fix to actually work.** Keeping the family chips means the
+frontend calls `GET /admin/api/households/:id`, which was **not** in the member allowlist at all —
+so the chips would have 403'd. Adding it naively would have been much worse than the gap it
+closed: that endpoint returns private household notes, the envelope number, the anniversary, five
+years of giving totals, and every member's phone/email **ignoring their `dir_hide_*` opt-outs**.
+So the handler gained a member branch returning only `{id, name, display_name, photo_url,
+members:[{id, first_name, last_name, photo_url, member_type}]}`, returning **before** the giving
+query rather than running and discarding it. The allowlist entry is `/^households\/\d+$/` — a
+single household by id, not the list, `no-head-count`, `fix-heads`, `sync-address` or the photo
+routes. `role` was appended as the **last** parameter of `handleHouseholdsApi` deliberately: SW4
+was a real bug caused by that function being called with more arguments than it declared.
+
+**The map.** Two independent causes, and the reported "still" pointed at the older one.
+For a member it could never work — `utils/static-map` is outside the member allowlist *and* the
+handler requires `canEdit`. But it fails for staff too when `GOOGLE_MAPS_API_KEY` is unset:
+Static Maps is a **different Google product** than Address Validation, and a key restricted to the
+latter is rejected with a 403 (documented in SECRETS.md, evidently never actioned).
+
+Members now get an "Open in Maps" button instead of the embedded map — free, no API key, opens
+the phone's own maps app, and avoids a paid per-request Google call from the largest user tier
+(user's choice). For everyone else the failure is now **diagnosable**: an `img` `onerror` cannot
+read a response body, so the old handling could only ever say "Map unavailable" in red with no
+reason — which is exactly why this stayed unexplained. `showMapError()` re-requests the same URL
+as JSON and surfaces the real cause: 501 → "Maps are not configured — set the
+GOOGLE_MAPS_API_KEY secret", or Google's own text on a 502. Only runs in the failure path.
+
+**Verified:** `npm test` 530/530, 16 new across three files — the removed fields and the exact
+remaining key set, member household allowlist (single id allowed; list, sibling routes, writes and
+non-numeric segments all still denied), and redaction of the household payload run against real
+SQLite (no giving, envelope, notes, member phone/email or family_role; staff shape unchanged).
+Re-verified by deleting the member branch and confirming 5 of the 7 redaction tests go red.
+
+**Not verified:** a live browser, and whether `GOOGLE_MAPS_API_KEY` is actually set in production
+— that's a Cloudflare secret this session can't read. The new error text will now say so directly.
+
 ### v1.123.0 — Cold-start DB init made every page load take ~7 seconds (2026-08-04)
 
 **Reported:** "The website is taking a long time to open. This seems to be an ongoing problem.

@@ -92,8 +92,13 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // below is a legacy dispatch alias that the frontend never calls. Listing only the alias
     // meant loadMemberTypes() 403'd on every single member page load, which surfaced as a
     // bare "Access denied" banner on an otherwise working directory (reported 2026-08-03).
+    // `households/<id>` and nothing else under households — NOT the list, NOT no-head-count,
+    // fix-heads, sync-address or the photo routes. The handler returns a redacted shape for
+    // this role (family chips only, no giving/envelope/notes); this pattern is what stops a
+    // member reaching the other household endpoints alongside it.
     const allowedSegs = seg.startsWith('people') || seg === 'tags'
       || seg === 'member-types' || seg === 'config/member-types'
+      || /^households\/\d+$/.test(seg)
       || (canView('reports') && seg.startsWith('reports'));
     if (!allowedSegs) return json({ error: 'Access denied' }, 403);
     if (method !== 'GET') return json({ error: 'Access denied' }, 403);
@@ -510,7 +515,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // ── Households / Organizations / Tags / Funds → api-households.js ─────────
   if (seg.startsWith('households') || seg.startsWith('organizations') ||
       seg.startsWith('tags') || seg.startsWith('funds')) {
-    const result = await handleHouseholdsApi(req, env, url, method, seg, db, isAdmin, canEdit);
+    const result = await handleHouseholdsApi(req, env, url, method, seg, db, isAdmin, canEdit, role);
     if (result !== null) return result;
   }
 
