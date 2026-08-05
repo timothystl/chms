@@ -24,6 +24,40 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.135.0 — Compensation: LCMS raise scenarios back to pure formula math, autosave for the whole
+tab (2026-08-05)
+
+Two more follow-ups, reported live against v1.134.0.
+
+**"It's still not calculating the NEXT year salary — that's what this should do, using the district's
+multiplier table."** The previous two rounds fixed "None (flat)" to show the real current-year
+budget ($98,800 for Dinger) — correct, confirmed working. But the LCMS/SSA/Custom "raise" scenarios
+had also been changed to grow FROM that real figure by a flat %, which produced a materially
+different (and lower) number than the actual LCMS district formula the user hand-computed
+($51,529 base × (2.01 experience + 0.05 attendance) = $106,149.74). Reverted: `finWorkerScenarioSalaryCents()`
+now only uses the real actual/budget figure for the "None" column specifically; every other scenario
+(LCMS Avg/SSA/Custom) is unconditionally computed straight from `finComputeLcmsSalary()` — the pure
+district guideline formula for the target year — same as before the "grow from actual" feature was
+ever added. Verified with a harness reproducing the user's exact numbers: None → $98,800.00 (real
+budget), LCMS/SSA → $106,149.74 (the formula, matching the hand-calc exactly, identical to each other
+since FY2027 already has an exact published base salary — expected, not a bug).
+
+**"Changes are not saving when I checkbox or change a field."** The whole Compensation tab (Salary
+Calculator roster, Health Insurance selection, Pension/Disability overrides, everything) had never
+autosaved — same class of report the Church Budget Planning tab got before FIN47 added autosave
+there. Rather than wire a debounced save into every individual handler (a lot of call sites), added
+one `finSalaryScheduleAutoSave()` call inside the single shared `finRerenderPlanningPreserveFocus()`
+that virtually every Compensation mutator already calls — covers every checkbox/field/dropdown in
+one place. Also caught and fixed a real gap while auditing this: `finConcordiaFieldChange()` (the
+Concordia Decision Support reference fields) never called ANY save function at all, silent or
+otherwise — those fields were unsavable outright, not just missing autosave. `finSalarySaveData()`
+(the manual button) and the new autosave now share one `finSalaryBuildSaveBody()` so they can't
+drift. Verified with a harness: editing a roster field, toggling a checkbox, and editing a Concordia
+field each fire exactly one debounced save call after ~900ms, none before.
+
+`npm test` (580/580, no test changes needed), `node --check`, harnesses for both fixes described
+above. Not verified in a live browser. (`src/frontend/js-finance.js`)
+
 ### v1.134.0 — Compensation: pull the real BUDGET figure (not YTD actual), switch dollar overrides
 off type="number" for good (2026-08-05)
 
