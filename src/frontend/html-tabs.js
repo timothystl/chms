@@ -1446,6 +1446,7 @@ export const HTML_TABS_2 = String.raw`
               <span class="tap-gauge-text" id="tap-total-gauge-text">–</span>
               <span id="tap-total-gauge-cap">Total Timothy Aid Budget: –</span>
             </div>
+            <div id="tap-total-pipeline-note" style="font-size:.72rem;color:#8A7440;margin-top:4px;display:none;"></div>
           </div>
           <div class="tap-controls">
             <span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;">
@@ -1502,6 +1503,7 @@ export const HTML_TABS_2 = String.raw`
               <span class="tap-gauge-text" id="tap-k8-gauge-text">–</span>
               <span id="tap-k8-gauge-cap">Budget: –</span>
             </div>
+            <div id="tap-k8-pipeline-note" style="font-size:.72rem;color:#8A7440;margin-top:4px;display:none;"></div>
           </div>
 
           <div style="overflow-x:auto;">
@@ -1535,6 +1537,7 @@ export const HTML_TABS_2 = String.raw`
               <span class="tap-gauge-text" id="tap-lhs-gauge-text">–</span>
               <span id="tap-lhs-gauge-cap">Standard rate: –</span>
             </div>
+            <div id="tap-lhs-pipeline-note" style="font-size:.72rem;color:#8A7440;margin-top:4px;display:none;"></div>
           </div>
           <div style="overflow-x:auto;">
           <table style="width:100%;border-collapse:collapse;font-size:.82rem;">

@@ -1287,6 +1287,26 @@ Rollout is phased, each phase visually verified (Playwright against the built HT
     untouched, `is_pipeline` unaffected) that round-trips back into the inputs on re-render. `npm
     test` (580/580). Not verified in a live browser. Done 2026-08-05 (v1.130.0).
     (`src/frontend/js-tuition-aid.js`)
+  - **TAP16-FIX2** — Reported "the calculations here are wrong — I entered aid for WOL totalling
+    $80,850 and the bar shows $70,150." Not a math bug: `tapUpdateGauges()`'s budget-used total is
+    computed from `tapEnrolledActiveForYear()`, which deliberately excludes pipeline (not-yet-
+    enrolled) students — including the ones TAP16-FIX1 just made editable for "what if enrolled"
+    planning — so typed pipeline awards were invisible in every total, exactly matching the report
+    (the three pipeline rows in the screenshot summed to $18,100, entirely unaccounted for). Asked
+    the user how they wanted it resolved (`AskUserQuestion`: merge into one total / show both kept
+    separate / only count manually-overridden pipeline rows) rather than guess — chose **show both,
+    kept separate**. New `tapPipelinePreviewForYear(yearIdx)` (factored out of
+    `tapRenderPlannerTables`'s own inline preview-filter block, now shared so the table and the
+    gauges can never disagree) backs a new note line under each of the K-8/LHS/Total gauges —
+    `tap-k8-pipeline-note` etc. — reading "+ $18,100.00 planned for 3 pipeline students not yet
+    enrolled (not counted above)" whenever a preview exists; empty/hidden otherwise, including on
+    the current year (pipeline never previews there). The real budget-used figure itself is
+    untouched — still real-enrollment-only, so a kid who never actually enrolls still can't inflate
+    it. Verified against the real assembled bundle (`CHMS_APP_CORE_JS`+`CHMS_APP_EXT_JS`, not just
+    source) with a `vm` harness reproducing the report's exact numbers: real total unaffected, note
+    reports exactly $18,100.00/3 students, note disappears on the current year. `npm test`
+    (580/580), `node --check` on both built app-JS bundles. Not verified in a live browser. Done
+    2026-08-05 (v1.136.0). (`src/frontend/js-tuition-aid.js`, `src/frontend/html-tabs.js`)
 
 <!-- Add items here as they come up. Format: - [ ] Description (noted YYYY-MM-DD) -->
 
