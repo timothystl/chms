@@ -24,6 +24,41 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.136.0 — Tuition Aid: pipeline students' planned awards now shown, not silently excluded, from
+the K-8/LHS/Total budget bars (2026-08-05)
+
+Reported: "I have entered aid for WOL totalling $80,850 and this shows it on the bar as $70,150. How
+off by $10k." Root cause confirmed by reading `tapUpdateGauges()`: the K-8/LHS/Total budget-used bars
+are computed from `tapEnrolledActiveForYear()`, which deliberately excludes anyone still tagged
+`pipeline` (a not-yet-enrolled kid tracked by birth year — see TAP16). TAP16-FIX1 later made those
+pipeline preview rows fully editable for "what if enrolled" planning, but the typed amounts were
+never counted in the real budget bar — by design, so an un-enrolled kid could never inflate the real
+figure. That's exactly what the user was hitting: the three pipeline-badged rows in their screenshot
+(Wohlstader/Asher, Knapp/Lawrence, Lee/Barron) had real dollar amounts typed into them ($4,500 +
+$6,600 + $7,000 = $18,100), invisible anywhere in the totals.
+
+Asked the user via `AskUserQuestion` how they wanted this resolved rather than guessing — three
+options (merge into one total / show both kept separate / only count manually-overridden pipeline
+rows). Chose **"show both, kept separate"**: the real enrolled total keeps driving the budget bar
+exactly as before (so a kid who never actually enrolls still can't eat real budget), but a new line
+under each gauge — `tap-k8-pipeline-note` / `tap-lhs-pipeline-note` / `tap-total-pipeline-note` —
+now reads "+ $18,100.00 planned for 3 pipeline students not yet enrolled (not counted above)" whenever
+any pipeline preview exists for the year being viewed. New shared `tapPipelinePreviewForYear(yearIdx)`
+(returns `{k8, lhs}`, empty for the current year since pipeline entries never preview at idx 0) — used
+by BOTH `tapRenderPlannerTables()` (the table rows, replacing its own inline copy of the same filter
+logic) and `tapUpdateGauges()` (the new note lines), so the two can never disagree on which pipeline
+rows are being shown/counted.
+
+**Verified against the real assembled/served bundle**, not just source: a `vm`-based harness loads
+`CHMS_APP_CORE_JS + CHMS_APP_EXT_JS` (the exact two files served to the browser) with a fake DOM,
+builds a roster reproducing the report's exact numbers (3 real K-8 students + 3 pipeline previews
+totaling $18,100 in typed awards), and confirms: the real gauge total stays unaffected by the pipeline
+entries, the new note reports exactly "$18,100.00 planned for 3 pipeline students... (not counted
+above)", and the note disappears entirely when viewing the current year (idx 0, where pipeline never
+previews). `npm test` (580/580), `node --check` on both built app-JS bundles. **Not verified**: an
+actual browser — same standing caveat as the rest of this planner. (`src/frontend/js-tuition-aid.js`,
+`src/frontend/html-tabs.js`)
+
 ### v1.135.0 — Compensation: LCMS raise scenarios back to pure formula math, autosave for the whole
 tab (2026-08-05)
 

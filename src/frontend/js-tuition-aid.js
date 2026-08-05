@@ -176,6 +176,32 @@ function tapActiveForYear(yearIdx) {
 function tapEnrolledActiveForYear(yearIdx) {
   return tapActiveForYear(yearIdx).filter(function(x) { return !x.s.isPipeline; });
 }
+// Pipeline entrants previewed for a future year (yearIdx !== 0 only — a pipeline kid never
+// previews for the current year, see tapRenderPlannerTables). Shared by the planner table
+// (which renders these as dimmed "what if enrolled" rows) and tapUpdateGauges (which reports
+// their planned totals alongside, but never inside, the real enrolled budget-used figure —
+// see the comment on tapEnrolledActiveForYear above for why pipeline stays out of that number).
+function tapPipelinePreviewForYear(yearIdx) {
+  var maxAward = tapCfgNum('lhs_max_award_cents', 250000) / 100;
+  var k8 = [], lhs = [];
+  if (yearIdx === 0) return { k8: k8, lhs: lhs };
+  _tapRoster.forEach(function(s) {
+    if (!s.isPipeline) return;
+    var pGrade = tapGradeAt(s, yearIdx);
+    if (pGrade === null || pGrade === 'Graduated' || pGrade === 'PK 3' || pGrade === 'PK 4') return;
+    var pBucket = tapBucketOf(pGrade);
+    if (pBucket === 'K8') {
+      var pPin = tapPinFor(s.id, yearIdx);
+      k8.push({
+        s: s, grade: pGrade, sp: tapSplitFor(s, yearIdx), isOverridden: !!(pPin && pPin.timothy_award_cents != null),
+        famPctVal: tapFamPctFor(s, yearIdx), outsideAidVal: tapOutsideAidFor(s, yearIdx), preview: true
+      });
+    } else if (pBucket === 'LHS') {
+      lhs.push({ s: s, grade: pGrade, lhsVal: Math.min(tapLhsAwardFor(s, yearIdx), maxAward), justGraduated: false, preview: true });
+    }
+  });
+  return { k8: k8, lhs: lhs };
+}
 
 // ── Award math ─────────────────────────────────────────────────────
 function tapTuitionForYear(yearIdx) {
@@ -595,25 +621,13 @@ function tapRenderPlannerTables() {
   // attending this year. Editing a preview row saves into the same per-year pin a real student's
   // future-year edit would (tapOutsideAidChange et al. already route there whenever
   // _tapYearIdx !== 0, regardless of is_pipeline), so this is a real, persisted "what if" plan,
-  // not just a display estimate. Not counted in tapUpdateGauges/budget math, which stays keyed
-  // off real enrollment via tapEnrolledActiveForYear, until the entrant is actually Enrolled.
-  if (_tapYearIdx !== 0) {
-    _tapRoster.forEach(function(s) {
-      if (!s.isPipeline) return;
-      var pGrade = tapGradeAt(s, _tapYearIdx);
-      if (pGrade === null || pGrade === 'Graduated' || pGrade === 'PK 3' || pGrade === 'PK 4') return;
-      var pBucket = tapBucketOf(pGrade);
-      if (pBucket === 'K8') {
-        var pPin = tapPinFor(s.id, _tapYearIdx);
-        k8List.push({
-          s: s, grade: pGrade, sp: tapSplitFor(s, _tapYearIdx), isOverridden: !!(pPin && pPin.timothy_award_cents != null),
-          famPctVal: tapFamPctFor(s, _tapYearIdx), outsideAidVal: tapOutsideAidFor(s, _tapYearIdx), preview: true
-        });
-      } else if (pBucket === 'LHS') {
-        lhsList.push({ s: s, grade: pGrade, lhsVal: Math.min(tapLhsAwardFor(s, _tapYearIdx), maxAward), justGraduated: false, preview: true });
-      }
-    });
-  }
+  // not just a display estimate. Never folded into tapEnrolledActiveForYear's real budget-used
+  // total until the entrant is actually Enrolled — tapUpdateGauges instead reports this same
+  // preview set's total as a separate "+ $X planned for N pipeline students" line, via the
+  // shared tapPipelinePreviewForYear() helper so the two can never disagree.
+  var preview = tapPipelinePreviewForYear(_tapYearIdx);
+  k8List = k8List.concat(preview.k8);
+  lhsList = lhsList.concat(preview.lhs);
 
   var k8KeyFn = function(row, col) {
     if (col === 'family') return row.s.family;
@@ -928,6 +942,24 @@ function tapUpdateGauges() {
   var totalBudget = tapCfgNum('timothy_total_budget_cents', 0) / 100;
   var k8Budget = tapK8BudgetFor(lhsTotal);
 
+  // Pipeline (not-yet-enrolled) students previewed for this year, if any — see
+  // tapPipelinePreviewForYear. Their planned awards are real numbers a family may have typed
+  // in, but they're deliberately kept OUT of k8Total/lhsTotal above (which stay keyed to actual
+  // enrollment) and instead reported as a separate "+ $X planned for N" line on each gauge, so
+  // the real budget-used figure can never silently include a kid who hasn't actually enrolled.
+  var pipelinePreview = tapPipelinePreviewForYear(_tapYearIdx);
+  var k8PipelineTotal = pipelinePreview.k8.reduce(function(sum, x) { return sum + x.sp.timothyAward; }, 0);
+  var lhsPipelineTotal = pipelinePreview.lhs.reduce(function(sum, x) { return sum + x.lhsVal; }, 0);
+  var pipelineNoteText = function(total, count) {
+    return count ? ('+ ' + fmtMoney(Math.round(total * 100)) + ' planned for ' + count + ' pipeline student' + (count === 1 ? '' : 's') + ' not yet enrolled (not counted above)') : '';
+  };
+  var setPipelineNote = function(id, text) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.style.display = text ? '' : 'none';
+  };
+
   var k8Fill = document.getElementById('tap-k8-gauge-fill');
   var k8Text = document.getElementById('tap-k8-gauge-text');
   var k8Over = k8Total > k8Budget;
@@ -939,6 +971,7 @@ function tapUpdateGauges() {
   document.getElementById('tap-k8-gauge-cap').textContent = hasTotalBudget
     ? 'Budget: ' + fmtMoney(Math.round(k8Budget * 100)) + ' (Total Timothy Aid ' + fmtMoney(Math.round(totalBudget * 100)) + ' − LHS ' + fmtMoney(Math.round(lhsTotal * 100)) + ' first)'
     : 'Budget: ' + fmtMoney(Math.round(k8Budget * 100));
+  setPipelineNote('tap-k8-pipeline-note', pipelineNoteText(k8PipelineTotal, pipelinePreview.k8.length));
 
   var lhsFill = document.getElementById('tap-lhs-gauge-fill');
   var lhsText = document.getElementById('tap-lhs-gauge-text');
@@ -950,6 +983,7 @@ function tapUpdateGauges() {
   lhsText.textContent = fmtMoney(Math.round(lhsTotal * 100)) + (lhsOver ? '  (' + fmtMoney(Math.round((lhsTotal - lhsReference) * 100)) + ' above standard rate)' : ' — ' + lhsActive.length + ' student' + (lhsActive.length === 1 ? '' : 's') + ' at standard rate');
   lhsText.classList.toggle('tap-over-text', lhsOver);
   document.getElementById('tap-lhs-gauge-cap').textContent = 'Standard rate: ' + lhsActive.length + ' × ' + fmtMoney(Math.round(lhsRate * 100)) + ' = ' + fmtMoney(Math.round(lhsReference * 100));
+  setPipelineNote('tap-lhs-pipeline-note', pipelineNoteText(lhsPipelineTotal, pipelinePreview.lhs.length));
 
   var totalFill = document.getElementById('tap-total-gauge-fill');
   var totalText = document.getElementById('tap-total-gauge-text');
@@ -971,6 +1005,7 @@ function tapUpdateGauges() {
       totalCap.textContent = 'LHS ' + fmtMoney(Math.round(lhsTotal * 100)) + ' comes off first, leaving ' + fmtMoney(Math.round(k8Budget * 100)) + ' for K-8 (using ' + fmtMoney(Math.round(k8Total * 100)) + ')';
     }
   }
+  setPipelineNote('tap-total-pipeline-note', pipelineNoteText(k8PipelineTotal + lhsPipelineTotal, pipelinePreview.k8.length + pipelinePreview.lhs.length));
 }
 
 // ── Bulk actions ─────────────────────────────────────────────────────
