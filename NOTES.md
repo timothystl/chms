@@ -24,6 +24,48 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.136.0 — Finance: root-caused and fixed the "boxes don't type correctly" bug (2026-08-05)
+
+Reported again, with an explicit instruction to find the cause before coding — four prior fixes
+(FIN42/FIN48/FIN49/FIN50) had each addressed a real but different symptom and left the actual
+cause untouched. Investigated by simulating real keystrokes through the shipped
+`finSanitizeDecimalInput` rather than reasoning about the code, which reproduced it immediately:
+typing `1234.56` produced **$123,456** in the per-worker Opt-Out box and **$56** in the District
+Reference Data Health Opt-Out box.
+
+**Root cause — a lossy controlled-input round-trip, not a browser quirk.** Every dollar/percent
+box on the Compensation tab is fully controlled: each keystroke converts the text to canonical
+cents, then the whole card re-renders and writes `cents/100` straight back into the box. The
+moment you type `.`, the buffer is `"1234."` → `parseFloat` → `1234` → the box is rewritten as
+`"1234"` and the decimal point is deleted, so the next two digits land as whole dollars. Two
+further defects compounded it on the boxes still using `type="number"` (which included the
+reported Health Opt-Out Cash box, never converted by FIN50): (a) `.value` returns `""` for a
+mid-typed string like `"1234."`, so the stored figure is deleted and the box **blanks out**;
+(b) `selectionStart` is `null` on a number input, so the existing caret-restore was silently
+skipped and the cursor jumped to the end on every keystroke — making mid-string editing
+impossible, which is the "typing backward" feel.
+
+**Fixes.** (1) `finRerenderPlanningPreserveFocus()` (and its Planning-table twin) now capture and
+restore the focused element's raw text alongside focus/caret/scroll — state still updates every
+keystroke so the totals recompute live, but the box being typed in is never rewritten out from
+under the user. One change covering every field at once. (2) The seven remaining `type="number"`
+boxes in the Compensation card (Health Opt-Out Cash, District Base Salary, Pension %, Disability
+%, Custom growth %, Other Benefits, Years Experience) converted to `type="text"` +
+`inputmode` + the live sanitizer, which is what makes (1) possible and fixes the blanking and
+caret-jumping.
+
+**Scope — audited every Finance tab, the bug was confined to Compensation.** The user expected it
+everywhere in Finance. It isn't: Planning cells already store the raw typed string (FIN45 did
+that correctly), and the Property Valuation Calculator / Multi-Year Forecast only rewrite output
+elements, never their own inputs. Every other `type="number"` in `js-finance.js` is read on blur
+or on a button click and is never re-rendered mid-typing. Those were left alone rather than
+changed for symmetry.
+
+New `test/finance-input-typing.test.js` (10 tests) runs the real sanitizer and real handler out of
+the built bundle, pins the pre-fix failure explicitly, and asserts structurally that no
+Compensation input is `type="number"` and that both wrappers restore the focused value. Verified
+non-vacuous by deliberately reverting each half of the fix and confirming the matching tests fail.
+`npm test` (590/590), `node --check` on both built bundles. **Not verified**: a live browser.
 ### v1.136.0 — Tuition Aid: pipeline students' planned awards now shown, not silently excluded, from
 the K-8/LHS/Total budget bars (2026-08-05)
 
