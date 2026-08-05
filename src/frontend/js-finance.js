@@ -3553,6 +3553,7 @@ function finLoadSalaryPlannerData() {
       _finSalaryColaPct = saved.colaPct || 0;
       _finSalaryColaSource = saved.colaSource || 'none';
       _finSalaryPensionPct = (saved.pensionPct != null) ? saved.pensionPct : null;
+      _finSalaryDisabilityPct = (saved.disabilityPct != null) ? saved.disabilityPct : null;
       _finSalaryBenefitsDollars = saved.benefitsDollars || 0;
       _finSalaryTargetCategory = saved.targetCategory || '';
       _finHealthPlanSelectedOption = saved.healthPlanOption || 'renewal';
@@ -3569,9 +3570,10 @@ function finSalarySaveData() {
   var msgEl = document.getElementById('fin-salary-save-msg');
   var body = {
     roster: _finSalaryRoster, colaPct: _finSalaryColaPct, colaSource: _finSalaryColaSource, pensionPct: _finSalaryPensionPct,
+    disabilityPct: _finSalaryDisabilityPct,
     benefitsDollars: _finSalaryBenefitsDollars, targetCategory: _finSalaryTargetCategory,
     healthPlanOption: _finHealthPlanSelectedOption, healthPlanTargetCategory: _finHealthPlanTargetCategory,
-    referenceByYear: _finSalaryReferenceByYear
+    referenceByYear: _finSalaryReferenceByYear, healthPlanPremiumOverrides: _finHealthPlanPremiumOverrides
   };
   if (msgEl) msgEl.textContent = 'Saving…';
   api('/admin/api/finance/planning/salary', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(function(d) {
@@ -4173,6 +4175,7 @@ var _finSalaryRoster = [];
 var _finSalaryColaPct = 0; // growth-rate assumption, used only when the target year has no published district base salary yet
 var _finSalaryColaSource = 'none'; // 'none' | 'lcms' | 'ssa' | 'custom' — which of the 3 reference options (or a hand-typed figure) is currently picked
 var _finSalaryPensionPct = null; // null = use the looked-up Concordia rate for the target year (below); a number = an explicit admin override
+var _finSalaryDisabilityPct = null; // null = use the looked-up Concordia rate (per worker's Has Dependents status); a number = an explicit admin override applied uniformly to every worker, same pattern as Pension above
 // Pure — no DOM — a straight percentage-of-salary employer cost (shared math for both Pension and
 // Disability & Survivor — same shape as employer FICA, just with rates set by Concordia yearly).
 function finComputePensionCents(salaryCents, pensionPct) {
@@ -4198,7 +4201,7 @@ function finRoundSalaryCents(cents) {
   var perPeriodRounded = Math.round(perPeriodCents / 500) * 500;
   return perPeriodRounded * FIN_SALARY_PAY_PERIODS;
 }
-function finSalaryComputeAll(colaPct, pensionPct) {
+function finSalaryComputeAll(colaPct, pensionPct, disabilityPctOverride) {
   var year = finSalaryScenarioYear();
   return _finSalaryRoster.map(function(w) {
     var rawCalc = finComputeLcmsSalary({ year: year, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus, colaPct: colaPct, referenceByYear: _finSalaryReferenceByYear });
@@ -4206,7 +4209,7 @@ function finSalaryComputeAll(colaPct, pensionPct) {
     var employerFicaCents = calc ? finComputeEmployerFicaCents(calc.salaryCents, w.selfEmployedFica) : 0;
     var hypotheticalFicaCents = calc ? finComputeEmployerFicaCents(calc.salaryCents, false) : 0;
     var pensionCents = calc ? finComputePensionCents(calc.salaryCents, pensionPct) : 0;
-    var disabilityRate = finConcordiaDisabilityRateFor(_finPlanTargetYear, w.hasDependents).rate;
+    var disabilityRate = disabilityPctOverride != null ? disabilityPctOverride : finConcordiaDisabilityRateFor(_finPlanTargetYear, w.hasDependents).rate;
     var disabilityCents = calc ? finComputePensionCents(calc.salaryCents, disabilityRate) : 0;
     var healthOptOutCents = finHealthOptOutCentsFor(_finPlanTargetYear, _finSalaryReferenceByYear);
     var healthCents = !calc ? 0 : (w.healthEnrolled === false ? healthOptOutCents : finHealthPlanPerContractCents(_finHealthPlanSelectedOption));
@@ -4217,7 +4220,14 @@ function finSalaryComputeAll(colaPct, pensionPct) {
 function finRenderSalaryCalculator(isAdminUI) {
   var pensionRateInfo = finConcordiaPensionRateFor(_finPlanTargetYear);
   var pensionPctUsed = _finSalaryPensionPct != null ? _finSalaryPensionPct : pensionRateInfo.rate;
-  var computed = finSalaryComputeAll(_finSalaryColaPct, pensionPctUsed);
+  // Disability & Survivor's looked-up rate is per-worker (depends on each row's own Has
+  // Dependents checkbox — see the roster table), so unlike Pension there's no single "the"
+  // auto rate to show as a resting value; the override box shows blank/placeholder text
+  // describing both auto rates until an admin overrides it with one flat figure for everyone.
+  var disabilityRateNoDep = finConcordiaDisabilityRateFor(_finPlanTargetYear, false);
+  var disabilityRateWithDep = finConcordiaDisabilityRateFor(_finPlanTargetYear, true);
+  var disabilityPctUsed = _finSalaryDisabilityPct;
+  var computed = finSalaryComputeAll(_finSalaryColaPct, pensionPctUsed, disabilityPctUsed);
   var allAccountNodes = [];
   (function flatten(nodes) { (nodes || []).forEach(function(n) { allAccountNodes.push(n); flatten(n.children); }); })(_finPlanBaseTree);
   // "Pull them in from the budget" — each worker can be tied to their own real payroll account
@@ -4301,6 +4311,7 @@ function finRenderSalaryCalculator(isAdminUI) {
     + finRenderSalaryScenarioComparison(baseInfo)
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">'
     + '<label style="font-size:.72rem;color:var(--warm-gray);">Pension Contribution % <span style="font-weight:400;">(Concordia Retirement Plan, Traditional Option — defaults to the real FY' + _finPlanTargetYear + ' rate' + (pensionRateInfo.exact ? '' : ', carried flat from ' + pensionRateInfo.sourceYear + ' since ' + _finPlanTargetYear + ' isn\'t published yet') + ')</span><br><input type="number" id="fin-salary-pension" step="0.01" value="' + (pensionPctUsed*100).toFixed(2) + '" oninput="finSalaryPensionChange(this.value)" style="width:90px;">%' + (_finSalaryPensionPct != null ? ' <a href="#" onclick="finSalaryPensionReset();return false;" style="font-size:.68rem;">↺ use Concordia rate</a>' : '') + '</label>'
+    + '<label style="font-size:.72rem;color:var(--warm-gray);">Disability &amp; Survivor Rate % <span style="font-weight:400;">(Concordia Disability and Survivor Plan — auto: ' + (disabilityRateNoDep.rate*100).toFixed(2) + '% without dependents, ' + (disabilityRateWithDep.rate*100).toFixed(2) + '% with — override applies one flat rate to every worker instead)</span><br><input type="number" id="fin-salary-disability" step="0.01" value="' + (disabilityPctUsed != null ? (disabilityPctUsed*100).toFixed(2) : '') + '" placeholder="auto" oninput="finSalaryDisabilityChange(this.value)" style="width:90px;">%' + (disabilityPctUsed != null ? ' <a href="#" onclick="finSalaryDisabilityReset();return false;" style="font-size:.68rem;">↺ use Concordia rate</a>' : '') + '</label>'
     + '</div>'
     + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
     + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th><th style="text-align:left;padding:3px 6px;">Acct #</th><th style="text-align:right;padding:3px 6px;">FY' + _finPlanBaseYear + ' Acct Actual</th><th style="text-align:left;padding:3px 6px;">Role</th><th style="text-align:left;padding:3px 6px;">Yrs Exp</th><th style="text-align:left;padding:3px 6px;">Education / Type</th><th style="text-align:left;padding:3px 6px;">Responsibility Stipend</th><th style="text-align:left;padding:3px 6px;">Attendance Bonus</th><th style="text-align:center;padding:3px 6px;">Health Plan</th><th style="text-align:center;padding:3px 6px;">Self-Employed (SECA)</th><th style="text-align:right;padding:3px 6px;">Employer FICA</th><th style="text-align:right;padding:3px 6px;">Pension</th><th style="text-align:center;padding:3px 6px;">Has Dependents</th><th style="text-align:right;padding:3px 6px;">Disability</th><th style="text-align:right;padding:3px 6px;">Salary</th><th></th></tr></thead>'
@@ -4470,6 +4481,14 @@ function finSalaryPensionReset() {
   _finSalaryPensionPct = null;
   finRerenderPlanningPreserveFocus();
 }
+function finSalaryDisabilityChange(value) {
+  _finSalaryDisabilityPct = value === '' ? null : (parseFloat(value) || 0) / 100;
+  finRerenderPlanningPreserveFocus();
+}
+function finSalaryDisabilityReset() {
+  _finSalaryDisabilityPct = null;
+  finRerenderPlanningPreserveFocus();
+}
 // District figures that change every year on paper (not a formula, unlike the multiplier/track
 // tables, which the district confirmed stay the same year to year) — an editable input per fiscal
 // year, persisted in _finSalaryReferenceByYear via the existing Save Salary & Benefits Data
@@ -4585,13 +4604,23 @@ var HEALTH_PLAN_QUOTE_2027 = {
     option3: { label: 'Option 3 — Healthy Me HSA-D (BCBS)', medicalCents: 4413264, dentalCents: 304680, visionCents: 147168, embedded: true, deductibleFamilyCents: 1100000, oopMaxFamilyCents: 1700000, deductibleIndividualCents: 550000, oopMaxIndividualCents: 850000 }
   }
 };
+// { [optionKey]: { medicalCents, dentalCents, visionCents } } — an admin can override any of the
+// 3 premium lines for any plan option (the quote is a fixed 2027 snapshot; a future year's renewal
+// quote will have different real numbers), unset fields fall back to the quote's own figure.
+var _finHealthPlanPremiumOverrides = {};
 // Pure — no DOM — returns the Medical/Dental/Vision breakdown + total annual employer cost in
-// cents for one of the HEALTH_PLAN_QUOTE_2027 options, or null for an unrecognized key.
-function finComputeHealthPlanTotalCents(optionKey) {
+// cents for one of the HEALTH_PLAN_QUOTE_2027 options (after applying any admin override on top
+// of the quote's own figures), or null for an unrecognized key.
+function finComputeHealthPlanTotalCents(optionKey, premiumOverrides) {
   var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
   if (!opt) return null;
-  var totalCents = opt.medicalCents + opt.dentalCents + opt.visionCents;
-  return { label: opt.label, medicalCents: opt.medicalCents, dentalCents: opt.dentalCents, visionCents: opt.visionCents, totalCents: totalCents };
+  var ov = (premiumOverrides || (typeof _finHealthPlanPremiumOverrides !== 'undefined' ? _finHealthPlanPremiumOverrides : {}))[optionKey] || {};
+  var medicalCents = ov.medicalCents != null ? ov.medicalCents : opt.medicalCents;
+  var dentalCents = ov.dentalCents != null ? ov.dentalCents : opt.dentalCents;
+  var visionCents = ov.visionCents != null ? ov.visionCents : opt.visionCents;
+  var totalCents = medicalCents + dentalCents + visionCents;
+  var overridden = ov.medicalCents != null || ov.dentalCents != null || ov.visionCents != null;
+  return { label: opt.label, medicalCents: medicalCents, dentalCents: dentalCents, visionCents: visionCents, totalCents: totalCents, overridden: overridden };
 }
 // Pure — no DOM — an even per-contract share of the selected plan's total employer cost, used as
 // each ENROLLED worker's estimated Health Insurance line in the per-worker Total Compensation
@@ -4666,12 +4695,24 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
     return '<option value="' + k + '"' + (k === _finHealthPlanSelectedOption ? ' selected' : '') + '>' + esc(HEALTH_PLAN_QUOTE_2027.options[k].label) + '</option>';
   }).join('') + '</select>';
 
+  var quoteOpt = HEALTH_PLAN_QUOTE_2027.options[_finHealthPlanSelectedOption];
+  var premOv = _finHealthPlanPremiumOverrides[_finHealthPlanSelectedOption] || {};
+  // Editable premium lines, admin only — same "plain value, no forced .toFixed" convention as the
+  // District Reference Data editor above (a full-card rerender on every keystroke would otherwise
+  // fight the user's typing). Blank = use the quote's own figure for this option (shown as a
+  // placeholder); a typed figure overrides just that one line, just for this option.
+  function premiumRow(field, label) {
+    var ovCents = premOv[field], quoteCents = quoteOpt[field];
+    if (!isAdminUI) return '<tr><td style="padding:3px 6px;">' + label + '</td><td style="text-align:right;padding:3px 6px;">$' + finFmtMoney((ovCents != null ? ovCents : quoteCents)/100) + '</td></tr>';
+    return '<tr><td style="padding:3px 6px;">' + label + '</td><td style="text-align:right;padding:3px 6px;">$<input type="number" step="0.01" value="' + (ovCents != null ? (ovCents/100) : '') + '" placeholder="' + (quoteCents/100).toFixed(2) + '" oninput="finHealthPremiumChange(\'' + _finHealthPlanSelectedOption + '\',\'' + field + '\',this.value)" style="width:90px;text-align:right;"></td></tr>';
+  }
   var breakdownHtml = calc ? ('<table style="width:100%;border-collapse:collapse;font-size:.78rem;max-width:420px;">'
-    + '<tr><td style="padding:3px 6px;">Medical Annual Premium</td><td style="text-align:right;padding:3px 6px;">$' + finFmtMoney(calc.medicalCents/100) + '</td></tr>'
-    + '<tr><td style="padding:3px 6px;">Dental Annual Premium</td><td style="text-align:right;padding:3px 6px;">$' + finFmtMoney(calc.dentalCents/100) + '</td></tr>'
-    + '<tr><td style="padding:3px 6px;">Vision Annual Premium</td><td style="text-align:right;padding:3px 6px;">$' + finFmtMoney(calc.visionCents/100) + '</td></tr>'
+    + premiumRow('medicalCents', 'Medical Annual Premium')
+    + premiumRow('dentalCents', 'Dental Annual Premium')
+    + premiumRow('visionCents', 'Vision Annual Premium')
     + '<tr style="font-weight:700;border-top:2px solid var(--navy);"><td style="padding:5px 6px;">Total Annual Premium</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(calc.totalCents/100) + '</td></tr>'
-    + '</table>') : '<p style="font-size:.8rem;color:var(--warm-gray);">Unknown option.</p>';
+    + '</table>'
+    + (isAdminUI && calc.overridden ? '<a href="#" onclick="finHealthPremiumResetAll(\'' + _finHealthPlanSelectedOption + '\');return false;" style="font-size:.68rem;">↺ use quote figures for this option</a>' : '')) : '<p style="font-size:.8rem;color:var(--warm-gray);">Unknown option.</p>';
 
   // "Is it worth it?" — reframed per the user's clarification: the church fully covers Renewal
   // (Option C) only; a worker who wants a different option pays the premium DIFFERENCE themselves
@@ -4768,6 +4809,17 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
 }
 function finHealthPlanOptionChange(value) {
   _finHealthPlanSelectedOption = value;
+  finRerenderPlanningPreserveFocus();
+}
+function finHealthPremiumChange(optionKey, field, value) {
+  if (!_finHealthPlanPremiumOverrides[optionKey]) _finHealthPlanPremiumOverrides[optionKey] = {};
+  var cents = value === '' ? null : Math.round(parseFloat(value) * 100);
+  if (cents == null || !isFinite(cents)) delete _finHealthPlanPremiumOverrides[optionKey][field];
+  else _finHealthPlanPremiumOverrides[optionKey][field] = cents;
+  finRerenderPlanningPreserveFocus();
+}
+function finHealthPremiumResetAll(optionKey) {
+  delete _finHealthPlanPremiumOverrides[optionKey];
   finRerenderPlanningPreserveFocus();
 }
 function finHealthPlanApplyToPlan() {
