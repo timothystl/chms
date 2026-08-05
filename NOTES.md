@@ -24,6 +24,55 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.139.0 — Phone-first pass: Dashboard & People (2026-08-04)
+
+Phase C of the mobile scope. MOB1–MOB4 stopped things being *broken* on a phone; this is the
+first pass aimed at what a phone user actually needs on the two screens they open most — and, for
+the member tier, essentially the only two.
+
+**Checked first what was already handled, and deliberately did not redo it.** The person profile
+already stacks and swaps its side rail for a dropdown at 900px (`.pv2-nav` → `.pv2-nav-select`);
+the People list already becomes contact cards at 767px; tapping one already opens the full
+profile, which is a better mobile answer than the quickview panel and means that panel staying
+hidden is correct rather than a gap. The scope doc's "needs a mobile equivalent for the quickview"
+is therefore already satisfied by the card → full-profile path.
+
+What was missing was ergonomics, not structure:
+
+**People — search stays reachable.** `.tab-panel.active` is the scroll container and `.toolbar` is
+a normal flex item inside it, so the search box and Filters button scrolled away the moment you
+moved down the list — on a directory whose entire purpose is looking someone up. The toolbar is
+now `position:sticky` on phones, with a background and negative margins that bleed it over
+`.tab-panel`'s own padding so cards disappear behind it cleanly. Scoped to `#tab-people .toolbar`,
+not `.toolbar`: the same bar is used by several tabs and this pass is chartered for two screens.
+
+**People — the result count is visible again.** The pager sits *below* the list on phones (the
+MOB2-era ordering), so there was no way to see how many results a search returned without
+scrolling past 25 cards. New phone-only `#p-count-mobile` under the toolbar, populated by
+`renderPeoplePager()` itself so the two can never disagree; hidden on desktop, where the pager is
+already on screen.
+
+**Dashboard — density.** The 20px grid gaps and 20–24px card padding are tuned for a 1440px
+desktop; on a 390px screen they spend a third of the width on whitespace and push the second row
+of numbers below the fold. Gaps, padding and header sizes tightened on phones only. Stat tiles
+stay **2-up** — 1-up would be legible but would turn four numbers into four screens of scrolling.
+The nested `.dash-stat-quad-grid` 2×2 goes to one column: at ~85px a cell it was unreadable.
+
+**Verified:** `npm test` 613/613, 15 new in `test/phone-first-pass.test.js`. Re-verified against
+three breakages: block removed (10 fail), sticky leaked to every tab instead of People (10 fail),
+and the desktop dashboard gap changed instead of the phone one (the "changes nothing on desktop"
+test fails).
+
+One test needed fixing before it was worth anything: `winningDecl('.toolbar', …)` also matched
+`#tab-people .toolbar`, so the scoping check found our own rule and asserted the opposite of the
+truth. It now respects selector boundaries and verifies both halves — no bare `.toolbar` gets
+sticky, and `#tab-people .toolbar` is the only rule that does.
+
+**Not verified:** a real phone. Every change is spacing and stickiness, which is exactly the class
+that needs eyes — particularly whether the sticky toolbar's height leaves enough room for cards
+on a short screen.
+
+
 ### v1.138.0 — Board Report: Sunday-based projection fallback, "By Fund" table grouped by fund
 code (2026-08-05)
 

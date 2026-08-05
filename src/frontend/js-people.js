@@ -83,6 +83,11 @@ function renderPeoplePager() {
     + '<button class="btn-secondary" style="padding:5px 12px;font-size:12px;"' + nextDisabled + ' onclick="peoplePage(1)">Next &#8594;</button>'
     + '</div>';
   el.innerHTML = countHtml + navHtml;
+  // Mirror the count into the phone-only element near the search box. On a phone the pager is
+  // ordered below the list, so this is the only way to see how many results a search returned
+  // without scrolling past every card. Hidden on desktop by CSS, where the pager is visible.
+  var mob = document.getElementById('p-count-mobile');
+  if (mob) mob.textContent = total ? (total === 1 ? '1 person' : total + ' people') : '';
 }
 function peoplePage(dir) {
   peopleFilter.offset = Math.max(0, peopleFilter.offset + dir * peopleFilter.limit);
