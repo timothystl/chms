@@ -1189,6 +1189,41 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   reference in the column header tooltip that would have thrown at render time. Not verified in a
   live browser. Done 2026-08-05 (v1.128.0). (`src/api-finance.js`, `src/frontend/js-finance.js`,
   `test/finance-budget-plan.test.js`)
+- [x] **FIN53** — Four reported Compensation Planner problems, plus one real bug found while fixing
+  them. (1) **The "None (flat)" column is no longer editable** — it is the current budget, imported
+  from the worker's linked payroll account, and an edit box on an already-correct figure invited
+  people to type over it. A stored legacy override still resolves and keeps a "use account figure"
+  link; new ones can't be created. (2) **The roster table is now the "MO District Calculator" and
+  actually calculates for the target year.** Reported as "it ends up with 2026 numbers": its Salary
+  column rendered `finSalaryComputeAll`'s ACTIVE-scenario figure, and the active scenario is
+  normally "None (flat)", which resolves to the BASE year's account budget — so a table whose whole
+  purpose is a FY2027 district-formula proposal displayed FY2026 budget figures. New pure
+  `finDistrictProposalCents(w)` runs the formula for the target year unconditionally, regardless of
+  active scenario; column labelled "FY2027 District Proposal", footer totals the proposals. The
+  redundant "FY2026 Acct Actual" column is gone (the same figure already drives None above), and
+  the three per-worker benefit toggles (SECA / Has Dependents / Health Plan) moved down to Total
+  Compensation next to the costs they drive, so the calculator's inputs are formula inputs only.
+  (3) The scenario table is labelled **"Salary Options."** (4) New **"Concordia Plans Comparisons"**
+  card from the three real Compensation Decision Support Tool reports run 2026-07-21 (Dinger —
+  Pastor-Senior Administrative 20 yrs Masters; Knapp — Director of Parish Music 20 yrs; Thompson —
+  Director of Christian Education 22 yrs), transcribed verbatim. Per-worker horizontal range chart
+  (hand-rolled SVG — the grouped-bar helper can't express low/mid/high) plotting every published
+  range on one shared dollar scale, with dashed markers for what the church budgets today and the
+  FY2027 district proposal; each range's midpoint also carried up as a reference column in Salary
+  Options. Concordia's parish-professional report has no District section, so those two ranges are
+  absent (not zero-filled) for the non-pastor workers — 4 range bars for the pastor, 2 each for the
+  others — while the editable table still offers all four rows for a future report that does carry
+  them. Every figure editable, persisted through the existing Save button (no new endpoint, no
+  migration); the seed only fills a worker with no Concordia data yet, so an admin edit is never
+  overwritten; inputs disabled for non-admins. **Real bug found by the new tests:** FIN43's
+  per-paycheck $5 rounding was also being applied to the *imported* budget figure, so $74,516 of
+  real budget displayed as $74,490 and $73,034 as $73,060 — rounding now applies only to a
+  proposal, never to an imported figure, and a proposal is still an exact whole multiple of a clean
+  $5 paycheck. `npm test` (706/706, 17 new in `test/finance-compensation-planner.test.js`, which
+  loads the real built bundle in a `vm`; every assertion checked for vacuity against the pre-change
+  code), `node --check` on both built app-JS bundles, tag-balance scan of the rendered tab. Not
+  verified in a live browser. Done 2026-08-05 (v1.141.0). (`src/frontend/js-finance.js`,
+  `test/finance-compensation-planner.test.js`)
 - [x] **FIN52** — Root-caused the recurring "the health opt-out text boxes don't type correctly"
   report, after being told explicitly to find the cause before coding again (FIN42/FIN48/FIN49/FIN50
   each fixed a real but different symptom and left the cause in place). Reproduced by simulating

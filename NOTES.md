@@ -24,6 +24,64 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.141.0 — Compensation Planner: Salary Options / MO District Calculator / Concordia comparisons (2026-08-05)
+
+Four reported problems with the Compensation tab, plus one real bug found while fixing them.
+
+**1. The "None (flat)" column is no longer editable.** It is the worker's current budget, read
+straight from their linked payroll account — an edit box sitting on an imported figure invited
+people to type over data that was already correct. It renders as a plain figure now. A previously
+stored typed override still resolves (so no saved data quietly changes meaning) and shows a
+one-click "use account figure" link; there is no longer any way to create a new one.
+
+**2. The roster table is the "MO District Calculator" and it now actually calculates for the
+target year.** Reported as "that calculator is not calculating for this year… it ends up with 2026
+numbers." Cause: its Salary column rendered `finSalaryComputeAll`'s ACTIVE-scenario figure, and the
+active scenario is normally "None (flat)", which resolves to the base year's account budget — so a
+table whose entire purpose is a FY2027 district-formula proposal was displaying FY2026 budget
+figures. New pure `finDistrictProposalCents(w)` runs the district formula for the TARGET year
+unconditionally, independent of which scenario is active; the column is labelled "FY2027 District
+Proposal" and its footer totals the proposals. The redundant "FY2026 Acct Actual" column is gone
+(the same account figure already drives the None column above). The three per-worker benefit
+toggles that lived in that table (SECA, Has Dependents, Health Plan) moved down into Total
+Compensation, next to the costs they actually drive — the calculator's inputs are now formula
+inputs only.
+
+**3. The scenario table is labelled "Salary Options."**
+
+**4. New "Concordia Plans Comparisons" card**, built from the three real Compensation Decision
+Support Tool reports run 2026-07-21 (Dinger — Pastor-Senior Administrative, 20 yrs, Masters;
+Knapp — Director of Parish Music, 20 yrs; Thompson — Director of Christian Education, 22 yrs),
+transcribed verbatim rather than approximated. Each worker gets a horizontal range chart (hand-
+rolled SVG, same as every other chart here — the grouped-bar helper can't express a low/mid/high
+range) plotting every range Concordia published on one shared dollar scale, with two dashed
+markers across them: what the church budgets today and what the MO District Calculator proposes
+for FY2027. Each range's midpoint is also carried up as a reference column in Salary Options, per
+the request. Concordia's parish-professional report carries no District section at all, so those
+two ranges are simply absent for the non-pastor workers rather than zero-filled — the chart plots
+4 ranges for the pastor and 2 each for the others, while the editable table still offers all four
+rows so a future report that does carry them can be typed in. Every figure is editable and
+persists through the existing Save button (no new endpoint, no migration); the seed only fills a
+worker who has no Concordia data yet, so an admin edit is never overwritten. Inputs are disabled
+for non-admins, matching the District Reference Data card.
+
+**Real bug found by the new tests, fixed:** FIN43's per-paycheck $5 rounding was being applied to
+the *imported* budget figure as well as to formula proposals, so $74,516 of real budget displayed
+as $74,490 and $73,034 as $73,060 — up to $65/yr of drift on a number the UI presents as "what is
+budgeted." Rounding now applies only when the figure is a proposal; an imported figure is reported
+to the cent. A proposal is still an exact whole multiple of a clean $5 paycheck (asserted).
+
+**Verified:** `npm test` (706/706, 17 new in `test/finance-compensation-planner.test.js`, which
+loads the real built bundle in a `vm` and renders against a roster shaped like the live one). Every
+assertion was checked for vacuity against the pre-change code — each marker it looks for inverts
+cleanly (the removed `fin-salary-actual-` input and " Acct Actual" header existed before and are
+gone; the new headings did not exist before and do now). Also `node --check` on both built app-JS
+bundles and a tag-balance scan of the fully rendered Compensation tab (61/61 divs, 157/157 cells,
+3/3 svgs). **Not verified:** a live browser — no browser exists in this environment, so the charts'
+actual layout at real widths and the disabled-input rendering were confirmed structurally, not
+visually.
+
+
 ### v1.140.0 — Giving consolidation: Offerings · Reports · Communications · Settings (2026-08-05)
 
 Built from the `design_handoff_giving_consolidation` bundle (README + two `.dc.html` prototypes).
