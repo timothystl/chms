@@ -3683,6 +3683,26 @@ function finPlanSanitizeWholeDollarInput(inputEl) {
   if (cleaned !== inputEl.value) inputEl.value = cleaned;
   return cleaned;
 }
+// Same "type=text, sanitize live" approach as finPlanSanitizeWholeDollarInput above, but keeping a
+// single decimal point (dollar-and-cents fields, not whole-dollar-only). Used for the Compensation
+// dollar overrides (Opt-Out payment, Employee-Only premium, actual-salary override, health premium
+// lines) — switched from type="number" after repeated reports that those fields "type backward,"
+// which persisted even after an unrelated focus-preservation id bug was fixed; a native
+// type="number" input has real, long-documented cross-browser quirks around
+// selectionStart/setSelectionRange and value normalization that a full-card rerender-on-every-
+// keystroke (needed so dependent totals update live) can trigger, and none of that machinery
+// exists for a plain text input — this sidesteps the whole class of browser quirk rather than
+// chasing which specific one was still misbehaving.
+function finSanitizeDecimalInput(inputEl) {
+  var v = inputEl.value;
+  var neg = v.charAt(0) === '-';
+  var body = v.replace(/[^0-9.]/g, '');
+  var firstDot = body.indexOf('.');
+  if (firstDot !== -1) body = body.slice(0, firstDot + 1) + body.slice(firstDot + 1).replace(/\./g, '');
+  var cleaned = (neg ? '-' : '') + body;
+  if (cleaned !== v) inputEl.value = cleaned;
+  return cleaned;
+}
 // finRenderPlanning() fully rebuilds #fin-plan-root's innerHTML on every edit (see below) so the
 // group/subtotal/Δ%/Net figures actually recompute live as you type instead of going stale until
 // the next full reload — but that rebuild would otherwise destroy the focused input and reset
@@ -4261,31 +4281,36 @@ function finRoundSalaryCents(cents) {
   var perPeriodRounded = Math.round(perPeriodCents / 500) * 500;
   return perPeriodRounded * FIN_SALARY_PAY_PERIODS;
 }
-// Pure — no DOM — the real FY{baseYear} actual dollar total for a worker's linked payroll account
-// code (e.g. "58001"), the same lookup the roster table's "FY{base} Acct Actual" reference column
-// already uses, factored out here because it's now also the default basis for "None (flat)" below
-// — a worker's real current salary is usually already sitting right there in the synced/imported
-// budget data, so no one should have to look it up and retype it by hand. Returns null if the
-// worker has no account code, or the code doesn't match any account in this year's budget tree.
-function finAccountActualCentsForCode(code) {
+// Pure — no DOM — a worker's linked payroll account's (e.g. "58001") FY{baseYear} BUDGETED annual
+// total — not the YTD Actual total, which is a partial-year figure (whatever's been paid out so
+// far this fiscal year) and would badly understate a still-in-progress year's real annual salary.
+// "What's currently in the budget" means the full-year Budget line, which is exactly what a salary
+// planner needs as its starting point. Falls back to the account's Actual total only when the
+// account has no budget entered at all (hasBudgetInfo false) — some better-than-nothing number is
+// still preferable to silently falling all the way through to the generic LCMS formula. Same
+// lookup the roster table's "FY{base} Acct Actual" reference column already uses, factored out
+// here because it's now also the default basis for "None (flat)" below. Returns null if the worker
+// has no account code, or the code doesn't match any account in this year's budget tree.
+function finAccountBudgetCentsForCode(code) {
   if (!code) return null;
   var allAccountNodes = [];
   (function flatten(nodes) { (nodes || []).forEach(function(n) { allAccountNodes.push(n); flatten(n.children); }); })(_finPlanBaseTree);
   var node = allAccountNodes.filter(function(n) { return n.path.indexOf(code) >= 0 || n.label.indexOf(code) >= 0; })[0];
-  return node ? node.totalActualCents : null;
+  if (!node) return null;
+  return node.hasBudgetInfo ? node.totalBudgetCents : node.totalActualCents;
 }
 // Pure — no DOM — a worker's salary under one scenario ({pct, year}), grown forward from baseYear
 // by the scenario's rate off a "basis" figure resolved in this priority order: (1) an explicit
 // admin-typed override (w.actualSalaryCents — for a worker with no linked account, or to correct a
-// wrong/stale account figure), (2) their linked account's real FY{baseYear} actual total (see
-// finAccountActualCentsForCode — this is the common case: no typing needed, the real number is
+// wrong/stale account figure), (2) their linked account's real FY{baseYear} BUDGETED total (see
+// finAccountBudgetCentsForCode — this is the common case: no typing needed, the real number is
 // already in the synced budget), (3) only as a last resort, the LCMS district guideline formula —
 // a benchmark the church may not actually be paying exactly, which is why it's the fallback, not
 // the default. Growing the real basis by pct is mathematically equivalent to growing the formula's
 // base-salary component by the same rate (salary = base × multiplier, so growing base by pct grows
 // salary by pct) — so this reduces to the exact same formula math whenever no real number exists.
 function finWorkerScenarioSalaryCents(w, scenario, baseYear) {
-  var basisCents = w.actualSalaryCents != null ? w.actualSalaryCents : finAccountActualCentsForCode(w.accountCode);
+  var basisCents = w.actualSalaryCents != null ? w.actualSalaryCents : finAccountBudgetCentsForCode(w.accountCode);
   if (basisCents != null) {
     var yearsForward = scenario.year - baseYear;
     return Math.round(basisCents * Math.pow(1 + (scenario.pct || 0), yearsForward));
@@ -4369,8 +4394,8 @@ function finRenderSalaryCalculator(isAdminUI) {
       + '<td style="padding:3px 6px;text-align:center;">'
         + '<input type="checkbox" onchange="finSalaryHealthEnrolledToggle(' + i + ',this.checked)"' + (w.healthEnrolled !== false ? ' checked' : '') + ' title="Enrolled in the group health plan — uncheck if this worker opts out for a cash payment instead">'
         + (w.healthEnrolled === false
-            ? '<br>$<input type="number" id="fin-salary-optout-' + i + '" step="0.01" value="' + (w.healthOptOutOverrideCents != null ? (w.healthOptOutOverrideCents/100) : '') + '" placeholder="' + (finHealthOptOutCentsFor(_finPlanTargetYear, _finSalaryReferenceByYear)/100).toFixed(2) + '" oninput="finSalaryOptOutOverrideChange(' + i + ',this.value)" style="width:70px;font-size:.68rem;" title="This worker\'s opt-out cash payment — blank uses the shared FY figure above">'
-          : (!w.hasDependents ? '<br>$<input type="number" id="fin-salary-eo-' + i + '" step="0.01" value="' + (w.employeeOnlyPremiumCents != null ? (w.employeeOnlyPremiumCents/100) : '') + '" placeholder="0.00" oninput="finSalaryEmployeeOnlyChange(' + i + ',this.value)" style="width:70px;font-size:.68rem;" title="Employee-Only premium — no real quote data exists for this tier, enter the real annual figure">' : ''))
+            ? '<br>$<input type="text" inputmode="decimal" id="fin-salary-optout-' + i + '" value="' + (w.healthOptOutOverrideCents != null ? (w.healthOptOutOverrideCents/100) : '') + '" placeholder="' + (finHealthOptOutCentsFor(_finPlanTargetYear, _finSalaryReferenceByYear)/100).toFixed(2) + '" oninput="finSalaryOptOutOverrideChange(' + i + ',finSanitizeDecimalInput(this))" style="width:70px;font-size:.68rem;" title="This worker\'s opt-out cash payment — blank uses the shared FY figure above">'
+          : (!w.hasDependents ? '<br>$<input type="text" inputmode="decimal" id="fin-salary-eo-' + i + '" value="' + (w.employeeOnlyPremiumCents != null ? (w.employeeOnlyPremiumCents/100) : '') + '" placeholder="0.00" oninput="finSalaryEmployeeOnlyChange(' + i + ',finSanitizeDecimalInput(this))" style="width:70px;font-size:.68rem;" title="Employee-Only premium — no real quote data exists for this tier, enter the real annual figure">' : ''))
       + '</td>'
       + '<td style="padding:3px 6px;text-align:center;"><input type="checkbox" onchange="finSalaryFicaToggle(' + i + ',this.checked)"' + (w.selfEmployedFica ? ' checked' : '') + ' title="Self-employed for Social Security (SECA) — church pays no employer FICA for this worker"></td>'
       + '<td style="padding:3px 6px;text-align:right;">' + ficaCell + '</td>'
@@ -4561,11 +4586,11 @@ function finRenderSalaryScenarioComparison(baseInfo, isAdminUI) {
   var rows = _finSalaryRoster.map(function(w, i) {
     // Resolved once per worker so every cell in the row (and the source caption) agrees on WHY
     // the number is what it is — see finWorkerScenarioSalaryCents for the exact priority order:
-    // typed override > linked account's real FY actual > LCMS formula estimate (last resort).
-    var acctBasisCents = finAccountActualCentsForCode(w.accountCode);
+    // typed override > linked account's real FY budget > LCMS formula estimate (last resort).
+    var acctBasisCents = finAccountBudgetCentsForCode(w.accountCode);
     var sourceLabel = w.actualSalaryCents != null
       ? 'a typed-in override'
-      : (acctBasisCents != null ? 'account ' + esc(w.accountCode) + '’s real FY' + _finPlanBaseYear + ' actual' : 'the LCMS formula estimate (no linked account with budget data found)');
+      : (acctBasisCents != null ? 'account ' + esc(w.accountCode) + '’s FY' + _finPlanBaseYear + ' budget' : 'the LCMS formula estimate (no linked account with budget data found)');
     var isFromRealFigure = w.actualSalaryCents != null || acctBasisCents != null;
     var cells = scenarios.map(function(s) {
       var rawCents = finWorkerScenarioSalaryCents(w, s, _finPlanBaseYear);
@@ -4584,7 +4609,7 @@ function finRenderSalaryScenarioComparison(baseInfo, isAdminUI) {
           var formulaCalc = finComputeLcmsSalary({ year: s.year, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus, colaPct: s.pct, referenceByYear: _finSalaryReferenceByYear });
           placeholderCents = formulaCalc ? finRoundSalaryCents(formulaCalc.salaryCents) : 0;
         }
-        return '<td style="' + cellStyle + '">$<input type="number" id="fin-salary-actual-' + i + '" step="0.01" value="' + (w.actualSalaryCents != null ? (w.actualSalaryCents/100) : '') + '" placeholder="' + (placeholderCents/100).toFixed(2) + '" oninput="finSalaryActualChange(' + i + ',this.value)" style="width:90px;text-align:right;" title="Type here only to override — the placeholder already shows this worker\'s real linked-account salary when one exists">'
+        return '<td style="' + cellStyle + '">$<input type="text" inputmode="decimal" id="fin-salary-actual-' + i + '" value="' + (w.actualSalaryCents != null ? (w.actualSalaryCents/100) : '') + '" placeholder="' + (placeholderCents/100).toFixed(2) + '" oninput="finSalaryActualChange(' + i + ',finSanitizeDecimalInput(this))" style="width:90px;text-align:right;" title="Type here only to override — the placeholder already shows this worker\'s real linked-account salary when one exists">'
           + (w.actualSalaryCents != null ? ' <a href="#" onclick="finSalaryActualReset(' + i + ');return false;" style="font-size:.62rem;white-space:nowrap;display:block;">↺ use ' + (acctBasisCents != null ? 'account figure' : 'formula') + '</a>' : '') + '</td>';
       }
       return '<td style="' + cellStyle + '">' + (rawCents != null ? '$' + finFmtMoney(displayCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>';
@@ -4601,7 +4626,7 @@ function finRenderSalaryScenarioComparison(baseInfo, isAdminUI) {
       + '</th>';
   }).join('');
   return '<div style="overflow-x:auto;margin-bottom:10px;">'
-    + '<div style="font-size:.72rem;color:var(--warm-gray);margin-bottom:2px;">Growth method comparison — each staff member\'s salary under all 4 scenarios, and (under their name) exactly where that starting number comes from. <b>Where the number comes from, in order</b>: (1) a figure typed directly into the "None" box below overrides everything; (2) otherwise, if this worker\'s Acct # (roster table above) matches a real account in the FY' + _finPlanBaseYear + ' budget, that account\'s real actual total is used automatically — no typing needed; (3) only if neither exists does this fall back to the LCMS district guideline formula, which is a benchmark and can legitimately not match what\'s really paid. "None" always shows FY' + _finPlanBaseYear + ' with no raise applied; LCMS/SSA/Custom grow that same starting number by their own rate toward FY' + _finPlanTargetYear + '. When the starting number comes from the LCMS formula (no real figure available) AND FY' + _finPlanTargetYear + ' already has its own exact published district base salary, every growth-method column will show the identical number — the growth rate literally can\'t change anything in that one specific case, since the target year\'s salary is already fixed by the district\'s own table, not computed from a rate. That\'s the only situation where the columns are expected to match; whenever a real actual figure is being used (typed or from a linked account), the columns always differ by their own rate. Click "Use this" to make a scenario the active one below.</div>'
+    + '<div style="font-size:.72rem;color:var(--warm-gray);margin-bottom:2px;">Growth method comparison — each staff member\'s salary under all 4 scenarios, and (under their name) exactly where that starting number comes from. <b>Where the number comes from, in order</b>: (1) a figure typed directly into the "None" box below overrides everything; (2) otherwise, if this worker\'s Acct # (roster table above) matches a real account in the FY' + _finPlanBaseYear + ' budget, that account\'s FULL-YEAR BUDGETED total is used automatically — no typing needed (the account\'s YTD Actual total, a partial-year figure for a still-in-progress fiscal year, is deliberately NOT used here — it would understate a full year\'s pay); (3) only if neither exists does this fall back to the LCMS district guideline formula, which is a benchmark and can legitimately not match what\'s really paid. "None" always shows FY' + _finPlanBaseYear + ' with no raise applied; LCMS/SSA/Custom grow that same starting number by their own rate toward FY' + _finPlanTargetYear + '. When the starting number comes from the LCMS formula (no real figure available) AND FY' + _finPlanTargetYear + ' already has its own exact published district base salary, every growth-method column will show the identical number — the growth rate literally can\'t change anything in that one specific case, since the target year\'s salary is already fixed by the district\'s own table, not computed from a rate. That\'s the only situation where the columns are expected to match; whenever a real budgeted figure is being used (typed or from a linked account), the columns always differ by their own rate. Click "Use this" to make a scenario the active one below.</div>'
     + '<table style="width:100%;border-collapse:collapse;font-size:.76rem;">'
     + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th>' + headerCells + '</tr></thead>'
     + '<tbody>' + rows + '</tbody>'
@@ -4855,7 +4880,7 @@ function finRenderHealthInsuranceCalculator(isAdminUI) {
   function premiumRow(field, label) {
     var ovCents = premOv[field], quoteCents = quoteOpt[field];
     if (!isAdminUI) return '<tr><td style="padding:3px 6px;">' + label + '</td><td style="text-align:right;padding:3px 6px;">$' + finFmtMoney((ovCents != null ? ovCents : quoteCents)/100) + '</td></tr>';
-    return '<tr><td style="padding:3px 6px;">' + label + '</td><td style="text-align:right;padding:3px 6px;">$<input type="number" id="fin-health-premium-' + _finHealthPlanSelectedOption + '-' + field + '" step="0.01" value="' + (ovCents != null ? (ovCents/100) : '') + '" placeholder="' + (quoteCents/100).toFixed(2) + '" oninput="finHealthPremiumChange(\'' + _finHealthPlanSelectedOption + '\',\'' + field + '\',this.value)" style="width:90px;text-align:right;"></td></tr>';
+    return '<tr><td style="padding:3px 6px;">' + label + '</td><td style="text-align:right;padding:3px 6px;">$<input type="text" inputmode="decimal" id="fin-health-premium-' + _finHealthPlanSelectedOption + '-' + field + '" value="' + (ovCents != null ? (ovCents/100) : '') + '" placeholder="' + (quoteCents/100).toFixed(2) + '" oninput="finHealthPremiumChange(\'' + _finHealthPlanSelectedOption + '\',\'' + field + '\',finSanitizeDecimalInput(this))" style="width:90px;text-align:right;"></td></tr>';
   }
   var breakdownHtml = calc ? ('<table style="width:100%;border-collapse:collapse;font-size:.78rem;max-width:420px;">'
     + premiumRow('medicalCents', 'Medical Annual Premium')
