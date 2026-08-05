@@ -4261,18 +4261,34 @@ function finRoundSalaryCents(cents) {
   var perPeriodRounded = Math.round(perPeriodCents / 500) * 500;
   return perPeriodRounded * FIN_SALARY_PAY_PERIODS;
 }
-// Pure — no DOM — a worker's salary under one scenario ({pct, year}), preferring their entered
-// actual current salary (grown forward from baseYear by the scenario's rate) over the LCMS
-// guideline formula when set. The district guideline is a benchmark the church may not actually
-// be paying exactly — an admin who knows a worker's real current salary can enter it so
-// "None (flat)" shows that real number instead of a formula estimate that can legitimately differ,
-// and every raise scenario then proposes a real raise off of it instead of off the guideline math.
-// Mathematically equivalent to growing the formula's base-salary component by the same rate (see
-// finComputeLcmsSalary) — salary = base × multiplier, so growing base by pct grows salary by pct.
+// Pure — no DOM — the real FY{baseYear} actual dollar total for a worker's linked payroll account
+// code (e.g. "58001"), the same lookup the roster table's "FY{base} Acct Actual" reference column
+// already uses, factored out here because it's now also the default basis for "None (flat)" below
+// — a worker's real current salary is usually already sitting right there in the synced/imported
+// budget data, so no one should have to look it up and retype it by hand. Returns null if the
+// worker has no account code, or the code doesn't match any account in this year's budget tree.
+function finAccountActualCentsForCode(code) {
+  if (!code) return null;
+  var allAccountNodes = [];
+  (function flatten(nodes) { (nodes || []).forEach(function(n) { allAccountNodes.push(n); flatten(n.children); }); })(_finPlanBaseTree);
+  var node = allAccountNodes.filter(function(n) { return n.path.indexOf(code) >= 0 || n.label.indexOf(code) >= 0; })[0];
+  return node ? node.totalActualCents : null;
+}
+// Pure — no DOM — a worker's salary under one scenario ({pct, year}), grown forward from baseYear
+// by the scenario's rate off a "basis" figure resolved in this priority order: (1) an explicit
+// admin-typed override (w.actualSalaryCents — for a worker with no linked account, or to correct a
+// wrong/stale account figure), (2) their linked account's real FY{baseYear} actual total (see
+// finAccountActualCentsForCode — this is the common case: no typing needed, the real number is
+// already in the synced budget), (3) only as a last resort, the LCMS district guideline formula —
+// a benchmark the church may not actually be paying exactly, which is why it's the fallback, not
+// the default. Growing the real basis by pct is mathematically equivalent to growing the formula's
+// base-salary component by the same rate (salary = base × multiplier, so growing base by pct grows
+// salary by pct) — so this reduces to the exact same formula math whenever no real number exists.
 function finWorkerScenarioSalaryCents(w, scenario, baseYear) {
-  if (w.actualSalaryCents != null) {
+  var basisCents = w.actualSalaryCents != null ? w.actualSalaryCents : finAccountActualCentsForCode(w.accountCode);
+  if (basisCents != null) {
     var yearsForward = scenario.year - baseYear;
-    return Math.round(w.actualSalaryCents * Math.pow(1 + (scenario.pct || 0), yearsForward));
+    return Math.round(basisCents * Math.pow(1 + (scenario.pct || 0), yearsForward));
   }
   var calc = finComputeLcmsSalary({ year: scenario.year, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus, colaPct: scenario.pct, referenceByYear: _finSalaryReferenceByYear });
   return calc ? calc.salaryCents : null;
@@ -4543,24 +4559,37 @@ function finRenderSalaryScenarioComparison(baseInfo, isAdminUI) {
   if (!_finSalaryRoster.length) return '';
   var scenarios = finSalaryScenarioList();
   var rows = _finSalaryRoster.map(function(w, i) {
+    // Resolved once per worker so every cell in the row (and the source caption) agrees on WHY
+    // the number is what it is — see finWorkerScenarioSalaryCents for the exact priority order:
+    // typed override > linked account's real FY actual > LCMS formula estimate (last resort).
+    var acctBasisCents = finAccountActualCentsForCode(w.accountCode);
+    var sourceLabel = w.actualSalaryCents != null
+      ? 'a typed-in override'
+      : (acctBasisCents != null ? 'account ' + esc(w.accountCode) + '’s real FY' + _finPlanBaseYear + ' actual' : 'the LCMS formula estimate (no linked account with budget data found)');
+    var isFromRealFigure = w.actualSalaryCents != null || acctBasisCents != null;
     var cells = scenarios.map(function(s) {
       var rawCents = finWorkerScenarioSalaryCents(w, s, _finPlanBaseYear);
       var displayCents = rawCents != null ? finRoundSalaryCents(rawCents) : null;
       var active = _finSalaryColaSource === s.key;
       var cellStyle = 'padding:3px 6px;text-align:right;' + (active ? 'font-weight:700;background:var(--white);border-radius:4px;' : '');
-      // The "None" column doubles as where a real actual current salary is entered — a formula
-      // estimate can legitimately not match what's really paid (the LCMS scale is a district
-      // benchmark, not this church's payroll), so an admin who knows the real number can type it
-      // in right where the mismatch shows up, instead of the formula figure winning silently.
+      // The "None" column doubles as where a real current salary can be typed in to CORRECT the
+      // resolved basis (e.g. no linked account yet, or the account figure is stale) — but for a
+      // worker with a linked account, the placeholder already shows their real actual figure, no
+      // typing required; the LCMS formula is only ever the last-resort placeholder when neither
+      // exists. Every other scenario column grows from whichever basis this cell resolved to.
       if (s.key === 'none' && isAdminUI) {
-        var formulaCalc = finComputeLcmsSalary({ year: s.year, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus, colaPct: s.pct, referenceByYear: _finSalaryReferenceByYear });
-        var formulaCents = formulaCalc ? finRoundSalaryCents(formulaCalc.salaryCents) : 0;
-        return '<td style="' + cellStyle + '">$<input type="number" step="0.01" value="' + (w.actualSalaryCents != null ? (w.actualSalaryCents/100) : '') + '" placeholder="' + (formulaCents/100).toFixed(2) + '" oninput="finSalaryActualChange(' + i + ',this.value)" style="width:90px;text-align:right;" title="Enter this worker\'s real current salary if it differs from the formula estimate — every scenario grows from it once set">'
-          + (w.actualSalaryCents != null ? ' <a href="#" onclick="finSalaryActualReset(' + i + ');return false;" style="font-size:.62rem;white-space:nowrap;display:block;">↺ use formula</a>' : '') + '</td>';
+        var placeholderCents;
+        if (acctBasisCents != null) placeholderCents = finRoundSalaryCents(acctBasisCents);
+        else {
+          var formulaCalc = finComputeLcmsSalary({ year: s.year, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus, colaPct: s.pct, referenceByYear: _finSalaryReferenceByYear });
+          placeholderCents = formulaCalc ? finRoundSalaryCents(formulaCalc.salaryCents) : 0;
+        }
+        return '<td style="' + cellStyle + '">$<input type="number" step="0.01" value="' + (w.actualSalaryCents != null ? (w.actualSalaryCents/100) : '') + '" placeholder="' + (placeholderCents/100).toFixed(2) + '" oninput="finSalaryActualChange(' + i + ',this.value)" style="width:90px;text-align:right;" title="Type here only to override — the placeholder already shows this worker\'s real linked-account salary when one exists">'
+          + (w.actualSalaryCents != null ? ' <a href="#" onclick="finSalaryActualReset(' + i + ');return false;" style="font-size:.62rem;white-space:nowrap;display:block;">↺ use ' + (acctBasisCents != null ? 'account figure' : 'formula') + '</a>' : '') + '</td>';
       }
-      return '<td style="' + cellStyle + '">' + (rawCents != null ? '$' + finFmtMoney(displayCents/100) : '<span style="color:var(--warm-gray);">—</span>') + (w.actualSalaryCents != null && s.key !== 'none' ? ' <span style="font-size:.62rem;color:var(--warm-gray);">(from actual)</span>' : '') + '</td>';
+      return '<td style="' + cellStyle + '">' + (rawCents != null ? '$' + finFmtMoney(displayCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>';
     }).join('');
-    return '<tr><td style="padding:3px 6px;">' + esc(w.name || '(unnamed)') + '</td>' + cells + '</tr>';
+    return '<tr><td style="padding:3px 6px;">' + esc(w.name || '(unnamed)') + '<br><span style="font-size:.62rem;color:' + (isFromRealFigure ? 'var(--sage-text)' : 'var(--warm-gray)') + ';">from ' + sourceLabel + '</span></td>' + cells + '</tr>';
   }).join('');
   var headerCells = scenarios.map(function(s) {
     var active = _finSalaryColaSource === s.key;
@@ -4572,7 +4601,7 @@ function finRenderSalaryScenarioComparison(baseInfo, isAdminUI) {
       + '</th>';
   }).join('');
   return '<div style="overflow-x:auto;margin-bottom:10px;">'
-    + '<div style="font-size:.72rem;color:var(--warm-gray);margin-bottom:2px;">Growth method comparison — each staff member\'s salary under all 4 scenarios. "None" always shows FY' + _finPlanBaseYear + ' (no raise); LCMS/SSA/Custom project FY' + _finPlanTargetYear + '. Once a real actual salary is entered under "None" for a worker (below), every scenario for that worker grows from the real number instead of the LCMS formula estimate — otherwise every column is the formula estimate, and LCMS/SSA/Custom will match each other exactly whenever FY' + _finPlanTargetYear + ' already has an entered district base figure, since growth method only changes anything once you\'re projecting past the last entered year. Click "Use this" to make a scenario the active one below.</div>'
+    + '<div style="font-size:.72rem;color:var(--warm-gray);margin-bottom:2px;">Growth method comparison — each staff member\'s salary under all 4 scenarios, and (under their name) exactly where that starting number comes from. <b>Where the number comes from, in order</b>: (1) a figure typed directly into the "None" box below overrides everything; (2) otherwise, if this worker\'s Acct # (roster table above) matches a real account in the FY' + _finPlanBaseYear + ' budget, that account\'s real actual total is used automatically — no typing needed; (3) only if neither exists does this fall back to the LCMS district guideline formula, which is a benchmark and can legitimately not match what\'s really paid. "None" always shows FY' + _finPlanBaseYear + ' with no raise applied; LCMS/SSA/Custom grow that same starting number by their own rate toward FY' + _finPlanTargetYear + '. When the starting number comes from the LCMS formula (no real figure available) AND FY' + _finPlanTargetYear + ' already has its own exact published district base salary, every growth-method column will show the identical number — the growth rate literally can\'t change anything in that one specific case, since the target year\'s salary is already fixed by the district\'s own table, not computed from a rate. That\'s the only situation where the columns are expected to match; whenever a real actual figure is being used (typed or from a linked account), the columns always differ by their own rate. Click "Use this" to make a scenario the active one below.</div>'
     + '<table style="width:100%;border-collapse:collapse;font-size:.76rem;">'
     + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th>' + headerCells + '</tr></thead>'
     + '<tbody>' + rows + '</tbody>'
