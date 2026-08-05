@@ -1,7 +1,7 @@
 // ── Reports, Engagement, Prayer API handlers ─────────────────────────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedInYear, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL } from './api-utils.js';
+import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedInYear, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, buildBoardCategoryBlock } from './api-utils.js';
 import { resolveChurchYearPrecedence } from './api-finance.js';
 
 export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
@@ -987,9 +987,9 @@ if (seg === 'reports/giving-board' && method === 'GET') {
        WHERE ${dateExpr} BETWEEN ? AND ?
        GROUP BY yr, mo, ge.fund_id`
     ).bind(priorYearStart, yearEnd).all(),
-    // Per active fund: current YTD, prior YTD (same window last year), annual budget
+    // Per active fund: current YTD, prior YTD (same window last year), annual budget, category
     db.prepare(
-      `SELECT f.id, f.name, f.budget_annual_cents,
+      `SELECT f.id, f.name, f.budget_annual_cents, f.category,
               COALESCE(cur.cents,0) AS cur_cents, COALESCE(pri.cents,0) AS prior_cents
        FROM funds f
        LEFT JOIN (SELECT ge.fund_id, SUM(ge.amount) cents FROM giving_entries ge
@@ -1004,28 +1004,34 @@ if (seg === 'reports/giving-board' && method === 'GET') {
     // Per-household current-YTD totals (concentration + average). Loose-plate cash (no person)
     // is excluded — it belongs to no household. Household key: household_id, or -person_id when
     // the giver has no household, so the two id spaces can never collide.
+    // Broken out by fund category too, so the same rows serve both the all-funds concentration
+    // panel and each lens's own — summing a household's per-category rows back up in JS gives
+    // exactly the all-funds figure, so the lens positions can never disagree with the total.
+    // Broken out by FUND, not by category: the category a fund belongs to is resolved in JS
+    // (see catOf below), which is also where the legacy General-Fund-family fallback lives —
+    // reading f.category here instead would put an un-backfilled General Fund's households and
+    // method mix in the restricted bucket while its YTD figure sat in general.
     db.prepare(
-      `SELECT COALESCE(NULLIF(p.household_id,0), -ge.person_id) AS hhkey, SUM(ge.amount) AS cents
+      `SELECT COALESCE(NULLIF(p.household_id,0), -ge.person_id) AS hhkey, ge.fund_id AS fund_id, SUM(ge.amount) AS cents
        FROM giving_entries ge LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
        LEFT JOIN people p ON p.id=ge.person_id
        WHERE ${dateExpr} BETWEEN ? AND ? AND ge.person_id IS NOT NULL
-       GROUP BY hhkey`
+       GROUP BY hhkey, ge.fund_id`
     ).bind(yearStart, periodEnd).all(),
-    // Prior-year household count through the same point
+    // Prior-year household keys through the same point, same breakout (counted in JS)
     db.prepare(
-      `SELECT COUNT(*) AS n FROM (
-         SELECT COALESCE(NULLIF(p.household_id,0), -ge.person_id) AS hhkey
-         FROM giving_entries ge LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
-         LEFT JOIN people p ON p.id=ge.person_id
-         WHERE ${dateExpr} BETWEEN ? AND ? AND ge.person_id IS NOT NULL
-         GROUP BY hhkey)`
-    ).bind(priorYearStart, priorPeriodEnd).first(),
-    // Method mix for current YTD
+      `SELECT COALESCE(NULLIF(p.household_id,0), -ge.person_id) AS hhkey, ge.fund_id AS fund_id
+       FROM giving_entries ge LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
+       LEFT JOIN people p ON p.id=ge.person_id
+       WHERE ${dateExpr} BETWEEN ? AND ? AND ge.person_id IS NOT NULL
+       GROUP BY hhkey, ge.fund_id`
+    ).bind(priorYearStart, priorPeriodEnd).all(),
+    // Method mix for current YTD, per fund
     db.prepare(
-      `SELECT ge.method, SUM(ge.amount) AS cents
+      `SELECT ge.method, ge.fund_id AS fund_id, SUM(ge.amount) AS cents
        FROM giving_entries ge LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
        WHERE ${dateExpr} BETWEEN ? AND ?
-       GROUP BY ge.method`
+       GROUP BY ge.method, ge.fund_id`
     ).bind(yearStart, periodEnd).all(),
     // This year's annual (period_month=0) Church Report rows, so a General Fund budget entered
     // there (the "40085 Sunday Offering" account — same leading code as Giving's "40085 General
@@ -1034,34 +1040,45 @@ if (seg === 'reports/giving-board' && method === 'GET') {
     db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0`).bind(year).all(),
   ]);
 
-  // Which funds are "General Fund" — every fund sharing the same leading numeric code as the
-  // fund literally named "General Fund" (e.g. "40085 General Fund", "40085 Christmas Offering",
-  // "40085 Advent Offering" ...), matching the Giving by Fund report's own numeric-prefix
-  // grouping convention (see rptToggleFundGroup in js-reports.js) rather than a name-only match,
-  // which would miss every seasonal sub-fund coded under the same account.
+  // Which category each fund belongs to (funds.category, migration 0033) — this is what the
+  // Reports fund lens switches between. Legacy fallback: on a database where nothing has been
+  // categorized 'general' yet (pre-backfill, or a fresh install), fall back to the old
+  // name-prefix rule — every fund sharing the leading numeric code of the fund named "General
+  // Fund" — so the board's headline number doesn't read $0 until someone visits Settings.
+  const fundRows = fundRes.results || [];
   const numPrefix = (name) => { const m = String(name || '').match(/^(\d+)\s/); return m ? m[1] : null; };
-  const genFundRow = (fundRes.results || []).find(f => /general\s*fund/i.test(f.name || ''));
+  const catOf = new Map(fundRows.map(f => [f.id, normalizeFundCategory(f.category)]));
+  const genFundRow = fundRows.find(f => /general\s*fund/i.test(f.name || ''));
   const genPrefix = genFundRow ? numPrefix(genFundRow.name) : null;
-  const genFundIds = new Set((fundRes.results || []).filter(f => genPrefix && numPrefix(f.name) === genPrefix).map(f => f.id));
+  if (![...catOf.values()].includes('general')) {
+    for (const f of fundRows) {
+      if (genPrefix ? numPrefix(f.name) === genPrefix : (genFundRow && f.id === genFundRow.id)) catOf.set(f.id, 'general');
+    }
+  }
+  const genFundIds = new Set(fundRows.filter(f => catOf.get(f.id) === 'general').map(f => f.id));
+  const CAT_KEYS = FUND_CATEGORIES.map(c => c.key);
 
-  // Build monthly arrays (index 0 = Jan) — both all-funds (chart) and General-Fund-only
-  // (its own seasonal projection, so it doesn't silently borrow other funds' shape/pace).
+  // Build monthly arrays (index 0 = Jan) — all-funds (chart) plus one per category, each with
+  // its own seasonal projection so a small category never silently borrows a big one's shape.
   const curMonthly = new Array(12).fill(0), priorMonthly = new Array(12).fill(0);
-  const curMonthlyGF = new Array(12).fill(0), priorMonthlyGF = new Array(12).fill(0);
+  const curMonthlyCat = {}, priorMonthlyCat = {};
+  for (const k of CAT_KEYS) { curMonthlyCat[k] = new Array(12).fill(0); priorMonthlyCat[k] = new Array(12).fill(0); }
   for (const r of (monthlyRes.results || [])) {
     const mo = (r.mo || 0) - 1; if (mo < 0 || mo > 11) continue;
     const cents = r.cents || 0;
-    const isGF = genFundIds.has(r.fund_id);
-    if (String(r.yr) === String(year)) { curMonthly[mo] += cents; if (isGF) curMonthlyGF[mo] += cents; }
-    else if (String(r.yr) === String(priorYear)) { priorMonthly[mo] += cents; if (isGF) priorMonthlyGF[mo] += cents; }
+    const cat = catOf.get(r.fund_id) || 'restricted';
+    if (String(r.yr) === String(year)) { curMonthly[mo] += cents; curMonthlyCat[cat][mo] += cents; }
+    else if (String(r.yr) === String(priorYear)) { priorMonthly[mo] += cents; priorMonthlyCat[cat][mo] += cents; }
   }
+  const curMonthlyGF = curMonthlyCat.general, priorMonthlyGF = priorMonthlyCat.general;
 
   // Fund rows with per-fund YTD budget (spread by the church-wide prior-year seasonal shape)
-  const funds = (fundRes.results || []).map(f => {
+  const funds = fundRows.map(f => {
     const hasBudget = (f.budget_annual_cents || 0) > 0;
     const budgetYtd = hasBudget ? spreadBudgetYtd(f.budget_annual_cents, priorMonthly, throughMonth) : null;
     return {
       name: f.name,
+      category: catOf.get(f.id) || 'restricted',
       is_general_fund: genFundIds.has(f.id),
       actual_cents: f.cur_cents || 0,
       budget_ytd_cents: budgetYtd,
@@ -1109,15 +1126,41 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   const gfBudgetYtd = gfBudgetAnnual != null ? spreadBudgetYtd(gfBudgetAnnual, priorMonthlyGF, throughMonth) : null;
   const gfBudgetVariance = gfBudgetYtd != null ? gfYtdActual - gfBudgetYtd : null;
 
-  // Households / concentration
-  const householdTotals = (hhRes.results || []).map(r => r.cents || 0);
+  // Households / concentration — the per-category rows sum back to the all-funds figure, so the
+  // "All giving" lens and the four category lenses are guaranteed to reconcile.
+  const hhByKey = new Map();                    // hhkey -> all-funds cents
+  const hhByCat = {};                           // category -> [cents per household]
+  for (const k of CAT_KEYS) hhByCat[k] = [];
+  const hhCatAcc = {};                          // category -> Map(hhkey -> cents)
+  for (const k of CAT_KEYS) hhCatAcc[k] = new Map();
+  for (const r of (hhRes.results || [])) {
+    const cents = r.cents || 0;
+    const cat = catOf.get(r.fund_id) || 'restricted';
+    hhByKey.set(r.hhkey, (hhByKey.get(r.hhkey) || 0) + cents);
+    hhCatAcc[cat].set(r.hhkey, (hhCatAcc[cat].get(r.hhkey) || 0) + cents);
+  }
+  for (const k of CAT_KEYS) hhByCat[k] = [...hhCatAcc[k].values()];
+  const householdTotals = [...hhByKey.values()];
   const concentration = computeConcentration(householdTotals);
   const households = concentration.households;
-  const householdsPrior = hhPriorRes?.n || 0;
 
-  // Method mix
+  const hhPriorAll = new Set(), hhPriorCat = {};
+  for (const k of CAT_KEYS) hhPriorCat[k] = new Set();
+  for (const r of (hhPriorRes.results || [])) {
+    hhPriorAll.add(r.hhkey);
+    hhPriorCat[catOf.get(r.fund_id) || 'restricted'].add(r.hhkey);
+  }
+  const householdsPrior = hhPriorAll.size;
+
+  // Method mix, all funds and per category
   const buckets = { check: 0, ach: 0, cash: 0, other: 0 };
-  for (const r of (methodRes.results || [])) buckets[bucketGivingMethod(r.method)] += (r.cents || 0);
+  const bucketsByCat = {};
+  for (const k of CAT_KEYS) bucketsByCat[k] = { check: 0, ach: 0, cash: 0, other: 0 };
+  for (const r of (methodRes.results || [])) {
+    const b = bucketGivingMethod(r.method), cents = r.cents || 0;
+    buckets[b] += cents;
+    bucketsByCat[catOf.get(r.fund_id) || 'restricted'][b] += cents;
+  }
   const methodTotal = buckets.check + buckets.ach + buckets.cash + buckets.other;
   const methodMix = [
     { key: 'check', label: 'Check',             cents: buckets.check },
@@ -1125,6 +1168,27 @@ if (seg === 'reports/giving-board' && method === 'GET') {
     { key: 'cash',  label: 'Cash / loose plate', cents: buckets.cash },
     { key: 'other', label: 'Stock, IRA, other', cents: buckets.other },
   ].map(x => ({ ...x, pct: methodTotal > 0 ? Math.round((x.cents / methodTotal) * 100) : 0 }));
+
+  // ── The five lens positions. Every one is the same pure computation over a different slice,
+  // so switching the lens can never produce a figure the other positions contradict. ──
+  const categories = {};
+  for (const c of FUND_CATEGORIES) {
+    categories[c.key] = buildBoardCategoryBlock({
+      key: c.key, label: c.label, hhLabel: c.hh_label,
+      funds: funds.filter(f => f.category === c.key),
+      curMonthly: curMonthlyCat[c.key], priorMonthly: priorMonthlyCat[c.key],
+      throughMonth, sundaysElapsed,
+      householdTotals: hhByCat[c.key], householdsPrior: hhPriorCat[c.key].size,
+      methodBuckets: bucketsByCat[c.key],
+      // Only the General Fund has a council-approved plan living outside Settings.
+      budgetAnnualOverride: c.key === 'general' ? gfBudgetAnnual : null,
+    });
+  }
+  categories.all = buildBoardCategoryBlock({
+    key: 'all', label: 'All giving', hhLabel: 'Giving households',
+    funds, curMonthly, priorMonthly, throughMonth, sundaysElapsed,
+    householdTotals, householdsPrior, methodBuckets: buckets,
+  });
 
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const monthEnds = [31,28,31,30,31,30,31,31,30,31,30,31];
@@ -1170,6 +1234,10 @@ if (seg === 'reports/giving-board' && method === 'GET') {
     },
     totals: { actual_cents: ytdActual, budget_ytd_cents: budgetYtd, prior_cents: priorYtd, annual_budget_cents: annualBudget },
     has_budget: annualBudget > 0,
+    // Fund lens: one fully-computed block per category plus 'all'. Sent in a single response so
+    // switching the lens is instant and can never show a half-refreshed mix of two categories.
+    categories,
+    fund_categories: FUND_CATEGORIES,
   });
 }
 

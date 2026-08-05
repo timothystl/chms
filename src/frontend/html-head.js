@@ -237,36 +237,15 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .h-members{display:flex;flex-wrap:wrap;gap:6px;}
 .h-member-pill{font-size:.75rem;background:var(--blue-mist);border:1px solid var(--ice-blue);color:var(--steel-anchor);padding:2px 8px;border-radius:10px;}
 /* ── GIVING ── */
-.giving-layout{display:grid;grid-template-columns:300px 1fr;gap:0;flex:1;min-height:0;border-radius:20px;overflow:hidden;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);}
-/* On mobile the list and detail panels stack into two grid rows instead of sitting
-   side-by-side in one row — .giving-layout's flex:1/overflow:hidden (correct for the
-   desktop single-row layout, where both panels' own internal overflow-y:auto scrolls
-   within a shared row height) then clips the second stacked row entirely, since the grid
-   container never grows past its flex-assigned height. Let the whole thing flow with the
-   page instead — the outer .tab-panel.active already provides the actual scroll. */
-@media(max-width:900px){
-  .giving-layout{grid-template-columns:1fr;flex:none;overflow:visible;}
-  .batch-list-panel{overflow:visible;border-right:none;border-bottom:1px solid var(--border);}
-  .batch-detail-panel{overflow:visible;}
-  #batch-list{overflow:visible;}
-}
-.batch-list-panel{background:var(--white);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+/* .giving-layout / .batch-list-panel / .batch-detail-panel / .batch-row and its child text
+   classes are gone with the Batches tab they styled — the Offerings master/detail uses
+   .giv-off-layout / .giv-off-list / .giv-off-row / .giv-off-detail (further down this file),
+   which stack at 767px rather than 900px. */
 .batch-list-hdr{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
 .batch-list-hdr h3{font-family:var(--font-head);font-size:.92rem;color:var(--steel-anchor);}
-.batch-search-wrap{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0;}
-.batch-search-wrap input{width:100%;padding:6px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:.84rem;font-family:var(--font-body);background:var(--linen);box-sizing:border-box;color:var(--charcoal);}
-.batch-search-wrap input:focus{outline:none;border-color:var(--steel-anchor);background:var(--white);}
 .batch-filter-pills{padding:7px 10px;border-bottom:1px solid var(--border);display:flex;gap:5px;flex-shrink:0;}
-#batch-list{flex:1;overflow-y:auto;}
-.batch-row{padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s;}
-.batch-row:hover{background:var(--linen);}
-.batch-row.selected{background:var(--blue-mist);box-shadow:inset 3px 0 0 var(--teal);}
-.batch-date{font-size:.75rem;color:var(--warm-gray);}
-.batch-desc{font-weight:600;font-size:.87rem;color:var(--charcoal);margin:1px 0;}
-.batch-meta{display:flex;gap:8px;align-items:center;margin-top:3px;font-size:.74rem;color:var(--warm-gray);}
 .badge-open{background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:99px;font-size:.68rem;font-weight:700;}
 .badge-closed{background:var(--linen);color:var(--warm-gray);padding:2px 8px;border-radius:99px;font-size:.68rem;font-weight:700;}
-.batch-detail-panel{background:var(--white);display:flex;flex-direction:column;overflow-y:auto;}
 .batch-detail-hdr{padding:14px 18px;border-bottom:1px solid var(--border);flex-shrink:0;}
 .total-bar{padding:10px 18px;background:var(--linen);border-bottom:1px solid var(--border);display:flex;align-items:baseline;gap:10px;flex-shrink:0;}
 .total-amount{font-family:var(--font-head);font-size:1.4rem;color:var(--steel-anchor);font-weight:700;}
@@ -372,6 +351,48 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .board-nv-body{font-size:14px;line-height:1.65;color:#33323C;}
 @media(max-width:900px){.board-kpi-grid{grid-template-columns:repeat(2,1fr);}.board-body-grid{grid-template-columns:1fr;}}
 @media(max-width:767px){.board-kpi-grid{grid-template-columns:1fr;}}
+/* ── Fund lens + "Everything else" strip (giving consolidation) ───────── */
+/* Gold-bordered so the lens reads as the primary control on the board toolbar, not just one
+   more select next to the period picker. */
+.board-lens-select{font-family:var(--font-body);font-size:.85rem;font-weight:700;padding:6px 10px;border-radius:8px;border:1px solid var(--color-gold);background:#FFFBF2;color:var(--color-navy);cursor:pointer;}
+.board-else-strip{display:flex;align-items:center;gap:10px;background:var(--warm-surface-card);border:1px solid var(--warm-border);border-radius:12px;padding:9px 14px;margin-bottom:14px;flex-wrap:wrap;}
+.board-else-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-meta);}
+.board-else-chip{padding:5px 12px;border-radius:99px;border:1px solid var(--warm-border);background:var(--white);font-family:var(--font-body);font-size:11.5px;color:var(--charcoal);cursor:pointer;white-space:nowrap;}
+.board-else-chip:hover{background:var(--blue-mist);}
+.board-else-hint{margin-left:auto;font-size:11px;color:var(--warm-gray);}
+.board-print-note{font-size:11.5px;color:var(--warm-meta);margin:-6px 0 12px;}
+/* ── Offerings (batches + deposits, one workflow) ─────────────────────── */
+.giv-queue-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px;}
+.giv-queue-card{background:var(--white);border-radius:14px;box-shadow:0 1px 3px rgba(20,20,40,.05);padding:13px 16px;border-left:4px solid var(--color-teal);}
+.giv-queue-label{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);}
+.giv-queue-value{font-size:22px;font-weight:800;margin:3px 0 2px;color:var(--charcoal);font-variant-numeric:tabular-nums;}
+.giv-queue-sub{font-size:11px;color:var(--warm-gray);}
+.giv-off-header{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:14px;}
+.giv-off-search{width:230px;max-width:100%;padding:7px 11px;border:1.5px solid var(--border);border-radius:8px;background:var(--warm-surface-card);font-family:var(--font-body);font-size:.85rem;}
+/* Derived batch status badge. Never stored — see batchDepositStatus() in api-utils.js. */
+.giv-badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:.68rem;font-weight:700;white-space:nowrap;}
+.giv-badge-ok{background:#E6F2E8;color:#3D6B48;}
+.giv-badge-warn{background:#FBF0D8;color:#8A6316;}
+.giv-badge-bad{background:#FAE7E0;color:#8F3A1E;}
+.giv-dep-panel{margin:16px 18px 20px;border:1px solid var(--warm-border);border-radius:14px;background:var(--warm-surface-page);padding:14px 16px;}
+.giv-dep-panel-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-ink-label);}
+.giv-cover-track{height:9px;border-radius:5px;background:#EFE6D6;overflow:hidden;display:flex;margin:10px 0 6px;}
+.giv-cover-seg{height:100%;}
+.giv-cover-caption{font-size:11.5px;color:var(--warm-gray);}
+.giv-dep-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:8px;}
+.giv-dep-field-label{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);display:block;margin-bottom:3px;}
+.giv-dep-field input{padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.85rem;font-variant-numeric:tabular-nums;}
+.giv-dep-linkrow{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-top:10px;}
+.giv-dep-shortfall{background:#FBF0D8;border:1px solid #EBD9A8;border-radius:12px;padding:10px 14px;font-size:12.5px;color:#6B4E12;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.giv-dep-remove{background:none;border:none;color:#8F3A1E;font-size:.76rem;font-weight:600;cursor:pointer;font-family:var(--font-body);padding:0;}
+.giv-off-layout{display:grid;grid-template-columns:320px 1fr;gap:0;border-radius:20px;overflow:hidden;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);min-height:520px;background:var(--white);}
+.giv-off-list{background:var(--white);border-right:1px solid var(--border);overflow-y:auto;max-height:720px;}
+.giv-off-row{padding:11px 14px;border-bottom:1px solid var(--border);cursor:pointer;border-left:3px solid transparent;}
+.giv-off-row:hover{background:var(--linen);}
+.giv-off-row.selected{background:#EAF4FA;border-left-color:var(--color-teal);}
+.giv-off-detail{background:var(--white);display:flex;flex-direction:column;min-width:0;}
+@media(max-width:900px){.giv-queue-grid{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:767px){.giv-queue-grid{grid-template-columns:1fr;}.giv-off-layout{grid-template-columns:1fr;}.giv-off-list{max-height:320px;border-right:none;border-bottom:1px solid var(--border);}}
 .rpt-overview{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:14px;}
 .rpt-stat{background:var(--linen);border-radius:12px;padding:10px 16px;min-width:140px;flex:1 1 140px;max-width:220px;}
 .rpt-stat-num{font-size:1.35rem;font-weight:700;font-family:var(--font-head);color:var(--steel-anchor);line-height:1.1;}
@@ -1106,8 +1127,12 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
      board panel prints, the shared subnav header + toolbar hide, and the grids stay full-width. */
   body.printing-board .tab-panel:not(#tab-giving){display:none!important;}
   body.printing-board #tab-giving{display:block!important;}
-  body.printing-board #tab-giving > div:not(#giv-view-board){display:none!important;}
-  body.printing-board #giv-view-board{display:block!important;}
+  body.printing-board #tab-giving > div:not(#giv-view-reports){display:none!important;}
+  body.printing-board #giv-view-reports{display:block!important;}
+  /* Analysis mode's tile grid never belongs in a printed council packet, even if it was the
+     mode on screen when Print was clicked. */
+  body.printing-board #giv-analysis-body{display:none!important;}
+  body.printing-board .board-else-strip{display:none!important;}
   body.printing-board .board-toolbar{display:none!important;}
   body.printing-board .board-kpi-grid{grid-template-columns:repeat(4,1fr)!important;}
   body.printing-board .board-body-grid{grid-template-columns:1.55fr 1fr!important;}

@@ -24,6 +24,114 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.140.0 — Giving consolidation: Offerings · Reports · Communications · Settings (2026-08-05)
+
+Built from the `design_handoff_giving_consolidation` bundle (README + two `.dc.html` prototypes).
+Three changes, all in one pass: the sub-nav collapses eight tabs to four, Batches/Transactions/
+Deposits become one Offerings workflow with real many-to-many batch↔deposit links, and the board
+report gains a fund-category lens.
+
+**1. Sub-nav: eight → four.** `Offerings · Reports · Communications · Settings`. Every retired view
+name still resolves — `givSetView()` maps `batches`/`transactions`/`deposits` → Offerings,
+`board`/`analysis` → Reports, `letters`/`receipts` → Communications, and remembers which *pane*
+inside the new home the old name meant, so an existing "Go to Letters" button or a bookmark lands
+on the actual screen rather than the parent tab. An unknown name falls back to Offerings instead of
+leaving every panel hidden.
+
+**2. Offerings.** New work-queue strip (open batches / awaiting deposit / unreconciled deposits /
+processing fees YTD, all derived live from `GET /admin/api/giving/offerings-summary` — nothing
+stored, so the queue can't claim work that's already done). Master/detail below it, with the
+batch list badged by a **derived** status: `Needs deposit` → `Split · $X left` → `Unreconciled` →
+`Deposited` (`batchDepositStatus()`/`batchDepositStatusFromCounts()` in `api-utils.js`, unit-tested
+including the $0-bank-amount and sub-dollar-rounding edges). The batch detail gained a **Bank
+deposits panel**: a coverage bar, one editable card per linked deposit (amount from this batch /
+deposit total / bank received / fees), the reverse direction of each link ("Also in this deposit:
+Aug 11 · Online (ACH batch) $4,120"), and a shortfall strip when part of the count hasn't reached a
+bank yet.
+
+New `giving_deposit_lines(deposit_id, batch_id, amount_cents)` join table (migration `0032`) — 0031
+could only express one deposit per *gift*, which cannot say "half of Sunday's count went in Monday
+and half Wednesday." A deposit's given total is now Σ its lines when it has lines, and Σ its
+assigned gifts otherwise — **never their sum**, so a deposit built both ways can't double-count
+itself. New endpoints: `POST`/`DELETE /giving/deposit-lines`, `GET /giving/deposit-options`,
+`GET /giving/offerings-summary`; `POST /giving/deposits` optionally creates its first line so
+"+ New deposit" never leaves a half-made slip behind, and removing the last line deletes the
+deposit. The old flat gift table and deposit list are kept as pills inside Offerings (the handoff's
+option A) — they answer questions the master/detail can't; the gift table gained a **Deposit**
+column.
+
+Caught while writing the batch-list query: joining `giving_entries` **and** `giving_deposit_lines`
+in one `GROUP BY` multiplies the rows and silently doubles a split batch's total. The deposit
+figures come in as correlated subqueries instead; a regression test splits a batch across two
+deposits specifically so that bug can't come back unnoticed.
+
+**3. Fund lens on Reports.** New `funds.category` (`general | earned | passive | restricted`,
+migration `0033`), edited in a new **Settings → Fund categories** card (category + annual budget per
+fund, saved on an explicit click). `giving-board` now returns a fully-computed block per category
+plus `all` (`buildBoardCategoryBlock()` in `api-utils.js`), so switching the lens is instant and the
+five positions are computed by one function over different slices — the four categories add back up
+to All giving, which a test asserts directly. Everything is scoped: KPIs, chart, navy panel,
+narrative, fund table (which lists *categories* as rows under the All-giving lens and *funds* under
+a category lens), the subtitle scope note, and print. The old "+ $X other giving" sub-line is
+replaced by the **Everything else** strip — one clickable chip per other category.
+
+Two real bugs this surfaced, both fixed:
+- The month chart's fixed 50k-step/100k-minimum axis was written for the General Fund. Against
+  passive income — a couple of thousand dollars for the *whole year* — every bar rounded to zero
+  height and the chart read as a flat line. Replaced with a 1/2/5-×-power-of-ten "nice step"
+  (`boardNiceStepK()`) targeting ~3 gridlines, plus axis labels that carry enough decimals to stay
+  distinguishable below $1k. The handoff's named steps (50/20/5/1) are rungs on that same ladder.
+- `boardNarrativeHtml()` indexed `mix.check.pct` directly and would throw — blanking the whole
+  narrative page — for any method bucket the response didn't carry. Now a safe lookup.
+
+The **Plateaus & Nudges** and **Weekly/Monthly Band** cards moved out of the board page into
+Analysis, per the handoff; the board page now ends at the fund table. Analysis is the third position
+of the mode toggle (`Dashboard · Narrative · Analysis`), and the lens and period persist across
+modes. Print honors the lens: the selected category's pages, then a one-page summary of the others,
+injected only for the duration of the print job. If Analysis is the mode on screen, "Print board
+page" switches back to Dashboard first — otherwise it would print a sheet whose body is
+`display:none`.
+
+**Three more real bugs, found by a review pass against a real in-memory database and fixed:**
+- The board's household and method-mix queries grouped by `f.category` in SQL, but the legacy
+  General-Fund-family fallback lives in JS — so on an un-backfilled database the default lens
+  showed a General Fund YTD figure next to **zero households and a blank navy panel**, with the
+  real numbers filed under Restricted. Both queries now group by `fund_id` and map to a category
+  through the same JS `catOf` map everything else uses; there is now one source of truth for
+  which category a fund is in.
+- `fees_ytd` computed `Σ deposit lines − bank_cents`. A deposit built the older per-gift way has
+  no lines, so its fee came out as a large **negative** number — the year's processing fees
+  reading as a windfall. It now follows the same lines-else-gifts rule as the deposit list.
+- "Awaiting deposit" counted every batch with no deposit line — which, on the day this ships, is
+  *every batch in the database*, since batch↔deposit links only start existing now. It would have
+  announced years of money still sitting in the safe. Windowed to the last 90 days (adjustable via
+  `?awaiting_days=`), with the window named on the card.
+
+**One hardening while in here.** `applyPermissionUI()` hides `.require-finance` panels by setting
+an inline `display:none`, which the view-switching loop would cheerfully undo — so an alias or a
+stale deep link could park an office-level user on an empty Reports panel. `givSetView()` now
+refuses to open a finance-only view (and `givOffSetPane()` the Deposits pane) for a role that
+can't see it, falling back to Offerings. The server gated the data all along; this is about not
+showing an empty screen.
+
+**Compatibility.** A database that has the `category` column but has never been backfilled falls
+back to the old name-prefix rule (every fund sharing the leading numeric code of the fund named
+"General Fund"), so the council's headline number can't read $0 between deploy and first visit to
+Settings; `db.js` backfills that same family once, marker-gated so a later re-categorization isn't
+undone on every cold start.
+
+**Verification.** `npm test` (682/682, 72 new across `test/giving-fund-categories.test.js`,
+`test/giving-offerings.test.js`, `test/giving-consolidation-ui.test.js` — the last runs the real
+served `JS_GIVING` in a `vm` sandbox). Each new test file was checked for vacuity by injecting the
+regression it guards (dropped alias map → 3 fail; multiplying JOIN → 1 fail; lens always reading
+`all` → 8 fail; fixed 100k axis → 1 fail; skipped deposit cleanup → 1 fail). `node --check` on both
+built app-JS bundles and on every touched backend file; div-balance scan of the rebuilt
+`#tab-giving` markup. Dead CSS removed with the markup it styled (`.giving-layout`,
+`.batch-list-panel`, `.batch-detail-panel`, `.batch-row` + children, `.batch-search-wrap`).
+**Not verified**: a live browser or a real D1 database — the standing caveat on all frontend work
+here. Worth checking first on the live app: the coverage-bar/shortfall interaction on a real split
+batch, and that the work-queue counts match what the panels below them show.
+
 ### v1.139.0 — Phone-first pass: Dashboard & People (2026-08-04)
 
 Phase C of the mobile scope. MOB1–MOB4 stopped things being *broken* on a phone; this is the

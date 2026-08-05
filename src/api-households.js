@@ -1,6 +1,6 @@
 // ── Households, Organizations, Tags, Funds API handlers ──────────────────────
 import { json } from './auth.js';
-import { disambiguateHHName } from './api-utils.js';
+import { disambiguateHHName, normalizeFundCategory } from './api-utils.js';
 
 // `role` is appended LAST deliberately: SW4 was a real bug caused by this function being called
 // with more arguments than its signature declared, so a value silently landed in the wrong slot.
@@ -393,16 +393,40 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
     const statMap = new Map(stats.map(s => [s.fund_id, s]));
     const funds = rows.map(f => {
       const s = statMap.get(f.id) || { cnt: 0, total_cents: 0 };
-      return { ...f, entry_count: s.cnt, total_cents: s.total_cents };
+      // category is normalized on the way out so a fund written before migration 0033 (or by a
+      // path that doesn't know about categories) always reads as a real lens key, never ''.
+      return { ...f, category: normalizeFundCategory(f.category), entry_count: s.cnt, total_cents: s.total_cents };
     });
     return json({ funds });
+  }
+
+  // Bulk save of the Settings → Fund categories table: one category + annual budget per fund,
+  // saved together on an explicit click (this app never silently autosaves). Sparse by design —
+  // a row is only written when it actually carries a change, so a name/active edit made
+  // elsewhere in Manage Funds can't be clobbered by an untouched row here.
+  if (seg === 'funds/categories' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied' }, 403);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const rows = Array.isArray(b.funds) ? b.funds : [];
+    if (!rows.length) return json({ error: 'No funds supplied' }, 400);
+    const stmts = [];
+    for (const r of rows) {
+      const id = parseInt(r.id);
+      if (!Number.isInteger(id)) continue;
+      const cat = normalizeFundCategory(r.category);
+      const budget = Math.max(0, Math.round(Number(r.budget_annual_cents) || 0));
+      stmts.push(db.prepare('UPDATE funds SET category=?, budget_annual_cents=? WHERE id=?').bind(cat, budget, id));
+    }
+    if (!stmts.length) return json({ error: 'No valid fund rows' }, 400);
+    await db.batch(stmts);
+    return json({ ok: true, count: stmts.length });
   }
   if (seg === 'funds' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied' }, 403);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const r = await db.prepare(
-      `INSERT INTO funds (name,description,active,sort_order) VALUES (?,?,?,?)`
-    ).bind(b.name||'New Fund',b.description||'',b.active==null?1:b.active?1:0,b.sort_order||0).run();
+      `INSERT INTO funds (name,description,active,sort_order,category) VALUES (?,?,?,?,?)`
+    ).bind(b.name||'New Fund',b.description||'',b.active==null?1:b.active?1:0,b.sort_order||0,normalizeFundCategory(b.category)).run();
     return json({ ok: true, id: r.meta?.last_row_id });
   }
   const fundmatch = seg.match(/^funds\/(\d+)$/);
@@ -419,6 +443,11 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
       } else {
         await db.prepare(`UPDATE funds SET name=?,description=?,active=?,sort_order=? WHERE id=?`)
           .bind(b.name||'',b.description||'',b.active?1:0,b.sort_order||0,parseInt(fundmatch[1])).run();
+      }
+      // category, same optional treatment as the budget above — only written when sent.
+      if (b.category != null) {
+        await db.prepare(`UPDATE funds SET category=? WHERE id=?`)
+          .bind(normalizeFundCategory(b.category), parseInt(fundmatch[1])).run();
       }
       return json({ ok: true });
     }

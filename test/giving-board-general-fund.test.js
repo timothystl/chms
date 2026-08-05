@@ -9,6 +9,7 @@ function makeTestDb() {
   sqlite.exec(readFileSync(new URL('../migrations/0001_baseline.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0018_finance_church_entries.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0028_fund_budget.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0033_fund_category.sql', import.meta.url), 'utf8'));
   return {
     prepare(sql) {
       return {
