@@ -1117,6 +1117,29 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   reference in the column header tooltip that would have thrown at render time. Not verified in a
   live browser. Done 2026-08-05 (v1.128.0). (`src/api-finance.js`, `src/frontend/js-finance.js`,
   `test/finance-budget-plan.test.js`)
+- [x] **FIN48** — Three follow-ups on FIN46, reported together. (1) **Real bug**: typing into the
+  Disability % (and Custom growth %) inputs reformatted mid-keystroke, reading as "typing backward"
+  — the value was forced through `.toFixed(2)` on every full-card rerender, and since it's a fraction
+  round-tripped through float math, redisplaying it produced garbage like `11.700000000000001`. New
+  `finFmtPctInput()` (a rounded number, not a padded string) replaces `.toFixed(2)` on both inputs.
+  (2) **"Changing the percentage does nothing, everything's the same"**: FY2027 already has an exact
+  published LCMS district base figure, so every formula-based scenario resolves to that fixed number
+  regardless of growth rate — compounding the earlier $104,260-vs-real-$98,800 complaint. New
+  `finWorkerScenarioSalaryCents()`: when a worker has an entered actual salary (editable input right
+  in the "None (flat)" scenario column, placeholder shows the formula estimate), every scenario grows
+  the REAL number by its rate instead of touching the LCMS formula — a percentage change now visibly
+  changes the result regardless of whether the target year is already published. (3) **Family /
+  employee-only / opt-out health tiers per worker**: "Has Dependents" now doubles as the health-family
+  flag (confirmed default: one checkbox, not two) — family-coverage workers still draw from the real
+  group Family-tier quote; since no Employee-Only premium data exists anywhere in the app, a
+  non-family enrolled worker gets a plain editable Employee-Only premium input instead. An opted-out
+  worker can now optionally get a per-worker opt-out cash override (blank falls back to the existing
+  shared per-year figure). All three roll into a new "Total Health Plan Cost (all workers)" line.
+  Verified with harnesses for all three: keystroke-by-keystroke typing round-trips clean, LCMS vs SSA
+  diverge correctly once an actual salary is entered, and all three health tiers resolve independent,
+  correct figures. `npm test` (580/580), `node --check`, confirmed new function names in the
+  assembled bundle. Not verified in a live browser. Done 2026-08-05 (v1.132.0).
+  (`src/frontend/js-finance.js`)
 - [x] **FIN47** — Reported: editing a Church Budget Planning cell (Plan or Projected) and then
   navigating away lost the edit — nothing saved until the explicit "Save Changes" click. Every cell
   edit now schedules a debounced (~800ms) background save, so a change reaches the server within

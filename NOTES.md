@@ -24,6 +24,59 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.132.0 — Compensation: actual-salary basis, family/employee-only/opt-out health tiers, and a
+recurring input-reformat bug swept clean (2026-08-05)
+
+Three follow-ups in one session, on the Disability/health work shipped earlier today.
+
+**Bug: Disability % (and Custom %) input reformatted mid-keystroke, reading as "typing backward."**
+Same root cause as the FIN42 District Reference Data bug, not yet applied to these two fields: the
+value attribute forced `.toFixed(2)` on every render, and since the stored value is a fraction
+(`pct/100`) round-tripped through float math, redisplaying it produced garbage like
+`11.700000000000001` — a full card rerender on every `oninput` meant the user saw that garbage
+appear mid-type. New `finFmtPctInput(fraction)` (`Math.round(fraction*10000)/100` — a clean rounded
+*number*, not a zero-padded string) replaces the `.toFixed(2)` calls on both the Disability and
+Custom-growth-% inputs (Pension already worked fine by luck but wasn't touched — no report against
+it). Verified with a harness simulating keystroke-by-keystroke typing ("1" → "11" → "11." → "11.7")
+against both the old and new formatting — old reproduces the corruption, new round-trips cleanly at
+every step.
+
+**"Changing the percentage does nothing, all scenarios are the same."** Root cause: FY2027 already
+has an *exact* published LCMS district base salary figure, and the formula-based scenario columns
+(LCMS Avg/SSA/Custom) all resolve to that same fixed number regardless of growth rate whenever the
+target year already has one on file — documented in the card's own caption, but silently confusing
+in practice, and compounding the real underlying complaint from earlier today (the LCMS *guideline*
+salary for FY2026 doesn't match what Dinger is actually paid, $104,260 vs. his real $98,800). Fixed
+both at once: new `finWorkerScenarioSalaryCents(worker, scenario, baseYear)` — when a worker has an
+entered actual salary (new editable input, right in the "None (flat)" column of the scenario table,
+placeholder shows the formula estimate for comparison), every scenario grows that REAL number by the
+scenario's rate instead of touching the LCMS formula at all, so a percentage change now visibly
+changes the number regardless of whether the target year has a published district figure. A "↺ use
+formula" link clears the override. `finSalaryComputeAll` (the roster table / Total Compensation /
+Apply-to-Plan path) and `finRenderSalaryScenarioComparison` both route through the same helper, so
+they can't drift. Verified with a harness: before entering an actual salary, LCMS (2.35%) and SSA
+(2.8%) both resolve to the identical $74,717.05 for Dinger (confirms the exact-year freeze); after
+entering $98,800, LCMS gives $101,124.18 and SSA gives $101,566.40 — now genuinely different.
+
+**Family / employee-only / opt-out health tiers, per worker.** The "Has Dependents" checkbox
+(previously only affecting the Disability & Survivor rate) now doubles as the health-family flag,
+per the user's confirmed default choice — one checkbox, not two. A family-coverage enrolled worker
+still draws from the real group Family-tier premium quote (unchanged). Since no Employee-Only
+premium data exists anywhere in this app (the quote is Family-tier-only), a non-family enrolled
+worker instead gets a plain editable "Employee-Only Premium" dollar input (blank = $0, an admin
+enters the real figure once known) right in the Health Plan cell. Opting a worker out now also
+supports an optional PER-WORKER opt-out cash override (falls back to the existing shared
+per-fiscal-year "Health Opt-Out Cash" figure when left blank, so nobody's behavior changes unless
+this is explicitly set for them). All three tiers roll into a new "Total Health Plan Cost (all
+workers)" line under the Total Compensation table, so the group total is visible in one place
+instead of only per-worker. Verified with a harness covering all three tiers simultaneously (a
+family worker, an employee-only worker with a $4,500 entered premium, and an opted-out worker with a
+$3,000 entered opt-out payment) — each resolves to the correct, independent figure.
+
+`npm test` (580/580, no test changes needed — this is all UI-layer/roster-field work with no new
+pure functions under existing test coverage), `node --check`, confirmed all new function names
+present in the assembled bundle. Not verified in a live browser. (`src/frontend/js-finance.js`)
+
 ### v1.131.0 — Church Budget Planning: autosave on cell edits (2026-08-05)
 
 Reported: editing a Projected/Plan cell and then navigating away lost the edit — nothing saved until
