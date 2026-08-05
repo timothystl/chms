@@ -3529,6 +3529,7 @@ function finRerenderPlanningPreserveFocus() {
   }
   window.scrollTo(0, scrollY);
   if (contentArea && contentScrollTop != null) contentArea.scrollTop = contentScrollTop;
+  finSalaryScheduleAutoSave();
 }
 // Seeded once (only if nothing has ever been saved) — the church's 3 current salaried workers,
 // each tied to their real payroll account code so the roster can pull in that account's own
@@ -3566,21 +3567,51 @@ function finLoadSalaryPlannerData() {
     if (!_finSalaryRoster.length) _finSalaryRoster = JSON.parse(JSON.stringify(SALARY_STAFF_SEED));
   });
 }
-function finSalarySaveData() {
-  var msgEl = document.getElementById('fin-salary-save-msg');
-  var body = {
+// Shared by the manual Save button and the debounced autosave below — this whole card's state is
+// small enough to just resend wholesale on every save (no incremental diffing needed, unlike the
+// Tuition Aid pin-based autosave).
+function finSalaryBuildSaveBody() {
+  return {
     roster: _finSalaryRoster, colaPct: _finSalaryColaPct, colaSource: _finSalaryColaSource, pensionPct: _finSalaryPensionPct,
     disabilityPct: _finSalaryDisabilityPct,
     benefitsDollars: _finSalaryBenefitsDollars, targetCategory: _finSalaryTargetCategory,
     healthPlanOption: _finHealthPlanSelectedOption, healthPlanTargetCategory: _finHealthPlanTargetCategory,
     referenceByYear: _finSalaryReferenceByYear, healthPlanPremiumOverrides: _finHealthPlanPremiumOverrides
   };
+}
+function finSalarySaveData() {
+  clearTimeout(_finSalaryAutoSaveTimer);
+  var msgEl = document.getElementById('fin-salary-save-msg');
   if (msgEl) msgEl.textContent = 'Saving…';
-  api('/admin/api/finance/planning/salary', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(function(d) {
+  api('/admin/api/finance/planning/salary', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(finSalaryBuildSaveBody()) }).then(function(d) {
     if (d && d.error) { if (msgEl) msgEl.textContent = d.error; return; }
     if (msgEl) msgEl.textContent = 'Saved.';
     finToast('Salary & Benefits and Health Insurance data saved.');
   }).catch(function(err) { if (msgEl) msgEl.textContent = err && err.message || 'Save failed.'; });
+}
+// Autosave — every checkbox/field change on this page used to sit in memory until the explicit
+// "Save Salary & Benefits Data" button was clicked; reported as "changes are not saving," same
+// class of report the Church Budget Planning tab got before it gained autosave. Every mutator on
+// this page ultimately calls finRerenderPlanningPreserveFocus() (below), so scheduling the
+// autosave there — once — covers every field/checkbox without having to touch each handler.
+var _finSalaryAutoSaveTimer = null;
+function finSalaryScheduleAutoSave() {
+  clearTimeout(_finSalaryAutoSaveTimer);
+  _finSalaryAutoSaveTimer = setTimeout(finSalaryAutoSaveNow, 800);
+}
+function finSalaryFlushAutoSave() {
+  clearTimeout(_finSalaryAutoSaveTimer);
+  finSalaryAutoSaveNow();
+}
+function finSalaryAutoSaveNow() {
+  if (!_finSalaryLoaded) return; // never autosave over data that hasn't finished its initial load yet
+  var msgEl = document.getElementById('fin-salary-save-msg');
+  if (msgEl) msgEl.textContent = 'Saving…';
+  api('/admin/api/finance/planning/salary', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(finSalaryBuildSaveBody()) }).then(function(d) {
+    if (!msgEl) return;
+    if (d && d.error) { msgEl.textContent = d.error; return; }
+    msgEl.textContent = 'Saved automatically.';
+  }).catch(function(err) { if (msgEl) msgEl.textContent = err && err.message || 'Autosave failed — click Save Salary & Benefits Data to retry.'; });
 }
 // Resolves the district base salary for "year": an explicit saved reference figure for that exact
 // year wins outright; otherwise falls back through BOTH the saved reference years and the
@@ -4299,21 +4330,25 @@ function finAccountBudgetCentsForCode(code) {
   if (!node) return null;
   return node.hasBudgetInfo ? node.totalBudgetCents : node.totalActualCents;
 }
-// Pure — no DOM — a worker's salary under one scenario ({pct, year}), grown forward from baseYear
-// by the scenario's rate off a "basis" figure resolved in this priority order: (1) an explicit
-// admin-typed override (w.actualSalaryCents — for a worker with no linked account, or to correct a
-// wrong/stale account figure), (2) their linked account's real FY{baseYear} BUDGETED total (see
-// finAccountBudgetCentsForCode — this is the common case: no typing needed, the real number is
-// already in the synced budget), (3) only as a last resort, the LCMS district guideline formula —
-// a benchmark the church may not actually be paying exactly, which is why it's the fallback, not
-// the default. Growing the real basis by pct is mathematically equivalent to growing the formula's
-// base-salary component by the same rate (salary = base × multiplier, so growing base by pct grows
-// salary by pct) — so this reduces to the exact same formula math whenever no real number exists.
+// Pure — no DOM — a worker's salary under one scenario ({pct, year, key}). "None (flat)" is the
+// one case that shows a REAL figure directly with no growth applied — what's actually budgeted
+// right now, resolved in priority order: (1) an explicit admin-typed override
+// (w.actualSalaryCents — for a worker with no linked account, or to correct a wrong/stale account
+// figure), (2) their linked account's real FY{baseYear} BUDGETED total (see
+// finAccountBudgetCentsForCode). Every OTHER scenario (LCMS/SSA/Custom) is a raise PROPOSAL —
+// computed straight from the LCMS district guideline formula for the target year (base salary ×
+// role/education/experience multiplier), deliberately NOT grown off the real actual/budget figure.
+// These columns answer "what would the district's own table recommend," which a worker's real pay
+// may already exceed or fall short of — that comparison is the whole point of showing them
+// alongside "None." When the target year's base salary is already an exact published/entered
+// figure (not grown from an earlier year), LCMS/SSA/Custom will legitimately all show the
+// identical number — that's not a bug, the district's own table already fixes the number for that
+// year regardless of which growth ASSUMPTION got you there; growth rate only matters for a
+// not-yet-published year.
 function finWorkerScenarioSalaryCents(w, scenario, baseYear) {
-  var basisCents = w.actualSalaryCents != null ? w.actualSalaryCents : finAccountBudgetCentsForCode(w.accountCode);
-  if (basisCents != null) {
-    var yearsForward = scenario.year - baseYear;
-    return Math.round(basisCents * Math.pow(1 + (scenario.pct || 0), yearsForward));
+  if (scenario.key === 'none') {
+    var basisCents = w.actualSalaryCents != null ? w.actualSalaryCents : finAccountBudgetCentsForCode(w.accountCode);
+    if (basisCents != null) return basisCents;
   }
   var calc = finComputeLcmsSalary({ year: scenario.year, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus, colaPct: scenario.pct, referenceByYear: _finSalaryReferenceByYear });
   return calc ? calc.salaryCents : null;
@@ -4321,8 +4356,8 @@ function finWorkerScenarioSalaryCents(w, scenario, baseYear) {
 function finSalaryComputeAll(colaPct, pensionPct, disabilityPctOverride) {
   var year = finSalaryScenarioYear();
   return _finSalaryRoster.map(function(w) {
-    var rawSalaryCents = finWorkerScenarioSalaryCents(w, { pct: colaPct, year: year }, _finPlanBaseYear);
-    var calc = rawSalaryCents != null ? { salaryCents: finRoundSalaryCents(rawSalaryCents), fromActual: w.actualSalaryCents != null } : null;
+    var rawSalaryCents = finWorkerScenarioSalaryCents(w, { pct: colaPct, year: year, key: _finSalaryColaSource }, _finPlanBaseYear);
+    var calc = rawSalaryCents != null ? { salaryCents: finRoundSalaryCents(rawSalaryCents), fromActual: _finSalaryColaSource === 'none' && (w.actualSalaryCents != null || finAccountBudgetCentsForCode(w.accountCode) != null) } : null;
     var employerFicaCents = calc ? finComputeEmployerFicaCents(calc.salaryCents, w.selfEmployedFica) : 0;
     var hypotheticalFicaCents = calc ? finComputeEmployerFicaCents(calc.salaryCents, false) : 0;
     var pensionCents = calc ? finComputePensionCents(calc.salaryCents, pensionPct) : 0;
@@ -4504,6 +4539,10 @@ function finRenderConcordiaEstimates() {
 function finConcordiaFieldChange(i, field, value) {
   if (!_finSalaryRoster[i].concordia) _finSalaryRoster[i].concordia = {};
   _finSalaryRoster[i].concordia[field] = value;
+  // Deliberately no rerender here (unlike every other Compensation field) — this text doesn't
+  // feed any computation, so rebuilding the DOM mid-type would only risk the focus-loss class of
+  // bug for no benefit. It still needs to persist, though — same autosave as everything else.
+  finSalaryScheduleAutoSave();
 }
 function finSalaryAddWorker() {
   _finSalaryRoster.push({ name: '', role: 'pastor', trackKey: '', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: finDefaultSelfEmployedFica('pastor'), hasDependents: false, accountCode: '' });
@@ -4585,13 +4624,15 @@ function finRenderSalaryScenarioComparison(baseInfo, isAdminUI) {
   var scenarios = finSalaryScenarioList();
   var rows = _finSalaryRoster.map(function(w, i) {
     // Resolved once per worker so every cell in the row (and the source caption) agrees on WHY
-    // the number is what it is — see finWorkerScenarioSalaryCents for the exact priority order:
-    // typed override > linked account's real FY budget > LCMS formula estimate (last resort).
+    // the number is what it is. Only "None" ever uses a real figure (typed override > linked
+    // account's FY budget); every other scenario is always the LCMS formula — see
+    // finWorkerScenarioSalaryCents for the full reasoning.
     var acctBasisCents = finAccountBudgetCentsForCode(w.accountCode);
-    var sourceLabel = w.actualSalaryCents != null
-      ? 'a typed-in override'
-      : (acctBasisCents != null ? 'account ' + esc(w.accountCode) + '’s FY' + _finPlanBaseYear + ' budget' : 'the LCMS formula estimate (no linked account with budget data found)');
-    var isFromRealFigure = w.actualSalaryCents != null || acctBasisCents != null;
+    var activeScenarioIsNone = _finSalaryColaSource === 'none';
+    var sourceLabel = activeScenarioIsNone
+      ? (w.actualSalaryCents != null ? 'a typed-in override' : (acctBasisCents != null ? 'account ' + esc(w.accountCode) + '’s FY' + _finPlanBaseYear + ' budget' : 'the LCMS formula estimate (no linked account with budget data found)'))
+      : 'the LCMS district guideline formula (FY' + _finPlanTargetYear + ')';
+    var isFromRealFigure = activeScenarioIsNone && (w.actualSalaryCents != null || acctBasisCents != null);
     var cells = scenarios.map(function(s) {
       var rawCents = finWorkerScenarioSalaryCents(w, s, _finPlanBaseYear);
       var displayCents = rawCents != null ? finRoundSalaryCents(rawCents) : null;

@@ -1117,6 +1117,21 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   reference in the column header tooltip that would have thrown at render time. Not verified in a
   live browser. Done 2026-08-05 (v1.128.0). (`src/api-finance.js`, `src/frontend/js-finance.js`,
   `test/finance-budget-plan.test.js`)
+- [x] **FIN51** — Two more follow-ups on FIN50, reported after testing it live. (1) **"Still not
+  calculating the next year salary using the district's multiplier table"**: "None (flat)" correctly
+  showed the real budget ($98,800) — but LCMS/SSA/Custom had also been changed to grow FROM that real
+  figure by a flat %, producing a lower number than the actual district formula the user hand-computed
+  ($106,149.74). Reverted: `finWorkerScenarioSalaryCents()` uses the real figure only for "None";
+  every other scenario is unconditionally the pure `finComputeLcmsSalary()` formula for the target
+  year, exactly like before "grow from actual" existed. Verified with a harness reproducing the exact
+  user numbers: None=$98,800 (budget), LCMS/SSA=$106,149.74 (formula, matches the hand-calc,
+  identical to each other since FY2027 has an exact published base — expected). (2) **"Changes aren't
+  saving when I checkbox or change a field"**: the whole Compensation tab never autosaved. Added one
+  `finSalaryScheduleAutoSave()` call inside the single shared rerender function every mutator already
+  calls, covering every field/checkbox at once; also found and fixed `finConcordiaFieldChange()`,
+  which never called ANY save function at all — those fields were unsavable outright, not just
+  missing autosave. `npm test` (580/580), `node --check`, harnesses for both fixes. Not verified in a
+  live browser. Done 2026-08-05 (v1.135.0). (`src/frontend/js-finance.js`)
 - [x] **FIN50** — Two follow-ups on FIN49, reported after testing it live. (1) **Real bug**: the
   account lookup used `totalActualCents` (YTD spend so far this fiscal year) instead of
   `totalBudgetCents` (the full-year budgeted figure) — for a still-in-progress year this understated
