@@ -1669,6 +1669,9 @@ if (seg === 'giving/force-remove-orphans' && method === 'POST') { try {
   await db.prepare(
     'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
   ).run();
+  // ...and the deposit links that pointed at them, or a deposit keeps claiming money from a
+  // batch that no longer exists, and its list and detail views disagree permanently.
+  await db.prepare('DELETE FROM giving_deposit_lines WHERE batch_id NOT IN (SELECT id FROM giving_batches)').run();
 
   // Record the action so this irreversible op is traceable. Store the list
   // of removed ids in new_value so the removal can be audited later.

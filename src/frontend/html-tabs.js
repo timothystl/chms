@@ -166,7 +166,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <div class="board-subtitle">Count the plate, post the gifts, match the bank deposit &mdash; one place, one workflow.</div>
       </div>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <input type="search" class="giv-off-search" id="batch-search-input" placeholder="Search gifts, donors, batches&#8230;" oninput="filterBatchSearch(this.value)">
+        <input type="search" class="giv-off-search" id="batch-search-input" placeholder="Search batches&#8230;" title="Filters the batch list by description or date. Use the All gifts pane to search individual gifts." oninput="filterBatchSearch(this.value)">
         <button class="btn-primary require-edit-giving" style="padding:7px 14px;font-size:.85rem;" onclick="openNewBatch()">+ New batch</button>
       </div>
     </div>
@@ -744,7 +744,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           </div>
           <div class="att-report-actions">
             <button class="att-btn-primary" onclick="attRunGivingVsAttendance()">Run report</button>
-            <button class="att-btn-secondary" onclick="showTab(&#39;giving&#39;);givSetView(&#39;reports&#39;);">Open</button>
+            <button class="att-btn-secondary" onclick="showTab(&#39;giving&#39;);givSetView(&#39;analysis&#39;);">Open</button>
           </div>
         </div>
         <div class="att-card">

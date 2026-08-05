@@ -53,6 +53,21 @@ describe('Giving sub-nav consolidation (markup)', () => {
     expect(GIVING_MARKUP).toContain('givSaveFundCategories()');
   });
 
+  it('sends the Attendance tab\'s Giving x Attendance link to Analysis, not the board page', () => {
+    // Before the consolidation `giv-view-reports` WAS the Analysis tile grid holding that
+    // report; now it's the council dashboard, so the plain 'reports' name lands on the wrong
+    // screen. The alias map exists for exactly this.
+    expect(TABS).toContain("givSetView(&#39;analysis&#39;);\">Open</button>");
+    expect(TABS).not.toContain("showTab(&#39;giving&#39;);givSetView(&#39;reports&#39;);");
+  });
+
+  it('does not promise gift/donor search from a box that only filters batches', () => {
+    const box = GIVING_MARKUP.slice(GIVING_MARKUP.indexOf('id="batch-search-input"') - 200,
+                                    GIVING_MARKUP.indexOf('id="batch-search-input"') + 300);
+    expect(box).toContain('Search batches');
+    expect(box).not.toContain('Search gifts, donors');
+  });
+
   it('prints the Reports view, not the retired board panel id', () => {
     const style = HTML_HEAD.slice(0, HTML_HEAD.indexOf('</style>'));
     expect(style).toContain('body.printing-board #giv-view-reports{display:block!important;}');
@@ -355,6 +370,22 @@ describe('batch deposit panel', () => {
     s.sandbox._currentBatch = covered;
     s.sandbox.renderBatchDepositPanel(covered);
     expect(s.el('giv-dep-panel-mount').innerHTML).not.toContain('Assign the rest');
+  });
+
+  it('reads a lines-built deposit from given_cents, not the per-gift total', () => {
+    // The Offerings workflow links whole batches and never sets giving_entries.deposit_id, so
+    // gross_cents is 0 there — reading it showed "$0.00 given" and a fee of minus the bank
+    // amount on the very screen a bookkeeper reconciles from.
+    const s = makeSandbox();
+    s.sandbox.depRenderList([{
+      id: 5, deposit_date: '2026-08-10', source: 'check', status: 'open',
+      gift_count: 0, gross_cents: 0, given_cents: 710000, batch_count: 1, bank_cents: 709000,
+    }]);
+    const html = s.el('giv-deposits-list').innerHTML;
+    expect(html).toContain('$7100.00');
+    expect(html).toContain('1 batch');
+    expect(html).not.toContain('-$7090.00');
+    expect(html).toContain('Fees $10.00');
   });
 
   it('parses amounts typed as plain numbers, with or without $ and commas', () => {

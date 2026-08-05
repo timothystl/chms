@@ -789,12 +789,23 @@ every retired view name still resolves via an alias map in `givSetView()` (and l
   older per-gift way (no lines) — now lines-else-gifts, matching the deposit list; and "Awaiting
   deposit" counted every batch without a deposit line, i.e. *every historical batch* on day one —
   now windowed to 90 days (`?awaiting_days=`), with the window named on the card.
+- **A second review pass found four more, all fixed with regression tests**: the Deposits pane read
+  `gross_cents` and so showed `$0 given` and a fee of *minus the bank amount* for any deposit built
+  by the Offerings workflow (which links batches, not gifts) — it now reads the `given_cents` the
+  backend was already returning, and lists the batches a lines-built deposit holds; deleting a
+  batch orphaned its deposit links at all seven sites batches can be removed (including the orphan
+  purge after every Breeze sync and CSV import), leaving the deposit's list and detail views
+  permanently disagreeing — and that exposed a further hole where an emptied-but-banked deposit
+  yielded `0 − bank` as a fee; the Attendance tab's "Giving × Attendance → Open" landed on the
+  board page rather than Analysis; and `unreconciled_deposits` was unbounded while its sibling card
+  had a window. Plus: the search placeholder promised gift/donor search a batch-only filter can't
+  do, and the `funds/categories` comment claimed a sparseness guarantee the loop lacks.
 - **Hardening**: `applyPermissionUI()` hides `.require-finance` panels with an inline
   `display:none` that the view-switching loop used to undo, so an alias/deep link could park an
   office-level user on an empty Reports panel. `givSetView()`/`givOffSetPane()` now refuse a
   finance-only view for a role that can't see it (server gating was already correct; this is
   about not showing an empty screen).
-- `npm test` (682/682, 72 new in 3 files; each checked for vacuity by injecting the regression it
+- `npm test` (689/689, 79 new in 3 files; each checked for vacuity by injecting the regression it
   guards), `node --check` on both built bundles + every touched backend file, div-balance scan of
   the rebuilt `#tab-giving` markup. Dead CSS removed with the markup it styled. **Not verified**:
   a live browser or real D1 — same standing caveat as all frontend work here. (`migrations/0032*`,

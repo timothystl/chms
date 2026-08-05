@@ -224,6 +224,48 @@ describe('batch ↔ deposit links', () => {
   });
 });
 
+describe('batch deletion and deposit links', () => {
+  it('takes the deposit links with the batch, so no deposit claims a batch that is gone', async () => {
+    // Left behind, the orphan line makes GET /deposits (subqueries, no join to giving_batches)
+    // and GET /deposits/:id (joins) report different totals for the same deposit, permanently.
+    const db = makeTestDb();
+    const batchId = seedBatch(db, { date: '2026-08-09', description: 'Sunday', amounts: [500000] });
+    const dep = await (await call(db, { method: 'POST', seg: 'giving/deposits', body: { deposit_date: '2026-08-10', batch_id: batchId, amount_cents: 500000 } })).json();
+    await call(db, { method: 'PATCH', seg: `giving/deposits/${dep.id}`, body: { bank_cents: 490000 } });
+
+    await call(db, { method: 'DELETE', seg: `giving/batches/${batchId}` });
+    expect(db._raw.prepare('SELECT COUNT(*) n FROM giving_deposit_lines').get().n).toBe(0);
+
+    const list = await (await call(db, { seg: 'giving/deposits' })).json();
+    const detail = await (await call(db, { seg: `giving/deposits/${dep.id}` })).json();
+    expect(list.deposits[0].given_cents).toBe(detail.given_cents);
+    expect(list.deposits[0].given_cents).toBe(0);
+    const q = await (await call(db, { seg: 'giving/offerings-summary' })).json();
+    expect(q.fees_ytd.cents).toBe(0); // not $4,900 of "fees" from a batch that no longer exists
+  });
+});
+
+describe('deposits pane figures', () => {
+  it('reports a lines-built deposit at its real total, not $0 given and a negative fee', async () => {
+    // The Offerings workflow links whole BATCHES; it never sets giving_entries.deposit_id. A
+    // screen reading the per-gift total would show $0 given and a fee of minus the bank amount.
+    const db = makeTestDb();
+    const batchId = seedBatch(db, { date: '2026-08-09', description: 'Sunday', amounts: [710000] });
+    const dep = await (await call(db, { method: 'POST', seg: 'giving/deposits', body: { deposit_date: '2026-08-10', batch_id: batchId, amount_cents: 710000 } })).json();
+    await call(db, { method: 'PATCH', seg: `giving/deposits/${dep.id}`, body: { bank_cents: 709000 } });
+
+    const list = await (await call(db, { seg: 'giving/deposits' })).json();
+    expect(list.deposits[0].given_cents).toBe(710000);
+    expect(list.deposits[0].batch_count).toBe(1);
+    expect(list.deposits[0].gross_cents).toBe(0);  // the per-gift figure really is 0 here
+
+    const detail = await (await call(db, { seg: `giving/deposits/${dep.id}` })).json();
+    expect(detail.given_cents).toBe(710000);
+    expect(detail.lines).toHaveLength(1);
+    expect(detail.lines[0].description).toBe('Sunday');
+  });
+});
+
 describe('offerings work queue', () => {
   it('counts open batches, undeposited money, unreconciled slips and fees', async () => {
     const db = makeTestDb();
@@ -275,6 +317,25 @@ describe('offerings work queue', () => {
     // ...and the window is adjustable, for anyone who does want the whole backlog.
     const wide = await (await call(db, { seg: 'giving/offerings-summary', query: '?awaiting_days=365' })).json();
     expect(wide.awaiting_deposit.days).toBe(365);
+  });
+
+  it('derives no fee from a deposit that holds nothing', async () => {
+    // Only a bank figure and no giving behind it: "given - bank" would be that figure negated.
+    const db = makeTestDb();
+    const year = new Date().getFullYear();
+    db._raw.prepare("INSERT INTO giving_deposits (deposit_date, source, bank_cents, status) VALUES (?,'check',490000,'open')").run(`${year}-08-01`);
+    const q = await (await call(db, { seg: 'giving/offerings-summary' })).json();
+    expect(q.fees_ytd.cents).toBe(0);
+  });
+
+  it('windows unreconciled deposits too, so an old unreconciled slip cannot pin the card', async () => {
+    const db = makeTestDb();
+    const year = new Date().getFullYear();
+    db._raw.prepare("INSERT INTO giving_deposits (deposit_date, source, status) VALUES (?,'check','open')").run(`${year - 3}-04-01`);
+    const q = await (await call(db, { seg: 'giving/offerings-summary' })).json();
+    expect(q.unreconciled_deposits.count).toBe(0);
+    const wide = await (await call(db, { seg: 'giving/offerings-summary', query: '?awaiting_days=365' })).json();
+    expect(wide.unreconciled_deposits.count).toBe(0); // still outside even a 1-year window
   });
 
   it('does not count a deposit with no bank figure as $0 in fees', async () => {
