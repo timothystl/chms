@@ -24,6 +24,32 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.129.0 — Tuition Aid Planner: future-year preview for pipeline entrants (2026-08-05)
+
+Reported: Lawrence Knapp is tracked in the Pipeline (by birth year), and navigating the year
+selector to the school year he should reach Kindergarten showed nothing — the only way to make him
+appear was to first click "Enroll" for the *current* year, which enrolls him as a PK-grade student
+he isn't actually attending (PK grades are filtered out of the K-8 table entirely, so this is
+invisible either way, but it read as a false enrollment). By design (TAP11), a pipeline entrant
+never appears in the real K-8/LHS planner tables for ANY year until formally Enrolled — being
+age-eligible by birth year isn't the same as being enrolled — so there was no way to just *look
+ahead* at a pipeline kid's projected placement without taking that action first.
+
+Fix: `tapRenderPlannerTables()` now adds a second pass, only when viewing a future year
+(`_tapYearIdx !== 0`), that includes any pipeline entrant whose birth-year-projected grade for that
+year is a real, non-PK, non-Graduated K-8/LHS grade — rendered as a dimmed, italicized preview row
+with a "pipeline" badge, estimated award figures (computed the same way a real row would be, via
+the existing `tapSplitFor`/`tapLhsAwardFor`), and its own inline "Enroll" button (reusing the
+existing `tapEnrollPipeline`, which always enrolls as of the *current* year's computed grade,
+unchanged). This is purely a display addition — `tapUpdateGauges`/budget totals still read from
+`tapEnrolledActiveForYear`, real enrollment only, so a preview row never inflates a year's actual
+committed aid. Verified against the real served (built) script with a Node harness: a pipeline kid
+correctly stays absent from the current year, appears as a preview with a working Enroll button once
+the target year is K-eligible, and appears with no Enroll button (correctly) for a kid still too
+young to enroll even this year. `npm test` (580/580, no test changes — pure display-layer addition
+with no new pure functions), `node --check` on the touched file. Not verified in a live browser.
+(`src/frontend/js-tuition-aid.js`)
+
 ### v1.128.0 — Church Budget Planning: weeks-based annualization, editable FY Projected column,
 live-recomputing group totals, whole-dollar-only inputs (2026-08-05)
 

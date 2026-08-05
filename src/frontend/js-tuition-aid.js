@@ -586,6 +586,31 @@ function tapRenderPlannerTables() {
     }
   });
 
+  // Future-year preview: a pipeline entrant hasn't been formally Enrolled (so they never appear
+  // above, current year or otherwise — see the comment at the top of this loop), but a family
+  // may already know a not-yet-enrolled kid's real starting grade for a FUTURE year (e.g. they're
+  // skipping PK entirely and starting at Kindergarten) and want to see that projection without
+  // being forced to first click Enroll for a PK grade they're not actually attending this year.
+  // Shown only when viewing a future year, as a distinct read-only-ish preview row (not counted
+  // in tapUpdateGauges/budget math, which stays keyed off real enrollment via
+  // tapEnrolledActiveForYear) with its own Enroll shortcut.
+  if (_tapYearIdx !== 0) {
+    _tapRoster.forEach(function(s) {
+      if (!s.isPipeline) return;
+      var pGrade = tapGradeAt(s, _tapYearIdx);
+      if (pGrade === null || pGrade === 'Graduated' || pGrade === 'PK 3' || pGrade === 'PK 4') return;
+      var pBucket = tapBucketOf(pGrade);
+      if (pBucket === 'K8') {
+        k8List.push({
+          s: s, grade: pGrade, sp: tapSplitFor(s, _tapYearIdx), isOverridden: false,
+          famPctVal: tapFamPctFor(s, _tapYearIdx), outsideAidVal: tapOutsideAidFor(s, _tapYearIdx), preview: true
+        });
+      } else if (pBucket === 'LHS') {
+        lhsList.push({ s: s, grade: pGrade, lhsVal: Math.min(tapLhsAwardFor(s, _tapYearIdx), maxAward), justGraduated: false, preview: true });
+      }
+    });
+  }
+
   var k8KeyFn = function(row, col) {
     if (col === 'family') return row.s.family;
     if (col === 'child') return row.s.child;
@@ -602,6 +627,22 @@ function tapRenderPlannerTables() {
 
   var k8Rows = k8List.map(function(row) {
     var s = row.s, grade = row.grade, sp = row.sp, famPctVal = row.famPctVal, outsideAidVal = row.outsideAidVal, isOverridden = row.isOverridden;
+    if (row.preview) {
+      var pGrade0 = tapGradeAt(s, 0);
+      var pEnrollBtn = (pGrade0 !== null && pGrade0 !== 'Graduated')
+        ? '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapEnrollPipeline(' + s.id + ')" title="Enroll now">Enroll</button>' : '';
+      return '<tr style="opacity:.72;font-style:italic;">'
+        + '<td style="padding:6px 8px;">' + esc(s.family) + '</td>'
+        + '<td style="padding:6px 8px;">' + esc(s.child) + '</td>'
+        + '<td style="padding:6px 8px;">' + esc(grade) + ' <span class="status-pill status-new" style="font-style:normal;">pipeline</span></td>'
+        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(tuition * 100)) + '</td>'
+        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(outsideAidVal * 100)) + '</td>'
+        + '<td style="padding:6px 8px;">' + famPctVal + '%</td>'
+        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(sp.timothyAward * 100)) + ' (est.)</td>'
+        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(sp.familyOwed * 100)) + ' (est.)</td>'
+        + '<td style="padding:6px 8px;white-space:nowrap;">' + pEnrollBtn + '</td>'
+      + '</tr>';
+    }
     var lhsToggle = grade === '8'
       ? '<label class="tap-lhs-toggle"><input type="checkbox" onchange="tapSetAttendsLHS(' + s.id + ',this.checked)" ' + (s.attendsLHS ? 'checked' : '') + '> Plans to attend LHS</label>' : '';
     var linkBtn = s.personId ? '' : '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenLinkPerson(' + s.id + ')">Link</button> ';
@@ -640,6 +681,19 @@ function tapRenderPlannerTables() {
 
   var lhsRows = lhsList.map(function(row) {
     var s = row.s, grade = row.grade, lhsVal = row.lhsVal;
+    if (row.preview) {
+      var pGrade0Lhs = tapGradeAt(s, 0);
+      var pEnrollBtnLhs = (pGrade0Lhs !== null && pGrade0Lhs !== 'Graduated')
+        ? '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapEnrollPipeline(' + s.id + ')" title="Enroll now">Enroll</button>' : '';
+      return '<tr style="opacity:.72;font-style:italic;">'
+        + '<td style="padding:6px 8px;">' + esc(s.family) + '</td>'
+        + '<td style="padding:6px 8px;">' + esc(s.child) + '</td>'
+        + '<td style="padding:6px 8px;">' + esc(grade) + ' <span class="status-pill status-new" style="font-style:normal;">pipeline</span></td>'
+        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(lhsVal * 100)) + ' (est.)</td>'
+        + '<td class="tap-award-cell">—</td>'
+        + '<td style="padding:6px 8px;white-space:nowrap;">' + pEnrollBtnLhs + '</td>'
+      + '</tr>';
+    }
     var flag = row.justGraduated ? ' <span class="status-pill status-confirmed">new to LHS</span>' : '';
     var lhsLinkBtn = s.personId ? '' : '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenLinkPerson(' + s.id + ')">Link</button> ';
     return '<tr>'
