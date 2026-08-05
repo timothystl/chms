@@ -1681,6 +1681,16 @@ export function computeYearSummary(rows) {
   return { classificationTotals: byClass, grossProfit, netOperatingIncome, netOtherIncome, netIncome, hasBudgetData };
 }
 
+// Elapsed weeks since Jan 1 of `now`'s year, capped at 52 — used by Church Budget Planning's
+// base-year annualization (see the generate-all handler below) instead of calendar months, since
+// a partial month is ambiguous (is day 5 of month 8 "1 month elapsed" or "0"?) in a way a count of
+// full days ÷ 7 is not. Inclusive of today (Jan 1 itself = 1 day elapsed = week 0.14, not 0).
+export function weeksElapsedInYear(now) {
+  const yearStart = new Date(now.getFullYear(), 0, 1);
+  const daysElapsed = Math.floor((now - yearStart) / 86400000) + 1;
+  return Math.min(52, Math.max(1, daysElapsed / 7));
+}
+
 // This-year-vs-last-year-to-date comparison + a year-end projection, computed purely from
 // already-fetched rows (no DB access) so it's independently unit-testable. `currentMonthlyRows`/
 // `priorMonthlyRows` must already be filtered to period_month <= throughMonth by the caller;
@@ -2990,19 +3000,25 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     // If the base year is still in progress (its own actual is really a year-to-date figure, not
     // a completed year), annualize it before applying the growth rate — otherwise a mid-year
     // actual would be projected forward as if it were the whole year's total. A past, complete
-    // base year (or one with no actual at all, only a budget) is used as-is. through_month is an
-    // optional explicit override (real caller never sends it — only tests, for determinism);
-    // production always falls back to the real current month for the real current year.
+    // base year (or one with no actual at all, only a budget) is used as-is. Elapsed time is
+    // measured in WEEKS, not calendar months — a calendar month is ambiguous the moment you're
+    // partway through it (is the 5th of August "1 month" or "0 months" elapsed? both answers are
+    // defensible and give meaningfully different projections), where "days since Jan 1, divided
+    // by 7" has no such ambiguity and tracks this church's actual giving rhythm (weekly Sunday
+    // offerings) more closely than a monthly bucket does. through_week is an optional explicit
+    // override (real caller never sends it — only tests, for determinism); production always
+    // falls back to the real elapsed weeks for the real current year.
     const now = new Date();
-    const explicitThroughMonth = parseInt(b.through_month, 10);
-    const throughMonth = Number.isFinite(explicitThroughMonth) ? explicitThroughMonth
-      : (baseYear === now.getFullYear()) ? (now.getMonth() + 1) : 12;
-    const prorated = throughMonth < 12;
+    const explicitThroughWeek = Number(b.through_week);
+    const throughWeek = Number.isFinite(explicitThroughWeek) && b.through_week !== undefined && b.through_week !== null && b.through_week !== ''
+      ? explicitThroughWeek
+      : (baseYear === now.getFullYear()) ? weeksElapsedInYear(now) : 52;
+    const prorated = throughWeek < 52;
     const ops = [];
     let generated = 0;
     for (const r of resolved) {
       const baseAmountCents = (r.own_actual_cents && prorated)
-        ? Math.round(r.own_actual_cents * (12 / throughMonth))
+        ? Math.round(r.own_actual_cents * (52 / throughWeek))
         : (r.own_actual_cents || r.own_budget_cents || 0);
       if (!baseAmountCents) continue;
       const plannedCents = Math.round(baseAmountCents * (1 + growthPct));
@@ -3017,7 +3033,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     }
     if (!ops.length) return json({ error: `No account had an actual or budget figure in ${baseYear} to grow from.` }, 400);
     await db.batch(ops);
-    return json({ ok: true, generated, baseYear, targetYear, throughMonth, prorated });
+    return json({ ok: true, generated, baseYear, targetYear, throughWeek, prorated });
   }
 
   // Bulk manual save — commits a whole edited table of Projected values in one round trip
@@ -3033,7 +3049,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       const category = String(r.category || '').trim();
       const fiscalYear = parseInt(r.fiscal_year, 10);
       if (!category || !Number.isFinite(fiscalYear)) return json({ error: 'Every row needs a category and fiscal_year' }, 400);
-      const amountCents = Math.round(Number(r.planned_amount) * 100);
+      // Whole dollars only (see finPlanSanitizeWholeDollarInput on the frontend) — round to the
+      // nearest dollar before converting to cents rather than trusting a fractional client value.
+      const amountCents = Math.round(Number(r.planned_amount)) * 100;
       if (!Number.isFinite(amountCents)) return json({ error: `Invalid amount for ${category}` }, 400);
       ops.push(db.prepare(
         `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,notes,updated_at)
@@ -3068,6 +3086,46 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       `INSERT INTO chms_config (key,value) VALUES ('finance_salary_planner',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(JSON.stringify(b)).run();
     return json({ ok: true });
+  }
+
+  // Manual overrides for the "FY{base} Projected" column on the Planning table — a per-account
+  // hand-typed correction to the automatic actual-to-date annualization (e.g. a bookkeeper who
+  // knows a big year-end gift is coming that the weeks-elapsed math can't see). Same generic
+  // chms_config JSON-blob pattern as the salary planner above, keyed by base fiscal year so a
+  // saved override only ever applies to the year it was entered against: {"2026":{"Expenses:Utilities":123400}}
+  // (cents). Not part of finance_budget_plan — that table's semantics are "the plan for a future
+  // year," not "a correction to this year's own projected actual," and reusing it would make a
+  // base year look like it had its own committed plan row.
+  if (seg === 'finance/planning/base-projection' && method === 'GET') {
+    const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_base_proj_overrides'").first();
+    let overrides = {};
+    if (row) { try { overrides = JSON.parse(row.value) || {}; } catch { overrides = {}; } }
+    return json({ overrides });
+  }
+  if (seg === 'finance/planning/base-projection' && method === 'PUT') {
+    if (!isAdmin) return json({ error: 'Access denied: editing the budget plan requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const year = parseInt(b.year, 10);
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
+    const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_base_proj_overrides'").first();
+    let overrides = {};
+    if (row) { try { overrides = JSON.parse(row.value) || {}; } catch { overrides = {}; } }
+    const yearOverrides = Object.assign({}, overrides[String(year)]);
+    for (const r of rows) {
+      const category = String(r.category || '').trim();
+      if (!category) continue;
+      if (r.amount === '' || r.amount === null || r.amount === undefined) { delete yearOverrides[category]; continue; }
+      // Whole dollars only (see finPlanSanitizeWholeDollarInput on the frontend).
+      const amountCents = Math.round(Number(r.amount)) * 100;
+      if (!Number.isFinite(amountCents)) return json({ error: `Invalid amount for ${category}` }, 400);
+      yearOverrides[category] = amountCents;
+    }
+    overrides[String(year)] = yearOverrides;
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_base_proj_overrides',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(JSON.stringify(overrides)).run();
+    return json({ ok: true, year, saved: rows.length });
   }
 
   // Generates a compounding multi-year projection from a base dollar amount + a flat growth

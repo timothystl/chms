@@ -3501,6 +3501,8 @@ var _finPlanTargetYear = _finPlanBaseYear + 1;
 var _finPlanBaseTree = null;
 var _finPlanBaseNet = { actualCents: 0, budgetCents: 0 };
 var _finPlanEdits = {}; // category_path -> dollars string, for cells the user has typed into
+var _finPlanBaseProjOverrides = {}; // { [baseYear]: { category_path: cents } } — saved server-side
+var _finPlanBaseProjEdits = {}; // category_path -> dollars string, unsaved edits to FY{base} Projected
 // The Salary Calculator and Health Insurance cards fully rebuild #fin-plan-root's innerHTML on
 // every keystroke (same pattern as the rest of this app), which destroys and recreates the
 // focused input — losing both keyboard focus and (since nothing stays focused) the page's scroll
@@ -3617,11 +3619,14 @@ function finLoadPlanning() {
   Promise.all([
     api('/admin/api/finance/planning/church'),
     api('/admin/api/finance/church/this-year?year=' + _finPlanBaseYear),
+    api('/admin/api/finance/planning/base-projection'),
   ]).then(function(results) {
     _finPlanRows = (results[0] && results[0].rows) || [];
     _finPlanBaseTree = finReorganizeChurchTree(finBuildTreeFromFlatRows((results[1] && results[1].entries) || []));
     _finPlanBaseNet = (results[1] && results[1].netIncome) || { actualCents: 0, budgetCents: 0 };
+    _finPlanBaseProjOverrides = (results[2] && results[2].overrides) || {};
     _finPlanEdits = {};
+    _finPlanBaseProjEdits = {};
     if (!_finSalaryLoaded) {
       _finSalaryLoaded = true;
       return finLoadSalaryPlannerData().then(function() {
@@ -3648,6 +3653,57 @@ function finPlanChangeBaseYear() {
 function finPlanFindRow(categoryPath) {
   return _finPlanRows.filter(function(r) { return r.category === categoryPath && r.fiscal_year === _finPlanTargetYear; })[0];
 }
+// Elapsed weeks since Jan 1 of now's year, capped at 52 — mirrors weeksElapsedInYear() in
+// api-finance.js (kept as a duplicate, not a shared import, since this file has no module system;
+// see the generate-all endpoint's comment for why weeks beat calendar months here).
+function finWeeksElapsedInYear(now) {
+  var yearStart = new Date(now.getFullYear(), 0, 1);
+  var daysElapsed = Math.floor((now - yearStart) / 86400000) + 1;
+  return Math.min(52, Math.max(1, daysElapsed / 7));
+}
+// Stable DOM id for a category's editable cell, so a full re-render can find the input back and
+// restore focus/cursor to it (see finRerenderPlanTablePreserveFocus). Category paths contain
+// characters (spaces, "&", ":", "'") that aren't safe verbatim in an id, so anything non-
+// alphanumeric is collapsed to "_" — a theoretical collision between two differently-punctuated
+// paths of the same words is not a real risk in this app's real chart of accounts.
+function finPlanCellId(prefix, path) {
+  return prefix + '-' + String(path).replace(/[^a-zA-Z0-9]+/g, '_');
+}
+// Whole-dollar-only input: strips anything but digits (and a single leading "-") as the user
+// types, so a decimal point can never actually land in a Plan/Projected cell — per the user's
+// explicit "only whole dollars" request, not just rounded after the fact.
+function finPlanSanitizeWholeDollarInput(inputEl) {
+  var neg = inputEl.value.charAt(0) === '-';
+  var cleaned = (neg ? '-' : '') + inputEl.value.replace(/[^0-9]/g, '');
+  if (cleaned !== inputEl.value) inputEl.value = cleaned;
+  return cleaned;
+}
+// finRenderPlanning() fully rebuilds #fin-plan-root's innerHTML on every edit (see below) so the
+// group/subtotal/Δ%/Net figures actually recompute live as you type instead of going stale until
+// the next full reload — but that rebuild would otherwise destroy the focused input and reset
+// scroll on every keystroke, same problem finRerenderPlanningPreserveFocus solves for the
+// Compensation tab. Requires every editable cell to carry a stable id (finPlanCellId above).
+function finRerenderPlanTablePreserveFocus() {
+  var active = document.activeElement;
+  var activeId = active && active.id;
+  var selStart = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
+  var selEnd = active && typeof active.selectionEnd === 'number' ? active.selectionEnd : null;
+  var scrollY = window.scrollY;
+  var contentArea = document.querySelector('.content-area');
+  var contentScrollTop = contentArea ? contentArea.scrollTop : null;
+  finRenderPlanning();
+  if (activeId) {
+    var restored = document.getElementById(activeId);
+    if (restored) {
+      restored.focus();
+      if (selStart != null && restored.setSelectionRange) {
+        try { restored.setSelectionRange(selStart, selEnd); } catch (e) { /* not a text-selectable input, ignore */ }
+      }
+    }
+  }
+  window.scrollTo(0, scrollY);
+  if (contentArea && contentScrollTop != null) contentArea.scrollTop = contentScrollTop;
+}
 function finRenderPlanning() {
   var el = document.getElementById('fin-plan-root');
   if (!el) return;
@@ -3668,8 +3724,8 @@ function finRenderPlanning() {
       if (!node.children.length) {
         var editedVal = _finPlanEdits[node.path];
         var planRow = finPlanFindRow(node.path);
-        var cellVal = editedVal !== undefined ? editedVal : (planRow ? (planRow.planned_amount_cents/100).toFixed(2) : '');
-        projectedCentsByPath[node.path] = (cellVal !== '' && isFinite(parseFloat(cellVal))) ? Math.round(parseFloat(cellVal) * 100) : 0;
+        var cellVal = editedVal !== undefined ? editedVal : (planRow ? String(Math.round(planRow.planned_amount_cents/100)) : '');
+        projectedCentsByPath[node.path] = (cellVal !== '' && isFinite(parseFloat(cellVal))) ? Math.round(parseFloat(cellVal)) * 100 : 0;
       } else {
         computeProjected(node.children);
         projectedCentsByPath[node.path] = node.children.reduce(function(sum, c) { return sum + (projectedCentsByPath[c.path] || 0); }, 0);
@@ -3679,20 +3735,35 @@ function finRenderPlanning() {
 
   // "FY{base} Projected" column — the base year's projected YEAR-END total, computed exactly the
   // way generate-all annualizes it (see api-finance.js): while the base year is still in progress,
-  // each leaf account's actual-to-date is annualized by 12/throughMonth; a complete past year (or a
-  // line with only a budget and no actual) is used as-is. Group rows roll up as the sum of their
-  // leaves, so the annualization factor stays uniform and the column always reconciles to its own
-  // subtotals. Read-only and display-only — nothing is stored (see the auto-compute decision).
+  // each leaf account's actual-to-date is annualized by 52/weeksElapsed — weeks, not calendar
+  // months, since a partial month is ambiguous (day 5 of month 8 could fairly be read as "1 month
+  // elapsed" or "0") in a way a plain days-since-Jan-1 ÷ 7 is not, and it tracks this church's
+  // actual weekly giving rhythm more closely. A complete past year (or a line with only a budget
+  // and no actual) is used as-is. Group rows roll up as the sum of their leaves, so the
+  // annualization factor stays uniform and the column always reconciles to its own subtotals.
+  // Any leaf can be hand-corrected (e.g. a known year-end gift the math can't see) via
+  // _finPlanBaseProjEdits (unsaved) / _finPlanBaseProjOverrides (saved, see finPlanSaveAll) —
+  // an override always wins over the computed annualization for that one leaf.
   var _finPlanNow = new Date();
-  var baseThroughMonth = (_finPlanBaseYear === _finPlanNow.getFullYear()) ? (_finPlanNow.getMonth() + 1) : 12;
-  var baseProrated = baseThroughMonth < 12;
+  var baseThroughWeek = (_finPlanBaseYear === _finPlanNow.getFullYear()) ? finWeeksElapsedInYear(_finPlanNow) : 52;
+  var baseProrated = baseThroughWeek < 52;
+  var savedBaseProjOverrides = _finPlanBaseProjOverrides[String(_finPlanBaseYear)] || {};
   var baseProjByPath = {};
   (function computeBaseProj(nodes) {
     (nodes || []).forEach(function(node) {
       if (!node.children.length) {
+        var editedVal = _finPlanBaseProjEdits[node.path];
+        if (editedVal !== undefined) {
+          baseProjByPath[node.path] = (editedVal !== '' && isFinite(parseFloat(editedVal))) ? Math.round(parseFloat(editedVal)) * 100 : 0;
+          return;
+        }
+        if (savedBaseProjOverrides[node.path] !== undefined) {
+          baseProjByPath[node.path] = savedBaseProjOverrides[node.path];
+          return;
+        }
         var actual = node.totalActualCents || 0;
         var budget = node.totalBudgetCents || 0;
-        baseProjByPath[node.path] = (actual && baseProrated) ? Math.round(actual * (12 / baseThroughMonth)) : (actual || budget || 0);
+        baseProjByPath[node.path] = (actual && baseProrated) ? Math.round(actual * (52 / baseThroughWeek)) : (actual || budget || 0);
       } else {
         computeBaseProj(node.children);
         baseProjByPath[node.path] = node.children.reduce(function(sum, c) { return sum + (baseProjByPath[c.path] || 0); }, 0);
@@ -3713,19 +3784,26 @@ function finRenderPlanning() {
     (nodes || []).forEach(function(node) {
       var planRow = finPlanFindRow(node.path);
       var editedVal = _finPlanEdits[node.path];
-      var cellVal = editedVal !== undefined ? editedVal : (planRow ? (planRow.planned_amount_cents/100).toFixed(2) : '');
+      var cellVal = editedVal !== undefined ? editedVal : (planRow ? String(Math.round(planRow.planned_amount_cents/100)) : '');
       var bold = node.children.length > 0;
       var projCents = projectedCentsByPath[node.path] || 0;
       var projectedCell = bold
         ? '<td style="text-align:right;padding:4px 8px;">' + (projCents ? '$' + finFmtMoney(projCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
         : '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
-            ? '<input type="number" step="0.01" value="' + cellVal + '" class="fin-editable-input" style="width:100px;text-align:right;" oninput="finPlanEditCell(' + volJsAttr(node.path) + ',this.value)">'
+            ? '<input type="text" inputmode="numeric" id="' + finPlanCellId('fin-plan-cell', node.path) + '" value="' + cellVal + '" class="fin-editable-input" style="width:100px;text-align:right;" oninput="finPlanEditCell(' + volJsAttr(node.path) + ', finPlanSanitizeWholeDollarInput(this))">'
             : (cellVal !== '' ? '$' + finFmtMoney(parseFloat(cellVal)) : '<span style="color:var(--warm-gray);">—</span>')) + '</td>';
+      var baseEditedVal = _finPlanBaseProjEdits[node.path];
+      var baseCellVal = baseEditedVal !== undefined ? baseEditedVal : String(Math.round((baseProjByPath[node.path] || 0)/100));
+      var baseProjectedCell = bold
+        ? '<td style="text-align:right;padding:4px 8px;color:var(--warm-ink-label);">$' + finFmtMoney((baseProjByPath[node.path] || 0)/100) + '</td>'
+        : '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
+            ? '<input type="text" inputmode="numeric" id="' + finPlanCellId('fin-baseproj-cell', node.path) + '" value="' + baseCellVal + '" class="fin-editable-input" style="width:100px;text-align:right;color:var(--warm-ink-label);" oninput="finPlanEditBaseProjCell(' + volJsAttr(node.path) + ', finPlanSanitizeWholeDollarInput(this))">'
+            : '$' + finFmtMoney((baseProjByPath[node.path] || 0)/100)) + '</td>';
       rowsHtml.push('<tr' + (bold ? ' style="font-weight:700;"' : '') + '>'
         + '<td style="padding:4px 8px 4px ' + (10 + node.depth * 16) + 'px;">' + esc(node.label) + '</td>'
         + '<td style="text-align:right;padding:4px 8px;">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
         + '<td style="text-align:right;padding:4px 8px;">$' + finFmtMoney(node.totalActualCents/100) + '</td>'
-        + '<td style="text-align:right;padding:4px 8px;color:var(--warm-ink-label);">$' + finFmtMoney((baseProjByPath[node.path] || 0)/100) + '</td>'
+        + baseProjectedCell
         + projectedCell
         + deltaCell(node.totalBudgetCents, projCents)
         + '</tr>');
@@ -3771,7 +3849,7 @@ function finRenderPlanning() {
     + '<th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Category</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanBaseYear + ' Bud</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanBaseYear + ' Actual</th>'
-    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);"' + (baseProrated ? ' title="Projected year-end total — base-year actuals annualized from ' + baseThroughMonth + ' month(s) of data"' : '') + '>FY' + _finPlanBaseYear + ' Projected</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);"' + (baseProrated ? ' title="Projected year-end total — base-year actuals annualized from ' + baseThroughWeek.toFixed(1) + ' week(s) of data. Editable — type a whole-dollar figure to override any line."' : ' title="Editable — type a whole-dollar figure to override any line."') + '>FY' + _finPlanBaseYear + ' Projected</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanTargetYear + ' Plan</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">&Delta;%</th>'
     + '</tr></thead>'
@@ -3880,6 +3958,11 @@ function finPlanChangeTargetYear() {
 }
 function finPlanEditCell(categoryPath, value) {
   _finPlanEdits[categoryPath] = value;
+  finRerenderPlanTablePreserveFocus();
+}
+function finPlanEditBaseProjCell(categoryPath, value) {
+  _finPlanBaseProjEdits[categoryPath] = value;
+  finRerenderPlanTablePreserveFocus();
 }
 function finPlanGenerateAll() {
   // The Growth Assumption % field defaults to a real "3" value (not just a placeholder — a
@@ -3895,7 +3978,7 @@ function finPlanGenerateAll() {
   var body = { base_year: _finPlanBaseYear, target_year: _finPlanTargetYear, growth_pct: growthPct / 100 };
   api('/admin/api/finance/planning/church/generate-all', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
     if (d && d.error) { if (msgEl) msgEl.textContent = d.error; finToast(d.error); return; }
-    var summary = 'Generated ' + d.generated + ' line(s) for FY' + _finPlanTargetYear + '.' + (d.prorated ? ' Base year actuals were annualized from ' + d.throughMonth + ' month(s) of data before applying growth.' : '');
+    var summary = 'Generated ' + d.generated + ' line(s) for FY' + _finPlanTargetYear + '.' + (d.prorated ? ' Base year actuals were annualized from ' + d.throughWeek.toFixed(1) + ' week(s) of data before applying growth.' : '');
     finToast(summary);
     finLoadPlanning();
   }).catch(function(err) { var msg = err && err.message || 'Generate failed.'; if (msgEl) msgEl.textContent = msg; finToast(msg); });
@@ -3903,21 +3986,32 @@ function finPlanGenerateAll() {
 function finPlanSaveAll() {
   var msgEl = document.getElementById('fin-plan-msg');
   var rows = [];
+  var baseProjRows = [];
   function collect(nodes) {
     (nodes || []).forEach(function(node) {
       var v = _finPlanEdits[node.path];
       if (v !== undefined && v !== '' && isFinite(parseFloat(v))) {
         rows.push({ category: node.path, classification: node.classification, fiscal_year: _finPlanTargetYear, planned_amount: v });
       }
+      // Base-projection edits are pre-sanitized to digits-only (or '') by
+      // finPlanSanitizeWholeDollarInput, so any recorded edit is already valid — including an
+      // intentional '' (cleared field), which the backend treats as "remove the override."
+      var bv = _finPlanBaseProjEdits[node.path];
+      if (bv !== undefined) baseProjRows.push({ category: node.path, amount: bv });
       collect(node.children);
     });
   }
   collect(_finPlanBaseTree);
-  if (!rows.length) { msgEl.textContent = 'No changes to save.'; return; }
+  if (!rows.length && !baseProjRows.length) { msgEl.textContent = 'No changes to save.'; return; }
   msgEl.textContent = 'Saving…';
-  api('/admin/api/finance/planning/church/override-bulk', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ rows: rows }) }).then(function(d) {
+  Promise.all([
+    rows.length ? api('/admin/api/finance/planning/church/override-bulk', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ rows: rows }) }) : Promise.resolve({ saved: 0 }),
+    baseProjRows.length ? api('/admin/api/finance/planning/base-projection', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ year: _finPlanBaseYear, rows: baseProjRows }) }) : Promise.resolve({ saved: 0 }),
+  ]).then(function(results) {
+    var d = results[0], d2 = results[1];
     if (d && d.error) { msgEl.textContent = d.error; return; }
-    msgEl.textContent = 'Saved ' + d.saved + ' line(s).';
+    if (d2 && d2.error) { msgEl.textContent = d2.error; return; }
+    msgEl.textContent = 'Saved ' + (d.saved || 0) + ' plan line(s), ' + (d2.saved || 0) + ' projected line(s).';
     finLoadPlanning();
   }).catch(function(err) { msgEl.textContent = err && err.message || 'Save failed.'; });
 }
