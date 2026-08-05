@@ -3648,6 +3648,9 @@ function finLoadPlanning() {
 function finPlanChangeBaseYear() {
   var y = parseInt(document.getElementById('fin-plan-base-year').value, 10);
   if (!isFinite(y)) return;
+  // Same reasoning as finPlanChangeTargetYear — flush before the fiscal year context changes out
+  // from under the pending edits, and before finLoadPlanning() wipes the edit maps.
+  finPlanFlushAutoSave();
   _finPlanBaseYear = y;
   _finPlanTargetYear = y + 1;
   finLoadPlanning();
@@ -3953,6 +3956,10 @@ function finRenderPlanningOutlook(baseRevenueCents, baseExpenseCents) {
 function finPlanChangeTargetYear() {
   var y = parseInt(document.getElementById('fin-plan-target-year').value, 10);
   if (!isFinite(y)) return;
+  // Flush any not-yet-fired autosave for the year being left FIRST — collect() below keys rows
+  // off _finPlanTargetYear, so this has to run before that's overwritten, and _finPlanEdits has
+  // to still hold the edits when it runs, before the reset on the next line.
+  finPlanFlushAutoSave();
   _finPlanTargetYear = y;
   _finPlanEdits = {};
   finRenderPlanning();
@@ -3961,10 +3968,65 @@ function finPlanChangeTargetYear() {
 function finPlanEditCell(categoryPath, value) {
   _finPlanEdits[categoryPath] = value;
   finRerenderPlanTablePreserveFocus();
+  finPlanScheduleAutoSave();
 }
 function finPlanEditBaseProjCell(categoryPath, value) {
   _finPlanBaseProjEdits[categoryPath] = value;
   finRerenderPlanTablePreserveFocus();
+  finPlanScheduleAutoSave();
+}
+// Autosave — edits used to sit in memory (_finPlanEdits/_finPlanBaseProjEdits) until an explicit
+// "Save Changes" click; navigating away (switching years, tabs, etc.) before that click silently
+// discarded them. Every cell edit now schedules a debounced background save shortly after typing
+// stops, so a change is persisted within ~1s regardless of whether "Save Changes" is ever clicked.
+// Deliberately does NOT call finLoadPlanning() afterward like the manual Save button does — a
+// full reload mid-typing would blow away in-progress edits/focus; the local edit maps already
+// reflect what was just saved, so there's nothing to refresh.
+var _finPlanAutoSaveTimer = null;
+function finPlanScheduleAutoSave() {
+  clearTimeout(_finPlanAutoSaveTimer);
+  _finPlanAutoSaveTimer = setTimeout(finPlanAutoSaveNow, 800);
+}
+function finPlanFlushAutoSave() {
+  clearTimeout(_finPlanAutoSaveTimer);
+  finPlanAutoSaveNow();
+}
+// Shared by the debounced autosave and the manual "Save Changes" button — walks the tree once,
+// collecting every path with a pending edit into the two shapes each save endpoint expects.
+function finPlanCollectPendingEdits() {
+  var rows = [], baseProjRows = [];
+  function collect(nodes) {
+    (nodes || []).forEach(function(node) {
+      var v = _finPlanEdits[node.path];
+      if (v !== undefined && v !== '' && isFinite(parseFloat(v))) {
+        rows.push({ category: node.path, classification: node.classification, fiscal_year: _finPlanTargetYear, planned_amount: v });
+      }
+      // Base-projection edits are pre-sanitized to digits-only (or '') by
+      // finPlanSanitizeWholeDollarInput, so any recorded edit is already valid — including an
+      // intentional '' (cleared field), which the backend treats as "remove the override."
+      var bv = _finPlanBaseProjEdits[node.path];
+      if (bv !== undefined) baseProjRows.push({ category: node.path, amount: bv });
+      collect(node.children);
+    });
+  }
+  collect(_finPlanBaseTree);
+  return { rows: rows, baseProjRows: baseProjRows };
+}
+function finPlanAutoSaveNow() {
+  var pending = finPlanCollectPendingEdits();
+  if (!pending.rows.length && !pending.baseProjRows.length) return;
+  var msgEl = document.getElementById('fin-plan-msg');
+  if (msgEl) msgEl.textContent = 'Saving…';
+  Promise.all([
+    pending.rows.length ? api('/admin/api/finance/planning/church/override-bulk', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ rows: pending.rows }) }) : Promise.resolve({ saved: 0 }),
+    pending.baseProjRows.length ? api('/admin/api/finance/planning/base-projection', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ year: _finPlanBaseYear, rows: pending.baseProjRows }) }) : Promise.resolve({ saved: 0 }),
+  ]).then(function(results) {
+    var d = results[0], d2 = results[1];
+    if (!msgEl) return;
+    if (d && d.error) { msgEl.textContent = d.error; return; }
+    if (d2 && d2.error) { msgEl.textContent = d2.error; return; }
+    msgEl.textContent = 'Saved automatically.';
+  }).catch(function(err) { if (msgEl) msgEl.textContent = err && err.message || 'Autosave failed — click Save Changes to retry.'; });
 }
 function finPlanGenerateAll() {
   // The Growth Assumption % field defaults to a real "3" value (not just a placeholder — a
@@ -3986,29 +4048,14 @@ function finPlanGenerateAll() {
   }).catch(function(err) { var msg = err && err.message || 'Generate failed.'; if (msgEl) msgEl.textContent = msg; finToast(msg); });
 }
 function finPlanSaveAll() {
+  clearTimeout(_finPlanAutoSaveTimer);
   var msgEl = document.getElementById('fin-plan-msg');
-  var rows = [];
-  var baseProjRows = [];
-  function collect(nodes) {
-    (nodes || []).forEach(function(node) {
-      var v = _finPlanEdits[node.path];
-      if (v !== undefined && v !== '' && isFinite(parseFloat(v))) {
-        rows.push({ category: node.path, classification: node.classification, fiscal_year: _finPlanTargetYear, planned_amount: v });
-      }
-      // Base-projection edits are pre-sanitized to digits-only (or '') by
-      // finPlanSanitizeWholeDollarInput, so any recorded edit is already valid — including an
-      // intentional '' (cleared field), which the backend treats as "remove the override."
-      var bv = _finPlanBaseProjEdits[node.path];
-      if (bv !== undefined) baseProjRows.push({ category: node.path, amount: bv });
-      collect(node.children);
-    });
-  }
-  collect(_finPlanBaseTree);
-  if (!rows.length && !baseProjRows.length) { msgEl.textContent = 'No changes to save.'; return; }
+  var pending = finPlanCollectPendingEdits();
+  if (!pending.rows.length && !pending.baseProjRows.length) { msgEl.textContent = 'No changes to save.'; return; }
   msgEl.textContent = 'Saving…';
   Promise.all([
-    rows.length ? api('/admin/api/finance/planning/church/override-bulk', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ rows: rows }) }) : Promise.resolve({ saved: 0 }),
-    baseProjRows.length ? api('/admin/api/finance/planning/base-projection', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ year: _finPlanBaseYear, rows: baseProjRows }) }) : Promise.resolve({ saved: 0 }),
+    pending.rows.length ? api('/admin/api/finance/planning/church/override-bulk', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ rows: pending.rows }) }) : Promise.resolve({ saved: 0 }),
+    pending.baseProjRows.length ? api('/admin/api/finance/planning/base-projection', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ year: _finPlanBaseYear, rows: pending.baseProjRows }) }) : Promise.resolve({ saved: 0 }),
   ]).then(function(results) {
     var d = results[0], d2 = results[1];
     if (d && d.error) { msgEl.textContent = d.error; return; }
@@ -4018,6 +4065,9 @@ function finPlanSaveAll() {
   }).catch(function(err) { msgEl.textContent = err && err.message || 'Save failed.'; });
 }
 function finPlanCommit() {
+  // Commit reads whatever's already persisted server-side, not the in-memory edit maps — flush
+  // any not-yet-fired autosave first so a commit right after typing includes the latest figures.
+  finPlanFlushAutoSave();
   var msgEl = document.getElementById('fin-plan-msg');
   var year = _finPlanTargetYear;
   if (!confirm('Commit all planned lines for FY' + year + ' into the real Church Budget as a placeholder? This replaces any previously committed plan for that year, and will itself be overridden the moment a real sync or import exists for ' + year + '.')) return;

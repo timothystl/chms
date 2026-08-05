@@ -1117,6 +1117,17 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   reference in the column header tooltip that would have thrown at render time. Not verified in a
   live browser. Done 2026-08-05 (v1.128.0). (`src/api-finance.js`, `src/frontend/js-finance.js`,
   `test/finance-budget-plan.test.js`)
+- [x] **FIN47** — Reported: editing a Church Budget Planning cell (Plan or Projected) and then
+  navigating away lost the edit — nothing saved until the explicit "Save Changes" click. Every cell
+  edit now schedules a debounced (~800ms) background save, so a change reaches the server within
+  about a second regardless of whether "Save Changes" is ever clicked; refactored the row-collecting
+  logic shared by the new autosave path and the still-present manual Save button (which still does a
+  full reload-and-confirm, unlike the background autosave, which deliberately doesn't reload
+  mid-typing). Also flushes any pending autosave immediately before the base-year/target-year
+  selectors change context or before Commit, so a fast navigation or an immediate commit-after-typing
+  can't silently drop or use stale data. `npm test` (580/580), `node --check`, harness against the
+  served bundle confirming the debounce timing and the immediate flush-on-year-switch. Not verified
+  in a live browser. Done 2026-08-05 (v1.131.0). (`src/frontend/js-finance.js`)
 - [x] **FIN46** — Reported the Compensation tab only had one editable rate box (Pension
   Contribution %) — no override for Disability & Survivor's rate, and no way to edit the Health
   Insurance card's Medical/Dental/Vision premium figures or the opt-out cash amount. Traced: the
