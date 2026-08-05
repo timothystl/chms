@@ -1117,6 +1117,33 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   reference in the column header tooltip that would have thrown at render time. Not verified in a
   live browser. Done 2026-08-05 (v1.128.0). (`src/api-finance.js`, `src/frontend/js-finance.js`,
   `test/finance-budget-plan.test.js`)
+- [x] **FIN52** — Root-caused the recurring "the health opt-out text boxes don't type correctly"
+  report, after being told explicitly to find the cause before coding again (FIN42/FIN48/FIN49/FIN50
+  each fixed a real but different symptom and left the cause in place). Reproduced by simulating
+  keystrokes through the shipped `finSanitizeDecimalInput` instead of reasoning about it: typing
+  `1234.56` gave **$123,456** (per-worker Opt-Out box) or **$56** (District Reference Data Health
+  Opt-Out box). **Cause: a lossy controlled-input round-trip, not a browser quirk** — each keystroke
+  converts the text to canonical cents, then the card re-renders and writes `cents/100` back into the
+  box, so typing `.` yields `"1234."`→`parseFloat`→`1234`→ the box is rewritten `"1234"`, the decimal
+  point is deleted, and the next digits land as whole dollars. Compounded on the boxes still using
+  `type="number"` (including the reported one, which FIN50 never converted) by two more defects:
+  `.value` returns `""` for a mid-typed `"1234."` so the figure is deleted and the box **blanks**,
+  and `selectionStart` is `null` there so the caret-restore was silently skipped and the cursor
+  jumped to the end every keystroke (the "typing backward" feel). **Fixed** by (1) having
+  `finRerenderPlanningPreserveFocus()` and `finRerenderPlanTablePreserveFocus()` capture/restore the
+  focused element's raw text alongside focus/caret/scroll — one change covering every field, state
+  still updates live so totals recompute — and (2) converting the 7 remaining `type="number"` boxes
+  in the Compensation card to `type="text"` + `inputmode` + the live sanitizer. **Audited every
+  Finance tab: the bug was confined to Compensation** (the user expected it app-wide) — Planning
+  cells already store the raw typed string per FIN45, and the Property Valuation Calculator /
+  Multi-Year Forecast only rewrite output elements, never their own inputs; every other
+  `type="number"` in the file is read on blur or a button click, so those were left alone rather than
+  churned for symmetry. New `test/finance-input-typing.test.js` (10 tests) runs the real
+  sanitizer/handler from the built bundle, pins the pre-fix failure, and asserts structurally that no
+  Compensation input is `type="number"` and both wrappers restore the focused value — verified
+  non-vacuous by reverting each half of the fix and confirming the matching tests fail. `npm test`
+  (590/590), `node --check` on both built bundles. Not verified in a live browser. Done 2026-08-05
+  (v1.136.0). (`src/frontend/js-finance.js`, `test/finance-input-typing.test.js`)
 - [x] **FIN51** — Two more follow-ups on FIN50, reported after testing it live. (1) **"Still not
   calculating the next year salary using the district's multiplier table"**: "None (flat)" correctly
   showed the real budget ($98,800) — but LCMS/SSA/Custom had also been changed to grow FROM that real

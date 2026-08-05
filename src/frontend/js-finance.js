@@ -3509,9 +3509,21 @@ var _finPlanBaseProjEdits = {}; // category_path -> dollars string, unsaved edit
 // position, so it visibly jumps to the top on every character typed. This wrapper captures focus
 // (by element id — every input touched by it must have a stable one), cursor/selection position,
 // and scroll position before re-rendering, then restores all three afterward.
+//
+// It ALSO restores the focused input's raw text, which is what finally fixed the long-running
+// "the boxes don't type correctly" reports (FIN42/FIN49/FIN50 each fixed a real but different
+// symptom and left this cause in place). These boxes are fully controlled: the handler converts
+// what you type to canonical cents, then this re-render writes cents/100 straight back into the
+// box. That round-trip is lossy for anything mid-typed — the instant you type ".", the value is
+// "1234." -> parseFloat -> 1234 -> the box is rewritten as "1234" and your decimal point is
+// deleted, so the next two digits land as whole dollars and $1,234.56 silently becomes $123,456.
+// State still updates on every keystroke (so the totals below recompute live), but the box the
+// user is actively typing in is never rewritten out from under them. See finSalaryTypingFixture
+// in test/finance-input-typing.test.js, which reproduces the exact reported failure.
 function finRerenderPlanningPreserveFocus() {
   var active = document.activeElement;
   var activeId = active && active.id;
+  var activeValue = active && typeof active.value === 'string' ? active.value : null;
   var selStart = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
   var selEnd = active && typeof active.selectionEnd === 'number' ? active.selectionEnd : null;
   var scrollY = window.scrollY;
@@ -3522,6 +3534,7 @@ function finRerenderPlanningPreserveFocus() {
     var restored = document.getElementById(activeId);
     if (restored) {
       restored.focus();
+      if (activeValue != null && restored.value !== activeValue) restored.value = activeValue;
       if (selStart != null && restored.setSelectionRange) {
         try { restored.setSelectionRange(selStart, selEnd); } catch (e) { /* not a text-selectable input, ignore */ }
       }
@@ -3742,6 +3755,7 @@ function finSanitizeDecimalInput(inputEl) {
 function finRerenderPlanTablePreserveFocus() {
   var active = document.activeElement;
   var activeId = active && active.id;
+  var activeValue = active && typeof active.value === 'string' ? active.value : null;
   var selStart = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
   var selEnd = active && typeof active.selectionEnd === 'number' ? active.selectionEnd : null;
   var scrollY = window.scrollY;
@@ -3752,6 +3766,11 @@ function finRerenderPlanTablePreserveFocus() {
     var restored = document.getElementById(activeId);
     if (restored) {
       restored.focus();
+      // Planning cells store the raw typed string (not cents), so they don't hit the lossy
+      // round-trip the Compensation boxes did — this is belt-and-braces so a future change to
+      // how a cell derives its value can't silently reintroduce it. Same reasoning documented
+      // on finRerenderPlanningPreserveFocus above.
+      if (activeValue != null && restored.value !== activeValue) restored.value = activeValue;
       if (selStart != null && restored.setSelectionRange) {
         try { restored.setSelectionRange(selStart, selEnd); } catch (e) { /* not a text-selectable input, ignore */ }
       }
@@ -4422,7 +4441,7 @@ function finRenderSalaryCalculator(isAdminUI) {
       + '<td style="padding:3px 6px;"><input type="text" id="fin-salary-acct-' + i + '" value="' + esc(w.accountCode || '') + '" oninput="finSalaryFieldChange(' + i + ',\'accountCode\',this.value)" style="width:55px;" placeholder="acct #"></td>'
       + '<td style="padding:3px 6px;text-align:right;font-size:.72rem;">' + acctRefCell + '</td>'
       + '<td style="padding:3px 6px;"><select onchange="finSalaryRoleChange(' + i + ',this.value)"><option value="pastor"' + (w.role==='pastor'?' selected':'') + '>Pastor</option><option value="commissioned"' + (w.role==='commissioned'?' selected':'') + '>Commissioned Worker</option><option value="other"' + (w.role==='other'?' selected':'') + '>Other Church Worker</option></select></td>'
-      + '<td style="padding:3px 6px;"><input type="number" id="fin-salary-years-' + i + '" value="' + w.yearsExperience + '" oninput="finSalaryFieldChange(' + i + ',\'yearsExperience\',this.value)" style="width:60px;"></td>'
+      + '<td style="padding:3px 6px;"><input type="text" inputmode="numeric" id="fin-salary-years-' + i + '" value="' + w.yearsExperience + '" oninput="finSalaryFieldChange(' + i + ',\'yearsExperience\',finPlanSanitizeWholeDollarInput(this))" style="width:60px;"></td>'
       + '<td style="padding:3px 6px;">' + trackSelect + '</td>'
       + '<td style="padding:3px 6px;">' + stipendSelect + '</td>'
       + '<td style="padding:3px 6px;">' + attendanceSelect + '</td>'
@@ -4471,8 +4490,8 @@ function finRenderSalaryCalculator(isAdminUI) {
     + finRenderSalaryReferenceEditor(isAdminUI)
     + finRenderSalaryScenarioComparison(baseInfo, isAdminUI)
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">'
-    + '<label style="font-size:.72rem;color:var(--warm-gray);">Pension Contribution % <span style="font-weight:400;">(Concordia Retirement Plan, Traditional Option — defaults to the real FY' + _finPlanTargetYear + ' rate' + (pensionRateInfo.exact ? '' : ', carried flat from ' + pensionRateInfo.sourceYear + ' since ' + _finPlanTargetYear + ' isn\'t published yet') + ')</span><br><input type="number" id="fin-salary-pension" step="0.01" value="' + finFmtPctInput(pensionPctUsed) + '" oninput="finSalaryPensionChange(this.value)" style="width:90px;">%' + (_finSalaryPensionPct != null ? ' <a href="#" onclick="finSalaryPensionReset();return false;" style="font-size:.68rem;">↺ use Concordia rate</a>' : '') + '</label>'
-    + '<label style="font-size:.72rem;color:var(--warm-gray);">Disability &amp; Survivor Rate % <span style="font-weight:400;">(Concordia Disability and Survivor Plan — auto: ' + (disabilityRateNoDep.rate*100).toFixed(2) + '% without dependents, ' + (disabilityRateWithDep.rate*100).toFixed(2) + '% with — override applies one flat rate to every worker instead)</span><br><input type="number" id="fin-salary-disability" step="0.01" value="' + (disabilityPctUsed != null ? finFmtPctInput(disabilityPctUsed) : '') + '" placeholder="auto" oninput="finSalaryDisabilityChange(this.value)" style="width:90px;">%' + (disabilityPctUsed != null ? ' <a href="#" onclick="finSalaryDisabilityReset();return false;" style="font-size:.68rem;">↺ use Concordia rate</a>' : '') + '</label>'
+    + '<label style="font-size:.72rem;color:var(--warm-gray);">Pension Contribution % <span style="font-weight:400;">(Concordia Retirement Plan, Traditional Option — defaults to the real FY' + _finPlanTargetYear + ' rate' + (pensionRateInfo.exact ? '' : ', carried flat from ' + pensionRateInfo.sourceYear + ' since ' + _finPlanTargetYear + ' isn\'t published yet') + ')</span><br><input type="text" inputmode="decimal" id="fin-salary-pension" value="' + finFmtPctInput(pensionPctUsed) + '" oninput="finSalaryPensionChange(finSanitizeDecimalInput(this))" style="width:90px;">%' + (_finSalaryPensionPct != null ? ' <a href="#" onclick="finSalaryPensionReset();return false;" style="font-size:.68rem;">↺ use Concordia rate</a>' : '') + '</label>'
+    + '<label style="font-size:.72rem;color:var(--warm-gray);">Disability &amp; Survivor Rate % <span style="font-weight:400;">(Concordia Disability and Survivor Plan — auto: ' + (disabilityRateNoDep.rate*100).toFixed(2) + '% without dependents, ' + (disabilityRateWithDep.rate*100).toFixed(2) + '% with — override applies one flat rate to every worker instead)</span><br><input type="text" inputmode="decimal" id="fin-salary-disability" value="' + (disabilityPctUsed != null ? finFmtPctInput(disabilityPctUsed) : '') + '" placeholder="auto" oninput="finSalaryDisabilityChange(finSanitizeDecimalInput(this))" style="width:90px;">%' + (disabilityPctUsed != null ? ' <a href="#" onclick="finSalaryDisabilityReset();return false;" style="font-size:.68rem;">↺ use Concordia rate</a>' : '') + '</label>'
     + '</div>'
     + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
     + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th><th style="text-align:left;padding:3px 6px;">Acct #</th><th style="text-align:right;padding:3px 6px;">FY' + _finPlanBaseYear + ' Acct Actual</th><th style="text-align:left;padding:3px 6px;">Role</th><th style="text-align:left;padding:3px 6px;">Yrs Exp</th><th style="text-align:left;padding:3px 6px;">Education / Type</th><th style="text-align:left;padding:3px 6px;">Responsibility Stipend</th><th style="text-align:left;padding:3px 6px;">Attendance Bonus</th><th style="text-align:center;padding:3px 6px;">Health Plan</th><th style="text-align:center;padding:3px 6px;">Self-Employed (SECA)</th><th style="text-align:right;padding:3px 6px;">Employer FICA</th><th style="text-align:right;padding:3px 6px;">Pension</th><th style="text-align:center;padding:3px 6px;">Has Dependents</th><th style="text-align:right;padding:3px 6px;">Disability</th><th style="text-align:right;padding:3px 6px;">Salary</th><th></th></tr></thead>'
@@ -4483,7 +4502,7 @@ function finRenderSalaryCalculator(isAdminUI) {
     + (totalWorkerPaidSecaCents ? '<p style="font-size:.7rem;color:var(--warm-gray);margin:4px 0 0;">Total self-paid SECA across self-employed workers (not a church cost, shown for reference): $' + finFmtMoney(totalWorkerPaidSecaCents/100) + '</p>' : '')
     + (isAdminUI ? '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;margin-top:8px;" onclick="finSalaryAddWorker()">+ Add Worker</button>' : '')
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
-    + '<label style="font-size:.72rem;color:var(--warm-gray);">Other Benefits ($/yr, entered — anything not already itemized in Total Compensation above)<br><input type="number" id="fin-salary-benefits" step="0.01" value="' + (_finSalaryBenefitsDollars || '') + '" oninput="finSalaryBenefitsChange(this.value)" style="width:120px;"></label>'
+    + '<label style="font-size:.72rem;color:var(--warm-gray);">Other Benefits ($/yr, entered — anything not already itemized in Total Compensation above)<br><input type="text" inputmode="decimal" id="fin-salary-benefits" value="' + (_finSalaryBenefitsDollars || '') + '" oninput="finSalaryBenefitsChange(finSanitizeDecimalInput(this))" style="width:120px;"></label>'
     + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((computed.reduce(function(sum, c) { return sum + (c.totalCompCents || 0); }, 0) / 100) + (_finSalaryBenefitsDollars || 0)) + '</div><div class="rpt-stat-lbl">Total Salary &amp; Benefits</div></div>'
     + (isAdminUI ? '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finSalarySaveData()">Save Salary &amp; Benefits Data</button>' : '')
     + '</div>'
@@ -4660,7 +4679,7 @@ function finRenderSalaryScenarioComparison(baseInfo, isAdminUI) {
   var headerCells = scenarios.map(function(s) {
     var active = _finSalaryColaSource === s.key;
     var pctLabel = s.key === 'custom'
-      ? '<input type="number" id="fin-salary-custom-cola" step="0.01" value="' + (s.pct ? finFmtPctInput(s.pct) : '') + '" oninput="finSalaryCustomColaChange(this.value)" style="width:55px;font-size:.68rem;" placeholder="%">%'
+      ? '<input type="text" inputmode="decimal" id="fin-salary-custom-cola" value="' + (s.pct ? finFmtPctInput(s.pct) : '') + '" oninput="finSalaryCustomColaChange(finSanitizeDecimalInput(this))" style="width:55px;font-size:.68rem;" placeholder="%">%'
       : (s.pct*100).toFixed(2) + '%';
     return '<th style="text-align:right;padding:3px 6px;font-weight:' + (active ? '700' : '600') + ';">' + esc(s.label) + '<br><span style="font-weight:400;font-size:.68rem;">' + pctLabel + '</span><br>'
       + (active ? '<span style="font-size:.68rem;color:var(--sage);">✓ active</span>' : '<a href="#" onclick="finSalaryUseScenario(\'' + s.key + '\',' + (s.pct || 0) + ');return false;" style="font-size:.68rem;">Use this</a>')
@@ -4720,8 +4739,8 @@ function finRenderSalaryReferenceEditor(isAdminUI) {
     var optOutVal = ref.healthOptOutCents != null ? (ref.healthOptOutCents / 100) : '';
     var optOutResolved = finHealthOptOutCentsFor(y, _finSalaryReferenceByYear);
     return '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);">District Base Salary, FY' + y + (baseVal === '' ? ' <span style="font-weight:400;">(using $' + finFmtMoney(baseResolved.dollars) + ' from FY' + baseResolved.sourceYear + ')</span>' : '') + '<br>$<input type="number" id="fin-salary-ref-base-' + y + '" step="0.01" value="' + baseVal + '" placeholder="' + baseResolved.dollars.toFixed(2) + '" oninput="finSalaryRefBaseChange(' + y + ',this.value)" style="width:100px;"></label>'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);">Health Opt-Out Cash, FY' + y + (optOutVal === '' && optOutResolved ? ' <span style="font-weight:400;">(carried from a prior year — $' + finFmtMoney(optOutResolved/100) + ')</span>' : '') + '<br>$<input type="number" id="fin-salary-ref-optout-' + y + '" step="0.01" value="' + optOutVal + '" oninput="finSalaryRefHealthOptOutChange(' + y + ',this.value)" style="width:100px;"></label>'
+      + '<label style="font-size:.72rem;color:var(--warm-gray);">District Base Salary, FY' + y + (baseVal === '' ? ' <span style="font-weight:400;">(using $' + finFmtMoney(baseResolved.dollars) + ' from FY' + baseResolved.sourceYear + ')</span>' : '') + '<br>$<input type="text" inputmode="decimal" id="fin-salary-ref-base-' + y + '" value="' + baseVal + '" placeholder="' + baseResolved.dollars.toFixed(2) + '" oninput="finSalaryRefBaseChange(' + y + ',finSanitizeDecimalInput(this))" style="width:100px;"></label>'
+      + '<label style="font-size:.72rem;color:var(--warm-gray);">Health Opt-Out Cash, FY' + y + (optOutVal === '' && optOutResolved ? ' <span style="font-weight:400;">(carried from a prior year — $' + finFmtMoney(optOutResolved/100) + ')</span>' : '') + '<br>$<input type="text" inputmode="decimal" id="fin-salary-ref-optout-' + y + '" value="' + optOutVal + '" oninput="finSalaryRefHealthOptOutChange(' + y + ',finSanitizeDecimalInput(this))" style="width:100px;"></label>'
       + '</div>';
   }).join('');
   return '<div style="background:var(--white);border-radius:6px;padding:8px 10px;margin-bottom:10px;">'
