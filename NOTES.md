@@ -24,6 +24,47 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.133.0 — Compensation: salary basis now prefers a linked account's real actual, plus a
+focus-loss bug swept across every input added this session (2026-08-05)
+
+Two follow-ups, requested together, after walking through exactly how the numbers were computed.
+
+**"The flat rate from 2026 should be what's currently in the budget ($98,800 for Dinger), not the
+formula's $104,260."** The roster table already has an "FY{base} Acct Actual" reference column
+pulling each worker's real actual salary from their linked payroll account (e.g. Dinger → account
+`58001`) — but that figure was only ever a side-by-side reference, never actually used as the
+computation basis. New `finAccountActualCentsForCode(code)` factors out that existing lookup so
+`finWorkerScenarioSalaryCents()` can use it as the DEFAULT basis, with a clear 3-tier priority: (1) a
+typed override in the "None (flat)" box, if entered; (2) otherwise, the linked account's real FY
+actual — automatic, no typing required, this is the new behavior; (3) only if neither exists, the
+LCMS district guideline formula (a benchmark, not necessarily real pay — last resort, not the
+default). The explanatory copy above the scenario comparison table was rewritten to state this
+priority order plainly, name which source is being used under each worker's name in the table
+("from account 58001's real FY2026 actual"), and explain precisely why LCMS/SSA/Custom can still show
+identical numbers in the one specific case that's still expected (falling all the way through to the
+formula AND the target year already having its own exact published district base salary — growth
+rate genuinely can't move a number that's pinned by the district's own table).
+
+**"Every editable box on this page has the same typing bug as Disability."** Investigated broadly
+rather than re-diagnosing Disability's already-fixed float-precision bug — found a second, more
+widespread root cause specific to every input added THIS session (Health Opt-Out override,
+Employee-Only Premium, the "None" column's actual-salary override, the Health Premium
+Medical/Dental/Vision overrides): none of them had an `id` attribute. `finRerenderPlanningPreserveFocus()`
+(the mechanism that's supposed to keep the cursor in place across a full-card rerender on every
+keystroke) relocates the focused element by `document.getElementById(activeId)` — with no id, that
+lookup fails silently, so the input loses focus entirely after the very first character typed,
+forcing a re-click before every subsequent keystroke. Swept and confirmed every OTHER editable box on
+this page (Valuation Calculator inputs, rent roll fields, the Church Budget Planning cells, the
+Concordia estimate fields, Years Experience/Name/Acct#) either already has a stable id, or — like the
+Valuation Calculator — never gets rerendered mid-edit in the first place (its change handler only
+updates 4 output spans, never touches its own input elements), so those were never at risk. Added
+unique ids (`fin-salary-optout-<i>`, `fin-salary-eo-<i>`, `fin-salary-actual-<i>`,
+`fin-health-premium-<option>-<field>`) to the 4 real gaps. `npm test` (580/580, no test changes
+needed), `node --check`, a harness confirming the account-actual basis correctly overrides the
+formula (and a typed override still wins over that), and a harness rendering both affected cards and
+confirming all 4 previously id-less inputs now carry stable, focus-preservable ids. Not verified in a
+live browser. (`src/frontend/js-finance.js`)
+
 ### v1.132.0 — Compensation: actual-salary basis, family/employee-only/opt-out health tiers, and a
 recurring input-reformat bug swept clean (2026-08-05)
 

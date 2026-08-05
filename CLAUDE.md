@@ -1117,6 +1117,24 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   reference in the column header tooltip that would have thrown at render time. Not verified in a
   live browser. Done 2026-08-05 (v1.128.0). (`src/api-finance.js`, `src/frontend/js-finance.js`,
   `test/finance-budget-plan.test.js`)
+- [x] **FIN49** — Two follow-ups on FIN48, requested after walking through exactly how the numbers
+  get computed. (1) **"The flat FY2026 rate should be what's currently budgeted ($98,800 for Dinger),
+  not the formula's $104,260"**: the roster table already had an "FY{base} Acct Actual" reference
+  column pulling each worker's real actual salary via their linked payroll account — but it was only
+  ever a side-by-side reference, never the actual computation basis. New
+  `finAccountActualCentsForCode()` lets `finWorkerScenarioSalaryCents()` use it automatically as the
+  default basis (no typing required), with an explicit 3-tier priority: typed override > linked
+  account's real FY actual (new) > LCMS formula (last resort). Explanatory copy above the scenario
+  table rewritten to state this order plainly and name the exact source under each worker's name.
+  (2) **"Every editable box has the same typing bug as Disability"**: traced to a second, more
+  widespread bug — every input added in the FIN48 session (Opt-Out override, Employee-Only Premium,
+  the "None" actual-salary override, Health Premium overrides) had no `id` attribute, so
+  `finRerenderPlanningPreserveFocus()`'s `getElementById(activeId)` lookup silently failed and the
+  field lost focus after every keystroke. Added stable ids to all 4; confirmed every other editable
+  box on the page either already had one or is never rerendered mid-edit (e.g. the Valuation
+  Calculator only updates 4 output spans, never its own inputs). `npm test` (580/580), `node --check`,
+  harnesses confirming the account-actual basis and the id fixes. Not verified in a live browser. Done
+  2026-08-05 (v1.133.0). (`src/frontend/js-finance.js`)
 - [x] **FIN48** — Three follow-ups on FIN46, reported together. (1) **Real bug**: typing into the
   Disability % (and Custom growth %) inputs reformatted mid-keystroke, reading as "typing backward"
   — the value was forced through `.toFixed(2)` on every full-card rerender, and since it's a fraction
