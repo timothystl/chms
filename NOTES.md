@@ -24,6 +24,41 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.134.0 — Compensation: pull the real BUDGET figure (not YTD actual), switch dollar overrides
+off type="number" for good (2026-08-05)
+
+Two follow-ups after the user reproduced both v1.133.0 fixes live and found each one incomplete.
+
+**Wrong figure pulled — $56,848 instead of $98,800 for Dinger.** v1.133.0 wired the "None (flat)"
+basis to the linked account's `totalActualCents` — but for a fiscal year still in progress, "Actual"
+means "what's been paid out so far this year," not the full annual figure; $56,848 was Dinger's
+YTD spend through the current month, not his $98,800 annual budgeted salary. `totalActualCents`
+renamed the lookup to `finAccountBudgetCentsForCode()`, now reading `totalBudgetCents` (falling back
+to `totalActualCents` only when an account genuinely has no budget entered at all) — "what's
+currently in the budget" means the Budget line, not YTD spend. Explanatory copy and the per-worker
+source caption updated to say "budget" throughout, and to explicitly call out that YTD Actual is
+deliberately NOT used here since it would understate a partial year.
+
+**"The boxes still don't type correctly" even after the v1.133.0 id fix.** The id fix was real and
+necessary but not sufficient — traced to `type="number"` inputs' well-documented cross-browser
+quirks around `selectionStart`/`setSelectionRange` and value normalization, which a rerender-on-
+every-keystroke architecture (needed so dependent totals recompute live) can trigger in ways this
+session can't directly observe without a browser. Rather than keep chasing which specific number-
+input quirk was still misbehaving, switched all 4 of this round's dollar-value inputs (Opt-Out
+payment, Employee-Only premium, the "None" column's actual-salary override, the 3 Health Premium
+lines) from `type="number"` to `type="text" inputmode="decimal"` with a new `finSanitizeDecimalInput()`
+— the exact same "sanitize as typed" strategy this codebase already uses (and has proven works) for
+the Church Budget Planning cells' `finPlanSanitizeWholeDollarInput()`, just allowing one decimal
+point instead of whole-dollars-only. A text input has no number-input-specific selection/reformatting
+quirks at all, sidestepping the whole bug class rather than continuing to patch around it.
+
+`npm test` (580/580, no test changes needed), `node --check`, a harness confirming
+`finAccountBudgetCentsForCode('58001')` now returns $98,800 (not $56,848) against a fixture mirroring
+the reported account shape, and a keystroke-by-keystroke harness confirming the new sanitizer
+round-trips a typed value exactly (including a trailing decimal point mid-type, which native
+`type="number"` inputs can lose) and correctly cleans garbled input. Not verified in a live browser.
+(`src/frontend/js-finance.js`)
+
 ### v1.133.0 — Compensation: salary basis now prefers a linked account's real actual, plus a
 focus-loss bug swept across every input added this session (2026-08-05)
 

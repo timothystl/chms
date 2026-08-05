@@ -1117,6 +1117,22 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   reference in the column header tooltip that would have thrown at render time. Not verified in a
   live browser. Done 2026-08-05 (v1.128.0). (`src/api-finance.js`, `src/frontend/js-finance.js`,
   `test/finance-budget-plan.test.js`)
+- [x] **FIN50** — Two follow-ups on FIN49, reported after testing it live. (1) **Real bug**: the
+  account lookup used `totalActualCents` (YTD spend so far this fiscal year) instead of
+  `totalBudgetCents` (the full-year budgeted figure) — for a still-in-progress year this understated
+  the salary badly (Dinger showed $56,848, the YTD actual, instead of his real $98,800 budget).
+  Renamed to `finAccountBudgetCentsForCode()`, now reads the Budget line (falling back to Actual only
+  when an account has no budget entered at all); copy/captions updated to say "budget" throughout.
+  (2) **"Boxes still don't type correctly" even after the id fix**: switched all 4 dollar-value
+  inputs from this round (Opt-Out payment, Employee-Only premium, actual-salary override, Health
+  Premium lines) from `type="number"` to `type="text" inputmode="decimal"` with a new
+  `finSanitizeDecimalInput()` — the same "sanitize as typed" pattern already proven for the Church
+  Budget Planning cells (`finPlanSanitizeWholeDollarInput`), sidestepping `type="number"`'s
+  documented cross-browser selection/reformatting quirks entirely rather than continuing to chase
+  which specific one was still misbehaving. `npm test` (580/580), `node --check`, harnesses
+  confirming the budget figure is now used and that typed input (including a trailing decimal point)
+  round-trips exactly. Not verified in a live browser. Done 2026-08-05 (v1.134.0).
+  (`src/frontend/js-finance.js`)
 - [x] **FIN49** — Two follow-ups on FIN48, requested after walking through exactly how the numbers
   get computed. (1) **"The flat FY2026 rate should be what's currently budgeted ($98,800 for Dinger),
   not the formula's $104,260"**: the roster table already had an "FY{base} Acct Actual" reference
