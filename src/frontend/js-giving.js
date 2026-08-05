@@ -650,6 +650,7 @@ function boardDashboardHtml(d) {
   // KPI 3 — Year-end projection (General Fund only, same basis as card 1 — an all-funds
   // projection here would contradict card 1's own YTD trend whenever other funds move differently)
   var methodNote = gf.projection_method === 'seasonal' ? 'Projected on last year’s seasonal pattern'
+    : gf.projection_method === 'linear-weekly' ? 'Projected from the pace per Sunday so far this year'
     : gf.projection_method === 'linear' ? 'Projected straight-line from the pace so far'
     : 'Full year recorded';
   var projSub = gf.projection_vs_budget_cents == null ? methodNote
@@ -710,6 +711,14 @@ function boardNavyHtml(d) {
     + segBar + segLabels + '</div></div>';
 }
 
+function boardToggleFundGroup(gi) {
+  var rows = document.querySelectorAll('tr.board-grp-row[data-grp="' + gi + '"]');
+  var chevron = document.getElementById('board-grp-chevron-' + gi);
+  if (!rows.length) return;
+  var expanded = rows[0].style.display !== 'none';
+  rows.forEach(function(r) { r.style.display = expanded ? 'none' : ''; });
+  if (chevron) chevron.innerHTML = expanded ? '&#9656;' : '&#9662;';
+}
 function boardFundTableHtml(d) {
   var t = d.totals;
   function moneyCell(cents, color) {
@@ -721,13 +730,43 @@ function boardFundTableHtml(d) {
     var color = v < 0 ? '#B85C3A' : (v > 0 ? '#6B8F71' : '#8A8377');
     return '<td class="num" style="color:' + color + ';">' + (v > 0 ? '+' : '') + boardMoney(v) + '</td>';
   }
-  var body = d.funds.map(function(f) {
-    return '<tr><td>' + esc(f.name) + '</td>'
-      + moneyCell(f.actual_cents)
+  function fundRowCells(f) {
+    return moneyCell(f.actual_cents)
       + (f.budget_ytd_cents == null ? dashCell() : moneyCell(f.budget_ytd_cents, '#8A8377'))
       + varCell(f.variance_cents)
-      + moneyCell(f.prior_cents, '#8A8377') + '</tr>';
-  }).join('');
+      + moneyCell(f.prior_cents, '#8A8377');
+  }
+  // Group by leading numeric fund code (e.g. "40085" from "40085 General Fund"), same convention
+  // the Giving by Fund report already uses (rptToggleFundGroup) — otherwise every seasonal
+  // sub-fund under General Fund's own code shows up as its own scattered small row instead of
+  // folding into the one line a board actually cares about.
+  var groups = {}, order = [];
+  d.funds.forEach(function(f) {
+    var m = (f.name || '').match(/^(\d+)\s/);
+    var key = m ? m[1] : ('_' + f.name);
+    if (!groups[key]) { groups[key] = []; order.push(key); }
+    groups[key].push(f);
+  });
+  var body = '', gi = 0;
+  order.forEach(function(key) {
+    var grp = groups[key];
+    if (grp.length > 1) {
+      var idx = gi++;
+      var grpActual = grp.reduce(function(s, f) { return s + f.actual_cents; }, 0);
+      var grpPrior = grp.reduce(function(s, f) { return s + f.prior_cents; }, 0);
+      var hasBudget = grp.some(function(f) { return f.budget_ytd_cents != null; });
+      var grpBudget = hasBudget ? grp.reduce(function(s, f) { return s + (f.budget_ytd_cents || 0); }, 0) : null;
+      var grpVar = grpBudget != null ? grpActual - grpBudget : null;
+      var repFund = grp.slice().sort(function(a, b) { return b.actual_cents - a.actual_cents; })[0];
+      body += '<tr class="rpt-group-hdr" style="cursor:pointer;" onclick="boardToggleFundGroup(' + idx + ')"><td><span id="board-grp-chevron-' + idx + '">&#9656;</span> ' + esc(repFund.name) + ' <span style="font-weight:400;text-transform:none;">(' + grp.length + ' funds — click to expand)</span></td>'
+        + fundRowCells({ actual_cents: grpActual, budget_ytd_cents: grpBudget, variance_cents: grpVar, prior_cents: grpPrior }) + '</tr>';
+      grp.forEach(function(f) {
+        body += '<tr class="board-grp-row" data-grp="' + idx + '" style="display:none;"><td style="padding-left:22px;">' + esc(f.name) + '</td>' + fundRowCells(f) + '</tr>';
+      });
+    } else {
+      body += '<tr><td>' + esc(grp[0].name) + '</td>' + fundRowCells(grp[0]) + '</tr>';
+    }
+  });
   var totalVar = d.has_budget ? (t.actual_cents - t.budget_ytd_cents) : null;
   var totalRow = '<tr class="rpt-total"><td style="color:var(--color-navy);">Total</td>'
     + '<td class="num" style="color:var(--color-navy);">' + boardMoney(t.actual_cents) + '</td>'

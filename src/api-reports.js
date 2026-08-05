@@ -1,7 +1,7 @@
 // ── Reports, Engagement, Prayer API handlers ─────────────────────────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { isoWeekKey, bucketGivingMethod, projectYearEnd, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL } from './api-utils.js';
+import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedInYear, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL } from './api-utils.js';
 import { resolveChurchYearPrecedence } from './api-finance.js';
 
 export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
@@ -1075,10 +1075,13 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   const budgetYtd   = funds.reduce((s, f) => s + (f.budget_ytd_cents || 0), 0);
   const annualBudget = funds.reduce((s, f) => s + f.annual_budget_cents, 0);
 
-  // Projection uses the prior-year monthly shape so it stays consistent with the chart
+  // Projection uses the prior-year monthly shape so it stays consistent with the chart. When
+  // there's no prior-year data to scale from, the straight-line fallback extrapolates off
+  // Sundays elapsed (this church's giving rhythm is weekly) rather than a month fraction.
+  const sundaysElapsed = sundaysElapsedInYear(year, throughMonth);
   const priorFull = priorMonthly.reduce((s, v) => s + v, 0);
   const priorCum  = priorMonthly.slice(0, throughMonth).reduce((s, v) => s + v, 0);
-  const proj = projectYearEnd(ytdActual, priorCum, priorFull, throughMonth);
+  const proj = projectYearEnd(ytdActual, priorCum, priorFull, throughMonth, sundaysElapsed);
 
   // ── General Fund — its own YTD/prior/projection/budget, all scoped to just the 40085-family
   // funds, so the board cards read as one coherent story instead of mixing an all-funds
@@ -1088,7 +1091,7 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   const gfPriorYtd  = gfFunds.reduce((s, f) => s + f.prior_cents, 0);
   const gfPriorFull = priorMonthlyGF.reduce((s, v) => s + v, 0);
   const gfPriorCum  = priorMonthlyGF.slice(0, throughMonth).reduce((s, v) => s + v, 0);
-  const gfProj = projectYearEnd(gfYtdActual, gfPriorCum, gfPriorFull, throughMonth);
+  const gfProj = projectYearEnd(gfYtdActual, gfPriorCum, gfPriorFull, throughMonth, sundaysElapsed);
   const otherYtdActual = ytdActual - gfYtdActual;
   const otherFundCount = funds.filter(f => !f.is_general_fund && f.actual_cents > 0).length;
 

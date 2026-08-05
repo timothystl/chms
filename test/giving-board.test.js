@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bucketGivingMethod, projectYearEnd, spreadBudgetYtd, computeConcentration } from '../src/api-utils.js';
+import { bucketGivingMethod, projectYearEnd, sundaysElapsedInYear, spreadBudgetYtd, computeConcentration } from '../src/api-utils.js';
 
 describe('bucketGivingMethod', () => {
   it('buckets checks', () => {
@@ -43,6 +43,27 @@ describe('projectYearEnd', () => {
     const r = projectYearEnd(100000, 200000, 100000, 6); // priorFull < priorCum → linear
     expect(r.method).toBe('linear');
     expect(r.projected).toBe(200000);
+  });
+  it('extrapolates off Sundays elapsed when given and there is no prior-year data', () => {
+    // 26 weeks of giving through June -> 300000 cents so far. 13 Sundays elapsed -> 52/13 = 4x.
+    const r = projectYearEnd(300000, 0, 0, 6, 13);
+    expect(r.method).toBe('linear-weekly');
+    expect(r.projected).toBe(1200000);
+  });
+  it('prefers the seasonal path over the weekly fallback when prior-year data exists', () => {
+    const r = projectYearEnd(401300, 395300, 839000, 6, 26);
+    expect(r.method).toBe('seasonal');
+  });
+});
+
+describe('sundaysElapsedInYear', () => {
+  it('counts every Sunday from Jan 1 through the last day of the given month (2026)', () => {
+    expect(sundaysElapsedInYear(2026, 1)).toBe(4);
+    expect(sundaysElapsedInYear(2026, 6)).toBe(26);
+    expect(sundaysElapsedInYear(2026, 12)).toBe(52);
+  });
+  it('respects a leap-year February', () => {
+    expect(sundaysElapsedInYear(2024, 2)).toBe(8);
   });
 });
 
