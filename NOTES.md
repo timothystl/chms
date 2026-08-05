@@ -24,6 +24,26 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.131.0 — Church Budget Planning: autosave on cell edits (2026-08-05)
+
+Reported: editing a Projected/Plan cell and then navigating away lost the edit — nothing saved until
+an explicit "Save Changes" click. Every cell edit (`finPlanEditCell`/`finPlanEditBaseProjCell`) now
+schedules a debounced (800ms after the last keystroke) background save, so a change reaches the
+server within about a second regardless of whether "Save Changes" is ever clicked. Refactored the
+duplicate row-collecting logic out of the old `finPlanSaveAll()` into a shared
+`finPlanCollectPendingEdits()`, used by both the new `finPlanAutoSaveNow()` (deliberately does NOT
+reload the table afterward — a full reload mid-typing would blow away in-progress edits/focus) and
+the still-present manual Save button (which does reload, as before, for an explicit confirm-and-
+refresh). Also added a `finPlanFlushAutoSave()` — clears the debounce timer and saves immediately —
+called before both the base-year and target-year selectors change context (so a pending edit isn't
+silently dropped when `_finPlanEdits` gets wiped for the new year) and before `finPlanCommit()` (so a
+commit right after typing picks up the latest figures, since commit reads from what's already
+persisted server-side, not the in-memory edit maps). `npm test` (580/580, no test changes needed —
+pure UI-layer addition), `node --check`, and a harness against the actual served bundle confirming
+the debounce (no call at 0ms, one call by 900ms) and the immediate flush-on-year-switch (edit saved
+before the year context changes, edit map correctly empty afterward). Not verified in a live browser.
+(`src/frontend/js-finance.js`)
+
 ### v1.130.0 — Compensation: editable Disability & Survivor rate + Health Insurance premium overrides;
 Tuition Aid pipeline previews made fully editable (2026-08-05)
 
