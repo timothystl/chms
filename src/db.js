@@ -1,4 +1,6 @@
 // ── DATABASE SCHEMA + INITIALIZATION ──────────────────────────────────────────
+import { defaultFundCategories } from './api-utils.js';
+
 export const DB_INIT = [
   `CREATE TABLE IF NOT EXISTS serve_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,6 +141,16 @@ export const DB_INIT = [
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE INDEX IF NOT EXISTS idx_deposits_status ON giving_deposits(status, deposit_date)`,
+  // Batch ↔ deposit join with an amount (migration 0032). A batch can be split across several
+  // deposits and a deposit can hold several batches, so the link needs its own row + amount.
+  `CREATE TABLE IF NOT EXISTS giving_deposit_lines (
+    deposit_id   INTEGER NOT NULL,
+    batch_id     INTEGER NOT NULL,
+    amount_cents INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (deposit_id, batch_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_deposit_lines_batch ON giving_deposit_lines(batch_id)`,
   // NOTE: the giving_entries ALTER COLUMN statements + idx_entries_deposit for the deposit
   // system live in the `migrations` array below (they are NOT idempotent — an ALTER ADD COLUMN
   // that has already run throws "duplicate column name", which the migrations loop catches but
@@ -473,6 +485,26 @@ async function seedEvents(db) {
   }
 }
 
+
+// One-time backfill for funds.category (migration 0033). Marker-gated, not idempotent-by-value:
+// once an admin has sorted funds into categories in Settings → Fund categories, re-running this
+// on every cold start would drag the General Fund family back out of wherever they put it.
+export async function backfillFundCategories(db) {
+  try {
+    const marker = await db.prepare("SELECT value FROM chms_config WHERE key='fund_categories_backfilled'").first();
+    if (marker) return;
+    const funds = (await db.prepare('SELECT id, name FROM funds').all()).results || [];
+    const defaults = defaultFundCategories(funds);
+    const stmts = [];
+    for (const [id, cat] of defaults) {
+      stmts.push(db.prepare('UPDATE funds SET category=? WHERE id=?').bind(cat, id));
+    }
+    stmts.push(db.prepare(
+      "INSERT INTO chms_config (key,value) VALUES ('fund_categories_backfilled','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+    ));
+    await db.batch(stmts);
+  } catch {}
+}
 
 export async function seedChmsDefaults(db) {
   try {
@@ -1262,6 +1294,9 @@ async function _doInitDb(db) {
     'ALTER TABLE funds ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
     // funds: per-fund annual budget (cents) for the Board Report YTD-budget/variance columns
     'ALTER TABLE funds ADD COLUMN budget_annual_cents INTEGER NOT NULL DEFAULT 0',
+    // funds: category backing the Reports fund lens (migration 0033) — general | earned |
+    // passive | restricted. Backfilled for the General Fund family below.
+    "ALTER TABLE funds ADD COLUMN category TEXT NOT NULL DEFAULT 'restricted'",
     // people: deceased flag and death date
     'ALTER TABLE people ADD COLUMN deceased INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE people ADD COLUMN death_date TEXT NOT NULL DEFAULT ""',
@@ -1656,6 +1691,7 @@ async function _doInitDb(db) {
   await seedEvents(db);
   await migrateChristmasMarketRoles(db);
   await seedChmsDefaults(db);
+  await backfillFundCategories(db);
 
   // Transportation folded into Acceptance (Care Ministry) as a sub-category — re-tag any
   // roles already seeded/added under the old 'transportation' ministry. This MUST run

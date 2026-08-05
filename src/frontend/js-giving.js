@@ -1,22 +1,46 @@
 export const JS_GIVING = String.raw`<script>
 // ── GIVING ────────────────────────────────────────────────────────────
-// ── Batches / Transactions view toggle (RDS4) ──────────────────────────
-var _givView = 'batches';
-var _GIV_VIEWS = ['batches','transactions','deposits','board','letters','receipts','reports','settings'];
-var _GIV_VIEW_DISPLAY = { batches:'grid', transactions:'flex' }; // others default to ''
+// ── Giving sub-nav: Offerings · Reports · Communications · Settings ────
+// Eight tabs collapsed to four (giving consolidation). The three counting/posting/banking
+// tabs are one job, so they became panes inside Offerings; Board Report and Analysis are both
+// "explain giving with numbers", so they became modes of one Reports view.
+var _givView = 'offerings';
+var _GIV_VIEWS = ['offerings','reports','comms','settings'];
+// Old view names stay live: a bookmark, a "Go to Letters" button elsewhere in the app, or a
+// deep link from another tab must land somewhere real, not on a blank panel.
+var _GIV_VIEW_ALIASES = {
+  batches: 'offerings', transactions: 'offerings', deposits: 'offerings',
+  board: 'reports', analysis: 'reports',
+  letters: 'comms', receipts: 'comms',
+};
+var _GIV_ALIAS_PANE = {
+  batches: 'batches', transactions: 'transactions', deposits: 'deposits',
+  letters: 'letters', receipts: 'receipts',
+};
 function givSetView(view) {
+  // Resolve an old name to its new home, and remember which pane inside it the caller meant.
+  var pane = _GIV_ALIAS_PANE[view] || '';
+  var mode = (view === 'analysis') ? 'analysis' : '';
+  if (_GIV_VIEW_ALIASES[view]) view = _GIV_VIEW_ALIASES[view];
+  if (_GIV_VIEWS.indexOf(view) < 0) view = 'offerings';
+  // Reports and Communications are .require-finance: applyPermissionUI() hides them by setting
+  // an inline display:none, which the loop below would otherwise cheerfully undo. The server
+  // gates the data either way — this just stops an alias or a stale deep link from parking an
+  // office-level user on an empty panel. Offerings has no such requirement, so it's the fallback.
+  if (givViewNeedsFinance(view) && !givCanSeeFinance()) view = 'offerings';
   _givView = view;
   _GIV_VIEWS.forEach(function(v) {
     var btn = document.getElementById('giv-view-' + v + '-btn');
     if (btn) btn.classList.toggle('active', v === view);
     var panel = document.getElementById('giv-view-' + v);
-    if (panel) panel.style.display = (v === view) ? (_GIV_VIEW_DISPLAY[v] || '') : 'none';
+    if (panel) panel.style.display = (v === view) ? '' : 'none';
   });
-  if (view === 'transactions') {
-    givTxnPopulateFundOptions();
-    loadGivingTransactions();
+  if (view === 'offerings') {
+    givOffSetPane(pane || _givOffPane);
+    givLoadWorkQueue();
   }
-  if (view === 'board') {
+  if (view === 'reports') {
+    if (mode) boardSetMode(mode);
     loadBoardReport();
     givPopulateFundSelect('rpt-plateau-fund');
     givPopulateFundSelect('rpt-bands-fund');
@@ -25,12 +49,84 @@ function givSetView(view) {
     if (platYr && !platYr.value) platYr.value = curYr;
     var bandsYr = document.getElementById('rpt-bands-year');
     if (bandsYr && !bandsYr.value) bandsYr.value = curYr;
+    givAnalysisInit();
+    finInitGivingReports();
   }
-  if (view === 'deposits') loadDeposits();
-  if (view === 'letters') givLettersInit();
-  if (view === 'receipts') givReceiptsInit();
-  if (view === 'reports') { givAnalysisInit(); finInitGivingReports(); }
-  if (view === 'settings') loadGivingSettings();
+  if (view === 'comms') givCommsSetPane(pane || _givCommsPane);
+  if (view === 'settings') { loadGivingSettings(); givLoadFundCategories(); }
+}
+
+// ── Offerings panes ────────────────────────────────────────────────────
+// "Batches & deposits" is the workflow; the other two are the older flat tables, kept because
+// they answer questions the master/detail can't (every gift in a date range; a deposit built
+// from individual gifts rather than whole batches).
+var _givOffPane = 'batches';
+// The display value each pane is restored to. '' lets the CSS class decide (.giv-off-layout is
+// already display:grid); .giv-txn-view only sets flex-* properties, so it needs the flex itself.
+var _GIV_OFF_PANES = { batches: '', transactions: 'flex', deposits: '' };
+// permView lives in js-core.js, which is concatenated ahead of this module; the typeof guard
+// covers a non-browser harness that loads this file on its own.
+function givCanSeeFinance() {
+  return (typeof permView !== 'function') || permView('giving');
+}
+function givViewNeedsFinance(view) { return view === 'reports' || view === 'comms'; }
+
+function givOffSetPane(pane) {
+  if (!(pane in _GIV_OFF_PANES)) pane = 'batches';
+  if (pane === 'deposits' && !givCanSeeFinance()) pane = 'batches';
+  _givOffPane = pane;
+  Object.keys(_GIV_OFF_PANES).forEach(function(p) {
+    var el = document.getElementById('giv-pane-' + p);
+    if (el) el.style.display = (p === pane) ? (_GIV_OFF_PANES[p] || '') : 'none';
+  });
+  document.querySelectorAll('[data-gop]').forEach(function(b) {
+    b.classList.toggle('active', b.getAttribute('data-gop') === pane);
+  });
+  if (pane === 'batches') loadBatches();
+  if (pane === 'transactions') { givTxnPopulateFundOptions(); loadGivingTransactions(); }
+  if (pane === 'deposits') loadDeposits();
+}
+
+var _givCommsPane = 'letters';
+function givCommsSetPane(pane) {
+  if (pane !== 'receipts') pane = 'letters';
+  _givCommsPane = pane;
+  ['letters','receipts'].forEach(function(p) {
+    var el = document.getElementById('giv-pane-' + p);
+    if (el) el.style.display = (p === pane) ? '' : 'none';
+  });
+  document.querySelectorAll('[data-gcomm]').forEach(function(b) {
+    b.classList.toggle('active', b.getAttribute('data-gcomm') === pane);
+  });
+  if (pane === 'letters') givLettersInit(); else givReceiptsInit();
+}
+
+// ── Offerings work queue ───────────────────────────────────────────────
+// Four live counts, re-read every time anything in the workflow changes, so the queue can
+// never claim work that's already done.
+function givQueueCard(accent, label, value, sub) {
+  return '<div class="giv-queue-card" style="border-left-color:' + accent + ';">'
+    + '<div class="giv-queue-label">' + esc(label) + '</div>'
+    + '<div class="giv-queue-value">' + value + '</div>'
+    + '<div class="giv-queue-sub">' + sub + '</div></div>';
+}
+function givLoadWorkQueue() {
+  var el = document.getElementById('giv-queue');
+  if (!el) return;
+  api('/admin/api/giving/offerings-summary').then(function(d) {
+    if (!d || d.error) { el.innerHTML = ''; return; }
+    var ob = d.open_batches || {}, aw = d.awaiting_deposit || {}, un = d.unreconciled_deposits || {}, fe = d.fees_ytd || {};
+    el.innerHTML =
+      givQueueCard('#C9973A', 'Open batches', (ob.count || 0),
+        fmtMoney(ob.cents || 0) + ' counted, not posted')
+      + givQueueCard('#2E7EA6', 'Awaiting deposit', (aw.count || 0) + ' batch' + ((aw.count === 1) ? '' : 'es'),
+        fmtMoney(aw.cents || 0) + ' not yet at the bank &middot; last ' + (aw.days || 90) + ' days')
+      + givQueueCard('#B85C3A', 'Unreconciled deposits', (un.count || 0),
+        un.count ? (un.earliest_date ? fmtDate(un.earliest_date) + ' &middot; bank amount not entered' : 'Bank amount not entered')
+                 : 'Every deposit matched to the bank')
+      + givQueueCard('#6B8F71', 'Processing fees YTD', fmtMoney(fe.cents || 0),
+        'Given &minus; deposited, all deposits');
+  }).catch(function() { el.innerHTML = ''; });
 }
 
 // ── Deposit reconciliation (GIV-DEP) ───────────────────────────────────
@@ -305,7 +401,7 @@ function givPopulateFundSelect(id) {
 function loadGivingTransactions() {
   var tbody = document.getElementById('giv-txn-tbody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--warm-gray);">Loading&#8230;</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--warm-gray);">Loading&#8230;</td></tr>';
   var fundId = document.getElementById('giv-txn-fund').value;
   var from = document.getElementById('giv-txn-from').value;
   var to = document.getElementById('giv-txn-to').value;
@@ -316,7 +412,7 @@ function loadGivingTransactions() {
   api('/admin/api/giving/transactions' + (qs.length ? '?' + qs.join('&') : '')).then(function(d) {
     var rows = d.transactions || [];
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--warm-gray);">No transactions match these filters.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--warm-gray);">No transactions match these filters.</td></tr>';
       return;
     }
     tbody.innerHTML = rows.map(function(r) {
@@ -325,6 +421,7 @@ function loadGivingTransactions() {
         + '<td>' + esc(r.fund_name) + '</td>'
         + '<td>' + esc(r.method) + (r.check_number ? ' #'+esc(r.check_number) : '') + '</td>'
         + '<td>' + fmtDate(r.txn_date) + '</td>'
+        + '<td>' + (r.deposit_label ? esc(r.deposit_label) : '<span style="color:var(--warm-gray);">not deposited</span>') + '</td>'
         + '<td class="amt-col">' + fmtMoney(r.amount) + '</td>'
         + '</tr>';
     }).join('');
@@ -353,11 +450,22 @@ function goToBatch(batchId) {
 function loadBatches() {
   var pendingId = _pendingOpenBatchId;
   _pendingOpenBatchId = null;
-  api('/admin/api/giving/batches?status=' + _batchFilter).then(function(d) {
+  // "Needs work" is a client-side view of the derived status, not a server status column —
+  // the server has no notion of a batch being "done", only of what it is and isn't linked to.
+  var status = (_batchFilter === 'needswork') ? 'all' : _batchFilter;
+  api('/admin/api/giving/batches?status=' + status).then(function(d) {
     _lastBatches = d.batches || [];
     renderBatchList(_lastBatches);
     if (pendingId) openBatch(pendingId);
   });
+}
+// Status badge markup from the server-derived {key,tone,label,remaining_cents}. Split carries
+// its remaining amount in the label so the list says how much is still outstanding, not just
+// that something is.
+function givStatusBadge(st) {
+  if (!st) return '';
+  var label = st.label + (st.key === 'split' ? ' &middot; ' + fmtMoney(st.remaining_cents || 0) + ' left' : '');
+  return '<span class="giv-badge giv-badge-' + (st.tone || 'warn') + '">' + label + '</span>';
 }
 function filterBatchSearch(val) {
   _batchSearch = (val||'').toLowerCase().trim();
@@ -369,34 +477,41 @@ function filterBatchSearch(val) {
 }
 function renderBatchList(batches) {
   var c = document.getElementById('batch-list');
+  if (!c) return;
   var filtered = _batchSearch
     ? batches.filter(function(b) {
         return (b.description||'').toLowerCase().indexOf(_batchSearch) >= 0
             || (b.batch_date||'').indexOf(_batchSearch) >= 0;
       })
     : batches;
+  if (_batchFilter === 'needswork') {
+    filtered = filtered.filter(function(b) {
+      return !b.closed || !b.deposit_status || b.deposit_status.key !== 'deposited';
+    });
+  }
   if (!filtered.length) {
     c.innerHTML = '<div style="padding:30px 16px;text-align:center;color:var(--warm-gray);font-size:.84rem;">'
-      + (_batchSearch ? 'No batches match &#8220;' + esc(_batchSearch) + '&#8221;' : 'No batches yet') + '</div>';
+      + (_batchSearch ? 'No batches match &#8220;' + esc(_batchSearch) + '&#8221;'
+         : (_batchFilter === 'needswork' ? 'Nothing needs work &mdash; every batch is posted and deposited.' : 'No batches yet')) + '</div>';
     return;
   }
   c.innerHTML = filtered.map(function(b) {
-    var cls = 'batch-row' + (b.id === currentBatchId ? ' selected' : '');
-    var badge = b.closed ? '<span class="badge-closed">Closed</span>' : '<span class="badge-open">Open</span>';
-    return '<div class="' + cls + '" onclick="openBatch(' + b.id + ')">'
-      + '<div class="batch-date">' + fmtDate(b.batch_date) + '</div>'
-      + '<div class="batch-desc">' + esc(b.description) + '</div>'
-      + '<div class="batch-meta">'
-      + '<span>' + (b.entry_count||0) + ' entries \u00b7 ' + fmtMoney(b.total_cents||0) + '</span>'
-      + badge + '</div></div>';
+    var cls = 'giv-off-row' + (b.id === currentBatchId ? ' selected' : '');
+    var posted = b.closed ? 'posted' : 'open';
+    return '<div class="' + cls + '" data-batch-row="' + b.id + '" onclick="openBatch(' + b.id + ')">'
+      + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;">'
+      + '<span style="font-size:.88rem;font-weight:700;color:var(--color-navy);">' + esc(b.description || fmtDate(b.batch_date)) + '</span>'
+      + '<span style="font-size:.88rem;font-weight:700;font-variant-numeric:tabular-nums;">' + fmtMoney(b.total_cents||0) + '</span></div>'
+      + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:3px;">'
+      + '<span style="font-size:.72rem;color:var(--warm-gray);">' + fmtDate(b.batch_date) + ' &middot; ' + (b.entry_count||0) + ' gift' + ((b.entry_count === 1) ? '' : 's') + ' &middot; ' + posted + '</span>'
+      + givStatusBadge(b.deposit_status) + '</div></div>';
   }).join('');
 }
 function openBatch(id) {
   currentBatchId = id;
   // Highlight selected row
-  document.querySelectorAll('.batch-row').forEach(function(r) { r.classList.remove('selected'); });
-  document.querySelectorAll('.batch-row').forEach(function(r) {
-    if (r.getAttribute('onclick') && r.getAttribute('onclick').indexOf('(' + id + ')') >= 0) r.classList.add('selected');
+  document.querySelectorAll('.giv-off-row').forEach(function(r) {
+    r.classList.toggle('selected', r.getAttribute('data-batch-row') === String(id));
   });
   api('/admin/api/giving/batches/' + id).then(function(b) { renderBatchDetail(b); }).catch(function() {
     var el = document.getElementById('batch-detail');
@@ -449,15 +564,32 @@ function renderBatchDetail(b) {
     ? '<button class="btn-danger" onclick="closeBatch(' + b.id + ')" style="margin-left:auto;">Close Batch</button>'
     : '<button class="btn-secondary" onclick="reopenBatch(' + b.id + ')" style="margin-left:auto;font-size:.82rem;">Reopen Batch</button>';
 
+  // Fund split line — what the count sheet actually breaks into, so the total bar answers
+  // "how much" and "to what" together.
+  var byFund = {}, fundOrder = [];
+  (b.entries||[]).forEach(function(e) {
+    var n = e.fund_name || 'Unassigned';
+    if (!(n in byFund)) { byFund[n] = 0; fundOrder.push(n); }
+    byFund[n] += (e.amount || 0);
+  });
+  var splitLine = fundOrder.length
+    ? '<div style="font-size:.78rem;color:var(--warm-gray);flex-basis:100%;">'
+      + fundOrder.map(function(n) { return esc(n) + ' ' + fmtMoney(byFund[n]); }).join(' &middot; ') + '</div>'
+    : '';
+
   c.innerHTML = '<div class="batch-detail-hdr">'
     + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
-    + '<div><div style="font-family:var(--font-head);font-size:1rem;color:var(--steel-anchor);">' + esc(b.description) + '</div>'
-    + '<div style="font-size:.8rem;color:var(--warm-gray);">' + fmtDate(b.batch_date) + '</div></div>'
+    + '<div><div style="font-family:var(--font-head);font-size:1.05rem;font-weight:700;color:var(--steel-anchor);">' + esc(b.description) + '</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);">' + fmtDate(b.batch_date) + ' &middot; ' + (b.entries||[]).length + ' gift' + (((b.entries||[]).length === 1) ? '' : 's') + '</div></div>'
     + '<span class="' + (b.closed ? 'badge-closed' : 'badge-open') + '">' + (b.closed ? 'Closed' : 'Open') + '</span>'
+    + givStatusBadge(b.deposit_status)
     + actionBtns + '</div></div>'
-    + '<div class="total-bar"><span class="total-amount">' + fmtMoney(total) + '</span><span class="total-count">' + (b.entries||[]).length + ' entries</span></div>'
+    + '<div class="total-bar" style="flex-wrap:wrap;"><span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);">Batch total</span>'
+    + '<span style="font-size:1.15rem;font-weight:800;color:var(--color-navy);font-variant-numeric:tabular-nums;">' + fmtMoney(total) + '</span>'
+    + splitLine + '</div>'
     + entryForm
-    + '<div style="overflow-x:auto;"><table class="entries-table"><thead><tr><th>Person</th><th>Fund</th><th class="amt-col">Amount</th><th>Method</th><th></th></tr></thead><tbody id="entry-tbody">' + entryRows + '</tbody></table></div>';
+    + '<div style="overflow-x:auto;"><table class="entries-table"><thead><tr><th>Person</th><th>Fund</th><th class="amt-col">Amount</th><th>Method</th><th></th></tr></thead><tbody id="entry-tbody">' + entryRows + '</tbody></table></div>'
+    + '<div id="giv-dep-panel-mount"></div>';
 
   // Wire up check# toggle
   c.querySelectorAll('input[name="e-method"]').forEach(function(r) {
@@ -465,6 +597,183 @@ function renderBatchDetail(b) {
       document.getElementById('e-check-wrap').style.display = this.value === 'check' ? 'flex' : 'none';
     });
   });
+  renderBatchDepositPanel(b);
+}
+
+// ── Bank deposits panel (batch ↔ deposit linking) ──────────────────────
+// A batch can be split across several deposits, and a deposit can hold several batches. The
+// links live here, inside the batch, so the count sheet and the bank slip never drift apart —
+// and the reverse direction ("what else is on this slip?") is visible without leaving the batch.
+function renderBatchDepositPanel(b) {
+  var mount = document.getElementById('giv-dep-panel-mount');
+  if (!mount) return;
+  var total = b.total_cents != null ? b.total_cents : (b.entries||[]).reduce(function(s,e){return s+(e.amount||0);},0);
+  var links = b.deposits || [];
+  var st = b.deposit_status || {};
+  var linked = st.linked_cents || 0;
+  var remaining = Math.max(0, total - linked);
+
+  // Coverage bar: one segment per linked deposit, the uncovered remainder left as bare track.
+  var segColors = ['#2E7EA6', '#6B8F71', '#C9973A'];
+  var segs = links.map(function(l, i) {
+    var w = total > 0 ? Math.max(0, Math.min(100, (l.amount_cents / total) * 100)) : 0;
+    return '<div class="giv-cover-seg" style="width:' + w.toFixed(2) + '%;background:' + segColors[i % segColors.length] + ';"></div>';
+  }).join('');
+  var caption = links.length
+    ? fmtMoney(total) + ' counted &middot; ' + links.map(function(l) {
+        return fmtMoney(l.amount_cents) + ' in ' + esc(givDepRef(l));
+      }).join(' &middot; ') + (remaining > 50 ? ' &middot; ' + fmtMoney(remaining) + ' not yet deposited' : '')
+    : fmtMoney(total) + ' counted &middot; not in a deposit yet';
+
+  var cards = links.map(function(l) { return givDepLinkCard(b.id, l); }).join('');
+
+  var shortfall = (remaining > 50)
+    ? '<div class="giv-dep-shortfall"><span>' + fmtMoney(remaining) + ' of this batch isn&rsquo;t in any deposit yet'
+      + (links.length ? ' &mdash; a second bank run, or still in the safe.' : '.') + '</span>'
+      + '<button class="btn-primary" style="padding:5px 12px;font-size:.8rem;margin-left:auto;" onclick="givDepNewForBatch(' + b.id + ')">Assign the rest to a new deposit</button></div>'
+    : '';
+
+  mount.innerHTML = '<div class="giv-dep-panel">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;">'
+    + '<span class="giv-dep-panel-label">Bank deposits</span>' + givStatusBadge(st)
+    + '<span style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+    + '<select class="fin-domain-select" id="giv-dep-add-select" onchange="givDepAddExisting(' + b.id + ', this)"><option value="">Add this batch to an existing deposit&hellip;</option></select>'
+    + '<button class="btn-primary" style="padding:6px 12px;font-size:.8rem;" onclick="givDepNewForBatch(' + b.id + ')">+ New deposit</button>'
+    + '</span></div>'
+    + '<div class="giv-cover-track">' + segs + '</div>'
+    + '<div class="giv-cover-caption">' + caption + '</div>'
+    + '<div style="margin-top:12px;">' + cards + '</div>'
+    + shortfall
+    + '<div style="font-size:11.5px;color:var(--warm-gray);margin-top:10px;">A batch can be split across several deposits, and a deposit can hold several batches &mdash; the links live here, so the count sheet and the bank slip never drift apart.</div>'
+    + '</div>';
+  givDepLoadOptions(b.id);
+}
+
+// Human reference for a deposit — it has no ref column of its own, so it reads as its date.
+function givDepRef(l) {
+  return l.external_ref ? l.external_ref : ('Deposit ' + (l.deposit_date ? fmtDate(l.deposit_date) : '#' + l.deposit_id));
+}
+
+function givDepLinkCard(batchId, l) {
+  var bank = (l.bank_cents === null || l.bank_cents === undefined) ? null : l.bank_cents;
+  var given = l.deposit_given_cents || 0;
+  var fees = (bank === null) ? null : (given - bank);
+  var badge = (bank === null)
+    ? '<span class="giv-badge giv-badge-bad">Bank amount missing</span>'
+    : '<span class="giv-badge giv-badge-ok">Reconciled</span>';
+  var others = (l.other_batches || []).length
+    ? 'Also in this deposit: ' + l.other_batches.map(function(o) {
+        return esc(fmtDate(o.batch_date) + ' · ' + (o.description || 'Batch')) + ' ' + fmtMoney(o.amount_cents);
+      }).join(', ')
+    : 'This deposit holds only this batch.';
+  return '<div class="giv-dep-card">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+    + '<span style="font-size:.9rem;font-weight:700;color:var(--color-navy);">' + esc(givDepRef(l)) + '</span>'
+    + '<span style="font-size:.78rem;color:var(--warm-gray);">deposited ' + (l.deposit_date ? fmtDate(l.deposit_date) : '&mdash;') + '</span>'
+    + badge
+    + '<button class="giv-dep-remove" style="margin-left:auto;" onclick="givDepRemoveLine(' + batchId + ',' + l.deposit_id + ')">Remove this batch</button>'
+    + '</div>'
+    + '<div class="giv-dep-linkrow">'
+    + '<div class="giv-dep-field"><label class="giv-dep-field-label">From this batch</label>'
+    + '<input type="text" inputmode="decimal" style="width:100px;" id="giv-dep-line-' + l.deposit_id + '" value="' + (l.amount_cents / 100).toFixed(2) + '" onchange="givDepSaveLine(' + batchId + ',' + l.deposit_id + ')"></div>'
+    + '<div class="giv-dep-field"><label class="giv-dep-field-label">Deposit total given</label>'
+    + '<div style="font-size:.9rem;font-weight:700;font-variant-numeric:tabular-nums;padding:5px 0;">' + fmtMoney(given) + '</div></div>'
+    + '<div class="giv-dep-field"><label class="giv-dep-field-label">Bank received</label>'
+    + '<input type="text" inputmode="decimal" style="width:110px;" id="giv-dep-bank-' + l.deposit_id + '" placeholder="0.00" value="' + (bank === null ? '' : (bank / 100).toFixed(2)) + '" onchange="givDepSaveBank(' + batchId + ',' + l.deposit_id + ')"></div>'
+    + '<div class="giv-dep-field"><label class="giv-dep-field-label">Fees</label>'
+    + '<div style="font-size:.9rem;font-weight:700;font-variant-numeric:tabular-nums;padding:5px 0;color:' + (fees === null ? 'var(--warm-gray)' : '#B85C3A') + ';">' + (fees === null ? '&mdash;' : fmtMoney(fees)) + '</div></div>'
+    + '</div>'
+    + '<div style="font-size:11.5px;color:var(--warm-gray);margin-top:8px;">' + others + '</div>'
+    + '</div>';
+}
+
+// Amounts are typed as plain numbers ("7100", "$7,100.00") — parse leniently rather than
+// rejecting anything that isn't already canonical.
+function givParseMoneyCents(raw) {
+  var v = String(raw == null ? '' : raw).replace(/[$,\s]/g, '');
+  if (v === '') return null;
+  var n = parseFloat(v);
+  if (isNaN(n)) return null;
+  return Math.round(n * 100);
+}
+
+function givDepLoadOptions(batchId) {
+  var sel = document.getElementById('giv-dep-add-select');
+  if (!sel) return;
+  api('/admin/api/giving/deposit-options?batch_id=' + batchId).then(function(d) {
+    var deps = (d && d.deposits) || [];
+    if (!document.getElementById('giv-dep-add-select')) return; // panel re-rendered under us
+    var s = document.getElementById('giv-dep-add-select');
+    s.innerHTML = '<option value="">Add this batch to an existing deposit&hellip;</option>'
+      + deps.map(function(x) {
+          var label = (x.external_ref || ('Deposit ' + (x.deposit_date ? fmtDate(x.deposit_date) : '#' + x.id)))
+            + ' · ' + fmtMoney(x.given_cents || 0) + ' from ' + (x.batch_count || 0) + ' batch' + ((x.batch_count === 1) ? '' : 'es');
+          return '<option value="' + x.id + '">' + esc(label) + '</option>';
+        }).join('');
+  }).catch(function() {});
+}
+
+// Choosing a deposit links this batch to it with the REMAINING undeposited amount prefilled —
+// the amount someone would otherwise have to compute by hand from the coverage caption.
+function givDepAddExisting(batchId, sel) {
+  var depId = parseInt(sel.value);
+  sel.value = '';
+  if (!Number.isInteger(depId)) return;
+  var remaining = givBatchRemainingCents();
+  api('/admin/api/giving/deposit-lines', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deposit_id: depId, batch_id: batchId, amount_cents: remaining }) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } givOffRefresh(batchId); })
+    .catch(function() { alert('Could not add this batch to that deposit.'); });
+}
+
+function givBatchRemainingCents() {
+  var b = _currentBatch || {};
+  var total = b.total_cents != null ? b.total_cents : (b.entries||[]).reduce(function(s,e){return s+(e.amount||0);},0);
+  var linked = (b.deposit_status && b.deposit_status.linked_cents) || 0;
+  return Math.max(0, total - linked);
+}
+
+function givDepNewForBatch(batchId) {
+  var today = new Date().toISOString().slice(0, 10);
+  api('/admin/api/giving/deposits', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deposit_date: today, batch_id: batchId, amount_cents: givBatchRemainingCents() }) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } givOffRefresh(batchId); })
+    .catch(function() { alert('Could not create the deposit.'); });
+}
+
+function givDepSaveLine(batchId, depositId) {
+  var inp = document.getElementById('giv-dep-line-' + depositId);
+  var cents = givParseMoneyCents(inp && inp.value);
+  if (cents === null || cents < 0) { alert('Enter a dollar amount.'); return; }
+  api('/admin/api/giving/deposit-lines', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deposit_id: depositId, batch_id: batchId, amount_cents: cents }) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } givOffRefresh(batchId); })
+    .catch(function() { alert('Could not save that amount.'); });
+}
+
+function givDepSaveBank(batchId, depositId) {
+  var inp = document.getElementById('giv-dep-bank-' + depositId);
+  var cents = (inp && inp.value.trim() === '') ? null : givParseMoneyCents(inp && inp.value);
+  if (inp && inp.value.trim() !== '' && cents === null) { alert('Enter a dollar amount.'); return; }
+  api('/admin/api/giving/deposits/' + depositId, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bank_cents: cents }) })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } givOffRefresh(batchId); })
+    .catch(function() { alert('Could not save the bank amount.'); });
+}
+
+function givDepRemoveLine(batchId, depositId) {
+  if (!confirm('Remove this batch from that deposit? The gifts themselves are untouched.')) return;
+  api('/admin/api/giving/deposit-lines?deposit_id=' + depositId + '&batch_id=' + batchId, { method: 'DELETE' })
+    .then(function(r) { if (r && r.error) { alert(r.error); return; } givOffRefresh(batchId); })
+    .catch(function() { alert('Could not remove the link.'); });
+}
+
+// Every deposit-link edit moves three things at once — the batch badge, the coverage bar, and
+// the work-queue counts — so they all refresh together rather than drifting until a reload.
+function givOffRefresh(batchId) {
+  if (batchId) openBatch(batchId);
+  loadBatches();
+  givLoadWorkQueue();
 }
 function addEntry(batchId) {
   var personId = document.getElementById('e-person-id').value || null;
@@ -486,8 +795,7 @@ function addEntry(batchId) {
       document.querySelector('input[name="e-method"][value="cash"]').checked = true;
       document.getElementById('e-check-wrap').style.display = 'none';
       if (document.getElementById('e-check-num')) document.getElementById('e-check-num').value = '';
-      openBatch(batchId);
-      loadBatches();
+      givOffRefresh(batchId);
       document.getElementById('e-person-search').focus();
     } else alert('Error: ' + (r.error||'unknown'));
   });
@@ -495,7 +803,7 @@ function addEntry(batchId) {
 function deleteEntry(id) {
   if (!confirm('Remove this entry?')) return;
   api('/admin/api/giving/entries/' + id, {method:'DELETE'}).then(function(r) {
-    if (r.ok) { openBatch(currentBatchId); loadBatches(); }
+    if (r.ok) { givOffRefresh(currentBatchId); }
     else alert(r.error || 'Cannot delete.');
   });
 }
@@ -505,7 +813,7 @@ function closeBatch(id) {
   api('/admin/api/giving/batches/' + id, {method:'PUT', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({closed:1, batch_date:b.batch_date||'', description:b.description||''})})
     .then(function(r) {
-      if (r && r.ok) { openBatch(id); loadBatches(); }
+      if (r && r.ok) { givOffRefresh(id); }
       else alert('Error closing batch: ' + (r && r.error || 'Unknown error'));
     }).catch(function(e) { alert('Error closing batch: ' + e.message); });
 }
@@ -515,7 +823,7 @@ function reopenBatch(id) {
   api('/admin/api/giving/batches/' + id, {method:'PUT', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({closed:0, batch_date:b.batch_date||'', description:b.description||''})})
     .then(function(r) {
-      if (r && r.ok) { openBatch(id); loadBatches(); }
+      if (r && r.ok) { givOffRefresh(id); }
       else alert('Error reopening batch: ' + (r && r.error || 'Unknown error'));
     }).catch(function(e) { alert('Error reopening batch: ' + e.message); });
 }
@@ -530,7 +838,7 @@ function createBatch() {
   var desc = document.getElementById('bm-desc').value.trim();
   if (!date || !desc) { alert('Date and description are required.'); return; }
   api('/admin/api/giving/batches', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({batch_date:date, description:desc})}).then(function(r) {
-    if (r.ok) { closeModal('batch-modal'); loadBatches(); openBatch(r.id); }
+    if (r.ok) { closeModal('batch-modal'); givOffRefresh(r.id); }
     else alert('Error: ' + (r.error||'unknown'));
   });
 }
@@ -580,12 +888,53 @@ function boardBuildPeriods() {
   _boardPeriodsBuilt = true;
 }
 
+// The fund lens — which slice of giving the whole report is about. General Fund is the default
+// on a fresh load because that is nearly always the council's question; the choice then sticks
+// for the session, so switching to Narrative or changing the period doesn't silently reset it.
+var _boardLens = 'general';
+var _BOARD_LENS_FALLBACK = { key: 'all', label: 'All giving', hh_label: 'Giving households', fund_count: 0, given_ytd_cents: 0 };
+
+function boardLensBlock(d) {
+  var cats = (d && d.categories) || {};
+  return cats[_boardLens] || cats.all || _BOARD_LENS_FALLBACK;
+}
+
+function boardBuildLensSelect(d) {
+  var sel = document.getElementById('board-lens');
+  if (!sel) return;
+  var opts = ((d && d.fund_categories) || []).concat([{ key: 'all', label: 'All giving' }]);
+  sel.innerHTML = opts.map(function(o) {
+    return '<option value="' + o.key + '">' + esc(o.label) + '</option>';
+  }).join('');
+  sel.value = _boardLens;
+  // A lens whose category isn't in this response falls back to All giving rather than leaving
+  // the select showing one thing while the report shows another.
+  if (sel.value !== _boardLens) { _boardLens = 'all'; sel.value = 'all'; }
+}
+
+function boardSetLens(lens) {
+  _boardLens = lens || 'general';
+  var sel = document.getElementById('board-lens');
+  if (sel && sel.value !== _boardLens) sel.value = _boardLens;
+  boardRender();
+}
+
 function boardSetMode(mode) {
   _boardMode = mode;
-  var db = document.getElementById('board-mode-dashboard-btn');
-  var nb = document.getElementById('board-mode-narrative-btn');
-  if (db) db.classList.toggle('active', mode === 'dashboard');
-  if (nb) nb.classList.toggle('active', mode === 'narrative');
+  ['dashboard','narrative','analysis'].forEach(function(m) {
+    var b = document.getElementById('board-mode-' + m + '-btn');
+    if (b) b.classList.toggle('active', m === mode);
+  });
+  // Analysis swaps the body wholesale — the tile grid instead of the board page — while the
+  // lens and period stay put, so switching back lands on the report you left.
+  var analysis = document.getElementById('giv-analysis-body');
+  var body = document.getElementById('board-body');
+  var strip = document.getElementById('board-else-strip');
+  var note = document.getElementById('board-print-note');
+  if (analysis) analysis.style.display = (mode === 'analysis') ? '' : 'none';
+  if (body) body.style.display = (mode === 'analysis') ? 'none' : '';
+  if (strip) strip.style.display = (mode === 'analysis') ? 'none' : '';
+  if (note) note.style.display = (mode === 'analysis') ? 'none' : '';
   if (_boardData) boardRender();
 }
 
@@ -598,20 +947,44 @@ function loadBoardReport() {
   api('/admin/api/reports/giving-board?period=' + encodeURIComponent(period)).then(function(d) {
     if (!d || d.error) { if (body) body.innerHTML = '<div class="board-empty">Could not load the board report.</div>'; return; }
     _boardData = d;
-    var sub = document.getElementById('board-subtitle');
-    if (sub) sub.textContent = d.through_label + ' · General & designated funds · no individual donors named';
+    boardBuildLensSelect(d);
     boardRender();
   }).catch(function() { if (body) body.innerHTML = '<div class="board-empty">Could not load the board report.</div>'; });
+}
+
+// The "Everything else" strip: the categories that AREN'T the lens, each a click from becoming
+// it. Replaces the old folded-in "+ $X other giving" sub-line, which could only name one lump.
+function boardElseStripHtml(d) {
+  var cats = d.categories || {};
+  var chips = ((d.fund_categories || []).concat([{ key: 'all', label: 'All giving' }]))
+    .filter(function(c) { return c.key !== _boardLens && cats[c.key]; })
+    .map(function(c) {
+      return '<button class="board-else-chip" data-lens="' + c.key + '" onclick="boardSetLens(this.dataset.lens)">' + esc(c.label)
+        + ' <strong style="font-variant-numeric:tabular-nums;">' + boardMoney(cats[c.key].given_ytd_cents) + '</strong></button>';
+    }).join('');
+  if (!chips) return '';
+  return '<div class="board-else-strip"><span class="board-else-label">Everything else</span>' + chips
+    + '<span class="board-else-hint">Click a category to make it the lens.</span></div>';
 }
 
 function boardRender() {
   var body = document.getElementById('board-body');
   if (!body || !_boardData) return;
-  if ((_boardData.totals.actual_cents || 0) === 0) {
-    body.innerHTML = '<div class="board-empty">No giving recorded for ' + esc(_boardData.period_label) + ' yet.</div>';
+  var d = _boardData, lens = boardLensBlock(d);
+  var sub = document.getElementById('board-subtitle');
+  if (sub) sub.textContent = d.through_label + ' · ' + lens.label + ' only · no individual donors named';
+  var note = document.getElementById('board-print-note');
+  if (note) note.innerHTML = 'Packet prints the ' + esc(lens.label) + ' pages, plus a one-page summary of the other categories.';
+  var strip = document.getElementById('board-else-strip');
+  if (strip) strip.innerHTML = boardElseStripHtml(d);
+  if (_boardMode === 'analysis') return;
+  if ((lens.given_ytd_cents || 0) === 0) {
+    body.innerHTML = '<div class="board-empty">' + ((lens.fund_count === 0)
+      ? 'No funds are mapped to ' + esc(lens.label) + ' yet. Give each fund a category under <strong>Settings &rarr; Fund categories</strong>.'
+      : 'No ' + esc(lens.label) + ' giving recorded for ' + esc(d.period_label) + ' yet.') + '</div>';
     return;
   }
-  body.innerHTML = _boardMode === 'narrative' ? boardNarrativeHtml(_boardData) : boardDashboardHtml(_boardData);
+  body.innerHTML = _boardMode === 'narrative' ? boardNarrativeHtml(d) : boardDashboardHtml(d);
 }
 
 function boardKpiCard(color, label, value, valueColor, sub) {
@@ -622,86 +995,88 @@ function boardKpiCard(color, label, value, valueColor, sub) {
 }
 
 function boardDashboardHtml(d) {
-  var k = d.kpis;
-  // General Fund is what the board cares about most — every fund sharing the same leading
-  // numeric code as "General Fund" (e.g. "40085 General Fund", "40085 Christmas Offering", ...),
-  // same numeric-prefix grouping the Giving by Fund report already uses. All three of the first
-  // KPI cards are scoped to General Fund only (not the all-funds totals in k), so they read as
-  // one coherent story instead of mixing an all-funds projection with a General-Fund YTD figure.
-  var gf = d.general_fund || {};
-  // KPI 1 — General Fund YTD (primary), with all other giving folded in as a sub-line
-  var deltaSub = gf.given_ytd_prior_cents > 0
-    ? ((gf.given_ytd_delta_pct >= 0 ? '+' : '−') + Math.abs(gf.given_ytd_delta_pct) + '% vs. same point in ' + d.prior_year)
+  // Every figure on this page is scoped to the selected lens — one fund category, or all giving.
+  // Nothing here mixes scopes: an all-funds projection sitting beside a General-Fund YTD figure
+  // is exactly the inconsistency the lens exists to prevent.
+  var g = boardLensBlock(d);
+  // KPI 1 — <Category> YTD
+  var deltaSub = g.given_ytd_prior_cents > 0
+    ? ((g.given_ytd_delta_pct >= 0 ? '+' : '−') + Math.abs(g.given_ytd_delta_pct) + '% vs. same point in ' + d.prior_year
+       + ' (' + boardMoney(g.given_ytd_prior_cents) + ')')
     : 'No prior-year data for this point';
-  var otherSub = gf.other_giving_cents > 0
-    ? '<div style="margin-top:3px;opacity:.8;">+ ' + boardMoney(gf.other_giving_cents) + ' other giving (' + gf.other_fund_count + ' fund' + (gf.other_fund_count === 1 ? '' : 's') + ') &middot; ' + boardMoney(gf.given_ytd_cents + gf.other_giving_cents) + ' total</div>'
-    : '';
-  var c1 = boardKpiCard('#2E7EA6', 'General Fund YTD', boardMoney(gf.given_ytd_cents), '', deltaSub + otherSub);
-  // KPI 2 — Vs budget YTD — from Finance → Church Report's own "40085 Sunday Offering" account
-  // budget (same leading code, different title), not a separate fund-level budget in Settings.
+  var c1 = boardKpiCard('#2E7EA6', g.label + ' YTD', boardMoney(g.given_ytd_cents), '', deltaSub);
+  // KPI 2 — Vs budget YTD, for the funds in this category. For the General Fund the plan comes
+  // from Finance → Church Report's own account; every other category uses its funds' own budgets.
   var c2;
-  if (gf.budget_variance_cents == null) {
-    c2 = boardKpiCard('#B85C3A', 'Vs. budget YTD', '—', '#8A8377', 'No Church Report budget uploaded for this account yet');
+  if (g.budget_variance_cents == null) {
+    c2 = boardKpiCard('#B85C3A', 'Vs. budget YTD', '—', '#8A8377',
+      g.key === 'general' ? 'No Church Report budget uploaded for this account yet'
+                          : 'No budget set for the funds in this category');
   } else {
-    var vneg = gf.budget_variance_cents < 0;
-    var vsub = Math.abs(gf.budget_variance_pct) + '% ' + (vneg ? 'behind' : 'ahead of') + ' the ' + boardMoney(gf.budget_ytd_cents) + ' plan';
-    c2 = boardKpiCard('#B85C3A', 'Vs. budget YTD', boardMoney(gf.budget_variance_cents), vneg ? '#B85C3A' : '#6B8F71', vsub);
+    var vneg = g.budget_variance_cents < 0;
+    var vsub = Math.abs(g.budget_variance_pct) + '% ' + (vneg ? 'behind' : 'ahead of') + ' the ' + boardMoney(g.budget_ytd_cents) + ' plan';
+    c2 = boardKpiCard('#B85C3A', 'Vs. budget YTD', boardMoney(g.budget_variance_cents), vneg ? '#B85C3A' : '#6B8F71', vsub);
   }
-  // KPI 3 — Year-end projection (General Fund only, same basis as card 1 — an all-funds
-  // projection here would contradict card 1's own YTD trend whenever other funds move differently)
-  var methodNote = gf.projection_method === 'seasonal' ? 'Projected on last year’s seasonal pattern'
-    : gf.projection_method === 'linear-weekly' ? 'Projected from the pace per Sunday so far this year'
-    : gf.projection_method === 'linear' ? 'Projected straight-line from the pace so far'
+  // KPI 3 — Year-end projection, same basis as card 1
+  var methodNote = g.projection_method === 'seasonal' ? 'Projected on last year’s seasonal pattern'
+    : g.projection_method === 'linear-weekly' ? 'Projected from the pace per Sunday so far this year'
+    : g.projection_method === 'linear' ? 'Projected straight-line from the pace so far'
     : 'Full year recorded';
-  var projSub = gf.projection_vs_budget_cents == null ? methodNote
-    : boardMoney(Math.abs(gf.projection_vs_budget_cents)) + (gf.projection_vs_budget_cents < 0 ? ' under' : ' over') + ' a ' + boardMoney(gf.annual_budget_cents) + ' budget';
-  var c3 = boardKpiCard('#C9973A', 'Year-end projection', boardMoney(gf.projection_cents), '', projSub);
-  // KPI 4 — Giving households
-  var hhDelta = k.households - k.households_prior;
-  var hhSub = (k.households_prior > 0 ? (Math.abs(hhDelta) + (hhDelta === 0 ? ' same as ' : hhDelta < 0 ? ' fewer than ' : ' more than ') + d.prior_year + ' · ') : '')
-    + boardMoney(k.avg_per_household_cents) + ' average';
-  var c4 = boardKpiCard('#6B8F71', 'Giving households', k.households.toLocaleString('en-US'), '', hhSub);
+  var projSub = g.projection_vs_budget_cents == null ? methodNote
+    : boardMoney(Math.abs(g.projection_vs_budget_cents)) + (g.projection_vs_budget_cents < 0 ? ' under' : ' over') + ' a ' + boardMoney(g.annual_budget_cents) + ' budget';
+  var c3 = boardKpiCard('#C9973A', 'Year-end projection', boardMoney(g.projection_cents), '', projSub);
+  // KPI 4 — households, labelled for what the category actually counts (paying households for
+  // earned income, income sources for passive — "giving households" would misdescribe both).
+  var hhDelta = g.households - g.households_prior;
+  var hhSub = (g.households_prior > 0 ? (Math.abs(hhDelta) + (hhDelta === 0 ? ' same as ' : hhDelta < 0 ? ' fewer than ' : ' more than ') + d.prior_year + ' · ') : '')
+    + boardMoney(g.avg_per_household_cents) + ' average';
+  var c4 = boardKpiCard('#6B8F71', g.hh_label || 'Giving households', g.households.toLocaleString('en-US'), '', hhSub);
   var kpis = '<div class="board-kpi-grid">' + c1 + c2 + c3 + c4 + '</div>';
 
   // Body grid: chart card + navy panel
+  var scopeWord = (g.key === 'all') ? 'all funds' : g.label + ' only';
   var legend = '<div class="board-legend">'
     + '<span><span class="board-swatch" style="background:#C4DDE8;"></span>' + d.prior_year + '</span>'
     + '<span><span class="board-swatch" style="background:#2E7EA6;"></span>' + d.year + '</span>'
-    + (d.has_budget ? '<span><span class="board-swatch" style="background:#F5E0B0;border:1px solid #C9973A;"></span>Budget</span>' : '')
+    + (g.has_budget ? '<span><span class="board-swatch" style="background:#F5E0B0;border:1px solid #C9973A;"></span>Budget</span>' : '')
     + '</div>';
-  var chartNote = d.has_budget
-    ? 'Thousands of dollars, all funds. The budget bar is the council-approved plan spread across the year by last year’s pattern.'
-    : 'Thousands of dollars, all funds. Set fund budgets in Settings to show the budget bars.';
+  var chartNote = g.has_budget
+    ? 'Thousands of dollars, ' + scopeWord + '. The budget bar is the council-approved plan spread across the year by last year’s pattern.'
+    : 'Thousands of dollars, ' + scopeWord + '. Budget bars appear once the fund budget is set.';
   var chartCard = '<div class="board-card">'
     + '<div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px;">'
-    + '<div class="board-card-label">Month by month vs. prior year</div>' + legend + '</div>'
+    + '<div class="board-card-label">' + esc(g.label) + ' — month by month vs. prior year</div>' + legend + '</div>'
     + '<div style="font-size:11.5px;color:var(--warm-gray);margin-bottom:10px;">' + chartNote + '</div>'
-    + boardMonthChart(d) + '</div>';
+    + boardMonthChart(d, g) + '</div>';
 
-  var navy = boardNavyHtml(d);
+  var navy = boardNavyHtml(d, g);
   var bodyGrid = '<div class="board-body-grid">' + chartCard + navy + '</div>';
 
-  // Fund table
-  var fundTable = boardFundTableHtml(d);
+  var fundTable = boardFundTableHtml(d, g);
 
   return kpis + bodyGrid + fundTable;
 }
 
-function boardNavyHtml(d) {
+function boardNavyHtml(d, g) {
+  g = g || boardLensBlock(d);
+  // Passive income doesn't come from households at all — it comes from accounts — so the
+  // concentration sentence has to name what the category actually holds, not "households".
+  var unit = (g.key === 'passive') ? 'accounts' : (g.key === 'earned' ? 'payers' : 'households');
   var mixColors = { check:'#C4DDE8', ach:'#6B8F71', cash:'#C9973A', other:'#8A8377' };
-  var rows = d.method_mix.map(function(m) {
+  var rows = (g.method_mix || []).map(function(m) {
     return '<div class="board-mix-row">'
       + '<div class="board-mix-head"><span>' + esc(m.label) + '</span><span style="font-variant-numeric:tabular-nums;">' + boardMoney(m.cents) + ' · ' + m.pct + '%</span></div>'
       + '<div class="board-mix-track"><div class="board-mix-fill" style="width:' + m.pct + '%;background:' + mixColors[m.key] + ';"></div></div></div>';
   }).join('');
-  var con = d.concentration;
+  var con = g.concentration || d.concentration;
   var segColors = ['#C9973A', '#C4DDE8', '#6B8F71', 'rgba(255,255,255,.28)'];
   var segBar = '<div style="display:flex;height:10px;border-radius:5px;overflow:hidden;margin-top:12px;">'
     + con.segments.map(function(s, i) { return '<div style="width:' + Math.max(0, s.pct) + '%;background:' + segColors[i] + ';"></div>'; }).join('') + '</div>';
   var segLabels = '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:rgba(255,255,255,.6);margin-top:5px;">'
     + con.segments.map(function(s) { return '<span>' + esc(s.label) + '</span>'; }).join('') + '</div>';
-  var conText = 'The ten largest giving households account for <strong style="color:#fff;">' + con.top10_pct + '%</strong> of everything received this year.'
-    + (con.half_households > 0 ? ' Half of all giving comes from ' + con.half_households + ' households.' : '');
+  var conText = 'The ten largest ' + unit + ' account for <strong style="color:#fff;">' + con.top10_pct + '%</strong> of '
+    + ((g.key === 'all') ? 'everything received this year' : esc(g.label).toLowerCase() + ' this year') + '.'
+    + (con.half_households > 0 ? ' Half of it comes from ' + con.half_households + ' ' + unit + '.' : '');
   return '<div class="board-navy">'
     + '<div class="board-navy-label">Where the money comes from</div>'
     + '<div>' + rows + '</div>'
@@ -719,8 +1094,8 @@ function boardToggleFundGroup(gi) {
   rows.forEach(function(r) { r.style.display = expanded ? 'none' : ''; });
   if (chevron) chevron.innerHTML = expanded ? '&#9656;' : '&#9662;';
 }
-function boardFundTableHtml(d) {
-  var t = d.totals;
+function boardFundTableHtml(d, g) {
+  g = g || boardLensBlock(d);
   function moneyCell(cents, color) {
     return '<td class="num"' + (color ? ' style="color:' + color + ';"' : '') + '>' + boardMoney(cents) + '</td>';
   }
@@ -740,8 +1115,25 @@ function boardFundTableHtml(d) {
   // the Giving by Fund report already uses (rptToggleFundGroup) — otherwise every seasonal
   // sub-fund under General Fund's own code shows up as its own scattered small row instead of
   // folding into the one line a board actually cares about.
+  // "All giving" lists the four categories as rows — a board doesn't want 30 individual funds
+  // when the question is how the categories compare; each category lens then lists its own funds.
+  if (g.key === 'all') {
+    var catBody = (d.fund_categories || []).map(function(c) {
+      var cb = (d.categories || {})[c.key];
+      if (!cb) return '';
+      return '<tr style="cursor:pointer;" data-lens="' + c.key + '" onclick="boardSetLens(this.dataset.lens)"><td>' + esc(c.label)
+        + ' <span style="color:var(--warm-gray);font-weight:400;">(' + cb.fund_count + ' fund' + (cb.fund_count === 1 ? '' : 's') + ')</span></td>'
+        + fundRowCells({ actual_cents: cb.given_ytd_cents, budget_ytd_cents: cb.budget_ytd_cents,
+                         variance_cents: cb.budget_variance_cents, prior_cents: cb.given_ytd_prior_cents }) + '</tr>';
+    }).join('');
+    return '<div class="board-card board-fund-table">'
+      + '<div class="board-card-label" style="margin-bottom:10px;">By category</div>'
+      + '<table class="rpt-table"><thead><tr>'
+      + '<th>Category</th><th class="num">YTD actual</th><th class="num">YTD budget</th><th class="num">Variance</th><th class="num">Prior year</th>'
+      + '</tr></thead><tbody>' + catBody + boardFundTotalRow(g) + '</tbody></table></div>';
+  }
   var groups = {}, order = [];
-  d.funds.forEach(function(f) {
+  (g.funds || []).forEach(function(f) {
     var m = (f.name || '').match(/^(\d+)\s/);
     var key = m ? m[1] : ('_' + f.name);
     if (!groups[key]) { groups[key] = []; order.push(key); }
@@ -767,39 +1159,63 @@ function boardFundTableHtml(d) {
       body += '<tr><td>' + esc(grp[0].name) + '</td>' + fundRowCells(grp[0]) + '</tr>';
     }
   });
-  var totalVar = d.has_budget ? (t.actual_cents - t.budget_ytd_cents) : null;
-  var totalRow = '<tr class="rpt-total"><td style="color:var(--color-navy);">Total</td>'
-    + '<td class="num" style="color:var(--color-navy);">' + boardMoney(t.actual_cents) + '</td>'
-    + (d.has_budget ? '<td class="num" style="color:var(--color-navy);">' + boardMoney(t.budget_ytd_cents) + '</td>' : dashCell())
-    + (totalVar == null ? dashCell() : '<td class="num" style="color:' + (totalVar < 0 ? '#B85C3A' : '#6B8F71') + ';">' + (totalVar > 0 ? '+' : '') + boardMoney(totalVar) + '</td>')
-    + '<td class="num" style="color:var(--color-navy);">' + boardMoney(t.prior_cents) + '</td></tr>';
   return '<div class="board-card board-fund-table">'
-    + '<div class="board-card-label" style="margin-bottom:10px;">By fund</div>'
+    + '<div class="board-card-label" style="margin-bottom:10px;">Funds inside ' + esc(g.label) + '</div>'
     + '<table class="rpt-table"><thead><tr>'
     + '<th>Fund</th><th class="num">YTD actual</th><th class="num">YTD budget</th><th class="num">Variance</th><th class="num">Prior year</th>'
-    + '</tr></thead><tbody>' + body + totalRow + '</tbody></table></div>';
+    + '</tr></thead><tbody>' + body + boardFundTotalRow(g) + '</tbody></table></div>';
+}
+
+// One total row shared by both shapes of the table, so the by-category and by-fund views can
+// never print different totals for the same lens.
+function boardFundTotalRow(g) {
+  var v = g.budget_variance_cents;
+  return '<tr class="rpt-total"><td style="color:var(--color-navy);">Total</td>'
+    + '<td class="num" style="color:var(--color-navy);">' + boardMoney(g.given_ytd_cents) + '</td>'
+    + (g.budget_ytd_cents == null ? '<td class="num" style="color:#8A8377;">—</td>' : '<td class="num" style="color:var(--color-navy);">' + boardMoney(g.budget_ytd_cents) + '</td>')
+    + (v == null ? '<td class="num" style="color:#8A8377;">—</td>' : '<td class="num" style="color:' + (v < 0 ? '#B85C3A' : '#6B8F71') + ';">' + (v > 0 ? '+' : '') + boardMoney(v) + '</td>')
+    + '<td class="num" style="color:var(--color-navy);">' + boardMoney(g.given_ytd_prior_cents) + '</td></tr>';
+}
+
+// A "nice" axis step (1/2/5 x a power of ten) giving 2-4 gridlines for whatever this category's
+// biggest month is. The board's original fixed 50k-step/100k-minimum axis was written for the
+// General Fund; against passive income — a couple of thousand dollars for the WHOLE year — every
+// bar rounded to zero height and the chart read as a flat line.
+function boardNiceStepK(maxK) {
+  if (!(maxK > 0)) return 1;
+  var target = maxK / 3;                                  // aim for ~3 steps to the top
+  var mag = Math.pow(10, Math.floor(Math.log(target) / Math.LN10));
+  var norm = target / mag;
+  var mult = norm > 5 ? 10 : norm > 2 ? 5 : norm > 1 ? 2 : 1;
+  return mult * mag;
 }
 
 // Grouped bar chart: prior year (all 12 months) / current year (through the last closed month) /
 // budget (all 12, only when budgets exist). Auto-scales the y-axis to the data.
-function boardMonthChart(d) {
-  var cur = d.monthly.current, prior = d.monthly.prior, tm = d.through_month;
-  // Budget monthly, spread by prior-year shape (or evenly), only if budgets exist
+function boardMonthChart(d, g) {
+  g = g || boardLensBlock(d);
+  var cur = (g.monthly && g.monthly.current) || d.monthly.current;
+  var prior = (g.monthly && g.monthly.prior) || d.monthly.prior;
+  var tm = d.through_month;
+  var hasBudget = !!g.has_budget, annualBudget = g.annual_budget_cents || 0;
+  // Budget monthly, spread by prior-year shape (or evenly), only if a budget exists
   var priorTotal = prior.reduce(function(s, v) { return s + v; }, 0);
   var budgetMonthly = new Array(12).fill(0);
-  if (d.has_budget) {
+  if (hasBudget) {
     for (var i = 0; i < 12; i++) {
-      budgetMonthly[i] = priorTotal > 0 ? d.totals.annual_budget_cents * (prior[i] / priorTotal) : d.totals.annual_budget_cents / 12;
+      budgetMonthly[i] = priorTotal > 0 ? annualBudget * (prior[i] / priorTotal) : annualBudget / 12;
     }
   }
-  // Axis max (in thousands), nice-rounded to 50k, min 100k
+  // Axis max, in thousands. The step adapts to the size of the category: passive income peaks
+  // near $2k, and a fixed 50k-step/100k-minimum axis would render it as a flat line at zero.
   var maxCents = 0;
   for (var j = 0; j < 12; j++) {
     if (j < tm) maxCents = Math.max(maxCents, cur[j]);
     maxCents = Math.max(maxCents, prior[j], budgetMonthly[j]);
   }
   var maxK = maxCents / 100000;
-  var axisMaxK = Math.max(100, Math.ceil(maxK / 50) * 50);
+  var stepK = boardNiceStepK(maxK);
+  var axisMaxK = Math.max(stepK * 2, Math.ceil(maxK / stepK) * stepK);
   var baseline = 120, top = 26, span = baseline - top; // 94px
   function yOf(cents) { var k = cents / 100000; return baseline - (k / axisMaxK) * span; }
   function hOf(cents) { return (cents / 100000 / axisMaxK) * span; }
@@ -809,7 +1225,11 @@ function boardMonthChart(d) {
   gl.forEach(function(val) {
     var yy = baseline - (val / axisMaxK) * span;
     svg += '<line x1="26" y1="' + yy.toFixed(1) + '" x2="700" y2="' + yy.toFixed(1) + '" stroke="' + (val === 0 ? '#E8E0D0' : '#F1EFE9') + '" stroke-width="1"></line>';
-    svg += '<text x="22" y="' + (yy + 3).toFixed(1) + '" text-anchor="end" fill="#A69A88" font-size="9">' + Math.round(val) + '</text>';
+    // Below 1k a whole-number label would print every gridline as "0"; show enough decimals
+    // that consecutive gridlines are actually distinguishable.
+    var dp = stepK >= 5 ? 0 : stepK >= 1 ? 1 : Math.min(3, Math.ceil(-Math.log(stepK) / Math.LN10) + 1);
+    var lbl = val.toFixed(dp);
+    svg += '<text x="22" y="' + (yy + 3).toFixed(1) + '" text-anchor="end" fill="#A69A88" font-size="9">' + lbl + '</text>';
   });
   var x0 = 30, pitch = (700 - x0 - 6) / 12, barW = 13, gap = 2;
   for (var mo = 0; mo < 12; mo++) {
@@ -819,7 +1239,7 @@ function boardMonthChart(d) {
     // current (teal) only through last closed month
     if (mo < tm) bars.push({ v: cur[mo], fill: '#2E7EA6', stroke: '' });
     // budget (gold outline) if present
-    if (d.has_budget) bars.push({ v: budgetMonthly[mo], fill: '#F5E0B0', stroke: '#C9973A' });
+    if (hasBudget) bars.push({ v: budgetMonthly[mo], fill: '#F5E0B0', stroke: '#C9973A' });
     var groupW = bars.length * barW + (bars.length - 1) * gap;
     var gs = x0 + mo * pitch + (pitch - groupW) / 2;
     bars.forEach(function(b, bi) {
@@ -837,7 +1257,9 @@ function boardMonthChart(d) {
 
 // Narrative page (1B): same data written as prose for the packet.
 function boardNarrativeHtml(d) {
-  var k = d.kpis, t = d.totals, con = d.concentration;
+  // Written about the selected lens, same as the dashboard — a narrative that silently talked
+  // about all funds while the header said "General Fund only" would be the worst kind of wrong.
+  var k = boardLensBlock(d), con = k.concentration || d.concentration;
   var churchName = (typeof _churchConfig !== 'undefined' && _churchConfig && _churchConfig.church_name) || 'Timothy Lutheran Church';
   var mmName = BOARD_MONTHS[d.through_month - 1];
   // last day of month
@@ -848,7 +1270,8 @@ function boardNarrativeHtml(d) {
 
   // Lede
   var deltaPrior = k.given_ytd_cents - k.given_ytd_prior_cents;
-  var ledeParts = 'the congregation has given <strong>' + boardMoney(k.given_ytd_cents) + '</strong>';
+  var scopeNote = (k.key === 'all') ? 'across every fund' : 'to ' + k.label.toLowerCase();
+  var ledeParts = 'the congregation has given <strong>' + boardMoney(k.given_ytd_cents) + '</strong> ' + scopeNote;
   if (k.given_ytd_prior_cents > 0) ledeParts += ' — about ' + boardMoney(Math.abs(deltaPrior)) + (deltaPrior >= 0 ? ' more' : ' less') + ' than at this point last year';
   if (k.budget_variance_cents != null) ledeParts += ', and about ' + boardMoney(Math.abs(k.budget_variance_cents)) + (k.budget_variance_cents < 0 ? ' less than' : ' more than') + ' the budget assumed';
   ledeParts += '.';
@@ -876,9 +1299,10 @@ function boardNarrativeHtml(d) {
     + '. That concentration is the single largest financial risk the council carries: the loss or relocation of a few families would matter more than any line item in the budget.';
 
   // Section: How gifts arrive
-  var mix = {}; d.method_mix.forEach(function(m) { mix[m.key] = m; });
-  var arriveBody = 'Checks are ' + (mix.check.pct) + '% of giving. Automatic giving — ACH and online — is ' + mix.ach.pct + '%. '
-    + 'Loose-plate cash is ' + mix.cash.pct + '%; it is also the only giving the church cannot acknowledge or attribute.';
+  var mix = {}; (k.method_mix || d.method_mix).forEach(function(m) { mix[m.key] = m; });
+  var mixPct = function(key) { return (mix[key] && mix[key].pct) || 0; };
+  var arriveBody = 'Checks are ' + mixPct('check') + '% of giving. Automatic giving — ACH and online — is ' + mixPct('ach') + '%. '
+    + 'Loose-plate cash is ' + mixPct('cash') + '%; it is also the only giving the church cannot acknowledge or attribute.';
 
   var section = function(eyebrow, body) {
     return '<div><div class="board-nv-eyebrow">' + esc(eyebrow) + '</div><div class="board-nv-body">' + body + '</div></div>';
@@ -892,16 +1316,16 @@ function boardNarrativeHtml(d) {
     return '<td style="padding:7px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;color:' + (v < 0 ? '#B85C3A' : (v > 0 ? '#6B8F71' : '#8A8377')) + ';">' + (v > 0 ? '+' : '') + boardMoney(v) + '</td>';
   }
   var th = 'padding:7px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--warm-meta);border-bottom:1.5px solid var(--color-navy);';
-  var fundRows = d.funds.map(function(f) {
+  var fundRows = (k.funds || d.funds).map(function(f) {
     return '<tr><td style="padding:7px 8px;border-bottom:1px solid var(--linen);">' + esc(f.name) + '</td>'
       + nvNum(f.actual_cents) + (f.budget_ytd_cents == null ? nvDash() : nvNum(f.budget_ytd_cents)) + nvVar(f.variance_cents) + nvNum(f.prior_cents, '#8A8377') + '</tr>';
   }).join('');
-  var totVar = d.has_budget ? (t.actual_cents - t.budget_ytd_cents) : null;
+  var totVar = k.budget_variance_cents;
   var totRow = '<tr><td style="padding:8px;font-weight:700;">Total</td>'
-    + '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(t.actual_cents) + '</td>'
-    + (d.has_budget ? '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(t.budget_ytd_cents) + '</td>' : '<td style="padding:8px;text-align:right;color:#8A8377;">—</td>')
+    + '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(k.given_ytd_cents) + '</td>'
+    + (k.budget_ytd_cents != null ? '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(k.budget_ytd_cents) + '</td>' : '<td style="padding:8px;text-align:right;color:#8A8377;">—</td>')
     + (totVar == null ? '<td style="padding:8px;text-align:right;color:#8A8377;">—</td>' : '<td style="padding:8px;text-align:right;font-weight:700;color:' + (totVar < 0 ? '#B85C3A' : '#6B8F71') + ';font-variant-numeric:tabular-nums;">' + (totVar > 0 ? '+' : '') + boardMoney(totVar) + '</td>')
-    + '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(t.prior_cents) + '</td></tr>';
+    + '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(k.given_ytd_prior_cents) + '</td></tr>';
   var fundTable = '<table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:26px;"><thead><tr>'
     + '<th style="text-align:left;' + th + '">Fund</th><th style="text-align:right;' + th + '">YTD</th><th style="text-align:right;' + th + '">Budget</th><th style="text-align:right;' + th + '">Variance</th><th style="text-align:right;' + th + '">' + d.prior_year + '</th>'
     + '</tr></thead><tbody>' + fundRows + totRow + '</tbody></table>';
@@ -919,16 +1343,68 @@ function boardNarrativeHtml(d) {
     + section('Are we on pace?', paceBody)
     + section('Who is giving', whoBody)
     + section('How gifts arrive', arriveBody)
+    + boardNarrativeElseSection(d)
     + '</div>'
     + fundTable
     + footnote
     + '</div>';
 }
 
+// The closing paragraph of the narrative: what the OTHER categories did, so a packet written
+// about one lens still tells the council what the rest of the money was doing.
+function boardNarrativeElseSection(d) {
+  var cats = d.categories || {};
+  var others = (d.fund_categories || []).filter(function(c) { return c.key !== _boardLens && cats[c.key]; });
+  if (!others.length) return '';
+  var parts = others.map(function(c) { return cats[c.key].label.toLowerCase() + ' ' + boardMoney(cats[c.key].given_ytd_cents); });
+  var body = 'Beyond the figures above, the year to date also brought ' + parts.join(', ') + '. '
+    + 'Those totals are reported here for completeness; each has its own page in the full packet.';
+  return '<div><div class="board-nv-eyebrow">Everything else</div><div class="board-nv-body">' + body + '</div></div>';
+}
+
+// Print honors the lens: the selected category's own pages, then one summary page listing the
+// other categories fund by fund. Built into the DOM only for the duration of the print job —
+// leaving it on screen would be a second, contradictory copy of the report.
+function boardPrintSummaryHtml(d) {
+  var cats = d.categories || {};
+  var others = (d.fund_categories || []).filter(function(c) { return c.key !== _boardLens && cats[c.key]; });
+  if (!others.length) return '';
+  var blocks = others.map(function(c) {
+    var cb = cats[c.key];
+    var rows = (cb.funds || []).map(function(f) {
+      return '<tr><td style="padding:5px 8px;border-bottom:1px solid var(--linen);">' + esc(f.name) + '</td>'
+        + '<td class="num" style="padding:5px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;">' + boardMoney(f.actual_cents) + '</td>'
+        + '<td class="num" style="padding:5px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;color:#8A8377;">' + boardMoney(f.prior_cents) + '</td></tr>';
+    }).join('') || '<tr><td colspan="3" style="padding:5px 8px;color:#8A8377;">No funds in this category.</td></tr>';
+    return '<div style="margin-bottom:18px;"><div class="board-card-label" style="margin-bottom:6px;">' + esc(cb.label)
+      + ' &mdash; ' + boardMoney(cb.given_ytd_cents) + ' YTD</div>'
+      + '<table class="rpt-table"><thead><tr><th>Fund</th><th class="num">YTD</th><th class="num">Prior year</th></tr></thead>'
+      + '<tbody>' + rows + '</tbody></table></div>';
+  }).join('');
+  return '<div id="board-print-summary" class="board-card" style="margin-top:14px;page-break-before:always;">'
+    + '<div class="board-card-label" style="margin-bottom:10px;">Everything else &mdash; the other categories</div>' + blocks + '</div>';
+}
+
 function printBoardPage() {
   if (!_boardData) return;
+  // "Print board page" prints the board page. If Analysis is the mode on screen, board-body
+  // holds no rendered report (boardRender skips it in that mode) and the print CSS can't
+  // resurrect an inline display:none — so switch back to the dashboard first, visibly, rather
+  // than printing a blank sheet.
+  if (_boardMode === 'analysis') boardSetMode('dashboard');
+  var body = document.getElementById('board-body');
+  var summary = null;
+  if (body && _boardMode !== 'analysis') {
+    var html = boardPrintSummaryHtml(_boardData);
+    if (html) { summary = document.createElement('div'); summary.innerHTML = html; body.appendChild(summary); }
+  }
   document.body.classList.add('printing-board');
-  var cleanup = function() { document.body.classList.remove('printing-board'); window.removeEventListener('afterprint', cleanup); };
+  var cleanup = function() {
+    document.body.classList.remove('printing-board');
+    if (summary && summary.parentNode) summary.parentNode.removeChild(summary);
+    summary = null;
+    window.removeEventListener('afterprint', cleanup);
+  };
   window.addEventListener('afterprint', cleanup);
   setTimeout(function() { window.print(); setTimeout(cleanup, 1000); }, 60);
 }
@@ -1569,6 +2045,68 @@ function givLettersToggleMark(i) {
       household_id: (r.kind === 'household') ? r.id : null
     })
   }).then(function() { givLettersLoadStatus(); }).catch(function(){});
+}
+
+
+// ── Settings → Fund categories ─────────────────────────────────────────
+// The mapping the Reports fund lens depends on. Every fund gets exactly one category and an
+// annual budget; saved together on an explicit click, matching this app's no-silent-autosave
+// convention everywhere else in Settings.
+var _givFundCats = [];
+function givLoadFundCategories() {
+  var root = document.getElementById('giv-fundcat-root');
+  if (!root) return;
+  api('/admin/api/funds').then(function(d) {
+    _givFundCats = (d && d.funds) || [];
+    givRenderFundCategories();
+  }).catch(function() {
+    root.innerHTML = '<div style="font-size:.85rem;color:var(--danger);">Could not load funds.</div>';
+  });
+}
+var _GIV_FUND_CAT_OPTS = [
+  { key: 'general',    label: 'General Fund' },
+  { key: 'earned',     label: 'Earned income' },
+  { key: 'passive',    label: 'Passive income' },
+  { key: 'restricted', label: 'Restricted & designated' },
+];
+function givRenderFundCategories() {
+  var root = document.getElementById('giv-fundcat-root');
+  if (!root) return;
+  if (!_givFundCats.length) {
+    root.innerHTML = '<div style="font-size:.85rem;color:var(--warm-gray);">No funds yet.</div>';
+    return;
+  }
+  var rows = _givFundCats.map(function(f, i) {
+    var opts = _GIV_FUND_CAT_OPTS.map(function(o) {
+      return '<option value="' + o.key + '"' + ((f.category || 'restricted') === o.key ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+    }).join('');
+    var budget = ((f.budget_annual_cents || 0) / 100).toFixed(2);
+    return '<tr' + (f.active ? '' : ' style="opacity:.55;"') + '>'
+      + '<td>' + esc(f.name) + (f.active ? '' : ' <span style="font-size:.72rem;color:var(--warm-gray);">(inactive)</span>') + '</td>'
+      + '<td><select id="giv-fc-cat-' + f.id + '" style="font-size:.82rem;padding:4px 8px;">' + opts + '</select></td>'
+      + '<td style="text-align:right;">$ <input type="text" inputmode="decimal" id="giv-fc-budget-' + f.id + '" value="' + budget + '" style="width:90px;text-align:right;font-variant-numeric:tabular-nums;font-size:.82rem;padding:4px 6px;"></td>'
+      + '</tr>';
+  }).join('');
+  root.innerHTML = '<table class="rpt-table"><thead><tr><th>Fund</th><th>Category</th><th style="text-align:right;">Annual budget</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+function givSaveFundCategories() {
+  var status = document.getElementById('giv-fundcat-status');
+  var payload = _givFundCats.map(function(f) {
+    var cat = document.getElementById('giv-fc-cat-' + f.id);
+    var bud = document.getElementById('giv-fc-budget-' + f.id);
+    var cents = givParseMoneyCents(bud && bud.value);
+    return { id: f.id, category: cat ? cat.value : (f.category || 'restricted'), budget_annual_cents: cents === null ? 0 : cents };
+  });
+  if (status) { status.className = 'import-status'; status.textContent = 'Saving…'; }
+  api('/admin/api/funds/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ funds: payload }) })
+    .then(function(r) {
+      if (r && r.error) { if (status) { status.className = 'import-status error'; status.textContent = r.error; } return; }
+      if (status) { status.className = 'import-status success'; status.textContent = 'Saved ' + (r.count || 0) + ' funds.'; }
+      // The board's lens data is now stale — reload it next time Reports is opened.
+      _boardData = null;
+      givLoadFundCategories();
+    })
+    .catch(function() { if (status) { status.className = 'import-status error'; status.textContent = 'Could not save.'; } });
 }
 
 `;

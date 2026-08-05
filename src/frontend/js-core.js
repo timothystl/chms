@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.139.0';
+export const DEPLOY_VERSION = '1.140.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -280,7 +280,10 @@ function showTab(name, finSection) {
   if (name === 'people') loadPeople();
   if (name === 'households') loadHouseholds();
   if (name === 'organizations') loadOrganizations();
-  if (name === 'giving') loadBatches();
+  // Re-entering Giving lands on whichever sub-view was last open (Offerings on a fresh load),
+  // and givSetView is what actually loads that view's data — calling loadBatches() alone would
+  // refresh a panel that may not even be the one on screen.
+  if (name === 'giving') givSetView(_givView);
   if (name === 'tuitionaid') loadTuitionAid();
   if (name === 'finance') {
     if (finSection) _finActiveNavId = finSection;

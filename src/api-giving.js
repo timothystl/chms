@@ -1,6 +1,6 @@
 // ── Giving Entries, Batches, Quick Entry API handlers ──────────────────────
 import { json } from './auth.js';
-import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue, computeDepositTotals } from './api-utils.js';
+import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue, computeDepositTotals, batchDepositStatus, batchDepositStatusFromCounts } from './api-utils.js';
 
 export async function handleGivingApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -34,14 +34,81 @@ if (seg === 'giving' && method === 'GET') {
 // ── Giving Batches ───────────────────────────────────────────────
 if (seg === 'giving/batches' && method === 'GET') {
   const status = url.searchParams.get('status') || 'all';
-  let sql = `SELECT gb.*, COUNT(ge.id) as entry_count, COALESCE(SUM(ge.amount),0) as total_cents
+  // Deposit coverage comes in as correlated subqueries rather than a second LEFT JOIN — joining
+  // both giving_entries and giving_deposit_lines in one GROUP BY would multiply the rows and
+  // silently inflate every batch's total (n entries x m deposit lines).
+  let sql = `SELECT gb.*, COUNT(ge.id) as entry_count, COALESCE(SUM(ge.amount),0) as total_cents,
+             (SELECT COALESCE(SUM(dl.amount_cents),0) FROM giving_deposit_lines dl WHERE dl.batch_id=gb.id) as linked_cents,
+             (SELECT COUNT(*) FROM giving_deposit_lines dl WHERE dl.batch_id=gb.id) as deposit_count,
+             (SELECT COUNT(*) FROM giving_deposit_lines dl JOIN giving_deposits d ON d.id=dl.deposit_id
+               WHERE dl.batch_id=gb.id AND d.bank_cents IS NULL) as unreconciled_count
              FROM giving_batches gb LEFT JOIN giving_entries ge ON ge.batch_id=gb.id`;
   const binds = [];
   if (status === 'open') { sql += ' WHERE gb.closed=0'; }
   else if (status === 'closed') { sql += ' WHERE gb.closed=1'; }
   sql += ' GROUP BY gb.id ORDER BY gb.batch_date DESC, gb.id DESC LIMIT 100';
   const rows = (await db.prepare(sql).bind(...binds).all()).results || [];
-  return json({ batches: rows });
+  const batches = rows.map(b => ({
+    ...b,
+    deposit_status: batchDepositStatusFromCounts(b.total_cents, b.linked_cents, b.deposit_count, b.unreconciled_count),
+  }));
+  return json({ batches });
+}
+
+// ── Offerings work queue ──────────────────────────────────────────────────
+// The four counts above the Offerings master/detail. Derived, never stored: every figure is a
+// live re-read of the same batches/deposits the panels below it show, so the queue can't claim
+// work that has already been done (or miss work that was just created).
+if (seg === 'giving/offerings-summary' && method === 'GET') {
+  const yearStart = new Date().toISOString().slice(0, 4) + '-01-01';
+  // "Awaiting deposit" is scoped to a recent window. Batch-to-deposit links only start existing
+  // from this feature onward, so every historical batch is technically undeposited — counting
+  // them would have the card announce years of money still in the safe on the day it ships.
+  const awaitingDays = Math.min(365, Math.max(7, parseInt(url.searchParams.get('awaiting_days') || '90')));
+  const awaitingSince = new Date(Date.now() - awaitingDays * 86400000).toISOString().slice(0, 10);
+  const [openRes, awaitingRes, unrecRes, feeRes] = await Promise.all([
+    // Counted but not posted — batches still open.
+    db.prepare(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(t.cents),0) AS cents FROM (
+         SELECT gb.id, COALESCE(SUM(ge.amount),0) AS cents
+           FROM giving_batches gb LEFT JOIN giving_entries ge ON ge.batch_id=gb.id
+          WHERE gb.closed=0 GROUP BY gb.id) t`
+    ).first(),
+    // Counted, but not all of it has reached a deposit yet (no line at all, or lines that don't
+    // cover the batch total — a partial bank run leaves the remainder here too).
+    db.prepare(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(t.gap),0) AS cents FROM (
+         SELECT gb.id,
+                COALESCE((SELECT SUM(ge.amount) FROM giving_entries ge WHERE ge.batch_id=gb.id),0)
+                - COALESCE((SELECT SUM(dl.amount_cents) FROM giving_deposit_lines dl WHERE dl.batch_id=gb.id),0) AS gap
+           FROM giving_batches gb WHERE gb.batch_date >= ?) t
+        WHERE t.gap > 50`
+    ).bind(awaitingSince).first(),
+    // At the bank, but nobody has entered what the bank actually received.
+    db.prepare(
+      `SELECT COUNT(*) AS n, MIN(deposit_date) AS earliest FROM giving_deposits WHERE bank_cents IS NULL`
+    ).first(),
+    // Given - deposited across every deposit with a bank figure this year. Two rules matter:
+    // a deposit with no bank figure is skipped entirely rather than counted as $0 fees (which
+    // would read as a windfall), and "given" follows the same lines-else-gifts rule as the
+    // deposit list — a deposit built the old per-gift way has no batch lines, and subtracting
+    // its bank amount from zero would report a large negative fee.
+    db.prepare(
+      `SELECT COALESCE(SUM(
+                CASE WHEN (SELECT COUNT(*) FROM giving_deposit_lines dl WHERE dl.deposit_id=d.id) > 0
+                     THEN (SELECT COALESCE(SUM(dl.amount_cents),0) FROM giving_deposit_lines dl WHERE dl.deposit_id=d.id)
+                     ELSE (SELECT COALESCE(SUM(ge.amount),0) FROM giving_entries ge WHERE ge.deposit_id=d.id)
+                END - d.bank_cents),0) AS cents
+         FROM giving_deposits d
+        WHERE d.bank_cents IS NOT NULL AND d.deposit_date >= ?`
+    ).bind(yearStart).first(),
+  ]);
+  return json({
+    open_batches:          { count: openRes?.n || 0, cents: openRes?.cents || 0 },
+    awaiting_deposit:      { count: awaitingRes?.n || 0, cents: awaitingRes?.cents || 0, days: awaitingDays },
+    unreconciled_deposits: { count: unrecRes?.n || 0, earliest_date: unrecRes?.earliest || '' },
+    fees_ytd:              { cents: feeRes?.cents || 0 },
+  });
 }
 
 // ── Giving tab overview stat tiles (This Week / This Month / YTD / Givers) ──
@@ -76,10 +143,15 @@ if (seg === 'giving/transactions' && method === 'GET') {
   const from   = url.searchParams.get('from') || '';
   const to     = url.searchParams.get('to') || '';
   const limit  = Math.min(parseInt(url.searchParams.get('limit') || '200'), 500);
+  // deposit_label: which bank deposit this gift's batch went out on. A batch split across two
+  // deposits shows both, so a gift is never shown as belonging to one slip when it straddles.
   let sql = `SELECT ge.id, ge.amount, ge.method, ge.check_number, ge.batch_id,
               COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) as txn_date,
               f.name as fund_name,
-              COALESCE(p.first_name||' '||p.last_name,'(anonymous)') as person_name
+              COALESCE(p.first_name||' '||p.last_name,'(anonymous)') as person_name,
+              (SELECT GROUP_CONCAT(COALESCE(NULLIF(d.external_ref,''), d.deposit_date), ', ')
+                 FROM giving_deposit_lines dl JOIN giving_deposits d ON d.id=dl.deposit_id
+                WHERE dl.batch_id=ge.batch_id) as deposit_label
              FROM giving_entries ge
              JOIN funds f ON ge.fund_id=f.id
              JOIN giving_batches gb ON ge.batch_id=gb.id
@@ -117,7 +189,34 @@ if (batchMatch) {
        LEFT JOIN people p ON ge.person_id=p.id
        WHERE ge.batch_id=? ORDER BY ge.id`
     ).bind(bid).all()).results || [];
-    return json({ ...batch, entries });
+    // Bank deposits this batch is part of, plus — for each one — the OTHER batches sharing it,
+    // so the reverse direction of the link is visible without leaving the batch.
+    const links = (await db.prepare(
+      `SELECT dl.deposit_id, dl.amount_cents, d.deposit_date, d.source, d.external_ref,
+              d.bank_cents, d.status,
+              (SELECT COALESCE(SUM(x.amount_cents),0) FROM giving_deposit_lines x WHERE x.deposit_id=d.id) AS deposit_given_cents
+         FROM giving_deposit_lines dl
+         JOIN giving_deposits d ON d.id=dl.deposit_id
+        WHERE dl.batch_id=?
+        ORDER BY d.deposit_date, d.id`
+    ).bind(bid).all()).results || [];
+    let siblings = [];
+    if (links.length) {
+      const ph = links.map(() => '?').join(',');
+      siblings = (await db.prepare(
+        `SELECT dl.deposit_id, dl.batch_id, dl.amount_cents, gb.batch_date, gb.description
+           FROM giving_deposit_lines dl JOIN giving_batches gb ON gb.id=dl.batch_id
+          WHERE dl.deposit_id IN (${ph}) AND dl.batch_id != ?
+          ORDER BY gb.batch_date, gb.id`
+      ).bind(...links.map(l => l.deposit_id), bid).all()).results || [];
+    }
+    const deposits = links.map(l => ({
+      ...l,
+      other_batches: siblings.filter(s => s.deposit_id === l.deposit_id),
+    }));
+    const totalCents = entries.reduce((s, e) => s + (e.amount || 0), 0);
+    const depositStatus = batchDepositStatus(totalCents, deposits);
+    return json({ ...batch, entries, total_cents: totalCents, deposits, deposit_status: depositStatus });
   }
   if (method === 'PUT') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
@@ -384,7 +483,9 @@ if (seg === 'giving/deposits' && method === 'GET') {
             COUNT(ge.id) AS gift_count,
             COALESCE(SUM(ge.amount),0) AS gross_cents,
             COALESCE(SUM(ge.fee_cents),0) AS fee_cents,
-            COALESCE(SUM(ge.amount),0) - COALESCE(SUM(ge.fee_cents),0) AS net_cents
+            COALESCE(SUM(ge.amount),0) - COALESCE(SUM(ge.fee_cents),0) AS net_cents,
+            (SELECT COALESCE(SUM(dl.amount_cents),0) FROM giving_deposit_lines dl WHERE dl.deposit_id=d.id) AS line_cents,
+            (SELECT COUNT(*) FROM giving_deposit_lines dl WHERE dl.deposit_id=d.id) AS batch_count
        FROM giving_deposits d
        LEFT JOIN giving_entries ge ON ge.deposit_id=d.id
        ${where}
@@ -392,7 +493,70 @@ if (seg === 'giving/deposits' && method === 'GET') {
        ORDER BY d.deposit_date DESC, d.id DESC
        LIMIT 200`
   ).bind(...binds).all()).results || [];
-  return json({ deposits: rows });
+  // given_cents is the batch-line total when the deposit has lines (the Offerings workflow),
+  // and the gift-assignment total otherwise (the older per-gift flow, still available on the
+  // Deposits pill). Never their sum — a deposit built both ways would double-count itself.
+  const deposits = rows.map(d => ({ ...d, given_cents: d.batch_count > 0 ? d.line_cents : d.gross_cents }));
+  return json({ deposits });
+}
+
+// Batch ↔ deposit links. Upsert (POST) / delete (DELETE) one line; a deposit left with no lines
+// AND no assigned gifts is deleted with it, so an abandoned "+ New deposit" click doesn't leave
+// an empty slip behind for someone to reconcile later.
+if (seg === 'giving/deposit-lines' && method === 'POST') {
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const depositId = parseInt(b.deposit_id), batchId = parseInt(b.batch_id);
+  if (!Number.isInteger(depositId) || !Number.isInteger(batchId)) return json({ error: 'deposit_id and batch_id required' }, 400);
+  const amount = Math.max(0, Math.round(Number(b.amount_cents) || 0));
+  const dep = await db.prepare('SELECT id, status FROM giving_deposits WHERE id=?').bind(depositId).first();
+  if (!dep) return json({ error: 'Deposit not found' }, 404);
+  if (dep.status === 'reconciled') return json({ error: 'Deposit is reconciled — reopen it to change what it holds.' }, 409);
+  const batch = await db.prepare('SELECT id FROM giving_batches WHERE id=?').bind(batchId).first();
+  if (!batch) return json({ error: 'Batch not found' }, 404);
+  await db.prepare(
+    `INSERT INTO giving_deposit_lines (deposit_id, batch_id, amount_cents) VALUES (?,?,?)
+     ON CONFLICT(deposit_id, batch_id) DO UPDATE SET amount_cents=excluded.amount_cents`
+  ).bind(depositId, batchId, amount).run();
+  return json({ ok: true });
+}
+
+if (seg === 'giving/deposit-lines' && method === 'DELETE') {
+  const depositId = parseInt(url.searchParams.get('deposit_id'));
+  const batchId   = parseInt(url.searchParams.get('batch_id'));
+  if (!Number.isInteger(depositId) || !Number.isInteger(batchId)) return json({ error: 'deposit_id and batch_id required' }, 400);
+  const dep = await db.prepare('SELECT id, status FROM giving_deposits WHERE id=?').bind(depositId).first();
+  if (!dep) return json({ error: 'Deposit not found' }, 404);
+  if (dep.status === 'reconciled') return json({ error: 'Deposit is reconciled — reopen it to change what it holds.' }, 409);
+  await db.prepare('DELETE FROM giving_deposit_lines WHERE deposit_id=? AND batch_id=?').bind(depositId, batchId).run();
+  const left = await db.prepare(
+    `SELECT (SELECT COUNT(*) FROM giving_deposit_lines WHERE deposit_id=?) AS lines,
+            (SELECT COUNT(*) FROM giving_entries WHERE deposit_id=?) AS gifts`
+  ).bind(depositId, depositId).first();
+  let depositDeleted = false;
+  if ((left?.lines || 0) === 0 && (left?.gifts || 0) === 0) {
+    await db.prepare('DELETE FROM giving_deposits WHERE id=?').bind(depositId).run();
+    depositDeleted = true;
+  }
+  return json({ ok: true, deposit_deleted: depositDeleted });
+}
+
+// Deposits this batch is NOT already part of — the "add this batch to an existing deposit"
+// picker in the batch detail.
+if (seg === 'giving/deposit-options' && method === 'GET') {
+  const batchId = parseInt(url.searchParams.get('batch_id'));
+  const binds = [];
+  let sql = `SELECT d.id, d.deposit_date, d.source, d.external_ref, d.bank_cents, d.status,
+                    (SELECT COALESCE(SUM(dl.amount_cents),0) FROM giving_deposit_lines dl WHERE dl.deposit_id=d.id) AS given_cents,
+                    (SELECT COUNT(*) FROM giving_deposit_lines dl WHERE dl.deposit_id=d.id) AS batch_count
+               FROM giving_deposits d
+              WHERE d.status='open'`;
+  if (Number.isInteger(batchId)) {
+    sql += ` AND NOT EXISTS (SELECT 1 FROM giving_deposit_lines dl WHERE dl.deposit_id=d.id AND dl.batch_id=?)`;
+    binds.push(batchId);
+  }
+  sql += ` ORDER BY d.deposit_date DESC, d.id DESC LIMIT 50`;
+  const deposits = (await db.prepare(sql).bind(...binds).all()).results || [];
+  return json({ deposits });
 }
 
 if (seg === 'giving/deposits' && method === 'POST') {
@@ -402,7 +566,19 @@ if (seg === 'giving/deposits' && method === 'POST') {
     `INSERT INTO giving_deposits (deposit_date, source, processor, external_ref, notes)
      VALUES (?,?,?,?,?)`
   ).bind(b.deposit_date || '', src, b.processor || '', b.external_ref || '', b.notes || '').run();
-  return json({ ok: true, id: r.meta?.last_row_id });
+  const id = r.meta?.last_row_id;
+  // Optional: create the deposit already holding one batch. This is what "+ New deposit" and
+  // "Assign the rest to a new deposit" in the batch detail do, so the deposit never exists in a
+  // half-made state the work queue would immediately flag as unreconciled-and-empty.
+  const batchId = parseInt(b.batch_id);
+  if (Number.isInteger(batchId) && id) {
+    const amount = Math.max(0, Math.round(Number(b.amount_cents) || 0));
+    await db.prepare(
+      `INSERT INTO giving_deposit_lines (deposit_id, batch_id, amount_cents) VALUES (?,?,?)
+       ON CONFLICT(deposit_id, batch_id) DO UPDATE SET amount_cents=excluded.amount_cents`
+    ).bind(id, batchId, amount).run();
+  }
+  return json({ ok: true, id });
 }
 
 const depMatch = seg.match(/^giving\/deposits\/(\d+)$/);
@@ -424,7 +600,13 @@ if (depMatch) {
         WHERE ge.deposit_id=? ORDER BY ge.id`
     ).bind(did).all()).results || [];
     const totals = computeDepositTotals(gifts, dep.bank_cents);
-    return json({ ...dep, gifts, totals });
+    const lines = (await db.prepare(
+      `SELECT dl.batch_id, dl.amount_cents, gb.batch_date, gb.description
+         FROM giving_deposit_lines dl JOIN giving_batches gb ON gb.id=dl.batch_id
+        WHERE dl.deposit_id=? ORDER BY gb.batch_date, gb.id`
+    ).bind(did).all()).results || [];
+    const lineCents = lines.reduce((s, l) => s + (l.amount_cents || 0), 0);
+    return json({ ...dep, gifts, totals, lines, line_cents: lineCents, given_cents: lines.length ? lineCents : totals.gross_cents });
   }
   if (method === 'PATCH') {
     const dep = await db.prepare('SELECT * FROM giving_deposits WHERE id=?').bind(did).first();
@@ -450,6 +632,9 @@ if (depMatch) {
     if (dep.status === 'reconciled') return json({ error: 'Reopen the deposit before deleting it.' }, 409);
     // Release its gifts back to unassigned; never delete the gifts themselves.
     await db.prepare("UPDATE giving_entries SET deposit_id=NULL, reconcile_status='recorded' WHERE deposit_id=?").bind(did).run();
+    // Batch links go with it — the batches themselves fall back to "Needs deposit", which is
+    // exactly true again once the slip they were on no longer exists.
+    await db.prepare('DELETE FROM giving_deposit_lines WHERE deposit_id=?').bind(did).run();
     await db.prepare('DELETE FROM giving_deposits WHERE id=?').bind(did).run();
     return json({ ok: true });
   }

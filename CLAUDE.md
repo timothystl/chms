@@ -746,6 +746,62 @@ test` (360/360, 4 new tests for `logoSizeWarning` in `test/giving-letter-sanitiz
 --check` on both built app-JS bundles. Not verified in a live browser. Done 2026-07-28 (v1.106.0).
 (`src/api-utils.js`, `src/api-import.js`, `src/frontend/js-settings.js`, `test/giving-letter-sanitize.test.js`)
 
+### Giving Consolidation — 8 sub-tabs → 4, batch↔deposit links, fund lens (2026-08-05, DONE)
+Second design handoff for the Giving tab (`design_handoff_giving_consolidation`: README + a
+`Giving Today.dc.html` before-state + a `Giving Redesign.dc.html` prototype), following the
+July redesign below. Sub-nav collapsed to **Offerings · Reports · Communications · Settings**;
+every retired view name still resolves via an alias map in `givSetView()` (and lands on the right
+*pane*, not just the parent tab), so bookmarks and in-app deep links keep working.
+- **GIVC1 — Offerings.** Batches + Transactions + Deposits are one workflow: a derived work-queue
+  strip (`GET /giving/offerings-summary`), a master/detail with derived batch status badges
+  (`batchDepositStatus()`/`batchDepositStatusFromCounts()`, `api-utils.js`), and a Bank deposits
+  panel inside the batch detail with a coverage bar, per-deposit editable amount/bank-received/fees,
+  and the reverse direction of each link. New `giving_deposit_lines(deposit_id, batch_id,
+  amount_cents)` (migration `0032`) gives true many-to-many: a batch can split across deposits and a
+  deposit can hold several batches. A deposit's given total is Σ lines when it has lines, Σ assigned
+  gifts otherwise — never their sum. New `POST`/`DELETE /giving/deposit-lines`,
+  `GET /giving/deposit-options`, `GET /giving/offerings-summary`. The old flat gift and deposit
+  tables survive as pills (the handoff's fallback option A); the gift table gained a Deposit column.
+  **Bug caught while building**: joining `giving_entries` and `giving_deposit_lines` in one GROUP BY
+  multiplies rows and doubles a split batch's total — correlated subqueries instead, with a
+  regression test that splits a batch across two deposits.
+- **GIVC2 — Fund lens on Reports.** New `funds.category` (`general|earned|passive|restricted`,
+  migration `0033`), edited in a new **Settings → Fund categories** card (`POST /funds/categories`,
+  admin-only, explicit save). `giving-board` returns a fully-computed block per category plus `all`
+  via one pure `buildBoardCategoryBlock()`, so the four categories provably add up to All giving
+  (asserted in a test). Lens scopes KPIs, chart, navy panel, fund table (categories-as-rows under
+  All giving, funds under a category), narrative, subtitle and print. Replaces the name-regex
+  General-Fund split; a DB with the column but no backfill falls back to the old numeric-prefix
+  rule so the headline number can't read $0 mid-deploy. `db.js` backfills once, marker-gated.
+  **Two real bugs fixed**: the month chart's fixed 50k-step/100k-minimum axis rendered small
+  categories (passive income, ~$2k/yr) as a flat line — now a 1/2/5 nice-step ladder; and
+  `boardNarrativeHtml()` indexed `mix.check.pct` directly and would blank the whole narrative page
+  for a missing method bucket.
+- **GIVC3 — Communications + Analysis.** Letters and Receipts behind one tab, switched by pills.
+  Analysis is the third mode-toggle position; the Plateaus and Bands cards moved out of the board
+  page into it, so the board page ends at the fund table. Lens and period persist across modes.
+  "Print board page" drops out of Analysis first — otherwise it prints a `display:none` body.
+- **Three more real bugs found by a review pass and fixed** (each with a regression test verified
+  non-vacuous): the board's household/method-mix queries grouped by `f.category` in SQL while the
+  legacy General-Fund fallback lives in JS, so an un-backfilled DB showed a General Fund YTD next
+  to zero households and a blank navy panel — both now group by `fund_id` and map through the same
+  JS `catOf` map; `fees_ytd` used `Σ lines − bank`, going large-negative for a deposit built the
+  older per-gift way (no lines) — now lines-else-gifts, matching the deposit list; and "Awaiting
+  deposit" counted every batch without a deposit line, i.e. *every historical batch* on day one —
+  now windowed to 90 days (`?awaiting_days=`), with the window named on the card.
+- **Hardening**: `applyPermissionUI()` hides `.require-finance` panels with an inline
+  `display:none` that the view-switching loop used to undo, so an alias/deep link could park an
+  office-level user on an empty Reports panel. `givSetView()`/`givOffSetPane()` now refuse a
+  finance-only view for a role that can't see it (server gating was already correct; this is
+  about not showing an empty screen).
+- `npm test` (682/682, 72 new in 3 files; each checked for vacuity by injecting the regression it
+  guards), `node --check` on both built bundles + every touched backend file, div-balance scan of
+  the rebuilt `#tab-giving` markup. Dead CSS removed with the markup it styled. **Not verified**:
+  a live browser or real D1 — same standing caveat as all frontend work here. (`migrations/0032*`,
+  `migrations/0033*`, `src/api-giving.js`, `src/api-households.js`, `src/api-reports.js`,
+  `src/api-utils.js`, `src/db.js`, `src/frontend/html-head.js`, `src/frontend/html-tabs.js`,
+  `src/frontend/js-core.js`, `src/frontend/js-giving.js`)
+
 ### Giving Tab Redesign — board reports, donor letters, receipts (2026-07-27 → 2026-07-28, COMPLETE, phased)
 Design handoff (`design_handoff_giving_reports/`: README + 9 HTML prototypes + screenshots)
 reorganized the Giving tab from ten flat report tiles into a per-view sub-nav and added four new

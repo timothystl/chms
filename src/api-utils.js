@@ -343,6 +343,122 @@ export function computeConcentration(householdTotals) {
   };
 }
 
+// ── FUND CATEGORIES (Reports fund lens) ────────────────────────────────────
+// Every fund carries exactly one category. The board report's lens switches between them,
+// and the council packet summarizes the ones that aren't the lens. Stored on funds.category
+// (migration 0033) rather than derived from the fund's name, so a rename can't silently move
+// money between categories mid-year.
+export const FUND_CATEGORIES = [
+  { key: 'general',    label: 'General Fund',            hh_label: 'Giving households' },
+  { key: 'earned',     label: 'Earned income',           hh_label: 'Paying households' },
+  { key: 'passive',    label: 'Passive income',          hh_label: 'Income sources' },
+  { key: 'restricted', label: 'Restricted & designated', hh_label: 'Giving households' },
+];
+const FUND_CATEGORY_KEYS = new Set(FUND_CATEGORIES.map(c => c.key));
+
+// Coerce any stored/submitted value to a real category key. Anything unrecognized (including
+// '' on a fund that predates the column) reads as 'restricted' — the conservative default:
+// a designated gift wrongly counted as General Fund would overstate the board's headline
+// number, while the reverse only understates it.
+export function normalizeFundCategory(value) {
+  const v = String(value || '').trim().toLowerCase();
+  return FUND_CATEGORY_KEYS.has(v) ? v : 'restricted';
+}
+
+export function fundCategoryLabel(key) {
+  const c = FUND_CATEGORIES.find(x => x.key === normalizeFundCategory(key));
+  return c ? c.label : 'Restricted & designated';
+}
+
+// The leading numeric account code on a fund name ("40085 General Fund" → "40085"), or null.
+// Used only for the one-time backfill and the legacy General-Fund-family fallback.
+export function fundNumericPrefix(name) {
+  const m = String(name || '').match(/^(\d+)\s/);
+  return m ? m[1] : null;
+}
+
+// One-time default categories for a set of existing funds, used by the 0033 backfill: every
+// fund sharing the leading numeric code of the fund literally named "General Fund" becomes
+// 'general' (matching what the board report already treated as the General Fund family);
+// everything else stays 'restricted' for a human to sort out in Settings → Fund categories.
+// Returns a Map of fund id → category for only the funds that should change.
+export function defaultFundCategories(funds) {
+  const rows = Array.isArray(funds) ? funds : [];
+  const gen = rows.find(f => /general\s*fund/i.test(String(f.name || '')));
+  const prefix = gen ? fundNumericPrefix(gen.name) : null;
+  const out = new Map();
+  for (const f of rows) {
+    const isGeneral = gen && (prefix ? fundNumericPrefix(f.name) === prefix : f.id === gen.id);
+    if (isGeneral) out.set(f.id, 'general');
+  }
+  return out;
+}
+
+// One lens's worth of board report: every KPI, the chart arrays, the method mix and the
+// concentration panel, all scoped to one fund category (or to all funds, for the "All giving"
+// lens). Pure so the same math backs each of the five lens positions with no chance of one
+// drifting from another — the whole point of the lens is that the four categories add up.
+//
+// budgetAnnualOverride: for the General Fund the council's real plan lives in Finance → Church
+// Report (the "40085 Sunday Offering" account), not in a per-fund budget in Settings; pass it
+// and it wins over the sum of the category's own fund budgets. null/undefined = use the funds.
+export function buildBoardCategoryBlock(opts) {
+  const {
+    key, label, hhLabel, funds = [], curMonthly = [], priorMonthly = [],
+    throughMonth = 12, sundaysElapsed = 0, householdTotals = [], householdsPrior = 0,
+    methodBuckets = {}, budgetAnnualOverride = null,
+  } = opts || {};
+
+  const ytd   = funds.reduce((s, f) => s + (f.actual_cents || 0), 0);
+  const prior = funds.reduce((s, f) => s + (f.prior_cents || 0), 0);
+  const fundBudgetAnnual = funds.reduce((s, f) => s + (f.annual_budget_cents || 0), 0);
+  const annualBudget = (budgetAnnualOverride != null && budgetAnnualOverride > 0)
+    ? budgetAnnualOverride
+    : (fundBudgetAnnual > 0 ? fundBudgetAnnual : null);
+
+  const priorFull = priorMonthly.reduce((s, v) => s + (v || 0), 0);
+  const priorCum  = priorMonthly.slice(0, throughMonth).reduce((s, v) => s + (v || 0), 0);
+  const proj = projectYearEnd(ytd, priorCum, priorFull, throughMonth, sundaysElapsed);
+
+  const budgetYtd = annualBudget != null ? spreadBudgetYtd(annualBudget, priorMonthly, throughMonth) : null;
+  const variance  = budgetYtd != null ? ytd - budgetYtd : null;
+
+  const concentration = computeConcentration(householdTotals);
+  const households = concentration.households;
+
+  const methodTotal = ['check', 'ach', 'cash', 'other'].reduce((s, k) => s + (methodBuckets[k] || 0), 0);
+  const methodMix = [
+    { key: 'check', label: 'Check',              cents: methodBuckets.check || 0 },
+    { key: 'ach',   label: 'ACH / online',       cents: methodBuckets.ach || 0 },
+    { key: 'cash',  label: 'Cash / loose plate', cents: methodBuckets.cash || 0 },
+    { key: 'other', label: 'Stock, IRA, other',  cents: methodBuckets.other || 0 },
+  ].map(x => ({ ...x, pct: methodTotal > 0 ? Math.round((x.cents / methodTotal) * 100) : 0 }));
+
+  return {
+    key, label, hh_label: hhLabel,
+    fund_count: funds.length,
+    funds,
+    given_ytd_cents: ytd,
+    given_ytd_prior_cents: priorCum,
+    prior_ytd_fund_cents: prior,
+    given_ytd_delta_pct: priorCum > 0 ? +(((ytd - priorCum) / priorCum) * 100).toFixed(1) : null,
+    annual_budget_cents: annualBudget,
+    budget_ytd_cents: budgetYtd,
+    budget_variance_cents: variance,
+    budget_variance_pct: (budgetYtd != null && budgetYtd > 0) ? +(((ytd - budgetYtd) / budgetYtd) * 100).toFixed(1) : null,
+    has_budget: annualBudget != null && annualBudget > 0,
+    projection_cents: proj.projected,
+    projection_method: proj.method,
+    projection_vs_budget_cents: annualBudget != null ? proj.projected - annualBudget : null,
+    households,
+    households_prior: householdsPrior,
+    avg_per_household_cents: households > 0 ? Math.round(ytd / households) : 0,
+    monthly: { current: curMonthly, prior: priorMonthly },
+    method_mix: methodMix,
+    concentration,
+  };
+}
+
 // ── GIVING PLATEAUS / NUDGE OPTIONS ────────────────────────────────────────
 // Three increase options (Modest/Standard/Generous), each a genuinely FIXED,
 // familiar round number — not a percentage-derived figure. The ladder below
@@ -677,6 +793,43 @@ export function computeDepositTotals(gifts, bankCents) {
     out.balanced = out.variance_cents === 0;
   }
   return out;
+}
+
+// ── Batch ↔ deposit coverage (Offerings tab) ──────────────────────────────────
+// Derives the one status a counted batch carries in the Offerings list — the piece of state
+// that makes the count sheet and the bank slip impossible to drift apart. Nothing is stored:
+// the badge is always recomputed from the batch total and its deposit lines, so editing a line
+// amount or entering a bank figure moves the badge with no separate bookkeeping step.
+//
+// links: [{ deposit_id, amount_cents, bank_cents }] — bank_cents null/undefined = not yet
+// reconciled against the bank statement.
+export function batchDepositStatus(batchTotalCents, links) {
+  const rows = Array.isArray(links) ? links : [];
+  const linked = rows.reduce((s, l) => s + (Math.round(Number(l.amount_cents) || 0)), 0);
+  const unreconciled = rows.filter(l => l.bank_cents === null || l.bank_cents === undefined || l.bank_cents === '').length;
+  return batchDepositStatusFromCounts(batchTotalCents, linked, rows.length, unreconciled);
+}
+
+// Same derivation from pre-aggregated counts, so the batch LIST can badge 100 rows without
+// fetching every row's individual deposit links.
+export function batchDepositStatusFromCounts(batchTotalCents, linkedCents, depositCount, unreconciledCount) {
+  const total = Math.max(0, Math.round(Number(batchTotalCents) || 0));
+  const linked = Math.round(Number(linkedCents) || 0);
+  const nLinks = Math.max(0, Math.round(Number(depositCount) || 0));
+  const nUnrec = Math.max(0, Math.round(Number(unreconciledCount) || 0));
+  const remaining = total - linked;
+  if (!nLinks) {
+    return { key: 'needs_deposit', tone: 'warn', label: 'Needs deposit', linked_cents: 0, remaining_cents: total };
+  }
+  // A rounding-scale tolerance: 50c of slack keeps a hand-split batch from reading "Split · $0"
+  // forever because two halves of an odd cent total don't add back exactly.
+  if (remaining > 50) {
+    return { key: 'split', tone: 'warn', label: 'Split', linked_cents: linked, remaining_cents: remaining };
+  }
+  if (nUnrec > 0) {
+    return { key: 'unreconciled', tone: 'bad', label: 'Unreconciled', linked_cents: linked, remaining_cents: Math.max(0, remaining) };
+  }
+  return { key: 'deposited', tone: 'ok', label: 'Deposited', linked_cents: linked, remaining_cents: Math.max(0, remaining) };
 }
 
 // ── Giving distribution analysis (GIV-R3 / 2A) ────────────────────────────────

@@ -152,42 +152,53 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 <!-- ═══ GIVING TAB ═══ -->
 <div id="tab-giving" class="tab-panel">
   <div class="fin-subnav" style="margin-bottom:16px;">
-    <button class="fin-subnav-btn active" id="giv-view-batches-btn" onclick="givSetView('batches')">Batches</button>
-    <button class="fin-subnav-btn" id="giv-view-transactions-btn" onclick="givSetView('transactions')">Transactions</button>
-    <button class="fin-subnav-btn require-finance" id="giv-view-deposits-btn" onclick="givSetView('deposits')">Deposits</button>
-    <button class="fin-subnav-btn require-finance" id="giv-view-board-btn" onclick="givSetView('board')">Board Report</button>
-    <button class="fin-subnav-btn require-finance" id="giv-view-letters-btn" onclick="givSetView('letters')">Letters</button>
-    <button class="fin-subnav-btn require-finance" id="giv-view-receipts-btn" onclick="givSetView('receipts')">Receipts</button>
-    <button class="fin-subnav-btn require-finance" id="giv-view-reports-btn" onclick="givSetView('reports')">Analysis</button>
+    <button class="fin-subnav-btn active" id="giv-view-offerings-btn" onclick="givSetView('offerings')">Offerings</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-reports-btn" onclick="givSetView('reports')">Reports</button>
+    <button class="fin-subnav-btn require-finance" id="giv-view-comms-btn" onclick="givSetView('comms')">Communications</button>
     <button class="fin-subnav-btn" id="giv-view-settings-btn" onclick="givSetView('settings')">Settings</button>
   </div>
-  <div class="giving-layout" id="giv-view-batches">
-    <!-- Batch list -->
-    <div class="batch-list-panel">
-      <div class="batch-list-hdr">
-        <h3>Batches</h3>
-        <button class="btn-primary require-edit-giving" style="padding:5px 12px;font-size:.8rem;" onclick="openNewBatch()">+ New</button>
-      </div>
-      <div class="batch-search-wrap">
-        <input type="search" id="batch-search-input" placeholder="Search batches&#8230;" oninput="filterBatchSearch(this.value)">
-      </div>
-      <div class="batch-filter-pills">
-        <button class="pill active" data-bs="all" onclick="setBatchFilter(this,'all')">All</button>
-        <button class="pill" data-bs="open" onclick="setBatchFilter(this,'open')">Open</button>
-        <button class="pill" data-bs="closed" onclick="setBatchFilter(this,'closed')">Closed</button>
-      </div>
-      <div id="batch-list"></div>
-    </div>
-    <!-- Batch detail -->
-    <div class="batch-detail-panel" id="batch-detail">
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--warm-gray);gap:10px;padding:40px;">
-        <svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg>
-        <div style="font-size:.9rem;">Select a batch to view entries</div>
-      </div>
-    </div>
-  </div>
 
-  <div class="giv-txn-view" id="giv-view-transactions" style="display:none;">
+  <!-- ═══ OFFERINGS — count the plate, post the gifts, match the bank deposit ═══ -->
+  <div id="giv-view-offerings">
+    <div class="giv-off-header">
+      <div>
+        <div class="board-title">Offerings &amp; Deposits</div>
+        <div class="board-subtitle">Count the plate, post the gifts, match the bank deposit &mdash; one place, one workflow.</div>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input type="search" class="giv-off-search" id="batch-search-input" placeholder="Search gifts, donors, batches&#8230;" oninput="filterBatchSearch(this.value)">
+        <button class="btn-primary require-edit-giving" style="padding:7px 14px;font-size:.85rem;" onclick="openNewBatch()">+ New batch</button>
+      </div>
+    </div>
+    <div class="giv-queue-grid" id="giv-queue"></div>
+    <div class="batch-filter-pills" style="border-bottom:none;padding:0 0 10px;">
+      <button class="pill active" data-gop="batches" onclick="givOffSetPane('batches')">Batches &amp; deposits</button>
+      <button class="pill" data-gop="transactions" onclick="givOffSetPane('transactions')">All gifts</button>
+      <button class="pill require-finance" data-gop="deposits" onclick="givOffSetPane('deposits')">Deposits</button>
+    </div>
+
+    <div class="giv-off-layout" id="giv-pane-batches">
+      <!-- Batch list -->
+      <div class="giv-off-list">
+        <div class="batch-list-hdr">
+          <h3>Batches</h3>
+          <div class="batch-filter-pills" style="padding:0;border-bottom:none;">
+            <button class="pill active" data-bs="all" onclick="setBatchFilter(this,'all')">All</button>
+            <button class="pill" data-bs="needswork" onclick="setBatchFilter(this,'needswork')">Needs work</button>
+          </div>
+        </div>
+        <div id="batch-list"></div>
+      </div>
+      <!-- Batch detail -->
+      <div class="giv-off-detail" id="batch-detail">
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:320px;color:var(--warm-gray);gap:10px;padding:40px;">
+          <svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/></svg>
+          <div style="font-size:.9rem;">Select a batch to view entries</div>
+        </div>
+      </div>
+    </div>
+
+  <div class="giv-txn-view" id="giv-pane-transactions" style="display:none;">
     <div class="giv-txn-filters">
       <div class="field"><label>Fund</label><select id="giv-txn-fund" onchange="loadGivingTransactions()"><option value="">All Funds</option></select></div>
       <div class="field"><label>From</label><input type="date" id="giv-txn-from" onchange="loadGivingTransactions()"></div>
@@ -196,13 +207,13 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <div class="giv-txn-table-wrap">
       <table class="entries-table">
-        <thead><tr><th>Donor</th><th>Fund</th><th>Method</th><th>Date</th><th class="amt-col">Amount</th></tr></thead>
+        <thead><tr><th>Donor</th><th>Fund</th><th>Method</th><th>Date</th><th>Deposit</th><th class="amt-col">Amount</th></tr></thead>
         <tbody id="giv-txn-tbody"></tbody>
       </table>
     </div>
   </div>
 
-  <div id="giv-view-deposits" class="require-finance" style="display:none;">
+  <div id="giv-pane-deposits" class="require-finance" style="display:none;">
     <div class="giv-dep-layout" style="display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start;">
       <div class="dash-card" style="padding:14px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -228,7 +239,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
   </div>
 
-  <div id="giv-view-board" class="require-finance" style="display:none;">
+  </div><!-- /giv-view-offerings -->
+
+  <!-- ═══ REPORTS — the council packet, with a fund lens ═══ -->
+  <div id="giv-view-reports" class="require-finance" style="display:none;">
     <div class="board-header">
       <div>
         <div class="board-title">Giving Report to the Council</div>
@@ -238,66 +252,20 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <div class="board-mode-toggle">
           <button id="board-mode-dashboard-btn" class="active" onclick="boardSetMode('dashboard')">Dashboard</button>
           <button id="board-mode-narrative-btn" onclick="boardSetMode('narrative')">Narrative</button>
+          <button id="board-mode-analysis-btn" onclick="boardSetMode('analysis')">Analysis</button>
         </div>
+        <select class="board-lens-select" id="board-lens" onchange="boardSetLens(this.value)" title="Which funds this report is about"></select>
         <select class="fin-domain-select" id="board-period" onchange="loadBoardReport()"></select>
         <button class="btn-primary" style="padding:7px 14px;font-size:.85rem;" onclick="printBoardPage()">Print board page</button>
         <button class="btn-secondary" style="padding:7px 14px;font-size:.85rem;" onclick="boardEmailPacket()">Email packet</button>
       </div>
     </div>
+    <div class="board-print-note" id="board-print-note"></div>
+    <div id="board-else-strip"></div>
     <div id="board-body"><div class="board-empty">Loading&hellip;</div></div>
 
-    <div class="import-card require-finance" style="margin-top:18px;">
-      <h3>&#128201; Giving Plateaus &amp; Nudges</h3>
-      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">Every giver's weekly level = their whole year's giving, every fund, &divide; 52 weeks &mdash; so a weekly regular, a monthly giver, and someone who made one large gift (e.g. a stock or IRA/QCD transfer) all get the same treatment. Offers 3 fixed, familiar round-number increase options. By default this sums <strong>everything a giver gives across every fund</strong> &mdash; General, Tuition Aid, Food Pantry, etc.; no fund is discounted. Pick a specific fund below to analyze just that fund instead (e.g. a designated pass-through fund).</p>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
-        <div class="field" style="margin:0;"><label>Year</label><input type="number" id="rpt-plateau-year" name="rpt-plateau-year" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>
-        <div class="field" style="margin:0;"><label>Fund</label><select id="rpt-plateau-fund" name="rpt-plateau-fund" style="font-size:.85rem;padding:4px 8px;"><option value="">All Funds</option></select></div>
-        <div class="field" style="margin:0;"><label>Group by</label><select id="rpt-plateau-scope" name="rpt-plateau-scope" style="font-size:.85rem;padding:4px 8px;"><option value="household">Household</option><option value="person">Person</option></select></div>
-        <div class="field" style="margin:0;"><label>Occasional = &le; X gifts/yr</label><input type="number" id="rpt-plateau-lowfreq" name="rpt-plateau-lowfreq" value="3" min="1" max="51" style="font-size:.85rem;padding:4px 8px;width:60px;"></div>
-        <button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="runGivingPlateaus()">Run Report</button>
-        <button class="btn-secondary" style="font-size:.82rem;padding:6px 14px;" onclick="platOpenImpactEditor()">Impact statements&hellip;</button>
-      </div>
-      <div id="giv-plat-output" class="report-output"></div>
-    </div>
-
-    <div class="import-card require-finance" style="margin-top:18px;">
-      <h3>&#128202; Giving by Weekly / Monthly Band</h3>
-      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">How giving households spread across per-week (or per-month) giving levels, and what a small across-the-board step up would add. A household&rsquo;s weekly figure is its giving &divide; weeks in the period, so monthly and lump-sum givers still land in the right band.</p>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
-        <div class="field" style="margin:0;"><label>Year</label><input type="number" id="rpt-bands-year" name="rpt-bands-year" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>
-        <div class="field" style="margin:0;"><label>Fund</label><select id="rpt-bands-fund" name="rpt-bands-fund" style="font-size:.85rem;padding:4px 8px;"><option value="">All Funds</option></select></div>
-        <div class="field" style="margin:0;"><label>Group by</label><select id="rpt-bands-scope" name="rpt-bands-scope" style="font-size:.85rem;padding:4px 8px;"><option value="household">Household</option><option value="person">Person</option></select></div>
-        <div class="field" style="margin:0;"><label>Per</label><select id="rpt-bands-freq" name="rpt-bands-freq" onchange="bandsSyncUpliftDefault()" style="font-size:.85rem;padding:4px 8px;"><option value="weekly">Week</option><option value="monthly">Month</option></select></div>
-        <div class="field" style="margin:0;"><label>If each gives +$</label><input type="number" id="rpt-bands-uplift" name="rpt-bands-uplift" value="10" min="0" style="font-size:.85rem;padding:4px 8px;width:70px;"></div>
-        <button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="runGivingBands()">Run Report</button>
-      </div>
-      <div id="giv-bands-output" class="report-output"></div>
-    </div>
-  </div>
-
-  <div id="giv-view-letters" class="require-finance" style="display:none;">
-    <div id="giv-letters-root"><div class="board-empty">Loading&hellip;</div></div>
-  </div>
-
-  <div id="giv-view-receipts" class="require-finance" style="display:none;">
-    <div id="giv-receipts-root"><div class="board-empty">Loading&hellip;</div></div>
-  </div>
-
-  <div id="plat-impact-modal" class="modal-overlay">
-    <div class="modal" style="max-width:560px;">
-      <h3>Giving Impact Statements</h3>
-      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">When a suggested increase clears one of these monthly thresholds, the Plateaus report shows the matching phrase next to it (e.g. "if you gave $18 more a month, that could provide&hellip;"). These are your own numbers &mdash; nothing here is pre-filled or guessed. Leave empty and increases just show as dollar amounts.</p>
-      <div id="plat-impact-rows"></div>
-      <button class="btn-secondary" style="font-size:.82rem;margin-top:6px;" onclick="platAddImpactRow()">+ Add statement</button>
-      <div id="plat-impact-status" class="status-msg" style="margin-top:8px;"></div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
-        <button class="btn-secondary" onclick="closeModal('plat-impact-modal')">Close</button>
-        <button class="btn-primary" onclick="platSaveImpactStatements()">Save</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="giv-view-reports" style="display:none;">
+    <!-- Analysis mode body — the tile grid + the two strategic-giving cards below it. -->
+    <div id="giv-analysis-body" style="display:none;">
     <div id="giv-analysis" class="require-finance" style="margin-bottom:20px;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
         <div>
@@ -395,13 +363,70 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <div class="tile-icon">&#128140;</div>
         <div class="tile-title">Letters &amp; Statements</div>
         <div class="tile-desc">
-          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-end statements, mid-year updates, appeals, and thank-you letters &mdash; with per-recipient send status &mdash; now live in the <strong>Letters</strong> tab above.</div>
+          <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-end statements, mid-year updates, appeals, and thank-you letters &mdash; with per-recipient send status &mdash; now live under <strong>Communications</strong> above.</div>
           <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="event.stopPropagation();givSetView('letters')">Go to Letters &rarr;</button>
         </div>
       </div>
     </div>
     <div id="giv-rpt-output" class="report-output"></div>
+    <div class="import-card require-finance" style="margin-top:18px;">
+      <h3>&#128201; Giving Plateaus &amp; Nudges</h3>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">Every giver's weekly level = their whole year's giving, every fund, &divide; 52 weeks &mdash; so a weekly regular, a monthly giver, and someone who made one large gift (e.g. a stock or IRA/QCD transfer) all get the same treatment. Offers 3 fixed, familiar round-number increase options. By default this sums <strong>everything a giver gives across every fund</strong> &mdash; General, Tuition Aid, Food Pantry, etc.; no fund is discounted. Pick a specific fund below to analyze just that fund instead (e.g. a designated pass-through fund).</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
+        <div class="field" style="margin:0;"><label>Year</label><input type="number" id="rpt-plateau-year" name="rpt-plateau-year" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>
+        <div class="field" style="margin:0;"><label>Fund</label><select id="rpt-plateau-fund" name="rpt-plateau-fund" style="font-size:.85rem;padding:4px 8px;"><option value="">All Funds</option></select></div>
+        <div class="field" style="margin:0;"><label>Group by</label><select id="rpt-plateau-scope" name="rpt-plateau-scope" style="font-size:.85rem;padding:4px 8px;"><option value="household">Household</option><option value="person">Person</option></select></div>
+        <div class="field" style="margin:0;"><label>Occasional = &le; X gifts/yr</label><input type="number" id="rpt-plateau-lowfreq" name="rpt-plateau-lowfreq" value="3" min="1" max="51" style="font-size:.85rem;padding:4px 8px;width:60px;"></div>
+        <button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="runGivingPlateaus()">Run Report</button>
+        <button class="btn-secondary" style="font-size:.82rem;padding:6px 14px;" onclick="platOpenImpactEditor()">Impact statements&hellip;</button>
+      </div>
+      <div id="giv-plat-output" class="report-output"></div>
+    </div>
+
+    <div class="import-card require-finance" style="margin-top:18px;">
+      <h3>&#128202; Giving by Weekly / Monthly Band</h3>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">How giving households spread across per-week (or per-month) giving levels, and what a small across-the-board step up would add. A household&rsquo;s weekly figure is its giving &divide; weeks in the period, so monthly and lump-sum givers still land in the right band.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
+        <div class="field" style="margin:0;"><label>Year</label><input type="number" id="rpt-bands-year" name="rpt-bands-year" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>
+        <div class="field" style="margin:0;"><label>Fund</label><select id="rpt-bands-fund" name="rpt-bands-fund" style="font-size:.85rem;padding:4px 8px;"><option value="">All Funds</option></select></div>
+        <div class="field" style="margin:0;"><label>Group by</label><select id="rpt-bands-scope" name="rpt-bands-scope" style="font-size:.85rem;padding:4px 8px;"><option value="household">Household</option><option value="person">Person</option></select></div>
+        <div class="field" style="margin:0;"><label>Per</label><select id="rpt-bands-freq" name="rpt-bands-freq" onchange="bandsSyncUpliftDefault()" style="font-size:.85rem;padding:4px 8px;"><option value="weekly">Week</option><option value="monthly">Month</option></select></div>
+        <div class="field" style="margin:0;"><label>If each gives +$</label><input type="number" id="rpt-bands-uplift" name="rpt-bands-uplift" value="10" min="0" style="font-size:.85rem;padding:4px 8px;width:70px;"></div>
+        <button class="btn-primary" style="font-size:.82rem;padding:6px 14px;" onclick="runGivingBands()">Run Report</button>
+      </div>
+      <div id="giv-bands-output" class="report-output"></div>
+    </div>
+    </div><!-- /giv-analysis-body -->
+  </div><!-- /giv-view-reports -->
+
+  <!-- ═══ COMMUNICATIONS — letters & receipts behind one tab ═══ -->
+  <div id="giv-view-comms" class="require-finance" style="display:none;">
+    <div class="batch-filter-pills" style="border-bottom:none;padding:0 0 12px;">
+      <button class="pill active" data-gcomm="letters" onclick="givCommsSetPane('letters')">Letters &amp; statements</button>
+      <button class="pill" data-gcomm="receipts" onclick="givCommsSetPane('receipts')">Receipts</button>
+    </div>
+    <div id="giv-pane-letters">
+      <div id="giv-letters-root"><div class="board-empty">Loading&hellip;</div></div>
+    </div>
+    <div id="giv-pane-receipts" style="display:none;">
+      <div id="giv-receipts-root"><div class="board-empty">Loading&hellip;</div></div>
+    </div>
   </div>
+
+  <div id="plat-impact-modal" class="modal-overlay">
+    <div class="modal" style="max-width:560px;">
+      <h3>Giving Impact Statements</h3>
+      <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">When a suggested increase clears one of these monthly thresholds, the Plateaus report shows the matching phrase next to it (e.g. "if you gave $18 more a month, that could provide&hellip;"). These are your own numbers &mdash; nothing here is pre-filled or guessed. Leave empty and increases just show as dollar amounts.</p>
+      <div id="plat-impact-rows"></div>
+      <button class="btn-secondary" style="font-size:.82rem;margin-top:6px;" onclick="platAddImpactRow()">+ Add statement</button>
+      <div id="plat-impact-status" class="status-msg" style="margin-top:8px;"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+        <button class="btn-secondary" onclick="closeModal('plat-impact-modal')">Close</button>
+        <button class="btn-primary" onclick="platSaveImpactStatements()">Save</button>
+      </div>
+    </div>
+  </div>
+
 
   <div id="giv-view-settings" style="display:none;max-width:900px;">
     <div id="giv-settings-status" class="status-msg" style="margin-bottom:8px;"></div>
@@ -435,6 +460,16 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
       </div>
       <button class="btn-primary" onclick="saveSettings()">Save Church Info</button>
+    </div>
+    <!-- Fund Categories Card — the mapping the Reports fund lens depends on -->
+    <div class="import-card require-admin" style="margin-bottom:14px;max-width:760px;">
+      <h3>&#127991; Fund categories</h3>
+      <p>Every fund gets one category. This is what the Reports lens switches between, and what the council packet summarizes. A fund&rsquo;s annual budget is what the board report&rsquo;s Vs.&nbsp;Budget and variance columns compare against &mdash; leave it at 0 for a fund with no plan.</p>
+      <div id="giv-fundcat-root"><div style="font-size:.85rem;color:var(--warm-gray);">Loading&hellip;</div></div>
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+        <button class="btn-primary" onclick="givSaveFundCategories()">Save fund categories</button>
+        <span id="giv-fundcat-status" class="import-status"></span>
+      </div>
     </div>
     <!-- Breeze Giving Sync Card -->
     <div class="import-card require-finance" style="margin-bottom:14px;">

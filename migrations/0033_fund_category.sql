@@ -1,0 +1,13 @@
+-- Fund categories — the thing the Giving → Reports fund lens switches between.
+-- One of: general | earned | passive | restricted.
+--
+-- Replaces the name-regex "is this the General Fund family?" test that boardGeneralFundSplit()
+-- and the giving-board endpoint used to do on every request: a stored category survives a fund
+-- being renamed, and lets earned income (facility rental, fundraisers) and passive income
+-- (interest, dividends) be told apart from genuinely restricted/designated gifts — which the
+-- old numeric-prefix trick could never do.
+--
+-- Existing funds default to 'restricted'; db.js backfills the General Fund family (every fund
+-- sharing the leading numeric code of the fund named "General Fund") to 'general' once, so the
+-- lens opens on the same set of funds the board report already reported on.
+ALTER TABLE funds ADD COLUMN category TEXT NOT NULL DEFAULT 'restricted';
