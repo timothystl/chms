@@ -1263,6 +1263,51 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .tap-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;font-size:.85rem;}
 .tap-controls select{padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--white);color:var(--charcoal);font-family:var(--font-body);}
 
+#p-count-mobile{display:none;}
+/* ══ PHONE-FIRST PASS — Dashboard & People ══════════════════════════════════════════════
+   Everything before this was defect repair: stop iOS zooming, stop tables widening the page,
+   make the pager reachable. This is the first pass aimed at what a phone user actually needs on
+   the two screens they open most — and, for the member tier, essentially the only two.
+
+   The structural work was already in place and is deliberately NOT redone here: the person
+   profile stacks and swaps its side rail for a dropdown at 900px, the People list becomes
+   contact cards at 767px, and tapping one opens the full profile (a better mobile answer than
+   the quickview panel, which stays hidden). What was missing is ergonomics. */
+@media(max-width:767px){
+  /* SEARCH STAYS PUT. .tab-panel.active is the scroll container and .toolbar is a normal flex
+     item inside it, so search and Filters scrolled away the moment you moved down the list —
+     on a directory whose whole purpose is looking someone up. Sticky keeps them in reach.
+     Scoped to #tab-people rather than .toolbar generally: the same bar is used by several tabs
+     and this pass is only chartered for two screens. The negative margins + matching padding
+     bleed the sticky background over .tab-panel's own 20px/24px padding, so cards scrolling
+     underneath disappear behind it cleanly instead of showing through at the edges. */
+  #tab-people .toolbar{
+    position:sticky;top:0;z-index:6;background:var(--bg);
+    margin:-20px -24px 8px;padding:20px 24px 10px;
+    border-bottom:1px solid var(--border);
+  }
+  /* The phone-only result count, fed by renderPeoplePager(). Desktop hides it: there the pager
+     is on screen already and this would just be a duplicate. */
+  #p-count-mobile{
+    display:block;font-size:.78rem;font-weight:700;color:var(--warm-gray);
+    text-transform:uppercase;letter-spacing:.04em;padding:2px 0 8px;
+  }
+
+  /* DASHBOARD DENSITY. The 20px grid gaps and 20-24px card padding are tuned for a 1440px
+     desktop; on a 390px screen they spend a third of the width on whitespace and push the
+     second stat row below the fold. Tightening them is the difference between seeing two rows
+     of numbers on open and seeing one. Stat tiles stay 2-up — 1-up would be legible but would
+     turn four numbers into four screens of scrolling. */
+  .dash-stats{gap:10px;margin-bottom:16px;}
+  .dash-row{gap:12px;margin-bottom:14px;}
+  .dash-stat{padding:14px 14px;border-radius:16px;}
+  .dash-stat-val{font-size:26px;}
+  .dash-card-hdr{padding:14px 16px 8px;font-size:14px;}
+  .dash-card{border-radius:16px;}
+  /* Nested 2x2 inside a single tile is ~85px per cell at this width — unreadable. One column. */
+  .dash-stat-quad-grid{grid-template-columns:1fr;gap:8px;}
+}
+
 /* ══ MOB2 — wide tables scroll instead of widening the page ════════════════════════════
    55 of this app's 99 tables had no horizontal scroll container (js-reports.js 20 bare of 23,
    js-finance.js 16 of 40, js-attendance.js 5 of 5). A bare wide table does not scroll — it

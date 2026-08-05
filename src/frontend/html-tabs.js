@@ -93,6 +93,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
   </div>
   <div id="p-status" class="status-msg"></div>
+  <!-- Phone-only result count. The pager sits BELOW the list (see the MOB2-era ordering),
+       so on a phone there was no way to see how many results a search returned without
+       scrolling to the bottom of 25 cards. Populated by renderPeoplePager(). -->
+  <div id="p-count-mobile"></div>
   <!-- Master-detail: list (List/Card view) on the left, quick-view panel on the right (RDS2) -->
   <div class="ppl-master-detail">
     <div class="ppl-list-col">
