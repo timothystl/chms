@@ -24,6 +24,30 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.138.0 — Board Report: Sunday-based projection fallback, "By Fund" table grouped by fund
+code (2026-08-05)
+
+Two more follow-ups on the General Fund KPI work (v1.123.0), reported after seeing real data.
+(1) **Year-End Projection's straight-line fallback now extrapolates off Sundays elapsed, not
+months.** The seasonal path (scale by last year's same-point trend) was already correct and
+unchanged; it's only the fallback used when there's no prior-year data to scale from that
+mattered here — it was `YTD * (12/monthsElapsed)`, a monthly basis that doesn't match this
+church's actual weekly giving rhythm. `projectYearEnd()` (`src/api-utils.js`) gained an optional
+5th `sundaysElapsed` param; when given, the fallback becomes `YTD * (52/sundaysElapsed)` instead
+(`method: 'linear-weekly'`). New `sundaysElapsedInYear(year, throughMonth)` counts real Sundays
+from Jan 1 through the end of the given month — verified against real calendar dates for both a
+normal and a leap year. (2) **The Board Report's own "By Fund" table never got the numeric-prefix
+grouping the Giving by Fund report already has (G22)** — it listed every fund flatly, so all the
+small "40085 Advent"/"40085 Donor Advise"/"40085 Lent" seasonal sub-funds scattered around the
+list as their own rows instead of folding into the "40085 General Fund" line a board actually
+wants to see, which read as noise ("nonsense numbers"). `boardFundTableHtml()`
+(`src/frontend/js-giving.js`) now groups by the same leading numeric code and renders a
+collapsible "(N funds — click to expand)" header + subtotal, mirroring `rptToggleFundGroup`'s
+exact UX via a new `boardToggleFundGroup()`. `npm test` (598/598, 4 new tests for the weekly
+projection fallback and `sundaysElapsedInYear`, hand-verified against real 2026/2024 calendar
+dates), `node --check` on both rebuilt app-JS bundles. Not verified in a live browser.
+(`src/api-utils.js`, `src/api-reports.js`, `src/frontend/js-giving.js`, `test/giving-board.test.js`)
+
 ### v1.136.0 — Finance: root-caused and fixed the "boxes don't type correctly" bug (2026-08-05)
 
 Reported again, with an explicit instruction to find the cause before coding — four prior fixes

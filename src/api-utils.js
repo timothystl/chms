@@ -248,10 +248,12 @@ export function bucketGivingMethod(method) {
 
 // Project a full-year total from year-to-date giving. When prior-year data covers the same
 // window, extrapolate by the prior year's own seasonal shape ("if the second half behaves like
-// last year's second half"); otherwise fall back to a straight-line month fraction. Returns
-// { projected, method } where method is a human string naming which path was used, so the UI
-// can state the projection method (a data-consistency rule from the handoff).
-export function projectYearEnd(ytdCents, priorCumThroughMonthCents, priorFullYearCents, throughMonth) {
+// last year's second half"); otherwise fall back to a straight-line estimate off Sundays elapsed
+// (giving is a weekly rhythm, not a monthly one — YTD / Sundays-so-far * 52), or a month fraction
+// when the caller has no Sunday count to give it. Returns { projected, method } where method is a
+// human string naming which path was used, so the UI can state the projection method (a
+// data-consistency rule from the handoff).
+export function projectYearEnd(ytdCents, priorCumThroughMonthCents, priorFullYearCents, throughMonth, sundaysElapsed) {
   const ytd = Math.max(0, Math.round(ytdCents || 0));
   const tm = Math.min(12, Math.max(1, Math.round(throughMonth || 12)));
   if (tm >= 12) return { projected: ytd, method: 'actual' };
@@ -261,8 +263,28 @@ export function projectYearEnd(ytdCents, priorCumThroughMonthCents, priorFullYea
   if (priorCum > 0 && priorFull >= priorCum) {
     return { projected: Math.round(ytd * (priorFull / priorCum)), method: 'seasonal' };
   }
-  // Straight-line fallback: assume the rest of the year matches the pace so far.
+  // Straight-line fallback: extrapolate off Sundays elapsed when known (this church's giving
+  // rhythm is weekly, so 52 weeks is a truer basis than 12 months), else a plain month fraction.
+  if (sundaysElapsed > 0) {
+    return { projected: Math.round(ytd * (52 / sundaysElapsed)), method: 'linear-weekly' };
+  }
   return { projected: Math.round(ytd * (12 / tm)), method: 'linear' };
+}
+
+// Count the Sundays from Jan 1 through the last day of `throughMonth` in `year` — the weekly
+// basis projectYearEnd's straight-line fallback uses instead of a month fraction.
+export function sundaysElapsedInYear(year, throughMonth) {
+  const monthEnds = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const tm = Math.min(12, Math.max(1, Math.round(throughMonth || 12)));
+  const lastDay = tm === 2 && isLeap ? 29 : monthEnds[tm - 1];
+  const end = Date.UTC(year, tm - 1, lastDay);
+  let t = Date.UTC(year, 0, 1);
+  const dow = new Date(t).getUTCDay(); // Sunday = 0
+  t += ((7 - dow) % 7) * 86400000; // advance to the first Sunday on/after Jan 1
+  let count = 0;
+  while (t <= end) { count++; t += 7 * 86400000; }
+  return count;
 }
 
 // Spread an annual budget across the year and return the portion due through `throughMonth`.
