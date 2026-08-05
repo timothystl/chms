@@ -621,47 +621,40 @@ function boardKpiCard(color, label, value, valueColor, sub) {
     + '<div class="board-kpi-sub">' + sub + '</div></div>';
 }
 
-// General Fund is what the board cares about most — split it out from every other
-// (designated/restricted) fund rather than showing one lump "all funds" total. Matched by
-// name, same "40085 General Fund" naming convention used throughout Giving/Settings.
-function boardGeneralFundSplit(d) {
-  var funds = d.funds || [];
-  var isGeneral = function(f) { return /general\s*fund/i.test(f.name || ''); };
-  var gen = funds.filter(isGeneral), other = funds.filter(function(f) { return !isGeneral(f); });
-  var sum = function(arr, key) { return arr.reduce(function(s, f) { return s + (f[key] || 0); }, 0); };
-  return {
-    general_cents: sum(gen, 'actual_cents'), general_prior_cents: sum(gen, 'prior_cents'),
-    other_cents: sum(other, 'actual_cents'), other_prior_cents: sum(other, 'prior_cents'),
-    other_count: other.filter(function(f) { return f.actual_cents > 0; }).length,
-  };
-}
 function boardDashboardHtml(d) {
   var k = d.kpis;
+  // General Fund is what the board cares about most — every fund sharing the same leading
+  // numeric code as "General Fund" (e.g. "40085 General Fund", "40085 Christmas Offering", ...),
+  // same numeric-prefix grouping the Giving by Fund report already uses. All three of the first
+  // KPI cards are scoped to General Fund only (not the all-funds totals in k), so they read as
+  // one coherent story instead of mixing an all-funds projection with a General-Fund YTD figure.
+  var gf = d.general_fund || {};
   // KPI 1 — General Fund YTD (primary), with all other giving folded in as a sub-line
-  var gf = boardGeneralFundSplit(d);
-  var gfDelta = gf.general_cents - gf.general_prior_cents;
-  var deltaSub = gf.general_prior_cents <= 0 ? 'No prior-year data for this point'
-    : (gfDelta >= 0 ? '+' : '−') + Math.abs(Math.round(gfDelta / gf.general_prior_cents * 100)) + '% vs. same point in ' + d.prior_year;
-  var otherSub = gf.other_cents > 0
-    ? '<div style="margin-top:3px;opacity:.8;">+ ' + boardMoney(gf.other_cents) + ' other giving (' + gf.other_count + ' fund' + (gf.other_count === 1 ? '' : 's') + ') &middot; ' + boardMoney(gf.general_cents + gf.other_cents) + ' total</div>'
+  var deltaSub = gf.given_ytd_prior_cents > 0
+    ? ((gf.given_ytd_delta_pct >= 0 ? '+' : '−') + Math.abs(gf.given_ytd_delta_pct) + '% vs. same point in ' + d.prior_year)
+    : 'No prior-year data for this point';
+  var otherSub = gf.other_giving_cents > 0
+    ? '<div style="margin-top:3px;opacity:.8;">+ ' + boardMoney(gf.other_giving_cents) + ' other giving (' + gf.other_fund_count + ' fund' + (gf.other_fund_count === 1 ? '' : 's') + ') &middot; ' + boardMoney(gf.given_ytd_cents + gf.other_giving_cents) + ' total</div>'
     : '';
-  var c1 = boardKpiCard('#2E7EA6', 'General Fund YTD', boardMoney(gf.general_cents), '', deltaSub + otherSub);
-  // KPI 2 — Vs budget YTD
+  var c1 = boardKpiCard('#2E7EA6', 'General Fund YTD', boardMoney(gf.given_ytd_cents), '', deltaSub + otherSub);
+  // KPI 2 — Vs budget YTD — from Finance → Church Report's own "40085 Sunday Offering" account
+  // budget (same leading code, different title), not a separate fund-level budget in Settings.
   var c2;
-  if (k.budget_variance_cents == null) {
-    c2 = boardKpiCard('#B85C3A', 'Vs. budget YTD', '—', '#8A8377', 'No fund budgets set yet');
+  if (gf.budget_variance_cents == null) {
+    c2 = boardKpiCard('#B85C3A', 'Vs. budget YTD', '—', '#8A8377', 'No Church Report budget uploaded for this account yet');
   } else {
-    var vneg = k.budget_variance_cents < 0;
-    var vsub = Math.abs(k.budget_variance_pct) + '% ' + (vneg ? 'behind' : 'ahead of') + ' the ' + boardMoney(k.budget_ytd_cents) + ' plan';
-    c2 = boardKpiCard('#B85C3A', 'Vs. budget YTD', boardMoney(k.budget_variance_cents), vneg ? '#B85C3A' : '#6B8F71', vsub);
+    var vneg = gf.budget_variance_cents < 0;
+    var vsub = Math.abs(gf.budget_variance_pct) + '% ' + (vneg ? 'behind' : 'ahead of') + ' the ' + boardMoney(gf.budget_ytd_cents) + ' plan';
+    c2 = boardKpiCard('#B85C3A', 'Vs. budget YTD', boardMoney(gf.budget_variance_cents), vneg ? '#B85C3A' : '#6B8F71', vsub);
   }
-  // KPI 3 — Year-end projection
-  var methodNote = k.projection_method === 'seasonal' ? 'Projected on last year’s seasonal pattern'
-    : k.projection_method === 'linear' ? 'Projected straight-line from the pace so far'
+  // KPI 3 — Year-end projection (General Fund only, same basis as card 1 — an all-funds
+  // projection here would contradict card 1's own YTD trend whenever other funds move differently)
+  var methodNote = gf.projection_method === 'seasonal' ? 'Projected on last year’s seasonal pattern'
+    : gf.projection_method === 'linear' ? 'Projected straight-line from the pace so far'
     : 'Full year recorded';
-  var projSub = k.projection_vs_budget_cents == null ? methodNote
-    : boardMoney(Math.abs(k.projection_vs_budget_cents)) + (k.projection_vs_budget_cents < 0 ? ' under' : ' over') + ' a ' + boardMoney(k.annual_budget_cents) + ' budget';
-  var c3 = boardKpiCard('#C9973A', 'Year-end projection', boardMoney(k.projection_cents), '', projSub);
+  var projSub = gf.projection_vs_budget_cents == null ? methodNote
+    : boardMoney(Math.abs(gf.projection_vs_budget_cents)) + (gf.projection_vs_budget_cents < 0 ? ' under' : ' over') + ' a ' + boardMoney(gf.annual_budget_cents) + ' budget';
+  var c3 = boardKpiCard('#C9973A', 'Year-end projection', boardMoney(gf.projection_cents), '', projSub);
   // KPI 4 — Giving households
   var hhDelta = k.households - k.households_prior;
   var hhSub = (k.households_prior > 0 ? (Math.abs(hhDelta) + (hhDelta === 0 ? ' same as ' : hhDelta < 0 ? ' fewer than ' : ' more than ') + d.prior_year + ' · ') : '')

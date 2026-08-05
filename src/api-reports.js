@@ -2,6 +2,7 @@
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
 import { isoWeekKey, bucketGivingMethod, projectYearEnd, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL } from './api-utils.js';
+import { resolveChurchYearPrecedence } from './api-finance.js';
 
 export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -976,13 +977,15 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   const priorPeriodEnd = priorYear + '-' + mm + '-31';
   const dateExpr = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
 
-  const [monthlyRes, fundRes, hhRes, hhPriorRes, methodRes] = await Promise.all([
-    // Month-by-month sums for current + prior year (chart + budget spread)
+  const [monthlyRes, fundRes, hhRes, hhPriorRes, methodRes, churchBudgetRes] = await Promise.all([
+    // Month-by-month sums for current + prior year (chart + budget spread), broken out per fund
+    // so a General-Fund-only seasonal shape/projection can be derived in JS alongside the
+    // all-funds one, without a second round trip.
     db.prepare(
-      `SELECT substr(${dateExpr},1,4) AS yr, CAST(substr(${dateExpr},6,2) AS INTEGER) AS mo, SUM(ge.amount) AS cents
+      `SELECT substr(${dateExpr},1,4) AS yr, CAST(substr(${dateExpr},6,2) AS INTEGER) AS mo, ge.fund_id AS fund_id, SUM(ge.amount) AS cents
        FROM giving_entries ge LEFT JOIN giving_batches gb ON ge.batch_id=gb.id
        WHERE ${dateExpr} BETWEEN ? AND ?
-       GROUP BY yr, mo`
+       GROUP BY yr, mo, ge.fund_id`
     ).bind(priorYearStart, yearEnd).all(),
     // Per active fund: current YTD, prior YTD (same window last year), annual budget
     db.prepare(
@@ -1024,14 +1027,33 @@ if (seg === 'reports/giving-board' && method === 'GET') {
        WHERE ${dateExpr} BETWEEN ? AND ?
        GROUP BY ge.method`
     ).bind(yearStart, periodEnd).all(),
+    // This year's annual (period_month=0) Church Report rows, so a General Fund budget entered
+    // there (the "40085 Sunday Offering" account — same leading code as Giving's "40085 General
+    // Fund" funds, different title) can back the board's Vs. Budget YTD instead of requiring a
+    // separate fund-level budget in Settings.
+    db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0`).bind(year).all(),
   ]);
 
-  // Build monthly arrays (index 0 = Jan)
+  // Which funds are "General Fund" — every fund sharing the same leading numeric code as the
+  // fund literally named "General Fund" (e.g. "40085 General Fund", "40085 Christmas Offering",
+  // "40085 Advent Offering" ...), matching the Giving by Fund report's own numeric-prefix
+  // grouping convention (see rptToggleFundGroup in js-reports.js) rather than a name-only match,
+  // which would miss every seasonal sub-fund coded under the same account.
+  const numPrefix = (name) => { const m = String(name || '').match(/^(\d+)\s/); return m ? m[1] : null; };
+  const genFundRow = (fundRes.results || []).find(f => /general\s*fund/i.test(f.name || ''));
+  const genPrefix = genFundRow ? numPrefix(genFundRow.name) : null;
+  const genFundIds = new Set((fundRes.results || []).filter(f => genPrefix && numPrefix(f.name) === genPrefix).map(f => f.id));
+
+  // Build monthly arrays (index 0 = Jan) — both all-funds (chart) and General-Fund-only
+  // (its own seasonal projection, so it doesn't silently borrow other funds' shape/pace).
   const curMonthly = new Array(12).fill(0), priorMonthly = new Array(12).fill(0);
+  const curMonthlyGF = new Array(12).fill(0), priorMonthlyGF = new Array(12).fill(0);
   for (const r of (monthlyRes.results || [])) {
     const mo = (r.mo || 0) - 1; if (mo < 0 || mo > 11) continue;
-    if (String(r.yr) === String(year)) curMonthly[mo] = r.cents || 0;
-    else if (String(r.yr) === String(priorYear)) priorMonthly[mo] = r.cents || 0;
+    const cents = r.cents || 0;
+    const isGF = genFundIds.has(r.fund_id);
+    if (String(r.yr) === String(year)) { curMonthly[mo] += cents; if (isGF) curMonthlyGF[mo] += cents; }
+    else if (String(r.yr) === String(priorYear)) { priorMonthly[mo] += cents; if (isGF) priorMonthlyGF[mo] += cents; }
   }
 
   // Fund rows with per-fund YTD budget (spread by the church-wide prior-year seasonal shape)
@@ -1040,6 +1062,7 @@ if (seg === 'reports/giving-board' && method === 'GET') {
     const budgetYtd = hasBudget ? spreadBudgetYtd(f.budget_annual_cents, priorMonthly, throughMonth) : null;
     return {
       name: f.name,
+      is_general_fund: genFundIds.has(f.id),
       actual_cents: f.cur_cents || 0,
       budget_ytd_cents: budgetYtd,
       variance_cents: hasBudget ? (f.cur_cents || 0) - budgetYtd : null,
@@ -1056,6 +1079,32 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   const priorFull = priorMonthly.reduce((s, v) => s + v, 0);
   const priorCum  = priorMonthly.slice(0, throughMonth).reduce((s, v) => s + v, 0);
   const proj = projectYearEnd(ytdActual, priorCum, priorFull, throughMonth);
+
+  // ── General Fund — its own YTD/prior/projection/budget, all scoped to just the 40085-family
+  // funds, so the board cards read as one coherent story instead of mixing an all-funds
+  // projection with a General-Fund-only YTD figure. ──
+  const gfFunds = funds.filter(f => f.is_general_fund);
+  const gfYtdActual = gfFunds.reduce((s, f) => s + f.actual_cents, 0);
+  const gfPriorYtd  = gfFunds.reduce((s, f) => s + f.prior_cents, 0);
+  const gfPriorFull = priorMonthlyGF.reduce((s, v) => s + v, 0);
+  const gfPriorCum  = priorMonthlyGF.slice(0, throughMonth).reduce((s, v) => s + v, 0);
+  const gfProj = projectYearEnd(gfYtdActual, gfPriorCum, gfPriorFull, throughMonth);
+  const otherYtdActual = ytdActual - gfYtdActual;
+  const otherFundCount = funds.filter(f => !f.is_general_fund && f.actual_cents > 0).length;
+
+  // General Fund budget — from Finance → Church Report's own account matching the same leading
+  // numeric code (e.g. "40085 Sunday Offering"), not a separate fund-level budget in Settings.
+  // Falls back to null (not $0) when nothing's been imported/synced for this account yet, same
+  // "no data" convention as the fund-level budget path above.
+  let gfBudgetAnnual = null;
+  if (genPrefix) {
+    const churchRows = resolveChurchYearPrecedence(churchBudgetRes.results || []);
+    const matches = churchRows.filter(r => String(r.account_name || '').trim().startsWith(genPrefix));
+    const withBudget = matches.filter(r => r.own_budget_cents != null);
+    if (withBudget.length) gfBudgetAnnual = withBudget.reduce((s, r) => s + (r.own_budget_cents || 0), 0);
+  }
+  const gfBudgetYtd = gfBudgetAnnual != null ? spreadBudgetYtd(gfBudgetAnnual, priorMonthlyGF, throughMonth) : null;
+  const gfBudgetVariance = gfBudgetYtd != null ? gfYtdActual - gfBudgetYtd : null;
 
   // Households / concentration
   const householdTotals = (hhRes.results || []).map(r => r.cents || 0);
@@ -1102,6 +1151,20 @@ if (seg === 'reports/giving-board' && method === 'GET') {
     method_mix: methodMix,
     concentration,
     funds,
+    general_fund: {
+      given_ytd_cents: gfYtdActual,
+      given_ytd_prior_cents: gfPriorCum,
+      given_ytd_delta_pct: gfPriorCum > 0 ? +(((gfYtdActual - gfPriorCum) / gfPriorCum) * 100).toFixed(1) : null,
+      other_giving_cents: otherYtdActual,
+      other_fund_count: otherFundCount,
+      budget_ytd_cents: gfBudgetYtd,
+      budget_variance_cents: gfBudgetVariance,
+      budget_variance_pct: gfBudgetYtd > 0 ? +(((gfYtdActual - gfBudgetYtd) / gfBudgetYtd) * 100).toFixed(1) : null,
+      annual_budget_cents: gfBudgetAnnual,
+      projection_cents: gfProj.projected,
+      projection_method: gfProj.method,
+      projection_vs_budget_cents: gfBudgetAnnual != null ? gfProj.projected - gfBudgetAnnual : null,
+    },
     totals: { actual_cents: ytdActual, budget_ytd_cents: budgetYtd, prior_cents: priorYtd, annual_budget_cents: annualBudget },
     has_budget: annualBudget > 0,
   });

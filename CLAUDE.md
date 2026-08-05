@@ -481,17 +481,22 @@ the other side).
   `tlc-admin-worker.js`, `SECRETS.md` equivalent doc in this repo, `CLAUDE.md`)
 
 
-### Board Report — Budget YTD source (2026-08-04)
-Fixed alongside G/FIN follow-ups the same day (see NOTES.md v1.122.0): the Giving Board Report
-Dashboard's "General Fund YTD" KPI card is now split from other-fund giving, but its companion
-"Vs. Budget YTD" card still reads `funds.budget_annual_cents` (set per-fund in Settings → Manage
-Funds) and shows "No fund budgets set yet" if that's empty — it was asked to instead pull the
-budget from whatever's uploaded in Finance → Church Report. **Not done**: there's no existing link
-between the `funds` table (Giving) and `finance_church_entries` account rows (Finance) — a Church
-Report account like "40010 Sunday Offering" isn't automatically the same thing as Giving's
-"General Fund." Needs a decision on which Church Report account (or account-name pattern) should
-serve as the General Fund giving budget before wiring this up, rather than guessing at a mapping
-for a number a board will see. (noted 2026-08-04)
+### Board Report — General Fund KPI split, Finance-sourced budget (2026-08-04, DONE)
+Follow-up to the same-day attendance/print/projection fixes — see NOTES.md v1.123.0. Confirmed
+with the user and implemented server-side: "General Fund" = every fund sharing the same leading
+numeric code as the fund literally named "General Fund" (e.g. "40085 General Fund", "40085
+Christmas Offering", "40085 Advent Offering" ...) — the same numeric-prefix grouping convention
+the Giving by Fund report already uses (G22), not a name-only match. `GET
+/admin/api/reports/giving-board` now returns a `general_fund` object (YTD/prior/projection/budget,
+all scoped to just that fund family) alongside the existing all-funds `kpis`. Vs. Budget YTD now
+pulls from Finance → Church Report's own account sharing the same numeric code (e.g. "40085 Sunday
+Offering" — same code, different title) via `finance_church_entries`, instead of requiring a
+separate fund-level budget in Settings → Manage Funds. Year-End Projection is now computed on the
+General-Fund-only monthly shape (a new fund_id-broken-out monthly query), not the all-funds total
+— fixes a real inconsistency where the projection card didn't track with the YTD card's own trend
+whenever other funds moved differently. `npm test` (504/504, 4 new integration tests against a
+real in-memory SQLite DB in `test/giving-board-general-fund.test.js`). Not verified in a live
+browser. (`src/api-reports.js`, `src/frontend/js-giving.js`)
 
 ### Connect directory in the Tithe.ly Church App — VIABLE, confirmed on a device (2026-08-03)
 Scoped, built, and verified end to end in one session. **Outcome: a `role='member'` session in the

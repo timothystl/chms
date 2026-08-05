@@ -397,6 +397,40 @@ and syntax-checking the actual served bundle rather than trusting the edit looke
 verified in a live browser. (`src/api-finance.js`, `src/frontend/js-finance.js`,
 `test/finance-budget-plan.test.js`)
 
+### v1.123.0 — General Fund defined by numeric prefix, Finance-sourced budget, General-Fund-only
+projection (2026-08-04)
+
+Follow-up to v1.122.0's General Fund KPI split, after the user pointed out the totals didn't
+reconcile and the Year-End Projection card ($505K) contradicted the YTD card's own -22% trend.
+Root cause of both: v1.122.0's split matched funds by literal name (`/general\s*fund/i`), so it
+only caught the one fund actually named "40085 General Fund" — missing every seasonal sub-fund
+coded under the same "40085" number (Christmas Offering, Advent Offering, Easter Vigil, etc.),
+which the Giving by Fund report already groups together by leading numeric code (G22's own
+convention). Confirmed with the user: General Fund = every fund sharing that numeric prefix.
+
+Rebuilt server-side in `GET /admin/api/reports/giving-board` (`src/api-reports.js`): the monthly
+giving query now breaks out `fund_id` so a General-Fund-only monthly shape can be computed
+alongside the all-funds one; a new `general_fund` block in the response carries YTD/prior/
+other-giving/projection/budget all scoped to just the numeric-prefix-matched fund family. Two
+real fixes bundled in: (1) **Year-End Projection is now General-Fund-only**, computed from the
+General Fund's own prior-year monthly shape — previously it silently used the all-funds
+projection, which could show growth even while General Fund itself was down, since other funds
+(a one-time building gift, etc.) skewed the blended total. (2) **Vs. Budget YTD now reads from
+Finance → Church Report** — a new query against `finance_church_entries` (period_month=0,
+precedence-resolved same as the Church Report's own read paths) matches the account whose name
+starts with the same numeric code (e.g. "40085 Sunday Offering") and spreads its budget across the
+year using the General Fund's own seasonal shape, instead of requiring a separate fund-level
+budget in Settings → Manage Funds. Frontend (`src/frontend/js-giving.js`) simplified to read the
+new `general_fund` object directly instead of re-deriving the split client-side. `npm test`
+(504/504, 4 new integration tests in `test/giving-board-general-fund.test.js` against a real
+in-memory SQLite DB — the general-fund/other-fund split, the projection using a genuinely
+different basis than the all-funds figure, the Church Report budget match, and the null-not-$0
+fallback when no matching account exists). Caught and fixed one instance of the SC3-BUG1/TAP-series
+backtick-in-`String.raw`-comment bug class before shipping (a literal backtick in a new
+`js-giving.js` comment prematurely closed the file's outer template literal — caught by `npm test`
+itself failing to parse the file, not just `node --check`). Not verified in a live browser.
+(`src/api-reports.js`, `src/frontend/js-giving.js`, `test/giving-board-general-fund.test.js`)
+
 ### v1.122.0 — Attendance YTD chart, cross-tab print leak, General Fund KPI split, year-end
 projection fallback (2026-08-04)
 
