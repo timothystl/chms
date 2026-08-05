@@ -24,6 +24,42 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.130.0 — Compensation: editable Disability & Survivor rate + Health Insurance premium overrides;
+Tuition Aid pipeline previews made fully editable (2026-08-05)
+
+Two follow-ups reported in the same session.
+
+**Compensation tab**: only Pension Contribution % had an editable override box — Disability &
+Survivor's rate was always auto-looked-up (per worker, off the Has Dependents checkbox) with no way
+to override it, and the Health Insurance Renewal Options card's Medical/Dental/Vision premium
+figures were a hardcoded 2027 quote snapshot with no edit UI at all (flagged as a known gap back in
+FIN42's notes — "a future idea, not built now"). The per-fiscal-year Health Opt-Out Cash figure the
+user also asked about already existed (District Reference Data box, Salary Calculator card) — just
+easy to miss since it sits grouped with Base Salary rather than near Pension. Added: (1) a
+"Disability & Survivor Rate %" override input next to Pension (same null-means-auto-with-reset-link
+pattern, applies one flat rate to every worker instead of the two dependents-based Concordia rates);
+(2) editable Medical/Dental/Vision premium inputs for the currently-selected plan option on the
+Health Insurance card (blank = use the quote's own figure, shown as a placeholder; a typed figure
+overrides just that option/line, with a reset link). Both persist via the existing salary-planner
+save/load endpoint. `npm test` (580/580 — one pre-existing test harness that evals an isolated
+extract of `finComputeHealthPlanTotalCents` needed a `typeof` guard since it doesn't declare the new
+override global; fixed). `node --check` on both touched files, confirmed all new function/variable
+names appear in the assembled bundle. Not verified in a live browser. (`src/frontend/js-finance.js`)
+
+**Tuition Aid Planner**: the pipeline future-year preview added earlier this session (below) was
+initially read-only estimates with just an Enroll button — reported it should instead let an admin
+click into a future year and actually adjust outside aid / family share / a manual Timothy Award for
+that not-yet-enrolled kid, i.e. plan a real "what if enrolled this year" scenario. The preview row
+now reuses the exact same editable inputs a real row has; they already save into the same per-year
+"pin" mechanism a real student's future-year edit uses (`tapOutsideAidChange`/`tapSliderChange`
+already routed there whenever viewing a non-current year, regardless of enrollment status) — only
+`tapTimothyAwardChange` had an unconditional `isPipeline` bail that needed relaxing to
+"pipeline AND current year" so a future-year manual award edit isn't blocked. Verified with a
+harness: editing Outside Aid/Family %/Timothy Award on a preview row correctly writes an isolated
+per-year pin (current year untouched, `is_pipeline` unaffected), and the pin's values correctly
+round-trip back into the rendered inputs on the next render. `npm test` (580/580). Not verified in a
+live browser. (`src/frontend/js-tuition-aid.js`)
+
 ### v1.129.0 — Tuition Aid Planner: future-year preview for pipeline entrants (2026-08-05)
 
 Reported: Lawrence Knapp is tracked in the Pipeline (by birth year), and navigating the year

@@ -589,11 +589,14 @@ function tapRenderPlannerTables() {
   // Future-year preview: a pipeline entrant hasn't been formally Enrolled (so they never appear
   // above, current year or otherwise — see the comment at the top of this loop), but a family
   // may already know a not-yet-enrolled kid's real starting grade for a FUTURE year (e.g. they're
-  // skipping PK entirely and starting at Kindergarten) and want to see that projection without
-  // being forced to first click Enroll for a PK grade they're not actually attending this year.
-  // Shown only when viewing a future year, as a distinct read-only-ish preview row (not counted
-  // in tapUpdateGauges/budget math, which stays keyed off real enrollment via
-  // tapEnrolledActiveForYear) with its own Enroll shortcut.
+  // skipping PK entirely and starting at Kindergarten) and want to plan around that — see the
+  // projected award figures AND adjust outside aid / family share / a manual Timothy Award for
+  // that year — without being forced to first click Enroll for a PK grade they're not actually
+  // attending this year. Editing a preview row saves into the same per-year pin a real student's
+  // future-year edit would (tapOutsideAidChange et al. already route there whenever
+  // _tapYearIdx !== 0, regardless of is_pipeline), so this is a real, persisted "what if" plan,
+  // not just a display estimate. Not counted in tapUpdateGauges/budget math, which stays keyed
+  // off real enrollment via tapEnrolledActiveForYear, until the entrant is actually Enrolled.
   if (_tapYearIdx !== 0) {
     _tapRoster.forEach(function(s) {
       if (!s.isPipeline) return;
@@ -601,8 +604,9 @@ function tapRenderPlannerTables() {
       if (pGrade === null || pGrade === 'Graduated' || pGrade === 'PK 3' || pGrade === 'PK 4') return;
       var pBucket = tapBucketOf(pGrade);
       if (pBucket === 'K8') {
+        var pPin = tapPinFor(s.id, _tapYearIdx);
         k8List.push({
-          s: s, grade: pGrade, sp: tapSplitFor(s, _tapYearIdx), isOverridden: false,
+          s: s, grade: pGrade, sp: tapSplitFor(s, _tapYearIdx), isOverridden: !!(pPin && pPin.timothy_award_cents != null),
           famPctVal: tapFamPctFor(s, _tapYearIdx), outsideAidVal: tapOutsideAidFor(s, _tapYearIdx), preview: true
         });
       } else if (pBucket === 'LHS') {
@@ -627,30 +631,26 @@ function tapRenderPlannerTables() {
 
   var k8Rows = k8List.map(function(row) {
     var s = row.s, grade = row.grade, sp = row.sp, famPctVal = row.famPctVal, outsideAidVal = row.outsideAidVal, isOverridden = row.isOverridden;
-    if (row.preview) {
-      var pGrade0 = tapGradeAt(s, 0);
-      var pEnrollBtn = (pGrade0 !== null && pGrade0 !== 'Graduated')
-        ? '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapEnrollPipeline(' + s.id + ')" title="Enroll now">Enroll</button>' : '';
-      return '<tr style="opacity:.72;font-style:italic;">'
-        + '<td style="padding:6px 8px;">' + esc(s.family) + '</td>'
-        + '<td style="padding:6px 8px;">' + esc(s.child) + '</td>'
-        + '<td style="padding:6px 8px;">' + esc(grade) + ' <span class="status-pill status-new" style="font-style:normal;">pipeline</span></td>'
-        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(tuition * 100)) + '</td>'
-        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(outsideAidVal * 100)) + '</td>'
-        + '<td style="padding:6px 8px;">' + famPctVal + '%</td>'
-        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(sp.timothyAward * 100)) + ' (est.)</td>'
-        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(sp.familyOwed * 100)) + ' (est.)</td>'
-        + '<td style="padding:6px 8px;white-space:nowrap;">' + pEnrollBtn + '</td>'
-      + '</tr>';
-    }
-    var lhsToggle = grade === '8'
+    var isPreview = !!row.preview;
+    // A future-year preview row is fully editable, same inputs as a real row — Outside Aid,
+    // Family Share %, and Timothy Award all save into the same per-year "pin" a real student's
+    // future-year edit would (tapOutsideAidChange/tapSliderChange/tapTimothyAwardChange already
+    // route through tapSavePinDebounced whenever _tapYearIdx !== 0, regardless of is_pipeline —
+    // that's what lets an admin actually plan/adjust "what if this kid were enrolled this year"
+    // without formally Enrolling them yet). It's just visually flagged as not-yet-real and
+    // carries its own Enroll shortcut instead of the LHS-transition toggle a real row gets.
+    var gradeBadge = isPreview ? ' <span class="status-pill status-new" style="font-style:normal;" title="Projected from birth year / a manually-entered current grade — not yet formally Enrolled">pipeline</span>' : '';
+    var lhsToggle = (!isPreview && grade === '8')
       ? '<label class="tap-lhs-toggle"><input type="checkbox" onchange="tapSetAttendsLHS(' + s.id + ',this.checked)" ' + (s.attendsLHS ? 'checked' : '') + '> Plans to attend LHS</label>' : '';
     var linkBtn = s.personId ? '' : '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenLinkPerson(' + s.id + ')">Link</button> ';
     var histBtn = '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenHistory(' + s.id + ')">History</button> ';
-    return '<tr>'
+    var pGrade0 = isPreview ? tapGradeAt(s, 0) : null;
+    var enrollBtn = (isPreview && pGrade0 !== null && pGrade0 !== 'Graduated')
+      ? '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapEnrollPipeline(' + s.id + ')" title="Enroll now, as of the current year">Enroll</button> ' : '';
+    return '<tr' + (isPreview ? ' style="background:rgba(201,151,58,.06);"' : '') + '>'
       + '<td style="padding:6px 8px;">' + esc(s.family) + '</td>'
       + '<td style="padding:6px 8px;">' + esc(s.child) + '</td>'
-      + '<td style="padding:6px 8px;">' + esc(grade) + '</td>'
+      + '<td style="padding:6px 8px;">' + esc(grade) + gradeBadge + '</td>'
       + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(tuition * 100)) + '</td>'
       + '<td style="padding:6px 8px;text-align:right;"><input type="number" min="0" step="1" value="' + Math.round(outsideAidVal) + '" style="width:80px;text-align:right;" onchange="tapOutsideAidChange(this,' + s.id + ')"></td>'
       + '<td style="padding:6px 8px;">'
@@ -665,7 +665,7 @@ function tapRenderPlannerTables() {
         + (isOverridden ? ' <a href="javascript:void(0)" style="font-size:.68rem;white-space:nowrap;" onclick="tapClearTimothyOverride(' + s.id + ')" title="Clear the manual amount, go back to Family Share %">↺ auto</a>' : '')
       + '</td>'
       + '<td style="padding:6px 8px;text-align:right;"><span id="tap-k8family-' + s.id + '">' + fmtMoney(Math.round(sp.familyOwed * 100)) + '</span>' + lhsToggle + '</td>'
-      + '<td style="padding:6px 8px;white-space:nowrap;">' + histBtn + linkBtn + '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapRemoveStudent(' + s.id + ')">Remove</button></td>'
+      + '<td style="padding:6px 8px;white-space:nowrap;">' + enrollBtn + histBtn + linkBtn + '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapRemoveStudent(' + s.id + ')">Remove</button></td>'
     + '</tr>';
   });
 
@@ -681,25 +681,17 @@ function tapRenderPlannerTables() {
 
   var lhsRows = lhsList.map(function(row) {
     var s = row.s, grade = row.grade, lhsVal = row.lhsVal;
-    if (row.preview) {
-      var pGrade0Lhs = tapGradeAt(s, 0);
-      var pEnrollBtnLhs = (pGrade0Lhs !== null && pGrade0Lhs !== 'Graduated')
-        ? '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapEnrollPipeline(' + s.id + ')" title="Enroll now">Enroll</button>' : '';
-      return '<tr style="opacity:.72;font-style:italic;">'
-        + '<td style="padding:6px 8px;">' + esc(s.family) + '</td>'
-        + '<td style="padding:6px 8px;">' + esc(s.child) + '</td>'
-        + '<td style="padding:6px 8px;">' + esc(grade) + ' <span class="status-pill status-new" style="font-style:normal;">pipeline</span></td>'
-        + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(lhsVal * 100)) + ' (est.)</td>'
-        + '<td class="tap-award-cell">—</td>'
-        + '<td style="padding:6px 8px;white-space:nowrap;">' + pEnrollBtnLhs + '</td>'
-      + '</tr>';
-    }
-    var flag = row.justGraduated ? ' <span class="status-pill status-confirmed">new to LHS</span>' : '';
+    var isPreview = !!row.preview;
+    var gradeBadgeLhs = isPreview ? ' <span class="status-pill status-new" style="font-style:normal;" title="Projected from birth year / a manually-entered current grade — not yet formally Enrolled">pipeline</span>' : '';
+    var flag = (!isPreview && row.justGraduated) ? ' <span class="status-pill status-confirmed">new to LHS</span>' : '';
     var lhsLinkBtn = s.personId ? '' : '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenLinkPerson(' + s.id + ')">Link</button> ';
-    return '<tr>'
+    var pGrade0Lhs = isPreview ? tapGradeAt(s, 0) : null;
+    var enrollBtnLhs = (isPreview && pGrade0Lhs !== null && pGrade0Lhs !== 'Graduated')
+      ? '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapEnrollPipeline(' + s.id + ')" title="Enroll now, as of the current year">Enroll</button> ' : '';
+    return '<tr' + (isPreview ? ' style="background:rgba(201,151,58,.06);"' : '') + '>'
       + '<td style="padding:6px 8px;">' + esc(s.family) + '</td>'
       + '<td style="padding:6px 8px;">' + esc(s.child) + '</td>'
-      + '<td style="padding:6px 8px;">' + esc(grade) + flag + '</td>'
+      + '<td style="padding:6px 8px;">' + esc(grade) + gradeBadgeLhs + flag + '</td>'
       + '<td style="padding:6px 8px;">'
         + '<div class="tap-slider-row">'
           + '<input type="range" min="0" max="' + maxAward + '" step="25" value="' + lhsVal + '" oninput="tapLhsSliderChange(this,' + s.id + ')">'
@@ -707,7 +699,7 @@ function tapRenderPlannerTables() {
         + '</div>'
       + '</td>'
       + '<td class="tap-award-cell" id="tap-lhsaward-' + s.id + '">' + fmtMoney(Math.round(lhsVal * 100)) + '</td>'
-      + '<td style="padding:6px 8px;white-space:nowrap;"><button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenHistory(' + s.id + ')">History</button> ' + lhsLinkBtn + '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapRemoveStudent(' + s.id + ')">Remove</button></td>'
+      + '<td style="padding:6px 8px;white-space:nowrap;">' + enrollBtnLhs + '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapOpenHistory(' + s.id + ')">History</button> ' + lhsLinkBtn + '<button class="btn-secondary" style="font-size:.68rem;padding:2px 8px;" onclick="tapRemoveStudent(' + s.id + ')">Remove</button></td>'
     + '</tr>';
   });
 
@@ -770,7 +762,10 @@ function tapOutsideAidChange(el, id) {
 }
 function tapTimothyAwardChange(el, id) {
   var s = tapById(id);
-  if (!s || s.isPipeline) return;
+  // A pipeline entrant can only have this typed directly for a FUTURE year (the preview row —
+  // see tapRenderPlannerTables), which saves into the per-year pin regardless of enrollment
+  // status; the current year (idx 0) has no override slot on an un-enrolled pipeline row.
+  if (!s || (s.isPipeline && _tapYearIdx === 0)) return;
   var dollars = Math.max(0, Math.round(+el.value || 0));
   var tuition = tapTuitionForYear(_tapYearIdx);
   var outsideAid = tapOutsideAidFor(s, _tapYearIdx);
