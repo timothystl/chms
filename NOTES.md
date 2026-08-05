@@ -24,6 +24,57 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.128.0 — Church Budget Planning: weeks-based annualization, editable FY Projected column,
+live-recomputing group totals, whole-dollar-only inputs (2026-08-05)
+
+Reported live: the "FY2026 Projected" column on the Planning table's annualization looked off
+(user's own hand-check — actual ÷ 7 completed months × 12 — didn't match). Root cause: the
+annualization used the **current calendar month number** (`getMonth()+1` = 8, since it's Aug 5) as
+the elapsed-months denominator, not the count of *completed* months (7) — a partial month is
+inherently ambiguous (is day 5 of month 8 "1 month elapsed" or "0"?), and the code picked the
+answer that understated the run rate. Per the user's suggestion, switched to **weeks elapsed**
+(days since Jan 1 ÷ 7, capped at 52) instead of calendar months — unambiguous, and closer to this
+church's actual weekly giving rhythm. New `weeksElapsedInYear()` (`src/api-finance.js`, used by the
+`generate-all` endpoint — param renamed `through_month`→`through_week`) and a duplicate
+`finWeeksElapsedInYear()` in `src/frontend/js-finance.js` (this file has no module system, so a
+duplicate is the established pattern here, same as the months version before it).
+
+Two follow-ups in the same conversation, both real bugs: (1) **The "FY{base} Projected" column had
+no edit affordance at all** despite the request — `computeBaseProj` was wired to read an override
+map that nothing ever set, and the rendered cell was a plain `$` span, not an input. Added a real
+editable input per leaf row, a new `_finPlanBaseProjEdits` (unsaved) / saved-server-side pattern
+mirroring the salary planner's chms_config JSON-blob convention — new
+`GET`/`PUT /admin/api/finance/planning/base-projection`, keyed by base fiscal year so a saved
+override never crosses years. (2) **Editing a Plan or Projected cell didn't update the group/
+subtotal/Δ%/Net figures above it** (screenshot: typing 640000 into a leaf left its group's bold
+subtotal row showing the old $510,000.00) — `finPlanEditCell` only ever mutated a JS object with no
+re-render call at all, so the whole table (including bold rollup rows, which are computed once at
+render time from the leaves) simply never recomputed until the next full page reload (Save or
+changing the base/target year). Fixed by wiring both edit handlers to a new
+`finRerenderPlanTablePreserveFocus()` — same focus/cursor/scroll-preservation technique FIN20
+already built for the Compensation tab's per-keystroke re-render, applied here for the first time
+to the Planning table itself. Every editable cell now carries a stable id
+(`finPlanCellId()`) so a full innerHTML rebuild can find its way back to the field being typed in.
+
+Also, per the same message: **both editable dollar columns are now whole-dollars-only** —
+`finPlanSanitizeWholeDollarInput()` strips anything but digits (and one leading "-") as the user
+types, so a decimal point can never actually land in the field (not just rounded after the fact).
+Applied identically server-side (`Math.round(Number(x)) * 100` instead of `Math.round(Number(x) *
+100)`) on `override-bulk` and the new `base-projection` PUT, for defense in depth against a
+bypassed client.
+
+`npm test` (580/580, 26 new/updated tests including an exact reproduction of the reported Aug-5
+example — 217 days elapsed = exactly 31 weeks), `node --check` on both built app-JS bundles.
+Caught and fixed, before shipping, a real instance of the project's own known backtick-in-comment-
+breaks-the-outer-String.raw-literal bug class (this file's whole export is one `String.raw`
+template) — a stray backtick in a new code comment silently truncated the served script; found by
+running the actual test suite (Rolldown's parser errored on it), not by reading the diff. Also
+caught a leftover reference to the old `baseThroughMonth` variable name in the column header
+tooltip that would have thrown a `ReferenceError` at render time — found the same way, by rebuilding
+and syntax-checking the actual served bundle rather than trusting the edit looked right. Not
+verified in a live browser. (`src/api-finance.js`, `src/frontend/js-finance.js`,
+`test/finance-budget-plan.test.js`)
+
 ### v1.122.0 — Attendance YTD chart, cross-tab print leak, General Fund KPI split, year-end
 projection fallback (2026-08-04)
 

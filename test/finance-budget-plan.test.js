@@ -132,9 +132,9 @@ describe('handleFinanceApi — generate-all (plan mirrors the real chart of acco
   it('generates one plan row per real account, using actual (falling back to budget) as the base', async () => {
     const db = makeTestDb();
     seedBaseYearAccounts(db);
-    // through_month: 12 = treat the base year as complete, so this test is unaffected by
+    // through_week: 52 = treat the base year as complete, so this test is unaffected by
     // proration (covered separately below) regardless of what today's real date happens to be.
-    const res = await handleFinanceApi(makeReq({ base_year: 2026, target_year: 2027, growth_pct: 0.03, through_month: 12 }), {}, new URL('https://x/'), 'POST', 'finance/planning/church/generate-all', db, true, true);
+    const res = await handleFinanceApi(makeReq({ base_year: 2026, target_year: 2027, growth_pct: 0.03, through_week: 52 }), {}, new URL('https://x/'), 'POST', 'finance/planning/church/generate-all', db, true, true);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.generated).toBe(2); // "New Line" skipped — nothing to grow from
@@ -154,28 +154,84 @@ describe('handleFinanceApi — generate-all (plan mirrors the real chart of acco
   it('annualizes a partial-year actual before applying growth, when the base year is still in progress', async () => {
     const db = makeTestDb();
     seedBaseYearAccounts(db);
-    // 5 months elapsed — Utilities' $20,000 YTD actual should be annualized to $48,000
-    // (20000 * 12/5) before the 3% growth is applied, not treated as if it were the full year.
-    const res = await handleFinanceApi(makeReq({ base_year: 2026, target_year: 2027, growth_pct: 0.03, through_month: 5 }), {}, new URL('https://x/'), 'POST', 'finance/planning/church/generate-all', db, true, true);
+    // 22 weeks elapsed — Utilities' $20,000 YTD actual should be annualized to $47,272.73-ish
+    // (20000 * 52/22) before the 3% growth is applied, not treated as if it were the full year.
+    const res = await handleFinanceApi(makeReq({ base_year: 2026, target_year: 2027, growth_pct: 0.03, through_week: 22 }), {}, new URL('https://x/'), 'POST', 'finance/planning/church/generate-all', db, true, true);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.prorated).toBe(true);
-    expect(body.throughMonth).toBe(5);
+    expect(body.throughWeek).toBe(22);
     const rows = db._raw.prepare("SELECT * FROM finance_budget_plan WHERE fiscal_year=2027 ORDER BY category").all();
     const utilities = rows.find(r => r.category === 'Expenses:Utilities');
-    const annualizedActual = Math.round(2000000 * (12 / 5));
+    const annualizedActual = Math.round(2000000 * (52 / 22));
     expect(utilities.base_amount_cents).toBe(annualizedActual);
     expect(utilities.planned_amount_cents).toBe(Math.round(annualizedActual * 1.03));
   });
 
-  it('does not prorate a fully complete base year (through_month: 12)', async () => {
+  it('does not prorate a fully complete base year (through_week: 52)', async () => {
     const db = makeTestDb();
     seedBaseYearAccounts(db);
-    const res = await handleFinanceApi(makeReq({ base_year: 2026, target_year: 2027, growth_pct: 0.03, through_month: 12 }), {}, new URL('https://x/'), 'POST', 'finance/planning/church/generate-all', db, true, true);
+    const res = await handleFinanceApi(makeReq({ base_year: 2026, target_year: 2027, growth_pct: 0.03, through_week: 52 }), {}, new URL('https://x/'), 'POST', 'finance/planning/church/generate-all', db, true, true);
     const body = await res.json();
     expect(body.prorated).toBe(false);
     const rows = db._raw.prepare("SELECT * FROM finance_budget_plan WHERE fiscal_year=2027 ORDER BY category").all();
     expect(rows.find(r => r.category === 'Expenses:Utilities').base_amount_cents).toBe(2000000); // unprorated
+  });
+});
+
+describe('handleFinanceApi — weeksElapsedInYear (used for base-year annualization)', () => {
+  it('counts a full year as 52 weeks', async () => {
+    const { weeksElapsedInYear } = await import('../src/api-finance.js');
+    expect(weeksElapsedInYear(new Date(2026, 11, 31))).toBe(52);
+  });
+  it('floors at 1 week elapsed even on Jan 1 (avoids an absurd 52x multiplier)', async () => {
+    const { weeksElapsedInYear } = await import('../src/api-finance.js');
+    expect(weeksElapsedInYear(new Date(2026, 0, 1))).toBe(1);
+  });
+  it('matches the reported Aug 5 example: 217 days elapsed = exactly 31 weeks', async () => {
+    const { weeksElapsedInYear } = await import('../src/api-finance.js');
+    expect(weeksElapsedInYear(new Date(2026, 7, 5))).toBe(31);
+  });
+});
+
+describe('handleFinanceApi — base-projection overrides (FY{base} Projected column)', () => {
+  it('GET returns an empty overrides object when nothing has been saved', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/planning/base-projection', db, true, true);
+    const body = await res.json();
+    expect(body.overrides).toEqual({});
+  });
+
+  it('PUT saves a whole-dollar override for a category in a given base year', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ year: 2026, rows: [{ category: 'Expenses:47020 MDO Tuition', amount: '640000' }] }), {}, new URL('https://x/'), 'PUT', 'finance/planning/base-projection', db, true, true);
+    expect(res.status).toBe(200);
+    const getRes = await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/planning/base-projection', db, true, true);
+    const body = await getRes.json();
+    expect(body.overrides['2026']['Expenses:47020 MDO Tuition']).toBe(64000000); // cents, whole dollars
+  });
+
+  it('rounds a fractional amount to the nearest whole dollar before storing cents', async () => {
+    const db = makeTestDb();
+    await handleFinanceApi(makeReq({ year: 2026, rows: [{ category: 'Expenses:Utilities', amount: '1999.6' }] }), {}, new URL('https://x/'), 'PUT', 'finance/planning/base-projection', db, true, true);
+    const getRes = await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/planning/base-projection', db, true, true);
+    const body = await getRes.json();
+    expect(body.overrides['2026']['Expenses:Utilities']).toBe(200000); // rounds to $2000, not $1999.60
+  });
+
+  it('an empty amount removes a previously-saved override', async () => {
+    const db = makeTestDb();
+    await handleFinanceApi(makeReq({ year: 2026, rows: [{ category: 'Expenses:Utilities', amount: '2000' }] }), {}, new URL('https://x/'), 'PUT', 'finance/planning/base-projection', db, true, true);
+    await handleFinanceApi(makeReq({ year: 2026, rows: [{ category: 'Expenses:Utilities', amount: '' }] }), {}, new URL('https://x/'), 'PUT', 'finance/planning/base-projection', db, true, true);
+    const getRes = await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/planning/base-projection', db, true, true);
+    const body = await getRes.json();
+    expect(body.overrides['2026']['Expenses:Utilities']).toBeUndefined();
+  });
+
+  it('rejects a non-admin write', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ year: 2026, rows: [{ category: 'Expenses:Utilities', amount: '2000' }] }), {}, new URL('https://x/'), 'PUT', 'finance/planning/base-projection', db, false, true);
+    expect(res.status).toBe(403);
   });
 });
 
