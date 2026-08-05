@@ -989,6 +989,9 @@ if (seg === 'import/giving-csv' && method === 'POST') { try {
   await db.prepare(
     'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
   ).run();
+  // ...and the deposit links that pointed at them, or a deposit keeps claiming money from a
+  // batch that no longer exists, and its list and detail views disagree permanently.
+  await db.prepare('DELETE FROM giving_deposit_lines WHERE batch_id NOT IN (SELECT id FROM giving_batches)').run();
 
   return json({ ok: true, imported, skipped, skipBlank, skipDup, skipZero, fundsMade, batchesMade, total: dataRows.length, dupIds });
 } catch (e) { return json({ ok: false, error: e.message }, 500); } }
@@ -998,6 +1001,7 @@ if (seg === 'giving/all' && method === 'DELETE') { try {
   if (!isAdmin) return json({ error: 'Access denied: giving reset requires admin access' }, 403);
   await db.batch([
     db.prepare('DELETE FROM giving_entries'),
+    db.prepare('DELETE FROM giving_deposit_lines'),
     db.prepare('DELETE FROM giving_batches'),
   ]);
   return json({ ok: true });
@@ -1017,6 +1021,9 @@ if (seg === 'giving/by-year' && method === 'DELETE') { try {
   await db.prepare(
     'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
   ).run();
+  // ...and the deposit links that pointed at them, or a deposit keeps claiming money from a
+  // batch that no longer exists, and its list and detail views disagree permanently.
+  await db.prepare('DELETE FROM giving_deposit_lines WHERE batch_id NOT IN (SELECT id FROM giving_batches)').run();
   return json({ ok: true, deleted: del.meta?.changes ?? 0, year });
 } catch (e) { return json({ ok: false, error: e.message }, 500); }
 }
@@ -1053,6 +1060,9 @@ if (seg === 'giving/prune-empty-batches' && method === 'POST') {
   const r = await db.prepare(
     'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
   ).run();
+  // ...and the deposit links that pointed at them, or a deposit keeps claiming money from a
+  // batch that no longer exists, and its list and detail views disagree permanently.
+  await db.prepare('DELETE FROM giving_deposit_lines WHERE batch_id NOT IN (SELECT id FROM giving_batches)').run();
   return json({ ok: true, deleted: r.meta?.changes ?? 0 });
 }
 
@@ -1842,6 +1852,9 @@ if (seg === 'import/breeze-giving' && method === 'POST') { try {
   await db.prepare(
     'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
   ).run();
+  // ...and the deposit links that pointed at them, or a deposit keeps claiming money from a
+  // batch that no longer exists, and its list and detail views disagree permanently.
+  await db.prepare('DELETE FROM giving_deposit_lines WHERE batch_id NOT IN (SELECT id FROM giving_batches)').run();
 
   // ── Correction pass: apply contribution_updated edits to already-imported entries ──
   // Uses giving/list current data (glByPaymentId) as the source of truth for edited amounts/dates.
@@ -1954,6 +1967,9 @@ if (seg === 'import/breeze-giving' && method === 'POST') { try {
       await db.prepare(
         'DELETE FROM giving_batches WHERE id NOT IN (SELECT DISTINCT batch_id FROM giving_entries)'
       ).run();
+      // ...and the deposit links that pointed at them, or a deposit keeps claiming money from a
+      // batch that no longer exists, and its list and detail views disagree permanently.
+      await db.prepare('DELETE FROM giving_deposit_lines WHERE batch_id NOT IN (SELECT id FROM giving_batches)').run();
     }
     diag.orphansRemoved = orphansRemoved;
     diag.orphanCandidates = orphaned.length;

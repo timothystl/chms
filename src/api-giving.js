@@ -84,15 +84,20 @@ if (seg === 'giving/offerings-summary' && method === 'GET') {
            FROM giving_batches gb WHERE gb.batch_date >= ?) t
         WHERE t.gap > 50`
     ).bind(awaitingSince).first(),
-    // At the bank, but nobody has entered what the bank actually received.
+    // At the bank, but nobody has entered what the bank actually received. Windowed like
+    // awaiting_deposit above: an old deposit left unreconciled under the earlier per-gift flow
+    // would otherwise pin this card open forever and hold `earliest` at its date.
     db.prepare(
-      `SELECT COUNT(*) AS n, MIN(deposit_date) AS earliest FROM giving_deposits WHERE bank_cents IS NULL`
-    ).first(),
+      `SELECT COUNT(*) AS n, MIN(deposit_date) AS earliest FROM giving_deposits
+        WHERE bank_cents IS NULL AND deposit_date >= ?`
+    ).bind(awaitingSince).first(),
     // Given - deposited across every deposit with a bank figure this year. Two rules matter:
     // a deposit with no bank figure is skipped entirely rather than counted as $0 fees (which
     // would read as a windfall), and "given" follows the same lines-else-gifts rule as the
     // deposit list — a deposit built the old per-gift way has no batch lines, and subtracting
-    // its bank amount from zero would report a large negative fee.
+    // its bank amount from zero would report a large negative fee. A deposit that holds NOTHING
+    // is skipped outright for the same reason — there is no giving behind it to derive a fee
+    // from, only a bank figure, and "given − bank" would be that figure negated.
     db.prepare(
       `SELECT COALESCE(SUM(
                 CASE WHEN (SELECT COUNT(*) FROM giving_deposit_lines dl WHERE dl.deposit_id=d.id) > 0
@@ -100,7 +105,9 @@ if (seg === 'giving/offerings-summary' && method === 'GET') {
                      ELSE (SELECT COALESCE(SUM(ge.amount),0) FROM giving_entries ge WHERE ge.deposit_id=d.id)
                 END - d.bank_cents),0) AS cents
          FROM giving_deposits d
-        WHERE d.bank_cents IS NOT NULL AND d.deposit_date >= ?`
+        WHERE d.bank_cents IS NOT NULL AND d.deposit_date >= ?
+          AND ((SELECT COUNT(*) FROM giving_deposit_lines dl WHERE dl.deposit_id=d.id) > 0
+            OR (SELECT COUNT(*) FROM giving_entries ge WHERE ge.deposit_id=d.id) > 0)`
     ).bind(yearStart).first(),
   ]);
   return json({
@@ -229,6 +236,10 @@ if (batchMatch) {
     if (!batch) return json({ error: 'Not found' }, 404);
     if (batch.closed) return json({ error: 'Cannot delete a closed batch.' }, 409);
     await db.prepare('DELETE FROM giving_entries WHERE batch_id=?').bind(bid).run();
+    // The deposit links go too — otherwise a deposit keeps claiming money from a batch that no
+    // longer exists, and (because its list and detail queries reach the lines differently) the
+    // two views of that deposit disagree forever with nothing to recompute them.
+    await db.prepare('DELETE FROM giving_deposit_lines WHERE batch_id=?').bind(bid).run();
     await db.prepare('DELETE FROM giving_batches WHERE id=?').bind(bid).run();
     return json({ ok: true });
   }

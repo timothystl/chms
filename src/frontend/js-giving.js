@@ -142,6 +142,16 @@ function depSourceLabel(s) {
   return ({ check:'Check', cash:'Cash', online:'Online', mixed:'Mixed' })[s] || 'Unspecified';
 }
 
+// What a deposit holds, in its own terms: whole batches (the Offerings workflow) or individual
+// gifts (the older per-gift flow). Saying "0 gifts" about a deposit built from two batches is
+// what made the two screens look like they disagreed.
+function depHoldsLabel(d) {
+  var batches = d.batch_count || 0;
+  if (batches > 0) return batches + ' batch' + ((batches === 1) ? '' : 'es');
+  var gifts = d.gift_count || 0;
+  return gifts + ' gift' + ((gifts === 1) ? '' : 's');
+}
+
 function loadDeposits() {
   var list = document.getElementById('giv-deposits-list');
   if (!list) return;
@@ -169,7 +179,10 @@ function depRenderList(deps) {
     return;
   }
   list.innerHTML = deps.map(function(d) {
-    var gross = d.gross_cents || 0;
+    // given_cents is the server's lines-else-gifts figure. Reading gross_cents (the per-gift
+    // assignment total) instead reported $0 given for every deposit built from the Offerings
+    // batch panel, and a fee of minus the entire bank amount.
+    var gross = (d.given_cents != null) ? d.given_cents : (d.gross_cents || 0);
     var recon = d.status === 'reconciled';
     var bank = (d.bank_cents === null || d.bank_cents === undefined) ? null : d.bank_cents;
     var feeGap = (bank === null) ? null : (gross - bank);
@@ -182,7 +195,7 @@ function depRenderList(deps) {
       + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">'
       + '<strong style="font-size:.9rem;">' + (d.deposit_date ? fmtDate(d.deposit_date) : 'No date') + '</strong>' + badge + '</div>'
       + '<div style="font-size:.76rem;color:var(--warm-gray);margin-top:3px;">'
-      + depSourceLabel(d.source) + ' &middot; ' + (d.gift_count || 0) + ' gift' + ((d.gift_count === 1) ? '' : 's') + ' &middot; ' + fmtMoney(gross) + '</div>'
+      + depSourceLabel(d.source) + ' &middot; ' + depHoldsLabel(d) + ' &middot; ' + fmtMoney(gross) + '</div>'
       + (feeGap !== null ? '<div style="font-size:.76rem;margin-top:2px;color:' + (feeGap < 0 ? 'var(--danger)' : 'var(--warm-gray)') + ';">Fees ' + fmtMoney(feeGap) + '</div>' : '')
       + '</div>';
   }).join('');
@@ -239,8 +252,9 @@ function depRenderDetail() {
   var d = _depDetail; if (!d) return;
   var el = document.getElementById('giv-deposit-detail'); if (!el) return;
   var recon = d.status === 'reconciled';
-  var gross = (d.totals && d.totals.gross_cents) || 0;
+  var gross = (d.given_cents != null) ? d.given_cents : ((d.totals && d.totals.gross_cents) || 0);
   var recordedFees = (d.totals && d.totals.fee_cents) || 0;
+  var lines = d.lines || [];
   var bankCents = (d.bank_cents === null || d.bank_cents === undefined) ? null : d.bank_cents;
   var bankVal = (bankCents === null) ? '' : (bankCents / 100).toFixed(2);
   var feeGap = (bankCents === null) ? null : (gross - bankCents);
@@ -285,6 +299,16 @@ function depRenderDetail() {
   }
   html += '</div>';
 
+  if (lines.length) {
+    html += '<h4 style="margin:0 0 8px;">Batches in this deposit</h4>';
+    html += '<div style="overflow-x:auto;"><table class="entries-table"><thead><tr><th>Date</th><th>Batch</th><th class="amt-col">From this batch</th></tr></thead><tbody>'
+      + lines.map(function(l) {
+          return '<tr onclick="goToBatch(' + l.batch_id + ')" style="cursor:pointer;"><td>' + fmtDate(l.batch_date) + '</td><td>' + esc(l.description || '') + '</td>'
+            + '<td class="amt-col">' + fmtMoney(l.amount_cents) + '</td></tr>';
+        }).join('')
+      + '</tbody></table></div>';
+    html += '<div style="font-size:.78rem;color:var(--warm-gray);margin:6px 0 14px;">Edit these amounts from the batch itself &mdash; Offerings &rarr; the batch &rarr; Bank deposits.</div>';
+  }
   html += '<h4 style="margin:0 0 8px;">Gifts in this deposit</h4>';
   html += '<div style="overflow-x:auto;"><table class="entries-table"><thead><tr><th>Date</th><th>Donor</th><th>Fund</th><th>Method</th><th class="amt-col">Amount</th>' + (recon ? '' : '<th></th>') + '</tr></thead><tbody>' + giftRows + '</tbody></table></div>';
 
@@ -298,7 +322,7 @@ function depRenderDetail() {
 
 function depRecalcFees() {
   var d = _depDetail; if (!d) return;
-  var gross = (d.totals && d.totals.gross_cents) || 0;
+  var gross = (d.given_cents != null) ? d.given_cents : ((d.totals && d.totals.gross_cents) || 0);
   var inp = document.getElementById('dep-bank-input');
   var span = document.getElementById('dep-fee-figure');
   if (!span || !inp) return;
@@ -1225,9 +1249,12 @@ function boardMonthChart(d, g) {
   gl.forEach(function(val) {
     var yy = baseline - (val / axisMaxK) * span;
     svg += '<line x1="26" y1="' + yy.toFixed(1) + '" x2="700" y2="' + yy.toFixed(1) + '" stroke="' + (val === 0 ? '#E8E0D0' : '#F1EFE9') + '" stroke-width="1"></line>';
-    // Below 1k a whole-number label would print every gridline as "0"; show enough decimals
-    // that consecutive gridlines are actually distinguishable.
-    var dp = stepK >= 5 ? 0 : stepK >= 1 ? 1 : Math.min(3, Math.ceil(-Math.log(stepK) / Math.LN10) + 1);
+    // Enough decimals that consecutive gridlines are distinguishable — derived from the HALF
+    // step, since the middle gridline sits at axisMax/2 and would otherwise round (a 15k axis
+    // stepping by 5 puts a line at 7.5 and printed it as "8").
+    var half = stepK / 2;
+    var dp = half >= 1 ? 0 : Math.min(3, Math.ceil(-Math.log(half) / Math.LN10));
+    if (half >= 1 && Math.abs(val - Math.round(val)) > 0.001) dp = 1;
     var lbl = val.toFixed(dp);
     svg += '<text x="22" y="' + (yy + 3).toFixed(1) + '" text-anchor="end" fill="#A69A88" font-size="9">' + lbl + '</text>';
   });

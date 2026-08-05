@@ -401,9 +401,10 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
   }
 
   // Bulk save of the Settings → Fund categories table: one category + annual budget per fund,
-  // saved together on an explicit click (this app never silently autosaves). Sparse by design —
-  // a row is only written when it actually carries a change, so a name/active edit made
-  // elsewhere in Manage Funds can't be clobbered by an untouched row here.
+  // saved together on an explicit click (this app never silently autosaves). Every submitted row
+  // is written, not just changed ones — but only the two columns this screen owns (category,
+  // budget_annual_cents), so a concurrent name/active edit in Manage Funds is untouched. Widening
+  // this UPDATE to other columns would make that last-writer-wins, so don't.
   if (seg === 'funds/categories' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied' }, 403);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }

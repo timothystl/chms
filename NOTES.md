@@ -107,6 +107,32 @@ page" switches back to Dashboard first — otherwise it would print a sheet whos
   announced years of money still sitting in the safe. Windowed to the last 90 days (adjustable via
   `?awaiting_days=`), with the window named on the card.
 
+**A second review pass found four more, all confirmed against a running harness and fixed:**
+- **The Deposits pane reported a huge negative fee for every deposit the new workflow builds.**
+  It read `gross_cents` (the per-gift assignment total), but the Offerings panel links whole
+  *batches* and never sets `giving_entries.deposit_id` — so a $7,100 deposit banked at $7,090
+  showed `Deposited · fee $10` in the batch panel and `Given $0.00 · Fees −$7,090.00` in the
+  Deposits pane, which is the screen a bookkeeper reconciles from. The backend had been returning
+  the correct `given_cents` all along and nothing consumed it. Fixed in the list, the detail and
+  `depRecalcFees()`; the detail now also lists the batches a lines-built deposit holds, and the
+  list says "1 batch" rather than "0 gifts".
+- **Deleting a batch orphaned its deposit links**, permanently inflating the deposit — and because
+  the deposits *list* reaches lines by subquery while the *detail* joins `giving_batches`, the two
+  views of that deposit then disagreed with nothing to recompute them. The same gap existed at
+  every place batch rows are removed, including the orphan purge that runs after **every Breeze
+  giving sync and CSV import**. All seven sites now clear the links. That exposed one more: an
+  emptied deposit still carrying a bank figure yielded `0 − bank` as a fee, so a deposit holding
+  nothing is now skipped by the fee total outright.
+- **The Attendance tab's "Giving × Attendance → Open" button landed on the wrong screen.** Before
+  this change `giv-view-reports` *was* the Analysis tile grid; now it's the board dashboard. Points
+  at `analysis` (through the alias map that exists for exactly this) instead.
+- `unreconciled_deposits` was unbounded while its sibling card had just gained a window — an old
+  slip left unreconciled under the earlier flow would pin the card open forever. Same window now.
+Two smaller ones: the search box's placeholder promised gift and donor search from a control that
+only filters batches by description and date (relabelled), and the `funds/categories` comment
+claimed a sparse-write guarantee the loop doesn't have (comment corrected to describe what the
+code actually protects — and why not to widen the UPDATE).
+
 **One hardening while in here.** `applyPermissionUI()` hides `.require-finance` panels by setting
 an inline `display:none`, which the view-switching loop would cheerfully undo — so an alias or a
 stale deep link could park an office-level user on an empty Reports panel. `givSetView()` now
@@ -120,7 +146,7 @@ back to the old name-prefix rule (every fund sharing the leading numeric code of
 Settings; `db.js` backfills that same family once, marker-gated so a later re-categorization isn't
 undone on every cold start.
 
-**Verification.** `npm test` (682/682, 72 new across `test/giving-fund-categories.test.js`,
+**Verification.** `npm test` (689/689, 79 new across `test/giving-fund-categories.test.js`,
 `test/giving-offerings.test.js`, `test/giving-consolidation-ui.test.js` — the last runs the real
 served `JS_GIVING` in a `vm` sandbox). Each new test file was checked for vacuity by injecting the
 regression it guards (dropped alias map → 3 fail; multiplying JOIN → 1 fail; lens always reading
