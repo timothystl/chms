@@ -1645,6 +1645,27 @@ async function _doInitDb(db) {
       updated_at         TEXT    NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (property_key, period)
     )`,
+    // Finance Workspace redesign (see migrations/0034_finance_workspace_v3.sql): room-level
+    // daycare aggregates and per-importer staleness timestamps.
+    `CREATE TABLE IF NOT EXISTS finance_daycare_rooms (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      period             TEXT    NOT NULL,
+      room_name          TEXT    NOT NULL,
+      capacity_per_day   REAL,
+      avg_daily_enrolled REAL,
+      billed_cents       INTEGER,
+      labor_cost_cents   INTEGER,
+      waitlist_families  INTEGER NOT NULL DEFAULT 0,
+      seasonal           INTEGER NOT NULL DEFAULT 0,
+      synced_at          TEXT    NOT NULL DEFAULT '',
+      UNIQUE(period, room_name)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_finance_daycare_rooms_period ON finance_daycare_rooms(period)`,
+    `CREATE TABLE IF NOT EXISTS finance_import_log (
+      importer_key     TEXT PRIMARY KEY,
+      last_imported_at TEXT NOT NULL,
+      note             TEXT NOT NULL DEFAULT ''
+    )`,
     // Real per-month loan payment + interest expense (see migrations/0026_...) — lets the
     // confirmed mortgage balance roll forward automatically instead of needing a fresh lender
     // confirmation every time (finComputeMortgageRemainingCents in js-finance.js).

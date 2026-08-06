@@ -1634,184 +1634,38 @@ export const HTML_TABS_2 = String.raw`
 
       <div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:14px;">Need help with this tab? <a href="mailto:office@timothystl.org">Contact the office</a>.</div>
 
-      <div id="fin-panel-overview">
-
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px;">
-          <div>
-            <h2 id="fin-ov-title" style="font-family:var(--font-display);font-size:26px;font-weight:700;color:var(--color-navy);margin:0 0 2px;">Financial Overview</h2>
-            <div id="fin-ov-caption" style="font-size:.82rem;color:var(--warm-gray);">&nbsp;</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-            <select id="fin-ov-domain" class="fin-domain-select" onchange="finOverviewSetDomain(this.value)">
-              <option value="church">Church Operating</option>
-              <option value="daycare">Daycare (MDO)</option>
-              <option value="property">Commercial Property</option>
-            </select>
-            <span id="fin-ov-sync-pill" class="fin-sync-pill" style="display:none;"></span>
-          </div>
-        </div>
-
-        <div id="fin-ov-dashboard">Loading…</div>
-
-        <div style="margin:26px 0 14px;font-size:.78rem;color:var(--warm-gray);border-top:1px solid var(--warm-border);padding-top:16px;">Data sync, connections, and manual-entry tools are below.</div>
-
-        <section class="dash-card" style="margin-bottom:16px;">
-          <div class="dash-card-hdr">Board Packet</div>
-          <div class="dash-card-body" style="padding:14px 18px;">
-            <p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 12px;">Downloads one JSON file with this year's Income Statement, Balance Sheet, 5-year trends, and the full daycare ledger — hand it to a Claude session (or any analyst) each month and ask it to write the board's finance summary, flagging anything unusual. This app doesn't write the narrative itself; it just packages the numbers.</p>
-            <button class="btn-primary" id="fin-board-packet-btn" onclick="finExportBoardPacket()">Export Board Packet</button>
-          </div>
-        </section>
-
-        <section class="dash-card" style="margin-bottom:16px;">
-          <div class="dash-card-hdr">QuickBooks Connection</div>
-          <div class="dash-card-body" style="padding:14px 18px;" id="fin-connection"></div>
-        </section>
-
-        <section class="dash-card require-admin" style="margin-bottom:16px;border-color:var(--danger);">
-          <div class="dash-card-hdr" style="color:var(--danger);">Danger Zone</div>
-          <div class="dash-card-body" style="padding:14px 18px;">
-            <p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 12px;">Permanently clears stored Church Report, Balance Sheet, Daycare Report, and Budget Planning data (from QuickBooks sync and imports). <b>Commercial Property and all Giving data are never touched by this.</b> Use this to start fresh before re-importing corrected reports.</p>
-            <button class="btn-danger" onclick="finLoadClearDataPreview()">Clear Budget &amp; Report Data…</button>
-            <div id="fin-clear-data-panel" style="margin-top:10px;"></div>
-          </div>
-        </section>
-
-        <section class="dash-card" style="margin-bottom:16px;">
-          <div class="dash-card-hdr">Budget vs. Actual</div>
-          <div class="dash-card-body" style="padding:14px 18px;" id="fin-budget"></div>
-        </section>
-
-        <section class="dash-card" style="margin-bottom:16px;">
-          <div class="dash-card-hdr">Account Balances</div>
-          <div class="dash-card-body" style="padding:14px 18px;" id="fin-accounts"></div>
-        </section>
-
-        <section class="dash-card" style="margin-bottom:16px;">
-          <div class="dash-card-hdr">Daycare Sync</div>
-          <div class="dash-card-body" style="padding:14px 18px;">
-            <div id="fin-daycare-sync" style="margin-bottom:12px;"></div>
-            <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">The full period-by-period breakdown pulled from the daycare app lives in the <b>Daycare Report</b> tab (year-by-year summary) — this card is just the sync control and hand-entered adjustments.</p>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-              <label style="font-size:.75rem;color:var(--warm-gray);">Period<br><input type="text" id="fin-dc-period" placeholder="2026-07" style="width:100px;"></label>
-              <label style="font-size:.75rem;color:var(--warm-gray);">Category<br><input type="text" id="fin-dc-category" placeholder="Tuition Income" style="width:160px;"></label>
-              <label style="font-size:.75rem;color:var(--warm-gray);">Type<br>
-                <select id="fin-dc-type"><option value="actual">Actual</option><option value="budget">Budget</option></select>
-              </label>
-              <label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-dc-amount" step="0.01" style="width:110px;"></label>
-              <label style="font-size:.75rem;color:var(--warm-gray);">Notes<br><input type="text" id="fin-dc-notes" style="width:160px;"></label>
-              <button class="btn-primary" id="fin-dc-submit-btn" onclick="finSaveDaycare()">+ Add Entry</button>
-              <button class="btn-secondary" id="fin-dc-cancel-btn" style="display:none;" onclick="finCancelEditDaycare()">Cancel</button>
-            </div>
-            <div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="fin-dc-error"></div>
-
-            <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
-              <div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Bulk-Enter Past Years</div>
-              <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 8px;">Paste one entry per line: <code>period, category, type, amount, notes</code> — period is <code>YYYY</code> or <code>YYYY-MM</code>, type is <code>actual</code> or <code>budget</code> (defaults to actual if omitted), notes is optional. Example: <code>2023, Tuition Income, actual, 285000</code></p>
-              <textarea id="fin-dc-bulk-text" rows="5" style="width:100%;font-family:monospace;font-size:.8rem;padding:8px;border:1px solid var(--border);border-radius:6px;" placeholder="2023, Tuition Income, actual, 285000&#10;2023, Payroll, actual, 190000&#10;2023, Payroll, budget, 200000"></textarea>
-              <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
-                <button class="btn-secondary" onclick="finDaycareBulkPreview()">Preview</button>
-                <span id="fin-dc-bulk-error" style="font-size:.78rem;color:var(--danger);"></span>
-              </div>
-              <div id="fin-dc-bulk-preview" style="margin-top:8px;"></div>
-            </div>
-
-            <details style="margin-top:14px;">
-              <summary style="font-size:.78rem;color:var(--warm-gray);cursor:pointer;">Show all synced line items (<span id="fin-daycare-count">0</span> rows)</summary>
-              <div style="overflow-x:auto;margin-top:8px;">
-                <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
-                  <thead>
-                    <tr style="border-bottom:2px solid var(--navy);">
-                      <th style="text-align:left;padding:6px 8px;">Period</th>
-                      <th style="text-align:left;padding:6px 8px;">Category</th>
-                      <th style="text-align:left;padding:6px 8px;">Type</th>
-                      <th style="text-align:right;padding:6px 8px;">Amount</th>
-                      <th style="text-align:left;padding:6px 8px;">Notes / Source</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody id="fin-daycare-body"></tbody>
-                </table>
-              </div>
-            </details>
-          </div>
-        </section>
-
+      <!-- Financial Health — the reading page. Every block is rendered by
+           finRenderHealth() (js-finance.js) because every figure on it is live. -->
+      <div id="fin-panel-health" class="fin-printable">
+        <div id="fin-health-root">Loading&hellip;</div>
       </div>
 
-      <div id="fin-panel-church" style="display:none;">
-        <section class="dash-card fin-printable" style="margin-bottom:16px;">
-          <div class="dash-card-hdr" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-            <span>Church Report</span>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <button id="fin-church-mode-year" class="btn-secondary active" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('year')">This Year</button>
-              <button id="fin-church-mode-multiyear" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('multiyear')">Multi-Year</button>
-              <button id="fin-church-mode-balances" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="finSetChurchReportMode('balances')">Balance Sheet</button>
-              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchImport()">Import Budget</button>
-              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchMonthlyImport()">Import Monthly P&amp;L</button>
-              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchActivityImport()">Import Statement of Activity (multi-year)</button>
-              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchBudgetMultiYearImport()">Import Budget by Year (multi-year)</button>
-              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchBalanceImport()">Import Balance Sheet</button>
-              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finOpenChurchBalanceMultiYearImport()">Import Financial Position (multi-year)</button>
-              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportChurchCsv()">Export CSV</button>
-              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
-            </div>
-          </div>
-          <div class="dash-card-body" style="padding:14px 18px;">
-            <div id="fin-church-year-view"></div>
-            <div id="fin-church-multiyear-view" style="display:none;"></div>
-            <div id="fin-church-balances-view" style="display:none;"></div>
-          </div>
-        </section>
+      <div id="fin-panel-church" class="fin-printable" style="display:none;">
+        <div id="fin-church-header"></div>
+        <div id="fin-church-year-view"></div>
+        <div id="fin-church-multiyear-view" style="display:none;"></div>
+        <div id="fin-church-balances-view" style="display:none;"></div>
       </div>
 
-      <div id="fin-panel-daycare" style="display:none;">
-        <section class="dash-card fin-printable" style="margin-bottom:16px;">
-          <div class="dash-card-hdr" style="display:flex;align-items:center;justify-content:space-between;">
-            <span>Daycare Report — Year by Year</span>
-            <div style="display:flex;gap:8px;">
-              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="finExportDaycareCsv()">Export CSV</button>
-              <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
-            </div>
-          </div>
-          <div class="dash-card-body" style="padding:14px 18px;">
-            <div id="fin-daycare-mdo-note"></div>
-            <div style="background:var(--warm-surface-page);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
-              <div style="font-weight:600;font-size:.85rem;margin-bottom:4px;">Import from Church Budget (MDO accounts)</div>
-              <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 10px;">The single source of truth for this report (see the note above the table below). Pulls the Mother's Day Out line items (any account with "MDO" or "Mother's Day Out" in its name) out of a Church Report Budget you've already imported for a given year, and categorizes them into the Daycare Report's categories automatically.</p>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-                <label style="font-size:.75rem;color:var(--warm-gray);">Church Budget Year<br><input type="number" id="fin-dc-cb-year" placeholder="2025" style="width:100px;"></label>
-                <button class="btn-secondary" onclick="finDaycareChurchBudgetPreview()">Preview</button>
-              </div>
-              <div id="fin-dc-cb-preview" style="margin-top:10px;"></div>
-            </div>
-            <div id="fin-daycare-report"></div>
-          </div>
-        </section>
+      <div id="fin-panel-daycare" class="fin-printable" style="display:none;">
+        <div id="fin-daycare-header"></div>
+        <div id="fin-daycare-report"></div>
       </div>
 
-      <div id="fin-panel-property" style="display:none;">
-        <section class="dash-card fin-printable" style="margin-bottom:16px;">
-          <div class="dash-card-hdr" style="display:flex;align-items:center;justify-content:space-between;">
-            <span>Commercial Property — 3277 Ivanhoe</span>
-            <button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.print()">Print</button>
-          </div>
-          <div class="dash-card-body" style="padding:14px 18px;" id="fin-property-root"></div>
-        </section>
+      <div id="fin-panel-property" class="fin-printable" style="display:none;">
+        <div id="fin-property-root"></div>
       </div>
 
-      <div id="fin-panel-planning" style="display:none;">
-        <section class="dash-card fin-printable" style="margin-bottom:16px;">
-          <div class="dash-card-hdr">Church Budget Planning</div>
-          <div class="dash-card-body" style="padding:14px 18px;">
-            <p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 12px;">Forward multi-year what-if planning for categories like Property Expenses, Salaries &amp; Benefits, Utilities, and Insurance — independent of QuickBooks. Generate a projection from a starting amount and a growth rate, hand-adjust any year, then commit a year's plan into the real Church Budget once you're ready (it shows up as a placeholder budget until real synced or imported data for that year takes over).</p>
-            <div id="fin-plan-root"></div>
-          </div>
-        </section>
-        <section class="dash-card fin-printable" style="margin-bottom:16px;">
-          <div class="dash-card-hdr">3277 Ivanhoe — Multi-Year Forecast</div>
-          <div class="dash-card-body" style="padding:14px 18px;" id="fin-plan-property-root"></div>
-        </section>
+      <div id="fin-panel-planning" class="fin-printable" style="display:none;">
+        <div id="fin-plan-root"></div>
+      </div>
+
+      <!-- Data & Imports — every connection, importer, hand-entered adjustment and destructive
+           control that used to sit underneath the reports. Rendered by finRenderDataImports(),
+           which also mounts the containers the pre-existing renderers write into
+           (#fin-connection, #fin-budget, #fin-accounts, #fin-daycare-sync, #fin-daycare-body). -->
+      <div id="fin-panel-data" style="display:none;">
+        <div id="fin-data-root">Loading&hellip;</div>
       </div>
 
       <div id="fin-panel-compensation" style="display:none;">

@@ -762,6 +762,119 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-yearend-bar-projected{height:100%;background:var(--color-teal);opacity:.4;}
 .fin-yearend-bar-row.expense .fin-yearend-bar-actual,.fin-yearend-bar-row.expense .fin-yearend-bar-projected{background:var(--color-gold);}
 .fin-yearend-marker{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--color-navy);}
+/* ── Finance Workspace v3 (2026-08 "Finance overview framing" handoff): Financial Health,
+   the restructured report pages, and the new Data & Imports tab. Every colour below is an
+   existing brand token — the handoff's Design Tokens table was reconciled against :root above
+   and added no new colours. Responsive rules use only the three agreed tiers (see RESPONSIVE
+   BREAKPOINTS); every multi-column grid here collapses to 1fr at 767px, and the 3-up grids go
+   to two columns at 900px. ── */
+.fin-health-page{display:flex;flex-direction:column;gap:22px;}
+.fin-page-hdr{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:20px;}
+.fin-page-title{font-family:var(--font-display);font-size:28px;font-weight:700;color:var(--color-navy);margin:0;line-height:1.1;}
+.fin-page-sub{font-size:13px;color:var(--warm-gray);}
+.fin-page-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.fin-page-footnote{font-size:12px;color:var(--warm-gray);border-top:1px solid var(--warm-border);padding-top:14px;}
+.fin-section-title{font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--color-navy);margin-bottom:2px;}
+.fin-section-sub{font-size:12.5px;color:var(--warm-gray);margin-bottom:12px;}
+.fin-eyebrow{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);}
+.fin-card-hdr-split{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:10px;}
+.fin-note-box{background:var(--warm-surface-page);border-radius:10px;padding:9px 12px;font-size:12px;color:var(--warm-ink-label);line-height:1.5;}
+.fin-th{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);}
+.fin-disclosure{font-size:12.5px;font-weight:700;color:var(--color-navy);cursor:pointer;}
+.fin-link-btn{background:none;border:none;padding:0;font:inherit;color:var(--color-teal);font-weight:700;cursor:pointer;text-decoration:underline;}
+.fin-inline-field{font-size:.72rem;color:var(--warm-gray);display:flex;flex-direction:column;gap:2px;}
+.fin-inline-field input{width:90px;}
+.btn-white{padding:8px 15px;border-radius:8px;border:none;background:var(--white);color:var(--color-navy);font-family:var(--font-body);font-size:12.5px;font-weight:700;cursor:pointer;}
+/* Grids. Named for what they lay out rather than their ratio, so a change of ratio does not
+   need every call site rewritten. */
+.fin-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.fin-grid-2-wide{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;align-items:start;margin-bottom:22px;}
+.fin-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:22px;}
+.fin-grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+.fin-grid-start{align-items:start;}
+.fin-grid-hero{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;align-items:stretch;margin-bottom:20px;}
+.fin-grid-charts{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;align-items:start;margin-bottom:20px;}
+.fin-grid-pace{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;align-items:stretch;}
+.fin-grid-mix{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;}
+/* Scope/mode pills. A separate class from .fin-comp-pills on purpose: the Compensation tab is
+   out of scope for this redesign and must not gain a shared dependency on these rules. */
+.fin-scope-pills{display:flex;gap:4px;background:var(--linen);border-radius:99px;padding:4px;}
+.fin-scope-pill{padding:6px 14px;border:none;border-radius:99px;background:none;font-family:var(--font-body);font-size:12px;font-weight:700;color:var(--warm-meta);cursor:pointer;white-space:nowrap;}
+.fin-scope-pill.active{background:var(--color-navy);color:var(--white);}
+/* Revenue mix bar */
+.fin-stream-bar{display:flex;height:56px;border-radius:12px;overflow:hidden;}
+.fin-stream-seg{display:flex;flex-direction:column;justify-content:center;padding:0 16px;color:var(--white);min-width:0;overflow:hidden;}
+.fin-stream-seg-lbl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.85;}
+.fin-stream-seg-val{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.fin-stream-card{display:flex;flex-direction:column;gap:13px;border-top:4px solid var(--color-teal);}
+.fin-stream-val{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;margin-top:4px;}
+.fin-stream-sub{font-size:12px;color:var(--warm-gray);margin-top:3px;}
+.fin-flow{overflow-x:auto;}
+.fin-entity-card{display:flex;flex-direction:column;gap:10px;border-top:4px solid var(--sage);border-radius:18px;padding:18px 20px;}
+.fin-entity-val{font-size:27px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;}
+/* Appeal ladder */
+.fin-appeal-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:22px;align-items:start;margin-top:12px;}
+.fin-ladder-row{display:grid;grid-template-columns:120px 1fr 96px;gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--warm-row-divider);}
+.fin-ladder-head{border-top:none;padding:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);}
+.fin-ladder-total{border-top:2px solid var(--color-navy);padding:11px 0 0;}
+.fin-bands-panel{background:var(--warm-surface-page);border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;}
+.fin-lever-card{border-radius:18px;padding:18px 20px;}
+.fin-decision{border:1px solid var(--warm-border);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;}
+/* Navy strips (property hero, daycare ratio, planning summary) */
+.fin-navy-sublabel{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:rgba(255,255,255,.6);}
+.fin-prop-hero{display:flex;flex-direction:column;justify-content:space-between;gap:16px;padding:24px;}
+.fin-hero-val{font-size:44px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;margin:6px 0 8px;color:var(--positive-on-navy);}
+.fin-hero-split{display:grid;grid-template-columns:1fr 1fr;gap:16px;border-top:1px solid rgba(255,255,255,.22);padding-top:14px;}
+.fin-hero-sub-val{font-size:21px;font-weight:800;font-variant-numeric:tabular-nums;}
+.fin-mini-tile{background:var(--warm-surface-page);border-radius:10px;padding:9px 11px;}
+.fin-mini-tile.positive{background:var(--chip-positive-bg);}
+.fin-mini-tile-val{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;}
+.fin-ratio-strip{display:grid;grid-template-columns:1.25fr 1px 1fr 1fr 1fr;gap:22px;align-items:center;margin-bottom:20px;}
+.fin-ratio-divider{width:1px;height:70px;background:rgba(255,255,255,.22);}
+.fin-plan-strip{display:grid;grid-template-columns:1fr 1fr 1fr 1.2fr;gap:22px;align-items:center;margin-bottom:20px;padding:16px 22px;border-radius:16px;}
+.fin-plan-strip-last{border-left:1px solid rgba(255,255,255,.25);padding-left:22px;}
+/* Collapsed ledger / detail strips */
+.fin-ledger-strip{padding:15px 20px;}
+.fin-ledger-strip-hdr{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.fin-ledger-strip-title{font-size:13.5px;font-weight:700;color:var(--color-navy);}
+.fin-ledger-strip-sub{font-size:12px;color:var(--warm-gray);}
+/* Daycare rooms */
+.fin-room-row-hdr{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--warm-ink-label);}
+.fin-room-grid{display:grid;grid-template-columns:1.15fr 1fr 1fr 1fr .85fr;gap:0;font-size:12.5px;}
+.fin-room-num{padding:9px 0;border-top:1px solid var(--warm-row-divider);text-align:right;font-variant-numeric:tabular-nums;}
+.fin-room-total{padding:11px 0;border-top:2px solid var(--color-navy);font-weight:800;color:var(--color-navy);}
+/* Data & Imports */
+.fin-data-card-hdr{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+.fin-data-card-name{font-size:15px;font-weight:700;color:var(--color-navy);}
+.fin-data-card-body{font-size:12.5px;color:var(--warm-ink-label);line-height:1.5;margin:0 0 10px;}
+.fin-import-panel{border:1px solid var(--warm-border);border-radius:14px;padding:14px 16px;}
+.fin-import-panel-foot{border-top:1px solid var(--warm-row-divider);margin-top:10px;padding-top:10px;}
+.fin-import-row{display:flex;justify-content:space-between;gap:10px;width:100%;background:none;border:none;padding:7px 4px;font-family:var(--font-body);font-size:12.5px;text-align:left;cursor:pointer;border-radius:6px;min-height:36px;align-items:center;}
+.fin-import-row:hover:not(:disabled){background:var(--warm-surface-page);}
+.fin-import-row:disabled{cursor:default;}
+.fin-import-row-name{color:var(--warm-ink-label);font-weight:600;}
+@media(max-width:1100px){
+  .fin-grid-hero,.fin-grid-charts,.fin-grid-pace,.fin-grid-mix,.fin-grid-2-wide,.fin-appeal-grid{grid-template-columns:1fr;}
+  .fin-ratio-strip{grid-template-columns:1fr 1fr;}
+  .fin-ratio-divider{display:none;}
+  .fin-plan-strip{grid-template-columns:1fr 1fr;}
+  .fin-plan-strip-last{border-left:none;padding-left:0;}
+}
+@media(max-width:900px){
+  .fin-grid-3{grid-template-columns:1fr 1fr;}
+  .fin-grid-4{grid-template-columns:1fr 1fr;}
+  .fin-room-grid{font-size:11.5px;}
+}
+@media(max-width:767px){
+  .fin-grid-2,.fin-grid-2-wide,.fin-grid-3,.fin-grid-4,.fin-grid-hero,.fin-grid-charts,.fin-grid-pace,.fin-grid-mix,.fin-appeal-grid,.fin-ratio-strip,.fin-plan-strip,.fin-hero-split{grid-template-columns:1fr;}
+  .fin-page-title{font-size:23px;}
+  .fin-hero-val{font-size:34px;}
+  .fin-stream-bar{height:auto;flex-direction:column;border-radius:10px;}
+  .fin-stream-seg{width:100% !important;padding:8px 14px;flex-direction:row;justify-content:space-between;align-items:baseline;}
+  .fin-ladder-row{grid-template-columns:80px 1fr 84px;gap:8px;}
+  .fin-room-grid{grid-template-columns:1.2fr 1fr 1fr .9fr;font-size:11px;}
+  .fin-room-grid > :nth-child(5n){display:none;}
+}
 /* ── Compensation Planner (2026-08 handoff): a persistent header + navy totals strip + five
    views behind one pill sub-nav. Every colour below is an existing brand token — the handoff's
    own Design Tokens table was reconciled against :root above and matched exactly. ── */

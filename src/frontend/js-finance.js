@@ -24,65 +24,80 @@ function loadFinance() {
     _finOverview = overview;
     loadingEl.style.display = 'none';
     rootEl.style.display = '';
-    finRenderConnection();
-    finRenderBudget(overview);
-    finRenderAccounts(overview);
-    finRenderDaycare();
+    // The Data & Imports tab owns the DOM that finRenderConnection/finRenderBudget/
+    // finRenderAccounts/finRenderDaycare write into, so it has to be built before they run —
+    // finRenderDataImports() mounts those containers and then calls them itself.
+    finRenderDataImports();
     finRenderChurchReport();
     finRenderDaycareReport();
+    finLoadDaycareRooms();
     finLoadProperty();
     finLoadPlanning();
-    finLoadOverviewDomain();
+    finLoadHealth();
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
     loadingEl.textContent = 'Could not load finance data.';
   });
 }
 
-// ── Sub-nav: Overview / Church Report / Daycare Report ─────────────────────────────────
+// ── Sub-nav: Financial Health / Church / Daycare / Property / Planning / Compensation / Data ──
 // Button active-state is handled by the shared renderFinanceSubnav() (js-core.js) re-render,
 // driven by showTab()'s _finActiveNavId — this only toggles panel visibility.
 function finShowSection(section) {
-  ['overview', 'church', 'daycare', 'property', 'planning', 'compensation'].forEach(function(s) {
+  ['health', 'church', 'daycare', 'property', 'planning', 'compensation', 'data'].forEach(function(s) {
     var panel = document.getElementById('fin-panel-' + s);
     if (panel) panel.style.display = (s === section) ? '' : 'none';
   });
 }
 
-// ── Overview dashboard (Finance Workspace redesign, 2026-07) ────────────────────────────────
-// A glance-level "are we on budget?" view, switchable between the three domains this church
-// actually tracks money for (Church Operating / Daycare / Commercial Property) — NOT a giving-
-// fund selector (the design handoff's mockup showed a fund <select>, but this app's Church
-// Report data is QuickBooks-chart-of-accounts based, one ledger, with no per-giving-fund budget
-// to select between; the three real domains are what the switcher actually maps to). Church and
-// Daycare both have a real per-category budget, so they get the full layout (KPIs + "are we on
-// budget?" pace panel + trend + year-end projection); Property has no line-item budget to pace
-// against (it's landlord actuals/reserves), so it gets KPIs + the revenue/expense trend only.
-var _finOverviewDomain = 'church';
-var _finOverviewChurchData = null;
-var _finOverviewDrillOpen = null; // single-open drilldown category path, church/daycare pace panel
-function finOverviewSetDomain(domain) {
-  _finOverviewDomain = domain;
-  _finOverviewDrillOpen = null;
-  finLoadOverviewDomain();
+// ── Shared building blocks for the redesigned pages ─────────────────────────────────────────
+// A labelled horizontal bar — the redesign's single most repeated element (revenue streams,
+// revenue sources, room occupancy, plan-vs-actual). One helper rather than a dozen hand-built
+// copies, so the track colour, radius and label typography can never drift apart between pages.
+function finBar(label, valueHtml, pct, color, opts) {
+  opts = opts || {};
+  var h = opts.height || 10;
+  return '<div style="display:flex;justify-content:space-between;font-size:12.5px;' + (opts.labelWeight === false ? '' : '') + '">'
+    + '<span style="color:var(--warm-ink-label);font-weight:600;">' + label + '</span>'
+    + '<b style="font-variant-numeric:tabular-nums;">' + valueHtml + '</b></div>'
+    + '<div style="height:' + h + 'px;border-radius:6px;background:var(--linen);' + (opts.trackStyle || '') + '">'
+    + '<div style="width:' + Math.max(0, Math.min(100, pct)) + '%;height:100%;border-radius:6px;background:' + color + ';"></div></div>';
 }
-function finLoadOverviewDomain() {
-  var root = document.getElementById('fin-ov-dashboard');
-  if (!root) return;
-  root.innerHTML = 'Loading…';
-  if (_finOverviewDomain === 'church') {
-    var year = new Date().getFullYear();
-    api('/admin/api/finance/church/this-year?year=' + year).then(function(d) {
-      _finOverviewChurchData = d;
-      finRenderOverviewChurch(d);
-    }).catch(function() { root.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Could not load Church Report data.</p>'; });
-  } else if (_finOverviewDomain === 'daycare') {
-    finRenderOverviewDaycare();
-  } else if (_finOverviewDomain === 'property') {
-    if (_finProperty) finRenderOverviewProperty(_finProperty);
-    else root.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading property data…</p>';
-  }
+// Page header shared by every redesigned finance screen: display-font title, one line of context,
+// and the screen's own actions on the right.
+function finPageHeader(title, sub, actionsHtml) {
+  return '<div class="fin-page-hdr">'
+    + '<div><h2 class="fin-page-title">' + title + '</h2><div class="fin-page-sub">' + sub + '</div></div>'
+    + '<div class="fin-page-actions">' + (actionsHtml || '') + '</div></div>';
 }
+// A pill group (Church Report's mode switch, the appeal card's scope switch). Deliberately its own
+// class rather than a reuse of .fin-comp-pills — the Compensation tab is out of scope for this
+// redesign and must not gain a shared dependency on it.
+function finPills(items, activeKey, handler) {
+  return '<div class="fin-scope-pills">' + items.map(function(i) {
+    return '<button class="fin-scope-pill' + (i.key === activeKey ? ' active' : '') + '" onclick="' + handler + '(' + volJsAttr(i.key) + ')">' + esc(i.label) + '</button>';
+  }).join('') + '</div>';
+}
+// Rounded whole-dollar money for the display-scale figures (KPI values, chart labels), where the
+// cents are noise. Table cells and ledgers keep finFmtMoney's two decimals.
+function finMoney0(cents) {
+  return '$' + Math.round((cents || 0) / 100).toLocaleString('en-US');
+}
+function finPctLabel(fraction) {
+  return (fraction == null || !isFinite(fraction)) ? '—' : Math.round(fraction * 100) + '%';
+}
+// A card body that could not load. Scoped to one card by design (see the handoff's Loading
+// section): one dead endpoint must never blank the whole page.
+function finCardError(what) {
+  return '<p style="font-size:.85rem;color:var(--warm-gray);">Could not load ' + what + '.</p>';
+}
+
+// ── Expense pace (shared by the Church Report and the Financial Health entity card) ─────────
+// _finOverviewDrillOpen keeps the single-open drilldown behaviour the Overview dashboard
+// introduced; the dashboard itself is gone (its job is now the Financial Health page), but the
+// click-to-see-line-items interaction moved intact onto the Church Report's expense panel.
+var _finOverviewDrillOpen = null; // single-open drilldown category path
+
 function finFmtSigned(cents) {
   var v = (cents || 0) / 100;
   var sign = v < 0 ? '-' : '+';
@@ -96,180 +111,57 @@ function finElapsedYearPct(year) {
 }
 // Shared renderer for the "Are we on budget?" pace panel — used by both Church and Daycare
 // domains. categories = [{ path, label, actualCents, budgetCents, children: [{label,actualCents,budgetCents}] }].
-function finRenderPacePanel(categories, elapsedPct) {
-  var elapsedLabel = Math.round(elapsedPct * 100) + '%';
-  var rows = categories.map(function(cat) {
+// Expense categories against budget, sorted by how far each is from where the calendar says it
+// should be — not alphabetically, and not by size. The point of the panel is to surface the two
+// or three lines that need a decision, so the biggest variance leads and the tail is cut.
+// elapsedPct is the share of the fiscal year gone; the navy marker sits there and the fill is
+// the share of budget spent, so a fill past the marker means spending faster than the calendar.
+function finExpensePaceStatus(cat, elapsedPct) {
+  var hasBudget = cat.budgetCents > 0;
+  if (!hasBudget) return { key: 'none', label: 'No budget', color: 'var(--warm-gray)', diffCents: 0 };
+  var diffCents = cat.actualCents - cat.budgetCents * elapsedPct;
+  if (cat.actualCents > cat.budgetCents) return { key: 'over', label: 'Over budget', color: 'var(--danger)', diffCents: diffCents };
+  if (diffCents > 150000) return { key: 'warn', label: finFmtSigned(diffCents) + ' over pace', color: 'var(--color-gold)', diffCents: diffCents };
+  if (diffCents < -150000) return { key: 'under', label: finFmtSigned(diffCents) + ' under pace', color: 'var(--sage)', diffCents: diffCents };
+  return { key: 'ok', label: 'On pace', color: 'var(--color-teal)', diffCents: diffCents };
+}
+function finRenderExpensePace(categories, elapsedPct, limit) {
+  var ranked = (categories || []).map(function(cat) {
+    return { cat: cat, status: finExpensePaceStatus(cat, elapsedPct) };
+  }).sort(function(a, b) { return b.status.diffCents - a.status.diffCents; });
+  var shown = limit ? ranked.slice(0, limit) : ranked;
+  if (!shown.length) return '<p style="font-size:.85rem;color:var(--warm-gray);">No expense categories with budget data yet.</p>';
+  var rows = shown.map(function(r) {
+    var cat = r.cat, st = r.status;
     var hasBudget = cat.budgetCents > 0;
-    var spentPct = hasBudget ? cat.actualCents / cat.budgetCents : 0;
-    var expectedByNowCents = cat.budgetCents * elapsedPct;
-    var diffCents = cat.actualCents - expectedByNowCents;
-    var status = 'ok', statusLabel = 'On pace', barClass = '';
-    if (hasBudget && cat.actualCents > cat.budgetCents) { status = 'over'; statusLabel = 'Over budget'; barClass = 'over'; }
-    else if (hasBudget && diffCents > 150000) { status = 'warn'; statusLabel = 'Over pace'; barClass = 'warn'; }
-    else if (!hasBudget) { statusLabel = 'No budget'; }
-    var chipClass = status === 'over' ? 'fin-chip-negative' : status === 'warn' ? 'fin-chip-warn' : hasBudget ? 'fin-chip-positive' : 'fin-chip-info';
+    var spentPct = hasBudget ? cat.actualCents / cat.budgetCents * 100 : 0;
     var open = _finOverviewDrillOpen === cat.path;
-    var insetHtml = '';
+    var inset = '';
     if (open && cat.children && cat.children.length) {
-      insetHtml = '<div class="fin-pace-inset">' + cat.children.map(function(c) {
+      inset = '<div class="fin-pace-inset">' + cat.children.map(function(c) {
         return '<div class="fin-pace-inset-row"><span>' + esc(c.label) + '</span><span>$' + finFmtMoney(c.actualCents/100) + (c.budgetCents > 0 ? ' / $' + finFmtMoney(c.budgetCents/100) : '') + '</span></div>';
       }).join('') + '</div>';
     }
-    return '<div class="fin-pace-row' + (open ? ' open' : '') + '" onclick="finOverviewToggleDrill(\'' + esc(cat.path).replace(/'/g, "\\'") + '\')">'
+    return '<div class="fin-pace-row' + (open ? ' open' : '') + '" tabindex="0" role="button"'
+      + ' onclick="finOverviewToggleDrill(' + volJsAttr(cat.path) + ')"'
+      + ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();finOverviewToggleDrill(' + volJsAttr(cat.path) + ');}">'
       + '<div class="fin-pace-row-hdr">'
       + '<span><span class="fin-pace-caret">&#9656;</span><span class="fin-pace-label">' + esc(cat.label) + '</span></span>'
-      + '<span class="fin-pace-figs">$' + finFmtMoney(cat.actualCents/100) + (hasBudget ? ' / $' + finFmtMoney(cat.budgetCents/100) : '') + ' &nbsp; <span class="fin-chip ' + chipClass + ' fin-pace-status">' + statusLabel + '</span></span>'
+      + '<span style="font-size:12.5px;font-weight:700;color:' + st.color + ';white-space:nowrap;">' + st.label + '</span>'
       + '</div>'
-      + (hasBudget ? '<div class="fin-pace-bar-track"><div class="fin-pace-bar-fill ' + barClass + '" style="width:' + Math.min(100, spentPct*100) + '%;"></div><div class="fin-pace-marker" style="left:' + (elapsedPct*100) + '%;"></div></div>' : '')
-      + insetHtml
+      + (hasBudget
+        ? '<div class="fin-pace-bar-track"><div class="fin-pace-bar-fill" style="width:' + Math.min(100, spentPct) + '%;background:' + st.color + ';"></div><div class="fin-pace-marker" style="left:' + (elapsedPct*100) + '%;"></div></div>'
+        : '')
+      + inset
       + '</div>';
   }).join('');
-  return '<div class="fin-card" style="margin-bottom:22px;">'
-    + '<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;">'
-    + '<div><div class="fin-card-title">Are we on budget?</div><div class="fin-card-sub" style="margin-bottom:0;">Click a category to see its line items. A bar past the vertical line means spending faster than the calendar.</div></div>'
-    + '<div style="font-size:.78rem;color:var(--warm-gray);white-space:nowrap;"><span style="color:var(--color-teal);">&#9632;</span> Spent &nbsp;|&nbsp; <span style="color:var(--color-navy);">&#124;</span> Expected by now (' + elapsedLabel + ')</div>'
-    + '</div>'
-    + '<div style="margin-top:10px;">' + (rows || '<p style="font-size:.85rem;color:var(--warm-gray);">No expense categories with budget data yet.</p>') + '</div>'
-    + '</div>';
+  return rows + (limit && ranked.length > limit
+    ? '<p style="font-size:11.5px;color:var(--warm-gray);margin:10px 0 0;">Showing the ' + limit + ' largest variances of ' + ranked.length + ' categories — the full ledger is in "Full account detail" below.</p>'
+    : '');
 }
 function finOverviewToggleDrill(path) {
   _finOverviewDrillOpen = (_finOverviewDrillOpen === path) ? null : path;
-  finLoadOverviewDomain();
-}
-function finRenderTrendChart(months, title) {
-  if (!months || !months.length) return '';
-  var maxVal = 1;
-  months.forEach(function(m) { maxVal = Math.max(maxVal, m.incomeCents/100, m.expenseCents/100); });
-  var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var bars = months.map(function(m) {
-    var incH = Math.max(2, (m.incomeCents/100) / maxVal * 100);
-    var expH = Math.max(2, (m.expenseCents/100) / maxVal * 100);
-    return '<div class="fin-trend-month"><div class="fin-trend-bar' + (m.projected ? ' projected' : '') + '" style="height:' + incH + '%;" title="Income ' + monthNames[m.month-1] + ': $' + finFmtMoney(m.incomeCents/100) + '"></div>'
-      + '<div class="fin-trend-bar expense' + (m.projected ? ' projected' : '') + '" style="height:' + expH + '%;" title="Expenses ' + monthNames[m.month-1] + ': $' + finFmtMoney(m.expenseCents/100) + '"></div></div>';
-  }).join('');
-  var labels = months.map(function(m) { return '<span>' + monthNames[m.month-1] + '</span>'; }).join('');
-  return '<div class="fin-card">'
-    + '<div class="fin-card-title" style="font-size:18px;">' + esc(title) + '</div>'
-    + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:6px;"><span style="color:var(--color-teal);">&#9632;</span> Income &nbsp; <span style="color:var(--color-gold);">&#9632;</span> Expenses &nbsp; <span style="opacity:.5;">(faded = projected)</span></div>'
-    + '<div class="fin-trend-chart">' + bars + '</div>'
-    + '<div class="fin-trend-labels">' + labels + '</div>'
-    + '</div>';
-}
-function finRenderYearEndProjection(income, expenses, isStraightLineEstimate) {
-  function bar(label, cls, series) {
-    if (!series) return '';
-    var maxVal = Math.max(series.projectedFullYearCents, series.currentYtdCents, 1);
-    var actualPct = Math.min(100, series.currentYtdCents / maxVal * 100);
-    var projPct = Math.min(100, series.projectedFullYearCents / maxVal * 100);
-    return '<div class="fin-yearend-bar-row ' + cls + '">'
-      + '<div class="fin-yearend-bar-lbl"><span>' + label + '</span><span>$' + finFmtMoney(series.projectedFullYearCents/100) + ' projected</span></div>'
-      + '<div class="fin-yearend-bar-track"><div class="fin-yearend-bar-projected" style="width:' + projPct + '%;"></div><div class="fin-yearend-bar-actual" style="width:' + actualPct + '%;position:absolute;top:0;left:0;"></div></div>'
-      + '</div>';
-  }
-  var netProjected = (income ? income.projectedFullYearCents : 0) - (expenses ? expenses.projectedFullYearCents : 0);
-  var netCls = netProjected >= 0 ? 'positive' : 'negative';
-  return '<div class="fin-card">'
-    + '<div class="fin-card-title" style="font-size:18px;">Year-End Projection</div>'
-    + (income || expenses
-      ? bar('Income', 'income', income) + bar('Expenses', 'expense', expenses)
-        + '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--warm-row-divider);"><div class="fin-kpi-lbl">Projected surplus / (deficit)</div><div class="fin-navy-val ' + netCls + '" style="color:' + (netProjected >= 0 ? 'var(--sage-text)' : 'var(--danger)') + ';">' + finFmtSigned(netProjected) + '</div></div>'
-        + (isStraightLineEstimate ? '<div style="margin-top:8px;font-size:.74rem;color:var(--warm-gray);">Straight-line estimate — no monthly-granularity sync/import data for this year or last year to project the real seasonal pattern from.</div>' : '')
-      : '<p style="font-size:.82rem;color:var(--warm-gray);">Not yet available — needs at least one month of monthly-granularity QuickBooks sync data for this year and last year.</p>')
-    + '</div>';
-}
-function finRenderBalancesRow() {
-  var overview = _finOverview || {};
-  var qboList = ((overview.accounts && overview.accounts.QueryResponse && overview.accounts.QueryResponse.Account) || []);
-  function sumMatching(re) {
-    return qboList.filter(function(a) { return re.test(a.Name || ''); }).reduce(function(s, a) { return s + (Number(a.CurrentBalance) || 0); }, 0);
-  }
-  var checking = sumMatching(/checking/i);
-  var savings = sumMatching(/saving|reserve/i);
-  var reserves = _finProperty ? finComputePropertyReservesOnHandCents(_finProperty) / 100 : 0;
-  return '<div class="fin-balance-row">'
-    + '<div class="fin-balance-card"><div class="fin-balance-icon">&#127974;</div><div><div class="fin-balance-lbl">Operating Checking</div><div class="fin-balance-val">$' + finFmtMoney(checking) + '</div></div></div>'
-    + '<div class="fin-balance-card"><div class="fin-balance-icon">&#128737;</div><div><div class="fin-balance-lbl">Reserves &amp; Savings</div><div class="fin-balance-val">$' + finFmtMoney(savings) + '</div></div></div>'
-    + '<div class="fin-balance-card"><div class="fin-balance-icon">&#127968;</div><div><div class="fin-balance-lbl">Ivanhoe Property Reserves</div><div class="fin-balance-val">$' + finFmtMoney(reserves) + '</div></div></div>'
-    + '</div>'
-    + '<p style="font-size:.72rem;color:var(--warm-gray);margin-top:8px;">Checking/Savings are a best-effort match on QuickBooks account name — see the full Account Balances table below for the authoritative list.</p>';
-}
-
-function finRenderOverviewChurch(d) {
-  var root = document.getElementById('fin-ov-dashboard');
-  var capEl = document.getElementById('fin-ov-caption');
-  var pillEl = document.getElementById('fin-ov-sync-pill');
-  if (!root) return;
-  var elapsedPct = finElapsedYearPct(d.year);
-  if (capEl) capEl.textContent = 'Church Operating — ' + d.year + ' · As of today · ' + Math.round(elapsedPct*100) + '% of the fiscal year elapsed';
-  if (pillEl) { pillEl.style.display = _finStatus.connected ? 'inline-flex' : 'none'; pillEl.textContent = 'QuickBooks synced ' + (_finOverview.accountsSyncedAt ? finFmtTs(_finOverview.accountsSyncedAt) : 'never'); }
-
-  var income = d.classificationTotals.Income || { actualCents: 0, budgetCents: 0 };
-  var expenses = d.classificationTotals.Expenses || { actualCents: 0, budgetCents: 0 };
-  var net = d.netIncome || { actualCents: 0, budgetCents: 0 };
-  var netVariance = net.actualCents - net.budgetCents;
-
-  var kpis = [
-    { lbl: 'Net Position YTD', val: finFmtSigned(net.actualCents), cls: net.actualCents >= 0 ? 'positive' : 'negative',
-      chip: d.hasBudgetData ? (finFmtSigned(netVariance) + ' vs. budget') : null, chipCls: netVariance >= 0 ? 'fin-chip-positive' : 'fin-chip-negative', border: net.actualCents >= 0 ? 'var(--sage)' : 'var(--danger)' },
-    { lbl: 'Income YTD', val: '$' + finFmtMoney(income.actualCents/100), chip: income.budgetCents > 0 ? (Math.round(income.actualCents/income.budgetCents*100) + '% of $' + finFmtMoney(income.budgetCents/100) + ' budget') : null, chipCls: 'fin-chip-info', border: 'var(--color-teal)' },
-    { lbl: 'Expenses YTD', val: '$' + finFmtMoney(expenses.actualCents/100), chip: expenses.budgetCents > 0 ? (Math.round(expenses.actualCents/expenses.budgetCents*100) + '% of $' + finFmtMoney(expenses.budgetCents/100) + ' budget') : null, chipCls: 'fin-chip-warn', border: 'var(--color-gold)' },
-    { lbl: 'Projected Year-End', val: d.yoy && d.yoy.available ? finFmtSigned(d.yoy.net.projectedFullYearCents) : '—', chip: d.yoy && d.yoy.available ? ((d.yoy.net.projectedFullYearCents >= 0 ? 'Surplus' : 'Deficit') + ' est. Dec 31' + (d.yoy.seasonal === false ? ' (straight-line estimate)' : '')) : 'Not yet available', chipCls: (d.yoy && d.yoy.available && d.yoy.net.projectedFullYearCents >= 0) ? 'fin-chip-positive' : 'fin-chip-negative', border: (d.yoy && d.yoy.available && d.yoy.net.projectedFullYearCents < 0) ? 'var(--danger)' : 'var(--sage)' },
-  ];
-  var kpiHtml = '<div class="fin-kpi-grid">' + kpis.map(function(k) {
-    return '<div class="fin-kpi-card" style="border-top-color:' + k.border + ';"><div class="fin-kpi-lbl">' + k.lbl + '</div><div class="fin-kpi-val">' + k.val + '</div>'
-      + (k.chip ? '<span class="fin-chip ' + k.chipCls + '">' + k.chip + '</span>' : '') + '</div>';
-  }).join('') + '</div>';
-
-  var tree = finReorganizeChurchTree(finBuildTreeFromFlatRows(d.entries));
-  var expenseRoot = tree.filter(function(n) { return n.classification === 'Expenses'; })[0];
-  var categories = ((expenseRoot && expenseRoot.children) || []).map(function(n) {
-    return {
-      path: n.path, label: n.label, actualCents: n.totalActualCents, budgetCents: n.totalBudgetCents,
-      children: (n.children || []).map(function(c) { return { label: c.label, actualCents: c.totalActualCents, budgetCents: c.totalBudgetCents }; }),
-    };
-  }).sort(function(a, b) { return b.actualCents - a.actualCents; });
-  var paceHtml = finRenderPacePanel(categories, elapsedPct);
-
-  var trendHtml = (d.monthlyTrend && d.monthlyTrend.available) ? finRenderTrendChart(d.monthlyTrend.months, 'Income vs. Expenses') : '<div class="fin-card"><div class="fin-card-title" style="font-size:18px;">Income vs. Expenses</div><p style="font-size:.82rem;color:var(--warm-gray);">Not yet available — needs monthly-granularity QuickBooks sync data for this year.</p></div>';
-  var projHtml = finRenderYearEndProjection(d.yoy && d.yoy.available ? d.yoy.income : null, d.yoy && d.yoy.available ? d.yoy.expenses : null, d.yoy && d.yoy.available === true && d.yoy.seasonal === false);
-
-  root.innerHTML = kpiHtml + paceHtml
-    + '<div style="display:grid;grid-template-columns:1.5fr 1fr;gap:22px;margin-bottom:22px;">' + trendHtml + projHtml + '</div>'
-    + '<div class="fin-card-title" style="font-size:18px;margin-bottom:10px;">Balances</div>' + finRenderBalancesRow();
-}
-
-function finRenderOverviewDaycare() {
-  var root = document.getElementById('fin-ov-dashboard');
-  var capEl = document.getElementById('fin-ov-caption');
-  var pillEl = document.getElementById('fin-ov-sync-pill');
-  if (!root) return;
-  if (pillEl) pillEl.style.display = 'none';
-  var agg = finAggregateDaycareByYear(_finDaycare, _finDaycareAllocation ? _finDaycareAllocation.allocation : null);
-  var year = String(new Date().getFullYear());
-  var y = agg.byYear[year];
-  var elapsedPct = finElapsedYearPct(new Date().getFullYear());
-  if (capEl) capEl.textContent = 'Daycare (MDO) — ' + year + ' · As of today · ' + Math.round(elapsedPct*100) + '% of the fiscal year elapsed';
-  if (!y) { root.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No daycare data yet for ' + year + '. Sync or add entries below.</p>'; return; }
-  if (!_finDaycareAllocation && !_finDaycareAllocationLoading) finLoadDaycareAllocation([year]);
-
-  var netVariance = y.netActual - y.netBudget;
-  var kpis = [
-    { lbl: 'Net Position YTD', val: finFmtSigned(netVariance >= 0 ? y.netActual : y.netActual) === undefined ? '' : (y.netActual >= 0 ? '+' : '-') + '$' + finFmtMoney(Math.abs(y.netActual)), chip: y.netBudget ? ((netVariance >= 0 ? '+' : '-') + '$' + finFmtMoney(Math.abs(netVariance)) + ' vs. budget') : null, chipCls: netVariance >= 0 ? 'fin-chip-positive' : 'fin-chip-negative', border: y.netActual >= 0 ? 'var(--sage)' : 'var(--danger)' },
-    { lbl: 'Income YTD', val: '$' + finFmtMoney(y.incomeActual), chip: y.incomeBudget ? (Math.round(y.incomeActual/y.incomeBudget*100) + '% of $' + finFmtMoney(y.incomeBudget) + ' budget') : null, chipCls: 'fin-chip-info', border: 'var(--color-teal)' },
-    { lbl: 'Expenses YTD', val: '$' + finFmtMoney(y.expenseActual), chip: y.expenseBudget ? (Math.round(y.expenseActual/y.expenseBudget*100) + '% of $' + finFmtMoney(y.expenseBudget) + ' budget') : null, chipCls: 'fin-chip-warn', border: 'var(--color-gold)' },
-    { lbl: 'Net Budgeted (Full Year)', val: '$' + finFmtMoney(y.netBudget), chip: null, border: 'var(--color-navy)' },
-  ];
-  var kpiHtml = '<div class="fin-kpi-grid">' + kpis.map(function(k) {
-    return '<div class="fin-kpi-card" style="border-top-color:' + k.border + ';"><div class="fin-kpi-lbl">' + k.lbl + '</div><div class="fin-kpi-val">' + k.val + '</div>'
-      + (k.chip ? '<span class="fin-chip ' + k.chipCls + '">' + k.chip + '</span>' : '') + '</div>';
-  }).join('') + '</div>';
-
-  var categories = Object.keys(y.categories).filter(function(c) { return !finIsIncomeCategory(c); }).map(function(c) {
-    return { path: c, label: c, actualCents: Math.round(y.categories[c].actual*100), budgetCents: Math.round(y.categories[c].budget*100), children: [] };
-  }).sort(function(a, b) { return b.actualCents - a.actualCents; });
-  var paceHtml = finRenderPacePanel(categories, elapsedPct);
-
-  root.innerHTML = kpiHtml + paceHtml + '<p style="font-size:.78rem;color:var(--warm-gray);">Full year-by-year detail is in the <b>Daycare Report</b> tab.</p>';
+  if (_finChurchThisYearData) finRenderChurchThisYear(_finChurchThisYearData);
 }
 
 // AHRA's monthly report states this verbatim as "Distribution amount (cash minus reserves)" —
@@ -353,42 +245,931 @@ function finRenderKpiGrid(kpis) {
   }).join('') + '</div>';
 }
 
-function finRenderOverviewProperty(d) {
-  var root = document.getElementById('fin-ov-dashboard');
-  var capEl = document.getElementById('fin-ov-caption');
-  var pillEl = document.getElementById('fin-ov-sync-pill');
+// ── Data & Imports ──────────────────────────────────────────────────────────────────────────
+// One page for every connection, importer, hand-entered adjustment and destructive control that
+// used to sit underneath the reports. It is the one finance page nobody opens during a meeting,
+// which is the whole reason it exists — a report page should read, not offer twelve upload
+// buttons. This renderer also MOUNTS the containers the pre-existing renderers write into
+// (#fin-connection, #fin-budget, #fin-accounts, #fin-daycare-sync, #fin-daycare-body), so it must
+// run before them; loadFinance() calls it first and it calls them itself at the end.
+var _finImportStatus = null;
+var _finAdjustKind = 'daycare';
+// Mirrors REVENUE_STREAMS in api-finance.js (kept as a duplicate, not a shared import — this file
+// has no module system; see finWeeksElapsedInYear for the same convention).
+var REVENUE_STREAM_KEYS = ['donor', 'earned', 'passive'];
+var REVENUE_STREAM_LABELS = { donor: 'Donor — we set the ask', earned: 'Earned — reported to us', passive: 'Passive — timing only' };
+var REVENUE_STREAM_SHORT = { donor: 'Donor', earned: 'Earned', passive: 'Passive' };
+var REVENUE_STREAM_COLORS = { donor: 'var(--color-teal)', earned: 'var(--color-gold)', passive: 'var(--sage)' };
+function finRenderDataImports() {
+  var root = document.getElementById('fin-data-root');
   if (!root) return;
-  if (pillEl) pillEl.style.display = 'none';
-  if (capEl) capEl.textContent = '3277 Ivanhoe — Commercial Property';
-  var kpiHtml = finRenderKpiGrid(finComputePropertyKpis(d));
+  var isAdminUI = (_userRole === 'admin');
 
-  var chartMonthly = (d.monthly || []).slice().sort(function(a,b){ return a.period < b.period ? -1 : 1; }).slice(-12);
-  var budgetByPeriod = {};
-  (d.budgetMonthly || []).forEach(function(b) { budgetByPeriod[b.period] = b; });
-  var hasBudget = chartMonthly.some(function(m) { return budgetByPeriod[m.period]; });
-  var series = hasBudget
-    ? [{ key: 'rev', label: 'Revenue', color: '#2E7EA6' }, { key: 'revB', label: 'Rev. Budget', color: '#9FC7DA' }, { key: 'exp', label: 'Expenses', color: '#C9973A' }, { key: 'expB', label: 'Exp. Budget', color: '#E4CB99' }]
-    : [{ key: 'rev', label: 'Revenue', color: '#2E7EA6' }, { key: 'exp', label: 'Expenses', color: '#C9973A' }];
-  var chartHtml = chartMonthly.length ? renderGroupedBarChart({
-    chartH: 200,
-    title: 'Revenue vs. Expenses (last ' + chartMonthly.length + ' months)' + (hasBudget ? ' — vs. AHRA budget' : ''),
-    groups: chartMonthly.map(function(m) { return { key: m.period, label: m.period.slice(2) }; }),
-    series: series,
-    value: function(g, s) {
-      var m = chartMonthly.filter(function(x) { return x.period === g; })[0];
-      var b = budgetByPeriod[g];
-      if (s === 'rev') return m.total_revenue_cents == null ? null : m.total_revenue_cents/100;
-      if (s === 'exp') return m.total_expenses_cents == null ? null : m.total_expenses_cents/100;
-      if (s === 'revB') return b ? b.revenue_cents/100 : null;
-      if (s === 'expB') return b ? b.expenses_cents/100 : null;
-      return null;
-    },
-    tooltip: function(g, s, v) { return g + ': $' + finFmtMoney(v); },
-  }) : '<p style="font-size:.85rem;color:var(--warm-gray);">No monthly data yet.</p>';
+  var statusCards = '<div class="fin-grid-3">'
+    + '<div class="fin-card">'
+      + '<div class="fin-data-card-hdr"><span class="fin-data-card-name">QuickBooks</span>'
+      + (_finStatus.connected ? '<span class="fin-sync-pill">Connected</span>' : '<span class="fin-chip fin-chip-warn">Not connected</span>') + '</div>'
+      + '<div id="fin-connection"></div>'
+    + '</div>'
+    + '<div class="fin-card">'
+      + '<div class="fin-data-card-hdr"><span class="fin-data-card-name">Daycare app</span>'
+      + (_finStatus.daycareConfigured ? '<span class="fin-sync-pill">Configured</span>' : '<span class="fin-chip fin-chip-warn">Not connected</span>') + '</div>'
+      + '<p class="fin-data-card-body">Money syncs per period once the daycare app\'s finance API is live. The room-level figures the Daycare Report reads — capacity, average daily enrolled, billed revenue, labour cost, waitlist — still need adding to that API.</p>'
+      + '<div id="fin-daycare-sync"></div>'
+    + '</div>'
+    + '<div class="fin-card">'
+      + '<div class="fin-data-card-hdr"><span class="fin-data-card-name">Board packet</span><span class="fin-chip fin-chip-info">JSON</span></div>'
+      + '<p class="fin-data-card-body">This year\'s income statement, balance sheet, five-year trends and the full daycare ledger in one file — hand it to an analyst and ask for the board\'s finance summary.</p>'
+      + '<div><button class="btn-primary" id="fin-board-packet-btn" onclick="finExportBoardPacket()">Export packet</button></div>'
+    + '</div>'
+    + '</div>';
 
-  root.innerHTML = kpiHtml + '<div class="fin-card">' + chartHtml + '</div>'
-    + '<p style="font-size:.78rem;color:var(--warm-gray);margin-top:12px;">Full reserves, capital ledger, valuation calculator, and forecast are in the <b>Commercial Property</b> tab.</p>';
+  root.innerHTML = finPageHeader('Data &amp; Imports', 'Connections, file imports, hand-entered adjustments, and the board packet export.', '')
+    + statusCards
+    + '<div id="fin-imports-card" class="fin-card">' + finRenderImportsCard() + '</div>'
+    + '<div class="fin-grid-2-wide">'
+      + '<div class="fin-card">' + finRenderAdjustmentsCard(isAdminUI) + '</div>'
+      + (isAdminUI
+        ? '<div class="fin-card require-admin" style="border:1px solid var(--danger);">'
+          + '<div class="fin-card-title" style="color:var(--danger);font-size:19px;">Danger zone</div>'
+          + '<p class="fin-data-card-body">Clears stored Church Report, Balance Sheet, Daycare and Planning data. <b>Commercial Property and all Giving data are never touched.</b></p>'
+          + '<button class="btn-secondary" style="border-color:var(--danger);color:var(--danger);" onclick="finLoadClearDataPreview()">Clear budget &amp; report data…</button>'
+          + '<div id="fin-clear-data-panel" style="margin-top:10px;"></div>'
+          + '</div>'
+        : '')
+    + '</div>'
+    + '<div id="fin-data-property-tools"></div>'
+    + (isAdminUI ? '<div id="fin-data-classification" class="fin-card">' + finRenderClassificationCard() + '</div>' : '')
+    // The raw QuickBooks report cards are kept, but behind disclosures: they are diagnostic
+    // dumps of what the API returned, not something to read on a page anyone is reporting from.
+    + '<div class="fin-card">'
+      + '<div class="fin-card-title" style="font-size:18px;">Raw QuickBooks output</div>'
+      + '<div class="fin-card-sub">What the API actually returned, for checking a figure that looks wrong. The Church Report is the reading version of the same data.</div>'
+      + '<details><summary class="fin-disclosure">Budget vs. Actual</summary><div id="fin-budget" style="margin-top:10px;"></div></details>'
+      + '<details style="margin-top:8px;"><summary class="fin-disclosure">Account balances</summary><div id="fin-accounts" style="margin-top:10px;"></div></details>'
+    + '</div>';
+
+  // Now that the containers exist, let the pre-existing renderers fill them.
+  finRenderConnection();
+  finRenderBudget(_finOverview);
+  finRenderAccounts(_finOverview);
+  finRenderDaycare();
+  if (_finProperty) finRenderPropertyAdminTools(_finProperty);
+  if (!_finImportStatus) {
+    api('/admin/api/finance/import-status').then(function(d) {
+      _finImportStatus = d && d.importers ? d.importers : [];
+      var card = document.getElementById('fin-imports-card');
+      if (card) card.innerHTML = finRenderImportsCard();
+    }).catch(function() { /* staleness is a nicety; the importers themselves still work */ });
+  }
 }
+// Each importer row names when it last ran. "never" in danger red is the point of the tab: a feed
+// that has gone stale is visible here without opening the report it feeds.
+var FIN_IMPORT_ACTIONS = {
+  church_budget: 'finOpenChurchImport',
+  church_monthly_pnl: 'finOpenChurchMonthlyImport',
+  church_activity_multi: 'finOpenChurchActivityImport',
+  church_budget_multi: 'finOpenChurchBudgetMultiYearImport',
+  church_balance: 'finOpenChurchBalanceImport',
+  church_balance_multi: 'finOpenChurchBalanceMultiYearImport',
+  property_monthly_csv: 'finPropertyToggleMonthlyCsvPanel',
+  property_budget_xlsx: 'finDataFocusPropertyBudgetImport',
+  daycare_church_budget: 'finDataFocusDaycareChurchBudget',
+  daycare_bulk: 'finDataFocusDaycareBulk',
+};
+function finRenderImportRow(imp) {
+  var action = FIN_IMPORT_ACTIONS[imp.key];
+  var when = imp.lastImportedAt
+    ? '<span style="color:var(--warm-gray);">' + esc(finFmtTs(imp.lastImportedAt)) + '</span>'
+    : '<span style="color:var(--danger);font-weight:700;">never</span>';
+  return '<button type="button" class="fin-import-row"' + (action ? ' onclick="' + action + '()"' : ' disabled') + '>'
+    + '<span class="fin-import-row-name">' + esc(imp.label) + '</span>' + when + '</button>';
+}
+function finRenderImportsCard() {
+  var importers = _finImportStatus || [];
+  function panel(title, group, footHtml) {
+    var rows = importers.filter(function(i) { return i.group === group; }).map(finRenderImportRow).join('');
+    return '<div class="fin-import-panel"><div class="fin-eyebrow">' + title + '</div>'
+      + (rows || '<div style="font-size:12.5px;color:var(--warm-gray);">Loading…</div>')
+      + (footHtml ? '<div class="fin-import-panel-foot">' + footHtml + '</div>' : '')
+      + '</div>';
+  }
+  return '<div class="fin-card-title" style="font-size:20px;">File imports</div>'
+    + '<div class="fin-card-sub">Grouped by what they feed, with the last import date — so you can see what is stale without opening a report.</div>'
+    + '<div class="fin-grid-2">'
+      + panel('Feeds Church Report', 'church', '')
+      + panel('Feeds Ivanhoe &amp; Daycare', 'other', finRenderDaycareAllocationConfig())
+    + '</div>'
+    + '<div class="fin-dropzone" style="margin-top:14px;" ondragover="finDropZoneOver(event)" ondragleave="finDropZoneLeave(event)" ondrop="finDataDropZoneDrop(event)">'
+      + '<div style="font-size:13px;font-weight:700;color:var(--color-navy);">Choose an import above to open it</div>'
+      + '<div class="fin-dropzone-hint">Each importer previews what it found before anything is saved. Drop a file here and the matching importer opens — which report it belongs to is a choice only you can make, so it asks rather than guessing.</div>'
+    + '</div>'
+    + '<div id="fin-dc-cb-panel" style="margin-top:14px;">'
+      + '<div class="fin-eyebrow">MDO accounts from an imported church budget</div>'
+      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">Pulls the Mother\'s Day Out line items (any account with "MDO" or "Mother\'s Day Out" in its name) out of a Church Report budget already imported for that year, and categorises them into the Daycare Report\'s categories.</p>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Church Budget Year<br><input type="number" id="fin-dc-cb-year" placeholder="2025" style="width:100px;"></label>'
+      + '<button class="btn-secondary" onclick="finDaycareChurchBudgetPreview()">Preview</button></div>'
+      + '<div id="fin-dc-cb-preview" style="margin-top:10px;"></div>'
+    + '</div>';
+}
+// A dropped file cannot be routed automatically — a Balance Sheet and a Statement of Financial
+// Position are the same report exported two ways, and guessing wrong would silently write a
+// year's figures into the wrong table. So the drop is acknowledged and the user picks.
+function finDataDropZoneDrop(ev) {
+  finDropZoneLeave(ev);
+  ev.preventDefault();
+  finToast('Choose which import this file is, using the list above — the app will not guess which report a file belongs to.');
+}
+function finDataFocusDaycareChurchBudget() {
+  var el = document.getElementById('fin-dc-cb-year');
+  if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); }
+}
+function finDataFocusDaycareBulk() {
+  var el = document.getElementById('fin-dc-bulk-details');
+  if (el) { el.open = true; el.scrollIntoView({ block: 'center' }); }
+}
+function finDataFocusPropertyBudgetImport() {
+  var el = document.getElementById('fin-property-budget-import-label');
+  if (el) el.scrollIntoView({ block: 'center' });
+  else finToast('Property tools load with the Commercial Property data — try again in a moment.');
+}
+// One form for the three things that get typed in by hand, with a "What" selector swapping the
+// field set — replacing three separate forms that sat on three different tabs. Each field set
+// keeps the ids its existing save handler already reads, so no save path changed.
+function finAdjustSetKind(kind) {
+  _finAdjustKind = kind;
+  var el = document.getElementById('fin-adjust-fields');
+  if (el) el.innerHTML = finRenderAdjustFields();
+}
+function finRenderAdjustFields() {
+  if (_finAdjustKind === 'distribution') {
+    return '<label style="font-size:.75rem;color:var(--warm-gray);">Period<br><input type="text" id="fin-prop-dist-period" placeholder="2026-07" style="width:100px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-prop-dist-amount" step="0.01" style="width:110px;"></label>'
+      + '<button class="btn-primary" onclick="finPropertyAddDistribution()">Record distribution</button>';
+  }
+  if (_finAdjustKind === 'property') {
+    return '<div style="font-size:12.5px;color:var(--warm-ink-label);max-width:420px;">A property month has fifteen figures, so it keeps its own form rather than being squeezed into this row.</div>'
+      + '<button class="btn-primary" onclick="finPropertyOpenMonthModal()">Open the month form</button>'
+      + '<button class="btn-secondary" onclick="finPropertyToggleMonthlyCsvPanel()">Paste AHRA CSV instead</button>';
+  }
+  return '<label style="font-size:.75rem;color:var(--warm-gray);">Period<br><input type="text" id="fin-dc-period" placeholder="2026-07" style="width:100px;"></label>'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Category<br><input type="text" id="fin-dc-category" placeholder="Tuition Income" style="width:160px;"></label>'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Type<br><select id="fin-dc-type"><option value="actual">Actual</option><option value="budget">Budget</option></select></label>'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-dc-amount" step="0.01" style="width:110px;"></label>'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Notes<br><input type="text" id="fin-dc-notes" style="width:160px;"></label>'
+    + '<button class="btn-primary" id="fin-dc-submit-btn" onclick="finSaveDaycare()">Add entry</button>'
+    + '<button class="btn-secondary" id="fin-dc-cancel-btn" style="display:none;" onclick="finCancelEditDaycare()">Cancel</button>';
+}
+function finRenderAdjustmentsCard(isAdminUI) {
+  return '<div class="fin-card-title" style="font-size:20px;">Hand-entered adjustments</div>'
+    + '<div class="fin-card-sub">Daycare periods, property months, distributions — one form, one recent list.</div>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">What<br>'
+      + '<select class="fin-domain-select" onchange="finAdjustSetKind(this.value)">'
+      + '<option value="daycare">Daycare entry</option><option value="property">Property month</option><option value="distribution">Distribution</option>'
+      + '</select></label>'
+      + '<span id="fin-adjust-fields" style="display:contents;">' + finRenderAdjustFields() + '</span>'
+    + '</div>'
+    + '<div style="font-size:.75rem;color:var(--danger);margin-top:6px;min-height:14px;" id="fin-dc-error"></div>'
+    + '<details id="fin-dc-bulk-details" style="margin-top:14px;">'
+      + '<summary class="fin-disclosure">Bulk-enter past daycare years</summary>'
+      + '<p style="font-size:.78rem;color:var(--warm-gray);margin:8px 0;">One entry per line: <code>period, category, type, amount, notes</code> — period is <code>YYYY</code> or <code>YYYY-MM</code>, type is <code>actual</code> or <code>budget</code> (defaults to actual), notes optional.</p>'
+      + '<textarea id="fin-dc-bulk-text" rows="4" style="width:100%;font-family:monospace;font-size:.8rem;padding:8px;border:1px solid var(--border);border-radius:6px;" placeholder="2023, Tuition Income, actual, 285000"></textarea>'
+      + '<div style="display:flex;gap:8px;margin-top:8px;align-items:center;">'
+      + '<button class="btn-secondary" onclick="finDaycareBulkPreview()">Preview</button>'
+      + '<span id="fin-dc-bulk-error" style="font-size:.78rem;color:var(--danger);"></span></div>'
+      + '<div id="fin-dc-bulk-preview" style="margin-top:8px;"></div>'
+    + '</details>'
+    + '<details style="margin-top:8px;">'
+      + '<summary class="fin-disclosure">All daycare line items (<span id="fin-daycare-count">0</span> rows)</summary>'
+      + '<div style="overflow-x:auto;margin-top:8px;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+      + '<thead><tr style="border-bottom:2px solid var(--navy);">'
+      + '<th style="text-align:left;padding:6px 8px;">Period</th><th style="text-align:left;padding:6px 8px;">Category</th>'
+      + '<th style="text-align:left;padding:6px 8px;">Type</th><th style="text-align:right;padding:6px 8px;">Amount</th>'
+      + '<th style="text-align:left;padding:6px 8px;">Notes / Source</th><th></th></tr></thead>'
+      + '<tbody id="fin-daycare-body"></tbody></table></div>'
+    + '</details>';
+}
+// Revenue-stream classification + the cash policy behind the runway card. Both are judgements
+// this code cannot make for a church — which account group counts as donor revenue, and how many
+// months of reserve the congregation has decided to hold — so both are editable here rather than
+// hardcoded, and the Health page names what it used.
+var _finStreamEditor = null;
+function finRenderClassificationCard() {
+  return '<div class="fin-card-title" style="font-size:20px;">Classification &amp; policy</div>'
+    + '<div class="fin-card-sub">What the Financial Health page assumes about your chart of accounts and your reserve policy.</div>'
+    + '<div id="fin-stream-editor"><button class="btn-secondary" onclick="finLoadStreamEditor()">Review revenue-stream classification</button></div>'
+    + '<div id="fin-cash-policy" style="margin-top:14px;"><button class="btn-secondary" onclick="finLoadCashPolicy()">Edit cash reserve policy</button></div>';
+}
+function finLoadStreamEditor() {
+  var el = document.getElementById('fin-stream-editor');
+  if (!el) return;
+  el.innerHTML = '<div style="font-size:.8rem;color:var(--warm-gray);">Loading…</div>';
+  api('/admin/api/finance/revenue-streams?year=' + new Date().getFullYear()).then(function(d) {
+    _finStreamEditor = d;
+    finRenderStreamEditor();
+  }).catch(function() { el.innerHTML = finCardError('the revenue-stream classification'); });
+}
+function finRenderStreamEditor() {
+  var el = document.getElementById('fin-stream-editor');
+  if (!el || !_finStreamEditor) return;
+  var d = _finStreamEditor;
+  var groups = [];
+  REVENUE_STREAM_KEYS.forEach(function(s) {
+    (d.streams[s].groups || []).forEach(function(g) { groups.push({ label: g.label, cents: g.cents, stream: s }); });
+  });
+  groups.sort(function(a, b) { return b.cents - a.cents; });
+  var unmappedByLabel = {};
+  (d.unmapped || []).forEach(function(u) { unmappedByLabel[u.label] = true; });
+  var rows = groups.map(function(g, i) {
+    return '<tr><td style="padding:5px 8px;">' + esc(g.label)
+      + (unmappedByLabel[g.label] ? ' <span class="fin-chip fin-chip-warn" style="font-size:.68rem;">guessed</span>' : '') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;">' + finMoney0(g.cents) + '</td>'
+      + '<td style="padding:5px 8px;"><select class="fin-domain-select" id="fin-stream-sel-' + i + '" data-label="' + esc(g.label) + '">'
+      + REVENUE_STREAM_KEYS.map(function(s) {
+          return '<option value="' + s + '"' + (s === g.stream ? ' selected' : '') + '>' + esc(REVENUE_STREAM_LABELS[s]) + '</option>';
+        }).join('')
+      + '</select></td></tr>';
+  }).join('');
+  el.innerHTML = '<div class="fin-eyebrow">Revenue-stream classification (FY' + d.year + ')</div>'
+    + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">Which account groups the board can actually move. A group marked <b>guessed</b> was classified by name and has never been confirmed — the Financial Health page is only as honest as this table.</p>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:.82rem;"><tbody>' + (rows || '<tr><td style="padding:8px;color:var(--warm-gray);">No revenue accounts for this year yet.</td></tr>') + '</tbody></table>'
+    + (rows ? '<button class="btn-primary" style="margin-top:10px;" onclick="finSaveStreamClassification(' + groups.length + ')">Save classification</button>' : '');
+}
+function finSaveStreamClassification(count) {
+  var map = {};
+  for (var i = 0; i < count; i++) {
+    var sel = document.getElementById('fin-stream-sel-' + i);
+    if (sel) map[sel.getAttribute('data-label')] = sel.value;
+  }
+  api('/admin/api/finance/revenue-streams', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ map: map }) })
+    .then(function(d) {
+      if (d && d.error) { finToast(d.error); return; }
+      finToast('Revenue-stream classification saved.');
+      _finStreamEditor = null;
+      finLoadStreamEditor();
+      finLoadHealth(true);
+    }).catch(function(err) { finToast(err && err.message || 'Save failed.'); });
+}
+function finLoadCashPolicy() {
+  var el = document.getElementById('fin-cash-policy');
+  if (!el) return;
+  el.innerHTML = '<div style="font-size:.8rem;color:var(--warm-gray);">Loading…</div>';
+  api('/admin/api/finance/cash-policy').then(function(d) {
+    el.innerHTML = '<div class="fin-eyebrow">Cash reserve policy</div>'
+      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">The runway card measures months of operating cash against this floor. Leave cash on hand blank to use the QuickBooks checking/savings balances — set it only when that name-matching picks up the wrong accounts.</p>'
+      + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Policy floor (months)<br><input type="number" id="fin-cash-floor" step="0.5" value="' + (d.policy_floor_months != null ? d.policy_floor_months : 3) + '" style="width:100px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Cash on hand ($, optional)<br><input type="number" id="fin-cash-onhand" step="0.01" value="' + (d.cash_on_hand_cents != null ? (d.cash_on_hand_cents / 100) : '') + '" style="width:140px;"></label>'
+      + '<button class="btn-primary" onclick="finSaveCashPolicy()">Save policy</button></div>';
+  }).catch(function() { el.innerHTML = finCardError('the cash policy'); });
+}
+function finSaveCashPolicy() {
+  var months = Number(document.getElementById('fin-cash-floor').value);
+  var onHandRaw = document.getElementById('fin-cash-onhand').value;
+  var body = { policy_floor_months: months, cash_on_hand_cents: onHandRaw === '' ? null : Math.round(Number(onHandRaw) * 100) };
+  api('/admin/api/finance/cash-policy', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) })
+    .then(function(d) {
+      if (d && d.error) { finToast(d.error); return; }
+      finToast('Cash policy saved.');
+      finLoadHealth(true);
+    }).catch(function(err) { finToast(err && err.message || 'Save failed.'); });
+}
+
+// ── Financial Health ────────────────────────────────────────────────────────────────────────
+// One page a council member can read top to bottom in a meeting, ending in decisions. It answers
+// "how are we doing, and what should we decide?" rather than "what do the ledgers say" — the
+// ledgers are on the other tabs. The organising idea is that the board's authority over the three
+// entities is different, and the page says so everywhere: donor revenue is the only stream the
+// board can move, MDO earned income is reported to it, and Ivanhoe is a timing decision.
+var _finHealthData = null;          // church this-year payload for the CURRENT year
+var _finAppealScope = 'gapReserves'; // 'gap' | 'gapReserves'
+function finLoadHealth(force) {
+  var root = document.getElementById('fin-health-root');
+  if (!root) return;
+  if (_finHealthData && !force) { finRenderHealth(); return; }
+  if (_finHealthLoading) return;
+  _finHealthLoading = true;
+  api('/admin/api/finance/church/this-year?year=' + new Date().getFullYear()).then(function(d) {
+    _finHealthLoading = false;
+    _finHealthData = d;
+    finRenderHealth();
+  }).catch(function(err) {
+    _finHealthLoading = false;
+    if (err && err.message === 'Unauthorized') return;
+    root.innerHTML = '<div class="fin-card">' + finCardError('the financial health data') + '</div>';
+  });
+}
+var _finHealthLoading = false;
+function finAppealSetScope(scope) {
+  _finAppealScope = scope;
+  finRenderHealth();
+}
+
+// 1.2 — the revenue mix bar. One bar, three streams, and a band underneath marking how much say
+// the board actually has over each. A segment narrower than ~9% cannot hold its own amount
+// legibly, so its figure moves to the legend line rather than being squeezed to unreadable.
+function finRenderRevenueMix(streams, totalCents) {
+  if (!totalCents) {
+    return '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">The revenue mix</div>'
+      + '<p style="font-size:.85rem;color:var(--warm-gray);">No revenue recorded for this year yet — sync or import the church ledger from the <b>Data &amp; Imports</b> tab.</p></div>';
+  }
+  var control = {
+    donor: { note: 'We set the ask', border: 'var(--color-navy)', color: 'var(--color-navy)' },
+    earned: { note: 'Reported to us', border: 'var(--warm-border)', color: 'var(--warm-meta)' },
+    passive: { note: 'Timing only', border: 'var(--deep-amber)', color: 'var(--deep-amber)' },
+  };
+  var segs = '', band = '', narrow = [];
+  REVENUE_STREAM_KEYS.forEach(function(s) {
+    var cents = streams[s].cents;
+    var pct = cents / totalCents * 100;
+    var wide = pct >= 9;
+    if (!wide && cents) narrow.push(REVENUE_STREAM_SHORT[s] + ' ' + finMoney0(cents));
+    segs += '<div class="fin-stream-seg" style="width:' + pct.toFixed(1) + '%;background:' + REVENUE_STREAM_COLORS[s] + ';">'
+      + '<span class="fin-stream-seg-lbl">' + REVENUE_STREAM_SHORT[s] + '</span>'
+      + (wide ? '<span class="fin-stream-seg-val">' + finMoney0(cents) + ' &middot; ' + Math.round(pct) + '%</span>' : '')
+      + '</div>';
+    band += '<div style="width:' + pct.toFixed(1) + '%;border-top:3px solid ' + control[s].border + ';padding-top:6px;font-size:11.5px;font-weight:700;color:' + control[s].color + ';">' + control[s].note + '</div>';
+  });
+  return '<div class="fin-card">'
+    + '<div class="fin-card-hdr-split">'
+      + '<div><div class="fin-card-title" style="font-size:20px;">The revenue mix</div>'
+      + '<div class="fin-card-sub" style="margin:0;">One bar, three streams. The band under it marks how much say the board actually has.</div></div>'
+      + '<div style="text-align:right;"><div class="fin-eyebrow">Total revenue</div>'
+      + '<div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;">' + finMoney0(totalCents) + '</div></div>'
+    + '</div>'
+    + '<div class="fin-stream-bar">' + segs + '</div>'
+    + '<div style="display:flex;gap:4px;">' + band + '</div>'
+    + (narrow.length ? '<div style="font-size:11.5px;color:var(--warm-gray);margin-top:8px;">Too narrow to label above: ' + narrow.join(' &middot; ') + '.</div>' : '')
+    + '</div>';
+}
+
+// 1.3 — one card per stream, each carrying the chip that names the board's authority over it.
+function finRenderStreamCards(d) {
+  var rs = d.revenueStreams || { streams: {}, totalCents: 0 };
+  var total = rs.totalCents || 0;
+  function pctOf(cents) { return total ? Math.round(cents / total * 100) : 0; }
+  function subBars(groups, colors) {
+    var max = groups.reduce(function(m, g) { return Math.max(m, g.cents); }, 1);
+    return groups.slice(0, 3).map(function(g, i) {
+      return finBar(esc(g.label), '$' + finFmtMoney(g.cents / 100), g.cents / max * 100, colors[Math.min(i, colors.length - 1)]);
+    }).join('');
+  }
+  var donor = rs.streams.donor || { cents: 0, groups: [] };
+  var earned = rs.streams.earned || { cents: 0, groups: [] };
+  var passive = rs.streams.passive || { cents: 0, groups: [] };
+  var split = d.donorSplit || { unrestrictedCents: 0, restrictedCents: 0 };
+  var splitTotal = split.unrestrictedCents + split.restrictedCents;
+
+  var donorCard = '<div class="fin-card fin-stream-card" style="border-top-color:var(--color-teal);">'
+    + '<div><div class="fin-card-hdr-split"><span class="fin-eyebrow">Donor revenue</span><span class="fin-chip fin-chip-info">Full control</span></div>'
+    + '<div class="fin-stream-val">' + finMoney0(donor.cents) + '</div>'
+    + '<div class="fin-stream-sub">' + pctOf(donor.cents) + '% of revenue &middot; ' + (d.givingHouseholds || 0) + ' giving household' + (d.givingHouseholds === 1 ? '' : 's') + '</div></div>'
+    + '<div style="display:flex;flex-direction:column;gap:9px;">'
+    + (splitTotal
+      ? finBar('Unrestricted', '$' + finFmtMoney(split.unrestrictedCents / 100), split.unrestrictedCents / splitTotal * 100, 'var(--color-teal)')
+        + finBar('Restricted', '$' + finFmtMoney(split.restrictedCents / 100), split.restrictedCents / splitTotal * 100, 'var(--ice-blue)')
+        + '<div style="font-size:11.5px;color:var(--warm-gray);">Restricted gifts can&rsquo;t cover operating costs — only ' + finMoney0(split.unrestrictedCents) + ' is truly spendable.</div>'
+      : '<div style="font-size:11.5px;color:var(--warm-gray);">No ChMS giving recorded this year, so the restricted/unrestricted split is not available. Fund categories are set on the Giving tab.</div>')
+    + '</div>'
+    + '<div><button class="btn-primary" onclick="showTab(\'giving\')">Giving detail &rarr;</button></div></div>';
+
+  var earnedCard = '<div class="fin-card fin-stream-card" style="border-top-color:var(--color-gold);">'
+    + '<div><div class="fin-card-hdr-split"><span class="fin-eyebrow">Earned income</span><span class="fin-chip fin-chip-warn">Reported, not managed</span></div>'
+    + '<div class="fin-stream-val">' + finMoney0(earned.cents) + '</div>'
+    + '<div class="fin-stream-sub">' + pctOf(earned.cents) + '% of revenue' + (earned.cents >= donor.cents && earned.cents >= passive.cents ? ' &middot; our largest single stream' : '') + '</div></div>'
+    + '<div style="display:flex;flex-direction:column;gap:9px;">'
+    + (earned.groups.length ? subBars(earned.groups, ['var(--color-gold)', 'var(--pale-gold)', 'var(--pale-gold)'])
+      : '<div style="font-size:11.5px;color:var(--warm-gray);">No account group is classified as earned income yet.</div>')
+    + '</div>'
+    + '<div><button class="btn-secondary" onclick="finNavGo(\'daycare\')">Daycare Report &rarr;</button></div></div>';
+
+  var passiveCard = '<div class="fin-card fin-stream-card" style="border-top-color:var(--sage);">'
+    + '<div><div class="fin-card-hdr-split"><span class="fin-eyebrow">Passive income</span><span class="fin-chip fin-chip-positive">Timing decision</span></div>'
+    + '<div class="fin-stream-val">' + finMoney0(passive.cents) + '</div>'
+    + '<div class="fin-stream-sub">' + pctOf(passive.cents) + '% of revenue &middot; endowment, investments, property</div></div>'
+    + '<div style="display:flex;flex-direction:column;gap:9px;">'
+    + (passive.groups.length ? subBars(passive.groups, ['var(--sage)', 'var(--pale-sage)', 'var(--pale-sage)'])
+      : '<div style="font-size:11.5px;color:var(--warm-gray);">No account group is classified as passive income yet.</div>')
+    + '</div>'
+    + '<div><button class="btn-secondary" onclick="finNavGo(\'property\')">Commercial Property &rarr;</button></div></div>';
+
+  return '<div class="fin-grid-3 fin-grid-start">' + donorCard + earnedCard + passiveCard + '</div>';
+}
+
+// 1.4 — the flow diagram. Ribbon thickness is recomputed from the real figures every render
+// (px = cents / totalCents * 300); the reference geometry in the design handoff is only a shape.
+function finRenderFlow(d) {
+  var rs = d.revenueStreams || { streams: {}, totalCents: 0 };
+  var totalIn = rs.totalCents || 0;
+  var flow = d.flow || { churchOutCents: 0, mdoOutCents: 0, totalOutCents: 0 };
+  if (!totalIn) return '';
+  var H = 300, top = 50;
+  var order = ['donor', 'earned', 'passive'];
+  var y = top, inbound = '', labels = '';
+  var labelAnchors = { donor: 'The only stream we set', earned: 'Reported to the board, not managed by it', passive: 'A timing decision, not new money' };
+  var labelColors = { donor: 'var(--color-teal)', earned: 'var(--deep-amber)', passive: 'var(--sage-text)' };
+  order.forEach(function(s) {
+    var cents = (rs.streams[s] || { cents: 0 }).cents;
+    var h = cents / totalIn * H;
+    if (h <= 0) return;
+    var y0 = y, y1 = y + h;
+    // The left edge is spread across the full height so three ribbons stay visually separable
+    // even when one stream is small; the right edge is the true stacked thickness.
+    var l0 = top + (y0 - top) * 1.06 - 10, l1 = top + (y1 - top) * 1.06 - 10;
+    inbound += '<path d="M240,' + l0.toFixed(1) + ' C360,' + l0.toFixed(1) + ' 360,' + y0.toFixed(1) + ' 470,' + y0.toFixed(1)
+      + ' L470,' + y1.toFixed(1) + ' C360,' + y1.toFixed(1) + ' 360,' + l1.toFixed(1) + ' 240,' + l1.toFixed(1) + ' Z" fill="'
+      + REVENUE_STREAM_COLORS[s] + '" opacity=".85"></path>'
+      + '<rect x="470" y="' + y0.toFixed(1) + '" width="40" height="' + h.toFixed(1) + '" fill="' + REVENUE_STREAM_COLORS[s] + '"></rect>';
+    var mid = (l0 + l1) / 2;
+    labels += '<text x="232" y="' + (mid - 14).toFixed(1) + '" font-size="15" font-weight="800" fill="var(--charcoal)">' + REVENUE_STREAM_SHORT[s] + ' revenue</text>'
+      + '<text x="232" y="' + (mid + 6).toFixed(1) + '" font-size="19" font-weight="800" fill="' + labelColors[s] + '">' + finMoney0(cents) + '</text>'
+      + '<text x="232" y="' + (mid + 24).toFixed(1) + '" font-size="11.5" font-weight="700" fill="' + labelColors[s] + '">' + labelAnchors[s] + '</text>';
+    y = y1;
+  });
+  var outTotal = flow.totalOutCents || 1;
+  var oy = top, outbound = '', outLabels = '';
+  [{ key: 'church', cents: flow.churchOutCents, label: 'Church ministry, staff &amp; facilities', note: 'the budget the board actually sets', op: '.26' },
+   { key: 'mdo', cents: flow.mdoOutCents, label: 'MDO staffing &amp; operations', note: 'the accounts the Daycare Report is built from', op: '.16' }].forEach(function(o) {
+    var h = o.cents / outTotal * H;
+    if (h <= 0) return;
+    var y0 = oy, y1 = oy + h;
+    var r0 = top + (y0 - top) * 1.1 + 12, r1 = top + (y1 - top) * 1.1 + 12;
+    outbound += '<path d="M510,' + y0.toFixed(1) + ' C620,' + y0.toFixed(1) + ' 620,' + r0.toFixed(1) + ' 740,' + r0.toFixed(1)
+      + ' L740,' + r1.toFixed(1) + ' C620,' + r1.toFixed(1) + ' 620,' + y1.toFixed(1) + ' 510,' + y1.toFixed(1) + ' Z" fill="var(--color-navy)" opacity="' + o.op + '"></path>';
+    var mid = (r0 + r1) / 2;
+    outLabels += '<text x="752" y="' + (mid - 12).toFixed(1) + '" font-size="15" font-weight="800" fill="var(--charcoal)">' + o.label + '</text>'
+      + '<text x="752" y="' + (mid + 8).toFixed(1) + '" font-size="19" font-weight="800" fill="var(--color-navy)">' + finMoney0(o.cents) + '</text>'
+      + '<text x="752" y="' + (mid + 26).toFixed(1) + '" font-size="11.5" fill="var(--warm-gray)">' + o.note + '</text>';
+    oy = y1;
+  });
+  var netCents = totalIn - flow.totalOutCents;
+  var footer = netCents < 0
+    ? finMoney0(-netCents) + ' more goes out than comes in — the whole system is one bad month from a real deficit.'
+    : finMoney0(netCents) + ' more comes in than goes out across all three entities.';
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">How the money moves</div>'
+    + '<div class="fin-card-sub" style="margin-bottom:4px;">' + finMoney0(totalIn) + ' in &middot; ' + finMoney0(flow.totalOutCents) + ' out &middot; net ' + finFmtSigned(netCents) + ' across all three entities.</div>'
+    + '<div class="fin-flow"><svg viewBox="0 0 1080 420" width="100%" height="400" role="img" aria-label="Flow diagram: '
+    + REVENUE_STREAM_KEYS.map(function(s) { return REVENUE_STREAM_SHORT[s] + ' ' + finMoney0((rs.streams[s] || {cents:0}).cents); }).join(', ')
+    + ' combine into ' + finMoney0(totalIn) + ' of revenue, flowing out to church ministry ' + finMoney0(flow.churchOutCents)
+    + ' and MDO operations ' + finMoney0(flow.mdoOutCents) + '.">'
+    + '<text x="240" y="26" font-size="11" font-weight="700" fill="var(--warm-meta)" letter-spacing="1" text-anchor="end">WHERE IT COMES FROM</text>'
+    + '<text x="540" y="26" font-size="11" font-weight="700" fill="var(--warm-meta)" letter-spacing="1" text-anchor="middle">ALL REVENUE</text>'
+    + '<text x="840" y="26" font-size="11" font-weight="700" fill="var(--warm-meta)" letter-spacing="1">WHERE IT GOES</text>'
+    + inbound + outbound
+    + '<g text-anchor="end">' + labels + '</g>'
+    + '<text x="490" y="42" font-size="12" font-weight="800" fill="var(--color-navy)" text-anchor="middle">' + finMoney0(totalIn) + '</text>'
+    + outLabels
+    + '<line x1="470" y1="400" x2="740" y2="400" stroke="var(--warm-border)"></line>'
+    + '<text x="470" y="416" font-size="11.5" font-weight="700" fill="' + (netCents < 0 ? 'var(--danger)' : 'var(--sage-text)') + '">' + footer + '</text>'
+    + '</svg></div></div>';
+}
+
+// 1.5 — the three engines. Each card's label states what the board decides about that entity,
+// because it is different for each one and that difference is the point of the page.
+function finRenderEntityCards(d) {
+  var income = d.classificationTotals['Income'] || { actualCents: 0, budgetCents: 0 };
+  var expenses = d.classificationTotals['Expenses'] || { actualCents: 0, budgetCents: 0 };
+  var net = d.netIncome || { actualCents: 0, budgetCents: 0 };
+  var projected = (d.yoy && d.yoy.available) ? d.yoy.net.projectedFullYearCents : null;
+  function planBar(label, actualCents, budgetCents, color) {
+    // Plan-relative, not calendar-relative: no pace marker here, and the fill IS the stated
+    // percentage, so a reader comparing the bar against the number never finds them disagreeing.
+    var pct = budgetCents > 0 ? actualCents / budgetCents * 100 : 0;
+    return '<div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:700;color:var(--warm-ink-label);">'
+      + '<span>' + label + '</span><span>' + (budgetCents > 0 ? Math.round(pct) + '% of $' + finFmtMoney(budgetCents / 100) : 'no plan set') + '</span></div>'
+      + '<div style="height:9px;border-radius:6px;background:var(--linen);"><div style="width:' + Math.min(100, pct) + '%;height:100%;border-radius:6px;background:' + color + ';"></div></div>';
+  }
+  var churchCard = '<div class="fin-card fin-entity-card" style="border-top-color:' + (net.actualCents < 0 ? 'var(--danger)' : 'var(--sage)') + ';">'
+    + '<div class="fin-card-hdr-split"><span class="fin-eyebrow">Church operating</span>'
+    + '<span class="fin-chip ' + (net.actualCents < 0 ? 'fin-chip-negative">Needs action' : 'fin-chip-positive">In surplus') + '</span></div>'
+    + '<div><div class="fin-entity-val">' + finFmtSigned(net.actualCents) + '</div>'
+    + '<div class="fin-stream-sub">Revenue ' + finMoney0(income.actualCents) + ' &middot; Expenses ' + finMoney0(expenses.actualCents) + '</div></div>'
+    + '<div style="display:flex;flex-direction:column;gap:6px;">'
+    + planBar('Revenue vs. plan', income.actualCents, income.budgetCents, 'var(--color-teal)')
+    + planBar('Expenses vs. plan', expenses.actualCents, expenses.budgetCents, 'var(--color-gold)')
+    + '</div>'
+    + '<div class="fin-note-box">Board owns this budget.' + (projected != null ? ' Projected year-end <b>' + finFmtSigned(projected) + '</b>.' : ' A year-end projection needs monthly-granularity data for this year and last.') + '</div>'
+    + '</div>';
+
+  var agg = _finDaycareAgg;
+  var yKey = String(new Date().getFullYear());
+  var dc = agg && agg.byYear ? agg.byYear[yKey] : null;
+  var alloc = _finDaycareAllocation && _finDaycareAllocation.allocation ? _finDaycareAllocation.allocation[yKey] : null;
+  var allocCents = alloc ? ((alloc.mdoUtilityCents || 0) + (alloc.mdoInsuranceCents || 0)) : 0;
+  var daycareCard = '<div class="fin-card fin-entity-card" style="border-top-color:' + (dc && dc.netActual >= 0 ? 'var(--sage)' : 'var(--danger)') + ';">'
+    + '<div class="fin-card-hdr-split"><span class="fin-eyebrow">Daycare (MDO)</span>'
+    + '<span class="fin-chip ' + (dc && dc.netActual >= 0 ? 'fin-chip-positive">Self-sufficient' : 'fin-chip-warn">Not covering itself') + '</span></div>'
+    + (dc
+      ? '<div><div class="fin-entity-val">' + finFmtSigned(Math.round(dc.netActual * 100)) + '</div>'
+        + '<div class="fin-stream-sub">Tuition $' + finFmtMoney(dc.incomeActual) + ' &middot; Costs $' + finFmtMoney(dc.expenseActual) + '</div></div>'
+        + (allocCents
+          ? '<div style="display:flex;flex-direction:column;gap:6px;">'
+            + '<div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:700;color:var(--warm-ink-label);">'
+            + '<span>Covers its allocated share</span><span>' + finMoney0(allocCents) + ' of utilities &amp; insurance</span></div>'
+            + '<div style="height:9px;border-radius:6px;background:var(--linen);"><div style="width:100%;height:100%;border-radius:6px;background:var(--sage);"></div></div></div>'
+          : '')
+      : '<div style="font-size:.85rem;color:var(--warm-gray);">No ' + yKey + ' daycare figures imported yet.</div>')
+    + '<div class="fin-note-box">Report only — the board receives, does not manage.</div>'
+    + '</div>';
+
+  var p = _finProperty;
+  var latestDist = p ? finComputeLatestDistributionAmount(p) : null;
+  var reservesCents = p ? finComputePropertyReservesOnHandCents(p) : 0;
+  var occ = p ? finComputePropertyKpis(p)[0].val : '—';
+  var propertyCard = '<div class="fin-card fin-entity-card" style="border-top-color:var(--color-teal);">'
+    + '<div class="fin-card-hdr-split"><span class="fin-eyebrow">3277 Ivanhoe</span><span class="fin-chip fin-chip-info">Funds itself</span></div>'
+    + '<div><div class="fin-eyebrow">Distributable right now</div>'
+    + '<div class="fin-entity-val">' + (latestDist ? '$' + finFmtMoney(latestDist.cents / 100) : '—') + '</div>'
+    + '<div class="fin-stream-sub">' + (latestDist ? 'Cash minus reserves &middot; AHRA, ' + esc(latestDist.period) : 'No AHRA report recorded yet') + '</div></div>'
+    + '<div style="display:flex;flex-direction:column;gap:6px;">'
+    + '<div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:700;color:var(--warm-ink-label);">'
+    + '<span>Reserves on-hand</span><span>' + finMoney0(reservesCents) + '</span></div>'
+    + '<div style="height:9px;border-radius:6px;background:var(--linen);"><div style="width:100%;height:100%;border-radius:6px;background:var(--color-teal);"></div></div>'
+    + '<div style="font-size:11.5px;color:var(--warm-gray);">Occupancy ' + esc(occ) + ', trailing 12 months.</div></div>'
+    + '<div class="fin-note-box">One decision: <b>whether and when to take a distribution.</b></div>'
+    + '</div>';
+
+  return '<div><div class="fin-section-title">The three engines</div>'
+    + '<div class="fin-section-sub">What the board decides for each one is different — the label on each card says so.</div>'
+    + '<div class="fin-grid-3">' + churchCard + daycareCard + propertyCard + '</div></div>';
+}
+
+// 1.6a — cumulative ChMS giving against a straight-line budget line.
+function finRenderGivingPace(d) {
+  var monthly = d.givingMonthly || [];
+  var budgetCents = (d.revenueStreams && d.revenueStreams.streams.donor) ? d.revenueStreams.streams.donor.budgetCents : 0;
+  var through = (d.year === new Date().getFullYear()) ? (new Date().getMonth() + 1) : 12;
+  var cum = [], run = 0;
+  for (var m = 0; m < through; m++) { run += (monthly[m] ? monthly[m].cents : 0); cum.push(run); }
+  if (!cum.length) return '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">Giving against budget pace</div>'
+    + '<p style="font-size:.85rem;color:var(--warm-gray);">No giving recorded in ChMS for this year yet.</p></div>';
+  var maxCents = Math.max.apply(null, cum.concat([budgetCents || 1]));
+  var W = 640, x0 = 46, x1 = 557, yTop = 26, yBot = 176;
+  function px(i) { return cum.length > 1 ? x0 + (x1 - x0) * (i / (cum.length - 1)) : x0; }
+  function py(c) { return yBot - (c / maxCents) * (yBot - yTop); }
+  var actualPts = cum.map(function(c, i) { return px(i).toFixed(1) + ',' + py(c).toFixed(1); }).join(' ');
+  var budgetPts = cum.map(function(_, i) { return px(i).toFixed(1) + ',' + py(budgetCents * (i + 1) / 12).toFixed(1); }).join(' ');
+  var gridlines = [44, 88, 132, 176].map(function(y) { return '<line x1="' + x0 + '" y1="' + y + '" x2="628" y2="' + y + '"></line>'; }).join('');
+  var axisLabels = [0, 1, 2, 3].map(function(i) {
+    var val = maxCents * (1 - i / 3.4);
+    return '<text x="8" y="' + (48 + i * 44) + '">' + finMoney0(val) + '</text>';
+  }).join('');
+  var monthLabels = cum.map(function(_, i) {
+    return '<text x="' + px(i).toFixed(1) + '" y="196">' + MONTH_NAMES[i].slice(0, 3) + '</text>';
+  }).join('');
+  var behindCents = budgetCents ? (budgetCents * through / 12) - cum[cum.length - 1] : 0;
+  var sub = budgetCents
+    ? 'Cumulative offerings vs. the straight-line budget line. ' + (behindCents > 0 ? 'Running ' + finMoney0(behindCents) + ' behind.' : 'Running ' + finMoney0(-behindCents) + ' ahead.')
+    : 'Cumulative offerings. No donor-revenue budget is set for this year, so there is no pace line to compare against.';
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">Giving against budget pace</div>'
+    + '<div class="fin-card-sub">' + sub + '</div>'
+    + '<svg viewBox="0 0 ' + W + ' 220" width="100%" height="200" role="img" aria-label="Cumulative giving versus budget pace, '
+    + (behindCents > 0 ? 'running behind by ' + finMoney0(behindCents) : 'running at or ahead of pace') + '">'
+    + '<g stroke="var(--warm-row-divider)" stroke-width="1">' + gridlines + '</g>'
+    + '<g font-size="10" fill="var(--warm-meta)">' + axisLabels + '</g>'
+    + '<polygon points="' + actualPts + ' ' + px(cum.length - 1).toFixed(1) + ',' + yBot + ' ' + x0 + ',' + yBot + '" fill="var(--color-light-teal)"></polygon>'
+    + (budgetCents ? '<polyline points="' + budgetPts + '" fill="none" stroke="var(--color-gold)" stroke-width="2.5" stroke-dasharray="6 5"></polyline>' : '')
+    + '<polyline points="' + actualPts + '" fill="none" stroke="var(--color-teal)" stroke-width="3"></polyline>'
+    + '<circle cx="' + px(cum.length - 1).toFixed(1) + '" cy="' + py(cum[cum.length - 1]).toFixed(1) + '" r="4.5" fill="var(--color-teal)"></circle>'
+    + '<g font-size="10.5" fill="var(--warm-meta)" text-anchor="middle">' + monthLabels + '</g>'
+    + '<g font-size="11" font-weight="700">'
+    + '<text x="574" y="' + (py(cum[cum.length - 1]) + 4).toFixed(1) + '" fill="var(--color-teal)">Actual</text>'
+    + (budgetCents ? '<text x="574" y="' + (py(budgetCents * through / 12) - 10).toFixed(1) + '" fill="var(--deep-amber)">Budget</text>' : '')
+    + '</g></svg></div>';
+}
+
+// 1.6b — months of operating cash against the congregation's own policy floor.
+function finRenderCashRunway(d) {
+  var c = d.cash || {};
+  if (!c.available) {
+    return '<div class="fin-card">'
+      + '<div class="fin-card-title" style="font-size:20px;">Operating cash runway</div>'
+      + '<p style="font-size:.85rem;color:var(--warm-gray);">Not yet available — this needs a cash-on-hand figure (from a QuickBooks sync, or entered on the <b>Data &amp; Imports</b> tab) and at least some expense actuals for the year.</p></div>';
+  }
+  var months = c.monthsOfCash;
+  var below = months < c.policyFloorMonths;
+  var fillPct = Math.min(100, months / 12 * 100);
+  var markerPct = Math.min(100, c.policyFloorMonths / 12 * 100);
+  return '<div class="fin-card" style="display:flex;flex-direction:column;gap:14px;">'
+    + '<div><div class="fin-card-title" style="font-size:20px;">Operating cash runway</div>'
+    + '<div class="fin-card-sub" style="margin:0;">' + finMoney0(c.onHandCents) + ' on hand &middot; ' + finMoney0(c.avgMonthlyExpenseCents) + ' average month'
+    + (c.source === 'quickbooks' ? ' &middot; cash from QuickBooks checking/savings' : c.source === 'manual' ? ' &middot; cash entered by hand' : '') + '</div></div>'
+    + '<div>'
+    + '<div style="display:flex;align-items:baseline;gap:8px;"><span style="font-size:38px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;color:' + (below ? 'var(--danger)' : 'var(--sage-text)') + ';">' + months.toFixed(1) + '</span>'
+    + '<span style="font-size:14px;font-weight:700;color:var(--warm-ink-label);">months</span></div>'
+    + '<div style="height:14px;border-radius:8px;background:var(--linen);position:relative;margin-top:10px;overflow:hidden;">'
+    + '<div style="position:absolute;left:0;top:0;bottom:0;width:' + fillPct.toFixed(1) + '%;background:' + (below ? 'var(--danger)' : 'var(--sage)') + ';"></div>'
+    + '<div style="position:absolute;left:' + markerPct.toFixed(1) + '%;top:0;bottom:0;width:2px;background:var(--color-navy);"></div></div>'
+    + '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--warm-meta);margin-top:5px;">'
+    + '<span>0</span><span style="font-weight:700;color:var(--color-navy);">' + c.policyFloorMonths + '-month policy floor</span><span>12</span></div>'
+    + '</div>'
+    + '<div class="fin-note-box">' + (c.gapToFloorCents > 0
+      ? 'Reaching the ' + c.policyFloorMonths + '-month floor takes <b>' + finMoney0(c.gapToFloorCents) + '</b> more in reserves — the second half of any appeal target.'
+      : 'Reserves are above the ' + c.policyFloorMonths + '-month floor, by ' + finMoney0(c.onHandCents - c.floorCents) + '.') + '</div>'
+    + '</div>';
+}
+
+// 1.7a — five years of the mix, as stacked columns. The story is the mix, not the total.
+function finRenderFiveYearMix() {
+  var my = _finChurchMultiYearData;
+  if (!my || !my.streamsByYear || !my.years || my.years.length < 2) return '';
+  var years = my.years.slice(-5);
+  var totals = years.map(function(y) {
+    var s = my.streamsByYear[y];
+    return { year: y, streams: s ? s.streams : null, total: s ? s.totalCents : 0 };
+  });
+  var maxTotal = Math.max.apply(null, totals.map(function(t) { return t.total; }).concat([1]));
+  var W = 620, base = 164, topY = 30, plotH = base - topY, left = 74, barW = 64;
+  var slot = (562 - left) / Math.max(1, years.length);
+  var bars = totals.map(function(t, i) {
+    if (!t.streams) return '';
+    var x = left + slot * i + (slot - barW) / 2;
+    var y = base, out = '';
+    REVENUE_STREAM_KEYS.forEach(function(s) {
+      var cents = t.streams[s].cents;
+      var h = cents / maxTotal * plotH;
+      if (h <= 0) return;
+      y -= h;
+      out += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW + '" height="' + h.toFixed(1) + '" rx="2" fill="' + REVENUE_STREAM_COLORS[s] + '"></rect>';
+    });
+    return out + '<text x="' + (x + barW / 2).toFixed(1) + '" y="180" font-size="10.5" fill="var(--warm-meta)" text-anchor="middle">' + t.year + '</text>';
+  }).join('');
+  var gl = [0, 1, 2, 3].map(function(i) {
+    var y = base - plotH * i / 3;
+    return '<line x1="52" y1="' + y.toFixed(1) + '" x2="612" y2="' + y.toFixed(1) + '"></line>';
+  }).join('');
+  var glLabels = [0, 1, 2, 3].map(function(i) {
+    var y = base - plotH * i / 3;
+    return '<text x="6" y="' + (y + 4).toFixed(1) + '">' + finMoney0(maxTotal * i / 3) + '</text>';
+  }).join('');
+  var first = totals[0], last = totals[totals.length - 1];
+  var donorDelta = (first.streams && last.streams) ? last.streams.donor.cents - first.streams.donor.cents : 0;
+  var earnedDelta = (first.streams && last.streams) ? last.streams.earned.cents - first.streams.earned.cents : 0;
+  var story = (Math.abs(donorDelta) < Math.abs(earnedDelta))
+    ? 'Donor revenue roughly flat while earned income moved ' + finFmtSigned(earnedDelta) + '. The mix, not the total, is the story.'
+    : 'Donor revenue moved ' + finFmtSigned(donorDelta) + ' and earned income ' + finFmtSigned(earnedDelta) + ' across the window.';
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">Five years of the mix</div>'
+    + '<div class="fin-card-sub">' + story + '</div>'
+    + '<svg viewBox="0 0 ' + W + ' 210" width="100%" height="196" role="img" aria-label="Stacked revenue mix by year, '
+    + years[0] + ' to ' + years[years.length - 1] + '. ' + story + '">'
+    + '<g stroke="var(--warm-row-divider)" stroke-width="1">' + gl + '</g>'
+    + '<g font-size="10" fill="var(--warm-meta)">' + glLabels + '</g>'
+    + bars
+    + '<g font-size="10.5" font-weight="700">'
+    + '<text x="52" y="202" fill="var(--color-teal)">&#9632; Donor</text>'
+    + '<text x="132" y="202" fill="var(--deep-amber)">&#9632; Earned</text>'
+    + '<text x="216" y="202" fill="var(--sage-text)">&#9632; Passive</text>'
+    + '</g></svg></div>';
+}
+
+// The two figures every "what should we do" block on this page is built from: the operating gap
+// to close, and the distance to the reserve floor. Derived once so the fundraising callout, the
+// appeal target, the lever cards and the decisions card can never state different numbers.
+function finHealthTargets(d) {
+  var net = d.netIncome || { actualCents: 0 };
+  var projected = (d.yoy && d.yoy.available) ? d.yoy.net.projectedFullYearCents : net.actualCents;
+  var gapCents = Math.max(0, -projected);
+  var reserveGapCents = (d.cash && d.cash.available) ? (d.cash.gapToFloorCents || 0) : 0;
+  return {
+    gapCents: gapCents,
+    reserveGapCents: reserveGapCents,
+    projectedCents: projected,
+    targetCents: _finAppealScope === 'gap' ? gapCents : gapCents + reserveGapCents,
+  };
+}
+
+// 1.7b + 1.8 + 1.9 — what the picture points to, what an appeal would have to look like, and the
+// decisions that follow. The ask ladder's total is recomputed from its own whole-household rows,
+// and the header states that total — so the target and the ladder can never disagree.
+var FIN_APPEAL_TIERS = [
+  { askCents: 250000, weight: 0.28, color: 'var(--color-navy)' },
+  { askCents: 100000, weight: 0.28, color: 'var(--color-teal)' },
+  { askCents: 50000, weight: 0.28, color: 'var(--color-gold)' },
+  { askCents: 20000, weight: 0.16, color: 'var(--sage)' },
+];
+function finComputeAppealLadder(targetCents) {
+  if (!targetCents || targetCents <= 0) return { tiers: [], totalCents: 0, totalHouseholds: 0 };
+  var tiers = FIN_APPEAL_TIERS.map(function(t) {
+    var households = Math.max(1, Math.ceil((targetCents * t.weight) / t.askCents));
+    return { askCents: t.askCents, color: t.color, households: households, raisesCents: households * t.askCents };
+  });
+  return {
+    tiers: tiers,
+    totalCents: tiers.reduce(function(s, t) { return s + t.raisesCents; }, 0),
+    totalHouseholds: tiers.reduce(function(s, t) { return s + t.households; }, 0),
+  };
+}
+function finRenderAppealCard(d) {
+  var t = finHealthTargets(d);
+  var ladder = finComputeAppealLadder(t.targetCents);
+  var pills = finPills([
+    { key: 'gapReserves', label: 'Gap + reserves' },
+    { key: 'gap', label: 'Gap only' },
+  ], _finAppealScope, 'finAppealSetScope');
+  if (!t.targetCents) {
+    return '<div class="fin-card">'
+      + '<div class="fin-card-hdr-split"><div><div class="fin-card-title" style="font-size:20px;">What an appeal would have to look like</div>'
+      + '<div class="fin-card-sub" style="margin:0;">Nothing to close right now — the year is projected to end in surplus and reserves are at or above the policy floor.</div></div>' + pills + '</div>'
+      + '</div>';
+  }
+  var maxHh = ladder.tiers.reduce(function(m, x) { return Math.max(m, x.households); }, 1);
+  var rows = ladder.tiers.map(function(tier) {
+    return '<div class="fin-ladder-row">'
+      + '<span style="font-size:14px;font-weight:700;">$' + finFmtMoney(tier.askCents / 100) + '</span>'
+      + '<span style="display:flex;align-items:center;gap:9px;"><span style="height:11px;border-radius:6px;background:' + tier.color + ';width:' + (tier.households / maxHh * 88).toFixed(1) + '%;"></span>'
+      + '<span style="font-size:12.5px;color:var(--warm-ink-label);font-weight:600;white-space:nowrap;">' + tier.households + ' household' + (tier.households === 1 ? '' : 's') + '</span></span>'
+      + '<span style="text-align:right;font-size:13.5px;font-weight:700;font-variant-numeric:tabular-nums;">$' + finFmtMoney(tier.raisesCents / 100) + '</span>'
+      + '</div>';
+  }).join('');
+  var hh = d.givingHouseholds || 0;
+  var share = hh ? Math.round(ladder.totalHouseholds / hh * 100) : null;
+  var bands = d.donorBands || [];
+  var maxBand = bands.reduce(function(m, b) { return Math.max(m, b.households); }, 1);
+  var bandColors = ['var(--color-navy)', 'var(--color-teal)', 'var(--color-gold)'];
+  var bandHtml = bands.map(function(b, i) {
+    return '<div style="display:flex;justify-content:space-between;font-size:12.5px;"><span style="color:var(--warm-ink-label);">' + esc(b.label) + '</span><b style="font-variant-numeric:tabular-nums;">' + b.households + ' hh</b></div>'
+      + '<div style="height:8px;border-radius:5px;background:var(--warm-divider);"><div style="width:' + (b.households / maxBand * 100).toFixed(1) + '%;height:100%;border-radius:5px;background:' + bandColors[i % bandColors.length] + ';"></div></div>';
+  }).join('');
+  var topBand = bands[0];
+  var sub = _finAppealScope === 'gap'
+    ? 'Target <b style="color:var(--charcoal);">' + finMoney0(ladder.totalCents) + '</b> — the projected operating gap alone.'
+    : 'Target <b style="color:var(--charcoal);">' + finMoney0(ladder.totalCents) + '</b> — close the ' + finMoney0(t.gapCents) + ' operating gap <i>and</i> rebuild reserves to the policy floor.';
+  return '<div class="fin-card">'
+    + '<div class="fin-card-hdr-split">'
+      + '<div><div class="fin-card-title" style="font-size:20px;">What an appeal would have to look like</div>'
+      + '<div class="fin-card-sub" style="margin:0;">' + sub + (hh ? ' ' + hh + ' giving households.' : '') + '</div></div>'
+      + pills
+    + '</div>'
+    + '<div class="fin-appeal-grid">'
+      + '<div style="display:flex;flex-direction:column;gap:10px;">'
+        + '<div class="fin-ladder-row fin-ladder-head"><span>Ask level</span><span>Households needed</span><span style="text-align:right;">Raises</span></div>'
+        + rows
+        + '<div class="fin-ladder-row fin-ladder-total">'
+        + '<span style="font-size:13px;font-weight:800;color:var(--color-navy);">' + ladder.totalHouseholds + ' households</span>'
+        + '<span style="font-size:12.5px;color:var(--warm-gray);">' + (share != null ? share + '% of everyone who gave this year' : 'no giving records to compare against') + '</span>'
+        + '<span style="text-align:right;font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--color-navy);">' + finMoney0(ladder.totalCents) + '</span>'
+        + '</div>'
+      + '</div>'
+      + '<div class="fin-bands-panel">'
+        + '<div class="fin-eyebrow">Read against real giving bands</div>'
+        + (topBand ? '<div style="font-size:13px;color:var(--warm-ink-label);line-height:1.55;">' + topBand.households + ' households already give above $2,000 a year — the top tier asks ' + ladder.tiers[0].households + ' of them for one extra gift, not a new habit.</div>' : '')
+        + '<div style="display:flex;flex-direction:column;gap:8px;">' + bandHtml + '</div>'
+        + '<div><button class="btn-primary" onclick="finOpenGivingBands()">Open giving bands &rarr;</button></div>'
+      + '</div>'
+    + '</div></div>';
+}
+function finRenderLeverCards(d) {
+  var t = finHealthTargets(d);
+  var elapsedPct = finElapsedYearPct(d.year);
+  var tree = finReorganizeChurchTree(finBuildTreeFromFlatRows(d.entries));
+  var expenseRoot = tree.filter(function(n) { return n.classification === 'Expenses'; })[0];
+  var overPace = ((expenseRoot && expenseRoot.children) || []).map(function(n) {
+    return { label: n.label, diff: n.totalActualCents - n.totalBudgetCents * elapsedPct, hasBudget: n.totalBudgetCents > 0 };
+  }).filter(function(x) { return x.hasBudget && x.diff > 150000; }).sort(function(a, b) { return b.diff - a.diff; });
+  var cutCents = overPace.reduce(function(s, x) { return s + x.diff; }, 0);
+  var p = _finProperty;
+  var latestDist = p ? finComputeLatestDistributionAmount(p) : null;
+  var distCents = latestDist ? latestDist.cents : 0;
+  var residual = Math.max(0, t.targetCents - cutCents - distCents);
+  function card(eyebrow, headline, body, amount, color) {
+    return '<div class="fin-card fin-lever-card">'
+      + '<div class="fin-eyebrow">' + eyebrow + '</div>'
+      + '<div style="font-size:15.5px;font-weight:700;line-height:1.3;">' + headline + '</div>'
+      + '<div style="font-size:12.5px;color:var(--warm-ink-label);margin-top:6px;line-height:1.55;">' + body + '</div>'
+      + '<div style="margin-top:10px;font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;color:' + color + ';">' + amount + '</div></div>';
+  }
+  return '<div class="fin-grid-3">'
+    + card('Lever 1 &middot; Cut',
+        overPace.length ? 'Trim the ' + (overPace.length === 1 ? 'one over-pace category' : overPace.length + ' over-pace categories') : 'Nothing is running over pace',
+        overPace.length
+          ? overPace.slice(0, 2).map(function(x) { return esc(x.label); }).join(' and ') + ' ' + (overPace.length > 1 ? 'are' : 'is') + ' ' + finMoney0(cutCents) + ' ahead of the calendar. Holding to budget recovers that much.'
+          : 'Every expense category with a budget is at or under the calendar. There is nothing here to cut back toward plan.',
+        cutCents ? '&minus;' + finMoney0(cutCents) : '$0', 'var(--deep-amber)')
+    + card('Lever 2 &middot; Distribute', 'Take an Ivanhoe distribution',
+        distCents ? finMoney0(distCents) + ' is distributable today without dipping into reserves or deferring capital work.' : 'No AHRA distribution figure has been recorded yet, so there is nothing to draw on with confidence.',
+        distCents ? '&minus;' + finMoney0(distCents) : '—', 'var(--color-teal)')
+    + card('Lever 3 &middot; Ask', residual > 0 ? 'An appeal for the rest' : 'An appeal is not needed to close the gap',
+        residual > 0
+          ? 'After the two levers above, ' + finMoney0(residual) + ' of the ' + finMoney0(t.targetCents) + ' target is left for an appeal to carry.'
+          : 'The two levers above cover the whole target. An appeal&rsquo;s real job would be reserves and the space MDO needs, not the operating gap.',
+        finMoney0(residual), 'var(--sage-text)')
+    + '</div>';
+}
+function finRenderDecisions(d) {
+  var t = finHealthTargets(d);
+  var p = _finProperty;
+  var latestDist = p ? finComputeLatestDistributionAmount(p) : null;
+  var taken = p ? finComputeDistributedThisYear(p) : { cents: 0, year: d.year };
+  var elapsedPct = finElapsedYearPct(d.year);
+  var tree = finReorganizeChurchTree(finBuildTreeFromFlatRows(d.entries));
+  var expenseRoot = tree.filter(function(n) { return n.classification === 'Expenses'; })[0];
+  var overPace = ((expenseRoot && expenseRoot.children) || []).map(function(n) {
+    return { label: n.label, diff: n.totalActualCents - n.totalBudgetCents * elapsedPct, hasBudget: n.totalBudgetCents > 0 };
+  }).filter(function(x) { return x.hasBudget && x.diff > 150000; }).sort(function(a, b) { return b.diff - a.diff; });
+  function sub(eyebrow, eyebrowColor, headline, body, btnLabel, btnCls, onclick) {
+    return '<div class="fin-decision">'
+      + '<div class="fin-eyebrow" style="color:' + eyebrowColor + ';">' + eyebrow + '</div>'
+      + '<div style="font-size:15px;font-weight:700;color:var(--charcoal);line-height:1.3;">' + headline + '</div>'
+      + '<div style="font-size:12.5px;color:var(--warm-ink-label);line-height:1.5;">' + body + '</div>'
+      + '<div><button class="' + btnCls + '" onclick="' + onclick + '">' + btnLabel + '</button></div></div>';
+  }
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">So what do we decide?</div>'
+    + '<div class="fin-card-sub">Three decisions this picture puts in front of the council this month.</div>'
+    + '<div class="fin-grid-3">'
+    + sub('Fundraising', 'var(--color-teal)',
+        t.targetCents ? 'Size an appeal at ' + finMoney0(t.gapCents) + ' — or ' + finMoney0(t.gapCents + t.reserveGapCents) + ' with reserves.' : 'No appeal is needed to balance the year.',
+        t.targetCents ? 'Closes the projected operating gap and rebuilds reserves to the policy floor.' : 'The year is projected to end in surplus with reserves at or above the floor.',
+        'Open giving &rarr;', 'btn-primary', 'showTab(\'giving\')')
+    + sub('Mid-year adjustment', 'var(--deep-amber)',
+        overPace.length ? (overPace.length === 1 ? 'One category is running ahead of the calendar.' : overPace.length + ' categories are running ahead of the calendar.') : 'Spending is tracking the calendar.',
+        overPace.length
+          ? overPace.slice(0, 3).map(function(x) { return esc(x.label) + ' <b>' + finFmtSigned(x.diff) + '</b> over pace'; }).join('<br>')
+          : 'No expense category with a budget is materially ahead of where the calendar says it should be.',
+        'Open Church Report &rarr;', 'btn-secondary', 'finNavGo(\'church\')')
+    + sub('Ivanhoe distribution', 'var(--sage-text)',
+        latestDist ? finMoney0(latestDist.cents) + ' is distributable without touching reserves.' : 'No current distribution figure on record.',
+        latestDist
+          ? 'We have taken ' + finMoney0(taken.cents) + ' so far in ' + taken.year + (t.gapCents && latestDist.cents - taken.cents >= t.gapCents ? ' — another ' + finMoney0(t.gapCents) + ' would cover the operating gap outright.' : '.')
+          : 'Record the latest AHRA monthly report to see what is available.',
+        'Open Commercial Property &rarr;', 'btn-secondary', 'finNavGo(\'property\')')
+    + '</div></div>';
+}
+function finRenderFundraisingCallout(d) {
+  var t = finHealthTargets(d);
+  var rooms = _finDaycareRooms;
+  var waiting = (rooms && rooms.occupancy) ? rooms.occupancy.waitingFamilies : null;
+  function row(label, value, color) {
+    return '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;border-top:1px solid rgba(255,255,255,.22);padding-top:10px;">'
+      + '<span style="font-size:12.5px;color:rgba(255,255,255,.8);">' + label + '</span>'
+      + '<b style="font-size:17px;font-variant-numeric:tabular-nums;color:' + color + ';">' + value + '</b></div>';
+  }
+  return '<div class="fin-navy-card" style="display:flex;flex-direction:column;gap:14px;">'
+    + '<div><div class="fin-navy-label">What this points to</div>'
+    + '<div style="font-family:var(--font-display);font-size:22px;font-weight:700;line-height:1.15;margin-top:2px;">Donor revenue has to grow, because it&rsquo;s the only stream we can grow.</div></div>'
+    + '<div style="display:flex;flex-direction:column;gap:10px;">'
+    + row('Close the operating gap', t.gapCents ? finMoney0(t.gapCents) : 'none', t.gapCents ? 'var(--negative-on-navy)' : 'var(--positive-on-navy)')
+    + row('Reserves to the policy floor', t.reserveGapCents ? finMoney0(t.reserveGapCents) : 'at floor', t.reserveGapCents ? 'var(--pale-gold)' : 'var(--positive-on-navy)')
+    + row('Room to serve waiting families', waiting ? waiting + ' waiting' : 'needs the daycare API', 'var(--positive-on-navy)')
+    + '</div>'
+    + '<div><button class="btn-white" onclick="showTab(\'giving\')">Build a fundraising plan &rarr;</button></div>'
+    + '</div>';
+}
+
+function finRenderHealth() {
+  var root = document.getElementById('fin-health-root');
+  if (!root) return;
+  var d = _finHealthData;
+  if (!d) return;
+  if (!d.entries || !d.entries.length) {
+    root.innerHTML = '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">Financial Health</div>'
+      + '<p style="font-size:.85rem;color:var(--warm-gray);">No church ledger data for ' + d.year + ' yet. Connect QuickBooks or run an import from the <b>Data &amp; Imports</b> tab, and this page fills in.</p></div>';
+    return;
+  }
+  var rs = d.revenueStreams || { streams: {}, totalCents: 0 };
+  var actions = '<button class="btn-secondary" onclick="finExportBoardPacket()">Export board packet</button>'
+    + '<button class="btn-secondary" onclick="window.print()">Print</button>';
+  var sub = 'FY' + d.year + ' run rate &middot; ' + finMoney0(rs.totalCents) + ' total revenue &middot; all three entities';
+  var unmappedNote = (rs.unmapped && rs.unmapped.length && _userRole === 'admin')
+    ? '<div class="fin-note-box" style="margin-bottom:0;">' + rs.unmapped.length + ' account group'
+      + (rs.unmapped.length === 1 ? ' was' : 's were') + ' classified by name and never confirmed ('
+      + rs.unmapped.slice(0, 3).map(function(u) { return esc(u.label); }).join(', ')
+      + (rs.unmapped.length > 3 ? ', …' : '') + '). This page is only as honest as that mapping — '
+      + '<button class="fin-link-btn" onclick="finNavGo(\'data\')">review it on Data &amp; Imports</button>.</div>'
+    : '';
+
+  root.innerHTML = '<div class="fin-health-page">'
+    + finPageHeader('Where the money comes from', sub, actions)
+    + unmappedNote
+    + finRenderRevenueMix(rs.streams, rs.totalCents)
+    + finRenderStreamCards(d)
+    + finRenderFlow(d)
+    + finRenderEntityCards(d)
+    + '<div class="fin-grid-pace">' + finRenderGivingPace(d) + finRenderCashRunway(d) + '</div>'
+    + '<div class="fin-grid-mix">' + finRenderFiveYearMix() + finRenderFundraisingCallout(d) + '</div>'
+    + finRenderAppealCard(d)
+    + finRenderLeverCards(d)
+    + finRenderDecisions(d)
+    + '<div class="fin-page-footnote">Imports, QuickBooks connection, daycare sync and manual entry live on a separate <b>Data &amp; Imports</b> tab — off this page entirely.</div>'
+    + '</div>';
+
+  // The five-year mix needs the multi-year payload; fetch it once and re-render when it arrives.
+  if (!_finChurchMultiYearData) finLoadChurchMultiYear();
+}
+
+// The band report lives in the Giving tab's Analysis view ('analysis' is an alias givSetView
+// resolves to the Reports view in analysis mode) — showTab's own second argument only means
+// anything for the finance tab, so the view has to be set explicitly after the switch.
+function finOpenGivingBands() {
+  showTab('giving');
+  if (typeof givSetView === 'function') givSetView('analysis');
+}
+
 // Lazy-init for the Giving tab's Reports view (moved there from the Finance tab — see
 // givSetView() in js-giving.js) — mirrors initReportTrendYears()'s own idempotent guard, safe
 // to call every time this view is shown. initReportTrendYears() is defined in js-reports.js
@@ -789,7 +1570,7 @@ function finDaycareChurchBudgetImport(year) {
       _finDaycare = d2.entries || [];
       finRenderDaycare();
       finRenderDaycareReport();
-      if (_finOverviewDomain === 'daycare') finRenderOverviewDaycare();
+      finLoadHealth();
     });
   }).catch(function(err) { finToast(err && err.message || 'Import failed.'); });
 }
@@ -966,7 +1747,12 @@ function finLoadDaycareAllocation(years) {
     _finDaycareAllocation = d;
     _finDaycareAllocationLoading = false;
     finRenderDaycareReport();
-    if (_finOverviewDomain === 'daycare') finRenderOverviewDaycare();
+    // The allocation percentages are edited on the Data & Imports tab now, so that card has to
+    // pick up the new figures too — otherwise saving a percentage leaves the control showing the
+    // old one until a full reload.
+    var importsCard = document.getElementById('fin-imports-card');
+    if (importsCard) importsCard.innerHTML = finRenderImportsCard();
+    finLoadHealth();
   }).catch(function() { _finDaycareAllocationLoading = false; });
 }
 function finDaycareAllocationConfigSave() {
@@ -1029,7 +1815,7 @@ function finLoadFinanceDaycareEntries() {
     _finDaycare = (d && d.entries) || [];
     finRenderDaycareStatus();
     finRenderDaycareReport();
-    if (_finOverviewDomain === 'daycare') finRenderOverviewDaycare();
+    finLoadHealth();
   });
 }
 // A visible warning (not a silent drop) when daycare-app-sync or one-off manual rows exist for a
@@ -1044,27 +1830,198 @@ function finRenderDaycareOtherSourceWarning() {
     + '<b>Heads up:</b> there\'s daycare-app-sync or manually-entered data (not from the church Budget import) sitting unused for ' + parts + '. It\'s not included in any total above, per your decision to use only the church import as the source of truth — flagging so it\'s not silently invisible. See Overview → Daycare Sync → "Show all synced line items" to review or remove it.'
     + '</div>';
 }
+// ── Daycare Report ──────────────────────────────────────────────────────────────────────────
+// The board receives MDO; it does not manage it. Two questions only: is it self-sufficient, and
+// is it full. The honest answer to the second is per-room — utilisation varies widely by room and
+// the waitlist sits on the youngest ones while the oldest have open seats — so the ask is staff
+// to open the rooms families want, not more building. That framing depends on room-level data the
+// daycare app does not expose yet (see DAYCARE_API.md); until it does, this page degrades to the
+// category-by-year table rather than asserting a blanket "we are full."
+var _finDaycareRooms = null;
+var _finDaycareRoomsAvailable = false;
+function finLoadDaycareRooms() {
+  api('/admin/api/finance/daycare/rooms').then(function(d) {
+    _finDaycareRooms = d;
+    _finDaycareRoomsAvailable = !!(d && d.available);
+    finRenderDaycareReport();
+    finLoadHealth();
+  }).catch(function() {
+    _finDaycareRoomsAvailable = false;
+  });
+}
+function finRenderDaycareHeader() {
+  var el = document.getElementById('fin-daycare-header');
+  if (!el) return;
+  var period = _finDaycareRooms && _finDaycareRooms.period ? _finDaycareRooms.period : '';
+  var when = period
+    ? MONTH_NAMES[parseInt(period.slice(5, 7), 10) - 1] + ' ' + period.slice(0, 4) + ' &middot; synced from the daycare app'
+    : 'Year by year, from the church budget import';
+  el.innerHTML = finPageHeader('Daycare (MDO)', when + ' &middot; the board receives this, it does not manage it',
+    '<button class="btn-secondary" onclick="finExportDaycareCsv()">Export CSV</button>'
+    + '<button class="btn-secondary" onclick="window.print()">Print</button>');
+}
+// The one ratio to watch: wages as a share of what was billed. A church board cannot manage MDO,
+// but it can read one number and ask about it.
+function finRenderDaycareRatioStrip(agg) {
+  var yKey = String(new Date().getFullYear());
+  var y = agg.byYear[yKey];
+  var rooms = _finDaycareRoomsAvailable ? _finDaycareRooms.rooms : null;
+  var billedCents, wagesCents, scopeLabel;
+  if (rooms) {
+    billedCents = rooms.reduce(function(s, r) { return s + (r.billed_cents || 0); }, 0);
+    wagesCents = rooms.reduce(function(s, r) { return s + (r.labor_cost_cents || 0); }, 0);
+    scopeLabel = 'this month';
+  } else if (y) {
+    billedCents = Math.round(y.incomeActual * 100);
+    var payroll = ['Payroll', 'Payroll Taxes', 'Workers Comp', 'Other Payroll Expenses'].reduce(function(s, c) {
+      return s + ((y.categories[c] || { actual: 0 }).actual * 100);
+    }, 0);
+    wagesCents = Math.round(payroll);
+    scopeLabel = 'FY' + yKey + ' to date';
+  } else {
+    return '';
+  }
+  var ratio = billedCents ? wagesCents / billedCents : null;
+  // Prior-year comparison, so the ratio reads as a trend rather than a bare percentage.
+  var priorKey = String(Number(yKey) - 1);
+  var prior = agg.byYear[priorKey];
+  var priorRatio = null;
+  if (prior && prior.incomeActual) {
+    var priorPayroll = ['Payroll', 'Payroll Taxes', 'Workers Comp', 'Other Payroll Expenses'].reduce(function(s, c) {
+      return s + ((prior.categories[c] || { actual: 0 }).actual);
+    }, 0);
+    priorRatio = priorPayroll / prior.incomeActual;
+  }
+  var marginCents = billedCents - wagesCents;
+  var netCents = y ? Math.round(y.netActual * 100) : null;
+  function cell(label, value, color, sub) {
+    return '<div><div class="fin-navy-sublabel">' + label + '</div>'
+      + '<div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;' + (color ? 'color:' + color + ';' : '') + '">' + value + '</div>'
+      + (sub ? '<div style="font-size:11.5px;color:rgba(255,255,255,.7);">' + sub + '</div>' : '') + '</div>';
+  }
+  return '<div class="fin-navy-card fin-ratio-strip">'
+    + '<div><div class="fin-navy-label">The one ratio to watch</div>'
+    + '<div style="font-size:36px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.05;color:var(--pale-gold);">' + finPctLabel(ratio) + '</div>'
+    + '<div style="font-size:12.5px;color:rgba(255,255,255,.75);margin-top:2px;">of every tuition dollar goes to wages'
+    + (priorRatio != null ? ' — ' + finPctLabel(priorRatio) + ' in ' + priorKey : '') + '</div></div>'
+    + '<div class="fin-ratio-divider"></div>'
+    + cell('Billed ' + scopeLabel, finMoney0(billedCents), '', '')
+    + cell('Wages ' + scopeLabel, finMoney0(wagesCents), '', '')
+    + cell('Margin after wages', finFmtSigned(marginCents), marginCents >= 0 ? 'var(--positive-on-navy)' : 'var(--negative-on-navy)',
+        netCents != null ? 'FY net after allocated overhead ' + finFmtSigned(netCents) : '')
+    + '</div>';
+}
+function finRenderDaycareRooms() {
+  var d = _finDaycareRooms;
+  if (!_finDaycareRoomsAvailable || !d || !d.rooms.length) return '';
+  var occ = d.occupancy || {};
+  var rooms = d.rooms.slice().sort(function(a, b) {
+    var ap = (a.capacity_per_day ? a.avg_daily_enrolled / a.capacity_per_day : 0);
+    var bp = (b.capacity_per_day ? b.avg_daily_enrolled / b.capacity_per_day : 0);
+    return bp - ap;
+  });
+  var rows = rooms.map(function(r) {
+    var pct = r.capacity_per_day ? r.avg_daily_enrolled / r.capacity_per_day : null;
+    var color = pct == null ? 'var(--warm-gray)' : pct >= 0.85 ? 'var(--danger)' : pct >= 0.65 ? 'var(--color-gold)' : 'var(--sage)';
+    var waitChip = r.waitlist_families
+      ? '<span class="fin-chip ' + (r.waitlist_families >= 10 ? 'fin-chip-negative' : 'fin-chip-warn') + '" style="font-size:11px;">' + r.waitlist_families + ' waiting</span>'
+      : '';
+    return '<div class="fin-room-row">'
+      + '<div class="fin-room-row-hdr">'
+      + '<span>' + esc(r.room_name) + ' <span style="font-weight:400;color:var(--warm-gray);">cap ' + (r.capacity_per_day || 0) + '/day' + (r.seasonal ? ', seasonal' : '') + '</span></span>'
+      + '<span style="display:flex;align-items:center;gap:8px;">' + waitChip + '<span>' + finPctLabel(pct) + '</span></span>'
+      + '</div>'
+      + '<div style="height:11px;border-radius:6px;background:var(--linen);margin-top:5px;"><div style="width:' + Math.min(100, (pct || 0) * 100).toFixed(1) + '%;height:100%;border-radius:6px;background:' + color + ';"></div></div>'
+      + '</div>';
+  }).join('');
+  var seasonalNote = occ.seasonalRooms && occ.seasonalRooms.length
+    ? ' (year-round rooms; ' + occ.seasonalRooms.map(esc).join(', ') + ' ' + (occ.seasonalRooms.length === 1 ? 'is' : 'are') + ' seasonal and counted separately)'
+    : '';
+  var occCard = '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">Occupancy by room</div>'
+    + '<div class="fin-card-sub">Average daily enrolled against licensed capacity. The badge is families waiting on that room.</div>'
+    + '<div style="display:flex;flex-direction:column;gap:13px;">' + rows + '</div>'
+    + '<div class="fin-note-box" style="margin-top:16px;"><b>' + occ.filledSeats + ' of ' + occ.totalSeats + ' daily seats filled — ' + finPctLabel(occ.overallPct) + ' overall</b>' + seasonalNote + '. '
+    + (occ.waitingFamilies
+      ? occ.waitingFamilies + ' famil' + (occ.waitingFamilies === 1 ? 'y is' : 'ies are') + ' waiting'
+        + (occ.openSeatsUnderfilled ? ', while the under-filled rooms have ' + occ.openSeatsUnderfilled + ' open seats a day. Demand is real but age-specific.' : '.')
+      : 'No families are on a waiting list.')
+    + '</div></div>';
+
+  var totalBilled = 0, totalWages = 0;
+  var marginRows = rooms.slice().sort(function(a, b) {
+    return ((b.billed_cents || 0) - (b.labor_cost_cents || 0)) - ((a.billed_cents || 0) - (a.labor_cost_cents || 0));
+  }).map(function(r) {
+    var billed = r.billed_cents || 0, wages = r.labor_cost_cents || 0;
+    totalBilled += billed; totalWages += wages;
+    var margin = billed - wages;
+    var pct = billed ? margin / billed : null;
+    var color = pct == null ? 'var(--warm-gray)' : pct < 0.20 ? 'var(--deep-amber)' : 'var(--sage-text)';
+    return '<div style="padding:9px 0;border-top:1px solid var(--warm-row-divider);font-weight:700;">' + esc(r.room_name) + '</div>'
+      + '<div class="fin-room-num">' + finMoney0(billed) + '</div>'
+      + '<div class="fin-room-num">' + finMoney0(wages) + '</div>'
+      + '<div class="fin-room-num" style="color:' + color + ';font-weight:700;">' + finFmtSigned(margin) + '</div>'
+      + '<div class="fin-room-num" style="color:' + color + ';font-weight:700;">' + finPctLabel(pct) + '</div>';
+  }).join('');
+  var totalMargin = totalBilled - totalWages;
+  var weakest = rooms.slice().sort(function(a, b) {
+    var ap = (a.billed_cents ? (a.billed_cents - (a.labor_cost_cents || 0)) / a.billed_cents : 1);
+    var bp = (b.billed_cents ? (b.billed_cents - (b.labor_cost_cents || 0)) / b.billed_cents : 1);
+    return ap - bp;
+  })[0];
+  var weakestPct = weakest && weakest.billed_cents ? (weakest.billed_cents - (weakest.labor_cost_cents || 0)) / weakest.billed_cents : null;
+  var marginCard = '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">Billed vs. wages by room</div>'
+    + '<div class="fin-card-sub">This month. Wages are the daycare app&rsquo;s labour cost for that room, salaried staff prorated.</div>'
+    + '<div class="fin-room-grid">'
+    + '<div class="fin-th">Room</div><div class="fin-th" style="text-align:right;">Billed</div><div class="fin-th" style="text-align:right;">Wages</div><div class="fin-th" style="text-align:right;">Margin</div><div class="fin-th" style="text-align:right;">%</div>'
+    + marginRows
+    + '<div class="fin-room-total">Total</div>'
+    + '<div class="fin-room-num fin-room-total">' + finMoney0(totalBilled) + '</div>'
+    + '<div class="fin-room-num fin-room-total">' + finMoney0(totalWages) + '</div>'
+    + '<div class="fin-room-num fin-room-total">' + finFmtSigned(totalMargin) + '</div>'
+    + '<div class="fin-room-num fin-room-total">' + finPctLabel(totalBilled ? totalMargin / totalBilled : null) + '</div>'
+    + '</div>'
+    + (weakest && weakestPct != null
+      ? '<div class="fin-note-box" style="margin-top:14px;">' + finMoney0(totalMargin) + ' of room margin is what covers MDO&rsquo;s allocated utilities, insurance and admin. <b>' + esc(weakest.room_name) + ' at ' + finPctLabel(weakestPct) + ' is the room to ask about.</b></div>'
+      : '')
+    + '</div>';
+
+  var closing = '<div class="fin-grid-2">'
+    + '<div class="fin-navy-card">'
+      + '<div class="fin-navy-label">What the board does with this</div>'
+      + '<div style="font-family:var(--font-display);font-size:22px;font-weight:700;line-height:1.2;margin:2px 0 10px;">Nothing to manage — two things to ask.</div>'
+      + '<div style="font-size:13px;color:rgba(255,255,255,.8);line-height:1.6;">'
+      + '1 &middot; Can the full rooms grow if we fund staff, given ' + occ.waitingFamilies + ' waiting famil' + (occ.waitingFamilies === 1 ? 'y' : 'ies') + '?<br>'
+      + '2 &middot; What is the plan for ' + (weakest ? esc(weakest.room_name) + ' at ' + finPctLabel(weakestPct) + ' margin' : 'the weakest room') + '?</div>'
+    + '</div>'
+    + '<div class="fin-card" style="border:1px solid var(--warm-border);box-shadow:none;">'
+      + '<div class="fin-eyebrow">What this needs from the daycare app</div>'
+      + '<div style="font-size:13px;color:var(--warm-ink-label);line-height:1.6;margin-top:6px;">One monthly endpoint, four fields per room: <b>capacity/day</b>, <b>average daily enrolled</b>, <b>billed revenue</b>, <b>labour cost</b> — plus a waitlist count per room. Everything on this page derives from those. No rosters, schedules or clock records cross the boundary.</div>'
+    + '</div></div>';
+
+  return '<div class="fin-grid-2 fin-grid-start">' + occCard + marginCard + '</div>' + closing;
+}
 function finRenderDaycareReport() {
   var el = document.getElementById('fin-daycare-report');
   if (!el) return;
+  finRenderDaycareHeader();
   var allocationByYear = _finDaycareAllocation ? _finDaycareAllocation.allocation : null;
   var agg = finAggregateDaycareByYear(_finDaycare, allocationByYear);
   _finDaycareAgg = agg;
   var otherSourceWarning = finRenderDaycareOtherSourceWarning();
-  if (!agg.years.length) {
-    el.innerHTML = otherSourceWarning + '<p style="font-size:.85rem;color:var(--warm-gray);">No daycare data yet from the church Budget import. Use "Import from Church Budget (MDO accounts)" in the Overview tab.</p>';
+  if (!agg.years.length && !_finDaycareRoomsAvailable) {
+    el.innerHTML = otherSourceWarning + '<div class="fin-card"><p style="font-size:.85rem;color:var(--warm-gray);margin:0;">No daycare data yet. Use "MDO accounts from an imported church budget" on the <b>Data &amp; Imports</b> tab.</p></div>';
     return;
   }
-  if (!_finDaycareAllocation && !_finDaycareAllocationLoading) finLoadDaycareAllocation(agg.years);
+  if (!_finDaycareAllocation && !_finDaycareAllocationLoading && agg.years.length) finLoadDaycareAllocation(agg.years);
   var isAdminUI = (_userRole === 'admin');
+
   function moneyCell(v, muted) {
     return '<td style="text-align:right;padding:5px 8px;' + (muted ? 'color:var(--warm-gray);' : '') + '">$' + finFmtMoney(v) + '</td>';
   }
-  // Budget is directly editable (click to edit) for every category except the two live-derived
-  // ones (Utilities/Insurance) — those are always computed from the church side, editing them
-  // wouldn't mean anything since finAggregateDaycareByYear recomputes their budget from the
-  // allocation percentage as well as any override, matching the "actual only" phrasing this was
-  // built to.
+  // Budget stays directly editable for every category except the two live-derived ones
+  // (Utilities/Insurance), which are always recomputed from the church side.
   function budgetCell(year, cat, v, editable) {
     if (!editable) return moneyCell(v, true);
     return '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);cursor:pointer;" data-raw="' + (v || '') + '" title="Click to edit" onclick="finDaycareBudgetCellEdit(' + year + ',' + volJsAttr(cat) + ',this)">$' + finFmtMoney(v) + '</td>';
@@ -1082,7 +2039,7 @@ function finRenderDaycareReport() {
       var c = agg.byYear[y].categories[cat] || { actual: 0, budget: 0 };
       return moneyCell(c.actual) + budgetCell(y, cat, c.budget, isAdminUI && !isDerived);
     }).join('');
-    return '<tr><td style="padding:5px 8px;">' + esc(cat) + (isDerived ? ' <span style="font-size:.68rem;color:var(--warm-gray);" title="Live % of church actual — see the note above">(derived)</span>' : '') + '</td>' + cells + '</tr>';
+    return '<tr><td style="padding:5px 8px;">' + esc(cat) + (isDerived ? ' <span style="font-size:.68rem;color:var(--warm-gray);" title="Live % of church actual">(derived)</span>' : '') + '</td>' + cells + '</tr>';
   }).join('');
   function summaryRow(label, actualKey, budgetKey, bold) {
     var cells = agg.years.map(function(y) {
@@ -1092,17 +2049,35 @@ function finRenderDaycareReport() {
     return '<tr' + (bold ? ' style="font-weight:700;border-top:2px solid var(--navy);"' : ' style="font-weight:600;border-top:1px solid var(--border);"') + '>'
       + '<td style="padding:5px 8px;">' + label + '</td>' + cells + '</tr>';
   }
+  var yearTable = agg.years.length
+    ? '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+      + '<thead><tr>' + yearHead1 + '</tr><tr style="border-bottom:2px solid var(--navy);">' + yearHead2 + '</tr></thead>'
+      + '<tbody>' + catRows
+      + summaryRow('Total Income', 'incomeActual', 'incomeBudget', false)
+      + summaryRow('Total Expenses', 'expenseActual', 'expenseBudget', false)
+      + summaryRow('Net Income', 'netActual', 'netBudget', true)
+      + '</tbody></table></div>'
+    : '<p style="font-size:.85rem;color:var(--warm-gray);">No year-by-year figures imported yet.</p>';
+
+  // Room-level cards when the daycare app can supply them; otherwise the category table leads and
+  // says plainly what is missing, rather than the page erroring or quietly showing less.
+  var roomsHtml = finRenderDaycareRooms();
+  var degradedNote = _finDaycareRoomsAvailable ? '' :
+    '<div class="fin-note-box" style="margin-bottom:16px;">Room-level occupancy and per-room margin are not shown: the daycare app does not yet publish the monthly per-room figures this needs (capacity, average daily enrolled, billed revenue, labour cost, waitlist). Until it does, the year-by-year figures below are what the board receives.</div>';
+
   el.innerHTML = otherSourceWarning
-    + finRenderDaycareAllocationConfig()
-    + (isAdminUI ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 10px;">Actual always comes from "Import from Church Budget (MDO accounts)" in the Overview tab — the single source of truth. Click any Budget figure below to edit it directly — useful for a past year whose real budget isn\'t in an imported file.</p>' : '')
-    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
-    + '<thead><tr>' + yearHead1 + '</tr><tr style="border-bottom:2px solid var(--navy);">' + yearHead2 + '</tr></thead>'
-    + '<tbody>' + catRows
-    + summaryRow('Total Income', 'incomeActual', 'incomeBudget', false)
-    + summaryRow('Total Expenses', 'expenseActual', 'expenseBudget', false)
-    + summaryRow('Net Income', 'netActual', 'netBudget', true)
-    + '</tbody></table></div>';
+    + '<div id="fin-daycare-mdo-note"></div>'
+    + finRenderDaycareRatioStrip(agg)
+    + degradedNote
+    + roomsHtml
+    + (agg.years.length
+      ? '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">Year by year</div>'
+        + '<div class="fin-card-sub">From the church budget import — the single source of truth for these figures.</div>'
+        + yearTable + '</div>'
+      : '');
+  finRenderDaycareMdoNote();
 }
+
 function finExportDaycareCsv() {
   var agg = _finDaycareAgg;
   if (!agg || !agg.years.length) { finToast('No daycare data to export.'); return; }
@@ -1368,6 +2343,25 @@ function finPieItemsFromTree(tree, classification, totalField) {
     .map(function(c, i) { return { label: c.label, value: c[totalField], color: CHURCH_PIE_PALETTE[i % CHURCH_PIE_PALETTE.length] }; });
 }
 
+// The three modes are a pill group, not three buttons — one control that reads as one choice.
+// The seven import buttons that used to sit in this toolbar are gone; the functions that back
+// them are untouched and are now invoked from the Data & Imports tab.
+function finRenderChurchHeader() {
+  var el = document.getElementById('fin-church-header');
+  if (!el) return;
+  var d = _finChurchThisYearData;
+  var year = d ? d.year : new Date().getFullYear();
+  var asOf = d && d.entries ? finChurchAsOfDate(d.entries) : '';
+  var sub = 'FY' + year + (asOf ? ' &middot; YTD actuals as of ' + esc(asOf) : '') + ' &middot; QuickBooks chart of accounts';
+  var actions = finPills([
+    { key: 'year', label: 'This year' },
+    { key: 'multiyear', label: 'Multi-year' },
+    { key: 'balances', label: 'Balance sheet' },
+  ], _finChurchMode, 'finSetChurchReportMode')
+    + '<button class="btn-secondary" onclick="finExportChurchCsv()">Export CSV</button>'
+    + '<button class="btn-secondary" onclick="window.print()">Print</button>';
+  el.innerHTML = finPageHeader('Church Report', sub, actions);
+}
 function finSetChurchReportMode(mode) {
   _finChurchMode = mode;
   var yearEl = document.getElementById('fin-church-year-view');
@@ -1376,12 +2370,7 @@ function finSetChurchReportMode(mode) {
   if (yearEl) yearEl.style.display = mode === 'year' ? '' : 'none';
   if (multiEl) multiEl.style.display = mode === 'multiyear' ? '' : 'none';
   if (balEl) balEl.style.display = mode === 'balances' ? '' : 'none';
-  var yearBtn = document.getElementById('fin-church-mode-year');
-  var multiBtn = document.getElementById('fin-church-mode-multiyear');
-  var balBtn = document.getElementById('fin-church-mode-balances');
-  if (yearBtn) yearBtn.classList.toggle('active', mode === 'year');
-  if (multiBtn) multiBtn.classList.toggle('active', mode === 'multiyear');
-  if (balBtn) balBtn.classList.toggle('active', mode === 'balances');
+  finRenderChurchHeader();
   if (mode === 'year' && !_finChurchThisYearData) finLoadChurchThisYear();
   if (mode === 'multiyear' && !_finChurchMultiYearData) finLoadChurchMultiYear();
   if (mode === 'balances' && !_finChurchBalancesData) finLoadChurchBalances();
@@ -1414,29 +2403,89 @@ function finLoadChurchThisYear(year) {
   });
 }
 
-// One This Year summary card: actual figure, plus (only if any budget is known for the year)
-// the annual budget, remaining amount, and a simple over/under progress bar.
-function finChurchSummaryCard(label, totals, hasBudget) {
+// One This Year summary card. The chip states the figure's own relationship to budget; for Net
+// income that relationship is the VARIANCE, computed as actual net minus budgeted net, so the
+// three cards reconcile against each other — revenue variance plus expense variance equals the
+// net variance shown here, rather than three independently-derived percentages that nearly add up.
+function finChurchSummaryCard(label, totals, hasBudget, borderColor, isNet) {
   var actual = totals.actualCents, budget = totals.budgetCents;
-  var remaining = budget - actual;
-  var pct = budget > 0 ? Math.round(actual * 100 / budget) : null;
-  var borderColor = /revenue|income/i.test(label) && !/net/i.test(label) ? 'var(--color-teal)' : /expense/i.test(label) ? 'var(--color-gold)' : (remaining >= 0 ? 'var(--sage)' : 'var(--danger)');
-  var html = '<div class="fin-kpi-card" style="flex:1;min-width:170px;border-top-color:' + borderColor + ';">'
+  var valueColor = isNet && actual < 0 ? 'color:var(--danger);' : '';
+  var html = '<div class="fin-kpi-card" style="border-top-color:' + borderColor + ';">'
     + '<div class="fin-kpi-lbl">' + label + '</div>'
-    + '<div class="fin-kpi-val">$' + finFmtMoney(actual / 100) + '</div>';
-  if (hasBudget) {
-    var chipCls = remaining < 0 ? 'fin-chip-negative' : 'fin-chip-positive';
-    html += '<span class="fin-chip ' + chipCls + '">' + (remaining < 0 ? 'Over by $' + finFmtMoney(-remaining / 100) : '$' + finFmtMoney(remaining / 100) + ' remaining') + '</span>'
-      + '<div class="fin-kpi-sub">Budget: $' + finFmtMoney(budget / 100) + '</div>';
-    if (pct != null) {
-      var barColor = pct > 100 ? 'var(--danger)' : pct > 85 ? 'var(--color-gold)' : 'var(--color-teal)';
-      html += '<div class="fin-pace-bar-track" style="margin-top:8px;"><div class="fin-pace-bar-fill" style="width:' + Math.min(100, pct) + '%;background:' + barColor + ';"></div></div>';
-    }
+    + '<div class="fin-kpi-val" style="' + valueColor + '">' + (isNet ? finFmtSigned(actual) : '$' + finFmtMoney(actual / 100)) + '</div>';
+  if (!hasBudget) return html + '<div class="fin-kpi-sub">No budget data for this year</div></div>';
+  if (isNet) {
+    var variance = actual - budget;
+    html += '<span class="fin-chip ' + (variance >= 0 ? 'fin-chip-positive' : 'fin-chip-negative') + '">'
+      + finFmtSigned(variance) + ' vs. budgeted net</span>';
   } else {
-    html += '<div class="fin-kpi-sub">No budget data for this year</div>';
+    var pct = budget > 0 ? Math.round(actual * 100 / budget) : null;
+    var over = budget > 0 && actual > budget;
+    html += '<span class="fin-chip ' + (over ? 'fin-chip-warn' : 'fin-chip-info') + '">'
+      + (pct != null ? pct + '% of $' + finFmtMoney(budget / 100) + ' budget' : 'No budget') + '</span>';
   }
   return html + '</div>';
 }
+// Zero-baseline column chart for five-year net income. Deliberately NOT renderGroupedBarChart():
+// that helper measures every bar from the bottom of its own plot area, so a deficit year renders
+// as an invisible sliver instead of a bar below the line — which is precisely the year a board
+// needs to see. Here the axis sits mid-plot and a negative year is drawn downward from it.
+function finRenderNetIncomeByYearChart(multiYear) {
+  if (!multiYear || !multiYear.years || multiYear.years.length < 2) return '';
+  var years = multiYear.years.slice();
+  var vals = years.map(function(y) {
+    var s = multiYear.byYear[y];
+    return { year: y, cents: (s && s.netIncome ? s.netIncome.actualCents : 0) };
+  });
+  var maxAbs = Math.max.apply(null, vals.map(function(v) { return Math.abs(v.cents); }).concat([1]));
+  var W = 620, axisY = 95, halfH = 62, left = 60, right = 600;
+  var slot = (right - left) / years.length;
+  var barW = Math.min(70, slot * 0.62);
+  var bars = vals.map(function(v, i) {
+    var cx = left + slot * i + slot / 2;
+    var h = Math.max(3, Math.abs(v.cents) / maxAbs * halfH);
+    var positive = v.cents >= 0;
+    var y = positive ? axisY - h : axisY;
+    var color = positive ? 'var(--sage)' : 'var(--danger)';
+    var labelY = positive ? y - 6 : y + h + 15;
+    return '<rect x="' + (cx - barW / 2).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="3" fill="' + color + '"></rect>'
+      + '<text x="' + cx.toFixed(1) + '" y="' + labelY.toFixed(1) + '" font-size="11.5" font-weight="800" text-anchor="middle" fill="' + (positive ? 'var(--sage-text)' : 'var(--danger)') + '">' + finFmtSigned(v.cents).replace(/\.00$/, '') + '</text>'
+      + '<text x="' + cx.toFixed(1) + '" y="176" font-size="11" text-anchor="middle" fill="var(--warm-meta)">' + v.year + '</text>';
+  }).join('');
+  var worst = vals.reduce(function(a, b) { return b.cents < a.cents ? b : a; }, vals[0]);
+  var best = vals.reduce(function(a, b) { return b.cents > a.cents ? b : a; }, vals[0]);
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">Five-year net income</div>'
+    + '<div class="fin-card-sub">Deficit years are drawn below the axis, at the same scale as a surplus.</div>'
+    + '<svg viewBox="0 0 ' + W + ' 190" width="100%" height="180" role="img" aria-label="Net income by year, '
+    + years[0] + ' to ' + years[years.length - 1] + '. Best year ' + best.year + ' at ' + finFmtSigned(best.cents)
+    + ', worst year ' + worst.year + ' at ' + finFmtSigned(worst.cents) + '.">'
+    + '<line x1="' + left + '" y1="' + axisY + '" x2="' + right + '" y2="' + axisY + '" stroke="var(--warm-border)" stroke-width="1.5"></line>'
+    + '<text x="8" y="' + (axisY - halfH + 4) + '" font-size="10" fill="var(--warm-meta)">' + finMoney0(maxAbs) + '</text>'
+    + '<text x="8" y="' + (axisY + 4) + '" font-size="10" fill="var(--warm-meta)">$0</text>'
+    + '<text x="8" y="' + (axisY + halfH + 4) + '" font-size="10" fill="var(--warm-meta)">-' + finMoney0(maxAbs) + '</text>'
+    + bars + '</svg></div>';
+}
+// Revenue by account group, as labelled bars rather than a pie: a pie makes two similar slices
+// hard to rank and gives no room for the dollar figure, which is the number being read.
+function finRenderRevenueSources(tree, d) {
+  var items = finPieItemsFromTree(tree, 'Income', 'totalActualCents');
+  var max = items.reduce(function(m, i) { return Math.max(m, i.value); }, 1);
+  var bars = items.map(function(it, i) {
+    var color = i === 0 ? 'var(--color-teal)' : i === 1 ? 'var(--sage)' : 'var(--color-gold)';
+    return finBar(esc(it.label), '$' + finFmtMoney(it.value / 100), it.value / max * 100, color);
+  }).join('');
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">Revenue sources</div>'
+    + '<div class="fin-card-sub">What actually cleared the bank, by account group.</div>'
+    + '<div style="display:flex;flex-direction:column;gap:9px;">'
+    + (bars || '<p style="font-size:.85rem;color:var(--warm-gray);">No revenue recorded for this year yet.</p>')
+    + '</div>'
+    + '<div class="fin-note-box" style="margin-top:14px;"><b>Giving per ChMS records: $' + finFmtMoney(d.givingCents / 100) + '.</b> '
+    + 'Reference only — QuickBooks reflects what has cleared and been recorded, so timing differences are expected, not a discrepancy to chase.</div>'
+    + '</div>';
+}
+
 // This-year-vs-last-year-to-date + a year-end projection. yoy.available is false when
 // monthly-granularity data hasn't been synced yet (needs a QuickBooks sync after this feature
 // shipped — see the sync handler) — shown as an honest "not yet available" note rather than a
@@ -1535,54 +2584,85 @@ function finRenderSuppliesChart(d) {
     + ' <span style="font-size:.72rem;">— any QuickBooks account with "Supplies" in its name; still counted under Other Expenses in the totals above, shown here for visibility only.</span>'
     + '</div></div>';
 }
+// Collapsed-by-default detail strip: one line naming what is inside, and a button that expands it
+// in place. The read is above; the ledger is for when someone asks.
+var _finChurchExpand = {};
+function finChurchToggleDetail(key) {
+  _finChurchExpand[key] = !_finChurchExpand[key];
+  if (_finChurchThisYearData) finRenderChurchThisYear(_finChurchThisYearData);
+}
+function finDetailStrip(key, title, sub, bodyHtml) {
+  var open = !!_finChurchExpand[key];
+  return '<div class="fin-card fin-ledger-strip">'
+    + '<div class="fin-ledger-strip-hdr">'
+    + '<div><div class="fin-ledger-strip-title">' + title + '</div><div class="fin-ledger-strip-sub">' + sub + '</div></div>'
+    + '<button class="btn-secondary" style="white-space:nowrap;" onclick="finChurchToggleDetail(' + volJsAttr(key) + ')">' + (open ? 'Hide &#9662;' : 'Show detail &#9656;') + '</button>'
+    + '</div>'
+    + (open ? '<div style="margin-top:14px;">' + bodyHtml + '</div>' : '')
+    + '</div>';
+}
 function finRenderChurchThisYear(d) {
   var el = document.getElementById('fin-church-year-view');
   if (!el) return;
+  finRenderChurchHeader();
   if (!d || !d.entries || !d.entries.length) {
-    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No church report data yet for ' + d.year + '. Connect QuickBooks in the Overview tab and click "Sync Now".</p>';
+    el.innerHTML = '<div class="fin-card"><p style="font-size:.85rem;color:var(--warm-gray);margin:0;">No church report data yet for ' + (d ? d.year : '') + '. Connect QuickBooks or run an import from the <b>Data &amp; Imports</b> tab.</p></div>';
     return;
   }
   var income = d.classificationTotals['Income'] || { actualCents: 0, budgetCents: 0 };
   var expenses = d.classificationTotals['Expenses'] || { actualCents: 0, budgetCents: 0 };
   var asOfDate = finChurchAsOfDate(d.entries);
-  var html = '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:12px;">' + d.year + (asOfDate ? ' &bull; YTD actuals as of ' + asOfDate : '') + '</div>'
-    + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px;">'
-    + finChurchSummaryCard('Total Revenue', income, d.hasBudgetData)
-    + finChurchSummaryCard('Total Expenses', expenses, d.hasBudgetData)
-    + finChurchSummaryCard('Net Income', d.netIncome, d.hasBudgetData)
-    + '</div>'
-    + '<div style="font-size:.82rem;color:var(--warm-gray);background:var(--linen);border-radius:8px;padding:10px 14px;margin-bottom:18px;">'
-    + '<b>Giving (ChMS records):</b> $' + finFmtMoney(d.givingCents / 100)
-    + ' <span style="font-size:.75rem;">— shown for reference only. QuickBooks’ Revenue figure above reflects what has cleared the bank and been fully recorded, so timing differences from ChMS’s own recorded giving are expected, not a discrepancy to chase.</span>'
-    + (d.givingByFund && d.givingByFund.length ? '<table style="width:100%;border-collapse:collapse;font-size:.78rem;margin-top:8px;">'
-        + d.givingByFund.map(function(f) {
-            return '<tr><td style="padding:2px 8px 2px 0;">' + esc(f.fundName) + '</td><td style="padding:2px 0;text-align:right;">$' + finFmtMoney(f.cents / 100) + '</td></tr>';
-          }).join('')
-        + '</table>' : '')
-    + '</div>'
-    + finRenderYoyBlock(d.yoy)
-    + finRenderSuppliesChart(d);
-
   var tree = finReorganizeChurchTree(finBuildTreeFromFlatRows(d.entries));
-  var incomePie = finPieItemsFromTree(tree, 'Income', 'totalActualCents');
-  var expensePie = finPieItemsFromTree(tree, 'Expenses', 'totalActualCents');
-  if (incomePie.length || expensePie.length) {
-    html += '<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px;">'
-      + '<div style="flex:1;min-width:280px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Revenue Sources</h4>'
-      + (incomePie.length ? renderPieChart(incomePie, 170) : '<p style="font-size:.82rem;color:var(--warm-gray);">No revenue data yet.</p>') + '</div>'
-      + '<div style="flex:1;min-width:280px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Expense Categories</h4>'
-      + (expensePie.length ? renderPieChart(expensePie, 170) : '<p style="font-size:.82rem;color:var(--warm-gray);">No expense data yet.</p>') + '</div>'
-      + '</div>';
-  }
-  html += '<details><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail' + (asOfDate ? ' <span style="font-weight:400;">— YTD as of ' + esc(asOfDate) + '</span>' : '') + '</summary>'
-    + '<div class="fin-card" style="padding:0;overflow:hidden;margin-top:10px;">'
-    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
-    + '<thead><tr style="background:var(--warm-surface-header);"><th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Account</th><th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">YTD Actual</th><th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Budget</th><th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Variance</th></tr></thead>'
+
+  var kpis = '<div class="fin-grid-3">'
+    + finChurchSummaryCard('Total revenue', income, d.hasBudgetData, 'var(--color-teal)', false)
+    + finChurchSummaryCard('Total expenses', expenses, d.hasBudgetData, 'var(--color-gold)', false)
+    + finChurchSummaryCard('Net income', d.netIncome, d.hasBudgetData, d.netIncome.actualCents < 0 ? 'var(--danger)' : 'var(--sage)', true)
+    + '</div>';
+
+  var elapsedPct = finElapsedYearPct(d.year);
+  var expenseRoot = tree.filter(function(n) { return n.classification === 'Expenses'; })[0];
+  var categories = ((expenseRoot && expenseRoot.children) || []).map(function(n) {
+    return {
+      path: n.path, label: n.label, actualCents: n.totalActualCents, budgetCents: n.totalBudgetCents,
+      children: (n.children || []).map(function(c) { return { label: c.label, actualCents: c.totalActualCents, budgetCents: c.totalBudgetCents }; }),
+    };
+  });
+  var paceCard = '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">Where expenses sit against budget</div>'
+    + '<div class="fin-card-sub">Sorted by variance, not alphabetically. The line marks ' + Math.round(elapsedPct * 100) + '% — the calendar. Click a category for its line items.</div>'
+    + finRenderExpensePace(categories, elapsedPct, 5)
+    + '</div>';
+
+  var fundTable = (d.givingByFund && d.givingByFund.length)
+    ? '<table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+      + d.givingByFund.map(function(f) {
+          return '<tr><td style="padding:3px 8px 3px 0;">' + esc(f.fundName) + '</td><td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums;">$' + finFmtMoney(f.cents / 100) + '</td></tr>';
+        }).join('') + '</table>'
+    : '<p style="font-size:.85rem;color:var(--warm-gray);">No giving recorded in ChMS for this year.</p>';
+
+  var detailBody = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead><tr style="background:var(--warm-surface-header);">'
+    + '<th style="text-align:left;padding:8px;" class="fin-th">Account</th>'
+    + '<th style="text-align:right;padding:8px;" class="fin-th">YTD Actual</th>'
+    + '<th style="text-align:right;padding:8px;" class="fin-th">Budget</th>'
+    + '<th style="text-align:right;padding:8px;" class="fin-th">Variance</th></tr></thead>'
     + '<tbody>' + finRenderChurchDetailBody(tree, d.netIncome, d.hasBudgetData) + '</tbody></table></div>'
-    + finRenderNetIncomeBar(d.netIncome, d.hasBudgetData)
-    + '</div></details>';
-  el.innerHTML = html;
+    + finRenderNetIncomeBar(d.netIncome, d.hasBudgetData);
+
+  el.innerHTML = kpis
+    + '<div class="fin-grid-2">' + finRenderRevenueSources(tree, d) + paceCard + '</div>'
+    + finRenderNetIncomeByYearChart(_finChurchMultiYearData)
+    + finDetailStrip('accounts', 'Full account detail &mdash; ' + d.entries.length + ' accounts, YTD vs. budget vs. variance',
+        'Collapsed by default. The read is above; the ledger is for when someone asks.', detailBody)
+    + finDetailStrip('yoy', 'This year vs. last year', 'Year-to-date against the same point last year, and the year-end projection that follows from it.', finRenderYoyBlock(d.yoy))
+    + finDetailStrip('giving', 'Giving by fund, per ChMS records', 'The reference figure above, broken out by fund.', fundTable)
+    + (finRenderSuppliesChart(d) ? finDetailStrip('supplies', 'Supplies by month', 'One account pulled out of the Other Expenses catch-all, month by month.', finRenderSuppliesChart(d)) : '');
+
+  // The five-year chart needs the multi-year payload; fetch it once and re-render when it lands.
+  if (!_finChurchMultiYearData) finLoadChurchMultiYear();
 }
+
 
 // The server defaults to a rolling 5-year window (currentYear-4..currentYear) when no years
 // param is given — an older import (e.g. 2018) saves fine but is otherwise never visible on any
@@ -1595,6 +2675,9 @@ function finLoadChurchMultiYear(explicitYears) {
   api(url).then(function(d) {
     _finChurchMultiYearData = d;
     finRenderChurchMultiYear(d);
+    // The This Year view's five-year net-income chart is built from this same payload — re-render
+    // it so the chart appears once the data lands, rather than only after a tab switch.
+    if (_finChurchThisYearData) finRenderChurchThisYear(_finChurchThisYearData);
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
     el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load multi-year church data.</p>';
@@ -2254,7 +3337,7 @@ function finChurchConfirmMonthlyImport() {
     closeModal('fin-church-monthly-import-modal');
     finToast('Imported ' + d.imported + ' monthly row(s) for ' + d.fiscalYear + '.');
     finRenderChurchReport();
-    if (_finOverviewDomain === 'church') finLoadOverviewDomain();
+    finLoadHealth();
   }).catch(function(err) {
     btn.disabled = false;
     if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
@@ -2615,7 +3698,7 @@ function finSyncYears(btn) {
     if (d && d.error) { if (msgEl) msgEl.textContent = 'Error: ' + d.error; return; }
     if (msgEl) msgEl.textContent = (d.warnings && d.warnings.length) ? 'Synced with warnings: ' + d.warnings.join(' ') : 'Synced ' + d.years.join(', ') + '.';
     finRenderChurchReport();
-    if (_finOverviewDomain === 'church') finLoadOverviewDomain();
+    finLoadHealth();
   }).catch(function(err) {
     if (btn) { btn.disabled = false; btn.textContent = 'Sync Selected Years'; }
     if (msgEl) msgEl.textContent = 'Error: ' + (err && err.message || 'Unknown error');
@@ -2703,8 +3786,9 @@ function finLoadProperty() {
   api('/admin/api/finance/property/' + FIN_PROPERTY_KEY).then(function(d) {
     _finProperty = d;
     finRenderProperty(d);
+    finRenderPropertyAdminTools(d);
     finRenderDaycareMdoNote();
-    if (_finOverviewDomain === 'property') finRenderOverviewProperty(d);
+    finLoadHealth();
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
     el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load property data.</p>';
@@ -3083,58 +4167,155 @@ function finComputeMortgageRemainingCents(loan, monthly) {
   applicable.forEach(function(m) { cents -= (m.loan_payment_cents - m.interest_expense_cents); });
   return { cents: cents, asOf: applicable.length ? applicable[applicable.length - 1].period : loan.balance_as_of_date, monthsApplied: applicable.map(function(m) { return m.period; }) };
 }
+// Two questions, in this order: does it fund itself, and what can we take. Everything else on
+// this page is reference and is collapsed. The admin controls that used to be interleaved here
+// (budget import, CSV paste, +Add Month, base-minimum and reserve editing, the valuation
+// calculator) moved to Data & Imports — see finRenderPropertyAdminTools below.
+var _finPropertyExpand = {};
+function finPropertyToggleLedger(key) {
+  _finPropertyExpand[key] = !_finPropertyExpand[key];
+  if (_finProperty) finRenderProperty(_finProperty);
+}
+function finLedgerStrip(key, title, sub, bodyHtml) {
+  var open = !!_finPropertyExpand[key];
+  return '<div class="fin-card fin-ledger-strip">'
+    + '<div class="fin-ledger-strip-hdr">'
+    + '<div><div class="fin-ledger-strip-title">' + title + '</div><div class="fin-ledger-strip-sub">' + sub + '</div></div>'
+    + '<button class="btn-secondary" style="white-space:nowrap;" onclick="finPropertyToggleLedger(' + volJsAttr(key) + ')">' + (open ? 'Hide &#9662;' : 'Show &#9656;') + '</button>'
+    + '</div>'
+    + (open ? '<div style="margin-top:14px;">' + bodyHtml + '</div>' : '')
+    + '</div>';
+}
+// The mini P&L. Rental revenue minus operating expenses is the property's own net income (the
+// same figure the annual summary reports); subtracting this year's reserve contributions gives
+// what actually reaches the church, which is the line the board cares about.
+function finRenderPropertyFundsItself(d) {
+  var year = new Date().getFullYear();
+  var cur = (d.annualSummary || []).filter(function(y) { return y.year === year; })[0];
+  var a = finComputeAvailableForDistribution(d);
+  if (!cur) {
+    return '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">Does it fund itself?</div>'
+      + '<p style="font-size:.85rem;color:var(--warm-gray);">No ' + year + ' months recorded yet — add this year\'s AHRA reports from the Data &amp; Imports tab.</p></div>';
+  }
+  var netToChurch = cur.net_income_cents - a.reserveContribCents;
+  function line(label, cents, negative) {
+    return '<div style="display:flex;justify-content:space-between;font-size:13px;">'
+      + '<span style="color:var(--warm-ink-label);font-weight:600;">' + label + '</span>'
+      + '<b style="font-variant-numeric:tabular-nums;">' + (negative ? '&minus;' : '') + '$' + finFmtMoney(Math.abs(cents) / 100) + '</b></div>';
+  }
+  var kpis = finComputePropertyKpis(d);
+  function tile(k) {
+    return '<div class="fin-mini-tile"><div class="fin-eyebrow">' + k.lbl + '</div>'
+      + '<div class="fin-mini-tile-val">' + k.val + '</div>'
+      + '<div style="font-size:11px;color:var(--warm-gray);">' + esc(k.chip || '') + '</div></div>';
+  }
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">Does it fund itself?</div>'
+    + '<div class="fin-card-sub">' + year + ' to date. ' + (netToChurch >= 0 ? 'Yes — with ' + finMoney0(netToChurch) + ' to spare.' : 'Not this year — it is ' + finMoney0(-netToChurch) + ' short after reserves.') + '</div>'
+    + '<div style="display:flex;flex-direction:column;gap:9px;">'
+    + line('Rental revenue', cur.total_revenue_cents, false)
+    + line('Operating expenses', cur.total_expenses_cents, true)
+    + line('To reserves', a.reserveContribCents, true)
+    + '<div style="display:flex;justify-content:space-between;font-size:14px;border-top:2px solid var(--color-navy);padding-top:9px;">'
+      + '<span style="font-weight:800;color:var(--color-navy);">Net to the church</span>'
+      + '<b style="font-variant-numeric:tabular-nums;color:var(--color-teal);">' + finFmtSigned(netToChurch) + '</b></div>'
+    + '</div>'
+    + '<div class="fin-grid-2" style="margin-top:14px;gap:10px;">' + tile(kpis[0]) + tile(kpis[1]) + '</div>'
+    + '</div>';
+}
+// AHRA's own "cash minus reserves" figure for the latest month, against what has already been
+// taken this year. Deliberately the monthly cash figure, not the full-year accrual estimate the
+// old "Available for Distribution" bar showed — a distribution is a cash decision.
+function finRenderPropertyDistributionHero(d, isAdminUI) {
+  var latest = finComputeLatestDistributionAmount(d);
+  var taken = finComputeDistributedThisYear(d);
+  var onHand = finComputePropertyReservesOnHandCents(d);
+  var still = latest ? latest.cents - taken.cents : null;
+  return '<div class="fin-navy-card fin-prop-hero">'
+    + '<div>'
+      + '<div class="fin-navy-label">Available to distribute today</div>'
+      + '<div class="fin-hero-val">' + (latest ? '$' + finFmtMoney(latest.cents / 100) : '—') + '</div>'
+      + '<div style="font-size:13px;color:rgba(255,255,255,.78);line-height:1.5;">'
+      + (latest
+        ? 'AHRA&rsquo;s own figure: cash on hand, less outstanding bills, less the ' + finMoney0(onHand) + ' total property reserve. ' + esc(latest.period) + ' report.'
+        : 'No AHRA report with a distribution figure has been recorded yet.')
+      + '</div>'
+    + '</div>'
+    + '<div class="fin-hero-split">'
+      + '<div><div class="fin-navy-sublabel">Taken so far in ' + taken.year + '</div><div class="fin-hero-sub-val">$' + finFmtMoney(taken.cents / 100) + '</div></div>'
+      + '<div><div class="fin-navy-sublabel">Still available</div><div class="fin-hero-sub-val" style="color:var(--pale-gold);">' + (still != null ? '$' + finFmtMoney(Math.max(0, still) / 100) : '—') + '</div></div>'
+    + '</div>'
+    + (isAdminUI ? '<div><button class="btn-white" onclick="finNavGo(\'data\')">Record a distribution &rarr;</button></div>' : '')
+    + '</div>';
+}
+function finRenderPropertyReservesCard(d) {
+  var taxRows = ((d.reserves && d.reserves.property_tax) || []).slice().sort(function(a, b) { return a.report_month < b.report_month ? 1 : -1; });
+  var taxCents = taxRows.length ? (taxRows[0].reserve_after_cents || 0) : 0;
+  var baseCents = (d.meta && d.meta.reserves && d.meta.reserves.base_minimum_cents) || 0;
+  var latestMonth = finPropertyLatestReserveMonth(d);
+  var totalCents = finComputePropertyReservesOnHandCents(d);
+  function line(label, cents, bold) {
+    return '<div style="display:flex;justify-content:space-between;' + (bold ? 'border-top:1px solid var(--warm-border);padding-top:8px;' : '') + '">'
+      + '<span style="' + (bold ? 'font-weight:800;color:var(--color-navy);' : 'color:var(--warm-ink-label);font-weight:600;') + '">' + label + '</span>'
+      + '<b style="font-variant-numeric:tabular-nums;">$' + finFmtMoney(cents / 100) + '</b></div>';
+  }
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:19px;">Reserves</div>'
+    + '<div class="fin-card-sub">' + (latestMonth ? 'AHRA&rsquo;s total property reserve, ' + esc(latestMonth.period) + '.' : 'Reconstructed from the reserve ledger plus the base minimum — no AHRA total recorded yet.') + '</div>'
+    + '<div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px;">'
+    + line('Property tax reserve', taxCents, false)
+    + line('Base minimum reserve', baseCents, false)
+    + line('Total', totalCents, true)
+    + '</div>'
+    + '<div style="font-size:11.5px;color:var(--warm-gray);margin-top:10px;line-height:1.45;">The tax reserve zeroes each November when the bill is paid, then rebuilds.</div>'
+    + '<details style="margin-top:10px;"><summary class="fin-disclosure">Reserve schedule</summary><div style="margin-top:8px;">' + finRenderPropertyTaxReserve(d, false) + '</div></details>'
+    + '</div>';
+}
+function finRenderPropertyValuationCard(d) {
+  var meta = d.meta || {};
+  var val = meta.valuation || {};
+  var loan = meta.loan || {};
+  var mortgage = finComputeMortgageRemainingCents(loan, d.monthly || []);
+  var valueCents = val.capitalized_value_cents || 0;
+  var equityCents = mortgage.cents != null ? (valueCents - mortgage.cents) : null;
+  var ltvPct = (valueCents && mortgage.cents != null) ? (mortgage.cents / valueCents) : null;
+  function tile(label, value, positive) {
+    return '<div class="fin-mini-tile' + (positive ? ' positive' : '') + '">'
+      + '<div class="fin-eyebrow"' + (positive ? ' style="color:var(--sage-text);"' : '') + '>' + label + '</div>'
+      + '<div class="fin-mini-tile-val">' + value + '</div></div>';
+  }
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:19px;">Valuation &amp; equity</div>'
+    + '<div class="fin-card-sub">Mortgage rolled forward from the lender-confirmed balance using real principal payments'
+    + (mortgage.monthsApplied.length ? ' (' + mortgage.monthsApplied.length + ' month' + (mortgage.monthsApplied.length === 1 ? '' : 's') + ' applied since ' + esc(loan.balance_as_of_date || '') + ')' : '') + '.</div>'
+    + '<div class="fin-grid-2" style="gap:10px;">'
+    + tile('Valuation', '$' + finFmtMoney(valueCents / 100), false)
+    + tile('Mortgage left', mortgage.cents != null ? '$' + finFmtMoney(mortgage.cents / 100) : '—', false)
+    + tile('Equity', equityCents != null ? '$' + finFmtMoney(equityCents / 100) : '—', true)
+    + tile('Loan-to-value', ltvPct != null ? (ltvPct * 100).toFixed(1) + '%' : '—', false)
+    + '</div></div>';
+}
 function finRenderProperty(d) {
   var el = document.getElementById('fin-property-root');
   if (!el || !d) return;
   var meta = d.meta || {};
   var prop = meta.property || {};
-  var val = meta.valuation || {};
-  var loan = meta.loan || {};
   var isAdminUI = (_userRole === 'admin');
+  var monthly = (d.monthly || []).slice().sort(function(a, b) { return a.period < b.period ? 1 : -1; });
+  var latestPeriod = monthly.length ? monthly[0].period : '';
 
-  var kpiHtml = finRenderKpiGrid(finComputePropertyKpis(d));
+  var subParts = [];
+  if (prop.type) subParts.push(esc(prop.type));
+  subParts.push('owned by ' + esc(prop.owner || 'Timothy Lutheran Church'));
+  if (prop.property_manager) subParts.push('managed by ' + esc(prop.property_manager));
+  if (latestPeriod) subParts.push('report through ' + esc(latestPeriod));
 
-  var mortgageRemaining = finComputeMortgageRemainingCents(loan, d.monthly || []);
-  var valueCents = val.capitalized_value_cents || 0;
-  var equityCents = mortgageRemaining.cents != null ? (valueCents - mortgageRemaining.cents) : null;
-  var ltvPct = (valueCents && mortgageRemaining.cents != null) ? (mortgageRemaining.cents / valueCents) : null;
-
-  var statsHtml = '<h4 style="margin:0 0 8px;font-size:.85rem;color:var(--warm-meta);">Valuation &amp; Equity</h4><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">'
-    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney(valueCents/100) + '</div><div class="rpt-stat-lbl">Valuation</div></div>'
-    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((mortgageRemaining.cents||0)/100) + '</div><div class="rpt-stat-lbl">Mortgage Remaining' + (mortgageRemaining.asOf ? ' <span style="font-weight:400;">(as of ' + esc(mortgageRemaining.asOf) + ')</span>' : '') + '</div></div>'
-    + '<div class="rpt-stat"><div class="rpt-stat-num">' + (equityCents != null ? '$' + finFmtMoney(equityCents/100) : '—') + '</div><div class="rpt-stat-lbl">Equity</div></div>'
-    + '<div class="rpt-stat"><div class="rpt-stat-num">' + (ltvPct != null ? (ltvPct*100).toFixed(1) + '%' : '—') + '</div><div class="rpt-stat-lbl">Loan-to-Value</div></div>'
-    + '</div>'
-    + (mortgageRemaining.monthsApplied.length ? '<p style="font-size:.72rem;color:var(--warm-gray);margin:-10px 0 16px;">Mortgage Remaining rolled forward from the $' + finFmtMoney((loan.balance_cents||0)/100) + ' lender-confirmed balance (' + esc(loan.balance_as_of_date) + ') using ' + mortgageRemaining.monthsApplied.length + ' month(s) of real principal payments (' + mortgageRemaining.monthsApplied.map(esc).join(', ') + ') — no new lender confirmation needed.</p>' : '');
-
-  var infoHtml = '<p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 4px;"><b>' + esc(prop.name || '3277 Ivanhoe') + '</b> — ' + esc(prop.type || '') + '. Owned by ' + esc(prop.owner || 'Timothy Lutheran Church') + '. Managed by ' + esc(prop.property_manager || '') + '.</p>'
-    + (val.as_of_date ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 2px;">Valuation as of ' + esc(val.as_of_date) + ' (' + esc(val.method || '') + ').</p>' : '')
-    + (loan.note ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 2px;"><i>' + esc(loan.note) + '</i></p>' : '')
-    + ((prop.known_data_gaps && prop.known_data_gaps.length) ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 2px;">Known data gaps: ' + prop.known_data_gaps.map(esc).join(', ') + '.</p>' : '')
-    + (prop.pre_ahra_history_note ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:8px 0 0;">' + esc(prop.pre_ahra_history_note) + '</p>' : '');
-
-  // Annual summary
-  var years = (d.annualSummary || []).slice().sort(function(a,b){ return b.year - a.year; });
-  var annualRows = years.map(function(y) {
-    return '<tr><td style="padding:6px 8px;font-weight:600;">' + y.year + '</td>'
-      + '<td style="padding:6px 8px;text-align:right;">$' + finFmtMoney(y.total_revenue_cents/100) + '</td>'
-      + '<td style="padding:6px 8px;text-align:right;">$' + finFmtMoney(y.total_expenses_cents/100) + '</td>'
-      + '<td style="padding:6px 8px;text-align:right;">$' + finFmtMoney(y.net_income_cents/100) + '</td>'
-      + '<td style="padding:6px 8px;text-align:right;">' + (y.avg_occupancy_pct != null ? (y.avg_occupancy_pct*100).toFixed(1)+'%' : '—') + '</td>'
-      + '<td style="padding:6px 8px;text-align:right;">$' + finFmtMoney(y.confirmed_distributions_cents/100) + '</td>'
-      + '<td style="padding:6px 8px;font-size:.78rem;color:var(--warm-gray);">' + esc(y.notes || '') + '</td></tr>';
-  }).join('');
-  var annualHtml = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
-    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:6px 8px;">Year</th><th style="text-align:right;padding:6px 8px;">Revenue</th><th style="text-align:right;padding:6px 8px;">Expenses</th><th style="text-align:right;padding:6px 8px;">Net Income</th><th style="text-align:right;padding:6px 8px;">Avg Occ.</th><th style="text-align:right;padding:6px 8px;">Distributions to Church</th><th style="text-align:left;padding:6px 8px;">Notes</th></tr></thead>'
-    + '<tbody>' + (annualRows || '<tr><td colspan="7" style="padding:10px;color:var(--warm-gray);">No data yet.</td></tr>') + '</tbody>'
-    + '</table></div>';
-
-  // Monthly financials
-  var monthly = (d.monthly || []).slice().sort(function(a,b){ return a.period < b.period ? 1 : -1; });
-  function cell(cents) { return cents == null ? '<span style="color:var(--warm-gray);">—</span>' : '$' + finFmtMoney(cents/100); }
+  // Ledger bodies. Row-level Edit/Delete stay inside the expanded tables, per the handoff — the
+  // BULK admin tools are what moved to Data & Imports, not the ability to correct one row.
+  function cell(cents) { return cents == null ? '<span style="color:var(--warm-gray);">—</span>' : '$' + finFmtMoney(cents / 100); }
   var monthRows = monthly.map(function(m) {
     return '<tr><td style="padding:5px 8px;font-weight:600;">' + esc(m.period) + '</td>'
-      + '<td style="padding:5px 8px;text-align:right;">' + (m.occupancy_pct != null ? (m.occupancy_pct*100).toFixed(1)+'%' : '—') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + (m.occupancy_pct != null ? (m.occupancy_pct * 100).toFixed(1) + '%' : '—') + '</td>'
       + '<td style="padding:5px 8px;text-align:right;">' + cell(m.total_revenue_cents) + '</td>'
       + '<td style="padding:5px 8px;text-align:right;">' + cell(m.total_expenses_cents) + '</td>'
       + '<td style="padding:5px 8px;text-align:right;">' + cell(m.net_income_cents) + '</td>'
@@ -3145,61 +4326,73 @@ function finRenderProperty(d) {
   }).join('');
   var monthlyHtml = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
     + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:5px 8px;">Period</th><th style="text-align:right;padding:5px 8px;">Occ.</th><th style="text-align:right;padding:5px 8px;">Revenue</th><th style="text-align:right;padding:5px 8px;">Expenses</th><th style="text-align:right;padding:5px 8px;">Net Income</th><th style="text-align:right;padding:5px 8px;">NOI</th><th style="text-align:right;padding:5px 8px;">Reserve</th><th style="text-align:right;padding:5px 8px;">Distribution</th>' + (isAdminUI ? '<th></th>' : '') + '</tr></thead>'
-    + '<tbody>' + (monthRows || '<tr><td colspan="9" style="padding:10px;color:var(--warm-gray);">No months recorded yet.</td></tr>') + '</tbody>'
-    + '</table></div>';
+    + '<tbody>' + (monthRows || '<tr><td colspan="9" style="padding:10px;color:var(--warm-gray);">No months recorded yet.</td></tr>') + '</tbody></table></div>';
 
-  // Distributions to church
-  var dists = (d.distributions || []).slice().sort(function(a,b){ return a.period < b.period ? 1 : -1; });
+  var dists = (d.distributions || []).slice().sort(function(a, b) { return a.period < b.period ? 1 : -1; });
   var distRows = dists.map(function(dd) {
-    return '<tr><td style="padding:5px 8px;">' + esc(dd.period) + '</td><td style="padding:5px 8px;text-align:right;">$' + finFmtMoney(dd.amount_cents/100) + '</td>'
+    return '<tr><td style="padding:5px 8px;">' + esc(dd.period) + '</td><td style="padding:5px 8px;text-align:right;">$' + finFmtMoney(dd.amount_cents / 100) + '</td>'
       + (isAdminUI ? '<td style="padding:5px 8px;"><button class="btn-secondary" style="font-size:.72rem;padding:2px 6px;color:var(--danger);" onclick="finPropertyDeleteDistribution(\'' + esc(dd.period) + '\')">Delete</button></td>' : '') + '</tr>';
   }).join('');
   var distHtml = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
     + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:6px 8px;">Period</th><th style="text-align:right;padding:6px 8px;">Amount</th>' + (isAdminUI ? '<th></th>' : '') + '</tr></thead>'
-    + '<tbody>' + (distRows || '<tr><td colspan="3" style="padding:10px;color:var(--warm-gray);">No distributions recorded yet.</td></tr>') + '</tbody>'
-    + '</table></div>'
-    + (isAdminUI ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
-      + '<label style="font-size:.75rem;color:var(--warm-gray);">Period<br><input type="text" id="fin-prop-dist-period" placeholder="2026-07" style="width:100px;"></label>'
-      + '<label style="font-size:.75rem;color:var(--warm-gray);">Amount ($)<br><input type="number" id="fin-prop-dist-amount" step="0.01" style="width:110px;"></label>'
-      + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finPropertyAddDistribution()">+ Add</button>'
-      + '</div>' : '');
+    + '<tbody>' + (distRows || '<tr><td colspan="3" style="padding:10px;color:var(--warm-gray);">No distributions recorded yet.</td></tr>') + '</tbody></table></div>';
 
-  var budgetImportHtml = isAdminUI
-    ? '<div style="margin-bottom:16px;padding:10px 14px;background:var(--warm-surface-page);border-radius:10px;">'
-      + '<label style="font-size:.78rem;color:var(--warm-gray);font-weight:600;">Import Budget (AHRA "Budget Detail" export) <input type="file" accept=".xlsx" onchange="finPropertyBudgetImportFileSelected(this)" style="display:block;margin-top:4px;"></label>'
-      + '<div id="fin-property-budget-import-status" style="font-size:.76rem;color:var(--warm-gray);margin-top:6px;"></div>'
+  var thisYear = String(new Date().getFullYear());
+  var capitalThisYear = (d.capitalLedger || []).filter(function(c) { return String(c.entry_date || '').slice(0, 4) === thisYear; })
+    .reduce(function(s, c) { return s + (c.amount_cents || 0); }, 0);
+  var recentDists = dists.slice(0, 2).map(function(dd) { return esc(dd.period) + ' $' + finFmtMoney(dd.amount_cents / 100); }).join(' &middot; ');
+
+  el.innerHTML = finPageHeader(esc(prop.name || '3277 Ivanhoe'), subParts.join(' &middot; '), '<button class="btn-secondary" onclick="window.print()">Print</button>')
+    + '<div class="fin-grid-hero">'
+      + finRenderPropertyDistributionHero(d, isAdminUI)
+      + finRenderPropertyFundsItself(d)
+    + '</div>'
+    + '<div class="fin-grid-charts">'
+      + '<div class="fin-card">' + finRenderPropertyCharts(d) + '</div>'
+      + '<div style="display:flex;flex-direction:column;gap:16px;">'
+        + finRenderPropertyValuationCard(d)
+        + finRenderPropertyReservesCard(d)
       + '</div>'
-    : '';
-
-  var monthlyCsvImportHtml = isAdminUI
-    ? '<div id="fin-property-monthly-csv-panel" style="display:none;margin:8px 0 14px;padding:10px 14px;background:var(--warm-surface-page);border-radius:10px;">'
-      + '<label style="font-size:.78rem;color:var(--warm-gray);font-weight:600;">Paste the AHRA report\'s "monthly financials" CSV row(s) below (same header row as ' +
-        '<code>period,occupancy_pct,total_revenue,operating_expenses,...</code>) to add or update those months in one step, instead of typing each field into the modal.</label>'
-      + '<textarea id="fin-property-monthly-csv-text" rows="4" style="width:100%;font-family:monospace;font-size:.76rem;margin-top:6px;" placeholder="period,occupancy_pct,total_revenue,operating_expenses,net_operating_income,non_operating_expenses,net_income,...\n2026-06,100,9765.27,-3505.43,6259.84,-957.05,5302.79,..."></textarea>'
-      + '<div style="margin-top:8px;"><button class="btn-primary" style="font-size:.78rem;padding:4px 10px;" onclick="finPropertyImportMonthlyCsv()">Import</button> '
-      + '<span id="fin-property-monthly-csv-status" style="font-size:.76rem;color:var(--warm-gray);margin-left:8px;"></span></div>'
-      + '</div>'
-    : '';
-
-  el.innerHTML = kpiHtml
-    + '<div style="margin-bottom:16px;">' + infoHtml + '</div>'
-    + statsHtml
-    + budgetImportHtml
-    + finRenderPropertyCharts(d)
-    + finRenderPropertyForecast(d)
-    + finRenderValuationCalculator(d, isAdminUI)
-    + '<h4 style="margin:0 0 8px;font-size:.9rem;">Annual Summary</h4>' + annualHtml
-    + '<h4 style="margin:18px 0 8px;display:flex;align-items:center;justify-content:space-between;font-size:.9rem;"><span>Monthly Financials</span>' + (isAdminUI ? '<span><button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;margin-right:6px;" onclick="finPropertyToggleMonthlyCsvPanel()">Import CSV</button><button class="btn-primary" style="font-size:.78rem;padding:4px 10px;" onclick="finPropertyOpenMonthModal()">+ Add Month</button></span>' : '') + '</h4>'
-    + monthlyCsvImportHtml
-    + monthlyHtml
-    + '<h4 style="margin:18px 0 8px;font-size:.9rem;">Distributions to Church</h4>' + distHtml
-    + finRenderBaseMinimumReserve(d, isAdminUI)
-    + finRenderPropertyTaxReserve(d, isAdminUI)
-    + finRenderCapitalImprovements(d, isAdminUI)
-    + finRenderRepairs(d, isAdminUI)
-    + finRenderAvailableForDistributionBar(d)
+    + '</div>'
+    + '<div class="fin-grid-3">'
+      + finLedgerStrip('monthly', 'Monthly financials', monthly.length + ' month' + (monthly.length === 1 ? '' : 's') + ' on record', monthlyHtml)
+      + finLedgerStrip('capital', 'Capital &amp; repairs ledger', capitalThisYear ? '$' + finFmtMoney(capitalThisYear / 100) + ' this year' : 'nothing capitalised this year',
+          finRenderCapitalImprovements(d, isAdminUI) + finRenderRepairs(d, isAdminUI))
+      + finLedgerStrip('dists', 'Distributions to church', recentDists || 'none recorded', distHtml)
+    + '</div>'
     + finRenderInsuranceAllocation(d);
 }
+// The bulk admin tools, rendered onto the Data & Imports tab rather than this report — an upload
+// control has no business on a page the council reads from.
+function finRenderPropertyAdminTools(d) {
+  var el = document.getElementById('fin-data-property-tools');
+  if (!el) return;
+  if (_userRole !== 'admin') { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">3277 Ivanhoe &mdash; data entry</div>'
+    + '<div class="fin-card-sub">Everything that writes to the property record. The report itself is on the Commercial Property tab.</div>'
+    + '<div id="fin-property-budget-import-label" style="margin-bottom:14px;padding:10px 14px;background:var(--warm-surface-page);border-radius:10px;">'
+      + '<label style="font-size:.78rem;color:var(--warm-gray);font-weight:600;">Import Budget (AHRA "Budget Detail" export) <input type="file" accept=".xlsx" onchange="finPropertyBudgetImportFileSelected(this)" style="display:block;margin-top:4px;"></label>'
+      + '<div id="fin-property-budget-import-status" style="font-size:.76rem;color:var(--warm-gray);margin-top:6px;"></div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">'
+      + '<button class="btn-primary" onclick="finPropertyOpenMonthModal()">+ Add Month</button>'
+      + '<button class="btn-secondary" onclick="finPropertyToggleMonthlyCsvPanel()">Import monthly CSV</button>'
+    + '</div>'
+    + '<div id="fin-property-monthly-csv-panel" style="display:none;margin:8px 0 14px;padding:10px 14px;background:var(--warm-surface-page);border-radius:10px;">'
+      + '<label style="font-size:.78rem;color:var(--warm-gray);font-weight:600;">Paste the AHRA report\'s "monthly financials" CSV row(s) below (same header row as '
+      + '<code>period,occupancy_pct,total_revenue,operating_expenses,...</code>) to add or update those months in one step.</label>'
+      + '<textarea id="fin-property-monthly-csv-text" rows="4" style="width:100%;font-family:monospace;font-size:.76rem;margin-top:6px;" placeholder="period,occupancy_pct,total_revenue,operating_expenses,net_operating_income,non_operating_expenses,net_income,..."></textarea>'
+      + '<div style="margin-top:8px;"><button class="btn-primary" style="font-size:.78rem;padding:4px 10px;" onclick="finPropertyImportMonthlyCsv()">Import</button> '
+      + '<span id="fin-property-monthly-csv-status" style="font-size:.76rem;color:var(--warm-gray);margin-left:8px;"></span></div>'
+    + '</div>'
+    + '<details><summary class="fin-disclosure">Reserves</summary><div style="margin-top:10px;">'
+      + finRenderBaseMinimumReserve(d, true) + finRenderPropertyTaxReserve(d, true) + '</div></details>'
+    + '<details style="margin-top:8px;"><summary class="fin-disclosure">Valuation calculator</summary><div style="margin-top:10px;">'
+      + finRenderValuationCalculator(d, true) + '</div></details>'
+    + '</div>';
+}
+
 
 // ── Property Tax Reserve ─────────────────────────────────────────────────────────────────────
 // AHRA maintains a running monthly reserve toward the annual property tax bill — the schedule
@@ -3816,10 +5009,6 @@ function finRenderPlanning() {
   if (!el) return;
   var isAdminUI = (_userRole === 'admin');
 
-  var yearPickerHtml = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">'
-    + '<label style="font-size:.72rem;color:var(--warm-gray);">Base Year (actual/budget source)<br><input type="number" id="fin-plan-base-year" value="' + _finPlanBaseYear + '" onchange="finPlanChangeBaseYear()" style="width:100px;"></label>'
-    + '<label style="font-size:.72rem;color:var(--warm-gray);">Projecting For<br><input type="number" id="fin-plan-target-year" value="' + _finPlanTargetYear + '" onchange="finPlanChangeTargetYear()" style="width:100px;"></label>'
-    + '</div>';
 
   var rowsHtml = [];
   // Projected cents for a GROUP row (has children) is always the live sum of its own descendant
@@ -3950,7 +5139,7 @@ function finRenderPlanning() {
     + '<td></td>'
     + '</tr>';
 
-  var tableHtml = '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;">'
+  var tableHtml = '<div style="overflow-x:auto;margin-top:6px;">'
     + '<table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
     + '<thead><tr style="background:var(--warm-surface-header);">'
     + '<th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Category</th>'
@@ -3966,58 +5155,104 @@ function finRenderPlanning() {
   var actionsHtml = isAdminUI
     ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:12px;">'
       + '<label style="font-size:.72rem;color:var(--warm-gray);">Growth Assumption %<br><input type="number" id="fin-plan-growth" step="0.1" value="3" style="width:100px;"></label>'
-      + '<button class="btn-secondary" style="font-size:.78rem;padding:5px 12px;" onclick="finPlanGenerateAll()">Generate All (overwrites every Projected value below)</button>'
-      + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finPlanSaveAll()">Save Changes</button>'
-      + '<button class="btn-secondary" style="font-size:.78rem;padding:5px 12px;" onclick="finPlanCommit()">Commit FY' + _finPlanTargetYear + ' to Real Budget</button>'
+      + '<button class="btn-secondary" onclick="finPlanGenerateAll()">Generate All (overwrites every Projected value below)</button>'
+      + '<button class="btn-primary" onclick="finPlanSaveAll()">Save Changes</button>'
       + '</div>'
       + '<div id="fin-plan-msg" style="font-size:.75rem;color:var(--warm-gray);margin-top:6px;"></div>'
     : '';
 
-  var projectedNetCard = '<div class="fin-navy-card">'
-    + '<div class="fin-card-title" style="font-size:18px;">FY' + _finPlanTargetYear + ' Projected Net</div>'
-    + '<div class="fin-navy-label" style="margin-top:10px;">Projected Revenue</div><div style="font-size:18px;font-weight:700;">$' + finFmtMoney(projectedRevenueCents/100) + '</div>'
-    + '<div class="fin-navy-label" style="margin-top:8px;">Planned Expenses</div><div style="font-size:18px;font-weight:700;">$' + finFmtMoney(projectedExpenseCents/100) + '</div>'
-    + '<div style="border-top:1px solid rgba(255,255,255,.3);margin:10px 0;"></div>'
-    + '<div class="fin-navy-label">Surplus / (Deficit)</div><div class="fin-navy-val ' + (projectedNetCents >= 0 ? 'positive' : 'negative') + '">' + finFmtSigned(projectedNetCents) + '</div>'
+  // Header: the two year inputs belong beside the title they qualify, not in a separate strip
+  // above the table — every figure on the page is read as "FY{target}, built from FY{base}".
+  var header = finPageHeader('Planning FY' + _finPlanTargetYear,
+    'Base year ' + _finPlanBaseYear + (baseProrated ? ' (annualized from ' + baseThroughWeek.toFixed(0) + ' weeks of actuals)' : '') + ' &middot; independent of QuickBooks until you commit',
+    '<label class="fin-inline-field">Base year<input type="number" id="fin-plan-base-year" value="' + _finPlanBaseYear + '" onchange="finPlanChangeBaseYear()"></label>'
+    + '<label class="fin-inline-field">Projecting for<input type="number" id="fin-plan-target-year" value="' + _finPlanTargetYear + '" onchange="finPlanChangeTargetYear()"></label>'
+    + (isAdminUI ? '<button class="btn-primary" onclick="finPlanCommit()">Commit FY' + _finPlanTargetYear + ' plan</button>' : ''));
+
+  // The navy strip's last cell is the connective tissue between this page and Financial Health:
+  // what revenue would have to be for the plan to balance, and how far that is from this year's.
+  var changeCents = projectedExpenseCents - baseExpenseProjCents;
+  var changePct = baseExpenseProjCents ? (changeCents / Math.abs(baseExpenseProjCents) * 100) : null;
+  var revenueNeededCents = projectedExpenseCents;
+  var revenueDeltaCents = revenueNeededCents - baseRevenueProjCents;
+  function stripCell(label, value, color, sub) {
+    return '<div><div class="fin-navy-sublabel">' + label + '</div>'
+      + '<div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;' + (color ? 'color:' + color + ';' : '') + '">' + value + '</div>'
+      + (sub ? '<div style="font-size:11.5px;color:rgba(255,255,255,.7);">' + sub + '</div>' : '') + '</div>';
+  }
+  var summaryStrip = '<div class="fin-navy-card fin-plan-strip">'
+    + stripCell('FY' + _finPlanBaseYear + ' projected expenses', finMoney0(baseExpenseProjCents), '', '')
+    + stripCell('FY' + _finPlanTargetYear + ' planned', finMoney0(projectedExpenseCents), 'var(--pale-gold)', '')
+    + stripCell('Change', finFmtSigned(changeCents) + (changePct != null ? ' &middot; ' + (changePct >= 0 ? '+' : '') + changePct.toFixed(1) + '%' : ''), '', '')
+    + '<div class="fin-plan-strip-last">' + stripCell('Revenue needed to balance', finMoney0(revenueNeededCents), 'var(--positive-on-navy)',
+        (revenueDeltaCents >= 0 ? '+' : '') + finMoney0(Math.abs(revenueDeltaCents)) + ' on this year&rsquo;s revenue') + '</div>'
     + '</div>';
 
-  el.innerHTML = yearPickerHtml
-    + '<div style="display:grid;grid-template-columns:1.35fr 1fr;gap:22px;align-items:start;margin-bottom:22px;">'
-    + '<div>' + tableHtml + actionsHtml + '</div>'
-    + projectedNetCard
+  el.innerHTML = header
+    + summaryStrip
+    + '<div class="fin-card" style="padding:20px 24px;">'
+      + '<div class="fin-card-title" style="font-size:20px;">Category by category</div>'
+      + '<div class="fin-card-sub">Planned figures are editable; &Delta;% flags anything growing faster than 4%.</div>'
+      + tableHtml + actionsHtml
     + '</div>'
     + finRenderPlanningOutlook(projectedRevenueCents, projectedExpenseCents);
+  // The Ivanhoe forecast mounts inside the row finRenderPlanningOutlook just wrote.
+  finRenderPropertyMultiYearForecast();
 }
-// Three-year outlook (Finance Workspace handoff, Planning section): current target year plus 3
-// forward years, income growing 2.5%/yr and expenses 3%/yr beyond the target year — the handoff's
-// own stated assumption, not independently derived. A quick "does this trend stay healthy"
-// glance, not a substitute for actually re-planning each year in the table above.
+// Five-year outlook. Expenses compound at the rate implied by the plan itself, revenue is held
+// flat — not a forecast so much as the question "if nothing changes on the revenue side, what
+// does this plan cost us?" The filled band between the two lines is the compounding gap, which is
+// the only thing this chart exists to show.
 function finRenderPlanningOutlook(baseRevenueCents, baseExpenseCents) {
+  var N = 5;
+  var expGrowth = 1.03, revGrowth = 1.0;
   var years = [];
   var rev = baseRevenueCents, exp = baseExpenseCents;
-  for (var i = 0; i < 4; i++) {
-    years.push({ year: _finPlanTargetYear + i, revenueCents: rev, expenseCents: exp, netCents: rev - exp });
-    rev = Math.round(rev * 1.025);
-    exp = Math.round(exp * 1.03);
+  for (var i = 0; i < N; i++) {
+    years.push({ year: _finPlanTargetYear + i, revenueCents: rev, expenseCents: exp });
+    rev = Math.round(rev * revGrowth);
+    exp = Math.round(exp * expGrowth);
   }
-  var maxAbs = Math.max(1, Math.max.apply(null, years.map(function(y) { return Math.abs(y.netCents); })));
-  var barsHtml = years.map(function(y) {
-    var pct = Math.abs(y.netCents) / maxAbs * 100;
-    var positive = y.netCents >= 0;
-    return '<div style="flex:1;text-align:center;">'
-      + '<div style="height:120px;display:flex;align-items:flex-end;justify-content:center;">'
-      + '<div style="width:60%;height:' + Math.max(2, pct) + '%;border-radius:4px 4px 0 0;background:' + (positive ? 'var(--sage)' : 'var(--danger)') + ';"></div>'
-      + '</div>'
-      + '<div style="font-size:.8rem;font-weight:700;margin-top:6px;color:' + (positive ? 'var(--sage-text)' : 'var(--danger)') + ';">' + finFmtSigned(y.netCents) + '</div>'
-      + '<div style="font-size:.75rem;color:var(--warm-meta);">FY' + y.year + '</div>'
-      + '</div>';
+  var all = years.reduce(function(a, y) { return a.concat([y.revenueCents, y.expenseCents]); }, []);
+  var maxV = Math.max.apply(null, all.concat([1]));
+  var minV = Math.min.apply(null, all.concat([0]));
+  var span = Math.max(1, maxV - minV);
+  var x0 = 60, x1 = 458, yTop = 40, yBot = 140;
+  function px(i) { return years.length > 1 ? x0 + (x1 - x0) * (i / (years.length - 1)) : x0; }
+  function py(c) { return yBot - ((c - minV) / span) * (yBot - yTop); }
+  var expPts = years.map(function(y, i) { return px(i).toFixed(1) + ',' + py(y.expenseCents).toFixed(1); }).join(' ');
+  var revPts = years.map(function(y, i) { return px(i).toFixed(1) + ',' + py(y.revenueCents).toFixed(1); }).join(' ');
+  var band = expPts + ' ' + years.map(function(y, i) { return px(years.length - 1 - i).toFixed(1) + ',' + py(years[years.length - 1 - i].revenueCents).toFixed(1); }).join(' ');
+  var yearLabels = years.map(function(y, i) { return '<text x="' + px(i).toFixed(1) + '" y="158">' + y.year + '</text>'; }).join('');
+  var gl = [0, 1, 2].map(function(i) {
+    var y = yBot - (yBot - yTop) * i / 2;
+    return '<line x1="40" y1="' + y.toFixed(1) + '" x2="470" y2="' + y.toFixed(1) + '"></line>';
   }).join('');
-  return '<div class="fin-card" style="margin-bottom:22px;">'
-    + '<div class="fin-card-title" style="font-size:18px;">Three-Year Outlook</div>'
-    + '<div class="fin-card-sub">Income +2.5%/yr, expenses +3%/yr after FY' + _finPlanTargetYear + '.</div>'
-    + '<div style="display:flex;gap:10px;">' + barsHtml + '</div>'
+  var glLabels = [0, 1, 2].map(function(i) {
+    var y = yBot - (yBot - yTop) * i / 2;
+    return '<text x="2" y="' + (y + 4).toFixed(1) + '">' + finMoney0(minV + span * i / 2) + '</text>';
+  }).join('');
+  var lastGap = years[years.length - 1].expenseCents - years[years.length - 1].revenueCents;
+  return '<div class="fin-grid-2">'
+    + '<div class="fin-card">'
+      + '<div class="fin-card-title" style="font-size:20px;">Five-year outlook</div>'
+      + '<div class="fin-card-sub">At 3% expense growth and flat revenue, the gap ' + (lastGap > 0 ? 'compounds to ' + finMoney0(lastGap) + ' by FY' + years[years.length - 1].year + '.' : 'stays closed through FY' + years[years.length - 1].year + '.') + '</div>'
+      + '<svg viewBox="0 0 480 180" width="100%" height="170" role="img" aria-label="Outlook: expenses rising from '
+      + finMoney0(years[0].expenseCents) + ' to ' + finMoney0(years[years.length - 1].expenseCents) + ' while flat revenue leaves a '
+      + (lastGap > 0 ? 'widening gap' : 'surplus') + '">'
+      + '<g stroke="var(--warm-row-divider)" stroke-width="1">' + gl + '</g>'
+      + '<g font-size="9.5" fill="var(--warm-meta)">' + glLabels + '</g>'
+      + '<polygon points="' + band + '" fill="var(--chip-negative-bg)"></polygon>'
+      + '<polyline points="' + expPts + '" fill="none" stroke="var(--danger)" stroke-width="3"></polyline>'
+      + '<polyline points="' + revPts + '" fill="none" stroke="var(--color-teal)" stroke-width="3" stroke-dasharray="6 5"></polyline>'
+      + '<g font-size="10" fill="var(--warm-meta)" text-anchor="middle">' + yearLabels + '</g>'
+      + '<g font-size="10.5" font-weight="700"><text x="40" y="176" fill="var(--danger)">&mdash; Expenses</text>'
+      + '<text x="130" y="176" fill="var(--color-teal)">&mdash; Revenue if flat</text></g>'
+      + '</svg></div>'
+    + '<div id="fin-plan-property-mount"></div>'
     + '</div>';
 }
+
 function finPlanChangeTargetYear() {
   var y = parseInt(document.getElementById('fin-plan-target-year').value, 10);
   if (!isFinite(y)) return;
@@ -6094,9 +7329,11 @@ function finCompCouncilReportHtml(computed, totals) {
 // entirely client-side, extending the single-year forecast already on the Commercial Property
 // tab into an adjustable growth-rate projection over several years). ──────────────────────────
 function finRenderPropertyMultiYearForecast() {
-  var el = document.getElementById('fin-plan-property-root');
+  // Mounts inside the Planning page's outlook row (see finRenderPlanningOutlook), so it is
+  // rendered after finRenderPlanning() has rebuilt that container.
+  var el = document.getElementById('fin-plan-property-mount');
   if (!el) return;
-  if (!_finProperty) { el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>'; return; }
+  if (!_finProperty) { el.innerHTML = '<div class="fin-card"><p style="font-size:.85rem;color:var(--warm-gray);margin:0;">Loading property forecast…</p></div>'; return; }
   var loan = (_finProperty.meta && _finProperty.meta.loan) || {};
   var monthly = (_finProperty.monthly || []).slice().sort(function(a,b){ return a.period < b.period ? -1 : 1; }).slice(-12);
   var withNet = monthly.filter(function(m) { return m.net_income_cents != null || m.net_operating_income_cents != null; });
@@ -6106,13 +7343,38 @@ function finRenderPropertyMultiYearForecast() {
   var amort = finComputeMortgageAmortization(loan);
   var payoffYear = amort ? amort.payoffDate.getFullYear() : null;
 
+  // Four tiles first — three forecast years and the payoff year — because that is the whole
+  // answer for most readers; the year-by-year table and its assumptions sit behind a disclosure.
+  var growthForTiles = 0.02;
+  function tile(label, value, positive) {
+    return '<div class="fin-mini-tile' + (positive ? ' positive' : '') + '">'
+      + '<div class="fin-eyebrow"' + (positive ? ' style="color:var(--sage-text);"' : '') + '>' + label + '</div>'
+      + '<div class="fin-mini-tile-val">' + value + '</div></div>';
+  }
+  var tileStart = new Date().getFullYear() + 1;
+  var tiles = '';
+  for (var t = 0; t < 3; t++) {
+    var tYear = tileStart + t;
+    var tCents = Math.round(avgAnnualCents * Math.pow(1 + growthForTiles, t + 1))
+      + ((payoffYear && tYear >= payoffYear) ? (loan.annual_debt_service_cents || 0) : 0);
+    tiles += tile(String(tYear), finMoney0(tCents), false);
+  }
+  tiles += tile('Loan paid off', payoffYear ? String(payoffYear) : '—', true);
+
   var inputsHtml = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">'
     + '<label style="font-size:.75rem;color:var(--warm-gray);">Annual Growth Assumption %<br><input type="number" id="fin-pmf-growth" step="0.1" value="2" oninput="finRenderPropertyMultiYearTable()" style="width:100px;"></label>'
     + '<label style="font-size:.75rem;color:var(--warm-gray);">Years to Project<br><input type="number" id="fin-pmf-years" value="10" min="1" max="30" oninput="finRenderPropertyMultiYearTable()" style="width:90px;"></label>'
     + '</div>'
     + '<p style="font-size:.72rem;color:var(--warm-gray);margin:0 0 10px;">Starts from the trailing-12-month average annual net income ($' + finFmtMoney(avgAnnualCents/100) + ') and compounds the growth assumption above. ' + (payoffYear ? 'The mortgage is projected to pay off around ' + payoffYear + ' — years from then on add back the current annual debt service ($' + finFmtMoney((loan.annual_debt_service_cents||0)/100) + '), on the same assumption noted in the Commercial Property tab.' : 'No mortgage payoff projection is available, so debt service is not added back in any year.') + '</p>'
     + '<div id="fin-pmf-table"></div>';
-  el.innerHTML = inputsHtml;
+  el.innerHTML = '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">3277 Ivanhoe forecast</div>'
+    + '<div class="fin-card-sub">What the property can be expected to remit, at ' + (growthForTiles * 100).toFixed(0) + '% growth and current expenses.</div>'
+    + '<div class="fin-grid-4">' + tiles + '</div>'
+    + '<div class="fin-note-box" style="margin-top:14px;">Even growing, the property cannot cover a gap that compounds. Planning has to close it on the revenue side.</div>'
+    + '<details style="margin-top:10px;"><summary class="fin-disclosure">Year by year, and the assumptions behind it</summary>'
+    + '<div style="margin-top:10px;">' + inputsHtml + '</div></details>'
+    + '</div>';
   window._finPmfAvgAnnualCents = avgAnnualCents;
   window._finPmfPayoffYear = payoffYear;
   window._finPmfAnnualDebtServiceCents = loan.annual_debt_service_cents || 0;

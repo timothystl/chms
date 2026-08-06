@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.147.0';
+export const DEPLOY_VERSION = '1.148.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -197,14 +197,18 @@ function typeDotHtml(mt, size) {
 // collapsed) — this sub-nav bar only covers the 3 sections *within* the Financial Reports tab.
 // (Giving Reports lives inside the Giving tab itself — see givSetView() in js-giving.js.)
 var FIN_TOPNAV_ITEMS = [
-  { id: 'overview', label: 'Overview', finSection: 'overview' },
+  { id: 'health', label: 'Financial Health', finSection: 'health' },
   { id: 'church', label: 'Church Report', finSection: 'church' },
   { id: 'daycare', label: 'Daycare Report', finSection: 'daycare' },
   { id: 'property', label: 'Commercial Property', finSection: 'property' },
   { id: 'planning', label: 'Planning', finSection: 'planning' },
   { id: 'compensation', label: 'Compensation', finSection: 'compensation' },
+  { divider: true },
+  // Everything that used to be interleaved with the reports — connections, file imports,
+  // hand-entered adjustments, the danger zone — lives behind this divider, off the reading pages.
+  { id: 'data', label: 'Data & Imports', finSection: 'data' },
 ];
-var _finActiveNavId = 'overview';
+var _finActiveNavId = 'health';
 function renderFinanceSubnav() {
   return FIN_TOPNAV_ITEMS.map(function(item) {
     if (item.divider) return '<span class="fin-subnav-divider"></span>';
@@ -223,10 +227,10 @@ function finNavGo(id) {
 
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
 var _tabFromPopState = false;
-// finSection is only used when name === 'finance' (which of Overview/Church Report/Daycare
-// Report to show) — omit it to keep whatever finance section was last active (e.g. browser
-// back/forward, or a bare '#finance' hash on reload), defaulting to 'overview' the first time.
-// See FIN_TOPNAV_ITEMS/finNavGo above.
+// finSection is only used when name === 'finance' (which of Financial Health/Church Report/
+// Daycare Report/... to show) — omit it to keep whatever finance section was last active (e.g.
+// browser back/forward, or a bare '#finance' hash on reload), defaulting to 'health' the first
+// time. See FIN_TOPNAV_ITEMS/finNavGo above.
 function showTab(name, finSection) {
   // Member tier: the filtered directory, plus Reports only where an admin granted it. The
   // server's member allowlist covers people/tags/config-member-types/reports and nothing else,
@@ -286,6 +290,10 @@ function showTab(name, finSection) {
   if (name === 'giving') givSetView(_givView);
   if (name === 'tuitionaid') loadTuitionAid();
   if (name === 'finance') {
+    // 'overview' was retired when the Overview panel became Financial Health — a bookmark or a
+    // browser-history entry from before that change would otherwise land on a section id no
+    // panel answers to, leaving the tab blank.
+    if (finSection === 'overview') finSection = 'health';
     if (finSection) _finActiveNavId = finSection;
     loadFinance();
     finRenderSubnavMounts();

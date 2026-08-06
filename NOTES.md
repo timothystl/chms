@@ -24,6 +24,103 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.148.0 — Finance Workspace v3: the tab answers "how are we doing?" (2026-08-06)
+
+Implemented the `design_handoff_finance_workspace` bundle ("Finance overview framing"). The tab
+previously answered *what do the ledgers say*; the board's question is *how are we doing, and what
+should we decide*. Six screens changed; **Compensation was explicitly out of scope and is byte-for-
+byte untouched** (verified: its panel markup is identical and all 126 `finComp*`/salary/Concordia/
+health-plan functions are unchanged strings).
+
+**Navigation.** `FIN_TOPNAV_ITEMS` becomes Financial Health · Church Report · Daycare Report ·
+Commercial Property · Planning · Compensation │ Data & Imports. `_finActiveNavId` defaults to
+`health`; a stale `finSection` of `overview` redirects to `health` so an old bookmark or history
+entry can't land on a section no panel answers to.
+
+**Screen 1 — Financial Health (new, replaces Overview).** Reads the money a second way: by *who
+controls it*. A revenue-mix bar with a control band underneath ("We set the ask" / "Reported to us"
+/ "Timing only"), three stream cards, a flow diagram whose ribbon thickness is recomputed from real
+figures every render, three entity cards stating what the board decides about each, giving-vs-budget
+pace, a cash runway against an admin-set policy floor, five years of the mix, an appeal card with a
+scope toggle and an ask ladder, three lever cards, and a decisions card.
+
+**Screen 2 — Church Report.** Mode pills instead of three buttons; **the seven import buttons are
+gone from the toolbar** (the functions are untouched and now run from Data & Imports). Three summary
+cards whose variance arithmetic reconciles (net variance = actual net − budgeted net). Revenue
+sources as labelled bars rather than a pie. The expense panel is sorted by variance and cut to five,
+keeping the click-to-drill behaviour. **Five-year net income is a new zero-baseline chart** —
+`renderGroupedBarChart()` draws a deficit year as an invisible sliver (its own comments say so), and
+that is the year a board needs to see.
+
+**Screen 3 — Daycare Report.** Navy wages÷billed ratio strip, then room-level occupancy and
+per-room margin. **The room data does not exist yet** — the daycare app publishes no per-room
+endpoint (see `DAYCARE_API.md` in the bundle) — so the page degrades to the category-by-year table
+and says plainly what is missing, rather than erroring or drifting into a blanket "we are full".
+The ChMS half is built: `finance_daycare_rooms`, `GET /finance/daycare/rooms`, `POST
+/finance/daycare/rooms/sync`, and `daycareRoomsConfigured()`/`client.rooms()` behind a new
+`DAYCARE_ROOMS_API_URL` secret.
+
+**Screen 4 — Commercial Property.** Navy "available to distribute today" hero (AHRA's own cash-minus-
+reserves figure) beside a four-line "does it fund itself?" P&L; charts row; three collapsed ledger
+strips. Every bulk admin control (budget xlsx import, CSV paste, +Add Month, base-minimum and
+reserve editing, the valuation calculator) moved to Data & Imports — row-level Edit/Delete stay in
+the expanded tables. The property page now contains no file input at all.
+
+**Screen 5 — Planning.** Year inputs moved into the header beside the title they qualify. New navy
+summary strip ending in **Revenue needed to balance**, the connective tissue between Planning and
+the Health page. The three-year grouped-bar outlook became the handoff's five-year line chart:
+expenses compounding at 3% against revenue held flat, with the gap filled between them. The Ivanhoe
+forecast leads with four tiles (three years plus the payoff year) and keeps its table behind a
+disclosure.
+
+**Screen 6 — Data & Imports (new).** Three status cards, a file-imports card grouped by what each
+feeds **with the last-import date per importer** — the point of the tab, staleness visible without
+opening a report — one unified hand-entered-adjustments form with a What selector swapping field
+sets, the danger zone, the property data-entry tools, and the raw QuickBooks dumps behind
+disclosures.
+
+**New server work.** Revenue-stream classification (`computeRevenueStreams`, config-driven via
+`chms_config.finance_revenue_streams`, admin-editable, **defaulting an unrecognised group to
+`earned` rather than `donor`** — overstating donor revenue would overstate how much of the budget
+the board can actually influence, which is the one claim the page exists to make honestly, and every
+guessed group is returned in `unmapped` and surfaced on-page). Restricted/unrestricted donor split
+reusing `funds.category` (migration 0033) rather than a new flag. `computeMoneyFlow` (MDO vs.
+everything else, always summing to total expenses). `computeCashRunway` + `operatingCashFromAccounts`
++ an admin `finance/cash-policy`. `computeRoomOccupancy`. `finance_import_log` + `recordImport()`
+stamped by all ten importers + `GET /finance/import-status`. `streamsByYear` on the multi-year
+payload and `givingMonthly`/`donorBands` on this-year.
+
+**Two deliberate deviations from the handoff**, both to avoid a near-enough number:
+- The giving-bands panel reads **annual** household bands computed alongside the other Health
+  queries, not `reports/giving-bands`, which buckets by weekly/monthly *pace* — translating a
+  per-week band into "$2,000+ a year" would be an approximation sitting next to an exact ask ladder.
+  The card's "Open giving bands →" still opens that report.
+- Church Report keeps the year-over-year block, the giving-by-fund table and the supplies chart as
+  additional collapsed strips. The handoff never asked for them to be deleted, and dropping working
+  features to match a block list would have been a silent loss.
+
+**Verified.** `npm test` (834/834; 28 new in `test/finance-health.test.js`, and
+`test/finance-planning-outlook.test.js` rewritten against the new chart's contract). **Every new
+test checked for vacuity** by injecting the exact regression it guards — default-stream flipped to
+donor, Other Expenses dropped from the flow split, the runway's zero-expense guard removed, the ask
+ladder restating the raw target, and the seasonal room counted into the seat basis — all five failed
+the right test and only the right test. Plus `node --check` on `api-finance.js` and both built
+bundles; a `vm` harness running all eighteen render paths (including every degraded state: no
+property, no cash, no giving, no rooms, no entries) against realistic fixtures, with tag-balance
+checks on all seven rendered views, a check that the appeal ladder's stated total equals the sum of
+its own rows, and confirmation that all 39 inline handlers the views emit resolve to real functions;
+a whole-document div-balance scan of the assembled `CHMS_HTML` confirming `#tab-finance` and all
+seven panels sit inside `.content-area` (the TAP2-BUG class); and `test/breakpoints.test.js` holding
+the stylesheet to its three tiers. Caught and fixed one instance of this project's own
+backtick-in-a-comment-breaks-`String.raw` bug class (SC3-BUG1/FIN15) before it shipped — found by
+importing the module, not by reading the diff.
+
+**Not verified**: a live browser, a real print dialog, or a live D1 — the standing caveat on all
+frontend work here. Two things need an admin outside this repo: `DAYCARE_ROOMS_API_URL` set as a
+Worker secret once the daycare app publishes that endpoint, and a first pass through **Data &
+Imports → Classification & policy** to confirm the revenue-stream mapping and the reserve policy
+floor, since the Health page's headline claim rests on both.
+
 ### v1.147.0 — Health plan priced by coverage tier, as Concordia publishes it (2026-08-06)
 
 Asked to take the renewal packet's own entry page: a **monthly** premium per coverage tier — Self /

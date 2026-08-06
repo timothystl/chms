@@ -8,11 +8,20 @@ export function daycareConfigured(env) {
   return !!(env.DAYCARE_API_URL && env.DAYCARE_API_KEY);
 }
 
+// DAYCARE_ROOMS_API_URL is a SECOND complete endpoint URL, separate from the summary one above,
+// for the room-level monthly aggregates the rebuilt Daycare Report reads (capacity/day, average
+// daily enrolled, billed revenue, labor cost, waitlist count — see DAYCARE_API.md in the design
+// handoff). It does not exist in the daycare app yet; until it is built and the secret is set,
+// `rooms` is simply absent from the client and the report degrades to its category-by-year table.
+export function daycareRoomsConfigured(env) {
+  return !!(env.DAYCARE_ROOMS_API_URL && env.DAYCARE_API_KEY);
+}
+
 export function makeDaycareClient(env) {
-  if (!daycareConfigured(env)) return null;
-  return {
-    summary: () => fetch(env.DAYCARE_API_URL, {
-      headers: { 'X-Api-Key': env.DAYCARE_API_KEY, 'Accept': 'application/json' },
-    }),
-  };
+  if (!daycareConfigured(env) && !daycareRoomsConfigured(env)) return null;
+  const headers = { 'X-Api-Key': env.DAYCARE_API_KEY, 'Accept': 'application/json' };
+  const client = {};
+  if (daycareConfigured(env)) client.summary = () => fetch(env.DAYCARE_API_URL, { headers });
+  if (daycareRoomsConfigured(env)) client.rooms = () => fetch(env.DAYCARE_ROOMS_API_URL, { headers });
+  return client;
 }
