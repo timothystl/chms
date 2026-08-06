@@ -1,7 +1,7 @@
 // ── Reports, Engagement, Prayer API handlers ─────────────────────────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedInYear, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, buildBoardCategoryBlock } from './api-utils.js';
+import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedThroughDate, sundaysInYear, nthSundayOfYear, periodAsOfDate, monthElapsedFraction, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, buildBoardCategoryBlock } from './api-utils.js';
 import { resolveChurchYearPrecedence } from './api-finance.js';
 
 export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
@@ -919,11 +919,20 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   else { const now = new Date(); year = now.getUTCFullYear(); throughMonth = now.getUTCMonth() + 1; }
   const priorYear = year - 1;
   const mm = String(throughMonth).padStart(2, '0');
+  // The real as-of date, which is TODAY when the selected month is still running. Everything
+  // below hangs off this: reporting "through July" on 14 July used to compare a half-month of
+  // this year against a whole month of last year, and count July's remaining Sundays as already
+  // elapsed. Both errors understate, so the projection came out low on every date but a month end.
+  const asOf          = periodAsOfDate(year, throughMonth, new Date());
+  const sundaysDone   = sundaysElapsedThroughDate(year, asOf);
+  const yearSundays   = sundaysInYear(year);
+  const finalMonthFrac = monthElapsedFraction(year, throughMonth, asOf);
   const yearStart      = year + '-01-01';
-  const periodEnd      = year + '-' + mm + '-31';       // string upper-bound catches all days of the month
+  const periodEnd      = asOf;
   const yearEnd        = year + '-12-31';
   const priorYearStart = priorYear + '-01-01';
-  const priorPeriodEnd = priorYear + '-' + mm + '-31';
+  // Last year through its OWN nth Sunday — like-for-like in the unit this congregation gives in.
+  const priorPeriodEnd = nthSundayOfYear(priorYear, sundaysDone);
   const dateExpr = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
 
   const [monthlyRes, fundRes, hhRes, hhPriorRes, methodRes, churchBudgetRes] = await Promise.all([
@@ -1024,7 +1033,7 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   // Fund rows with per-fund YTD budget (spread by the church-wide prior-year seasonal shape)
   const funds = fundRows.map(f => {
     const hasBudget = (f.budget_annual_cents || 0) > 0;
-    const budgetYtd = hasBudget ? spreadBudgetYtd(f.budget_annual_cents, priorMonthly, throughMonth) : null;
+    const budgetYtd = hasBudget ? spreadBudgetYtd(f.budget_annual_cents, priorMonthly, throughMonth, finalMonthFrac) : null;
     return {
       name: f.name,
       category: catOf.get(f.id) || 'restricted',
@@ -1044,10 +1053,14 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   // Projection uses the prior-year monthly shape so it stays consistent with the chart. When
   // there's no prior-year data to scale from, the straight-line fallback extrapolates off
   // Sundays elapsed (this church's giving rhythm is weekly) rather than a month fraction.
-  const sundaysElapsed = sundaysElapsedInYear(year, throughMonth);
   const priorFull = priorMonthly.reduce((s, v) => s + v, 0);
-  const priorCum  = priorMonthly.slice(0, throughMonth).reduce((s, v) => s + v, 0);
-  const proj = projectYearEnd(ytdActual, priorCum, priorFull, throughMonth, sundaysElapsed);
+  // priorYtd is already last year through the matching Sunday (the fund query is bound to it), so
+  // it replaces the old whole-month slice AND removes a second, differently-bounded source of
+  // truth for the same quantity.
+  const proj = projectYearEnd({
+    ytdCents: ytdActual, priorSamePointCents: priorYtd, priorFullYearCents: priorFull,
+    sundaysElapsed: sundaysDone, sundaysInYear: yearSundays,
+  });
 
   // ── General Fund — its own YTD/prior/projection/budget, all scoped to just the 40085-family
   // funds, so the board cards read as one coherent story instead of mixing an all-funds
@@ -1056,8 +1069,10 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   const gfYtdActual = gfFunds.reduce((s, f) => s + f.actual_cents, 0);
   const gfPriorYtd  = gfFunds.reduce((s, f) => s + f.prior_cents, 0);
   const gfPriorFull = priorMonthlyGF.reduce((s, v) => s + v, 0);
-  const gfPriorCum  = priorMonthlyGF.slice(0, throughMonth).reduce((s, v) => s + v, 0);
-  const gfProj = projectYearEnd(gfYtdActual, gfPriorCum, gfPriorFull, throughMonth, sundaysElapsed);
+  const gfProj = projectYearEnd({
+    ytdCents: gfYtdActual, priorSamePointCents: gfPriorYtd, priorFullYearCents: gfPriorFull,
+    sundaysElapsed: sundaysDone, sundaysInYear: yearSundays,
+  });
   const otherYtdActual = ytdActual - gfYtdActual;
   const otherFundCount = funds.filter(f => !f.is_general_fund && f.actual_cents > 0).length;
 
@@ -1126,7 +1141,7 @@ if (seg === 'reports/giving-board' && method === 'GET') {
       key: c.key, label: c.label, hhLabel: c.hh_label,
       funds: funds.filter(f => f.category === c.key),
       curMonthly: curMonthlyCat[c.key], priorMonthly: priorMonthlyCat[c.key],
-      throughMonth, sundaysElapsed,
+      throughMonth, sundaysElapsed: sundaysDone, sundaysInYear: yearSundays, finalMonthFraction: finalMonthFrac,
       householdTotals: hhByCat[c.key], householdsPrior: hhPriorCat[c.key].size,
       methodBuckets: bucketsByCat[c.key],
       // Only the General Fund has a council-approved plan living outside Settings.
@@ -1135,7 +1150,8 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   }
   categories.all = buildBoardCategoryBlock({
     key: 'all', label: 'All giving', hhLabel: 'Giving households',
-    funds, curMonthly, priorMonthly, throughMonth, sundaysElapsed,
+    funds, curMonthly, priorMonthly, throughMonth,
+    sundaysElapsed: sundaysDone, sundaysInYear: yearSundays, finalMonthFraction: finalMonthFrac,
     householdTotals, householdsPrior, methodBuckets: buckets,
   });
 
@@ -1151,13 +1167,16 @@ if (seg === 'reports/giving-board' && method === 'GET') {
     through_label: throughLabel,
     kpis: {
       given_ytd_cents: ytdActual,
-      given_ytd_prior_cents: priorCum,
-      given_ytd_delta_pct: priorCum > 0 ? +(((ytdActual - priorCum) / priorCum) * 100).toFixed(1) : null,
+      given_ytd_prior_cents: priorYtd,
+      given_ytd_delta_pct: priorYtd > 0 ? +(((ytdActual - priorYtd) / priorYtd) * 100).toFixed(1) : null,
       budget_ytd_cents: budgetYtd,
       budget_variance_cents: annualBudget > 0 ? ytdActual - budgetYtd : null,
       budget_variance_pct: budgetYtd > 0 ? +(((ytdActual - budgetYtd) / budgetYtd) * 100).toFixed(1) : null,
       projection_cents: proj.projected,
       projection_method: proj.method,
+      sundays_elapsed: proj.sundays_elapsed,
+      sundays_in_year: proj.sundays_in_year,
+      sundays_remaining: proj.sundays_remaining,
       annual_budget_cents: annualBudget,
       projection_vs_budget_cents: annualBudget > 0 ? proj.projected - annualBudget : null,
       households, households_prior: householdsPrior,
@@ -1169,8 +1188,8 @@ if (seg === 'reports/giving-board' && method === 'GET') {
     funds,
     general_fund: {
       given_ytd_cents: gfYtdActual,
-      given_ytd_prior_cents: gfPriorCum,
-      given_ytd_delta_pct: gfPriorCum > 0 ? +(((gfYtdActual - gfPriorCum) / gfPriorCum) * 100).toFixed(1) : null,
+      given_ytd_prior_cents: gfPriorYtd,
+      given_ytd_delta_pct: gfPriorYtd > 0 ? +(((gfYtdActual - gfPriorYtd) / gfPriorYtd) * 100).toFixed(1) : null,
       other_giving_cents: otherYtdActual,
       other_fund_count: otherFundCount,
       budget_ytd_cents: gfBudgetYtd,

@@ -1693,6 +1693,35 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
   `src/api-giving.js`, `src/api-reports.js`, `src/frontend/js-giving.js`,
   `src/frontend/html-tabs.js`, `test/giving-nudges.test.js`, `test/giving-plateaus.test.js`,
   `test/giving-letters.test.js`)
+- [x] **G32 — Year-end projections move from a month basis to a Sunday one (2026-08-06).**
+  Reported from the Giving board page: the projections "look like you are taking the current month
+  as a complete month," with the suggestion to work in weeks of the year — week X against week X of
+  last year, then carry the remaining weeks forward. Confirmed, and it was **two errors pulling the
+  same way**: (1) this year's giving through an in-progress month was compared against last year
+  through that month **complete** (the SQL bound the prior window at `priorYear-MM-31`), and (2)
+  `sundaysElapsedInYear(year, throughMonth)` counted every Sunday through the *end* of the month, so
+  Sundays that had not happened yet counted as elapsed. Both understate, so on any date but a month
+  end the projection came out low. **The unit is now Sundays**, not calendar weeks or months,
+  because that is when this congregation gives — two Julys can hold four Sundays or five. New pure
+  helpers in `api-utils.js`: `periodAsOfDate()` (today when the chosen month is still running),
+  `sundaysElapsedThroughDate()`, `sundaysInYear()` (52 **or 53** — assuming 52 drops a real week of
+  giving in those years), `nthSundayOfYear()` (the prior-year bound), `monthElapsedFraction()`.
+  `projectYearEnd()` now takes an options object and reports `sundays_elapsed`/`sundays_in_year`/
+  `sundays_remaining`. **The method is unchanged and deliberately so** — it still carries last
+  year's remaining Sundays forward scaled by the pace this year is actually running, so a year
+  behind stays behind rather than catching up by December; only the basis was wrong. Two things
+  fixed alongside, same root cause: **"vs. this point last year"** used the same month-boundary
+  slice (and that removed a second, differently-bounded source of truth for one quantity —
+  `priorCum` from a monthly slice vs `priorYtd` from the fund query, which disagreed mid-month), and
+  **budget-to-date** charged a whole month the congregation had not reached then reported the gap as
+  a shortfall (`spreadBudgetYtd` takes a `finalMonthFraction`, defaulting to 1 so nothing else
+  changes). The narrative now states its own basis, because that basis is exactly what was wrong.
+  `npm test` (762/762); projection tests rewritten for the new basis and two fixtures corrected
+  (they set `prior_cents` and `priorMonthly` to different values for the same quantity — the
+  duplication this removed); **every new assertion verified non-vacuous** by injecting the exact
+  regression it guards (all three failed as they should). **Not verified**: a live browser or real
+  D1 data. (`src/api-utils.js`, `src/api-reports.js`, `src/frontend/js-giving.js`,
+  `test/giving-board.test.js`, `test/giving-fund-categories.test.js`)
 - [ ] **G30** — Pre-existing bug found while building G29, not fixed (out of scope for that session):
   the giving-statement view function in `js-giving.js` (~line 1299) reads `_churchConfig.giving_url`
   to build a "set up recurring giving" link, but `GET /admin/api/config/church` actually returns that

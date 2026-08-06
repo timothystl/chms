@@ -74,8 +74,13 @@ describe('buildBoardCategoryBlock', () => {
   it('sums the category and derives its own budget, projection and averages', () => {
     const b = buildBoardCategoryBlock({
       ...base,
+      // prior_cents is last year through the SAME NUMBER OF SUNDAYS (the query that produces
+      // these rows is bound to that date), so it must agree with priorMonthly through the same
+      // point — 6 x $100 = $600. It is now the single source for "vs last year at this point";
+      // the block used to slice priorMonthly separately, which was a second, differently-bounded
+      // answer to the same question.
       funds: [
-        { actual_cents: 100000, prior_cents: 90000, annual_budget_cents: 240000 },
+        { actual_cents: 100000, prior_cents: 50000, annual_budget_cents: 240000 },
         { actual_cents: 20000, prior_cents: 10000, annual_budget_cents: 0 },
       ],
       curMonthly: [20000, 20000, 20000, 20000, 20000, 20000, 0, 0, 0, 0, 0, 0],

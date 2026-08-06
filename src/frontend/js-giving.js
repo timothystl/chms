@@ -1307,16 +1307,31 @@ function boardNarrativeHtml(d) {
   ledeParts += '.';
   var lede = '<div style="font-family:var(--font-display);font-size:19px;line-height:1.5;color:var(--charcoal);margin-top:26px;">Through ' + asOf + ', ' + ledeParts + '</div>';
 
+// Says what the projection is actually built on, in the unit the congregation gives in. A
+// council figure nobody can check is a council figure nobody can argue with, which is worse.
+// Sundays rather than months because a part-month reported as a whole one is exactly the error
+// this projection used to make.
+function boardProjectionBasis(k, method) {
+  var done = k.sundays_elapsed || 0, total = k.sundays_in_year || 0, left = k.sundays_remaining || 0;
+  var basis = (done && total)
+    ? ' Counted through <strong>' + done + ' of ' + total + ' Sundays</strong>, with ' + left + ' still to come'
+    : '';
+  if (method === 'seasonal') {
+    return 'The projection carries last year\u2019s remaining ' + (left || 'remaining') + ' Sundays forward at the pace giving is actually running this year, so a year behind stays behind rather than catching up by December.' + basis + (basis ? ', against last year through its own first ' + done + '.' : '');
+  }
+  return 'With no comparable prior year, the projection carries this year\u2019s own average Sunday across the ones left.' + basis + (basis ? '.' : '');
+}
+
   // Section: Are we on pace?
   var paceBody;
   if (k.projection_vs_budget_cents != null) {
     paceBody = 'On the current pattern the year finishes near <strong>' + boardMoney(k.projection_cents) + '</strong> against a budget of ' + boardMoney(k.annual_budget_cents)
       + '. That is a gap of roughly <strong>' + boardMoney(Math.abs(k.projection_vs_budget_cents)) + '</strong>'
       + (k.annual_budget_cents > 0 ? ', or about ' + Math.abs(Math.round((k.projection_vs_budget_cents / k.annual_budget_cents) * 100)) + ' percent' : '') + '. '
-      + (k.projection_method === 'seasonal' ? 'The projection assumes the rest of the year follows last year’s seasonal pattern.' : 'The projection extends the pace of giving so far across the remaining months.');
+      + (k.projection_method === 'seasonal' ? boardProjectionBasis(k, 'seasonal') : boardProjectionBasis(k, 'linear'));
   } else {
     paceBody = 'On the current pattern the year finishes near <strong>' + boardMoney(k.projection_cents) + '</strong>. '
-      + (k.projection_method === 'seasonal' ? 'The projection assumes the rest of the year follows last year’s seasonal pattern.' : 'The projection extends the pace of giving so far across the remaining months.')
+      + (k.projection_method === 'seasonal' ? boardProjectionBasis(k, 'seasonal') : boardProjectionBasis(k, 'linear'))
       + ' Set fund budgets in Settings to compare this against plan.';
   }
 
