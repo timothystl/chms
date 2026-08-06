@@ -24,6 +24,49 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.145.0 — Compensation: part-time staff (FTE marker + cash-salary-only) (2026-08-06)
+
+Asked for a checkbox to exclude part-time employees from the health plan, disability and so on —
+"they are just cash salary, very part time" — then, in a follow-up, for a percentage-of-time marker
+("so they are a 20% employee or something"). Both built.
+
+**`cashOnly` (checkbox)** removes pension, disability and health. It deliberately does **not**
+remove employer FICA: that is owed on any W-2 wage however few the hours, so dropping it would
+understate what the church actually pays. A minister's FICA is already handled by the separate SECA
+toggle, which is a different question — tax status, not hours. Flagged to the user rather than
+decided silently.
+
+**`ftePct` (number)** scales the **district benchmark**, never the salary. The salary is whatever is
+really budgeted; the benchmark is what it should be measured against. This matters more than it
+sounds: without it, a 20%-time worker on $8,000 reads as **15% of scale** on the Council report —
+alarming, and meaningless, because nobody is proposing to pay them a full-time wage. Pro-rated, the
+same salary reads as **75% of scale**, which is a real and answerable question. A fairly-paid
+part-timer can now come out green, which the full-time comparison could never produce.
+
+Second-order consequences handled rather than left to surface as noise:
+- The **LCMS market median comparison is suppressed** for a part-timer on the Council summary.
+  Concordia's published ranges are full-time figures; holding a 20% wage against one prints an
+  alarming red number that means nothing.
+- **Cost-to-full-scale** adds no pension or disability for a cash-only worker — raising their
+  salary pulls up employer FICA and nothing else.
+- The **health plan view** shows them as "Not eligible", not enrolled at $0, and they are out of the
+  group health total.
+- The **Council report** states plainly why they draw no benefits, and that FICA still applies.
+- A part-timer left benefits-eligible gets a **nudge** ("at 20% of full time this worker is still
+  shown as benefits-eligible") rather than a silent assumption either way — FTE and eligibility are
+  related but not the same thing, and Concordia's hours floor is roughly half time, so coupling them
+  automatically would be wrong.
+
+**Verification.** `npm test` (778/778, 16 new in `test/finance-part-time.test.js`). Every new test
+checked for vacuity by injecting the exact regression it guards — cash-only wrongly dropping FICA,
+the benchmark not pro-rating, and a part-timer held against a full-time median — all three failed as
+they should. One test assertion was **corrected rather than forced**: it asserted a part-timer would
+stop reading red, but the fixture worker genuinely is 25% below their own pro-rated scale, so the
+assertion now pins the real demonstration (15% → 75%) and a second test covers the fairly-paid case.
+**Not verified**: a live browser.
+
+(`src/frontend/js-finance.js`, `test/finance-part-time.test.js`)
+
 ### v1.144.0 — Year-end projections move from a month basis to a Sunday one (2026-08-06)
 
 Reported from the Giving board page: the projections "look like you are taking the current month

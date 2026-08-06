@@ -4619,6 +4619,27 @@ function finCompSetHealthMode(i, mode) {
   w.healthEnrolled = (mode !== 'optout');
   finRerenderPlanningPreserveFocus();
 }
+// Full-time equivalent, as a fraction. A 20%-time worker is 0.2. Used to scale the DISTRICT
+// BENCHMARK, never the salary itself — the salary is whatever is really budgeted, but comparing
+// an 8-hour-a-week wage against a full-time district scale would report every part-timer as
+// catastrophically underpaid on the Council report, which is noise rather than information.
+function finCompFte(w) {
+  var pct = (w && w.ftePct != null) ? Number(w.ftePct) : 100;
+  if (!isFinite(pct) || pct <= 0) return 1;
+  return Math.min(1, pct / 100);
+}
+function finCompFtePct(w) {
+  return Math.round(finCompFte(w) * 100);
+}
+function finCompIsPartTime(w) { return finCompFtePct(w) < 100; }
+// "Cash salary only" — a very part-time worker who draws no Concordia benefits. Concordia's plans
+// have an hours-eligibility floor, so this is a real category, not a preference.
+//
+// It switches OFF pension, disability and health. It deliberately does NOT switch off employer
+// FICA: that is a legal obligation on every W-2 wage regardless of hours, so dropping it would
+// understate what the church actually pays. A minister's FICA is already handled by the separate
+// SECA toggle, which is a different question (tax status, not hours).
+function finCompIsCashOnly(w) { return !!(w && w.cashOnly); }
 // A worker's CURRENT pay (§5.4), in priority order: a legacy hand-typed override, then the linked
 // account's FULL-YEAR BUDGETED total (not YTD Actual, which understates a year in progress), then
 // nothing. This is what "No raise" reports and what COLA/Custom grow from.
@@ -4647,7 +4668,10 @@ function finCompWorksheetCents(w) {
     responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus,
     colaPct: 0, referenceByYear: _finSalaryReferenceByYear
   });
-  return calc ? finRoundSalaryCents(calc.salaryCents) : null;
+  if (!calc) return null;
+  // Pro-rated to the worker's FTE, so "vs. district scale" answers "are we paying this person
+  // fairly for the time they actually work" rather than comparing a part-timer to a full-time job.
+  return finRoundSalaryCents(Math.round(calc.salaryCents * finCompFte(w)));
 }
 // The four methods (§5.4). Only a PROPOSED salary is paycheck-rounded — "No raise" is a real
 // budgeted figure and is reported exactly (rounding it once reported $74,516 as $74,490).
@@ -4708,15 +4732,19 @@ function finCompBenefits(w, salaryCents) {
   var disRate = finCompDisabilityRate(_finPlanTargetYear, !!w.hasDependents).rate;
   var ficaRate = finCompFicaRate();
   var mode = finCompHealthMode(w);
-  var healthCents = mode === 'family' ? finHealthPlanPerContractCents(_finHealthPlanSelectedOption)
+  var cashOnly = finCompIsCashOnly(w);
+  var healthCents = cashOnly ? 0
+    : mode === 'family' ? finHealthPlanPerContractCents(_finHealthPlanSelectedOption)
     : mode === 'employee' ? (w.employeeOnlyPremiumCents || 0)
     : (w.healthOptOutOverrideCents != null ? w.healthOptOutOverrideCents : finCompOptOutCents());
-  var pensionCents = Math.round(salaryCents * pensionRate);
-  var disabilityCents = Math.round(salaryCents * disRate);
+  var pensionCents = cashOnly ? 0 : Math.round(salaryCents * pensionRate);
+  var disabilityCents = cashOnly ? 0 : Math.round(salaryCents * disRate);
+  // Employer FICA is owed on any W-2 wage however few the hours, so it survives cash-only. Only
+  // the SECA toggle (a minister's tax status) removes it.
   var ficaCents = w.selfEmployedFica ? 0 : Math.round(salaryCents * ficaRate);
   return {
     pensionCents: pensionCents, disabilityCents: disabilityCents, healthCents: healthCents,
-    ficaCents: ficaCents, secaSelfCents: Math.round(salaryCents * ficaRate),
+    ficaCents: ficaCents, secaSelfCents: Math.round(salaryCents * ficaRate), cashOnly: cashOnly,
     totalCents: pensionCents + disabilityCents + healthCents + ficaCents
   };
 }
@@ -4829,8 +4857,11 @@ function finCompFullScaleGap(computed) {
     var c = computed[i];
     var gap = Math.max(0, (c.worksheetCents || 0) - c.salaryCents);
     if (!gap) return;
-    var pensionRate = finCompPensionRate(_finPlanTargetYear).rate;
-    var disRate = finCompDisabilityRate(_finPlanTargetYear, !!w.hasDependents).rate;
+    // A cash-only worker draws no pension or disability, so raising their salary adds neither —
+    // only the employer FICA that follows any wage.
+    var cashOnly = finCompIsCashOnly(w);
+    var pensionRate = cashOnly ? 0 : finCompPensionRate(_finPlanTargetYear).rate;
+    var disRate = cashOnly ? 0 : finCompDisabilityRate(_finPlanTargetYear, !!w.hasDependents).rate;
     salaryGapCents += gap;
     benefitsGapCents += Math.round(gap * (pensionRate + disRate + (w.selfEmployedFica ? 0 : finCompFicaRate())));
   });
@@ -4953,9 +4984,11 @@ function finCompRenderPlan(computed, totals) {
     return '<tr class="fin-comp-row' + (selected ? ' selected' : '') + '">'
       + '<td class="fin-comp-td" style="cursor:pointer;" onclick="finCompSelectWorker(' + i + ')">'
       + '<div style="font-weight:700;color:var(--color-navy);">' + esc(w.name || '(unnamed)') + '</div>'
-      + '<div style="font-size:.72rem;color:var(--warm-gray);">' + esc(w.position || 'Role not set') + ' &middot; acct ' + esc(w.accountCode || '&mdash;') + '</div></td>'
+      + '<div style="font-size:.72rem;color:var(--warm-gray);">' + esc(w.position || 'Role not set') + ' &middot; acct ' + esc(w.accountCode || '&mdash;')
+      + (finCompIsPartTime(w) ? ' &middot; <span style="color:var(--deep-amber);font-weight:700;">' + finCompFtePct(w) + '% time</span>' : '')
+      + (finCompIsCashOnly(w) ? ' &middot; <span style="color:var(--warm-meta);">cash only</span>' : '') + '</div></td>'
       + cells
-      + '<td class="fin-comp-td" style="font-size:.76rem;font-weight:600;color:' + vs.color + ';" title="District scale ' + (c.worksheetCents ? finCompMoney(c.worksheetCents) : 'not available') + '">' + vs.text + '</td>'
+      + '<td class="fin-comp-td" style="font-size:.76rem;font-weight:600;color:' + vs.color + ';" title="District scale ' + (c.worksheetCents ? finCompMoney(c.worksheetCents) : 'not available') + (finCompIsPartTime(w) ? ' (pro-rated to ' + finCompFtePct(w) + '% time)' : '') + '">' + vs.text + (finCompIsPartTime(w) ? '<br><span style="font-weight:400;color:var(--warm-gray);">at ' + finCompFtePct(w) + '% time</span>' : '') + '</td>'
       + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoney(c.churchCostCents) + '</td>'
       + '</tr>';
   }).join('');
@@ -5057,12 +5090,17 @@ function finCompRenderDrawer(computed) {
     + eduField + trackField
     + '<label class="fin-comp-field">Years of service<input type="text" inputmode="numeric" id="fin-comp-years-' + i + '" value="' + (Number(w.yearsExperience) || 0) + '" oninput="finCompYearsChange(' + i + ',finPlanSanitizeWholeDollarInput(this))"></label>'
     + attendanceField + stipendField + stipendPctField
-    + '<label class="fin-comp-field">Health coverage<select onchange="finCompSetHealthMode(' + i + ',this.value)">'
+    + '<label class="fin-comp-field">Time worked<span style="display:inline-flex;align-items:center;gap:4px;"><input type="text" inputmode="decimal" id="fin-comp-fte-' + i + '" value="' + finCompFtePct(w) + '" oninput="finCompFteChange(' + i + ',finSanitizeDecimalInput(this))"><span style="color:var(--warm-gray);">% of full time</span></span></label>'
+    + '<label class="fin-comp-field">Health coverage<select onchange="finCompSetHealthMode(' + i + ',this.value)"' + (finCompIsCashOnly(w) ? ' disabled' : '') + '>'
     + '<option value="family"' + (finCompHealthMode(w) === 'family' ? ' selected' : '') + '>Family</option>'
     + '<option value="employee"' + (finCompHealthMode(w) === 'employee' ? ' selected' : '') + '>Employee only</option>'
     + '<option value="optout"' + (finCompHealthMode(w) === 'optout' ? ' selected' : '') + '>Opts out (cash)</option>'
     + '</select></label>'
     + '</div>'
+    + '<label class="fin-comp-inline-check" style="margin:6px 0 0;"><input type="checkbox" onchange="finCompCashOnlyToggle(' + i + ',this.checked)"' + (finCompIsCashOnly(w) ? ' checked' : '') + '> Cash salary only &mdash; no pension, disability or health</label>'
+    + (finCompIsCashOnly(w)
+        ? '<div class="fin-comp-note">Concordia\u2019s plans have an hours floor, so a very part-time worker draws none of them. Employer FICA still applies &mdash; it is owed on any wage however few the hours.</div>'
+        : (finCompIsPartTime(w) ? '<div class="fin-comp-note">At ' + finCompFtePct(w) + '% of full time this worker is still shown as benefits-eligible. Tick the box above if they are not.</div>' : ''))
     + '<div class="fin-comp-note">' + roleNote + '</div>' + stipendNote;
   return '<div class="fin-card fin-comp-drawer">'
     + '<div class="fin-comp-drawer-hd">'
@@ -5077,16 +5115,16 @@ function finCompRenderDrawer(computed) {
     + '<div class="fin-comp-tile"><span class="fin-comp-tile-lbl">Church cost</span><span class="fin-comp-tile-val">' + finCompMoney(c.churchCostCents) + '</span></div>'
     + '</div>'
     + finCompReadOnly(fields)
-    + '<div class="fin-comp-bar cream"><span>District Compensation Worksheet result</span><b>$' + finFmtMoney(base.dollars) + ' &times; ' + finCompMultiplier(w).toFixed(3) + ' = ' + (c.worksheetCents == null ? '&mdash;' : finCompMoney(c.worksheetCents)) + '</b></div>'
+    + '<div class="fin-comp-bar cream"><span>District Compensation Worksheet result' + (finCompIsPartTime(w) ? ' <span style="font-size:.72rem;">at ' + finCompFtePct(w) + '% time</span>' : '') + '</span><b>$' + finFmtMoney(base.dollars) + ' &times; ' + finCompMultiplier(w).toFixed(3) + (finCompIsPartTime(w) ? ' &times; ' + finCompFtePct(w) + '%' : '') + ' = ' + (c.worksheetCents == null ? '&mdash;' : finCompMoney(c.worksheetCents)) + '</b></div>'
     + '<div class="fin-comp-bar page"><span>FY' + _finPlanTargetYear + ' salary</span><span style="display:inline-flex;align-items:center;gap:8px;"><span style="color:var(--warm-gray);">$</span>'
     + finCompReadOnly(salaryBox)
     + (overridden ? '<span class="fin-comp-link" onclick="finCompClearOverride(' + i + ')">&#8634;</span>' : '') + '</span></div>'
     + '<div class="fin-comp-paylist">'
     + '<div class="fin-comp-drawer-h" style="border-top:1px solid var(--warm-row-divider);padding-top:12px;">What the church pays</div>'
     + finCompPayRow('Cash salary', finCompMoney(c.salaryCents))
-    + finCompPayRow('Pension ' + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate), finCompMoney(b.pensionCents))
-    + finCompPayRow('Health', finCompMoney(b.healthCents))
-    + finCompPayRow('Disability <label class="fin-comp-inline-check"><input type="checkbox" onchange="finCompDependentsToggle(' + i + ',this.checked)"' + (w.hasDependents ? ' checked' : '') + (finCompIsAdmin() ? '' : ' disabled') + '> dependents</label>', finCompMoney(b.disabilityCents))
+    + finCompPayRow('Pension ' + (b.cashOnly ? '' : finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate)), b.cashOnly ? '<span style="color:var(--warm-gray);font-weight:400;">not eligible</span>' : finCompMoney(b.pensionCents))
+    + finCompPayRow('Health', b.cashOnly ? '<span style="color:var(--warm-gray);font-weight:400;">not eligible</span>' : finCompMoney(b.healthCents))
+    + finCompPayRow('Disability' + (b.cashOnly ? '' : ' <label class="fin-comp-inline-check"><input type="checkbox" onchange="finCompDependentsToggle(' + i + ',this.checked)"' + (w.hasDependents ? ' checked' : '') + (finCompIsAdmin() ? '' : ' disabled') + '> dependents</label>'), b.cashOnly ? '<span style="color:var(--warm-gray);font-weight:400;">not eligible</span>' : finCompMoney(b.disabilityCents))
     + finCompPayRow('Employer FICA <label class="fin-comp-inline-check"><input type="checkbox" onchange="finCompSecaToggle(' + i + ',this.checked)"' + (w.selfEmployedFica ? ' checked' : '') + (finCompIsAdmin() ? '' : ' disabled') + '> minister</label>', finCompMoney(b.ficaCents))
     + (w.selfEmployedFica ? '<div class="fin-comp-seca"><span>Employer half the worker covers themselves &mdash; ' + finCompPctFmt(finCompFicaRate()) + ' of ' + finCompMoney(c.salaryCents) + '<br><span style="font-size:.7rem;color:var(--warm-meta);">As a minister they pay SECA, so this employer share comes out of their own pay. It is in no total below. The employee half is not shown; everyone pays that.</span></span><b style="color:var(--deep-amber);">&minus;' + finCompMoney(b.secaSelfCents) + '</b></div>' : '')
     + '<div class="fin-comp-payrow total"><span>Total</span><b>' + finCompMoney(c.churchCostCents) + '</b></div>'
@@ -5214,6 +5252,14 @@ function finCompRenderHealth(computed, totals) {
   var rows = _finSalaryRoster.map(function(w, i) {
     var mode = finCompHealthMode(w), b = computed[i].benefits;
     var costCell, basis;
+    if (finCompIsCashOnly(w)) {
+      costCell = '<span style="color:var(--warm-gray);font-weight:400;">&mdash;</span>';
+      basis = 'Cash salary only at ' + finCompFtePct(w) + '% time &mdash; below the hours floor for the group plan.';
+      return '<tr style="opacity:.7;"><td class="fin-comp-td"><div style="font-weight:700;">' + esc(w.name || '(unnamed)') + '</div><div style="font-size:.72rem;color:var(--warm-gray);">' + esc(w.position || '') + '</div></td>'
+        + '<td class="fin-comp-td"><span style="font-size:.78rem;color:var(--warm-gray);">Not eligible</span></td>'
+        + '<td class="fin-comp-td num" style="font-weight:700;">' + costCell + '</td>'
+        + '<td class="fin-comp-td" style="font-size:.76rem;color:var(--warm-gray);">' + basis + '</td></tr>';
+    }
     if (mode === 'family') {
       costCell = finCompMoney(b.healthCents);
       basis = 'Group ' + esc(planLabel) + ' quote &divide; ' + finCompContractCount() + ' contract' + (finCompContractCount() === 1 ? '' : 's');
@@ -5462,9 +5508,15 @@ function finCompCouncilRows(computed) {
     var delta = c.salaryCents - c.currentCents;
     var lcms = finCompLcmsRange(w);
     var vsScale = finCompVsScale(c.salaryCents, c.worksheetCents);
-    var vsMed = finCompVsMedian(c.salaryCents, lcms && lcms.midCents);
+    // Concordia's published ranges are full-time figures. Holding a 20%-time wage against one
+    // would print an alarming red number that means nothing, so a part-timer's median comparison
+    // is suppressed rather than computed.
+    var vsMed = finCompIsPartTime(w)
+      ? { text: 'part-time &mdash; not comparable', color: 'var(--warm-gray)' }
+      : finCompVsMedian(c.salaryCents, lcms && lcms.midCents);
     return '<tr class="fin-comp-row"><td class="fin-comp-td"><div style="font-weight:700;">' + esc(w.name || '(unnamed)') + '</div>'
-      + '<div style="font-size:.74rem;color:var(--warm-gray);">' + esc(w.position || '') + '</div></td>'
+      + '<div style="font-size:.74rem;color:var(--warm-gray);">' + esc(w.position || '')
+      + (finCompIsPartTime(w) ? ' &middot; ' + finCompFtePct(w) + '% time' : '') + '</div></td>'
       + '<td class="fin-comp-td num" style="color:var(--warm-gray);">' + finCompMoney(c.currentCents) + '</td>'
       + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoney(c.salaryCents) + '</td>'
       + '<td class="fin-comp-td num">' + (delta === 0 ? 'no change' : finCompMoneySigned(delta)) + '</td>'
@@ -5532,7 +5584,7 @@ function finCompAddWorker() {
     name: 'New staff member', position: 'Role not set', role: 'other', trackKey: 'secretary',
     yearsExperience: 0, responsibilityStipend: 0, responsibilityStipendKey: 'none', attendanceBonus: 0,
     education: 'none', selfEmployedFica: false, hasDependents: false, healthMode: 'optout',
-    healthEnrolled: false, accountCode: '', concordia: {}
+    healthEnrolled: false, accountCode: '', ftePct: 100, cashOnly: false, concordia: {}
   });
   _finCompSelected = _finSalaryRoster.length - 1;
   _finCompDrawerOpen = true;
@@ -5592,6 +5644,15 @@ function finCompDependentsToggle(i, checked) {
   var w = _finSalaryRoster[i];
   w.hasDependents = !!checked;
   if (finCompHealthMode(w) !== 'optout') { w.healthMode = checked ? 'family' : 'employee'; w.healthEnrolled = true; }
+  finRerenderPlanningPreserveFocus();
+}
+function finCompFteChange(i, value) {
+  var pct = parseFloat(value);
+  _finSalaryRoster[i].ftePct = (isFinite(pct) && pct > 0) ? Math.min(100, pct) : 100;
+  finRerenderPlanningPreserveFocus();
+}
+function finCompCashOnlyToggle(i, checked) {
+  _finSalaryRoster[i].cashOnly = !!checked;
   finRerenderPlanningPreserveFocus();
 }
 function finCompSecaToggle(i, checked) {
@@ -5795,9 +5856,11 @@ function finCompCouncilReportHtml(computed, totals) {
       + '<h2 class="fin-comp-rpt-h2">' + esc(w.name || '(unnamed)') + '<span class="mut" style="font-weight:400;font-size:10pt;"> &mdash; ' + esc(w.position || '') + '</span></h2>'
       + '<table class="fin-comp-rpt-table kt"><tbody>'
       + '<tr><td>Cash salary</td><td class="n b">' + finCompMoney(c.salaryCents) + '</td></tr>'
-      + '<tr><td>Pension ' + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate) + '</td><td class="n">' + finCompMoney(b.pensionCents) + '</td></tr>'
-      + '<tr><td>Health &mdash; ' + (finCompHealthMode(w) === 'family' ? 'family tier, group quote split' : finCompHealthMode(w) === 'employee' ? 'employee-only premium' : 'opt-out cash') + '</td><td class="n">' + finCompMoney(b.healthCents) + '</td></tr>'
-      + '<tr><td>Disability &amp; survivor' + (w.hasDependents ? ' (with dependents)' : '') + '</td><td class="n">' + finCompMoney(b.disabilityCents) + '</td></tr>'
+      + (b.cashOnly
+          ? '<tr><td colspan="2" class="mut">Cash salary only at ' + finCompFtePct(w) + '% of full time &mdash; below the hours floor for the Concordia pension, disability and health plans. Employer FICA still applies.</td></tr>'
+          : '<tr><td>Pension ' + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate) + '</td><td class="n">' + finCompMoney(b.pensionCents) + '</td></tr>'
+            + '<tr><td>Health &mdash; ' + (finCompHealthMode(w) === 'family' ? 'family tier, group quote split' : finCompHealthMode(w) === 'employee' ? 'employee-only premium' : 'opt-out cash') + '</td><td class="n">' + finCompMoney(b.healthCents) + '</td></tr>'
+            + '<tr><td>Disability &amp; survivor' + (w.hasDependents ? ' (with dependents)' : '') + '</td><td class="n">' + finCompMoney(b.disabilityCents) + '</td></tr>')
       + '<tr><td>Employer FICA' + (w.selfEmployedFica ? ' &mdash; none; a minister pays their own SECA' : '') + '</td><td class="n">' + finCompMoney(b.ficaCents) + '</td></tr>'
       + '<tr class="tot"><td>Total church cost</td><td class="n">' + finCompMoney(c.churchCostCents) + '</td></tr>'
       + '</tbody></table>'
@@ -5820,7 +5883,7 @@ function finCompCouncilReportHtml(computed, totals) {
   var tierRows = _finSalaryRoster.map(function(w, i) {
     var mode = finCompHealthMode(w);
     return '<tr><td>' + esc(w.name || '(unnamed)') + '</td>'
-      + '<td>' + (mode === 'family' ? 'Family' : mode === 'employee' ? 'Employee only' : 'Opts out (cash)') + '</td>'
+      + '<td>' + (finCompIsCashOnly(w) ? 'Not eligible &mdash; ' + finCompFtePct(w) + '% time' : mode === 'family' ? 'Family' : mode === 'employee' ? 'Employee only' : 'Opts out (cash)') + '</td>'
       + '<td class="n">' + finCompMoney(computed[i].benefits.healthCents) + '</td>'
       + '<td class="mut">' + (mode === 'family' ? 'Group quote &divide; ' + finCompContractCount() + ' contracts' : mode === 'employee' ? 'Entered employee-only premium' : 'Opt-out cash from this year&#39;s rates') + '</td></tr>';
   }).join('');
