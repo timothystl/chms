@@ -1,7 +1,7 @@
 // ── Reports, Engagement, Prayer API handlers ─────────────────────────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedInYear, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, buildBoardCategoryBlock } from './api-utils.js';
+import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedInYear, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, buildBoardCategoryBlock } from './api-utils.js';
 import { resolveChurchYearPrecedence } from './api-finance.js';
 
 export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
@@ -691,62 +691,13 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
   const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
   const fundClause = fundId ? ' AND ge.fund_id = ?' : '';
   const fundBind = fundId ? [fundId] : [];
-  // Same automatic/recurring method set as bucketGivingMethod()'s 'ach'
-  // bucket — used only to flag whether a low-frequency giver already gives
-  // via some form of autopay, informational for the recurring-giving list.
-  const autoMethodClause = "LOWER(ge.method) IN ('ach','online','card','credit','credit card','debit','eft','bank','auto','recurring','paypal','venmo','zelle')";
   // One row per giver with their WHOLE-YEAR total + gift count — every fund
   // they gave to sums into one figure, nothing discounted. Pass fund_id to
   // scope the whole analysis to one fund instead (e.g. only Tuition Aid, or
   // a designated pass-through fund like Concordia Children's Fund).
-  // In household scope the "giver" is the household — spouses' gifts are
-  // combined; givers with no household stand alone (link_kind='person').
-  let rows;
-  if (scope === 'household') {
-    const housed = "p.household_id IS NOT NULL AND p.household_id != 0";
-    // Group key as an expression (NOT aliased "person_id" — that would collide
-    // with the ge.person_id column and SQLite would group by the person, not
-    // the household, so spouses' gifts wouldn't merge).
-    const keyExpr = `CASE WHEN ${housed} THEN 'h:' || p.household_id ELSE 'p:' || p.id END`;
-    rows = (await db.prepare(
-      `SELECT ${keyExpr} AS person_id,
-              CASE WHEN ${housed}
-                   THEN COALESCE(NULLIF(h.name,''),
-                        (SELECT hp.last_name || ' Household' FROM people hp
-                          WHERE hp.household_id = p.household_id AND hp.last_name != '' LIMIT 1),
-                        'Household #' || p.household_id)
-                   ELSE (p.first_name || ' ' || p.last_name) END AS name,
-              CASE WHEN ${housed} THEN p.household_id ELSE p.id END AS link_id,
-              CASE WHEN ${housed} THEN 'household' ELSE 'person' END AS link_kind,
-              SUM(ge.amount) AS total_cents,
-              COUNT(*) AS gifts,
-              SUM(CASE WHEN ${autoMethodClause} THEN 1 ELSE 0 END) AS auto_gifts
-       FROM giving_entries ge
-       JOIN giving_batches gb ON gb.id = ge.batch_id
-       JOIN people p ON p.id = ge.person_id
-       LEFT JOIN households h ON h.id = p.household_id
-       WHERE ${effDate} >= ? AND ${effDate} <= ?
-         AND ge.person_id IS NOT NULL
-         AND LOWER(COALESCE(p.member_type,'')) != 'organization'${fundClause}
-       GROUP BY ${keyExpr}`
-    ).bind(start, end, ...fundBind).all()).results || [];
-  } else {
-    rows = (await db.prepare(
-      `SELECT ge.person_id AS person_id,
-              (p.first_name || ' ' || p.last_name) AS name,
-              p.id AS link_id, 'person' AS link_kind,
-              SUM(ge.amount) AS total_cents,
-              COUNT(*) AS gifts,
-              SUM(CASE WHEN ${autoMethodClause} THEN 1 ELSE 0 END) AS auto_gifts
-       FROM giving_entries ge
-       JOIN giving_batches gb ON gb.id = ge.batch_id
-       JOIN people p ON p.id = ge.person_id
-       WHERE ${effDate} >= ? AND ${effDate} <= ?
-         AND ge.person_id IS NOT NULL
-         AND LOWER(COALESCE(p.member_type,'')) != 'organization'${fundClause}
-       GROUP BY ge.person_id`
-    ).bind(start, end, ...fundBind).all()).results || [];
-  }
+  // Shared with giving/nudges/status, which builds the letters from exactly
+  // this set — see fetchGivingPlateauRows in api-utils.js.
+  const rows = await fetchGivingPlateauRows(db, { year, scope, fundId });
 
   // Admin-configured impact statements ("$18/mo more → one more Tuition Aid
   // week") — see config/giving-impact in api-import.js. Never fabricated here.
@@ -776,13 +727,11 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
   // current in-progress year, weeks so far, so pace isn't understated —
   // same convention as reports/giving-bands.
   const now = new Date();
-  let weeksElapsed = 52;
-  if (year === now.getUTCFullYear()) {
-    const days = Math.floor((Date.now() - Date.UTC(year, 0, 1)) / 86400000) + 1;
-    weeksElapsed = Math.max(1, Math.min(52, Math.ceil(days / 7)));
-  }
+  const weeksElapsed = plateauWeeksElapsed(year, now);
 
-  const result = computeGivingPlateaus(rows, { periodsElapsed: weeksElapsed, impactStatements, lowFrequencyMax });
+  // `givers` is the flat per-giver list the nudge letters are addressed from; this report renders
+  // from `tiers` and doesn't need it, and shipping every giver twice would double the payload.
+  const { givers, ...result } = computeGivingPlateaus(rows, { periodsElapsed: weeksElapsed, impactStatements, lowFrequencyMax });
   return json({
     year, scope, fund_id: fundId || null, partial: year === now.getUTCFullYear(), low_frequency_max: lowFrequencyMax,
     excluded_organizations: { count: orgExclRow?.n || 0, total_cents: orgExclRow?.total_cents || 0 },

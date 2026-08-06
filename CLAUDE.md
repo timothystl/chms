@@ -1656,6 +1656,43 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
   against real SQLite. Not verified live. Done 2026-07-27 (v1.104.0). (`src/api-utils.js`,
   `src/api-reports.js`, `src/frontend/js-reports.js`, `src/frontend/html-tabs.js`,
   `test/giving-plateaus.test.js`)
+- [x] **G31 — Giving Nudges: send the plateau analysis as mail (2026-08-06).** Asked for a
+  Communications tab for the Plateaus & Nudges report, "so we can communicate these nudges." Scoped
+  with the user first (`AskUserQuestion`) rather than guessed — "a tab for it" could mean a nav
+  shortcut or a real send flow, and the send flow carries a pastoral decision: chose **full send
+  flow**, letters **naming each recipient's own figures**. New **Giving → Communications → Giving
+  nudges** pane (year / fund / grouping / Modest-Standard-Generous ask / email-or-print), backed by
+  new `GET /admin/api/giving/nudges/status`. Sends record into the same `giving_letter_sends` ledger
+  the Letters pane uses (new `letter_type` `nudge`), so a run is resumable and nobody is asked
+  twice; printing records too, since printing is a send. **Figures are stated in the rhythm each
+  giver actually gives in** — the user's own follow-up, and it mattered more than it sounds: the
+  analysis normalises everyone to a weekly-equivalent so a weekly regular and a single December
+  stock gift are comparable, which is right for the analysis and wrong for the letter. New pure
+  `classifyGivingCadence()`/`cadenceAmountCents()` + per-giver `cadence*` fields. **Three real bugs
+  found by harnesses, not by reading**: (1) `computeGivingPlateaus()` never returned a flat `givers`
+  array, so the pane would have rendered an **empty recipient list, always** — now returned, and
+  stripped back out of the plateaus report response so that payload doesn't double; (2) a giver of
+  exactly $200/month would have been told they give **$199** (double-rounding through the weekly
+  equivalent: $2,400/yr → $46.15/wk → $46 → $199.33/mo) — the cadence figure now comes from the
+  annualised total directly; (3) the letter's own numbers disagreed — "+$60 a month" beside "about
+  $728 over a year" — so `cadence_annual_delta_cents` is rebuilt from the rounded cadence delta and
+  every figure in one letter reconciles. **The giver query is now shared, not copied**
+  (`fetchGivingPlateauRows`), so the list written to can never be a different set of people than the
+  list reviewed; a test asserts neither module kept a private copy. Two existing tests changed for
+  real reasons: the letter-type inventory (six → seven), and a plateaus test asserting a weekly and
+  a one-time giver get byte-identical options — still true of the *analysis* fields, deliberately
+  false of the new *cadence* fields, so it was narrowed and a companion test added. `npm test`
+  (757/757, 30 new in `test/giving-nudges.test.js` running the real helpers against real in-memory
+  SQLite and the real letter builder out of the built bundle); **every new test verified
+  non-vacuous** by injecting the exact regression it guards (all four failed as they should); plus
+  `node --check` on the built bundle and all three touched backend modules, and a tag-balance scan
+  of the assembled `CHMS_HTML`. **Not verified**: a live browser, a real email send, or a real print
+  dialog. **⚠ The letter copy is drafted and should be read before any real send** — it thanks the
+  giver, states what they currently give, names one next step, and frames it as "an invitation and
+  never an expectation," but it is not the pastor's own wording. (`src/api-utils.js`,
+  `src/api-giving.js`, `src/api-reports.js`, `src/frontend/js-giving.js`,
+  `src/frontend/html-tabs.js`, `test/giving-nudges.test.js`, `test/giving-plateaus.test.js`,
+  `test/giving-letters.test.js`)
 - [ ] **G30** — Pre-existing bug found while building G29, not fixed (out of scope for that session):
   the giving-statement view function in `js-giving.js` (~line 1299) reads `_churchConfig.giving_url`
   to build a "set up recurring giving" link, but `GET /admin/api/config/church` actually returns that

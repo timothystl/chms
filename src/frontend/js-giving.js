@@ -11,11 +11,11 @@ var _GIV_VIEWS = ['offerings','reports','comms','settings'];
 var _GIV_VIEW_ALIASES = {
   batches: 'offerings', transactions: 'offerings', deposits: 'offerings',
   board: 'reports', analysis: 'reports',
-  letters: 'comms', receipts: 'comms',
+  letters: 'comms', receipts: 'comms', nudges: 'comms',
 };
 var _GIV_ALIAS_PANE = {
   batches: 'batches', transactions: 'transactions', deposits: 'deposits',
-  letters: 'letters', receipts: 'receipts',
+  letters: 'letters', receipts: 'receipts', nudges: 'nudges',
 };
 function givSetView(view) {
   // Resolve an old name to its new home, and remember which pane inside it the caller meant.
@@ -88,17 +88,20 @@ function givOffSetPane(pane) {
 }
 
 var _givCommsPane = 'letters';
+var _GIV_COMMS_PANES = ['letters', 'receipts', 'nudges'];
 function givCommsSetPane(pane) {
-  if (pane !== 'receipts') pane = 'letters';
+  if (_GIV_COMMS_PANES.indexOf(pane) < 0) pane = 'letters';
   _givCommsPane = pane;
-  ['letters','receipts'].forEach(function(p) {
+  _GIV_COMMS_PANES.forEach(function(p) {
     var el = document.getElementById('giv-pane-' + p);
     if (el) el.style.display = (p === pane) ? '' : 'none';
   });
   document.querySelectorAll('[data-gcomm]').forEach(function(b) {
     b.classList.toggle('active', b.getAttribute('data-gcomm') === pane);
   });
-  if (pane === 'letters') givLettersInit(); else givReceiptsInit();
+  if (pane === 'letters') givLettersInit();
+  else if (pane === 'receipts') givReceiptsInit();
+  else givNudgesInit();
 }
 
 // ── Offerings work queue ───────────────────────────────────────────────
@@ -2074,6 +2077,289 @@ function givLettersToggleMark(i) {
   }).then(function() { givLettersLoadStatus(); }).catch(function(){});
 }
 
+// ── GIVING NUDGES WORKSPACE ────────────────────────────────────────────
+// The Plateaus & Nudges analysis (Reports -> Analysis) works out who to write to and what to
+// ask; this is where that becomes actual mail. Recipients come from giving/nudges/status, which
+// runs the SAME giver query the report runs, so the list here is never a different set of people
+// than the one that was reviewed.
+//
+// Every figure a recipient sees is in THEIR OWN rhythm — a monthly giver reads "$185 a month",
+// not the weekly-equivalent the analysis normalises to internally. Sends and prints are recorded
+// in the same giving_letter_sends ledger the Letters pane uses (letter_type 'nudge'), so a run
+// is resumable and nobody is asked twice.
+var _givNudgesState = { year: 0, scope: 'household', fundId: '', option: 'standard', channel: 'email', lowFreq: 3, recipients: [], counts: null, selected: {} };
+var _GIV_NUDGE_OPTIONS = [
+  { key: 'modest',   label: 'Modest' },
+  { key: 'standard', label: 'Standard' },
+  { key: 'generous', label: 'Generous' }
+];
+function givNudgesInit() {
+  if (!_givNudgesState.year) _givNudgesState.year = new Date().getFullYear();
+  givNudgesRenderShell();
+  givNudgesPopulateFunds();
+  givNudgesLoadStatus();
+}
+// givPopulateFundSelect early-returns once a select has options, and the shell re-render builds a
+// fresh empty one — so the chosen fund has to be re-applied after each repopulate or it silently
+// resets to All Funds while the query keeps using the old value.
+function givNudgesPopulateFunds() {
+  givPopulateFundSelect('giv-nudge-fund');
+  var sel = document.getElementById('giv-nudge-fund');
+  if (sel) sel.value = _givNudgesState.fundId || '';
+}
+function givNudgesRenderShell() {
+  var root = document.getElementById('giv-nudges-root');
+  if (!root) return;
+  var st = _givNudgesState;
+  var optPills = _GIV_NUDGE_OPTIONS.map(function(o) {
+    return '<button class="pill' + (o.key === st.option ? ' active' : '') + '" onclick="givNudgesSetOption(' + volJsAttr(o.key) + ')">' + esc(o.label) + '</button>';
+  }).join('');
+  root.innerHTML = '<div class="import-card" style="margin:0 0 14px;">'
+    + '<h3 style="margin-top:0;">&#128233; Giving nudges</h3>'
+    + '<p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">Invites each giver to a specific next step, in the rhythm they already give in &mdash; a monthly giver is asked to move from one monthly amount to the next, not from a weekly figure they never see. Who appears here, and what each is asked, comes straight from <span style="color:var(--color-teal);font-weight:700;cursor:pointer;" onclick="givSetView(&quot;analysis&quot;)">Plateaus &amp; Nudges</span> under Reports. <strong>Every letter states back what that person currently gives &mdash; preview one before you send.</strong></p>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:10px;">'
+    + '<div class="field" style="margin:0;"><label>Year</label><input type="number" id="giv-nudge-year" value="' + st.year + '" onchange="givNudgesSetYear(this.value)" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>'
+    + '<div class="field" style="margin:0;"><label>Fund</label><select id="giv-nudge-fund" onchange="givNudgesSetFund(this.value)" style="font-size:.85rem;padding:4px 8px;"><option value="">All Funds</option></select></div>'
+    + '<div class="field" style="margin:0;"><label>Group by</label><select onchange="givNudgesSetScope(this.value)" style="font-size:.85rem;padding:4px 8px;">'
+    + '<option value="household"' + (st.scope === 'household' ? ' selected' : '') + '>Household</option>'
+    + '<option value="person"' + (st.scope === 'person' ? ' selected' : '') + '>Person</option></select></div>'
+    + '<div class="field" style="margin:0;"><label>Ask</label><div class="batch-filter-pills" style="border-bottom:none;padding:0;">' + optPills + '</div></div>'
+    + '<div class="field" style="margin:0;"><label>Channel</label><select onchange="givNudgesSetChannel(this.value)" style="font-size:.85rem;padding:4px 8px;">'
+    + '<option value="email"' + (st.channel === 'email' ? ' selected' : '') + '>Email</option>'
+    + '<option value="print"' + (st.channel === 'print' ? ' selected' : '') + '>Print</option></select></div>'
+    + '</div>'
+    + '<div id="giv-nudge-status" class="import-status"></div>'
+    + '</div>'
+    + '<div id="giv-nudge-body"><div class="board-empty">Loading&hellip;</div></div>';
+}
+function givNudgesSetYear(v) { _givNudgesState.year = parseInt(v, 10) || new Date().getFullYear(); givNudgesLoadStatus(); }
+function givNudgesSetFund(v) { _givNudgesState.fundId = v || ''; givNudgesLoadStatus(); }
+function givNudgesSetScope(v) { _givNudgesState.scope = (v === 'person') ? 'person' : 'household'; givNudgesLoadStatus(); }
+function givNudgesSetOption(v) { _givNudgesState.option = v; givNudgesRenderShell(); givNudgesPopulateFunds(); givNudgesLoadStatus(); }
+function givNudgesSetChannel(v) { _givNudgesState.channel = (v === 'print') ? 'print' : 'email'; givNudgesLoadStatus(); }
+function givNudgesLoadStatus() {
+  var st = _givNudgesState;
+  var body = document.getElementById('giv-nudge-body');
+  if (!body) return;
+  body.innerHTML = '<div class="board-empty">Loading recipients&hellip;</div>';
+  var qs = 'year=' + st.year + '&scope=' + st.scope + '&option=' + st.option + '&channel=' + st.channel
+    + '&low_frequency_max=' + st.lowFreq + (st.fundId ? '&fund_id=' + encodeURIComponent(st.fundId) : '');
+  api('/admin/api/giving/nudges/status?' + qs).then(function(d) {
+    if (!d || d.error) { body.innerHTML = '<div class="board-empty">Could not load recipients.</div>'; return; }
+    st.recipients = d.recipients || [];
+    st.counts = d.counts || { total: 0, sent: 0, unsent: 0, no_email: 0 };
+    st.upsideAnnualCents = d.upside_annual_cents || 0;
+    st.partial = !!d.partial;
+    // Default selection: everyone not already written to, and (for email) reachable.
+    st.selected = {};
+    st.recipients.forEach(function(r, i) {
+      if (!r.sent && (st.channel === 'print' || r.has_email)) st.selected[i] = true;
+    });
+    givNudgesRenderRecipients();
+  }).catch(function(e) {
+    body.innerHTML = '<div class="board-empty">Could not load recipients: ' + esc(e.message) + '</div>';
+  });
+}
+function givNudgesSelected() {
+  var st = _givNudgesState;
+  return st.recipients.filter(function(r, i) { return st.selected[i]; });
+}
+function givNudgesToggle(i, checked) { _givNudgesState.selected[i] = !!checked; givNudgesRenderTotals(); }
+function givNudgesSelectAll(only) {
+  var st = _givNudgesState;
+  st.selected = {};
+  st.recipients.forEach(function(r, i) {
+    if (only === 'none') return;
+    if (only === 'unsent' && r.sent) return;
+    if (st.channel === 'email' && !r.has_email) return;
+    st.selected[i] = true;
+  });
+  givNudgesRenderRecipients();
+}
+function givNudgesRenderTotals() {
+  var el = document.getElementById('giv-nudge-totals');
+  if (!el) return;
+  var sel = givNudgesSelected();
+  var upside = sel.reduce(function(s, r) { return s + ((r.option && r.option.cadence_annual_delta_cents) || 0); }, 0);
+  el.innerHTML = '<b>' + sel.length + '</b> selected &middot; if every one of them says yes, that is <b>' + fmtWholeDollars(upside) + '/yr</b> more.';
+}
+function givNudgesRenderRecipients() {
+  var st = _givNudgesState;
+  var body = document.getElementById('giv-nudge-body');
+  if (!body) return;
+  if (!st.recipients.length) {
+    body.innerHTML = '<div class="board-empty">No givers with a suggested next step for ' + st.year + '.</div>';
+    return;
+  }
+  var c = st.counts;
+  var rows = st.recipients.map(function(r, i) {
+    var o = r.option || {};
+    var unreachable = (st.channel === 'email' && !r.has_email);
+    return '<tr' + (r.sent ? ' style="opacity:.55;"' : '') + '>'
+      + '<td style="padding:6px;"><input type="checkbox" id="giv-nudge-cb-' + i + '"' + (st.selected[i] ? ' checked' : '') + (unreachable ? ' disabled' : '') + ' onchange="givNudgesToggle(' + i + ',this.checked)"></td>'
+      + '<td style="padding:6px;"><div style="font-weight:600;">' + esc(r.name || '(unnamed)') + '</div>'
+      + '<div style="font-size:.74rem;color:var(--warm-gray);">' + (r.has_email ? esc(r.email) : '<span style="color:var(--deep-amber);">no email on file</span>')
+      + ' &middot; ' + r.gifts + ' gift' + (r.gifts === 1 ? '' : 's') + '</div></td>'
+      + '<td style="padding:6px;"><span class="fin-chip fin-chip-info">' + esc(r.cadence_label || '') + '</span>'
+      + (r.low_frequency && r.all_manual_methods ? ' <span class="fin-chip fin-chip-warn" title="Gives occasionally and never by an automatic method — a good recurring-giving conversation">not automated</span>' : '') + '</td>'
+      + '<td style="padding:6px;text-align:right;font-variant-numeric:tabular-nums;">' + fmtWholeDollars(r.cadence_amount_cents) + ' <span style="color:var(--warm-gray);font-size:.74rem;">' + esc(r.cadence_adverb || '') + '</span></td>'
+      + '<td style="padding:6px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;">' + fmtWholeDollars(o.cadence_target_cents) + '</td>'
+      + '<td style="padding:6px;text-align:right;font-variant-numeric:tabular-nums;color:var(--sage-text);">' + fmtWholeDollars(o.cadence_annual_delta_cents) + '/yr</td>'
+      + '<td style="padding:6px;text-align:right;white-space:nowrap;">'
+      + '<button class="btn-secondary" style="font-size:.72rem;padding:2px 8px;" onclick="givNudgesPreview(' + i + ')">Preview</button> '
+      + '<button class="btn-secondary" style="font-size:.72rem;padding:2px 8px;" onclick="givNudgesToggleMark(' + i + ')">' + (r.sent ? 'Unmark' : 'Mark sent') + '</button>'
+      + '</td></tr>';
+  }).join('');
+  body.innerHTML = '<div class="import-card" style="margin:0;">'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">'
+    + givLettersStatChip(c.total, 'in range') + givLettersStatChip(c.sent, 'already sent') + givLettersStatChip(c.unsent, 'not yet')
+    + (c.no_email ? givLettersStatChip(c.no_email, 'no email') : '')
+    + '<span style="flex:1;"></span>'
+    + '<button class="btn-secondary" style="font-size:.76rem;padding:3px 10px;" onclick="givNudgesSelectAll(&quot;unsent&quot;)">Select not-yet-sent</button> '
+    + '<button class="btn-secondary" style="font-size:.76rem;padding:3px 10px;" onclick="givNudgesSelectAll(&quot;all&quot;)">Select all</button> '
+    + '<button class="btn-secondary" style="font-size:.76rem;padding:3px 10px;" onclick="givNudgesSelectAll(&quot;none&quot;)">Clear</button>'
+    + '</div>'
+    + (st.partial ? '<div class="import-status warn" style="margin-bottom:8px;">' + st.year + ' is still in progress, so each figure is a pace so far this year, not a finished total.</div>' : '')
+    + '<div id="giv-nudge-totals" style="font-size:.85rem;color:var(--warm-gray);margin-bottom:8px;"></div>'
+    + '<div style="overflow-x:auto;"><table class="rpt-table" style="min-width:820px;">'
+    + '<thead><tr><th style="width:28px;"></th><th>Giver</th><th>Gives</th><th style="text-align:right;">Now</th><th style="text-align:right;">Invited to</th><th style="text-align:right;">If yes</th><th></th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">'
+    + (st.channel === 'email'
+        ? '<button class="btn-primary" onclick="givNudgesSend()">Email selected</button>'
+        : '<button class="btn-primary" onclick="givNudgesPrint()">Print selected</button>')
+    + '</div></div>';
+  givNudgesRenderTotals();
+}
+// The letter itself. Built from the recipient's own cadence figures rather than a stored
+// template, because the whole point is the specific ask — and kept deliberately short: a page
+// that states what they give, names one concrete next step, and says what it would do.
+function givNudgesLetterHtml(r, churchName) {
+  var o = r.option || {};
+  var adverb = r.cadence_adverb || 'a week';
+  var greeting = (r.kind === 'household') ? 'Dear ' + esc(r.name) : 'Dear ' + esc((r.recipient_name || r.name).split(' ')[0]);
+  var givingUrl = (_churchConfig && _churchConfig.online_giving_url) || '';
+  var body = '<p>' + greeting + ',</p>'
+    + '<p>Thank you for your faithful giving to ' + esc(churchName) + '. Your generosity is part of everything this congregation is able to do &mdash; worship, teaching, care for our neighbours, and the daily work of the church.</p>'
+    + '<p>Over the past year your giving has averaged about <b>' + fmtWholeDollars(r.cadence_amount_cents) + ' ' + esc(adverb) + '</b>.'
+    + ' As we look ahead, would you prayerfully consider moving to <b>' + fmtWholeDollars(o.cadence_target_cents) + ' ' + esc(adverb) + '</b>?</p>'
+    + '<p>That is a change of ' + fmtWholeDollars(o.cadence_delta_cents) + ' ' + esc(adverb) + ' &mdash; about <b>' + fmtWholeDollars(o.cadence_annual_delta_cents) + '</b> over a year.'
+    + (o.impact_text ? ' ' + esc(o.impact_text) : '') + '</p>'
+    + (givingUrl ? '<p>If it would help to make your giving automatic, you can set that up at <a href="' + esc(givingUrl) + '">' + esc(givingUrl) + '</a>.</p>' : '')
+    + '<p>Please hear this as an invitation and never an expectation. Whatever you decide, we are grateful for you.</p>'
+    + '<p>In Christ,<br>' + esc(churchName) + '</p>';
+  return '<div style="font-family:Georgia,serif;font-size:14px;line-height:1.65;max-width:560px;">'
+    + letterheadImgHtml(true, churchName, 'font-size:16px;font-weight:bold;', 6) + '<hr style="margin:10px 0;">'
+    + body + '</div>';
+}
+function givNudgesChurchName() {
+  return (_churchConfig && _churchConfig.church_name) || 'Timothy Lutheran Church';
+}
+function givNudgesWithConfig(next) {
+  if (_churchConfig && _churchConfig.church_name) { next(); return; }
+  api('/admin/api/config/church').then(function(cfg) { _churchConfig = cfg || {}; next(); }).catch(function() { next(); });
+}
+function givNudgesPreview(i) {
+  var r = _givNudgesState.recipients[i];
+  if (!r) return;
+  givNudgesWithConfig(function() {
+    var who = document.getElementById('giv-nudge-preview-who');
+    var bodyEl = document.getElementById('giv-nudge-preview-body');
+    if (who) who.textContent = r.name || '(unnamed)';
+    if (bodyEl) bodyEl.innerHTML = givNudgesLetterHtml(r, givNudgesChurchName());
+    openModal('giv-nudge-preview-modal');
+  });
+}
+function givNudgesSend() {
+  var st = _givNudgesState;
+  var statusEl = document.getElementById('giv-nudge-status');
+  var recips = givNudgesSelected().filter(function(r) { return r.has_email; });
+  if (!recips.length) { statusEl.textContent = 'No emailable recipients selected.'; statusEl.className = 'import-status err'; return; }
+  if (!confirm('Email ' + recips.length + ' giving nudge' + (recips.length === 1 ? '' : 's') + '?\n\nEach letter names what that person currently gives. Preview one first if you have not.')) return;
+  givNudgesWithConfig(function() {
+    var churchName = givNudgesChurchName();
+    var total = recips.length, done = 0, failed = 0, stopped = false, i = 0;
+    statusEl.className = 'import-status';
+    function finish() {
+      var msg = 'Done. ' + done + ' emailed';
+      if (failed) msg += ', ' + failed + ' failed';
+      if (stopped) msg = "Brevo's sending limit was hit after " + done + ' emailed. Come back later and click Email selected again — already-sent recipients are skipped.';
+      statusEl.textContent = msg;
+      statusEl.className = (failed || stopped) ? 'import-status' : 'import-status ok';
+      givNudgesLoadStatus();
+    }
+    function next() {
+      if (i >= recips.length || stopped) { finish(); return; }
+      var r = recips[i++];
+      statusEl.textContent = 'Emailing ' + (done + failed + 1) + '/' + total + '…';
+      api('/admin/api/giving/send-statement', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to_email: r.email, to_name: r.recipient_name || r.name,
+          subject: 'A word of thanks — and an invitation — from ' + churchName,
+          html_body: givNudgesLetterHtml(r, churchName),
+          person_id: (r.kind === 'household') ? (r.recipient_person_id || 0) : r.id,
+          household_id: (r.kind === 'household') ? r.id : null,
+          year: st.year, letter_type: 'nudge', recipient_key: r.recipient_key
+        })
+      }).then(function(res) {
+        if (res && res.ok) { done++; next(); return; }
+        if (res && res.rate_limited) { stopped = true; finish(); return; }
+        failed++; next();
+      }).catch(function() { failed++; next(); });
+    }
+    next();
+  });
+}
+function givNudgesPrint() {
+  var st = _givNudgesState;
+  var statusEl = document.getElementById('giv-nudge-status');
+  var recips = givNudgesSelected();
+  if (!recips.length) { statusEl.textContent = 'No recipients selected.'; statusEl.className = 'import-status err'; return; }
+  givNudgesWithConfig(function() {
+    var churchName = givNudgesChurchName();
+    var pages = recips.map(function(r, idx) {
+      return '<div style="' + (idx ? 'page-break-before:always;' : '') + '">' + givNudgesLetterHtml(r, churchName) + '</div>';
+    }).join('');
+    var w = window.open('', '_blank');
+    if (!w) { statusEl.textContent = 'Could not open the print window — allow pop-ups for this site.'; statusEl.className = 'import-status err'; return; }
+    w.document.write('<html><head><title>Giving nudges — ' + st.year + '</title></head><body>' + pages + '</body></html>');
+    w.document.close();
+    w.focus();
+    w.print();
+    // Printing is a send: record every letter that just went to paper, so the next run skips
+    // them exactly as it would after an email.
+    var pending = recips.length;
+    statusEl.textContent = 'Recording ' + pending + ' printed…';
+    statusEl.className = 'import-status';
+    recips.forEach(function(r) {
+      api('/admin/api/giving/letters/mark', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient_key: r.recipient_key, year: st.year, letter_type: 'nudge', channel: 'print',
+          person_id: (r.kind === 'household') ? (r.recipient_person_id || 0) : r.id,
+          household_id: (r.kind === 'household') ? r.id : null
+        })
+      }).catch(function() {}).then(function() {
+        if (--pending <= 0) { statusEl.textContent = 'Printed and recorded.'; statusEl.className = 'import-status ok'; givNudgesLoadStatus(); }
+      });
+    });
+  });
+}
+function givNudgesToggleMark(i) {
+  var st = _givNudgesState;
+  var r = st.recipients[i];
+  if (!r) return;
+  api('/admin/api/giving/letters/mark', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      recipient_key: r.recipient_key, year: st.year, letter_type: 'nudge', channel: st.channel,
+      unmark: !!r.sent,
+      person_id: (r.kind === 'household') ? (r.recipient_person_id || 0) : r.id,
+      household_id: (r.kind === 'household') ? r.id : null
+    })
+  }).then(function() { givNudgesLoadStatus(); }).catch(function() {});
+}
 
 // ── Settings → Fund categories ─────────────────────────────────────────
 // The mapping the Reports fund lens depends on. Every fund gets exactly one category and an

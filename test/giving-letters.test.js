@@ -13,13 +13,17 @@ const households = [
 ];
 
 describe('LETTER_TYPES config', () => {
-  it('has the six workspace letter types with default scopes', () => {
+  it('has the seven letter types with default scopes', () => {
     expect(Object.keys(LETTER_TYPES).sort()).toEqual(
-      ['appeal', 'memorial', 'midyear', 'quarterly', 'thank_you', 'year_end']
+      ['appeal', 'memorial', 'midyear', 'nudge', 'quarterly', 'thank_you', 'year_end']
     );
     expect(LETTER_TYPES.year_end.defaultScope).toBe('givers');
     expect(LETTER_TYPES.appeal.defaultScope).toBe('member_households');
     expect(LETTER_TYPES.memorial.defaultScope).toBe('none');
+    // memorial and nudge are both 'none' for the same reason: the letters workspace resolves
+    // recipients from a scope query, and neither of these has one — a memorial letter is written
+    // one at a time, and a nudge's recipients come from the plateau analysis.
+    expect(LETTER_TYPES.nudge.defaultScope).toBe('none');
   });
 });
 
