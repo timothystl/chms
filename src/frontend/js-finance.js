@@ -3549,30 +3549,38 @@ function finRerenderPlanningPreserveFocus() {
 // FY actual/budget as a reference. Knapp = DCE (Commissioned, MA track), Thompson = Director of
 // Parish Music (Other Church Worker, treated as a regular employee per FIN15/FIN16).
 var SALARY_STAFF_SEED = [
-  { name: 'Dinger', role: 'pastor', trackKey: '', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: true, hasDependents: false, accountCode: '58001', healthEnrolled: true },
-  { name: 'Knapp', role: 'commissioned', trackKey: 'ma', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: true, hasDependents: false, accountCode: '58002', healthEnrolled: true },
-  { name: 'Thompson', role: 'other', trackKey: 'business_manager_music', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: false, hasDependents: false, accountCode: '58003', healthEnrolled: true }
+  { name: 'Dinger', position: 'Senior Pastor', role: 'pastor', trackKey: '', education: 'masters', yearsExperience: 0, responsibilityStipend: 0, responsibilityStipendKey: 'none', attendanceBonus: 0, selfEmployedFica: true, hasDependents: false, accountCode: '58001', healthEnrolled: true },
+  { name: 'Knapp', position: 'Director of Christian Education', role: 'commissioned', trackKey: 'ma', education: 'masters', yearsExperience: 0, responsibilityStipend: 0, responsibilityStipendKey: 'none', attendanceBonus: 0, selfEmployedFica: true, hasDependents: false, accountCode: '58002', healthEnrolled: true },
+  { name: 'Thompson', position: 'Director of Parish Music', role: 'other', trackKey: 'business_manager_music', education: 'bachelors', yearsExperience: 0, responsibilityStipend: 0, responsibilityStipendKey: 'none', attendanceBonus: 0, selfEmployedFica: false, hasDependents: false, accountCode: '58003', healthEnrolled: true }
 ];
 var _finSalaryLoaded = false; // salary/health-plan settings load once per page visit, not per base-year change — they're not scoped to a fiscal year
-// Per-fiscal-year district figures that change annually on paper (base salary, health opt-out
-// cash) but aren't a formula — { [year]: { baseSalaryCents, healthOptOutCents } }. Role/track
-// multiplier tables (LCMS_PASTOR_MULTIPLIERS etc.) are NOT part of this — those are structural
-// and don't change year to year, per the user's explicit confirmation, so they stay hardcoded.
+// Per-fiscal-year figures that arrive on paper once a year but aren't a formula — the district
+// base salary, the Concordia Plans rates, the Social Security COLA, the health opt-out cash
+// figure, and the provenance text for each. Shape:
+//   { [year]: { baseSalaryCents, healthOptOutCents, pensionPct, ficaPct, disabilityDepsPct,
+//               disabilityNoDepsPct, ssaColaPct, districtSource, concordiaSource, quoteSource } }
+// Percentages are stored as fractions (0.117), money as cents. Role/track multiplier tables
+// (LCMS_PASTOR_MULTIPLIERS etc.) are NOT part of this — those are structural and don't change
+// year to year, per the user's explicit confirmation, so they stay hardcoded. The code constants
+// (LCMS_MO_BASE_SALARY_BY_YEAR, CONCORDIA_*_BY_YEAR, SSA_COLA_REFERENCE_PCT) remain the seed and
+// fallback; an entered value for the year wins over them. See finCompEnteredRef.
 var _finSalaryReferenceByYear = {};
+var _finSalaryTargetCategory = ''; // budget account "Send to FY budget" writes into
 function finLoadSalaryPlannerData() {
   return api('/admin/api/finance/planning/salary').then(function(d) {
     var saved = d && d.data;
     if (saved && Array.isArray(saved.roster) && saved.roster.length) {
       _finSalaryRoster = saved.roster;
-      _finSalaryColaPct = saved.colaPct || 0;
-      _finSalaryColaSource = saved.colaSource || 'none';
-      _finSalaryPensionPct = (saved.pensionPct != null) ? saved.pensionPct : null;
-      _finSalaryDisabilityPct = (saved.disabilityPct != null) ? saved.disabilityPct : null;
-      _finSalaryBenefitsDollars = saved.benefitsDollars || 0;
       _finSalaryTargetCategory = saved.targetCategory || '';
       _finHealthPlanSelectedOption = saved.healthPlanOption || 'renewal';
-      _finHealthPlanTargetCategory = saved.healthPlanTargetCategory || '';
       _finSalaryReferenceByYear = (saved.referenceByYear && typeof saved.referenceByYear === 'object') ? saved.referenceByYear : {};
+      _finHealthPlanPremiumOverrides = (saved.healthPlanPremiumOverrides && typeof saved.healthPlanPremiumOverrides === 'object') ? saved.healthPlanPremiumOverrides : {};
+      if (saved.healthPlanContracts != null) _finHealthPlanContracts = saved.healthPlanContracts;
+      if (saved.compMethod) _finCompMethod = saved.compMethod;
+      if (saved.compPerWorkerMethod && typeof saved.compPerWorkerMethod === 'object') _finCompPerWorkerMethod = saved.compPerWorkerMethod;
+      if (saved.compOverrides && typeof saved.compOverrides === 'object') _finCompOverrides = saved.compOverrides;
+      if (saved.compCustomPct != null) _finCompCustomPct = saved.compCustomPct;
+      finCompMigrateSavedShape(saved);
     } else if (!_finSalaryRoster.length) {
       _finSalaryRoster = JSON.parse(JSON.stringify(SALARY_STAFF_SEED));
     }
@@ -3582,15 +3590,38 @@ function finLoadSalaryPlannerData() {
     finConcordiaSeedRoster();
   });
 }
+// Forward-migration of the pre-redesign save shape. The old tab kept the pension/disability
+// overrides as two roster-wide globals and the growth choice as a colaSource string; both are
+// now per-year reference figures and a method key. Migrating on read (rather than leaving the old
+// globals live) matters because an override with no UI left to clear it would silently keep
+// applying — the invisible-stuck-state class of bug.
+function finCompMigrateSavedShape(saved) {
+  var y = _finPlanTargetYear;
+  if (!_finSalaryReferenceByYear[y]) _finSalaryReferenceByYear[y] = {};
+  var row = _finSalaryReferenceByYear[y];
+  if (saved.pensionPct != null && row.pensionPct == null) row.pensionPct = saved.pensionPct;
+  if (saved.disabilityPct != null && row.disabilityDepsPct == null) {
+    // The old override applied ONE flat rate to every worker regardless of dependent status, so
+    // both of the two new rates carry the same figure to preserve that exactly.
+    row.disabilityDepsPct = saved.disabilityPct;
+    row.disabilityNoDepsPct = saved.disabilityPct;
+  }
+  if (!saved.compMethod && saved.colaSource) {
+    // 'lcms'/'ssa' both meant "grow by a published rate", which is now the COLA method; the old
+    // district-formula behaviour is the separate District Scale column.
+    _finCompMethod = saved.colaSource === 'none' ? 'none' : saved.colaSource === 'custom' ? 'custom' : 'cola';
+    if (saved.colaSource === 'custom' && saved.colaPct != null && saved.compCustomPct == null) _finCompCustomPct = saved.colaPct * 100;
+  }
+}
 // Shared by the manual Save button and the debounced autosave below — this whole card's state is
 // small enough to just resend wholesale on every save (no incremental diffing needed, unlike the
 // Tuition Aid pin-based autosave).
 function finSalaryBuildSaveBody() {
   return {
-    roster: _finSalaryRoster, colaPct: _finSalaryColaPct, colaSource: _finSalaryColaSource, pensionPct: _finSalaryPensionPct,
-    disabilityPct: _finSalaryDisabilityPct,
-    benefitsDollars: _finSalaryBenefitsDollars, targetCategory: _finSalaryTargetCategory,
-    healthPlanOption: _finHealthPlanSelectedOption, healthPlanTargetCategory: _finHealthPlanTargetCategory,
+    roster: _finSalaryRoster, targetCategory: _finSalaryTargetCategory,
+    healthPlanOption: _finHealthPlanSelectedOption, healthPlanContracts: _finHealthPlanContracts,
+    compMethod: _finCompMethod, compPerWorkerMethod: _finCompPerWorkerMethod,
+    compOverrides: _finCompOverrides, compCustomPct: _finCompCustomPct,
     referenceByYear: _finSalaryReferenceByYear, healthPlanPremiumOverrides: _finHealthPlanPremiumOverrides
   };
 }
@@ -3958,43 +3989,6 @@ function finRenderPlanning() {
     + '</div>'
     + finRenderPlanningOutlook(projectedRevenueCents, projectedExpenseCents);
 }
-// Compensation tab (split out of Planning — Phase 5 of the Finance Workspace redesign): the
-// Salary Calculator and Health Insurance cards are unchanged in logic/data, just rendered into
-// their own tab instead of stacked at the bottom of Planning. Depends on the same
-// _finPlanBaseTree/_finSalaryRoster state Planning loads, via finLoadPlanning() below.
-function finRenderCompensation() {
-  var el = document.getElementById('fin-comp-root');
-  if (!el) return;
-  var isAdminUI = (_userRole === 'admin');
-  var yearLabelEl = document.getElementById('fin-comp-year-label');
-  if (yearLabelEl) yearLabelEl.textContent = _finPlanTargetYear;
-  el.innerHTML = finRenderSalaryCalculator(isAdminUI) + finRenderConcordiaComparisons(isAdminUI) + finRenderHealthInsuranceCalculator(isAdminUI) + finRenderCompensationBottomLine();
-}
-// Bottom line — the single number answering "what do all these Compensation decisions add up to,
-// combined?" (salary growth scenario, pension %, and the currently-selected Health Insurance plan
-// option all feed into finSalaryComputeAll's per-worker totalCompCents already, so no double
-// counting: this just sums that against last year's real spend on the same matching accounts).
-function finRenderCompensationBottomLine() {
-  if (!_finPlanBaseTree || !_finSalaryRoster.length) return '';
-  var expenseLeaves = [];
-  (function walk(nodes) { (nodes || []).forEach(function(n) { if (!n.children.length && n.classification !== 'Income') expenseLeaves.push(n); walk(n.children); }); })(_finPlanBaseTree);
-  var salaryAccounts = expenseLeaves.filter(function(n) { return /salar|payroll|compensation|wages/i.test(n.label); });
-  var healthAccounts = expenseLeaves.filter(function(n) { return /health|medical|dental|vision|disability/i.test(n.label); });
-  var baselineCents = salaryAccounts.reduce(function(sum, n) { return sum + (n.totalActualCents || 0); }, 0)
-                     + healthAccounts.reduce(function(sum, n) { return sum + (n.totalActualCents || 0); }, 0);
-  var pensionPctUsed = _finSalaryPensionPct != null ? _finSalaryPensionPct : finConcordiaPensionRateFor(_finPlanTargetYear).rate;
-  var computed = finSalaryComputeAll(_finSalaryColaPct, pensionPctUsed);
-  var totalCompCents = computed.reduce(function(sum, c) { return sum + (c.totalCompCents || 0); }, 0) + Math.round((_finSalaryBenefitsDollars || 0) * 100);
-  var deltaCents = totalCompCents - baselineCents;
-  var pct = baselineCents ? (deltaCents / baselineCents * 100) : null;
-  return '<div class="fin-navy-card" style="margin-top:16px;">'
-    + '<div class="fin-card-title" style="font-size:18px;">Bottom Line — Total Compensation Budget Impact</div>'
-    + '<div class="fin-navy-label" style="margin-top:10px;">FY' + _finPlanBaseYear + ' Actual (matching salary + health accounts)</div><div style="font-size:18px;font-weight:700;">$' + finFmtMoney(baselineCents/100) + '</div>'
-    + '<div class="fin-navy-label" style="margin-top:8px;">FY' + _finPlanTargetYear + ' Computed Total <span style="font-weight:400;">(current growth scenario + pension % + health plan choice above)</span></div><div style="font-size:18px;font-weight:700;">$' + finFmtMoney(totalCompCents/100) + '</div>'
-    + '<div style="border-top:1px solid rgba(255,255,255,.3);margin:10px 0;"></div>'
-    + '<div class="fin-navy-label">Net Change to Budget</div><div class="fin-navy-val ' + (deltaCents > 0 ? 'negative' : 'positive') + '">' + finFmtSigned(deltaCents) + (pct != null ? ' (' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)' : '') + '</div>'
-    + '</div>';
-}
 // Three-year outlook (Finance Workspace handoff, Planning section): current target year plus 3
 // forward years, income growing 2.5%/yr and expenses 3%/yr beyond the target year — the handoff's
 // own stated assumption, not independently derived. A quick "does this trend stay healthy"
@@ -4294,10 +4288,6 @@ function finConcordiaDisabilityRateFor(year, hasDependents) {
 }
 
 var _finSalaryRoster = [];
-var _finSalaryColaPct = 0; // growth-rate assumption, used only when the target year has no published district base salary yet
-var _finSalaryColaSource = 'none'; // 'none' | 'lcms' | 'ssa' | 'custom' — which of the 3 reference options (or a hand-typed figure) is currently picked
-var _finSalaryPensionPct = null; // null = use the looked-up Concordia rate for the target year (below); a number = an explicit admin override
-var _finSalaryDisabilityPct = null; // null = use the looked-up Concordia rate (per worker's Has Dependents status); a number = an explicit admin override applied uniformly to every worker, same pattern as Pension above
 // Pure — no DOM — a straight percentage-of-salary employer cost (shared math for both Pension and
 // Disability & Survivor — same shape as employer FICA, just with rates set by Concordia yearly).
 // Percent-as-fraction round-trips through the storage layer (typed "11.7" -> /100 -> 0.117 ->
@@ -4312,13 +4302,6 @@ function finFmtPctInput(fraction) {
 }
 function finComputePensionCents(salaryCents, pensionPct) {
   return Math.round((salaryCents || 0) * (Number(pensionPct) || 0));
-}
-// "None (flat)" means "no raise" — computed off the BASE (current) year's own district base
-// salary, not the target year's. Every other scenario (LCMS/SSA/Custom) is a raise proposal for
-// the TARGET year. This is why they can legitimately differ even when the target year already has
-// a published/entered base figure — "none" is deliberately anchored to a different year.
-function finSalaryScenarioYear() {
-  return _finSalaryColaSource === 'none' ? _finPlanBaseYear : _finPlanTargetYear;
 }
 // Real paychecks: divide the exact LCMS-formula annual figure by the number of pay periods,
 // round THAT per-period amount to the nearest $5, then multiply back by the period count — so the
@@ -4350,155 +4333,6 @@ function finAccountBudgetCentsForCode(code) {
   var node = allAccountNodes.filter(function(n) { return n.path.indexOf(code) >= 0 || n.label.indexOf(code) >= 0; })[0];
   if (!node) return null;
   return node.hasBudgetInfo ? node.totalBudgetCents : node.totalActualCents;
-}
-// Pure — no DOM — a worker's salary under one scenario ({pct, year, key}). "None (flat)" is the
-// one case that shows a REAL figure directly with no growth applied — what's actually budgeted
-// right now, resolved in priority order: (1) an explicit admin-typed override
-// (w.actualSalaryCents — for a worker with no linked account, or to correct a wrong/stale account
-// figure), (2) their linked account's real FY{baseYear} BUDGETED total (see
-// finAccountBudgetCentsForCode). Every OTHER scenario (LCMS/SSA/Custom) is a raise PROPOSAL —
-// computed straight from the LCMS district guideline formula for the target year (base salary ×
-// role/education/experience multiplier), deliberately NOT grown off the real actual/budget figure.
-// These columns answer "what would the district's own table recommend," which a worker's real pay
-// may already exceed or fall short of — that comparison is the whole point of showing them
-// alongside "None." When the target year's base salary is already an exact published/entered
-// figure (not grown from an earlier year), LCMS/SSA/Custom will legitimately all show the
-// identical number — that's not a bug, the district's own table already fixes the number for that
-// year regardless of which growth ASSUMPTION got you there; growth rate only matters for a
-// not-yet-published year.
-function finWorkerScenarioSalaryCents(w, scenario, baseYear) {
-  if (scenario.key === 'none') {
-    var basisCents = w.actualSalaryCents != null ? w.actualSalaryCents : finAccountBudgetCentsForCode(w.accountCode);
-    if (basisCents != null) return basisCents;
-  }
-  var calc = finComputeLcmsSalary({ year: scenario.year, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus, colaPct: scenario.pct, referenceByYear: _finSalaryReferenceByYear });
-  return calc ? calc.salaryCents : null;
-}
-// Pure — no DOM — the MO District Calculator's own output for one worker: the LCMS Missouri
-// District guideline formula run for the TARGET year, always, regardless of which Salary Options
-// scenario is currently active. This is the whole point of that calculator — it answers "what does
-// the district's own table recommend paying this worker next year," which must not silently become
-// a base-year number just because the active scenario happens to be "None (flat)" (reported: "that
-// calculator ends up with 2026 numbers"). Growth % only ever matters for a target year the district
-// hasn't published a base salary for yet; for a published year the base is fixed and the rate is
-// irrelevant by construction.
-function finDistrictProposalCents(w) {
-  var calc = finComputeLcmsSalary({ year: _finPlanTargetYear, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus, colaPct: _finSalaryColaPct, referenceByYear: _finSalaryReferenceByYear });
-  return calc ? finRoundSalaryCents(calc.salaryCents) : null;
-}
-function finSalaryComputeAll(colaPct, pensionPct, disabilityPctOverride) {
-  var year = finSalaryScenarioYear();
-  return _finSalaryRoster.map(function(w) {
-    var rawSalaryCents = finWorkerScenarioSalaryCents(w, { pct: colaPct, year: year, key: _finSalaryColaSource }, _finPlanBaseYear);
-    var fromActual = _finSalaryColaSource === 'none' && (w.actualSalaryCents != null || finAccountBudgetCentsForCode(w.accountCode) != null);
-    // Only a PROPOSED salary gets rounded to a clean paycheck — a real budgeted figure is reported
-    // exactly as it stands. Rounding it too silently reported $74,516 of real budget as $74,490.
-    var calc = rawSalaryCents != null ? { salaryCents: fromActual ? rawSalaryCents : finRoundSalaryCents(rawSalaryCents), fromActual: fromActual } : null;
-    var employerFicaCents = calc ? finComputeEmployerFicaCents(calc.salaryCents, w.selfEmployedFica) : 0;
-    var hypotheticalFicaCents = calc ? finComputeEmployerFicaCents(calc.salaryCents, false) : 0;
-    var pensionCents = calc ? finComputePensionCents(calc.salaryCents, pensionPct) : 0;
-    var disabilityRate = disabilityPctOverride != null ? disabilityPctOverride : finConcordiaDisabilityRateFor(_finPlanTargetYear, w.hasDependents).rate;
-    var disabilityCents = calc ? finComputePensionCents(calc.salaryCents, disabilityRate) : 0;
-    var healthOptOutCents = w.healthOptOutOverrideCents != null ? w.healthOptOutOverrideCents : finHealthOptOutCentsFor(_finPlanTargetYear, _finSalaryReferenceByYear);
-    // "Has Dependents" doubles as the family-coverage flag: a family-coverage worker draws from
-    // the group's real Family-tier quote split; a non-family (employee-only) enrolled worker has
-    // no real quote data anywhere in this app (the quote is Family-tier-only), so their cost is a
-    // plain admin-entered figure instead — same "enter the real number" pattern as opt-out cash.
-    var healthCents = !calc ? 0 : (w.healthEnrolled === false ? healthOptOutCents : (w.hasDependents ? finHealthPlanPerContractCents(_finHealthPlanSelectedOption) : (w.employeeOnlyPremiumCents || 0)));
-    var totalCompCents = calc ? (calc.salaryCents + employerFicaCents + pensionCents + disabilityCents + healthCents) : 0;
-    return { calc: calc, employerFicaCents: employerFicaCents, hypotheticalFicaCents: hypotheticalFicaCents, pensionCents: pensionCents, disabilityCents: disabilityCents, healthCents: healthCents, healthOptOutCents: healthOptOutCents, totalCompCents: totalCompCents, districtProposalCents: finDistrictProposalCents(w) };
-  });
-}
-function finRenderSalaryCalculator(isAdminUI) {
-  var pensionRateInfo = finConcordiaPensionRateFor(_finPlanTargetYear);
-  var pensionPctUsed = _finSalaryPensionPct != null ? _finSalaryPensionPct : pensionRateInfo.rate;
-  // Disability & Survivor's looked-up rate is per-worker (depends on each row's own Has
-  // Dependents checkbox — see the roster table), so unlike Pension there's no single "the"
-  // auto rate to show as a resting value; the override box shows blank/placeholder text
-  // describing both auto rates until an admin overrides it with one flat figure for everyone.
-  var disabilityRateNoDep = finConcordiaDisabilityRateFor(_finPlanTargetYear, false);
-  var disabilityRateWithDep = finConcordiaDisabilityRateFor(_finPlanTargetYear, true);
-  var disabilityPctUsed = _finSalaryDisabilityPct;
-  var computed = finSalaryComputeAll(_finSalaryColaPct, pensionPctUsed, disabilityPctUsed);
-  var rows = _finSalaryRoster.map(function(w, i) {
-    var proposalCents = computed[i].districtProposalCents;
-    var trackOptions = w.role === 'commissioned' ? LCMS_COMMISSIONED_TRACKS : w.role === 'other' ? LCMS_OTHER_WORKER_TRACKS : null;
-    var trackSelect = trackOptions
-      ? '<select onchange="finSalaryFieldChange(' + i + ',\'trackKey\',this.value)">' + Object.keys(trackOptions).map(function(k) { return '<option value="' + k + '"' + (k === w.trackKey ? ' selected' : '') + '>' + esc(trackOptions[k].label) + '</option>'; }).join('') + '</select>'
-      : '<span style="color:var(--warm-gray);">—</span>';
-    var stipendSelect = '<select onchange="finSalaryStipendChange(' + i + ',this.value)">' + LCMS_RESPONSIBILITY_STIPENDS.map(function(s) {
-      var mid = (s.range[0] + s.range[1]) / 2;
-      return '<option value="' + mid + '"' + (Math.abs(mid - w.responsibilityStipend) < 0.001 && s.key !== 'none' ? ' selected' : (s.key === 'none' && !w.responsibilityStipend ? ' selected' : '')) + '>' + esc(s.label) + (s.key !== 'none' ? ' (+' + (s.range[0]*100).toFixed(0) + '–' + (s.range[1]*100).toFixed(0) + '%)' : '') + '</option>';
-    }).join('') + '</select>';
-    var attendanceSelect = w.role === 'pastor'
-      ? '<select onchange="finSalaryAttendanceChange(' + i + ',this.value)">' + LCMS_ATTENDANCE_BONUS_BANDS.map(function(b) {
-          var mid = (b.range[0] + b.range[1]) / 2;
-          return '<option value="' + mid + '"' + (Math.abs(mid - w.attendanceBonus) < 0.001 && b.key !== 'none' ? ' selected' : (b.key === 'none' && !w.attendanceBonus ? ' selected' : '')) + '>' + esc(b.label) + '</option>';
-        }).join('') + '</select>'
-      : '<span style="color:var(--warm-gray);">—</span>';
-    return '<tr>'
-      + '<td style="padding:3px 6px;"><input type="text" id="fin-salary-name-' + i + '" value="' + esc(w.name) + '" oninput="finSalaryFieldChange(' + i + ',\'name\',this.value)" style="width:100px;"></td>'
-      + '<td style="padding:3px 6px;"><input type="text" id="fin-salary-acct-' + i + '" value="' + esc(w.accountCode || '') + '" oninput="finSalaryFieldChange(' + i + ',\'accountCode\',this.value)" style="width:55px;" placeholder="acct #"></td>'
-      + '<td style="padding:3px 6px;"><select onchange="finSalaryRoleChange(' + i + ',this.value)"><option value="pastor"' + (w.role==='pastor'?' selected':'') + '>Pastor</option><option value="commissioned"' + (w.role==='commissioned'?' selected':'') + '>Commissioned Worker</option><option value="other"' + (w.role==='other'?' selected':'') + '>Other Church Worker</option></select></td>'
-      + '<td style="padding:3px 6px;"><input type="text" inputmode="numeric" id="fin-salary-years-' + i + '" value="' + w.yearsExperience + '" oninput="finSalaryFieldChange(' + i + ',\'yearsExperience\',finPlanSanitizeWholeDollarInput(this))" style="width:60px;"></td>'
-      + '<td style="padding:3px 6px;">' + trackSelect + '</td>'
-      + '<td style="padding:3px 6px;">' + stipendSelect + '</td>'
-      + '<td style="padding:3px 6px;">' + attendanceSelect + '</td>'
-      + '<td style="padding:3px 6px;text-align:right;font-weight:700;">' + (proposalCents != null ? '$' + finFmtMoney(proposalCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
-      + '<td style="padding:3px 6px;"><button class="btn-secondary" style="font-size:.7rem;padding:2px 6px;color:var(--danger);" onclick="finSalaryRemoveWorker(' + i + ')">Remove</button></td>'
-      + '</tr>';
-  }).join('');
-  var totalProposalCents = computed.reduce(function(sum, c) { return sum + (c.districtProposalCents || 0); }, 0);
-  var totalWorkerPaidSecaCents = _finSalaryRoster.reduce(function(sum, w, i) { return sum + (w.selfEmployedFica ? computed[i].hypotheticalFicaCents : 0); }, 0);
-  var scenarioYear = finSalaryScenarioYear();
-  var baseInfo = finLcmsBaseSalaryCents(scenarioYear, _finSalaryColaPct, _finSalaryReferenceByYear);
-  var expenseLeaves = [];
-  (function walk(nodes) { (nodes || []).forEach(function(n) { if (!n.children.length && n.classification !== 'Income') expenseLeaves.push(n); walk(n.children); }); })(_finPlanBaseTree);
-  var categoryOptions = expenseLeaves.map(function(n) {
-    var guess = /salar|payroll|compensation|wages/i.test(n.label);
-    return '<option value="' + esc(n.path) + '"' + (guess && !_finSalaryTargetCategory ? ' selected' : (n.path === _finSalaryTargetCategory ? ' selected' : '')) + '>' + esc(n.label) + '</option>';
-  }).join('');
-  // "Pull in last year" — the real FY base-year actual/budget totals across whichever accounts
-  // look like salary/payroll accounts, shown as a reference figure (no per-worker breakdown
-  // exists in the account data, so this can't prefill the roster itself — just inform it).
-  var salaryAccounts = expenseLeaves.filter(function(n) { return /salar|payroll|compensation|wages/i.test(n.label); });
-  var lastYearActualCents = salaryAccounts.reduce(function(sum, n) { return sum + (n.totalActualCents || 0); }, 0);
-  var lastYearBudgetCents = salaryAccounts.reduce(function(sum, n) { return sum + (n.hasBudgetInfo ? (n.totalBudgetCents || 0) : 0); }, 0);
-  var lastYearHtml = salaryAccounts.length
-    ? '<div style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">FY' + _finPlanBaseYear + ' actual across matching accounts (' + salaryAccounts.map(function(n){return esc(n.label);}).join(', ') + '): <b style="color:var(--charcoal);">$' + finFmtMoney(lastYearActualCents/100) + '</b>' + (lastYearBudgetCents ? ' (budgeted $' + finFmtMoney(lastYearBudgetCents/100) + ')' : '') + ' — for comparison against this year\'s roster total below.</div>'
-    : '';
-
-  return '<div class="fin-card" style="margin-top:16px;">'
-    + '<div class="fin-card-title" style="font-size:18px;">Salary &amp; Benefits Calculator <span style="font-family:var(--font-body);font-weight:400;font-size:.72rem;color:var(--warm-gray);">(LCMS Missouri District Compensation Guidelines FY2026–2027)</span></div>'
-    + lastYearHtml
-    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">Base salary used for the active scenario ("' + (finSalaryScenarioList().filter(function(s){return s.key===_finSalaryColaSource;})[0] || {}).label + '", FY' + scenarioYear + '): $' + finFmtMoney(baseInfo.dollars) + (baseInfo.exact ? ' <i>(an entered/known district figure for FY' + scenarioYear + ')</i>' : (baseInfo.colaApplied ? ' <i>(no entered figure for FY' + scenarioYear + ' yet — grown from FY' + baseInfo.sourceYear + ' at the active growth rate)</i>' : ' <i>(no entered figure for FY' + scenarioYear + ' yet — using the most recent known year, FY' + baseInfo.sourceYear + ', flat until a growth method is picked or that year\'s figure is entered below)</i>')) + '. "None (flat)" always uses FY' + _finPlanBaseYear + '\'s own base — a real "no raise" outcome — while every other scenario grows toward FY' + _finPlanTargetYear + '. Benefits (health/retirement via Concordia Plan Services) have no published formula in the district guidelines — CPS quotes those directly per congregation via their own tool — so Benefits below is a plain entered figure, not computed. Pastors and Commissioned Ministers are self-employed for Social Security by default (the church pays no employer FICA share for them — they pay their own SECA themselves, shown for reference); uncheck "Self-Employed (SECA)" for any worker actually treated as a regular employee at this church, where the church\'s ' + (LCMS_EMPLOYER_FICA_RATE*100).toFixed(2) + '% employer FICA payment shows as a compensation benefit that a self-employed worker doesn\'t get. Pension and Disability &amp; Survivor (below) apply to every salaried worker the same way, regardless of FICA status — real rates from the church\'s own Concordia Plans Participation overview (as of July 2026).</p>'
-    + finRenderSalaryReferenceEditor(isAdminUI)
-    + finRenderSalaryScenarioComparison(baseInfo, isAdminUI)
-    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">'
-    + '<label style="font-size:.72rem;color:var(--warm-gray);">Pension Contribution % <span style="font-weight:400;">(Concordia Retirement Plan, Traditional Option — defaults to the real FY' + _finPlanTargetYear + ' rate' + (pensionRateInfo.exact ? '' : ', carried flat from ' + pensionRateInfo.sourceYear + ' since ' + _finPlanTargetYear + ' isn\'t published yet') + ')</span><br><input type="text" inputmode="decimal" id="fin-salary-pension" value="' + finFmtPctInput(pensionPctUsed) + '" oninput="finSalaryPensionChange(finSanitizeDecimalInput(this))" style="width:90px;">%' + (_finSalaryPensionPct != null ? ' <a href="#" onclick="finSalaryPensionReset();return false;" style="font-size:.68rem;">↺ use Concordia rate</a>' : '') + '</label>'
-    + '<label style="font-size:.72rem;color:var(--warm-gray);">Disability &amp; Survivor Rate % <span style="font-weight:400;">(Concordia Disability and Survivor Plan — auto: ' + (disabilityRateNoDep.rate*100).toFixed(2) + '% without dependents, ' + (disabilityRateWithDep.rate*100).toFixed(2) + '% with — override applies one flat rate to every worker instead)</span><br><input type="text" inputmode="decimal" id="fin-salary-disability" value="' + (disabilityPctUsed != null ? finFmtPctInput(disabilityPctUsed) : '') + '" placeholder="auto" oninput="finSalaryDisabilityChange(finSanitizeDecimalInput(this))" style="width:90px;">%' + (disabilityPctUsed != null ? ' <a href="#" onclick="finSalaryDisabilityReset();return false;" style="font-size:.68rem;">↺ use Concordia rate</a>' : '') + '</label>'
-    + '</div>'
-    + '<div style="font-weight:700;font-size:.95rem;color:var(--color-navy);margin:14px 0 2px;">MO District Calculator</div>'
-    + '<div style="font-size:.72rem;color:var(--warm-gray);margin-bottom:6px;">Runs the LCMS Missouri District guideline formula (FY' + _finPlanTargetYear + ' base salary &times; role/education/experience multiplier, plus any responsibility stipend or attendance bonus) for each worker. Edit the inputs here and the resulting FY' + _finPlanTargetYear + ' proposal feeds the district columns of Salary Options above. This is always a FY' + _finPlanTargetYear + ' proposal — it does not change when a different scenario is made active above.</div>'
-    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
-    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th><th style="text-align:left;padding:3px 6px;">Acct #</th><th style="text-align:left;padding:3px 6px;">Role</th><th style="text-align:left;padding:3px 6px;">Yrs Exp</th><th style="text-align:left;padding:3px 6px;">Education / Type</th><th style="text-align:left;padding:3px 6px;">Responsibility Stipend</th><th style="text-align:left;padding:3px 6px;">Attendance Bonus</th><th style="text-align:right;padding:3px 6px;">FY' + _finPlanTargetYear + ' District Proposal</th><th></th></tr></thead>'
-    + '<tbody>' + (rows || '<tr><td colspan="9" style="padding:6px;color:var(--warm-gray);">No workers added yet.</td></tr>') + '</tbody>'
-    + '<tfoot><tr style="font-weight:700;border-top:2px solid var(--navy);"><td colspan="7" style="padding:5px 6px;">Total</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalProposalCents/100) + '</td><td></td></tr></tfoot>'
-    + '</table></div>'
-    + finRenderTotalCompensationTable(computed)
-    + (totalWorkerPaidSecaCents ? '<p style="font-size:.7rem;color:var(--warm-gray);margin:4px 0 0;">Total self-paid SECA across self-employed workers (not a church cost, shown for reference): $' + finFmtMoney(totalWorkerPaidSecaCents/100) + '</p>' : '')
-    + (isAdminUI ? '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;margin-top:8px;" onclick="finSalaryAddWorker()">+ Add Worker</button>' : '')
-    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
-    + '<label style="font-size:.72rem;color:var(--warm-gray);">Other Benefits ($/yr, entered — anything not already itemized in Total Compensation above)<br><input type="text" inputmode="decimal" id="fin-salary-benefits" value="' + (_finSalaryBenefitsDollars || '') + '" oninput="finSalaryBenefitsChange(finSanitizeDecimalInput(this))" style="width:120px;"></label>'
-    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((computed.reduce(function(sum, c) { return sum + (c.totalCompCents || 0); }, 0) / 100) + (_finSalaryBenefitsDollars || 0)) + '</div><div class="rpt-stat-lbl">Total Salary &amp; Benefits</div></div>'
-    + (isAdminUI ? '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finSalarySaveData()">Save Salary &amp; Benefits Data</button>' : '')
-    + '</div>'
-    + (isAdminUI && expenseLeaves.length ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);">Apply total to account<br><select id="fin-salary-target-category">' + categoryOptions + '</select></label>'
-      + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finSalaryApplyToPlan()">Use as FY' + _finPlanTargetYear + ' Projected</button>'
-      + '</div>' : '')
-    + '<div id="fin-salary-save-msg" style="font-size:.72rem;color:var(--warm-gray);margin-top:6px;"></div>'
-    + '</div>';
 }
 // Concordia Plans' "Compensation Decision Support Tool" — a report a congregation runs manually
 // per worker (PDF, not an API — see the real Rev. Dinger example this was built from: Position
@@ -4562,405 +4396,6 @@ function finConcordiaParseMoneyCents(raw) {
 function finConcordiaMidCentsFor(w, rangeKey) {
   return finConcordiaParseMoneyCents((w.concordia || {})[rangeKey + 'Mid']);
 }
-// Same disable-the-inputs pattern as District Reference Data above — the figures stay visible to
-// anyone who can see the Compensation tab, but only an admin can change them (the save endpoint is
-// admin-gated server-side either way).
-function finConcordiaReadOnlyIfNeeded(html, isAdminUI) {
-  if (isAdminUI) return html;
-  return html.replace(/<input /g, '<input disabled ');
-}
-function finConcordiaField(i, field, value, width) {
-  return '<input type="text" value="' + esc(value == null ? '' : value) + '" oninput="finConcordiaFieldChange(' + i + ',' + volJsAttr(field) + ',this.value)" style="width:' + (width||70) + 'px;">';
-}
-// One worker's Concordia ranges drawn on a single shared dollar scale, with their two real
-// in-app figures (current budget, FY-target district proposal) as vertical markers across all of
-// them — the comparison the ranges exist to support. Hand-rolled SVG, same as every other chart
-// in this app; a horizontal range needs low/mid/high on one axis, which the grouped-bar helper
-// can't express.
-function finRenderConcordiaRangeChart(w, currentCents, proposalCents) {
-  var ranges = FIN_CONCORDIA_RANGE_KEYS.map(function(r) {
-    var c = w.concordia || {};
-    return {
-      label: r.label,
-      lowCents: finConcordiaParseMoneyCents(c[r.key + 'Low']),
-      midCents: finConcordiaParseMoneyCents(c[r.key + 'Mid']),
-      highCents: finConcordiaParseMoneyCents(c[r.key + 'High'])
-    };
-  }).filter(function(r) { return r.lowCents != null && r.highCents != null && r.highCents > r.lowCents; });
-  if (!ranges.length) return '<p style="font-size:.72rem;color:var(--warm-gray);margin:6px 0 0;">Enter this worker\'s Lower/Higher figures below to chart their ranges.</p>';
-  var values = [];
-  ranges.forEach(function(r) { values.push(r.lowCents, r.highCents); });
-  if (currentCents != null) values.push(currentCents);
-  if (proposalCents != null) values.push(proposalCents);
-  var minV = Math.min.apply(null, values), maxV = Math.max.apply(null, values);
-  var pad = Math.max(1, (maxV - minV) * 0.08);
-  minV -= pad; maxV += pad;
-  var W = 760, rowH = 38, pL = 158, pR = 20, pT = 10, pB = 28;
-  var H = pT + ranges.length * rowH + pB;
-  var cW = W - pL - pR;
-  var px = function(v) { return pL + ((v - minV) / (maxV - minV)) * cW; };
-  var bars = ranges.map(function(r, idx) {
-    var y = pT + idx * rowH, mid = y + rowH / 2;
-    var x1 = px(r.lowCents), x2 = px(r.highCents);
-    var s = '<text x="' + (pL - 8) + '" y="' + (mid + 4) + '" text-anchor="end" font-size="12" fill="var(--warm-gray)">' + esc(r.label) + '</text>';
-    s += '<rect x="' + x1 + '" y="' + (mid - 8) + '" width="' + Math.max(1, x2 - x1) + '" height="16" rx="8" fill="var(--color-teal)" opacity="0.22"></rect>';
-    s += '<text x="' + x1 + '" y="' + (mid - 12) + '" text-anchor="middle" font-size="10" fill="var(--warm-gray)">$' + finFmtMoney(r.lowCents/100) + '</text>';
-    s += '<text x="' + x2 + '" y="' + (mid - 12) + '" text-anchor="middle" font-size="10" fill="var(--warm-gray)">$' + finFmtMoney(r.highCents/100) + '</text>';
-    if (r.midCents != null) {
-      var xm = px(r.midCents);
-      s += '<rect x="' + (xm - 1.5) + '" y="' + (mid - 11) + '" width="3" height="22" fill="var(--color-teal)"></rect>';
-      s += '<text x="' + xm + '" y="' + (mid + 24) + '" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--color-teal)">$' + finFmtMoney(r.midCents/100) + '</text>';
-    }
-    return s;
-  }).join('');
-  var markers = '';
-  var chartTop = pT, chartBottom = pT + ranges.length * rowH;
-  [{ v: currentCents, color: 'var(--color-gold)', label: 'Current budget' }, { v: proposalCents, color: 'var(--color-navy)', label: 'FY' + _finPlanTargetYear + ' district proposal' }].forEach(function(m) {
-    if (m.v == null) return;
-    var x = px(m.v);
-    markers += '<line x1="' + x + '" y1="' + chartTop + '" x2="' + x + '" y2="' + chartBottom + '" stroke="' + m.color + '" stroke-width="2" stroke-dasharray="5 3"></line>';
-    markers += '<text x="' + x + '" y="' + (chartBottom + 18) + '" text-anchor="middle" font-size="10.5" font-weight="700" fill="' + m.color + '">$' + finFmtMoney(m.v/100) + '</text>';
-  });
-  var legend = '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.7rem;color:var(--warm-gray);margin-top:2px;">'
-    + '<span><span style="display:inline-block;width:14px;height:8px;background:var(--color-teal);opacity:.22;border-radius:4px;vertical-align:middle;"></span> Concordia range (lower&ndash;higher)</span>'
-    + '<span><span style="display:inline-block;width:3px;height:12px;background:var(--color-teal);vertical-align:middle;"></span> midpoint</span>'
-    + (currentCents != null ? '<span><span style="display:inline-block;width:14px;border-top:2px dashed var(--color-gold);vertical-align:middle;"></span> current budget</span>' : '')
-    + (proposalCents != null ? '<span><span style="display:inline-block;width:14px;border-top:2px dashed var(--color-navy);vertical-align:middle;"></span> FY' + _finPlanTargetYear + ' district proposal</span>' : '')
-    + '</div>';
-  return '<div style="overflow-x:auto;"><svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;min-width:520px;height:' + H + 'px;">' + bars + markers + '</svg></div>' + legend;
-}
-// Concordia Plans Comparisons — the church runs Concordia's "Compensation Decision Support Tool"
-// per worker (a PDF, not an API), giving up to 4 ranges of Lower/Midpoint/Higher pay. There is no
-// formula to reproduce: the figures are congregation- and role-specific data out of Concordia's
-// own dataset, so this section is the transcribed report plus the charts that make it comparable
-// to what this church actually pays and to what the MO District formula proposes.
-function finRenderConcordiaComparisons(isAdminUI) {
-  if (!_finSalaryRoster.length) return '';
-  var pensionPctUsed = _finSalaryPensionPct != null ? _finSalaryPensionPct : finConcordiaPensionRateFor(_finPlanTargetYear).rate;
-  var computed = finSalaryComputeAll(_finSalaryColaPct, pensionPctUsed, _finSalaryDisabilityPct);
-  var blocks = _finSalaryRoster.map(function(w, i) {
-    var c = w.concordia || {};
-    var currentCents = w.actualSalaryCents != null ? w.actualSalaryCents : finAccountBudgetCentsForCode(w.accountCode);
-    var proposalCents = computed[i].districtProposalCents;
-    var metaRow = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:.72rem;color:var(--warm-gray);">'
-      + '<label>Position<br>' + finConcordiaField(i, 'position', c.position, 190) + '</label>'
-      + '<label>Years of Experience<br>' + finConcordiaField(i, 'years', c.years, 60) + '</label>'
-      + '<label>Education Level<br>' + finConcordiaField(i, 'education', c.education, 90) + '</label>'
-      + '<label>Report Date<br>' + finConcordiaField(i, 'asOfDate', c.asOfDate, 100) + '</label>'
-      + '</div>';
-    var rangeRows = FIN_CONCORDIA_RANGE_KEYS.map(function(r) {
-      var midCents = finConcordiaParseMoneyCents(c[r.key + 'Mid']);
-      var vsCurrent = (midCents != null && currentCents != null) ? (currentCents - midCents) : null;
-      return '<tr><td style="padding:3px 6px;color:var(--warm-ink-label);">' + r.label + '</td>'
-        + '<td style="padding:3px 6px;">' + finConcordiaField(i, r.key + 'Low', c[r.key + 'Low']) + '</td>'
-        + '<td style="padding:3px 6px;">' + finConcordiaField(i, r.key + 'Mid', c[r.key + 'Mid']) + '</td>'
-        + '<td style="padding:3px 6px;">' + finConcordiaField(i, r.key + 'High', c[r.key + 'High']) + '</td>'
-        + '<td style="padding:3px 6px;text-align:right;font-size:.72rem;color:' + (vsCurrent == null ? 'var(--warm-gray)' : (vsCurrent < 0 ? 'var(--danger)' : 'var(--sage-text)')) + ';">' + (vsCurrent == null ? '—' : finFmtSigned(vsCurrent)) + '</td></tr>';
-    }).join('');
-    return '<div style="padding:12px 0;border-top:1px solid var(--warm-row-divider);">'
-      + '<div style="font-weight:700;font-size:.9rem;color:var(--color-navy);">' + esc(w.name || 'Worker ' + (i+1)) + (c.position ? ' <span style="font-weight:400;font-size:.75rem;color:var(--warm-gray);">' + esc(c.position) + (c.asOfDate ? ' &middot; report run ' + esc(c.asOfDate) : '') + '</span>' : '') + '</div>'
-      + '<div style="font-size:.72rem;color:var(--warm-gray);margin-bottom:6px;">Current budget: ' + (currentCents != null ? '<b style="color:var(--charcoal);">$' + finFmtMoney(currentCents/100) + '</b>' : 'not linked to an account') + ' &middot; FY' + _finPlanTargetYear + ' district proposal: ' + (proposalCents != null ? '<b style="color:var(--charcoal);">$' + finFmtMoney(proposalCents/100) + '</b>' : '—') + '</div>'
-      + finRenderConcordiaRangeChart(w, currentCents, proposalCents)
-      + '<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:.74rem;color:var(--warm-gray);">Report figures' + (isAdminUI ? ' (editable)' : '') + '</summary>'
-      + '<div style="padding:8px 2px 2px;">' + finConcordiaReadOnlyIfNeeded(metaRow, isAdminUI)
-      + '<table style="border-collapse:collapse;font-size:.76rem;"><thead><tr><th></th><th style="padding:3px 6px;text-align:left;color:var(--warm-gray);">Lower</th><th style="padding:3px 6px;text-align:left;color:var(--warm-gray);">Midpoint</th><th style="padding:3px 6px;text-align:left;color:var(--warm-gray);">Higher</th><th style="padding:3px 6px;text-align:right;color:var(--warm-gray);">Current vs. midpoint</th></tr></thead><tbody>' + finConcordiaReadOnlyIfNeeded(rangeRows, isAdminUI) + '</tbody></table>'
-      + '</div></details>'
-      + '</div>';
-  }).join('');
-  return '<div class="fin-card" style="margin-top:16px;">'
-    + '<div class="fin-card-title" style="font-size:18px;">Concordia Plans Comparisons <span style="font-family:var(--font-body);font-weight:400;font-size:.72rem;color:var(--warm-gray);">(Compensation Decision Support Tool — run per worker at ConcordiaPlan.org, transcribed here)</span></div>'
-    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 4px;">Concordia\'s own pay ranges for each worker\'s role, plotted against what this church currently budgets and what the MO District Calculator proposes for FY' + _finPlanTargetYear + '. Each range\'s midpoint also appears as a reference column in Salary Options above. Concordia publishes a Market Range (all denominations) and an LCMS Range (LCMS ministries only); the District pair exists only on the pastor report. Every figure is editable — re-running the tool next year means updating these, not a code change. Saved with the Save Salary &amp; Benefits Data button above.</p>'
-    + blocks
-    + '</div>';
-}
-function finConcordiaFieldChange(i, field, value) {
-  if (!_finSalaryRoster[i].concordia) _finSalaryRoster[i].concordia = {};
-  _finSalaryRoster[i].concordia[field] = value;
-  // Deliberately no rerender here (unlike every other Compensation field) — this text doesn't
-  // feed any computation, so rebuilding the DOM mid-type would only risk the focus-loss class of
-  // bug for no benefit. It still needs to persist, though — same autosave as everything else.
-  finSalaryScheduleAutoSave();
-}
-function finSalaryAddWorker() {
-  _finSalaryRoster.push({ name: '', role: 'pastor', trackKey: '', yearsExperience: 0, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: finDefaultSelfEmployedFica('pastor'), hasDependents: false, accountCode: '' });
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryDependentsToggle(i, checked) {
-  _finSalaryRoster[i].hasDependents = !!checked;
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryRemoveWorker(i) {
-  _finSalaryRoster.splice(i, 1);
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryFieldChange(i, field, value) {
-  _finSalaryRoster[i][field] = field === 'yearsExperience' ? (parseFloat(value) || 0) : value;
-  finRerenderPlanningPreserveFocus();
-}
-// Clears a legacy typed-in salary override so "None (flat)" falls back to the linked account's
-// budgeted figure. There is no longer a way to CREATE such an override — that column is read-only
-// now — but stored ones still resolve, so the way out has to stay.
-function finSalaryActualReset(i) {
-  _finSalaryRoster[i].actualSalaryCents = null;
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryRoleChange(i, role) {
-  _finSalaryRoster[i].role = role;
-  _finSalaryRoster[i].trackKey = role === 'commissioned' ? 'ma' : role === 'other' ? 'secretary' : '';
-  if (role !== 'pastor') _finSalaryRoster[i].attendanceBonus = 0;
-  _finSalaryRoster[i].selfEmployedFica = finDefaultSelfEmployedFica(role);
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryFicaToggle(i, checked) {
-  _finSalaryRoster[i].selfEmployedFica = !!checked;
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryHealthEnrolledToggle(i, checked) {
-  _finSalaryRoster[i].healthEnrolled = !!checked;
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryOptOutOverrideChange(i, value) {
-  var cents = value === '' ? null : Math.round(parseFloat(value) * 100);
-  _finSalaryRoster[i].healthOptOutOverrideCents = (cents == null || !isFinite(cents)) ? null : cents;
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryEmployeeOnlyChange(i, value) {
-  var cents = value === '' ? null : Math.round(parseFloat(value) * 100);
-  _finSalaryRoster[i].employeeOnlyPremiumCents = (cents == null || !isFinite(cents)) ? null : cents;
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryStipendChange(i, value) {
-  _finSalaryRoster[i].responsibilityStipend = parseFloat(value) || 0;
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryAttendanceChange(i, value) {
-  _finSalaryRoster[i].attendanceBonus = parseFloat(value) || 0;
-  finRerenderPlanningPreserveFocus();
-}
-// Scenario comparison (replaces a single dropdown that silently did nothing whenever the target
-// year already had a published base salary — see the caption in finRenderSalaryCalculator): shows
-// every worker's resulting salary under all 3 reference growth methods plus a hand-typed Custom
-// one, side by side, so the numbers are always visible instead of hidden behind a toggle. "Use
-// this" on a column makes it the active scenario feeding the roster table, FICA/Pension math, the
-// Total Salary & Benefits figure, and Apply-to-Plan.
-function finSalaryScenarioList() {
-  var presets = [
-    { key: 'none', label: 'None (flat — FY' + _finPlanBaseYear + ', no raise)', pct: 0, year: _finPlanBaseYear },
-    { key: 'lcms', label: 'LCMS District Avg', pct: finLcmsHistoricalAvgGrowthPct(), year: _finPlanTargetYear },
-    { key: 'ssa', label: 'SSA COLA', pct: SSA_COLA_REFERENCE_PCT, year: _finPlanTargetYear }
-  ];
-  var activePreset = presets.filter(function(s) { return s.key === _finSalaryColaSource; })[0];
-  var customPct = _finSalaryColaSource === 'custom' ? _finSalaryColaPct : (activePreset ? activePreset.pct : 0);
-  presets.push({ key: 'custom', label: 'Custom', pct: customPct, year: _finPlanTargetYear });
-  return presets;
-}
-function finRenderSalaryScenarioComparison(baseInfo, isAdminUI) {
-  if (!_finSalaryRoster.length) return '';
-  var scenarios = finSalaryScenarioList();
-  // Concordia's own midpoint ("median") for each range it publishes, carried up here beside the
-  // growth scenarios so the decision can be made against the external benchmark without scrolling
-  // to the Concordia Plans Comparisons card below. Only ranges some worker actually has data for
-  // get a column — a parish-professional report has no district section at all, so hardcoding all
-  // four would leave two permanently-empty columns.
-  var concordiaKeys = FIN_CONCORDIA_RANGE_KEYS.filter(function(r) {
-    return _finSalaryRoster.some(function(w) { return finConcordiaMidCentsFor(w, r.key) != null; });
-  });
-  var rows = _finSalaryRoster.map(function(w, i) {
-    // Resolved once per worker so every cell in the row (and the source caption) agrees on WHY
-    // the number is what it is. Only "None" ever uses a real figure (typed override > linked
-    // account's FY budget); every other scenario is always the LCMS formula — see
-    // finWorkerScenarioSalaryCents for the full reasoning.
-    var acctBasisCents = finAccountBudgetCentsForCode(w.accountCode);
-    var activeScenarioIsNone = _finSalaryColaSource === 'none';
-    var sourceLabel = activeScenarioIsNone
-      ? (w.actualSalaryCents != null ? 'a typed-in override' : (acctBasisCents != null ? 'account ' + esc(w.accountCode) + '’s FY' + _finPlanBaseYear + ' budget' : 'the LCMS formula estimate (no linked account with budget data found)'))
-      : 'the LCMS district guideline formula (FY' + _finPlanTargetYear + ')';
-    var isFromRealFigure = activeScenarioIsNone && (w.actualSalaryCents != null || acctBasisCents != null);
-    var cells = scenarios.map(function(s) {
-      var rawCents = finWorkerScenarioSalaryCents(w, s, _finPlanBaseYear);
-      // Same rule as finSalaryComputeAll: the imported current-budget figure is shown exactly,
-      // only a formula proposal is rounded to a clean per-paycheck amount.
-      var showsRealFigure = s.key === 'none' && isFromRealFigure;
-      var displayCents = rawCents == null ? null : (showsRealFigure ? rawCents : finRoundSalaryCents(rawCents));
-      var active = _finSalaryColaSource === s.key;
-      var cellStyle = 'padding:3px 6px;text-align:right;' + (active ? 'font-weight:700;background:var(--white);border-radius:4px;' : '');
-      // "None" is READ-ONLY: it is the current budget, pulled straight from the worker's linked
-      // payroll account, and it was reported as confusing to have an editable box sitting on a
-      // figure that's already imported correctly. A stored override from before this became
-      // read-only still wins (so no saved data silently changes meaning) but now shows as a plain
-      // figure with a one-click way back to the account number instead of an edit box.
-      if (s.key === 'none') {
-        var overridden = w.actualSalaryCents != null;
-        return '<td style="' + cellStyle + '">' + (rawCents != null ? '$' + finFmtMoney(displayCents/100) : '<span style="color:var(--warm-gray);">—</span>')
-          + (overridden && isAdminUI ? '<br><a href="#" onclick="finSalaryActualReset(' + i + ');return false;" style="font-size:.62rem;white-space:nowrap;">↺ use ' + (acctBasisCents != null ? 'account figure' : 'formula') + '</a>' : '') + '</td>';
-      }
-      return '<td style="' + cellStyle + '">' + (rawCents != null ? '$' + finFmtMoney(displayCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>';
-    }).join('');
-    var concordiaCells = concordiaKeys.map(function(k) {
-      var midCents = finConcordiaMidCentsFor(w, k.key);
-      return '<td style="padding:3px 6px;text-align:right;background:var(--white);color:var(--warm-gray);">' + (midCents != null ? '$' + finFmtMoney(midCents/100) : '—') + '</td>';
-    }).join('');
-    return '<tr><td style="padding:3px 6px;">' + esc(w.name || '(unnamed)') + '<br><span style="font-size:.62rem;color:' + (isFromRealFigure ? 'var(--sage-text)' : 'var(--warm-gray)') + ';">from ' + sourceLabel + '</span></td>' + cells + concordiaCells + '</tr>';
-  }).join('');
-  var headerCells = scenarios.map(function(s) {
-    var active = _finSalaryColaSource === s.key;
-    var pctLabel = s.key === 'custom'
-      ? '<input type="text" inputmode="decimal" id="fin-salary-custom-cola" value="' + (s.pct ? finFmtPctInput(s.pct) : '') + '" oninput="finSalaryCustomColaChange(finSanitizeDecimalInput(this))" style="width:55px;font-size:.68rem;" placeholder="%">%'
-      : (s.pct*100).toFixed(2) + '%';
-    return '<th style="text-align:right;padding:3px 6px;font-weight:' + (active ? '700' : '600') + ';">' + esc(s.label) + '<br><span style="font-weight:400;font-size:.68rem;">' + pctLabel + '</span><br>'
-      + (active ? '<span style="font-size:.68rem;color:var(--sage);">✓ active</span>' : '<a href="#" onclick="finSalaryUseScenario(\'' + s.key + '\',' + (s.pct || 0) + ');return false;" style="font-size:.68rem;">Use this</a>')
-      + '</th>';
-  }).join('');
-  var concordiaHeaderCells = concordiaKeys.map(function(r) {
-    return '<th style="text-align:right;padding:3px 6px;font-weight:600;background:var(--white);color:var(--warm-gray);">' + esc(r.label) + '<br><span style="font-weight:400;font-size:.68rem;">Concordia midpoint</span></th>';
-  }).join('');
-  return '<div style="overflow-x:auto;margin-bottom:10px;">'
-    + '<div style="font-weight:700;font-size:.95rem;color:var(--color-navy);margin-bottom:2px;">Salary Options</div>'
-    + '<div style="font-size:.72rem;color:var(--warm-gray);margin-bottom:2px;">Each staff member\'s salary under all 4 growth scenarios, and (under their name) exactly where that starting number comes from. <b>Where the number comes from, in order</b>: (1) "None (flat)" is this worker\'s current budget, read straight from their Acct # (MO District Calculator below) — that account\'s FULL-YEAR BUDGETED total, not its YTD Actual, which for a still-in-progress fiscal year would understate a full year\'s pay. It is not editable, because it is imported, not planned. (2) LCMS/SSA/Custom are the district guideline formula\'s proposal for FY' + _finPlanTargetYear + ' — a benchmark, which a worker\'s real pay may already exceed or fall short of. When FY' + _finPlanTargetYear + ' already has its own exact published district base salary, those three columns will show the identical number: the growth rate can\'t change anything in that case, since the district\'s own table already fixes the figure. ' + (concordiaKeys.length ? 'The trailing grey columns are Concordia\'s own published midpoints for comparison — see Concordia Plans Comparisons below for the full ranges and charts. ' : '') + 'Click "Use this" to make a scenario the active one below.</div>'
-    + '<table style="width:100%;border-collapse:collapse;font-size:.76rem;">'
-    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th>' + headerCells + concordiaHeaderCells + '</tr></thead>'
-    + '<tbody>' + rows + '</tbody>'
-    + '</table></div>';
-}
-function finSalaryUseScenario(key, pct) {
-  _finSalaryColaSource = key;
-  _finSalaryColaPct = key === 'custom' ? (_finSalaryColaPct || Number(pct) || 0) : (Number(pct) || 0);
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryCustomColaChange(value) {
-  _finSalaryColaPct = (parseFloat(value) || 0) / 100;
-  _finSalaryColaSource = 'custom';
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryPensionChange(value) {
-  _finSalaryPensionPct = (parseFloat(value) || 0) / 100;
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryPensionReset() {
-  _finSalaryPensionPct = null;
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryDisabilityChange(value) {
-  _finSalaryDisabilityPct = value === '' ? null : (parseFloat(value) || 0) / 100;
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryDisabilityReset() {
-  _finSalaryDisabilityPct = null;
-  finRerenderPlanningPreserveFocus();
-}
-// District figures that change every year on paper (not a formula, unlike the multiplier/track
-// tables, which the district confirmed stay the same year to year) — an editable input per fiscal
-// year, persisted in _finSalaryReferenceByYear via the existing Save Salary & Benefits Data
-// button. Only the base (current) and target years are shown — those are the only two years the
-// calculator actually reads from at any given time; switch the Base/Target Year pickers above to
-// edit a different year.
-function finRenderSalaryReferenceEditor(isAdminUI) {
-  var years = [_finPlanBaseYear, _finPlanTargetYear].filter(function(y, i, arr) { return arr.indexOf(y) === i; });
-  var fields = years.map(function(y) {
-    var ref = _finSalaryReferenceByYear[y] || {};
-    // Deliberately NOT .toFixed(2) here — reformatting the live value on every keystroke (this
-    // whole card re-renders on every oninput) fights the user's typing: the field snaps to
-    // "X.00" after the first digit, so further digits get inserted into an already-reformatted
-    // string instead of appended, scrambling the amount and dropping any cents typed. A plain
-    // number round-trips to the same string the user typed (matches the Benefits Total field's
-    // existing pattern below), so nothing gets rewritten out from under them mid-edit.
-    var baseVal = ref.baseSalaryCents != null ? (ref.baseSalaryCents / 100) : '';
-    var baseResolved = finLcmsBaseSalaryCents(y, 0, _finSalaryReferenceByYear);
-    var optOutVal = ref.healthOptOutCents != null ? (ref.healthOptOutCents / 100) : '';
-    var optOutResolved = finHealthOptOutCentsFor(y, _finSalaryReferenceByYear);
-    return '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);">District Base Salary, FY' + y + (baseVal === '' ? ' <span style="font-weight:400;">(using $' + finFmtMoney(baseResolved.dollars) + ' from FY' + baseResolved.sourceYear + ')</span>' : '') + '<br>$<input type="text" inputmode="decimal" id="fin-salary-ref-base-' + y + '" value="' + baseVal + '" placeholder="' + baseResolved.dollars.toFixed(2) + '" oninput="finSalaryRefBaseChange(' + y + ',finSanitizeDecimalInput(this))" style="width:100px;"></label>'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);">Health Opt-Out Cash, FY' + y + (optOutVal === '' && optOutResolved ? ' <span style="font-weight:400;">(carried from a prior year — $' + finFmtMoney(optOutResolved/100) + ')</span>' : '') + '<br>$<input type="text" inputmode="decimal" id="fin-salary-ref-optout-' + y + '" value="' + optOutVal + '" oninput="finSalaryRefHealthOptOutChange(' + y + ',finSanitizeDecimalInput(this))" style="width:100px;"></label>'
-      + '</div>';
-  }).join('');
-  return '<div style="background:var(--white);border-radius:6px;padding:8px 10px;margin-bottom:10px;">'
-    + '<div style="font-size:.72rem;font-weight:600;color:var(--warm-gray);margin-bottom:6px;">District Reference Data <span style="font-weight:400;">(entered from the district\'s yearly paper — not a formula; role/education/experience multiplier tables stay fixed and don\'t need updating)</span></div>'
-    + (isAdminUI ? fields : fields.replace(/<input[^>]*>/g, function(tag) { return tag.replace('<input', '<input disabled'); }))
-    + '</div>';
-}
-function finSalaryRefBaseChange(year, value) {
-  if (!_finSalaryReferenceByYear[year]) _finSalaryReferenceByYear[year] = {};
-  var cents = value === '' ? null : Math.round(parseFloat(value) * 100);
-  if (cents == null || !isFinite(cents)) delete _finSalaryReferenceByYear[year].baseSalaryCents;
-  else _finSalaryReferenceByYear[year].baseSalaryCents = cents;
-  finRerenderPlanningPreserveFocus();
-}
-function finSalaryRefHealthOptOutChange(year, value) {
-  if (!_finSalaryReferenceByYear[year]) _finSalaryReferenceByYear[year] = {};
-  var cents = value === '' ? null : Math.round(parseFloat(value) * 100);
-  if (cents == null || !isFinite(cents)) delete _finSalaryReferenceByYear[year].healthOptOutCents;
-  else _finSalaryReferenceByYear[year].healthOptOutCents = cents;
-  finRerenderPlanningPreserveFocus();
-}
-// Per-worker Total Compensation, computed off the ACTIVE Salary Options scenario (not the MO
-// District Calculator's proposal — that's a benchmark, this is the budget being built). Also home
-// to the three per-worker benefit-eligibility toggles (health enrollment, SECA status, dependents),
-// which used to live in the roster table above: that table is now the district-formula calculator
-// and its inputs are formula inputs only, so these belong here, next to the costs they drive.
-function finRenderTotalCompensationTable(computed) {
-  if (!_finSalaryRoster.length) return '';
-  var rows = _finSalaryRoster.map(function(w, i) {
-    var c = computed[i];
-    var healthCell = '<input type="checkbox" onchange="finSalaryHealthEnrolledToggle(' + i + ',this.checked)"' + (w.healthEnrolled !== false ? ' checked' : '') + ' title="Enrolled in the group health plan — uncheck if this worker opts out for a cash payment instead">'
-      + (w.healthEnrolled === false
-          ? ' <span style="font-size:.68rem;color:var(--warm-gray);">opt-out</span><br>$<input type="text" inputmode="decimal" id="fin-salary-optout-' + i + '" value="' + (w.healthOptOutOverrideCents != null ? (w.healthOptOutOverrideCents/100) : '') + '" placeholder="' + (finHealthOptOutCentsFor(_finPlanTargetYear, _finSalaryReferenceByYear)/100).toFixed(2) + '" oninput="finSalaryOptOutOverrideChange(' + i + ',finSanitizeDecimalInput(this))" style="width:70px;font-size:.68rem;" title="This worker\'s opt-out cash payment — blank uses the shared FY figure in District Reference Data">'
-        : (!w.hasDependents ? ' <span style="font-size:.68rem;color:var(--warm-gray);">employee-only</span><br>$<input type="text" inputmode="decimal" id="fin-salary-eo-' + i + '" value="' + (w.employeeOnlyPremiumCents != null ? (w.employeeOnlyPremiumCents/100) : '') + '" placeholder="0.00" oninput="finSalaryEmployeeOnlyChange(' + i + ',finSanitizeDecimalInput(this))" style="width:70px;font-size:.68rem;" title="Employee-Only premium — no real quote data exists for this tier, enter the real annual figure">'
-          : ' <span style="font-size:.68rem;color:var(--warm-gray);">family</span>'));
-    var dependentsCell = '<input type="checkbox" onchange="finSalaryDependentsToggle(' + i + ',this.checked)"' + (w.hasDependents ? ' checked' : '') + ' title="Affects the Disability &amp; Survivor rate AND, if enrolled in the health plan, whether this worker draws from the group Family-tier premium or needs an Employee-Only premium entered instead">';
-    var secaCell = '<input type="checkbox" onchange="finSalaryFicaToggle(' + i + ',this.checked)"' + (w.selfEmployedFica ? ' checked' : '') + ' title="Self-employed for Social Security (SECA) — church pays no employer FICA for this worker">';
-    var ficaCell = !c.calc ? '<span style="color:var(--warm-gray);">—</span>'
-      : w.selfEmployedFica
-        ? '<span style="color:var(--warm-gray);" title="Not a church cost — shown for reference only">$0<br><span style="font-size:.66rem;">worker pays $' + finFmtMoney(c.hypotheticalFicaCents/100) + ' SECA</span></span>'
-        : '$' + finFmtMoney(c.employerFicaCents/100);
-    var lead = '<td style="padding:3px 6px;">' + esc(w.name || '(unnamed)') + '</td>'
-      + '<td style="padding:3px 6px;text-align:center;">' + secaCell + '</td>'
-      + '<td style="padding:3px 6px;text-align:center;">' + dependentsCell + '</td>'
-      + '<td style="padding:3px 6px;text-align:center;">' + healthCell + '</td>';
-    if (!c.calc) return '<tr>' + lead + '<td colspan="6" style="padding:3px 6px;color:var(--warm-gray);">—</td></tr>';
-    return '<tr>' + lead
-      + '<td style="padding:3px 6px;text-align:right;">$' + finFmtMoney(c.calc.salaryCents/100) + '</td>'
-      + '<td style="padding:3px 6px;text-align:right;">$' + finFmtMoney(c.pensionCents/100) + '</td>'
-      + '<td style="padding:3px 6px;text-align:right;">$' + finFmtMoney(c.healthCents/100) + '</td>'
-      + '<td style="padding:3px 6px;text-align:right;">$' + finFmtMoney(c.disabilityCents/100) + '</td>'
-      + '<td style="padding:3px 6px;text-align:right;">' + ficaCell + '</td>'
-      + '<td style="padding:3px 6px;text-align:right;font-weight:700;">$' + finFmtMoney(c.totalCompCents/100) + '</td>'
-      + '</tr>';
-  }).join('');
-  var totalCompCents = computed.reduce(function(sum, c) { return sum + (c.totalCompCents || 0); }, 0);
-  // Every worker's health line (family-tier split, employee-only entered premium, or opt-out
-  // cash — whichever applies per worker, see finSalaryComputeAll) rolled into one figure, so the
-  // group's real total health plan cost is visible in one place instead of only per-worker.
-  var totalHealthCents = computed.reduce(function(sum, c) { return sum + (c.healthCents || 0); }, 0);
-  return '<div style="margin-top:14px;">'
-    + '<div style="font-weight:700;font-size:.95rem;color:var(--color-navy);margin-bottom:2px;">Total Compensation (per worker)</div>'
-    + '<div style="font-size:.72rem;color:var(--warm-gray);margin-bottom:6px;">Cash Salary here is whichever Salary Options scenario is active above — the figure actually being budgeted, not the district benchmark.</div>'
-    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
-    + '<thead style="border-bottom:1px solid var(--border);"><tr><th style="text-align:left;padding:3px 6px;">Name</th><th style="text-align:center;padding:3px 6px;">Self-Employed (SECA)</th><th style="text-align:center;padding:3px 6px;">Has Dependents</th><th style="text-align:center;padding:3px 6px;">Health Plan</th><th style="text-align:right;padding:3px 6px;">Cash Salary</th><th style="text-align:right;padding:3px 6px;">Pension</th><th style="text-align:right;padding:3px 6px;">Health Insurance</th><th style="text-align:right;padding:3px 6px;">Disability</th><th style="text-align:right;padding:3px 6px;">Employer FICA</th><th style="text-align:right;padding:3px 6px;">Total Compensation</th></tr></thead>'
-    + '<tbody>' + rows + '</tbody>'
-    + '<tfoot><tr style="font-weight:700;border-top:2px solid var(--navy);"><td colspan="9" style="padding:5px 6px;">Total</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(totalCompCents/100) + '</td></tr></tfoot>'
-    + '</table></div>'
-    + '<div style="font-size:.75rem;color:var(--warm-gray);margin-top:6px;">Total Health Plan Cost (all workers, family + employee-only + opt-out cash combined): <b style="color:var(--charcoal);">$' + finFmtMoney(totalHealthCents/100) + '</b></div>'
-    + '</div>';
-}
-var _finSalaryBenefitsDollars = 0;
-function finSalaryBenefitsChange(value) {
-  _finSalaryBenefitsDollars = parseFloat(value) || 0;
-  finRerenderPlanningPreserveFocus();
-}
-var _finSalaryTargetCategory = '';
-function finSalaryApplyToPlan() {
-  var sel = document.getElementById('fin-salary-target-category');
-  if (!sel) return;
-  _finSalaryTargetCategory = sel.value;
-  var pensionPctUsed = _finSalaryPensionPct != null ? _finSalaryPensionPct : finConcordiaPensionRateFor(_finPlanTargetYear).rate;
-  var computed = finSalaryComputeAll(_finSalaryColaPct, pensionPctUsed);
-  var totalCompCents = computed.reduce(function(sum, c) { return sum + (c.totalCompCents || 0); }, 0);
-  var totalCents = totalCompCents + Math.round((_finSalaryBenefitsDollars || 0) * 100);
-  _finPlanEdits[_finSalaryTargetCategory] = (totalCents / 100).toFixed(2);
-  finToast('Applied $' + finFmtMoney(totalCents/100) + ' to the FY' + _finPlanTargetYear + ' Projected column — click Save Changes to keep it.');
-  finRerenderPlanningPreserveFocus();
-  finRenderPlanning();
-}
 
 // ── Health Insurance Renewal Options (Concordia Plans quote #0560500326, effective 2027) ──────
 // One congregation-wide group enrollment, not a per-worker figure like the salary roster above —
@@ -5000,15 +4435,6 @@ function finComputeHealthPlanTotalCents(optionKey, premiumOverrides) {
   var totalCents = medicalCents + dentalCents + visionCents;
   var overridden = ov.medicalCents != null || ov.dentalCents != null || ov.visionCents != null;
   return { label: opt.label, medicalCents: medicalCents, dentalCents: dentalCents, visionCents: visionCents, totalCents: totalCents, overridden: overridden };
-}
-// Pure — no DOM — an even per-contract share of the selected plan's total employer cost, used as
-// each ENROLLED worker's estimated Health Insurance line in the per-worker Total Compensation
-// breakdown (the quote itself is one congregation-wide total for N Family-tier contracts, not
-// individually priced per worker, so an even split is the practical estimate).
-function finHealthPlanPerContractCents(optionKey) {
-  var calc = finComputeHealthPlanTotalCents(optionKey);
-  if (!calc || !HEALTH_PLAN_QUOTE_2027.enrollmentContracts) return 0;
-  return Math.round(calc.totalCents / HEALTH_PLAN_QUOTE_2027.enrollmentContracts);
 }
 // Pure — no DOM — a plan's own out-of-pocket cost for a given total billed amount, under a plain
 // deductible-then-coinsurance-up-to-an-OOP-max design (every option in this quote works this way).
@@ -5067,129 +4493,6 @@ function finComputeHealthPlanFamilyBreakevenCents(fromKey, toKey, perHouseholdPr
 }
 
 var _finHealthPlanSelectedOption = 'renewal'; // Stay on Current/Renewal (Healthy Me HSA-C) — per the 2026-07-21 cost/benefit review, Option B's protection mostly targets high-utilization years neither current employee's household has historically approached (neither has hit the $8,000 individual OOP max under the current plan), so the guaranteed $3,296.40/yr premium increase isn't clearly worth it; revisit if a near-term high-cost event is anticipated
-var _finHealthPlanTargetCategory = '';
-function finRenderHealthInsuranceCalculator(isAdminUI) {
-  var calc = finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption);
-  var optionSelect = '<select onchange="finHealthPlanOptionChange(this.value)">' + Object.keys(HEALTH_PLAN_QUOTE_2027.options).map(function(k) {
-    return '<option value="' + k + '"' + (k === _finHealthPlanSelectedOption ? ' selected' : '') + '>' + esc(HEALTH_PLAN_QUOTE_2027.options[k].label) + '</option>';
-  }).join('') + '</select>';
-
-  var quoteOpt = HEALTH_PLAN_QUOTE_2027.options[_finHealthPlanSelectedOption];
-  var premOv = _finHealthPlanPremiumOverrides[_finHealthPlanSelectedOption] || {};
-  // Editable premium lines, admin only — same "plain value, no forced .toFixed" convention as the
-  // District Reference Data editor above (a full-card rerender on every keystroke would otherwise
-  // fight the user's typing). Blank = use the quote's own figure for this option (shown as a
-  // placeholder); a typed figure overrides just that one line, just for this option.
-  function premiumRow(field, label) {
-    var ovCents = premOv[field], quoteCents = quoteOpt[field];
-    if (!isAdminUI) return '<tr><td style="padding:3px 6px;">' + label + '</td><td style="text-align:right;padding:3px 6px;">$' + finFmtMoney((ovCents != null ? ovCents : quoteCents)/100) + '</td></tr>';
-    return '<tr><td style="padding:3px 6px;">' + label + '</td><td style="text-align:right;padding:3px 6px;">$<input type="text" inputmode="decimal" id="fin-health-premium-' + _finHealthPlanSelectedOption + '-' + field + '" value="' + (ovCents != null ? (ovCents/100) : '') + '" placeholder="' + (quoteCents/100).toFixed(2) + '" oninput="finHealthPremiumChange(\'' + _finHealthPlanSelectedOption + '\',\'' + field + '\',finSanitizeDecimalInput(this))" style="width:90px;text-align:right;"></td></tr>';
-  }
-  var breakdownHtml = calc ? ('<table style="width:100%;border-collapse:collapse;font-size:.78rem;max-width:420px;">'
-    + premiumRow('medicalCents', 'Medical Annual Premium')
-    + premiumRow('dentalCents', 'Dental Annual Premium')
-    + premiumRow('visionCents', 'Vision Annual Premium')
-    + '<tr style="font-weight:700;border-top:2px solid var(--navy);"><td style="padding:5px 6px;">Total Annual Premium</td><td style="text-align:right;padding:5px 6px;">$' + finFmtMoney(calc.totalCents/100) + '</td></tr>'
-    + '</table>'
-    + (isAdminUI && calc.overridden ? '<a href="#" onclick="finHealthPremiumResetAll(\'' + _finHealthPlanSelectedOption + '\');return false;" style="font-size:.68rem;">↺ use quote figures for this option</a>' : '')) : '<p style="font-size:.8rem;color:var(--warm-gray);">Unknown option.</p>';
-
-  // "Is it worth it?" — reframed per the user's clarification: the church fully covers Renewal
-  // (Option C) only; a worker who wants a different option pays the premium DIFFERENCE themselves
-  // (e.g. via payroll deduction), so the question is whether it's worth it for THAT WORKER, not a
-  // church-budget decision. The underlying breakeven math is unchanged — a premium difference is
-  // a premium difference regardless of who writes the check — only the framing/copy changed.
-  // Two symmetric cases: a costlier option (does the lower deductible/OOP-max pay the worker back
-  // for the extra premium they're covering?) and a cheaper option (does the premium the worker
-  // pockets outweigh the worse deductible/OOP-max if a claim actually happens?).
-  var breakevenHtml = '';
-  if (calc && _finHealthPlanSelectedOption !== 'renewal') {
-    var baseline = finComputeHealthPlanTotalCents('renewal');
-    var perHouseholdDiffCents = Math.round((calc.totalCents - baseline.totalCents) / HEALTH_PLAN_QUOTE_2027.enrollmentContracts);
-    var singleClaimantWorstCaseCents = finComputeHealthPlanSingleClaimantDeltaCents('renewal', _finHealthPlanSelectedOption, 100000000);
-    var renewalOpt = HEALTH_PLAN_QUOTE_2027.options.renewal, selOpt = HEALTH_PLAN_QUOTE_2027.options[_finHealthPlanSelectedOption];
-    var rate = HEALTH_PLAN_QUOTE_2027.coinsuranceRate;
-    var familyWorstCaseCents = finComputePlanOOPCents(selOpt.deductibleFamilyCents, selOpt.oopMaxFamilyCents, rate, 100000000)
-                              - finComputePlanOOPCents(renewalOpt.deductibleFamilyCents, renewalOpt.oopMaxFamilyCents, rate, 100000000);
-    var renewalLoneTerms = finHealthPlanEffectiveLoneClaimantTermsCents('renewal'), selLoneTerms = finHealthPlanEffectiveLoneClaimantTermsCents(_finHealthPlanSelectedOption);
-    var renewalLoneWorstCents = renewalLoneTerms.oopMaxCents, selLoneWorstCents = selLoneTerms.oopMaxCents;
-    var renewalFamilyWorstCents = renewalOpt.oopMaxFamilyCents, selFamilyWorstCents = selOpt.oopMaxFamilyCents;
-    function actualSpendRow(label, renewalCents, selCents) {
-      return '<tr><td style="padding:2px 6px;">' + label + '</td><td style="text-align:right;padding:2px 6px;">$' + finFmtMoney(renewalCents/100) + '</td><td style="text-align:right;padding:2px 6px;">$' + finFmtMoney(selCents/100) + '</td></tr>';
-    }
-    if (perHouseholdDiffCents > 0) {
-      var breakevenCents = finComputeHealthPlanFamilyBreakevenCents('renewal', _finHealthPlanSelectedOption, perHouseholdDiffCents);
-      var actualSpendTableRows = '';
-      if (breakevenCents != null) {
-        var oopAtBreakevenRenewal = finComputePlanOOPCents(renewalOpt.deductibleFamilyCents, renewalOpt.oopMaxFamilyCents, rate, breakevenCents);
-        var oopAtBreakevenSelected = finComputePlanOOPCents(selOpt.deductibleFamilyCents, selOpt.oopMaxFamilyCents, rate, breakevenCents);
-        actualSpendTableRows += actualSpendRow('At the breakeven ($' + finFmtMoney(breakevenCents/100) + ' total cost of care, spread across the family)', oopAtBreakevenRenewal, oopAtBreakevenSelected);
-      }
-      actualSpendTableRows += actualSpendRow('Worst case, costs spread across the family', renewalFamilyWorstCents, selFamilyWorstCents);
-      actualSpendTableRows += actualSpendRow('Worst case, one family member alone', renewalLoneWorstCents, selLoneWorstCents);
-      var actualSpendTable = '<table style="width:100%;border-collapse:collapse;font-size:.72rem;margin-top:8px;max-width:480px;">'
-        + '<thead><tr><th style="text-align:left;padding:2px 6px;">What the family would actually pay</th><th style="text-align:right;padding:2px 6px;">Renewal</th><th style="text-align:right;padding:2px 6px;">' + esc(selOpt.label) + '</th></tr></thead>'
-        + '<tbody>' + actualSpendTableRows + '</tbody></table>';
-      breakevenHtml = '<div style="margin-top:10px;padding:8px 10px;background:var(--white);border-radius:6px;font-size:.75rem;color:var(--warm-gray);">'
-        + '<b style="color:var(--charcoal);">Is it worth it for the worker?</b> The church fully covers Renewal (Option C); choosing this option instead means the worker personally pays the $' + finFmtMoney(perHouseholdDiffCents/100) + '/yr extra premium (e.g. via payroll deduction) that the church doesn\'t cover. '
-        + (breakevenCents != null
-          ? 'If the worker\'s own household medical costs are spread across 2+ family members, that extra premium pays the worker back once their household\'s <i>total cost of care for the year</i> (what providers bill in total — not what the family pays out of pocket, which stays capped well below this) reaches about <b>$' + finFmtMoney(breakevenCents/100) + '</b> — below that, paying the extra premium is a net cost to the worker; above it, the lower deductible/out-of-pocket max saves the worker more than the premium costs them.'
-          : 'It never fully pays the worker back in reduced out-of-pocket costs at any level of care, even spread across the whole family.')
-        + (singleClaimantWorstCaseCents != null ? ' If one family member alone accounts for all the costs (not spread across the family), paying for this option ' + (singleClaimantWorstCaseCents > 0 ? 'never breaks even for the worker — it costs them up to $' + finFmtMoney(singleClaimantWorstCaseCents/100) + ' more even in a worst-case year' : (singleClaimantWorstCaseCents < 0 ? 'still comes out ahead for the worker by up to $' + finFmtMoney(Math.abs(singleClaimantWorstCaseCents)/100) + ' in a worst-case year' : 'comes out exactly even in a worst-case year')) + ', since a lone claimant is held to the same family-size threshold a non-embedded plan uses instead of a smaller individual cap.' : '')
-        + actualSpendTable
-        + '</div>';
-    } else if (perHouseholdDiffCents < 0) {
-      var cheaperSpendTable = '<table style="width:100%;border-collapse:collapse;font-size:.72rem;margin-top:8px;max-width:480px;">'
-        + '<thead><tr><th style="text-align:left;padding:2px 6px;">What the family would actually pay</th><th style="text-align:right;padding:2px 6px;">Renewal</th><th style="text-align:right;padding:2px 6px;">' + esc(selOpt.label) + '</th></tr></thead>'
-        + '<tbody>' + actualSpendRow('Worst case, costs spread across the family', renewalFamilyWorstCents, selFamilyWorstCents) + actualSpendRow('Worst case, one family member alone', renewalLoneWorstCents, selLoneWorstCents) + '</tbody></table>';
-      breakevenHtml = '<div style="margin-top:10px;padding:8px 10px;background:var(--white);border-radius:6px;font-size:.75rem;color:var(--warm-gray);">'
-        + '<b style="color:var(--charcoal);">Is it worth it for the worker?</b> The church fully covers Renewal (Option C); choosing this cheaper option instead would save the worker $' + finFmtMoney(Math.abs(perHouseholdDiffCents)/100) + '/yr in premium — guaranteed, whether or not anyone has a claim. '
-        + 'The tradeoff is a higher deductible/out-of-pocket max: in a worst-case year with costs spread across the family, this option could cost the worker up to <b>$' + finFmtMoney(Math.abs(familyWorstCaseCents)/100) + (familyWorstCaseCents > 0 ? ' more' : ' less') + '</b> out-of-pocket than Renewal'
-        + (Math.abs(familyWorstCaseCents) < Math.abs(perHouseholdDiffCents)
-          ? ', which is smaller than the guaranteed premium savings — so even in the worst realistic year, this option comes out ahead for the worker overall.'
-          : ', which is larger than the guaranteed premium savings — so a genuinely bad year could cost the worker more overall than staying on Renewal.')
-        + cheaperSpendTable
-        + '</div>';
-    }
-  }
-
-  var expenseLeaves = [];
-  (function walk(nodes) { (nodes || []).forEach(function(n) { if (!n.children.length && n.classification !== 'Income') expenseLeaves.push(n); walk(n.children); }); })(_finPlanBaseTree);
-  var categoryOptions = expenseLeaves.map(function(n) {
-    var guess = /health|medical|dental|vision|disability/i.test(n.label);
-    return '<option value="' + esc(n.path) + '"' + (guess && !_finHealthPlanTargetCategory ? ' selected' : (n.path === _finHealthPlanTargetCategory ? ' selected' : '')) + '>' + esc(n.label) + '</option>';
-  }).join('');
-  // "Pull in last year" — the real FY base-year actual/budget totals across whichever accounts
-  // look like EMPLOYEE health/benefits accounts, same pattern as the Salary Calculator's reference
-  // line. Deliberately does NOT match a bare "insurance" or "benefit" — a generic account like
-  // "52040 Insurance" is very likely property/liability coverage, not employee health coverage,
-  // and matching it inflated this reference figure well past the real health-insurance budget
-  // (reported bug: a general Insurance line dragged the shown "budgeted" total up to ~2x the real
-  // per-employee premium cost). Requiring a specific term (health/medical/dental/vision/
-  // disability) still catches "59035 Health Insurance" and "59016 Disability & Accident Insurance".
-  var healthAccounts = expenseLeaves.filter(function(n) { return /health|medical|dental|vision|disability/i.test(n.label); });
-  var lastYearHealthActualCents = healthAccounts.reduce(function(sum, n) { return sum + (n.totalActualCents || 0); }, 0);
-  var lastYearHealthBudgetCents = healthAccounts.reduce(function(sum, n) { return sum + (n.hasBudgetInfo ? (n.totalBudgetCents || 0) : 0); }, 0);
-  var lastYearHealthHtml = healthAccounts.length
-    ? '<div style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">FY' + _finPlanBaseYear + ' actual across matching accounts (' + healthAccounts.map(function(n){return esc(n.label);}).join(', ') + '): <b style="color:var(--charcoal);">$' + finFmtMoney(lastYearHealthActualCents/100) + '</b>' + (lastYearHealthBudgetCents ? ' (budgeted $' + finFmtMoney(lastYearHealthBudgetCents/100) + ')' : '') + ' — for comparison against the quote totals below.</div>'
-    : '';
-
-  return '<div class="fin-card" style="margin-top:16px;">'
-    + '<div class="fin-card-title" style="font-size:18px;">Health Insurance Renewal Options <span style="font-family:var(--font-body);font-weight:400;font-size:.72rem;color:var(--warm-gray);">(Concordia Plans quote #0560500326, effective ' + HEALTH_PLAN_QUOTE_2027.effectiveYear + ')</span></div>'
-    + lastYearHealthHtml
-    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">One group premium for the whole congregation, not a per-worker figure — Medical varies by plan option; Dental and Vision are the same across Renewal/Option 1/2/3 (only the old Current plan has a lower Dental rate). The church fully covers Renewal (Option C); a worker choosing a different option pays the premium difference themselves — see "Is it worth it?" below.</p>'
-    + '<label style="font-size:.72rem;color:var(--warm-gray);display:block;margin-bottom:8px;">Plan Option<br>' + optionSelect + '</label>'
-    + breakdownHtml
-    + breakevenHtml
-    + (isAdminUI && expenseLeaves.length ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
-      + '<label style="font-size:.72rem;color:var(--warm-gray);">Apply total to account<br><select id="fin-healthplan-target-category">' + categoryOptions + '</select></label>'
-      + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finHealthPlanApplyToPlan()">Use as FY' + _finPlanTargetYear + ' Projected</button>'
-      + '</div>' : '')
-    + '</div>';
-}
-function finHealthPlanOptionChange(value) {
-  _finHealthPlanSelectedOption = value;
-  finRerenderPlanningPreserveFocus();
-}
 function finHealthPremiumChange(optionKey, field, value) {
   if (!_finHealthPlanPremiumOverrides[optionKey]) _finHealthPlanPremiumOverrides[optionKey] = {};
   var cents = value === '' ? null : Math.round(parseFloat(value) * 100);
@@ -5197,20 +4500,1362 @@ function finHealthPremiumChange(optionKey, field, value) {
   else _finHealthPlanPremiumOverrides[optionKey][field] = cents;
   finRerenderPlanningPreserveFocus();
 }
-function finHealthPremiumResetAll(optionKey) {
-  delete _finHealthPlanPremiumOverrides[optionKey];
+
+// ══ COMPENSATION PLANNER ═══════════════════════════════════════════════════════════════════
+// Rebuilt 2026-08 from the "Compensation Planner redesign + Council report" design handoff.
+// The old tab was one long scroll of four stacked cards, several hundred words of prose, and
+// three growth-scenario columns that showed the identical number whenever the target year had a
+// published district base salary. This is five views behind one sub-nav, with every figure that
+// arrives on paper once a year entered in exactly one place ("This year's rates"):
+//
+//   1 · Set pay        what do we pay each worker next year?
+//   2 · Check fairness is that fair, against the district scale and Concordia's published ranges?
+//   3 · Health plan    which group plan, and who sits on which tier?
+//   This year's rates  every annual figure, entered once
+//   Council summary    the one-page version for a meeting (+ a printable Council report)
+//
+// The one deliberate MATH change from the old tab: COLA and Custom now grow the worker's CURRENT
+// PAY, not the district base salary. Previously every growth method ran the district formula, so
+// for a year with a published base they all collapsed to one number and a COLA was inexpressible.
+// The district worksheet is now its own benchmark column ("District Scale"). Every pure function
+// the district/Concordia math is built on (finComputeLcmsSalary, finLcmsMultiplierFor,
+// finRoundSalaryCents, finComputeEmployerFicaCents, finComputePensionCents, the Concordia rate
+// lookups, the health-plan breakeven family) is unchanged — those reconcile against the published
+// PDFs in test/finance-salary-calculator.test.js.
+var FIN_COMP_VIEWS = [
+  { key: 'plan', label: '1 &middot; Set pay' },
+  { key: 'fairness', label: '2 &middot; Check fairness' },
+  { key: 'health', label: '3 &middot; Health plan' },
+  { key: 'rates', label: 'This year&#39;s rates' },
+  { key: 'council', label: 'Council summary' }
+];
+var FIN_COMP_METHODS = ['none', 'worksheet', 'cola', 'custom'];
+var _finCompView = 'plan';
+var _finCompMethod = 'cola';          // roster-wide method; a per-worker entry below overrides it
+var _finCompPerWorkerMethod = {};     // roster index -> method key
+var _finCompOverrides = {};           // roster index -> hand-typed dollars string (beats any method)
+var _finCompCustomPct = 3.5;
+var _finCompSelected = 0;
+var _finCompDrawerOpen = true;
+var _finCompRefYear = null;           // which year the rates view is editing; null = the target year
+var _finCompToast = '';
+// Whole-dollar money, the way every figure in this planner is presented (finFmtMoney's two
+// decimals are right for an accounting report and wrong for a salary you can say out loud).
+function finCompMoney(cents) {
+  return '$' + Math.round((Number(cents) || 0) / 100).toLocaleString('en-US');
+}
+function finCompMoneySigned(cents) {
+  var r = Math.round((Number(cents) || 0) / 100);
+  return (r >= 0 ? '+' : '&minus;') + '$' + Math.abs(r).toLocaleString('en-US');
+}
+function finCompPctFmt(fraction, places) {
+  return ((Number(fraction) || 0) * 100).toFixed(places == null ? 2 : places) + '%';
+}
+function finCompIsAdmin() { return _userRole === 'admin'; }
+// Disables every input in a chunk of markup for a non-admin. Same pattern the old tab used: the
+// figures stay visible to anyone who can reach the Compensation tab, only editing is gated (the
+// save endpoint is admin-gated server-side either way).
+function finCompReadOnly(html) {
+  if (finCompIsAdmin()) return html;
+  return html.replace(/<input /g, '<input disabled ').replace(/<select /g, '<select disabled ');
+}
+
+// ── Reference figures (§5.7): entered-for-the-year, else the most recent earlier entered year,
+// else the code constant. Never silently substitutes — every resolution carries the year it came
+// from so the UI can say "carrying $51,529 forward from FY2027".
+function finCompEnteredRef(field, year) {
+  var ref = _finSalaryReferenceByYear || {};
+  if (ref[year] && ref[year][field] != null) return { value: ref[year][field], sourceYear: Number(year), exact: true };
+  var years = Object.keys(ref).map(Number).filter(function(y) { return y <= year && ref[y] && ref[y][field] != null; }).sort(function(a, b) { return a - b; });
+  if (!years.length) return null;
+  var sy = years[years.length - 1];
+  return { value: ref[sy][field], sourceYear: sy, exact: false };
+}
+function finCompBaseSalary(year) {
+  return finLcmsBaseSalaryCents(year, 0, _finSalaryReferenceByYear); // {dollars, exact, sourceYear}
+}
+function finCompPensionRate(year) {
+  var e = finCompEnteredRef('pensionPct', year);
+  if (e) return { rate: e.value, sourceYear: e.sourceYear, exact: e.exact };
+  return finConcordiaPensionRateFor(year);
+}
+function finCompDisabilityRate(year, hasDependents) {
+  var e = finCompEnteredRef(hasDependents ? 'disabilityDepsPct' : 'disabilityNoDepsPct', year);
+  if (e) return { rate: e.value, sourceYear: e.sourceYear, exact: e.exact };
+  return finConcordiaDisabilityRateFor(year, hasDependents);
+}
+function finCompFicaRate(year) {
+  var e = finCompEnteredRef('ficaPct', year == null ? _finPlanTargetYear : year);
+  return e ? e.value : LCMS_EMPLOYER_FICA_RATE;
+}
+function finCompSsaRate(year) {
+  var e = finCompEnteredRef('ssaColaPct', year == null ? _finPlanTargetYear : year);
+  return e ? e.value : SSA_COLA_REFERENCE_PCT;
+}
+function finCompOptOutCents(year) {
+  return finHealthOptOutCentsFor(year == null ? _finPlanTargetYear : year, _finSalaryReferenceByYear);
+}
+function finCompSourceDoc(kind) {
+  var y = _finPlanTargetYear;
+  var e = finCompEnteredRef(kind, y);
+  if (e && e.value) return e.value;
+  if (kind === 'districtSource') return 'LCMS Missouri District Compensation Guidelines';
+  if (kind === 'concordiaSource') return 'Overview of your Concordia Plans Participation';
+  return 'Concordia Plans quote #0560500326, effective ' + HEALTH_PLAN_QUOTE_2027.effectiveYear;
+}
+
+// ── Worker model. The roster rows predate this redesign, so a worker's health tier is derived
+// from the old healthEnrolled/hasDependents pair the first time it is read and written back as an
+// explicit healthMode from then on (§4.1). Both are kept in sync so nothing that still reads the
+// old flags breaks.
+function finCompHealthMode(w) {
+  if (w.healthMode === 'family' || w.healthMode === 'employee' || w.healthMode === 'optout') return w.healthMode;
+  if (w.healthEnrolled === false) return 'optout';
+  return w.hasDependents ? 'family' : 'employee';
+}
+function finCompSetHealthMode(i, mode) {
+  var w = _finSalaryRoster[i];
+  w.healthMode = mode;
+  w.healthEnrolled = (mode !== 'optout');
   finRerenderPlanningPreserveFocus();
 }
-function finHealthPlanApplyToPlan() {
-  var sel = document.getElementById('fin-healthplan-target-category');
-  if (!sel) return;
-  _finHealthPlanTargetCategory = sel.value;
+// A worker's CURRENT pay (§5.4), in priority order: a legacy hand-typed override, then the linked
+// account's FULL-YEAR BUDGETED total (not YTD Actual, which understates a year in progress), then
+// nothing. This is what "No raise" reports and what COLA/Custom grow from.
+function finCompCurrentPayCents(w) {
+  if (w.actualSalaryCents != null) return w.actualSalaryCents;
+  var acct = finAccountBudgetCentsForCode(w.accountCode);
+  return acct != null ? acct : 0;
+}
+function finCompScaleMultiplier(w) {
+  var track;
+  if (w.role === 'pastor') track = { multipliers: LCMS_PASTOR_MULTIPLIERS, growBeyond: 0.02 };
+  else if (w.role === 'commissioned') track = LCMS_COMMISSIONED_TRACKS[w.trackKey];
+  else track = LCMS_OTHER_WORKER_TRACKS[w.trackKey];
+  if (!track) return 0;
+  return finLcmsMultiplierFor(track, w.yearsExperience);
+}
+function finCompMultiplier(w) {
+  var total = finCompScaleMultiplier(w) + (Number(w.responsibilityStipend) || 0) + (Number(w.attendanceBonus) || 0);
+  return Math.round(total * 1000) / 1000;
+}
+// "District Scale" — the District Compensation Worksheet figure for the TARGET year, always,
+// regardless of which method is active. A benchmark, not a choice.
+function finCompWorksheetCents(w) {
+  var calc = finComputeLcmsSalary({
+    year: _finPlanTargetYear, role: w.role, trackKey: w.trackKey, yearsExperience: w.yearsExperience,
+    responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus,
+    colaPct: 0, referenceByYear: _finSalaryReferenceByYear
+  });
+  return calc ? finRoundSalaryCents(calc.salaryCents) : null;
+}
+// The four methods (§5.4). Only a PROPOSED salary is paycheck-rounded — "No raise" is a real
+// budgeted figure and is reported exactly (rounding it once reported $74,516 as $74,490).
+function finCompMethodSalaryCents(w, key) {
+  if (key === 'none') return finCompCurrentPayCents(w);
+  if (key === 'worksheet') return finCompWorksheetCents(w);
+  var rate = key === 'cola' ? finCompSsaRate() : (Number(_finCompCustomPct) || 0) / 100;
+  return finRoundSalaryCents(Math.round(finCompCurrentPayCents(w) * (1 + rate)));
+}
+function finCompMethodLabel(key) {
+  if (key === 'none') return 'No raise';
+  if (key === 'worksheet') return 'District Scale';
+  if (key === 'cola') return 'COLA ' + (finCompSsaRate() * 100).toFixed(1) + '%';
+  return 'Custom ' + (Number(_finCompCustomPct) || 0).toFixed(1) + '%';
+}
+function finCompMethodLongLabel(key) {
+  if (key === 'none') return 'no raise';
+  if (key === 'worksheet') return 'the District Compensation Worksheet';
+  if (key === 'cola') return 'the Social Security COLA';
+  return 'a custom ' + (Number(_finCompCustomPct) || 0).toFixed(1) + '%';
+}
+function finCompMethodFor(i) { return _finCompPerWorkerMethod[i] || _finCompMethod; }
+function finCompOverrideCents(i) {
+  var ov = _finCompOverrides[i];
+  if (ov == null || ov === '') return null;
+  var n = parseFloat(String(ov).replace(/[^0-9.]/g, ''));
+  return isFinite(n) ? Math.round(n * 100) : null;
+}
+function finCompSalaryCents(w, i) {
+  var ov = finCompOverrideCents(i);
+  if (ov != null) return ov;
+  return finCompMethodSalaryCents(w, finCompMethodFor(i));
+}
+function finCompOverrideCount() {
+  return Object.keys(_finCompOverrides).filter(function(k) { return _finCompOverrides[k] !== '' && _finCompOverrides[k] != null; }).length;
+}
+// Group contracts — the quote is one congregation-wide premium for N Family-tier contracts, so a
+// family-tier worker's cost is an even split of it. Clamped to 1 so an emptied box can't divide
+// by zero (§7.4).
+var _finHealthPlanContracts = null;
+function finCompContractCount() {
+  var n = _finHealthPlanContracts != null ? _finHealthPlanContracts : HEALTH_PLAN_QUOTE_2027.enrollmentContracts;
+  return Math.max(1, Math.floor(Number(n) || 0) || 1);
+}
+// Pure — no DOM — an even per-contract share of the selected plan's total employer cost, used as
+// each FAMILY-tier worker's health line. The quote is one congregation-wide total for N Family-tier
+// contracts, not individually priced per worker, so an even split is the practical estimate.
+function finHealthPlanPerContractCents(optionKey) {
+  var calc = finComputeHealthPlanTotalCents(optionKey);
+  if (!calc) return 0;
+  return Math.round(calc.totalCents / finCompContractCount());
+}
+// What the church pays for one worker (§5.5). Pension and disability apply to every salaried
+// worker regardless of FICA status; a minister's employer FICA is $0 and the employer half they
+// cover themselves is carried separately for display only — never added to a total.
+function finCompBenefits(w, salaryCents) {
+  var pensionRate = finCompPensionRate(_finPlanTargetYear).rate;
+  var disRate = finCompDisabilityRate(_finPlanTargetYear, !!w.hasDependents).rate;
+  var ficaRate = finCompFicaRate();
+  var mode = finCompHealthMode(w);
+  var healthCents = mode === 'family' ? finHealthPlanPerContractCents(_finHealthPlanSelectedOption)
+    : mode === 'employee' ? (w.employeeOnlyPremiumCents || 0)
+    : (w.healthOptOutOverrideCents != null ? w.healthOptOutOverrideCents : finCompOptOutCents());
+  var pensionCents = Math.round(salaryCents * pensionRate);
+  var disabilityCents = Math.round(salaryCents * disRate);
+  var ficaCents = w.selfEmployedFica ? 0 : Math.round(salaryCents * ficaRate);
+  return {
+    pensionCents: pensionCents, disabilityCents: disabilityCents, healthCents: healthCents,
+    ficaCents: ficaCents, secaSelfCents: Math.round(salaryCents * ficaRate),
+    totalCents: pensionCents + disabilityCents + healthCents + ficaCents
+  };
+}
+function finCompComputeAll() {
+  return _finSalaryRoster.map(function(w, i) {
+    var salaryCents = finCompSalaryCents(w, i);
+    var b = finCompBenefits(w, salaryCents);
+    return {
+      salaryCents: salaryCents, benefits: b, churchCostCents: salaryCents + b.totalCents,
+      worksheetCents: finCompWorksheetCents(w), currentCents: finCompCurrentPayCents(w),
+      overridden: finCompOverrideCents(i) != null, methodKey: finCompMethodFor(i)
+    };
+  });
+}
+// The FY base-year ACTUAL across the accounts that really are compensation (§5.10). Deliberately
+// NOT a bare /insurance|benefit/ — "52040 Insurance" is property cover and doubled this figure.
+function finCompBaselineCents() {
+  if (!_finPlanBaseTree) return 0;
+  var leaves = [];
+  (function walk(nodes) { (nodes || []).forEach(function(n) { if (!n.children.length && n.classification !== 'Income') leaves.push(n); walk(n.children); }); })(_finPlanBaseTree);
+  return leaves.filter(function(n) { return /salar|payroll|compensation|wages/i.test(n.label) || /health|medical|dental|vision|disability/i.test(n.label); })
+    .reduce(function(sum, n) { return sum + (n.totalActualCents || 0); }, 0);
+}
+function finCompTotals(computed) {
+  var salaryCents = computed.reduce(function(s, c) { return s + c.salaryCents; }, 0);
+  var benefitsCents = computed.reduce(function(s, c) { return s + c.benefits.totalCents; }, 0);
+  var baselineCents = finCompBaselineCents();
+  var totalCents = salaryCents + benefitsCents;
+  return {
+    salaryCents: salaryCents, benefitsCents: benefitsCents, totalCents: totalCents,
+    baselineCents: baselineCents, deltaCents: totalCents - baselineCents,
+    currentCents: computed.reduce(function(s, c) { return s + c.currentCents; }, 0),
+    worksheetCents: computed.reduce(function(s, c) { return s + (c.worksheetCents || 0); }, 0),
+    healthCents: computed.reduce(function(s, c) { return s + c.benefits.healthCents; }, 0)
+  };
+}
+
+// ── Concordia Plans ranges (§4.4, §5.8). Stored on the roster row as w.concordia, keyed
+// churchMarketLow/Mid/High etc. — a range only COUNTS once it has a real lower and higher figure,
+// so a half-typed row can never skew a chart or a verdict.
+function finCompUsableRanges(w) {
+  var c = w.concordia || {};
+  return FIN_CONCORDIA_RANGE_KEYS.map(function(r) {
+    return {
+      key: r.key, label: r.label,
+      lowCents: finConcordiaParseMoneyCents(c[r.key + 'Low']),
+      midCents: finConcordiaParseMoneyCents(c[r.key + 'Mid']),
+      highCents: finConcordiaParseMoneyCents(c[r.key + 'High'])
+    };
+  }).filter(function(r) { return r.lowCents > 0 && r.highCents > r.lowCents; });
+}
+function finCompLcmsRange(w) {
+  var u = finCompUsableRanges(w);
+  return u.filter(function(r) { return /LCMS/i.test(r.label); })[0] || u[0] || null;
+}
+function finCompRatioColor(ratio) {
+  return ratio >= 0.995 ? 'var(--sage-text)' : ratio >= 0.95 ? 'var(--deep-amber)' : 'var(--danger)';
+}
+function finCompVsScale(salaryCents, worksheetCents) {
+  if (!worksheetCents) return { text: '&mdash;', color: 'var(--warm-gray)' };
+  var diff = salaryCents - worksheetCents;
+  return {
+    text: Math.abs(diff) < 50000 ? 'at scale' : finCompMoneySigned(diff) + ' (' + Math.round(salaryCents / worksheetCents * 100) + '% of scale)',
+    color: finCompRatioColor(salaryCents / worksheetCents)
+  };
+}
+function finCompVsMedian(salaryCents, midCents) {
+  if (!midCents) return { text: 'no report', color: 'var(--warm-gray)' };
+  var diff = salaryCents - midCents;
+  return {
+    text: Math.abs(diff) < 50000 ? 'at median' : finCompMoneySigned(diff) + ' (' + Math.round(salaryCents / midCents * 100) + '% of median)',
+    color: finCompRatioColor(salaryCents / midCents)
+  };
+}
+// Verdict chips (§5.8), in priority order.
+function finCompVerdict(w, salaryCents) {
+  var usable = finCompUsableRanges(w);
+  var lcms = finCompLcmsRange(w);
+  if (!lcms) return { text: 'No published range', bg: 'var(--linen)', color: 'var(--warm-meta)', matchLabel: '', midCents: null };
+  var midCents = lcms.midCents || lcms.lowCents;
+  var belowAll = usable.every(function(r) { return salaryCents < r.lowCents; });
+  var vsMid = salaryCents - midCents;
+  var out = { matchLabel: 'Set to LCMS midpoint (' + finCompMoney(midCents) + ')', midCents: midCents };
+  if (belowAll) { out.text = 'Below every published range'; out.bg = 'var(--chip-negative-bg)'; out.color = 'var(--danger)'; }
+  else if (salaryCents < lcms.lowCents) { out.text = 'Below the LCMS range'; out.bg = 'var(--chip-negative-bg)'; out.color = 'var(--danger)'; }
+  else if (Math.abs(vsMid) / midCents < 0.03) { out.text = 'At the LCMS midpoint'; out.bg = 'var(--pale-sage)'; out.color = 'var(--sage-text)'; }
+  else if (vsMid > 0) { out.text = finCompMoneySigned(vsMid) + ' above the LCMS midpoint'; out.bg = 'var(--pale-sage)'; out.color = 'var(--sage-text)'; }
+  else { out.text = finCompMoneySigned(vsMid) + ' vs the LCMS midpoint'; out.bg = 'var(--warm-surface-header)'; out.color = 'var(--deep-amber)'; }
+  return out;
+}
+// The LCMS-median total covers ONLY the workers who have a report, and says how many — otherwise
+// a missing report silently reads as being under median (§5.8).
+function finCompMedianTotal(computed) {
+  var med = 0, pay = 0, n = 0;
+  _finSalaryRoster.forEach(function(w, i) {
+    var l = finCompLcmsRange(w);
+    if (l && l.midCents) { med += l.midCents; pay += computed[i].salaryCents; n++; }
+  });
+  if (!med) return { text: '&mdash;', color: 'var(--warm-gray)', count: 0, medCents: 0 };
+  return {
+    text: finCompMoneySigned(pay - med) + ' (' + Math.round(pay / med * 100) + '% of median, ' + n + ' with report' + (n === 1 ? '' : 's') + ')',
+    color: finCompRatioColor(pay / med), count: n, medCents: med
+  };
+}
+// Cost to bring every below-scale worker up to the district worksheet figure (§5.11). Health
+// premiums do not move with salary, so they are excluded.
+function finCompFullScaleGap(computed) {
+  var salaryGapCents = 0, benefitsGapCents = 0;
+  _finSalaryRoster.forEach(function(w, i) {
+    var c = computed[i];
+    var gap = Math.max(0, (c.worksheetCents || 0) - c.salaryCents);
+    if (!gap) return;
+    var pensionRate = finCompPensionRate(_finPlanTargetYear).rate;
+    var disRate = finCompDisabilityRate(_finPlanTargetYear, !!w.hasDependents).rate;
+    salaryGapCents += gap;
+    benefitsGapCents += Math.round(gap * (pensionRate + disRate + (w.selfEmployedFica ? 0 : finCompFicaRate())));
+  });
+  return { salaryGapCents: salaryGapCents, benefitsGapCents: benefitsGapCents, totalCents: salaryGapCents + benefitsGapCents };
+}
+// Div-based range bars (§5.9) — one shared dollar scale per worker so every bar and marker line
+// up. Positioned divs inside a track, not SVG: they reflow without recomputation and print.
+function finCompBarScale(valuesCents, padFraction) {
+  var lo = Math.min.apply(null, valuesCents), hi = Math.max.apply(null, valuesCents);
+  var pad = (hi - lo) * (padFraction || 0.08) || 1;
+  var min = lo - pad, max = hi + pad;
+  return function(v) { return ((v - min) / (max - min) * 100).toFixed(2) + '%'; };
+}
+
+// ── Budget-line options. A worker links to one expense leaf of the church budget tree by its
+// leading account code; that account's full-year Budget line is their current pay.
+function finCompAccountOptions(selectedCode) {
+  var leaves = [];
+  (function walk(nodes) { (nodes || []).forEach(function(n) { if (!n.children.length && n.classification !== 'Income') leaves.push(n); walk(n.children); }); })(_finPlanBaseTree);
+  var seen = {}, opts = [{ code: '', label: 'Not linked to a budget line' }];
+  leaves.forEach(function(n) {
+    var m = String(n.label).match(/^\s*(\d{3,8})/);
+    if (!m || seen[m[1]]) return;
+    seen[m[1]] = true;
+    opts.push({ code: m[1], label: n.label });
+  });
+  if (selectedCode && !seen[selectedCode]) opts.push({ code: selectedCode, label: selectedCode + ' (not in this year&#39;s budget)' });
+  return opts;
+}
+function finCompExpenseLeaves() {
+  var leaves = [];
+  (function walk(nodes) { (nodes || []).forEach(function(n) { if (!n.children.length && n.classification !== 'Income') leaves.push(n); walk(n.children); }); })(_finPlanBaseTree);
+  return leaves;
+}
+
+// ── Shell ──────────────────────────────────────────────────────────────────────────────────
+function finCompMethodSummary() {
+  var base = finCompBaseSalary(_finPlanTargetYear);
+  var plan = finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption);
+  return 'Salaries by ' + finCompMethodLongLabel(_finCompMethod)
+    + ' &middot; district base $' + finFmtMoney(base.dollars)
+    + ' &middot; pension ' + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate)
+    + ' &middot; ' + esc(plan ? plan.label : 'no plan selected')
+    + ' &middot; ' + _finSalaryRoster.length + ' worker' + (_finSalaryRoster.length === 1 ? '' : 's');
+}
+function finRenderCompensation() {
+  var el = document.getElementById('fin-comp-root');
+  if (!el) return;
+  var yearLabelEl = document.getElementById('fin-comp-year-label');
+  if (yearLabelEl) yearLabelEl.textContent = _finPlanTargetYear;
+  if (!_finSalaryRoster.length) {
+    el.innerHTML = finCompHeaderHtml(finCompTotals([]))
+      + '<div class="fin-card" style="margin-top:14px;"><div class="fin-card-title">No staff on the roster yet</div>'
+      + '<p class="fin-card-sub">Add the church&#39;s called and employed workers to start planning FY' + _finPlanTargetYear + ' compensation.</p>'
+      + (finCompIsAdmin() ? '<button class="btn-primary" onclick="finCompAddWorker()">+ Add a staff member</button>' : '')
+      + '</div>';
+    return;
+  }
+  if (_finCompSelected >= _finSalaryRoster.length) _finCompSelected = _finSalaryRoster.length - 1;
+  var computed = finCompComputeAll();
+  var totals = finCompTotals(computed);
+  var body = _finCompView === 'plan' ? finCompRenderPlan(computed, totals)
+    : _finCompView === 'fairness' ? finCompRenderFairness(computed)
+    : _finCompView === 'health' ? finCompRenderHealth(computed, totals)
+    : _finCompView === 'rates' ? finCompRenderRates()
+    : finCompRenderCouncil(computed, totals);
+  el.innerHTML = finCompHeaderHtml(totals) + body + '<div id="fin-comp-print-root" class="fin-comp-print-root"></div>';
+}
+function finCompHeaderHtml(totals) {
+  var pct = totals.baselineCents ? (totals.deltaCents / totals.baselineCents * 100) : null;
+  var pills = FIN_COMP_VIEWS.map(function(v) {
+    var active = _finCompView === v.key;
+    return '<span class="fin-comp-pill' + (active ? ' active' : '') + '" onclick="finCompSetView(' + volJsAttr(v.key) + ')">' + v.label + '</span>';
+  }).join('');
+  return '<div class="fin-comp-shell">'
+    + '<div class="fin-comp-titlebar">'
+    + '<div><div class="fin-comp-title">Compensation Planner &mdash; FY' + _finPlanTargetYear + '</div>'
+    + '<div class="fin-comp-subtitle">' + finCompMethodSummary() + '</div></div>'
+    + '<div class="fin-comp-actions">'
+    + '<button class="btn-secondary" onclick="finCompPrintCouncil()">Print for Council</button>'
+    + (finCompIsAdmin() ? '<button class="btn-primary" onclick="finCompSendToBudget()">Send to FY' + _finPlanTargetYear + ' budget</button>' : '')
+    + '</div></div>'
+    + '<div class="fin-comp-strip">'
+    + '<div><div class="fin-comp-strip-lbl">Cash salaries</div><div class="fin-comp-strip-val">' + finCompMoney(totals.salaryCents) + '</div></div>'
+    + '<div><div class="fin-comp-strip-lbl">Benefits &amp; taxes</div><div class="fin-comp-strip-val">' + finCompMoney(totals.benefitsCents) + '</div></div>'
+    + '<div><div class="fin-comp-strip-lbl">FY' + _finPlanTargetYear + ' total</div><div class="fin-comp-strip-val">' + finCompMoney(totals.totalCents) + '</div></div>'
+    + '<div class="fin-comp-strip-delta"><div class="fin-comp-strip-lbl">vs FY' + _finPlanBaseYear + ' actual ' + finCompMoney(totals.baselineCents) + '</div>'
+    + '<div class="fin-comp-strip-val gold">' + (totals.baselineCents ? finCompMoneySigned(totals.deltaCents) + ' (' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)' : '&mdash;') + '</div></div>'
+    + '</div>'
+    + '<div class="fin-comp-pills">' + pills + '</div>'
+    + (_finCompToast ? '<div class="fin-comp-toast"><span>' + esc(_finCompToast) + '</span><span onclick="finCompDismissToast()" style="cursor:pointer;opacity:.7;">&times;</span></div>' : '')
+    + '</div>';
+}
+function finCompSetView(view) { _finCompView = view; finRenderCompensation(); }
+function finCompDismissToast() { _finCompToast = ''; finRenderCompensation(); }
+function finCompSay(msg) { _finCompToast = msg; }
+
+// ── View 1 — Set pay ───────────────────────────────────────────────────────────────────────
+function finCompRenderPlan(computed, totals) {
+  var chips = FIN_COMP_METHODS.map(function(k) {
+    return '<span class="fin-comp-chip' + (_finCompMethod === k ? ' active' : '') + '" onclick="finCompApplyMethodToAll(' + volJsAttr(k) + ')">' + esc(finCompMethodLabel(k)) + '</span>';
+  }).join('');
+  var heads = FIN_COMP_METHODS.map(function(k) {
+    var active = _finCompMethod === k;
+    return '<th class="fin-comp-th num' + (active ? ' active' : '') + '" onclick="finCompApplyMethodToAll(' + volJsAttr(k) + ')" title="Apply to everyone">' + esc(finCompMethodLabel(k)) + '</th>';
+  }).join('');
+  var rows = _finSalaryRoster.map(function(w, i) {
+    var c = computed[i];
+    var activeKey = c.methodKey;
+    var cells = FIN_COMP_METHODS.map(function(k) {
+      var v = finCompMethodSalaryCents(w, k);
+      var isActive = !c.overridden && activeKey === k;
+      var isEdited = c.overridden && activeKey === k;
+      var cls = 'fin-comp-td num' + (isActive ? ' active' : '') + (isEdited ? ' edited' : '');
+      return '<td class="' + cls + '" onclick="finCompPickMethod(' + i + ',' + volJsAttr(k) + ')">'
+        + (v == null ? '&mdash;' : (isEdited ? finCompMoney(c.salaryCents) + ' &#9998;' : finCompMoney(v))) + '</td>';
+    }).join('');
+    var vs = finCompVsScale(c.salaryCents, c.worksheetCents);
+    var selected = (i === _finCompSelected && _finCompDrawerOpen);
+    return '<tr class="fin-comp-row' + (selected ? ' selected' : '') + '">'
+      + '<td class="fin-comp-td" style="cursor:pointer;" onclick="finCompSelectWorker(' + i + ')">'
+      + '<div style="font-weight:700;color:var(--color-navy);">' + esc(w.name || '(unnamed)') + '</div>'
+      + '<div style="font-size:.72rem;color:var(--warm-gray);">' + esc(w.position || 'Role not set') + ' &middot; acct ' + esc(w.accountCode || '&mdash;') + '</div></td>'
+      + cells
+      + '<td class="fin-comp-td" style="font-size:.76rem;font-weight:600;color:' + vs.color + ';" title="District scale ' + (c.worksheetCents ? finCompMoney(c.worksheetCents) : 'not available') + '">' + vs.text + '</td>'
+      + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoney(c.churchCostCents) + '</td>'
+      + '</tr>';
+  }).join('');
+  var methodTotals = FIN_COMP_METHODS.map(function(k) {
+    var t = _finSalaryRoster.reduce(function(s, w) { return s + (finCompMethodSalaryCents(w, k) || 0); }, 0);
+    return '<td class="fin-comp-td num' + (_finCompMethod === k ? ' active' : '') + '">' + finCompMoney(t) + '</td>';
+  }).join('');
+  var scaleTotal = finCompVsScale(totals.salaryCents, totals.worksheetCents);
+  var base = finCompBaseSalary(_finPlanTargetYear);
+  var table = '<div style="overflow-x:auto;"><table class="fin-comp-table" style="min-width:760px;">'
+    + '<thead><tr><th class="fin-comp-th">Worker</th>' + heads
+    + '<th class="fin-comp-th">Vs. district scale</th><th class="fin-comp-th num">Total comp.</th></tr></thead>'
+    + '<tbody>' + rows
+    + (finCompIsAdmin() ? '<tr><td colspan="7" style="padding:9px 6px;"><span class="fin-comp-add" onclick="finCompAddWorker()"><span class="fin-comp-add-plus">+</span> Add a staff member</span></td></tr>' : '')
+    + '<tr class="fin-comp-total-row"><td class="fin-comp-td">Total</td>' + methodTotals
+    + '<td class="fin-comp-td" style="font-size:.76rem;font-weight:600;color:' + scaleTotal.color + ';" title="District scale ' + finCompMoney(totals.worksheetCents) + '">' + scaleTotal.text + '</td>'
+    + '<td class="fin-comp-td num">' + finCompMoney(totals.totalCents) + '</td></tr>'
+    + '</tbody></table></div>';
+  var customBox = '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:var(--warm-gray);">custom '
+    + '<input type="text" inputmode="decimal" id="fin-comp-custom-pct" value="' + (Number(_finCompCustomPct) || 0) + '" oninput="finCompCustomPctChange(finSanitizeDecimalInput(this))" style="width:52px;text-align:right;">%</label>';
+  return '<div class="fin-comp-plan-grid' + (_finCompDrawerOpen ? '' : ' closed') + '">'
+    + '<div class="fin-card" style="min-width:0;">'
+    + '<div class="fin-comp-chiprow">'
+    + '<span class="fin-comp-chiprow-lbl">Applied to everyone</span>'
+    + '<span style="display:flex;gap:6px;flex-wrap:wrap;">' + chips + '</span>'
+    + finCompReadOnly(customBox)
+    + '<span style="font-size:.74rem;color:var(--warm-gray);">Click a column for everyone, a cell for one person, or type an exact figure in the panel.</span>'
+    + (finCompOverrideCount() ? '<span class="fin-comp-link" onclick="finCompClearOverrides()">&#8634; clear ' + finCompOverrideCount() + ' hand-set figure(s)</span>' : '')
+    + '</div>'
+    + table
+    + '<div class="fin-comp-cardfoot">'
+    + '<span style="font-size:.74rem;color:var(--warm-gray);">District Scale = the District Compensation Worksheet &mdash; base $' + finFmtMoney(base.dollars) + ' &times; each worker&#39;s role/experience multiplier. <span class="fin-comp-link" onclick="finCompSetView(&quot;rates&quot;)">Rates for this year</span></span>'
+    + '<button class="btn-primary" onclick="finCompSetView(&quot;fairness&quot;)">Next: check fairness &rarr;</button>'
+    + '</div></div>'
+    + (_finCompDrawerOpen ? finCompRenderDrawer(computed) : '')
+    + '</div>';
+}
+// The worker drawer. Re-rendered wholesale on every selection (not value-patched) so every
+// <select>/<checkbox> follows the selected worker — the controlled-select trap called out in the
+// handoff; emitted selected/checked attributes are what make that correct here.
+function finCompRenderDrawer(computed) {
+  var i = _finCompSelected, w = _finSalaryRoster[i], c = computed[i];
+  var b = c.benefits;
+  var acctOptions = finCompAccountOptions(w.accountCode).map(function(a) {
+    return '<option value="' + esc(a.code) + '"' + (String(a.code) === String(w.accountCode || '') ? ' selected' : '') + '>' + esc(a.label) + '</option>';
+  }).join('');
+  var trackSet = w.role === 'commissioned' ? LCMS_COMMISSIONED_TRACKS : w.role === 'other' ? LCMS_OTHER_WORKER_TRACKS : null;
+  var trackField = trackSet ? '<label class="fin-comp-field">' + (w.role === 'commissioned' ? 'Education track (district scale)' : 'Worker type (district scale)')
+    + '<select onchange="finCompWorkerChange(' + i + ',&quot;trackKey&quot;,this.value)">'
+    + Object.keys(trackSet).map(function(k) { return '<option value="' + k + '"' + (k === w.trackKey ? ' selected' : '') + '>' + esc(trackSet[k].label) + '</option>'; }).join('')
+    + '</select></label>' : '';
+  var eduField = '<label class="fin-comp-field">Education<select onchange="finCompWorkerChange(' + i + ',&quot;education&quot;,this.value)">'
+    + FIN_COMP_EDUCATION.map(function(e) { return '<option value="' + e.key + '"' + ((w.education || 'none') === e.key ? ' selected' : '') + '>' + esc(e.label) + '</option>'; }).join('')
+    + '</select></label>';
+  var attendanceField = w.role === 'pastor' ? '<label class="fin-comp-field">Attendance band<select onchange="finCompAttendanceChange(' + i + ',this.value)">'
+    + LCMS_ATTENDANCE_BONUS_BANDS.map(function(band) {
+        var mid = (band.range[0] + band.range[1]) / 2;
+        var on = band.key === 'none' ? !Number(w.attendanceBonus) : Math.abs(mid - (Number(w.attendanceBonus) || 0)) < 0.001;
+        return '<option value="' + mid + '"' + (on ? ' selected' : '') + '>' + esc(band.label) + (band.key === 'none' ? '' : ' (+' + (mid * 100).toFixed(1) + '%)') + '</option>';
+      }).join('') + '</select></label>' : '';
+  var stipendKey = w.responsibilityStipendKey || 'none';
+  var stipendField = '<label class="fin-comp-field">Responsibility stipend<select onchange="finCompStipendChange(' + i + ',this.value)">'
+    + LCMS_RESPONSIBILITY_STIPENDS.map(function(s) {
+        return '<option value="' + s.key + '"' + (s.key === stipendKey ? ' selected' : '') + '>' + esc(s.label)
+          + (s.key === 'none' ? '' : ' (+' + (s.range[0] * 100).toFixed(0) + '&ndash;' + (s.range[1] * 100).toFixed(0) + '%)') + '</option>';
+      }).join('') + '</select></label>';
+  var stipendPctField = stipendKey !== 'none'
+    ? '<label class="fin-comp-field">Stipend used %<input type="text" inputmode="decimal" id="fin-comp-stipend-pct-' + i + '" value="' + (Math.round((Number(w.responsibilityStipend) || 0) * 10000) / 100) + '" oninput="finCompStipendPctChange(' + i + ',finSanitizeDecimalInput(this))"></label>'
+    : '';
+  var stipendDef = LCMS_RESPONSIBILITY_STIPENDS.filter(function(s) { return s.key === stipendKey; })[0];
+  var stipendNote = (stipendDef && stipendKey !== 'none')
+    ? '<div class="fin-comp-note">Published range +' + (stipendDef.range[0] * 100).toFixed(0) + '% to +' + (stipendDef.range[1] * 100).toFixed(0) + '% &mdash; midpoint used, adjust within the range.</div>' : '';
+  var roleNote = w.role === 'pastor'
+    ? 'Pastors are scaled by years of service alone; education is recorded for the call documents and Concordia&#39;s tool.'
+    : w.role === 'commissioned'
+      ? 'The district scales commissioned workers by education track &mdash; that track is what changes the District Compensation Worksheet figure.'
+      : 'The district publishes a separate scale per job type. Education is recorded but does not change the figure.';
+  var overridden = c.overridden;
+  var salaryBox = '<input type="text" inputmode="decimal" id="fin-comp-salary-' + i + '" value="' + (overridden ? _finCompOverrides[i] : Math.round(c.salaryCents / 100)) + '" oninput="finCompSalaryOverride(' + i + ',finPlanSanitizeWholeDollarInput(this))" style="width:104px;text-align:right;font-weight:700;' + (overridden ? 'background:var(--warm-surface-header);border:1.5px solid var(--color-gold);' : '') + '">';
+  var meta = [w.position, w.yearsExperience + ' yrs', finCompEducationLabel(w), trackSet && trackSet[w.trackKey] ? trackSet[w.trackKey].label : '', w.accountCode ? 'budget line ' + w.accountCode : 'no budget line'].filter(Boolean).join(' &middot; ');
+  var base = finCompBaseSalary(_finPlanTargetYear);
+  var fields = '<div class="fin-comp-fieldgrid">'
+    + '<label class="fin-comp-field">Name<input type="text" id="fin-comp-name-' + i + '" value="' + esc(w.name || '') + '" oninput="finCompWorkerChange(' + i + ',&quot;name&quot;,this.value)"></label>'
+    + '<label class="fin-comp-field">Position<input type="text" id="fin-comp-position-' + i + '" value="' + esc(w.position || '') + '" oninput="finCompWorkerChange(' + i + ',&quot;position&quot;,this.value)"></label>'
+    + '<label class="fin-comp-field" style="grid-column:1/-1;">Budget line<select onchange="finCompWorkerChange(' + i + ',&quot;accountCode&quot;,this.value)">' + acctOptions + '</select></label>'
+    + '</div>'
+    + '<div class="fin-comp-note" style="color:' + (w.accountCode ? 'var(--warm-gray)' : 'var(--deep-amber)') + ';">'
+    + (w.accountCode
+        ? 'FY' + _finPlanBaseYear + ' figure and the &ldquo;no raise&rdquo; column read from ' + esc(w.accountCode) + '; the plan total is applied back to it.'
+        : 'Not linked &mdash; the FY' + _finPlanBaseYear + ' figure has to be typed by hand and nothing is applied back to the budget.')
+    + '</div>'
+    + '<div class="fin-comp-drawer-h">District Compensation Worksheet inputs</div>'
+    + '<div class="fin-comp-fieldgrid">'
+    + '<label class="fin-comp-field">Role<select onchange="finCompRoleChange(' + i + ',this.value)">'
+    + '<option value="pastor"' + (w.role === 'pastor' ? ' selected' : '') + '>Pastor</option>'
+    + '<option value="commissioned"' + (w.role === 'commissioned' ? ' selected' : '') + '>Commissioned</option>'
+    + '<option value="other"' + (w.role === 'other' ? ' selected' : '') + '>Other worker</option>'
+    + '</select></label>'
+    + eduField + trackField
+    + '<label class="fin-comp-field">Years of service<input type="text" inputmode="numeric" id="fin-comp-years-' + i + '" value="' + (Number(w.yearsExperience) || 0) + '" oninput="finCompYearsChange(' + i + ',finPlanSanitizeWholeDollarInput(this))"></label>'
+    + attendanceField + stipendField + stipendPctField
+    + '<label class="fin-comp-field">Health coverage<select onchange="finCompSetHealthMode(' + i + ',this.value)">'
+    + '<option value="family"' + (finCompHealthMode(w) === 'family' ? ' selected' : '') + '>Family</option>'
+    + '<option value="employee"' + (finCompHealthMode(w) === 'employee' ? ' selected' : '') + '>Employee only</option>'
+    + '<option value="optout"' + (finCompHealthMode(w) === 'optout' ? ' selected' : '') + '>Opts out (cash)</option>'
+    + '</select></label>'
+    + '</div>'
+    + '<div class="fin-comp-note">' + roleNote + '</div>' + stipendNote;
+  return '<div class="fin-card fin-comp-drawer">'
+    + '<div class="fin-comp-drawer-hd">'
+    + '<div><div class="fin-comp-chiprow-lbl">Selected worker</div>'
+    + '<div class="fin-comp-drawer-name">' + esc(w.name || '(unnamed)') + '</div>'
+    + '<div class="fin-comp-note">' + esc(meta) + '</div></div>'
+    + '<span onclick="finCompCloseDrawer()" style="font-size:20px;color:var(--warm-gray);cursor:pointer;">&times;</span></div>'
+    + '<div class="fin-comp-tiles">'
+    + '<div class="fin-comp-tile"><span class="fin-comp-tile-lbl">FY' + _finPlanBaseYear + '</span><span class="fin-comp-tile-val">' + finCompMoney(c.currentCents) + '</span></div>'
+    + '<div class="fin-comp-tile teal"><span class="fin-comp-tile-lbl">FY' + _finPlanTargetYear + '</span><span class="fin-comp-tile-val">' + finCompMoney(c.salaryCents) + '</span></div>'
+    + '<div class="fin-comp-tile"><span class="fin-comp-tile-lbl">Per paycheck</span><span class="fin-comp-tile-val">' + finCompMoney(c.salaryCents / FIN_SALARY_PAY_PERIODS) + '</span></div>'
+    + '<div class="fin-comp-tile"><span class="fin-comp-tile-lbl">Church cost</span><span class="fin-comp-tile-val">' + finCompMoney(c.churchCostCents) + '</span></div>'
+    + '</div>'
+    + finCompReadOnly(fields)
+    + '<div class="fin-comp-bar cream"><span>District Compensation Worksheet result</span><b>$' + finFmtMoney(base.dollars) + ' &times; ' + finCompMultiplier(w).toFixed(3) + ' = ' + (c.worksheetCents == null ? '&mdash;' : finCompMoney(c.worksheetCents)) + '</b></div>'
+    + '<div class="fin-comp-bar page"><span>FY' + _finPlanTargetYear + ' salary</span><span style="display:inline-flex;align-items:center;gap:8px;"><span style="color:var(--warm-gray);">$</span>'
+    + finCompReadOnly(salaryBox)
+    + (overridden ? '<span class="fin-comp-link" onclick="finCompClearOverride(' + i + ')">&#8634;</span>' : '') + '</span></div>'
+    + '<div class="fin-comp-paylist">'
+    + '<div class="fin-comp-drawer-h" style="border-top:1px solid var(--warm-row-divider);padding-top:12px;">What the church pays</div>'
+    + finCompPayRow('Cash salary', finCompMoney(c.salaryCents))
+    + finCompPayRow('Pension ' + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate), finCompMoney(b.pensionCents))
+    + finCompPayRow('Health', finCompMoney(b.healthCents))
+    + finCompPayRow('Disability <label class="fin-comp-inline-check"><input type="checkbox" onchange="finCompDependentsToggle(' + i + ',this.checked)"' + (w.hasDependents ? ' checked' : '') + (finCompIsAdmin() ? '' : ' disabled') + '> dependents</label>', finCompMoney(b.disabilityCents))
+    + finCompPayRow('Employer FICA <label class="fin-comp-inline-check"><input type="checkbox" onchange="finCompSecaToggle(' + i + ',this.checked)"' + (w.selfEmployedFica ? ' checked' : '') + (finCompIsAdmin() ? '' : ' disabled') + '> minister</label>', finCompMoney(b.ficaCents))
+    + (w.selfEmployedFica ? '<div class="fin-comp-seca"><span>Employer half the worker covers themselves &mdash; ' + finCompPctFmt(finCompFicaRate()) + ' of ' + finCompMoney(c.salaryCents) + '<br><span style="font-size:.7rem;color:var(--warm-meta);">As a minister they pay SECA, so this employer share comes out of their own pay. It is in no total below. The employee half is not shown; everyone pays that.</span></span><b style="color:var(--deep-amber);">&minus;' + finCompMoney(b.secaSelfCents) + '</b></div>' : '')
+    + '<div class="fin-comp-payrow total"><span>Total</span><b>' + finCompMoney(c.churchCostCents) + '</b></div>'
+    + '</div>'
+    + (finCompIsAdmin() ? '<button class="btn-secondary" style="margin-top:10px;font-size:.74rem;color:var(--danger);" onclick="finCompRemoveWorker(' + i + ')">Remove this worker</button>' : '')
+    + '</div>';
+}
+function finCompPayRow(label, value) {
+  return '<div class="fin-comp-payrow"><span>' + label + '</span><b>' + value + '</b></div>';
+}
+var FIN_COMP_EDUCATION = [
+  { key: 'none', label: 'Not recorded' },
+  { key: 'hs', label: 'High school' },
+  { key: 'associates', label: 'Associate&#39;s' },
+  { key: 'bachelors', label: 'Bachelor&#39;s' },
+  { key: 'masters', label: 'Master&#39;s' },
+  { key: 'mdiv', label: 'M.Div.' },
+  { key: 'doctorate', label: 'Doctorate' }
+];
+function finCompEducationLabel(w) {
+  var e = FIN_COMP_EDUCATION.filter(function(x) { return x.key === (w.education || 'none'); })[0];
+  return e && e.key !== 'none' ? e.label : '';
+}
+
+// ── View 2 — Check fairness ────────────────────────────────────────────────────────────────
+function finCompRenderFairness(computed) {
+  var withReports = _finSalaryRoster.filter(function(w) { return finCompUsableRanges(w).length; }).length;
+  var reportDates = {};
+  _finSalaryRoster.forEach(function(w) { var d = (w.concordia || {}).asOfDate; if (d) reportDates[d] = true; });
+  var dateList = Object.keys(reportDates);
+  var blocks = _finSalaryRoster.map(function(w, i) {
+    var c = computed[i];
+    var usable = finCompUsableRanges(w);
+    var verdict = finCompVerdict(w, c.salaryCents);
+    var delta = c.salaryCents - c.currentCents;
+    var bars = '';
+    if (usable.length) {
+      var vals = [c.salaryCents, c.currentCents];
+      usable.forEach(function(r) { vals.push(r.lowCents, r.highCents); });
+      var pct = finCompBarScale(vals, 0.08);
+      bars = usable.map(function(r) {
+        return '<div class="fin-comp-rangerow">'
+          + '<span class="fin-comp-rangelbl">' + esc(r.label) + '</span>'
+          + '<div class="fin-comp-track">'
+          + '<div class="fin-comp-fill" style="left:' + pct(r.lowCents) + ';right:' + (100 - parseFloat(pct(r.highCents))).toFixed(2) + '%;"></div>'
+          + (r.midCents ? '<div class="fin-comp-tick mid" style="left:' + pct(r.midCents) + ';"></div>' : '')
+          + '<div class="fin-comp-tick salary" style="left:' + pct(c.salaryCents) + ';"></div>'
+          + '</div>'
+          + '<span class="fin-comp-rangenum">' + finCompMoney(r.lowCents) + ' &ndash; ' + finCompMoney(r.highCents) + (r.midCents ? ' &middot; mid ' + finCompMoney(r.midCents) : '') + '</span>'
+          + '</div>';
+      }).join('');
+      bars = '<div class="fin-comp-ranges">' + bars + '</div>';
+    } else {
+      bars = '<div class="fin-comp-noreport">No Concordia Plans report on file for this position &mdash; compared against the District Compensation Worksheet figure ('
+        + (c.worksheetCents == null ? 'not available' : finCompMoney(c.worksheetCents)) + ') only. '
+        + '<span class="fin-comp-link" onclick="finCompSetView(&quot;rates&quot;)">Add the ranges</span></div>';
+    }
+    return '<div class="fin-comp-fairblock">'
+      + '<div class="fin-comp-fairhd">'
+      + '<div><div style="font-size:1rem;font-weight:700;color:var(--color-navy);">' + esc(w.name || '(unnamed)')
+      + ((w.concordia || {}).position ? ' <span style="font-weight:400;font-size:.78rem;color:var(--warm-gray);">' + esc(w.concordia.position) + '</span>' : '') + '</div>'
+      + '<div style="font-size:.76rem;color:var(--warm-gray);">FY' + _finPlanBaseYear + ' ' + finCompMoney(c.currentCents) + ' &rarr; FY' + _finPlanTargetYear + ' <b style="color:var(--charcoal);">' + finCompMoney(c.salaryCents) + '</b> &middot; '
+      + (delta === 0 ? 'no change' : finCompMoneySigned(delta) + (c.currentCents ? ' (' + (delta / c.currentCents * 100).toFixed(1) + '%)' : '')) + '</div></div>'
+      + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+      + '<span class="fin-comp-verdict" style="background:' + verdict.bg + ';color:' + verdict.color + ';">' + verdict.text + '</span>'
+      + (verdict.matchLabel && finCompIsAdmin() ? '<span class="fin-comp-link" onclick="finCompMatchMidpoint(' + i + ')">' + verdict.matchLabel + '</span>' : '')
+      + '</div></div>'
+      + bars + '</div>';
+  }).join('');
+  return '<div class="fin-card">'
+    + '<div class="fin-comp-cardhd">'
+    + '<div class="fin-card-title" style="margin:0;">Is it fair?</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);">Concordia Plans Decision Support reports'
+    + (dateList.length === 1 ? ', run ' + esc(dateList[0]) : '') + ' &middot; ' + withReports + ' of ' + _finSalaryRoster.length + ' workers have a report on file</div>'
+    + '</div>'
+    + '<div class="fin-comp-legend">'
+    + '<span><span class="fin-comp-swatch fill"></span> published range (lower&ndash;higher)</span>'
+    + '<span><span class="fin-comp-swatch mid"></span> midpoint</span>'
+    + '<span><span class="fin-comp-swatch salary"></span> your FY' + _finPlanTargetYear + ' figure</span>'
+    + '</div>'
+    + blocks
+    + '<div class="fin-comp-cardfoot" style="border-top:1px solid var(--warm-row-divider);padding-top:14px;">'
+    + '<button class="btn-secondary" onclick="finCompSetView(&quot;plan&quot;)">&larr; Back to pay</button>'
+    + '<button class="btn-primary" onclick="finCompSetView(&quot;health&quot;)">Next: health plan &rarr;</button>'
+    + '</div></div>';
+}
+
+// ── View 3 — Health plan ───────────────────────────────────────────────────────────────────
+// Premium entry lives on "This year's rates"; here you choose the plan the church covers in full
+// and who sits on which tier. The full "is it worth it for the worker?" breakeven explanation
+// (unchanged math) stays available behind a disclosure.
+var FIN_COMP_PLAN_KEYS = ['renewal', 'option1', 'option2', 'option3'];
+var FIN_COMP_PLAN_TAGS = {
+  renewal: 'Same plan design as today, new rates',
+  option1: 'Richest plan &middot; not embedded',
+  option2: 'Middle plan &middot; not embedded',
+  option3: 'Leanest plan &middot; embedded individual limits'
+};
+function finCompPlanQuoteField(optionKey, field) {
+  var ov = (_finHealthPlanPremiumOverrides[optionKey] || {})[field];
+  return ov != null ? ov : HEALTH_PLAN_QUOTE_2027.options[optionKey][field];
+}
+function finCompRenderHealth(computed, totals) {
+  var renewalTotal = finComputeHealthPlanTotalCents('renewal').totalCents;
+  var cards = FIN_COMP_PLAN_KEYS.map(function(key) {
+    var calc = finComputeHealthPlanTotalCents(key);
+    if (!calc) return '';
+    var active = key === _finHealthPlanSelectedOption;
+    var perHousehold = Math.round((calc.totalCents - renewalTotal) / finCompContractCount());
+    var note = key === 'renewal' ? 'Church covers this in full'
+      : perHousehold > 0 ? 'Worker pays ' + finCompMoney(perHousehold) + '/yr more'
+      : 'Worker saves ' + finCompMoney(Math.abs(perHousehold)) + '/yr';
+    var noteColor = key === 'renewal' || perHousehold <= 0 ? 'var(--sage-text)' : 'var(--danger)';
+    return '<div class="fin-comp-plancard' + (active ? ' active' : '') + '" onclick="finCompPickPlan(' + volJsAttr(key) + ')">'
+      + '<div style="display:flex;align-items:center;gap:8px;"><span class="fin-comp-radio' + (active ? ' active' : '') + '"></span>'
+      + '<span style="font-size:.82rem;font-weight:700;color:var(--color-navy);">' + esc(calc.label) + '</span></div>'
+      + '<div style="font-size:20px;font-weight:800;color:var(--color-navy);font-variant-numeric:tabular-nums;">' + finCompMoney(calc.totalCents) + '</div>'
+      + '<div style="font-size:.72rem;color:var(--warm-gray);">Family deductible ' + finCompMoney(finCompPlanQuoteField(key, 'deductibleFamilyCents'))
+      + ' &middot; out-of-pocket max ' + finCompMoney(finCompPlanQuoteField(key, 'oopMaxFamilyCents')) + '</div>'
+      + '<div style="font-size:.74rem;font-weight:700;color:' + noteColor + ';">' + note + '</div>'
+      + '<div style="font-size:.7rem;color:var(--warm-meta);">' + FIN_COMP_PLAN_TAGS[key] + '</div>'
+      + '</div>';
+  }).join('');
+  var planLabel = (finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption) || {}).label || '';
+  var rows = _finSalaryRoster.map(function(w, i) {
+    var mode = finCompHealthMode(w), b = computed[i].benefits;
+    var costCell, basis;
+    if (mode === 'family') {
+      costCell = finCompMoney(b.healthCents);
+      basis = 'Group ' + esc(planLabel) + ' quote &divide; ' + finCompContractCount() + ' contract' + (finCompContractCount() === 1 ? '' : 's');
+    } else if (mode === 'employee') {
+      costCell = finCompReadOnly('<span style="display:inline-flex;align-items:center;gap:3px;justify-content:flex-end;"><span style="color:var(--warm-gray);font-weight:400;">$</span>'
+        + '<input type="text" inputmode="decimal" id="fin-comp-eo-' + i + '" value="' + (w.employeeOnlyPremiumCents != null ? (w.employeeOnlyPremiumCents / 100) : '') + '" placeholder="0.00" oninput="finCompEmployeeOnlyChange(' + i + ',finSanitizeDecimalInput(this))" style="width:88px;text-align:right;font-weight:700;"></span>');
+      basis = 'Employee-only premium &mdash; no group quote for this tier, enter the real figure';
+    } else {
+      costCell = finCompReadOnly('<span style="display:inline-flex;align-items:center;gap:3px;justify-content:flex-end;"><span style="color:var(--warm-gray);font-weight:400;">$</span>'
+        + '<input type="text" inputmode="decimal" id="fin-comp-optout-' + i + '" value="' + (w.healthOptOutOverrideCents != null ? (w.healthOptOutOverrideCents / 100) : '') + '" placeholder="' + (finCompOptOutCents() / 100).toFixed(2) + '" oninput="finCompOptOutChange(' + i + ',finSanitizeDecimalInput(this))" style="width:88px;text-align:right;font-weight:700;"></span>');
+      basis = 'Opt-out cash &mdash; default ' + finCompMoney(finCompOptOutCents()) + ' from this year&#39;s rates';
+    }
+    return '<tr><td class="fin-comp-td"><div style="font-weight:700;">' + esc(w.name || '(unnamed)') + '</div><div style="font-size:.72rem;color:var(--warm-gray);">' + esc(w.position || '') + '</div></td>'
+      + '<td class="fin-comp-td"><select onchange="finCompSetHealthMode(' + i + ',this.value)"' + (finCompIsAdmin() ? '' : ' disabled') + '>'
+      + '<option value="family"' + (mode === 'family' ? ' selected' : '') + '>Family</option>'
+      + '<option value="employee"' + (mode === 'employee' ? ' selected' : '') + '>Employee only</option>'
+      + '<option value="optout"' + (mode === 'optout' ? ' selected' : '') + '>Opts out (cash)</option>'
+      + '</select></td>'
+      + '<td class="fin-comp-td num" style="font-weight:700;">' + costCell + '</td>'
+      + '<td class="fin-comp-td" style="font-size:.76rem;color:var(--warm-gray);">' + basis + '</td></tr>';
+  }).join('');
+  var familyCount = _finSalaryRoster.filter(function(w) { return finCompHealthMode(w) === 'family'; }).length;
+  var table = '<div style="overflow-x:auto;"><table class="fin-comp-table" style="min-width:700px;">'
+    + '<thead><tr><th class="fin-comp-th">Worker</th><th class="fin-comp-th">Coverage</th><th class="fin-comp-th num">Church cost</th><th class="fin-comp-th">Where the figure comes from</th></tr></thead>'
+    + '<tbody>' + rows
+    + '<tr class="fin-comp-total-row"><td class="fin-comp-td" colspan="2">Total health cost</td>'
+    + '<td class="fin-comp-td num">' + finCompMoney(totals.healthCents) + '</td>'
+    + '<td class="fin-comp-td" style="font-size:.74rem;font-weight:400;color:var(--warm-gray);">Group quote ' + finCompMoney(finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption).totalCents)
+    + ' covers ' + familyCount + ' family contract' + (familyCount === 1 ? '' : 's') + '; the rest are entered figures.</td></tr>'
+    + '</tbody></table></div>';
+  return '<div class="fin-card">'
+    + '<div class="fin-comp-cardhd">'
+    + '<div class="fin-card-title" style="margin:0;">Group health plan</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);">Premiums are entered in <span class="fin-comp-link" onclick="finCompSetView(&quot;rates&quot;)">this year&#39;s rates</span>; here you choose the plan and who sits on which tier.</div>'
+    + '</div>'
+    + '<div class="fin-comp-plangrid">' + cards + '</div>'
+    + table
+    + finCompBreakevenHtml()
+    + '<div class="fin-comp-cardfoot">'
+    + '<button class="btn-secondary" onclick="finCompSetView(&quot;fairness&quot;)">&larr; Back to fairness</button>'
+    + '<button class="btn-primary" onclick="finCompSetView(&quot;council&quot;)">Next: Council summary &rarr;</button>'
+    + '</div></div>';
+}
+// The "is it worth it for the worker?" analysis, unchanged in maths (finComputePlanOOPCents,
+// finComputeHealthPlanFamilyBreakevenCents, finComputeHealthPlanSingleClaimantDeltaCents,
+// finHealthPlanEffectiveLoneClaimantTermsCents), now behind a disclosure instead of always open.
+function finCompBreakevenHtml() {
+  if (_finHealthPlanSelectedOption === 'renewal') return '';
   var calc = finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption);
-  if (!calc) return;
-  _finPlanEdits[_finHealthPlanTargetCategory] = (calc.totalCents / 100).toFixed(2);
-  finToast('Applied $' + finFmtMoney(calc.totalCents/100) + ' to the FY' + _finPlanTargetYear + ' Projected column — click Save Changes to keep it.');
+  var baseline = finComputeHealthPlanTotalCents('renewal');
+  if (!calc || !baseline) return '';
+  var perHouseholdDiffCents = Math.round((calc.totalCents - baseline.totalCents) / finCompContractCount());
+  var renewalOpt = HEALTH_PLAN_QUOTE_2027.options.renewal, selOpt = HEALTH_PLAN_QUOTE_2027.options[_finHealthPlanSelectedOption];
+  var rate = HEALTH_PLAN_QUOTE_2027.coinsuranceRate;
+  var renewalLone = finHealthPlanEffectiveLoneClaimantTermsCents('renewal'), selLone = finHealthPlanEffectiveLoneClaimantTermsCents(_finHealthPlanSelectedOption);
+  function row(label, a, bb) {
+    return '<tr><td style="padding:2px 6px;">' + label + '</td><td style="text-align:right;padding:2px 6px;">' + finCompMoney(a) + '</td><td style="text-align:right;padding:2px 6px;">' + finCompMoney(bb) + '</td></tr>';
+  }
+  var body = '', tableRows = '';
+  if (perHouseholdDiffCents > 0) {
+    var breakevenCents = finComputeHealthPlanFamilyBreakevenCents('renewal', _finHealthPlanSelectedOption, perHouseholdDiffCents);
+    var single = finComputeHealthPlanSingleClaimantDeltaCents('renewal', _finHealthPlanSelectedOption, 100000000);
+    if (breakevenCents != null) {
+      tableRows += row('At the breakeven (' + finCompMoney(breakevenCents) + ' total cost of care, spread across the family)',
+        finComputePlanOOPCents(renewalOpt.deductibleFamilyCents, renewalOpt.oopMaxFamilyCents, rate, breakevenCents),
+        finComputePlanOOPCents(selOpt.deductibleFamilyCents, selOpt.oopMaxFamilyCents, rate, breakevenCents));
+    }
+    tableRows += row('Worst case, costs spread across the family', renewalOpt.oopMaxFamilyCents, selOpt.oopMaxFamilyCents);
+    tableRows += row('Worst case, one family member alone', renewalLone.oopMaxCents, selLone.oopMaxCents);
+    body = 'The church fully covers Renewal; choosing this option means the worker personally pays the ' + finCompMoney(perHouseholdDiffCents) + '/yr extra premium. '
+      + (breakevenCents != null
+        ? 'If their household&#39;s costs are spread across 2+ family members, that extra premium pays them back once the household&#39;s <i>total cost of care for the year</i> (what providers bill &mdash; not what the family pays out of pocket, which stays capped well below this) reaches about <b>' + finCompMoney(breakevenCents) + '</b>.'
+        : 'It never fully pays the worker back in reduced out-of-pocket costs at any level of care, even spread across the whole family.')
+      + (single != null ? ' If one family member alone accounts for all the costs, this option ' + (single > 0 ? 'never breaks even &mdash; it costs them up to ' + finCompMoney(single) + ' more even in a worst-case year' : (single < 0 ? 'still comes out ahead by up to ' + finCompMoney(Math.abs(single)) + ' in a worst-case year' : 'comes out exactly even in a worst-case year')) + '.' : '');
+  } else if (perHouseholdDiffCents < 0) {
+    var familyWorstCaseCents = finComputePlanOOPCents(selOpt.deductibleFamilyCents, selOpt.oopMaxFamilyCents, rate, 100000000)
+      - finComputePlanOOPCents(renewalOpt.deductibleFamilyCents, renewalOpt.oopMaxFamilyCents, rate, 100000000);
+    tableRows += row('Worst case, costs spread across the family', renewalOpt.oopMaxFamilyCents, selOpt.oopMaxFamilyCents);
+    tableRows += row('Worst case, one family member alone', renewalLone.oopMaxCents, selLone.oopMaxCents);
+    body = 'The church fully covers Renewal; this cheaper option would save the worker ' + finCompMoney(Math.abs(perHouseholdDiffCents)) + '/yr in premium &mdash; guaranteed, claim or no claim. '
+      + 'The tradeoff is a higher deductible/out-of-pocket max: in a worst-case year with costs spread across the family it could cost up to <b>' + finCompMoney(Math.abs(familyWorstCaseCents)) + (familyWorstCaseCents > 0 ? ' more' : ' less') + '</b> out of pocket than Renewal'
+      + (Math.abs(familyWorstCaseCents) < Math.abs(perHouseholdDiffCents)
+        ? ', which is smaller than the guaranteed premium saving &mdash; so even in a bad year this option comes out ahead for the worker.'
+        : ', which is larger than the guaranteed premium saving &mdash; so a genuinely bad year could cost the worker more overall.');
+  } else {
+    return '';
+  }
+  return '<details class="fin-comp-details"><summary>Is it worth it for the worker?</summary>'
+    + '<div style="padding:8px 2px 2px;font-size:.75rem;color:var(--warm-gray);">' + body
+    + '<table style="width:100%;border-collapse:collapse;font-size:.72rem;margin-top:8px;max-width:520px;">'
+    + '<thead><tr><th style="text-align:left;padding:2px 6px;">What the family would actually pay</th><th style="text-align:right;padding:2px 6px;">Renewal</th><th style="text-align:right;padding:2px 6px;">' + esc(selOpt.label) + '</th></tr></thead>'
+    + '<tbody>' + tableRows + '</tbody></table></div></details>';
+}
+
+// ── View 4 — This year's rates ─────────────────────────────────────────────────────────────
+function finCompRatesYear() { return _finCompRefYear == null ? _finPlanTargetYear : Number(_finCompRefYear); }
+function finCompRefRow(year) { return _finSalaryReferenceByYear[year] || {}; }
+function finCompRateInput(field, year, suffix, width) {
+  var row = finCompRefRow(year);
+  var raw = row[field];
+  var shown = raw == null ? '' : (suffix === '%' ? finFmtPctInput(raw) : raw / 100);
+  return '<span style="display:inline-flex;align-items:center;gap:3px;">'
+    + (suffix === '$' ? '<span style="color:var(--warm-gray);font-weight:400;">$</span>' : '')
+    + '<input type="text" inputmode="decimal" id="fin-comp-ref-' + field + '-' + year + '" value="' + shown + '" oninput="finCompRefChange(' + year + ',' + volJsAttr(field) + ',finSanitizeDecimalInput(this))" style="width:' + (width || 110) + 'px;font-weight:700;">'
+    + (suffix === '%' ? '<span style="color:var(--warm-gray);font-weight:400;">%</span>' : '') + '</span>';
+}
+function finCompRenderRates() {
+  var year = finCompRatesYear();
+  var refRow = finCompRefRow(year);
+  var baseInfo = finCompBaseSalary(year);
+  var prevBase = finCompBaseSalary(year - 1);
+  var thisBaseEntered = refRow.baseSalaryCents != null;
+  var historyYears = Object.keys(LCMS_MO_BASE_SALARY_BY_YEAR).map(Number)
+    .concat(Object.keys(_finSalaryReferenceByYear).map(Number))
+    .filter(function(y, i, a) { return a.indexOf(y) === i && isFinite(y); }).sort(function(a, b) { return a - b; });
+  var chips = historyYears.map(function(y) {
+    var v = finCompBaseSalary(y);
+    var on = y === year;
+    return '<span class="fin-comp-histchip' + (on ? ' active' : '') + '">' + y + ' &middot; ' + (v.dollars ? '$' + finFmtMoney(v.dollars) : 'not set') + '</span>';
+  }).join('');
+  var cagr = finLcmsHistoricalAvgGrowthPct();
+  var yearOptions = [_finPlanBaseYear, _finPlanTargetYear, _finPlanTargetYear + 1].filter(function(y, i, a) { return a.indexOf(y) === i; }).map(function(y) {
+    var known = finCompBaseSalary(y);
+    return '<option value="' + y + '"' + (y === year ? ' selected' : '') + '>FY' + y + (known.exact ? '' : ' (not yet published)') + '</option>';
+  }).join('');
+  var changeFmt = (thisBaseEntered || baseInfo.exact) && prevBase.dollars
+    ? finCompMoneySigned(Math.round((baseInfo.dollars - prevBase.dollars) * 100)) + ' (' + ((baseInfo.dollars - prevBase.dollars) / prevBase.dollars * 100).toFixed(2) + '%)'
+    : '&mdash;';
+  var districtCard = '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">District guidelines</div>'
+    + '<div class="fin-card-sub">LCMS Missouri District, FY' + year + '. Only the base salary changes each year &mdash; the role, education and experience multiplier tables stay fixed.</div>'
+    + '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">'
+    + '<label class="fin-comp-reflabel">Base salary, FY' + year + finCompRateInput('baseSalaryCents', year, '$', 130) + '</label>'
+    + '<div class="fin-comp-reflabel">Change from last year<span style="font-size:.92rem;font-weight:700;color:var(--charcoal);padding:7px 0;font-variant-numeric:tabular-nums;">' + changeFmt + '</span></div>'
+    + '</div>'
+    // Never silently substitute (§5.7). Three states, deliberately distinct: an entered figure
+    // says nothing; a year the published table already covers gets a neutral note (it is a real
+    // district figure, just one shipped with the app rather than typed in); only a genuine
+    // carry-forward from an earlier year gets the amber warning.
+    + (thisBaseEntered ? ''
+        : baseInfo.exact
+          ? '<div class="fin-comp-note" style="margin-top:10px;">Nothing entered for FY' + year + ' &mdash; using the published district figure already on file, $' + finFmtMoney(baseInfo.dollars) + '. Type this year&#39;s paper in above to override it.</div>'
+          : '<div class="fin-comp-warn">No figure entered for FY' + year + ' yet &mdash; the planner is carrying $' + finFmtMoney(baseInfo.dollars) + ' forward from FY' + baseInfo.sourceYear + '. Enter the real number as soon as the district paper arrives.</div>')
+    + '<div style="margin-top:12px;"><div class="fin-comp-reflabel-hd">Base salary history</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">' + chips + '</div>'
+    + '<div style="font-size:.74rem;color:var(--warm-gray);margin-top:6px;">Averages ' + (cagr * 100).toFixed(2) + '%/yr since ' + historyYears[0] + '.</div></div>'
+    + '<label class="fin-comp-reflabel" style="margin-top:12px;">Source document'
+    + '<input type="text" id="fin-comp-ref-districtSource-' + year + '" value="' + esc(refRow.districtSource || '') + '" placeholder="' + esc(finCompSourceDoc('districtSource')) + '" oninput="finCompRefTextChange(' + year + ',&quot;districtSource&quot;,this.value)" style="width:100%;font-weight:400;">'
+    + '</label></div>';
+  var concordiaCard = '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">Concordia Plans rates</div>'
+    + '<div class="fin-card-sub">Percentages of salary, the same for every worker. From the church&#39;s own participation overview.</div>'
+    + '<div class="fin-comp-rategrid">'
+    + '<label class="fin-comp-reflabel">Pension (Traditional)' + finCompRateInput('pensionPct', year, '%', 100) + '</label>'
+    + '<label class="fin-comp-reflabel">Employer FICA' + finCompRateInput('ficaPct', year, '%', 100) + '</label>'
+    + '<label class="fin-comp-reflabel">Disability &mdash; with dependents' + finCompRateInput('disabilityDepsPct', year, '%', 100) + '</label>'
+    + '<label class="fin-comp-reflabel">Disability &mdash; without' + finCompRateInput('disabilityNoDepsPct', year, '%', 100) + '</label>'
+    + '<label class="fin-comp-reflabel">Social Security COLA' + finCompRateInput('ssaColaPct', year, '%', 100) + '</label>'
+    + '<label class="fin-comp-reflabel">Health opt-out cash' + finCompRateInput('healthOptOutCents', year, '$', 100) + '</label>'
+    + '</div>'
+    + '<div style="font-size:.76rem;color:var(--warm-gray);margin-top:10px;">Announced each autumn for the following year &mdash; the Social Security COLA in October, the Concordia Plans rates with the renewal packet. Blank uses '
+    + 'pension ' + finCompPctFmt(finConcordiaPensionRateFor(year).rate) + ', FICA ' + finCompPctFmt(LCMS_EMPLOYER_FICA_RATE) + ', disability ' + finCompPctFmt(finConcordiaDisabilityRateFor(year, true).rate) + '/' + finCompPctFmt(finConcordiaDisabilityRateFor(year, false).rate) + ', COLA ' + finCompPctFmt(SSA_COLA_REFERENCE_PCT) + '.</div>'
+    + '<label class="fin-comp-reflabel" style="margin-top:12px;">Source document'
+    + '<input type="text" id="fin-comp-ref-concordiaSource-' + year + '" value="' + esc(refRow.concordiaSource || '') + '" placeholder="' + esc(finCompSourceDoc('concordiaSource')) + '" oninput="finCompRefTextChange(' + year + ',&quot;concordiaSource&quot;,this.value)" style="width:100%;font-weight:400;">'
+    + '</label></div>';
+  var quoteRows = FIN_COMP_PLAN_KEYS.map(function(key) {
+    var calc = finComputeHealthPlanTotalCents(key);
+    function box(field, width) {
+      var ov = (_finHealthPlanPremiumOverrides[key] || {})[field];
+      return '<input type="text" inputmode="decimal" id="fin-comp-quote-' + key + '-' + field + '" value="' + (ov != null ? (ov / 100) : '') + '" placeholder="' + (HEALTH_PLAN_QUOTE_2027.options[key][field] / 100).toFixed(2) + '" oninput="finCompQuoteChange(' + volJsAttr(key) + ',' + volJsAttr(field) + ',finSanitizeDecimalInput(this))" style="width:' + width + 'px;text-align:right;">';
+    }
+    return '<tr' + (key === _finHealthPlanSelectedOption ? ' class="fin-comp-quote-active"' : '') + '>'
+      + '<td class="fin-comp-td"><div style="font-weight:700;color:var(--color-navy);">' + esc(calc.label) + '</div><div style="font-size:.72rem;color:var(--warm-gray);">' + FIN_COMP_PLAN_TAGS[key] + '</div></td>'
+      + '<td class="fin-comp-td num">' + box('medicalCents', 96) + '</td>'
+      + '<td class="fin-comp-td num">' + box('dentalCents', 86) + '</td>'
+      + '<td class="fin-comp-td num">' + box('visionCents', 86) + '</td>'
+      + '<td class="fin-comp-td num">' + box('deductibleFamilyCents', 82) + '</td>'
+      + '<td class="fin-comp-td num">' + box('oopMaxFamilyCents', 82) + '</td>'
+      + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoney(calc.totalCents) + '</td>'
+      + '<td class="fin-comp-td num" style="color:var(--warm-gray);">' + finCompMoney(Math.round(calc.totalCents / finCompContractCount())) + '</td></tr>';
+  }).join('');
+  var quoteCard = '<div class="fin-card">'
+    + '<div class="fin-comp-cardhd">'
+    + '<div><div class="fin-card-title" style="font-size:20px;margin:0;">Health plan quote, FY' + year + '</div>'
+    + '<div class="fin-card-sub" style="margin:0;">One group premium for the whole church, not a per-worker rate. Type each line off the renewal packet; the cost per family contract is the total split by the number of contracts.</div></div>'
+    + '<div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">'
+    + '<label class="fin-comp-reflabel">Family contracts<input type="text" inputmode="numeric" id="fin-comp-contracts" value="' + finCompContractCount() + '" oninput="finCompContractsChange(finPlanSanitizeWholeDollarInput(this))" style="width:70px;font-weight:700;"></label>'
+    + '<label class="fin-comp-reflabel">Quote reference<input type="text" id="fin-comp-ref-quoteSource-' + year + '" value="' + esc(finCompRefRow(year).quoteSource || '') + '" placeholder="' + esc(finCompSourceDoc('quoteSource')) + '" oninput="finCompRefTextChange(' + year + ',&quot;quoteSource&quot;,this.value)" style="width:260px;font-weight:400;"></label>'
+    + '</div></div>'
+    + '<div style="overflow-x:auto;"><table class="fin-comp-table" style="min-width:860px;">'
+    + '<thead><tr><th class="fin-comp-th">Plan option</th><th class="fin-comp-th num">Medical</th><th class="fin-comp-th num">Dental</th><th class="fin-comp-th num">Vision</th>'
+    + '<th class="fin-comp-th num">Family deductible</th><th class="fin-comp-th num">Out-of-pocket max</th><th class="fin-comp-th num">Total premium</th><th class="fin-comp-th num">Per contract</th></tr></thead>'
+    + '<tbody>' + quoteRows + '</tbody></table></div>'
+    + '<div class="fin-comp-bar mist"><span style="font-weight:700;color:var(--color-navy);">Plan the church covers in full:</span>'
+    + '<span style="display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;"><select onchange="finCompPickPlan(this.value)"' + (finCompIsAdmin() ? '' : ' disabled') + '>'
+    + FIN_COMP_PLAN_KEYS.map(function(k) { var c = finComputeHealthPlanTotalCents(k); return '<option value="' + k + '"' + (k === _finHealthPlanSelectedOption ? ' selected' : '') + '>' + esc(c.label) + ' &middot; ' + finCompMoney(c.totalCents) + '</option>'; }).join('')
+    + '</select><span style="font-size:.78rem;color:var(--warm-gray);">Anyone choosing another option pays the difference themselves.</span></span></div>'
+    + '</div>';
+  var marketCard = '<div class="fin-card">'
+    + '<div class="fin-comp-cardhd">'
+    + '<div><div class="fin-card-title" style="font-size:20px;margin:0;">Market comparison data</div>'
+    + '<div class="fin-card-sub" style="margin:0;">Run Concordia Plans&#39; Compensation Decision Support Tool once a year per worker and type the four ranges in here &mdash; there is no feed for it. These are what step 2 charts against. The District pair only prints on a pastor report; leave it blank otherwise.</div></div>'
+    + '<a href="https://tc.cbiz.com/CompToolCPS/Login" target="_blank" rel="noopener" style="font-size:.78rem;font-weight:700;">Open the Compensation Decision Support Tool &rarr;</a></div>'
+    + _finSalaryRoster.map(function(w, i) {
+        var c = w.concordia || {};
+        var onFile = finCompUsableRanges(w).length;
+        var rangeRows = FIN_CONCORDIA_RANGE_KEYS.map(function(r) {
+          function box(part) {
+            return '<input type="text" id="fin-comp-range-' + i + '-' + r.key + part + '" value="' + esc(c[r.key + part] == null ? '' : c[r.key + part]) + '" placeholder="&mdash;" oninput="finCompRangeChange(' + i + ',' + volJsAttr(r.key + part) + ',this.value)" style="width:100px;text-align:right;">';
+          }
+          return '<tr' + (/LCMS/i.test(r.label) ? ' class="fin-comp-lcms-row"' : '') + '>'
+            + '<td class="fin-comp-td" style="color:var(--warm-ink-label);font-weight:600;">' + esc(r.label) + '</td>'
+            + '<td class="fin-comp-td num">' + box('Low') + '</td>'
+            + '<td class="fin-comp-td num">' + box('Mid') + '</td>'
+            + '<td class="fin-comp-td num">' + box('High') + '</td></tr>';
+        }).join('');
+        return '<div class="fin-comp-fairblock">'
+          + '<div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;">'
+          + '<span style="font-size:.95rem;font-weight:700;color:var(--color-navy);min-width:150px;">' + esc(w.name || '(unnamed)') + '</span>'
+          + '<label class="fin-comp-reflabel">Position on the report<input type="text" id="fin-comp-cpos-' + i + '" value="' + esc(c.position || '') + '" oninput="finCompRangeChange(' + i + ',&quot;position&quot;,this.value)" style="width:300px;font-weight:400;"></label>'
+          + '<label class="fin-comp-reflabel">Report date<input type="text" id="fin-comp-cdate-' + i + '" value="' + esc(c.asOfDate || '') + '" placeholder="mm/dd/yyyy" oninput="finCompRangeChange(' + i + ',&quot;asOfDate&quot;,this.value)" style="width:110px;font-weight:400;"></label>'
+          + '<span style="font-size:.74rem;font-weight:600;padding-bottom:6px;color:' + (onFile ? 'var(--sage-text)' : 'var(--deep-amber)') + ';">'
+          + (onFile ? onFile + ' of 4 ranges on file' : 'No report on file &mdash; compared to the District Compensation Worksheet only') + '</span>'
+          + '</div>'
+          + '<div style="overflow-x:auto;"><table class="fin-comp-table" style="min-width:560px;">'
+          + '<thead><tr><th class="fin-comp-th">Range</th><th class="fin-comp-th num">Lower pay</th><th class="fin-comp-th num">Midpoint pay</th><th class="fin-comp-th num">Higher pay</th></tr></thead>'
+          + '<tbody>' + rangeRows + '</tbody></table></div></div>';
+      }).join('')
+    + '<div style="font-size:.74rem;color:var(--warm-gray);margin-top:10px;">The LCMS row (shaded) is the one the fairness verdicts are measured against &mdash; it is the LCMS-only comparison, so it is the fairest single yardstick for a called worker.</div>'
+    + '</div>';
+  return '<div style="display:flex;flex-direction:column;gap:16px;">'
+    + '<div class="fin-comp-ratesbanner">'
+    + '<div><div style="font-size:.9rem;font-weight:700;color:var(--warm-ink-label);">Everything that changes once a year lives here.</div>'
+    + '<div style="font-size:.78rem;color:var(--warm-meta);">Enter each new paper as it arrives; every figure on the other tabs recomputes. Nothing here is per-worker.</div></div>'
+    + '<div style="display:flex;align-items:center;gap:8px;"><span class="fin-comp-reflabel-hd">Rates for</span>'
+    + '<select class="fin-comp-yearsel" onchange="finCompRatesYearChange(this.value)">' + yearOptions + '</select></div>'
+    + '</div>'
+    + finCompReadOnly('<div class="fin-comp-ratesgrid">' + districtCard + concordiaCard + '</div>' + quoteCard + marketCard)
+    + '</div>';
+}
+
+// ── View 5 — Council summary ───────────────────────────────────────────────────────────────
+function finCompCouncilRows(computed) {
+  return _finSalaryRoster.map(function(w, i) {
+    var c = computed[i];
+    var delta = c.salaryCents - c.currentCents;
+    var lcms = finCompLcmsRange(w);
+    var vsScale = finCompVsScale(c.salaryCents, c.worksheetCents);
+    var vsMed = finCompVsMedian(c.salaryCents, lcms && lcms.midCents);
+    return '<tr class="fin-comp-row"><td class="fin-comp-td"><div style="font-weight:700;">' + esc(w.name || '(unnamed)') + '</div>'
+      + '<div style="font-size:.74rem;color:var(--warm-gray);">' + esc(w.position || '') + '</div></td>'
+      + '<td class="fin-comp-td num" style="color:var(--warm-gray);">' + finCompMoney(c.currentCents) + '</td>'
+      + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoney(c.salaryCents) + '</td>'
+      + '<td class="fin-comp-td num">' + (delta === 0 ? 'no change' : finCompMoneySigned(delta)) + '</td>'
+      + '<td class="fin-comp-td" style="font-size:.78rem;font-weight:600;color:' + vsScale.color + ';" title="District scale ' + (c.worksheetCents ? finCompMoney(c.worksheetCents) : 'not available') + '">' + vsScale.text + '</td>'
+      + '<td class="fin-comp-td" style="font-size:.78rem;font-weight:600;color:' + vsMed.color + ';" title="LCMS market median ' + (lcms && lcms.midCents ? finCompMoney(lcms.midCents) : 'no report') + '">' + vsMed.text + '</td>'
+      + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoney(c.churchCostCents) + '</td></tr>';
+  }).join('');
+}
+function finCompRenderCouncil(computed, totals) {
+  var pct = totals.baselineCents ? (totals.deltaCents / totals.baselineCents * 100) : null;
+  var scaleTotal = finCompVsScale(totals.salaryCents, totals.worksheetCents);
+  var medTotal = finCompMedianTotal(computed);
+  var salaryDelta = totals.salaryCents - totals.currentCents;
+  return '<div class="fin-card" style="padding:28px 32px;">'
+    + '<div class="fin-comp-cardhd">'
+    + '<div><div class="fin-card-title" style="font-size:26px;margin:0;">FY' + _finPlanTargetYear + ' Compensation &mdash; Council summary</div>'
+    + '<div class="fin-card-sub" style="margin:0;">' + finCompMethodSummary() + '</div></div>'
+    + '<button class="btn-secondary" onclick="finCompPrintCouncil()">Print</button></div>'
+    + '<div class="fin-comp-counciltiles">'
+    + '<div class="fin-comp-ctile"><span class="fin-comp-tile-lbl">Cash salaries</span><span class="fin-comp-ctile-val">' + finCompMoney(totals.salaryCents) + '</span></div>'
+    + '<div class="fin-comp-ctile"><span class="fin-comp-tile-lbl">Benefits &amp; taxes</span><span class="fin-comp-ctile-val">' + finCompMoney(totals.benefitsCents) + '</span></div>'
+    + '<div class="fin-comp-ctile mist"><span class="fin-comp-tile-lbl teal">FY' + _finPlanTargetYear + ' total</span><span class="fin-comp-ctile-val">' + finCompMoney(totals.totalCents) + '</span></div>'
+    + '<div class="fin-comp-ctile navy"><span class="fin-comp-tile-lbl">vs FY' + _finPlanBaseYear + ' ' + finCompMoney(totals.baselineCents) + '</span>'
+    + '<span class="fin-comp-ctile-val gold">' + (totals.baselineCents ? finCompMoneySigned(totals.deltaCents) + ' (' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)' : '&mdash;') + '</span></div>'
+    + '</div>'
+    + '<div style="overflow-x:auto;"><table class="fin-comp-table" style="min-width:860px;font-size:.86rem;">'
+    + '<thead><tr><th class="fin-comp-th">Worker</th><th class="fin-comp-th num">FY' + _finPlanBaseYear + '</th><th class="fin-comp-th num">FY' + _finPlanTargetYear + '</th>'
+    + '<th class="fin-comp-th num">Change</th><th class="fin-comp-th">Vs. district scale</th><th class="fin-comp-th">Vs. LCMS median</th><th class="fin-comp-th num">Total cost</th></tr></thead>'
+    + '<tbody>' + finCompCouncilRows(computed)
+    + '<tr class="fin-comp-total-row"><td class="fin-comp-td">Total</td>'
+    + '<td class="fin-comp-td num" style="color:var(--warm-gray);">' + finCompMoney(totals.currentCents) + '</td>'
+    + '<td class="fin-comp-td num">' + finCompMoney(totals.salaryCents) + '</td>'
+    + '<td class="fin-comp-td num">' + (salaryDelta === 0 ? 'no change' : finCompMoneySigned(salaryDelta)) + '</td>'
+    + '<td class="fin-comp-td" style="font-size:.78rem;font-weight:600;color:' + scaleTotal.color + ';" title="District scale ' + finCompMoney(totals.worksheetCents) + '">' + scaleTotal.text + '</td>'
+    + '<td class="fin-comp-td" style="font-size:.78rem;font-weight:600;color:' + medTotal.color + ';" title="LCMS market median ' + finCompMoney(medTotal.medCents) + '">' + medTotal.text + '</td>'
+    + '<td class="fin-comp-td num">' + finCompMoney(totals.totalCents) + '</td></tr>'
+    + '</tbody></table></div>'
+    + '<div style="font-size:.78rem;color:var(--warm-gray);border-top:1px solid var(--warm-row-divider);padding-top:14px;margin-top:14px;">Built on '
+    + esc(finCompSourceDoc('districtSource')) + ' &middot; ' + esc(finCompSourceDoc('concordiaSource')) + ' &middot; ' + esc(finCompSourceDoc('quoteSource')) + '</div>'
+    + '</div>';
+}
+
+// ── Interactions (§7.1). Every one of them ends in finRerenderPlanningPreserveFocus(), which
+// re-renders, restores focus/caret/scroll AND schedules the existing ~800ms debounced autosave —
+// the reported bug was that nothing on this tab autosaved at all.
+function finCompApplyMethodToAll(key) {
+  _finCompMethod = key;
+  _finCompPerWorkerMethod = {};
+  _finCompOverrides = {};
+  finCompSay(finCompMethodLabel(key) + ' applied to all ' + _finSalaryRoster.length + ' worker' + (_finSalaryRoster.length === 1 ? '' : 's') + '.');
+  finRerenderPlanningPreserveFocus();
+}
+function finCompPickMethod(i, key) {
+  _finCompPerWorkerMethod[i] = key;
+  delete _finCompOverrides[i];
+  _finCompSelected = i;
+  var w = _finSalaryRoster[i];
+  finCompSay((w.name || 'Worker ' + (i + 1)) + ' → ' + finCompMethodLabel(key) + ' (' + finCompMoney(finCompMethodSalaryCents(w, key)) + ').');
+  finRerenderPlanningPreserveFocus();
+}
+function finCompSelectWorker(i) { _finCompSelected = i; _finCompDrawerOpen = true; finRerenderPlanningPreserveFocus(); }
+function finCompCloseDrawer() { _finCompDrawerOpen = false; finRerenderPlanningPreserveFocus(); }
+function finCompAddWorker() {
+  _finSalaryRoster.push({
+    name: 'New staff member', position: 'Role not set', role: 'other', trackKey: 'secretary',
+    yearsExperience: 0, responsibilityStipend: 0, responsibilityStipendKey: 'none', attendanceBonus: 0,
+    education: 'none', selfEmployedFica: false, hasDependents: false, healthMode: 'optout',
+    healthEnrolled: false, accountCode: '', concordia: {}
+  });
+  _finCompSelected = _finSalaryRoster.length - 1;
+  _finCompDrawerOpen = true;
+  _finCompView = 'plan';
+  finCompSay('Row added — set the role and years of service in the panel.');
+  finRerenderPlanningPreserveFocus();
+}
+function finCompRemoveWorker(i) {
+  var name = _finSalaryRoster[i] && _finSalaryRoster[i].name;
+  _finSalaryRoster.splice(i, 1);
+  // Per-worker method/override maps are keyed by roster INDEX, so a splice would silently shift
+  // every later worker's settings onto their neighbour. Rebuild both against the new indexes.
+  var method = {}, ov = {};
+  Object.keys(_finCompPerWorkerMethod).forEach(function(k) { var n = Number(k); if (n < i) method[n] = _finCompPerWorkerMethod[k]; else if (n > i) method[n - 1] = _finCompPerWorkerMethod[k]; });
+  Object.keys(_finCompOverrides).forEach(function(k) { var n = Number(k); if (n < i) ov[n] = _finCompOverrides[k]; else if (n > i) ov[n - 1] = _finCompOverrides[k]; });
+  _finCompPerWorkerMethod = method;
+  _finCompOverrides = ov;
+  if (_finCompSelected >= _finSalaryRoster.length) _finCompSelected = Math.max(0, _finSalaryRoster.length - 1);
+  finCompSay((name || 'Worker') + ' removed.');
+  finRerenderPlanningPreserveFocus();
+}
+function finCompWorkerChange(i, field, value) {
+  _finSalaryRoster[i][field] = value;
+  finRerenderPlanningPreserveFocus();
+}
+function finCompYearsChange(i, value) {
+  _finSalaryRoster[i].yearsExperience = Math.max(0, parseInt(value, 10) || 0);
+  finRerenderPlanningPreserveFocus();
+}
+// Changing role resets the track to that role's default and zeroes the attendance bonus for a
+// non-pastor (§7.1); the SECA default follows the role's IRS classification, still overridable.
+function finCompRoleChange(i, role) {
+  var w = _finSalaryRoster[i];
+  w.role = role;
+  w.trackKey = role === 'commissioned' ? 'ma' : role === 'other' ? 'secretary' : '';
+  if (role !== 'pastor') w.attendanceBonus = 0;
+  w.selfEmployedFica = finDefaultSelfEmployedFica(role);
+  finRerenderPlanningPreserveFocus();
+}
+function finCompStipendChange(i, key) {
+  var s = LCMS_RESPONSIBILITY_STIPENDS.filter(function(x) { return x.key === key; })[0];
+  _finSalaryRoster[i].responsibilityStipendKey = key;
+  _finSalaryRoster[i].responsibilityStipend = s ? (s.range[0] + s.range[1]) / 2 : 0;
+  finRerenderPlanningPreserveFocus();
+}
+function finCompStipendPctChange(i, value) {
+  _finSalaryRoster[i].responsibilityStipend = (parseFloat(value) || 0) / 100;
+  finRerenderPlanningPreserveFocus();
+}
+function finCompAttendanceChange(i, value) {
+  _finSalaryRoster[i].attendanceBonus = parseFloat(value) || 0;
+  finRerenderPlanningPreserveFocus();
+}
+// Dependents drives the disability rate and, for an enrolled worker, whether they draw from the
+// group Family-tier quote or need an employee-only premium entered (§7.1).
+function finCompDependentsToggle(i, checked) {
+  var w = _finSalaryRoster[i];
+  w.hasDependents = !!checked;
+  if (finCompHealthMode(w) !== 'optout') { w.healthMode = checked ? 'family' : 'employee'; w.healthEnrolled = true; }
+  finRerenderPlanningPreserveFocus();
+}
+function finCompSecaToggle(i, checked) {
+  _finSalaryRoster[i].selfEmployedFica = !!checked;
+  finRerenderPlanningPreserveFocus();
+}
+function finCompSalaryOverride(i, value) {
+  _finCompOverrides[i] = value;
+  finRerenderPlanningPreserveFocus();
+}
+function finCompClearOverride(i) { delete _finCompOverrides[i]; finRerenderPlanningPreserveFocus(); }
+function finCompClearOverrides() {
+  _finCompOverrides = {};
+  finCompSay('Hand-set figures cleared.');
+  finRerenderPlanningPreserveFocus();
+}
+function finCompCustomPctChange(value) {
+  _finCompCustomPct = parseFloat(value) || 0;
+  _finCompMethod = 'custom';
+  finRerenderPlanningPreserveFocus();
+}
+function finCompMatchMidpoint(i) {
+  var w = _finSalaryRoster[i];
+  var lcms = finCompLcmsRange(w);
+  if (!lcms || !lcms.midCents) return;
+  var target = finRoundSalaryCents(lcms.midCents);
+  _finCompOverrides[i] = String(Math.round(target / 100));
+  finCompSay((w.name || 'Worker') + ' set to the LCMS midpoint — ' + finCompMoney(target) + '.');
+  finRerenderPlanningPreserveFocus();
+}
+function finCompPickPlan(key) {
+  _finHealthPlanSelectedOption = key;
+  finRerenderPlanningPreserveFocus();
+}
+function finCompEmployeeOnlyChange(i, value) {
+  var cents = value === '' ? null : Math.round(parseFloat(value) * 100);
+  _finSalaryRoster[i].employeeOnlyPremiumCents = (cents == null || !isFinite(cents)) ? null : cents;
+  finRerenderPlanningPreserveFocus();
+}
+function finCompOptOutChange(i, value) {
+  var cents = value === '' ? null : Math.round(parseFloat(value) * 100);
+  _finSalaryRoster[i].healthOptOutOverrideCents = (cents == null || !isFinite(cents)) ? null : cents;
+  finRerenderPlanningPreserveFocus();
+}
+// Reference figures. Percent fields store a FRACTION (0.117), money fields store CENTS — the two
+// shapes the rest of the app already uses, so nothing downstream has to know which box it came from.
+var FIN_COMP_PCT_REF_FIELDS = { pensionPct: 1, ficaPct: 1, disabilityDepsPct: 1, disabilityNoDepsPct: 1, ssaColaPct: 1 };
+function finCompRefChange(year, field, value) {
+  if (!_finSalaryReferenceByYear[year]) _finSalaryReferenceByYear[year] = {};
+  var row = _finSalaryReferenceByYear[year];
+  if (value === '' || !isFinite(parseFloat(value))) { delete row[field]; finRerenderPlanningPreserveFocus(); return; }
+  row[field] = FIN_COMP_PCT_REF_FIELDS[field] ? (parseFloat(value) / 100) : Math.round(parseFloat(value) * 100);
+  finRerenderPlanningPreserveFocus();
+}
+function finCompRefTextChange(year, field, value) {
+  if (!_finSalaryReferenceByYear[year]) _finSalaryReferenceByYear[year] = {};
+  if (value === '') delete _finSalaryReferenceByYear[year][field];
+  else _finSalaryReferenceByYear[year][field] = value;
+  // No re-render: provenance text feeds no computation, so rebuilding the DOM mid-type would only
+  // risk the focus-loss class of bug. It still has to persist.
+  finSalaryScheduleAutoSave();
+}
+function finCompRatesYearChange(v) { _finCompRefYear = Number(v); finRenderCompensation(); }
+function finCompContractsChange(v) {
+  _finHealthPlanContracts = v === '' ? null : Math.max(1, parseInt(v, 10) || 1);
+  finRerenderPlanningPreserveFocus();
+}
+function finCompQuoteChange(optionKey, field, value) {
+  if (!_finHealthPlanPremiumOverrides[optionKey]) _finHealthPlanPremiumOverrides[optionKey] = {};
+  var cents = value === '' ? null : Math.round(parseFloat(value) * 100);
+  if (cents == null || !isFinite(cents)) delete _finHealthPlanPremiumOverrides[optionKey][field];
+  else _finHealthPlanPremiumOverrides[optionKey][field] = cents;
+  finRerenderPlanningPreserveFocus();
+}
+function finCompRangeChange(i, field, value) {
+  if (!_finSalaryRoster[i].concordia) _finSalaryRoster[i].concordia = {};
+  _finSalaryRoster[i].concordia[field] = value;
+  // Same reasoning as finCompRefTextChange: these are hand-copied off a PDF and typing into them
+  // must not fight a re-render. They DO feed the fairness charts, which are on another view.
+  finSalaryScheduleAutoSave();
+}
+// "Send to FY budget" — writes the whole compensation total into the Planning tab's FY-target
+// Projected column for whichever salary account looks right, exactly as the old Apply-to-Plan did.
+function finCompSendToBudget() {
+  var totals = finCompTotals(finCompComputeAll());
+  var leaves = finCompExpenseLeaves();
+  var target = _finSalaryTargetCategory
+    || (leaves.filter(function(n) { return /salar|payroll|compensation|wages/i.test(n.label); })[0] || {}).path;
+  if (!target) { finCompSay('No salary account found in the FY' + _finPlanBaseYear + ' budget to apply this to.'); finRenderCompensation(); return; }
+  _finSalaryTargetCategory = target;
+  _finPlanEdits[target] = (totals.totalCents / 100).toFixed(2);
+  finCompSay(finCompMoney(totals.totalCents) + ' sent to the FY' + _finPlanTargetYear + ' Planning budget — click Save Changes there to keep it.');
   finRerenderPlanningPreserveFocus();
   finRenderPlanning();
+}
+
+// ── The Council report (§8) ────────────────────────────────────────────────────────────────
+// A flowing printable document that regenerates from the same data — deliberately NOT the
+// workspace with the chrome hidden, because the layout is genuinely different (a drafted motion,
+// a page per worker, full range tables). Rendered into #fin-comp-print-root, then body gets
+// .printing-comp so the print stylesheet shows that one element and nothing else.
+function finCompPrintCouncil() {
+  var root = document.getElementById('fin-comp-print-root');
+  if (!root) return;
+  var computed = finCompComputeAll();
+  root.innerHTML = finCompCouncilReportHtml(computed, finCompTotals(computed));
+  document.body.classList.add('printing-comp');
+  // Same cleanup shape as printBoardPage(): afterprint fires in every browser that supports it,
+  // and the timeout is the fallback for the ones that don't (and for a cancelled dialog), so the
+  // page can never be left stuck in print mode.
+  var cleanup = function() {
+    document.body.classList.remove('printing-comp');
+    if (root) root.innerHTML = '';
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(function() { window.print(); setTimeout(cleanup, 1000); }, 60);
+}
+function finCompReportTile(label, value, cls) {
+  return '<div class="fin-comp-rpt-tile ' + (cls || '') + '"><div class="fin-comp-rpt-tile-lbl">' + label + '</div><div class="fin-comp-rpt-tile-val">' + value + '</div></div>';
+}
+function finCompCouncilReportHtml(computed, totals) {
+  var pct = totals.baselineCents ? (totals.deltaCents / totals.baselineCents * 100) : 0;
+  var gap = finCompFullScaleGap(computed);
+  var medTotal = finCompMedianTotal(computed);
+  var planCalc = finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption);
+  var scaleRatio = totals.worksheetCents ? Math.round(totals.salaryCents / totals.worksheetCents * 100) : null;
+  var salaryShare = totals.totalCents ? Math.round(totals.salaryCents / totals.totalCents * 100) : 0;
+  var altTotalCents = totals.totalCents + gap.totalCents;
+  var altPct = totals.baselineCents ? (altTotalCents - totals.baselineCents) / totals.baselineCents * 100 : 0;
+  // Part 1 — cover
+  var salaryRows = _finSalaryRoster.map(function(w, i) {
+    var c = computed[i];
+    var ratio = c.worksheetCents ? Math.round(c.salaryCents / c.worksheetCents * 100) : null;
+    return '<tr><td><b>' + esc(w.name || '(unnamed)') + '</b><br><span class="mut">' + esc(w.position || '') + ' &middot; ' + (Number(w.yearsExperience) || 0) + ' yrs'
+      + (w.accountCode ? ' &middot; acct ' + esc(w.accountCode) : '') + '</span></td>'
+      + '<td class="n mut">' + finCompMoney(c.currentCents) + '</td>'
+      + '<td class="n b">' + finCompMoney(c.salaryCents) + '</td>'
+      + '<td class="n">' + (c.salaryCents === c.currentCents ? 'no change' : finCompMoneySigned(c.salaryCents - c.currentCents)) + '</td>'
+      + '<td class="n mut">' + finCompMoney(c.salaryCents / FIN_SALARY_PAY_PERIODS) + '</td>'
+      + '<td class="n mut">' + (c.worksheetCents == null ? '&mdash;' : finCompMoney(c.worksheetCents)) + '</td>'
+      + '<td class="n b" style="color:' + (ratio == null ? 'var(--warm-gray)' : finCompRatioColor(c.salaryCents / c.worksheetCents)) + ';">' + (ratio == null ? '&mdash;' : ratio + '%') + '</td>'
+      + '<td class="n b">' + finCompMoney(c.churchCostCents) + '</td></tr>';
+  }).join('');
+  var cover = '<div class="fin-comp-rpt-kicker">Church Council &middot; Compensation</div>'
+    + '<h1 class="fin-comp-rpt-h1">Fiscal Year ' + _finPlanTargetYear + ' Compensation Plan</h1>'
+    + '<div class="fin-comp-rpt-sub">' + _finSalaryRoster.length + ' called and employed worker' + (_finSalaryRoster.length === 1 ? '' : 's')
+    + ' &middot; salaries set by ' + finCompMethodLongLabel(_finCompMethod)
+    + ' &middot; pension ' + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate)
+    + ' &middot; health plan: ' + esc(planCalc ? planCalc.label : 'none selected') + '</div>'
+    + '<div class="fin-comp-rpt-tiles kt">'
+    + finCompReportTile('Cash salaries', finCompMoney(totals.salaryCents))
+    + finCompReportTile('Benefits &amp; taxes', finCompMoney(totals.benefitsCents))
+    + finCompReportTile('FY' + _finPlanTargetYear + ' total', finCompMoney(totals.totalCents), 'mist')
+    + finCompReportTile('vs FY' + _finPlanBaseYear + ' ' + finCompMoney(totals.baselineCents),
+        (totals.baselineCents ? finCompMoneySigned(totals.deltaCents) + ' (' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)' : '&mdash;'), 'navy')
+    + '</div>'
+    + '<div class="fin-comp-rpt-motion kt"><div class="fin-comp-rpt-motion-h">Recommended motion</div>'
+    + '<div>That the Church Council approve FY' + _finPlanTargetYear + ' compensation of <b>' + finCompMoney(totals.totalCents) + '</b> for '
+    + _finSalaryRoster.length + ' worker' + (_finSalaryRoster.length === 1 ? '' : 's')
+    + (totals.baselineCents ? ' &mdash; a ' + pct.toFixed(1) + '% ' + (totals.deltaCents >= 0 ? 'increase over' : 'decrease from') + ' FY' + _finPlanBaseYear + ' actual spending' : '')
+    + ' &mdash; applying ' + finCompMethodLongLabel(_finCompMethod) + ' to each worker&#39;s salary, continuing the Concordia Retirement Plan at '
+    + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate)
+    + ', and ' + (planCalc ? 'setting the group health plan to ' + esc(planCalc.label) + ' at ' + finCompMoney(planCalc.totalCents) : 'making no change to the group health plan') + '.</div></div>'
+    + '<h2 class="fin-comp-rpt-h2">What Council is being asked to weigh</h2>'
+    + '<p class="fin-comp-rpt-p">Three separate questions sit behind the single number above. <b>How much of a raise</b> &mdash; a COLA keeps existing salaries level with inflation, while the district&#39;s own published scale is a benchmark. <b>Whether our pay is fair</b> &mdash; measured against the LCMS Missouri District scale and against Concordia Plans&#39; published pay ranges for each role. <b>What it costs</b> &mdash; salary is ' + salaryShare + '% of the total; pension, health, disability and employer taxes are the rest.</p>'
+    + '<p class="fin-comp-rpt-p">The plan below pays <b>' + (scaleRatio == null ? 'an unknown share of' : scaleRatio + '% of') + ' the district scale</b> in total'
+    + (medTotal.count ? ', and sits <b>' + medTotal.text.replace(/^[+−]\$[\d,]+ \(/, '').replace(/\)$/, '') + '</b> for the ' + medTotal.count + ' worker' + (medTotal.count === 1 ? '' : 's') + ' with a Concordia Plans report on file' : '')
+    + '. ' + (gap.totalCents
+        ? 'Bringing every worker to full district scale would cost an additional <b>' + finCompMoney(gap.salaryGapCents) + '</b> in salary and <b>' + finCompMoney(gap.benefitsGapCents) + '</b> in the benefits that follow it &mdash; pension, disability and, for non-ministers, employer FICA; health premiums do not move with salary &mdash; for a total of <b>' + finCompMoney(gap.totalCents) + '</b> on top of what is proposed here. That is an alternative, not the plan: it would take FY' + _finPlanTargetYear + ' compensation from the recommended <b>' + finCompMoney(totals.totalCents) + '</b> (' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%) to <b>' + finCompMoney(altTotalCents) + '</b> (' + (altPct >= 0 ? '+' : '') + altPct.toFixed(1) + '%).'
+        : 'Every worker is already at or above the district scale, so there is no cost-to-full-scale alternative to weigh.') + '</p>'
+    + '<h2 class="fin-comp-rpt-h2">Salary plan by worker</h2>'
+    + '<table class="fin-comp-rpt-table kt"><thead><tr><th>Worker</th><th class="n">FY' + _finPlanBaseYear + '</th><th class="n">FY' + _finPlanTargetYear + '</th><th class="n">Change</th><th class="n">Per paycheck</th><th class="n">District scale</th><th class="n">% of scale</th><th class="n">Church cost</th></tr></thead>'
+    + '<tbody>' + salaryRows
+    + '<tr class="tot"><td>Total</td><td class="n">' + finCompMoney(totals.currentCents) + '</td><td class="n">' + finCompMoney(totals.salaryCents) + '</td>'
+    + '<td class="n">' + finCompMoneySigned(totals.salaryCents - totals.currentCents) + '</td><td class="n">&mdash;</td>'
+    + '<td class="n">' + finCompMoney(totals.worksheetCents) + '</td><td class="n">' + (scaleRatio == null ? '&mdash;' : scaleRatio + '%') + '</td>'
+    + '<td class="n">' + finCompMoney(totals.totalCents) + '</td></tr></tbody></table>';
+  // Part 2 — worker by worker
+  var workerPages = _finSalaryRoster.map(function(w, i) {
+    var c = computed[i], b = c.benefits;
+    var usable = finCompUsableRanges(w);
+    var lcms = finCompLcmsRange(w);
+    var verdict = finCompVerdict(w, c.salaryCents);
+    var rangeTable = usable.length
+      ? '<table class="fin-comp-rpt-table kt"><thead><tr><th>Range</th><th class="n">Lower</th><th class="n">Midpoint</th><th class="n">Higher</th><th class="n">This plan vs. midpoint</th></tr></thead><tbody>'
+        + usable.map(function(r) {
+            var vs = r.midCents ? c.salaryCents - r.midCents : null;
+            return '<tr' + (/LCMS/i.test(r.label) ? ' class="lcms"' : '') + '><td>' + esc(r.label) + '</td><td class="n">' + finCompMoney(r.lowCents) + '</td>'
+              + '<td class="n">' + (r.midCents ? finCompMoney(r.midCents) : '&mdash;') + '</td><td class="n">' + finCompMoney(r.highCents) + '</td>'
+              + '<td class="n">' + (vs == null ? '&mdash;' : finCompMoneySigned(vs)) + '</td></tr>';
+          }).join('') + '</tbody></table>'
+      : '<p class="fin-comp-rpt-p mut">No Concordia Plans report on file for this position &mdash; compared against the District Compensation Worksheet figure only.</p>';
+    var read = usable.length
+      ? esc(w.name || 'This worker') + ' is ' + verdict.text.toLowerCase().replace(/^below/, 'below') + ', and '
+        + finCompVsScale(c.salaryCents, c.worksheetCents).text.replace(/^at scale$/, 'sits at the district scale') + ' against the district worksheet figure of '
+        + (c.worksheetCents == null ? 'an unavailable figure' : finCompMoney(c.worksheetCents)) + '.'
+      : esc(w.name || 'This worker') + ' has no market report on file; against the district worksheet figure of '
+        + (c.worksheetCents == null ? 'an unavailable figure' : finCompMoney(c.worksheetCents)) + ' this plan is ' + finCompVsScale(c.salaryCents, c.worksheetCents).text + '.';
+    return '<div class="fin-comp-rpt-worker kt">'
+      + '<h2 class="fin-comp-rpt-h2">' + esc(w.name || '(unnamed)') + '<span class="mut" style="font-weight:400;font-size:10pt;"> &mdash; ' + esc(w.position || '') + '</span></h2>'
+      + '<table class="fin-comp-rpt-table kt"><tbody>'
+      + '<tr><td>Cash salary</td><td class="n b">' + finCompMoney(c.salaryCents) + '</td></tr>'
+      + '<tr><td>Pension ' + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate) + '</td><td class="n">' + finCompMoney(b.pensionCents) + '</td></tr>'
+      + '<tr><td>Health &mdash; ' + (finCompHealthMode(w) === 'family' ? 'family tier, group quote split' : finCompHealthMode(w) === 'employee' ? 'employee-only premium' : 'opt-out cash') + '</td><td class="n">' + finCompMoney(b.healthCents) + '</td></tr>'
+      + '<tr><td>Disability &amp; survivor' + (w.hasDependents ? ' (with dependents)' : '') + '</td><td class="n">' + finCompMoney(b.disabilityCents) + '</td></tr>'
+      + '<tr><td>Employer FICA' + (w.selfEmployedFica ? ' &mdash; none; a minister pays their own SECA' : '') + '</td><td class="n">' + finCompMoney(b.ficaCents) + '</td></tr>'
+      + '<tr class="tot"><td>Total church cost</td><td class="n">' + finCompMoney(c.churchCostCents) + '</td></tr>'
+      + '</tbody></table>'
+      + (w.selfEmployedFica ? '<p class="fin-comp-rpt-p mut">As a minister for Social Security purposes, ' + esc(w.name || 'this worker') + ' pays the employer half of FICA themselves &mdash; ' + finCompMoney(b.secaSelfCents) + ' at this salary. That is not a church cost and is in no total above.</p>' : '')
+      + rangeTable
+      + '<p class="fin-comp-rpt-p">' + read + '</p>'
+      + '</div>';
+  }).join('');
+  // Part 3 — group health plan
+  var renewalTotal = finComputeHealthPlanTotalCents('renewal').totalCents;
+  var planRows = FIN_COMP_PLAN_KEYS.map(function(key) {
+    var calc = finComputeHealthPlanTotalCents(key);
+    var perHousehold = Math.round((calc.totalCents - renewalTotal) / finCompContractCount());
+    return '<tr' + (key === _finHealthPlanSelectedOption ? ' class="lcms"' : '') + '><td>' + esc(calc.label) + '</td>'
+      + '<td class="n">' + finCompMoney(calc.medicalCents) + '</td><td class="n">' + finCompMoney(calc.dentalCents) + '</td><td class="n">' + finCompMoney(calc.visionCents) + '</td>'
+      + '<td class="n">' + finCompMoney(finCompPlanQuoteField(key, 'deductibleFamilyCents')) + '</td><td class="n">' + finCompMoney(finCompPlanQuoteField(key, 'oopMaxFamilyCents')) + '</td>'
+      + '<td class="n b">' + finCompMoney(calc.totalCents) + '</td>'
+      + '<td class="n">' + (key === 'renewal' ? '&mdash;' : finCompMoneySigned(perHousehold) + '/worker') + '</td></tr>';
+  }).join('');
+  var tierRows = _finSalaryRoster.map(function(w, i) {
+    var mode = finCompHealthMode(w);
+    return '<tr><td>' + esc(w.name || '(unnamed)') + '</td>'
+      + '<td>' + (mode === 'family' ? 'Family' : mode === 'employee' ? 'Employee only' : 'Opts out (cash)') + '</td>'
+      + '<td class="n">' + finCompMoney(computed[i].benefits.healthCents) + '</td>'
+      + '<td class="mut">' + (mode === 'family' ? 'Group quote &divide; ' + finCompContractCount() + ' contracts' : mode === 'employee' ? 'Entered employee-only premium' : 'Opt-out cash from this year&#39;s rates') + '</td></tr>';
+  }).join('');
+  var healthPage = '<div class="fin-comp-rpt-page">'
+    + '<h2 class="fin-comp-rpt-h2">Group health plan</h2>'
+    + '<table class="fin-comp-rpt-table kt"><thead><tr><th>Option</th><th class="n">Medical</th><th class="n">Dental</th><th class="n">Vision</th><th class="n">Family deductible</th><th class="n">Out-of-pocket max</th><th class="n">Total premium</th><th class="n">vs Renewal</th></tr></thead><tbody>' + planRows + '</tbody></table>'
+    + '<p class="fin-comp-rpt-p">The church covers ' + esc(planCalc ? planCalc.label : 'the selected plan') + ' in full. A worker who chooses another option pays the premium difference themselves &mdash; the last column above, per worker per year.</p>'
+    + '<table class="fin-comp-rpt-table kt"><thead><tr><th>Worker</th><th>Coverage</th><th class="n">Church cost</th><th>Basis</th></tr></thead><tbody>' + tierRows
+    + '<tr class="tot"><td colspan="2">Total health cost</td><td class="n">' + finCompMoney(totals.healthCents) + '</td><td></td></tr></tbody></table></div>';
+  // Part 4 — reference figures used
+  var refRows = [
+    ['District base salary, FY' + _finPlanTargetYear, '$' + finFmtMoney(finCompBaseSalary(_finPlanTargetYear).dollars), finCompSourceDoc('districtSource'), (function() { var p = finCompBaseSalary(_finPlanTargetYear - 1); return p.dollars ? finCompMoneySigned(Math.round((finCompBaseSalary(_finPlanTargetYear).dollars - p.dollars) * 100)) + ' from FY' + (_finPlanTargetYear - 1) : '&mdash;'; })()],
+    ['Concordia pension (Traditional)', finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate), finCompSourceDoc('concordiaSource'), finCompPctFmt(finCompPensionRate(_finPlanBaseYear).rate) + ' in FY' + _finPlanBaseYear],
+    ['Disability &amp; survivor &mdash; with dependents', finCompPctFmt(finCompDisabilityRate(_finPlanTargetYear, true).rate), finCompSourceDoc('concordiaSource'), ''],
+    ['Disability &amp; survivor &mdash; without', finCompPctFmt(finCompDisabilityRate(_finPlanTargetYear, false).rate), finCompSourceDoc('concordiaSource'), ''],
+    ['Employer FICA', finCompPctFmt(finCompFicaRate()), 'IRS employer OASDI 6.20% + Medicare 1.45%', ''],
+    ['Social Security COLA', finCompPctFmt(finCompSsaRate()), 'Social Security Administration, announced each October', ''],
+    ['Health opt-out cash', finCompMoney(finCompOptOutCents()), 'Set by the congregation', ''],
+    ['Group health quote', finCompMoney(planCalc ? planCalc.totalCents : 0) + ' over ' + finCompContractCount() + ' contract' + (finCompContractCount() === 1 ? '' : 's'), finCompSourceDoc('quoteSource'), '']
+  ].map(function(r) {
+    return '<tr><td>' + r[0] + '</td><td class="n b">' + r[1] + '</td><td class="mut">' + esc(r[2]) + '</td><td class="mut">' + r[3] + '</td></tr>';
+  }).join('');
+  var withReports = _finSalaryRoster.filter(function(w) { return finCompUsableRanges(w).length; }).length;
+  var refPage = '<div class="fin-comp-rpt-page">'
+    + '<h2 class="fin-comp-rpt-h2">Reference figures used</h2>'
+    + '<table class="fin-comp-rpt-table kt"><thead><tr><th>Figure</th><th class="n">Value</th><th>Source document</th><th>Change</th></tr></thead><tbody>' + refRows + '</tbody></table>'
+    + '<p class="fin-comp-rpt-p mut">' + withReports + ' of ' + _finSalaryRoster.length + ' worker' + (_finSalaryRoster.length === 1 ? ' has' : 's have')
+    + ' a Concordia Plans Compensation Decision Support report on file. Where a worker has none, this plan is measured against the District Compensation Worksheet alone.</p></div>';
+  return '<div class="fin-comp-rpt">'
+    + '<div class="fin-comp-rpt-hd"><span>Timothy Lutheran Church &middot; St. Louis</span><span>FY' + _finPlanTargetYear + ' Compensation Report &middot; prepared for Church Council</span></div>'
+    + cover
+    + workerPages
+    + healthPage + refPage
+    + '<div class="fin-comp-rpt-ft">Built from ' + esc(finCompSourceDoc('districtSource')) + ', ' + esc(finCompSourceDoc('concordiaSource')) + ', and ' + esc(finCompSourceDoc('quoteSource')) + '.</div>'
+    + '</div>';
 }
 
 // ── 3277 Ivanhoe Multi-Year Forecast (kept separate from Church Budget Planning — the property

@@ -24,6 +24,81 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.142.0 — Compensation Planner redesign + Council report (2026-08-06)
+
+Built from the `design_handoff_compensation_planner` bundle (README + a fully-interactive planner
+prototype carrying the whole calculation engine + a printable Council report). Replaces
+`finRenderCompensation()` and everything it rendered — four stacked cards and several hundred
+words of prose become **five views behind one sub-nav**, with a persistent navy totals strip so no
+input is ever on a different screen from its consequence:
+
+| View | Answers |
+| --- | --- |
+| 1 · Set pay | What do we pay each worker next year? |
+| 2 · Check fairness | Is that fair, against the district scale and Concordia's published ranges? |
+| 3 · Health plan | Which group plan, and who sits on which tier? |
+| This year's rates | Every figure that arrives on paper once a year, entered once. |
+| Council summary | The one-page version for a meeting. |
+
+**The one deliberate maths change (§5.4).** COLA and Custom now grow the worker's **current pay**;
+only District Scale runs the district formula. Before this, all three growth methods computed from
+the district table, so for a year with a published base salary they showed the identical number —
+which read as a bug and made a COLA impossible to express. FY2027 has a published base, so this is
+the state the tab was actually in. `finWorkerScenarioSalaryCents` / `finSalaryComputeAll` /
+`finDistrictProposalCents` are replaced by `finCompMethodSalaryCents` / `finCompComputeAll` /
+`finCompWorksheetCents`.
+
+**Every pure function the district and Concordia maths is built on is untouched** —
+`finComputeLcmsSalary`, `finLcmsMultiplierFor`, `finRoundSalaryCents`,
+`finComputeEmployerFicaCents`, `finComputePensionCents`, `finConcordiaPensionRateFor`,
+`finConcordiaDisabilityRateFor`, `finComputeHealthPlanTotalCents`, the four breakeven functions,
+`finAccountBudgetCentsForCode`. `test/finance-salary-calculator.test.js` (which reconciles them
+against the published PDFs) needed no changes at all.
+
+**One place for annual figures.** `_finSalaryReferenceByYear[year]` grew from
+`{baseSalaryCents, healthOptOutCents}` to also carry `pensionPct`, `ficaPct`,
+`disabilityDepsPct`, `disabilityNoDepsPct`, `ssaColaPct` and the three provenance strings.
+Resolution is entered-for-the-year → most recent earlier entered year → code constant, and the UI
+says which of the three it used rather than silently substituting. The code constants
+(`CONCORDIA_*_BY_YEAR`, `SSA_COLA_REFERENCE_PCT`, `LCMS_MO_BASE_SALARY_BY_YEAR`) stay as the seed.
+
+**Migration, on read.** The old roster-wide `_finSalaryPensionPct` / `_finSalaryDisabilityPct`
+overrides and the `colaSource` growth key move into the new per-year shape via
+`finCompMigrateSavedShape()`. Left as globals they would have kept applying with no UI left to
+clear them — the invisible-stuck-state class of bug. A worker's health tier likewise derives an
+explicit `healthMode` from the old `healthEnrolled`/`hasDependents` pair, keeping both in sync.
+
+**The Council report** (`finCompCouncilReportHtml`, `body.printing-comp`) is a purpose-built
+flowing document — cover with a drafted motion and the cost-to-full-scale alternative, a page per
+worker, the group health plan, and every reference figure with its source — not the workspace with
+its chrome hidden, because the layout is genuinely different.
+
+**Three real problems the tests caught before shipping:**
+1. The new CSS introduced a fourth breakpoint (600px). `test/breakpoints.test.js` (MOB3) failed —
+   the codebase agreed on exactly three tiers (767/900/1100). Moved in place, not relocated, so
+   the cascade order that decides which rule wins is unchanged.
+2. Removing a worker spliced the roster but left `_finCompPerWorkerMethod` / `_finCompOverrides`
+   keyed by the old indexes, silently moving every later worker's settings onto their neighbour.
+   Both maps are now re-indexed.
+3. The employee-only and opt-out premium boxes on view 3 were editable for a non-admin.
+
+**Verification.** `npm test` (729/729; `test/finance-compensation-planner.test.js` rewritten to 42
+tests covering the handoff's §10 acceptance checks, with §5.12's worked example reproduced to the
+cent — $103,600 / $107,380 / $106,470 / $107,250, church cost $147,661, 99% of scale, 103% of
+median). Every new test was checked for vacuity by injecting the exact regression it guards
+(reverting §5.4, rounding the imported budget figure, dropping the re-index, counting
+report-less workers in the median total, letting a half-typed range count) — all five failed as
+they should. Plus: `node --check` on both built app-JS bundles, a tag-balance scan of the
+assembled `CHMS_HTML` and of all five rendered views, confirmation that `#fin-panel-compensation`
+still sits inside `.content-area` (the TAP2-BUG class), that all 29 inline handlers named in the
+rendered markup exist, and that all 32 of them run without throwing. The served bundle was swept
+for the `String.raw` double-escape/backtick bug class — the only 3 hits are pre-existing and in
+`js-giving.js`. **Not verified**: a live browser or a real print dialog — the standing caveat on
+all frontend work here.
+
+(`src/frontend/js-finance.js`, `src/frontend/html-head.js`, `src/frontend/html-tabs.js`,
+`test/finance-compensation-planner.test.js`, `test/finance-input-typing.test.js`)
+
 ### v1.141.0 — Compensation Planner: Salary Options / MO District Calculator / Concordia comparisons (2026-08-05)
 
 Four reported problems with the Compensation tab, plus one real bug found while fixing them.

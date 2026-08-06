@@ -25,9 +25,10 @@ function extract(name, kind = 'function') {
   return m[0];
 }
 
-// Real finSanitizeDecimalInput + real finSalaryRefHealthOptOutChange (the Health Opt-Out Cash box
-// in District Reference Data — the one specifically reported), with the re-render stubbed so the
-// test drives it explicitly below.
+// Real finSanitizeDecimalInput + real finCompRefChange (the Health Opt-Out Cash box on "This
+// year's rates" — the one specifically reported; it was finSalaryRefHealthOptOutChange before the
+// 2026-08 Compensation Planner redesign moved every annual figure onto one view), with the
+// re-render stubbed so the test drives it explicitly below.
 function loadHandlers() {
   const sandbox = {};
   const src = `
@@ -35,10 +36,11 @@ function loadHandlers() {
     var rerenderCalls = 0;
     function finRerenderPlanningPreserveFocus() { rerenderCalls++; }
     ${extract('finSanitizeDecimalInput')}
-    ${extract('finSalaryRefHealthOptOutChange')}
+    ${extract('FIN_COMP_PCT_REF_FIELDS', 'var')}
+    ${extract('finCompRefChange')}
     return {
       sanitize: finSanitizeDecimalInput,
-      onOptOutInput: finSalaryRefHealthOptOutChange,
+      onOptOutInput: function (year, value) { return finCompRefChange(year, 'healthOptOutCents', value); },
       ref: function () { return _finSalaryReferenceByYear; }
     };
   `;
@@ -105,7 +107,7 @@ describe('Compensation inputs are all typing-safe by construction', () => {
     .split('<input')
     .slice(1)
     .map(chunk => '<input' + chunk.slice(0, chunk.indexOf('>') + 1))
-    .filter(tag => /id="fin-salary-|id="fin-health-premium-/.test(tag));
+    .filter(tag => /id="fin-comp-/.test(tag));
 
   it('finds the Compensation inputs in the built bundle', () => {
     // Guards the two filters above from silently matching nothing after a refactor.
@@ -125,8 +127,11 @@ describe('Compensation inputs are all typing-safe by construction', () => {
     const offenders = compensationInputs
       .filter(tag => /oninput=/.test(tag))
       .filter(tag => !/finSanitizeDecimalInput\(this\)|finPlanSanitizeWholeDollarInput\(this\)/.test(tag))
-      // free-text fields (worker name, account code) legitimately take this.value verbatim
-      .filter(tag => !/id="fin-salary-(name|acct)-/.test(tag));
+      // Free-text fields legitimately take this.value verbatim: the worker's name and position,
+      // the per-year provenance/source lines, and the Concordia range figures + report metadata
+      // (hand-copied off a PDF, so "$103,609" / "103609.00" / "103,609" all have to survive —
+      // finConcordiaParseMoneyCents is what normalises those, at read time, not at keystroke time).
+      .filter(tag => !/id="fin-comp-(name|position|range|cpos|cdate|ref-(district|concordia|quote)Source)/.test(tag));
     expect(offenders).toEqual([]);
   });
 });

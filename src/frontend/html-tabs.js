@@ -1800,9 +1800,12 @@ export const HTML_TABS_2 = String.raw`
       </div>
 
       <div id="fin-panel-compensation" style="display:none;">
-        <div style="margin-bottom:16px;">
+        <!-- The title/subtitle/totals strip/sub-nav are rendered by finCompHeaderHtml() rather
+             than living here, because the subtitle is the live method summary and the strip is
+             the live totals — they have to move with every edit. This static block is only the
+             loading placeholder and the hidden year label the shell keeps in sync. -->
+        <div id="fin-comp-header-static" style="margin-bottom:16px;display:none;">
           <h2 style="font-family:var(--font-display);font-size:26px;font-weight:700;color:var(--color-navy);margin:0 0 2px;">Compensation Planner — FY<span id="fin-comp-year-label"></span></h2>
-          <div style="font-size:.82rem;color:var(--warm-gray);">Set base salaries using the LCMS Missouri District compensation guidelines, and model group health plan renewal options. Applies into the Planning tab's budget via each card's own "Apply to Plan"/"Use as Projected" controls.</div>
         </div>
         <div id="fin-comp-root">Loading…</div>
       </div>
