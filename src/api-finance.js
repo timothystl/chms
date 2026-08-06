@@ -1814,6 +1814,172 @@ export function computeIncomeExpenseMonthlyTrend(curYearMonthlyRows, throughMont
   return { available: true, throughMonth, months };
 }
 
+// ── Revenue streams: donor / earned / passive ───────────────────────────────────────────────
+// The Financial Health page reads the money a second way — not by account group but by WHO
+// controls it: donor revenue is the only stream the board can actually move, earned income is
+// reported to the board rather than managed by it, and passive income is a timing decision.
+//
+// The mapping is per income GROUP (a top-level child of the Income/Other Income classification,
+// e.g. "40 Offerings & Contributions"), keyed by that group's exact label, and is stored in
+// chms_config so an admin can correct it without a deploy — the classification of a church's own
+// chart of accounts is a judgement call this code cannot make for every church. The regex rules
+// below are only the DEFAULT applied to a group nobody has mapped yet; every group resolved that
+// way is also returned in `unmapped` so the Data & Imports tab can show what still needs a human
+// decision rather than silently asserting a guess.
+//
+// Unmatched groups default to `earned` deliberately: overstating donor revenue would overstate
+// how much of the budget the board can actually influence, which is the one claim this whole page
+// is built to make honestly.
+const REVENUE_STREAM_RULES = [
+  { stream: 'passive', re: /passive|endowment|investment|interest|dividend|ivanhoe|bequest|trust/i },
+  { stream: 'earned', re: /mdo|mother'?s day out|daycare|tuition|rental|rent\b|lease|fundrais|facility|sales|program fee|earned/i },
+  { stream: 'donor', re: /offering|contribution|donor|donation|gift|pledge|tithe|memorial|altar|restricted income/i },
+];
+export const REVENUE_STREAMS = ['donor', 'earned', 'passive'];
+export function classifyRevenueStream(label, overrides) {
+  const mapped = overrides && overrides[label];
+  if (mapped && REVENUE_STREAMS.includes(mapped)) return { stream: mapped, mapped: true };
+  for (const rule of REVENUE_STREAM_RULES) if (rule.re.test(label || '')) return { stream: rule.stream, mapped: false };
+  return { stream: 'earned', mapped: false };
+}
+// `entries` = a year's precedence-resolved period_month=0 rows. Groups revenue by the top-level
+// segment of each row's category_path (the chart-of-accounts group), because that is the level a
+// human can meaningfully classify — an individual leaf account is too granular to map by hand and
+// too volatile to keep mapped. Amounts are own_actual_cents, which is always non-cumulative, so
+// summing every row of a group can never double-count a "Total for X" subtotal.
+export function computeRevenueStreams(entries, overrides) {
+  const groups = new Map();
+  for (const r of entries || []) {
+    if (r.classification !== 'Income' && r.classification !== 'Other Income') continue;
+    const label = String(r.category_path || r.account_name || '').split(':')[0].trim();
+    if (!label) continue;
+    if (!groups.has(label)) groups.set(label, { cents: 0, budgetCents: 0 });
+    const g = groups.get(label);
+    g.cents += (r.own_actual_cents || 0);
+    if (r.own_budget_cents != null) g.budgetCents += r.own_budget_cents;
+  }
+  const streams = {
+    donor: { cents: 0, budgetCents: 0, groups: [] },
+    earned: { cents: 0, budgetCents: 0, groups: [] },
+    passive: { cents: 0, budgetCents: 0, groups: [] },
+  };
+  const unmapped = [];
+  for (const [label, g] of groups) {
+    const { stream, mapped } = classifyRevenueStream(label, overrides);
+    streams[stream].cents += g.cents;
+    streams[stream].budgetCents += g.budgetCents;
+    streams[stream].groups.push({ label, cents: g.cents, budgetCents: g.budgetCents });
+    if (!mapped) unmapped.push({ label, cents: g.cents, defaultedTo: stream });
+  }
+  for (const s of REVENUE_STREAMS) streams[s].groups.sort((a, b) => b.cents - a.cents);
+  unmapped.sort((a, b) => b.cents - a.cents);
+  const totalCents = streams.donor.cents + streams.earned.cents + streams.passive.cents;
+  const totalBudgetCents = streams.donor.budgetCents + streams.earned.budgetCents + streams.passive.budgetCents;
+  return { streams, totalCents, totalBudgetCents, unmapped };
+}
+// Where the money goes, split the same way the revenue side is: MDO accounts vs. everything else.
+// Uses the same MDO_MATCH_RE the daycare importer already keys on, so the two halves are exactly
+// the same set of accounts the Daycare Report is built from — and because every expense row lands
+// in exactly one half, the two outflows always sum to total expenses with nothing unaccounted for.
+export function computeMoneyFlow(entries) {
+  let mdoOutCents = 0, churchOutCents = 0;
+  for (const r of entries || []) {
+    if (r.classification !== 'Expenses' && r.classification !== 'Other Expenses' && r.classification !== 'Cost of Goods Sold') continue;
+    const cents = r.own_actual_cents || 0;
+    if (MDO_MATCH_RE.test(r.category_path) || MDO_MATCH_RE.test(r.account_name)) mdoOutCents += cents;
+    else churchOutCents += cents;
+  }
+  return { mdoOutCents, churchOutCents, totalOutCents: mdoOutCents + churchOutCents };
+}
+// ── Operating cash runway ────────────────────────────────────────────────────────────────────
+// Months of operating cash on hand against an admin-set policy floor. avgMonthlyExpenseCents is
+// this year's expense actuals divided by the months elapsed rather than a trailing-12 figure,
+// because a church that has only imported the current year still gets an honest answer; a year
+// with no expenses at all returns available:false rather than dividing by zero and reporting an
+// infinite runway, which would read as reassuring when it means "we have no data."
+export function computeCashRunway({ onHandCents, expensesYtdCents, monthsElapsed, policyFloorMonths }) {
+  const months = Math.max(1, monthsElapsed || 0);
+  const avgMonthlyExpenseCents = Math.round((expensesYtdCents || 0) / months);
+  if (!avgMonthlyExpenseCents || onHandCents == null) {
+    return { available: false, onHandCents: onHandCents == null ? null : onHandCents, avgMonthlyExpenseCents, policyFloorMonths };
+  }
+  const monthsOfCash = onHandCents / avgMonthlyExpenseCents;
+  const floorCents = Math.round(avgMonthlyExpenseCents * policyFloorMonths);
+  return {
+    available: true,
+    onHandCents,
+    avgMonthlyExpenseCents,
+    policyFloorMonths,
+    monthsOfCash,
+    floorCents,
+    gapToFloorCents: Math.max(0, floorCents - onHandCents),
+  };
+}
+// Best-effort operating cash from the stored QuickBooks account snapshot — the same name-matching
+// heuristic the retired Overview "Balances" row used, now server-side so the Health page and any
+// future consumer read one figure. An admin can override it outright (finance_cash_policy config)
+// when the heuristic picks up the wrong accounts, which is why the source is reported alongside.
+export function operatingCashFromAccounts(accountsPayload) {
+  const list = accountsPayload?.QueryResponse?.Account || [];
+  let cents = 0, matched = 0;
+  for (const a of list) {
+    if (!/checking|saving|reserve/i.test(a.Name || '')) continue;
+    cents += Math.round((Number(a.CurrentBalance) || 0) * 100);
+    matched++;
+  }
+  return matched ? { cents, matched } : null;
+}
+// ── Appeal ask ladder ────────────────────────────────────────────────────────────────────────
+// Distributes an appeal target across four fixed ask levels. Households per tier is a whole
+// number (you cannot ask 8.4 households for $2,500), so the ladder's total is recomputed from the
+// rounded rows rather than restated from the raw target — the header figure and the ladder total
+// are the same number by construction, never two figures that nearly agree. Rounding is upward so
+// the ladder always covers at least the target it was built for.
+export const APPEAL_TIERS = [
+  { askCents: 250000, weight: 0.28 },
+  { askCents: 100000, weight: 0.28 },
+  { askCents: 50000, weight: 0.28 },
+  { askCents: 20000, weight: 0.16 },
+];
+export function computeAppealLadder(targetCents) {
+  if (!targetCents || targetCents <= 0) return { tiers: [], totalCents: 0, totalHouseholds: 0 };
+  const tiers = APPEAL_TIERS.map(t => {
+    const households = Math.max(1, Math.ceil((targetCents * t.weight) / t.askCents));
+    return { askCents: t.askCents, households, raisesCents: households * t.askCents };
+  });
+  return {
+    tiers,
+    totalCents: tiers.reduce((s, t) => s + t.raisesCents, 0),
+    totalHouseholds: tiers.reduce((s, t) => s + t.households, 0),
+  };
+}
+// ── Daycare room occupancy ───────────────────────────────────────────────────────────────────
+// The three figures the Daycare Report's occupancy footnote states have to reconcile with the
+// per-room badges above them, so they are all derived here from one pass. Seasonal rooms (Summer
+// Camp) are excluded from the seat totals and counted separately — mixing a seasonal room into a
+// year-round capacity basis is exactly the "we are full" distortion this screen exists to avoid.
+export function computeRoomOccupancy(rooms) {
+  let filledSeats = 0, totalSeats = 0, waiting = 0, openSeatsUnderfilled = 0;
+  const seasonal = [];
+  for (const r of rooms || []) {
+    waiting += r.waitlist_families || 0;
+    if (r.seasonal) { seasonal.push(r.room_name); continue; }
+    const cap = r.capacity_per_day || 0;
+    const enrolled = r.avg_daily_enrolled || 0;
+    totalSeats += cap;
+    filledSeats += enrolled;
+    if (cap > 0 && enrolled / cap < 0.65) openSeatsUnderfilled += Math.max(0, cap - enrolled);
+  }
+  return {
+    filledSeats: Math.round(filledSeats),
+    totalSeats: Math.round(totalSeats),
+    overallPct: totalSeats > 0 ? filledSeats / totalSeats : null,
+    waitingFamilies: waiting,
+    openSeatsUnderfilled: Math.round(openSeatsUnderfilled),
+    seasonalRooms: seasonal,
+  };
+}
+
 // ── Commercial Property (Finance tab) ────────────────────────────────────────────────────
 // Groups a property's monthly rows + distributions by calendar year (the "period" field is
 // always 'YYYY-MM') into the same annual shape the 2026-07-20 data export used, plus each
@@ -1900,6 +2066,7 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
        ON CONFLICT(property_key, period) DO UPDATE SET revenue_cents=excluded.revenue_cents, expenses_cents=excluded.expenses_cents, net_income_cents=excluded.net_income_cents, source=excluded.source, updated_at=excluded.updated_at`
     ).bind(propertyKey, m.period, m.revenueCents, m.expensesCents, m.netIncomeCents));
     await db.batch(ops);
+    await recordImport(db, 'property_budget_xlsx', `${months.length} month(s)`);
     return json({ ok: true, imported: months.length, months });
   }
 
@@ -1960,6 +2127,7 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
          source_report=excluded.source_report, updated_at=excluded.updated_at`
     ).bind(propertyKey, r.period, r.occupancy_pct, r.total_revenue_cents, r.total_expenses_cents, r.net_income_cents, r.net_operating_income_cents, r.available_for_distribution_cents, r.reserve_balance_cents, b.source_report || 'csv_import'));
     await db.batch(ops);
+    await recordImport(db, 'property_monthly_csv', rows.map(r => r.period).join(', '));
     return json({ ok: true, imported: rows.length, periods: rows.map(r => r.period) });
   }
 
@@ -2111,6 +2279,50 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   }
 
   return undefined;
+}
+
+// ── Finance Workspace redesign: shared config readers + the import-staleness log ─────────────
+// Both settings live in chms_config as JSON blobs, the same pattern as the property meta and the
+// salary planner — no migration needed to add a key, and a corrupt/absent row falls back to the
+// documented default rather than throwing a 500 on a read path the whole tab depends on.
+async function readRevenueStreamOverrides(db) {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_revenue_streams'").first();
+  try { return row ? (JSON.parse(row.value).map || {}) : {}; } catch { return {}; }
+}
+const DEFAULT_CASH_POLICY = { policy_floor_months: 3, cash_on_hand_cents: null };
+async function readCashPolicy(db) {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_cash_policy'").first();
+  if (!row) return { ...DEFAULT_CASH_POLICY };
+  try {
+    const v = JSON.parse(row.value) || {};
+    return {
+      policy_floor_months: Number.isFinite(v.policy_floor_months) ? v.policy_floor_months : DEFAULT_CASH_POLICY.policy_floor_months,
+      cash_on_hand_cents: Number.isFinite(v.cash_on_hand_cents) ? v.cash_on_hand_cents : null,
+    };
+  } catch { return { ...DEFAULT_CASH_POLICY }; }
+}
+// Every importer stamps its key here on a successful commit, so the Data & Imports tab can show
+// what has gone stale without opening the report it feeds. Best-effort by design: an import that
+// succeeded must not be reported as failed because its bookkeeping row could not be written.
+export const FINANCE_IMPORTERS = [
+  { key: 'church_budget', label: 'Budget (single year)', group: 'church' },
+  { key: 'church_monthly_pnl', label: 'Monthly P&L', group: 'church' },
+  { key: 'church_activity_multi', label: 'Statement of Activity (multi-year)', group: 'church' },
+  { key: 'church_budget_multi', label: 'Budget by Year (multi-year)', group: 'church' },
+  { key: 'church_balance', label: 'Balance Sheet', group: 'church' },
+  { key: 'church_balance_multi', label: 'Financial Position (multi-year)', group: 'church' },
+  { key: 'property_monthly_csv', label: 'AHRA monthly financials (CSV)', group: 'other' },
+  { key: 'property_budget_xlsx', label: 'AHRA budget detail (xlsx)', group: 'other' },
+  { key: 'daycare_church_budget', label: 'MDO accounts from church budget', group: 'other' },
+  { key: 'daycare_bulk', label: 'Daycare bulk paste (past years)', group: 'other' },
+];
+async function recordImport(db, importerKey, note) {
+  try {
+    await db.prepare(
+      `INSERT INTO finance_import_log (importer_key,last_imported_at,note) VALUES (?,?,?)
+       ON CONFLICT(importer_key) DO UPDATE SET last_imported_at=excluded.last_imported_at, note=excluded.note`
+    ).bind(importerKey, new Date().toISOString(), note || '').run();
+  } catch { /* the import itself succeeded; staleness bookkeeping must never fail it */ }
 }
 
 export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, isFinance) {
@@ -2405,7 +2617,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // response contract the daycare app's /api/finance/summary endpoint must implement.
   if (seg === 'finance/daycare/sync' && method === 'POST') {
     const client = makeDaycareClient(env);
-    if (!client) return json({ error: 'The daycare app is not configured. Add DAYCARE_API_URL and DAYCARE_API_KEY (see SECRETS.md).' }, 503);
+    // makeDaycareClient can now also be built from the rooms URL alone, so check for the method
+    // this handler actually calls rather than for a truthy client.
+    if (!client || !client.summary) return json({ error: 'The daycare app is not configured. Add DAYCARE_API_URL and DAYCARE_API_KEY (see SECRETS.md).' }, 503);
     let res;
     try { res = await client.summary(); }
     catch (e) { return json({ error: 'Could not reach the daycare app: ' + e.message }, 502); }
@@ -2480,6 +2694,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const entries = extractMdoDaycareEntries(resolved, year);
     if (!entries.length) return json({ error: `No MDO-tagged accounts found in the imported budget for ${year}.` }, 400);
     await persistDaycareEntriesFromChurchBudget(db, entries, year);
+    await recordImport(db, 'daycare_church_budget', `FY${year}`);
     return json({ ok: true, year, imported: entries.length });
   }
 
@@ -2514,7 +2729,128 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       ).bind(r.period, String(r.category).trim(), entryType, amountCents, r.notes || ''));
     }
     await db.batch(ops);
+    await recordImport(db, 'daycare_bulk', `${ops.length} row(s)`);
     return json({ ok: true, imported: ops.length });
+  }
+
+  // ── Daycare: room-level monthly aggregates (Daycare Report, Screen 3) ────────────────────
+  // Four figures per room per month plus a waitlist count — capacity, average daily enrolled,
+  // billed revenue, labor cost — and deliberately nothing else. Returns available:false rather
+  // than an error when no period has been synced, so the report degrades to the existing
+  // category-by-year table instead of blanking: the daycare app's own endpoint for this does not
+  // exist yet (see DAYCARE_API.md in the design handoff), and this half has to ship without it.
+  if (seg === 'finance/daycare/rooms' && method === 'GET') {
+    const requested = url.searchParams.get('period');
+    const latest = requested
+      ? { period: requested }
+      : await db.prepare('SELECT period FROM finance_daycare_rooms ORDER BY period DESC LIMIT 1').first();
+    if (!latest?.period) return json({ available: false, period: null, rooms: [], occupancy: computeRoomOccupancy([]) });
+    const rooms = (await db.prepare(
+      'SELECT * FROM finance_daycare_rooms WHERE period=? ORDER BY room_name'
+    ).bind(latest.period).all()).results || [];
+    if (!rooms.length) return json({ available: false, period: latest.period, rooms: [], occupancy: computeRoomOccupancy([]) });
+    const periodsRow = (await db.prepare('SELECT DISTINCT period FROM finance_daycare_rooms ORDER BY period').all()).results || [];
+    return json({
+      available: true,
+      period: latest.period,
+      periods: periodsRow.map(p => p.period),
+      rooms,
+      occupancy: computeRoomOccupancy(rooms),
+      syncedAt: rooms[0].synced_at || '',
+    });
+  }
+
+  // Wholesale-replaces one period's rooms, the same pattern finance/daycare/sync uses for the
+  // money rows — a room that disappears from the daycare app's response for a period is meant to
+  // disappear here too, not linger as a stale row nobody can delete.
+  if (seg === 'finance/daycare/rooms/sync' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: syncing daycare room data requires admin access' }, 403);
+    const client = makeDaycareClient(env);
+    if (!client || !client.rooms) return json({ error: 'Daycare app room API is not configured (DAYCARE_ROOMS_API_URL)' }, 400);
+    let payload;
+    try {
+      const res = await client.rooms();
+      if (!res.ok) return json({ error: `Daycare app returned ${res.status}` }, 502);
+      payload = await res.json();
+    } catch (e) {
+      return json({ error: `Could not reach the daycare app: ${e.message}` }, 502);
+    }
+    const period = String(payload?.period || '');
+    if (!/^\d{4}-\d{2}$/.test(period)) return json({ error: 'Daycare app response is missing a valid "period" (YYYY-MM)' }, 502);
+    const rooms = Array.isArray(payload.rooms) ? payload.rooms : [];
+    const syncedAt = new Date().toISOString();
+    const ops = [db.prepare('DELETE FROM finance_daycare_rooms WHERE period=?').bind(period)];
+    for (const r of rooms) {
+      if (!r || !r.name) continue;
+      ops.push(db.prepare(
+        `INSERT INTO finance_daycare_rooms
+           (period,room_name,capacity_per_day,avg_daily_enrolled,billed_cents,labor_cost_cents,waitlist_families,seasonal,synced_at)
+         VALUES (?,?,?,?,?,?,?,?,?)`
+      ).bind(
+        period, String(r.name),
+        Number.isFinite(r.capacity_per_day) ? r.capacity_per_day : null,
+        Number.isFinite(r.avg_daily_enrolled) ? r.avg_daily_enrolled : null,
+        Number.isFinite(r.billed_cents) ? Math.round(r.billed_cents) : null,
+        Number.isFinite(r.labor_cost_cents) ? Math.round(r.labor_cost_cents) : null,
+        Number.isFinite(r.waitlist_families) ? Math.round(r.waitlist_families) : 0,
+        r.seasonal ? 1 : 0,
+        syncedAt
+      ));
+    }
+    await db.batch(ops);
+    return json({ ok: true, period, rooms: ops.length - 1, syncedAt });
+  }
+
+  // ── Revenue-stream classification (Financial Health page) ────────────────────────────────
+  // GET returns the stored per-group overrides alongside whatever the current year's data
+  // actually resolves to, so the editor lists the real groups this church has rather than asking
+  // an admin to type account names from memory.
+  if (seg === 'finance/revenue-streams' && method === 'GET') {
+    const year = parseInt(url.searchParams.get('year'), 10) || new Date().getFullYear();
+    const overrides = await readRevenueStreamOverrides(db);
+    const rows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(year).all()).results || [];
+    const resolved = computeRevenueStreams(resolveChurchYearPrecedence(rows), overrides);
+    return json({ year, overrides, ...resolved });
+  }
+  if (seg === 'finance/revenue-streams' && method === 'PUT') {
+    if (!isAdmin) return json({ error: 'Access denied: editing revenue-stream classification requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const map = {};
+    for (const [label, stream] of Object.entries(b.map || {})) {
+      if (!REVENUE_STREAMS.includes(stream)) return json({ error: `Invalid stream "${stream}" for "${label}"` }, 400);
+      map[String(label)] = stream;
+    }
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_revenue_streams',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(JSON.stringify({ map })).run();
+    return json({ ok: true, map });
+  }
+
+  // ── Cash policy (runway card) ────────────────────────────────────────────────────────────
+  if (seg === 'finance/cash-policy' && method === 'GET') return json(await readCashPolicy(db));
+  if (seg === 'finance/cash-policy' && method === 'PUT') {
+    if (!isAdmin) return json({ error: 'Access denied: editing the cash policy requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const months = Number(b.policy_floor_months);
+    if (!Number.isFinite(months) || months < 0 || months > 60) return json({ error: 'policy_floor_months must be between 0 and 60' }, 400);
+    let cents = null;
+    if (b.cash_on_hand_cents != null && b.cash_on_hand_cents !== '') {
+      cents = Math.round(Number(b.cash_on_hand_cents));
+      if (!Number.isFinite(cents)) return json({ error: 'Invalid cash_on_hand_cents' }, 400);
+    }
+    const value = { policy_floor_months: months, cash_on_hand_cents: cents };
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_cash_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(JSON.stringify(value)).run();
+    return json({ ok: true, ...value });
+  }
+
+  // ── Import staleness (Data & Imports tab) ────────────────────────────────────────────────
+  if (seg === 'finance/import-status' && method === 'GET') {
+    const rows = (await db.prepare('SELECT * FROM finance_import_log').all()).results || [];
+    const byKey = {};
+    for (const r of rows) byKey[r.importer_key] = { lastImportedAt: r.last_imported_at, note: r.note || '' };
+    return json({ importers: FINANCE_IMPORTERS.map(i => ({ ...i, ...(byKey[i.key] || { lastImportedAt: '', note: '' }) })) });
   }
 
   // ── Daycare: per-cell Budget override (editable directly in the Daycare Report table) ────
@@ -2618,6 +2954,96 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const givingByFund = givingByFundRows.map(r => ({ fundName: r.fund_name, cents: r.total || 0 }));
     const givingCents = givingByFund.reduce((sum, r) => sum + r.cents, 0);
 
+    // Donor revenue's restricted/unrestricted split and the giving-household count, both for the
+    // Health page's donor card. Restricted reuses funds.category (migration 0033) rather than a
+    // new flag — the Giving tab's fund lens already asks an admin to categorise every fund, so
+    // there is exactly one place that judgement gets made. Households: a giver with no household
+    // counts as their own, matching how reports/giving-bands scopes a household giver.
+    const donorSplitRow = await db.prepare(
+      `SELECT COALESCE(SUM(CASE WHEN f.category='restricted' THEN ge.amount ELSE 0 END),0) AS restricted_cents,
+              COALESCE(SUM(CASE WHEN f.category='restricted' THEN 0 ELSE ge.amount END),0) AS unrestricted_cents
+       FROM giving_entries ge JOIN funds f ON f.id = ge.fund_id
+       WHERE ge.contribution_date BETWEEN ? AND ?`
+    ).bind(`${year}-01-01`, `${year}-12-31`).first();
+    const householdsRow = await db.prepare(
+      `SELECT COUNT(DISTINCT CASE WHEN p.household_id IS NOT NULL AND p.household_id != 0
+                                  THEN 'h:' || p.household_id ELSE 'p:' || p.id END) AS n
+       FROM giving_entries ge JOIN people p ON p.id = ge.person_id
+       WHERE ge.contribution_date BETWEEN ? AND ? AND ge.person_id IS NOT NULL
+         AND LOWER(COALESCE(p.member_type,'')) != 'organization'`
+    ).bind(`${year}-01-01`, `${year}-12-31`).first();
+    const donorSplit = {
+      restrictedCents: donorSplitRow?.restricted_cents || 0,
+      unrestrictedCents: donorSplitRow?.unrestricted_cents || 0,
+    };
+    const givingHouseholds = householdsRow?.n || 0;
+
+    // Annual giving bands for the appeal card, so the ask ladder can be read against what
+    // households actually give. Deliberately computed here as ANNUAL totals rather than reused
+    // from reports/giving-bands, which buckets by weekly/monthly pace — translating a per-week
+    // band into "$2,000+ a year" would be an approximation sitting next to an exact ask ladder.
+    // The card's "Open giving bands →" link still goes to that report for the full analysis.
+    const bandRow = await db.prepare(
+      `SELECT SUM(CASE WHEN t >= 200000 THEN 1 ELSE 0 END) AS high,
+              SUM(CASE WHEN t >= 50000 AND t < 200000 THEN 1 ELSE 0 END) AS mid,
+              SUM(CASE WHEN t > 0 AND t < 50000 THEN 1 ELSE 0 END) AS low
+       FROM (SELECT SUM(ge.amount) AS t
+             FROM giving_entries ge JOIN people p ON p.id = ge.person_id
+             WHERE ge.contribution_date BETWEEN ? AND ? AND ge.person_id IS NOT NULL
+               AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+             GROUP BY CASE WHEN p.household_id IS NOT NULL AND p.household_id != 0
+                           THEN 'h:' || p.household_id ELSE 'p:' || p.id END)`
+    ).bind(`${year}-01-01`, `${year}-12-31`).first();
+    const donorBands = [
+      { label: '$2,000+ / yr', households: bandRow?.high || 0 },
+      { label: '$500–$2,000', households: bandRow?.mid || 0 },
+      { label: 'Under $500', households: bandRow?.low || 0 },
+    ];
+
+    // Revenue read by who controls it rather than by account group, plus where it flows back out.
+    // Both are pure functions over the rows already fetched above — no extra queries.
+    const streamOverrides = await readRevenueStreamOverrides(db);
+    const revenueStreams = computeRevenueStreams(entries, streamOverrides);
+    const flow = computeMoneyFlow(entries);
+
+    // Month-by-month giving from ChMS's own records, for the Health page's "giving against budget
+    // pace" chart. Deliberately ChMS giving rather than the church ledger's monthly Income, which
+    // also carries MDO tuition and rentals — the chart is about the offering plate, and labelling
+    // a mixed figure "giving" would be the kind of near-enough number this page exists to avoid.
+    const givingMonthlyRows = (await db.prepare(
+      `SELECT CAST(substr(ge.contribution_date,6,2) AS INTEGER) AS m, COALESCE(SUM(ge.amount),0) AS cents
+       FROM giving_entries ge
+       WHERE ge.contribution_date BETWEEN ? AND ?
+       GROUP BY m ORDER BY m`
+    ).bind(`${year}-01-01`, `${year}-12-31`).all()).results || [];
+    const givingByMonth = new Array(12).fill(0);
+    for (const r of givingMonthlyRows) if (r.m >= 1 && r.m <= 12) givingByMonth[r.m - 1] = r.cents || 0;
+    const givingMonthly = givingByMonth.map((cents, i) => ({ month: i + 1, cents }));
+
+    // Operating cash runway. Cash on hand prefers an explicit admin figure and falls back to the
+    // stored QuickBooks account snapshot; `cash.source` names which one produced the number, so a
+    // runway built on a name-matching heuristic never masquerades as a confirmed balance.
+    const cashPolicy = await readCashPolicy(db);
+    let onHandCents = cashPolicy.cash_on_hand_cents, cashSource = 'manual';
+    if (onHandCents == null) {
+      const snapRow = await db.prepare("SELECT value FROM finance_qb_snapshot WHERE key='accounts'").first();
+      let accounts = null;
+      try { accounts = snapRow?.value ? JSON.parse(snapRow.value) : null; } catch { accounts = null; }
+      const derived = accounts ? operatingCashFromAccounts(accounts) : null;
+      if (derived) { onHandCents = derived.cents; cashSource = 'quickbooks'; }
+      else cashSource = 'none';
+    }
+    const nowForCash = new Date();
+    const cash = {
+      ...computeCashRunway({
+        onHandCents,
+        expensesYtdCents: summary.classificationTotals?.Expenses?.actualCents || 0,
+        monthsElapsed: year === nowForCash.getFullYear() ? nowForCash.getMonth() + 1 : 12,
+        policyFloorMonths: cashPolicy.policy_floor_months,
+      }),
+      source: cashSource,
+    };
+
     // YoY-to-date + year-end projection — only meaningful for the current year (a past year's
     // "as of today" comparison doesn't mean anything); needs monthly-granularity rows, which the
     // sync only populates for current + prior year (see the sync handler below).
@@ -2656,6 +3082,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       ...summary,
       givingCents,
       givingByFund,
+      donorSplit,
+      givingHouseholds,
+      donorBands,
+      givingMonthly,
+      revenueStreams,
+      flow,
+      cash,
       monthlyTrend,
       yoy,
       supplies,
@@ -2674,8 +3107,16 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const allRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${placeholders}) AND period_month=0`).bind(...years).all()).results || [];
     const resolved = resolveChurchYearPrecedence(allRows);
     const byYear = {};
-    years.forEach(y => { byYear[y] = computeYearSummary(resolved.filter(r => r.fiscal_year === y)); });
-    return json({ years, byYear });
+    const streamsByYear = {};
+    const streamOverridesMulti = await readRevenueStreamOverrides(db);
+    years.forEach(y => {
+      const yearRows = resolved.filter(r => r.fiscal_year === y);
+      byYear[y] = computeYearSummary(yearRows);
+      // Donor/earned/passive per year, so the Health page's five-year mix chart reads the same
+      // classification the current-year mix bar does rather than a second, parallel rule.
+      streamsByYear[y] = computeRevenueStreams(yearRows, streamOverridesMulti);
+    });
+    return json({ years, byYear, streamsByYear });
   }
 
   // ── Clear stored Church budget/actuals data (user decision 2026-07-28: after repeated
@@ -2759,6 +3200,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       || !Number.isFinite(r.own_actual_cents) || !Number.isFinite(r.own_budget_cents));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
     await persistChurchEntriesImport(db, rows, fiscalYear, new Date().toISOString());
+    await recordImport(db, 'church_budget', `FY${fiscalYear}`);
     return json({ ok: true, fiscalYear, imported: rows.length });
   }
 
@@ -2795,6 +3237,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       || !Number.isFinite(r.own_actual_cents));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
     await persistChurchEntriesMonthlyImport(db, rows, fiscalYear, new Date().toISOString());
+    await recordImport(db, 'church_monthly_pnl', `FY${fiscalYear}`);
     return json({ ok: true, fiscalYear, imported: rows.length });
   }
 
@@ -2831,6 +3274,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       || !Number.isInteger(r.fiscal_year) || !(Number.isFinite(r.own_actual_cents) || Number.isFinite(r.own_budget_cents)));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
     await persistChurchEntriesActivityImport(db, rows, years, new Date().toISOString());
+    await recordImport(db, 'church_activity_multi', years.join(', '));
     return json({ ok: true, years, imported: rows.length });
   }
 
@@ -2863,6 +3307,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       || !Number.isInteger(r.fiscal_year) || !(Number.isFinite(r.own_actual_cents) || Number.isFinite(r.own_budget_cents)));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
     await persistChurchEntriesBudgetMultiYearImport(db, rows, years, new Date().toISOString());
+    await recordImport(db, 'church_budget_multi', years.join(', '));
     return json({ ok: true, years, imported: rows.length });
   }
 
@@ -2899,6 +3344,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number' || !Number.isFinite(r.own_balance_cents));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
     await persistChurchBalancesImport(db, rows, fiscalYear, String(b.as_of_date || ''), new Date().toISOString());
+    await recordImport(db, 'church_balance', `FY${fiscalYear}`);
     return json({ ok: true, fiscalYear, imported: rows.length });
   }
 
@@ -2932,6 +3378,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       || !Number.isInteger(r.fiscal_year) || !Number.isFinite(r.own_balance_cents));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
     await persistChurchBalancesMultiYearImport(db, rows, years, new Date().toISOString());
+    await recordImport(db, 'church_balance_multi', years.join(', '));
     return json({ ok: true, years, imported: rows.length });
   }
 
