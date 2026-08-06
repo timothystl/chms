@@ -1189,6 +1189,48 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   reference in the column header tooltip that would have thrown at render time. Not verified in a
   live browser. Done 2026-08-05 (v1.128.0). (`src/api-finance.js`, `src/frontend/js-finance.js`,
   `test/finance-budget-plan.test.js`)
+- [x] **FIN54 — Compensation Planner redesign + Council report (2026-08-06).** Built from the
+  `design_handoff_compensation_planner` bundle (README + an interactive planner prototype carrying
+  the whole calculation engine + a printable Council report). Replaces `finRenderCompensation()`
+  and everything under it: four stacked cards and several hundred words of prose become **five
+  views behind one sub-nav** (`1 · Set pay` / `2 · Check fairness` / `3 · Health plan` /
+  `This year's rates` / `Council summary`) under a persistent navy totals strip, so no input is
+  ever on a different screen from its consequence. **The one deliberate maths change**: COLA and
+  Custom now grow the worker's **current pay**; only District Scale runs the district formula.
+  Before, all three growth methods computed from the district table, so for a year with a
+  published base salary (which FY2027 has) they showed the identical number — reading as a bug and
+  making a COLA inexpressible. **Every pure function is untouched** — `finComputeLcmsSalary`,
+  `finLcmsMultiplierFor`, `finRoundSalaryCents`, `finComputeEmployerFicaCents`,
+  `finComputePensionCents`, the Concordia rate lookups, the four health breakeven functions,
+  `finAccountBudgetCentsForCode`; `test/finance-salary-calculator.test.js` (which reconciles them
+  against the published PDFs) needed no changes. Every annual figure now lives in one place:
+  `_finSalaryReferenceByYear[year]` gained `pensionPct`/`ficaPct`/`disabilityDepsPct`/
+  `disabilityNoDepsPct`/`ssaColaPct` + provenance strings, resolved entered-year → most recent
+  earlier entered year → code constant, with the UI naming which it used rather than silently
+  substituting. The old roster-wide pension/disability overrides and the `colaSource` key migrate
+  into that shape on read (`finCompMigrateSavedShape`) — left as globals they would have kept
+  applying with no UI left to clear them. The Council report is a purpose-built flowing document
+  (drafted motion, cost-to-full-scale alternative labelled as an alternative, a page per worker,
+  group health plan, reference figures with sources), not the workspace with its chrome hidden.
+  **Three real problems the tests caught before shipping**: the new CSS added a fourth breakpoint
+  (600px), which `test/breakpoints.test.js` correctly rejected — this codebase has exactly three
+  tiers (MOB3); removing a worker left `_finCompPerWorkerMethod`/`_finCompOverrides` keyed by the
+  old indexes, silently shifting every later worker's settings onto their neighbour; and the
+  employee-only/opt-out premium boxes were editable for a non-admin. `npm test` (729/729; the
+  compensation test file rewritten to 42 tests covering the handoff's §10 acceptance checks, with
+  §5.12's worked example reproduced to the cent — $103,600 / $107,380 / $106,470 / $107,250,
+  church cost $147,661, 99% of scale, 103% of median). **Every new test verified non-vacuous** by
+  injecting the exact regression it guards (all five failed as they should). Plus `node --check` on
+  both built bundles, a tag-balance scan of the assembled `CHMS_HTML` and of all five rendered
+  views, confirmation `#fin-panel-compensation` still sits inside `.content-area` (the TAP2-BUG
+  class), that all 29 inline handlers named in the markup exist, and that all 32 run without
+  throwing; the served bundle swept for the `String.raw` escaping bug class (3 hits, all
+  pre-existing, all in `js-giving.js`). **Not verified**: a live browser or a real print dialog —
+  same standing caveat as all frontend work here. **Deliberately dropped**: the old "Other Benefits
+  ($/yr, entered)" free figure, which is not in the handoff's data model and had no home in the new
+  layout — say if it needs to come back. (`src/frontend/js-finance.js`,
+  `src/frontend/html-head.js`, `src/frontend/html-tabs.js`,
+  `test/finance-compensation-planner.test.js`, `test/finance-input-typing.test.js`)
 - [x] **FIN53** — Four reported Compensation Planner problems, plus one real bug found while fixing
   them. (1) **The "None (flat)" column is no longer editable** — it is the current budget, imported
   from the worker's linked payroll account, and an edit box on an already-correct figure invited

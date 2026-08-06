@@ -762,6 +762,160 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-yearend-bar-projected{height:100%;background:var(--color-teal);opacity:.4;}
 .fin-yearend-bar-row.expense .fin-yearend-bar-actual,.fin-yearend-bar-row.expense .fin-yearend-bar-projected{background:var(--color-gold);}
 .fin-yearend-marker{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--color-navy);}
+/* ── Compensation Planner (2026-08 handoff): a persistent header + navy totals strip + five
+   views behind one pill sub-nav. Every colour below is an existing brand token — the handoff's
+   own Design Tokens table was reconciled against :root above and matched exactly. ── */
+.fin-comp-shell{display:flex;flex-direction:column;gap:14px;margin-bottom:14px;}
+.fin-comp-titlebar{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;}
+.fin-comp-title{font-family:var(--font-display);font-size:29px;font-weight:700;color:var(--color-navy);line-height:1.05;}
+.fin-comp-subtitle{font-size:.8rem;color:var(--warm-gray);}
+.fin-comp-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.fin-comp-strip{background:var(--color-navy);border-radius:16px;padding:15px 22px;color:var(--white);display:grid;grid-template-columns:1fr 1fr 1fr 1.3fr;gap:22px;align-items:center;box-shadow:0 10px 24px rgba(30,45,74,.2);}
+@media(max-width:900px){.fin-comp-strip{grid-template-columns:1fr 1fr;}}
+@media(max-width:767px){.fin-comp-strip{grid-template-columns:1fr;}}
+.fin-comp-strip-lbl{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6);}
+.fin-comp-strip-val{font-size:23px;font-weight:800;font-variant-numeric:tabular-nums;}
+.fin-comp-strip-val.gold{color:var(--pale-gold);}
+.fin-comp-strip-delta{border-left:1px solid rgba(255,255,255,.25);padding-left:22px;}
+@media(max-width:900px){.fin-comp-strip-delta{border-left:none;padding-left:0;}}
+.fin-comp-pills{display:flex;align-items:center;gap:6px;background:var(--linen);border-radius:99px;padding:4px;flex-wrap:wrap;align-self:flex-start;}
+.fin-comp-pill{padding:7px 16px;border-radius:99px;font-size:.82rem;font-weight:700;cursor:pointer;color:var(--warm-meta);white-space:nowrap;}
+.fin-comp-pill.active{background:var(--color-navy);color:var(--white);}
+.fin-comp-toast{background:var(--color-navy);color:var(--white);padding:9px 16px;border-radius:8px;font-size:.84rem;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.fin-comp-plan-grid{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;align-items:start;}
+.fin-comp-plan-grid.closed{grid-template-columns:minmax(0,1fr);}
+@media(max-width:1100px){.fin-comp-plan-grid{grid-template-columns:minmax(0,1fr);}}
+.fin-comp-chiprow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+.fin-comp-chiprow-lbl{font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--warm-meta);}
+.fin-comp-chip{padding:5px 12px;border-radius:99px;font-size:.78rem;font-weight:700;cursor:pointer;background:var(--linen);color:var(--warm-meta);white-space:nowrap;}
+.fin-comp-chip.active{background:var(--color-navy);color:var(--white);}
+.fin-comp-link{font-size:.76rem;font-weight:700;color:var(--color-teal);cursor:pointer;}
+.fin-comp-table{width:100%;border-collapse:collapse;font-size:.82rem;}
+.fin-comp-th{text-align:left;padding:8px 6px;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-meta);border-bottom:1.5px solid var(--border);font-weight:700;}
+.fin-comp-th.num{text-align:right;}
+.fin-comp-th.active{background:var(--blue-mist);color:var(--color-navy);cursor:pointer;}
+.fin-comp-td{padding:11px 6px;vertical-align:top;}
+.fin-comp-td.num{text-align:right;font-variant-numeric:tabular-nums;}
+.fin-comp-td.active{font-weight:700;color:var(--charcoal);background:var(--blue-mist);}
+.fin-comp-td.edited{font-weight:700;color:var(--deep-amber);background:var(--warm-surface-header);}
+.fin-comp-row{border-bottom:1px solid var(--warm-row-divider);}
+.fin-comp-row.selected{background:var(--warm-surface-page);}
+.fin-comp-total-row{border-top:2px solid var(--color-navy);font-weight:700;}
+.fin-comp-add{display:inline-flex;align-items:center;gap:7px;font-size:.8rem;font-weight:700;color:var(--color-teal);cursor:pointer;}
+.fin-comp-add-plus{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--color-teal);display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;}
+.fin-comp-cardfoot{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;}
+.fin-comp-cardhd{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
+.fin-comp-drawer{padding:18px 20px;display:flex;flex-direction:column;gap:12px;}
+.fin-comp-drawer-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+.fin-comp-drawer-name{font-family:var(--font-display);font-size:23px;font-weight:700;color:var(--color-navy);line-height:1.1;}
+.fin-comp-drawer-h{font-size:.8rem;font-weight:700;color:var(--color-navy);margin-top:4px;}
+.fin-comp-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+.fin-comp-tile{background:var(--color-cream);border-radius:11px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;}
+.fin-comp-tile.teal{background:var(--blue-mist);}
+.fin-comp-tile-lbl{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--warm-meta);}
+.fin-comp-tile-lbl.teal{color:var(--color-teal);}
+.fin-comp-tile.teal .fin-comp-tile-lbl{color:var(--color-teal);}
+.fin-comp-tile-val{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--charcoal);}
+.fin-comp-fieldgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+.fin-comp-field{display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:var(--warm-gray);min-width:0;}
+.fin-comp-field input,.fin-comp-field select{width:100%;min-width:0;padding:5px 7px;border:1.5px solid var(--border);border-radius:7px;font-size:.8rem;font-family:var(--font-body);background:var(--white);}
+.fin-comp-note{font-size:.72rem;color:var(--warm-gray);}
+.fin-comp-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;border-radius:9px;padding:8px 12px;font-size:.8rem;color:var(--warm-ink-label);flex-wrap:wrap;}
+.fin-comp-bar b{font-variant-numeric:tabular-nums;color:var(--charcoal);}
+.fin-comp-bar.cream{background:var(--color-cream);}
+.fin-comp-bar.page{background:var(--warm-surface-page);}
+.fin-comp-bar.mist{background:var(--blue-mist);margin-top:12px;}
+.fin-comp-paylist{display:flex;flex-direction:column;gap:6px;}
+.fin-comp-payrow{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.8rem;color:var(--warm-gray);}
+.fin-comp-payrow b{font-variant-numeric:tabular-nums;color:var(--charcoal);}
+.fin-comp-payrow.total{font-size:.88rem;border-top:1px solid var(--border);padding-top:6px;}
+.fin-comp-payrow.total span{font-weight:700;color:var(--color-navy);}
+.fin-comp-inline-check{font-size:.72rem;color:var(--warm-gray);display:inline-flex;align-items:center;gap:4px;margin-left:6px;}
+.fin-comp-seca{display:flex;justify-content:space-between;gap:8px;font-size:.8rem;background:var(--warm-surface-header);border-radius:8px;padding:8px 10px;color:var(--warm-ink-label);}
+.fin-comp-seca b{font-variant-numeric:tabular-nums;}
+.fin-comp-legend{display:flex;gap:20px;font-size:.72rem;color:var(--warm-gray);flex-wrap:wrap;margin-bottom:8px;}
+.fin-comp-swatch{display:inline-block;vertical-align:middle;}
+.fin-comp-swatch.fill{width:16px;height:9px;background:var(--color-teal);opacity:.22;border-radius:5px;}
+.fin-comp-swatch.mid{width:3px;height:12px;background:var(--color-teal);}
+.fin-comp-swatch.salary{width:3px;height:12px;background:var(--color-gold);}
+.fin-comp-fairblock{border-top:1px solid var(--warm-row-divider);padding-top:14px;margin-top:14px;display:flex;flex-direction:column;gap:10px;}
+.fin-comp-fairhd{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+.fin-comp-verdict{padding:5px 12px;border-radius:99px;font-size:.76rem;font-weight:700;white-space:nowrap;}
+.fin-comp-ranges{display:flex;flex-direction:column;gap:12px;}
+.fin-comp-rangerow{display:grid;grid-template-columns:160px minmax(0,1fr) 210px;gap:14px;align-items:center;}
+@media(max-width:767px){.fin-comp-rangerow{grid-template-columns:minmax(0,1fr);gap:4px;}}
+.fin-comp-rangelbl{font-size:.78rem;font-weight:600;color:var(--warm-ink-label);}
+.fin-comp-rangenum{font-size:.74rem;color:var(--warm-gray);font-variant-numeric:tabular-nums;}
+.fin-comp-track{height:14px;border-radius:7px;background:var(--linen);position:relative;}
+.fin-comp-fill{position:absolute;top:0;bottom:0;border-radius:7px;background:var(--color-teal);opacity:.22;}
+.fin-comp-tick{position:absolute;width:3px;}
+.fin-comp-tick.mid{top:-4px;bottom:-4px;background:var(--color-teal);}
+.fin-comp-tick.salary{top:-7px;bottom:-7px;background:var(--color-gold);}
+.fin-comp-noreport{font-size:.78rem;color:var(--warm-gray);background:var(--color-cream);border-radius:10px;padding:10px 14px;}
+.fin-comp-plangrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px;}
+@media(max-width:900px){.fin-comp-plangrid{grid-template-columns:1fr 1fr;}}
+@media(max-width:767px){.fin-comp-plangrid{grid-template-columns:1fr;}}
+.fin-comp-plancard{border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;cursor:pointer;background:var(--white);border:1.5px solid var(--border);}
+.fin-comp-plancard.active{background:var(--blue-mist);border:2px solid var(--color-navy);}
+.fin-comp-radio{width:15px;height:15px;border-radius:50%;flex-shrink:0;background:var(--white);border:1.5px solid #C4B99E;}
+.fin-comp-radio.active{border:5px solid var(--color-navy);}
+.fin-comp-details{margin-top:12px;}
+.fin-comp-details summary{cursor:pointer;font-size:.78rem;font-weight:700;color:var(--color-teal);}
+.fin-comp-ratesbanner{background:var(--warm-surface-header);border-radius:14px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+.fin-comp-yearsel{padding:6px 10px;border:1.5px solid var(--color-gold);border-radius:8px;font-size:.86rem;font-weight:700;background:var(--white);color:var(--color-navy);font-family:var(--font-body);}
+.fin-comp-ratesgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;}
+@media(max-width:900px){.fin-comp-ratesgrid{grid-template-columns:1fr;}}
+.fin-comp-rategrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+@media(max-width:767px){.fin-comp-rategrid{grid-template-columns:1fr;}}
+.fin-comp-reflabel{display:flex;flex-direction:column;gap:4px;font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);min-width:0;}
+.fin-comp-reflabel input,.fin-comp-reflabel select{padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-size:.92rem;font-variant-numeric:tabular-nums;letter-spacing:0;text-transform:none;color:var(--charcoal);font-family:var(--font-body);}
+.fin-comp-reflabel-hd{font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--warm-meta);}
+.fin-comp-warn{font-size:.78rem;color:var(--deep-amber);background:var(--warm-surface-header);border-radius:9px;padding:9px 12px;margin-top:10px;}
+.fin-comp-histchip{padding:5px 10px;border-radius:8px;font-size:.76rem;font-variant-numeric:tabular-nums;background:var(--color-cream);color:var(--warm-meta);}
+.fin-comp-histchip.active{background:var(--blue-mist);color:var(--color-navy);font-weight:700;}
+.fin-comp-quote-active{background:var(--blue-mist);}
+.fin-comp-lcms-row{background:var(--blue-mist);}
+.fin-comp-counciltiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:18px;}
+@media(max-width:900px){.fin-comp-counciltiles{grid-template-columns:1fr 1fr;}}
+@media(max-width:767px){.fin-comp-counciltiles{grid-template-columns:1fr;}}
+.fin-comp-ctile{background:var(--color-cream);border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:3px;}
+.fin-comp-ctile.mist{background:var(--blue-mist);}
+.fin-comp-ctile.navy{background:var(--color-navy);}
+.fin-comp-ctile.navy .fin-comp-tile-lbl{color:rgba(255,255,255,.6);}
+.fin-comp-ctile-val{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--charcoal);}
+.fin-comp-ctile.mist .fin-comp-ctile-val{color:var(--color-navy);}
+.fin-comp-ctile-val.gold{color:var(--pale-gold);}
+/* The Council report. Hidden on screen — it exists only to be printed, and printing the workspace
+   with the chrome hidden would not give the flowing, per-worker-page document the handoff calls
+   for. finCompPrintCouncil() renders into it, adds body.printing-comp, and calls window.print(). */
+.fin-comp-print-root{display:none;}
+.fin-comp-rpt{font-size:9.5pt;color:var(--charcoal);}
+.fin-comp-rpt-hd{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding-bottom:6px;border-bottom:1px solid var(--border);font-size:9pt;color:var(--warm-meta);font-weight:700;letter-spacing:.04em;margin-bottom:16px;}
+.fin-comp-rpt-kicker{font-size:9.5pt;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--color-gold);}
+.fin-comp-rpt-h1{font-family:var(--font-display);font-size:30pt;font-weight:700;color:var(--color-navy);line-height:1.05;margin:2px 0;}
+.fin-comp-rpt-h2{font-family:var(--font-display);font-size:16pt;font-weight:700;color:var(--color-navy);margin:16px 0 6px;}
+.fin-comp-rpt-sub{font-size:10.5pt;color:var(--warm-ink-label);margin-bottom:14px;}
+.fin-comp-rpt-p{font-size:10.5pt;line-height:1.55;margin:0 0 10px;}
+.fin-comp-rpt-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+.fin-comp-rpt-tile{background:var(--color-cream);border-radius:8px;padding:11px 13px;}
+.fin-comp-rpt-tile.mist{background:var(--blue-mist);}
+.fin-comp-rpt-tile.navy{background:var(--color-navy);color:var(--white);}
+.fin-comp-rpt-tile-lbl{font-size:8pt;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--warm-meta);}
+.fin-comp-rpt-tile.navy .fin-comp-rpt-tile-lbl{color:rgba(255,255,255,.65);}
+.fin-comp-rpt-tile-val{font-size:17pt;font-weight:800;font-variant-numeric:tabular-nums;}
+.fin-comp-rpt-tile.navy .fin-comp-rpt-tile-val{color:var(--pale-gold);}
+.fin-comp-rpt-motion{background:var(--warm-surface-header);border-radius:8px;padding:13px 16px;margin-bottom:16px;font-size:10.5pt;line-height:1.5;}
+.fin-comp-rpt-motion-h{font-size:11pt;font-weight:700;color:var(--warm-ink-label);margin-bottom:4px;}
+.fin-comp-rpt-table{width:100%;border-collapse:collapse;font-size:9.5pt;margin-bottom:10px;}
+.fin-comp-rpt-table th{text-align:left;padding:6px 5px;font-size:8pt;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-meta);border-bottom:1.5px solid var(--color-navy);}
+.fin-comp-rpt-table td{padding:7px 5px;border-bottom:1px solid var(--warm-row-divider);vertical-align:top;}
+.fin-comp-rpt-table .n{text-align:right;font-variant-numeric:tabular-nums;}
+.fin-comp-rpt-table th.n{text-align:right;}
+.fin-comp-rpt-table .b{font-weight:700;}
+.fin-comp-rpt-table .mut{color:var(--warm-gray);}
+.fin-comp-rpt-table tr.tot td{border-top:2px solid var(--color-navy);border-bottom:none;font-weight:700;}
+.fin-comp-rpt-table tr.lcms{background:var(--blue-mist);}
+.fin-comp-rpt-ft{border-top:1px solid var(--border);padding-top:6px;font-size:8.5pt;color:var(--warm-meta);margin-top:14px;}
 .ppl-card-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:var(--warm-surface-card-page);padding:16px;border-radius:12px;}
 @media(max-width:1100px){.ppl-card-grid{grid-template-columns:1fr;}}
 .ppl-card{background:var(--warm-surface-card);border-radius:12px;border-left:4px solid var(--status-member);box-shadow:0 2px 10px rgba(120,90,30,.08);padding:14px 16px;cursor:pointer;position:relative;transition:box-shadow .15s;}
@@ -1145,6 +1299,21 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
      for Church/Daycare/Giving Reports) hide. Overview has no print button so it never prints. */
   .fin-subnav{display:none!important;}
   #fin-panel-overview{display:none!important;}
+  /* Compensation: "Print for Council" renders a purpose-built flowing document into
+     #fin-comp-print-root and sets body.printing-comp. That document is the ONLY thing that
+     prints — the workspace with its chrome hidden is a different layout entirely (a drafted
+     motion, a page per worker, full range tables), so it is hidden rather than reformatted. */
+  body.printing-comp .tab-panel:not(#tab-finance){display:none!important;}
+  body.printing-comp #tab-finance{display:block!important;}
+  body.printing-comp #tab-finance > div > div > div:not(#fin-panel-compensation){display:none!important;}
+  body.printing-comp #fin-comp-root > *:not(.fin-comp-print-root){display:none!important;}
+  body.printing-comp #fin-comp-header-static{display:none!important;}
+  body.printing-comp .fin-comp-print-root{display:block!important;}
+  .fin-comp-rpt-worker{break-before:page;break-inside:avoid;}
+  .fin-comp-rpt-page{break-before:page;}
+  .fin-comp-rpt .kt{break-inside:avoid;orphans:3;widows:3;}
+  .fin-comp-rpt-table thead{display:table-header-group;}
+  @page{margin:0.7in;}
 }
 /* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) — a
    left-side navy menu column matching the design mockup's inner "TLC Admin"
