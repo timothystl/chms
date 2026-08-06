@@ -24,6 +24,29 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.146.0 — Compensation: current pay entered by hand (2026-08-06)
+
+A worker whose wages sit INSIDE a budget line shared with other staff — the daycare director paid
+out of the daycare payroll account, say — had no way to be costed correctly. Linking them to that
+account read the whole line (several people's wages) as one person's pay; leaving them unlinked read
+nothing at all. Either way "No raise", COLA and Custom were all computed off a wrong number, with
+nothing on screen to say so.
+
+New **FY{base} current pay** box on the worker drawer (`finCompCurrentPayChange` /
+`finCompClearCurrentPay`), writing `w.actualSalaryCents`. The read side already existed in
+`finCompCurrentPayCents` but nothing had ever set it — a legacy field left reachable by the pre-FIN54
+layout and orphaned by the redesign. An entered figure beats the account lookup for that worker only;
+the box shows the account figure as its placeholder, and a "use the budget line" link clears it. It
+persists with the roster, so no new endpoint or migration.
+
+The drawer note was also factually wrong and is corrected: it claimed "the plan total is applied back
+to it", but `finCompSendToBudget` writes one grand total to a single chosen salary account, never
+per-worker.
+
+`npm test` (785/785, 7 new); each new test verified non-vacuous by removing the `actualSalaryCents`
+read and confirming 3 of them fail. Not verified in a live browser.
+(`src/frontend/js-finance.js`, `test/finance-compensation-planner.test.js`)
+
 ### v1.145.0 — Compensation: part-time staff (FTE marker + cash-salary-only) (2026-08-06)
 
 Asked for a checkbox to exclude part-time employees from the health plan, disability and so on —

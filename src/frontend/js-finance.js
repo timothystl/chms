@@ -5066,6 +5066,8 @@ function finCompRenderDrawer(computed) {
     : w.role === 'commissioned'
       ? 'The district scales commissioned workers by education track &mdash; that track is what changes the District Compensation Worksheet figure.'
       : 'The district publishes a separate scale per job type. Education is recorded but does not change the figure.';
+  var payEntered = w.actualSalaryCents != null;
+  var acctPayCents = finAccountBudgetCentsForCode(w.accountCode);
   var overridden = c.overridden;
   var salaryBox = '<input type="text" inputmode="decimal" id="fin-comp-salary-' + i + '" value="' + (overridden ? _finCompOverrides[i] : Math.round(c.salaryCents / 100)) + '" oninput="finCompSalaryOverride(' + i + ',finPlanSanitizeWholeDollarInput(this))" style="width:104px;text-align:right;font-weight:700;' + (overridden ? 'background:var(--warm-surface-header);border:1.5px solid var(--color-gold);' : '') + '">';
   var meta = [w.position, w.yearsExperience + ' yrs', finCompEducationLabel(w), trackSet && trackSet[w.trackKey] ? trackSet[w.trackKey].label : '', w.accountCode ? 'budget line ' + w.accountCode : 'no budget line'].filter(Boolean).join(' &middot; ');
@@ -5074,11 +5076,18 @@ function finCompRenderDrawer(computed) {
     + '<label class="fin-comp-field">Name<input type="text" id="fin-comp-name-' + i + '" value="' + esc(w.name || '') + '" oninput="finCompWorkerChange(' + i + ',&quot;name&quot;,this.value)"></label>'
     + '<label class="fin-comp-field">Position<input type="text" id="fin-comp-position-' + i + '" value="' + esc(w.position || '') + '" oninput="finCompWorkerChange(' + i + ',&quot;position&quot;,this.value)"></label>'
     + '<label class="fin-comp-field" style="grid-column:1/-1;">Budget line<select onchange="finCompWorkerChange(' + i + ',&quot;accountCode&quot;,this.value)">' + acctOptions + '</select></label>'
+    + '<label class="fin-comp-field" style="grid-column:1/-1;">FY' + _finPlanBaseYear + ' current pay'
+    + '<span style="display:inline-flex;align-items:center;gap:8px;">'
+    + '<input type="text" inputmode="decimal" id="fin-comp-curpay-' + i + '" value="' + (payEntered ? Math.round(w.actualSalaryCents / 100) : '') + '" placeholder="' + (acctPayCents != null ? Math.round(acctPayCents / 100) : 'not set') + '" oninput="finCompCurrentPayChange(' + i + ',finPlanSanitizeWholeDollarInput(this))" style="width:120px;text-align:right;' + (payEntered ? 'background:var(--warm-surface-header);border:1.5px solid var(--color-gold);font-weight:700;' : '') + '">'
+    + (payEntered ? '<a href="javascript:void(0)" onclick="finCompClearCurrentPay(' + i + ')" style="font-size:.72rem;">&#8634; use the budget line</a>' : '')
+    + '</span></label>'
     + '</div>'
-    + '<div class="fin-comp-note" style="color:' + (w.accountCode ? 'var(--warm-gray)' : 'var(--deep-amber)') + ';">'
-    + (w.accountCode
-        ? 'FY' + _finPlanBaseYear + ' figure and the &ldquo;no raise&rdquo; column read from ' + esc(w.accountCode) + '; the plan total is applied back to it.'
-        : 'Not linked &mdash; the FY' + _finPlanBaseYear + ' figure has to be typed by hand and nothing is applied back to the budget.')
+    + '<div class="fin-comp-note" style="color:' + ((payEntered || w.accountCode) ? 'var(--warm-gray)' : 'var(--deep-amber)') + ';">'
+    + (payEntered
+        ? 'Current pay is entered by hand, so the &ldquo;no raise&rdquo; column and every % growth are computed off ' + finCompMoney(w.actualSalaryCents) + ' rather than the budget line. Use this when a worker&#39;s wages sit inside a line shared with other staff.'
+        : w.accountCode
+          ? 'FY' + _finPlanBaseYear + ' current pay reads the whole Budget figure on ' + esc(w.accountCode) + '. If other staff are paid from that same line, type this worker&#39;s own wage above instead.'
+          : 'Not linked and nothing entered &mdash; current pay reads as $0, so &ldquo;no raise&rdquo; and every % growth will too. Link a budget line or type the wage above.')
     + '</div>'
     + '<div class="fin-comp-drawer-h">District Compensation Worksheet inputs</div>'
     + '<div class="fin-comp-fieldgrid">'
@@ -5653,6 +5662,22 @@ function finCompFteChange(i, value) {
 }
 function finCompCashOnlyToggle(i, checked) {
   _finSalaryRoster[i].cashOnly = !!checked;
+  finRerenderPlanningPreserveFocus();
+}
+// A hand-entered FY-base current pay, for a worker whose wages sit INSIDE a shared budget line —
+// the daycare director inside the daycare payroll account, say. Linking them to that account would
+// read the whole line (several people's wages) as one person's pay; leaving them unlinked would
+// read nothing. Either way "No raise", COLA and Custom would all be computed off a wrong number.
+// An entered figure beats the account lookup for this worker only; everyone else is unaffected.
+function finCompCurrentPayChange(i, value) {
+  var w = _finSalaryRoster[i];
+  var n = parseFloat(String(value == null ? '' : value).replace(/[^0-9.]/g, ''));
+  if (String(value || '').trim() === '' || !isFinite(n)) delete w.actualSalaryCents;
+  else w.actualSalaryCents = Math.round(n * 100);
+  finRerenderPlanningPreserveFocus();
+}
+function finCompClearCurrentPay(i) {
+  delete _finSalaryRoster[i].actualSalaryCents;
   finRerenderPlanningPreserveFocus();
 }
 function finCompSecaToggle(i, checked) {
