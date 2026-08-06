@@ -97,7 +97,6 @@ function seedState(ctx) {
   ctx._finCompView = 'plan';
   ctx._finHealthPlanSelectedOption = 'renewal';
   ctx._finHealthPlanPremiumOverrides = {};
-  ctx._finHealthPlanContracts = null;
 }
 
 // Renders a view and hands back its HTML, the way the real tab does.
@@ -204,22 +203,23 @@ describe('§10.3 — a rate change moves everything in one render', () => {
   });
 });
 
-describe('§10.4 — the plan choice only moves family-tier figures', () => {
+describe('§10.4 — the plan choice only moves enrolled figures', () => {
   it('repricing to Option 1 leaves the opt-out worker untouched', () => {
     const before = ctx.finCompComputeAll();
-    expect(before[0].benefits.healthCents).toBe(2687124); // family, renewal / 2
+    // Family tier: $2,051.00/mo x 12, plus an even share of dental and vision across 2 enrolled.
+    expect(before[0].benefits.healthCents).toBe(2687124);
     expect(before[2].benefits.healthCents).toBe(600000);  // opt-out cash
     ctx.finCompPickPlan('option1');
     const after = ctx.finCompComputeAll();
-    expect(after[0].benefits.healthCents).toBe(3091704);  // $30,917 — Option 1 / 2 contracts
+    expect(after[0].benefits.healthCents).toBe(3091704);  // $2,388.15/mo x 12 + share
     expect(after[1].benefits.healthCents).toBe(3091704);
     expect(after[2].benefits.healthCents).toBe(600000);   // unchanged
   });
 
-  it('clamps a zeroed contract count to 1 rather than dividing by zero', () => {
-    ctx.finCompContractsChange('0');
-    expect(ctx.finCompContractCount()).toBe(1);
-    expect(Number.isFinite(ctx.finCompComputeAll()[0].benefits.healthCents)).toBe(true);
+  it('does not divide by zero when nobody is enrolled', () => {
+    ctx._finSalaryRoster.forEach((w, i) => ctx.finCompSetHealthTier(i, 'optout'));
+    expect(ctx.finCompEnrolledCount()).toBe(0);
+    ctx.finCompComputeAll().forEach(c => expect(Number.isFinite(c.benefits.healthCents)).toBe(true));
   });
 });
 
@@ -490,5 +490,73 @@ describe('§5.11 / §8 — the Council report', () => {
     const computed = ctx.finCompComputeAll();
     const html = ctx.finCompCouncilReportHtml(computed, ctx.finCompTotals(computed));
     expect(html).toContain('That is an alternative, not the plan');
+  });
+});
+
+// A worker whose wages sit INSIDE a budget line shared with other staff — the daycare director
+// inside the daycare payroll account. Linking them to that account reads several people's wages as
+// one person's pay; leaving them unlinked reads nothing. Either way "no raise" and every % growth
+// would be computed off a wrong number, silently.
+describe('current pay entered by hand', () => {
+  let ctx;
+  beforeEach(() => { ctx = makeCtx(); seedState(ctx); });
+
+  it('reads the whole shared line until a figure is entered', () => {
+    // 58010 is budgeted $74,516 across several people; Knapp is one of them.
+    expect(ctx.finCompCurrentPayCents(ctx._finSalaryRoster[1])).toBe(7451600);
+    ctx.finCompCurrentPayChange(1, '38000');
+    expect(ctx.finCompCurrentPayCents(ctx._finSalaryRoster[1])).toBe(3800000);
+  });
+
+  it('is what "no raise" and every % growth are then computed from', () => {
+    ctx.finCompCurrentPayChange(1, '38000');
+    expect(ctx.finCompMethodSalaryCents(ctx._finSalaryRoster[1], 'none')).toBe(3800000);
+    // COLA grows the entered figure, not the shared line.
+    const cola = ctx.finCompMethodSalaryCents(ctx._finSalaryRoster[1], 'cola');
+    expect(cola).toBeGreaterThan(3800000);
+    expect(cola).toBeLessThan(4100000);
+  });
+
+  it('leaves everyone else on their own budget line', () => {
+    ctx.finCompCurrentPayChange(1, '38000');
+    expect(ctx.finCompCurrentPayCents(ctx._finSalaryRoster[0])).toBe(DINGER_BUDGET_CENTS);
+  });
+
+  it('clears back to the budget line, rather than sticking at zero', () => {
+    ctx.finCompCurrentPayChange(1, '38000');
+    ctx.finCompClearCurrentPay(1);
+    expect(ctx._finSalaryRoster[1].actualSalaryCents).toBeUndefined();
+    expect(ctx.finCompCurrentPayCents(ctx._finSalaryRoster[1])).toBe(7451600);
+    // An emptied box is the same as never having typed one — not $0.
+    ctx.finCompCurrentPayChange(1, '38000');
+    ctx.finCompCurrentPayChange(1, '');
+    expect(ctx.finCompCurrentPayCents(ctx._finSalaryRoster[1])).toBe(7451600);
+  });
+
+  it('works for a worker with no budget line at all', () => {
+    ctx._finSalaryRoster[1].accountCode = '';
+    expect(ctx.finCompCurrentPayCents(ctx._finSalaryRoster[1])).toBe(0);
+    ctx.finCompCurrentPayChange(1, '38000');
+    expect(ctx.finCompCurrentPayCents(ctx._finSalaryRoster[1])).toBe(3800000);
+  });
+
+  it('is saved with the roster, so it survives a reload', () => {
+    ctx.finCompCurrentPayChange(1, '38000');
+    expect(ctx.finSalaryBuildSaveBody().roster[1].actualSalaryCents).toBe(3800000);
+  });
+
+  it('offers the box in the drawer and says which figure is in play', () => {
+    ctx.__store['fin-comp-root'] = ctx.__el();
+    ctx._finCompView = 'plan';
+    ctx._finCompSelected = 1;
+    ctx.finRenderCompensation();
+    let html = ctx.__store['fin-comp-root'].innerHTML;
+    expect(html).toContain('fin-comp-curpay-1');
+    expect(html).toContain('other staff are paid from that same line');
+    ctx.finCompCurrentPayChange(1, '38000');
+    ctx.finRenderCompensation();
+    html = ctx.__store['fin-comp-root'].innerHTML;
+    expect(html).toContain('entered by hand');
+    expect(html).toContain('finCompClearCurrentPay(1)');
   });
 });

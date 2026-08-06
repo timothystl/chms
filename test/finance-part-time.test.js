@@ -75,7 +75,7 @@ beforeEach(() => {
   ctx._finSalaryReferenceByYear = { 2027: { pensionPct: 0.117, disabilityNoDepsPct: 0.012, ficaPct: 0.0765, ssaColaPct: 0.028, healthOptOutCents: 600000 } };
   ctx._finCompMethod = 'none';
   ctx._finCompPerWorkerMethod = {}; ctx._finCompOverrides = {};
-  ctx._finHealthPlanSelectedOption = 'renewal'; ctx._finHealthPlanPremiumOverrides = {}; ctx._finHealthPlanContracts = null;
+  ctx._finHealthPlanSelectedOption = 'renewal'; ctx._finHealthPlanPremiumOverrides = {};
 });
 
 describe('the FTE marker', () => {
