@@ -24,6 +24,69 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.143.0 — Giving Nudges: send the plateau analysis as mail (2026-08-06)
+
+Asked for a Communications tab for the Plateaus & Nudges report, "so we can communicate these
+nudges." Scoped with the user first (`AskUserQuestion`) rather than guessed, because "a tab for it"
+could mean a nav shortcut or a real send flow, and the send flow contains a pastoral decision:
+**full send flow**, with letters **naming each recipient's own figures**.
+
+New **Giving → Communications → Giving nudges** pane. Pick a year, fund, grouping and ask level
+(Modest/Standard/Generous); get a recipient list with each giver's current level, what they're
+invited to, and what it's worth; select; Email or Print. Sends land in the same
+`giving_letter_sends` ledger the Letters pane uses (new `letter_type` `nudge`), so a run is
+resumable and nobody is asked twice — printing records too, since printing is a send.
+
+**Figures are stated in the rhythm each giver actually gives in.** This was the user's own
+follow-up ("if they are monthly or annual givers note that") and it turned out to matter more than
+it sounds. The analysis normalises everyone to a weekly-equivalent figure so a weekly regular and a
+single December stock gift are comparable — right for the analysis, wrong for the letter. New pure
+`classifyGivingCadence()` / `cadenceAmountCents()` and per-giver `cadence*` fields put a monthly
+giver's letter in months and an annual giver's in years.
+
+**Three real bugs found while building it, each caught by a harness rather than by reading:**
+1. **The pane would have rendered an empty list, always.** `computeGivingPlateaus()` returns
+   `summary`/`tiers`/`distribution` — never a flat `givers` array, which is what addressing a
+   letter needs. Now returned, and stripped back out of the plateaus report response so that
+   payload doesn't double.
+2. **A giver of exactly $200/month would have been told they give $199.** $2,400/yr is $46.15/wk →
+   rounds to $46/wk → back out as $199.33/mo. Double-rounding through the weekly-equivalent. The
+   cadence figure is now derived from the annualised total directly. A letter that misstates
+   someone's own giving by a dollar is precisely the credibility failure this feature exists to
+   avoid.
+3. **The letter's own numbers disagreed with each other.** "+$60 a month" sat next to "about $728
+   over a year" ($60 × 12 = $720; $728 came from the weekly-derived figure). New
+   `cadence_annual_delta_cents` is rebuilt from the rounded cadence delta, so every figure in one
+   letter reconciles. Both annual figures are kept and commented — the analysis one still totals
+   the report's headline upside.
+
+**The giver query is now shared, not copied** (`fetchGivingPlateauRows` in `api-utils.js`). The
+report and the letters run the identical query, so the list written to can never be a different set
+of people than the list reviewed. A test asserts neither module keeps a private copy.
+
+Two existing tests changed, both for real reasons rather than to go green: `giving-letters.test.js`
+counted six letter types (now seven), and `giving-plateaus.test.js` asserted a weekly giver and a
+one-time giver get byte-identical options. The second is the interesting one — it is still true of
+the *analysis* fields, and deliberately false of the new *cadence* fields, so the assertion was
+narrowed to the analysis fields and a companion test added asserting the cadence presentation
+does differ.
+
+**Verification.** `npm test` (757/757; 30 new in `test/giving-nudges.test.js`, which runs the real
+helpers against a real in-memory SQLite database and the real letter builder out of the built
+bundle). Every new test checked for vacuity by injecting the exact regression it guards — the
+double-rounding, raw-count cadence, the non-reconciling annual figure, and the missing giver list —
+all four failed as they should. Plus `node --check` on the built bundle and all three touched
+backend modules, and a tag-balance scan of the assembled `CHMS_HTML`. **Not verified**: a live
+browser, a real email send, or a real print dialog.
+
+**The letter copy is drafted and should be read before any real send.** It thanks the giver, states
+what they currently give, names one concrete next step, and frames it as "an invitation and never
+an expectation" — but it is my wording, not the pastor's.
+
+(`src/api-utils.js`, `src/api-giving.js`, `src/api-reports.js`, `src/frontend/js-giving.js`,
+`src/frontend/html-tabs.js`, `test/giving-nudges.test.js`, `test/giving-plateaus.test.js`,
+`test/giving-letters.test.js`)
+
 ### v1.142.0 — Compensation Planner redesign + Council report (2026-08-06)
 
 Built from the `design_handoff_compensation_planner` bundle (README + a fully-interactive planner

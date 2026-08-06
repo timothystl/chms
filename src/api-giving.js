@@ -1,6 +1,6 @@
 // ── Giving Entries, Batches, Quick Entry API handlers ──────────────────────
 import { json } from './auth.js';
-import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue, computeDepositTotals, batchDepositStatus, batchDepositStatusFromCounts } from './api-utils.js';
+import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeDepositTotals, batchDepositStatus, batchDepositStatusFromCounts } from './api-utils.js';
 
 export async function handleGivingApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
@@ -417,6 +417,119 @@ if (seg === 'giving/letters/mark' && method === 'POST') {
   ).bind(person_id ? parseInt(person_id) : 0, household_id ? parseInt(household_id) : null,
          Number(year), letter_type, channel, recipient_key).run();
   return json({ ok: true });
+}
+
+// ── Giving Nudges workspace ──────────────────────────────────────────────────
+// The Plateaus & Nudges analysis is what decides WHO to write to and WHAT to ask; this turns
+// that into a sendable recipient list. Same giver query and same computeGivingPlateaus call the
+// report uses (fetchGivingPlateauRows — shared, not copied, so the letter can never address a
+// different set of people than the report that was approved), joined to contact details and to
+// the send ledger so a run is resumable and nobody is asked twice.
+//
+// Each recipient carries their figures in THEIR OWN rhythm (weekly/monthly/quarterly/annual, see
+// classifyGivingCadence) rather than the weekly-equivalent the analysis normalises to — telling a
+// monthly giver they give "$43 a week" reads as though nobody looked at their record.
+if (seg === 'giving/nudges/status' && method === 'GET') {
+  const year = parseInt(url.searchParams.get('year') || '', 10);
+  if (!year || isNaN(year)) return json({ error: 'year required' }, 400);
+  const scope = url.searchParams.get('scope') === 'person' ? 'person' : 'household';
+  const fundId = parseInt(url.searchParams.get('fund_id') || '', 10) || 0;
+  const channel = url.searchParams.get('channel') === 'print' ? 'print' : 'email';
+  const optionKey = ['modest', 'standard', 'generous'].indexOf(url.searchParams.get('option') || 'standard');
+  const optionIdx = optionKey < 0 ? 1 : optionKey;
+  const lowFrequencyMax = Math.max(1, Math.min(parseInt(url.searchParams.get('low_frequency_max') || '3', 10) || 3, 51));
+
+  const rows = await fetchGivingPlateauRows(db, { year, scope, fundId });
+  let impactStatements = [];
+  try {
+    const impRow = await db.prepare("SELECT value FROM chms_config WHERE key='giving_impact_statements_json'").first();
+    if (impRow?.value) impactStatements = JSON.parse(impRow.value);
+  } catch {}
+  const weeksElapsed = plateauWeeksElapsed(year);
+  const analysis = computeGivingPlateaus(rows, { periodsElapsed: weeksElapsed, impactStatements, lowFrequencyMax });
+  const givers = analysis.givers || [];
+
+  // Contact details, in two bulk lookups rather than one per giver. A household writes to the
+  // head's email (same preference order the letters workspace uses); a person writes to their own.
+  const hhIds = givers.filter(g => g.link_kind === 'household').map(g => g.link_id);
+  const personIds = givers.filter(g => g.link_kind === 'person').map(g => g.link_id);
+  const contacts = new Map();
+  // D1 caps parameters at ~100 per statement, so both lookups are chunked.
+  for (let i = 0; i < hhIds.length; i += 80) {
+    const chunk = hhIds.slice(i, i + 80);
+    if (!chunk.length) continue;
+    const res = (await db.prepare(
+      `SELECT h.id,
+              (SELECT p.email FROM people p WHERE p.household_id=h.id AND p.active=1 AND p.email != ''
+                 ORDER BY CASE WHEN p.family_role='head' THEN 0 ELSE 1 END, p.id LIMIT 1) AS email,
+              (SELECT p.first_name || ' ' || p.last_name FROM people p WHERE p.household_id=h.id AND p.active=1 AND p.email != ''
+                 ORDER BY CASE WHEN p.family_role='head' THEN 0 ELSE 1 END, p.id LIMIT 1) AS recipient_name,
+              (SELECT p.id FROM people p WHERE p.household_id=h.id AND p.active=1 AND p.email != ''
+                 ORDER BY CASE WHEN p.family_role='head' THEN 0 ELSE 1 END, p.id LIMIT 1) AS recipient_person_id
+         FROM households h WHERE h.id IN (${chunk.map(() => '?').join(',')})`
+    ).bind(...chunk).all()).results || [];
+    for (const r of res) contacts.set('h' + r.id, r);
+  }
+  for (let i = 0; i < personIds.length; i += 80) {
+    const chunk = personIds.slice(i, i + 80);
+    if (!chunk.length) continue;
+    const res = (await db.prepare(
+      `SELECT id, email, (first_name || ' ' || last_name) AS recipient_name, id AS recipient_person_id
+         FROM people WHERE id IN (${chunk.map(() => '?').join(',')})`
+    ).bind(...chunk).all()).results || [];
+    for (const r of res) contacts.set('p' + r.id, r);
+  }
+
+  const sentRows = (await db.prepare(
+    `SELECT recipient_key FROM giving_letter_sends
+      WHERE year=? AND letter_type='nudge' AND channel=? AND recipient_key IS NOT NULL`
+  ).bind(year, channel).all()).results || [];
+  const sentKeys = new Set(sentRows.map(r => r.recipient_key));
+
+  const recipients = givers.map(g => {
+    const key = (g.link_kind === 'household' ? 'h' : 'p') + g.link_id;
+    const c = contacts.get(key) || {};
+    const opt = g.options[optionIdx] || g.options[g.options.length - 1] || null;
+    return {
+      recipient_key: key, kind: g.link_kind, id: g.link_id, name: g.name,
+      email: c.email || '', has_email: !!c.email,
+      recipient_name: c.recipient_name || g.name,
+      recipient_person_id: c.recipient_person_id || (g.link_kind === 'person' ? g.link_id : null),
+      sent: sentKeys.has(key),
+      gifts: g.gifts, total_cents: g.total_cents,
+      weekly_cents: g.weekly_cents,
+      cadence: g.cadence, cadence_label: g.cadence_label, cadence_adverb: g.cadence_adverb,
+      cadence_amount_cents: g.cadence_amount_cents,
+      low_frequency: g.low_frequency, all_manual_methods: g.all_manual_methods,
+      option: opt && {
+        label: opt.label,
+        target_cents: opt.target_cents,
+        cadence_target_cents: opt.cadence_target_cents,
+        cadence_delta_cents: opt.cadence_delta_cents,
+        // Two annual figures, deliberately. cadence_annual_delta_cents is what the LETTER says,
+        // rebuilt from the rounded cadence delta so it always reconciles with the "+$30 a month"
+        // above it. annual_delta_cents is the analysis figure the Plateaus report totals on, kept
+        // so the workspace and the report agree on the headline upside.
+        cadence_annual_delta_cents: opt.cadence_annual_delta_cents,
+        annual_delta_cents: opt.annual_delta_cents,
+        impact_text: opt.impact_text,
+      },
+    };
+  }).filter(r => r.option).sort((a, b) => b.total_cents - a.total_cents);
+
+  const counts = {
+    total: recipients.length,
+    sent: recipients.filter(r => r.sent).length,
+    unsent: recipients.filter(r => !r.sent).length,
+    no_email: recipients.filter(r => !r.has_email).length,
+  };
+  return json({
+    year, scope, channel, fund_id: fundId || null,
+    option: ['modest', 'standard', 'generous'][optionIdx],
+    partial: year === new Date().getUTCFullYear(),
+    upside_annual_cents: recipients.filter(r => !r.sent).reduce((s, r) => s + (r.option.annual_delta_cents || 0), 0),
+    recipients, counts,
+  });
 }
 
 // ── Thank-you receipt queue (GIV-R4 / A) ─────────────────────────────────────

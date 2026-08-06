@@ -538,6 +538,110 @@ export function pickImpactPhrase(monthlyDeltaCents, statements) {
 // distinct contributions) is carried through so the UI can still frame an
 // infrequent giver's ask narratively ("you gave $X last year — about $Y/wk")
 // rather than implying they should literally write 52 checks.
+// ── Shared giver-rows query for the plateau analysis ──────────────────────
+// One row per giver with their whole-year total and gift count. Used by BOTH
+// reports/giving-plateaus (the analysis) and giving/nudges/status (the letters built from it) —
+// shared rather than copied, because two versions of this query drifting apart would mean the
+// letter quietly addressing a different set of people than the report you approved.
+//
+// In household scope the "giver" is the household, so spouses' gifts combine; givers with no
+// household stand alone as link_kind='person'.
+export function plateauWeeksElapsed(year, now = new Date()) {
+  if (year !== now.getUTCFullYear()) return 52;
+  const days = Math.floor((now.getTime() - Date.UTC(year, 0, 1)) / 86400000) + 1;
+  return Math.max(1, Math.min(52, Math.ceil(days / 7)));
+}
+export async function fetchGivingPlateauRows(db, { year, scope, fundId }) {
+  const start = year + '-01-01', end = year + '-12-31';
+  const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
+  const fundClause = fundId ? ' AND ge.fund_id = ?' : '';
+  const fundBind = fundId ? [fundId] : [];
+  // Same automatic/recurring method set as bucketGivingMethod()'s 'ach' bucket — used only to
+  // flag whether a low-frequency giver already gives via some form of autopay.
+  const autoMethodClause = "LOWER(ge.method) IN ('ach','online','card','credit','credit card','debit','eft','bank','auto','recurring','paypal','venmo','zelle')";
+  if (scope === 'household') {
+    const housed = "p.household_id IS NOT NULL AND p.household_id != 0";
+    // Group key as an expression (NOT aliased "person_id" — that would collide with the
+    // ge.person_id column and SQLite would group by the person, not the household, so spouses'
+    // gifts wouldn't merge).
+    const keyExpr = `CASE WHEN ${housed} THEN 'h:' || p.household_id ELSE 'p:' || p.id END`;
+    return (await db.prepare(
+      `SELECT ${keyExpr} AS person_id,
+              CASE WHEN ${housed}
+                   THEN COALESCE(NULLIF(h.name,''),
+                        (SELECT hp.last_name || ' Household' FROM people hp
+                          WHERE hp.household_id = p.household_id AND hp.last_name != '' LIMIT 1),
+                        'Household #' || p.household_id)
+                   ELSE (p.first_name || ' ' || p.last_name) END AS name,
+              CASE WHEN ${housed} THEN p.household_id ELSE p.id END AS link_id,
+              CASE WHEN ${housed} THEN 'household' ELSE 'person' END AS link_kind,
+              SUM(ge.amount) AS total_cents,
+              COUNT(*) AS gifts,
+              SUM(CASE WHEN ${autoMethodClause} THEN 1 ELSE 0 END) AS auto_gifts
+       FROM giving_entries ge
+       JOIN giving_batches gb ON gb.id = ge.batch_id
+       JOIN people p ON p.id = ge.person_id
+       LEFT JOIN households h ON h.id = p.household_id
+       WHERE ${effDate} >= ? AND ${effDate} <= ?
+         AND ge.person_id IS NOT NULL
+         AND LOWER(COALESCE(p.member_type,'')) != 'organization'${fundClause}
+       GROUP BY ${keyExpr}`
+    ).bind(start, end, ...fundBind).all()).results || [];
+  }
+  return (await db.prepare(
+    `SELECT ge.person_id AS person_id,
+            (p.first_name || ' ' || p.last_name) AS name,
+            p.id AS link_id, 'person' AS link_kind,
+            SUM(ge.amount) AS total_cents,
+            COUNT(*) AS gifts,
+            SUM(CASE WHEN ${autoMethodClause} THEN 1 ELSE 0 END) AS auto_gifts
+     FROM giving_entries ge
+     JOIN giving_batches gb ON gb.id = ge.batch_id
+     JOIN people p ON p.id = ge.person_id
+     WHERE ${effDate} >= ? AND ${effDate} <= ?
+       AND ge.person_id IS NOT NULL
+       AND LOWER(COALESCE(p.member_type,'')) != 'organization'${fundClause}
+     GROUP BY ge.person_id`
+  ).bind(start, end, ...fundBind).all()).results || [];
+}
+
+// ── Giving cadence ────────────────────────────────────────────────────────
+// The plateau analysis deliberately normalises everyone to a weekly-equivalent figure, so a
+// weekly regular, a monthly giver and a single annual gift are all comparable. That is right for
+// the ANALYSIS and wrong for the LETTER: telling someone who writes one cheque a month that they
+// "give $43 a week" reads as though we haven't looked at their record. So each giver also carries
+// the rhythm they actually give in, and every figure shown to them is expressed in it.
+//
+// Classified on gifts-per-year annualised from the elapsed window, not raw count, so a giver
+// analysed halfway through a year isn't mistaken for a less frequent one.
+export const GIVING_CADENCES = [
+  { key: 'weekly',    label: 'Weekly',      adverb: 'a week',    periodsPerYear: 52, minAnnualGifts: 30 },
+  { key: 'monthly',   label: 'Monthly',     adverb: 'a month',   periodsPerYear: 12, minAnnualGifts: 9 },
+  { key: 'quarterly', label: 'Quarterly',   adverb: 'a quarter', periodsPerYear: 4,  minAnnualGifts: 3 },
+  { key: 'occasional',label: 'Occasional',  adverb: 'a year',    periodsPerYear: 1,  minAnnualGifts: 2 },
+  { key: 'annual',    label: 'Once a year', adverb: 'a year',    periodsPerYear: 1,  minAnnualGifts: 0 },
+];
+export function classifyGivingCadence(gifts, periodsElapsed) {
+  const weeks = Math.max(1, Math.min(52, Number(periodsElapsed) || 52));
+  const n = Math.max(0, Math.round(Number(gifts) || 0));
+  const annualGifts = n * (52 / weeks);
+  for (const c of GIVING_CADENCES) {
+    if (annualGifts >= c.minAnnualGifts) return c;
+  }
+  return GIVING_CADENCES[GIVING_CADENCES.length - 1];
+}
+// An ANNUAL figure restated in the giver's own rhythm, rounded to whole dollars in that rhythm —
+// so a monthly giver is nudged from $185 to $215, not to $214.67.
+//
+// Deliberately takes the annual figure, not the weekly-equivalent one. Going via the weekly figure
+// rounds twice, and the error is not academic: someone giving exactly $200 a month is $2,400/yr,
+// which is $46.15/wk, which rounds to $46/wk, which comes back out as $199 a month. A letter that
+// tells a giver they give $199 a month when they give $200 reads as though nobody looked at their
+// record — the exact failure the whole cadence idea exists to avoid.
+export function cadenceAmountCents(annualCents, periodsPerYear) {
+  const per = Math.max(1, Number(periodsPerYear) || 1);
+  return Math.round((Number(annualCents) || 0) / per / 100) * 100;
+}
 export function computeGivingPlateaus(rows, opts = {}) {
   const periodsElapsed = Math.max(1, Math.min(52, opts.periodsElapsed || 52));
   const peopleCap = opts.peopleCap || 500;
@@ -570,13 +674,27 @@ export function computeGivingPlateaus(rows, opts = {}) {
     const weeklyDollars = Math.round(p.total_cents / periodsElapsed / 100);
     if (weeklyDollars <= 0) continue;
     const weeklyCents = weeklyDollars * 100;
+    const cadence = classifyGivingCadence(p.gifts, periodsElapsed);
+    // Annualised from the elapsed window so a part-year figure isn't reported as a full year's
+    // giving, and taken from the raw total rather than the rounded weekly figure (see
+    // cadenceAmountCents). This is the number the giver themselves would recognise.
+    const annualisedCents = Math.round(p.total_cents * 52 / periodsElapsed);
+    const cadenceNowCents = cadenceAmountCents(annualisedCents, cadence.periodsPerYear);
     const options = computeNudgeOptions(weeklyDollars).map(o => {
       const deltaCents = o.delta_dollars * 100;
       const annualDeltaCents = deltaCents * 52;
       const monthlyDeltaCents = Math.round(deltaCents * 52 / 12);
+      const targetCents = o.target_dollars * 100;
+      // The same option restated in the giver's own rhythm — what the letter actually says. The
+      // delta is the difference of the two ROUNDED cadence figures, not the rounded weekly delta
+      // rescaled, so "from $185 to $215" always reads as exactly +$30 rather than +$29.67. The
+      // annual figure is then rebuilt FROM that delta, so every number in one letter reconciles
+      // against the others — "+$30 a month" and "about $360 over a year" can never disagree.
+      const cadenceTargetCents = cadenceAmountCents(targetCents * 52, cadence.periodsPerYear);
+      const cadenceDeltaCents = cadenceTargetCents - cadenceNowCents;
       return {
         label: o.label,
-        target_cents: o.target_dollars * 100,
+        target_cents: targetCents,
         delta_cents: deltaCents,
         pct_increase: o.pct_increase,
         // Always a concrete annual dollar figure — the baseline "impact" —
@@ -584,6 +702,9 @@ export function computeGivingPlateaus(rows, opts = {}) {
         annual_delta_cents: annualDeltaCents,
         new_annual_total_cents: o.target_dollars * 100 * 52,
         impact_text: pickImpactPhrase(monthlyDeltaCents, impactStatements),
+        cadence_target_cents: cadenceTargetCents,
+        cadence_delta_cents: cadenceDeltaCents,
+        cadence_annual_delta_cents: cadenceDeltaCents * cadence.periodsPerYear,
       };
     });
     const standard = options[1] || options[options.length - 1];
@@ -593,6 +714,13 @@ export function computeGivingPlateaus(rows, opts = {}) {
       weekly_cents: weeklyCents,
       total_cents: p.total_cents,
       gifts: p.gifts,
+      // The rhythm this giver actually gives in, and their current level expressed in it — what
+      // a letter addressed to them should say instead of the weekly-equivalent figure.
+      cadence: cadence.key,
+      cadence_label: cadence.label,
+      cadence_adverb: cadence.adverb,
+      cadence_periods_per_year: cadence.periodsPerYear,
+      cadence_amount_cents: cadenceNowCents,
       low_frequency: p.gifts > 0 && p.gifts <= lowFrequencyMax,
       all_manual_methods: p.gifts > 0 && p.auto_gifts === 0,
       options,
@@ -681,6 +809,10 @@ export function computeGivingPlateaus(rows, opts = {}) {
     tiers,
     distribution,
     low_frequency_givers_list: lowFrequencyGivers,
+    // The flat per-giver list behind every tier. The report doesn't serialize this (it renders
+    // from `tiers`, and shipping every giver twice would double a 500-person payload) — it exists
+    // for giving/nudges/status, which needs one row per person to address a letter to.
+    givers,
   };
 }
 
@@ -1023,6 +1155,10 @@ export const LETTER_TYPES = {
   thank_you: { label: 'Thank-You Letter',     defaultScope: 'givers',            hasTemplate: false },
   appeal:    { label: 'Giving Appeal',        defaultScope: 'member_households', hasTemplate: false },
   memorial:  { label: 'Memorial Letter',      defaultScope: 'none',              hasTemplate: false },
+  // Recipients come from the plateau analysis, not from a scope query — see giving/nudges/status.
+  // defaultScope 'none' keeps it out of the generic letters workspace, which has no way to
+  // resolve them, while still letting giving/letters/mark record a send against it.
+  nudge:     { label: 'Giving Nudge',         defaultScope: 'none',              hasTemplate: false },
 };
 
 // Stable dedup identity for a recorded send, independent of which person inside a household

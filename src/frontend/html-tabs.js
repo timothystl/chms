@@ -404,12 +404,27 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div class="batch-filter-pills" style="border-bottom:none;padding:0 0 12px;">
       <button class="pill active" data-gcomm="letters" onclick="givCommsSetPane('letters')">Letters &amp; statements</button>
       <button class="pill" data-gcomm="receipts" onclick="givCommsSetPane('receipts')">Receipts</button>
+      <button class="pill" data-gcomm="nudges" onclick="givCommsSetPane('nudges')">Giving nudges</button>
     </div>
     <div id="giv-pane-letters">
       <div id="giv-letters-root"><div class="board-empty">Loading&hellip;</div></div>
     </div>
     <div id="giv-pane-receipts" style="display:none;">
       <div id="giv-receipts-root"><div class="board-empty">Loading&hellip;</div></div>
+    </div>
+    <div id="giv-pane-nudges" style="display:none;">
+      <div id="giv-nudges-root"><div class="board-empty">Loading&hellip;</div></div>
+    </div>
+  </div>
+
+  <div id="giv-nudge-preview-modal" class="modal-overlay">
+    <div class="modal" style="max-width:640px;">
+      <h3>Preview &mdash; <span id="giv-nudge-preview-who"></span></h3>
+      <p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 10px;">This is the letter that recipient would receive, with their own figures merged in. Read it before sending &mdash; it states back to them what they currently give.</p>
+      <div id="giv-nudge-preview-body" style="border:1px solid var(--border);border-radius:8px;padding:14px;max-height:52vh;overflow:auto;background:var(--white);"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+        <button class="btn-secondary" onclick="closeModal('giv-nudge-preview-modal')">Close</button>
+      </div>
     </div>
   </div>
 

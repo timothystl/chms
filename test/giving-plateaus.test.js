@@ -86,7 +86,29 @@ describe('computeGivingPlateaus', () => {
     const otto = r.tiers[0].people.find(p => p.name === 'One-Time Otto');
     expect(wanda.weekly_cents).toBe(5000);
     expect(otto.weekly_cents).toBe(5000);
-    expect(wanda.options).toEqual(otto.options); // identical nudge treatment
+    // Identical nudge treatment — the ANALYSIS is frequency-blind by design. Compared field by
+    // field rather than wholesale because the cadence fields added alongside these are
+    // deliberately NOT frequency-blind; see the assertion below.
+    const analysisFields = o => ({
+      label: o.label, target_cents: o.target_cents, delta_cents: o.delta_cents,
+      pct_increase: o.pct_increase, annual_delta_cents: o.annual_delta_cents,
+      new_annual_total_cents: o.new_annual_total_cents, impact_text: o.impact_text,
+    });
+    expect(wanda.options.map(analysisFields)).toEqual(otto.options.map(analysisFields));
+  });
+
+  it('but states each of them their figure in the rhythm they actually give in', () => {
+    // The same two givers the test above proves are analysed identically must be WRITTEN TO
+    // differently: telling Otto, who wrote one cheque in December, that he gives "$50 a week" is
+    // the failure the cadence fields exist to prevent.
+    const r = computeGivingPlateaus([row(1, 'Weekly Wanda', 2600, 52), row(2, 'One-Time Otto', 2600, 1)], { periodsElapsed: 52 });
+    const wanda = r.givers.find(g => g.name === 'Weekly Wanda');
+    const otto = r.givers.find(g => g.name === 'One-Time Otto');
+    expect(wanda.cadence).toBe('weekly');
+    expect(wanda.cadence_amount_cents).toBe(5000);      // $50 a week
+    expect(otto.cadence).toBe('annual');
+    expect(otto.cadence_amount_cents).toBe(260000);     // $2,600 a year
+    expect(wanda.cadence_adverb).not.toBe(otto.cadence_adverb);
   });
 
   it('flags low-frequency givers (occasional/stock/IRA-style) for narrative framing, without excluding them', () => {
