@@ -1189,6 +1189,26 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   reference in the column header tooltip that would have thrown at render time. Not verified in a
   live browser. Done 2026-08-05 (v1.128.0). (`src/api-finance.js`, `src/frontend/js-finance.js`,
   `test/finance-budget-plan.test.js`)
+- [x] **FIN55 — Compensation: part-time staff (2026-08-06).** Asked for a checkbox to exclude
+  part-time employees from health/disability/etc — "they are just cash salary, very part time" —
+  then for a percentage-of-time marker. **`cashOnly`** removes pension, disability and health but
+  deliberately **not employer FICA**, which is owed on any W-2 wage however few the hours; dropping
+  it would understate the real church cost (a minister's FICA is the separate SECA toggle — tax
+  status, not hours). Flagged to the user rather than decided silently. **`ftePct`** scales the
+  district **benchmark**, never the salary: without it a 20%-time worker on $8,000 reads as **15% of
+  scale** on the Council report — alarming and meaningless — where pro-rated the same salary reads
+  as **75%**, a real question; a fairly-paid part-timer can now come out green. Second-order
+  consequences handled: the LCMS median comparison is **suppressed** for a part-timer (Concordia's
+  ranges are full-time figures), cost-to-full-scale adds no pension/disability for a cash-only
+  worker, the health view shows "Not eligible" rather than enrolled-at-$0 and they are out of the
+  group total, the Council report says why, and a part-timer left benefits-eligible gets a nudge
+  rather than an automatic coupling (Concordia's hours floor is roughly half time, so FTE and
+  eligibility are related but not the same). `npm test` (778/778, 16 new in
+  `test/finance-part-time.test.js`); **every new test verified non-vacuous** by injecting the exact
+  regression it guards (all three failed as they should). One assertion was corrected rather than
+  forced — the fixture worker genuinely is below their own pro-rated scale, so the test now pins the
+  real demonstration (15% → 75%) with a second test for the fairly-paid case. **Not verified**: a
+  live browser. (`src/frontend/js-finance.js`, `test/finance-part-time.test.js`)
 - [x] **FIN54 — Compensation Planner redesign + Council report (2026-08-06).** Built from the
   `design_handoff_compensation_planner` bundle (README + an interactive planner prototype carrying
   the whole calculation engine + a printable Council report). Replaces `finRenderCompensation()`
