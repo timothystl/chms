@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bucketGivingMethod, projectYearEnd, sundaysElapsedInYear, spreadBudgetYtd, computeConcentration } from '../src/api-utils.js';
+import { bucketGivingMethod, projectYearEnd, sundaysElapsedThroughDate, sundaysInYear, nthSundayOfYear, periodAsOfDate, monthElapsedFraction, spreadBudgetYtd, computeConcentration } from '../src/api-utils.js';
 
 describe('bucketGivingMethod', () => {
   it('buckets checks', () => {
@@ -25,47 +25,84 @@ describe('bucketGivingMethod', () => {
 });
 
 describe('projectYearEnd', () => {
-  it('returns actual when through December', () => {
-    expect(projectYearEnd(800000, 500000, 900000, 12)).toEqual({ projected: 800000, method: 'actual' });
+  // Projects on a SUNDAY basis, not a month one. The month version compared a part-month of this
+  // year against a whole month of last year and counted the current month's not-yet-happened
+  // Sundays as elapsed — both errors pull the same way, so any date but a month end came out low.
+  const base = { sundaysInYear: 52 };
+
+  it('reports rather than projects once the year is done', () => {
+    expect(projectYearEnd({ ...base, ytdCents: 800000, sundaysElapsed: 52 }))
+      .toMatchObject({ projected: 800000, method: 'actual' });
   });
-  it('scales by prior-year seasonal shape when prior data exists', () => {
-    // YTD 401300 through June, prior year gave 395300 through June and 839000 full year
-    const r = projectYearEnd(401300, 395300, 839000, 6);
+
+  it('scales by the prior year at the SAME NUMBER OF SUNDAYS', () => {
+    const r = projectYearEnd({ ...base, ytdCents: 401300, priorSamePointCents: 395300, priorFullYearCents: 839000, sundaysElapsed: 26 });
     expect(r.method).toBe('seasonal');
-    expect(r.projected).toBe(Math.round(401300 * (839000 / 395300))); // ≈ 851,432
+    expect(r.projected).toBe(Math.round(401300 * (839000 / 395300)));
   });
-  it('falls back to straight-line when no prior data', () => {
-    const r = projectYearEnd(300000, 0, 0, 6);
-    expect(r.method).toBe('linear');
-    expect(r.projected).toBe(600000);
+
+  it('keeps a year that is running behind behind, rather than catching it up by December', () => {
+    // 90% of last year's pace at the same point projects to 90% of last year's total.
+    const r = projectYearEnd({ ...base, ytdCents: 9000000, priorSamePointCents: 10000000, priorFullYearCents: 16000000, sundaysElapsed: 32 });
+    expect(r.projected).toBe(14400000);
   });
-  it('handles prior full < prior cum defensively via linear', () => {
-    const r = projectYearEnd(100000, 200000, 100000, 6); // priorFull < priorCum → linear
-    expect(r.method).toBe('linear');
-    expect(r.projected).toBe(200000);
-  });
-  it('extrapolates off Sundays elapsed when given and there is no prior-year data', () => {
-    // 26 weeks of giving through June -> 300000 cents so far. 13 Sundays elapsed -> 52/13 = 4x.
-    const r = projectYearEnd(300000, 0, 0, 6, 13);
+
+  it('falls back to this year\'s own average Sunday when there is no prior year', () => {
+    const r = projectYearEnd({ ...base, ytdCents: 300000, sundaysElapsed: 13 });
     expect(r.method).toBe('linear-weekly');
     expect(r.projected).toBe(1200000);
   });
-  it('prefers the seasonal path over the weekly fallback when prior-year data exists', () => {
-    const r = projectYearEnd(401300, 395300, 839000, 6, 26);
-    expect(r.method).toBe('seasonal');
+
+  it('handles a nonsensical prior year defensively instead of projecting a shrink', () => {
+    const r = projectYearEnd({ ...base, ytdCents: 100000, priorSamePointCents: 200000, priorFullYearCents: 100000, sundaysElapsed: 26 });
+    expect(r.method).toBe('linear-weekly');
+    expect(r.projected).toBe(200000);
+  });
+
+  it('counts all 53 Sundays in a 53-Sunday year', () => {
+    // Assuming 52 drops a real week of giving from the projection in those years.
+    const r = projectYearEnd({ ytdCents: 3200000, sundaysElapsed: 32, sundaysInYear: 53 });
+    expect(r.projected).toBe(5300000);
+  });
+
+  it('reports the basis it used, so a council figure can be checked', () => {
+    const r = projectYearEnd({ ...base, ytdCents: 100000, sundaysElapsed: 32 });
+    expect(r.sundays_elapsed).toBe(32);
+    expect(r.sundays_in_year).toBe(52);
+    expect(r.sundays_remaining).toBe(20);
   });
 });
 
-describe('sundaysElapsedInYear', () => {
-  it('counts every Sunday from Jan 1 through the last day of the given month (2026)', () => {
-    expect(sundaysElapsedInYear(2026, 1)).toBe(4);
-    expect(sundaysElapsedInYear(2026, 6)).toBe(26);
-    expect(sundaysElapsedInYear(2026, 12)).toBe(52);
+describe('the week basis', () => {
+  it('treats an in-progress month as in-progress, not complete', () => {
+    // This is the reported bug in one assertion.
+    expect(periodAsOfDate(2026, 8, new Date('2026-08-14T12:00:00Z'))).toBe('2026-08-14');
+    expect(periodAsOfDate(2026, 7, new Date('2026-08-14T12:00:00Z'))).toBe('2026-07-31');
   });
-  it('respects a leap-year February', () => {
-    expect(sundaysElapsedInYear(2024, 2)).toBe(8);
+
+  it('counts Sundays to a date, and finds last year\'s matching Sunday', () => {
+    expect(sundaysElapsedThroughDate(2026, '2026-08-14')).toBe(32);
+    expect(nthSundayOfYear(2025, 32)).toBe('2025-08-10');
+    // Past the last Sunday, a full year stays full.
+    expect(nthSundayOfYear(2025, 99)).toBe('2025-12-31');
+  });
+
+  it('knows a 53-Sunday year from a 52-Sunday one', () => {
+    expect(sundaysInYear(2026)).toBe(52);
+    expect(sundaysInYear(2023)).toBe(53); // 2023 began on a Sunday
+  });
+
+  it('charges a part-month of budget rather than a whole one', () => {
+    const shape = new Array(12).fill(1000);
+    const whole = spreadBudgetYtd(120000, shape, 8, 1);
+    const part = spreadBudgetYtd(120000, shape, 8, 0.45);
+    expect(part).toBeLessThan(whole);
+    expect(spreadBudgetYtd(120000, shape, 8)).toBe(whole); // default unchanged
+    expect(monthElapsedFraction(2026, 8, '2026-08-14')).toBeCloseTo(14 / 31, 5);
+    expect(monthElapsedFraction(2026, 7, '2026-08-14')).toBe(1); // a finished month
   });
 });
+
 
 describe('spreadBudgetYtd', () => {
   it('returns 0 when no budget', () => {
@@ -114,5 +151,42 @@ describe('computeConcentration', () => {
     const c = computeConcentration([500, 0, -100, 300]);
     expect(c.households).toBe(2);
     expect(c.grand_total_cents).toBe(800);
+  });
+});
+
+describe('the projection says what it is built on', () => {
+  // A council figure nobody can check is worse than one they can argue with, and the basis is
+  // precisely what was wrong before — so it is now carried through to the page.
+  it('carries the Sunday basis onto the category block', async () => {
+    const { buildBoardCategoryBlock } = await import('../src/api-utils.js');
+    const b = buildBoardCategoryBlock({
+      key: 'general', label: 'General Fund', hhLabel: 'Giving households',
+      throughMonth: 8, sundaysElapsed: 32, sundaysInYear: 52, finalMonthFraction: 14 / 31,
+      funds: [{ actual_cents: 100000, prior_cents: 90000, annual_budget_cents: 240000 }],
+      curMonthly: new Array(12).fill(0), priorMonthly: new Array(12).fill(10000),
+      householdTotals: [100000], householdsPrior: 1, methodBuckets: { check: 100000 },
+    });
+    expect(b.sundays_elapsed).toBe(32);
+    expect(b.sundays_in_year).toBe(52);
+    expect(b.sundays_remaining).toBe(20);
+  });
+
+  it('charges the part-month of budget the fraction describes', async () => {
+    const { buildBoardCategoryBlock } = await import('../src/api-utils.js');
+    const args = {
+      key: 'general', label: 'General Fund', hhLabel: 'Giving households',
+      throughMonth: 8, sundaysElapsed: 32, sundaysInYear: 52,
+      funds: [{ actual_cents: 100000, prior_cents: 90000, annual_budget_cents: 1200000 }],
+      curMonthly: new Array(12).fill(0), priorMonthly: new Array(12).fill(10000),
+      householdTotals: [100000], householdsPrior: 1, methodBuckets: { check: 100000 },
+    };
+    const whole = buildBoardCategoryBlock({ ...args, finalMonthFraction: 1 }).budget_ytd_cents;
+    const part = buildBoardCategoryBlock({ ...args, finalMonthFraction: 14 / 31 }).budget_ytd_cents;
+    expect(part).toBeLessThan(whole);
+    // ...and the shortfall it reports shrinks accordingly, rather than blaming the congregation
+    // for a month that has not happened yet.
+    const wholeVar = buildBoardCategoryBlock({ ...args, finalMonthFraction: 1 }).budget_variance_cents;
+    const partVar = buildBoardCategoryBlock({ ...args, finalMonthFraction: 14 / 31 }).budget_variance_cents;
+    expect(partVar).toBeGreaterThan(wholeVar);
   });
 });

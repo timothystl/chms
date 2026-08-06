@@ -24,6 +24,59 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.144.0 — Year-end projections move from a month basis to a Sunday one (2026-08-06)
+
+Reported from the Giving board page: the projections "look like you are taking the current month
+as a complete month," with the suggestion to work in weeks of the year instead — week X against
+week X of last year, then carry the remaining weeks forward.
+
+Confirmed, and it was two errors pulling the same way:
+
+1. **The prior-year comparison was not like-for-like.** This year's giving through an in-progress
+   month was compared against last year's giving through that month **complete** (the SQL bound
+   the prior window at `priorYear-MM-31`).
+2. **Sundays that had not happened yet were counted as elapsed.** `sundaysElapsedInYear(year,
+   throughMonth)` counted every Sunday through the *end* of the month.
+
+Both understate, so on any date except a month end the projection came out low — and a council
+report that quietly understates year-end giving is the wrong kind of wrong.
+
+**The unit is now Sundays, not calendar weeks or months**, because that is when this congregation
+actually gives. "Through 31 Sundays, against last year's first 31 Sundays" is like-for-like in a
+way "through July against through July" is not: two Julys can hold four Sundays or five.
+
+New pure helpers in `api-utils.js`: `periodAsOfDate()` (the real as-of date — today when the chosen
+month is still running), `sundaysElapsedThroughDate()`, `sundaysInYear()` (52 **or 53** — assuming
+52 drops a real week of giving in those years), `nthSundayOfYear()` (the prior-year window bound),
+`monthElapsedFraction()`. `projectYearEnd()` takes an options object on the new basis and reports
+`sundays_elapsed`/`sundays_in_year`/`sundays_remaining` alongside the figure.
+
+**The method is unchanged and deliberately so.** The projection still carries last year's remaining
+Sundays forward *scaled by the pace this year is actually running*, so a year behind stays behind
+rather than catching up by December. Only the basis was wrong, not the arithmetic on top of it.
+
+**Two things fixed alongside, same root cause:**
+- **"Vs. this point last year"** used the same month-boundary slice; it now uses the Sunday-bounded
+  prior figure — which also removed a second, differently-bounded source of truth for one quantity
+  (`priorCum` from a monthly slice vs `priorYtd` from the fund query, which disagreed mid-month).
+- **Budget-to-date** charged a whole month the congregation had not reached, then reported the gap
+  as a shortfall. `spreadBudgetYtd()` takes a `finalMonthFraction` (defaulting to 1, so nothing
+  else changes) and charges the part-month.
+
+The narrative now states its own basis — "counted through 31 of 52 Sundays, with 21 still to
+come, against last year through its own first 31" — because the basis is exactly what was wrong,
+and a council figure nobody can check is worse than one they can argue with.
+
+**Verification.** `npm test` (762/762). The projection tests were rewritten for the new basis and
+two fixtures corrected: they had set `prior_cents` and `priorMonthly` to *different* values for the
+same quantity, which is the duplication this removed. Every new assertion checked for vacuity by
+injecting the exact regression it guards — the complete-current-month, the 52-Sunday assumption,
+and the whole-part-month budget — all three failed as they should. **Not verified**: a live browser
+or real D1 data.
+
+(`src/api-utils.js`, `src/api-reports.js`, `src/frontend/js-giving.js`, `test/giving-board.test.js`,
+`test/giving-fund-categories.test.js`)
+
 ### v1.143.0 — Giving Nudges: send the plateau analysis as mail (2026-08-06)
 
 Asked for a Communications tab for the Plateaus & Nudges report, "so we can communicate these

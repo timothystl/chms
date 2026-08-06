@@ -253,56 +253,112 @@ export function bucketGivingMethod(method) {
 // when the caller has no Sunday count to give it. Returns { projected, method } where method is a
 // human string naming which path was used, so the UI can state the projection method (a
 // data-consistency rule from the handoff).
-export function projectYearEnd(ytdCents, priorCumThroughMonthCents, priorFullYearCents, throughMonth, sundaysElapsed) {
-  const ytd = Math.max(0, Math.round(ytdCents || 0));
-  const tm = Math.min(12, Math.max(1, Math.round(throughMonth || 12)));
-  if (tm >= 12) return { projected: ytd, method: 'actual' };
-  const priorCum = Math.max(0, Math.round(priorCumThroughMonthCents || 0));
-  const priorFull = Math.max(0, Math.round(priorFullYearCents || 0));
-  // Prior-year-seasonal path: scale YTD up by (prior full year / prior year through same month).
-  if (priorCum > 0 && priorFull >= priorCum) {
-    return { projected: Math.round(ytd * (priorFull / priorCum)), method: 'seasonal' };
+// Projects a full year from giving so far, on a WEEK basis rather than a month one.
+//
+// The month basis it replaced had a real flaw: it compared this year's giving through an
+// in-progress month against last year's giving through that month COMPLETE, and counted the
+// current month's not-yet-happened Sundays as elapsed. Both errors pull the same way, so on any
+// date that isn't a month end the projection came out low — and a council report that quietly
+// understates year-end giving is the wrong kind of wrong.
+//
+// The unit here is Sundays, not calendar weeks, because that is when this congregation actually
+// gives. "Through 31 Sundays" against "last year's first 31 Sundays" is like-for-like in a way
+// that "through July" against "through July" is not: the two Julys can hold four Sundays or five.
+//
+//   ytdCents            giving so far this year
+//   priorSamePointCents last year's giving through the SAME NUMBER OF SUNDAYS (see nthSundayOfYear)
+//   priorFullYearCents  last year's complete total
+//   sundaysElapsed      Sundays from Jan 1 through the as-of date, inclusive
+//   sundaysInYear       52 or 53, for this specific year
+export function projectYearEnd(opts = {}) {
+  const ytd = Math.max(0, Math.round(opts.ytdCents || 0));
+  const total = Math.max(1, Math.round(opts.sundaysInYear || 52));
+  const elapsed = Math.min(total, Math.max(0, Math.round(opts.sundaysElapsed || 0)));
+  const basis = { sundays_elapsed: elapsed, sundays_in_year: total, sundays_remaining: total - elapsed };
+  if (elapsed >= total) return { projected: ytd, method: 'actual', ...basis };
+  if (elapsed <= 0) return { projected: ytd, method: 'actual', ...basis };
+  const priorSame = Math.max(0, Math.round(opts.priorSamePointCents || 0));
+  const priorFull = Math.max(0, Math.round(opts.priorFullYearCents || 0));
+  // Seasonal: carry last year's remaining-weeks shape forward, scaled by how this year is
+  // actually tracking against last year at the same point. Algebraically ytd x (full/same), which
+  // is the same as ytd + (last year's remaining weeks) x (this year's pace vs last year's) — so a
+  // year running behind is projected to stay behind rather than to catch up by December.
+  if (priorSame > 0 && priorFull >= priorSame) {
+    return { projected: Math.round(ytd * (priorFull / priorSame)), method: 'seasonal', ...basis };
   }
-  // Straight-line fallback: extrapolate off Sundays elapsed when known (this church's giving
-  // rhythm is weekly, so 52 weeks is a truer basis than 12 months), else a plain month fraction.
-  if (sundaysElapsed > 0) {
-    return { projected: Math.round(ytd * (52 / sundaysElapsed)), method: 'linear-weekly' };
-  }
-  return { projected: Math.round(ytd * (12 / tm)), method: 'linear' };
+  // No usable prior year: this year's own average Sunday, carried across the ones left.
+  return { projected: Math.round(ytd * (total / elapsed)), method: 'linear-weekly', ...basis };
 }
 
-// Count the Sundays from Jan 1 through the last day of `throughMonth` in `year` — the weekly
-// basis projectYearEnd's straight-line fallback uses instead of a month fraction.
-export function sundaysElapsedInYear(year, throughMonth) {
-  const monthEnds = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-  const tm = Math.min(12, Math.max(1, Math.round(throughMonth || 12)));
-  const lastDay = tm === 2 && isLeap ? 29 : monthEnds[tm - 1];
-  const end = Date.UTC(year, tm - 1, lastDay);
+// Total Sundays in a calendar year — 52, or 53 when the year starts on a Sunday (or on a Saturday
+// in a leap year). Assuming 52 drops a real week of giving from the projection in those years.
+export function sundaysInYear(year) {
+  return sundaysElapsedThroughDate(year, year + '-12-31');
+}
+// Sundays from Jan 1 through asOf (inclusive). asOf is an ISO yyyy-mm-dd string.
+export function sundaysElapsedThroughDate(year, asOfISO) {
+  const end = Date.parse(String(asOfISO) + 'T00:00:00Z');
+  if (!isFinite(end)) return 0;
   let t = Date.UTC(year, 0, 1);
-  const dow = new Date(t).getUTCDay(); // Sunday = 0
-  t += ((7 - dow) % 7) * 86400000; // advance to the first Sunday on/after Jan 1
+  t += ((7 - new Date(t).getUTCDay()) % 7) * 86400000; // first Sunday on/after Jan 1
   let count = 0;
   while (t <= end) { count++; t += 7 * 86400000; }
   return count;
+}
+// The date of the nth Sunday of a year, as yyyy-mm-dd — the like-for-like upper bound for the
+// prior-year comparison window. Past the last Sunday it returns Dec 31, so a full year stays full.
+export function nthSundayOfYear(year, n) {
+  const wanted = Math.max(1, Math.round(n || 1));
+  let t = Date.UTC(year, 0, 1);
+  t += ((7 - new Date(t).getUTCDay()) % 7) * 86400000;
+  const at = t + (wanted - 1) * 7 * 86400000;
+  const yearEnd = Date.UTC(year, 11, 31);
+  return new Date(Math.min(at, yearEnd)).toISOString().slice(0, 10);
+}
+// The real as-of date for a selected reporting period: the end of the chosen month, or today if
+// that month is still running. This is the value the whole week basis hangs off — passing the
+// month end for an in-progress month is exactly the bug described above.
+export function periodAsOfDate(year, throughMonth, now = new Date()) {
+  const tm = Math.min(12, Math.max(1, Math.round(throughMonth || 12)));
+  const monthEnd = new Date(Date.UTC(year, tm, 0)).toISOString().slice(0, 10);
+  const today = now.toISOString().slice(0, 10);
+  return today < monthEnd ? today : monthEnd;
+}
+// How much of `throughMonth` has actually elapsed as of asOf, 0..1 — so a budget-to-date figure
+// charges a part-month rather than the whole thing.
+export function monthElapsedFraction(year, throughMonth, asOfISO) {
+  const tm = Math.min(12, Math.max(1, Math.round(throughMonth || 12)));
+  const daysInMonth = new Date(Date.UTC(year, tm, 0)).getUTCDate();
+  const asOf = String(asOfISO || '');
+  const m = asOf.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return 1;
+  const asOfYear = +m[1], asOfMonth = +m[2], asOfDay = +m[3];
+  if (asOfYear !== year || asOfMonth !== tm) return 1; // asOf is past this month — it's complete
+  return Math.min(1, Math.max(0, asOfDay / daysInMonth));
 }
 
 // Spread an annual budget across the year and return the portion due through `throughMonth`.
 // priorMonthly is a 12-element array (index 0 = Jan) of the prior year's actual monthly cents;
 // when it sums to > 0 the budget follows that seasonal shape (so December carries its real share),
 // otherwise it falls back to an even month/12 spread. Returns cents through the month.
-export function spreadBudgetYtd(annualCents, priorMonthly, throughMonth) {
+// finalMonthFraction (0..1) is how much of `throughMonth` has actually elapsed. It defaults to 1
+// (a completed month). Passing the real fraction is what stops a mid-month report from charging
+// the congregation a whole month of budget it has not reached yet, and then reporting the
+// resulting gap as a shortfall — the same partial-period error projectYearEnd used to make.
+export function spreadBudgetYtd(annualCents, priorMonthly, throughMonth, finalMonthFraction = 1) {
   const annual = Math.max(0, Math.round(annualCents || 0));
   if (!annual) return 0;
   const tm = Math.min(12, Math.max(1, Math.round(throughMonth || 12)));
+  const frac = Math.min(1, Math.max(0, Number(finalMonthFraction) == null ? 1 : Number(finalMonthFraction)));
   const monthly = Array.isArray(priorMonthly) ? priorMonthly : [];
   const priorTotal = monthly.reduce((s, v) => s + (Number(v) || 0), 0);
   if (priorTotal > 0) {
     let cum = 0;
-    for (let i = 0; i < tm && i < 12; i++) cum += Number(monthly[i]) || 0;
+    for (let i = 0; i < tm - 1 && i < 12; i++) cum += Number(monthly[i]) || 0;
+    cum += (Number(monthly[tm - 1]) || 0) * frac;
     return Math.round(annual * (cum / priorTotal));
   }
-  return Math.round(annual * (tm / 12));
+  return Math.round(annual * ((tm - 1 + frac) / 12));
 }
 
 // Given an array of per-household total-cents figures, compute donor concentration:
@@ -405,7 +461,8 @@ export function defaultFundCategories(funds) {
 export function buildBoardCategoryBlock(opts) {
   const {
     key, label, hhLabel, funds = [], curMonthly = [], priorMonthly = [],
-    throughMonth = 12, sundaysElapsed = 0, householdTotals = [], householdsPrior = 0,
+    throughMonth = 12, sundaysElapsed = 0, sundaysInYear: yearSundays = 52,
+    finalMonthFraction = 1, householdTotals = [], householdsPrior = 0,
     methodBuckets = {}, budgetAnnualOverride = null,
   } = opts || {};
 
@@ -417,10 +474,15 @@ export function buildBoardCategoryBlock(opts) {
     : (fundBudgetAnnual > 0 ? fundBudgetAnnual : null);
 
   const priorFull = priorMonthly.reduce((s, v) => s + (v || 0), 0);
-  const priorCum  = priorMonthly.slice(0, throughMonth).reduce((s, v) => s + (v || 0), 0);
-  const proj = projectYearEnd(ytd, priorCum, priorFull, throughMonth, sundaysElapsed);
+  // `prior` is this category's giving through the SAME NUMBER OF SUNDAYS last year (the fund query
+  // that produced these rows is bound to that date), so it is the like-for-like comparison point —
+  // unlike a whole-month slice of the monthly chart array, which was what this used to take.
+  const proj = projectYearEnd({
+    ytdCents: ytd, priorSamePointCents: prior, priorFullYearCents: priorFull,
+    sundaysElapsed, sundaysInYear: yearSundays,
+  });
 
-  const budgetYtd = annualBudget != null ? spreadBudgetYtd(annualBudget, priorMonthly, throughMonth) : null;
+  const budgetYtd = annualBudget != null ? spreadBudgetYtd(annualBudget, priorMonthly, throughMonth, finalMonthFraction) : null;
   const variance  = budgetYtd != null ? ytd - budgetYtd : null;
 
   const concentration = computeConcentration(householdTotals);
@@ -439,9 +501,9 @@ export function buildBoardCategoryBlock(opts) {
     fund_count: funds.length,
     funds,
     given_ytd_cents: ytd,
-    given_ytd_prior_cents: priorCum,
+    given_ytd_prior_cents: prior,
     prior_ytd_fund_cents: prior,
-    given_ytd_delta_pct: priorCum > 0 ? +(((ytd - priorCum) / priorCum) * 100).toFixed(1) : null,
+    given_ytd_delta_pct: prior > 0 ? +(((ytd - prior) / prior) * 100).toFixed(1) : null,
     annual_budget_cents: annualBudget,
     budget_ytd_cents: budgetYtd,
     budget_variance_cents: variance,
@@ -449,6 +511,9 @@ export function buildBoardCategoryBlock(opts) {
     has_budget: annualBudget != null && annualBudget > 0,
     projection_cents: proj.projected,
     projection_method: proj.method,
+    sundays_elapsed: proj.sundays_elapsed,
+    sundays_in_year: proj.sundays_in_year,
+    sundays_remaining: proj.sundays_remaining,
     projection_vs_budget_cents: annualBudget != null ? proj.projected - annualBudget : null,
     households,
     households_prior: householdsPrior,
