@@ -1209,6 +1209,41 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   forced — the fixture worker genuinely is below their own pro-rated scale, so the test now pins the
   real demonstration (15% → 75%) with a second test for the fairly-paid case. **Not verified**: a
   live browser. (`src/frontend/js-finance.js`, `test/finance-part-time.test.js`)
+- [x] **FIN56 — Compensation: current pay by hand, and health priced by coverage tier (2026-08-06).**
+  Two follow-ups on FIN54/FIN55. **(a) Current pay.** A worker whose wages sit INSIDE a budget line
+  shared with other staff — the daycare director paid out of the daycare payroll account — could
+  not be costed. Linking them to that account read the whole line, several people's wages, as one
+  person's pay; leaving them unlinked read nothing. Either way "No raise", COLA and Custom were
+  computed off a wrong number with nothing on screen saying so. New FY-base **current pay** box on
+  the worker drawer writing `w.actualSalaryCents` — the read side already existed in
+  `finCompCurrentPayCents()` but nothing had ever set it, a field orphaned by the redesign. An
+  entered figure beats the account lookup for that worker only; the account figure is the
+  placeholder and a link clears back to it. Saves with the roster, so no endpoint or migration. The
+  drawer note was also factually wrong ("the plan total is applied back to it" — Send to budget
+  writes one grand total to a single chosen account, never per-worker) and is corrected.
+  **(b) Health by tier.** The card took one ANNUAL group medical figure per option split evenly
+  across a hand-typed contracts count; the renewal packet publishes a **monthly** rate per coverage
+  tier (Self / Self & Spouse / Self & Child / Family). The even split was only ever right because
+  this church has two Family contracts and nothing else — one worker on Self and it charges them a
+  Family share. Now `tiersMonthlyCents` per option (the packet's Enrollment and Rates block
+  verbatim), a per-worker tier, and cost = own tier rate x 12 + an even share of dental and vision
+  (not tier-priced in the packet). Enrolment is counted off the roster, not typed. The contracts
+  box, `finCompContractCount()` and `finHealthPlanPerContractCents()` are deleted and
+  `healthPlanContracts` no longer loads from the save — a stored count with no UI left to clear it
+  is the invisible-stuck-state class. **The transcription is self-checking**: tier rates x real
+  enrolment reconstruct the packet's own Total Monthly ($4,102.00) and Total Annual ($49,224.00)
+  exactly, and every pre-existing planner health figure reproduces unchanged. Also: the breakeven's
+  per-household gap now reads off the two tier rates rather than dividing a group total (still
+  $4,045.80 Renewal to Option 1); the dependents checkbox no longer moves anyone between tiers
+  (with four tiers a dependents flag no longer implies one); premiums show to the cent; and a
+  legacy annual `medicalCents` override is dropped when a tier rate is typed over it.
+  `npm test` (803/803, 25 new across `test/finance-health-tiers.test.js` and the planner file),
+  every one verified non-vacuous by injecting the regression it guards. Plus `node --check` on both
+  built bundles, a div-balance scan of the assembled `CHMS_HTML` and all five rendered views, and a
+  mixed-roster harness confirming the enrolled workers' health lines sum exactly to the group quote.
+  **Not verified**: a live browser. (`src/frontend/js-finance.js`,
+  `test/finance-health-tiers.test.js`, `test/finance-compensation-planner.test.js`,
+  `test/finance-salary-calculator.test.js`, `test/finance-part-time.test.js`)
 - [x] **FIN54 — Compensation Planner redesign + Council report (2026-08-06).** Built from the
   `design_handoff_compensation_planner` bundle (README + an interactive planner prototype carrying
   the whole calculation engine + a printable Council report). Replaces `finRenderCompensation()`

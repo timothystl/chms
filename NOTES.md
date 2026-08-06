@@ -24,6 +24,52 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.147.0 — Health plan priced by coverage tier, as Concordia publishes it (2026-08-06)
+
+Asked to take the renewal packet's own entry page: a **monthly** premium per coverage tier — Self /
+Self & Spouse / Self & Child / Family — with the tier set per worker.
+
+Before this the card took one ANNUAL group medical figure per plan option and split it evenly across
+a hand-typed "Family contracts" count. That was only ever right because this church happens to have
+two Family contracts and nothing else; the moment one worker sits on Self, an even split charges
+them a Family share. It also meant the packet had to be re-arithmeticked by hand before it could be
+typed in.
+
+Now: `tiersMonthlyCents` per option (the packet's Enrollment and Rates block verbatim),
+`finHealthTierMonthlyCents()`, and a worker's cost is their own tier's rate x 12 plus an even share
+of dental and vision — which the packet does not tier-price, so there is no per-worker figure to
+read for those. Enrolment counts are read off the roster (`finCompEnrollmentCounts()`), not typed:
+they are the same thing as the packet's count column, and asking for them twice is how the two
+quietly stop agreeing. The hand-typed contracts box, `finCompContractCount()` and
+`finHealthPlanPerContractCents()` are deleted, and `healthPlanContracts` no longer loads from the
+save — a stored count with no UI left to clear it is the invisible-stuck-state bug this codebase
+has hit before.
+
+**The transcription is self-checking**: the tier rates times the real enrolment reconstruct the
+packet's own printed Total Monthly ($4,102.00) and Total Annual ($49,224.00) exactly, so a mistyped
+rate breaks a test rather than quietly costing the budget. Every pre-existing health figure in the
+planner tests reproduces unchanged, because an even split and a tier lookup agree when everyone is
+Family.
+
+Also: `finCompPerHouseholdDiffCents()` reads the breakeven's per-household premium gap off the two
+tier rates instead of dividing a group total, so it stays right on a mixed roster (Renewal to
+Option 1 is still $4,045.80/yr, as before); the dependents checkbox no longer moves anyone between
+tiers, since with four tiers a dependents flag no longer implies one; premiums are shown to the cent
+(`finCompMoneyCents`) because that is how they are quoted and typed; and a legacy annual
+`medicalCents` override is dropped when a tier rate is typed over it, so the new rate is not
+silently outranked by the old figure.
+
+`npm test` (803/803, 18 new in `test/finance-health-tiers.test.js`); each verified non-vacuous by
+injecting the exact regression it guards — a mistyped rate, a reverted even split, an un-cleared
+legacy override, a re-inferred tier, a cash-only worker counted as a contract — all five failed as
+they should. Plus `node --check` on both built bundles, a div-balance scan of the assembled
+`CHMS_HTML` and of all five rendered views, and a mixed-roster harness confirming the enrolled
+workers' health lines sum exactly to the group quote at that enrolment. Not verified in a live
+browser.
+(`src/frontend/js-finance.js`, `test/finance-health-tiers.test.js`,
+`test/finance-compensation-planner.test.js`, `test/finance-salary-calculator.test.js`,
+`test/finance-part-time.test.js`)
+
 ### v1.146.0 — Compensation: current pay entered by hand (2026-08-06)
 
 A worker whose wages sit INSIDE a budget line shared with other staff — the daycare director paid

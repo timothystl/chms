@@ -3575,7 +3575,6 @@ function finLoadSalaryPlannerData() {
       _finHealthPlanSelectedOption = saved.healthPlanOption || 'renewal';
       _finSalaryReferenceByYear = (saved.referenceByYear && typeof saved.referenceByYear === 'object') ? saved.referenceByYear : {};
       _finHealthPlanPremiumOverrides = (saved.healthPlanPremiumOverrides && typeof saved.healthPlanPremiumOverrides === 'object') ? saved.healthPlanPremiumOverrides : {};
-      if (saved.healthPlanContracts != null) _finHealthPlanContracts = saved.healthPlanContracts;
       if (saved.compMethod) _finCompMethod = saved.compMethod;
       if (saved.compPerWorkerMethod && typeof saved.compPerWorkerMethod === 'object') _finCompPerWorkerMethod = saved.compPerWorkerMethod;
       if (saved.compOverrides && typeof saved.compOverrides === 'object') _finCompOverrides = saved.compOverrides;
@@ -3619,7 +3618,7 @@ function finCompMigrateSavedShape(saved) {
 function finSalaryBuildSaveBody() {
   return {
     roster: _finSalaryRoster, targetCategory: _finSalaryTargetCategory,
-    healthPlanOption: _finHealthPlanSelectedOption, healthPlanContracts: _finHealthPlanContracts,
+    healthPlanOption: _finHealthPlanSelectedOption,
     compMethod: _finCompMethod, compPerWorkerMethod: _finCompPerWorkerMethod,
     compOverrides: _finCompOverrides, compCustomPct: _finCompCustomPct,
     referenceByYear: _finSalaryReferenceByYear, healthPlanPremiumOverrides: _finHealthPlanPremiumOverrides
@@ -4406,18 +4405,41 @@ function finConcordiaMidCentsFor(w, rangeKey) {
 // deductibleFamilyCents/oopMaxFamilyCents/deductibleIndividualCents/oopMaxIndividualCents and
 // embedded are all straight from the quote's plan-design table (page 1), used below to work out
 // whether a richer plan's extra premium is actually worth it against real claims levels.
+// The four coverage tiers Concordia's "Enrollment and Rates" block prices, in its own order. A
+// worker sits on exactly one of them (or opts out), and the rate is MONTHLY — which is how the
+// packet publishes it and therefore how it should be typed in.
+var FIN_HEALTH_TIERS = [
+  { key: 'self', label: 'Self' },
+  { key: 'selfSpouse', label: 'Self & Spouse' },
+  { key: 'selfChild', label: 'Self & Child' },
+  { key: 'family', label: 'Family' }
+];
+// Concordia Plans quote #0560500326, effective 2027. tiersMonthlyCents is the packet's Enrollment
+// and Rates block verbatim; dental and vision are NOT tier-priced there, so they stay annual group
+// figures shared evenly across whoever is enrolled. Medical annual therefore falls out of
+// enrolment x tier rate x 12 rather than being stored — for this church's real enrolment (2 Family)
+// that reproduces the packet's own $49,224.00 exactly.
 var HEALTH_PLAN_QUOTE_2027 = {
   effectiveYear: 2027,
-  enrollmentContracts: 2, // 2 Family-tier employee contracts — every total below is for both combined
+  enrollmentContracts: 2, // kept for the pre-tier save shape; real counts now come from the roster
+  enrollmentCounts: { self: 0, selfSpouse: 0, selfChild: 0, family: 2 },
   coinsuranceRate: 0.20,  // "Coinsurance 20%" — the same for every option in this quote
   options: {
-    current: { label: 'Current — Healthy Me HSA-C (BCBS)', medicalCents: 4529664, dentalCents: 289464, visionCents: 147168, embedded: true, deductibleFamilyCents: 700000, oopMaxFamilyCents: 1400000, deductibleIndividualCents: 350000, oopMaxIndividualCents: 700000 },
-    renewal: { label: 'Renewal — Stay in Current Plan (Healthy Me HSA-C)', medicalCents: 4922400, dentalCents: 304680, visionCents: 147168, embedded: true, deductibleFamilyCents: 800000, oopMaxFamilyCents: 1600000, deductibleIndividualCents: 400000, oopMaxIndividualCents: 800000 },
-    option1: { label: 'Option 1 — Healthy Me HSA-A (BCBS)', medicalCents: 5731560, dentalCents: 304680, visionCents: 147168, embedded: false, deductibleFamilyCents: 400000, oopMaxFamilyCents: 800000, deductibleIndividualCents: 200000, oopMaxIndividualCents: 400000 },
-    option2: { label: 'Option 2 — Healthy Me HSA-B (BCBS)', medicalCents: 5252040, dentalCents: 304680, visionCents: 147168, embedded: false, deductibleFamilyCents: 600000, oopMaxFamilyCents: 850000, deductibleIndividualCents: 300000, oopMaxIndividualCents: 600000 },
-    option3: { label: 'Option 3 — Healthy Me HSA-D (BCBS)', medicalCents: 4413264, dentalCents: 304680, visionCents: 147168, embedded: true, deductibleFamilyCents: 1100000, oopMaxFamilyCents: 1700000, deductibleIndividualCents: 550000, oopMaxIndividualCents: 850000 }
+    current: { label: 'Current — Healthy Me HSA-C (BCBS)', tiersMonthlyCents: { self: 70424, selfSpouse: 141552, selfChild: 117608, family: 188736 }, dentalCents: 289464, visionCents: 147168, embedded: true, deductibleFamilyCents: 700000, oopMaxFamilyCents: 1400000, deductibleIndividualCents: 350000, oopMaxIndividualCents: 700000 },
+    renewal: { label: 'Renewal — Stay in Current Plan (Healthy Me HSA-C)', tiersMonthlyCents: { self: 76530, selfSpouse: 153825, selfChild: 127805, family: 205100 }, dentalCents: 304680, visionCents: 147168, embedded: true, deductibleFamilyCents: 800000, oopMaxFamilyCents: 1600000, deductibleIndividualCents: 400000, oopMaxIndividualCents: 800000 },
+    option1: { label: 'Option 1 — Healthy Me HSA-A (BCBS)', tiersMonthlyCents: { self: 89110, selfSpouse: 179111, selfChild: 148814, family: 238815 }, dentalCents: 304680, visionCents: 147168, embedded: false, deductibleFamilyCents: 400000, oopMaxFamilyCents: 800000, deductibleIndividualCents: 200000, oopMaxIndividualCents: 400000 },
+    option2: { label: 'Option 2 — Healthy Me HSA-B (BCBS)', tiersMonthlyCents: { self: 81655, selfSpouse: 164127, selfChild: 136364, family: 218835 }, dentalCents: 304680, visionCents: 147168, embedded: false, deductibleFamilyCents: 600000, oopMaxFamilyCents: 850000, deductibleIndividualCents: 300000, oopMaxIndividualCents: 600000 },
+    option3: { label: 'Option 3 — Healthy Me HSA-D (BCBS)', tiersMonthlyCents: { self: 68614, selfSpouse: 137914, selfChild: 114585, family: 183886 }, dentalCents: 304680, visionCents: 147168, embedded: true, deductibleFamilyCents: 1100000, oopMaxFamilyCents: 1700000, deductibleIndividualCents: 550000, oopMaxIndividualCents: 850000 }
   }
 };
+// The monthly rate for one tier of one option, honouring an admin override typed on the rates page.
+function finHealthTierMonthlyCents(optionKey, tierKey, premiumOverrides) {
+  var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
+  if (!opt) return null;
+  var ov = (premiumOverrides || (typeof _finHealthPlanPremiumOverrides !== 'undefined' ? _finHealthPlanPremiumOverrides : {}))[optionKey] || {};
+  var t = ov.tiersMonthlyCents || {};
+  return t[tierKey] != null ? t[tierKey] : (opt.tiersMonthlyCents || {})[tierKey];
+}
 // { [optionKey]: { medicalCents, dentalCents, visionCents } } — an admin can override any of the
 // 3 premium lines for any plan option (the quote is a fixed 2027 snapshot; a future year's renewal
 // quote will have different real numbers), unset fields fall back to the quote's own figure.
@@ -4425,16 +4447,34 @@ var _finHealthPlanPremiumOverrides = {};
 // Pure — no DOM — returns the Medical/Dental/Vision breakdown + total annual employer cost in
 // cents for one of the HEALTH_PLAN_QUOTE_2027 options (after applying any admin override on top
 // of the quote's own figures), or null for an unrecognized key.
-function finComputeHealthPlanTotalCents(optionKey, premiumOverrides) {
+// Enrollment defaults to the quote's own counts so this stays a pure function of the quote — the
+// live roster's counts are passed in by the UI. A legacy medicalCents override (the pre-tier save
+// shape, one annual figure for the whole group) still wins if one is stored, so nothing an admin
+// typed under the old card is silently discarded.
+function finComputeHealthPlanTotalCents(optionKey, premiumOverrides, enrollment) {
   var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
   if (!opt) return null;
   var ov = (premiumOverrides || (typeof _finHealthPlanPremiumOverrides !== 'undefined' ? _finHealthPlanPremiumOverrides : {}))[optionKey] || {};
-  var medicalCents = ov.medicalCents != null ? ov.medicalCents : opt.medicalCents;
+  var counts = enrollment || HEALTH_PLAN_QUOTE_2027.enrollmentCounts;
+  var tiers = {}, monthlyCents = 0, contracts = 0;
+  FIN_HEALTH_TIERS.forEach(function(t) {
+    var rate = finHealthTierMonthlyCents(optionKey, t.key, premiumOverrides) || 0;
+    var n = Math.max(0, Math.floor(Number(counts[t.key]) || 0));
+    tiers[t.key] = { monthlyCents: rate, count: n };
+    monthlyCents += rate * n;
+    contracts += n;
+  });
+  var medicalCents = ov.medicalCents != null ? ov.medicalCents : monthlyCents * 12;
   var dentalCents = ov.dentalCents != null ? ov.dentalCents : opt.dentalCents;
   var visionCents = ov.visionCents != null ? ov.visionCents : opt.visionCents;
   var totalCents = medicalCents + dentalCents + visionCents;
-  var overridden = ov.medicalCents != null || ov.dentalCents != null || ov.visionCents != null;
-  return { label: opt.label, medicalCents: medicalCents, dentalCents: dentalCents, visionCents: visionCents, totalCents: totalCents, overridden: overridden };
+  var overridden = ov.medicalCents != null || ov.dentalCents != null || ov.visionCents != null
+    || Object.keys(ov.tiersMonthlyCents || {}).length > 0;
+  return {
+    label: opt.label, medicalCents: medicalCents, dentalCents: dentalCents, visionCents: visionCents,
+    totalCents: totalCents, overridden: overridden, tiers: tiers, contracts: contracts,
+    monthlyCents: monthlyCents, monthlyTotalCents: Math.round(totalCents / 12)
+  };
 }
 // Pure — no DOM — a plan's own out-of-pocket cost for a given total billed amount, under a plain
 // deductible-then-coinsurance-up-to-an-OOP-max design (every option in this quote works this way).
@@ -4544,6 +4584,12 @@ var _finCompToast = '';
 function finCompMoney(cents) {
   return '$' + Math.round((Number(cents) || 0) / 100).toLocaleString('en-US');
 }
+// A monthly premium is quoted and typed to the cent, so it is shown that way — rounding it to
+// whole dollars in a basis line invites someone to check it against the packet and find it wrong.
+function finCompMoneyCents(cents) {
+  var n = (Number(cents) || 0) / 100;
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 function finCompMoneySigned(cents) {
   var r = Math.round((Number(cents) || 0) / 100);
   return (r >= 0 ? '+' : '&minus;') + '$' + Math.abs(r).toLocaleString('en-US');
@@ -4618,6 +4664,64 @@ function finCompSetHealthMode(i, mode) {
   w.healthMode = mode;
   w.healthEnrolled = (mode !== 'optout');
   finRerenderPlanningPreserveFocus();
+}
+// A worker's coverage tier — one of the four Concordia prices, or 'optout'. Rosters saved before
+// the tier rework only carry the old two-way healthMode, where "employee" meant Self; that is what
+// it maps to. Setting a tier keeps healthMode/healthEnrolled in step so nothing still reading the
+// older flags breaks.
+function finCompHealthTier(w) {
+  var t = w && w.healthTier;
+  if (t === 'optout') return 'optout';
+  for (var i = 0; i < FIN_HEALTH_TIERS.length; i++) if (FIN_HEALTH_TIERS[i].key === t) return t;
+  var mode = finCompHealthMode(w);
+  return mode === 'family' ? 'family' : mode === 'optout' ? 'optout' : 'self';
+}
+function finCompHealthTierLabel(key) {
+  if (key === 'optout') return 'Opts out (cash)';
+  for (var i = 0; i < FIN_HEALTH_TIERS.length; i++) if (FIN_HEALTH_TIERS[i].key === key) return FIN_HEALTH_TIERS[i].label;
+  return key;
+}
+function finCompSetHealthTier(i, tier) {
+  var w = _finSalaryRoster[i];
+  w.healthTier = tier;
+  w.healthMode = tier === 'optout' ? 'optout' : tier === 'family' ? 'family' : 'employee';
+  w.healthEnrolled = (tier !== 'optout');
+  finRerenderPlanningPreserveFocus();
+}
+// Live enrolment, counted off the roster — the same thing as the count column on Concordia's own
+// Enrollment and Rates block. A cash-only worker is below the hours floor and draws nothing, so
+// they are not a contract.
+function finCompEnrollmentCounts(roster) {
+  var counts = { self: 0, selfSpouse: 0, selfChild: 0, family: 0 };
+  (roster || _finSalaryRoster).forEach(function(w) {
+    if (finCompIsCashOnly(w)) return;
+    var t = finCompHealthTier(w);
+    if (counts[t] != null) counts[t] += 1;
+  });
+  return counts;
+}
+function finCompEnrolledCount(roster) {
+  var c = finCompEnrollmentCounts(roster);
+  return c.self + c.selfSpouse + c.selfChild + c.family;
+}
+// What the church pays for ONE enrolled worker: their own tier's monthly rate for twelve months,
+// plus an even share of dental and vision — which the packet does not tier-price, so there is no
+// per-worker figure to read for those. A hand-entered premium on the worker beats all of it.
+function finCompWorkerHealthCents(w) {
+  if (finCompIsCashOnly(w)) return 0;
+  var tier = finCompHealthTier(w);
+  if (tier === 'optout') {
+    return w.healthOptOutOverrideCents != null ? w.healthOptOutOverrideCents : finCompOptOutCents();
+  }
+  if (w.employeeOnlyPremiumCents != null) return w.employeeOnlyPremiumCents;
+  var opt = HEALTH_PLAN_QUOTE_2027.options[_finHealthPlanSelectedOption];
+  if (!opt) return 0;
+  var rate = finHealthTierMonthlyCents(_finHealthPlanSelectedOption, tier) || 0;
+  var ov = (typeof _finHealthPlanPremiumOverrides !== 'undefined' ? _finHealthPlanPremiumOverrides : {})[_finHealthPlanSelectedOption] || {};
+  var dentalCents = ov.dentalCents != null ? ov.dentalCents : opt.dentalCents;
+  var visionCents = ov.visionCents != null ? ov.visionCents : opt.visionCents;
+  var enrolled = Math.max(1, finCompEnrolledCount());
+  return rate * 12 + Math.round((dentalCents + visionCents) / enrolled);
 }
 // Full-time equivalent, as a fraction. A 20%-time worker is 0.2. Used to scale the DISTRICT
 // BENCHMARK, never the salary itself — the salary is whatever is really budgeted, but comparing
@@ -4708,22 +4812,6 @@ function finCompSalaryCents(w, i) {
 function finCompOverrideCount() {
   return Object.keys(_finCompOverrides).filter(function(k) { return _finCompOverrides[k] !== '' && _finCompOverrides[k] != null; }).length;
 }
-// Group contracts — the quote is one congregation-wide premium for N Family-tier contracts, so a
-// family-tier worker's cost is an even split of it. Clamped to 1 so an emptied box can't divide
-// by zero (§7.4).
-var _finHealthPlanContracts = null;
-function finCompContractCount() {
-  var n = _finHealthPlanContracts != null ? _finHealthPlanContracts : HEALTH_PLAN_QUOTE_2027.enrollmentContracts;
-  return Math.max(1, Math.floor(Number(n) || 0) || 1);
-}
-// Pure — no DOM — an even per-contract share of the selected plan's total employer cost, used as
-// each FAMILY-tier worker's health line. The quote is one congregation-wide total for N Family-tier
-// contracts, not individually priced per worker, so an even split is the practical estimate.
-function finHealthPlanPerContractCents(optionKey) {
-  var calc = finComputeHealthPlanTotalCents(optionKey);
-  if (!calc) return 0;
-  return Math.round(calc.totalCents / finCompContractCount());
-}
 // What the church pays for one worker (§5.5). Pension and disability apply to every salaried
 // worker regardless of FICA status; a minister's employer FICA is $0 and the employer half they
 // cover themselves is carried separately for display only — never added to a total.
@@ -4731,12 +4819,8 @@ function finCompBenefits(w, salaryCents) {
   var pensionRate = finCompPensionRate(_finPlanTargetYear).rate;
   var disRate = finCompDisabilityRate(_finPlanTargetYear, !!w.hasDependents).rate;
   var ficaRate = finCompFicaRate();
-  var mode = finCompHealthMode(w);
   var cashOnly = finCompIsCashOnly(w);
-  var healthCents = cashOnly ? 0
-    : mode === 'family' ? finHealthPlanPerContractCents(_finHealthPlanSelectedOption)
-    : mode === 'employee' ? (w.employeeOnlyPremiumCents || 0)
-    : (w.healthOptOutOverrideCents != null ? w.healthOptOutOverrideCents : finCompOptOutCents());
+  var healthCents = finCompWorkerHealthCents(w);
   var pensionCents = cashOnly ? 0 : Math.round(salaryCents * pensionRate);
   var disabilityCents = cashOnly ? 0 : Math.round(salaryCents * disRate);
   // Employer FICA is owed on any W-2 wage however few the hours, so it survives cash-only. Only
@@ -5100,10 +5184,9 @@ function finCompRenderDrawer(computed) {
     + '<label class="fin-comp-field">Years of service<input type="text" inputmode="numeric" id="fin-comp-years-' + i + '" value="' + (Number(w.yearsExperience) || 0) + '" oninput="finCompYearsChange(' + i + ',finPlanSanitizeWholeDollarInput(this))"></label>'
     + attendanceField + stipendField + stipendPctField
     + '<label class="fin-comp-field">Time worked<span style="display:inline-flex;align-items:center;gap:4px;"><input type="text" inputmode="decimal" id="fin-comp-fte-' + i + '" value="' + finCompFtePct(w) + '" oninput="finCompFteChange(' + i + ',finSanitizeDecimalInput(this))"><span style="color:var(--warm-gray);">% of full time</span></span></label>'
-    + '<label class="fin-comp-field">Health coverage<select onchange="finCompSetHealthMode(' + i + ',this.value)"' + (finCompIsCashOnly(w) ? ' disabled' : '') + '>'
-    + '<option value="family"' + (finCompHealthMode(w) === 'family' ? ' selected' : '') + '>Family</option>'
-    + '<option value="employee"' + (finCompHealthMode(w) === 'employee' ? ' selected' : '') + '>Employee only</option>'
-    + '<option value="optout"' + (finCompHealthMode(w) === 'optout' ? ' selected' : '') + '>Opts out (cash)</option>'
+    + '<label class="fin-comp-field">Health coverage<select onchange="finCompSetHealthTier(' + i + ',this.value)"' + (finCompIsCashOnly(w) ? ' disabled' : '') + '>'
+    + FIN_HEALTH_TIERS.map(function(t) { return '<option value="' + t.key + '"' + (finCompHealthTier(w) === t.key ? ' selected' : '') + '>' + esc(t.label) + '</option>'; }).join('')
+    + '<option value="optout"' + (finCompHealthTier(w) === 'optout' ? ' selected' : '') + '>Opts out (cash)</option>'
     + '</select></label>'
     + '</div>'
     + '<label class="fin-comp-inline-check" style="margin:6px 0 0;"><input type="checkbox" onchange="finCompCashOnlyToggle(' + i + ',this.checked)"' + (finCompIsCashOnly(w) ? ' checked' : '') + '> Cash salary only &mdash; no pension, disability or health</label>'
@@ -5236,13 +5319,27 @@ function finCompPlanQuoteField(optionKey, field) {
   var ov = (_finHealthPlanPremiumOverrides[optionKey] || {})[field];
   return ov != null ? ov : HEALTH_PLAN_QUOTE_2027.options[optionKey][field];
 }
+// What ONE household's premium difference is between two options — the figure the "is it worth it
+// for the worker" analysis turns on, since the church covers Renewal in full and a worker choosing
+// another option pays the gap. Now read straight off the two tier rates rather than divided out of
+// a group total, so it stays right when the roster is not all one tier. Family tier, because that
+// is the household the framing is about; dental and vision are the same across the renewal options
+// and cancel, but are included so the "current" option compares honestly too.
+function finCompPerHouseholdDiffCents(fromKey, toKey, tierKey) {
+  var tier = tierKey || 'family';
+  var from = finHealthTierMonthlyCents(fromKey, tier), to = finHealthTierMonthlyCents(toKey, tier);
+  if (from == null || to == null) return 0;
+  var dv = function(k) { return finCompPlanQuoteField(k, 'dentalCents') + finCompPlanQuoteField(k, 'visionCents'); };
+  var enrolled = Math.max(1, finCompEnrolledCount());
+  return (to - from) * 12 + Math.round((dv(toKey) - dv(fromKey)) / enrolled);
+}
 function finCompRenderHealth(computed, totals) {
-  var renewalTotal = finComputeHealthPlanTotalCents('renewal').totalCents;
+  var counts = finCompEnrollmentCounts();
   var cards = FIN_COMP_PLAN_KEYS.map(function(key) {
-    var calc = finComputeHealthPlanTotalCents(key);
+    var calc = finComputeHealthPlanTotalCents(key, null, counts);
     if (!calc) return '';
     var active = key === _finHealthPlanSelectedOption;
-    var perHousehold = Math.round((calc.totalCents - renewalTotal) / finCompContractCount());
+    var perHousehold = finCompPerHouseholdDiffCents('renewal', key);
     var note = key === 'renewal' ? 'Church covers this in full'
       : perHousehold > 0 ? 'Worker pays ' + finCompMoney(perHousehold) + '/yr more'
       : 'Worker saves ' + finCompMoney(Math.abs(perHousehold)) + '/yr';
@@ -5259,7 +5356,7 @@ function finCompRenderHealth(computed, totals) {
   }).join('');
   var planLabel = (finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption) || {}).label || '';
   var rows = _finSalaryRoster.map(function(w, i) {
-    var mode = finCompHealthMode(w), b = computed[i].benefits;
+    var tier = finCompHealthTier(w), b = computed[i].benefits;
     var costCell, basis;
     if (finCompIsCashOnly(w)) {
       costCell = '<span style="color:var(--warm-gray);font-weight:400;">&mdash;</span>';
@@ -5269,35 +5366,42 @@ function finCompRenderHealth(computed, totals) {
         + '<td class="fin-comp-td num" style="font-weight:700;">' + costCell + '</td>'
         + '<td class="fin-comp-td" style="font-size:.76rem;color:var(--warm-gray);">' + basis + '</td></tr>';
     }
-    if (mode === 'family') {
-      costCell = finCompMoney(b.healthCents);
-      basis = 'Group ' + esc(planLabel) + ' quote &divide; ' + finCompContractCount() + ' contract' + (finCompContractCount() === 1 ? '' : 's');
-    } else if (mode === 'employee') {
-      costCell = finCompReadOnly('<span style="display:inline-flex;align-items:center;gap:3px;justify-content:flex-end;"><span style="color:var(--warm-gray);font-weight:400;">$</span>'
-        + '<input type="text" inputmode="decimal" id="fin-comp-eo-' + i + '" value="' + (w.employeeOnlyPremiumCents != null ? (w.employeeOnlyPremiumCents / 100) : '') + '" placeholder="0.00" oninput="finCompEmployeeOnlyChange(' + i + ',finSanitizeDecimalInput(this))" style="width:88px;text-align:right;font-weight:700;"></span>');
-      basis = 'Employee-only premium &mdash; no group quote for this tier, enter the real figure';
+    if (tier !== 'optout') {
+      var tierRate = finHealthTierMonthlyCents(_finHealthPlanSelectedOption, tier) || 0;
+      var enrolledN = Math.max(1, finCompEnrolledCount());
+      if (w.employeeOnlyPremiumCents != null) {
+        costCell = finCompReadOnly('<span style="display:inline-flex;align-items:center;gap:3px;justify-content:flex-end;"><span style="color:var(--warm-gray);font-weight:400;">$</span>'
+          + '<input type="text" inputmode="decimal" id="fin-comp-eo-' + i + '" value="' + (w.employeeOnlyPremiumCents / 100) + '" placeholder="0.00" oninput="finCompEmployeeOnlyChange(' + i + ',finSanitizeDecimalInput(this))" style="width:88px;text-align:right;font-weight:700;"></span>');
+        basis = 'Hand-entered premium, overriding the ' + esc(finCompHealthTierLabel(tier)) + ' rate. <span class="fin-comp-link" onclick="finCompEmployeeOnlyChange(' + i + ',&quot;&quot;)">use the quote</span>';
+      } else {
+        costCell = finCompMoney(b.healthCents);
+        basis = esc(finCompHealthTierLabel(tier)) + ' rate ' + finCompMoneyCents(tierRate) + '/mo &times; 12, plus dental and vision shared across ' + enrolledN + ' enrolled';
+      }
     } else {
       costCell = finCompReadOnly('<span style="display:inline-flex;align-items:center;gap:3px;justify-content:flex-end;"><span style="color:var(--warm-gray);font-weight:400;">$</span>'
         + '<input type="text" inputmode="decimal" id="fin-comp-optout-' + i + '" value="' + (w.healthOptOutOverrideCents != null ? (w.healthOptOutOverrideCents / 100) : '') + '" placeholder="' + (finCompOptOutCents() / 100).toFixed(2) + '" oninput="finCompOptOutChange(' + i + ',finSanitizeDecimalInput(this))" style="width:88px;text-align:right;font-weight:700;"></span>');
       basis = 'Opt-out cash &mdash; default ' + finCompMoney(finCompOptOutCents()) + ' from this year&#39;s rates';
     }
     return '<tr><td class="fin-comp-td"><div style="font-weight:700;">' + esc(w.name || '(unnamed)') + '</div><div style="font-size:.72rem;color:var(--warm-gray);">' + esc(w.position || '') + '</div></td>'
-      + '<td class="fin-comp-td"><select onchange="finCompSetHealthMode(' + i + ',this.value)"' + (finCompIsAdmin() ? '' : ' disabled') + '>'
-      + '<option value="family"' + (mode === 'family' ? ' selected' : '') + '>Family</option>'
-      + '<option value="employee"' + (mode === 'employee' ? ' selected' : '') + '>Employee only</option>'
-      + '<option value="optout"' + (mode === 'optout' ? ' selected' : '') + '>Opts out (cash)</option>'
+      + '<td class="fin-comp-td"><select onchange="finCompSetHealthTier(' + i + ',this.value)"' + (finCompIsAdmin() ? '' : ' disabled') + '>'
+      + FIN_HEALTH_TIERS.map(function(t) { return '<option value="' + t.key + '"' + (tier === t.key ? ' selected' : '') + '>' + esc(t.label) + '</option>'; }).join('')
+      + '<option value="optout"' + (tier === 'optout' ? ' selected' : '') + '>Opts out (cash)</option>'
       + '</select></td>'
       + '<td class="fin-comp-td num" style="font-weight:700;">' + costCell + '</td>'
       + '<td class="fin-comp-td" style="font-size:.76rem;color:var(--warm-gray);">' + basis + '</td></tr>';
   }).join('');
-  var familyCount = _finSalaryRoster.filter(function(w) { return finCompHealthMode(w) === 'family'; }).length;
+  var liveCounts = finCompEnrollmentCounts();
+  var enrolledTotal = finCompEnrolledCount();
+  var enrolBreakdown = FIN_HEALTH_TIERS.filter(function(t) { return liveCounts[t.key] > 0; })
+    .map(function(t) { return liveCounts[t.key] + ' ' + t.label; }).join(', ') || 'nobody';
   var table = '<div style="overflow-x:auto;"><table class="fin-comp-table" style="min-width:700px;">'
     + '<thead><tr><th class="fin-comp-th">Worker</th><th class="fin-comp-th">Coverage</th><th class="fin-comp-th num">Church cost</th><th class="fin-comp-th">Where the figure comes from</th></tr></thead>'
     + '<tbody>' + rows
     + '<tr class="fin-comp-total-row"><td class="fin-comp-td" colspan="2">Total health cost</td>'
     + '<td class="fin-comp-td num">' + finCompMoney(totals.healthCents) + '</td>'
-    + '<td class="fin-comp-td" style="font-size:.74rem;font-weight:400;color:var(--warm-gray);">Group quote ' + finCompMoney(finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption).totalCents)
-    + ' covers ' + familyCount + ' family contract' + (familyCount === 1 ? '' : 's') + '; the rest are entered figures.</td></tr>'
+    + '<td class="fin-comp-td" style="font-size:.74rem;font-weight:400;color:var(--warm-gray);">Group quote at this enrolment ('
+    + esc(enrolBreakdown) + ') is ' + finCompMoney(finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption, null, liveCounts).totalCents)
+    + ' across ' + enrolledTotal + ' contract' + (enrolledTotal === 1 ? '' : 's') + '; opt-out cash and any hand-entered premium are on top.</td></tr>'
     + '</tbody></table></div>';
   return '<div class="fin-card">'
     + '<div class="fin-comp-cardhd">'
@@ -5320,7 +5424,7 @@ function finCompBreakevenHtml() {
   var calc = finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption);
   var baseline = finComputeHealthPlanTotalCents('renewal');
   if (!calc || !baseline) return '';
-  var perHouseholdDiffCents = Math.round((calc.totalCents - baseline.totalCents) / finCompContractCount());
+  var perHouseholdDiffCents = finCompPerHouseholdDiffCents('renewal', _finHealthPlanSelectedOption);
   var renewalOpt = HEALTH_PLAN_QUOTE_2027.options.renewal, selOpt = HEALTH_PLAN_QUOTE_2027.options[_finHealthPlanSelectedOption];
   var rate = HEALTH_PLAN_QUOTE_2027.coinsuranceRate;
   var renewalLone = finHealthPlanEffectiveLoneClaimantTermsCents('renewal'), selLone = finHealthPlanEffectiveLoneClaimantTermsCents(_finHealthPlanSelectedOption);
@@ -5434,34 +5538,53 @@ function finCompRenderRates() {
     + '<label class="fin-comp-reflabel" style="margin-top:12px;">Source document'
     + '<input type="text" id="fin-comp-ref-concordiaSource-' + year + '" value="' + esc(refRow.concordiaSource || '') + '" placeholder="' + esc(finCompSourceDoc('concordiaSource')) + '" oninput="finCompRefTextChange(' + year + ',&quot;concordiaSource&quot;,this.value)" style="width:100%;font-weight:400;">'
     + '</label></div>';
+  // Typed the way Concordia publishes it: one MONTHLY rate per coverage tier, per plan option. The
+  // enrolment count beside each tier is read off the roster, not typed — it is the same thing as
+  // the count column on the packet's own Enrollment and Rates block, and letting it be typed twice
+  // is how the two quietly stop agreeing.
+  var liveCounts = finCompEnrollmentCounts();
   var quoteRows = FIN_COMP_PLAN_KEYS.map(function(key) {
-    var calc = finComputeHealthPlanTotalCents(key);
+    var calc = finComputeHealthPlanTotalCents(key, null, liveCounts);
     function box(field, width) {
       var ov = (_finHealthPlanPremiumOverrides[key] || {})[field];
       return '<input type="text" inputmode="decimal" id="fin-comp-quote-' + key + '-' + field + '" value="' + (ov != null ? (ov / 100) : '') + '" placeholder="' + (HEALTH_PLAN_QUOTE_2027.options[key][field] / 100).toFixed(2) + '" oninput="finCompQuoteChange(' + volJsAttr(key) + ',' + volJsAttr(field) + ',finSanitizeDecimalInput(this))" style="width:' + width + 'px;text-align:right;">';
     }
+    var tierBoxes = FIN_HEALTH_TIERS.map(function(t) {
+      var ov = ((_finHealthPlanPremiumOverrides[key] || {}).tiersMonthlyCents || {})[t.key];
+      var quoted = (HEALTH_PLAN_QUOTE_2027.options[key].tiersMonthlyCents || {})[t.key];
+      return '<td class="fin-comp-td num"><input type="text" inputmode="decimal" id="fin-comp-tier-' + key + '-' + t.key + '" value="' + (ov != null ? (ov / 100) : '') + '" placeholder="' + (quoted == null ? '' : (quoted / 100).toFixed(2)) + '" oninput="finCompTierRateChange(' + volJsAttr(key) + ',' + volJsAttr(t.key) + ',finSanitizeDecimalInput(this))" style="width:88px;text-align:right;"></td>';
+    }).join('');
     return '<tr' + (key === _finHealthPlanSelectedOption ? ' class="fin-comp-quote-active"' : '') + '>'
       + '<td class="fin-comp-td"><div style="font-weight:700;color:var(--color-navy);">' + esc(calc.label) + '</div><div style="font-size:.72rem;color:var(--warm-gray);">' + FIN_COMP_PLAN_TAGS[key] + '</div></td>'
-      + '<td class="fin-comp-td num">' + box('medicalCents', 96) + '</td>'
+      + tierBoxes
       + '<td class="fin-comp-td num">' + box('dentalCents', 86) + '</td>'
       + '<td class="fin-comp-td num">' + box('visionCents', 86) + '</td>'
       + '<td class="fin-comp-td num">' + box('deductibleFamilyCents', 82) + '</td>'
       + '<td class="fin-comp-td num">' + box('oopMaxFamilyCents', 82) + '</td>'
-      + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoney(calc.totalCents) + '</td>'
-      + '<td class="fin-comp-td num" style="color:var(--warm-gray);">' + finCompMoney(Math.round(calc.totalCents / finCompContractCount())) + '</td></tr>';
+      + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoneyCents(calc.monthlyCents) + '</td>'
+      + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoney(calc.totalCents) + '</td></tr>';
+  }).join('');
+  var enrolCells = FIN_HEALTH_TIERS.map(function(t) {
+    return '<td class="fin-comp-td num" style="font-weight:700;color:var(--color-navy);">' + liveCounts[t.key] + '</td>';
   }).join('');
   var quoteCard = '<div class="fin-card">'
     + '<div class="fin-comp-cardhd">'
     + '<div><div class="fin-card-title" style="font-size:20px;margin:0;">Health plan quote, FY' + year + '</div>'
-    + '<div class="fin-card-sub" style="margin:0;">One group premium for the whole church, not a per-worker rate. Type each line off the renewal packet; the cost per family contract is the total split by the number of contracts.</div></div>'
+    + '<div class="fin-card-sub" style="margin:0;">Type the renewal packet&#39;s Enrollment and Rates block straight in &mdash; one <b>monthly</b> rate per coverage tier, per option. Dental and vision are not tier-priced in the packet, so they stay annual figures for the whole group and are shared evenly across whoever is enrolled. Total monthly is the packet&#39;s own Total Monthly Cost (medical only, at the enrolment below); total annual adds dental and vision. Who sits on which tier is set per worker in step 1.</div></div>'
     + '<div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">'
-    + '<label class="fin-comp-reflabel">Family contracts<input type="text" inputmode="numeric" id="fin-comp-contracts" value="' + finCompContractCount() + '" oninput="finCompContractsChange(finPlanSanitizeWholeDollarInput(this))" style="width:70px;font-weight:700;"></label>'
     + '<label class="fin-comp-reflabel">Quote reference<input type="text" id="fin-comp-ref-quoteSource-' + year + '" value="' + esc(finCompRefRow(year).quoteSource || '') + '" placeholder="' + esc(finCompSourceDoc('quoteSource')) + '" oninput="finCompRefTextChange(' + year + ',&quot;quoteSource&quot;,this.value)" style="width:260px;font-weight:400;"></label>'
     + '</div></div>'
-    + '<div style="overflow-x:auto;"><table class="fin-comp-table" style="min-width:860px;">'
-    + '<thead><tr><th class="fin-comp-th">Plan option</th><th class="fin-comp-th num">Medical</th><th class="fin-comp-th num">Dental</th><th class="fin-comp-th num">Vision</th>'
-    + '<th class="fin-comp-th num">Family deductible</th><th class="fin-comp-th num">Out-of-pocket max</th><th class="fin-comp-th num">Total premium</th><th class="fin-comp-th num">Per contract</th></tr></thead>'
-    + '<tbody>' + quoteRows + '</tbody></table></div>'
+    + '<div style="overflow-x:auto;"><table class="fin-comp-table" style="min-width:1120px;">'
+    + '<thead><tr><th class="fin-comp-th">Plan option</th>'
+    + FIN_HEALTH_TIERS.map(function(t) { return '<th class="fin-comp-th num">' + esc(t.label) + ' / mo</th>'; }).join('')
+    + '<th class="fin-comp-th num">Dental / yr</th><th class="fin-comp-th num">Vision / yr</th>'
+    + '<th class="fin-comp-th num">Family deductible</th><th class="fin-comp-th num">Out-of-pocket max</th>'
+    + '<th class="fin-comp-th num">Total monthly</th><th class="fin-comp-th num">Total annual</th></tr></thead>'
+    + '<tbody>' + quoteRows
+    + '<tr class="fin-comp-total-row"><td class="fin-comp-td">Enrolled now</td>' + enrolCells
+    + '<td class="fin-comp-td" colspan="5" style="font-size:.74rem;font-weight:400;color:var(--warm-gray);">Counted from the roster &mdash; change a worker&#39;s tier in step 1. Cash-only workers are below the hours floor and are not contracts.</td>'
+    + '<td class="fin-comp-td num">' + finCompEnrolledCount() + ' contract' + (finCompEnrolledCount() === 1 ? '' : 's') + '</td></tr>'
+    + '</tbody></table></div>'
     + '<div class="fin-comp-bar mist"><span style="font-weight:700;color:var(--color-navy);">Plan the church covers in full:</span>'
     + '<span style="display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;"><select onchange="finCompPickPlan(this.value)"' + (finCompIsAdmin() ? '' : ' disabled') + '>'
     + FIN_COMP_PLAN_KEYS.map(function(k) { var c = finComputeHealthPlanTotalCents(k); return '<option value="' + k + '"' + (k === _finHealthPlanSelectedOption ? ' selected' : '') + '>' + esc(c.label) + ' &middot; ' + finCompMoney(c.totalCents) + '</option>'; }).join('')
@@ -5652,7 +5775,10 @@ function finCompAttendanceChange(i, value) {
 function finCompDependentsToggle(i, checked) {
   var w = _finSalaryRoster[i];
   w.hasDependents = !!checked;
-  if (finCompHealthMode(w) !== 'optout') { w.healthMode = checked ? 'family' : 'employee'; w.healthEnrolled = true; }
+  // It no longer moves anyone between coverage tiers. When there were only two (Family / Employee
+  // only) a dependents flag implied the tier; with the four Concordia prices it does not — Self &
+  // Spouse and Self & Child are both "has dependents" and are priced differently — so inferring one
+  // would silently overwrite a tier the admin chose. Dependents now only drives the disability rate.
   finRerenderPlanningPreserveFocus();
 }
 function finCompFteChange(i, value) {
@@ -5741,15 +5867,25 @@ function finCompRefTextChange(year, field, value) {
   finSalaryScheduleAutoSave();
 }
 function finCompRatesYearChange(v) { _finCompRefYear = Number(v); finRenderCompensation(); }
-function finCompContractsChange(v) {
-  _finHealthPlanContracts = v === '' ? null : Math.max(1, parseInt(v, 10) || 1);
-  finRerenderPlanningPreserveFocus();
-}
 function finCompQuoteChange(optionKey, field, value) {
   if (!_finHealthPlanPremiumOverrides[optionKey]) _finHealthPlanPremiumOverrides[optionKey] = {};
   var cents = value === '' ? null : Math.round(parseFloat(value) * 100);
   if (cents == null || !isFinite(cents)) delete _finHealthPlanPremiumOverrides[optionKey][field];
   else _finHealthPlanPremiumOverrides[optionKey][field] = cents;
+  finRerenderPlanningPreserveFocus();
+}
+// One tier's monthly rate for one plan option. Typing over a rate also clears any legacy annual
+// medicalCents override for that option — otherwise the old flat figure would keep winning and the
+// tier rates the admin just typed would appear to do nothing, which is the invisible-stuck-state
+// bug this codebase has hit before.
+function finCompTierRateChange(optionKey, tierKey, value) {
+  if (!_finHealthPlanPremiumOverrides[optionKey]) _finHealthPlanPremiumOverrides[optionKey] = {};
+  var row = _finHealthPlanPremiumOverrides[optionKey];
+  if (!row.tiersMonthlyCents) row.tiersMonthlyCents = {};
+  var cents = value === '' ? null : Math.round(parseFloat(value) * 100);
+  if (cents == null || !isFinite(cents)) delete row.tiersMonthlyCents[tierKey];
+  else row.tiersMonthlyCents[tierKey] = cents;
+  delete row.medicalCents;
   finRerenderPlanningPreserveFocus();
 }
 function finCompRangeChange(i, field, value) {
@@ -5803,7 +5939,7 @@ function finCompCouncilReportHtml(computed, totals) {
   var pct = totals.baselineCents ? (totals.deltaCents / totals.baselineCents * 100) : 0;
   var gap = finCompFullScaleGap(computed);
   var medTotal = finCompMedianTotal(computed);
-  var planCalc = finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption);
+  var planCalc = finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption, null, finCompEnrollmentCounts());
   var scaleRatio = totals.worksheetCents ? Math.round(totals.salaryCents / totals.worksheetCents * 100) : null;
   var salaryShare = totals.totalCents ? Math.round(totals.salaryCents / totals.totalCents * 100) : 0;
   var altTotalCents = totals.totalCents + gap.totalCents;
@@ -5884,7 +6020,7 @@ function finCompCouncilReportHtml(computed, totals) {
       + (b.cashOnly
           ? '<tr><td colspan="2" class="mut">Cash salary only at ' + finCompFtePct(w) + '% of full time &mdash; below the hours floor for the Concordia pension, disability and health plans. Employer FICA still applies.</td></tr>'
           : '<tr><td>Pension ' + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate) + '</td><td class="n">' + finCompMoney(b.pensionCents) + '</td></tr>'
-            + '<tr><td>Health &mdash; ' + (finCompHealthMode(w) === 'family' ? 'family tier, group quote split' : finCompHealthMode(w) === 'employee' ? 'employee-only premium' : 'opt-out cash') + '</td><td class="n">' + finCompMoney(b.healthCents) + '</td></tr>'
+            + '<tr><td>Health &mdash; ' + esc(finCompIsCashOnly(w) ? 'not eligible' : finCompHealthTierLabel(finCompHealthTier(w)).toLowerCase()) + '</td><td class="n">' + finCompMoney(b.healthCents) + '</td></tr>'
             + '<tr><td>Disability &amp; survivor' + (w.hasDependents ? ' (with dependents)' : '') + '</td><td class="n">' + finCompMoney(b.disabilityCents) + '</td></tr>')
       + '<tr><td>Employer FICA' + (w.selfEmployedFica ? ' &mdash; none; a minister pays their own SECA' : '') + '</td><td class="n">' + finCompMoney(b.ficaCents) + '</td></tr>'
       + '<tr class="tot"><td>Total church cost</td><td class="n">' + finCompMoney(c.churchCostCents) + '</td></tr>'
@@ -5895,26 +6031,33 @@ function finCompCouncilReportHtml(computed, totals) {
       + '</div>';
   }).join('');
   // Part 3 — group health plan
-  var renewalTotal = finComputeHealthPlanTotalCents('renewal').totalCents;
+  var rptCounts = finCompEnrollmentCounts();
   var planRows = FIN_COMP_PLAN_KEYS.map(function(key) {
-    var calc = finComputeHealthPlanTotalCents(key);
-    var perHousehold = Math.round((calc.totalCents - renewalTotal) / finCompContractCount());
+    var calc = finComputeHealthPlanTotalCents(key, null, rptCounts);
+    var perHousehold = finCompPerHouseholdDiffCents('renewal', key);
     return '<tr' + (key === _finHealthPlanSelectedOption ? ' class="lcms"' : '') + '><td>' + esc(calc.label) + '</td>'
-      + '<td class="n">' + finCompMoney(calc.medicalCents) + '</td><td class="n">' + finCompMoney(calc.dentalCents) + '</td><td class="n">' + finCompMoney(calc.visionCents) + '</td>'
+      + FIN_HEALTH_TIERS.map(function(t) { return '<td class="n">' + finCompMoneyCents(finHealthTierMonthlyCents(key, t.key) || 0) + '</td>'; }).join('')
+      + '<td class="n">' + finCompMoney(calc.dentalCents) + '</td><td class="n">' + finCompMoney(calc.visionCents) + '</td>'
       + '<td class="n">' + finCompMoney(finCompPlanQuoteField(key, 'deductibleFamilyCents')) + '</td><td class="n">' + finCompMoney(finCompPlanQuoteField(key, 'oopMaxFamilyCents')) + '</td>'
       + '<td class="n b">' + finCompMoney(calc.totalCents) + '</td>'
       + '<td class="n">' + (key === 'renewal' ? '&mdash;' : finCompMoneySigned(perHousehold) + '/worker') + '</td></tr>';
   }).join('');
   var tierRows = _finSalaryRoster.map(function(w, i) {
-    var mode = finCompHealthMode(w);
+    var tier = finCompHealthTier(w);
+    var rate = finHealthTierMonthlyCents(_finHealthPlanSelectedOption, tier);
     return '<tr><td>' + esc(w.name || '(unnamed)') + '</td>'
-      + '<td>' + (finCompIsCashOnly(w) ? 'Not eligible &mdash; ' + finCompFtePct(w) + '% time' : mode === 'family' ? 'Family' : mode === 'employee' ? 'Employee only' : 'Opts out (cash)') + '</td>'
+      + '<td>' + (finCompIsCashOnly(w) ? 'Not eligible &mdash; ' + finCompFtePct(w) + '% time' : esc(finCompHealthTierLabel(tier))) + '</td>'
       + '<td class="n">' + finCompMoney(computed[i].benefits.healthCents) + '</td>'
-      + '<td class="mut">' + (mode === 'family' ? 'Group quote &divide; ' + finCompContractCount() + ' contracts' : mode === 'employee' ? 'Entered employee-only premium' : 'Opt-out cash from this year&#39;s rates') + '</td></tr>';
+      + '<td class="mut">' + (finCompIsCashOnly(w) ? 'Below the hours floor for the group plan'
+          : tier === 'optout' ? 'Opt-out cash from this year&#39;s rates'
+          : w.employeeOnlyPremiumCents != null ? 'Hand-entered premium'
+          : finCompMoneyCents(rate || 0) + '/mo &times; 12, plus a share of dental and vision') + '</td></tr>';
   }).join('');
   var healthPage = '<div class="fin-comp-rpt-page">'
     + '<h2 class="fin-comp-rpt-h2">Group health plan</h2>'
-    + '<table class="fin-comp-rpt-table kt"><thead><tr><th>Option</th><th class="n">Medical</th><th class="n">Dental</th><th class="n">Vision</th><th class="n">Family deductible</th><th class="n">Out-of-pocket max</th><th class="n">Total premium</th><th class="n">vs Renewal</th></tr></thead><tbody>' + planRows + '</tbody></table>'
+    + '<table class="fin-comp-rpt-table kt"><thead><tr><th>Option</th>'
+    + FIN_HEALTH_TIERS.map(function(t) { return '<th class="n">' + esc(t.label) + ' / mo</th>'; }).join('')
+    + '<th class="n">Dental</th><th class="n">Vision</th><th class="n">Family deductible</th><th class="n">Out-of-pocket max</th><th class="n">Total premium</th><th class="n">vs Renewal</th></tr></thead><tbody>' + planRows + '</tbody></table>'
     + '<p class="fin-comp-rpt-p">The church covers ' + esc(planCalc ? planCalc.label : 'the selected plan') + ' in full. A worker who chooses another option pays the premium difference themselves &mdash; the last column above, per worker per year.</p>'
     + '<table class="fin-comp-rpt-table kt"><thead><tr><th>Worker</th><th>Coverage</th><th class="n">Church cost</th><th>Basis</th></tr></thead><tbody>' + tierRows
     + '<tr class="tot"><td colspan="2">Total health cost</td><td class="n">' + finCompMoney(totals.healthCents) + '</td><td></td></tr></tbody></table></div>';
@@ -5927,7 +6070,7 @@ function finCompCouncilReportHtml(computed, totals) {
     ['Employer FICA', finCompPctFmt(finCompFicaRate()), 'IRS employer OASDI 6.20% + Medicare 1.45%', ''],
     ['Social Security COLA', finCompPctFmt(finCompSsaRate()), 'Social Security Administration, announced each October', ''],
     ['Health opt-out cash', finCompMoney(finCompOptOutCents()), 'Set by the congregation', ''],
-    ['Group health quote', finCompMoney(planCalc ? planCalc.totalCents : 0) + ' over ' + finCompContractCount() + ' contract' + (finCompContractCount() === 1 ? '' : 's'), finCompSourceDoc('quoteSource'), '']
+    ['Group health quote', finCompMoney(planCalc ? planCalc.totalCents : 0) + ' over ' + finCompEnrolledCount() + ' contract' + (finCompEnrolledCount() === 1 ? '' : 's'), finCompSourceDoc('quoteSource'), '']
   ].map(function(r) {
     return '<tr><td>' + r[0] + '</td><td class="n b">' + r[1] + '</td><td class="mut">' + esc(r[2]) + '</td><td class="mut">' + r[3] + '</td></tr>';
   }).join('');

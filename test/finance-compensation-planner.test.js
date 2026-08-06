@@ -97,7 +97,6 @@ function seedState(ctx) {
   ctx._finCompView = 'plan';
   ctx._finHealthPlanSelectedOption = 'renewal';
   ctx._finHealthPlanPremiumOverrides = {};
-  ctx._finHealthPlanContracts = null;
 }
 
 // Renders a view and hands back its HTML, the way the real tab does.
@@ -204,22 +203,23 @@ describe('§10.3 — a rate change moves everything in one render', () => {
   });
 });
 
-describe('§10.4 — the plan choice only moves family-tier figures', () => {
+describe('§10.4 — the plan choice only moves enrolled figures', () => {
   it('repricing to Option 1 leaves the opt-out worker untouched', () => {
     const before = ctx.finCompComputeAll();
-    expect(before[0].benefits.healthCents).toBe(2687124); // family, renewal / 2
+    // Family tier: $2,051.00/mo x 12, plus an even share of dental and vision across 2 enrolled.
+    expect(before[0].benefits.healthCents).toBe(2687124);
     expect(before[2].benefits.healthCents).toBe(600000);  // opt-out cash
     ctx.finCompPickPlan('option1');
     const after = ctx.finCompComputeAll();
-    expect(after[0].benefits.healthCents).toBe(3091704);  // $30,917 — Option 1 / 2 contracts
+    expect(after[0].benefits.healthCents).toBe(3091704);  // $2,388.15/mo x 12 + share
     expect(after[1].benefits.healthCents).toBe(3091704);
     expect(after[2].benefits.healthCents).toBe(600000);   // unchanged
   });
 
-  it('clamps a zeroed contract count to 1 rather than dividing by zero', () => {
-    ctx.finCompContractsChange('0');
-    expect(ctx.finCompContractCount()).toBe(1);
-    expect(Number.isFinite(ctx.finCompComputeAll()[0].benefits.healthCents)).toBe(true);
+  it('does not divide by zero when nobody is enrolled', () => {
+    ctx._finSalaryRoster.forEach((w, i) => ctx.finCompSetHealthTier(i, 'optout'));
+    expect(ctx.finCompEnrolledCount()).toBe(0);
+    ctx.finCompComputeAll().forEach(c => expect(Number.isFinite(c.benefits.healthCents)).toBe(true));
   });
 });
 

@@ -29,7 +29,7 @@ function loadSalaryCalculator() {
     }
     return CHMS_APP_EXT_JS.slice(start, i);
   }
-  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finLcmsHistoricalAvgGrowthPct', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputePensionCents', 'finConcordiaPensionRateFor', 'finConcordiaDisabilityRateFor', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
+  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finLcmsHistoricalAvgGrowthPct', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputePensionCents', 'finConcordiaPensionRateFor', 'finConcordiaDisabilityRateFor', 'finHealthTierMonthlyCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
   const fnSrcs = fnNames.map(extractFunction);
   const ficaRateM = CHMS_APP_EXT_JS.match(/var LCMS_EMPLOYER_FICA_RATE = [^\n]*\n/);
   if (!ficaRateM) throw new Error('LCMS_EMPLOYER_FICA_RATE not found in built script');
@@ -41,8 +41,10 @@ function loadSalaryCalculator() {
   if (!disabilityRateM) throw new Error('CONCORDIA_DISABILITY_RATE_BY_YEAR not found in built script');
   const healthPlanM = CHMS_APP_EXT_JS.match(/var HEALTH_PLAN_QUOTE_2027 = [\s\S]*?\n};\n/);
   if (!healthPlanM) throw new Error('HEALTH_PLAN_QUOTE_2027 not found in built script');
+  const tiersM = CHMS_APP_EXT_JS.match(/var FIN_HEALTH_TIERS = [\s\S]*?\n\];\n/);
+  if (!tiersM) throw new Error('FIN_HEALTH_TIERS not found in built script');
   // eslint-disable-next-line no-eval
-  return eval(`(function() { ${varSrcs.join('\n')} ${ficaRateM[0]} ${ssaColaM[0]} ${pensionRateM[0]} ${disabilityRateM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finLcmsHistoricalAvgGrowthPct, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, finComputePensionCents, finConcordiaPensionRateFor, finConcordiaDisabilityRateFor, LCMS_EMPLOYER_FICA_RATE, SSA_COLA_REFERENCE_PCT, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents }; })()`);
+  return eval(`(function() { ${varSrcs.join('\n')} ${ficaRateM[0]} ${ssaColaM[0]} ${pensionRateM[0]} ${disabilityRateM[0]} ${tiersM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finLcmsHistoricalAvgGrowthPct, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, finComputePensionCents, finConcordiaPensionRateFor, finConcordiaDisabilityRateFor, LCMS_EMPLOYER_FICA_RATE, SSA_COLA_REFERENCE_PCT, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents }; })()`);
 }
 
 describe('LCMS Missouri District salary calculator', () => {
