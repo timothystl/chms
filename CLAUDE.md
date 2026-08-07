@@ -1295,6 +1295,34 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   - **Phase 3 done 2026-07-22 (v1.58.0)**: Property tab restyle — shared KPI grid (Occupancy/Monthly Net/Annual Net/Reserves On-Hand, same source as the Overview's Property domain), the existing Valuation/Equity stats kept as a secondary row, a new "Available for Distribution" navy bar (annual net minus this year's reserve contributions and capital spend, explicitly an estimate distinct from the actual Distributions-to-Church record), and a small on-hand-vs-target progress bar on the Property Tax Reserve section. All existing sub-views (reserves table, capital ledger, repairs log, valuation calculator, forecast, insurance allocation) preserved. See NOTES.md for full detail.
   - **Phase 4 done 2026-07-22 (v1.59.0)**: Planning tab restyle — cream-header budget builder table with a new Δ% column, editable Plan input restyled, a "Projected Net" navy card, and a new Three-Year Outlook bar chart (income +2.5%/yr, expenses +3%/yr beyond the target year, per the handoff's own stated assumption). Generate/Save/Commit logic unchanged. Salary Calculator/Health Insurance stay as-is for now — they move into their own tab in Phase 5. See NOTES.md for full detail.
   - **Phase 5 done 2026-07-22 (v1.60.0) — FIN27 complete.** Compensation split out of Planning into its own sub-nav tab (new `fin-panel-compensation`); Salary Calculator and Health Insurance restyled into `.fin-card` containers with real LCMS/Concordia math unchanged (confirmed — `test/finance-salary-calculator.test.js`, which unit-tests the underlying pure functions directly, needed zero changes). New manual "Concordia Decision Support estimate" reference block per worker (collapsible, 4 ranges × Low/Mid/High + metadata, persisted via the existing roster save) from the user's real Concordia Compensation Decision Support Tool PDF for Rev. Dinger — confirms the $103,609 LCMS midpoint FIN15 already used narratively. The mockup's separate generic "District Guideline Calculator" tool was deliberately not built as a parallel redundant calculator — the real system already computes this per roster row with real data; see NOTES.md for the full reasoning. RD1/RD2/RD4 (app-wide palette consolidation) remain separately queued.
+- [x] **FIN58 — "How the money moves": four-column Sankey + Share view (2026-08-06).** Implements
+  `flow-diagram.md`, the addition to the Finance Workspace bundle (everything else in that bundle
+  is byte-identical to v1.148.0). Replaces the three-column ribbon drawing with the real design:
+  **Sources → Streams → All revenue → Where it goes**, plus a **Share** view of two donuts behind a
+  toggle (real `<button aria-pressed>`, persisted in `localStorage`, CSS-forced below the phone
+  tier so a resize needs no listener). **The ask was that nothing overlap**, and the handoff's
+  fixed gaps only hold for its own figures, so each label's real vertical extent is computed and
+  the next node pushed down until they cannot touch — **authored gaps are a floor, never a
+  ceiling**, which reproduces the reference exactly (S=0.40, y=22, canvas 626) while surviving any
+  data. Short nodes drop to a one-line label; labels are truncated to per-column width caps (the
+  total's 110 and the expenses' 300 are what keep the middle of the canvas clear, since one runs
+  right from x=628 and the other left from x=1056); the canvas grows rather than letting a column
+  run off it. Width is measured through one shared `finFlowCharW` (0.62em, erring wide) — a
+  hand-picked constant that under-estimates is exactly how a label bleeds, and the collision test
+  caught an early draft doing it at x=334 against a 330 boundary. **Verification is geometric**:
+  `test/finance-flow-diagram.test.js` renders the real SVG across 15 hostile data shapes, extracts
+  every `<text>`, and asserts no two boxes intersect; the `vm` harness runs the same sweep over
+  every SVG on the Health page. **Both verified non-vacuous** by injecting the 5 regressions they
+  guard — the k injection initially passed, so that test was rewritten to parse the rendered ribbon
+  paths rather than recompute k. Two phantom-collision bugs in the tests' own measurement (HTML
+  entities counted as many chars; `font-size` inherited from a parent `<g>`) were found and fixed.
+  Also: the board's five expense categories from an admin-editable GL-account map with the
+  unmapped-account report (an unrecognised account lands in `programs` rather than being dropped —
+  otherwise the outflow stops matching total expenses); the donor node split by the ChMS restricted
+  ratio, labelled as the allocation it is; `GET /finance/flow?fy=`; and a visually-hidden data
+  table plus a data-built `aria-label`. `npm test` (870/870, 36 new). **Not verified**: a live
+  browser. (`src/api-finance.js`, `src/frontend/{html-head,js-finance,js-core}.js`,
+  `test/finance-flow-diagram.test.js`)
 - [x] **FIN57 — Finance Workspace v3: the tab answers "how are we doing?" (2026-08-06).** Implemented
   the `design_handoff_finance_workspace` bundle ("Finance overview framing") — six screens.
   **Compensation was explicitly out of scope and is byte-for-byte untouched** (verified: its panel
