@@ -1662,6 +1662,25 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   layout — say if it needs to come back. (`src/frontend/js-finance.js`,
   `src/frontend/html-head.js`, `src/frontend/html-tabs.js`,
   `test/finance-compensation-planner.test.js`, `test/finance-input-typing.test.js`)
+- [x] **FIN58** — Dental and vision are **per covered worker**, corrected by the church against a
+  stated figure: a family-tier worker costs **$29,130.48** ($24,612.00 medical + the full $3,046.80
+  dental + $1,471.68 vision). They were modelled as one group bill divided across whoever was
+  enrolled, so a covered worker's dental/vision fell whenever a colleague joined, adding a covered
+  worker added nothing to the total, and a family-tier worker priced at $26,871.24. New
+  `finHealthAncillaryPerContractCents()`; the per-worker figure adds them outright and the group
+  total multiplies by the covered count. **A plausible wrong turn worth not repeating**: reading the
+  packet figures as the cost *at the quoted 2-contract enrolment* and halving them — it fixes the
+  scaling, reproduces every previously-shipped number at the quoted enrolment (so it looks
+  confirmed), and still prices a worker at $26,871.24. Do not divide these by the quoted enrolment.
+  **Figures that moved**: family-tier worker $26,871.24 → $29,130.48; Renewal at 2 contracts
+  $53,742.48 → $58,260.96; Dinger's church cost $147,661 → $149,921. Medical untouched and still
+  reconciles to the packet's Total Monthly $4,102.00 / Total Annual $49,224.00. Five existing tests
+  encoded the old reading and were updated; FIN57's re-sharing test was replaced, since an excluded
+  worker's health now leaves cleanly and moves nobody else's. `npm test` (1013/1013), harness pricing
+  three covered workers at $29,130.48 each and the group at $87,391.44, `node --check` on both
+  bundles. Not verified in a live browser. Done 2026-08-07 (v1.159.0). (`src/frontend/js-finance.js`,
+  `test/finance-salary-calculator.test.js`, `test/finance-health-tiers.test.js`,
+  `test/finance-compensation-planner.test.js`)
 - [x] **FIN57** — Reported: Council summary employer FICA read $11,319 against the church's own
   $8,186.72 (Jinah $74,516 + Linda $13,000 + Kati $19,500 at 7.65%). Diagnosed by arithmetic, not
   guesswork — $11,319 / 7.65% = a $147,960.78 base, $40,944.78 more than those three, i.e. exactly
