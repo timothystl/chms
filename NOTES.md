@@ -24,6 +24,61 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.160.0 — Ivanhoe: base period, hidden expenses, and the capital default (2026-08-07)
+
+Three problems reported off two live screenshots, all real, all fixed.
+
+**1. "Does it fund itself?" printed lines that could not reach its own total.** The card showed
+revenue $60,633.28 − expenses $10,229.13 − reserves $5,858.33, which is $44,545.82, above a
+printed total of **$27,977.22**. Root cause is server-side: `computePropertyAnnualSummary`
+(`api-finance.js`) accumulated revenue, expenses and net income independently, each behind its own
+`Number.isFinite` guard. Four of the six 2026 months report net income with **no expenses line**
+(the MRI format AHRA moved to in Jan 2026), so those months counted toward revenue and net income
+but contributed nothing to expenses — expenses covered **2 of 6 months** and **$16,568.60** went
+missing, while the total, computed independently from net income, stayed correct. Those months are
+now **derived as `revenue − net income`**, which is exact rather than an estimate (the dataset's
+own convention is `revenue − expenses = net income`), so `revenue − expenses` reconciles to net
+income identically and the recovered figure is $16,568.60 to the cent. The card also now deducts
+**mortgage principal** and builds its total **by subtraction from the lines it prints**, so it
+cannot silently disagree with itself again. New `expense_months_derived` is returned per year and
+named on the card, so a reconstructed figure is never passed off as one AHRA reported.
+
+**2. The forecast projected from an invisible, unadjustable trailing-12 average.** For this
+property that window straddles two different regimes — H2-2025 earned **$9,168** over six months
+(two ~$12k expense months plus the tax bill) while H1-2026 earned **$33,836** at full occupancy —
+and the choice of base swings 2027 from **−$12,626 to +$19,312**. The base period is now an
+explicit control on the face of the card, showing all three options with their figures and each
+one's own caveat. **The current-year option subtracts the property tax not yet billed**: H1 contains
+no tax expense, so naively doubling it would omit the bill entirely — the mirror image of the
+double-count the model already avoids. Reported reality (\$4,000 taken plus ~\$9,000 available)
+reconciles to **$12,849.67**; the card now reads **$10,050.54** net to the church for 2026 to date.
+
+**3. Capital defaulted to the ledger average, billing finished work forever.** Every entry is a
+one-off (apartment renovation $18,161, HVAC $7,787, washer/dryer $8,000) — there is no recurring
+capital spend — so a flat $15,196/yr allowance was charging every future year for completed
+projects. It now defaults to **$0**, with the spending history and AHRA's **unfunded**
+paint/asphalt/concrete reserve shown beside the input so nothing is assumed silently. Also
+hardened: the POST validator accepts a bare `YYYY` `entry_date` that the allowance calculator
+turned into `NaN`, rendering **"$NaN"** as the remittable figure.
+
+**Also fixed:** `finLoadProperty` never re-rendered the Planning forecast, so losing the race
+against `finLoadPlanning` left the card stuck on "Loading property forecast…" indefinitely. And
+the Capital column reading "—" in production is **not a UI bug** — the model is correct; the
+capital ledger is empty in live D1 (seeded behind the `finance_property_ivanhoe_reserves_v2_seeded`
+marker). The card now says so explicitly rather than rendering a bare dash.
+
+`npm test` (1035/1035, 26 new across `finance-property-annual-summary`,
+`finance-property-funds-itself` and additions to `finance-property-remittable`). **Every new test
+verified non-vacuous** by reintroducing the exact bug it guards — 6 injections; one initially
+passed because a second `isFinite` guard caught it, so that check was redone against a full revert
+of the function and correctly failed. **One existing test was updated rather than the code**: its
+assertion pinned the null-expenses-become-zero behaviour, which was the defect. Plus `node --check`
+on both bundles and `api-finance.js`, div/table-balance across all five rendered property views and
+`CHMS_HTML`, and a harness confirming a base switch preserves the growth/years/capital inputs.
+**Not verified**: a live browser or real D1. (`src/api-finance.js`, `src/frontend/js-finance.js`,
+`test/finance-property-annual-summary.test.js`, `test/finance-property-funds-itself.test.js`,
+`test/finance-property-remittable.test.js`, `test/finance-property.test.js`)
+
 ### v1.159.0 — Ivanhoe: the valuation worksheet is back on the Property tab, and the four units now walk down to cash (2026-08-07)
 
 Two things reported together on Finance -> Commercial Property: "we lost the valuation formulas

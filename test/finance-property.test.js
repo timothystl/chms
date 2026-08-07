@@ -75,8 +75,14 @@ describe('computePropertyAnnualSummary', () => {
   it('ignores null figures instead of treating them as zero', () => {
     const monthly = [{ period: '2026-01', total_revenue_cents: 100000, total_expenses_cents: null, net_income_cents: 50000, occupancy_pct: null }];
     const out = computePropertyAnnualSummary(monthly, [], {});
-    expect(out[0].total_expenses_cents).toBe(0); // sum starts at 0, null just isn't added
     expect(out[0].avg_occupancy_pct).toBeNull();
+    // Expenses are the exception, and deliberately so: skipping a null expenses month while still
+    // counting its revenue and net income is what let the "Does it fund itself?" card print lines
+    // that could not reach their own total. Where revenue and net income are both known, the
+    // month's expenses are recoverable exactly, so they are derived rather than dropped.
+    // See test/finance-property-annual-summary.test.js for the real-data reconciliation.
+    expect(out[0].total_expenses_cents).toBe(50000);
+    expect(out[0].expense_months_derived).toBe(1);
   });
 });
 
