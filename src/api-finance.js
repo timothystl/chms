@@ -1986,6 +1986,100 @@ export function computeRevenueStreams(entries, overrides) {
   // its own account tree from this same map, so one saved classification drives both pages.
   return { streams, totalCents, totalBudgetCents, unmapped, map };
 }
+// ── Flow diagram data contract ("How the money moves") ──────────────────────────────────────
+// Expense rows carry their classification as segment 0 of category_path exactly as revenue rows
+// do (see revenueGroupLabel and the live regression it documents), so the group a human can
+// actually classify is segment 1. Same rule, different heads.
+const EXPENSE_PATH_HEADS = new Set(['expenses', 'other expenses', 'cost of goods sold', 'expenditures', 'other expenditures']);
+export function expenseGroupLabel(categoryPath, accountName) {
+  const segs = String(categoryPath || accountName || '').split(':').map(x => x.trim()).filter(Boolean);
+  if (segs.length > 1 && EXPENSE_PATH_HEADS.has(segs[0].toLowerCase())) return segs[1];
+  return segs[0] || '';
+}
+// The board's five expense categories are its own vocabulary, not the chart of accounts, so the
+// GL-account → category mapping is config-driven and admin-maintainable (chms_config key
+// finance_flow_expense_map), exactly like the revenue-stream mapping above. The regexes below are
+// only the DEFAULT for an account nobody has mapped yet, and every account resolved that way is
+// returned in `unmapped` so the validation report the handoff asks for has something to show.
+//
+// `programs` is the fallback rather than a null bucket: an unmapped account still has to appear
+// somewhere or the outflow total stops matching total expenses, and a silently-dropped account is
+// far worse than a visibly-miscategorised one.
+export const FLOW_EXPENSE_CATEGORIES = [
+  { key: 'mdo', label: 'MDO', note: 'staffing & operations' },
+  { key: 'salaries', label: 'Salaries & Benefits', note: 'church staff' },
+  { key: 'property', label: 'Property & Operations', note: '' },
+  { key: 'education', label: 'Lutheran Education', note: '' },
+  { key: 'programs', label: 'Programs', note: '' },
+];
+export const FLOW_EXPENSE_KEYS = FLOW_EXPENSE_CATEGORIES.map(c => c.key);
+const FLOW_EXPENSE_RULES = [
+  { key: 'mdo', re: MDO_MATCH_RE },
+  { key: 'salaries', re: /salar|payroll|wage|benefit|compensation|pension|fica|health insurance|disability/i },
+  { key: 'education', re: /educat|school|lutheran high|scholarship|tuition aid|seminar/i },
+  { key: 'property', re: /propert|facilit|utilit|maintenance|building|grounds|janitor|custodial|repair|mortgage|insuranc/i },
+  { key: 'programs', re: /program|worship|music|youth|children|mission|outreach|fellowship|evangel/i },
+];
+export function classifyFlowExpense(label, overrides) {
+  const mapped = overrides && overrides[label];
+  if (mapped && FLOW_EXPENSE_KEYS.includes(mapped)) return { key: mapped, mapped: true };
+  for (const rule of FLOW_EXPENSE_RULES) if (rule.re.test(label || '')) return { key: rule.key, mapped: false };
+  return { key: 'programs', mapped: false };
+}
+// Builds the Sankey's node lists from a year's precedence-resolved rows. Amounts only — never
+// geometry; the layout is computed client-side (see finFlowLayout in js-finance.js).
+//
+// Sources are the real top-level GL groups, one node each, tagged with the stream they belong to,
+// so both halves of the diagram use the same classification the mix bar above it does — including
+// restricted income, which is its own stream rather than a slice carved back out of donor giving.
+export function computeFlowDiagram(entries, opts = {}) {
+  const { streamOverrides = {}, expenseOverrides = {} } = opts;
+  const { streams } = computeRevenueStreams(entries, streamOverrides);
+
+  const sources = [];
+  for (const s of REVENUE_STREAMS) {
+    for (const g of streams[s].groups) {
+      if (g.cents <= 0) continue;
+      sources.push({ id: `${s}:${g.label}`, label: g.label, stream: s, cents: g.cents });
+    }
+  }
+  // NOTE: donor revenue is deliberately NOT re-split here by the ChMS restricted ratio. Restricted
+  // income became its own stream in the chart-of-accounts classification (see REVENUE_STREAM_RULES),
+  // so it already arrives as its own source node — splitting the donor node again would draw the
+  // same restricted dollars twice and inflate total revenue.
+
+  const byCategory = new Map();
+  const unmappedExpenses = [];
+  for (const r of entries || []) {
+    if (r.classification !== 'Expenses' && r.classification !== 'Other Expenses' && r.classification !== 'Cost of Goods Sold') continue;
+    const cents = r.own_actual_cents || 0;
+    if (!cents) continue;
+    const label = expenseGroupLabel(r.category_path, r.account_name);
+    const { key, mapped } = classifyFlowExpense(`${label} ${r.account_name || ''}`, expenseOverrides);
+    byCategory.set(key, (byCategory.get(key) || 0) + cents);
+    if (!mapped && label) {
+      const seen = unmappedExpenses.find(u => u.label === label);
+      if (seen) seen.cents += cents;
+      else unmappedExpenses.push({ label, cents, defaultedTo: key });
+    }
+  }
+  const expenses = FLOW_EXPENSE_CATEGORIES
+    .map(c => ({ id: c.key, label: c.label, note: c.note, cents: byCategory.get(c.key) || 0 }))
+    .filter(c => c.cents > 0);
+  unmappedExpenses.sort((a, b) => b.cents - a.cents);
+
+  const streamTotals = REVENUE_STREAMS.map(s => ({ id: s, cents: streams[s].cents }))
+    .filter(s => s.cents > 0);
+  const totalRevenueCents = sources.reduce((sum, s) => sum + s.cents, 0);
+  const totalExpenseCents = expenses.reduce((sum, e) => sum + e.cents, 0);
+  return {
+    sources, streams: streamTotals, expenses,
+    totalRevenueCents, totalExpenseCents,
+    netCents: totalRevenueCents - totalExpenseCents,
+    unmappedExpenses,
+  };
+}
+
 // Where the money goes, split the same way the revenue side is: MDO accounts vs. everything else.
 // Uses the same MDO_MATCH_RE the daycare importer already keys on, so the two halves are exactly
 // the same set of accounts the Daycare Report is built from — and because every expense row lands
@@ -2396,6 +2490,16 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
 // documented default rather than throwing a 500 on a read path the whole tab depends on.
 async function readRevenueStreamOverrides(db) {
   const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_revenue_streams'").first();
+  try { return row ? (JSON.parse(row.value).map || {}) : {}; } catch { return {}; }
+}
+// The latest imported_at across a year's rows — what "as of" actually means for these figures.
+function finChurchAsOfIso(entries) {
+  let latest = '';
+  for (const r of entries || []) if (r.imported_at && r.imported_at > latest) latest = r.imported_at;
+  return latest;
+}
+async function readFlowExpenseOverrides(db) {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_flow_expense_map'").first();
   try { return row ? (JSON.parse(row.value).map || {}) : {}; } catch { return {}; }
 }
 const DEFAULT_CASH_POLICY = { policy_floor_months: 3, cash_on_hand_cents: null };
@@ -2967,6 +3071,55 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ ok: true, map });
   }
 
+  // ── Flow diagram ("How the money moves") ─────────────────────────────────────────────────
+  // The contract the design handoff names. Amounts only, never geometry — the layout is computed
+  // client-side. The Health page reads the same figures off church/this-year rather than calling
+  // this, so the two can never disagree: both come from computeFlowDiagram().
+  if (seg === 'finance/flow' && method === 'GET') {
+    const year = parseInt(url.searchParams.get('fy'), 10) || new Date().getFullYear();
+    const rows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(year).all()).results || [];
+    const entries = resolveChurchYearPrecedence(rows);
+    const diagram = computeFlowDiagram(entries, {
+      streamOverrides: await readRevenueStreamOverrides(db),
+      expenseOverrides: await readFlowExpenseOverrides(db),
+    });
+    return json({ fiscal_year: year, as_of: finChurchAsOfIso(entries), ...diagram });
+  }
+
+  // Expense-category mapping — the validation report the handoff asks for, plus the editor that
+  // resolves it. Same shape and same guarantees as the revenue-stream mapping above.
+  if (seg === 'finance/flow-expense-map' && method === 'GET') {
+    const year = parseInt(url.searchParams.get('year'), 10) || new Date().getFullYear();
+    const overrides = await readFlowExpenseOverrides(db);
+    const rows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(year).all()).results || [];
+    const entries = resolveChurchYearPrecedence(rows);
+    const groups = new Map();
+    for (const r of entries) {
+      if (r.classification !== 'Expenses' && r.classification !== 'Other Expenses' && r.classification !== 'Cost of Goods Sold') continue;
+      const label = expenseGroupLabel(r.category_path, r.account_name);
+      if (!label) continue;
+      if (!groups.has(label)) groups.set(label, { label, cents: 0, ...classifyFlowExpense(label, overrides) });
+      groups.get(label).cents += (r.own_actual_cents || 0);
+    }
+    return json({
+      year, overrides, categories: FLOW_EXPENSE_CATEGORIES,
+      groups: [...groups.values()].sort((a, b) => b.cents - a.cents),
+    });
+  }
+  if (seg === 'finance/flow-expense-map' && method === 'PUT') {
+    if (!isAdmin) return json({ error: 'Access denied: editing the expense-category mapping requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const map = {};
+    for (const [label, key] of Object.entries(b.map || {})) {
+      if (!FLOW_EXPENSE_KEYS.includes(key)) return json({ error: `Invalid category "${key}" for "${label}"` }, 400);
+      map[String(label)] = key;
+    }
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_flow_expense_map',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(JSON.stringify({ map })).run();
+    return json({ ok: true, map });
+  }
+
   // ── Cash policy (runway card) ────────────────────────────────────────────────────────────
   if (seg === 'finance/cash-policy' && method === 'GET') return json(await readCashPolicy(db));
   if (seg === 'finance/cash-policy' && method === 'PUT') {
@@ -3148,6 +3301,12 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const streamOverrides = await readRevenueStreamOverrides(db);
     const revenueStreams = computeRevenueStreams(entries, streamOverrides);
     const flow = computeMoneyFlow(entries);
+    // The Sankey's own node lists. Returned here as well as from GET finance/flow so the Health
+    // page, which already fetches this payload, needs no second round trip for the same figures.
+    const flowDiagram = computeFlowDiagram(entries, {
+      streamOverrides,
+      expenseOverrides: await readFlowExpenseOverrides(db),
+    });
 
     // Month-by-month giving from ChMS's own records, for the Health page's "giving against budget
     // pace" chart. Deliberately ChMS giving rather than the church ledger's monthly Income, which
@@ -3231,6 +3390,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       givingMonthly,
       revenueStreams,
       flow,
+      flowDiagram,
       cash,
       monthlyTrend,
       yoy,

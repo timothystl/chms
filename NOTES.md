@@ -24,6 +24,95 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.149.0 — "How the money moves": four-column Sankey + Share view (2026-08-06)
+
+Implements `flow-diagram.md`, the addition to the Finance Workspace bundle (the rest of that
+bundle is byte-identical to what shipped in v1.148.0 — only this file and its two reference PNGs
+are new). It replaces the simple three-column ribbon drawing on the Financial Health page with the
+handoff's real design: **Sources → Streams → All revenue → Where it goes**, plus a **Share** view
+of two donuts behind a toggle.
+
+**The explicit ask on this work was that nothing overlap**, so most of the effort went there
+rather than into the coordinates. The handoff authors its geometry against one year's figures,
+where the nodes happen to be tall enough that its fixed gaps (10/18/14/18/18/16) are sufficient.
+Real data is not that obliging — twenty small revenue lines, or one line dwarfing the rest, would
+stack labels straight through each other. So:
+
+- Each label's real vertical extent is computed, and the next node is pushed down until the two
+  cannot touch. **The authored gaps are a floor, never a ceiling** — with the handoff's own
+  figures they are always the larger of the two, so the reference rendering is reproduced exactly
+  (S=0.40, sources at y=22, canvas 626); with anything else the constraint takes over silently.
+- A node too short for a two-line label is demoted to one line, per the handoff's own rule.
+- Labels are truncated to a per-column width cap so a long account name cannot run into the next
+  column. The two caps that matter are the total's (110) and the expenses' (300): the total's
+  label runs right from x=628 and the expense labels run LEFT from x=1056, so their widths have to
+  be bounded such that the two can never meet.
+- The canvas **grows** rather than letting a column run off it. A clamped scale keeps labels
+  legible but can still produce a column taller than a fixed 626-unit box, and a column running
+  off the canvas is its own kind of collision.
+- Character width is measured through one shared helper (`finFlowCharW`, 0.62em — DM Sans averages
+  nearer 0.55em, so it errs wide). A hand-picked constant that under-estimates is exactly how a
+  label bleeds into the next column, and an earlier draft did precisely that: the collision test
+  caught a source label reaching x=334 against a 330 column boundary.
+
+**Verification is geometric, not visual.** `test/finance-flow-diagram.test.js` (36 tests) renders
+the REAL SVG across fifteen deliberately hostile data shapes — twelve near-equal sources, one
+giant plus eleven slivers, ascending dust, a single source, each at 1x / 0.05x / 12x scale —
+extracts every `<text>` element, estimates its box from its own attributes, and asserts no two
+intersect. It also asserts bars never overlap, labels never pass the footer rule, and the outflow
+ribbons tile the revenue bar exactly. The `vm` harness runs the same sweep over **every SVG on the
+Financial Health page**, not just the Sankey.
+
+**Both sweeps were verified non-vacuous by injecting the exact regression each guards**: removing
+the label-constraint push, never demoting a short node's label, dropping truncation, fixing the
+canvas at 626, and dropping the outflow scale factor k. The k injection initially passed — that
+test computed k itself rather than checking the renderer used it — so it was rewritten to parse
+the rendered ribbon paths and assert they tile the bar. It now fails as it should.
+
+Two measurement bugs in the *tests* were found and fixed along the way, both of which had produced
+phantom collisions: HTML entities were counted as five-to-seven characters instead of one glyph,
+and a `<text>` inheriting `font-size` from its parent `<g>` was measured at the 12px default.
+
+**Also new:**
+- **Share view** — two donuts (Money in / Money out) with legend rows carrying amount and percent,
+  segments laid end to end around the circumference via `stroke-dasharray`/`dashoffset`.
+- **Toggle** — real `<button aria-pressed>` elements, choice persisted in `localStorage` under
+  `finance.flowView`. Below the phone tier the Sankey's four label columns cannot be laid out
+  honestly, so **CSS** (not JS) forces the Share view and hides the toggle — which means a window
+  resize is handled with no listener. Print shows both.
+- **Expense categories** — the board's five (`mdo`/`salaries`/`property`/`education`/`programs`)
+  from a GL-account → category map in `chms_config`, admin-editable on Data & Imports, with the
+  unmapped-account validation report the handoff asks for. An unrecognised account lands in
+  `programs` rather than being dropped: every account has to appear somewhere or the outflow stops
+  matching total expenses, and a silently-dropped account is worse than a visibly-miscategorised
+  one.
+- **Donor split** — when the donor stream is a single GL group and ChMS records a real restricted
+  share, that node is divided in two using the ChMS ratio. The card says so: applying a measured
+  ratio to a measured total is an allocation, not a flag the ledger itself carries.
+- `GET /admin/api/finance/flow?fy=` — the contract the handoff names. The Health page reads the
+  same figures off `church/this-year` instead of calling it, so the two cannot disagree: both come
+  from `computeFlowDiagram()`.
+- A visually-hidden data table (`.fin-sr-only`) so screen readers and Ctrl-F reach the same
+  figures the chart draws, and an `aria-label` built from the data naming the largest flows.
+
+**Reconciled with `main` on rebase, which had moved on.** Another session had fixed a live
+regression in the v1.148.0 revenue grouping — `category_path` carries its classification as
+segment 0, so reading segment 0 collapsed the whole chart of accounts into one group named
+"Income" and reported a 100%-earned mix with $0 donor revenue — and had added **restricted** as a
+fourth revenue stream. Three consequences for this work, all carried in rather than merged around:
+- `computeFlowDiagram` had the same segment-0 bug on the **expense** side, which would have
+  collapsed all five board categories into one group named "Expenses". New `expenseGroupLabel()`,
+  the expense-side twin of `revenueGroupLabel()`. A test injection confirms it bites.
+- **The donor re-split was removed.** Splitting the donor node by the ChMS restricted ratio made
+  sense when restricted was invisible in the GL; now that it is its own stream, doing both would
+  draw the same restricted dollars twice and inflate total revenue.
+- The Sankey gained the fourth stream (colour ramp, label, authority note), and the mix bar,
+  five-year chart and stream deltas now tolerate a missing stream key instead of throwing — a
+  page the council reads should not blank because one key is absent.
+
+`npm test` 937/937 (35 new here, plus main's). **Not verified**: a live browser — the standing caveat here. The
+overlap guarantee is proven geometrically against the emitted SVG, which is stronger than eyeballing
+one dataset, but it is not the same as seeing it rendered by a browser at a real font.
 ### v1.152.0 — Past-year balance sheets, tied out against the P&L; empty COGS row dropped (2026-08-07)
 
 **Reported**, with two screenshots: the Balance Sheet view's Multi-Year Trend shows bars for 2026
