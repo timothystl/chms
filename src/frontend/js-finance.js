@@ -6709,6 +6709,24 @@ var _finHealthPlanPremiumOverrides = {};
 // live roster's counts are passed in by the UI. A legacy medicalCents override (the pre-tier save
 // shape, one annual figure for the whole group) still wins if one is stored, so nothing an admin
 // typed under the old card is silently discarded.
+// Dental and vision are PER COVERED WORKER, confirmed by the church: only someone on the health
+// plan has them at all, and each covered worker carries the full annual figure. They are simply not
+// tier-priced in the packet the way medical is, which is why they sit as one annual number each
+// rather than a rate per coverage tier.
+//
+// This used to treat those figures as a single group bill divided across whoever was enrolled, so
+// a covered worker's dental and vision fell every time a colleague joined, and adding a covered
+// worker added nothing at all to the church's total. At the church's stated figures a family-tier
+// worker costs $24,612.00 medical + $3,046.80 dental + $1,471.68 vision = $29,130.48.
+function finHealthAncillaryPerContractCents(optionKey, premiumOverrides) {
+  var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
+  if (!opt) return { dentalCents: 0, visionCents: 0 };
+  var ov = (premiumOverrides || (typeof _finHealthPlanPremiumOverrides !== 'undefined' ? _finHealthPlanPremiumOverrides : {}))[optionKey] || {};
+  return {
+    dentalCents: ov.dentalCents != null ? ov.dentalCents : opt.dentalCents,
+    visionCents: ov.visionCents != null ? ov.visionCents : opt.visionCents
+  };
+}
 function finComputeHealthPlanTotalCents(optionKey, premiumOverrides, enrollment) {
   var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
   if (!opt) return null;
@@ -6723,8 +6741,10 @@ function finComputeHealthPlanTotalCents(optionKey, premiumOverrides, enrollment)
     contracts += n;
   });
   var medicalCents = ov.medicalCents != null ? ov.medicalCents : monthlyCents * 12;
-  var dentalCents = ov.dentalCents != null ? ov.dentalCents : opt.dentalCents;
-  var visionCents = ov.visionCents != null ? ov.visionCents : opt.visionCents;
+  // Scaled to who is actually covered — see finHealthAncillaryPerContractCents.
+  var perContract = finHealthAncillaryPerContractCents(optionKey, premiumOverrides);
+  var dentalCents = perContract.dentalCents * contracts;
+  var visionCents = perContract.visionCents * contracts;
   var totalCents = medicalCents + dentalCents + visionCents;
   var overridden = ov.medicalCents != null || ov.dentalCents != null || ov.visionCents != null
     || Object.keys(ov.tiersMonthlyCents || {}).length > 0;
@@ -7002,10 +7022,37 @@ function finCompSetHealthTier(i, tier) {
 // Live enrolment, counted off the roster — the same thing as the count column on Concordia's own
 // Enrollment and Rates block. A cash-only worker is below the hours floor and draws nothing, so
 // they are not a contract.
+// A worker whose pay is carried by a different budget entirely — the MDO/daycare payroll, say —
+// but who is still worth having on the roster so their compensation is planned somewhere. They are
+// excluded from EVERY church figure: salary, pension, health, disability, employer FICA, the FY
+// total, the health-plan contract count, the district-scale and LCMS-median comparisons, and the
+// Council report's totals. Excluding them from only one of those (employer FICA, say) would leave
+// the headline number overstated while looking fixed, which is the failure this flag exists to
+// prevent.
+//
+// Deliberately NOT applied to finCompBaselineCents: that reads real FY actuals off the church's
+// own payroll accounts. If the worker really is paid from another budget their pay is not in those
+// accounts, so nothing needs adjusting; if it turns out to be, the honest fix is the account, not
+// a second exclusion rule here. The Council summary names who is excluded so the comparison can be
+// read with that in mind.
+function finCompIsExternallyFunded(w) {
+  return !!(w && w.externallyFunded);
+}
+// The roster rows that count toward church figures, as [worker, index] pairs so callers can still
+// reach the matching computed row.
+function finCompCountedEntries() {
+  var out = [];
+  _finSalaryRoster.forEach(function(w, i) { if (!finCompIsExternallyFunded(w)) out.push({ w: w, i: i }); });
+  return out;
+}
+function finCompCountedCount() { return finCompCountedEntries().length; }
+function finCompExternallyFundedWorkers() {
+  return _finSalaryRoster.filter(finCompIsExternallyFunded);
+}
 function finCompEnrollmentCounts(roster) {
   var counts = { self: 0, selfSpouse: 0, selfChild: 0, family: 0 };
   (roster || _finSalaryRoster).forEach(function(w) {
-    if (finCompIsCashOnly(w)) return;
+    if (finCompIsCashOnly(w) || finCompIsExternallyFunded(w)) return;
     var t = finCompHealthTier(w);
     if (counts[t] != null) counts[t] += 1;
   });
@@ -7028,11 +7075,10 @@ function finCompWorkerHealthCents(w) {
   var opt = HEALTH_PLAN_QUOTE_2027.options[_finHealthPlanSelectedOption];
   if (!opt) return 0;
   var rate = finHealthTierMonthlyCents(_finHealthPlanSelectedOption, tier) || 0;
-  var ov = (typeof _finHealthPlanPremiumOverrides !== 'undefined' ? _finHealthPlanPremiumOverrides : {})[_finHealthPlanSelectedOption] || {};
-  var dentalCents = ov.dentalCents != null ? ov.dentalCents : opt.dentalCents;
-  var visionCents = ov.visionCents != null ? ov.visionCents : opt.visionCents;
-  var enrolled = Math.max(1, finCompEnrolledCount());
-  return rate * 12 + Math.round((dentalCents + visionCents) / enrolled);
+  // Their own dental and vision, not a share of a group bill — so this worker's health cost does
+  // not move when a colleague joins or leaves the plan.
+  var perContract = finHealthAncillaryPerContractCents(_finHealthPlanSelectedOption);
+  return rate * 12 + perContract.dentalCents + perContract.visionCents;
 }
 // Full-time equivalent, as a fraction. A 20%-time worker is 0.2. Used to scale the DISTRICT
 // BENCHMARK, never the salary itself — the salary is whatever is really budgeted, but comparing
@@ -7164,16 +7210,19 @@ function finCompBaselineCents() {
     .reduce(function(sum, n) { return sum + (n.totalActualCents || 0); }, 0);
 }
 function finCompTotals(computed) {
-  var salaryCents = computed.reduce(function(s, c) { return s + c.salaryCents; }, 0);
-  var benefitsCents = computed.reduce(function(s, c) { return s + c.benefits.totalCents; }, 0);
+  // Externally funded workers are carried by another budget — see finCompIsExternallyFunded — so
+  // every figure below is over the counted roster only.
+  var counted = finCompCountedEntries().map(function(e) { return computed[e.i]; });
+  var salaryCents = counted.reduce(function(s, c) { return s + c.salaryCents; }, 0);
+  var benefitsCents = counted.reduce(function(s, c) { return s + c.benefits.totalCents; }, 0);
   var baselineCents = finCompBaselineCents();
   var totalCents = salaryCents + benefitsCents;
   return {
     salaryCents: salaryCents, benefitsCents: benefitsCents, totalCents: totalCents,
     baselineCents: baselineCents, deltaCents: totalCents - baselineCents,
-    currentCents: computed.reduce(function(s, c) { return s + c.currentCents; }, 0),
-    worksheetCents: computed.reduce(function(s, c) { return s + (c.worksheetCents || 0); }, 0),
-    healthCents: computed.reduce(function(s, c) { return s + c.benefits.healthCents; }, 0)
+    currentCents: counted.reduce(function(s, c) { return s + c.currentCents; }, 0),
+    worksheetCents: counted.reduce(function(s, c) { return s + (c.worksheetCents || 0); }, 0),
+    healthCents: counted.reduce(function(s, c) { return s + c.benefits.healthCents; }, 0)
   };
 }
 
@@ -7234,7 +7283,8 @@ function finCompVerdict(w, salaryCents) {
 // a missing report silently reads as being under median (§5.8).
 function finCompMedianTotal(computed) {
   var med = 0, pay = 0, n = 0;
-  _finSalaryRoster.forEach(function(w, i) {
+  finCompCountedEntries().forEach(function(e) {
+    var w = e.w, i = e.i;
     var l = finCompLcmsRange(w);
     if (l && l.midCents) { med += l.midCents; pay += computed[i].salaryCents; n++; }
   });
@@ -7248,8 +7298,8 @@ function finCompMedianTotal(computed) {
 // premiums do not move with salary, so they are excluded.
 function finCompFullScaleGap(computed) {
   var salaryGapCents = 0, benefitsGapCents = 0;
-  _finSalaryRoster.forEach(function(w, i) {
-    var c = computed[i];
+  finCompCountedEntries().forEach(function(e) {
+    var w = e.w, c = computed[e.i];
     var gap = Math.max(0, (c.worksheetCents || 0) - c.salaryCents);
     if (!gap) return;
     // A cash-only worker draws no pension or disability, so raising their salary adds neither —
@@ -7300,7 +7350,8 @@ function finCompMethodSummary() {
     + ' &middot; district base $' + finFmtMoney(base.dollars)
     + ' &middot; pension ' + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate)
     + ' &middot; ' + esc(plan ? plan.label : 'no plan selected')
-    + ' &middot; ' + _finSalaryRoster.length + ' worker' + (_finSalaryRoster.length === 1 ? '' : 's');
+    + ' &middot; ' + finCompCountedCount() + ' worker' + (finCompCountedCount() === 1 ? '' : 's')
+    + (finCompExternallyFundedWorkers().length ? ' &middot; ' + finCompExternallyFundedWorkers().length + ' paid from another budget' : '');
 }
 function finRenderCompensation() {
   var el = document.getElementById('fin-comp-root');
@@ -7381,14 +7432,15 @@ function finCompRenderPlan(computed, totals) {
       + '<div style="font-weight:700;color:var(--color-navy);">' + esc(w.name || '(unnamed)') + '</div>'
       + '<div style="font-size:.72rem;color:var(--warm-gray);">' + esc(w.position || 'Role not set') + ' &middot; acct ' + esc(w.accountCode || '&mdash;')
       + (finCompIsPartTime(w) ? ' &middot; <span style="color:var(--deep-amber);font-weight:700;">' + finCompFtePct(w) + '% time</span>' : '')
-      + (finCompIsCashOnly(w) ? ' &middot; <span style="color:var(--warm-meta);">cash only</span>' : '') + '</div></td>'
+      + (finCompIsCashOnly(w) ? ' &middot; <span style="color:var(--warm-meta);">cash only</span>' : '')
+      + (finCompIsExternallyFunded(w) ? ' &middot; <span style="color:var(--deep-amber);font-weight:700;">paid from another budget</span>' : '') + '</div></td>'
       + cells
       + '<td class="fin-comp-td" style="font-size:.76rem;font-weight:600;color:' + vs.color + ';" title="District scale ' + (c.worksheetCents ? finCompMoney(c.worksheetCents) : 'not available') + (finCompIsPartTime(w) ? ' (pro-rated to ' + finCompFtePct(w) + '% time)' : '') + '">' + vs.text + (finCompIsPartTime(w) ? '<br><span style="font-weight:400;color:var(--warm-gray);">at ' + finCompFtePct(w) + '% time</span>' : '') + '</td>'
       + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoney(c.churchCostCents) + '</td>'
       + '</tr>';
   }).join('');
   var methodTotals = FIN_COMP_METHODS.map(function(k) {
-    var t = _finSalaryRoster.reduce(function(s, w) { return s + (finCompMethodSalaryCents(w, k) || 0); }, 0);
+    var t = finCompCountedEntries().reduce(function(s, e) { return s + (finCompMethodSalaryCents(e.w, k) || 0); }, 0);
     return '<td class="fin-comp-td num' + (_finCompMethod === k ? ' active' : '') + '">' + finCompMoney(t) + '</td>';
   }).join('');
   var scaleTotal = finCompVsScale(totals.salaryCents, totals.worksheetCents);
@@ -7501,6 +7553,8 @@ function finCompRenderDrawer(computed) {
     + '</select></label>'
     + '</div>'
     + '<label class="fin-comp-inline-check" style="margin:6px 0 0;"><input type="checkbox" onchange="finCompCashOnlyToggle(' + i + ',this.checked)"' + (finCompIsCashOnly(w) ? ' checked' : '') + '> Cash salary only &mdash; no pension, disability or health</label>'
+    + '<label class="fin-comp-inline-check" style="margin:6px 0 0;"><input type="checkbox" onchange="finCompExternallyFundedToggle(' + i + ',this.checked)"' + (finCompIsExternallyFunded(w) ? ' checked' : '') + (finCompIsAdmin() ? '' : ' disabled') + '> Paid from another budget &mdash; keep on the roster but leave out of every church figure</label>'
+    + (finCompIsExternallyFunded(w) ? '<div style="font-size:.72rem;color:var(--deep-amber);margin-top:4px;">Costed elsewhere: this worker is in no total on this tab or in the Council report. The FY' + _finPlanBaseYear + ' comparison figure still comes from the church payroll accounts as they stand.</div>' : '')
     + (finCompIsCashOnly(w)
         ? '<div class="fin-comp-note">Concordia\u2019s plans have an hours floor, so a very part-time worker draws none of them. Employer FICA still applies &mdash; it is owed on any wage however few the hours.</div>'
         : (finCompIsPartTime(w) ? '<div class="fin-comp-note">At ' + finCompFtePct(w) + '% of full time this worker is still shown as benefits-eligible. Tick the box above if they are not.</div>' : ''))
@@ -7971,6 +8025,79 @@ function finCompRenderRates() {
     + '</div>';
 }
 
+// What the one "Benefits & taxes" figure is actually made of. Pure — no DOM. The four components
+// are exactly the ones finCompBenefits sums, so the parts always reconcile to the tile above them;
+// a breakdown that doesn't add up to the total on the same screen is worse than none. Counts come
+// with each line because the interesting question at a council meeting is usually "how many people
+// is that covering", and because a $0 line reads as an error unless it says nobody is on it.
+function finCompBenefitBreakdown(computed) {
+  var entries = finCompCountedEntries();
+  function sum(pick) { return entries.reduce(function(t, e) { return t + pick(computed[e.i].benefits); }, 0); }
+  function count(test) { return entries.reduce(function(t, e) { return t + (test(computed[e.i].benefits, e.w) ? 1 : 0); }, 0); }
+  var rows = [
+    { key: 'pension', label: 'Pension &mdash; Concordia Retirement Plan',
+      note: finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate) + ' of cash salary',
+      cents: sum(function(b) { return b.pensionCents; }),
+      people: count(function(b) { return b.pensionCents > 0; }) },
+    { key: 'health', label: 'Health plan',
+      note: 'group premium, opt-out cash and hand-entered employee-only premiums combined',
+      cents: sum(function(b) { return b.healthCents; }),
+      people: count(function(b) { return b.healthCents > 0; }) },
+    { key: 'disability', label: 'Disability &amp; survivor',
+      note: finCompPctFmt(finCompDisabilityRate(_finPlanTargetYear, false).rate) + ' of cash salary, '
+        + finCompPctFmt(finCompDisabilityRate(_finPlanTargetYear, true).rate) + ' with dependents',
+      cents: sum(function(b) { return b.disabilityCents; }),
+      people: count(function(b) { return b.disabilityCents > 0; }) },
+    { key: 'fica', label: 'Employer FICA',
+      note: finCompPctFmt(finCompFicaRate()) + ' of cash salary; a minister pays their own SECA instead',
+      cents: sum(function(b) { return b.ficaCents; }),
+      people: count(function(b) { return b.ficaCents > 0; }) }
+  ];
+  return {
+    rows: rows,
+    totalCents: rows.reduce(function(t, r) { return t + r.cents; }, 0),
+    // Not a church cost and in no total — carried so the page can say so rather than leave a
+    // reader wondering why the ministers' FICA line looks short.
+    secaSelfCents: entries.reduce(function(t, e) {
+      return t + (e.w.selfEmployedFica ? computed[e.i].benefits.secaSelfCents : 0);
+    }, 0),
+    countedCount: entries.length
+  };
+}
+// Names who is being left out and why, wherever a total could otherwise look short. Also states
+// the one thing the flag deliberately does not touch — the FY base-year comparison, which is read
+// off the church's real payroll accounts, not off this roster.
+function finCompExcludedNote() {
+  var ex = finCompExternallyFundedWorkers();
+  if (!ex.length) return '';
+  return '<div style="font-size:.74rem;color:var(--warm-gray);margin-top:6px;">Not counted above: '
+    + ex.map(function(w) { return '<b style="color:var(--charcoal);">' + esc(w.name || '(unnamed)') + '</b>' + (w.position ? ' (' + esc(w.position) + ')' : ''); }).join(', ')
+    + ' &mdash; paid from another budget. Their salary and every employer cost on it sit in that section, not this one. The FY' + _finPlanBaseYear
+    + ' comparison figure is still read from the church payroll accounts as they stand, so if any of that pay runs through those accounts it is in the comparison but not in the FY' + _finPlanTargetYear + ' plan.</div>';
+}
+function finCompRenderBenefitBreakdown(computed, totals) {
+  var bd = finCompBenefitBreakdown(computed);
+  var rows = bd.rows.map(function(r) {
+    var share = bd.totalCents ? Math.round(r.cents / bd.totalCents * 100) : 0;
+    return '<tr class="fin-comp-row"><td class="fin-comp-td"><div style="font-weight:700;">' + r.label + '</div>'
+      + '<div style="font-size:.74rem;color:var(--warm-gray);">' + r.note + '</div></td>'
+      + '<td class="fin-comp-td num" style="color:var(--warm-gray);">' + r.people + ' of ' + bd.countedCount + '</td>'
+      + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoney(r.cents) + '</td>'
+      + '<td class="fin-comp-td num" style="color:var(--warm-gray);">' + share + '%</td></tr>';
+  }).join('');
+  return '<div style="margin-top:22px;">'
+    + '<div style="font-weight:700;font-size:1rem;color:var(--color-navy);margin-bottom:2px;">What makes up ' + finCompMoney(totals.benefitsCents) + ' of benefits &amp; taxes</div>'
+    + '<div style="font-size:.74rem;color:var(--warm-gray);margin-bottom:8px;">Every employer cost on top of cash salary, across the ' + bd.countedCount + ' worker' + (bd.countedCount === 1 ? '' : 's') + ' this budget carries. These four lines are the whole of it &mdash; they add to the Benefits &amp; taxes figure above.</div>'
+    + '<div style="overflow-x:auto;"><table class="fin-comp-table" style="min-width:620px;font-size:.86rem;">'
+    + '<thead><tr><th class="fin-comp-th">Cost</th><th class="fin-comp-th num">Workers</th><th class="fin-comp-th num">FY' + _finPlanTargetYear + '</th><th class="fin-comp-th num">Share</th></tr></thead>'
+    + '<tbody>' + rows
+    + '<tr class="fin-comp-total-row"><td class="fin-comp-td">Total benefits &amp; taxes</td><td class="fin-comp-td"></td>'
+    + '<td class="fin-comp-td num">' + finCompMoney(bd.totalCents) + '</td><td class="fin-comp-td num">100%</td></tr>'
+    + '</tbody></table></div>'
+    + finCompExcludedNote()
+    + (bd.secaSelfCents ? '<div style="font-size:.74rem;color:var(--warm-gray);margin-top:6px;">Ministers pay the employer half of Social Security themselves &mdash; ' + finCompMoney(bd.secaSelfCents) + ' at these salaries. That is their cost, not the church&#39;s, and is in no figure above.</div>' : '')
+    + '</div>';
+}
 // ── View 5 — Council summary ───────────────────────────────────────────────────────────────
 function finCompCouncilRows(computed) {
   return _finSalaryRoster.map(function(w, i) {
@@ -7984,6 +8111,18 @@ function finCompCouncilRows(computed) {
     var vsMed = finCompIsPartTime(w)
       ? { text: 'part-time &mdash; not comparable', color: 'var(--warm-gray)' }
       : finCompVsMedian(c.salaryCents, lcms && lcms.midCents);
+    // An externally funded worker still gets a row — the point of the flag is that their pay stays
+    // visible — but their figures are greyed and in no total, and the scale/median columns are
+    // blanked rather than filled with a comparison this budget is not making.
+    if (finCompIsExternallyFunded(w)) {
+      return '<tr class="fin-comp-row" style="color:var(--warm-gray);"><td class="fin-comp-td"><div style="font-weight:700;">' + esc(w.name || '(unnamed)') + '</div>'
+        + '<div style="font-size:.74rem;">' + esc(w.position || '') + ' &middot; <span style="color:var(--deep-amber);font-weight:700;">paid from another budget</span></div></td>'
+        + '<td class="fin-comp-td num">' + finCompMoney(c.currentCents) + '</td>'
+        + '<td class="fin-comp-td num">' + finCompMoney(c.salaryCents) + '</td>'
+        + '<td class="fin-comp-td num">&mdash;</td>'
+        + '<td class="fin-comp-td" colspan="2" style="font-size:.78rem;">Costed in another section &mdash; in no total here</td>'
+        + '<td class="fin-comp-td num">&mdash;</td></tr>';
+    }
     return '<tr class="fin-comp-row"><td class="fin-comp-td"><div style="font-weight:700;">' + esc(w.name || '(unnamed)') + '</div>'
       + '<div style="font-size:.74rem;color:var(--warm-gray);">' + esc(w.position || '')
       + (finCompIsPartTime(w) ? ' &middot; ' + finCompFtePct(w) + '% time' : '') + '</div></td>'
@@ -8024,6 +8163,7 @@ function finCompRenderCouncil(computed, totals) {
     + '<td class="fin-comp-td" style="font-size:.78rem;font-weight:600;color:' + medTotal.color + ';" title="LCMS market median ' + finCompMoney(medTotal.medCents) + '">' + medTotal.text + '</td>'
     + '<td class="fin-comp-td num">' + finCompMoney(totals.totalCents) + '</td></tr>'
     + '</tbody></table></div>'
+    + finCompRenderBenefitBreakdown(computed, totals)
     + '<div style="font-size:.78rem;color:var(--warm-gray);border-top:1px solid var(--warm-row-divider);padding-top:14px;margin-top:14px;">Built on '
     + esc(finCompSourceDoc('districtSource')) + ' &middot; ' + esc(finCompSourceDoc('concordiaSource')) + ' &middot; ' + esc(finCompSourceDoc('quoteSource')) + '</div>'
     + '</div>';
@@ -8036,7 +8176,7 @@ function finCompApplyMethodToAll(key) {
   _finCompMethod = key;
   _finCompPerWorkerMethod = {};
   _finCompOverrides = {};
-  finCompSay(finCompMethodLabel(key) + ' applied to all ' + _finSalaryRoster.length + ' worker' + (_finSalaryRoster.length === 1 ? '' : 's') + '.');
+  finCompSay(finCompMethodLabel(key) + ' applied to all ' + finCompCountedCount() + ' worker' + (finCompCountedCount() === 1 ? '' : 's') + '.');
   finRerenderPlanningPreserveFocus();
 }
 function finCompPickMethod(i, key) {
@@ -8142,6 +8282,13 @@ function finCompCurrentPayChange(i, value) {
 }
 function finCompClearCurrentPay(i) {
   delete _finSalaryRoster[i].actualSalaryCents;
+  finRerenderPlanningPreserveFocus();
+}
+function finCompExternallyFundedToggle(i, checked) {
+  _finSalaryRoster[i].externallyFunded = !!checked;
+  finCompSay(checked
+    ? (_finSalaryRoster[i].name || 'That worker') + ' is now left out of every church figure.'
+    : (_finSalaryRoster[i].name || 'That worker') + ' is counted in the church figures again.');
   finRerenderPlanningPreserveFocus();
 }
 function finCompSecaToggle(i, checked) {
@@ -8301,6 +8448,12 @@ function finCompCouncilReportHtml(computed, totals) {
   var salaryRows = _finSalaryRoster.map(function(w, i) {
     var c = computed[i];
     var ratio = c.worksheetCents ? Math.round(c.salaryCents / c.worksheetCents * 100) : null;
+    if (finCompIsExternallyFunded(w)) {
+      return '<tr class="mut"><td><b>' + esc(w.name || '(unnamed)') + '</b><br><span class="mut">' + esc(w.position || '') + ' &middot; paid from another budget</span></td>'
+        + '<td class="n mut">' + finCompMoney(c.currentCents) + '</td><td class="n mut">' + finCompMoney(c.salaryCents) + '</td>'
+        + '<td class="n mut">&mdash;</td><td class="n mut">&mdash;</td><td class="n mut">&mdash;</td><td class="n mut">&mdash;</td>'
+        + '<td class="n mut">not in this budget</td></tr>';
+    }
     return '<tr><td><b>' + esc(w.name || '(unnamed)') + '</b><br><span class="mut">' + esc(w.position || '') + ' &middot; ' + (Number(w.yearsExperience) || 0) + ' yrs'
       + (w.accountCode ? ' &middot; acct ' + esc(w.accountCode) : '') + '</span></td>'
       + '<td class="n mut">' + finCompMoney(c.currentCents) + '</td>'
@@ -8313,7 +8466,7 @@ function finCompCouncilReportHtml(computed, totals) {
   }).join('');
   var cover = '<div class="fin-comp-rpt-kicker">Church Council &middot; Compensation</div>'
     + '<h1 class="fin-comp-rpt-h1">Fiscal Year ' + _finPlanTargetYear + ' Compensation Plan</h1>'
-    + '<div class="fin-comp-rpt-sub">' + _finSalaryRoster.length + ' called and employed worker' + (_finSalaryRoster.length === 1 ? '' : 's')
+    + '<div class="fin-comp-rpt-sub">' + finCompCountedCount() + ' called and employed worker' + (finCompCountedCount() === 1 ? '' : 's')
     + ' &middot; salaries set by ' + finCompMethodLongLabel(_finCompMethod)
     + ' &middot; pension ' + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate)
     + ' &middot; health plan: ' + esc(planCalc ? planCalc.label : 'none selected') + '</div>'
@@ -8326,7 +8479,7 @@ function finCompCouncilReportHtml(computed, totals) {
     + '</div>'
     + '<div class="fin-comp-rpt-motion kt"><div class="fin-comp-rpt-motion-h">Recommended motion</div>'
     + '<div>That the Church Council approve FY' + _finPlanTargetYear + ' compensation of <b>' + finCompMoney(totals.totalCents) + '</b> for '
-    + _finSalaryRoster.length + ' worker' + (_finSalaryRoster.length === 1 ? '' : 's')
+    + finCompCountedCount() + ' worker' + (finCompCountedCount() === 1 ? '' : 's')
     + (totals.baselineCents ? ' &mdash; a ' + pct.toFixed(1) + '% ' + (totals.deltaCents >= 0 ? 'increase over' : 'decrease from') + ' FY' + _finPlanBaseYear + ' actual spending' : '')
     + ' &mdash; applying ' + finCompMethodLongLabel(_finCompMethod) + ' to each worker&#39;s salary, continuing the Concordia Retirement Plan at '
     + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate)
@@ -8344,9 +8497,30 @@ function finCompCouncilReportHtml(computed, totals) {
     + '<tr class="tot"><td>Total</td><td class="n">' + finCompMoney(totals.currentCents) + '</td><td class="n">' + finCompMoney(totals.salaryCents) + '</td>'
     + '<td class="n">' + finCompMoneySigned(totals.salaryCents - totals.currentCents) + '</td><td class="n">&mdash;</td>'
     + '<td class="n">' + finCompMoney(totals.worksheetCents) + '</td><td class="n">' + (scaleRatio == null ? '&mdash;' : scaleRatio + '%') + '</td>'
-    + '<td class="n">' + finCompMoney(totals.totalCents) + '</td></tr></tbody></table>';
+    + '<td class="n">' + finCompMoney(totals.totalCents) + '</td></tr></tbody></table>'
+    // Same four-line breakdown the Council summary screen shows under its table, so the printed
+    // page and the screen answer "what is the benefits figure made of" identically.
+    + '<h2 class="fin-comp-rpt-h2">What makes up ' + finCompMoney(totals.benefitsCents) + ' of benefits &amp; taxes</h2>'
+    + '<table class="fin-comp-rpt-table kt"><thead><tr><th>Cost</th><th class="n">Workers</th><th class="n">FY' + _finPlanTargetYear + '</th><th class="n">Share</th></tr></thead><tbody>'
+    + (function() {
+        var bd = finCompBenefitBreakdown(computed);
+        return bd.rows.map(function(r) {
+          return '<tr><td>' + r.label + '<br><span class="mut">' + r.note + '</span></td>'
+            + '<td class="n mut">' + r.people + ' of ' + bd.countedCount + '</td>'
+            + '<td class="n b">' + finCompMoney(r.cents) + '</td>'
+            + '<td class="n mut">' + (bd.totalCents ? Math.round(r.cents / bd.totalCents * 100) : 0) + '%</td></tr>';
+        }).join('')
+        + '<tr class="tot"><td>Total benefits &amp; taxes</td><td class="n"></td><td class="n">' + finCompMoney(bd.totalCents) + '</td><td class="n">100%</td></tr>';
+      })()
+    + '</tbody></table>'
+    + (finCompExternallyFundedWorkers().length
+        ? '<p class="fin-comp-rpt-p mut">Not counted in any figure above: '
+          + finCompExternallyFundedWorkers().map(function(w) { return esc(w.name || '(unnamed)') + (w.position ? ' (' + esc(w.position) + ')' : ''); }).join(', ')
+          + ' &mdash; paid from another budget, and costed in that section.</p>'
+        : '');
   // Part 2 — worker by worker
   var workerPages = _finSalaryRoster.map(function(w, i) {
+    if (finCompIsExternallyFunded(w)) return '';
     var c = computed[i], b = c.benefits;
     var usable = finCompUsableRanges(w);
     var lcms = finCompLcmsRange(w);
@@ -8396,6 +8570,7 @@ function finCompCouncilReportHtml(computed, totals) {
       + '<td class="n">' + (key === 'renewal' ? '&mdash;' : finCompMoneySigned(perHousehold) + '/worker') + '</td></tr>';
   }).join('');
   var tierRows = _finSalaryRoster.map(function(w, i) {
+    if (finCompIsExternallyFunded(w)) return '';
     var tier = finCompHealthTier(w);
     var rate = finHealthTierMonthlyCents(_finHealthPlanSelectedOption, tier);
     return '<tr><td>' + esc(w.name || '(unnamed)') + '</td>'
@@ -8431,7 +8606,7 @@ function finCompCouncilReportHtml(computed, totals) {
   var refPage = '<div class="fin-comp-rpt-page">'
     + '<h2 class="fin-comp-rpt-h2">Reference figures used</h2>'
     + '<table class="fin-comp-rpt-table kt"><thead><tr><th>Figure</th><th class="n">Value</th><th>Source document</th><th>Change</th></tr></thead><tbody>' + refRows + '</tbody></table>'
-    + '<p class="fin-comp-rpt-p mut">' + withReports + ' of ' + _finSalaryRoster.length + ' worker' + (_finSalaryRoster.length === 1 ? ' has' : 's have')
+    + '<p class="fin-comp-rpt-p mut">' + withReports + ' of ' + _finSalaryRoster.length + ' roster worker' + (_finSalaryRoster.length === 1 ? ' has' : 's have')
     + ' a Concordia Plans Compensation Decision Support report on file. Where a worker has none, this plan is measured against the District Compensation Worksheet alone.</p></div>';
   return '<div class="fin-comp-rpt">'
     + '<div class="fin-comp-rpt-hd"><span>Timothy Lutheran Church &middot; St. Louis</span><span>FY' + _finPlanTargetYear + ' Compensation Report &middot; prepared for Church Council</span></div>'

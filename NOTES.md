@@ -24,6 +24,110 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.159.0 — Dental and vision are per covered worker, not a group bill re-shared (2026-08-07)
+
+Correction from the church, with the figure to check against: a family-tier worker's health cost is
+**$29,130.48** — $24,612.00 medical ($2,051.00/mo x 12) plus the full $3,046.80 dental and $1,471.68
+vision. Dental and vision belong to whoever is on the health plan, each carrying the whole annual
+figure. The packet simply does not tier-price them the way it does medical, which is why they appear
+as one annual number each rather than a rate per coverage tier.
+
+**What was wrong.** Those two figures were modelled as a single group bill divided across whoever
+was enrolled (`(dental + vision) / enrolledCount`). Three consequences, all wrong: a covered
+worker's dental and vision fell every time a colleague joined the plan; adding a covered worker
+added nothing at all to the church's total; and a family-tier worker priced at $26,871.24 instead of
+$29,130.48. New `finHealthAncillaryPerContractCents()`; `finCompWorkerHealthCents` adds the figures
+outright and `finComputeHealthPlanTotalCents` multiplies them by the covered count.
+
+**An intermediate attempt is worth recording as a wrong turn**, because it was plausible: reading
+the packet figures as the cost *at the quoted enrolment* (2 contracts) and deriving a per-contract
+half. That keeps each worker's cost constant and scales the group total, so it fixes two of the
+three symptoms — and at the quoted enrolment it reproduces every previously-shipped number exactly,
+which made it look confirmed. It priced a worker at $26,871.24. The church's own $29,130.48 is what
+ruled it out. **Do not re-derive a per-contract figure by dividing these by the quoted enrolment.**
+
+**Figures that changed.** A family-tier worker: $26,871.24 -> $29,130.48. Renewal at the quoted 2
+contracts: $53,742.48 -> $58,260.96. Dinger in the worked example: church cost $147,661 -> $149,921.
+Medical is untouched and still reconciles to the packet's printed Total Monthly $4,102.00 and Total
+Annual $49,224.00. Five existing tests encoded the old group-bill reading and were updated with the
+reasoning; one exclusion test written last version around the re-sharing behaviour is gone, since
+nothing is re-shared now — an excluded worker's health leaves cleanly and moves nobody else's.
+
+**Verified:** `npm test` (1013/1013). A harness against the real shape prices Andrew, Mark and Jinah
+at $29,130.48 each and the group at $87,391.44 for three covered, with an opted-out worker at $0.
+Also `node --check` on both bundles. **Not verified:** a live browser.
+
+
+### v1.158.0 — "Paid from another budget" flag on the compensation roster (2026-08-07)
+
+Reported: the Council summary's employer FICA line read $11,319 where the church's own figure is
+$8,186.72 — Jinah $74,516 + Linda $13,000 + Kati $19,500 at 7.65%. Confirmed, and traced by
+arithmetic rather than guesswork: $11,319 / 7.65% implies a FICA base of $147,960.78, which is
+$40,944.78 more than those three, i.e. exactly one more worker. That is Jacinda, MDO staff paid
+from another section. (Cross-check on the same method: pension $28,823 / 11.70% = $246,350 and
+disability $4,311 / 1.75% = $246,343 — the three called workers, to the dollar. So the roster
+already treated her as benefit-ineligible; salary and FICA were what leaked in.)
+
+**The app had no way to express it.** Employer FICA is charged to every roster worker whose
+Self-Employed (SECA) box is unchecked, full stop. And the problem was bigger than the FICA line:
+her salary was also in Cash Salaries and the FY total, so ticking SECA to "fix" FICA would have
+left the headline number overstated while looking corrected.
+
+New per-worker **Paid from another budget** flag (`w.externallyFunded`, on the worker drawer under
+"1 · Set pay"). A flagged worker stays on the roster and stays visible, but is out of **every**
+church figure: salary, pension, health, disability, employer FICA, the FY total, the group health
+contract count, the district-scale and LCMS-median comparisons, the method-comparison totals, Send
+to budget, and the Council report. Their Council row still shows their pay, greyed, with the
+scale/median columns replaced by "Costed in another section — in no total here", and both the
+screen and the printed report name who is excluded and why. Stored on the roster row, so it saves
+with everything else — no endpoint, no migration.
+
+**One thing it deliberately does not touch**: `finCompBaselineCents`, the FY base-year comparison,
+which is read off the church's real payroll accounts rather than off this roster. If the worker
+really is paid from another budget their pay is not in those accounts and nothing needs adjusting;
+if it turns out to be, the honest fix is the account, not a second exclusion rule. The excluded-
+worker note says so in as many words.
+
+**A modelling subtlety the tests surfaced, worth knowing**: dental and vision are quoted as one
+annual figure for the whole group, not per contract. So excluding a worker who is *enrolled in the
+health plan* re-shares that same bill across fewer people rather than shrinking it — the total does
+not simply fall by their own health line. Their medical tier rate does leave. Pinned by its own
+test. It does not arise in the reported case (Jacinda is not on the church plan), but it would if
+an enrolled worker were ever flagged.
+
+**Verified:** `npm test` (1011/1011, 9 new). Checked non-vacuous by stubbing the predicate to
+`false` — 6 of the 9 fail. Two of my own tests initially failed on a wrong premise (assuming the
+total falls by exactly the excluded worker's cost) and were rewritten around the real behaviour
+rather than forced. Also a harness reproducing the reported roster end to end: employer FICA falls
+from $11,319.00 to **$8,186.72**, matching the church's own figure to the cent, with the FY total
+falling $44,077.06 and tag balance holding. **Not verified:** a live browser or a real print dialog.
+
+
+### v1.157.0 — Council summary: what the benefits & taxes figure is made of (2026-08-07)
+
+Asked for on the Council summary page: a section under the worker table breaking out Pension Cost
+and Health Plan Cost. Built as the full four-line breakdown rather than the two named, because a
+partial list sitting directly under a $103,445 tile that it doesn't add up to is worse than no
+breakdown — the components are exactly the four `finCompBenefits` sums (pension, health plan,
+disability & survivor, employer FICA), so the parts always reconcile to the total above them.
+
+Each line carries the rate it comes from and how many of the roster it actually covers — a $0 or
+short line reads as a bug unless it says who is on it. Employer FICA is the clearest case: it
+covers only the non-ministers, because a minister pays their own SECA. That self-paid amount is
+stated underneath as explicitly not a church cost and in no figure above, rather than left to look
+like a missing line.
+
+New pure `finCompBenefitBreakdown(computed)` backs both the on-screen section and the same table
+added to the printed Council report, so the screen and the printout can't answer the question
+differently.
+
+**Verified:** `npm test` (1002/1002, 5 new). Checked non-vacuous by dropping the employer-FICA
+component — 4 of the 5 fail, including reconciliation. Also a render of the real Council view
+against a live-shaped roster (parts summed to the tile to the cent; tag balance 31/31 divs, 48/48
+cells; breakdown confirmed to sit after the worker table), and `node --check` on both bundles.
+**Not verified:** a live browser or a real print dialog.
+
+
 ### v1.156.0 — Ivanhoe forecast reports remittable cash, not net income (2026-08-07)
 
 Reported from the Planning tab: the "3277 Ivanhoe forecast" card projected **$43,864 for 2027**

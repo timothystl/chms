@@ -29,7 +29,7 @@ function loadSalaryCalculator() {
     }
     return CHMS_APP_EXT_JS.slice(start, i);
   }
-  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finLcmsHistoricalAvgGrowthPct', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputePensionCents', 'finConcordiaPensionRateFor', 'finConcordiaDisabilityRateFor', 'finHealthTierMonthlyCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finCompPlanQuoteField', 'finHealthPlanResolvedOption', 'finComputeFamilyOOPCents', 'finHealthFamilySizeMatters', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
+  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finLcmsHistoricalAvgGrowthPct', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputePensionCents', 'finConcordiaPensionRateFor', 'finConcordiaDisabilityRateFor', 'finHealthTierMonthlyCents', 'finHealthAncillaryPerContractCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finCompPlanQuoteField', 'finHealthPlanResolvedOption', 'finComputeFamilyOOPCents', 'finHealthFamilySizeMatters', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
   const fnSrcs = fnNames.map(extractFunction);
   const ficaRateM = CHMS_APP_EXT_JS.match(/var LCMS_EMPLOYER_FICA_RATE = [^\n]*\n/);
   if (!ficaRateM) throw new Error('LCMS_EMPLOYER_FICA_RATE not found in built script');
@@ -223,22 +223,42 @@ describe('LCMS Missouri District salary calculator', () => {
     });
   });
 
-  // Health insurance renewal quote (Concordia Plans #0560500326, effective 2027) — verified
-  // against the real quote's own printed totals for all 5 options.
+  // Health insurance renewal quote (Concordia Plans #0560500326, effective 2027).
+  //
+  // Medical reconciles to the packet's own printed Total Monthly / Total Annual. Dental and vision
+  // are PER COVERED WORKER, confirmed by the church — the packet simply does not tier-price them,
+  // so they appear as one annual figure each rather than a rate per coverage tier. These totals are
+  // therefore at the quoted enrolment of 2 family contracts: medical $49,224.00, plus dental and
+  // vision twice over. Previously the two ancillary figures were read as a single group bill, which
+  // priced a covered worker at $26,871.24 instead of the church's own $29,130.48.
   describe('Health plan renewal quote (2027)', () => {
-    it('reproduces the quote\'s own printed totals for the Renewal ("stay in current plan") option', () => {
+    it('reproduces the quote\'s printed medical totals and prices dental/vision per worker', () => {
       const r = finComputeHealthPlanTotalCents('renewal');
-      expect(r.medicalCents).toBe(4922400); // $49,224.00
-      expect(r.dentalCents).toBe(304680);   // $3,046.80
-      expect(r.visionCents).toBe(147168);   // $1,471.68
-      expect(r.totalCents).toBe(5374248);   // $53,742.48
+      expect(r.medicalCents).toBe(4922400); // $49,224.00 — the packet's own Total Annual
+      expect(r.contracts).toBe(2);
+      expect(r.dentalCents).toBe(304680 * 2);   // $3,046.80 each
+      expect(r.visionCents).toBe(147168 * 2);   // $1,471.68 each
+      expect(r.totalCents).toBe(5826096);       // $58,260.96 = 2 x $29,130.48
     });
 
-    it('reproduces the quote\'s own printed totals for Current, Option 1/2/3', () => {
-      expect(finComputeHealthPlanTotalCents('current').totalCents).toBe(4966296);  // $49,662.96
-      expect(finComputeHealthPlanTotalCents('option1').totalCents).toBe(6183408);  // $61,834.08
-      expect(finComputeHealthPlanTotalCents('option2').totalCents).toBe(5703888);  // $57,038.88
-      expect(finComputeHealthPlanTotalCents('option3').totalCents).toBe(4865112);  // $48,651.12
+    it('prices one family-tier worker at the church\'s own $29,130.48', () => {
+      const r = finComputeHealthPlanTotalCents('renewal');
+      expect(r.totalCents / r.contracts).toBe(2913048);
+    });
+
+    it('scales the group total with how many are covered', () => {
+      const one = finComputeHealthPlanTotalCents('renewal', null, { self: 0, selfSpouse: 0, selfChild: 0, family: 1 });
+      const three = finComputeHealthPlanTotalCents('renewal', null, { self: 0, selfSpouse: 0, selfChild: 0, family: 3 });
+      expect(one.totalCents).toBe(2913048);
+      expect(three.totalCents).toBe(2913048 * 3);
+    });
+
+    it('reproduces the printed medical totals for Current, Option 1/2/3', () => {
+      // Quoted enrolment is 2 FAMILY contracts, so it is each option's family rate that applies.
+      expect(finComputeHealthPlanTotalCents('current').medicalCents).toBe(188736 * 2 * 12);
+      expect(finComputeHealthPlanTotalCents('option1').medicalCents).toBe(238815 * 2 * 12);
+      expect(finComputeHealthPlanTotalCents('option2').medicalCents).toBe(218835 * 2 * 12);
+      expect(finComputeHealthPlanTotalCents('option3').medicalCents).toBe(183886 * 2 * 12);
     });
 
     it('returns null for an unrecognized option key', () => {

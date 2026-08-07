@@ -128,10 +128,10 @@ describe('§5.12 — the worked example, to the cent', () => {
     const c = ctx.finCompComputeAll()[0];
     expect(c.salaryCents).toBe(10647000);
     expect(c.benefits.pensionCents).toBe(1245699);    // $12,457
-    expect(c.benefits.healthCents).toBe(2687124);     // $26,871 — group quote / 2 contracts
+    expect(c.benefits.healthCents).toBe(2913048);     // $29,130.48 — medical + own dental + vision
     expect(c.benefits.disabilityCents).toBe(186323);  // $1,863
     expect(c.benefits.ficaCents).toBe(0);             // minister
-    expect(c.churchCostCents).toBe(14766146);         // $147,661
+    expect(c.churchCostCents).toBe(14992070);         // $149,921
   });
 
   it('reads him as 99% of district scale and 103% of the LCMS median', () => {
@@ -206,13 +206,13 @@ describe('§10.3 — a rate change moves everything in one render', () => {
 describe('§10.4 — the plan choice only moves enrolled figures', () => {
   it('repricing to Option 1 leaves the opt-out worker untouched', () => {
     const before = ctx.finCompComputeAll();
-    // Family tier: $2,051.00/mo x 12, plus an even share of dental and vision across 2 enrolled.
-    expect(before[0].benefits.healthCents).toBe(2687124);
+    // Family tier: $2,051.00/mo x 12, plus this worker's own dental and vision.
+    expect(before[0].benefits.healthCents).toBe(2913048);
     expect(before[2].benefits.healthCents).toBe(600000);  // opt-out cash
     ctx.finCompPickPlan('option1');
     const after = ctx.finCompComputeAll();
-    expect(after[0].benefits.healthCents).toBe(3091704);  // $2,388.15/mo x 12 + share
-    expect(after[1].benefits.healthCents).toBe(3091704);
+    expect(after[0].benefits.healthCents).toBe(238815 * 12 + 304680 + 147168);
+    expect(after[1].benefits.healthCents).toBe(238815 * 12 + 304680 + 147168);
     expect(after[2].benefits.healthCents).toBe(600000);   // unchanged
   });
 
@@ -558,5 +558,162 @@ describe('current pay entered by hand', () => {
     html = ctx.__store['fin-comp-root'].innerHTML;
     expect(html).toContain('entered by hand');
     expect(html).toContain('finCompClearCurrentPay(1)');
+  });
+});
+
+// Requested: a section under the Council summary table breaking out what the single "Benefits &
+// taxes" number is made of. The invariant that matters is reconciliation — a breakdown that does
+// not add up to the total printed directly above it is worse than no breakdown at all.
+describe('Council summary — benefits & taxes breakdown', () => {
+  it('reconciles exactly to the Benefits & taxes total', () => {
+    const computed = ctx.finCompComputeAll();
+    const totals = ctx.finCompTotals(computed);
+    const bd = ctx.finCompBenefitBreakdown(computed);
+    expect(bd.totalCents).toBe(totals.benefitsCents);
+    expect(bd.rows.reduce((t, r) => t + r.cents, 0)).toBe(totals.benefitsCents);
+  });
+
+  it('covers every component finCompBenefits sums, so nothing can go unlisted', () => {
+    const computed = ctx.finCompComputeAll();
+    const bd = ctx.finCompBenefitBreakdown(computed);
+    expect(bd.rows.map(r => r.key)).toEqual(['pension', 'health', 'disability', 'fica']);
+    ['pensionCents', 'healthCents', 'disabilityCents', 'ficaCents'].forEach((f, i) => {
+      expect(bd.rows[i].cents).toBe(computed.reduce((t, c) => t + c.benefits[f], 0));
+    });
+  });
+
+  it('counts how many workers each cost actually covers', () => {
+    const computed = ctx.finCompComputeAll();
+    const bd = ctx.finCompBenefitBreakdown(computed);
+    const fica = bd.rows.filter(r => r.key === 'fica')[0];
+    // The seeded roster has two ministers (SECA) and one regular employee.
+    expect(fica.people).toBe(computed.filter(c => c.benefits.ficaCents > 0).length);
+    expect(fica.people).toBeLessThan(ctx._finSalaryRoster.length);
+  });
+
+  it('carries the ministers self-paid SECA separately, in no total', () => {
+    const computed = ctx.finCompComputeAll();
+    const bd = ctx.finCompBenefitBreakdown(computed);
+    expect(bd.secaSelfCents).toBeGreaterThan(0);
+    expect(bd.totalCents).not.toBe(bd.totalCents + bd.secaSelfCents);
+    // It must not be hiding inside the employer FICA line.
+    expect(bd.rows.filter(r => r.key === 'fica')[0].cents)
+      .toBe(computed.reduce((t, c) => t + c.benefits.ficaCents, 0));
+  });
+
+  it('renders under the table on the Council summary, and the printed report agrees', () => {
+    const html = render(ctx, 'council');
+    const computed = ctx.finCompComputeAll();
+    const totals = ctx.finCompTotals(computed);
+    const bd = ctx.finCompBenefitBreakdown(computed);
+    expect(html).toContain('of benefits &amp; taxes');
+    expect(html.indexOf('Vs. LCMS median')).toBeLessThan(html.indexOf('of benefits &amp; taxes'));
+    bd.rows.forEach(r => expect(html).toContain(ctx.finCompMoney(r.cents)));
+    const report = ctx.finCompCouncilReportHtml(computed, totals);
+    expect(report).toContain('of benefits &amp; taxes');
+    bd.rows.forEach(r => expect(report).toContain(ctx.finCompMoney(r.cents)));
+  });
+});
+
+// "Paid from another budget" — a worker (MDO/daycare payroll) who stays on the roster so their
+// compensation is planned somewhere, but is carried by a different section and so belongs in no
+// church figure. Reported as employer FICA being ~$3,132 too high; the flag exists because
+// excluding such a worker from the FICA line alone would leave their salary in the headline total,
+// looking fixed while still being wrong.
+describe('workers paid from another budget', () => {
+  function flag(name) {
+    const w = ctx._finSalaryRoster.filter(x => x.name === name)[0];
+    w.externallyFunded = true;
+    return w;
+  }
+
+  it('drops their whole church cost from the total', () => {
+    // The Office Secretary is opted out of the group plan, so nothing about the shared group
+    // premium moves when they leave — the total falls by exactly what they cost.
+    const before = ctx.finCompTotals(ctx.finCompComputeAll());
+    const idx = ctx._finSalaryRoster.findIndex(w => w.name === 'Office Secretary');
+    const theirs = ctx.finCompComputeAll()[idx];
+    flag('Office Secretary');
+    const after = ctx.finCompTotals(ctx.finCompComputeAll());
+    expect(after.salaryCents).toBe(before.salaryCents - theirs.salaryCents);
+    expect(after.benefitsCents).toBe(before.benefitsCents - theirs.benefits.totalCents);
+    expect(after.totalCents).toBe(before.totalCents - theirs.churchCostCents);
+  });
+
+  it('takes an ENROLLED worker\'s health cost away cleanly, leaving nobody else\'s changed', () => {
+    // Dental and vision are per covered worker, so excluding someone removes their own health cost
+    // and moves nobody else's. (This replaced a re-sharing test written when those two were modelled
+    // as one group bill divided across whoever was enrolled.)
+    const before = ctx.finCompTotals(ctx.finCompComputeAll());
+    const beforeRows = ctx.finCompComputeAll();
+    const idx = ctx._finSalaryRoster.findIndex(w => w.name === 'Knapp');
+    const theirs = beforeRows[idx];
+    flag('Knapp');
+    const after = ctx.finCompTotals(ctx.finCompComputeAll());
+    const afterRows = ctx.finCompComputeAll();
+    expect(after.healthCents).toBe(before.healthCents - theirs.benefits.healthCents);
+    expect(after.totalCents).toBe(before.totalCents - theirs.churchCostCents);
+    // The pastor's own health figure is untouched by his colleague leaving the plan.
+    expect(afterRows[0].benefits.healthCents).toBe(beforeRows[0].benefits.healthCents);
+  });
+
+  it('removes them from every benefit line and from the counted denominator', () => {
+    const idx = ctx._finSalaryRoster.findIndex(w => w.name === 'Knapp');
+    const theirs = ctx.finCompComputeAll()[idx];
+    const before = ctx.finCompBenefitBreakdown(ctx.finCompComputeAll());
+    flag('Knapp');
+    const after = ctx.finCompBenefitBreakdown(ctx.finCompComputeAll());
+    expect(after.countedCount).toBe(before.countedCount - 1);
+    const pick = (bd, k) => bd.rows.filter(r => r.key === k)[0].cents;
+    expect(pick(after, 'fica')).toBe(pick(before, 'fica') - theirs.benefits.ficaCents);
+    expect(pick(after, 'pension')).toBe(pick(before, 'pension') - theirs.benefits.pensionCents);
+    expect(pick(after, 'disability')).toBe(pick(before, 'disability') - theirs.benefits.disabilityCents);
+    // Health is deliberately not asserted here — see the group dental/vision test above.
+  });
+
+  it('still reconciles to the Benefits & taxes tile after excluding someone', () => {
+    flag('Knapp');
+    const computed = ctx.finCompComputeAll();
+    expect(ctx.finCompBenefitBreakdown(computed).totalCents).toBe(ctx.finCompTotals(computed).benefitsCents);
+  });
+
+  it('takes them off the group health plan contract count', () => {
+    const before = ctx.finCompEnrolledCount();
+    flag('Knapp'); // family tier in the seed, so a real contract
+    expect(ctx.finCompEnrolledCount()).toBe(before - 1);
+  });
+
+  it('leaves them out of the district-scale and LCMS-median comparisons', () => {
+    const beforeMed = ctx.finCompMedianTotal(ctx.finCompComputeAll());
+    const beforeWorksheet = ctx.finCompTotals(ctx.finCompComputeAll()).worksheetCents;
+    flag('Knapp'); // has a Concordia range on file in the seed
+    const afterMed = ctx.finCompMedianTotal(ctx.finCompComputeAll());
+    expect(afterMed.count).toBe(beforeMed.count - 1);
+    expect(ctx.finCompTotals(ctx.finCompComputeAll()).worksheetCents).toBeLessThan(beforeWorksheet);
+  });
+
+  it('deliberately does NOT change the FY base-year comparison figure', () => {
+    // That number is read off the church's real payroll accounts, not off this roster. Silently
+    // adjusting it here would invent a figure no account supports.
+    const before = ctx.finCompTotals(ctx.finCompComputeAll()).baselineCents;
+    flag('Knapp');
+    expect(ctx.finCompTotals(ctx.finCompComputeAll()).baselineCents).toBe(before);
+  });
+
+  it('keeps the worker visible and named, on screen and in the printed report', () => {
+    flag('Knapp');
+    const html = render(ctx, 'council');
+    expect(html).toContain('Knapp');
+    expect(html).toContain('paid from another budget');
+    expect(html).toContain('Not counted above');
+    const computed = ctx.finCompComputeAll();
+    const report = ctx.finCompCouncilReportHtml(computed, ctx.finCompTotals(computed));
+    expect(report).toContain('Knapp');
+    expect(report).toContain('Not counted in any figure above');
+  });
+
+  it('is off by default, so nothing changes for an existing roster', () => {
+    expect(ctx._finSalaryRoster.some(w => ctx.finCompIsExternallyFunded(w))).toBe(false);
+    expect(ctx.finCompCountedCount()).toBe(ctx._finSalaryRoster.length);
   });
 });
