@@ -24,6 +24,74 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.156.0 — Ivanhoe forecast reports remittable cash, not net income (2026-08-07)
+
+Reported from the Planning tab: the "3277 Ivanhoe forecast" card projected **$43,864 for 2027**
+under the heading *"what the property can be expected to remit"*, and that could not be right
+because nothing was being held back for taxes, reserves or other obligations.
+
+Confirmed, and the number was wrong for a bigger reason than reserves. **$43,003.75 is the
+trailing-12-month average of AHRA's reported net income** (Jul 2025 – Jun 2026), grown 2%, with
+**nothing deducted at all**. The card's own table header even read "Projected Annual Net Income"
+while the title above it promised remittance — two different claims about one figure.
+
+**Three real defects:**
+1. **Mortgage principal was never subtracted.** The old comment assumed debt service was already
+   inside AHRA's net income. Half true — *interest* is an expense and is inside it; *principal*
+   is a balance-sheet movement that never touches the P&L, and it is ~$35,700/yr of cash.
+2. **Post-payoff double-count.** Post-payoff years *added back* `annual_debt_service_cents` on top
+   of a base it had never been taken out of.
+3. **Capital spending was invisible.** ~$15,200/yr, capitalized so never an expense. AHRA's own
+   paint/asphalt/concrete reserve line exists but is funded at $0.
+
+**Deliberately NOT deducted, because each would double-count:** property tax (the bill already
+lands as an expense inside net income — Dec 2025 expenses were $14,631; the monthly reserve is a
+*timing* mechanism, not an extra cost), the $4,500 base-minimum reserve (a one-time floor, already
+funded), and the ~$15,263/yr allocated church insurance (the church budget already carries it as
+its own expense line, so it is a memo beside the card, never subtracted).
+
+**The model**, one pure function every consumer reads rather than re-deriving:
+`remittable = operating income grown at the rate − scheduled interest − scheduled principal −
+capital allowance`. Growing *operating* income (net income before interest) is what makes it
+correct: rents grow, a fixed mortgage payment does not. Interest and principal come from a real
+per-year amortization schedule, so both simply fall to zero at payoff and **no add-back fudge is
+needed at all**.
+
+Result for 2027: **−$5,849**, not +$43,864. Against actual distributions of $34,000 (2024),
+$8,000 (2025) and $4,000 (2026 YTD), that is the right order of magnitude — and the
+Available-for-Distribution bar now reads $6,051 for 2026 YTD against the $4,000 actually sent.
+The card says in words that the property does not currently fund a distribution out of its own
+earnings, and that this changes around the 2033 payoff (~$54,579/yr thereafter).
+
+**Also fixed:** the amortization anchored its payoff clock to `new Date()` rather than the
+lender-confirmed `balance_as_of_date`, so it slid forward on every render; the year-by-year table
+re-derived the math from three `window._finPmf*` globals instead of reading the same rows the
+tiles did (which is how the two came to disagree); and the Available-for-Distribution bar was
+missing the principal line entirely. All three consumers now read one model.
+
+**Two data conflicts surfaced rather than silently resolved** (both shown on the card with a
+"confirm with LCEF" prompt): confirmed with the pastor that `monthly_payment_cents` ($4,283.03) is
+principal + interest, which means the field *named* `annual_debt_service_cents` ($45,396.36) is
+actually the principal portion — mislabeled; and the June 2026 report's interest of $952.05/mo
+implies a balance near $179,209, against the confirmed $279,691.13. Nothing trusts either
+constant now — interest and principal are amortized from the confirmed balance and rate.
+
+**One bug caught in my own work by the harness, not by reading:** the base-interest fallback
+averaged the 6-month anchor year against a full year instead of annualizing, understating interest
+enough to drag projected net income *below* the base it grew from. It now takes the first twelve
+*scheduled months*.
+
+`npm test` (960/960, 23 new in `test/finance-property-remittable.test.js`); **every new test
+verified non-vacuous** by injecting the exact regression it guards — 5 injections, all produced
+the expected failures. Two existing property tests needed their loaders switched from
+single-function regex extraction to the `vm`-bundle technique, since the functions they extract now
+have dependencies. Plus `node --check` on both built bundles, a div/table-balance scan of all four
+rendered views and of the assembled `CHMS_HTML`, and a harness confirming Planning and the Property
+tab print the identical remittable figure. **Not verified**: a live browser or real D1.
+(`src/frontend/js-finance.js`, `test/finance-property-remittable.test.js`,
+`test/finance-property-forecast.test.js`, `test/finance-property-distribution.test.js`)
+
+
 ### v1.155.0 — Embedded / non-embedded marked on each plan, and the spread-cost model generalised (2026-08-07)
 
 Follow-up to the single/family deductible split below, working from the plan's own definition

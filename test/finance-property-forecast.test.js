@@ -1,15 +1,20 @@
 import { describe, it, expect } from 'vitest';
+import vm from 'node:vm';
 import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
 
 // finComputeMortgageAmortization() lives inside the served (String.raw) frontend script, not as
-// an exported module function — extract just that one function (it touches no DOM, unlike its
-// callers) and eval it standalone. Same technique used elsewhere in this project (see CLAUDE.md
-// SC3-BUG1 / TAP11) to verify served-only logic without a browser.
+// an exported module function. It used to be extractable on its own, but since FIN61 it delegates
+// to finAmortizationSchedule, so load the whole bundle in a vm with a stub DOM and take the real
+// function out of it — the same technique used elsewhere in this project (see CLAUDE.md AT7 /
+// FIN54 / FIN57) to verify served-only logic without a browser.
 function loadFinComputeMortgageAmortization() {
-  const m = CHMS_APP_EXT_JS.match(/function finComputeMortgageAmortization\(loan\) \{[\s\S]*?\n\}/);
-  if (!m) throw new Error('finComputeMortgageAmortization not found in built script');
-  // eslint-disable-next-line no-eval
-  return eval(`(${m[0]})`);
+  const ctx = { console, document: { getElementById: () => null } };
+  ctx.window = ctx;
+  ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(CHMS_APP_EXT_JS, ctx);
+  if (typeof ctx.finComputeMortgageAmortization !== 'function') throw new Error('finComputeMortgageAmortization not found in built script');
+  return ctx.finComputeMortgageAmortization;
 }
 
 // finComputePropertyValuation() references the sibling FIN_VAL_OP_COST_FIELDS var — extract

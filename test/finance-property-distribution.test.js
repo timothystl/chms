@@ -1,14 +1,20 @@
 import { describe, it, expect } from 'vitest';
+import vm from 'node:vm';
 import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
 
 // finComputeAvailableForDistribution() lives inside the served (String.raw) frontend script, not
-// as an exported module function — extract and eval standalone, same technique used elsewhere in
-// this project (see CLAUDE.md SC3-BUG1 / TAP11 / FIN10 / finance-church-detail-body).
+// as an exported module function. It used to be extractable on its own, but since FIN61 it also
+// amortizes the loan to get the year-to-date mortgage principal, so load the whole bundle in a vm
+// with a stub DOM and take the real function out of it — same technique used elsewhere in this
+// project (see CLAUDE.md AT7 / FIN54 / FIN57).
 function loadHelper() {
-  const m = CHMS_APP_EXT_JS.match(/function finComputeAvailableForDistribution\([^)]*\) \{[\s\S]*?\n\}/);
-  if (!m) throw new Error('finComputeAvailableForDistribution not found in built script');
-  // eslint-disable-next-line no-eval
-  return eval(`(function() { ${m[0]} return finComputeAvailableForDistribution; })()`);
+  const ctx = { console, document: { getElementById: () => null } };
+  ctx.window = ctx;
+  ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(CHMS_APP_EXT_JS, ctx);
+  if (typeof ctx.finComputeAvailableForDistribution !== 'function') throw new Error('finComputeAvailableForDistribution not found in built script');
+  return ctx.finComputeAvailableForDistribution;
 }
 
 describe('finComputeAvailableForDistribution', () => {
