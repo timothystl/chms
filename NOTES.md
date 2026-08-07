@@ -24,6 +24,36 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.151.1 — Monthly P&L import threw on every upload: a missed call site (2026-08-07)
+
+**Reported** from the live app, with a screenshot: choosing a file in Import Monthly P&L showed
+`Error: Cannot read properties of undefined (reading 'length')` and no preview.
+
+**Cause, and it is mine.** v1.150.0 changed the preview response from `{ fiscalYear, months }` to
+`{ years, monthsByYear }` to carry many years. `finChurchRenderMonthlyImportPreview` and
+`finChurchConfirmMonthlyImport` were both updated; the status line in
+`finChurchMonthlyImportFileSelected` (`js-finance.js:3359`) was not, and still read
+`d.months.length` — undefined on every response, so the handler threw before ever rendering the
+preview. Fixed to read the multi-year shape, with the row/skipped reads guarded too.
+
+**Why the v1.150.0 verification missed it.** That harness called the two changed functions
+*directly* with a hand-built response object. It never went through the handler that actually
+receives the fetch — so the one call site that was left on the old shape was the one place never
+exercised. New `test/finance-monthly-import-ui.test.js` (4 tests) drives the real
+`finChurchMonthlyImportFileSelected` out of the real built bundle with `fetch` stubbed, covering
+multi-year, single-year, the preview/button reveal, and a server-error response. **Verified
+non-vacuous** by reinstating the exact line: 3 of the 4 fail, and the multi-year assertion
+reproduces the reported string verbatim (`Error: Cannot read properties of undefined (reading
+'length')`).
+
+`npm test` (860/860), `node --check` on both built bundles, div-balance on `CHMS_HTML`, and the
+real 2019-2026 file re-run end to end unchanged (8 years, 16,107 rows). **Not verified**: a live
+browser.
+
+**Unrelated to the bug, worth recording**: the screenshot also showed the pre-v1.150.0 modal copy,
+which means that page had been loaded before the deploy landed — an older page calling a newer
+backend. The shell is `no-store`, so a reload picks up the new copy; nothing to fix.
+
 ### v1.151.0 — Compensation: single + family deductible / OOP columns, and they now drive the maths (2026-08-06)
 
 Reported: the health plan rates table needed the deductible split into **single** and **family**

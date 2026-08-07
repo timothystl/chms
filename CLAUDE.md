@@ -503,6 +503,24 @@ bundle. **Not verified**: a live browser or real D1. (`src/api-finance.js`,
 `src/frontend/js-finance.js`, `src/frontend/html-tabs.js`,
 `test/finance-church-monthly-import.test.js`)
 
+### FIN59-BUG1 — Monthly P&L import threw on every upload (2026-08-07, DONE)
+Reported live with a screenshot right after FIN59 shipped: choosing a file showed `Error: Cannot
+read properties of undefined (reading 'length')` and no preview. Cause was FIN59's own: the
+preview response changed from `{fiscalYear, months}` to `{years, monthsByYear}`, and while
+`finChurchRenderMonthlyImportPreview`/`finChurchConfirmMonthlyImport` were both updated, the
+status line in `finChurchMonthlyImportFileSelected` (`js-finance.js:3359`) still read
+`d.months.length` and threw before rendering anything. **The lesson worth carrying**: FIN59's
+verification harness called the two changed functions *directly* with a hand-built response, so
+the one call site left on the old shape was precisely the one never exercised — when a response
+shape changes, grep every consumer, and drive the handler that receives the fetch, not just the
+functions it composes. New `test/finance-monthly-import-ui.test.js` (4 tests) runs the real
+handler out of the real built bundle with `fetch` stubbed; verified non-vacuous by reinstating the
+exact line (3 of 4 fail, reproducing the reported string verbatim). `npm test` (860/860), `node
+--check` on both bundles, div-balance on `CHMS_HTML`, real 2019-2026 file re-run unchanged. **Not
+verified**: a live browser. Also noted, not a bug: the screenshot showed pre-FIN59 modal copy, i.e.
+a page loaded before the deploy landed calling a newer backend — the shell is `no-store`, so a
+reload fixes it. (`src/frontend/js-finance.js`, `test/finance-monthly-import-ui.test.js`)
+
 ### TinyMCE editor-load limit — NOT this app; it's the website repo (2026-08-07)
 A Tiny automated email warned the account hit 50% of its monthly **Editor Load** limit (overage
 charges past 100%). **Connect contributes zero cloud loads and always has** — since v1.64.0 the
