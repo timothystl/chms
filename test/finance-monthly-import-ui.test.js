@@ -200,3 +200,48 @@ describe('Data & Imports staleness card', () => {
     expect(seen.filter(u => u.indexOf('import-status') !== -1)).toHaveLength(1);
   });
 });
+
+// ── Every importer must refresh the staleness card ───────────────────────────────────────────
+// v1.151.2 made finRenderDataImports() always refetch, and wired an in-place refresh into the
+// import success handlers — but only the five that happened to call finRenderChurchReport(). The
+// other five did not, so the Balance Sheet import (which calls finLoadChurchBalances instead)
+// still left the date unchanged after a successful import. Reported live. These assert the wiring
+// by function body, so a new importer that forgets it fails here rather than in production.
+
+function bodyOf(src, name) {
+  const start = src.indexOf('function ' + name + '(');
+  if (start === -1) throw new Error('function not found in bundle: ' + name);
+  const open = src.indexOf('{', start);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(open, i + 1); }
+  }
+  throw new Error('unbalanced braces reading ' + name);
+}
+
+const BUNDLE = CHMS_APP_CORE_JS + '\n' + CHMS_APP_EXT_JS;
+
+describe('import success handlers refresh the Data & Imports staleness card', () => {
+  // One entry per importer whose route calls recordImport() and whose commit is driven by a
+  // named handler. The five below are the ones that were missing the call.
+  const HANDLERS = [
+    'finChurchConfirmBalanceImport',        // church_balance — the reported failure
+    'finDaycareChurchBudgetImport',         // daycare_church_budget
+    'finDaycareBulkImport',                 // daycare_bulk
+    'finPropertyImportMonthlyCsv',          // property_monthly_csv
+    'finPropertyBudgetImportFileSelected',  // property_budget_xlsx
+    // Already wired in v1.151.2, asserted so they cannot silently regress.
+    'finChurchConfirmMonthlyImport',        // church_monthly_pnl
+  ];
+  it.each(HANDLERS)('%s calls finRefreshImportStatus()', (name) => {
+    expect(bodyOf(BUNDLE, name)).toContain('finRefreshImportStatus()');
+  });
+
+  it('has one refresh call per importer that records one, plus the tab render', async () => {
+    const { FINANCE_IMPORTERS } = await import('../src/api-finance.js');
+    const calls = (BUNDLE.match(/finRefreshImportStatus\(\);/g) || []).length;
+    // 10 importers + finRenderDataImports(). A new importer must add its own call.
+    expect(calls).toBeGreaterThanOrEqual(FINANCE_IMPORTERS.length + 1);
+  });
+});
