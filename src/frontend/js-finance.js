@@ -328,13 +328,20 @@ function finRenderDataImports() {
   finRenderAccounts(_finOverview);
   finRenderDaycare();
   if (_finProperty) finRenderPropertyAdminTools(_finProperty);
-  if (!_finImportStatus) {
-    api('/admin/api/finance/import-status').then(function(d) {
-      _finImportStatus = d && d.importers ? d.importers : [];
-      var card = document.getElementById('fin-imports-card');
-      if (card) card.innerHTML = finRenderImportsCard();
-    }).catch(function() { /* staleness is a nicety; the importers themselves still work */ });
-  }
+  finRefreshImportStatus();
+}
+// Always refetches — deliberately NOT cached for the life of the page. This card's entire purpose
+// is showing which feeds have gone stale, so a value fetched once at first render keeps reading
+// "never" for the rest of the session even after an import has just written its log row. (Every
+// importer would otherwise have to remember to invalidate this, which none of the ten did.)
+// _finImportStatus is still kept so a revisit paints the previous answer immediately rather than
+// flashing empty, then gets replaced by the fresh one.
+function finRefreshImportStatus() {
+  return api('/admin/api/finance/import-status').then(function(d) {
+    _finImportStatus = d && d.importers ? d.importers : [];
+    var card = document.getElementById('fin-imports-card');
+    if (card) card.innerHTML = finRenderImportsCard();
+  }).catch(function() { /* staleness is a nicety; the importers themselves still work */ });
 }
 // Each importer row names when it last ran. "never" in danger red is the point of the tab: a feed
 // that has gone stale is visible here without opening the report it feeds.
@@ -3300,6 +3307,7 @@ function finChurchConfirmImport() {
       finToast(msg);
       if (!failed.length) closeModal('fin-church-import-modal');
       finRenderChurchReport();
+      finRefreshImportStatus();
       return;
     }
     var res = files[idx];
@@ -3491,6 +3499,7 @@ function finChurchConfirmMonthlyImport() {
       + ' year' + (doneYears.length === 1 ? '' : 's') + ' (' + doneYears[0]
       + (doneYears.length > 1 ? '-' + doneYears[doneYears.length - 1] : '') + ').');
     finRenderChurchReport();
+    finRefreshImportStatus();
     finLoadHealth();
   }).catch(function(err) {
     btn.disabled = false;
@@ -3592,6 +3601,7 @@ function finChurchConfirmActivityImport() {
     closeModal('fin-church-activity-import-modal');
     finToast('Imported ' + d.imported + ' row(s) across ' + d.years.length + ' year(s).');
     finRenderChurchReport();
+    finRefreshImportStatus();
   }).catch(function(err) {
     btn.disabled = false;
     if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
@@ -3690,6 +3700,7 @@ function finChurchConfirmBudgetMultiYearImport() {
     closeModal('fin-church-budget-multi-import-modal');
     finToast('Imported ' + d.imported + ' row(s) across ' + d.years.length + ' year(s).');
     finRenderChurchReport();
+    finRefreshImportStatus();
   }).catch(function(err) {
     btn.disabled = false;
     if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
@@ -3809,6 +3820,7 @@ function finChurchConfirmBalanceMultiImport() {
     closeModal('fin-church-balance-multi-import-modal');
     finToast('Imported ' + d.imported + ' row(s) across ' + d.years.length + ' year(s).');
     finRenderChurchReport();
+    finRefreshImportStatus();
   }).catch(function(err) {
     btn.disabled = false;
     if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));

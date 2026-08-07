@@ -24,6 +24,38 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.151.2 — Data & Imports read "never" after a successful import (2026-08-07)
+
+**Reported**: "I just uploaded a monthly P&L and upload still says never."
+
+**The import was fine; the card was not.** `_finImportStatus` (`js-finance.js`) was fetched once
+per page load behind an `if (!_finImportStatus)` guard and then never invalidated by anything. So
+the sequence was: open Data & Imports (fetch, cache "never") → run an import (the commit route
+writes its `finance_import_log` row correctly) → return to the tab → render from the cache →
+still "never", until a full page reload. **This affected all ten importers**, not just the Monthly
+P&L one, and dates back to FIN57 when the tab shipped.
+
+Fixed by making the fetch unconditional — extracted as `finRefreshImportStatus()`, called on every
+`finRenderDataImports()`. The cached value is still kept, but only so a revisit paints the previous
+answer instantly instead of flashing empty; it is always replaced by a fresh one. Expecting each of
+ten importers to remember to invalidate a shared cache is the fragile version of this, and none of
+them did. Also wired `finRefreshImportStatus()` into the five file-import success handlers
+(church budget, monthly P&L, activity multi-year, budget multi-year, balance multi-year) so the
+card updates in place without leaving the tab. The QBO `sync-years` path is deliberately not
+wired — it never writes an import-log row.
+
+**Also fixed, latent, in v1.150.0's own code**: the monthly commit route built its log note with
+`db.prepare(...).bind().first().catch(...)` — the only zero-argument `.bind()` in the codebase
+(every other parameterless query calls `.first()` straight off `.prepare()`). A synchronous throw
+there would escape the promise-tail `.catch()` and fail the route *after* the rows were already
+written, leaving data imported and no log row — the exact symptom reported, by a second route.
+Rewritten as a `try`/`catch` around a conventional parameterless query, falling back to the
+request's own year range.
+
+`npm test` (862/862, 2 new). The staleness test is **verified non-vacuous** by restoring the
+`if (_finImportStatus)` guard, which fails it. Plus `node --check` on both built bundles and
+div-balance on `CHMS_HTML`. **Not verified**: a live browser.
+
 ### v1.151.1 — Monthly P&L import threw on every upload: a missed call site (2026-08-07)
 
 **Reported** from the live app, with a screenshot: choosing a file in Import Monthly P&L showed

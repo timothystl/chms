@@ -521,6 +521,25 @@ verified**: a live browser. Also noted, not a bug: the screenshot showed pre-FIN
 a page loaded before the deploy landed calling a newer backend — the shell is `no-store`, so a
 reload fixes it. (`src/frontend/js-finance.js`, `test/finance-monthly-import-ui.test.js`)
 
+### FIN59-BUG2 — Data & Imports read "never" after a successful import (2026-08-07, DONE)
+Reported after a real Monthly P&L upload. **The import worked; the card was stale.**
+`_finImportStatus` (`js-finance.js`) was fetched once per page load behind an
+`if (!_finImportStatus)` guard and never invalidated, so opening Data & Imports cached "never",
+running an import wrote its `finance_import_log` row correctly, and returning to the tab rendered
+the cache again — until a full page reload. **All ten importers were affected**, since FIN57.
+Fixed by making the fetch unconditional (`finRefreshImportStatus()`, called on every
+`finRenderDataImports()`); the cached value is kept only so a revisit paints instantly rather than
+flashing empty. Requiring ten importers to each invalidate a shared cache is the fragile version —
+none did. Also wired into the five file-import success handlers so the card updates in place
+without leaving the tab (the QBO `sync-years` path deliberately not, as it writes no log row).
+**Also fixed, latent, from FIN59 itself**: the monthly commit route used
+`db.prepare(...).bind().first().catch(...)` — the only zero-arg `.bind()` in the codebase — where
+a synchronous throw would escape the promise-tail catch and fail the route *after* the rows were
+written, producing this same symptom by a second path; now a `try`/`catch` around a conventional
+parameterless query. `npm test` (862/862, 2 new); the staleness test verified non-vacuous by
+restoring the guard. **Not verified**: a live browser. (`src/frontend/js-finance.js`,
+`src/api-finance.js`, `test/finance-monthly-import-ui.test.js`)
+
 ### TinyMCE editor-load limit — NOT this app; it's the website repo (2026-08-07)
 A Tiny automated email warned the account hit 50% of its monthly **Editor Load** limit (overage
 charges past 100%). **Connect contributes zero cloud loads and always has** — since v1.64.0 the
