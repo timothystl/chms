@@ -1,7 +1,7 @@
 // ── Reports, Engagement, Prayer API handlers ─────────────────────────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedThroughDate, sundaysInYear, nthSundayOfYear, periodAsOfDate, monthElapsedFraction, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, buildBoardCategoryBlock } from './api-utils.js';
+import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedThroughDate, sundaysInYear, nthSundayOfYear, periodAsOfDate, monthElapsedFraction, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, resolveGeneralFundIds, buildBoardCategoryBlock } from './api-utils.js';
 import { resolveChurchYearPrecedence } from './api-finance.js';
 
 export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
@@ -1004,16 +1004,7 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   // name-prefix rule — every fund sharing the leading numeric code of the fund named "General
   // Fund" — so the board's headline number doesn't read $0 until someone visits Settings.
   const fundRows = fundRes.results || [];
-  const numPrefix = (name) => { const m = String(name || '').match(/^(\d+)\s/); return m ? m[1] : null; };
-  const catOf = new Map(fundRows.map(f => [f.id, normalizeFundCategory(f.category)]));
-  const genFundRow = fundRows.find(f => /general\s*fund/i.test(f.name || ''));
-  const genPrefix = genFundRow ? numPrefix(genFundRow.name) : null;
-  if (![...catOf.values()].includes('general')) {
-    for (const f of fundRows) {
-      if (genPrefix ? numPrefix(f.name) === genPrefix : (genFundRow && f.id === genFundRow.id)) catOf.set(f.id, 'general');
-    }
-  }
-  const genFundIds = new Set(fundRows.filter(f => catOf.get(f.id) === 'general').map(f => f.id));
+  const { catOf, prefix: genPrefix, ids: genFundIds } = resolveGeneralFundIds(fundRows);
   const CAT_KEYS = FUND_CATEGORIES.map(c => c.key);
 
   // Build monthly arrays (index 0 = Jan) — all-funds (chart) plus one per category, each with

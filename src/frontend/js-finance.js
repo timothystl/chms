@@ -556,17 +556,23 @@ function finLoadCashPolicy() {
   el.innerHTML = '<div style="font-size:.8rem;color:var(--warm-gray);">Loading…</div>';
   api('/admin/api/finance/cash-policy').then(function(d) {
     el.innerHTML = '<div class="fin-eyebrow">Cash reserve policy</div>'
-      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">The runway card measures months of operating cash against this floor. Leave cash on hand blank to use the QuickBooks checking/savings balances — set it only when that name-matching picks up the wrong accounts.</p>'
+      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">The runway card measures months of operating cash against this floor. Cash on hand is read from the imported balance sheet — name the operating account by its code (this church\'s is <b>11027</b> Lindell Checking) so it can\'t pick up the wrong one. Leave the code blank and it matches any asset account named "checking"; type a figure in <i>Cash on hand</i> only to override the balance sheet entirely.</p>'
       + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
       + '<label style="font-size:.75rem;color:var(--warm-gray);">Policy floor (months)<br><input type="number" id="fin-cash-floor" step="0.5" value="' + (d.policy_floor_months != null ? d.policy_floor_months : 3) + '" style="width:100px;"></label>'
-      + '<label style="font-size:.75rem;color:var(--warm-gray);">Cash on hand ($, optional)<br><input type="number" id="fin-cash-onhand" step="0.01" value="' + (d.cash_on_hand_cents != null ? (d.cash_on_hand_cents / 100) : '') + '" style="width:140px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Operating cash account code<br><input type="text" id="fin-cash-acct" placeholder="11027" value="' + esc(d.cash_account_code || '') + '" style="width:120px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Cash on hand ($, overrides)<br><input type="number" id="fin-cash-onhand" step="0.01" value="' + (d.cash_on_hand_cents != null ? (d.cash_on_hand_cents / 100) : '') + '" style="width:140px;"></label>'
       + '<button class="btn-primary" onclick="finSaveCashPolicy()">Save policy</button></div>';
   }).catch(function() { el.innerHTML = finCardError('the cash policy'); });
 }
 function finSaveCashPolicy() {
   var months = Number(document.getElementById('fin-cash-floor').value);
   var onHandRaw = document.getElementById('fin-cash-onhand').value;
-  var body = { policy_floor_months: months, cash_on_hand_cents: onHandRaw === '' ? null : Math.round(Number(onHandRaw) * 100) };
+  var acctEl = document.getElementById('fin-cash-acct');
+  var body = {
+    policy_floor_months: months,
+    cash_on_hand_cents: onHandRaw === '' ? null : Math.round(Number(onHandRaw) * 100),
+    cash_account_code: acctEl ? acctEl.value.trim() : '',
+  };
   api('/admin/api/finance/cash-policy', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) })
     .then(function(d) {
       if (d && d.error) { finToast(d.error); return; }
@@ -859,14 +865,39 @@ function finRenderEntityCards(d) {
     + '<div class="fin-grid-3">' + churchCard + daycareCard + propertyCard + '</div></div>';
 }
 
+// The two end-of-line labels sat at a fixed offset from their own line, so when giving tracks
+// close to budget — which is the normal, healthy case — "Actual" and "Budget" printed on top of
+// each other and neither was readable. Pushed apart to a minimum gap when they collide, keeping
+// whichever line is higher on top so each label still points at its own line.
+var FIN_PACE_LABEL_MIN_GAP = 13;
+function finPaceEndLabels(actualY, budgetY) {
+  var aY = actualY + 4;
+  if (budgetY == null) return '<text x="574" y="' + aY.toFixed(1) + '" fill="var(--color-teal)">Actual</text>';
+  var bY = budgetY - 10;
+  var gap = Math.abs(aY - bY);
+  if (gap < FIN_PACE_LABEL_MIN_GAP) {
+    var push = (FIN_PACE_LABEL_MIN_GAP - gap) / 2;
+    // A tie (identical y) still has to resolve deterministically — actual goes below.
+    if (actualY <= budgetY) { aY -= push; bY += push; }
+    else { aY += push; bY -= push; }
+  }
+  return '<text x="574" y="' + aY.toFixed(1) + '" fill="var(--color-teal)">Actual</text>'
+    + '<text x="574" y="' + bY.toFixed(1) + '" fill="var(--deep-amber)">Budget</text>';
+}
 // 1.6a — cumulative ChMS giving against a straight-line budget line.
 function finRenderGivingPace(d) {
   var monthly = d.givingMonthly || [];
-  var budgetCents = (d.revenueStreams && d.revenueStreams.streams.donor) ? d.revenueStreams.streams.donor.budgetCents : 0;
+  var pace = d.givingPace || {};
+  var scoped = pace.scope === 'general_fund';
+  // The General Fund's own budget, from the church ledger accounts sharing its numeric code —
+  // NOT the all-donor-revenue budget, which would be measuring one fund's giving against every
+  // donor account's target and would read as a permanent shortfall.
+  var budgetCents = pace.budgetCents != null ? pace.budgetCents : 0;
   var through = (d.year === new Date().getFullYear()) ? (new Date().getMonth() + 1) : 12;
   var cum = [], run = 0;
   for (var m = 0; m < through; m++) { run += (monthly[m] ? monthly[m].cents : 0); cum.push(run); }
-  if (!cum.length) return '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">Giving against budget pace</div>'
+  var title = scoped ? 'General Fund giving against budget pace' : 'Giving against budget pace';
+  if (!cum.length) return '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">' + esc(title) + '</div>'
     + '<p style="font-size:.85rem;color:var(--warm-gray);">No giving recorded in ChMS for this year yet.</p></div>';
   var maxCents = Math.max.apply(null, cum.concat([budgetCents || 1]));
   var W = 640, x0 = 46, x1 = 557, yTop = 26, yBot = 176;
@@ -883,11 +914,21 @@ function finRenderGivingPace(d) {
     return '<text x="' + px(i).toFixed(1) + '" y="196">' + MONTH_NAMES[i].slice(0, 3) + '</text>';
   }).join('');
   var behindCents = budgetCents ? (budgetCents * through / 12) - cum[cum.length - 1] : 0;
+  var what = scoped ? 'General Fund offerings' : 'All offerings';
   var sub = budgetCents
-    ? 'Cumulative offerings vs. the straight-line budget line. ' + (behindCents > 0 ? 'Running ' + finMoney0(behindCents) + ' behind.' : 'Running ' + finMoney0(-behindCents) + ' ahead.')
-    : 'Cumulative offerings. No donor-revenue budget is set for this year, so there is no pace line to compare against.';
+    ? what + ' to date vs. the straight-line budget line. ' + (behindCents > 0 ? 'Running ' + finMoney0(behindCents) + ' behind.' : 'Running ' + finMoney0(-behindCents) + ' ahead.')
+    : what + ' to date. ' + (scoped
+      ? 'No budget is on file for the General Fund accounts this year, so there is no pace line to compare against.'
+      : 'No donor-revenue budget is set for this year, so there is no pace line to compare against.');
+  // Naming what was left out matters more than the chart: a reader who knows the plate held more
+  // than this line shows should be able to see why without leaving the page.
+  if (scoped && pace.excludedCents) {
+    sub += ' ' + finMoney0(pace.excludedCents) + ' given to designated and pass-through funds is not counted here.';
+  } else if (!scoped) {
+    sub += ' Every fund is counted — no fund is categorised as the General Fund yet (Settings → Fund categories).';
+  }
   return '<div class="fin-card">'
-    + '<div class="fin-card-title" style="font-size:20px;">Giving against budget pace</div>'
+    + '<div class="fin-card-title" style="font-size:20px;">' + esc(title) + '</div>'
     + '<div class="fin-card-sub">' + sub + '</div>'
     + '<svg viewBox="0 0 ' + W + ' 220" width="100%" height="200" role="img" aria-label="Cumulative giving versus budget pace, '
     + (behindCents > 0 ? 'running behind by ' + finMoney0(behindCents) : 'running at or ahead of pace') + '">'
@@ -899,18 +940,30 @@ function finRenderGivingPace(d) {
     + '<circle cx="' + px(cum.length - 1).toFixed(1) + '" cy="' + py(cum[cum.length - 1]).toFixed(1) + '" r="4.5" fill="var(--color-teal)"></circle>'
     + '<g font-size="10.5" fill="var(--warm-meta)" text-anchor="middle">' + monthLabels + '</g>'
     + '<g font-size="11" font-weight="700">'
-    + '<text x="574" y="' + (py(cum[cum.length - 1]) + 4).toFixed(1) + '" fill="var(--color-teal)">Actual</text>'
-    + (budgetCents ? '<text x="574" y="' + (py(budgetCents * through / 12) - 10).toFixed(1) + '" fill="var(--deep-amber)">Budget</text>' : '')
+    + finPaceEndLabels(py(cum[cum.length - 1]), budgetCents ? py(budgetCents * through / 12) : null)
     + '</g></svg></div>';
 }
 
+// Names which account produced the cash figure, and as of when. A runway is only as good as the
+// balance under it: "3.4 months" off an account the reader did not expect is worse than no number,
+// so the account is stated rather than left to be assumed.
+function finCashSourceNote(c) {
+  if (c.source === 'balance_sheet') {
+    var accts = (c.accounts || []).join(', ');
+    return ' &middot; cash from ' + (accts ? esc(accts) : 'the balance sheet')
+      + (c.asOfDate ? ' as of ' + esc(c.asOfDate) : '');
+  }
+  if (c.source === 'quickbooks') return ' &middot; cash from QuickBooks checking/savings';
+  if (c.source === 'manual') return ' &middot; cash entered by hand';
+  return '';
+}
 // 1.6b — months of operating cash against the congregation's own policy floor.
 function finRenderCashRunway(d) {
   var c = d.cash || {};
   if (!c.available) {
     return '<div class="fin-card">'
       + '<div class="fin-card-title" style="font-size:20px;">Operating cash runway</div>'
-      + '<p style="font-size:.85rem;color:var(--warm-gray);">Not yet available — this needs a cash-on-hand figure (from a QuickBooks sync, or entered on the <b>Data &amp; Imports</b> tab) and at least some expense actuals for the year.</p></div>';
+      + '<p style="font-size:.85rem;color:var(--warm-gray);">Not yet available — this needs a cash-on-hand figure and at least some expense actuals for the year. Cash comes from the imported balance sheet\'s operating account (import one from <b>Data &amp; Imports</b>, and name the account code there under <b>Classification &amp; policy</b>), or from a QuickBooks sync, or typed by hand.</p></div>';
   }
   var months = c.monthsOfCash;
   var below = months < c.policyFloorMonths;
@@ -919,7 +972,7 @@ function finRenderCashRunway(d) {
   return '<div class="fin-card" style="display:flex;flex-direction:column;gap:14px;">'
     + '<div><div class="fin-card-title" style="font-size:20px;">Operating cash runway</div>'
     + '<div class="fin-card-sub" style="margin:0;">' + finMoney0(c.onHandCents) + ' on hand &middot; ' + finMoney0(c.avgMonthlyExpenseCents) + ' average month'
-    + (c.source === 'quickbooks' ? ' &middot; cash from QuickBooks checking/savings' : c.source === 'manual' ? ' &middot; cash entered by hand' : '') + '</div></div>'
+    + finCashSourceNote(c) + '</div></div>'
     + '<div>'
     + '<div style="display:flex;align-items:baseline;gap:8px;"><span style="font-size:38px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;color:' + (below ? 'var(--danger)' : 'var(--sage-text)') + ';">' + months.toFixed(1) + '</span>'
     + '<span style="font-size:14px;font-weight:700;color:var(--warm-ink-label);">months</span></div>'

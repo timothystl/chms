@@ -574,6 +574,40 @@ against `FINANCE_IMPORTERS.length` so a new importer that forgets it fails in CI
 (875/875, 7 new); verified non-vacuous by removing the balance-sheet call (2 fail). **Not
 verified**: a live browser. (`src/frontend/js-finance.js`, `test/finance-monthly-import-ui.test.js`)
 
+### FIN61 — Giving pace = General Fund only; cash runway from the balance sheet (2026-08-07, DONE)
+Reported off the Financial Health page: the giving-pace chart should count only General Fund giving
+(40085 family) since everything else "could be to things like Concordia Children's which is just
+pass through", and the cash runway should read the balance sheet, where **11027 Lindell Checking
+xx9105** is the operating account.
+- **Pace scoped** via `resolveGeneralFundIds()` — **extracted from the giving-board handler into
+  `api-utils.js`, not rewritten**; a second copy of that rule is the bug where two screens quote
+  different "General Fund giving" totals and both look right. The board report now calls it (46
+  tests unchanged). Pass-through giving counted as budget progress showed the operating budget
+  being met by money never available to meet it.
+- **The budget line moved with it.** Was `revenueStreams.streams.donor.budgetCents` (every donor
+  account) — against one fund's giving that is a permanent false shortfall. Now the church-ledger
+  accounts sharing the fund family's numeric code, same source as the board's General Fund card;
+  `null` not `0` when absent, so the card draws no line rather than a wrong one. The card names the
+  excluded designated/pass-through total, and says so when it is still counting every fund because
+  nothing is categorised General yet. Church Report's all-funds giving reference line unchanged.
+- **Cash on hand prefers the imported balance sheet** over the QuickBooks snapshot (a confirmed
+  statement outranks a name match). New `operatingCashFromBalanceSheet()`; account pinned by code in
+  Data & Imports → Classification & policy (`cash_account_code`). Assets rows only (the code match
+  is a prefix — a liability line sharing it would otherwise be counted as cash), rollup rows
+  skipped, and deliberately **no** savings/reserve sweep unlike the QBO path: restricted reserves
+  are not operating cash. Matched account names + statement as-of date print on the card, since an
+  unpinned name match also catches the daycare checking account. Manual figure still overrides.
+- **Label overlap fixed** (visible in the screenshot): "Actual"/"Budget" carry opposite fixed
+  offsets, so they stack when the actual line sits ~14px ABOVE budget — i.e. giving running ahead,
+  the healthy case. Now pushed apart to a minimum gap, each label staying on its own line's side.
+- `npm test` (923/923, 31 new); **every new test verified non-vacuous** (8 injections, 8 correct
+  failures). The route test caught a missing `import` of `resolveGeneralFundIds` that would have
+  been a live 500 on the whole Finance tab; a first label test passed against broken code and was
+  rewritten around the real geometry. **Not verified**: a live browser or real D1.
+  **One step for an admin**: put `11027` in *Operating cash account code*. (`src/api-utils.js`,
+  `src/api-finance.js`, `src/api-reports.js`, `src/frontend/js-finance.js`,
+  `test/finance-giving-pace-cash.test.js`, `test/finance-health.test.js`)
+
 ### FIN60 — Past-year balance sheets + tie-out to the P&L; empty COGS row hidden (2026-08-07, DONE)
 Reported from two screenshots: the Balance Sheet Multi-Year Trend had bars for 2026 only while the
 Church Report table ran back to 2022; asked to upload past years' balance sheets and confirm them
