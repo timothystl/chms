@@ -151,7 +151,10 @@ describe('finComputeRemittableForecast', () => {
   });
 
   it('drops principal AND interest to zero after payoff, with no debt-service add-back', () => {
-    const post = f.rows.filter((r) => r.isPostPayoff);
+    // Given an explicit allowance, so "remittable is strictly below operating" is a real check
+    // rather than trivially true against the zero default.
+    const withCap = fin.finComputeRemittableForecast(d, { years: 10, growthPct: 0.02, capitalAllowanceCents: 1519626, now: '2026-08-07' });
+    const post = withCap.rows.filter((r) => r.isPostPayoff);
     expect(post.length).toBeGreaterThan(0);
     post.forEach((r) => {
       expect(r.principalCents).toBe(0);
@@ -235,5 +238,113 @@ describe('finComputeAvailableForDistribution', () => {
       reserves: {}, capitalLedger: [], meta: { loan: REAL_LOAN },
     };
     expect(fin.finComputeAvailableForDistribution(d, { now: '2040-06-01' }).principalCents).toBe(0);
+  });
+});
+
+// ── Base period (FIN61 follow-up) ────────────────────────────────────────────────────────────
+// The trailing-12 window for this property straddles a weak half-year and a strong one, so the
+// choice of base swings the first projected year by tens of thousands. These pin each option.
+describe('finComputePropertyBaseOptions', () => {
+  // Six months of 2026 at ~$5,639/mo, six months of 2025 at ~$1,528/mo — the real shape.
+  const mk = (year, n, cents) => Array.from({ length: n }, (_, i) => ({
+    period: year + '-' + String(i + 1).padStart(2, '0'), net_income_cents: cents,
+  }));
+  const d = {
+    monthly: [...mk(2025, 12, 303002), ...mk(2026, 6, 563926)],
+    reserves: { property_tax: [{ report_month: '2026-07', target_estimate_cents: 1140000 }] },
+  };
+  const opts = fin.finComputePropertyBaseOptions(d, { now: '2026-08-07' });
+  const byKey = (k) => opts.filter((o) => o.key === k)[0];
+
+  it('offers trailing 12, current year and last full year', () => {
+    expect(opts.map((o) => o.key)).toEqual(['trailing12', 'currentYear', 'lastFullYear']);
+  });
+
+  it('annualizes the current year LESS the property tax that has not been billed yet', () => {
+    // Doubling a tax-free half-year would omit the bill entirely — the mirror image of the
+    // double-count the forecast avoids elsewhere.
+    const cur = byKey('currentYear');
+    expect(cur.taxAdjustmentCents).toBe(1140000);
+    expect(cur.annualCents).toBe(563926 * 12 - 1140000);
+    expect(cur.caveat).toMatch(/not been billed yet/);
+  });
+
+  it('does not subtract the tax once the window already reaches November', () => {
+    const late = { ...d, monthly: [...mk(2025, 12, 303002), ...mk(2026, 11, 563926)] };
+    expect(fin.finComputePropertyBaseOptions(late, { now: '2026-12-01' }).filter((o) => o.key === 'currentYear')[0].taxAdjustmentCents).toBe(0);
+  });
+
+  it('uses the last full calendar year untouched, and omits it when incomplete', () => {
+    expect(byKey('lastFullYear').annualCents).toBe(303002 * 12);
+    const short = { monthly: mk(2026, 6, 563926) };
+    expect(fin.finComputePropertyBaseOptions(short, { now: '2026-08-07' }).map((o) => o.key)).not.toContain('lastFullYear');
+  });
+
+  it('every option carries its own caveat', () => {
+    opts.forEach((o) => expect(typeof o.caveat === 'string' && o.caveat.length > 20).toBe(true));
+  });
+});
+
+describe('capital allowance defaults and date robustness', () => {
+  const d = {
+    monthly: Array.from({ length: 12 }, (_, i) => ({ period: '2025-' + String(i + 1).padStart(2, '0'), net_income_cents: 358365 })),
+    capitalLedger: [{ entry_date: '2024-10-07', amount_cents: 1200000 }, { entry_date: '2026-04-08', amount_cents: 1206075 }],
+    meta: { loan: REAL_LOAN },
+  };
+
+  it('defaults the forecast allowance to ZERO, not the ledger average', () => {
+    // Every ledger entry is a finished one-off, so averaging them bills completed work forever.
+    const f = fin.finComputeRemittableForecast(d, { years: 1, now: '2026-08-07' });
+    expect(f.rows[0].capitalCents).toBe(0);
+    // The historical figure is still computed and reported, for display beside the input.
+    expect(f.capital.cents).toBeGreaterThan(0);
+  });
+
+  it('still honours an explicit allowance', () => {
+    expect(fin.finComputeRemittableForecast(d, { years: 1, capitalAllowanceCents: 1519626, now: '2026-08-07' }).rows[0].capitalCents).toBe(1519626);
+  });
+
+  it('never returns NaN for the loose date formats the API accepts', () => {
+    // POST validates /^\d{4}(-\d{2}(-\d{2})?)?$/, so a bare YYYY is storable — it used to make
+    // the month arithmetic NaN and render "$NaN" as the remittable figure.
+    [
+      [{ entry_date: '2024', amount_cents: 100000 }, { entry_date: '2025-06', amount_cents: 100000 }],
+      [{ entry_date: '2024', amount_cents: 100000 }],
+      [{ entry_date: '2024-01-01', amount_cents: 100000 }, { entry_date: '2024-01', amount_cents: 100000 }],
+    ].forEach((capitalLedger) => {
+      const c = fin.finComputePropertyCapitalAllowanceCents({ capitalLedger });
+      expect(Number.isFinite(c.cents)).toBe(true);
+      expect(Number.isNaN(c.cents)).toBe(false);
+    });
+  });
+
+  it('reports an empty ledger as empty rather than as a zero average', () => {
+    const c = fin.finComputePropertyCapitalAllowanceCents({ capitalLedger: [{ entry_date: '', amount_cents: 988700 }] });
+    expect(c.entries).toBe(0);
+    expect(c.cents).toBe(0);
+  });
+});
+
+describe('base period drives the forecast', () => {
+  const d = {
+    monthly: Array.from({ length: 12 }, (_, i) => ({ period: '2025-' + String(i + 1).padStart(2, '0'), net_income_cents: 358365 })),
+    capitalLedger: [],
+    meta: { loan: REAL_LOAN },
+  };
+
+  it('a higher base produces a higher remittable figure, principal unchanged', () => {
+    const low = fin.finComputeRemittableForecast(d, { years: 1, baseAnnualCents: 4300375, now: '2026-08-07' });
+    const high = fin.finComputeRemittableForecast(d, { years: 1, baseAnnualCents: 5627110, now: '2026-08-07' });
+    expect(high.rows[0].remittableCents).toBeGreaterThan(low.rows[0].remittableCents);
+    expect(high.rows[0].principalCents).toBe(low.rows[0].principalCents);
+    // The gap is the base difference grown by the rate. Compared with a tolerance because the
+    // model rounds (base + embedded interest) once, not each term separately.
+    expect(high.rows[0].remittableCents - low.rows[0].remittableCents)
+      .toBeCloseTo((5627110 - 4300375) * 1.02, -1);
+  });
+
+  it('falls back to the trailing-12 base when none is supplied', () => {
+    expect(fin.finComputeRemittableForecast(d, { years: 1, now: '2026-08-07' }).baseAnnualCents)
+      .toBe(fin.finComputePropertyTrailingNetIncome(d).annualCents);
   });
 });

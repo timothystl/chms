@@ -2222,10 +2222,22 @@ export function computePropertyAnnualSummary(monthlyRows, distributionRows, annu
   for (const r of monthlyRows) {
     const year = parseInt(String(r.period || '').slice(0, 4), 10);
     if (!Number.isFinite(year)) continue;
-    if (!byYear[year]) byYear[year] = { year, total_revenue_cents: 0, total_expenses_cents: 0, net_income_cents: 0, occ_sum: 0, occ_count: 0, confirmed_distributions_cents: 0, notes: annualNotes?.[year] || '' };
+    if (!byYear[year]) byYear[year] = { year, total_revenue_cents: 0, total_expenses_cents: 0, net_income_cents: 0, occ_sum: 0, occ_count: 0, confirmed_distributions_cents: 0, expense_months_derived: 0, notes: annualNotes?.[year] || '' };
     const y = byYear[year];
     if (Number.isFinite(r.total_revenue_cents)) y.total_revenue_cents += r.total_revenue_cents;
-    if (Number.isFinite(r.total_expenses_cents)) y.total_expenses_cents += r.total_expenses_cents;
+    // Several months (every 2026 row in the MRI report format bar two) report net income WITHOUT
+    // breaking out an expenses line. Accumulating each column behind its own guard let revenue and
+    // net income count all those months while expenses counted none — so a card printing
+    // "revenue - expenses - reserves" could not reach its own net-income-derived total, and
+    // silently understated expenses by $16,568.60 for 2026. Derive the missing months instead:
+    // this dataset's own convention is revenue - expenses = net income, so the subtraction is
+    // exact, not an estimate, and revenue - expenses now reconciles to net income identically.
+    if (Number.isFinite(r.total_expenses_cents)) {
+      y.total_expenses_cents += r.total_expenses_cents;
+    } else if (Number.isFinite(r.total_revenue_cents) && Number.isFinite(r.net_income_cents)) {
+      y.total_expenses_cents += (r.total_revenue_cents - r.net_income_cents);
+      y.expense_months_derived++;
+    }
     if (Number.isFinite(r.net_income_cents)) y.net_income_cents += r.net_income_cents;
     if (Number.isFinite(r.occupancy_pct)) { y.occ_sum += r.occupancy_pct; y.occ_count++; }
   }
@@ -2241,6 +2253,9 @@ export function computePropertyAnnualSummary(monthlyRows, distributionRows, annu
       net_income_cents: y.net_income_cents,
       avg_occupancy_pct: y.occ_count ? y.occ_sum / y.occ_count : null,
       confirmed_distributions_cents: y.confirmed_distributions_cents,
+      // How many months' expenses were reconstructed above, so the UI can say so rather than
+      // present a derived figure as one the property manager actually reported.
+      expense_months_derived: y.expense_months_derived,
       notes: y.notes,
     }))
     .sort((a, b) => a.year - b.year);
