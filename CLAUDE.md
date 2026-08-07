@@ -452,8 +452,14 @@ deliberate `earned` default. The tests passed because their fixtures used `'40 O
   persisted across imports — it was only useless because the editor had one bogus row to map.
   `computeRevenueStreams()` now returns `map`, and `finReorganizeChurchTree()` groups the Church
   Report's tree from it instead of its hardcoded regexes (falling back to them verbatim when no map
-  is loaded, so the four tests pinning that behaviour pass unchanged). **Removes FIN14's stated
-  inconsistency**: "Sales" was dropped from the tree while its dollars counted in Total Revenue.
+  is loaded, so the four tests pinning that behaviour pass unchanged).
+- **v1.149.1 — the "Sales" special-casing is gone.** Asked where "Sales" came from; this church
+  has no such account. Traced to FIN14 (2026-07-20), which hid any account named exactly "Sales"
+  from the Church Report tree while the Total Revenue card kept counting it — a known limitation
+  recorded at the time. Removed the hide rule, the now-unused `finRemoveNodesByLabel()`, and
+  `sales` from the earned regex (a no-op: an unmatched group already defaults to `earned`). The
+  tree now hides nothing and so cannot disagree with the total. **If a "Sales" row ever shows up
+  in the classification editor, it is real data, not this rule.**
 - **Import dates read `never` because nothing backfills the log.** `finance_import_log`
   (migration 0034) shipped a day earlier and only records runs after it. **No re-import needed** —
   the data is still there. New `deriveImportDates()` reads a date off the imported rows'
