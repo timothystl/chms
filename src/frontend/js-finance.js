@@ -7875,6 +7875,65 @@ function finCompRenderRates() {
     + '</div>';
 }
 
+// What the one "Benefits & taxes" figure is actually made of. Pure — no DOM. The four components
+// are exactly the ones finCompBenefits sums, so the parts always reconcile to the tile above them;
+// a breakdown that doesn't add up to the total on the same screen is worse than none. Counts come
+// with each line because the interesting question at a council meeting is usually "how many people
+// is that covering", and because a $0 line reads as an error unless it says nobody is on it.
+function finCompBenefitBreakdown(computed) {
+  function sum(pick) { return computed.reduce(function(t, c) { return t + pick(c.benefits); }, 0); }
+  function count(test) { return computed.reduce(function(t, c, i) { return t + (test(c.benefits, _finSalaryRoster[i]) ? 1 : 0); }, 0); }
+  var rows = [
+    { key: 'pension', label: 'Pension &mdash; Concordia Retirement Plan',
+      note: finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate) + ' of cash salary',
+      cents: sum(function(b) { return b.pensionCents; }),
+      people: count(function(b) { return b.pensionCents > 0; }) },
+    { key: 'health', label: 'Health plan',
+      note: 'group premium, opt-out cash and hand-entered employee-only premiums combined',
+      cents: sum(function(b) { return b.healthCents; }),
+      people: count(function(b) { return b.healthCents > 0; }) },
+    { key: 'disability', label: 'Disability &amp; survivor',
+      note: finCompPctFmt(finCompDisabilityRate(_finPlanTargetYear, false).rate) + ' of cash salary, '
+        + finCompPctFmt(finCompDisabilityRate(_finPlanTargetYear, true).rate) + ' with dependents',
+      cents: sum(function(b) { return b.disabilityCents; }),
+      people: count(function(b) { return b.disabilityCents > 0; }) },
+    { key: 'fica', label: 'Employer FICA',
+      note: finCompPctFmt(finCompFicaRate()) + ' of cash salary; a minister pays their own SECA instead',
+      cents: sum(function(b) { return b.ficaCents; }),
+      people: count(function(b) { return b.ficaCents > 0; }) }
+  ];
+  return {
+    rows: rows,
+    totalCents: rows.reduce(function(t, r) { return t + r.cents; }, 0),
+    // Not a church cost and in no total — carried so the page can say so rather than leave a
+    // reader wondering why the ministers' FICA line looks short.
+    secaSelfCents: computed.reduce(function(t, c, i) {
+      return t + (_finSalaryRoster[i].selfEmployedFica ? c.benefits.secaSelfCents : 0);
+    }, 0)
+  };
+}
+function finCompRenderBenefitBreakdown(computed, totals) {
+  var bd = finCompBenefitBreakdown(computed);
+  var rows = bd.rows.map(function(r) {
+    var share = bd.totalCents ? Math.round(r.cents / bd.totalCents * 100) : 0;
+    return '<tr class="fin-comp-row"><td class="fin-comp-td"><div style="font-weight:700;">' + r.label + '</div>'
+      + '<div style="font-size:.74rem;color:var(--warm-gray);">' + r.note + '</div></td>'
+      + '<td class="fin-comp-td num" style="color:var(--warm-gray);">' + r.people + ' of ' + _finSalaryRoster.length + '</td>'
+      + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoney(r.cents) + '</td>'
+      + '<td class="fin-comp-td num" style="color:var(--warm-gray);">' + share + '%</td></tr>';
+  }).join('');
+  return '<div style="margin-top:22px;">'
+    + '<div style="font-weight:700;font-size:1rem;color:var(--color-navy);margin-bottom:2px;">What makes up ' + finCompMoney(totals.benefitsCents) + ' of benefits &amp; taxes</div>'
+    + '<div style="font-size:.74rem;color:var(--warm-gray);margin-bottom:8px;">Every employer cost on top of cash salary, across all ' + _finSalaryRoster.length + ' worker' + (_finSalaryRoster.length === 1 ? '' : 's') + '. These four lines are the whole of it &mdash; they add to the Benefits &amp; taxes figure above.</div>'
+    + '<div style="overflow-x:auto;"><table class="fin-comp-table" style="min-width:620px;font-size:.86rem;">'
+    + '<thead><tr><th class="fin-comp-th">Cost</th><th class="fin-comp-th num">Workers</th><th class="fin-comp-th num">FY' + _finPlanTargetYear + '</th><th class="fin-comp-th num">Share</th></tr></thead>'
+    + '<tbody>' + rows
+    + '<tr class="fin-comp-total-row"><td class="fin-comp-td">Total benefits &amp; taxes</td><td class="fin-comp-td"></td>'
+    + '<td class="fin-comp-td num">' + finCompMoney(bd.totalCents) + '</td><td class="fin-comp-td num">100%</td></tr>'
+    + '</tbody></table></div>'
+    + (bd.secaSelfCents ? '<div style="font-size:.74rem;color:var(--warm-gray);margin-top:6px;">Ministers pay the employer half of Social Security themselves &mdash; ' + finCompMoney(bd.secaSelfCents) + ' at these salaries. That is their cost, not the church&#39;s, and is in no figure above.</div>' : '')
+    + '</div>';
+}
 // ── View 5 — Council summary ───────────────────────────────────────────────────────────────
 function finCompCouncilRows(computed) {
   return _finSalaryRoster.map(function(w, i) {
@@ -7928,6 +7987,7 @@ function finCompRenderCouncil(computed, totals) {
     + '<td class="fin-comp-td" style="font-size:.78rem;font-weight:600;color:' + medTotal.color + ';" title="LCMS market median ' + finCompMoney(medTotal.medCents) + '">' + medTotal.text + '</td>'
     + '<td class="fin-comp-td num">' + finCompMoney(totals.totalCents) + '</td></tr>'
     + '</tbody></table></div>'
+    + finCompRenderBenefitBreakdown(computed, totals)
     + '<div style="font-size:.78rem;color:var(--warm-gray);border-top:1px solid var(--warm-row-divider);padding-top:14px;margin-top:14px;">Built on '
     + esc(finCompSourceDoc('districtSource')) + ' &middot; ' + esc(finCompSourceDoc('concordiaSource')) + ' &middot; ' + esc(finCompSourceDoc('quoteSource')) + '</div>'
     + '</div>';
@@ -8248,7 +8308,22 @@ function finCompCouncilReportHtml(computed, totals) {
     + '<tr class="tot"><td>Total</td><td class="n">' + finCompMoney(totals.currentCents) + '</td><td class="n">' + finCompMoney(totals.salaryCents) + '</td>'
     + '<td class="n">' + finCompMoneySigned(totals.salaryCents - totals.currentCents) + '</td><td class="n">&mdash;</td>'
     + '<td class="n">' + finCompMoney(totals.worksheetCents) + '</td><td class="n">' + (scaleRatio == null ? '&mdash;' : scaleRatio + '%') + '</td>'
-    + '<td class="n">' + finCompMoney(totals.totalCents) + '</td></tr></tbody></table>';
+    + '<td class="n">' + finCompMoney(totals.totalCents) + '</td></tr></tbody></table>'
+    // Same four-line breakdown the Council summary screen shows under its table, so the printed
+    // page and the screen answer "what is the benefits figure made of" identically.
+    + '<h2 class="fin-comp-rpt-h2">What makes up ' + finCompMoney(totals.benefitsCents) + ' of benefits &amp; taxes</h2>'
+    + '<table class="fin-comp-rpt-table kt"><thead><tr><th>Cost</th><th class="n">Workers</th><th class="n">FY' + _finPlanTargetYear + '</th><th class="n">Share</th></tr></thead><tbody>'
+    + (function() {
+        var bd = finCompBenefitBreakdown(computed);
+        return bd.rows.map(function(r) {
+          return '<tr><td>' + r.label + '<br><span class="mut">' + r.note + '</span></td>'
+            + '<td class="n mut">' + r.people + ' of ' + _finSalaryRoster.length + '</td>'
+            + '<td class="n b">' + finCompMoney(r.cents) + '</td>'
+            + '<td class="n mut">' + (bd.totalCents ? Math.round(r.cents / bd.totalCents * 100) : 0) + '%</td></tr>';
+        }).join('')
+        + '<tr class="tot"><td>Total benefits &amp; taxes</td><td class="n"></td><td class="n">' + finCompMoney(bd.totalCents) + '</td><td class="n">100%</td></tr>';
+      })()
+    + '</tbody></table>';
   // Part 2 — worker by worker
   var workerPages = _finSalaryRoster.map(function(w, i) {
     var c = computed[i], b = c.benefits;

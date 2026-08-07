@@ -560,3 +560,57 @@ describe('current pay entered by hand', () => {
     expect(html).toContain('finCompClearCurrentPay(1)');
   });
 });
+
+// Requested: a section under the Council summary table breaking out what the single "Benefits &
+// taxes" number is made of. The invariant that matters is reconciliation — a breakdown that does
+// not add up to the total printed directly above it is worse than no breakdown at all.
+describe('Council summary — benefits & taxes breakdown', () => {
+  it('reconciles exactly to the Benefits & taxes total', () => {
+    const computed = ctx.finCompComputeAll();
+    const totals = ctx.finCompTotals(computed);
+    const bd = ctx.finCompBenefitBreakdown(computed);
+    expect(bd.totalCents).toBe(totals.benefitsCents);
+    expect(bd.rows.reduce((t, r) => t + r.cents, 0)).toBe(totals.benefitsCents);
+  });
+
+  it('covers every component finCompBenefits sums, so nothing can go unlisted', () => {
+    const computed = ctx.finCompComputeAll();
+    const bd = ctx.finCompBenefitBreakdown(computed);
+    expect(bd.rows.map(r => r.key)).toEqual(['pension', 'health', 'disability', 'fica']);
+    ['pensionCents', 'healthCents', 'disabilityCents', 'ficaCents'].forEach((f, i) => {
+      expect(bd.rows[i].cents).toBe(computed.reduce((t, c) => t + c.benefits[f], 0));
+    });
+  });
+
+  it('counts how many workers each cost actually covers', () => {
+    const computed = ctx.finCompComputeAll();
+    const bd = ctx.finCompBenefitBreakdown(computed);
+    const fica = bd.rows.filter(r => r.key === 'fica')[0];
+    // The seeded roster has two ministers (SECA) and one regular employee.
+    expect(fica.people).toBe(computed.filter(c => c.benefits.ficaCents > 0).length);
+    expect(fica.people).toBeLessThan(ctx._finSalaryRoster.length);
+  });
+
+  it('carries the ministers self-paid SECA separately, in no total', () => {
+    const computed = ctx.finCompComputeAll();
+    const bd = ctx.finCompBenefitBreakdown(computed);
+    expect(bd.secaSelfCents).toBeGreaterThan(0);
+    expect(bd.totalCents).not.toBe(bd.totalCents + bd.secaSelfCents);
+    // It must not be hiding inside the employer FICA line.
+    expect(bd.rows.filter(r => r.key === 'fica')[0].cents)
+      .toBe(computed.reduce((t, c) => t + c.benefits.ficaCents, 0));
+  });
+
+  it('renders under the table on the Council summary, and the printed report agrees', () => {
+    const html = render(ctx, 'council');
+    const computed = ctx.finCompComputeAll();
+    const totals = ctx.finCompTotals(computed);
+    const bd = ctx.finCompBenefitBreakdown(computed);
+    expect(html).toContain('of benefits &amp; taxes');
+    expect(html.indexOf('Vs. LCMS median')).toBeLessThan(html.indexOf('of benefits &amp; taxes'));
+    bd.rows.forEach(r => expect(html).toContain(ctx.finCompMoney(r.cents)));
+    const report = ctx.finCompCouncilReportHtml(computed, totals);
+    expect(report).toContain('of benefits &amp; taxes');
+    bd.rows.forEach(r => expect(report).toContain(ctx.finCompMoney(r.cents)));
+  });
+});
