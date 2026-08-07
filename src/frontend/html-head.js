@@ -817,6 +817,28 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-stream-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px;align-items:start;}
 .fin-stream-val{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;margin-top:4px;}
 .fin-stream-sub{font-size:12px;color:var(--warm-gray);margin-top:3px;}
+/* "How the money moves" — Sankey / Share toggle. Which view shows is driven by a class on the
+   card, not by JS display juggling, so a window resize can flip to the Share view without any
+   listener: below the phone tier the Sankey's labels cannot be laid out honestly, so the media
+   query at the bottom of this block forces Share and hides the toggle. */
+.fin-flow-card .fin-flow-sankey,.fin-flow-card .fin-flow-share{display:none;}
+.fin-flow-card.view-flow .fin-flow-sankey{display:block;}
+.fin-flow-card.view-share .fin-flow-share{display:grid;}
+.fin-flow-toggle{display:flex;gap:3px;background:var(--warm-surface-header);border-radius:10px;padding:3px;}
+.fin-flow-toggle-btn{padding:6px 14px;border:none;border-radius:8px;background:none;font-family:var(--font-body);font-size:12.5px;font-weight:700;color:var(--warm-meta);cursor:pointer;}
+.fin-flow-toggle-btn.active{background:var(--white);color:var(--color-navy);box-shadow:0 1px 3px rgba(20,20,40,.12);}
+.fin-flow-share{grid-template-columns:1fr 1fr;gap:20px;}
+.fin-donut-panel{border:1px solid var(--warm-row-divider);border-radius:16px;padding:18px 20px;}
+.fin-donut-body{display:flex;align-items:center;gap:20px;margin-top:10px;}
+.fin-donut-legend{flex:1;min-width:0;}
+.fin-donut-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--warm-divider);}
+.fin-donut-key{display:flex;align-items:center;gap:9px;font-size:12.5px;font-weight:600;color:var(--warm-ink-label);min-width:0;}
+.fin-donut-swatch{width:9px;height:9px;border-radius:3px;flex-shrink:0;}
+.fin-donut-vals{display:flex;align-items:baseline;gap:10px;white-space:nowrap;}
+.fin-donut-vals b{font-size:13px;font-weight:700;color:var(--charcoal);font-variant-numeric:tabular-nums;}
+.fin-donut-pct{font-size:11.5px;font-weight:700;color:var(--warm-gray);font-variant-numeric:tabular-nums;width:34px;text-align:right;}
+/* Visually hidden but reachable by a screen reader and by Ctrl-F — the figures behind the chart. */
+.fin-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
 .fin-flow{overflow-x:auto;}
 .fin-entity-card{display:flex;flex-direction:column;gap:10px;border-top:4px solid var(--sage);border-radius:18px;padding:18px 20px;}
 .fin-entity-val{font-size:27px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;}
@@ -874,8 +896,18 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .fin-grid-4{grid-template-columns:1fr 1fr;}
   .fin-room-grid{font-size:11.5px;}
 }
+@media(max-width:900px){
+  .fin-flow-share{grid-template-columns:1fr;}
+}
 @media(max-width:767px){
   .fin-grid-2,.fin-grid-2-wide,.fin-grid-3,.fin-grid-4,.fin-stream-grid,.fin-grid-hero,.fin-grid-charts,.fin-grid-pace,.fin-grid-mix,.fin-appeal-grid,.fin-ratio-strip,.fin-plan-strip,.fin-hero-split{grid-template-columns:1fr;}
+  /* Below the phone tier the Sankey's four columns of labels cannot be laid out without
+     colliding, so Share is served instead — and the toggle hidden, since there is nothing to
+     toggle to. Doing this in CSS rather than JS means a resize is handled with no listener. */
+  .fin-flow-card .fin-flow-sankey{display:none !important;}
+  .fin-flow-card .fin-flow-share{display:grid !important;}
+  .fin-flow-toggle{display:none;}
+  .fin-donut-body{flex-direction:column;align-items:stretch;}
   .fin-page-title{font-size:23px;}
   .fin-hero-val{font-size:34px;}
   .fin-stream-bar{height:auto;flex-direction:column;border-radius:10px;}
@@ -883,6 +915,12 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .fin-ladder-row{grid-template-columns:80px 1fr 84px;gap:8px;}
   .fin-room-grid{grid-template-columns:1.2fr 1fr 1fr .9fr;font-size:11px;}
   .fin-room-grid > :nth-child(5n){display:none;}
+}
+@media print{
+  /* The board packet wants the Sankey — it is the artifact people mark up in the meeting — and
+     the donuts alongside it rather than instead of it. */
+  .fin-flow-card .fin-flow-sankey,.fin-flow-card .fin-flow-share{display:block !important;}
+  .fin-flow-toggle{display:none !important;}
 }
 /* ── Compensation Planner (2026-08 handoff): a persistent header + navy totals strip + five
    views behind one pill sub-nav. Every colour below is an existing brand token — the handoff's

@@ -328,13 +328,20 @@ function finRenderDataImports() {
   finRenderAccounts(_finOverview);
   finRenderDaycare();
   if (_finProperty) finRenderPropertyAdminTools(_finProperty);
-  if (!_finImportStatus) {
-    api('/admin/api/finance/import-status').then(function(d) {
-      _finImportStatus = d && d.importers ? d.importers : [];
-      var card = document.getElementById('fin-imports-card');
-      if (card) card.innerHTML = finRenderImportsCard();
-    }).catch(function() { /* staleness is a nicety; the importers themselves still work */ });
-  }
+  finRefreshImportStatus();
+}
+// Always refetches — deliberately NOT cached for the life of the page. This card's entire purpose
+// is showing which feeds have gone stale, so a value fetched once at first render keeps reading
+// "never" for the rest of the session even after an import has just written its log row. (Every
+// importer would otherwise have to remember to invalidate this, which none of the ten did.)
+// _finImportStatus is still kept so a revisit paints the previous answer immediately rather than
+// flashing empty, then gets replaced by the fresh one.
+function finRefreshImportStatus() {
+  return api('/admin/api/finance/import-status').then(function(d) {
+    _finImportStatus = d && d.importers ? d.importers : [];
+    var card = document.getElementById('fin-imports-card');
+    if (card) card.innerHTML = finRenderImportsCard();
+  }).catch(function() { /* staleness is a nicety; the importers themselves still work */ });
 }
 // Each importer row names when it last ran. "never" in danger red is the point of the tab: a feed
 // that has gone stale is visible here without opening the report it feeds.
@@ -484,6 +491,7 @@ function finRenderClassificationCard() {
   return '<div class="fin-card-title" style="font-size:20px;">Classification &amp; policy</div>'
     + '<div class="fin-card-sub">What the Financial Health page assumes about your chart of accounts and your reserve policy.</div>'
     + '<div id="fin-stream-editor"><button class="btn-secondary" onclick="finLoadStreamEditor()">Review revenue-stream classification</button></div>'
+    + '<div id="fin-expense-map" style="margin-top:14px;"><button class="btn-secondary" onclick="finLoadExpenseMapEditor()">Review expense-category mapping</button></div>'
     + '<div id="fin-cash-policy" style="margin-top:14px;"><button class="btn-secondary" onclick="finLoadCashPolicy()">Edit cash reserve policy</button></div>';
 }
 function finLoadStreamEditor() {
@@ -543,23 +551,81 @@ function finSaveStreamClassification(count) {
       finLoadHealth(true);
     }).catch(function(err) { finToast(err && err.message || 'Save failed.'); });
 }
+// The five board-facing expense categories are the board's vocabulary, not the chart of accounts,
+// so which GL group lands in which is a judgement an admin makes here. Doubles as the
+// unmapped-account validation report the flow-diagram handoff asks for: any group still resolved
+// by name carries a "guessed" chip.
+var _finExpenseMapData = null;
+function finLoadExpenseMapEditor() {
+  var el = document.getElementById('fin-expense-map');
+  if (!el) return;
+  el.innerHTML = '<div style="font-size:.8rem;color:var(--warm-gray);">Loading…</div>';
+  api('/admin/api/finance/flow-expense-map?year=' + new Date().getFullYear()).then(function(d) {
+    _finExpenseMapData = d;
+    finRenderExpenseMapEditor();
+  }).catch(function() { el.innerHTML = finCardError('the expense-category mapping'); });
+}
+function finRenderExpenseMapEditor() {
+  var el = document.getElementById('fin-expense-map');
+  if (!el || !_finExpenseMapData) return;
+  var d = _finExpenseMapData;
+  var rows = (d.groups || []).map(function(g, i) {
+    return '<tr><td style="padding:5px 8px;">' + esc(g.label)
+      + (g.mapped ? '' : ' <span class="fin-chip fin-chip-warn" style="font-size:.68rem;">guessed</span>') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;">' + finMoney0(g.cents) + '</td>'
+      + '<td style="padding:5px 8px;"><select class="fin-domain-select" id="fin-expmap-sel-' + i + '" data-label="' + esc(g.label) + '">'
+      + (d.categories || []).map(function(c) {
+          return '<option value="' + c.key + '"' + (c.key === g.key ? ' selected' : '') + '>' + esc(c.label) + '</option>';
+        }).join('')
+      + '</select></td></tr>';
+  }).join('');
+  var guessed = (d.groups || []).filter(function(g) { return !g.mapped; }).length;
+  el.innerHTML = '<div class="fin-eyebrow">Expense-category mapping (FY' + d.year + ')</div>'
+    + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">Which of the board&rsquo;s five categories each expense group belongs to, as drawn on the money-flow chart. '
+    + (guessed ? '<b>' + guessed + '</b> group' + (guessed === 1 ? ' is' : 's are') + ' still classified by name and unconfirmed.' : 'Every group has been confirmed.') + '</p>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:.82rem;"><tbody>'
+    + (rows || '<tr><td style="padding:8px;color:var(--warm-gray);">No expense accounts for this year yet.</td></tr>')
+    + '</tbody></table>'
+    + (rows ? '<button class="btn-primary" style="margin-top:10px;" onclick="finSaveExpenseMap(' + (d.groups || []).length + ')">Save mapping</button>' : '');
+}
+function finSaveExpenseMap(count) {
+  var map = {};
+  for (var i = 0; i < count; i++) {
+    var sel = document.getElementById('fin-expmap-sel-' + i);
+    if (sel) map[sel.getAttribute('data-label')] = sel.value;
+  }
+  api('/admin/api/finance/flow-expense-map', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ map: map }) })
+    .then(function(d) {
+      if (d && d.error) { finToast(d.error); return; }
+      finToast('Expense-category mapping saved.');
+      _finExpenseMapData = null;
+      finLoadExpenseMapEditor();
+      finLoadHealth(true);
+    }).catch(function(err) { finToast(err && err.message || 'Save failed.'); });
+}
 function finLoadCashPolicy() {
   var el = document.getElementById('fin-cash-policy');
   if (!el) return;
   el.innerHTML = '<div style="font-size:.8rem;color:var(--warm-gray);">Loading…</div>';
   api('/admin/api/finance/cash-policy').then(function(d) {
     el.innerHTML = '<div class="fin-eyebrow">Cash reserve policy</div>'
-      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">The runway card measures months of operating cash against this floor. Leave cash on hand blank to use the QuickBooks checking/savings balances — set it only when that name-matching picks up the wrong accounts.</p>'
+      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">The runway card measures months of operating cash against this floor. Cash on hand is read from the imported balance sheet — name the operating account by its code (this church\'s is <b>11027</b> Lindell Checking) so it can\'t pick up the wrong one. Leave the code blank and it matches any asset account named "checking"; type a figure in <i>Cash on hand</i> only to override the balance sheet entirely.</p>'
       + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
       + '<label style="font-size:.75rem;color:var(--warm-gray);">Policy floor (months)<br><input type="number" id="fin-cash-floor" step="0.5" value="' + (d.policy_floor_months != null ? d.policy_floor_months : 3) + '" style="width:100px;"></label>'
-      + '<label style="font-size:.75rem;color:var(--warm-gray);">Cash on hand ($, optional)<br><input type="number" id="fin-cash-onhand" step="0.01" value="' + (d.cash_on_hand_cents != null ? (d.cash_on_hand_cents / 100) : '') + '" style="width:140px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Operating cash account code<br><input type="text" id="fin-cash-acct" placeholder="11027" value="' + esc(d.cash_account_code || '') + '" style="width:120px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Cash on hand ($, overrides)<br><input type="number" id="fin-cash-onhand" step="0.01" value="' + (d.cash_on_hand_cents != null ? (d.cash_on_hand_cents / 100) : '') + '" style="width:140px;"></label>'
       + '<button class="btn-primary" onclick="finSaveCashPolicy()">Save policy</button></div>';
   }).catch(function() { el.innerHTML = finCardError('the cash policy'); });
 }
 function finSaveCashPolicy() {
   var months = Number(document.getElementById('fin-cash-floor').value);
   var onHandRaw = document.getElementById('fin-cash-onhand').value;
-  var body = { policy_floor_months: months, cash_on_hand_cents: onHandRaw === '' ? null : Math.round(Number(onHandRaw) * 100) };
+  var acctEl = document.getElementById('fin-cash-acct');
+  var body = {
+    policy_floor_months: months,
+    cash_on_hand_cents: onHandRaw === '' ? null : Math.round(Number(onHandRaw) * 100),
+    cash_account_code: acctEl ? acctEl.value.trim() : '',
+  };
   api('/admin/api/finance/cash-policy', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) })
     .then(function(d) {
       if (d && d.error) { finToast(d.error); return; }
@@ -614,7 +680,7 @@ function finRenderRevenueMix(streams, totalCents) {
   };
   var segs = '', band = '', narrow = [];
   REVENUE_STREAM_KEYS.forEach(function(s) {
-    var cents = streams[s].cents;
+    var cents = (streams[s] || { cents: 0 }).cents;
     var pct = cents / totalCents * 100;
     // A stream with no money contributes no segment at all — four streams means an empty one is
     // now normal (a church with no restricted accounts), and a zero-width segment would still
@@ -710,76 +776,348 @@ function finRenderStreamCards(d) {
   return '<div class="fin-stream-grid fin-grid-start">' + donorCard + earnedCard + passiveCard + restrictedCard + '</div>';
 }
 
-// 1.4 — the flow diagram. Ribbon thickness is recomputed from the real figures every render
-// (px = cents / totalCents * 300); the reference geometry in the design handoff is only a shape.
-function finRenderFlow(d) {
-  var rs = d.revenueStreams || { streams: {}, totalCents: 0 };
-  var totalIn = rs.totalCents || 0;
-  var flow = d.flow || { churchOutCents: 0, mdoOutCents: 0, totalOutCents: 0 };
-  if (!totalIn) return '';
-  var H = 300, top = 50;
-  var order = REVENUE_STREAM_KEYS;
-  var y = top, inbound = '', labels = '';
-  var labelAnchors = {
-    donor: 'The only stream we set', earned: 'Reported to the board, not managed by it',
-    passive: 'A timing decision, not new money', restricted: 'Given for a purpose we cannot change',
+// ── 1.4 "How the money moves" ───────────────────────────────────────────────────────────────
+// Two views behind one toggle: a four-column Sankey (Sources -> Streams -> All revenue -> Where
+// it goes) and a two-donut Share view. The server sends amounts only; every coordinate below is
+// derived here.
+//
+// The whole point of this block is that NOTHING OVERLAPS. The handoff authors the geometry
+// against one specific year's figures, where the nodes happen to be tall enough that its fixed
+// gaps are sufficient. Real data is not that obliging: a church with twenty small revenue lines,
+// or one line dwarfing the rest, would stack labels straight through each other. So the layout
+// computes each label's real vertical extent and pushes the next node down until the two cannot
+// touch — the authored gaps are a FLOOR, never a ceiling. With the handoff's own reference
+// figures the authored gaps are always the larger of the two, so the reference rendering is
+// reproduced exactly; with anything else the constraint quietly takes over.
+var FIN_FLOW_COLORS = {
+  donor: '#2E7EA6', earned: '#C9973A', passive: '#6B8F71',
+  total: '#1E2D4A',
+  restricted: '#7FB4CC',
+  sourceTint: {
+    donor: ['#2E7EA6', '#4E97BC'], earned: ['#C9973A', '#E0BE7C', '#EFD9A8'],
+    passive: ['#6B8F71', '#A9C6AC'], restricted: ['#7FB4CC', '#A9CCDD'],
+  },
+  // Expenses deliberately use one navy ramp: five more hues would compete with the revenue side
+  // and imply the categories are unrelated things rather than slices of one budget.
+  expense: ['#1E2D4A', '#3E5379', '#6B7FA3', '#9FAEC7', '#C9D3E2'],
+};
+var FIN_FLOW_STREAM_NOTE = {
+  donor: 'the only stream we set', earned: 'reported to us, not set by us',
+  passive: 'timing decision only', restricted: 'given for a purpose we cannot change',
+};
+var FIN_FLOW_STREAM_LABEL = {
+  donor: 'Donor revenue', earned: 'Earned income',
+  passive: 'Passive income', restricted: 'Restricted income',
+};
+// Column geometry, verbatim from the handoff.
+var FIN_FLOW_COLS = {
+  sources: { barX: 6, barW: 10, labelX: 24, anchor: 'start', ribbonOut: 16, maxLabelW: 298 },
+  streams: { barX: 330, barW: 10, labelX: 348, anchor: 'start', ribbonIn: 330, ribbonOut: 340, maxLabelW: 254 },
+  // The last two caps are what keep the middle of the canvas clear: the total's label runs right
+  // from 628 and the expense labels run LEFT from 1056, so their widths have to be bounded such
+  // that the two can never meet. 628+200 = 828 against 1056-300 = 756 would still collide, so the
+  // total is capped at 110 (its text is the fixed string "Total revenue" plus one amount anyway).
+  total: { barX: 610, barW: 10, labelX: 628, anchor: 'start', ribbonIn: 610, ribbonOut: 620, maxLabelW: 110 },
+  expenses: { barX: 1064, barW: 10, labelX: 1056, anchor: 'end', ribbonIn: 1064, maxLabelW: 300 },
+};
+var FIN_FLOW_W = 1080, FIN_FLOW_REF_H = 626;
+// Label extents relative to a node's vertical centre. These are what the collision pass reasons
+// about, so they must stay in step with the text the renderer actually emits below.
+var FIN_FLOW_LABEL_BOX = {
+  two: { top: -13, bottom: 20 },      // name at cy-3, amount at cy+14
+  twoNote: { top: -13, bottom: 36 },  // ...plus a note at cy+30
+  one: { top: -9, bottom: 9 },        // single line at cy+4
+};
+// Advance width per character, as a fraction of the font size. Only used to truncate a label
+// before it can run into the next column, so an over-estimate is the safe direction: DM Sans at
+// these weights averages nearer 0.55em, and 0.62 leaves margin. Any renderer measurement must use
+// finFlowCharW rather than a hand-picked constant — a cap that under-estimates the width is
+// exactly how a label bleeds into the next column.
+var FIN_FLOW_CHAR_W = 0.62;
+function finFlowCharW(fontSize) { return fontSize * FIN_FLOW_CHAR_W; }
+function finFlowTruncate(text, maxPx, pxPerChar) {
+  var max = Math.max(4, Math.floor(maxPx / pxPerChar));
+  text = String(text == null ? '' : text);
+  return text.length <= max ? text : text.slice(0, max - 1).replace(/[\s,;:.-]+$/, '') + '…';
+}
+// px per $1,000. The handoff fixes 0.40 for its reference total and says to recompute only if the
+// total moves more than ~15%, clamping so labels never collide. Followed literally — but the
+// canvas is then grown to whatever the tallest column needs, because a clamp that keeps labels
+// legible can still produce a column taller than a fixed 626-unit box, and a column running off
+// the canvas is its own kind of collision.
+function finFlowScale(totalRevenueCents) {
+  var thousands = (totalRevenueCents || 0) / 100 / 1000;
+  if (!thousands) return 0.4;
+  var REF = 1165;
+  if (Math.abs(thousands - REF) / REF <= 0.15) return 0.4;
+  return Math.max(0.28, Math.min(0.55, 540 / thousands));
+}
+// Stacks one column. Each node carries {cents}; they come back with y/h/cy/labelMode set. gaps is the
+// handoff's authored gap list (index i = gap AFTER node i); anything beyond it falls back to the
+// handoff's own dynamic rule, max(10, 22 - height).
+function finFlowStackColumn(nodes, startY, scale, gaps, uniformGap, twoLineMinH, hasNote) {
+  var out = [], y = startY;
+  for (var i = 0; i < nodes.length; i++) {
+    var n = nodes[i];
+    var h = Math.max(2, (n.cents / 100 / 1000) * scale);
+    var mode = h >= twoLineMinH ? (hasNote && n.note ? 'twoNote' : 'two') : 'one';
+    var box = FIN_FLOW_LABEL_BOX[mode];
+    var node = { ref: n, h: h, y: y, cy: y + h / 2, labelMode: mode,
+                 labelTop: y + h / 2 + box.top, labelBottom: y + h / 2 + box.bottom };
+    // The first node must also clear the column header, which sits on the baseline at y=12.
+    if (i === 0 && node.labelTop < 20) {
+      var push = 20 - node.labelTop;
+      node.y += push; node.cy += push; node.labelTop += push; node.labelBottom += push;
+    }
+    out.push(node);
+    var authored = gaps && gaps[i] != null ? gaps[i] : (uniformGap != null ? uniformGap : Math.max(10, 22 - h));
+    var byGap = node.y + node.h + authored;
+    // ...and the constraint that makes overlap impossible: the NEXT node's label must start below
+    // this one's, whatever the authored gap says.
+    var next = nodes[i + 1];
+    var byLabel = -Infinity;
+    if (next) {
+      var nh = Math.max(2, (next.cents / 100 / 1000) * scale);
+      var nMode = nh >= twoLineMinH ? (hasNote && next.note ? 'twoNote' : 'two') : 'one';
+      byLabel = node.labelBottom + 2 - FIN_FLOW_LABEL_BOX[nMode].top - nh / 2;
+    }
+    y = Math.max(byGap, byLabel);
+  }
+  return out;
+}
+// The full four-column layout. Pure — no DOM — so the collision guarantee is directly testable.
+function finFlowLayout(diagram) {
+  var scale = finFlowScale(diagram.totalRevenueCents);
+  var sources = diagram.sources || [], expenses = diagram.expenses || [];
+  var streamNodes = (diagram.streams || []).map(function(s) {
+    return { id: s.id, label: FIN_FLOW_STREAM_LABEL[s.id] || s.id, cents: s.cents, note: FIN_FLOW_STREAM_NOTE[s.id] };
+  });
+  var laidSources = finFlowStackColumn(sources, 22, scale, [10, 18, 14, 18, 18, 16], null, 20, false);
+  var laidStreams = finFlowStackColumn(streamNodes, 44, scale, null, 14, 20, true);
+  var laidExpenses = finFlowStackColumn(expenses, 30, scale, null, 14, 40, true);
+  var revenueH = Math.max(2, (diagram.totalRevenueCents / 100 / 1000) * scale);
+  var totalNode = { ref: { label: 'Total revenue', cents: diagram.totalRevenueCents }, h: revenueH, y: 60,
+                    cy: 60 + revenueH / 2, labelMode: 'two', labelTop: 60 + revenueH / 2 - 13, labelBottom: 60 + revenueH / 2 + 20 };
+
+  // Canvas grows to whatever the tallest column plus the footer needs. The footer keeps the
+  // handoff's own offsets from the bottom edge (626-598 = 28, 626-616 = 10).
+  var deepest = [laidSources, laidStreams, laidExpenses, [totalNode]].reduce(function(m, col) {
+    return col.reduce(function(mm, n) { return Math.max(mm, n.y + n.h, n.labelBottom); }, m);
+  }, 0);
+  // 28 clears the footer rule (which sits 28 above the bottom edge) plus 6 of breathing room, so
+  // the deepest label can never touch it. Anything that fits the authored 626 keeps the authored
+  // canvas, which is what reproduces the handoff's reference rendering exactly.
+  var canvasH = Math.max(FIN_FLOW_REF_H, Math.ceil(deepest + 34));
+  return {
+    scale: scale, canvasH: canvasH,
+    footerRuleY: canvasH - 28, footerTextY: canvasH - 10,
+    sources: laidSources, streams: laidStreams, total: totalNode, expenses: laidExpenses,
   };
-  var labelColors = { donor: 'var(--color-teal)', earned: 'var(--deep-amber)', passive: 'var(--sage-text)', restricted: 'var(--color-navy)' };
-  order.forEach(function(s) {
-    var cents = (rs.streams[s] || { cents: 0 }).cents;
-    var h = cents / totalIn * H;
-    if (h <= 0) return;
-    var y0 = y, y1 = y + h;
-    // The left edge is spread across the full height so three ribbons stay visually separable
-    // even when one stream is small; the right edge is the true stacked thickness.
-    var l0 = top + (y0 - top) * 1.06 - 10, l1 = top + (y1 - top) * 1.06 - 10;
-    inbound += '<path d="M240,' + l0.toFixed(1) + ' C360,' + l0.toFixed(1) + ' 360,' + y0.toFixed(1) + ' 470,' + y0.toFixed(1)
-      + ' L470,' + y1.toFixed(1) + ' C360,' + y1.toFixed(1) + ' 360,' + l1.toFixed(1) + ' 240,' + l1.toFixed(1) + ' Z" fill="'
-      + REVENUE_STREAM_COLORS[s] + '" opacity=".85"></path>'
-      + '<rect x="470" y="' + y0.toFixed(1) + '" width="40" height="' + h.toFixed(1) + '" fill="' + REVENUE_STREAM_COLORS[s] + '"></rect>';
-    var mid = (l0 + l1) / 2;
-    labels += '<text x="232" y="' + (mid - 14).toFixed(1) + '" font-size="15" font-weight="800" fill="var(--charcoal)">' + REVENUE_STREAM_SHORT[s] + ' revenue</text>'
-      + '<text x="232" y="' + (mid + 6).toFixed(1) + '" font-size="19" font-weight="800" fill="' + labelColors[s] + '">' + finMoney0(cents) + '</text>'
-      + '<text x="232" y="' + (mid + 24).toFixed(1) + '" font-size="11.5" font-weight="700" fill="' + labelColors[s] + '">' + labelAnchors[s] + '</text>';
-    y = y1;
+}
+// A ribbon between a left span [a,b] and a right span [c,d], both control points on the midpoint.
+function finFlowRibbon(x0, x1, a, b, c, dd, fill, opacity) {
+  var xm = x0 + (x1 - x0) / 2;
+  return '<path d="M' + x0 + ',' + a.toFixed(1) + ' C' + xm + ',' + a.toFixed(1) + ' ' + xm + ',' + c.toFixed(1) + ' ' + x1 + ',' + c.toFixed(1)
+    + ' L' + x1 + ',' + dd.toFixed(1) + ' C' + xm + ',' + dd.toFixed(1) + ' ' + xm + ',' + b.toFixed(1) + ' ' + x0 + ',' + b.toFixed(1) + ' Z"'
+    + ' fill="' + fill + '" opacity="' + opacity + '"></path>';
+}
+
+
+// Ribbons attach contiguously inside their target node, in source order, tracked with a running
+// cursor per target — that is what makes them read as one fanning band rather than separate
+// arrows. The outflow side is scaled by k so it exactly fills the revenue bar: expenses can
+// exceed revenue, and letting the ribbons overrun the bar would read as a rendering fault. The
+// real difference is stated in the footer instead, where it can be read as the number it is.
+function finRenderSankey(diagram, layout) {
+  var byId = {};
+  layout.sources.forEach(function(n) { byId[n.ref.id] = n; });
+  var streamById = {};
+  layout.streams.forEach(function(n) { streamById[n.ref.id] = n; });
+
+  // Source colours: each stream's own ramp, in the order its sources appear.
+  var tintIdx = { donor: 0, earned: 0, passive: 0 };
+  layout.sources.forEach(function(n) {
+    var ramp = FIN_FLOW_COLORS.sourceTint[n.ref.stream] || [FIN_FLOW_COLORS.total];
+    n.color = ramp[Math.min(tintIdx[n.ref.stream]++, ramp.length - 1)];
   });
-  var outTotal = flow.totalOutCents || 1;
-  var oy = top, outbound = '', outLabels = '';
-  [{ key: 'church', cents: flow.churchOutCents, label: 'Church ministry, staff &amp; facilities', note: 'the budget the board actually sets', op: '.26' },
-   { key: 'mdo', cents: flow.mdoOutCents, label: 'MDO staffing &amp; operations', note: 'the accounts the Daycare Report is built from', op: '.16' }].forEach(function(o) {
-    var h = o.cents / outTotal * H;
-    if (h <= 0) return;
-    var y0 = oy, y1 = oy + h;
-    var r0 = top + (y0 - top) * 1.1 + 12, r1 = top + (y1 - top) * 1.1 + 12;
-    outbound += '<path d="M510,' + y0.toFixed(1) + ' C620,' + y0.toFixed(1) + ' 620,' + r0.toFixed(1) + ' 740,' + r0.toFixed(1)
-      + ' L740,' + r1.toFixed(1) + ' C620,' + r1.toFixed(1) + ' 620,' + y1.toFixed(1) + ' 510,' + y1.toFixed(1) + ' Z" fill="var(--color-navy)" opacity="' + o.op + '"></path>';
-    var mid = (r0 + r1) / 2;
-    outLabels += '<text x="752" y="' + (mid - 12).toFixed(1) + '" font-size="15" font-weight="800" fill="var(--charcoal)">' + o.label + '</text>'
-      + '<text x="752" y="' + (mid + 8).toFixed(1) + '" font-size="19" font-weight="800" fill="var(--color-navy)">' + finMoney0(o.cents) + '</text>'
-      + '<text x="752" y="' + (mid + 26).toFixed(1) + '" font-size="11.5" fill="var(--warm-gray)">' + o.note + '</text>';
-    oy = y1;
+  layout.expenses.forEach(function(n, i) { n.color = FIN_FLOW_COLORS.expense[Math.min(i, FIN_FLOW_COLORS.expense.length - 1)]; });
+  layout.streams.forEach(function(n) { n.color = FIN_FLOW_COLORS[n.ref.id] || FIN_FLOW_COLORS.total; });
+
+  var C = FIN_FLOW_COLS, ribbons = '';
+  // source -> stream
+  var streamCursor = {};
+  layout.streams.forEach(function(n) { streamCursor[n.ref.id] = n.y; });
+  layout.sources.forEach(function(n) {
+    var target = streamById[n.ref.stream];
+    if (!target) return;
+    var c = streamCursor[n.ref.stream];
+    var h = n.h * (target.h / Math.max(1e-6, layout.sources.filter(function(x) { return x.ref.stream === n.ref.stream; })
+      .reduce(function(sum, x) { return sum + x.h; }, 0)));
+    ribbons += finFlowRibbon(C.sources.ribbonOut, C.streams.ribbonIn, n.y, n.y + n.h, c, c + h, n.color, 0.42);
+    streamCursor[n.ref.stream] = c + h;
   });
-  var netCents = totalIn - flow.totalOutCents;
-  var footer = netCents < 0
-    ? finMoney0(-netCents) + ' more goes out than comes in — the whole system is one bad month from a real deficit.'
-    : finMoney0(netCents) + ' more comes in than goes out across all three entities.';
-  return '<div class="fin-card">'
-    + '<div class="fin-card-title" style="font-size:20px;">How the money moves</div>'
-    + '<div class="fin-card-sub" style="margin-bottom:4px;">' + finMoney0(totalIn) + ' in &middot; ' + finMoney0(flow.totalOutCents) + ' out &middot; net ' + finFmtSigned(netCents) + ' across all three entities.</div>'
-    + '<div class="fin-flow"><svg viewBox="0 0 1080 420" width="100%" height="400" role="img" aria-label="Flow diagram: '
-    + REVENUE_STREAM_KEYS.map(function(s) { return REVENUE_STREAM_SHORT[s] + ' ' + finMoney0((rs.streams[s] || {cents:0}).cents); }).join(', ')
-    + ' combine into ' + finMoney0(totalIn) + ' of revenue, flowing out to church ministry ' + finMoney0(flow.churchOutCents)
-    + ' and MDO operations ' + finMoney0(flow.mdoOutCents) + '.">'
-    + '<text x="240" y="26" font-size="11" font-weight="700" fill="var(--warm-meta)" letter-spacing="1" text-anchor="end">WHERE IT COMES FROM</text>'
-    + '<text x="540" y="26" font-size="11" font-weight="700" fill="var(--warm-meta)" letter-spacing="1" text-anchor="middle">ALL REVENUE</text>'
-    + '<text x="840" y="26" font-size="11" font-weight="700" fill="var(--warm-meta)" letter-spacing="1">WHERE IT GOES</text>'
-    + inbound + outbound
-    + '<g text-anchor="end">' + labels + '</g>'
-    + '<text x="490" y="42" font-size="12" font-weight="800" fill="var(--color-navy)" text-anchor="middle">' + finMoney0(totalIn) + '</text>'
-    + outLabels
-    + '<line x1="470" y1="400" x2="740" y2="400" stroke="var(--warm-border)"></line>'
-    + '<text x="470" y="416" font-size="11.5" font-weight="700" fill="' + (netCents < 0 ? 'var(--danger)' : 'var(--sage-text)') + '">' + footer + '</text>'
-    + '</svg></div></div>';
+  // stream -> total
+  var totalCursor = layout.total.y;
+  var streamSum = layout.streams.reduce(function(sum, n) { return sum + n.h; }, 0) || 1;
+  layout.streams.forEach(function(n) {
+    var h = n.h * (layout.total.h / streamSum);
+    ribbons += finFlowRibbon(C.streams.ribbonOut, C.total.ribbonIn, n.y, n.y + n.h, totalCursor, totalCursor + h, n.color, 0.50);
+    totalCursor += h;
+  });
+  // total -> expense, left edges scaled by k so they exactly fill the revenue bar
+  var expenseSum = layout.expenses.reduce(function(sum, n) { return sum + n.h; }, 0) || 1;
+  var k = layout.total.h / expenseSum;
+  var outCursor = layout.total.y;
+  layout.expenses.forEach(function(n) {
+    var lh = n.h * k;
+    ribbons += finFlowRibbon(C.total.ribbonOut, C.expenses.ribbonIn, outCursor, outCursor + lh, n.y, n.y + n.h, n.color, 0.34);
+    outCursor += lh;
+  });
+
+  function bar(n, col) {
+    return '<rect x="' + col.barX + '" y="' + n.y.toFixed(1) + '" width="' + col.barW + '" height="' + n.h.toFixed(1) + '" rx="2" fill="' + n.color + '"></rect>';
+  }
+  // Label emission. Must stay in step with FIN_FLOW_LABEL_BOX — the collision pass reasons about
+  // exactly these offsets.
+  function label(n, col, amountColor) {
+    var a = col.anchor === 'end' ? ' text-anchor="end"' : '';
+    var x = col.labelX;
+    var amount = finMoney0(n.ref.cents);
+    if (n.labelMode === 'one') {
+      // Name and amount share one line, so the name only gets what the amount leaves behind.
+      var oneW = finFlowCharW(11);
+      var oneText = finFlowTruncate(n.ref.label, col.maxLabelW - (amount.length + 1) * oneW, oneW);
+      return '<text x="' + x + '" y="' + (n.cy + 4).toFixed(1) + '"' + a + ' font-size="11" font-weight="700" fill="#5C4B2E">'
+        + esc(oneText) + ' <tspan font-weight="800" fill="#1A1A2A" font-variant-numeric="tabular-nums">' + amount + '</tspan></text>';
+    }
+    var out = '<text x="' + x + '" y="' + (n.cy - 3).toFixed(1) + '"' + a + ' font-size="12.5" font-weight="800" fill="#1A1A2A">'
+      + esc(finFlowTruncate(n.ref.label, col.maxLabelW, finFlowCharW(12.5))) + '</text>'
+      + '<text x="' + x + '" y="' + (n.cy + 14).toFixed(1) + '"' + a + ' font-size="14.5" font-weight="800" fill="' + amountColor + '" font-variant-numeric="tabular-nums">' + amount + '</text>';
+    if (n.labelMode === 'twoNote' && n.ref.note) {
+      out += '<text x="' + x + '" y="' + (n.cy + 30).toFixed(1) + '"' + a + ' font-size="10.5" fill="#8A8377">' + esc(finFlowTruncate(n.ref.note, col.maxLabelW, finFlowCharW(10.5))) + '</text>';
+    }
+    return out;
+  }
+
+  var nodes = layout.sources.map(function(n) { return bar(n, C.sources) + label(n, C.sources, n.color); }).join('')
+    + layout.streams.map(function(n) { return bar(n, C.streams) + label(n, C.streams, n.color); }).join('')
+    + '<rect x="' + C.total.barX + '" y="' + layout.total.y.toFixed(1) + '" width="' + C.total.barW + '" height="' + layout.total.h.toFixed(1) + '" rx="2" fill="' + FIN_FLOW_COLORS.total + '"></rect>'
+    + '<text x="' + C.total.labelX + '" y="' + (layout.total.cy - 3).toFixed(1) + '" font-size="12.5" font-weight="800" fill="#1A1A2A">Total revenue</text>'
+    + '<text x="' + C.total.labelX + '" y="' + (layout.total.cy + 14).toFixed(1) + '" font-size="14.5" font-weight="800" fill="' + FIN_FLOW_COLORS.total + '" font-variant-numeric="tabular-nums">' + finMoney0(diagram.totalRevenueCents) + '</text>'
+    + layout.expenses.map(function(n) { return bar(n, C.expenses) + label(n, C.expenses, FIN_FLOW_COLORS.total); }).join('');
+
+  var headers = '<g font-size="10" font-weight="700" fill="#A99A7E" letter-spacing="1">'
+    + '<text x="' + C.sources.labelX + '" y="12">SOURCES</text>'
+    + '<text x="' + C.streams.labelX + '" y="12">STREAMS</text>'
+    + '<text x="' + C.total.labelX + '" y="12">ALL REVENUE</text>'
+    + '<text x="' + C.expenses.labelX + '" y="12" text-anchor="end">WHERE IT GOES</text></g>';
+
+  var net = diagram.netCents;
+  var footer = net < 0
+    ? finMoney0(diagram.totalExpenseCents) + ' goes out against ' + finMoney0(diagram.totalRevenueCents) + ' in — a ' + finMoney0(-net) + ' gap, before any one bad month.'
+    : finMoney0(diagram.totalRevenueCents) + ' comes in against ' + finMoney0(diagram.totalExpenseCents) + ' out — ' + finMoney0(net) + ' to the good.';
+
+  var biggestSource = layout.sources.slice().sort(function(a, b) { return b.ref.cents - a.ref.cents; })[0];
+  var biggestExpense = layout.expenses.slice().sort(function(a, b) { return b.ref.cents - a.ref.cents; })[0];
+  var aria = 'Money flow for the year. ' + finMoney0(diagram.totalRevenueCents) + ' of revenue'
+    + (biggestSource ? ', the largest source being ' + biggestSource.ref.label + ' at ' + finMoney0(biggestSource.ref.cents) : '')
+    + ', against ' + finMoney0(diagram.totalExpenseCents) + ' of expenses'
+    + (biggestExpense ? ', the largest being ' + biggestExpense.ref.label + ' at ' + finMoney0(biggestExpense.ref.cents) : '')
+    + '. ' + footer;
+
+  return '<svg viewBox="0 0 ' + FIN_FLOW_W + ' ' + layout.canvasH + '" width="100%" height="' + Math.round(layout.canvasH * 0.927) + '" role="img" data-om-raster aria-label="' + esc(aria) + '">'
+    + ribbons + nodes + headers
+    + '<line x1="6" y1="' + layout.footerRuleY + '" x2="1074" y2="' + layout.footerRuleY + '" stroke="#EFE6D4"></line>'
+    + '<text x="6" y="' + layout.footerTextY + '" font-size="11.5" font-weight="700" fill="' + (net < 0 ? 'var(--danger)' : 'var(--sage-text)') + '">' + esc(footer) + '</text>'
+    + '</svg>';
+}
+// Share view — the same totals as a pair of donuts. Answers "what share is MDO?" at a glance, and
+// is the view small screens get, where the Sankey's labels could not be laid out honestly.
+function finRenderFlowDonut(title, slices, totalCents, caption) {
+  var C = 414.69, r = 66, cum = 0;
+  var total = totalCents || slices.reduce(function(s, x) { return s + x.cents; }, 0) || 1;
+  var segs = slices.map(function(sl) {
+    var len = sl.cents / total * C;
+    var seg = '<circle cx="90" cy="90" r="' + r + '" fill="none" stroke="' + sl.color + '" stroke-width="30"'
+      + ' stroke-dasharray="' + len.toFixed(2) + ' ' + (C - len).toFixed(2) + '" stroke-dashoffset="' + (-cum).toFixed(2) + '"'
+      + ' transform="rotate(-90 90 90)"></circle>';
+    cum += len;
+    return seg;
+  }).join('');
+  var abbrev = '$' + (Math.abs(total) >= 100000000 ? (total / 100 / 1000000).toFixed(3) + 'M' : Math.round(total / 100).toLocaleString('en-US'));
+  var rows = slices.map(function(sl) {
+    return '<div class="fin-donut-row">'
+      + '<span class="fin-donut-key"><span class="fin-donut-swatch" style="background:' + sl.color + ';"></span>' + esc(sl.label) + '</span>'
+      + '<span class="fin-donut-vals"><b>' + finMoney0(sl.cents) + '</b><span class="fin-donut-pct">' + Math.round(sl.cents / total * 100) + '%</span></span>'
+      + '</div>';
+  }).join('');
+  return '<div class="fin-donut-panel">'
+    + '<div class="fin-eyebrow">' + title + '</div>'
+    + '<div class="fin-donut-body">'
+      + '<svg viewBox="0 0 180 180" width="164" height="164" role="img" aria-label="' + esc(title + ': ' + slices.map(function(sl) { return sl.label + ' ' + finMoney0(sl.cents); }).join(', ')) + '">'
+      + segs
+      + '<text x="90" y="86" text-anchor="middle" font-size="20" font-weight="800" fill="#1A1A2A">' + abbrev + '</text>'
+      + '<text x="90" y="104" text-anchor="middle" font-size="10.5" font-weight="700" fill="#8A8377" letter-spacing=".5">' + esc(caption) + '</text>'
+      + '</svg>'
+      + '<div class="fin-donut-legend">' + rows + '</div>'
+    + '</div></div>';
+}
+var _finFlowView = 'flow';
+function finFlowSetView(view) {
+  _finFlowView = (view === 'share') ? 'share' : 'flow';
+  // Persisted per user: a board member who prefers the donuts shouldn't re-pick every visit.
+  try { localStorage.setItem('finance.flowView', _finFlowView); } catch (e) { /* private mode — the choice just won't persist */ }
+  var card = document.getElementById('fin-flow-card');
+  if (card) {
+    card.classList.toggle('view-flow', _finFlowView === 'flow');
+    card.classList.toggle('view-share', _finFlowView === 'share');
+  }
+  ['flow', 'share'].forEach(function(v) {
+    var btn = document.getElementById('fin-flow-btn-' + v);
+    if (btn) { btn.classList.toggle('active', v === _finFlowView); btn.setAttribute('aria-pressed', String(v === _finFlowView)); }
+  });
+}
+function finRenderFlow(d) {
+  var diagram = d.flowDiagram;
+  if (!diagram || !diagram.totalRevenueCents) return '';
+  try { _finFlowView = localStorage.getItem('finance.flowView') === 'share' ? 'share' : 'flow'; } catch (e) { /* keep the default */ }
+  var layout = finFlowLayout(diagram);
+
+  var inSlices = (diagram.streams || []).map(function(s) {
+    return { label: FIN_FLOW_STREAM_LABEL[s.id] || s.id, cents: s.cents, color: FIN_FLOW_COLORS[s.id] || FIN_FLOW_COLORS.total };
+  });
+  var outSlices = (diagram.expenses || []).map(function(e, i) {
+    return { label: e.label, cents: e.cents, color: FIN_FLOW_COLORS.expense[Math.min(i, FIN_FLOW_COLORS.expense.length - 1)] };
+  });
+
+  // Visually hidden, so screen readers and Ctrl-F both reach the same figures the chart draws.
+  var dataTable = '<table class="fin-sr-only"><caption>How the money moves — the figures behind the chart</caption>'
+    + '<thead><tr><th>Item</th><th>Group</th><th>Amount</th></tr></thead><tbody>'
+    + (diagram.sources || []).map(function(s) {
+        return '<tr><td>' + esc(s.label) + '</td><td>' + esc(FIN_FLOW_STREAM_LABEL[s.stream] || s.stream) + '</td><td>' + finMoney0(s.cents) + '</td></tr>';
+      }).join('')
+    + (diagram.expenses || []).map(function(e) {
+        return '<tr><td>' + esc(e.label) + '</td><td>Expenses</td><td>' + finMoney0(e.cents) + '</td></tr>';
+      }).join('')
+    + '</tbody></table>';
+
+
+  return '<div class="fin-card fin-flow-card view-' + _finFlowView + '" id="fin-flow-card">'
+    + '<div class="fin-card-hdr-split">'
+      + '<div><div class="fin-card-title" style="font-size:20px;">How the money moves</div>'
+      + '<div class="fin-card-sub" style="margin:0;">' + finMoney0(diagram.totalRevenueCents) + ' in &middot; ' + finMoney0(diagram.totalExpenseCents) + ' out &middot; net ' + finFmtSigned(diagram.netCents) + ' across all three entities.</div></div>'
+      + '<div class="fin-flow-toggle" role="group" aria-label="Chart view">'
+        + '<button type="button" id="fin-flow-btn-flow" class="fin-flow-toggle-btn' + (_finFlowView === 'flow' ? ' active' : '') + '" aria-pressed="' + (_finFlowView === 'flow') + '" onclick="finFlowSetView(\'flow\')">Flow</button>'
+        + '<button type="button" id="fin-flow-btn-share" class="fin-flow-toggle-btn' + (_finFlowView === 'share' ? ' active' : '') + '" aria-pressed="' + (_finFlowView === 'share') + '" onclick="finFlowSetView(\'share\')">Share</button>'
+      + '</div>'
+    + '</div>'
+    + '<div class="fin-flow-sankey">' + finRenderSankey(diagram, layout) + '</div>'
+    + '<div class="fin-flow-share">'
+      + finRenderFlowDonut('Money in', inSlices, diagram.totalRevenueCents, 'TOTAL REVENUE')
+      + finRenderFlowDonut('Money out', outSlices, diagram.totalExpenseCents, 'TOTAL EXPENSES')
+    + '</div>'
+    + dataTable
+    + '</div>';
 }
 
 // 1.5 — the three engines. Each card's label states what the board decides about that entity,
@@ -852,14 +1190,39 @@ function finRenderEntityCards(d) {
     + '<div class="fin-grid-3">' + churchCard + daycareCard + propertyCard + '</div></div>';
 }
 
+// The two end-of-line labels sat at a fixed offset from their own line, so when giving tracks
+// close to budget — which is the normal, healthy case — "Actual" and "Budget" printed on top of
+// each other and neither was readable. Pushed apart to a minimum gap when they collide, keeping
+// whichever line is higher on top so each label still points at its own line.
+var FIN_PACE_LABEL_MIN_GAP = 13;
+function finPaceEndLabels(actualY, budgetY) {
+  var aY = actualY + 4;
+  if (budgetY == null) return '<text x="574" y="' + aY.toFixed(1) + '" fill="var(--color-teal)">Actual</text>';
+  var bY = budgetY - 10;
+  var gap = Math.abs(aY - bY);
+  if (gap < FIN_PACE_LABEL_MIN_GAP) {
+    var push = (FIN_PACE_LABEL_MIN_GAP - gap) / 2;
+    // A tie (identical y) still has to resolve deterministically — actual goes below.
+    if (actualY <= budgetY) { aY -= push; bY += push; }
+    else { aY += push; bY -= push; }
+  }
+  return '<text x="574" y="' + aY.toFixed(1) + '" fill="var(--color-teal)">Actual</text>'
+    + '<text x="574" y="' + bY.toFixed(1) + '" fill="var(--deep-amber)">Budget</text>';
+}
 // 1.6a — cumulative ChMS giving against a straight-line budget line.
 function finRenderGivingPace(d) {
   var monthly = d.givingMonthly || [];
-  var budgetCents = (d.revenueStreams && d.revenueStreams.streams.donor) ? d.revenueStreams.streams.donor.budgetCents : 0;
+  var pace = d.givingPace || {};
+  var scoped = pace.scope === 'general_fund';
+  // The General Fund's own budget, from the church ledger accounts sharing its numeric code —
+  // NOT the all-donor-revenue budget, which would be measuring one fund's giving against every
+  // donor account's target and would read as a permanent shortfall.
+  var budgetCents = pace.budgetCents != null ? pace.budgetCents : 0;
   var through = (d.year === new Date().getFullYear()) ? (new Date().getMonth() + 1) : 12;
   var cum = [], run = 0;
   for (var m = 0; m < through; m++) { run += (monthly[m] ? monthly[m].cents : 0); cum.push(run); }
-  if (!cum.length) return '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">Giving against budget pace</div>'
+  var title = scoped ? 'General Fund giving against budget pace' : 'Giving against budget pace';
+  if (!cum.length) return '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">' + esc(title) + '</div>'
     + '<p style="font-size:.85rem;color:var(--warm-gray);">No giving recorded in ChMS for this year yet.</p></div>';
   var maxCents = Math.max.apply(null, cum.concat([budgetCents || 1]));
   var W = 640, x0 = 46, x1 = 557, yTop = 26, yBot = 176;
@@ -876,11 +1239,21 @@ function finRenderGivingPace(d) {
     return '<text x="' + px(i).toFixed(1) + '" y="196">' + MONTH_NAMES[i].slice(0, 3) + '</text>';
   }).join('');
   var behindCents = budgetCents ? (budgetCents * through / 12) - cum[cum.length - 1] : 0;
+  var what = scoped ? 'General Fund offerings' : 'All offerings';
   var sub = budgetCents
-    ? 'Cumulative offerings vs. the straight-line budget line. ' + (behindCents > 0 ? 'Running ' + finMoney0(behindCents) + ' behind.' : 'Running ' + finMoney0(-behindCents) + ' ahead.')
-    : 'Cumulative offerings. No donor-revenue budget is set for this year, so there is no pace line to compare against.';
+    ? what + ' to date vs. the straight-line budget line. ' + (behindCents > 0 ? 'Running ' + finMoney0(behindCents) + ' behind.' : 'Running ' + finMoney0(-behindCents) + ' ahead.')
+    : what + ' to date. ' + (scoped
+      ? 'No budget is on file for the General Fund accounts this year, so there is no pace line to compare against.'
+      : 'No donor-revenue budget is set for this year, so there is no pace line to compare against.');
+  // Naming what was left out matters more than the chart: a reader who knows the plate held more
+  // than this line shows should be able to see why without leaving the page.
+  if (scoped && pace.excludedCents) {
+    sub += ' ' + finMoney0(pace.excludedCents) + ' given to designated and pass-through funds is not counted here.';
+  } else if (!scoped) {
+    sub += ' Every fund is counted — no fund is categorised as the General Fund yet (Settings → Fund categories).';
+  }
   return '<div class="fin-card">'
-    + '<div class="fin-card-title" style="font-size:20px;">Giving against budget pace</div>'
+    + '<div class="fin-card-title" style="font-size:20px;">' + esc(title) + '</div>'
     + '<div class="fin-card-sub">' + sub + '</div>'
     + '<svg viewBox="0 0 ' + W + ' 220" width="100%" height="200" role="img" aria-label="Cumulative giving versus budget pace, '
     + (behindCents > 0 ? 'running behind by ' + finMoney0(behindCents) : 'running at or ahead of pace') + '">'
@@ -892,18 +1265,30 @@ function finRenderGivingPace(d) {
     + '<circle cx="' + px(cum.length - 1).toFixed(1) + '" cy="' + py(cum[cum.length - 1]).toFixed(1) + '" r="4.5" fill="var(--color-teal)"></circle>'
     + '<g font-size="10.5" fill="var(--warm-meta)" text-anchor="middle">' + monthLabels + '</g>'
     + '<g font-size="11" font-weight="700">'
-    + '<text x="574" y="' + (py(cum[cum.length - 1]) + 4).toFixed(1) + '" fill="var(--color-teal)">Actual</text>'
-    + (budgetCents ? '<text x="574" y="' + (py(budgetCents * through / 12) - 10).toFixed(1) + '" fill="var(--deep-amber)">Budget</text>' : '')
+    + finPaceEndLabels(py(cum[cum.length - 1]), budgetCents ? py(budgetCents * through / 12) : null)
     + '</g></svg></div>';
 }
 
+// Names which account produced the cash figure, and as of when. A runway is only as good as the
+// balance under it: "3.4 months" off an account the reader did not expect is worse than no number,
+// so the account is stated rather than left to be assumed.
+function finCashSourceNote(c) {
+  if (c.source === 'balance_sheet') {
+    var accts = (c.accounts || []).join(', ');
+    return ' &middot; cash from ' + (accts ? esc(accts) : 'the balance sheet')
+      + (c.asOfDate ? ' as of ' + esc(c.asOfDate) : '');
+  }
+  if (c.source === 'quickbooks') return ' &middot; cash from QuickBooks checking/savings';
+  if (c.source === 'manual') return ' &middot; cash entered by hand';
+  return '';
+}
 // 1.6b — months of operating cash against the congregation's own policy floor.
 function finRenderCashRunway(d) {
   var c = d.cash || {};
   if (!c.available) {
     return '<div class="fin-card">'
       + '<div class="fin-card-title" style="font-size:20px;">Operating cash runway</div>'
-      + '<p style="font-size:.85rem;color:var(--warm-gray);">Not yet available — this needs a cash-on-hand figure (from a QuickBooks sync, or entered on the <b>Data &amp; Imports</b> tab) and at least some expense actuals for the year.</p></div>';
+      + '<p style="font-size:.85rem;color:var(--warm-gray);">Not yet available — this needs a cash-on-hand figure and at least some expense actuals for the year. Cash comes from the imported balance sheet\'s operating account (import one from <b>Data &amp; Imports</b>, and name the account code there under <b>Classification &amp; policy</b>), or from a QuickBooks sync, or typed by hand.</p></div>';
   }
   var months = c.monthsOfCash;
   var below = months < c.policyFloorMonths;
@@ -912,7 +1297,7 @@ function finRenderCashRunway(d) {
   return '<div class="fin-card" style="display:flex;flex-direction:column;gap:14px;">'
     + '<div><div class="fin-card-title" style="font-size:20px;">Operating cash runway</div>'
     + '<div class="fin-card-sub" style="margin:0;">' + finMoney0(c.onHandCents) + ' on hand &middot; ' + finMoney0(c.avgMonthlyExpenseCents) + ' average month'
-    + (c.source === 'quickbooks' ? ' &middot; cash from QuickBooks checking/savings' : c.source === 'manual' ? ' &middot; cash entered by hand' : '') + '</div></div>'
+    + finCashSourceNote(c) + '</div></div>'
     + '<div>'
     + '<div style="display:flex;align-items:baseline;gap:8px;"><span style="font-size:38px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;color:' + (below ? 'var(--danger)' : 'var(--sage-text)') + ';">' + months.toFixed(1) + '</span>'
     + '<span style="font-size:14px;font-weight:700;color:var(--warm-ink-label);">months</span></div>'
@@ -945,7 +1330,7 @@ function finRenderFiveYearMix() {
     var x = left + slot * i + (slot - barW) / 2;
     var y = base, out = '';
     REVENUE_STREAM_KEYS.forEach(function(s) {
-      var cents = t.streams[s].cents;
+      var cents = (t.streams[s] || { cents: 0 }).cents;
       var h = cents / maxTotal * plotH;
       if (h <= 0) return;
       y -= h;
@@ -962,8 +1347,9 @@ function finRenderFiveYearMix() {
     return '<text x="6" y="' + (y + 4).toFixed(1) + '">' + finMoney0(maxTotal * i / 3) + '</text>';
   }).join('');
   var first = totals[0], last = totals[totals.length - 1];
-  var donorDelta = (first.streams && last.streams) ? last.streams.donor.cents - first.streams.donor.cents : 0;
-  var earnedDelta = (first.streams && last.streams) ? last.streams.earned.cents - first.streams.earned.cents : 0;
+  function streamCents(t, key) { return (t && t.streams && t.streams[key]) ? t.streams[key].cents : 0; }
+  var donorDelta = streamCents(last, 'donor') - streamCents(first, 'donor');
+  var earnedDelta = streamCents(last, 'earned') - streamCents(first, 'earned');
   var story = (Math.abs(donorDelta) < Math.abs(earnedDelta))
     ? 'Donor revenue roughly flat while earned income moved ' + finFmtSigned(earnedDelta) + '. The mix, not the total, is the story.'
     : 'Donor revenue moved ' + finFmtSigned(donorDelta) + ' and earned income ' + finFmtSigned(earnedDelta) + ' across the window.';
@@ -1620,6 +2006,7 @@ function finDaycareChurchBudgetImport(year) {
   }).then(function(d) {
     if (d && d.error) { finToast(d.error); return; }
     finToast('Imported ' + (d && d.imported || 0) + ' daycare line item(s) from the ' + year + ' Church Budget.');
+    finRefreshImportStatus();
     document.getElementById('fin-dc-cb-preview').innerHTML = '';
     return api('/admin/api/finance/daycare').then(function(d2) {
       _finDaycare = d2.entries || [];
@@ -1670,6 +2057,7 @@ function finDaycareBulkImport() {
   api('/admin/api/finance/daycare/bulk', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
     if (d && d.error) { finToast(d.error); return; }
     finToast('Imported ' + (d && d.imported || 0) + ' row(s).');
+    finRefreshImportStatus();
     document.getElementById('fin-dc-bulk-text').value = '';
     document.getElementById('fin-dc-bulk-preview').innerHTML = '';
     _finDcBulkRows = null;
@@ -2673,6 +3061,36 @@ function finDetailStrip(key, title, sub, bodyHtml) {
     + (open ? '<div style="margin-top:14px;">' + bodyHtml + '</div>' : '')
     + '</div>';
 }
+// The giving reference, combined on the leading fund code (groupRowsByFundCode in js-core.js) —
+// "40085 Lent" and "40085 Retirement Distribution" belong on the General Fund's own line, not as
+// their own scattered rows. A code covering more than one fund expands in place to show them.
+function finGivingFundGroupRows(rows) {
+  var groups = groupRowsByFundCode(rows, function(f) { return f.fundName; }, function(f) { return f.cents; });
+  var money = function(c) { return '<td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums;">$' + finFmtMoney(c / 100) + '</td>'; };
+  var gi = 0;
+  return groups.map(function(g) {
+    if (g.rows.length < 2) {
+      return '<tr><td style="padding:3px 8px 3px 0;">' + esc(g.label) + '</td>' + money(g.total) + '</tr>';
+    }
+    var idx = gi++;
+    var out = '<tr style="cursor:pointer;" onclick="finToggleGivingFundGroup(' + idx + ')">'
+      + '<td style="padding:3px 8px 3px 0;"><span id="fin-giv-grp-chevron-' + idx + '">&#9656;</span> ' + esc(g.label)
+      + ' <span style="color:var(--warm-gray);">(' + g.rows.length + ' funds)</span></td>' + money(g.total) + '</tr>';
+    g.rows.forEach(function(f) {
+      out += '<tr class="fin-giv-grp-row" data-grp="' + idx + '" style="display:none;">'
+        + '<td style="padding:3px 8px 3px 18px;color:var(--warm-gray);">' + esc(f.fundName) + '</td>' + money(f.cents) + '</tr>';
+    });
+    return out;
+  }).join('');
+}
+function finToggleGivingFundGroup(idx) {
+  var rows = document.querySelectorAll('tr.fin-giv-grp-row[data-grp="' + idx + '"]');
+  var chevron = document.getElementById('fin-giv-grp-chevron-' + idx);
+  if (!rows.length) return;
+  var expanded = rows[0].style.display !== 'none';
+  rows.forEach(function(r) { r.style.display = expanded ? 'none' : ''; });
+  if (chevron) chevron.innerHTML = expanded ? '&#9656;' : '&#9662;';
+}
 function finRenderChurchThisYear(d) {
   var el = document.getElementById('fin-church-year-view');
   if (!el) return;
@@ -2708,9 +3126,7 @@ function finRenderChurchThisYear(d) {
 
   var fundTable = (d.givingByFund && d.givingByFund.length)
     ? '<table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
-      + d.givingByFund.map(function(f) {
-          return '<tr><td style="padding:3px 8px 3px 0;">' + esc(f.fundName) + '</td><td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums;">$' + finFmtMoney(f.cents / 100) + '</td></tr>';
-        }).join('') + '</table>'
+      + finGivingFundGroupRows(d.givingByFund) + '</table>'
     : '<p style="font-size:.85rem;color:var(--warm-gray);">No giving recorded in ChMS for this year.</p>';
 
   var detailBody = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
@@ -2766,6 +3182,15 @@ function finChurchMultiYearLoadRange() {
   for (var y = from; y <= to; y++) years.push(y);
   finLoadChurchMultiYear(years);
 }
+// True when any year in the window carries a non-zero total for this P&L classification. Used to
+// drop an always-empty section (Cost of Goods Sold, for a church with no sales) from the table and
+// the CSV without ever hiding a real figure.
+function finChurchMultiYearClassHasData(d, years, key) {
+  return (years || []).some(function(y) {
+    var c = d && d.byYear && d.byYear[y] && d.byYear[y].classificationTotals[key];
+    return !!(c && c.actualCents);
+  });
+}
 function finRenderChurchMultiYear(d) {
   var el = document.getElementById('fin-church-multiyear-view');
   if (!el) return;
@@ -2783,7 +3208,15 @@ function finRenderChurchMultiYear(d) {
     el.innerHTML = rangePicker + '<p style="font-size:.85rem;color:var(--warm-gray);">No church data for this range. Connect QuickBooks in the Overview tab and click "Sync Now", or widen the year range above if you\'ve imported older data.</p>';
     return;
   }
-  var rowsDef = [{ label: 'Total Revenue', key: 'Income' }, { label: 'Cost of Goods Sold', key: 'Cost of Goods Sold' }, { label: 'Total Expenses', key: 'Expenses' }];
+  // Cost of Goods Sold is a QuickBooks section this church has never posted to — it read $0.00 in
+  // every column, so the row was pure noise. It is hidden when empty rather than deleted: if a
+  // COGS figure ever does exist, the row comes back and the columns still add up to Net Income.
+  // (Same reasoning as FIN58's removal of the "Sales" hide rule — never hide a dollar that a
+  // total on the same screen is still counting.)
+  var rowsDef = [{ label: 'Total Revenue', key: 'Income' }, { label: 'Cost of Goods Sold', key: 'Cost of Goods Sold' }, { label: 'Total Expenses', key: 'Expenses' }]
+    .filter(function(rd) {
+      return rd.key !== 'Cost of Goods Sold' || finChurchMultiYearClassHasData(d, years, rd.key);
+    });
   var theadCells = '<th style="text-align:left;padding:6px 8px;"></th>' + years.map(function(y) { return '<th style="text-align:right;padding:6px 8px;">' + y + '</th>'; }).join('');
   var bodyRows = rowsDef.map(function(rd) {
     var cells = years.map(function(y) {
@@ -2889,14 +3322,23 @@ function finRenderBalanceTreeRows(nodes, html) {
   });
   return html;
 }
-function finLoadChurchBalances(year) {
-  year = year || new Date().getFullYear();
+// The snapshot year and the trend window are both explicit state, not fixed to "now": a church
+// uploading several years of history needs to look at a past year's balance sheet, and the
+// server's default trend window is only the rolling last five years — an older import (2019, say)
+// saves fine but would otherwise never appear on any screen. Same reasoning, and same From/To
+// control, as the Multi-Year income view's range picker.
+var _finChurchBalanceYear = null;
+var _finChurchBalanceYears = null;
+function finLoadChurchBalances(year, explicitYears) {
+  year = year || _finChurchBalanceYear || new Date().getFullYear();
+  _finChurchBalanceYear = year;
+  if (explicitYears) _finChurchBalanceYears = explicitYears;
   var el = document.getElementById('fin-church-balances-view');
   if (!el) return;
   el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
   Promise.all([
     api('/admin/api/finance/church/balances?year=' + year),
-    api('/admin/api/finance/church/balances/multi-year'),
+    api('/admin/api/finance/church/balances/multi-year' + (_finChurchBalanceYears ? '?years=' + _finChurchBalanceYears.join(',') : '')),
   ]).then(function(results) {
     _finChurchBalancesData = results[0];
     _finChurchBalancesMultiYearData = results[1];
@@ -2987,11 +3429,87 @@ function finRenderEquityReclassCard(equityReclass) {
     + unclassifiedHtml
     + '</div>';
 }
+// Snapshot-year + trend-range controls. Rendered ABOVE the "nothing imported for this year" empty
+// state as well as above real data — otherwise a year with no balance sheet is a dead end with no
+// way back to a year that has one, which is the normal state while history is still being loaded.
+function finRenderBalanceRangePicker(d, multiYear) {
+  var curYear = new Date().getFullYear();
+  var years = (multiYear && multiYear.years) || [];
+  var rangeFrom = years.length ? years[0] : (curYear - 4);
+  var rangeTo = years.length ? years[years.length - 1] : curYear;
+  return '<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-size:.8rem;">'
+    + '<label>Balance sheet for <input type="number" id="fin-church-bal-year" value="' + ((d && d.year) || curYear) + '" style="width:80px;"></label>'
+    + '<button class="btn-secondary" style="padding:3px 10px;font-size:.78rem;" onclick="finChurchBalanceLoadYear()">Show Year</button>'
+    + '<span style="color:var(--border);">|</span>'
+    + '<label>Trend from <input type="number" id="fin-church-bal-from" value="' + rangeFrom + '" style="width:80px;"></label>'
+    + '<label>to <input type="number" id="fin-church-bal-to" value="' + rangeTo + '" style="width:80px;"></label>'
+    + '<button class="btn-secondary" style="padding:3px 10px;font-size:.78rem;" onclick="finChurchBalanceLoadRange()">Load Range</button>'
+    + '</div>';
+}
+function finChurchBalanceLoadYear() {
+  var el = document.getElementById('fin-church-bal-year');
+  var year = parseInt(el && el.value, 10);
+  if (!Number.isFinite(year)) { finToast('Enter a valid year.'); return; }
+  finLoadChurchBalances(year);
+}
+function finChurchBalanceLoadRange() {
+  var fromEl = document.getElementById('fin-church-bal-from');
+  var toEl = document.getElementById('fin-church-bal-to');
+  var from = parseInt(fromEl && fromEl.value, 10);
+  var to = parseInt(toEl && toEl.value, 10);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) { finToast('Enter a valid From/To year range.'); return; }
+  if (to - from > 20) { finToast('Please request 20 years or fewer at a time.'); return; }
+  var years = [];
+  for (var y = from; y <= to; y++) years.push(y);
+  finLoadChurchBalances(null, years);
+}
+// ── Balance sheet ↔ P&L tie-out ─────────────────────────────────────────────────────────────
+// Server-computed (computeBalanceVsPnlReconciliation, api-finance.js). Deliberately worded as a
+// difference to explain rather than a failure — a cash-basis balance sheet next to an accrual
+// P&L, or a prior-period adjustment booked to equity, produces a real difference that is not a
+// bad import. The rows that CAN'T be checked are shown too, since "which year still needs
+// uploading?" is the other question this table exists to answer.
+function finBalanceReconStatusHtml(r) {
+  if (r.status === 'ok') return '<span style="color:var(--sage);">✓ Matches</span>';
+  if (r.status === 'off') return '<span style="color:var(--deep-amber);">Difference of $' + finFmtMoney(Math.abs(r.difference_cents) / 100) + '</span>';
+  if (r.status === 'no_prior_balance') return '<span style="color:var(--warm-gray);">No ' + r.prior_year + ' balance sheet — upload it to check this year</span>';
+  return '<span style="color:var(--warm-gray);">No income statement on file for ' + r.year + '</span>';
+}
+function finRenderBalanceReconciliation(multiYear) {
+  var rec = multiYear && multiYear.reconciliation;
+  if (!rec || !rec.rows || !rec.rows.length) return '';
+  var money = function(c) { return c == null ? '—' : '$' + finFmtMoney(c / 100); };
+  var body = rec.rows.map(function(r) {
+    return '<tr><td style="padding:5px 8px;">' + r.year + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + money(r.prior_equity_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + money(r.equity_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + money(r.change_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + money(r.net_income_cents) + '</td>'
+      + '<td style="padding:5px 8px;">' + finBalanceReconStatusHtml(r) + '</td></tr>';
+  }).join('');
+  var th = function(label, right) {
+    return '<th style="text-align:' + (right ? 'right' : 'left') + ';padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">' + label + '</th>';
+  };
+  var summary = rec.checked
+    ? rec.matched + ' of ' + rec.checked + ' year' + (rec.checked === 1 ? '' : 's') + ' tie out exactly.'
+    : 'No year can be checked yet — a year needs both its own balance sheet and the one before it.';
+  return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 4px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Balance Sheet vs. Income Statement</h4>'
+    + '<p style="font-size:.74rem;color:var(--warm-gray);margin:0 0 8px;">The year\'s change in total equity should equal that year\'s net income. ' + esc(summary)
+    + ' A difference is not automatically an error — a cash-basis balance sheet next to an accrual income statement, or an adjustment booked straight to equity, will show up here legitimately.</p>'
+    + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead><tr style="background:var(--warm-surface-header);">' + th('Year') + th('Opening Equity', true) + th('Closing Equity', true)
+    + th('Change', true) + th('Net Income (P&amp;L)', true) + th('Check') + '</tr></thead>'
+    + '<tbody>' + body + '</tbody></table></div></div>';
+}
 function finRenderChurchBalances(d, multiYear) {
   var el = document.getElementById('fin-church-balances-view');
   if (!el) return;
+  var picker = finRenderBalanceRangePicker(d, multiYear);
   if (!d || !d.rows || !d.rows.length) {
-    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No balance sheet imported yet for ' + d.year + '. Click "Import Balance Sheet" above to upload one.</p>';
+    el.innerHTML = picker
+      + '<p style="font-size:.85rem;color:var(--warm-gray);">No balance sheet imported yet for ' + ((d && d.year) || '') + '. Upload one from <b>Data &amp; Imports</b> (Balance Sheet, or Financial Position for a file covering several years), or pick another year above.</p>'
+      + finRenderBalanceMultiYearChart(multiYear)
+      + finRenderBalanceReconciliation(multiYear);
     return;
   }
   var s = d.summary;
@@ -2999,7 +3517,8 @@ function finRenderChurchBalances(d, multiYear) {
   var checkHtml = Math.abs(offCents) < 1
     ? '<span style="color:var(--sage);">✓ Balances (Assets = Liabilities + Equity)</span>'
     : '<span style="color:var(--danger);">⚠ Off by $' + finFmtMoney(Math.abs(offCents) / 100) + ' — check the import for a missing or misclassified account.</span>';
-  var html = '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:12px;">As of ' + esc(d.asOfDate || d.year) + '</div>'
+  var html = picker
+    + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:12px;">As of ' + esc(d.asOfDate || d.year) + '</div>'
     + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;">'
     + '<div style="flex:1;min-width:170px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">'
     + '<div style="font-size:.7rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Assets</div>'
@@ -3019,6 +3538,7 @@ function finRenderChurchBalances(d, multiYear) {
     html += '<div style="margin-bottom:18px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Asset Composition</h4>' + renderPieChart(assetPie, 170) + '</div>';
   }
   html += finRenderBalanceMultiYearChart(multiYear);
+  html += finRenderBalanceReconciliation(multiYear);
   html += finRenderEquityReclassMultiYearTable(multiYear);
   html += '<details open><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail</summary>'
     + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
@@ -3152,6 +3672,7 @@ function finChurchConfirmBalanceImport() {
     finToast('Imported ' + d.imported + ' account row(s) as of ' + _finChurchBalanceImportPreview.asOfDate + '.');
     _finChurchBalancesData = null;
     if (_finChurchMode === 'balances') finLoadChurchBalances();
+    finRefreshImportStatus();
   }).catch(function(err) {
     btn.disabled = false;
     if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
@@ -3300,6 +3821,7 @@ function finChurchConfirmImport() {
       finToast(msg);
       if (!failed.length) closeModal('fin-church-import-modal');
       finRenderChurchReport();
+      finRefreshImportStatus();
       return;
     }
     var res = files[idx];
@@ -3356,8 +3878,17 @@ function finChurchMonthlyImportFileSelected(inputEl) {
     })
     .then(function(d) {
       _finChurchMonthlyImportPreview = d;
-      statusEl.textContent = 'Parsed "' + d.sheetName + '" — fiscal year ' + d.fiscalYear + ', ' + d.months.length + ' month(s), ' + d.rows.length + ' account/month row(s).'
-        + (d.skipped.length ? ' ' + d.skipped.length + ' line(s) not recognized as accounts (shown below).' : '');
+      // Reads the multi-year shape ({years, monthsByYear}); the single fiscalYear/months pair this
+      // used to read no longer exists, since one file may span many years.
+      var pYears = d.years || [];
+      var pMonths = pYears.reduce(function(n, y) { return n + ((d.monthsByYear || {})[y] || []).length; }, 0);
+      var pSpan = pYears.length
+        ? ' (' + pYears[0] + (pYears.length > 1 ? ' to ' + pYears[pYears.length - 1] : '') + ')'
+        : '';
+      statusEl.textContent = 'Parsed "' + d.sheetName + '" — ' + pYears.length + ' year'
+        + (pYears.length === 1 ? '' : 's') + pSpan + ', ' + pMonths + ' month(s), '
+        + ((d.rows || []).length) + ' account/month row(s).'
+        + ((d.skipped || []).length ? ' ' + d.skipped.length + ' line(s) not recognized as accounts (shown below).' : '');
       previewEl.innerHTML = finChurchRenderMonthlyImportPreview(d);
       confirmBtn.style.display = '';
     })
@@ -3482,6 +4013,7 @@ function finChurchConfirmMonthlyImport() {
       + ' year' + (doneYears.length === 1 ? '' : 's') + ' (' + doneYears[0]
       + (doneYears.length > 1 ? '-' + doneYears[doneYears.length - 1] : '') + ').');
     finRenderChurchReport();
+    finRefreshImportStatus();
     finLoadHealth();
   }).catch(function(err) {
     btn.disabled = false;
@@ -3583,6 +4115,7 @@ function finChurchConfirmActivityImport() {
     closeModal('fin-church-activity-import-modal');
     finToast('Imported ' + d.imported + ' row(s) across ' + d.years.length + ' year(s).');
     finRenderChurchReport();
+    finRefreshImportStatus();
   }).catch(function(err) {
     btn.disabled = false;
     if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
@@ -3681,6 +4214,7 @@ function finChurchConfirmBudgetMultiYearImport() {
     closeModal('fin-church-budget-multi-import-modal');
     finToast('Imported ' + d.imported + ' row(s) across ' + d.years.length + ' year(s).');
     finRenderChurchReport();
+    finRefreshImportStatus();
   }).catch(function(err) {
     btn.disabled = false;
     if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
@@ -3800,6 +4334,7 @@ function finChurchConfirmBalanceMultiImport() {
     closeModal('fin-church-balance-multi-import-modal');
     finToast('Imported ' + d.imported + ' row(s) across ' + d.years.length + ' year(s).');
     finRenderChurchReport();
+    finRefreshImportStatus();
   }).catch(function(err) {
     btn.disabled = false;
     if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
@@ -3866,14 +4401,20 @@ function finExportChurchCsv() {
     });
     rows.push([]);
     rows.push(['Giving (ChMS records, reference only)', (d.givingCents / 100).toFixed(2)]);
-    (d.givingByFund || []).forEach(function(f) {
-      rows.push(['  ' + f.fundName, (f.cents / 100).toFixed(2)]);
-    });
+    // Combined on the leading fund code, same as the on-screen table; a code covering more than
+    // one fund keeps its members as indented lines beneath the combined figure.
+    groupRowsByFundCode(d.givingByFund || [], function(f) { return f.fundName; }, function(f) { return f.cents; })
+      .forEach(function(g) {
+        rows.push(['  ' + g.label, (g.total / 100).toFixed(2)]);
+        if (g.rows.length > 1) g.rows.forEach(function(f) { rows.push(['    ' + f.fundName, (f.cents / 100).toFixed(2)]); });
+      });
   } else if (_finChurchMode === 'multiyear' && _finChurchMultiYearData) {
     var md = _finChurchMultiYearData;
     var years = md.years || [];
     rows.push(['Category'].concat(years));
-    [['Total Revenue', 'Income'], ['Cost of Goods Sold', 'Cost of Goods Sold'], ['Total Expenses', 'Expenses']].forEach(function(rd) {
+    [['Total Revenue', 'Income'], ['Cost of Goods Sold', 'Cost of Goods Sold'], ['Total Expenses', 'Expenses']]
+      .filter(function(rd) { return rd[1] !== 'Cost of Goods Sold' || finChurchMultiYearClassHasData(md, years, rd[1]); })
+      .forEach(function(rd) {
       rows.push([rd[0]].concat(years.map(function(y) { return ((md.byYear[y].classificationTotals[rd[1]] || { actualCents: 0 }).actualCents / 100).toFixed(2); })));
     });
     rows.push(['Net Income'].concat(years.map(function(y) { return (md.byYear[y].netIncome.actualCents / 100).toFixed(2); })));
@@ -4215,6 +4756,7 @@ function finPropertyBudgetImportFileSelected(inputEl) {
       if (statusEl) statusEl.textContent = 'Imported ' + d.imported + ' month(s): ' + d.months.map(function(m) { return m.period; }).join(', ') + '.';
       inputEl.value = '';
       finLoadProperty();
+      finRefreshImportStatus();
     })
     .catch(function(err) {
       if (err.message !== 'Unauthorized' && statusEl) statusEl.textContent = 'Error: ' + err.message;
@@ -4240,6 +4782,7 @@ function finPropertyImportMonthlyCsv() {
     .then(function(d) {
       if (d && d.error) { if (statusEl) statusEl.textContent = d.error; return; }
       if (statusEl) statusEl.textContent = 'Imported ' + d.imported + ' month(s): ' + d.periods.join(', ') + '.';
+      finRefreshImportStatus();
       if (textEl) textEl.value = '';
       finLoadProperty();
     })

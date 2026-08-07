@@ -6,6 +6,7 @@
 // app's integer-cents convention — they're display-only, never combined arithmetically with
 // giving_entries/tuition figures.
 import { json } from './auth.js';
+import { resolveGeneralFundIds } from './api-utils.js';
 import { getAuthorizeUrl, exchangeCodeForTokens, refreshTokens, revokeToken, makeQboClient, qboConfigured } from './quickbooks.js';
 import { makeDaycareClient, daycareConfigured } from './daycare.js';
 
@@ -1267,6 +1268,60 @@ export function computeBalanceSummary(rows) {
     liabilitiesPlusEquityCents: liabilities + equity, balancedCents: assets - (liabilities + equity) };
 }
 
+// ── Balance sheet ↔ P&L tie-out ─────────────────────────────────────────────────────────────
+// A balance sheet and an income statement for the same year are two views of one set of books:
+// the year's change in total equity (net assets) should equal that year's net income, because
+// every other equity movement — a transfer between funds, a reclassification — nets to zero
+// within total equity. This is the check that says an imported past year actually belongs to the
+// same books as its P&L, which is exactly what an admin uploading several years of history needs
+// to see. A difference is NOT automatically an error and is never reported as one: a cash-basis
+// balance sheet sitting next to an accrual P&L (this church has at least one such year on file —
+// see the basis flag on the import), a prior-period adjustment booked straight to equity, or an
+// owner-equity-style contribution will all land here legitimately. It is reported as a difference
+// to explain, not a failure.
+//
+// A year can only be checked when its IMMEDIATE predecessor also has a balance sheet — without
+// opening equity there is no change to compare against. Those years are still listed, with the
+// reason, so "which year do I still need to upload?" is answerable from the same table.
+export const BALANCE_PNL_TOLERANCE_CENTS = 100; // $1 — absorbs rounding, nothing more.
+export function computeBalanceVsPnlReconciliation(years, balanceByYear, netIncomeByYear) {
+  const sorted = [...new Set((years || []).filter(Number.isFinite))].sort((a, b) => a - b);
+  const summaryFor = y => (balanceByYear || {})[y] || null;
+  // A year with no imported rows still gets a zeroed summary from computeBalanceSummary(), which
+  // is indistinguishable from a real $0 equity unless the classification map is consulted.
+  const hasBalance = y => {
+    const s = summaryFor(y);
+    return !!(s && s.classificationTotals && Object.keys(s.classificationTotals).length);
+  };
+  const rows = [];
+  for (const year of sorted) {
+    if (!hasBalance(year)) continue;
+    const priorYear = year - 1;
+    const priorKnown = hasBalance(priorYear);
+    const equityCents = summaryFor(year).equityCents;
+    const priorEquityCents = priorKnown ? summaryFor(priorYear).equityCents : null;
+    const changeCents = priorKnown ? equityCents - priorEquityCents : null;
+    const ni = (netIncomeByYear || {})[year];
+    const netIncomeCents = ni == null ? null : ni;
+    let differenceCents = null;
+    let status;
+    if (!priorKnown) status = 'no_prior_balance';
+    else if (netIncomeCents == null) status = 'no_pnl';
+    else {
+      differenceCents = changeCents - netIncomeCents;
+      status = Math.abs(differenceCents) <= BALANCE_PNL_TOLERANCE_CENTS ? 'ok' : 'off';
+    }
+    rows.push({ year, prior_year: priorYear, equity_cents: equityCents, prior_equity_cents: priorEquityCents,
+      change_cents: changeCents, net_income_cents: netIncomeCents, difference_cents: differenceCents, status });
+  }
+  return {
+    rows,
+    checked: rows.filter(r => r.status === 'ok' || r.status === 'off').length,
+    matched: rows.filter(r => r.status === 'ok').length,
+    unexplained: rows.filter(r => r.status === 'off').length,
+  };
+}
+
 // ── Equity reclassification: Donor-Restricted vs. Without Donor Restrictions ────────────────
 // Per Timothy_Equity_Reclassification_Spec.md — replaces QuickBooks' four-way equity split
 // (Unrestricted / Board Restricted / Temp. Restricted / Perm. Restricted) with the real
@@ -1932,6 +1987,100 @@ export function computeRevenueStreams(entries, overrides) {
   // its own account tree from this same map, so one saved classification drives both pages.
   return { streams, totalCents, totalBudgetCents, unmapped, map };
 }
+// ── Flow diagram data contract ("How the money moves") ──────────────────────────────────────
+// Expense rows carry their classification as segment 0 of category_path exactly as revenue rows
+// do (see revenueGroupLabel and the live regression it documents), so the group a human can
+// actually classify is segment 1. Same rule, different heads.
+const EXPENSE_PATH_HEADS = new Set(['expenses', 'other expenses', 'cost of goods sold', 'expenditures', 'other expenditures']);
+export function expenseGroupLabel(categoryPath, accountName) {
+  const segs = String(categoryPath || accountName || '').split(':').map(x => x.trim()).filter(Boolean);
+  if (segs.length > 1 && EXPENSE_PATH_HEADS.has(segs[0].toLowerCase())) return segs[1];
+  return segs[0] || '';
+}
+// The board's five expense categories are its own vocabulary, not the chart of accounts, so the
+// GL-account → category mapping is config-driven and admin-maintainable (chms_config key
+// finance_flow_expense_map), exactly like the revenue-stream mapping above. The regexes below are
+// only the DEFAULT for an account nobody has mapped yet, and every account resolved that way is
+// returned in `unmapped` so the validation report the handoff asks for has something to show.
+//
+// `programs` is the fallback rather than a null bucket: an unmapped account still has to appear
+// somewhere or the outflow total stops matching total expenses, and a silently-dropped account is
+// far worse than a visibly-miscategorised one.
+export const FLOW_EXPENSE_CATEGORIES = [
+  { key: 'mdo', label: 'MDO', note: 'staffing & operations' },
+  { key: 'salaries', label: 'Salaries & Benefits', note: 'church staff' },
+  { key: 'property', label: 'Property & Operations', note: '' },
+  { key: 'education', label: 'Lutheran Education', note: '' },
+  { key: 'programs', label: 'Programs', note: '' },
+];
+export const FLOW_EXPENSE_KEYS = FLOW_EXPENSE_CATEGORIES.map(c => c.key);
+const FLOW_EXPENSE_RULES = [
+  { key: 'mdo', re: MDO_MATCH_RE },
+  { key: 'salaries', re: /salar|payroll|wage|benefit|compensation|pension|fica|health insurance|disability/i },
+  { key: 'education', re: /educat|school|lutheran high|scholarship|tuition aid|seminar/i },
+  { key: 'property', re: /propert|facilit|utilit|maintenance|building|grounds|janitor|custodial|repair|mortgage|insuranc/i },
+  { key: 'programs', re: /program|worship|music|youth|children|mission|outreach|fellowship|evangel/i },
+];
+export function classifyFlowExpense(label, overrides) {
+  const mapped = overrides && overrides[label];
+  if (mapped && FLOW_EXPENSE_KEYS.includes(mapped)) return { key: mapped, mapped: true };
+  for (const rule of FLOW_EXPENSE_RULES) if (rule.re.test(label || '')) return { key: rule.key, mapped: false };
+  return { key: 'programs', mapped: false };
+}
+// Builds the Sankey's node lists from a year's precedence-resolved rows. Amounts only — never
+// geometry; the layout is computed client-side (see finFlowLayout in js-finance.js).
+//
+// Sources are the real top-level GL groups, one node each, tagged with the stream they belong to,
+// so both halves of the diagram use the same classification the mix bar above it does — including
+// restricted income, which is its own stream rather than a slice carved back out of donor giving.
+export function computeFlowDiagram(entries, opts = {}) {
+  const { streamOverrides = {}, expenseOverrides = {} } = opts;
+  const { streams } = computeRevenueStreams(entries, streamOverrides);
+
+  const sources = [];
+  for (const s of REVENUE_STREAMS) {
+    for (const g of streams[s].groups) {
+      if (g.cents <= 0) continue;
+      sources.push({ id: `${s}:${g.label}`, label: g.label, stream: s, cents: g.cents });
+    }
+  }
+  // NOTE: donor revenue is deliberately NOT re-split here by the ChMS restricted ratio. Restricted
+  // income became its own stream in the chart-of-accounts classification (see REVENUE_STREAM_RULES),
+  // so it already arrives as its own source node — splitting the donor node again would draw the
+  // same restricted dollars twice and inflate total revenue.
+
+  const byCategory = new Map();
+  const unmappedExpenses = [];
+  for (const r of entries || []) {
+    if (r.classification !== 'Expenses' && r.classification !== 'Other Expenses' && r.classification !== 'Cost of Goods Sold') continue;
+    const cents = r.own_actual_cents || 0;
+    if (!cents) continue;
+    const label = expenseGroupLabel(r.category_path, r.account_name);
+    const { key, mapped } = classifyFlowExpense(`${label} ${r.account_name || ''}`, expenseOverrides);
+    byCategory.set(key, (byCategory.get(key) || 0) + cents);
+    if (!mapped && label) {
+      const seen = unmappedExpenses.find(u => u.label === label);
+      if (seen) seen.cents += cents;
+      else unmappedExpenses.push({ label, cents, defaultedTo: key });
+    }
+  }
+  const expenses = FLOW_EXPENSE_CATEGORIES
+    .map(c => ({ id: c.key, label: c.label, note: c.note, cents: byCategory.get(c.key) || 0 }))
+    .filter(c => c.cents > 0);
+  unmappedExpenses.sort((a, b) => b.cents - a.cents);
+
+  const streamTotals = REVENUE_STREAMS.map(s => ({ id: s, cents: streams[s].cents }))
+    .filter(s => s.cents > 0);
+  const totalRevenueCents = sources.reduce((sum, s) => sum + s.cents, 0);
+  const totalExpenseCents = expenses.reduce((sum, e) => sum + e.cents, 0);
+  return {
+    sources, streams: streamTotals, expenses,
+    totalRevenueCents, totalExpenseCents,
+    netCents: totalRevenueCents - totalExpenseCents,
+    unmappedExpenses,
+  };
+}
+
 // Where the money goes, split the same way the revenue side is: MDO accounts vs. everything else.
 // Uses the same MDO_MATCH_RE the daycare importer already keys on, so the two halves are exactly
 // the same set of accounts the Daycare Report is built from — and because every expense row lands
@@ -1974,6 +2123,34 @@ export function computeCashRunway({ onHandCents, expensesYtdCents, monthsElapsed
 // heuristic the retired Overview "Balances" row used, now server-side so the Health page and any
 // future consumer read one figure. An admin can override it outright (finance_cash_policy config)
 // when the heuristic picks up the wrong accounts, which is why the source is reported alongside.
+// Operating cash straight off the imported balance sheet — the church's own confirmed figure,
+// which is what a treasurer would read if asked "how much cash do we have?". This church's
+// operating account is "11027 Lindell Checking xx9105"; `accountCode` (Data & Imports →
+// Classification & policy) pins it exactly, and with nothing pinned the fallback is a name match
+// on "checking".
+//
+// Two things this deliberately does NOT do. It doesn't sweep in savings/reserve accounts the way
+// the QuickBooks heuristic does — restricted reserves are not operating cash, and a runway built
+// on money the congregation has already promised elsewhere overstates how long the lights stay
+// on. And it doesn't silently sum whatever it finds: the matched account names come back with the
+// figure so the card can name them, because an unpinned name match could just as easily pick up a
+// daycare checking account. Rollup rows (has_children) are skipped so a parent and its children
+// are never both counted.
+export function operatingCashFromBalanceSheet(rows, accountCode) {
+  const code = String(accountCode || '').trim();
+  const matches = (rows || []).filter(r => {
+    if (r.classification !== 'Assets') return false;
+    if (r.has_children) return false;
+    const name = String(r.account_name || '').trim();
+    return code ? name.startsWith(code) : /checking/i.test(name);
+  });
+  if (!matches.length) return null;
+  return {
+    cents: matches.reduce((s, r) => s + (r.own_balance_cents || 0), 0),
+    accounts: matches.map(r => String(r.account_name || '').trim()),
+    asOfDate: String(matches[0].as_of_date || ''),
+  };
+}
 export function operatingCashFromAccounts(accountsPayload) {
   const list = accountsPayload?.QueryResponse?.Account || [];
   let cents = 0, matched = 0;
@@ -2344,7 +2521,17 @@ async function readRevenueStreamOverrides(db) {
   const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_revenue_streams'").first();
   try { return row ? (JSON.parse(row.value).map || {}) : {}; } catch { return {}; }
 }
-const DEFAULT_CASH_POLICY = { policy_floor_months: 3, cash_on_hand_cents: null };
+// The latest imported_at across a year's rows — what "as of" actually means for these figures.
+function finChurchAsOfIso(entries) {
+  let latest = '';
+  for (const r of entries || []) if (r.imported_at && r.imported_at > latest) latest = r.imported_at;
+  return latest;
+}
+async function readFlowExpenseOverrides(db) {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_flow_expense_map'").first();
+  try { return row ? (JSON.parse(row.value).map || {}) : {}; } catch { return {}; }
+}
+const DEFAULT_CASH_POLICY = { policy_floor_months: 3, cash_on_hand_cents: null, cash_account_code: '' };
 async function readCashPolicy(db) {
   const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_cash_policy'").first();
   if (!row) return { ...DEFAULT_CASH_POLICY };
@@ -2353,6 +2540,9 @@ async function readCashPolicy(db) {
     return {
       policy_floor_months: Number.isFinite(v.policy_floor_months) ? v.policy_floor_months : DEFAULT_CASH_POLICY.policy_floor_months,
       cash_on_hand_cents: Number.isFinite(v.cash_on_hand_cents) ? v.cash_on_hand_cents : null,
+      // The balance-sheet account that IS operating cash, by its leading code ("11027"). Blank
+      // falls back to a name match on "checking".
+      cash_account_code: typeof v.cash_account_code === 'string' ? v.cash_account_code.trim() : '',
     };
   } catch { return { ...DEFAULT_CASH_POLICY }; }
 }
@@ -2913,6 +3103,55 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ ok: true, map });
   }
 
+  // ── Flow diagram ("How the money moves") ─────────────────────────────────────────────────
+  // The contract the design handoff names. Amounts only, never geometry — the layout is computed
+  // client-side. The Health page reads the same figures off church/this-year rather than calling
+  // this, so the two can never disagree: both come from computeFlowDiagram().
+  if (seg === 'finance/flow' && method === 'GET') {
+    const year = parseInt(url.searchParams.get('fy'), 10) || new Date().getFullYear();
+    const rows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(year).all()).results || [];
+    const entries = resolveChurchYearPrecedence(rows);
+    const diagram = computeFlowDiagram(entries, {
+      streamOverrides: await readRevenueStreamOverrides(db),
+      expenseOverrides: await readFlowExpenseOverrides(db),
+    });
+    return json({ fiscal_year: year, as_of: finChurchAsOfIso(entries), ...diagram });
+  }
+
+  // Expense-category mapping — the validation report the handoff asks for, plus the editor that
+  // resolves it. Same shape and same guarantees as the revenue-stream mapping above.
+  if (seg === 'finance/flow-expense-map' && method === 'GET') {
+    const year = parseInt(url.searchParams.get('year'), 10) || new Date().getFullYear();
+    const overrides = await readFlowExpenseOverrides(db);
+    const rows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(year).all()).results || [];
+    const entries = resolveChurchYearPrecedence(rows);
+    const groups = new Map();
+    for (const r of entries) {
+      if (r.classification !== 'Expenses' && r.classification !== 'Other Expenses' && r.classification !== 'Cost of Goods Sold') continue;
+      const label = expenseGroupLabel(r.category_path, r.account_name);
+      if (!label) continue;
+      if (!groups.has(label)) groups.set(label, { label, cents: 0, ...classifyFlowExpense(label, overrides) });
+      groups.get(label).cents += (r.own_actual_cents || 0);
+    }
+    return json({
+      year, overrides, categories: FLOW_EXPENSE_CATEGORIES,
+      groups: [...groups.values()].sort((a, b) => b.cents - a.cents),
+    });
+  }
+  if (seg === 'finance/flow-expense-map' && method === 'PUT') {
+    if (!isAdmin) return json({ error: 'Access denied: editing the expense-category mapping requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const map = {};
+    for (const [label, key] of Object.entries(b.map || {})) {
+      if (!FLOW_EXPENSE_KEYS.includes(key)) return json({ error: `Invalid category "${key}" for "${label}"` }, 400);
+      map[String(label)] = key;
+    }
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_flow_expense_map',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(JSON.stringify({ map })).run();
+    return json({ ok: true, map });
+  }
+
   // ── Cash policy (runway card) ────────────────────────────────────────────────────────────
   if (seg === 'finance/cash-policy' && method === 'GET') return json(await readCashPolicy(db));
   if (seg === 'finance/cash-policy' && method === 'PUT') {
@@ -2925,7 +3164,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       cents = Math.round(Number(b.cash_on_hand_cents));
       if (!Number.isFinite(cents)) return json({ error: 'Invalid cash_on_hand_cents' }, 400);
     }
-    const value = { policy_floor_months: months, cash_on_hand_cents: cents };
+    const accountCode = String(b.cash_account_code || '').trim();
+    if (accountCode && !/^[\w.-]{1,32}$/.test(accountCode)) return json({ error: 'cash_account_code should be an account code like 11027' }, 400);
+    const value = { policy_floor_months: months, cash_on_hand_cents: cents, cash_account_code: accountCode };
     await db.prepare(
       `INSERT INTO chms_config (key,value) VALUES ('finance_cash_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(JSON.stringify(value)).run();
@@ -3094,26 +3335,91 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const streamOverrides = await readRevenueStreamOverrides(db);
     const revenueStreams = computeRevenueStreams(entries, streamOverrides);
     const flow = computeMoneyFlow(entries);
+    // The Sankey's own node lists. Returned here as well as from GET finance/flow so the Health
+    // page, which already fetches this payload, needs no second round trip for the same figures.
+    const flowDiagram = computeFlowDiagram(entries, {
+      streamOverrides,
+      expenseOverrides: await readFlowExpenseOverrides(db),
+    });
 
     // Month-by-month giving from ChMS's own records, for the Health page's "giving against budget
     // pace" chart. Deliberately ChMS giving rather than the church ledger's monthly Income, which
     // also carries MDO tuition and rentals — the chart is about the offering plate, and labelling
     // a mixed figure "giving" would be the kind of near-enough number this page exists to avoid.
+    //
+    // Scoped to the GENERAL FUND family only (the 40085 group). The rest of what comes through the
+    // plate is designated — Concordia Children's Services and the like are pass-through: the money
+    // arrives and leaves, and counting it here would show the operating budget being met by money
+    // that was never available to meet it. Same General-Fund rule as the board report
+    // (resolveGeneralFundIds), not a second one. Grouped by fund and summed in JS rather than an
+    // IN-list, so the query can't run into D1's parameter limit as the fund list grows.
+    const fundRowsForPace = (await db.prepare('SELECT id, name, category FROM funds').all()).results || [];
+    const { prefix: genFundPrefix, ids: genFundIdsForPace } = resolveGeneralFundIds(fundRowsForPace);
     const givingMonthlyRows = (await db.prepare(
-      `SELECT CAST(substr(ge.contribution_date,6,2) AS INTEGER) AS m, COALESCE(SUM(ge.amount),0) AS cents
+      `SELECT CAST(substr(ge.contribution_date,6,2) AS INTEGER) AS m, ge.fund_id AS fund_id,
+              COALESCE(SUM(ge.amount),0) AS cents
        FROM giving_entries ge
        WHERE ge.contribution_date BETWEEN ? AND ?
-       GROUP BY m ORDER BY m`
+       GROUP BY m, ge.fund_id ORDER BY m`
     ).bind(`${year}-01-01`, `${year}-12-31`).all()).results || [];
+    // With no General Fund identifiable at all (no categorised fund, no fund named "General
+    // Fund"), fall back to every fund rather than charting a flat $0 — and say so on the card,
+    // since an all-funds line under a General-Fund heading would be the wrong number stated
+    // confidently.
+    const paceScoped = genFundIdsForPace.size > 0;
     const givingByMonth = new Array(12).fill(0);
-    for (const r of givingMonthlyRows) if (r.m >= 1 && r.m <= 12) givingByMonth[r.m - 1] = r.cents || 0;
+    let givingExcludedCents = 0;
+    for (const r of givingMonthlyRows) {
+      const cents = r.cents || 0;
+      if (paceScoped && !genFundIdsForPace.has(r.fund_id)) { givingExcludedCents += cents; continue; }
+      if (r.m >= 1 && r.m <= 12) givingByMonth[r.m - 1] += cents;
+    }
     const givingMonthly = givingByMonth.map((cents, i) => ({ month: i + 1, cents }));
+    // The pace line has to be the General Fund's OWN budget, or the chart compares one fund's
+    // giving against every donor account's budget and reads as a permanent shortfall. Same source
+    // the board report's General Fund card uses: the church ledger accounts sharing the fund
+    // family's leading numeric code (e.g. "40085 Sunday Offering"). null, never 0, when nothing
+    // has been imported for that account yet — the card then draws no pace line at all.
+    let givingBudgetCents = null;
+    if (paceScoped && genFundPrefix) {
+      const withBudget = entries.filter(r => String(r.account_name || '').trim().startsWith(genFundPrefix)
+        && r.own_budget_cents != null);
+      if (withBudget.length) givingBudgetCents = withBudget.reduce((s, r) => s + (r.own_budget_cents || 0), 0);
+    }
+    const givingPace = {
+      scope: paceScoped ? 'general_fund' : 'all_funds',
+      budgetCents: givingBudgetCents,
+      budgetSource: givingBudgetCents != null ? `church ledger accounts starting ${genFundPrefix}` : '',
+      excludedCents: givingExcludedCents,
+    };
 
     // Operating cash runway. Cash on hand prefers an explicit admin figure and falls back to the
     // stored QuickBooks account snapshot; `cash.source` names which one produced the number, so a
     // runway built on a name-matching heuristic never masquerades as a confirmed balance.
     const cashPolicy = await readCashPolicy(db);
     let onHandCents = cashPolicy.cash_on_hand_cents, cashSource = 'manual';
+    let cashAccounts = [], cashAsOf = '';
+    if (onHandCents == null) {
+      // The imported balance sheet outranks the QuickBooks account snapshot: it is the church's
+      // own confirmed statement of position, where the snapshot is a name-matching heuristic over
+      // whatever accounts happen to be connected. Uses the most recent balance sheet at or before
+      // the year being viewed — its as-of date rides along, so a figure from an older statement is
+      // never read as today's bank balance.
+      const balYearRow = await db.prepare(
+        'SELECT MAX(fiscal_year) AS y FROM finance_church_balances WHERE fiscal_year <= ?'
+      ).bind(year).first();
+      const balYear = balYearRow?.y;
+      if (balYear != null) {
+        const balRows = (await db.prepare('SELECT * FROM finance_church_balances WHERE fiscal_year=?').bind(balYear).all()).results || [];
+        const fromSheet = operatingCashFromBalanceSheet(balRows, cashPolicy.cash_account_code);
+        if (fromSheet) {
+          onHandCents = fromSheet.cents;
+          cashSource = 'balance_sheet';
+          cashAccounts = fromSheet.accounts;
+          cashAsOf = fromSheet.asOfDate || `FY${balYear}`;
+        }
+      }
+    }
     if (onHandCents == null) {
       const snapRow = await db.prepare("SELECT value FROM finance_qb_snapshot WHERE key='accounts'").first();
       let accounts = null;
@@ -3131,6 +3437,8 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
         policyFloorMonths: cashPolicy.policy_floor_months,
       }),
       source: cashSource,
+      accounts: cashAccounts,
+      asOfDate: cashAsOf,
     };
 
     // YoY-to-date + year-end projection — only meaningful for the current year (a past year's
@@ -3175,8 +3483,10 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       givingHouseholds,
       donorBands,
       givingMonthly,
+      givingPace,
       revenueStreams,
       flow,
+      flowDiagram,
       cash,
       monthlyTrend,
       yoy,
@@ -3305,13 +3615,21 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     let sheets;
     try { sheets = await parseXlsxAllSheets(await file.arrayBuffer()); }
     catch (e) { return json({ error: 'Could not read this file as an Excel workbook: ' + e.message }, 400); }
-    const sheet = findMonthlyPnLSheet(sheets);
-    if (!sheet) return json({ error: 'Could not find a month-by-month "Profit and Loss by Month" sheet (a sheet with columns like "Jan 2026", "Feb 2026", ...) in this file.' }, 400);
-    let parsed;
-    try { parsed = parseMonthlyPnLGrid(sheet.grid, sheet.colAIndent); }
-    catch (e) { return json({ error: e.message }, 400); }
-    if (!parsed.rows.length) return json({ error: 'Found ' + parsed.skipped.length + ' row(s) in this sheet but could not read any of them as accounts — no indentation was detected, so the account hierarchy could not be determined. Check that the export preserves the row indenting QuickBooks applies to sub-accounts.' }, 400);
-    return json({ sheetName: sheet.name, years: parsed.years, monthsByYear: parsed.monthsByYear, rows: parsed.rows, skipped: parsed.skipped });
+    // Outer catch so an unexpected throw anywhere below reports what actually happened instead of
+    // reaching the worker's top-level handler, which returns a deliberately opaque
+    // "Internal server error. Please try again." — undiagnosable from a bug report. Every
+    // *expected* failure below still returns its own specific 4xx.
+    try {
+      const sheet = findMonthlyPnLSheet(sheets);
+      if (!sheet) return json({ error: 'Could not find a month-by-month "Profit and Loss by Month" sheet (a sheet with columns like "Jan 2026", "Feb 2026", ...) in this file.' }, 400);
+      let parsed;
+      try { parsed = parseMonthlyPnLGrid(sheet.grid, sheet.colAIndent); }
+      catch (e) { return json({ error: e.message }, 400); }
+      if (!parsed.rows.length) return json({ error: 'Found ' + parsed.skipped.length + ' row(s) in this sheet but could not read any of them as accounts — no indentation was detected, so the account hierarchy could not be determined. Check that the export preserves the row indenting QuickBooks applies to sub-accounts.' }, 400);
+      return json({ sheetName: sheet.name, years: parsed.years, monthsByYear: parsed.monthsByYear, rows: parsed.rows, skipped: parsed.skipped });
+    } catch (e) {
+      return json({ error: 'Could not read this Monthly P&L sheet: ' + (e && e.message ? e.message : String(e)) }, 500);
+    }
   }
 
   // Commit step: wholesale-replaces any existing source='monthly_import' rows for every fiscal
@@ -3328,15 +3646,33 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       || !Number.isFinite(r.own_actual_cents));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
     const years = [...new Set(rows.map(r => r.fiscal_year))].sort((a, b2) => a - b2);
-    await persistChurchEntriesMonthlyImport(db, rows, new Date().toISOString());
+    // The write is the one step here that can fail for reasons only the database knows (a quota,
+    // a batch limit, a constraint). Unguarded it reached the worker's top-level handler, which
+    // deliberately hides internals and returns a bare "Internal server error. Please try again." —
+    // true but undiagnosable, and this route is already finance-gated, so the real message is
+    // safe to show and is the difference between a fixable report and a guess. Same reasoning as
+    // the column-count error in api-import.js.
+    try {
+      await persistChurchEntriesMonthlyImport(db, rows, new Date().toISOString());
+    } catch (e) {
+      return json({ error: 'Could not save ' + rows.length + ' rows for '
+        + (years.length === 1 ? 'FY' + years[0] : 'FY' + years[0] + '-FY' + years[years.length - 1])
+        + ': ' + (e && e.message ? e.message : String(e)) }, 500);
+    }
     // The note describes everything now stored, not just this request's slice — the UI commits a
     // multi-year file one year per request, so a per-request note would leave the Data & Imports
     // card claiming only the last year was ever imported.
-    const stored = await db.prepare(
-      `SELECT MIN(fiscal_year) AS lo, MAX(fiscal_year) AS hi FROM finance_church_entries WHERE source='monthly_import' AND period_month BETWEEN 1 AND 12`
-    ).bind().first().catch(() => null);
-    const lo = stored && stored.lo != null ? stored.lo : years[0];
-    const hi = stored && stored.hi != null ? stored.hi : years[years.length - 1];
+    let lo = years[0], hi = years[years.length - 1];
+    // try/catch, not .catch() — a synchronous throw here would escape a promise-tail handler and
+    // take down the whole route AFTER the rows were already written, leaving the data imported but
+    // the log row missing. The note is a nicety; the import it describes has already succeeded.
+    // (Parameterless queries call .first() straight off .prepare() everywhere else in this file.)
+    try {
+      const stored = await db.prepare(
+        `SELECT MIN(fiscal_year) AS lo, MAX(fiscal_year) AS hi FROM finance_church_entries WHERE source='monthly_import' AND period_month BETWEEN 1 AND 12`
+      ).first();
+      if (stored && stored.lo != null) { lo = stored.lo; hi = stored.hi; }
+    } catch { /* fall back to this request's own year range */ }
     await recordImport(db, 'church_monthly_pnl', lo === hi ? `FY${lo}` : `FY${lo}-FY${hi}`);
     return json({ ok: true, years, imported: rows.length });
   }
@@ -3443,7 +3779,15 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     if (!rows.length) return json({ error: 'No rows to import' }, 400);
     const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number' || !Number.isFinite(r.own_balance_cents));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
-    await persistChurchBalancesImport(db, rows, fiscalYear, String(b.as_of_date || ''), new Date().toISOString());
+    // See the Monthly P&L commit route: unguarded, a database failure here reaches the worker's
+    // top-level handler and becomes an opaque "Internal server error", which cannot be diagnosed
+    // from a bug report. This route is finance-gated, so the real message is safe to return.
+    try {
+      await persistChurchBalancesImport(db, rows, fiscalYear, String(b.as_of_date || ''), new Date().toISOString());
+    } catch (e) {
+      return json({ error: 'Could not save ' + rows.length + ' balance rows for FY' + fiscalYear
+        + ': ' + (e && e.message ? e.message : String(e)) }, 500);
+    }
     await recordImport(db, 'church_balance', `FY${fiscalYear}`);
     return json({ ok: true, fiscalYear, imported: rows.length });
   }
@@ -3477,7 +3821,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number'
       || !Number.isInteger(r.fiscal_year) || !Number.isFinite(r.own_balance_cents));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
-    await persistChurchBalancesMultiYearImport(db, rows, years, new Date().toISOString());
+    try {
+      await persistChurchBalancesMultiYearImport(db, rows, years, new Date().toISOString());
+    } catch (e) {
+      return json({ error: 'Could not save ' + rows.length + ' balance rows for FY' + years[0]
+        + (years.length > 1 ? '-FY' + years[years.length - 1] : '')
+        + ': ' + (e && e.message ? e.message : String(e)) }, 500);
+    }
     await recordImport(db, 'church_balance_multi', years.join(', '));
     return json({ ok: true, years, imported: rows.length });
   }
@@ -3500,16 +3850,34 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       ? yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite)
       : [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
     if (!years.length) return json({ error: 'No valid years requested' }, 400);
-    const placeholders = years.map(() => '?').join(',');
-    const allRows = (await db.prepare(`SELECT * FROM finance_church_balances WHERE fiscal_year IN (${placeholders})`).bind(...years).all()).results || [];
+    // One year BEFORE the requested window is fetched too: the tie-out below needs the opening
+    // equity of the earliest requested year, and without it that year would always report "no
+    // prior balance sheet" purely because of where the range picker happens to start.
+    const openingYear = Math.min(...years) - 1;
+    const balanceYears = years.includes(openingYear) ? years : [...years, openingYear];
+    const placeholders = balanceYears.map(() => '?').join(',');
+    const allRows = (await db.prepare(`SELECT * FROM finance_church_balances WHERE fiscal_year IN (${placeholders})`).bind(...balanceYears).all()).results || [];
     const byYear = {};
     const equityReclassByYear = {};
-    years.forEach(y => {
+    balanceYears.forEach(y => {
       const yearRows = allRows.filter(r => r.fiscal_year === y);
       byYear[y] = computeBalanceSummary(yearRows);
-      equityReclassByYear[y] = yearRows.length ? computeEquityReclassification(yearRows) : null;
+      if (years.includes(y)) equityReclassByYear[y] = yearRows.length ? computeEquityReclassification(yearRows) : null;
     });
-    return json({ years, byYear, equityReclassByYear });
+    // Net income for the same years, from the income-statement table — same precedence resolution
+    // and same period_month=0 filter the Multi-Year income view uses, so the figure quoted in the
+    // tie-out is the identical number that view shows and the two can never disagree.
+    const pnlRows = (await db.prepare(
+      `SELECT * FROM finance_church_entries WHERE fiscal_year IN (${years.map(() => '?').join(',')}) AND period_month=0`
+    ).bind(...years).all()).results || [];
+    const resolvedPnl = resolveChurchYearPrecedence(pnlRows);
+    const netIncomeByYear = {};
+    years.forEach(y => {
+      const yearRows = resolvedPnl.filter(r => r.fiscal_year === y);
+      netIncomeByYear[y] = yearRows.length ? computeYearSummary(yearRows).netIncome.actualCents : null;
+    });
+    return json({ years, byYear, equityReclassByYear, netIncomeByYear,
+      reconciliation: computeBalanceVsPnlReconciliation(years, byYear, netIncomeByYear) });
   }
 
   // ── Church Budget Planning — forward multi-year what-if planning (Property Expenses,

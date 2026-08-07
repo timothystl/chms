@@ -3,6 +3,17 @@ import vm from 'node:vm';
 import { HTML_TABS_1, HTML_TABS_2 } from '../src/frontend/html-tabs.js';
 import { HTML_HEAD } from '../src/frontend/html-head.js';
 import { JS_GIVING } from '../src/frontend/js-giving.js';
+import { JS_CORE } from '../src/frontend/js-core.js';
+
+// The board's fund table combines funds on their leading code via js-core's groupRowsByFundCode.
+// That rule is the thing under test here, so it is taken from the real js-core source rather than
+// stubbed — but only that slice of it, to keep this sandbox as light as it already is.
+const FUND_GROUPING_SRC = (() => {
+  const start = JS_CORE.indexOf('function fundCodeOf');
+  const end = JS_CORE.indexOf('function mapUrl');
+  if (start < 0 || end < start) throw new Error('fund-code grouping helpers not found in js-core');
+  return JS_CORE.slice(start, end);
+})();
 
 const TABS = HTML_TABS_1 + HTML_TABS_2;
 const GIVING_MARKUP = TABS.slice(TABS.indexOf('<div id="tab-giving"'), TABS.indexOf('<!-- ═══ REPORTS TAB ═══ -->'));
@@ -122,6 +133,7 @@ function makeSandbox() {
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
+  vm.runInContext(FUND_GROUPING_SRC, sandbox);
   const src = JS_GIVING.replace(/^<script>/, '').replace(/<\/script>\s*$/, '');
   vm.runInContext(src, sandbox);
   return { sandbox, el, calls, els };

@@ -24,9 +24,10 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
-### v1.152.0 — Embedded / non-embedded marked on each plan, and the spread-cost model generalised (2026-08-07)
+### v1.155.0 — Embedded / non-embedded marked on each plan, and the spread-cost model generalised (2026-08-07)
 
-Follow-up to v1.151.0, working from the plan's own definition supplied by the church (non-embedded
+Follow-up to the single/family deductible split below, working from the plan's own definition
+supplied by the church (non-embedded
 = a true family deductible, no individual limits, one person can pay the whole family amount;
 embedded = each member has their own limit inside the family limit and starts paying coinsurance
 once they meet it, even if the family deductible has not been met).
@@ -73,6 +74,393 @@ rather than a code fault, and were rewritten around the derived rule instead of 
 `node --check` on both bundles and a render check of the callout and all five badges. **Not
 verified:** a live browser.
 
+### v1.154.0 — Giving pace is General Fund only; cash runway reads the balance sheet (2026-08-07)
+
+**Reported**, with a screenshot of the Financial Health page: the giving-pace chart should count
+only General Fund giving (the 40085 family) — "all the other giving could be to things like
+Concordia Children's which is just pass through" — and the operating cash runway should come off
+the balance sheet, where **11027 Lindell Checking xx9105** is the operating account.
+
+**The pace chart was counting every fund.** Designated and pass-through giving arrives and leaves;
+counting it showed the operating budget being met by money that was never available to meet it.
+Now scoped to the General Fund family using `resolveGeneralFundIds()` — **extracted from the giving
+board handler rather than written again**, because a second copy of that rule is precisely the bug
+where two screens each quote a "General Fund giving" total and both look right. The board report
+now calls the shared helper; its 46 tests were untouched and still pass.
+
+**The budget line had to move with it.** It was `revenueStreams.streams.donor.budgetCents` — every
+donor account's budget. Against one fund's giving that reads as a permanent shortfall. It now comes
+from the same source the board report's General Fund card uses: the church ledger accounts sharing
+the fund family's leading numeric code ("40085 Sunday Offering"). `null`, never `0`, when nothing
+has been imported for those accounts — the card then draws no pace line rather than a false one.
+
+The card also now **names what it left out** ("$X given to designated and pass-through funds is not
+counted here"), and says plainly when it is still counting every fund because no fund has been
+categorised as General yet. The Church Report's own all-funds giving reference line is unchanged —
+only the pace chart is scoped.
+
+**Cash on hand now prefers the imported balance sheet** over the QuickBooks account snapshot. The
+snapshot is a name match over whatever accounts happen to be connected; the balance sheet is the
+church's own confirmed statement of position. New `operatingCashFromBalanceSheet()`, with the
+operating account pinned by code (Data & Imports → Classification & policy, `cash_account_code`).
+Three deliberate limits: it only reads **Assets** rows (the code match is a string prefix, and a
+liability line sharing the code would otherwise be added into cash), it **skips rollup rows** so a
+parent and its children are never both counted, and unlike the QuickBooks path it does **not** sweep
+in savings/reserve accounts — restricted reserves are not operating cash, and a runway built on
+money already promised elsewhere overstates how long the lights stay on. The matched account names
+and the statement's as-of date come back with the figure and are printed on the card, because an
+unpinned name match could just as easily pick up the daycare checking account, and a figure from an
+older statement must not read as today's bank balance. A hand-entered figure still overrides
+everything.
+
+**Also fixed, straight off the screenshot**: the chart's "Actual" and "Budget" end labels printed on
+top of each other. Not because the lines were equal — the two labels carry opposite fixed offsets,
+so they collide when the actual line sits ~14px *above* the budget line, which is giving running a
+little ahead of pace. The healthy case was the unreadable one. They now push apart to a minimum gap,
+keeping each label on the side of its own line.
+
+`npm test` (923/923, 31 new across `test/finance-giving-pace-cash.test.js` — the shared fund rule,
+the real route against real in-memory SQLite, and the real render functions out of the real built
+bundle — plus balance-sheet cash cases in `test/finance-health.test.js`). Every new test verified
+non-vacuous by injecting the exact regression it guards: eight injections, eight correct failures.
+One of those tests earned its keep immediately — the route test caught a missing `import` of
+`resolveGeneralFundIds` in `api-finance.js`, which would have been a live 500 on the whole Finance
+tab. A first attempt at the label-overlap test passed against the broken code and was rewritten
+around the real geometry rather than kept.
+
+**Not verified**: a live browser or real D1. **One step for an admin**: put `11027` in *Operating
+cash account code* under Data & Imports → Classification & policy. Left blank it matches any asset
+account named "checking", which on this chart of accounts also picks up the daycare account — the
+card names whatever it summed, so this is visible rather than silent.
+
+### v1.152.0 — Past-year balance sheets, tied out against the P&L; empty COGS row dropped (2026-08-07)
+
+(Two unrelated sessions both landed a v1.152.0 on the same day — see also "Funds sharing a leading
+code combine into one line" further down. Both are in main; the numbers are not renumbered because
+they are already deployed.)
+
+**Reported**, with two screenshots: the Balance Sheet view's Multi-Year Trend shows bars for 2026
+only, while the Church Report's Multi-Year table has real figures back to 2022. Two asks — upload
+balance sheets for the past years and confirm them against those years' P&L, and remove the Cost
+of Goods Sold row, since this church does not sell anything.
+
+**The upload path already existed and still does** — no new importer was written. Data & Imports
+carries both *Balance Sheet* (one year, fiscal year read from the file's own "As of" line) and
+*Financial Position (multi-year)* (one file covering many years). Neither has ever had a year
+restriction. What was missing was everything *around* the upload:
+
+- **The snapshot was pinned to the current year.** `finLoadChurchBalances()` defaulted to
+  `new Date().getFullYear()` and nothing ever called it with anything else, so a 2022 balance
+  sheet could be imported successfully and then never be looked at. There is now a year box, and
+  the empty state renders the picker *above* the "nothing imported for this year" message — before,
+  landing on a year with no data was a dead end with no way back to a year that had some, which is
+  the normal state while history is still being loaded.
+- **The trend window was the server's rolling five years.** Same problem the income statement's
+  Multi-Year view solved with a From/To picker; the balance sheet now has the same control.
+- **Nothing checked the two reports against each other.** New `computeBalanceVsPnlReconciliation()`
+  (`api-finance.js`): a year's change in total equity should equal that year's net income, because
+  every other equity movement nets to zero inside total equity. Returned by
+  `GET finance/church/balances/multi-year` alongside a new `netIncomeByYear`, rendered as a
+  "Balance Sheet vs. Income Statement" table (opening equity, closing equity, change, net income,
+  check).
+
+Three judgement calls in that tie-out worth recording:
+
+1. **A difference is reported as a difference, never as a failure.** A cash-basis balance sheet
+   next to an accrual P&L — this church has at least one such year on file, which is why the import
+   already carries a basis flag — or a prior-period adjustment booked straight to equity produces a
+   real, legitimate difference. Calling that a bad import would train an admin to ignore the check.
+2. **Only consecutive years are compared.** If 2023 was never uploaded, 2024 is *not* checked
+   against 2022 — that would silently attribute two years of movement to one year's net income.
+   It says "no 2023 balance sheet — upload it to check this year" instead, so the table also
+   answers "which year do I still need?".
+3. **The endpoint fetches one year BEFORE the requested range** purely for opening equity.
+   Otherwise the earliest year in the window always reported "no prior balance sheet" as an
+   artifact of where the range picker happened to start.
+
+`computeBalanceSummary()` returns a fully zeroed summary for a year with no rows, which is
+indistinguishable from a real $0 equity except by the empty `classificationTotals` map — the
+reconciliation checks that map, so a not-yet-uploaded year can never masquerade as a $150k swing.
+
+**Cost of Goods Sold** is hidden when every year in the window is zero, in the multi-year table and
+in the CSV export — not deleted. If a COGS figure ever exists the row returns, so the visible rows
+always still add up to the Net Income printed beneath them. This is FIN58's lesson applied: never
+hide a dollar that a total on the same screen is still counting. `computeYearSummary()` is
+untouched and still subtracts COGS into gross profit.
+
+`npm test` (892/892, 17 new across `test/finance-balance-pnl-recon.test.js` — the pure function
+plus the real route against real in-memory SQLite — and `test/finance-balance-recon-ui.test.js`,
+which drives the real render functions out of the real built bundle). Every new test verified
+non-vacuous by injecting the exact regression it guards: six injections, six correct failures
+(dropped opening-year fetch, zeroed-summary-as-real-data, swallowing tolerance, unconditional COGS
+row in the table and again in the CSV, and an empty state that loses its picker). Plus
+`node --check` on both built bundles and a div-balance scan of the assembled `CHMS_HTML`.
+
+**Not verified**: a live browser or real D1. **Next step is the user's**: upload the past years
+from Data & Imports, then open Church Report → Balance sheet and widen the trend range — the
+tie-out table will name any year whose equity movement does not match its net income.
+### v1.149.0 — "How the money moves": four-column Sankey + Share view (2026-08-06)
+
+Implements `flow-diagram.md`, the addition to the Finance Workspace bundle (the rest of that
+bundle is byte-identical to what shipped in v1.148.0 — only this file and its two reference PNGs
+are new). It replaces the simple three-column ribbon drawing on the Financial Health page with the
+handoff's real design: **Sources → Streams → All revenue → Where it goes**, plus a **Share** view
+of two donuts behind a toggle.
+
+**The explicit ask on this work was that nothing overlap**, so most of the effort went there
+rather than into the coordinates. The handoff authors its geometry against one year's figures,
+where the nodes happen to be tall enough that its fixed gaps (10/18/14/18/18/16) are sufficient.
+Real data is not that obliging — twenty small revenue lines, or one line dwarfing the rest, would
+stack labels straight through each other. So:
+
+- Each label's real vertical extent is computed, and the next node is pushed down until the two
+  cannot touch. **The authored gaps are a floor, never a ceiling** — with the handoff's own
+  figures they are always the larger of the two, so the reference rendering is reproduced exactly
+  (S=0.40, sources at y=22, canvas 626); with anything else the constraint takes over silently.
+- A node too short for a two-line label is demoted to one line, per the handoff's own rule.
+- Labels are truncated to a per-column width cap so a long account name cannot run into the next
+  column. The two caps that matter are the total's (110) and the expenses' (300): the total's
+  label runs right from x=628 and the expense labels run LEFT from x=1056, so their widths have to
+  be bounded such that the two can never meet.
+- The canvas **grows** rather than letting a column run off it. A clamped scale keeps labels
+  legible but can still produce a column taller than a fixed 626-unit box, and a column running
+  off the canvas is its own kind of collision.
+- Character width is measured through one shared helper (`finFlowCharW`, 0.62em — DM Sans averages
+  nearer 0.55em, so it errs wide). A hand-picked constant that under-estimates is exactly how a
+  label bleeds into the next column, and an earlier draft did precisely that: the collision test
+  caught a source label reaching x=334 against a 330 column boundary.
+
+**Verification is geometric, not visual.** `test/finance-flow-diagram.test.js` (36 tests) renders
+the REAL SVG across fifteen deliberately hostile data shapes — twelve near-equal sources, one
+giant plus eleven slivers, ascending dust, a single source, each at 1x / 0.05x / 12x scale —
+extracts every `<text>` element, estimates its box from its own attributes, and asserts no two
+intersect. It also asserts bars never overlap, labels never pass the footer rule, and the outflow
+ribbons tile the revenue bar exactly. The `vm` harness runs the same sweep over **every SVG on the
+Financial Health page**, not just the Sankey.
+
+**Both sweeps were verified non-vacuous by injecting the exact regression each guards**: removing
+the label-constraint push, never demoting a short node's label, dropping truncation, fixing the
+canvas at 626, and dropping the outflow scale factor k. The k injection initially passed — that
+test computed k itself rather than checking the renderer used it — so it was rewritten to parse
+the rendered ribbon paths and assert they tile the bar. It now fails as it should.
+
+Two measurement bugs in the *tests* were found and fixed along the way, both of which had produced
+phantom collisions: HTML entities were counted as five-to-seven characters instead of one glyph,
+and a `<text>` inheriting `font-size` from its parent `<g>` was measured at the 12px default.
+
+**Also new:**
+- **Share view** — two donuts (Money in / Money out) with legend rows carrying amount and percent,
+  segments laid end to end around the circumference via `stroke-dasharray`/`dashoffset`.
+- **Toggle** — real `<button aria-pressed>` elements, choice persisted in `localStorage` under
+  `finance.flowView`. Below the phone tier the Sankey's four label columns cannot be laid out
+  honestly, so **CSS** (not JS) forces the Share view and hides the toggle — which means a window
+  resize is handled with no listener. Print shows both.
+- **Expense categories** — the board's five (`mdo`/`salaries`/`property`/`education`/`programs`)
+  from a GL-account → category map in `chms_config`, admin-editable on Data & Imports, with the
+  unmapped-account validation report the handoff asks for. An unrecognised account lands in
+  `programs` rather than being dropped: every account has to appear somewhere or the outflow stops
+  matching total expenses, and a silently-dropped account is worse than a visibly-miscategorised
+  one.
+- **Donor split** — when the donor stream is a single GL group and ChMS records a real restricted
+  share, that node is divided in two using the ChMS ratio. The card says so: applying a measured
+  ratio to a measured total is an allocation, not a flag the ledger itself carries.
+- `GET /admin/api/finance/flow?fy=` — the contract the handoff names. The Health page reads the
+  same figures off `church/this-year` instead of calling it, so the two cannot disagree: both come
+  from `computeFlowDiagram()`.
+- A visually-hidden data table (`.fin-sr-only`) so screen readers and Ctrl-F reach the same
+  figures the chart draws, and an `aria-label` built from the data naming the largest flows.
+
+**Reconciled with `main` on rebase, which had moved on.** Another session had fixed a live
+regression in the v1.148.0 revenue grouping — `category_path` carries its classification as
+segment 0, so reading segment 0 collapsed the whole chart of accounts into one group named
+"Income" and reported a 100%-earned mix with $0 donor revenue — and had added **restricted** as a
+fourth revenue stream. Three consequences for this work, all carried in rather than merged around:
+- `computeFlowDiagram` had the same segment-0 bug on the **expense** side, which would have
+  collapsed all five board categories into one group named "Expenses". New `expenseGroupLabel()`,
+  the expense-side twin of `revenueGroupLabel()`. A test injection confirms it bites.
+- **The donor re-split was removed.** Splitting the donor node by the ChMS restricted ratio made
+  sense when restricted was invisible in the GL; now that it is its own stream, doing both would
+  draw the same restricted dollars twice and inflate total revenue.
+- The Sankey gained the fourth stream (colour ramp, label, authority note), and the mix bar,
+  five-year chart and stream deltas now tolerate a missing stream key instead of throwing — a
+  page the council reads should not blank because one key is absent.
+
+`npm test` 937/937 (35 new here, plus main's). **Not verified**: a live browser — the standing caveat here. The
+overlap guarantee is proven geometrically against the emitted SVG, which is stronger than eyeballing
+one dataset, but it is not the same as seeing it rendered by a browser at a real font.
+### v1.152.0 — Funds sharing a leading code combine into one line (2026-08-07)
+
+**Asked for**: on the Church Report's "Giving by fund, per ChMS records" panel — and everywhere
+else — combine funds that share a leading number, so "40085 Retirement Distribution" and
+"40085 Lent" sit on the General Fund's line rather than scattered down the list as their own rows.
+
+The rule already existed in two views (the Giving by Fund report and the board fund table, both
+since G7/G22) as two hand-inlined copies, and did not exist at all in the three views that read
+worst without it. It now lives in exactly one place — `groupRowsByFundCode()` in `js-core.js` —
+and all five views call it, so they cannot print different fund lines for the same money.
+
+- **Church Report → giving reference** (the reported view): was a flat list of every fund. Now one
+  line per code, labelled with the code's highest-total fund ("40085 General Fund"), expanding in
+  place to show its members. The CSV export follows the same shape, combined figure then indented
+  members, so the download matches the screen.
+- **Council narrative and the board print summary**: combined, with no member rows — there is no
+  expansion on paper, and a council page has no reason to split the General Fund into its seasonal
+  sub-names.
+- **Giving by Fund report and the board fund table**: unchanged on screen; their inline copies of
+  the rule were replaced by the shared one.
+
+Two small behaviours were fixed by the consolidation rather than deliberately: the report's version
+keyed every uncoded fund to the same empty-string group (harmless only because a later `key &&`
+guard bailed out), and the board's keyed them by name (so two funds could never collide, but for a
+different reason than the report). The shared helper gives each uncoded fund its own group, which
+is what both views were reaching for.
+
+Fund pickers, the giving entry tables and the reconcile-diagnose tool deliberately still list real
+funds — data entry and forensics need the exact fund, not the family.
+
+`npm test` (885/885, 10 new in `test/fund-code-grouping.test.js`, which runs the real helper and
+the real renderers out of the built bundle); every new test verified non-vacuous by injecting the
+exact regression it guards (bare-code labels, uncoded funds merged, the narrative back to a flat
+list — 5, 1 and 1 correct failures). Plus `node --check` on both built bundles and a div-balance
+scan of the assembled `CHMS_HTML`. **Not verified**: a live browser or real D1.
+(`src/frontend/js-core.js`, `src/frontend/js-finance.js`, `src/frontend/js-giving.js`,
+`src/frontend/js-reports.js`, `test/fund-code-grouping.test.js`,
+`test/giving-consolidation-ui.test.js`)
+
+### v1.151.5 — Half the importers never refreshed the import date (2026-08-07)
+
+**Reported**: the Balance Sheet import runs and the preview looks right, but the date on Data &
+Imports does not change.
+
+**My own incomplete fix.** v1.151.2 made `finRenderDataImports()` always refetch and wired an
+in-place `finRefreshImportStatus()` into the import success handlers — but only into the five that
+happened to call `finRenderChurchReport()`, because that is what the sweep matched on. Ten
+importers call `recordImport()`; five got the refresh. The Balance Sheet importer calls
+`finLoadChurchBalances()` instead, so it was missed, along with four others.
+
+Wired into all five that were missing it: `finChurchConfirmBalanceImport` (church_balance — the
+reported one), `finDaycareChurchBudgetImport`, `finDaycareBulkImport`,
+`finPropertyImportMonthlyCsv`, `finPropertyBudgetImportFileSelected`.
+
+**The import itself was never affected** — `recordImport()` wrote its row correctly every time.
+This is purely the card not re-reading it without a tab switch or reload.
+
+New tests assert the wiring **by function body**, extracted from the built bundle, plus a count
+check against `FINANCE_IMPORTERS.length` so a new importer that forgets the call fails here rather
+than in production. `npm test` (875/875, 7 new); **verified non-vacuous** by removing the
+balance-sheet call, which fails 2. Plus `node --check` on both bundles and div-balance on
+`CHMS_HTML`. **Not verified**: a live browser.
+
+### v1.151.4 — Balance Sheet importers: surface the real error too (2026-08-07)
+
+**Reported**: "balance sheet isn't importing" — with no error text, so what follows is a
+visibility fix and a request for detail, not a diagnosis. Nothing was found wrong with either
+Balance Sheet importer by inspection: both routes return a specific 4xx on every expected failure
+(no file, too large, unreadable workbook, no matching sheet, no "As of" date, malformed row), and
+`finChurchBalanceImportFileSelected` reads exactly the shape its route returns — so this is not a
+repeat of the v1.151.1 response-shape mismatch. Neither file is available in this session.
+
+**Changed**: both `persistChurchBalancesImport` and `persistChurchBalancesMultiYearImport` calls
+are now wrapped, returning the real database message plus the year scope that failed
+(`Could not save 412 balance rows for FY2019-FY2026: <db message>`), exactly as v1.151.3 did for
+the Monthly P&L commit. Unguarded, a database failure there reached the worker's top-level handler
+and became an opaque "Internal server error", which is undiagnosable from a report.
+
+`npm test` (868/868, 2 new). **Verified non-vacuous** by bypassing the multi-year try/catch, which
+fails the matching test. **Not verified**: a live browser, real D1, or the actual file — the next
+attempt will name its own cause.
+
+### v1.151.3 — Monthly P&L import: surface the real error, not a bare 500 (2026-08-07)
+
+**Reported**: "now Error: Internal server error. Please try again."
+
+**Not a diagnosis — a visibility fix, and that is the honest description.** The worker's top-level
+`/admin/api/` handler deliberately logs the exception server-side and returns an opaque
+`Internal server error. Please try again.` That is the right default, but it means the only copy of
+the actual message is in Cloudflare's logs, which are not reachable from here — so this report
+could not be diagnosed at all, only guessed at.
+
+**What was ruled out, by running the real route handlers against the real 2019-2026 file:** the
+preview returns 200 with 8 years / 16,107 rows / a 3.89 MB payload; all 8 per-year commits succeed
+(525 KB bodies, max 500 statements per `db.batch()`); `finance_import_log` gets its row; and
+`finance/import-status` reads it back as `FY2019-FY2026`. So the failure is not reproducible with
+that file, which points at either a different file (a reformatted one was mentioned) or a
+real-D1 condition the SQLite harness cannot model — a quota, a batch limit, a constraint.
+
+**Changed**: the commit route now wraps `persistChurchEntriesMonthlyImport` and returns the real
+message plus the scope that failed (`Could not save 2124 rows for FY2019: <db message>`), and the
+preview route gained an outer catch reporting `Could not read this Monthly P&L sheet: <message>`.
+Every *expected* failure still returns its own specific 4xx as before; this only replaces the
+opaque case. Both routes are finance-gated, so returning the underlying message is safe — the same
+reasoning already recorded for the column-count error in `api-import.js`.
+
+`npm test` (866/866, 4 new in `test/finance-monthly-import-errors.test.js`, driving the real route
+handlers with a db whose `batch()` throws). **Verified non-vacuous** by removing the commit-route
+try/catch, which fails 2 of them with the raw exception escaping. Plus the full real-file route
+harness re-run unchanged. **Not verified**: a live browser, real D1, or the actual failing file —
+the next attempt will now name its own cause.
+
+### v1.151.2 — Data & Imports read "never" after a successful import (2026-08-07)
+
+**Reported**: "I just uploaded a monthly P&L and upload still says never."
+
+**The import was fine; the card was not.** `_finImportStatus` (`js-finance.js`) was fetched once
+per page load behind an `if (!_finImportStatus)` guard and then never invalidated by anything. So
+the sequence was: open Data & Imports (fetch, cache "never") → run an import (the commit route
+writes its `finance_import_log` row correctly) → return to the tab → render from the cache →
+still "never", until a full page reload. **This affected all ten importers**, not just the Monthly
+P&L one, and dates back to FIN57 when the tab shipped.
+
+Fixed by making the fetch unconditional — extracted as `finRefreshImportStatus()`, called on every
+`finRenderDataImports()`. The cached value is still kept, but only so a revisit paints the previous
+answer instantly instead of flashing empty; it is always replaced by a fresh one. Expecting each of
+ten importers to remember to invalidate a shared cache is the fragile version of this, and none of
+them did. Also wired `finRefreshImportStatus()` into the five file-import success handlers
+(church budget, monthly P&L, activity multi-year, budget multi-year, balance multi-year) so the
+card updates in place without leaving the tab. The QBO `sync-years` path is deliberately not
+wired — it never writes an import-log row.
+
+**Also fixed, latent, in v1.150.0's own code**: the monthly commit route built its log note with
+`db.prepare(...).bind().first().catch(...)` — the only zero-argument `.bind()` in the codebase
+(every other parameterless query calls `.first()` straight off `.prepare()`). A synchronous throw
+there would escape the promise-tail `.catch()` and fail the route *after* the rows were already
+written, leaving data imported and no log row — the exact symptom reported, by a second route.
+Rewritten as a `try`/`catch` around a conventional parameterless query, falling back to the
+request's own year range.
+
+`npm test` (862/862, 2 new). The staleness test is **verified non-vacuous** by restoring the
+`if (_finImportStatus)` guard, which fails it. Plus `node --check` on both built bundles and
+div-balance on `CHMS_HTML`. **Not verified**: a live browser.
+
+### v1.151.1 — Monthly P&L import threw on every upload: a missed call site (2026-08-07)
+
+**Reported** from the live app, with a screenshot: choosing a file in Import Monthly P&L showed
+`Error: Cannot read properties of undefined (reading 'length')` and no preview.
+
+**Cause, and it is mine.** v1.150.0 changed the preview response from `{ fiscalYear, months }` to
+`{ years, monthsByYear }` to carry many years. `finChurchRenderMonthlyImportPreview` and
+`finChurchConfirmMonthlyImport` were both updated; the status line in
+`finChurchMonthlyImportFileSelected` (`js-finance.js:3359`) was not, and still read
+`d.months.length` — undefined on every response, so the handler threw before ever rendering the
+preview. Fixed to read the multi-year shape, with the row/skipped reads guarded too.
+
+**Why the v1.150.0 verification missed it.** That harness called the two changed functions
+*directly* with a hand-built response object. It never went through the handler that actually
+receives the fetch — so the one call site that was left on the old shape was the one place never
+exercised. New `test/finance-monthly-import-ui.test.js` (4 tests) drives the real
+`finChurchMonthlyImportFileSelected` out of the real built bundle with `fetch` stubbed, covering
+multi-year, single-year, the preview/button reveal, and a server-error response. **Verified
+non-vacuous** by reinstating the exact line: 3 of the 4 fail, and the multi-year assertion
+reproduces the reported string verbatim (`Error: Cannot read properties of undefined (reading
+'length')`).
+
+`npm test` (860/860), `node --check` on both built bundles, div-balance on `CHMS_HTML`, and the
+real 2019-2026 file re-run end to end unchanged (8 years, 16,107 rows). **Not verified**: a live
+browser.
+
+**Unrelated to the bug, worth recording**: the screenshot also showed the pre-v1.150.0 modal copy,
+which means that page had been loaded before the deploy landed — an older page calling a newer
+backend. The shell is `no-store`, so a reload picks up the new copy; nothing to fix.
 
 ### v1.151.0 — Compensation: single + family deductible / OOP columns, and they now drive the maths (2026-08-06)
 

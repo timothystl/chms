@@ -433,6 +433,27 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### G33 — Funds sharing a leading code combine into one line, everywhere (2026-08-07, DONE)
+Asked for from the Church Report's "Giving by fund, per ChMS records" panel: combine funds sharing
+a leading number, so "40085 Retirement Distribution" and "40085 Lent" belong on the General Fund's
+line however their own names read. The rule already existed as **two hand-inlined copies** (Giving
+by Fund report, board fund table — G7/G22) and not at all in the three views that read worst
+without it. Now one place, `groupRowsByFundCode()` in `js-core.js`, called by all five, so they
+cannot print different fund lines for the same money. Church Report's panel gets one line per code,
+labelled with the code's highest-total fund, expanding in place to its members (the CSV follows the
+same shape). The council narrative and the board print summary combine with no member rows — there
+is no expansion on paper. Consolidating also fixed two small latent things: the report keyed every
+uncoded fund to one shared empty-string group (harmless only via a later `key &&` guard) and the
+board keyed them by name; each uncoded fund now gets its own group, which is what both were
+reaching for. **Deliberately not combined**: fund pickers, giving entry tables and the
+reconcile-diagnose tool — data entry and forensics need the exact fund, not the family. `npm test`
+(885/885, 10 new in `test/fund-code-grouping.test.js`, running the real helper and renderers out of
+the built bundle); every new test verified non-vacuous by injecting the exact regression it guards
+(3 injections, 7 correct failures). Plus `node --check` on both bundles and a div-balance scan of
+`CHMS_HTML`. **Not verified**: a live browser or real D1. (`src/frontend/js-core.js`,
+`src/frontend/js-finance.js`, `src/frontend/js-giving.js`, `src/frontend/js-reports.js`,
+`test/fund-code-grouping.test.js`, `test/giving-consolidation-ui.test.js`)
+
 ### FIN58 — Revenue mix read 100% earned; four income streams; one shared classification (2026-08-07, DONE)
 Reported live: the Financial Health mix bar showed `EARNED $621,462 · 100%` with `$0` donor and
 `$0` passive, next to a banner naming exactly one unconfirmed group called "Income" — and a donor
@@ -503,6 +524,143 @@ bundle. **Not verified**: a live browser or real D1. (`src/api-finance.js`,
 `src/frontend/js-finance.js`, `src/frontend/html-tabs.js`,
 `test/finance-church-monthly-import.test.js`)
 
+### FIN59-BUG1 — Monthly P&L import threw on every upload (2026-08-07, DONE)
+Reported live with a screenshot right after FIN59 shipped: choosing a file showed `Error: Cannot
+read properties of undefined (reading 'length')` and no preview. Cause was FIN59's own: the
+preview response changed from `{fiscalYear, months}` to `{years, monthsByYear}`, and while
+`finChurchRenderMonthlyImportPreview`/`finChurchConfirmMonthlyImport` were both updated, the
+status line in `finChurchMonthlyImportFileSelected` (`js-finance.js:3359`) still read
+`d.months.length` and threw before rendering anything. **The lesson worth carrying**: FIN59's
+verification harness called the two changed functions *directly* with a hand-built response, so
+the one call site left on the old shape was precisely the one never exercised — when a response
+shape changes, grep every consumer, and drive the handler that receives the fetch, not just the
+functions it composes. New `test/finance-monthly-import-ui.test.js` (4 tests) runs the real
+handler out of the real built bundle with `fetch` stubbed; verified non-vacuous by reinstating the
+exact line (3 of 4 fail, reproducing the reported string verbatim). `npm test` (860/860), `node
+--check` on both bundles, div-balance on `CHMS_HTML`, real 2019-2026 file re-run unchanged. **Not
+verified**: a live browser. Also noted, not a bug: the screenshot showed pre-FIN59 modal copy, i.e.
+a page loaded before the deploy landed calling a newer backend — the shell is `no-store`, so a
+reload fixes it. (`src/frontend/js-finance.js`, `test/finance-monthly-import-ui.test.js`)
+
+### FIN59-BUG2 — Data & Imports read "never" after a successful import (2026-08-07, DONE)
+Reported after a real Monthly P&L upload. **The import worked; the card was stale.**
+`_finImportStatus` (`js-finance.js`) was fetched once per page load behind an
+`if (!_finImportStatus)` guard and never invalidated, so opening Data & Imports cached "never",
+running an import wrote its `finance_import_log` row correctly, and returning to the tab rendered
+the cache again — until a full page reload. **All ten importers were affected**, since FIN57.
+Fixed by making the fetch unconditional (`finRefreshImportStatus()`, called on every
+`finRenderDataImports()`); the cached value is kept only so a revisit paints instantly rather than
+flashing empty. Requiring ten importers to each invalidate a shared cache is the fragile version —
+none did. Also wired into the five file-import success handlers so the card updates in place
+without leaving the tab (the QBO `sync-years` path deliberately not, as it writes no log row).
+**Also fixed, latent, from FIN59 itself**: the monthly commit route used
+`db.prepare(...).bind().first().catch(...)` — the only zero-arg `.bind()` in the codebase — where
+a synchronous throw would escape the promise-tail catch and fail the route *after* the rows were
+written, producing this same symptom by a second path; now a `try`/`catch` around a conventional
+parameterless query. `npm test` (862/862, 2 new); the staleness test verified non-vacuous by
+restoring the guard. **Not verified**: a live browser. (`src/frontend/js-finance.js`,
+`src/api-finance.js`, `test/finance-monthly-import-ui.test.js`)
+
+### FIN59-BUG3 — Monthly P&L import 500: made the real error visible (2026-08-07, DONE)
+Reported: "now Error: Internal server error. Please try again." **This entry is a visibility fix,
+not a diagnosis.** The worker's top-level `/admin/api/` catch logs the exception and returns an
+opaque string, so the only copy of the real message lives in Cloudflare's logs — unreachable from
+a session here, making the report undiagnosable rather than merely unfixed. **Ruled out by running
+the real route handlers against the real 2019-2026 file**: preview 200 / 8 years / 16,107 rows /
+3.89 MB payload, all 8 per-year commits succeed, `finance_import_log` written, `import-status`
+reads back `FY2019-FY2026`. So it is either a different file (a reformatted one was mentioned) or
+a real-D1 condition an in-memory SQLite harness cannot model (quota, batch limit, constraint).
+Fixed by wrapping `persistChurchEntriesMonthlyImport` in the commit route (returns
+`Could not save N rows for FY<range>: <db message>`) and adding an outer catch to the preview
+route; every expected failure still returns its own specific 4xx. Both routes are finance-gated so
+the underlying message is safe to show — same reasoning as the column-count error in
+`api-import.js`. `npm test` (866/866, 4 new); verified non-vacuous by removing the commit-route
+try/catch. **Next step is the user retrying and reporting the now-specific message.**
+(`src/api-finance.js`, `test/finance-monthly-import-errors.test.js`)
+
+### FIN59-BUG4 — Half the importers never refreshed the import date (2026-08-07, DONE)
+Reported: the Balance Sheet import runs and previews correctly, but the Data & Imports date does
+not change. **FIN59-BUG2's fix was incomplete, and this is the follow-through.** That change made
+`finRenderDataImports()` always refetch and wired an in-place `finRefreshImportStatus()` into the
+import success handlers — but only the five that happened to call `finRenderChurchReport()`, which
+is what the sweep matched on. Ten importers call `recordImport()`; five got the refresh. The
+Balance Sheet importer calls `finLoadChurchBalances()` instead, so it was missed, along with
+`finDaycareChurchBudgetImport`, `finDaycareBulkImport`, `finPropertyImportMonthlyCsv` and
+`finPropertyBudgetImportFileSelected` — all now wired. The import itself was never affected;
+`recordImport()` wrote its row correctly every time. **Lesson**: a sweep keyed on an incidental
+shared call (`finRenderChurchReport()`) silently defines its own coverage — enumerate from the
+authoritative list (`FINANCE_IMPORTERS`, or the `recordImport()` call sites) instead. New tests
+assert the wiring by extracting each handler's body from the built bundle, plus a count check
+against `FINANCE_IMPORTERS.length` so a new importer that forgets it fails in CI. `npm test`
+(875/875, 7 new); verified non-vacuous by removing the balance-sheet call (2 fail). **Not
+verified**: a live browser. (`src/frontend/js-finance.js`, `test/finance-monthly-import-ui.test.js`)
+
+### FIN61 — Giving pace = General Fund only; cash runway from the balance sheet (2026-08-07, DONE)
+Reported off the Financial Health page: the giving-pace chart should count only General Fund giving
+(40085 family) since everything else "could be to things like Concordia Children's which is just
+pass through", and the cash runway should read the balance sheet, where **11027 Lindell Checking
+xx9105** is the operating account.
+- **Pace scoped** via `resolveGeneralFundIds()` — **extracted from the giving-board handler into
+  `api-utils.js`, not rewritten**; a second copy of that rule is the bug where two screens quote
+  different "General Fund giving" totals and both look right. The board report now calls it (46
+  tests unchanged). Pass-through giving counted as budget progress showed the operating budget
+  being met by money never available to meet it.
+- **The budget line moved with it.** Was `revenueStreams.streams.donor.budgetCents` (every donor
+  account) — against one fund's giving that is a permanent false shortfall. Now the church-ledger
+  accounts sharing the fund family's numeric code, same source as the board's General Fund card;
+  `null` not `0` when absent, so the card draws no line rather than a wrong one. The card names the
+  excluded designated/pass-through total, and says so when it is still counting every fund because
+  nothing is categorised General yet. Church Report's all-funds giving reference line unchanged.
+- **Cash on hand prefers the imported balance sheet** over the QuickBooks snapshot (a confirmed
+  statement outranks a name match). New `operatingCashFromBalanceSheet()`; account pinned by code in
+  Data & Imports → Classification & policy (`cash_account_code`). Assets rows only (the code match
+  is a prefix — a liability line sharing it would otherwise be counted as cash), rollup rows
+  skipped, and deliberately **no** savings/reserve sweep unlike the QBO path: restricted reserves
+  are not operating cash. Matched account names + statement as-of date print on the card, since an
+  unpinned name match also catches the daycare checking account. Manual figure still overrides.
+- **Label overlap fixed** (visible in the screenshot): "Actual"/"Budget" carry opposite fixed
+  offsets, so they stack when the actual line sits ~14px ABOVE budget — i.e. giving running ahead,
+  the healthy case. Now pushed apart to a minimum gap, each label staying on its own line's side.
+- `npm test` (923/923, 31 new); **every new test verified non-vacuous** (8 injections, 8 correct
+  failures). The route test caught a missing `import` of `resolveGeneralFundIds` that would have
+  been a live 500 on the whole Finance tab; a first label test passed against broken code and was
+  rewritten around the real geometry. **Not verified**: a live browser or real D1.
+  **One step for an admin**: put `11027` in *Operating cash account code*. (`src/api-utils.js`,
+  `src/api-finance.js`, `src/api-reports.js`, `src/frontend/js-finance.js`,
+  `test/finance-giving-pace-cash.test.js`, `test/finance-health.test.js`)
+
+### FIN60 — Past-year balance sheets + tie-out to the P&L; empty COGS row hidden (2026-08-07, DONE)
+Reported from two screenshots: the Balance Sheet Multi-Year Trend had bars for 2026 only while the
+Church Report table ran back to 2022; asked to upload past years' balance sheets and confirm them
+against those years' P&L, and to drop Cost of Goods Sold ("we dont do sales").
+**The importers already handled past years and were not changed** — Data & Imports carries both
+*Balance Sheet* (single year, read from the file's own "As of" line) and *Financial Position
+(multi-year)*, neither year-restricted. What was missing was everything around them: the snapshot
+was hard-pinned to `new Date().getFullYear()` (so a past year could import fine and never be
+viewable), the trend used the server's rolling five-year default, and nothing compared the two
+reports. Now: a year box + a From/To trend range (both rendered ABOVE the empty state, so a year
+with no data is not a dead end), and a new **Balance Sheet vs. Income Statement** table from
+`computeBalanceVsPnlReconciliation()` — change in total equity vs. net income, with `netIncomeByYear`
+added to `GET finance/church/balances/multi-year`. Three deliberate choices: a difference is worded
+as a difference to explain, never a failure (cash-basis balance sheet vs. accrual P&L, or an
+adjustment booked to equity, is legitimate); **only consecutive years are compared**, so a missing
+2023 makes 2024 unheckable rather than silently charging two years of movement to one year's net
+income; and the endpoint fetches one year BEFORE the range purely for opening equity, so the
+earliest year isn't falsely "no prior balance sheet". A year with no rows can't masquerade as $0
+equity — the check reads `classificationTotals` emptiness, not the zeroed figures.
+**Cost of Goods Sold is hidden when every year is zero, not deleted** (table + CSV): if a real
+figure ever appears the row returns, so visible rows always add to the Net Income beneath them —
+FIN58's lesson (never hide a dollar a total on the same screen still counts). `computeYearSummary()`
+untouched. `npm test` (892/892, 17 new in `test/finance-balance-pnl-recon.test.js` — pure function
+plus the real route against real in-memory SQLite — and `test/finance-balance-recon-ui.test.js`,
+driving the real render functions out of the real built bundle); **every new test verified
+non-vacuous** by injecting the exact regression it guards (6 injections, 6 correct failures). Plus
+`node --check` on both bundles and a div-balance scan of `CHMS_HTML`. **Not verified**: a live
+browser or real D1. **Follow-up for an admin**: upload the past years from Data & Imports, then open
+Church Report → Balance sheet and widen the trend range — the tie-out names any year that doesn't
+reconcile. (`src/api-finance.js`, `src/frontend/js-finance.js`,
+`test/finance-balance-pnl-recon.test.js`, `test/finance-balance-recon-ui.test.js`)
+
 ### TinyMCE editor-load limit — NOT this app; it's the website repo (2026-08-07)
 A Tiny automated email warned the account hit 50% of its monthly **Editor Load** limit (overage
 charges past 100%). **Connect contributes zero cloud loads and always has** — since v1.64.0 the
@@ -511,23 +669,36 @@ Worker route with `license_key: 'gpl'`, no API key, and a CSP (`script-src 'self
 block a cloud load anyway. Verified by scan, not assumption: the only `tiny.cloud` strings in this
 repo outside `vendor/` are prose, and the ones inside the vendored bundle are doc URLs in warning
 text, not a metering endpoint. **Don't re-investigate this app when the next email arrives.**
-- **The real source**: `timothystl/website` (`tlc-newsletter-admin`, admin.timothystl.org).
-  `admin/db.js:6` loads `https://cdn.tiny.cloud/1/<key>/tinymce/7/tinymce.min.js`. Injected on
-  editor screens only, but `tinymceField()` (`admin/helpers.js:940`) fires **one `tinymce.init()`
-  per rich-text field** — the newsletter screens build six before extra notes (pastor, secondary,
-  WoL, LASM, tertiary, quick), so one open of the newsletter editor is ~7 loads, repeated on every
-  reload or failed save.
-- [ ] **TINY1** — Self-host TinyMCE in the website repo, the same way this repo already does
-  (vendor a minimal subset + serve it same-origin off its own Worker; TinyMCE 7 is GPL v2+ for
-  self-hosting, so no key and no paid tier). Needs `table` in the vendored plugin set on top of
-  this repo's `code/image/link/lists` — `blockquote` is a core format, not a plugin file. **Not
-  started — that repo was read-only in this session and pushing to it was not authorised.**
-- [ ] **TINY2** — Cheaper interim mitigation if TINY1 is deferred: lazy-init each editor on first
-  focus, so opening a newsletter costs one load instead of seven.
-- [ ] **TINY3** — Manual, for an admin: the Tiny key is hardcoded in a public repo
-  (`admin/db.js:5`). A cloud key is inherently public (it ships in client-side HTML), so the
-  protection is Tiny's approved-domains list, not secrecy — confirm in the Tiny account that the
-  list is restricted to admin.timothystl.org, so the quota can only be consumed by this church.
+- **The source was**: `timothystl/website` (`tlc-newsletter-admin`, admin.timothystl.org), which
+  loaded `https://cdn.tiny.cloud/1/<key>/tinymce/7/tinymce.min.js` and fired **one
+  `tinymce.init()` per rich-text field** — ~9 on the newsletter composer, 14 on `/ministries`,
+  rebuilt on every structural change in the block editor. **Fixed at source; see TINY1/TINY2
+  below.** The metering only ever counted the cloud build, so a self-hosted load is not a load.
+- [x] **TINY1 — DONE in the website repo, 2026-08-06 (PR #417, live at 01:23 UTC / 8:23pm
+  Central).** `admin/vendor/tinymce/` (7.9.3, GPLv2+) served same-origin by the `/assets/tinymce/`
+  route, which proxies `raw.githubusercontent.com` rather than carrying 1.4 MB in the Worker
+  bundle. `license_key: 'gpl'`, no API key. **The key is deleted from that repo entirely** —
+  `git grep` finds it on no branch, working tree or `main` — so neither app has a code path that
+  can reach `cdn.tiny.cloud`. Two tests hold the line: `admin/tinymce-assets.test.mjs` fails on
+  the hostname appearing in live code, and `test/tinymce-selfhost.test.mjs` boots the real library
+  and asserts **no request leaves the origin at all**.
+- [x] **TINY2 — DONE, 2026-08-06 (PR #416, live at 02:49 UTC).** Nothing initialises at page load
+  anywhere; an editor is created only when somebody puts the caret in a field, and an unopened
+  screen does not even fetch the library. Shipped *after* TINY1, so it never reduced cloud loads —
+  but it still matters: without it the page editor rebuilt fourteen editors on `/ministries` every
+  time a block moved.
+- [x] **TINY3 — moot. The paid plan was cancelled 2026-08-07** and the key is out of the repo, so
+  there is no quota left to protect and no approved-domains list to check.
+- **⚠ If the Editor Load count keeps climbing after 2026-08-07 01:23 UTC, it is NOT these two
+  apps.** Both were read end to end at that date and neither can emit a cloud load. Before
+  re-investigating either codebase, rule out, in this order: (1) **reporting lag** — Tiny
+  aggregates with a delay, so a count that rises "today" routinely describes yesterday's usage,
+  and all of 2026-08-06 up to 8:23pm Central was genuinely on the metered cloud build with eager
+  init (one open of the newsletter composer was ~9 loads, the block editor on `/ministries` 14 per
+  re-render); (2) **an admin tab left open from before the cutover** — the old inline
+  `<script src="https://cdn.tiny.cloud/…">` is already loaded in that document, so every field
+  opened in it still meters until the tab is reloaded; (3) **a property outside these two repos** —
+  the MDO/childcare-portal app is a separate codebase neither CLAUDE.md covers.
 
 ### Admin push notifications from the Scheduler/Serve side (2026-08-04)
 Requested: ring the same admin devices that admin.timothystl.org's web push already
@@ -1171,6 +1342,34 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   - **Phase 3 done 2026-07-22 (v1.58.0)**: Property tab restyle — shared KPI grid (Occupancy/Monthly Net/Annual Net/Reserves On-Hand, same source as the Overview's Property domain), the existing Valuation/Equity stats kept as a secondary row, a new "Available for Distribution" navy bar (annual net minus this year's reserve contributions and capital spend, explicitly an estimate distinct from the actual Distributions-to-Church record), and a small on-hand-vs-target progress bar on the Property Tax Reserve section. All existing sub-views (reserves table, capital ledger, repairs log, valuation calculator, forecast, insurance allocation) preserved. See NOTES.md for full detail.
   - **Phase 4 done 2026-07-22 (v1.59.0)**: Planning tab restyle — cream-header budget builder table with a new Δ% column, editable Plan input restyled, a "Projected Net" navy card, and a new Three-Year Outlook bar chart (income +2.5%/yr, expenses +3%/yr beyond the target year, per the handoff's own stated assumption). Generate/Save/Commit logic unchanged. Salary Calculator/Health Insurance stay as-is for now — they move into their own tab in Phase 5. See NOTES.md for full detail.
   - **Phase 5 done 2026-07-22 (v1.60.0) — FIN27 complete.** Compensation split out of Planning into its own sub-nav tab (new `fin-panel-compensation`); Salary Calculator and Health Insurance restyled into `.fin-card` containers with real LCMS/Concordia math unchanged (confirmed — `test/finance-salary-calculator.test.js`, which unit-tests the underlying pure functions directly, needed zero changes). New manual "Concordia Decision Support estimate" reference block per worker (collapsible, 4 ranges × Low/Mid/High + metadata, persisted via the existing roster save) from the user's real Concordia Compensation Decision Support Tool PDF for Rev. Dinger — confirms the $103,609 LCMS midpoint FIN15 already used narratively. The mockup's separate generic "District Guideline Calculator" tool was deliberately not built as a parallel redundant calculator — the real system already computes this per roster row with real data; see NOTES.md for the full reasoning. RD1/RD2/RD4 (app-wide palette consolidation) remain separately queued.
+- [x] **FIN58 — "How the money moves": four-column Sankey + Share view (2026-08-06).** Implements
+  `flow-diagram.md`, the addition to the Finance Workspace bundle (everything else in that bundle
+  is byte-identical to v1.148.0). Replaces the three-column ribbon drawing with the real design:
+  **Sources → Streams → All revenue → Where it goes**, plus a **Share** view of two donuts behind a
+  toggle (real `<button aria-pressed>`, persisted in `localStorage`, CSS-forced below the phone
+  tier so a resize needs no listener). **The ask was that nothing overlap**, and the handoff's
+  fixed gaps only hold for its own figures, so each label's real vertical extent is computed and
+  the next node pushed down until they cannot touch — **authored gaps are a floor, never a
+  ceiling**, which reproduces the reference exactly (S=0.40, y=22, canvas 626) while surviving any
+  data. Short nodes drop to a one-line label; labels are truncated to per-column width caps (the
+  total's 110 and the expenses' 300 are what keep the middle of the canvas clear, since one runs
+  right from x=628 and the other left from x=1056); the canvas grows rather than letting a column
+  run off it. Width is measured through one shared `finFlowCharW` (0.62em, erring wide) — a
+  hand-picked constant that under-estimates is exactly how a label bleeds, and the collision test
+  caught an early draft doing it at x=334 against a 330 boundary. **Verification is geometric**:
+  `test/finance-flow-diagram.test.js` renders the real SVG across 15 hostile data shapes, extracts
+  every `<text>`, and asserts no two boxes intersect; the `vm` harness runs the same sweep over
+  every SVG on the Health page. **Both verified non-vacuous** by injecting the 5 regressions they
+  guard — the k injection initially passed, so that test was rewritten to parse the rendered ribbon
+  paths rather than recompute k. Two phantom-collision bugs in the tests' own measurement (HTML
+  entities counted as many chars; `font-size` inherited from a parent `<g>`) were found and fixed.
+  Also: the board's five expense categories from an admin-editable GL-account map with the
+  unmapped-account report (an unrecognised account lands in `programs` rather than being dropped —
+  otherwise the outflow stops matching total expenses); the donor node split by the ChMS restricted
+  ratio, labelled as the allocation it is; `GET /finance/flow?fy=`; and a visually-hidden data
+  table plus a data-built `aria-label`. `npm test` (870/870, 36 new). **Not verified**: a live
+  browser. (`src/api-finance.js`, `src/frontend/{html-head,js-finance,js-core}.js`,
+  `test/finance-flow-diagram.test.js`)
 - [x] **FIN57 — Finance Workspace v3: the tab answers "how are we doing?" (2026-08-06).** Implemented
   the `design_handoff_finance_workspace` bundle ("Finance overview framing") — six screens.
   **Compensation was explicitly out of scope and is byte-for-byte untouched** (verified: its panel
@@ -1439,7 +1638,7 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   "undefined". `npm test` (862/862, 6 new; three initially failed on a wrong premise of mine and
   were rewritten around the derived rule rather than forced), `node --check` on both bundles, render
   check of the callout and all five badges. Not verified in a live browser. Done 2026-08-07
-  (v1.152.0). (`src/frontend/js-finance.js`, `src/frontend/html-head.js`,
+  (v1.155.0). (`src/frontend/js-finance.js`, `src/frontend/html-head.js`,
   `test/finance-salary-calculator.test.js`)
 - [x] **FIN54** — Health plan rates table: deductible and out-of-pocket max each split into
   **single** and **family** columns (was family-only). The single figures already existed in
