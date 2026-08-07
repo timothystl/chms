@@ -707,6 +707,48 @@ never touches the P&L (AHRA's own paint/asphalt/concrete reserve exists but is f
   `test/finance-property-remittable.test.js`, `test/finance-property-forecast.test.js`,
   `test/finance-property-distribution.test.js`)
 
+### FIN62 — Ivanhoe: base period, hidden expenses, capital default (2026-08-07, DONE)
+Follow-up to FIN61, from two live screenshots. All three reports were correct.
+- **"Does it fund itself?" printed lines that could not reach its own total** — revenue
+  $60,633.28 − expenses $10,229.13 − reserves $5,858.33 = $44,545.82 above a printed
+  **$27,977.22**. Cause is server-side: `computePropertyAnnualSummary` accumulated revenue,
+  expenses and net income **independently**, each behind its own `Number.isFinite` guard, and four
+  of six 2026 months report net income with **no expenses line** (AHRA's Jan-2026 MRI format). So
+  expenses covered **2 of 6 months**, **$16,568.60** vanished from the visible arithmetic, and the
+  total — computed from net income — stayed right. Null months are now **derived as
+  `revenue − net income`** (exact, not an estimate: the dataset's own convention), so
+  `revenue − expenses === net income` identically. The card also deducts **principal** now and
+  builds its total **by subtraction from the lines it prints**. New `expense_months_derived` is
+  named on the card so a reconstructed figure is never passed off as reported.
+  **⚠ Any future cross-month sum of `total_expenses_cents` must not reintroduce the skip.**
+- **The forecast's base period was invisible and unadjustable.** The trailing-12 window straddles
+  H2-2025 ($9,168 / 6 mo) and H1-2026 ($33,836 / 6 mo at full occupancy); the choice swings 2027
+  from **−$12,626 to +$19,312**. Now an explicit control on the card face showing all three
+  options and each one's caveat. **The current-year option subtracts the not-yet-billed property
+  tax** — H1 holds no tax expense, so doubling it would omit the bill entirely, the mirror image
+  of the double-count FIN61 exists to avoid. **Do not "simplify" that away.**
+- **Capital now defaults to $0, not the ledger average.** Every entry is a finished one-off
+  (renovation $18,161, HVAC $7,787, washer/dryer $8,000); there is no recurring capital, so a flat
+  $15,196/yr billed completed work to every future year. History + AHRA's **unfunded**
+  paint/asphalt/concrete reserve now sit beside the input so $0 stays a deliberate choice.
+- **The Capital column reading "—" live is NOT a UI bug** — the model is right; the capital ledger
+  is **empty in production D1** (seeded behind marker `finance_property_ivanhoe_reserves_v2_seeded`;
+  if that marker got set without the seven rows landing, the ledger stays empty forever). The card
+  now says so explicitly. **Follow-up for an admin**: re-seed or re-enter those rows.
+- Also fixed: a bare `YYYY` `entry_date` (which the POST validator accepts) made the allowance
+  `NaN`, rendering **"$NaN"** as the remittable figure; and `finLoadProperty` never re-rendered the
+  Planning forecast, so losing the race with `finLoadPlanning` left it on "Loading…" indefinitely.
+- Reconciles against reality: reported $4,000 taken + ~$9,000 available → **$12,849.67**; the card
+  now reads **$10,050.54** net to the church for 2026 to date, and 2027 reads $9,347 on the
+  trailing-12 base or $22,880 on the 2026 base.
+- `npm test` (1035/1035, 26 new); **every new test verified non-vacuous** (6 injections — one
+  initially passed because a second `isFinite` guard caught it, so it was redone against a full
+  revert of the function and correctly failed). **One existing test was updated rather than the
+  code**: its assertion pinned the null-expenses-become-zero behaviour, which was the defect.
+  **Not verified**: a live browser or real D1. (`src/api-finance.js`, `src/frontend/js-finance.js`,
+  `test/finance-property-annual-summary.test.js`, `test/finance-property-funds-itself.test.js`,
+  `test/finance-property-remittable.test.js`, `test/finance-property.test.js`)
+
 ### TinyMCE editor-load limit — NOT this app; it's the website repo (2026-08-07)
 A Tiny automated email warned the account hit 50% of its monthly **Editor Load** limit (overage
 charges past 100%). **Connect contributes zero cloud loads and always has** — since v1.64.0 the
