@@ -433,6 +433,32 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### TinyMCE editor-load limit — NOT this app; it's the website repo (2026-08-07)
+A Tiny automated email warned the account hit 50% of its monthly **Editor Load** limit (overage
+charges past 100%). **Connect contributes zero cloud loads and always has** — since v1.64.0 the
+giving-letter editor is self-hosted from `vendor/tinymce/` via the `/admin/vendor/tinymce/*`
+Worker route with `license_key: 'gpl'`, no API key, and a CSP (`script-src 'self'`) that would
+block a cloud load anyway. Verified by scan, not assumption: the only `tiny.cloud` strings in this
+repo outside `vendor/` are prose, and the ones inside the vendored bundle are doc URLs in warning
+text, not a metering endpoint. **Don't re-investigate this app when the next email arrives.**
+- **The real source**: `timothystl/website` (`tlc-newsletter-admin`, admin.timothystl.org).
+  `admin/db.js:6` loads `https://cdn.tiny.cloud/1/<key>/tinymce/7/tinymce.min.js`. Injected on
+  editor screens only, but `tinymceField()` (`admin/helpers.js:940`) fires **one `tinymce.init()`
+  per rich-text field** — the newsletter screens build six before extra notes (pastor, secondary,
+  WoL, LASM, tertiary, quick), so one open of the newsletter editor is ~7 loads, repeated on every
+  reload or failed save.
+- [ ] **TINY1** — Self-host TinyMCE in the website repo, the same way this repo already does
+  (vendor a minimal subset + serve it same-origin off its own Worker; TinyMCE 7 is GPL v2+ for
+  self-hosting, so no key and no paid tier). Needs `table` in the vendored plugin set on top of
+  this repo's `code/image/link/lists` — `blockquote` is a core format, not a plugin file. **Not
+  started — that repo was read-only in this session and pushing to it was not authorised.**
+- [ ] **TINY2** — Cheaper interim mitigation if TINY1 is deferred: lazy-init each editor on first
+  focus, so opening a newsletter costs one load instead of seven.
+- [ ] **TINY3** — Manual, for an admin: the Tiny key is hardcoded in a public repo
+  (`admin/db.js:5`). A cloud key is inherently public (it ships in client-side HTML), so the
+  protection is Tiny's approved-domains list, not secrecy — confirm in the Tiny account that the
+  list is restricted to admin.timothystl.org, so the quota can only be consumed by this church.
+
 ### Admin push notifications from the Scheduler/Serve side (2026-08-04)
 Requested: ring the same admin devices that admin.timothystl.org's web push already
 reaches, for (1) a new volunteer sign-up and (2) a scheduler notification — clarified via
