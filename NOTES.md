@@ -24,6 +24,73 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.159.0 — Ivanhoe: the valuation worksheet is back on the Property tab, and the four units now walk down to cash (2026-08-07)
+
+Two things reported together on Finance -> Commercial Property: "we lost the valuation formulas
+and worksheets that I had uploaded and you made as something to edit and keep current, now it is
+just a static number," and a request for a section that takes the four actual units and their
+rents, rolls them up to annual revenue, then takes out the mortgage and management fees.
+
+**The worksheet was never lost.** `finRenderValuationCalculator` was intact and still reconciled
+to AHRA's real spreadsheet; the FIN57 redesign had **moved it off the Property tab onto Data &
+Imports**, collapsed behind a `<details>` labelled "Valuation calculator," on the stated principle
+that "an upload control has no business on a page the council reads from." Correct for file
+uploads and wrong for this one: the worksheet is not a bulk import, it is the figure the council
+reads. What sat in its place on the Property tab was `finRenderPropertyValuationCard` — four
+read-only tiles ending in a static Valuation number, which is exactly what was reported.
+
+**Moved back, not copied.** Both tab panels are in the DOM at once, so a second copy would
+duplicate every `fin-val-*` element id and `getElementById` would silently read whichever came
+first — an edit typed on one tab saving the other tab's numbers. Data & Imports now carries a
+one-line pointer instead. The worksheet also gained what "formulas and worksheet" implies and the
+four tiles never showed: the line-by-line derivation, gross rental income -> less vacancy ->
+effective rental income -> itemized costs -> management fee -> total operating costs -> NOI ->
+capitalized value.
+
+**One rent roll, not two.** The four units were already stored (`src/db.js`: Apartment 1,
+Apartment 2, RJBJ-Crossfit, Magnatone) with square footage and annual rent — what was missing is
+that those rents only ever produced a cap-rate *value*, with nothing carrying them down to cash. A
+second operating rent roll kept beside the valuation one is the bug where two screens quote
+different rents for the same building and both look right, so the existing roll was reused and
+extended: rent $/mo alongside the annual box (leases are quoted monthly), $/SF, share of revenue,
+a **vacant** flag at zero rent, and a totals row. Monthly and annual are two views of one stored
+`annual_rent_cents`; typing in either rewrites *the other* box only, never the one being typed in
+— the controlled-input round-trip FIN52 root-caused.
+
+**New pure `finComputePropertyProForma(d, opts)`** walks from the leases up: contract rent +
+utility reimbursement - vacancy = effective gross income; - itemized operating costs - management
+fee = NOI; - mortgage interest - mortgage principal - capital allowance = cash to the church. It
+reuses `finComputePropertyValuation`, `finAmortizationSchedule`,
+`finComputePropertyCapitalAllowanceCents` and `finComputePropertyTrailingNetIncome` rather than
+re-deriving any of it, and the treatment below NOI is deliberately identical to
+`finComputeRemittableForecast` so the two cannot drift.
+
+- **Property tax is not deducted twice.** It is already an itemized operating cost; the monthly
+  reserve is a timing mechanism, not an extra cost. The card states this on the page, because it
+  is precisely the double-count a reader will suspect — and a test injects the double-deduction to
+  prove the guard is real.
+- **Two readings, and the gap named.** `finComputeRemittableForecast` (FIN61) works from AHRA's
+  *reported* net income down; this works from the leases up. Both are printed and the difference
+  is stated rather than averaged away — a rent roll that disagrees with the operating statements
+  is itself the finding. Against the real seeded data the two agree on the conclusion: 2027 cash
+  is **negative** either way.
+- **DSCR** is reported, and returns `null` rather than `Infinity` once the loan is paid off, so
+  the card says so in words instead of printing a meaningless ratio.
+
+**Verification.** `npm test` (1036/1036, 25 new in `test/finance-property-proforma.test.js`,
+running the real built bundle in a `vm` rather than the source). **Every new test verified
+non-vacuous** by injecting the exact regression it guards — property tax deducted twice, mortgage
+principal dropped, the focused input rewritten mid-typing, a vacant unit silently dropped from the
+roll, DSCR reported as Infinity after payoff — 5 injections, 5 correct failures, each caught by
+the test that names it. Plus `node --check` on both built bundles, a div-balance scan of the
+assembled `CHMS_HTML` (1080/1080), and tag-balance across all five rendered surfaces including the
+empty state and the non-admin state (every input rendered, disabled). `finComputePropertyValuation`
+itself is untouched, so the existing test reconciling it to AHRA's worksheet passes unchanged —
+confirmed end to end against the real seeded figures: NOI $54,905.19 at the seeded 0.08 cap rate
+gives $686,314.88, matching AHRA's own $686,314.86. **Not verified**: a live browser or real D1.
+
+No schema change and no new endpoint — saving still goes through the existing meta `PATCH`.
+(`src/frontend/js-finance.js`, `test/finance-property-proforma.test.js`)
 ### v1.159.0 — Dental and vision are per covered worker, not a group bill re-shared (2026-08-07)
 
 Correction from the church, with the figure to check against: a family-tier worker's health cost is
