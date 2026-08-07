@@ -1870,7 +1870,7 @@ export function computeIncomeExpenseMonthlyTrend(curYearMonthlyRows, throughMont
 const REVENUE_STREAM_RULES = [
   { stream: 'restricted', re: /\brestricted\b|altar guild|designated/i },
   { stream: 'passive', re: /passive|endowment|investment|interest|dividend|ivanhoe|bequest|trust/i },
-  { stream: 'earned', re: /mdo|mother'?s day out|daycare|tuition|rental|rent\b|lease|fundrais|facility|sales|program fee|earned/i },
+  { stream: 'earned', re: /mdo|mother'?s day out|daycare|tuition|rental|rent\b|lease|fundrais|facility|program fee|earned/i },
   { stream: 'donor', re: /offering|contribution|donor|donation|gift|pledge|tithe|memorial/i },
 ];
 export const REVENUE_STREAMS = ['donor', 'earned', 'passive', 'restricted'];

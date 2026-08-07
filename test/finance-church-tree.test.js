@@ -5,7 +5,7 @@ import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
 // not as exported module functions — extract them (none touch the DOM) and eval standalone.
 // Same technique used elsewhere in this project (see CLAUDE.md SC3-BUG1 / TAP11 / FIN10).
 function loadChurchTreeHelpers() {
-  const names = ['finSetNodeDepth', 'finRemoveNodesByLabel', 'finExtractNodesByLabel', 'finMakeGroupNode', 'finRecomputeTreeTotals', 'finReorganizeChurchTree'];
+  const names = ['finSetNodeDepth', 'finExtractNodesByLabel', 'finMakeGroupNode', 'finRecomputeTreeTotals', 'finReorganizeChurchTree'];
   const fnSrcs = names.map(name => {
     const m = CHMS_APP_EXT_JS.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
     if (!m) throw new Error(`${name} not found in built script`);
@@ -74,21 +74,25 @@ describe('finReorganizeChurchTree', () => {
     expect(restricted.children[0].label).toBe('Altar Guild');
   });
 
-  it('removes Sales entirely, and its removal is reflected in the ancestor totals', () => {
+  it('hides no account, so the tree can never disagree with the server-computed total', () => {
+    // FIN14 dropped any account named exactly "Sales" from this tree while the Total Revenue stat
+    // card still counted it. Confirmed 2026-08-07 that this church has no such account, so the
+    // rule was vestigial; nothing is hidden now and every account reaches the rollup.
     const income = {
       path: 'Income', label: 'Income', classification: 'Income', depth: 0, ownActualCents: 0, ownBudgetCents: null, totalActualCents: 0, totalBudgetCents: 0, hasBudgetInfo: false,
       children: [leaf('Income:Sales', 'Sales', 'Income', 1, 30000), leaf('Income:Donor Income', 'Donor Income', 'Income', 1, 500000)],
     };
     const out = finReorganizeChurchTree([income]);
-    expect(out[0].children.map(c => c.label)).toEqual(['Donor Income']);
-    expect(out[0].totalActualCents).toBe(500000); // Sales' $300 no longer counted in the parent rollup
+    expect(out[0].children.map(c => c.label).sort()).toEqual(['Donor Income', 'Sales']);
+    expect(out[0].totalActualCents).toBe(530000);
   });
 
   it('does not mutate the original tree passed in', () => {
-    const roots = [{ path: 'Income', label: 'Income', classification: 'Income', depth: 0, ownActualCents: 0, ownBudgetCents: null, totalActualCents: 0, totalBudgetCents: 0, hasBudgetInfo: false, children: [leaf('Income:Sales', 'Sales', 'Income', 1, 100)] }];
+    const roots = [{ path: 'Income', label: 'Income', classification: 'Income', depth: 0, ownActualCents: 0, ownBudgetCents: null, totalActualCents: 0, totalBudgetCents: 0, hasBudgetInfo: false, children: [leaf('Income:Facility Rental', 'Facility Rental', 'Income', 1, 100)] }];
     finReorganizeChurchTree(roots);
     expect(roots[0].label).toBe('Income'); // untouched
-    expect(roots[0].children).toHaveLength(1); // Sales still there in the original
+    expect(roots[0].children).toHaveLength(1); // still at the top level in the original
+    expect(roots[0].children[0].label).toBe('Facility Rental');
   });
 
   // The four cases above pin the FALLBACK, used only when no saved classification is available.
@@ -102,11 +106,11 @@ describe('finReorganizeChurchTree', () => {
         leaf('Income:Facility Rental', 'Facility Rental', 'Income', 1, 100000, 90000),
         leaf('Income:Altar Guild', 'Altar Guild', 'Income', 1, 12000),
         leaf('Income:Endowment Draw', 'Endowment Draw', 'Income', 1, 40000),
-        leaf('Income:Sales', 'Sales', 'Income', 1, 30000),
+        leaf('Income:Fundraisers', 'Fundraisers', 'Income', 1, 30000),
       ],
     });
     const map = {
-      'Sunday Offering': 'donor', 'Facility Rental': 'earned', 'Sales': 'earned',
+      'Sunday Offering': 'donor', 'Facility Rental': 'earned', 'Fundraisers': 'earned',
       'Altar Guild': 'restricted', 'Endowment Draw': 'passive',
     };
 
@@ -115,14 +119,12 @@ describe('finReorganizeChurchTree', () => {
       const byLabel = {};
       revenue.children.forEach(c => { byLabel[c.label] = c; });
       expect(Object.keys(byLabel).sort()).toEqual(['Earned Income', 'Passive Income', 'Restricted Income', 'Sunday Offering']);
-      expect(byLabel['Earned Income'].children.map(c => c.label).sort()).toEqual(['Facility Rental', 'Sales']);
+      expect(byLabel['Earned Income'].children.map(c => c.label).sort()).toEqual(['Facility Rental', 'Fundraisers']);
       expect(byLabel['Restricted Income'].children.map(c => c.label)).toEqual(['Altar Guild']);
       expect(byLabel['Passive Income'].children.map(c => c.label)).toEqual(['Endowment Draw']);
     });
 
-    it('stops hiding Sales, so the tree and the server-computed revenue total agree', () => {
-      // The fallback drops Sales from the tree while its dollars still count in Total Revenue —
-      // a stated inconsistency (FIN14) that an editable classification removes the need for.
+    it('keeps every account in the rollup after regrouping', () => {
       const revenue = finReorganizeChurchTree([buildIncome()], map)[0];
       expect(revenue.totalActualCents).toBe(500000 + 100000 + 12000 + 40000 + 30000);
     });
@@ -141,7 +143,7 @@ describe('finReorganizeChurchTree', () => {
       const labels = revenue.children.map(c => c.label);
       expect(labels).toContain('Sunday Offering');
       expect(labels).toContain('Altar Guild');
-      expect(labels).toContain('Sales');
+      expect(labels).toContain('Fundraisers');
       expect(revenue.totalActualCents, 'nothing may vanish from the rollup').toBe(500000 + 100000 + 12000 + 40000 + 30000);
     });
   });

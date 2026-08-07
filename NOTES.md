@@ -76,6 +76,30 @@ running the real shipped `finChurchRenderMonthlyImportPreview`/`finChurchConfirm
 of the built bundle across both the single-year and multi-year paths (8 requests, one year each,
 2124/2124/2124/2124/2124/2124/2124/1239 rows). **Not verified**: a live browser or real D1.
 
+### v1.149.1 — Remove the vestigial "Sales" special-casing (2026-08-07)
+
+Asked where "Sales" came from, since this church has no such account. Traced to **FIN14
+(2026-07-20, v1.45.0)**: a requested presentation reorganization of the Church Report added
+`finRemoveNodesByLabel(cloned, /^sales$/i)`, hiding any account named exactly "Sales" from the
+account tree — while the server-computed Total Revenue stat card kept counting it, recorded at the
+time as a known limitation rather than silently fixed. Every later mention descends from that one
+rule, including the illustrative fixture v1.149.0 added to `test/finance-church-tree.test.js` the
+day before, which is what made it suddenly look widespread.
+
+With the account confirmed not to exist, the special-casing is dead weight that only creates
+confusion — and if one ever did appear in an old imported year, hiding it while its dollars counted
+in the total is precisely the inconsistency worth not having. Removed: the hide rule, the
+now-unused `finRemoveNodesByLabel()` helper (no other call sites), and `sales` from the earned
+`REVENUE_STREAM_RULES` regex (functionally a no-op — an unmatched group already defaults to
+`earned` and is reported as guessed either way — so this is purely removing a misleading mention).
+The stale FIN14 comment block is rewritten to say the tree now hides nothing and therefore cannot
+disagree with the Total Revenue card.
+
+`npm test` (849/849). The test that pinned the removed behaviour was replaced with its inverse —
+that no account is hidden and every one reaches the rollup — and **verified non-vacuous** by
+re-adding the hide rule, which fails it (5 fail). Plus `node --check` on `api-finance.js` and both
+built bundles, and the render harness re-run. **Not verified**: a live browser.
+
 ### v1.149.0 — Revenue mix read 100% earned: the group key was the classification (2026-08-07)
 
 **Reported**: the Financial Health page's revenue mix bar showed `EARNED $621,462 · 100%` with

@@ -2219,21 +2219,15 @@ function finBuildTreeFromFlatRows(rows) {
 // backend totals (stat cards still come from the server's own classificationTotals) are touched:
 // (1) the "Income" classification root is relabeled "Revenue" and sorted before Expenses,
 // (2) Facility Rental/Fundraisers/MDO are grouped under a new "Earned Income" heading,
-// (3) Altar Guild is grouped under a new "Restricted Income" heading,
-// (4) any account named "Sales" is hidden from this tree (note: the Church Report's own
-//     Total Revenue stat card is computed server-side from ALL rows including Sales, so that
-//     one figure and this detail tree can disagree by whatever Sales posted — say so if Sales
-//     should be excluded from the real total too, not just hidden here).
+// (3) Altar Guild is grouped under a new "Restricted Income" heading.
+// Every account is shown: nothing is hidden from this tree, so it can never disagree with the
+// server-computed Total Revenue stat card. (FIN14 also hid any account named exactly "Sales",
+// which the Church Report's own total still counted — a documented inconsistency. Confirmed
+// 2026-08-07 that this church has no such account, so the rule was vestigial and is gone.)
 // Applied to a cloned copy so the original tree (and any cached totals elsewhere) is untouched.
 function finSetNodeDepth(node, depth) {
   node.depth = depth;
   (node.children || []).forEach(function(c) { finSetNodeDepth(c, depth + 1); });
-}
-function finRemoveNodesByLabel(nodes, labelRe) {
-  for (var i = nodes.length - 1; i >= 0; i--) {
-    if (labelRe.test(nodes[i].label)) { nodes.splice(i, 1); }
-    else { finRemoveNodesByLabel(nodes[i].children, labelRe); }
-  }
 }
 function finExtractNodesByLabel(nodes, labelRe) {
   var found = [];
@@ -2276,9 +2270,6 @@ var FIN_REVENUE_CLASSES = { 'Income': true, 'Other Income': true };
 // decision drives both pages. Falls back to the original hardcoded regex only when no map has
 // been loaded yet, so a caller with no stream data renders exactly what it always did.
 //
-// Note this deliberately stops hiding "Sales": the old regex dropped that node from the tree while
-// its dollars still counted in the server-computed Total Revenue, a stated inconsistency in FIN14.
-// With every group classifiable it can be shown under whichever stream it belongs to instead.
 var FIN_STREAM_GROUP_LABELS = { earned: 'Earned Income', passive: 'Passive Income', restricted: 'Restricted Income' };
 function finReorganizeChurchTree(roots, streamMap) {
   var cloned = JSON.parse(JSON.stringify(roots || []));
@@ -2300,7 +2291,6 @@ function finReorganizeChurchTree(roots, streamMap) {
       if (picked.length) incomeRoot.children.push(finMakeGroupNode(FIN_STREAM_GROUP_LABELS[stream], 'Income', picked));
     });
   } else {
-    finRemoveNodesByLabel(cloned, /^sales$/i);
     var earnedChildren = finExtractNodesByLabel(cloned, /^(facility rental|fundraisers|mdo)$/i);
     var restrictedChildren = finExtractNodesByLabel(cloned, /^altar guild$/i);
     if (incomeRoot) {
