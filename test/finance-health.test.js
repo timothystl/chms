@@ -6,6 +6,7 @@ import {
   computeMoneyFlow,
   computeCashRunway,
   operatingCashFromAccounts,
+  operatingCashFromBalanceSheet,
   computeAppealLadder,
   computeRoomOccupancy,
   REVENUE_STREAMS,
@@ -258,6 +259,57 @@ describe('operatingCashFromAccounts', () => {
   it('returns null when nothing matched, so the caller can say the source is unknown', () => {
     expect(operatingCashFromAccounts({ QueryResponse: { Account: [{ Name: 'Payroll Liabilities', CurrentBalance: 1 }] } })).toBeNull();
     expect(operatingCashFromAccounts(null)).toBeNull();
+  });
+});
+
+// This church's operating account is "11027 Lindell Checking xx9105" — the fixture is that real
+// shape, including the sibling asset accounts a loose match could wrongly sweep in.
+describe('operatingCashFromBalanceSheet', () => {
+  const rows = [
+    { classification: 'Assets', account_name: 'Current Assets', has_children: 1, own_balance_cents: 0, as_of_date: '12/31/2026' },
+    { classification: 'Assets', account_name: '11027 Lindell Checking xx9105', has_children: 0, own_balance_cents: 18450000, as_of_date: '12/31/2026' },
+    { classification: 'Assets', account_name: '11040 Daycare Checking xx2201', has_children: 0, own_balance_cents: 3200000, as_of_date: '12/31/2026' },
+    { classification: 'Assets', account_name: '12010 Thrivent Endowment', has_children: 0, own_balance_cents: 20572408, as_of_date: '12/31/2026' },
+    { classification: 'Liabilities', account_name: '11027 Lindell Checking offset', has_children: 0, own_balance_cents: 999, as_of_date: '12/31/2026' },
+  ];
+
+  it('reads exactly the account it was told to, by code', () => {
+    const cash = operatingCashFromBalanceSheet(rows, '11027');
+    expect(cash.cents).toBe(18450000);
+    expect(cash.accounts).toEqual(['11027 Lindell Checking xx9105']);
+    expect(cash.asOfDate).toBe('12/31/2026');
+  });
+
+  it('never counts a liability line, however it is named', () => {
+    // The code match is a string prefix; without the Assets guard the liability row above would
+    // be added straight into cash on hand.
+    expect(operatingCashFromBalanceSheet(rows, '11027').cents).toBe(18450000);
+  });
+
+  it('falls back to a name match, and names every account it summed', () => {
+    const cash = operatingCashFromBalanceSheet(rows, '');
+    expect(cash.cents).toBe(18450000 + 3200000);
+    // Both are surfaced so an unpinned match that swept in the daycare account is visible on the
+    // card rather than buried in the total.
+    expect(cash.accounts).toHaveLength(2);
+  });
+
+  it('leaves endowments and reserves out — they are not operating cash', () => {
+    expect(operatingCashFromBalanceSheet(rows, '').accounts.join(' ')).not.toMatch(/Endowment/);
+  });
+
+  it('skips rollup rows so a parent and its children are never both counted', () => {
+    const withParent = [
+      { classification: 'Assets', account_name: '11000 Checking Accounts', has_children: 1, own_balance_cents: 18450000, as_of_date: '' },
+      { classification: 'Assets', account_name: '11027 Lindell Checking', has_children: 0, own_balance_cents: 18450000, as_of_date: '' },
+    ];
+    expect(operatingCashFromBalanceSheet(withParent, '').cents).toBe(18450000);
+  });
+
+  it('returns null when nothing matches, so the card can say the source is unknown', () => {
+    expect(operatingCashFromBalanceSheet(rows, '99999')).toBeNull();
+    expect(operatingCashFromBalanceSheet([], '')).toBeNull();
+    expect(operatingCashFromBalanceSheet(null, '')).toBeNull();
   });
 });
 

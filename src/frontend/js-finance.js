@@ -609,17 +609,23 @@ function finLoadCashPolicy() {
   el.innerHTML = '<div style="font-size:.8rem;color:var(--warm-gray);">Loading…</div>';
   api('/admin/api/finance/cash-policy').then(function(d) {
     el.innerHTML = '<div class="fin-eyebrow">Cash reserve policy</div>'
-      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">The runway card measures months of operating cash against this floor. Leave cash on hand blank to use the QuickBooks checking/savings balances — set it only when that name-matching picks up the wrong accounts.</p>'
+      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">The runway card measures months of operating cash against this floor. Cash on hand is read from the imported balance sheet — name the operating account by its code (this church\'s is <b>11027</b> Lindell Checking) so it can\'t pick up the wrong one. Leave the code blank and it matches any asset account named "checking"; type a figure in <i>Cash on hand</i> only to override the balance sheet entirely.</p>'
       + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
       + '<label style="font-size:.75rem;color:var(--warm-gray);">Policy floor (months)<br><input type="number" id="fin-cash-floor" step="0.5" value="' + (d.policy_floor_months != null ? d.policy_floor_months : 3) + '" style="width:100px;"></label>'
-      + '<label style="font-size:.75rem;color:var(--warm-gray);">Cash on hand ($, optional)<br><input type="number" id="fin-cash-onhand" step="0.01" value="' + (d.cash_on_hand_cents != null ? (d.cash_on_hand_cents / 100) : '') + '" style="width:140px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Operating cash account code<br><input type="text" id="fin-cash-acct" placeholder="11027" value="' + esc(d.cash_account_code || '') + '" style="width:120px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Cash on hand ($, overrides)<br><input type="number" id="fin-cash-onhand" step="0.01" value="' + (d.cash_on_hand_cents != null ? (d.cash_on_hand_cents / 100) : '') + '" style="width:140px;"></label>'
       + '<button class="btn-primary" onclick="finSaveCashPolicy()">Save policy</button></div>';
   }).catch(function() { el.innerHTML = finCardError('the cash policy'); });
 }
 function finSaveCashPolicy() {
   var months = Number(document.getElementById('fin-cash-floor').value);
   var onHandRaw = document.getElementById('fin-cash-onhand').value;
-  var body = { policy_floor_months: months, cash_on_hand_cents: onHandRaw === '' ? null : Math.round(Number(onHandRaw) * 100) };
+  var acctEl = document.getElementById('fin-cash-acct');
+  var body = {
+    policy_floor_months: months,
+    cash_on_hand_cents: onHandRaw === '' ? null : Math.round(Number(onHandRaw) * 100),
+    cash_account_code: acctEl ? acctEl.value.trim() : '',
+  };
   api('/admin/api/finance/cash-policy', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) })
     .then(function(d) {
       if (d && d.error) { finToast(d.error); return; }
@@ -1184,14 +1190,39 @@ function finRenderEntityCards(d) {
     + '<div class="fin-grid-3">' + churchCard + daycareCard + propertyCard + '</div></div>';
 }
 
+// The two end-of-line labels sat at a fixed offset from their own line, so when giving tracks
+// close to budget — which is the normal, healthy case — "Actual" and "Budget" printed on top of
+// each other and neither was readable. Pushed apart to a minimum gap when they collide, keeping
+// whichever line is higher on top so each label still points at its own line.
+var FIN_PACE_LABEL_MIN_GAP = 13;
+function finPaceEndLabels(actualY, budgetY) {
+  var aY = actualY + 4;
+  if (budgetY == null) return '<text x="574" y="' + aY.toFixed(1) + '" fill="var(--color-teal)">Actual</text>';
+  var bY = budgetY - 10;
+  var gap = Math.abs(aY - bY);
+  if (gap < FIN_PACE_LABEL_MIN_GAP) {
+    var push = (FIN_PACE_LABEL_MIN_GAP - gap) / 2;
+    // A tie (identical y) still has to resolve deterministically — actual goes below.
+    if (actualY <= budgetY) { aY -= push; bY += push; }
+    else { aY += push; bY -= push; }
+  }
+  return '<text x="574" y="' + aY.toFixed(1) + '" fill="var(--color-teal)">Actual</text>'
+    + '<text x="574" y="' + bY.toFixed(1) + '" fill="var(--deep-amber)">Budget</text>';
+}
 // 1.6a — cumulative ChMS giving against a straight-line budget line.
 function finRenderGivingPace(d) {
   var monthly = d.givingMonthly || [];
-  var budgetCents = (d.revenueStreams && d.revenueStreams.streams.donor) ? d.revenueStreams.streams.donor.budgetCents : 0;
+  var pace = d.givingPace || {};
+  var scoped = pace.scope === 'general_fund';
+  // The General Fund's own budget, from the church ledger accounts sharing its numeric code —
+  // NOT the all-donor-revenue budget, which would be measuring one fund's giving against every
+  // donor account's target and would read as a permanent shortfall.
+  var budgetCents = pace.budgetCents != null ? pace.budgetCents : 0;
   var through = (d.year === new Date().getFullYear()) ? (new Date().getMonth() + 1) : 12;
   var cum = [], run = 0;
   for (var m = 0; m < through; m++) { run += (monthly[m] ? monthly[m].cents : 0); cum.push(run); }
-  if (!cum.length) return '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">Giving against budget pace</div>'
+  var title = scoped ? 'General Fund giving against budget pace' : 'Giving against budget pace';
+  if (!cum.length) return '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">' + esc(title) + '</div>'
     + '<p style="font-size:.85rem;color:var(--warm-gray);">No giving recorded in ChMS for this year yet.</p></div>';
   var maxCents = Math.max.apply(null, cum.concat([budgetCents || 1]));
   var W = 640, x0 = 46, x1 = 557, yTop = 26, yBot = 176;
@@ -1208,11 +1239,21 @@ function finRenderGivingPace(d) {
     return '<text x="' + px(i).toFixed(1) + '" y="196">' + MONTH_NAMES[i].slice(0, 3) + '</text>';
   }).join('');
   var behindCents = budgetCents ? (budgetCents * through / 12) - cum[cum.length - 1] : 0;
+  var what = scoped ? 'General Fund offerings' : 'All offerings';
   var sub = budgetCents
-    ? 'Cumulative offerings vs. the straight-line budget line. ' + (behindCents > 0 ? 'Running ' + finMoney0(behindCents) + ' behind.' : 'Running ' + finMoney0(-behindCents) + ' ahead.')
-    : 'Cumulative offerings. No donor-revenue budget is set for this year, so there is no pace line to compare against.';
+    ? what + ' to date vs. the straight-line budget line. ' + (behindCents > 0 ? 'Running ' + finMoney0(behindCents) + ' behind.' : 'Running ' + finMoney0(-behindCents) + ' ahead.')
+    : what + ' to date. ' + (scoped
+      ? 'No budget is on file for the General Fund accounts this year, so there is no pace line to compare against.'
+      : 'No donor-revenue budget is set for this year, so there is no pace line to compare against.');
+  // Naming what was left out matters more than the chart: a reader who knows the plate held more
+  // than this line shows should be able to see why without leaving the page.
+  if (scoped && pace.excludedCents) {
+    sub += ' ' + finMoney0(pace.excludedCents) + ' given to designated and pass-through funds is not counted here.';
+  } else if (!scoped) {
+    sub += ' Every fund is counted — no fund is categorised as the General Fund yet (Settings → Fund categories).';
+  }
   return '<div class="fin-card">'
-    + '<div class="fin-card-title" style="font-size:20px;">Giving against budget pace</div>'
+    + '<div class="fin-card-title" style="font-size:20px;">' + esc(title) + '</div>'
     + '<div class="fin-card-sub">' + sub + '</div>'
     + '<svg viewBox="0 0 ' + W + ' 220" width="100%" height="200" role="img" aria-label="Cumulative giving versus budget pace, '
     + (behindCents > 0 ? 'running behind by ' + finMoney0(behindCents) : 'running at or ahead of pace') + '">'
@@ -1224,18 +1265,30 @@ function finRenderGivingPace(d) {
     + '<circle cx="' + px(cum.length - 1).toFixed(1) + '" cy="' + py(cum[cum.length - 1]).toFixed(1) + '" r="4.5" fill="var(--color-teal)"></circle>'
     + '<g font-size="10.5" fill="var(--warm-meta)" text-anchor="middle">' + monthLabels + '</g>'
     + '<g font-size="11" font-weight="700">'
-    + '<text x="574" y="' + (py(cum[cum.length - 1]) + 4).toFixed(1) + '" fill="var(--color-teal)">Actual</text>'
-    + (budgetCents ? '<text x="574" y="' + (py(budgetCents * through / 12) - 10).toFixed(1) + '" fill="var(--deep-amber)">Budget</text>' : '')
+    + finPaceEndLabels(py(cum[cum.length - 1]), budgetCents ? py(budgetCents * through / 12) : null)
     + '</g></svg></div>';
 }
 
+// Names which account produced the cash figure, and as of when. A runway is only as good as the
+// balance under it: "3.4 months" off an account the reader did not expect is worse than no number,
+// so the account is stated rather than left to be assumed.
+function finCashSourceNote(c) {
+  if (c.source === 'balance_sheet') {
+    var accts = (c.accounts || []).join(', ');
+    return ' &middot; cash from ' + (accts ? esc(accts) : 'the balance sheet')
+      + (c.asOfDate ? ' as of ' + esc(c.asOfDate) : '');
+  }
+  if (c.source === 'quickbooks') return ' &middot; cash from QuickBooks checking/savings';
+  if (c.source === 'manual') return ' &middot; cash entered by hand';
+  return '';
+}
 // 1.6b — months of operating cash against the congregation's own policy floor.
 function finRenderCashRunway(d) {
   var c = d.cash || {};
   if (!c.available) {
     return '<div class="fin-card">'
       + '<div class="fin-card-title" style="font-size:20px;">Operating cash runway</div>'
-      + '<p style="font-size:.85rem;color:var(--warm-gray);">Not yet available — this needs a cash-on-hand figure (from a QuickBooks sync, or entered on the <b>Data &amp; Imports</b> tab) and at least some expense actuals for the year.</p></div>';
+      + '<p style="font-size:.85rem;color:var(--warm-gray);">Not yet available — this needs a cash-on-hand figure and at least some expense actuals for the year. Cash comes from the imported balance sheet\'s operating account (import one from <b>Data &amp; Imports</b>, and name the account code there under <b>Classification &amp; policy</b>), or from a QuickBooks sync, or typed by hand.</p></div>';
   }
   var months = c.monthsOfCash;
   var below = months < c.policyFloorMonths;
@@ -1244,7 +1297,7 @@ function finRenderCashRunway(d) {
   return '<div class="fin-card" style="display:flex;flex-direction:column;gap:14px;">'
     + '<div><div class="fin-card-title" style="font-size:20px;">Operating cash runway</div>'
     + '<div class="fin-card-sub" style="margin:0;">' + finMoney0(c.onHandCents) + ' on hand &middot; ' + finMoney0(c.avgMonthlyExpenseCents) + ' average month'
-    + (c.source === 'quickbooks' ? ' &middot; cash from QuickBooks checking/savings' : c.source === 'manual' ? ' &middot; cash entered by hand' : '') + '</div></div>'
+    + finCashSourceNote(c) + '</div></div>'
     + '<div>'
     + '<div style="display:flex;align-items:baseline;gap:8px;"><span style="font-size:38px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;color:' + (below ? 'var(--danger)' : 'var(--sage-text)') + ';">' + months.toFixed(1) + '</span>'
     + '<span style="font-size:14px;font-weight:700;color:var(--warm-ink-label);">months</span></div>'
@@ -5639,6 +5692,7 @@ function finLoadSalaryPlannerData() {
       _finHealthPlanSelectedOption = saved.healthPlanOption || 'renewal';
       _finSalaryReferenceByYear = (saved.referenceByYear && typeof saved.referenceByYear === 'object') ? saved.referenceByYear : {};
       _finHealthPlanPremiumOverrides = (saved.healthPlanPremiumOverrides && typeof saved.healthPlanPremiumOverrides === 'object') ? saved.healthPlanPremiumOverrides : {};
+      _finHealthFamilySize = saved.healthFamilySize > 0 ? Math.floor(saved.healthFamilySize) : 2;
       if (saved.compMethod) _finCompMethod = saved.compMethod;
       if (saved.compPerWorkerMethod && typeof saved.compPerWorkerMethod === 'object') _finCompPerWorkerMethod = saved.compPerWorkerMethod;
       if (saved.compOverrides && typeof saved.compOverrides === 'object') _finCompOverrides = saved.compOverrides;
@@ -5685,7 +5739,8 @@ function finSalaryBuildSaveBody() {
     healthPlanOption: _finHealthPlanSelectedOption,
     compMethod: _finCompMethod, compPerWorkerMethod: _finCompPerWorkerMethod,
     compOverrides: _finCompOverrides, compCustomPct: _finCompCustomPct,
-    referenceByYear: _finSalaryReferenceByYear, healthPlanPremiumOverrides: _finHealthPlanPremiumOverrides
+    referenceByYear: _finSalaryReferenceByYear, healthPlanPremiumOverrides: _finHealthPlanPremiumOverrides,
+    healthFamilySize: _finHealthFamilySize
   };
 }
 function finSalarySaveData() {
@@ -6612,13 +6667,15 @@ function finComputeHealthPlanSingleClaimantDeltaCents(fromKey, toKey, spendCents
 function finHealthPlanResolvedOption(optionKey) {
   var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
   if (!opt) return null;
-  return {
-    embedded: opt.embedded,
-    deductibleIndividualCents: finCompPlanQuoteField(optionKey, 'deductibleIndividualCents'),
-    deductibleFamilyCents: finCompPlanQuoteField(optionKey, 'deductibleFamilyCents'),
-    oopMaxIndividualCents: finCompPlanQuoteField(optionKey, 'oopMaxIndividualCents'),
-    oopMaxFamilyCents: finCompPlanQuoteField(optionKey, 'oopMaxFamilyCents')
-  };
+  // Carries every original field through (label, tier rates, dental/vision) — callers treat this
+  // as the option itself, so returning only the four resolved numbers silently blanked things
+  // like opt.label at the call sites.
+  var out = {};
+  Object.keys(opt).forEach(function(k) { out[k] = opt[k]; });
+  ['deductibleIndividualCents', 'deductibleFamilyCents', 'oopMaxIndividualCents', 'oopMaxFamilyCents'].forEach(function(f) {
+    out[f] = finCompPlanQuoteField(optionKey, f);
+  });
+  return out;
 }
 // Pure — no DOM — the deductible/OOP-max that actually applies to ONE family member who alone
 // accounts for all of a family contract's costs: the plan's own individual figures if it's
@@ -6631,6 +6688,40 @@ function finHealthPlanEffectiveLoneClaimantTermsCents(optionKey) {
     ? { deductibleCents: opt.deductibleIndividualCents, oopMaxCents: opt.oopMaxIndividualCents }
     : { deductibleCents: opt.deductibleFamilyCents, oopMaxCents: opt.oopMaxFamilyCents };
 }
+// How many people a "family" contract is assumed to cover when modelling costs spread across the
+// household. Only matters for an EMBEDDED plan, where each member has their own limit inside the
+// family one; a non-embedded plan pools everything and the count makes no difference. Default 2 —
+// every option in this quote sets the family deductible at exactly 2x the individual one.
+var _finHealthFamilySize = 2;
+// Pure — no DOM — what a whole family actually pays out of pocket for spendCents of billed care,
+// split evenly across a given number of people.
+//
+// Non-embedded: one pooled family deductible, one family out-of-pocket max — the member count is
+// irrelevant, and this reduces exactly to the old family-figures-only calculation.
+//
+// Embedded: each member's contribution TOWARD the family deductible is capped at the individual
+// deductible, and once a member has met their own deductible they start paying coinsurance even
+// though the family deductible may not be met yet. Modelling only the family deductible (what this
+// used to do) therefore overstates what an embedded plan costs a family whose costs are spread
+// around — it charged full deductible dollars past the point real members would already have
+// flipped to coinsurance. Caps are applied both per member (individual OOP max) and to the
+// household (family OOP max).
+//
+// With members = 1 this reduces to the lone-claimant case in both directions, which is why
+// finHealthPlanEffectiveLoneClaimantTermsCents stays consistent with it.
+function finComputeFamilyOOPCents(opt, rate, spendCents, members) {
+  if (!opt) return null;
+  var n = Math.max(1, Math.floor(Number(members) || 1));
+  if (!opt.embedded) return finComputePlanOOPCents(opt.deductibleFamilyCents, opt.oopMaxFamilyCents, rate, spendCents);
+  var perMemberSpend = spendCents / n;
+  // Deductible dollars actually collected: each member contributes at most their individual
+  // deductible, and the family deductible caps the pooled total.
+  var perMemberDed = Math.min(perMemberSpend, opt.deductibleIndividualCents);
+  var aggregateDed = Math.min(n * perMemberDed, opt.deductibleFamilyCents);
+  var coinsurance = Math.max(0, spendCents - aggregateDed) * rate;
+  var perMemberCap = n * opt.oopMaxIndividualCents;
+  return Math.min(aggregateDed + coinsurance, perMemberCap, opt.oopMaxFamilyCents);
+}
 // Pure — no DOM — the total family-wide annual medical spend (in cents, assumed spread across 2+
 // family members so the FAMILY deductible/OOP-max apply, not a single person's) at which moving
 // from fromKey to toKey starts saving more in reduced out-of-pocket costs than the extra premium
@@ -6641,9 +6732,10 @@ function finComputeHealthPlanFamilyBreakevenCents(fromKey, toKey, perHouseholdPr
   var from = finHealthPlanResolvedOption(fromKey), to = finHealthPlanResolvedOption(toKey);
   if (!from || !to) return null;
   var rate = HEALTH_PLAN_QUOTE_2027.coinsuranceRate;
+  var members = (typeof _finHealthFamilySize !== 'undefined' ? _finHealthFamilySize : 2);
   function savings(spendCents) {
-    return finComputePlanOOPCents(from.deductibleFamilyCents, from.oopMaxFamilyCents, rate, spendCents)
-         - finComputePlanOOPCents(to.deductibleFamilyCents, to.oopMaxFamilyCents, rate, spendCents);
+    return finComputeFamilyOOPCents(from, rate, spendCents, members)
+         - finComputeFamilyOOPCents(to, rate, spendCents, members);
   }
   var maxSpendCents = Math.max(from.oopMaxFamilyCents, to.oopMaxFamilyCents) * 4;
   if (savings(maxSpendCents) < perHouseholdPremiumDiffCents) return null;
@@ -7438,6 +7530,18 @@ var FIN_COMP_PLAN_TAGS = {
   option2: 'Middle plan &middot; not embedded',
   option3: 'Leanest plan &middot; embedded individual limits'
 };
+// Derived from the option's own embedded flag rather than hand-written per plan, so the badge
+// can never disagree with the maths it describes. Under a non-embedded plan there is no individual
+// sub-limit inside family coverage at all — one member can satisfy the whole family deductible
+// alone — so its "single" figures are the self-only-contract deductible, not a per-person cap on a
+// family contract. Saying so on the row is the whole point of the badge.
+function finHealthEmbeddedBadge(optionKey) {
+  var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
+  if (!opt) return '';
+  return opt.embedded
+    ? '<span class="fin-comp-embed-badge emb" title="Each family member has their own limit inside the family limit. Once a member meets their own deductible they start paying coinsurance, even if the family deductible has not been met.">Embedded</span>'
+    : '<span class="fin-comp-embed-badge agg" title="One true family deductible — no individual limits. Family members pool expenses and one person can pay the full amount on behalf of the family. The single figures below apply to self-only coverage, not as a per-person cap within family coverage.">Non-embedded</span>';
+}
 function finCompPlanQuoteField(optionKey, field) {
   var ov = (_finHealthPlanPremiumOverrides[optionKey] || {})[field];
   return ov != null ? ov : HEALTH_PLAN_QUOTE_2027.options[optionKey][field];
@@ -7551,6 +7655,7 @@ function finCompBreakevenHtml() {
   var renewalOpt = finHealthPlanResolvedOption('renewal'), selOpt = finHealthPlanResolvedOption(_finHealthPlanSelectedOption);
   var rate = HEALTH_PLAN_QUOTE_2027.coinsuranceRate;
   var renewalLone = finHealthPlanEffectiveLoneClaimantTermsCents('renewal'), selLone = finHealthPlanEffectiveLoneClaimantTermsCents(_finHealthPlanSelectedOption);
+  var members = _finHealthFamilySize;
   function row(label, a, bb) {
     return '<tr><td style="padding:2px 6px;">' + label + '</td><td style="text-align:right;padding:2px 6px;">' + finCompMoney(a) + '</td><td style="text-align:right;padding:2px 6px;">' + finCompMoney(bb) + '</td></tr>';
   }
@@ -7559,9 +7664,9 @@ function finCompBreakevenHtml() {
     var breakevenCents = finComputeHealthPlanFamilyBreakevenCents('renewal', _finHealthPlanSelectedOption, perHouseholdDiffCents);
     var single = finComputeHealthPlanSingleClaimantDeltaCents('renewal', _finHealthPlanSelectedOption, 100000000);
     if (breakevenCents != null) {
-      tableRows += row('At the breakeven (' + finCompMoney(breakevenCents) + ' total cost of care, spread across the family)',
-        finComputePlanOOPCents(renewalOpt.deductibleFamilyCents, renewalOpt.oopMaxFamilyCents, rate, breakevenCents),
-        finComputePlanOOPCents(selOpt.deductibleFamilyCents, selOpt.oopMaxFamilyCents, rate, breakevenCents));
+      tableRows += row('At the breakeven (' + finCompMoney(breakevenCents) + ' total cost of care, spread across ' + members + ' family members)',
+        finComputeFamilyOOPCents(renewalOpt, rate, breakevenCents, members),
+        finComputeFamilyOOPCents(selOpt, rate, breakevenCents, members));
     }
     tableRows += row('Worst case, costs spread across the family', renewalOpt.oopMaxFamilyCents, selOpt.oopMaxFamilyCents);
     tableRows += row('Worst case, one family member alone', renewalLone.oopMaxCents, selLone.oopMaxCents);
@@ -7571,8 +7676,8 @@ function finCompBreakevenHtml() {
         : 'It never fully pays the worker back in reduced out-of-pocket costs at any level of care, even spread across the whole family.')
       + (single != null ? ' If one family member alone accounts for all the costs, this option ' + (single > 0 ? 'never breaks even &mdash; it costs them up to ' + finCompMoney(single) + ' more even in a worst-case year' : (single < 0 ? 'still comes out ahead by up to ' + finCompMoney(Math.abs(single)) + ' in a worst-case year' : 'comes out exactly even in a worst-case year')) + '.' : '');
   } else if (perHouseholdDiffCents < 0) {
-    var familyWorstCaseCents = finComputePlanOOPCents(selOpt.deductibleFamilyCents, selOpt.oopMaxFamilyCents, rate, 100000000)
-      - finComputePlanOOPCents(renewalOpt.deductibleFamilyCents, renewalOpt.oopMaxFamilyCents, rate, 100000000);
+    var familyWorstCaseCents = finComputeFamilyOOPCents(selOpt, rate, 100000000, members)
+      - finComputeFamilyOOPCents(renewalOpt, rate, 100000000, members);
     tableRows += row('Worst case, costs spread across the family', renewalOpt.oopMaxFamilyCents, selOpt.oopMaxFamilyCents);
     tableRows += row('Worst case, one family member alone', renewalLone.oopMaxCents, selLone.oopMaxCents);
     body = 'The church fully covers Renewal; this cheaper option would save the worker ' + finCompMoney(Math.abs(perHouseholdDiffCents)) + '/yr in premium &mdash; guaranteed, claim or no claim. '
@@ -7583,8 +7688,18 @@ function finCompBreakevenHtml() {
   } else {
     return '';
   }
+  // Shown only when it can actually change a figure — see finHealthFamilySizeMatters. Offering a
+  // picker that provably cannot move any number is the control-that-does-nothing trap.
+  var sizeMatters = finHealthFamilySizeMatters(renewalOpt) || finHealthFamilySizeMatters(selOpt);
+  var sizePicker = sizeMatters
+    ? '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+      + '<label style="font-size:.72rem;">Family members assumed <select onchange="finCompFamilySizeChange(this.value)"' + (finCompIsAdmin() ? '' : ' disabled') + '>'
+      + [1,2,3,4,5,6].map(function(n) { return '<option value="' + n + '"' + (n === members ? ' selected' : '') + '>' + n + '</option>'; }).join('')
+      + '</select></label>'
+      + '<span style="font-size:.7rem;color:var(--warm-meta);max-width:520px;">On an <b>embedded</b> plan each member has their own limit inside the family one and starts paying coinsurance once they personally meet it, so how many people share the costs changes the total.</span></div>'
+    : '<div style="margin-top:8px;font-size:.7rem;color:var(--warm-meta);max-width:560px;">The spread-across-the-family row assumes costs are shared rather than falling on one person. How many people share them makes no difference on these plans: every option sets the family deductible at exactly twice the single one, so two or more people always reach the pooled family limit at the same point. The two rows below therefore bracket the real range &mdash; costs shared, versus one member alone.</div>';
   return '<details class="fin-comp-details"><summary>Is it worth it for the worker?</summary>'
-    + '<div style="padding:8px 2px 2px;font-size:.75rem;color:var(--warm-gray);">' + body
+    + '<div style="padding:8px 2px 2px;font-size:.75rem;color:var(--warm-gray);">' + body + sizePicker
     + '<table style="width:100%;border-collapse:collapse;font-size:.72rem;margin-top:8px;max-width:520px;">'
     + '<thead><tr><th style="text-align:left;padding:2px 6px;">What the family would actually pay</th><th style="text-align:right;padding:2px 6px;">Renewal</th><th style="text-align:right;padding:2px 6px;">' + esc(selOpt.label) + '</th></tr></thead>'
     + '<tbody>' + tableRows + '</tbody></table></div></details>';
@@ -7678,7 +7793,7 @@ function finCompRenderRates() {
       return '<td class="fin-comp-td num"><input type="text" inputmode="decimal" id="fin-comp-tier-' + key + '-' + t.key + '" value="' + (ov != null ? (ov / 100) : '') + '" placeholder="' + (quoted == null ? '' : (quoted / 100).toFixed(2)) + '" oninput="finCompTierRateChange(' + volJsAttr(key) + ',' + volJsAttr(t.key) + ',finSanitizeDecimalInput(this))" style="width:88px;text-align:right;"></td>';
     }).join('');
     return '<tr' + (key === _finHealthPlanSelectedOption ? ' class="fin-comp-quote-active"' : '') + '>'
-      + '<td class="fin-comp-td"><div style="font-weight:700;color:var(--color-navy);">' + esc(calc.label) + '</div><div style="font-size:.72rem;color:var(--warm-gray);">' + FIN_COMP_PLAN_TAGS[key] + '</div></td>'
+      + '<td class="fin-comp-td"><div style="font-weight:700;color:var(--color-navy);">' + esc(calc.label) + '</div><div style="font-size:.72rem;color:var(--warm-gray);">' + FIN_COMP_PLAN_TAGS[key] + '</div><div style="margin-top:3px;">' + finHealthEmbeddedBadge(key) + '</div></td>'
       + tierBoxes
       + '<td class="fin-comp-td num">' + box('dentalCents', 86) + '</td>'
       + '<td class="fin-comp-td num">' + box('visionCents', 86) + '</td>'
@@ -7711,6 +7826,7 @@ function finCompRenderRates() {
     + '<td class="fin-comp-td" colspan="7" style="font-size:.74rem;font-weight:400;color:var(--warm-gray);">Counted from the roster &mdash; change a worker&#39;s tier in step 1. Cash-only workers are below the hours floor and are not contracts.</td>'
     + '<td class="fin-comp-td num">' + finCompEnrolledCount() + ' contract' + (finCompEnrolledCount() === 1 ? '' : 's') + '</td></tr>'
     + '</tbody></table></div>'
+    + '<div style="font-size:.72rem;color:var(--warm-gray);margin-top:6px;max-width:940px;"><b>Embedded</b> &mdash; each family member has their own limit inside the family limit; no one member contributes more than the single figure toward the family deductible, and once they meet it they start paying coinsurance even if the family deductible has not been met. <b>Non-embedded</b> &mdash; one true family deductible with no individual limits: members pool expenses and one person can pay the full family amount alone. On a non-embedded option the single figures below apply to a <i>self-only contract</i>, not as a per-person cap inside family coverage.</div>'
     + '<div class="fin-comp-bar mist"><span style="font-weight:700;color:var(--color-navy);">Plan the church covers in full:</span>'
     + '<span style="display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;"><select onchange="finCompPickPlan(this.value)"' + (finCompIsAdmin() ? '' : ' disabled') + '>'
     + FIN_COMP_PLAN_KEYS.map(function(k) { var c = finComputeHealthPlanTotalCents(k); return '<option value="' + k + '"' + (k === _finHealthPlanSelectedOption ? ' selected' : '') + '>' + esc(c.label) + ' &middot; ' + finCompMoney(c.totalCents) + '</option>'; }).join('')
@@ -7962,6 +8078,21 @@ function finCompMatchMidpoint(i) {
 }
 function finCompPickPlan(key) {
   _finHealthPlanSelectedOption = key;
+  finRerenderPlanningPreserveFocus();
+}
+// The spread-cost refinement can only change a figure when (members x single deductible) is less
+// than the family deductible — below that, members are still inside their own limits and the
+// pooled family deductible has not bound yet. Every option in the current quote sets family at
+// exactly 2x single, so that is true only at 1 member, which is the lone-claimant case modelled
+// separately: for this quote the member count provably cannot move any number. Derived rather
+// than hardcoded, so a future quote with a different family-to-single ratio turns the control
+// back on by itself instead of needing a code change.
+function finHealthFamilySizeMatters(opt) {
+  return !!(opt && opt.embedded && opt.deductibleFamilyCents > 2 * opt.deductibleIndividualCents);
+}
+function finCompFamilySizeChange(value) {
+  var n = Math.max(1, Math.floor(parseFloat(value) || 1));
+  _finHealthFamilySize = n;
   finRerenderPlanningPreserveFocus();
 }
 function finCompEmployeeOnlyChange(i, value) {

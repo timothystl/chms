@@ -595,6 +595,40 @@ against `FINANCE_IMPORTERS.length` so a new importer that forgets it fails in CI
 (875/875, 7 new); verified non-vacuous by removing the balance-sheet call (2 fail). **Not
 verified**: a live browser. (`src/frontend/js-finance.js`, `test/finance-monthly-import-ui.test.js`)
 
+### FIN61 — Giving pace = General Fund only; cash runway from the balance sheet (2026-08-07, DONE)
+Reported off the Financial Health page: the giving-pace chart should count only General Fund giving
+(40085 family) since everything else "could be to things like Concordia Children's which is just
+pass through", and the cash runway should read the balance sheet, where **11027 Lindell Checking
+xx9105** is the operating account.
+- **Pace scoped** via `resolveGeneralFundIds()` — **extracted from the giving-board handler into
+  `api-utils.js`, not rewritten**; a second copy of that rule is the bug where two screens quote
+  different "General Fund giving" totals and both look right. The board report now calls it (46
+  tests unchanged). Pass-through giving counted as budget progress showed the operating budget
+  being met by money never available to meet it.
+- **The budget line moved with it.** Was `revenueStreams.streams.donor.budgetCents` (every donor
+  account) — against one fund's giving that is a permanent false shortfall. Now the church-ledger
+  accounts sharing the fund family's numeric code, same source as the board's General Fund card;
+  `null` not `0` when absent, so the card draws no line rather than a wrong one. The card names the
+  excluded designated/pass-through total, and says so when it is still counting every fund because
+  nothing is categorised General yet. Church Report's all-funds giving reference line unchanged.
+- **Cash on hand prefers the imported balance sheet** over the QuickBooks snapshot (a confirmed
+  statement outranks a name match). New `operatingCashFromBalanceSheet()`; account pinned by code in
+  Data & Imports → Classification & policy (`cash_account_code`). Assets rows only (the code match
+  is a prefix — a liability line sharing it would otherwise be counted as cash), rollup rows
+  skipped, and deliberately **no** savings/reserve sweep unlike the QBO path: restricted reserves
+  are not operating cash. Matched account names + statement as-of date print on the card, since an
+  unpinned name match also catches the daycare checking account. Manual figure still overrides.
+- **Label overlap fixed** (visible in the screenshot): "Actual"/"Budget" carry opposite fixed
+  offsets, so they stack when the actual line sits ~14px ABOVE budget — i.e. giving running ahead,
+  the healthy case. Now pushed apart to a minimum gap, each label staying on its own line's side.
+- `npm test` (923/923, 31 new); **every new test verified non-vacuous** (8 injections, 8 correct
+  failures). The route test caught a missing `import` of `resolveGeneralFundIds` that would have
+  been a live 500 on the whole Finance tab; a first label test passed against broken code and was
+  rewritten around the real geometry. **Not verified**: a live browser or real D1.
+  **One step for an admin**: put `11027` in *Operating cash account code*. (`src/api-utils.js`,
+  `src/api-finance.js`, `src/api-reports.js`, `src/frontend/js-finance.js`,
+  `test/finance-giving-pace-cash.test.js`, `test/finance-health.test.js`)
+
 ### FIN60 — Past-year balance sheets + tie-out to the P&L; empty COGS row hidden (2026-08-07, DONE)
 Reported from two screenshots: the Balance Sheet Multi-Year Trend had bars for 2026 only while the
 Church Report table ran back to 2022; asked to upload past years' balance sheets and confirm them
@@ -681,23 +715,36 @@ Worker route with `license_key: 'gpl'`, no API key, and a CSP (`script-src 'self
 block a cloud load anyway. Verified by scan, not assumption: the only `tiny.cloud` strings in this
 repo outside `vendor/` are prose, and the ones inside the vendored bundle are doc URLs in warning
 text, not a metering endpoint. **Don't re-investigate this app when the next email arrives.**
-- **The real source**: `timothystl/website` (`tlc-newsletter-admin`, admin.timothystl.org).
-  `admin/db.js:6` loads `https://cdn.tiny.cloud/1/<key>/tinymce/7/tinymce.min.js`. Injected on
-  editor screens only, but `tinymceField()` (`admin/helpers.js:940`) fires **one `tinymce.init()`
-  per rich-text field** — the newsletter screens build six before extra notes (pastor, secondary,
-  WoL, LASM, tertiary, quick), so one open of the newsletter editor is ~7 loads, repeated on every
-  reload or failed save.
-- [ ] **TINY1** — Self-host TinyMCE in the website repo, the same way this repo already does
-  (vendor a minimal subset + serve it same-origin off its own Worker; TinyMCE 7 is GPL v2+ for
-  self-hosting, so no key and no paid tier). Needs `table` in the vendored plugin set on top of
-  this repo's `code/image/link/lists` — `blockquote` is a core format, not a plugin file. **Not
-  started — that repo was read-only in this session and pushing to it was not authorised.**
-- [ ] **TINY2** — Cheaper interim mitigation if TINY1 is deferred: lazy-init each editor on first
-  focus, so opening a newsletter costs one load instead of seven.
-- [ ] **TINY3** — Manual, for an admin: the Tiny key is hardcoded in a public repo
-  (`admin/db.js:5`). A cloud key is inherently public (it ships in client-side HTML), so the
-  protection is Tiny's approved-domains list, not secrecy — confirm in the Tiny account that the
-  list is restricted to admin.timothystl.org, so the quota can only be consumed by this church.
+- **The source was**: `timothystl/website` (`tlc-newsletter-admin`, admin.timothystl.org), which
+  loaded `https://cdn.tiny.cloud/1/<key>/tinymce/7/tinymce.min.js` and fired **one
+  `tinymce.init()` per rich-text field** — ~9 on the newsletter composer, 14 on `/ministries`,
+  rebuilt on every structural change in the block editor. **Fixed at source; see TINY1/TINY2
+  below.** The metering only ever counted the cloud build, so a self-hosted load is not a load.
+- [x] **TINY1 — DONE in the website repo, 2026-08-06 (PR #417, live at 01:23 UTC / 8:23pm
+  Central).** `admin/vendor/tinymce/` (7.9.3, GPLv2+) served same-origin by the `/assets/tinymce/`
+  route, which proxies `raw.githubusercontent.com` rather than carrying 1.4 MB in the Worker
+  bundle. `license_key: 'gpl'`, no API key. **The key is deleted from that repo entirely** —
+  `git grep` finds it on no branch, working tree or `main` — so neither app has a code path that
+  can reach `cdn.tiny.cloud`. Two tests hold the line: `admin/tinymce-assets.test.mjs` fails on
+  the hostname appearing in live code, and `test/tinymce-selfhost.test.mjs` boots the real library
+  and asserts **no request leaves the origin at all**.
+- [x] **TINY2 — DONE, 2026-08-06 (PR #416, live at 02:49 UTC).** Nothing initialises at page load
+  anywhere; an editor is created only when somebody puts the caret in a field, and an unopened
+  screen does not even fetch the library. Shipped *after* TINY1, so it never reduced cloud loads —
+  but it still matters: without it the page editor rebuilt fourteen editors on `/ministries` every
+  time a block moved.
+- [x] **TINY3 — moot. The paid plan was cancelled 2026-08-07** and the key is out of the repo, so
+  there is no quota left to protect and no approved-domains list to check.
+- **⚠ If the Editor Load count keeps climbing after 2026-08-07 01:23 UTC, it is NOT these two
+  apps.** Both were read end to end at that date and neither can emit a cloud load. Before
+  re-investigating either codebase, rule out, in this order: (1) **reporting lag** — Tiny
+  aggregates with a delay, so a count that rises "today" routinely describes yesterday's usage,
+  and all of 2026-08-06 up to 8:23pm Central was genuinely on the metered cloud build with eager
+  init (one open of the newsletter composer was ~9 loads, the block editor on `/ministries` 14 per
+  re-render); (2) **an admin tab left open from before the cutover** — the old inline
+  `<script src="https://cdn.tiny.cloud/…">` is already loaded in that document, so every field
+  opened in it still meters until the tab is reloaded; (3) **a property outside these two repos** —
+  the MDO/childcare-portal app is a separate codebase neither CLAUDE.md covers.
 
 ### Admin push notifications from the Scheduler/Serve side (2026-08-04)
 Requested: ring the same admin devices that admin.timothystl.org's web push already
@@ -1615,6 +1662,30 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   layout — say if it needs to come back. (`src/frontend/js-finance.js`,
   `src/frontend/html-head.js`, `src/frontend/html-tabs.js`,
   `test/finance-compensation-planner.test.js`, `test/finance-input-typing.test.js`)
+- [x] **FIN55** — Embedded / non-embedded, from the plan's own definition supplied by the church.
+  **The shipped lone-claimant maths was already correct** — verified against all five options
+  (embedded resolves to the individual figures, non-embedded to the family figures, deductible and
+  OOP max both), so FIN54-OPEN is closed with no change. Added: an Embedded / Non-embedded badge per
+  rates row, derived from the option's own flag rather than a hand-written string, plus a legend —
+  needed because FIN54's new "Deductible — single" column could otherwise read as a per-person cap
+  inside family coverage on the two non-embedded options, where no such cap exists. New
+  `finComputeFamilyOOPCents(opt, rate, spend, members)` generalises the spread-cost model: each
+  member's contribution toward the family deductible is capped at the individual figure and they
+  flip to coinsurance once past it. It reduces exactly to the old family-only calculation for a
+  non-embedded plan and to the lone-claimant case at one member. **For this quote it changes
+  nothing, deliberately recorded**: the refinement can only bite when (members x single deductible)
+  < family deductible, and every option here sets family at exactly 2x single, so that holds only at
+  one member — the lone-claimant case, already modelled. Verified exhaustively across all options,
+  2-5 members, $1k-$30k of spend; a synthetic 3x-ratio option does differ at two members, which pins
+  the generalisation as real. The family-size control is therefore shown **only when it can matter**
+  (`finHealthFamilySizeMatters`, data-derived) — currently hidden, replaced by a line saying the
+  count makes no difference here and that the two rows bracket the range. Also fixed FIN54's
+  `finHealthPlanResolvedOption` dropping every non-numeric field, which rendered `selOpt.label` as
+  "undefined". `npm test` (862/862, 6 new; three initially failed on a wrong premise of mine and
+  were rewritten around the derived rule rather than forced), `node --check` on both bundles, render
+  check of the callout and all five badges. Not verified in a live browser. Done 2026-08-07
+  (v1.155.0). (`src/frontend/js-finance.js`, `src/frontend/html-head.js`,
+  `test/finance-salary-calculator.test.js`)
 - [x] **FIN54** — Health plan rates table: deductible and out-of-pocket max each split into
   **single** and **family** columns (was family-only). The single figures already existed in
   `HEALTH_PLAN_QUOTE_2027` and already drove the lone-claimant maths — they had just never been
@@ -1631,7 +1702,9 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   retargeted at the plan that is not already OOP-saturated at that spend), `node --check` on both
   built bundles. Not verified in a live browser. Done 2026-08-06 (v1.151.0).
   (`src/frontend/js-finance.js`, `test/finance-salary-calculator.test.js`)
-- [ ] **FIN54-OPEN** — Unresolved modelling question, raised with the user, deliberately NOT changed
+- [x] **FIN54-OPEN** — CLOSED 2026-08-07 by FIN55: the church supplied the plan's own definition and it
+  confirms the standard rule the code already implements. Verified against all five options; no change
+  made. Original note follows. ~~Unresolved modelling question, raised with the user, deliberately NOT changed~~
   on a guess: the request said an individual deductible must be met separately "in the non-embedded
   plans," which inverts the standard definition this code implements (embedded = an individual
   sub-limit exists *within* the family deductible, so a lone claimant stops at the individual
