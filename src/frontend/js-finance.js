@@ -609,10 +609,11 @@ function finLoadCashPolicy() {
   el.innerHTML = '<div style="font-size:.8rem;color:var(--warm-gray);">Loading…</div>';
   api('/admin/api/finance/cash-policy').then(function(d) {
     el.innerHTML = '<div class="fin-eyebrow">Cash reserve policy</div>'
-      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">The runway card measures months of operating cash against this floor. Cash on hand is read from the imported balance sheet — name the operating account by its code (this church\'s is <b>11027</b> Lindell Checking) so it can\'t pick up the wrong one. Leave the code blank and it matches any asset account named "checking"; type a figure in <i>Cash on hand</i> only to override the balance sheet entirely.</p>'
+      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">The runway card measures months of operating cash against this floor. Cash on hand is read from the imported balance sheet — name the operating account by its code (this church\'s is <b>11027</b> Lindell Checking) so it can\'t pick up the wrong one. Leave the code blank and it matches any asset account named "checking"; type a figure in <i>Cash on hand</i> only to override the balance sheet entirely. The runway measures <b>church operating expenses only</b> — daycare wages and costs are left out, since they stop when the tuition does. <i>General Fund budget account code</i> is the ledger account family the offering budget is filed under (this church\'s is <b>40085</b>); leave it blank and the giving-pace chart uses the leading code of the funds categorised as the General Fund.</p>'
       + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
       + '<label style="font-size:.75rem;color:var(--warm-gray);">Policy floor (months)<br><input type="number" id="fin-cash-floor" step="0.5" value="' + (d.policy_floor_months != null ? d.policy_floor_months : 3) + '" style="width:100px;"></label>'
       + '<label style="font-size:.75rem;color:var(--warm-gray);">Operating cash account code<br><input type="text" id="fin-cash-acct" placeholder="11027" value="' + esc(d.cash_account_code || '') + '" style="width:120px;"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">General Fund budget account code<br><input type="text" id="fin-gf-budget-acct" placeholder="40085" value="' + esc(d.general_fund_budget_code || '') + '" style="width:150px;"></label>'
       + '<label style="font-size:.75rem;color:var(--warm-gray);">Cash on hand ($, overrides)<br><input type="number" id="fin-cash-onhand" step="0.01" value="' + (d.cash_on_hand_cents != null ? (d.cash_on_hand_cents / 100) : '') + '" style="width:140px;"></label>'
       + '<button class="btn-primary" onclick="finSaveCashPolicy()">Save policy</button></div>';
   }).catch(function() { el.innerHTML = finCardError('the cash policy'); });
@@ -621,10 +622,12 @@ function finSaveCashPolicy() {
   var months = Number(document.getElementById('fin-cash-floor').value);
   var onHandRaw = document.getElementById('fin-cash-onhand').value;
   var acctEl = document.getElementById('fin-cash-acct');
+  var gfEl = document.getElementById('fin-gf-budget-acct');
   var body = {
     policy_floor_months: months,
     cash_on_hand_cents: onHandRaw === '' ? null : Math.round(Number(onHandRaw) * 100),
     cash_account_code: acctEl ? acctEl.value.trim() : '',
+    general_fund_budget_code: gfEl ? gfEl.value.trim() : '',
   };
   api('/admin/api/finance/cash-policy', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) })
     .then(function(d) {
@@ -1209,6 +1212,21 @@ function finPaceEndLabels(actualY, budgetY) {
   return '<text x="574" y="' + aY.toFixed(1) + '" fill="var(--color-teal)">Actual</text>'
     + '<text x="574" y="' + bY.toFixed(1) + '" fill="var(--deep-amber)">Budget</text>';
 }
+// Why there is no pace line — naming the account code that was searched for, since the usual
+// cause is a budget that IS uploaded, filed under a code this rule didn't look under. A reader who
+// can see the same budget on the Planning tab needs to be told where the two disagree, not told
+// the budget doesn't exist.
+function finPaceNoBudgetNote(pace, scoped) {
+  if (!scoped) return 'No donor-revenue budget is set for this year, so there is no pace line to compare against.';
+  if (!pace.budgetCode) {
+    return 'No pace line: the General Fund has no leading account code to look up a budget by. '
+      + 'Set one under <b>Data &amp; Imports → Classification &amp; policy</b> (General Fund budget account code).';
+  }
+  return 'No pace line: no budget is on file this year for church ledger accounts starting <b>'
+    + esc(pace.budgetCode) + '</b>'
+    + (pace.budgetCodePinned ? ' (pinned under Classification &amp; policy).' : '.')
+    + ' If the budget is uploaded under a different code, pin that code under <b>Data &amp; Imports → Classification &amp; policy</b>.';
+}
 // 1.6a — cumulative ChMS giving against a straight-line budget line.
 function finRenderGivingPace(d) {
   var monthly = d.givingMonthly || [];
@@ -1242,11 +1260,15 @@ function finRenderGivingPace(d) {
   var what = scoped ? 'General Fund offerings' : 'All offerings';
   var sub = budgetCents
     ? what + ' to date vs. the straight-line budget line. ' + (behindCents > 0 ? 'Running ' + finMoney0(behindCents) + ' behind.' : 'Running ' + finMoney0(-behindCents) + ' ahead.')
-    : what + ' to date. ' + (scoped
-      ? 'No budget is on file for the General Fund accounts this year, so there is no pace line to compare against.'
-      : 'No donor-revenue budget is set for this year, so there is no pace line to compare against.');
+    : what + ' to date. ' + finPaceNoBudgetNote(pace, scoped);
   // Naming what was left out matters more than the chart: a reader who knows the plate held more
   // than this line shows should be able to see why without leaving the page.
+  // Which ledger accounts the budget line came from — the same reason the cash card names its
+  // account: a pace line drawn off an account the reader did not expect is worse than none.
+  if (budgetCents && (pace.budgetAccounts || []).length) {
+    var accts = pace.budgetAccounts.slice(0, 3).map(esc).join(', ');
+    sub += ' Budget from ' + accts + (pace.budgetAccounts.length > 3 ? ' and ' + (pace.budgetAccounts.length - 3) + ' more' : '') + '.';
+  }
   if (scoped && pace.excludedCents) {
     sub += ' ' + finMoney0(pace.excludedCents) + ' given to designated and pass-through funds is not counted here.';
   } else if (!scoped) {
@@ -1282,13 +1304,20 @@ function finCashSourceNote(c) {
   if (c.source === 'manual') return ' &middot; cash entered by hand';
   return '';
 }
+// Daycare wages and costs are outside the burn rate on purpose, and the card says so with the
+// figure: a reader comparing this against total expenses on the Church Report should be able to
+// see the difference accounted for rather than assume one of the two is wrong.
+function finCashDaycareNote(c) {
+  if (!c.daycareExcludedCents) return '';
+  return ' &middot; ' + finMoney0(c.daycareExcludedCents) + ' of daycare expense left out (it stops when the tuition does)';
+}
 // 1.6b — months of operating cash against the congregation's own policy floor.
 function finRenderCashRunway(d) {
   var c = d.cash || {};
   if (!c.available) {
     return '<div class="fin-card">'
       + '<div class="fin-card-title" style="font-size:20px;">Operating cash runway</div>'
-      + '<p style="font-size:.85rem;color:var(--warm-gray);">Not yet available — this needs a cash-on-hand figure and at least some expense actuals for the year. Cash comes from the imported balance sheet\'s operating account (import one from <b>Data &amp; Imports</b>, and name the account code there under <b>Classification &amp; policy</b>), or from a QuickBooks sync, or typed by hand.</p></div>';
+      + '<p style="font-size:.85rem;color:var(--warm-gray);">Not yet available — this needs a cash-on-hand figure and at least some <b>church</b> expense actuals for the year (daycare expenses are excluded from the burn rate). Cash comes from the imported balance sheet\'s operating account (import one from <b>Data &amp; Imports</b>, and name the account code there under <b>Classification &amp; policy</b>), or from a QuickBooks sync, or typed by hand.</p></div>';
   }
   var months = c.monthsOfCash;
   var below = months < c.policyFloorMonths;
@@ -1296,8 +1325,8 @@ function finRenderCashRunway(d) {
   var markerPct = Math.min(100, c.policyFloorMonths / 12 * 100);
   return '<div class="fin-card" style="display:flex;flex-direction:column;gap:14px;">'
     + '<div><div class="fin-card-title" style="font-size:20px;">Operating cash runway</div>'
-    + '<div class="fin-card-sub" style="margin:0;">' + finMoney0(c.onHandCents) + ' on hand &middot; ' + finMoney0(c.avgMonthlyExpenseCents) + ' average month'
-    + finCashSourceNote(c) + '</div></div>'
+    + '<div class="fin-card-sub" style="margin:0;">' + finMoney0(c.onHandCents) + ' on hand &middot; ' + finMoney0(c.avgMonthlyExpenseCents) + ' average month of <b>church operations</b>'
+    + finCashSourceNote(c) + finCashDaycareNote(c) + '</div></div>'
     + '<div>'
     + '<div style="display:flex;align-items:baseline;gap:8px;"><span style="font-size:38px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;color:' + (below ? 'var(--danger)' : 'var(--sage-text)') + ';">' + months.toFixed(1) + '</span>'
     + '<span style="font-size:14px;font-weight:700;color:var(--warm-ink-label);">months</span></div>'

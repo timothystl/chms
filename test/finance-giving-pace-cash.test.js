@@ -137,6 +137,55 @@ describe('GET finance/church/this-year — giving pace scoped to the General Fun
     expect(d.givingPace.budgetCents).toBeNull();
   });
 
+  it('finds the budget when the code is on the path and the leaf name is untitled', async () => {
+    // Reported live: the budget was uploaded and visible on the Planning tab, and this card still
+    // said "no budget is on file". Importers disagree about where the account code lands — leaf
+    // name for some, an ancestor segment for others — and matching only the leaf loses the budget.
+    const db = makeTestDb();
+    seedGiving(db);
+    db._raw.prepare(`INSERT INTO finance_church_entries
+      (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+      VALUES (?,0,'Income','Income:40085 Offerings:Sunday Offering','Sunday Offering',1,0,?,?,'import','2026-01-01')`)
+      .run(YEAR, 30000000, 42500000);
+    const d = await getHealth(db);
+    expect(d.givingPace.budgetCents).toBe(42500000);
+    expect(d.givingPace.budgetCode).toBe('40085');
+  });
+
+  it('never matches a longer code that merely starts with the same digits', async () => {
+    const db = makeTestDb();
+    seedGiving(db);
+    db._raw.prepare(`INSERT INTO finance_church_entries
+      (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+      VALUES (?,0,'Income','Income:400851 Something Else','400851 Something Else',0,0,?,?,'import','2026-01-01')`)
+      .run(YEAR, 1000000, 9900000);
+    const d = await getHealth(db);
+    expect(d.givingPace.budgetCents).toBeNull();
+  });
+
+  it('uses the admin-pinned budget code over the fund family\'s own', async () => {
+    const db = makeTestDb();
+    seedGiving(db); seedChurchEntries(db);
+    db._raw.prepare('INSERT INTO chms_config (key,value) VALUES (?,?)')
+      .run('finance_cash_policy', JSON.stringify({ policy_floor_months: 3, general_fund_budget_code: '57' }));
+    const d = await getHealth(db);
+    expect(d.givingPace.budgetCents, 'the pinned 57 MDO account, not the 40085 pair').toBe(30000000);
+    expect(d.givingPace.budgetCodePinned).toBe(true);
+  });
+
+  it('finds the code even when no fund is literally named "General Fund"', async () => {
+    // Once an admin categorises funds by hand the name need not survive, and a null code used to
+    // cost the whole budget lookup silently.
+    const db = makeTestDb();
+    db._raw.exec(`INSERT INTO funds (id,name,category) VALUES (1,'40085 Sunday Offering','general'), (2,'40085 Advent','general')`);
+    db._raw.exec(`INSERT INTO people (id,household_id,member_type) VALUES (1,10,'member')`);
+    db._raw.prepare('INSERT INTO giving_entries (person_id,fund_id,amount,contribution_date) VALUES (1,1,?,?)').run(50000, `${YEAR}-03-01`);
+    seedChurchEntries(db);
+    const d = await getHealth(db);
+    expect(d.givingPace.budgetCode).toBe('40085');
+    expect(d.givingPace.budgetCents).toBe(42500000 + 2500000);
+  });
+
   it('falls back to every fund, and says so, when no General Fund can be identified', async () => {
     const db = makeTestDb();
     db._raw.exec(`INSERT INTO funds (id,name,category) VALUES (1,'Memorials',''), (2,'Flowers','')`);
@@ -206,6 +255,34 @@ describe('GET finance/church/this-year — operating cash from the balance sheet
     expect(d.cash.source).toBe('none');
     expect(d.cash.available).toBe(false);
   });
+
+  // The burn rate is church operations only. Daycare wages stop when the tuition stops, so
+  // charging them to the church's runway shortens it by a cost the church would never carry.
+  it('leaves daycare expenses out of the burn rate, and reports how much it left out', async () => {
+    const db = makeTestDb();
+    seedGiving(db); seedChurchEntries(db); seedBalances(db);
+    db._raw.prepare(`INSERT INTO finance_church_entries
+      (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+      VALUES (?,0,'Expenses','Expenses:57 MDO Payroll','57 MDO Payroll',0,0,?,NULL,'import','2026-01-01')`)
+      .run(YEAR, 18000000);
+    const d = await getHealth(db);
+    const months = new Date().getFullYear() === YEAR ? new Date().getMonth() + 1 : 12;
+    expect(d.cash.avgMonthlyExpenseCents, 'the $240,000 salaries line only').toBe(Math.round(24000000 / months));
+    expect(d.cash.daycareExcludedCents).toBe(18000000);
+    expect(d.cash.allExpensesYtdCents, 'the two halves still sum to every expense').toBe(24000000 + 18000000);
+  });
+
+  it('gives a longer runway once daycare is out of it, on the same cash', async () => {
+    const db = makeTestDb();
+    seedGiving(db); seedChurchEntries(db); seedBalances(db);
+    const withoutDaycare = (await getHealth(db)).cash.monthsOfCash;
+    db._raw.prepare(`INSERT INTO finance_church_entries
+      (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+      VALUES (?,0,'Expenses','Expenses:MDO Supplies','MDO Supplies',0,0,?,NULL,'import','2026-01-01')`)
+      .run(YEAR, 30000000);
+    const withDaycare = (await getHealth(db)).cash.monthsOfCash;
+    expect(withDaycare, 'a daycare cost must not move the church runway at all').toBe(withoutDaycare);
+  });
 });
 
 // ── The real render functions, out of the real built bundle ─────────────────────────────────
@@ -260,10 +337,40 @@ describe('Giving pace card', () => {
     expect(html).not.toContain('999,000');
   });
 
-  it('drops the pace line, and says why, when the General Fund has no budget', () => {
-    const html = makeCtx().finRenderGivingPace(paceData({ givingPace: { scope: 'general_fund', budgetCents: null, excludedCents: 0 } }));
-    expect(html).toContain('No budget is on file for the General Fund accounts');
+  it('drops the pace line, and names the account code it searched, when no budget matched', () => {
+    // Reported live against a church whose budget IS uploaded and visible on the Planning tab.
+    // "No budget is on file" is unactionable there; the code that was searched for is the one
+    // fact that lets a reader see where the ledger and this rule disagree.
+    const html = makeCtx().finRenderGivingPace(paceData({
+      givingPace: { scope: 'general_fund', budgetCents: null, budgetCode: '40085', budgetAccounts: [], excludedCents: 0 },
+    }));
+    expect(html).toContain('accounts starting <b>40085</b>');
+    expect(html).toContain('Classification &amp; policy');
     expect(html).not.toContain('stroke-dasharray');
+  });
+
+  it('says the code is pinned when an admin set it, so a wrong pin is visible', () => {
+    const html = makeCtx().finRenderGivingPace(paceData({
+      givingPace: { scope: 'general_fund', budgetCents: null, budgetCode: '49094', budgetCodePinned: true, budgetAccounts: [], excludedCents: 0 },
+    }));
+    expect(html).toContain('<b>49094</b>');
+    expect(html).toContain('pinned');
+  });
+
+  it('asks for a code when the General Fund has none to look a budget up by', () => {
+    const html = makeCtx().finRenderGivingPace(paceData({
+      givingPace: { scope: 'general_fund', budgetCents: null, budgetCode: '', budgetAccounts: [], excludedCents: 0 },
+    }));
+    expect(html).toContain('no leading account code');
+    expect(html).not.toContain('stroke-dasharray');
+  });
+
+  it('names the ledger accounts the pace line was built from', () => {
+    const html = makeCtx().finRenderGivingPace(paceData({
+      givingPace: { scope: 'general_fund', budgetCents: 42500000, budgetCode: '40085', budgetAccounts: ['40085 Sunday Offering'], excludedCents: 0 },
+    }));
+    expect(html).toContain('Budget from 40085 Sunday Offering');
+    expect(html).toContain('stroke-dasharray');
   });
 
   it('says plainly when it is still counting every fund', () => {
@@ -332,5 +439,19 @@ describe('Cash runway card', () => {
   it('points at the balance sheet when there is no figure yet', () => {
     const html = makeCtx().finRenderCashRunway({ cash: { available: false } });
     expect(html).toContain('balance sheet');
+  });
+
+  it('says the month is church operations, and names the daycare cost it left out', () => {
+    // A reader comparing this against total expenses on the Church Report has to be able to see
+    // the difference accounted for, rather than assume one of the two screens is wrong.
+    const html = makeCtx().finRenderCashRunway(cash({ daycareExcludedCents: 18000000 }));
+    expect(html).toContain('church operations');
+    expect(html).toContain('$180,000');
+    expect(html).toContain('daycare expense left out');
+  });
+
+  it('says nothing about daycare when there is none to leave out', () => {
+    const html = makeCtx().finRenderCashRunway(cash({ daycareExcludedCents: 0 }));
+    expect(html).not.toContain('daycare expense left out');
   });
 });

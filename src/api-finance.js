@@ -6,7 +6,7 @@
 // app's integer-cents convention — they're display-only, never combined arithmetically with
 // giving_entries/tuition figures.
 import { json } from './auth.js';
-import { resolveGeneralFundIds } from './api-utils.js';
+import { resolveGeneralFundIds, resolveGeneralFundBudget } from './api-utils.js';
 import { getAuthorizeUrl, exchangeCodeForTokens, refreshTokens, revokeToken, makeQboClient, qboConfigured } from './quickbooks.js';
 import { makeDaycareClient, daycareConfigured } from './daycare.js';
 
@@ -2101,6 +2101,25 @@ export function computeMoneyFlow(entries) {
 // because a church that has only imported the current year still gets an honest answer; a year
 // with no expenses at all returns available:false rather than dividing by zero and reporting an
 // infinite runway, which would read as reassuring when it means "we have no data."
+// Operating expenses split into what the congregation must keep paying and what the daycare pays
+// for itself. The runway question is "how long can the church keep the lights on and the staff
+// paid if giving stops?", and daycare wages are not part of that answer: if the tuition stops the
+// wages stop with it, so charging them to the church's burn rate shortens the runway by a cost the
+// church would never have to carry alone.
+//
+// Same MDO_MATCH_RE the daycare importer and computeMoneyFlow already key on, so "daycare" means
+// exactly the same set of accounts the Daycare Report is built from — and every Expenses row lands
+// in exactly one half, so the two always sum back to total expenses.
+export function computeOperatingExpenseSplit(entries) {
+  let churchCents = 0, daycareCents = 0;
+  for (const r of entries || []) {
+    if (r.classification !== 'Expenses') continue;
+    const cents = r.own_actual_cents || 0;
+    if (MDO_MATCH_RE.test(r.category_path || '') || MDO_MATCH_RE.test(r.account_name || '')) daycareCents += cents;
+    else churchCents += cents;
+  }
+  return { churchCents, daycareCents, totalCents: churchCents + daycareCents };
+}
 export function computeCashRunway({ onHandCents, expensesYtdCents, monthsElapsed, policyFloorMonths }) {
   const months = Math.max(1, monthsElapsed || 0);
   const avgMonthlyExpenseCents = Math.round((expensesYtdCents || 0) / months);
@@ -2546,7 +2565,7 @@ async function readFlowExpenseOverrides(db) {
   const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_flow_expense_map'").first();
   try { return row ? (JSON.parse(row.value).map || {}) : {}; } catch { return {}; }
 }
-const DEFAULT_CASH_POLICY = { policy_floor_months: 3, cash_on_hand_cents: null, cash_account_code: '' };
+const DEFAULT_CASH_POLICY = { policy_floor_months: 3, cash_on_hand_cents: null, cash_account_code: '', general_fund_budget_code: '' };
 async function readCashPolicy(db) {
   const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_cash_policy'").first();
   if (!row) return { ...DEFAULT_CASH_POLICY };
@@ -2558,6 +2577,10 @@ async function readCashPolicy(db) {
       // The balance-sheet account that IS operating cash, by its leading code ("11027"). Blank
       // falls back to a name match on "checking".
       cash_account_code: typeof v.cash_account_code === 'string' ? v.cash_account_code.trim() : '',
+      // The ledger account family that carries the General Fund's budget ("40085"). Blank falls
+      // back to the leading code of the funds categorised as the General Fund, which is right
+      // whenever Giving and the ledger use the same code — this pins it when they don't.
+      general_fund_budget_code: typeof v.general_fund_budget_code === 'string' ? v.general_fund_budget_code.trim() : '',
     };
   } catch { return { ...DEFAULT_CASH_POLICY }; }
 }
@@ -3181,7 +3204,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     }
     const accountCode = String(b.cash_account_code || '').trim();
     if (accountCode && !/^[\w.-]{1,32}$/.test(accountCode)) return json({ error: 'cash_account_code should be an account code like 11027' }, 400);
-    const value = { policy_floor_months: months, cash_on_hand_cents: cents, cash_account_code: accountCode };
+    const budgetCode = String(b.general_fund_budget_code || '').trim();
+    if (budgetCode && !/^[\w.-]{1,32}$/.test(budgetCode)) return json({ error: 'general_fund_budget_code should be an account code like 40085' }, 400);
+    const value = { policy_floor_months: months, cash_on_hand_cents: cents, cash_account_code: accountCode, general_fund_budget_code: budgetCode };
     await db.prepare(
       `INSERT INTO chms_config (key,value) VALUES ('finance_cash_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(JSON.stringify(value)).run();
@@ -3395,23 +3420,28 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     // the board report's General Fund card uses: the church ledger accounts sharing the fund
     // family's leading numeric code (e.g. "40085 Sunday Offering"). null, never 0, when nothing
     // has been imported for that account yet — the card then draws no pace line at all.
-    let givingBudgetCents = null;
-    if (paceScoped && genFundPrefix) {
-      const withBudget = entries.filter(r => String(r.account_name || '').trim().startsWith(genFundPrefix)
-        && r.own_budget_cents != null);
-      if (withBudget.length) givingBudgetCents = withBudget.reduce((s, r) => s + (r.own_budget_cents || 0), 0);
-    }
+    const cashPolicyForPace = await readCashPolicy(db);
+    const gfBudget = resolveGeneralFundBudget(entries, {
+      prefix: paceScoped ? genFundPrefix : null,
+      overrideCode: cashPolicyForPace.general_fund_budget_code,
+    });
     const givingPace = {
       scope: paceScoped ? 'general_fund' : 'all_funds',
-      budgetCents: givingBudgetCents,
-      budgetSource: givingBudgetCents != null ? `church ledger accounts starting ${genFundPrefix}` : '',
+      budgetCents: gfBudget.cents,
+      // What was searched for and what it found, always — not only on success. "No budget is on
+      // file" against a budget that IS uploaded, under a code this rule didn't look for, is not
+      // something a reader can act on unless the card says which code it searched.
+      budgetCode: gfBudget.code,
+      budgetAccounts: gfBudget.accounts,
+      budgetCodePinned: !!cashPolicyForPace.general_fund_budget_code,
+      budgetSource: gfBudget.cents != null ? `church ledger accounts starting ${gfBudget.code}` : '',
       excludedCents: givingExcludedCents,
     };
 
     // Operating cash runway. Cash on hand prefers an explicit admin figure and falls back to the
     // stored QuickBooks account snapshot; `cash.source` names which one produced the number, so a
     // runway built on a name-matching heuristic never masquerades as a confirmed balance.
-    const cashPolicy = await readCashPolicy(db);
+    const cashPolicy = cashPolicyForPace;
     let onHandCents = cashPolicy.cash_on_hand_cents, cashSource = 'manual';
     let cashAccounts = [], cashAsOf = '';
     if (onHandCents == null) {
@@ -3444,16 +3474,19 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       else cashSource = 'none';
     }
     const nowForCash = new Date();
+    const expenseSplit = computeOperatingExpenseSplit(entries);
     const cash = {
       ...computeCashRunway({
         onHandCents,
-        expensesYtdCents: summary.classificationTotals?.Expenses?.actualCents || 0,
+        expensesYtdCents: expenseSplit.churchCents,
         monthsElapsed: year === nowForCash.getFullYear() ? nowForCash.getMonth() + 1 : 12,
         policyFloorMonths: cashPolicy.policy_floor_months,
       }),
       source: cashSource,
       accounts: cashAccounts,
       asOfDate: cashAsOf,
+      daycareExcludedCents: expenseSplit.daycareCents,
+      allExpensesYtdCents: expenseSplit.totalCents,
     };
 
     // YoY-to-date + year-end projection — only meaningful for the current year (a past year's
