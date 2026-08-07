@@ -3305,13 +3305,21 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     let sheets;
     try { sheets = await parseXlsxAllSheets(await file.arrayBuffer()); }
     catch (e) { return json({ error: 'Could not read this file as an Excel workbook: ' + e.message }, 400); }
-    const sheet = findMonthlyPnLSheet(sheets);
-    if (!sheet) return json({ error: 'Could not find a month-by-month "Profit and Loss by Month" sheet (a sheet with columns like "Jan 2026", "Feb 2026", ...) in this file.' }, 400);
-    let parsed;
-    try { parsed = parseMonthlyPnLGrid(sheet.grid, sheet.colAIndent); }
-    catch (e) { return json({ error: e.message }, 400); }
-    if (!parsed.rows.length) return json({ error: 'Found ' + parsed.skipped.length + ' row(s) in this sheet but could not read any of them as accounts — no indentation was detected, so the account hierarchy could not be determined. Check that the export preserves the row indenting QuickBooks applies to sub-accounts.' }, 400);
-    return json({ sheetName: sheet.name, years: parsed.years, monthsByYear: parsed.monthsByYear, rows: parsed.rows, skipped: parsed.skipped });
+    // Outer catch so an unexpected throw anywhere below reports what actually happened instead of
+    // reaching the worker's top-level handler, which returns a deliberately opaque
+    // "Internal server error. Please try again." — undiagnosable from a bug report. Every
+    // *expected* failure below still returns its own specific 4xx.
+    try {
+      const sheet = findMonthlyPnLSheet(sheets);
+      if (!sheet) return json({ error: 'Could not find a month-by-month "Profit and Loss by Month" sheet (a sheet with columns like "Jan 2026", "Feb 2026", ...) in this file.' }, 400);
+      let parsed;
+      try { parsed = parseMonthlyPnLGrid(sheet.grid, sheet.colAIndent); }
+      catch (e) { return json({ error: e.message }, 400); }
+      if (!parsed.rows.length) return json({ error: 'Found ' + parsed.skipped.length + ' row(s) in this sheet but could not read any of them as accounts — no indentation was detected, so the account hierarchy could not be determined. Check that the export preserves the row indenting QuickBooks applies to sub-accounts.' }, 400);
+      return json({ sheetName: sheet.name, years: parsed.years, monthsByYear: parsed.monthsByYear, rows: parsed.rows, skipped: parsed.skipped });
+    } catch (e) {
+      return json({ error: 'Could not read this Monthly P&L sheet: ' + (e && e.message ? e.message : String(e)) }, 500);
+    }
   }
 
   // Commit step: wholesale-replaces any existing source='monthly_import' rows for every fiscal
@@ -3328,7 +3336,19 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       || !Number.isFinite(r.own_actual_cents));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
     const years = [...new Set(rows.map(r => r.fiscal_year))].sort((a, b2) => a - b2);
-    await persistChurchEntriesMonthlyImport(db, rows, new Date().toISOString());
+    // The write is the one step here that can fail for reasons only the database knows (a quota,
+    // a batch limit, a constraint). Unguarded it reached the worker's top-level handler, which
+    // deliberately hides internals and returns a bare "Internal server error. Please try again." —
+    // true but undiagnosable, and this route is already finance-gated, so the real message is
+    // safe to show and is the difference between a fixable report and a guess. Same reasoning as
+    // the column-count error in api-import.js.
+    try {
+      await persistChurchEntriesMonthlyImport(db, rows, new Date().toISOString());
+    } catch (e) {
+      return json({ error: 'Could not save ' + rows.length + ' rows for '
+        + (years.length === 1 ? 'FY' + years[0] : 'FY' + years[0] + '-FY' + years[years.length - 1])
+        + ': ' + (e && e.message ? e.message : String(e)) }, 500);
+    }
     // The note describes everything now stored, not just this request's slice — the UI commits a
     // multi-year file one year per request, so a per-request note would leave the Data & Imports
     // card claiming only the last year was ever imported.
