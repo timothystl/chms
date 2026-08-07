@@ -668,7 +668,20 @@ export function findMonthlyPnLSheet(sheets) {
   }
   return null;
 }
-export function parseMonthlyPnLGrid(grid) {
+// Depth detection uses balanceRowDepth()/nextNonBlankRowIndex() — leading-space first, falling
+// back to the workbook's own cell-style indent metadata (colAIndent) — NOT indentDepthOf()/
+// nextNonBlankLabel(), which read leading spaces only. Confirmed against a real 2019-2026 export
+// from this church: that file carries NO leading-space indentation at all, only style metadata, so
+// a leading-space-only depth check read every row as depth 0 with no children and silently
+// classified all 178 accounts as "skipped" — a successful-looking import of nothing. Same bug and
+// same fix as FIN36 applied to parseActivityMultiYearGrid; the leading-space convention that the
+// older single-year exports do use still wins when present, so those files are unaffected.
+//
+// One file may span MANY years (e.g. Jan 2019 - Jul 2026, 91 month columns). Each emitted row
+// carries its own fiscal_year from its own column header, and `years`/`monthsByYear` describe the
+// full range so callers never have to infer a single year from the first column.
+export function parseMonthlyPnLGrid(grid, colAIndent) {
+  colAIndent = colAIndent || [];
   const headerIdx = grid.findIndex(r => r && parseMonthColTitle(r[1]) && parseMonthColTitle(r[2]));
   if (headerIdx === -1) throw new Error('Could not find a month-by-month header row (e.g. "Jan 2026", "Feb 2026", ...) in this sheet.');
   const header = grid[headerIdx];
@@ -678,7 +691,6 @@ export function parseMonthlyPnLGrid(grid) {
     if (p) monthCols.push({ col: c, year: p.year, month: p.month });
   }
   if (!monthCols.length) throw new Error('No month columns found in the header row.');
-  const fiscalYear = monthCols[0].year;
   const stack = [];
   let classification = null;
   const rows = [], skipped = [];
@@ -686,11 +698,12 @@ export function parseMonthlyPnLGrid(grid) {
     const raw = grid[i] && grid[i][0];
     if (typeof raw !== 'string' || !raw.trim()) continue;
     const label = raw.trim();
+    if (NOTES_SECTION_RE.test(label)) break;
     if (/^Total\s/i.test(label)) continue;
     if (IMPORT_SKIP_LABEL_RE.test(label)) continue;
-    const depth = indentDepthOf(raw);
-    const nextLabel = nextNonBlankLabel(grid, i);
-    const hasChildren = nextLabel != null && indentDepthOf(nextLabel) > depth;
+    const depth = balanceRowDepth(raw, colAIndent[i]);
+    const nextIdx = nextNonBlankRowIndex(grid, i);
+    const hasChildren = nextIdx !== -1 && balanceRowDepth(grid[nextIdx][0], colAIndent[nextIdx]) > depth;
     if (depth === 0 && !hasChildren) { skipped.push(raw); continue; }
     while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
     let path;
@@ -710,26 +723,46 @@ export function parseMonthlyPnLGrid(grid) {
       }));
     }
   }
-  return { fiscalYear, months: monthCols.map(m => m.month), rows, skipped };
+  const monthsByYear = {};
+  for (const m of monthCols) {
+    if (!monthsByYear[m.year]) monthsByYear[m.year] = [];
+    if (!monthsByYear[m.year].includes(m.month)) monthsByYear[m.year].push(m.month);
+  }
+  const years = Object.keys(monthsByYear).map(Number).sort((a, b) => a - b);
+  return { years, monthsByYear, rows, skipped };
 }
-// Wholesale-replaces source='monthly_import' rows for exactly one fiscal year's monthly range —
+// Wholesale-replaces source='monthly_import' rows for every fiscal year present in `rows` —
 // same re-import-is-idempotent pattern as persistChurchEntriesImport, scoped to period_month
 // 1-12 only so it can never touch that function's own annual (period_month=0) rows even though
 // they share a fiscal_year.
-export async function persistChurchEntriesMonthlyImport(db, rows, fiscalYear, importedAt) {
-  const ops = [db.prepare(`DELETE FROM finance_church_entries WHERE source='monthly_import' AND fiscal_year=? AND period_month BETWEEN 1 AND 12`).bind(fiscalYear)];
-  for (const r of rows) {
-    ops.push(db.prepare(
-      `INSERT INTO finance_church_entries
-         (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
-       VALUES (?,?,?,?,?,?,?,?,?,'monthly_import',?)
-       ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
-         classification=excluded.classification, account_name=excluded.account_name, depth=excluded.depth,
-         has_children=excluded.has_children, own_actual_cents=excluded.own_actual_cents,
-         own_budget_cents=excluded.own_budget_cents, synced_at=excluded.synced_at`
-    ).bind(fiscalYear, r.period_month, r.classification, r.category_path, r.account_name, r.depth, r.has_children ? 1 : 0, r.own_actual_cents, r.own_budget_cents, importedAt));
+//
+// Each row is stored under ITS OWN r.fiscal_year. This used to bind one caller-supplied
+// fiscalYear to every row, which was correct only for a single-year file: a multi-year export
+// (Jan 2019 - Jul 2026 is a real one) filed all 91 months under 2019, and since the unique key is
+// (fiscal_year, period_month, category_path, source), each successive year's January overwrote the
+// last through the ON CONFLICT branch — silently collapsing eight years into one.
+//
+// Statements are flushed in chunks rather than one giant batch: a full multi-year file is ~17,000
+// inserts, far past what a single D1 batch should carry. Deletes go first, as their own batch, so
+// a year is always cleared before any of its replacement rows land.
+const MONTHLY_IMPORT_BATCH_SIZE = 500;
+export async function persistChurchEntriesMonthlyImport(db, rows, importedAt) {
+  if (!rows.length) return;
+  const years = [...new Set(rows.map(r => r.fiscal_year))];
+  await db.batch(years.map(y =>
+    db.prepare(`DELETE FROM finance_church_entries WHERE source='monthly_import' AND fiscal_year=? AND period_month BETWEEN 1 AND 12`).bind(y)));
+  const ops = rows.map(r => db.prepare(
+    `INSERT INTO finance_church_entries
+       (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+     VALUES (?,?,?,?,?,?,?,?,?,'monthly_import',?)
+     ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
+       classification=excluded.classification, account_name=excluded.account_name, depth=excluded.depth,
+       has_children=excluded.has_children, own_actual_cents=excluded.own_actual_cents,
+       own_budget_cents=excluded.own_budget_cents, synced_at=excluded.synced_at`
+  ).bind(r.fiscal_year, r.period_month, r.classification, r.category_path, r.account_name, r.depth, r.has_children ? 1 : 0, r.own_actual_cents, r.own_budget_cents, importedAt));
+  for (let i = 0; i < ops.length; i += MONTHLY_IMPORT_BATCH_SIZE) {
+    await db.batch(ops.slice(i, i + MONTHLY_IMPORT_BATCH_SIZE));
   }
-  await db.batch(ops);
 }
 // ── Church Report: "Statement of Activity" multi-year Excel import ──────────────────────────
 // A nonprofit-terminology export (QuickBooks' "Statement of Activity" = a regular Profit and
@@ -3275,26 +3308,37 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const sheet = findMonthlyPnLSheet(sheets);
     if (!sheet) return json({ error: 'Could not find a month-by-month "Profit and Loss by Month" sheet (a sheet with columns like "Jan 2026", "Feb 2026", ...) in this file.' }, 400);
     let parsed;
-    try { parsed = parseMonthlyPnLGrid(sheet.grid); }
+    try { parsed = parseMonthlyPnLGrid(sheet.grid, sheet.colAIndent); }
     catch (e) { return json({ error: e.message }, 400); }
-    return json({ sheetName: sheet.name, fiscalYear: parsed.fiscalYear, months: parsed.months, rows: parsed.rows, skipped: parsed.skipped });
+    if (!parsed.rows.length) return json({ error: 'Found ' + parsed.skipped.length + ' row(s) in this sheet but could not read any of them as accounts — no indentation was detected, so the account hierarchy could not be determined. Check that the export preserves the row indenting QuickBooks applies to sub-accounts.' }, 400);
+    return json({ sheetName: sheet.name, years: parsed.years, monthsByYear: parsed.monthsByYear, rows: parsed.rows, skipped: parsed.skipped });
   }
 
-  // Commit step: wholesale-replaces any existing source='monthly_import' rows for that fiscal
-  // year (all 12 months at once) — the same replace-per-year pattern as the annual import.
+  // Commit step: wholesale-replaces any existing source='monthly_import' rows for every fiscal
+  // year present in the payload — the same replace-per-year pattern as the annual import, but
+  // driven by each row's own fiscal_year so one multi-year file can be committed in whatever
+  // slices the caller chooses (the UI sends one year at a time, for progress and payload size).
   if (seg === 'finance/church/monthly-import' && method === 'POST') {
     const b = await req.json().catch(() => ({}));
-    const fiscalYear = parseInt(b.fiscal_year, 10);
-    if (!Number.isFinite(fiscalYear)) return json({ error: 'fiscal_year is required' }, 400);
     const rows = Array.isArray(b.rows) ? b.rows : [];
     if (!rows.length) return json({ error: 'No rows to import' }, 400);
     const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number'
+      || !Number.isInteger(r.fiscal_year) || r.fiscal_year < 1900 || r.fiscal_year > 2200
       || !Number.isInteger(r.period_month) || r.period_month < 1 || r.period_month > 12
       || !Number.isFinite(r.own_actual_cents));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
-    await persistChurchEntriesMonthlyImport(db, rows, fiscalYear, new Date().toISOString());
-    await recordImport(db, 'church_monthly_pnl', `FY${fiscalYear}`);
-    return json({ ok: true, fiscalYear, imported: rows.length });
+    const years = [...new Set(rows.map(r => r.fiscal_year))].sort((a, b2) => a - b2);
+    await persistChurchEntriesMonthlyImport(db, rows, new Date().toISOString());
+    // The note describes everything now stored, not just this request's slice — the UI commits a
+    // multi-year file one year per request, so a per-request note would leave the Data & Imports
+    // card claiming only the last year was ever imported.
+    const stored = await db.prepare(
+      `SELECT MIN(fiscal_year) AS lo, MAX(fiscal_year) AS hi FROM finance_church_entries WHERE source='monthly_import' AND period_month BETWEEN 1 AND 12`
+    ).bind().first().catch(() => null);
+    const lo = stored && stored.lo != null ? stored.lo : years[0];
+    const hi = stored && stored.hi != null ? stored.hi : years[years.length - 1];
+    await recordImport(db, 'church_monthly_pnl', lo === hi ? `FY${lo}` : `FY${lo}-FY${hi}`);
+    return json({ ok: true, years, imported: rows.length });
   }
 
   // ── Church Report: "Statement of Activity" multi-year import (nonprofit-wording P&L, one

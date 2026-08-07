@@ -3366,18 +3366,59 @@ function finChurchMonthlyImportFileSelected(inputEl) {
     });
 }
 
+var FIN_MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// One file can span many years, so the detail table switches shape: a single-year file still shows
+// one column per month (the original view, and the most useful check for a 12-column file), while a
+// multi-year file shows one column per YEAR holding that year's total, because 91 month columns is
+// not a table anyone can verify by eye. The per-year summary above it is what confirms coverage.
 function finChurchRenderMonthlyImportPreview(d) {
-  var byPath = {};
-  var order = [];
+  var years = d.years || [];
+  var multi = years.length > 1;
+  var byPath = {}, order = [];
   d.rows.forEach(function(r) {
-    if (!byPath[r.category_path]) { byPath[r.category_path] = { row: r, months: {} }; order.push(r.category_path); }
-    byPath[r.category_path].months[r.period_month] = r.own_actual_cents;
+    if (!byPath[r.category_path]) { byPath[r.category_path] = { row: r, cells: {} }; order.push(r.category_path); }
+    var key = multi ? r.fiscal_year : r.period_month;
+    var cur = byPath[r.category_path].cells[key];
+    // Summing (rather than assigning) is what turns 12 monthly figures into a year total; for the
+    // single-year view each (path, month) appears once, so the sum is that one value.
+    byPath[r.category_path].cells[key] = (cur == null ? 0 : cur) + (r.own_actual_cents || 0);
   });
-  var monthHeaders = d.months.map(function(m) { return '<th style="text-align:right;padding:4px 6px;">' + m + '</th>'; }).join('');
+
+  var firstYear = years[0], lastYear = years[years.length - 1];
+  var firstMonths = d.monthsByYear[firstYear] || [], lastMonths = d.monthsByYear[lastYear] || [];
+  var span = years.length
+    ? FIN_MONTH_ABBR[firstMonths[0]] + ' ' + firstYear + ' to ' + FIN_MONTH_ABBR[lastMonths[lastMonths.length - 1]] + ' ' + lastYear
+    : '';
+  var summary = '<p style="font-size:.82rem;margin:0 0 10px;"><strong>' + years.length + ' year' + (multi ? 's' : '')
+    + '</strong> &middot; ' + esc(span) + ' &middot; ' + order.length + ' accounts &middot; '
+    + d.rows.length.toLocaleString() + ' rows</p>';
+
+  var yearSummary = '';
+  if (multi) {
+    yearSummary = '<div style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;">'
+      + '<table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
+      + '<thead style="position:sticky;top:0;background:var(--white);"><tr style="border-bottom:1px solid var(--border);">'
+      + '<th style="text-align:left;padding:4px 6px;">Year</th><th style="text-align:left;padding:4px 6px;">Months in file</th>'
+      + '<th style="text-align:right;padding:4px 6px;">Rows</th></tr></thead><tbody>'
+      + years.map(function(y) {
+          var ms = (d.monthsByYear[y] || []).slice().sort(function(a, b) { return a - b; });
+          var label = ms.length === 12 ? 'all 12' : ms.map(function(m) { return FIN_MONTH_ABBR[m]; }).join(', ');
+          return '<tr><td style="padding:3px 6px;">' + y + '</td>'
+            + '<td style="padding:3px 6px;color:var(--warm-gray);">' + esc(label) + '</td>'
+            + '<td style="padding:3px 6px;text-align:right;">' + (order.length * ms.length).toLocaleString() + '</td></tr>';
+        }).join('')
+      + '</tbody></table></div>';
+  }
+
+  var cols = multi ? years : (d.monthsByYear[firstYear] || []).slice().sort(function(a, b) { return a - b; });
+  var colHeaders = cols.map(function(c) {
+    return '<th style="text-align:right;padding:4px 6px;">' + (multi ? c : FIN_MONTH_ABBR[c]) + '</th>';
+  }).join('');
   var rowsHtml = order.map(function(path) {
     var entry = byPath[path];
-    var cells = d.months.map(function(m) {
-      var v = entry.months[m];
+    var cells = cols.map(function(c) {
+      var v = entry.cells[c];
       return '<td style="padding:3px 6px;text-align:right;">' + (v == null ? '' : '$' + finFmtMoney(v / 100)) + '</td>';
     }).join('');
     return '<tr>'
@@ -3388,31 +3429,68 @@ function finChurchRenderMonthlyImportPreview(d) {
   var skippedHtml = d.skipped.length
     ? '<p style="font-size:.76rem;color:var(--warm-gray);margin-top:10px;">Ignored (not recognized as accounts): ' + d.skipped.map(esc).join('; ') + '</p>'
     : '';
-  return '<div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">'
+  return summary + yearSummary
+    + (multi ? '<p style="font-size:.76rem;color:var(--warm-gray);margin:0 0 6px;">Each column below is that year&#39;s total across its months. The monthly detail is imported in full.</p>' : '')
+    + '<div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">'
     + '<table style="width:100%;border-collapse:collapse;font-size:.78rem;">'
     + '<thead style="position:sticky;top:0;background:var(--white);"><tr style="border-bottom:1px solid var(--border);">'
     + '<th style="text-align:left;padding:4px 6px;">Account</th><th style="text-align:left;padding:4px 6px;">Classification</th>'
-    + monthHeaders + '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+    + colHeaders + '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
     + skippedHtml;
 }
 
+// Commits ONE YEAR PER REQUEST, sequentially. A full multi-year file is ~17,000 rows; sending it
+// as one request would be a multi-megabyte body and a single long write, with no progress and
+// nothing salvaged if it timed out. Year-at-a-time keeps each request the size of the
+// single-year import that was already proven, and each year that lands stays landed.
 function finChurchConfirmMonthlyImport() {
   if (!_finChurchMonthlyImportPreview) return;
+  var d = _finChurchMonthlyImportPreview;
   var btn = document.getElementById('fin-church-monthly-import-confirm-btn');
+  var statusEl = document.getElementById('fin-church-monthly-import-status');
+  var years = (d.years || []).slice().sort(function(a, b) { return a - b; });
+  if (!years.length) { finToast('Nothing to import.'); return; }
+  var rowsByYear = {};
+  d.rows.forEach(function(r) {
+    if (!rowsByYear[r.fiscal_year]) rowsByYear[r.fiscal_year] = [];
+    rowsByYear[r.fiscal_year].push(r);
+  });
   btn.disabled = true;
-  api('/admin/api/finance/church/monthly-import', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fiscal_year: _finChurchMonthlyImportPreview.fiscalYear, rows: _finChurchMonthlyImportPreview.rows }),
-  }).then(function(d) {
+  var imported = 0, doneYears = [], idx = 0;
+
+  function step() {
+    if (idx >= years.length) return Promise.resolve();
+    var y = years[idx];
+    if (statusEl) statusEl.textContent = 'Importing ' + y + ' (' + (idx + 1) + ' of ' + years.length + ')...';
+    return api('/admin/api/finance/church/monthly-import', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: rowsByYear[y] }),
+    }).then(function(res) {
+      if (res && res.error) throw new Error(res.error);
+      imported += (res && res.imported) || 0;
+      doneYears.push(y);
+      idx++;
+      return step();
+    });
+  }
+
+  step().then(function() {
     btn.disabled = false;
-    if (d && d.error) { finToast('Import failed: ' + d.error); return; }
+    if (statusEl) statusEl.textContent = '';
     closeModal('fin-church-monthly-import-modal');
-    finToast('Imported ' + d.imported + ' monthly row(s) for ' + d.fiscalYear + '.');
+    finToast('Imported ' + imported.toLocaleString() + ' monthly rows across ' + doneYears.length
+      + ' year' + (doneYears.length === 1 ? '' : 's') + ' (' + doneYears[0]
+      + (doneYears.length > 1 ? '-' + doneYears[doneYears.length - 1] : '') + ').');
     finRenderChurchReport();
     finLoadHealth();
   }).catch(function(err) {
     btn.disabled = false;
-    if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
+    if (err && err.message === 'Unauthorized') return;
+    // Years already committed are not rolled back, so say which ones landed rather than implying
+    // the whole file failed.
+    var partial = doneYears.length ? ' Imported ' + doneYears.join(', ') + ' before failing; re-run to finish.' : '';
+    if (statusEl) statusEl.textContent = '';
+    finToast('Import failed on ' + years[idx] + ': ' + ((err && err.message) || 'Unknown error') + '.' + partial);
   });
 }
 

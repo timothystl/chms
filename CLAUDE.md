@@ -476,6 +476,33 @@ deliberate `earned` default. The tests passed because their fixtures used `'40 O
   confirmed answer. (`src/api-finance.js`, `src/frontend/{js-finance,html-head,js-core}.js`,
   `test/finance-health.test.js`, `test/finance-church-tree.test.js`)
 
+### FIN59 — Monthly P&L import: style indentation + many years per file (2026-08-07, DONE)
+Asked whether one Monthly P&L upload can carry multiple years of months. Checked against a real
+uploaded file (Jan 2019 – Jul 2026, 91 month columns) instead of the code alone, and the shipped
+parser returned **0 rows / 178 skipped with no error** — a successful-looking import of nothing.
+Two independent bugs, both fixed: (1) `parseMonthlyPnLGrid` measured hierarchy with
+`indentDepthOf()` (leading spaces only), but this export has **zero** leading spaces — hierarchy
+lives only in cell-style indent metadata, already parsed into `sheet.colAIndent` and simply never
+passed in; now uses `balanceRowDepth()`/`nextNonBlankRowIndex()`, the same FIN36 fix
+`parseActivityMultiYearGrid` already carries, so space-indented exports are unaffected. (2) the
+parser took the first column's year and `persistChurchEntriesMonthlyImport` bound it to every row,
+so with the `(fiscal_year, period_month, category_path, source)` unique key each year's January
+overwrote the last — eight years collapsing into one. Rows now store under their own year; DELETE
+is scoped to the years present; inserts flush in chunks of 500 (~16k statements is past one D1
+batch). Signatures changed: `parseMonthlyPnLGrid(grid, colAIndent)` → `{years, monthsByYear, rows,
+skipped}`; `persistChurchEntriesMonthlyImport(db, rows, importedAt)` (no `fiscalYear`); the commit
+route validates each row's own `fiscal_year` instead of taking one. UI: coverage summary + per-year
+months table, year-total columns for multi-year (month columns still for single-year), and commit
+sends one request per year sequentially with per-year progress and honest partial-failure
+reporting. `npm test` (853/853, 4 new); both new tests verified non-vacuous by reintroducing the
+exact bug each guards. Against the real file: 8 years / 16,107 rows, and **all 4,702 non-empty
+account cells reconcile to the source to the cent** (the 364 unmatched are the four running-subtotal
+labels, deliberately never stored). Plus `node --check` on both bundles, div-balance on
+`CHMS_HTML`, and a `vm` harness running the real shipped preview/commit functions out of the built
+bundle. **Not verified**: a live browser or real D1. (`src/api-finance.js`,
+`src/frontend/js-finance.js`, `src/frontend/html-tabs.js`,
+`test/finance-church-monthly-import.test.js`)
+
 ### TinyMCE editor-load limit — NOT this app; it's the website repo (2026-08-07)
 A Tiny automated email warned the account hit 50% of its monthly **Editor Load** limit (overage
 charges past 100%). **Connect contributes zero cloud loads and always has** — since v1.64.0 the
