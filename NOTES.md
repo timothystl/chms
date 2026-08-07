@@ -24,6 +24,131 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.154.0 — Giving pace is General Fund only; cash runway reads the balance sheet (2026-08-07)
+
+**Reported**, with a screenshot of the Financial Health page: the giving-pace chart should count
+only General Fund giving (the 40085 family) — "all the other giving could be to things like
+Concordia Children's which is just pass through" — and the operating cash runway should come off
+the balance sheet, where **11027 Lindell Checking xx9105** is the operating account.
+
+**The pace chart was counting every fund.** Designated and pass-through giving arrives and leaves;
+counting it showed the operating budget being met by money that was never available to meet it.
+Now scoped to the General Fund family using `resolveGeneralFundIds()` — **extracted from the giving
+board handler rather than written again**, because a second copy of that rule is precisely the bug
+where two screens each quote a "General Fund giving" total and both look right. The board report
+now calls the shared helper; its 46 tests were untouched and still pass.
+
+**The budget line had to move with it.** It was `revenueStreams.streams.donor.budgetCents` — every
+donor account's budget. Against one fund's giving that reads as a permanent shortfall. It now comes
+from the same source the board report's General Fund card uses: the church ledger accounts sharing
+the fund family's leading numeric code ("40085 Sunday Offering"). `null`, never `0`, when nothing
+has been imported for those accounts — the card then draws no pace line rather than a false one.
+
+The card also now **names what it left out** ("$X given to designated and pass-through funds is not
+counted here"), and says plainly when it is still counting every fund because no fund has been
+categorised as General yet. The Church Report's own all-funds giving reference line is unchanged —
+only the pace chart is scoped.
+
+**Cash on hand now prefers the imported balance sheet** over the QuickBooks account snapshot. The
+snapshot is a name match over whatever accounts happen to be connected; the balance sheet is the
+church's own confirmed statement of position. New `operatingCashFromBalanceSheet()`, with the
+operating account pinned by code (Data & Imports → Classification & policy, `cash_account_code`).
+Three deliberate limits: it only reads **Assets** rows (the code match is a string prefix, and a
+liability line sharing the code would otherwise be added into cash), it **skips rollup rows** so a
+parent and its children are never both counted, and unlike the QuickBooks path it does **not** sweep
+in savings/reserve accounts — restricted reserves are not operating cash, and a runway built on
+money already promised elsewhere overstates how long the lights stay on. The matched account names
+and the statement's as-of date come back with the figure and are printed on the card, because an
+unpinned name match could just as easily pick up the daycare checking account, and a figure from an
+older statement must not read as today's bank balance. A hand-entered figure still overrides
+everything.
+
+**Also fixed, straight off the screenshot**: the chart's "Actual" and "Budget" end labels printed on
+top of each other. Not because the lines were equal — the two labels carry opposite fixed offsets,
+so they collide when the actual line sits ~14px *above* the budget line, which is giving running a
+little ahead of pace. The healthy case was the unreadable one. They now push apart to a minimum gap,
+keeping each label on the side of its own line.
+
+`npm test` (923/923, 31 new across `test/finance-giving-pace-cash.test.js` — the shared fund rule,
+the real route against real in-memory SQLite, and the real render functions out of the real built
+bundle — plus balance-sheet cash cases in `test/finance-health.test.js`). Every new test verified
+non-vacuous by injecting the exact regression it guards: eight injections, eight correct failures.
+One of those tests earned its keep immediately — the route test caught a missing `import` of
+`resolveGeneralFundIds` in `api-finance.js`, which would have been a live 500 on the whole Finance
+tab. A first attempt at the label-overlap test passed against the broken code and was rewritten
+around the real geometry rather than kept.
+
+**Not verified**: a live browser or real D1. **One step for an admin**: put `11027` in *Operating
+cash account code* under Data & Imports → Classification & policy. Left blank it matches any asset
+account named "checking", which on this chart of accounts also picks up the daycare account — the
+card names whatever it summed, so this is visible rather than silent.
+
+### v1.152.0 — Past-year balance sheets, tied out against the P&L; empty COGS row dropped (2026-08-07)
+
+(Two unrelated sessions both landed a v1.152.0 on the same day — see also "Funds sharing a leading
+code combine into one line" further down. Both are in main; the numbers are not renumbered because
+they are already deployed.)
+
+**Reported**, with two screenshots: the Balance Sheet view's Multi-Year Trend shows bars for 2026
+only, while the Church Report's Multi-Year table has real figures back to 2022. Two asks — upload
+balance sheets for the past years and confirm them against those years' P&L, and remove the Cost
+of Goods Sold row, since this church does not sell anything.
+
+**The upload path already existed and still does** — no new importer was written. Data & Imports
+carries both *Balance Sheet* (one year, fiscal year read from the file's own "As of" line) and
+*Financial Position (multi-year)* (one file covering many years). Neither has ever had a year
+restriction. What was missing was everything *around* the upload:
+
+- **The snapshot was pinned to the current year.** `finLoadChurchBalances()` defaulted to
+  `new Date().getFullYear()` and nothing ever called it with anything else, so a 2022 balance
+  sheet could be imported successfully and then never be looked at. There is now a year box, and
+  the empty state renders the picker *above* the "nothing imported for this year" message — before,
+  landing on a year with no data was a dead end with no way back to a year that had some, which is
+  the normal state while history is still being loaded.
+- **The trend window was the server's rolling five years.** Same problem the income statement's
+  Multi-Year view solved with a From/To picker; the balance sheet now has the same control.
+- **Nothing checked the two reports against each other.** New `computeBalanceVsPnlReconciliation()`
+  (`api-finance.js`): a year's change in total equity should equal that year's net income, because
+  every other equity movement nets to zero inside total equity. Returned by
+  `GET finance/church/balances/multi-year` alongside a new `netIncomeByYear`, rendered as a
+  "Balance Sheet vs. Income Statement" table (opening equity, closing equity, change, net income,
+  check).
+
+Three judgement calls in that tie-out worth recording:
+
+1. **A difference is reported as a difference, never as a failure.** A cash-basis balance sheet
+   next to an accrual P&L — this church has at least one such year on file, which is why the import
+   already carries a basis flag — or a prior-period adjustment booked straight to equity produces a
+   real, legitimate difference. Calling that a bad import would train an admin to ignore the check.
+2. **Only consecutive years are compared.** If 2023 was never uploaded, 2024 is *not* checked
+   against 2022 — that would silently attribute two years of movement to one year's net income.
+   It says "no 2023 balance sheet — upload it to check this year" instead, so the table also
+   answers "which year do I still need?".
+3. **The endpoint fetches one year BEFORE the requested range** purely for opening equity.
+   Otherwise the earliest year in the window always reported "no prior balance sheet" as an
+   artifact of where the range picker happened to start.
+
+`computeBalanceSummary()` returns a fully zeroed summary for a year with no rows, which is
+indistinguishable from a real $0 equity except by the empty `classificationTotals` map — the
+reconciliation checks that map, so a not-yet-uploaded year can never masquerade as a $150k swing.
+
+**Cost of Goods Sold** is hidden when every year in the window is zero, in the multi-year table and
+in the CSV export — not deleted. If a COGS figure ever exists the row returns, so the visible rows
+always still add up to the Net Income printed beneath them. This is FIN58's lesson applied: never
+hide a dollar that a total on the same screen is still counting. `computeYearSummary()` is
+untouched and still subtracts COGS into gross profit.
+
+`npm test` (892/892, 17 new across `test/finance-balance-pnl-recon.test.js` — the pure function
+plus the real route against real in-memory SQLite — and `test/finance-balance-recon-ui.test.js`,
+which drives the real render functions out of the real built bundle). Every new test verified
+non-vacuous by injecting the exact regression it guards: six injections, six correct failures
+(dropped opening-year fetch, zeroed-summary-as-real-data, swallowing tolerance, unconditional COGS
+row in the table and again in the CSV, and an empty state that loses its picker). Plus
+`node --check` on both built bundles and a div-balance scan of the assembled `CHMS_HTML`.
+
+**Not verified**: a live browser or real D1. **Next step is the user's**: upload the past years
+from Data & Imports, then open Church Report → Balance sheet and widen the trend range — the
+tie-out table will name any year whose equity movement does not match its net income.
 ### v1.149.0 — "How the money moves": four-column Sankey + Share view (2026-08-06)
 
 Implements `flow-diagram.md`, the addition to the Finance Workspace bundle (the rest of that
@@ -113,68 +238,6 @@ fourth revenue stream. Three consequences for this work, all carried in rather t
 `npm test` 937/937 (35 new here, plus main's). **Not verified**: a live browser — the standing caveat here. The
 overlap guarantee is proven geometrically against the emitted SVG, which is stronger than eyeballing
 one dataset, but it is not the same as seeing it rendered by a browser at a real font.
-### v1.152.0 — Past-year balance sheets, tied out against the P&L; empty COGS row dropped (2026-08-07)
-
-**Reported**, with two screenshots: the Balance Sheet view's Multi-Year Trend shows bars for 2026
-only, while the Church Report's Multi-Year table has real figures back to 2022. Two asks — upload
-balance sheets for the past years and confirm them against those years' P&L, and remove the Cost
-of Goods Sold row, since this church does not sell anything.
-
-**The upload path already existed and still does** — no new importer was written. Data & Imports
-carries both *Balance Sheet* (one year, fiscal year read from the file's own "As of" line) and
-*Financial Position (multi-year)* (one file covering many years). Neither has ever had a year
-restriction. What was missing was everything *around* the upload:
-
-- **The snapshot was pinned to the current year.** `finLoadChurchBalances()` defaulted to
-  `new Date().getFullYear()` and nothing ever called it with anything else, so a 2022 balance
-  sheet could be imported successfully and then never be looked at. There is now a year box, and
-  the empty state renders the picker *above* the "nothing imported for this year" message — before,
-  landing on a year with no data was a dead end with no way back to a year that had some, which is
-  the normal state while history is still being loaded.
-- **The trend window was the server's rolling five years.** Same problem the income statement's
-  Multi-Year view solved with a From/To picker; the balance sheet now has the same control.
-- **Nothing checked the two reports against each other.** New `computeBalanceVsPnlReconciliation()`
-  (`api-finance.js`): a year's change in total equity should equal that year's net income, because
-  every other equity movement nets to zero inside total equity. Returned by
-  `GET finance/church/balances/multi-year` alongside a new `netIncomeByYear`, rendered as a
-  "Balance Sheet vs. Income Statement" table (opening equity, closing equity, change, net income,
-  check).
-
-Three judgement calls in that tie-out worth recording:
-
-1. **A difference is reported as a difference, never as a failure.** A cash-basis balance sheet
-   next to an accrual P&L — this church has at least one such year on file, which is why the import
-   already carries a basis flag — or a prior-period adjustment booked straight to equity produces a
-   real, legitimate difference. Calling that a bad import would train an admin to ignore the check.
-2. **Only consecutive years are compared.** If 2023 was never uploaded, 2024 is *not* checked
-   against 2022 — that would silently attribute two years of movement to one year's net income.
-   It says "no 2023 balance sheet — upload it to check this year" instead, so the table also
-   answers "which year do I still need?".
-3. **The endpoint fetches one year BEFORE the requested range** purely for opening equity.
-   Otherwise the earliest year in the window always reported "no prior balance sheet" as an
-   artifact of where the range picker happened to start.
-
-`computeBalanceSummary()` returns a fully zeroed summary for a year with no rows, which is
-indistinguishable from a real $0 equity except by the empty `classificationTotals` map — the
-reconciliation checks that map, so a not-yet-uploaded year can never masquerade as a $150k swing.
-
-**Cost of Goods Sold** is hidden when every year in the window is zero, in the multi-year table and
-in the CSV export — not deleted. If a COGS figure ever exists the row returns, so the visible rows
-always still add up to the Net Income printed beneath them. This is FIN58's lesson applied: never
-hide a dollar that a total on the same screen is still counting. `computeYearSummary()` is
-untouched and still subtracts COGS into gross profit.
-
-`npm test` (892/892, 17 new across `test/finance-balance-pnl-recon.test.js` — the pure function
-plus the real route against real in-memory SQLite — and `test/finance-balance-recon-ui.test.js`,
-which drives the real render functions out of the real built bundle). Every new test verified
-non-vacuous by injecting the exact regression it guards: six injections, six correct failures
-(dropped opening-year fetch, zeroed-summary-as-real-data, swallowing tolerance, unconditional COGS
-row in the table and again in the CSV, and an empty state that loses its picker). Plus
-`node --check` on both built bundles and a div-balance scan of the assembled `CHMS_HTML`.
-
-**Not verified**: a live browser or real D1. **Next step is the user's**: upload the past years
-from Data & Imports, then open Church Report → Balance sheet and widen the trend range — the
-tie-out table will name any year whose equity movement does not match its net income.
 ### v1.152.0 — Funds sharing a leading code combine into one line (2026-08-07)
 
 **Asked for**: on the Church Report's "Giving by fund, per ChMS records" panel — and everywhere

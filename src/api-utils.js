@@ -450,6 +450,28 @@ export function defaultFundCategories(funds) {
   return out;
 }
 
+// Which funds are the General Fund, as one rule shared by every page that needs to answer it.
+// Primary source is funds.category (migration 0033, edited in Settings → Fund categories); the
+// legacy fallback — every fund sharing the leading numeric code of the fund literally named
+// "General Fund" — applies only on a database where nothing has been categorised 'general' yet,
+// so the board's headline number doesn't read $0 until someone visits Settings.
+//
+// Extracted from the giving-board handler so the Financial Health page's giving-pace chart asks
+// the same question the board report does. A second copy of this rule is the shape of bug where
+// two screens quote different "General Fund giving" totals and both look right.
+export function resolveGeneralFundIds(fundRows) {
+  const rows = Array.isArray(fundRows) ? fundRows : [];
+  const catOf = new Map(rows.map(f => [f.id, normalizeFundCategory(f.category)]));
+  const genFundRow = rows.find(f => /general\s*fund/i.test(String(f.name || '')));
+  const prefix = genFundRow ? fundNumericPrefix(genFundRow.name) : null;
+  if (![...catOf.values()].includes('general')) {
+    for (const f of rows) {
+      if (prefix ? fundNumericPrefix(f.name) === prefix : (genFundRow && f.id === genFundRow.id)) catOf.set(f.id, 'general');
+    }
+  }
+  return { catOf, prefix, ids: new Set(rows.filter(f => catOf.get(f.id) === 'general').map(f => f.id)) };
+}
+
 // One lens's worth of board report: every KPI, the chart arrays, the method mix and the
 // concentration panel, all scoped to one fund category (or to all funds, for the "All giving"
 // lens). Pure so the same math backs each of the five lens positions with no chance of one

@@ -6,6 +6,7 @@
 // app's integer-cents convention — they're display-only, never combined arithmetically with
 // giving_entries/tuition figures.
 import { json } from './auth.js';
+import { resolveGeneralFundIds } from './api-utils.js';
 import { getAuthorizeUrl, exchangeCodeForTokens, refreshTokens, revokeToken, makeQboClient, qboConfigured } from './quickbooks.js';
 import { makeDaycareClient, daycareConfigured } from './daycare.js';
 
@@ -2122,6 +2123,34 @@ export function computeCashRunway({ onHandCents, expensesYtdCents, monthsElapsed
 // heuristic the retired Overview "Balances" row used, now server-side so the Health page and any
 // future consumer read one figure. An admin can override it outright (finance_cash_policy config)
 // when the heuristic picks up the wrong accounts, which is why the source is reported alongside.
+// Operating cash straight off the imported balance sheet — the church's own confirmed figure,
+// which is what a treasurer would read if asked "how much cash do we have?". This church's
+// operating account is "11027 Lindell Checking xx9105"; `accountCode` (Data & Imports →
+// Classification & policy) pins it exactly, and with nothing pinned the fallback is a name match
+// on "checking".
+//
+// Two things this deliberately does NOT do. It doesn't sweep in savings/reserve accounts the way
+// the QuickBooks heuristic does — restricted reserves are not operating cash, and a runway built
+// on money the congregation has already promised elsewhere overstates how long the lights stay
+// on. And it doesn't silently sum whatever it finds: the matched account names come back with the
+// figure so the card can name them, because an unpinned name match could just as easily pick up a
+// daycare checking account. Rollup rows (has_children) are skipped so a parent and its children
+// are never both counted.
+export function operatingCashFromBalanceSheet(rows, accountCode) {
+  const code = String(accountCode || '').trim();
+  const matches = (rows || []).filter(r => {
+    if (r.classification !== 'Assets') return false;
+    if (r.has_children) return false;
+    const name = String(r.account_name || '').trim();
+    return code ? name.startsWith(code) : /checking/i.test(name);
+  });
+  if (!matches.length) return null;
+  return {
+    cents: matches.reduce((s, r) => s + (r.own_balance_cents || 0), 0),
+    accounts: matches.map(r => String(r.account_name || '').trim()),
+    asOfDate: String(matches[0].as_of_date || ''),
+  };
+}
 export function operatingCashFromAccounts(accountsPayload) {
   const list = accountsPayload?.QueryResponse?.Account || [];
   let cents = 0, matched = 0;
@@ -2502,7 +2531,7 @@ async function readFlowExpenseOverrides(db) {
   const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_flow_expense_map'").first();
   try { return row ? (JSON.parse(row.value).map || {}) : {}; } catch { return {}; }
 }
-const DEFAULT_CASH_POLICY = { policy_floor_months: 3, cash_on_hand_cents: null };
+const DEFAULT_CASH_POLICY = { policy_floor_months: 3, cash_on_hand_cents: null, cash_account_code: '' };
 async function readCashPolicy(db) {
   const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_cash_policy'").first();
   if (!row) return { ...DEFAULT_CASH_POLICY };
@@ -2511,6 +2540,9 @@ async function readCashPolicy(db) {
     return {
       policy_floor_months: Number.isFinite(v.policy_floor_months) ? v.policy_floor_months : DEFAULT_CASH_POLICY.policy_floor_months,
       cash_on_hand_cents: Number.isFinite(v.cash_on_hand_cents) ? v.cash_on_hand_cents : null,
+      // The balance-sheet account that IS operating cash, by its leading code ("11027"). Blank
+      // falls back to a name match on "checking".
+      cash_account_code: typeof v.cash_account_code === 'string' ? v.cash_account_code.trim() : '',
     };
   } catch { return { ...DEFAULT_CASH_POLICY }; }
 }
@@ -3132,7 +3164,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       cents = Math.round(Number(b.cash_on_hand_cents));
       if (!Number.isFinite(cents)) return json({ error: 'Invalid cash_on_hand_cents' }, 400);
     }
-    const value = { policy_floor_months: months, cash_on_hand_cents: cents };
+    const accountCode = String(b.cash_account_code || '').trim();
+    if (accountCode && !/^[\w.-]{1,32}$/.test(accountCode)) return json({ error: 'cash_account_code should be an account code like 11027' }, 400);
+    const value = { policy_floor_months: months, cash_on_hand_cents: cents, cash_account_code: accountCode };
     await db.prepare(
       `INSERT INTO chms_config (key,value) VALUES ('finance_cash_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(JSON.stringify(value)).run();
@@ -3312,21 +3346,80 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     // pace" chart. Deliberately ChMS giving rather than the church ledger's monthly Income, which
     // also carries MDO tuition and rentals — the chart is about the offering plate, and labelling
     // a mixed figure "giving" would be the kind of near-enough number this page exists to avoid.
+    //
+    // Scoped to the GENERAL FUND family only (the 40085 group). The rest of what comes through the
+    // plate is designated — Concordia Children's Services and the like are pass-through: the money
+    // arrives and leaves, and counting it here would show the operating budget being met by money
+    // that was never available to meet it. Same General-Fund rule as the board report
+    // (resolveGeneralFundIds), not a second one. Grouped by fund and summed in JS rather than an
+    // IN-list, so the query can't run into D1's parameter limit as the fund list grows.
+    const fundRowsForPace = (await db.prepare('SELECT id, name, category FROM funds').all()).results || [];
+    const { prefix: genFundPrefix, ids: genFundIdsForPace } = resolveGeneralFundIds(fundRowsForPace);
     const givingMonthlyRows = (await db.prepare(
-      `SELECT CAST(substr(ge.contribution_date,6,2) AS INTEGER) AS m, COALESCE(SUM(ge.amount),0) AS cents
+      `SELECT CAST(substr(ge.contribution_date,6,2) AS INTEGER) AS m, ge.fund_id AS fund_id,
+              COALESCE(SUM(ge.amount),0) AS cents
        FROM giving_entries ge
        WHERE ge.contribution_date BETWEEN ? AND ?
-       GROUP BY m ORDER BY m`
+       GROUP BY m, ge.fund_id ORDER BY m`
     ).bind(`${year}-01-01`, `${year}-12-31`).all()).results || [];
+    // With no General Fund identifiable at all (no categorised fund, no fund named "General
+    // Fund"), fall back to every fund rather than charting a flat $0 — and say so on the card,
+    // since an all-funds line under a General-Fund heading would be the wrong number stated
+    // confidently.
+    const paceScoped = genFundIdsForPace.size > 0;
     const givingByMonth = new Array(12).fill(0);
-    for (const r of givingMonthlyRows) if (r.m >= 1 && r.m <= 12) givingByMonth[r.m - 1] = r.cents || 0;
+    let givingExcludedCents = 0;
+    for (const r of givingMonthlyRows) {
+      const cents = r.cents || 0;
+      if (paceScoped && !genFundIdsForPace.has(r.fund_id)) { givingExcludedCents += cents; continue; }
+      if (r.m >= 1 && r.m <= 12) givingByMonth[r.m - 1] += cents;
+    }
     const givingMonthly = givingByMonth.map((cents, i) => ({ month: i + 1, cents }));
+    // The pace line has to be the General Fund's OWN budget, or the chart compares one fund's
+    // giving against every donor account's budget and reads as a permanent shortfall. Same source
+    // the board report's General Fund card uses: the church ledger accounts sharing the fund
+    // family's leading numeric code (e.g. "40085 Sunday Offering"). null, never 0, when nothing
+    // has been imported for that account yet — the card then draws no pace line at all.
+    let givingBudgetCents = null;
+    if (paceScoped && genFundPrefix) {
+      const withBudget = entries.filter(r => String(r.account_name || '').trim().startsWith(genFundPrefix)
+        && r.own_budget_cents != null);
+      if (withBudget.length) givingBudgetCents = withBudget.reduce((s, r) => s + (r.own_budget_cents || 0), 0);
+    }
+    const givingPace = {
+      scope: paceScoped ? 'general_fund' : 'all_funds',
+      budgetCents: givingBudgetCents,
+      budgetSource: givingBudgetCents != null ? `church ledger accounts starting ${genFundPrefix}` : '',
+      excludedCents: givingExcludedCents,
+    };
 
     // Operating cash runway. Cash on hand prefers an explicit admin figure and falls back to the
     // stored QuickBooks account snapshot; `cash.source` names which one produced the number, so a
     // runway built on a name-matching heuristic never masquerades as a confirmed balance.
     const cashPolicy = await readCashPolicy(db);
     let onHandCents = cashPolicy.cash_on_hand_cents, cashSource = 'manual';
+    let cashAccounts = [], cashAsOf = '';
+    if (onHandCents == null) {
+      // The imported balance sheet outranks the QuickBooks account snapshot: it is the church's
+      // own confirmed statement of position, where the snapshot is a name-matching heuristic over
+      // whatever accounts happen to be connected. Uses the most recent balance sheet at or before
+      // the year being viewed — its as-of date rides along, so a figure from an older statement is
+      // never read as today's bank balance.
+      const balYearRow = await db.prepare(
+        'SELECT MAX(fiscal_year) AS y FROM finance_church_balances WHERE fiscal_year <= ?'
+      ).bind(year).first();
+      const balYear = balYearRow?.y;
+      if (balYear != null) {
+        const balRows = (await db.prepare('SELECT * FROM finance_church_balances WHERE fiscal_year=?').bind(balYear).all()).results || [];
+        const fromSheet = operatingCashFromBalanceSheet(balRows, cashPolicy.cash_account_code);
+        if (fromSheet) {
+          onHandCents = fromSheet.cents;
+          cashSource = 'balance_sheet';
+          cashAccounts = fromSheet.accounts;
+          cashAsOf = fromSheet.asOfDate || `FY${balYear}`;
+        }
+      }
+    }
     if (onHandCents == null) {
       const snapRow = await db.prepare("SELECT value FROM finance_qb_snapshot WHERE key='accounts'").first();
       let accounts = null;
@@ -3344,6 +3437,8 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
         policyFloorMonths: cashPolicy.policy_floor_months,
       }),
       source: cashSource,
+      accounts: cashAccounts,
+      asOfDate: cashAsOf,
     };
 
     // YoY-to-date + year-end projection — only meaningful for the current year (a past year's
@@ -3388,6 +3483,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       givingHouseholds,
       donorBands,
       givingMonthly,
+      givingPace,
       revenueStreams,
       flow,
       flowDiagram,
