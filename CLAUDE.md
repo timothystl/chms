@@ -462,6 +462,36 @@ don't pay out wages").
   and a div-balance scan of `CHMS_HTML`. **Not verified**: a live browser or real D1.
   (`src/api-utils.js`, `src/api-finance.js`, `src/api-reports.js`, `src/frontend/js-finance.js`,
   `test/finance-giving-pace-cash.test.js`)
+### REG-MOB2 — Register crashed the iOS renderer; the error message was the whole diagnosis (2026-08-07, DONE)
+A follow-up screenshot named the real failure and it was **not** REG-MOB1: iOS's **"A problem
+repeatedly occurred on .../#register"** — the web content process killed and re-killed, not a JS
+exception, which is why the global error banner never showed anything. **When a mobile report says
+"errors", get the actual on-screen text before theorising: a renderer OOM and a thrown exception
+look identical from the description and share no fix.**
+- **Cause: unbounded render, rebuilt per keystroke.** `GET register` is `SELECT *` with no `LIMIT`
+  and the renderer drew every row. Measured by running the real shipped renderer out of the built
+  bundle against a realistic scanned register: 2,500 entries = **3.7 MB of HTML / 61,620 DOM
+  elements**; 5,000 = **7.4 MB / 121,620**. And the search box called `filterRegister()` on **every
+  keystroke, undebounced** (People has had `debouncePeople()` at 300ms all along; the register never
+  got one), so each character rebuilt all of it.
+- **Fix**: `REG_PAGE_SIZE = 250` window + "Showing the first 250 of N" footer + Show more → peak DOM
+  now **flat at 0.26 MB / 7,624 elements at any register size**. Debounced search at 250ms. Per-row
+  inline `style=` attributes moved to CSS classes (~1.5KB → ~0.9KB/row, values verbatim, pinned by
+  test). `regFilteredEntries()` is now the one filter shared by screen and print (print deliberately
+  uses the FULL set, never the window).
+- **`Show all` is gated at `REG_SHOW_ALL_MAX = 1000`** — offering it unconditionally would put the
+  crash one tap away, i.e. ship the fix with its own footgun. Show more still reaches everything.
+- **Known, not fixed**: the endpoint still returns every row, since client-side search and the year
+  filter need them (~300 bytes/row of JSON, far below the DOM cost that was doing the killing). A
+  register growing into five figures would want a real server-side page.
+- `npm test` (1101/1101, 41 in `test/register-mobile.test.js`); **every new test verified
+  non-vacuous** by injecting the regression it guards (9 injections across both rounds). Two of my
+  own assertions were wrong and were corrected, not forced — one demanded byte-identical output
+  across the Show-all ceiling, i.e. across two different footers. Plus `node --check` on both
+  bundles, `app.css` brace balance, div-balance on `CHMS_HTML` and `#tab-register`. **Not
+  verified**: a real phone. (`src/frontend/js-register.js`, `src/frontend/html-head.js`,
+  `src/frontend/html-tabs.js`, `test/register-mobile.test.js`)
+
 ### REG-MOB1 — Church Register was read-only on a phone (2026-08-07, DONE)
 Reported as "errors on the search in the register on mobile device". **The search filter is not the
 bug** — driven through the real built bundle against null names, missing dates, `null`/`undefined`

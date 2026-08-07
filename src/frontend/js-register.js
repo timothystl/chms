@@ -48,7 +48,7 @@ function loadRegister() {
   api('/admin/api/register?type=' + _regType).then(function(d) {
     _regEntries = d.entries || [];
     populateRegYearFilter(_regEntries);
-    filterRegister();
+    regFilterChanged();
   }).catch(function() {
     el.innerHTML = '<div style="padding:20px;color:var(--danger);">Could not load register.</div>';
   });
@@ -63,18 +63,53 @@ function populateRegYearFilter(entries) {
   sel.innerHTML = '<option value="">All Years</option>'
     + ys.map(function(y){ return '<option value="'+y+'"'+(y===cur?' selected':'')+'>'+y+'</option>'; }).join('');
 }
-function filterRegister() {
+// The scanned historical register runs to thousands of entries, and every one of them used to be
+// rendered at once: ~1.5KB of HTML and ~25 elements per row, so a few thousand entries is several
+// MB of markup and tens of thousands of DOM nodes. Worse, the search box rebuilt all of it on
+// every keystroke with no debounce. On iOS that exhausts the web content process's memory and the
+// renderer is killed — the "A problem repeatedly occurred" page, not a JS error, which is why
+// nothing showed up in the error banner. Both halves are fixed: render a bounded window, and wait
+// for typing to settle first.
+var REG_PAGE_SIZE = 250;
+var REG_SHOW_ALL_MAX = 1000;     // above this, "Show all" is not offered — see renderRegisterList
+var _regShown = REG_PAGE_SIZE;   // how many matching rows are currently rendered
+var _regDebounce = null;
+
+/** Rows matching the current search + year filter. Shared with printRegister so the printed
+ *  register can never disagree with the one on screen. */
+function regFilteredEntries() {
   var search = (document.getElementById('reg-search') ? document.getElementById('reg-search').value : '').toLowerCase().trim();
   var year   = document.getElementById('reg-year-filter') ? document.getElementById('reg-year-filter').value : '';
-  var filtered = _regEntries.filter(function(e) {
+  var tokens = search ? search.split(/\s+/).filter(Boolean) : [];
+  return _regEntries.filter(function(e) {
     if (year && (e.event_date||'').slice(0,4) !== year) return false;
-    if (search) {
+    if (tokens.length) {
       var hay = ((e.name||'')+' '+(e.name2||'')+' '+(e.officiant||'')).toLowerCase();
-      var tokens = search.split(/\s+/).filter(Boolean);
       if (!tokens.every(function(t){ return hay.indexOf(t) >= 0; })) return false;
     }
     return true;
   });
+}
+// Search input. Debounced, and resets the window so a new query starts from the first page.
+function debounceRegister() {
+  clearTimeout(_regDebounce);
+  _regDebounce = setTimeout(regFilterChanged, 250);
+}
+// Anything that changes WHICH rows match starts the window over.
+function regFilterChanged() {
+  _regShown = REG_PAGE_SIZE;
+  filterRegister();
+}
+function regShowMore() {
+  _regShown += REG_PAGE_SIZE;
+  filterRegister();
+}
+function regShowAll() {
+  _regShown = Infinity;
+  filterRegister();
+}
+function filterRegister() {
+  var filtered = regFilteredEntries();
   var stat = document.getElementById('reg-stat-txt');
   if (stat) {
     var total = _regEntries.length;
@@ -82,17 +117,18 @@ function filterRegister() {
       ? total + ' ' + _regLabels[_regType].title.toLowerCase()
       : filtered.length + ' of ' + total + ' shown';
   }
-  renderRegisterList(filtered);
+  renderRegisterList(filtered.slice(0, _regShown), filtered.length);
 }
-function renderRegisterList(entries) {
+function renderRegisterList(entries, matchCount) {
   var el = document.getElementById('reg-list');
   if (!el) return;
   var lbl = _regLabels[_regType];
+  if (matchCount === undefined) matchCount = entries.length;
   if (!entries.length) {
-    el.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--warm-gray);">'
-      + '<div style="font-size:2rem;margin-bottom:10px;">\uD83D\uDCDA</div>'
-      + '<div style="font-size:.9rem;font-weight:600;margin-bottom:4px;">No ' + lbl.title.toLowerCase() + ' found</div>'
-      + '<div style="font-size:.82rem;">' + (_regEntries.length ? 'Try adjusting the search or year filter.' : 'Use the form to record the first entry.') + '</div></div>';
+    el.innerHTML = '<div class="reg-empty">'
+      + '<div class="reg-empty-icon">\uD83D\uDCDA</div>'
+      + '<div class="reg-empty-ttl">No ' + lbl.title.toLowerCase() + ' found</div>'
+      + '<div class="reg-empty-sub">' + (_regEntries.length ? 'Try adjusting the search or year filter.' : 'Use the form to record the first entry.') + '</div></div>';
     return;
   }
   var byYear = {}; var yearOrder = [];
@@ -103,52 +139,69 @@ function renderRegisterList(entries) {
   });
   // Detect if this batch has extended fields (historical import)
   var hasExtended = entries.some(function(e){ return e.father||e.mother||e.sponsors||e.dob||e.baptism_place; });
+  var DASH = '<span class="reg-dash">\u2014</span>';
   var html = '';
   yearOrder.forEach(function(yr) {
     var grp = byYear[yr];
     var rows = grp.map(function(e) {
       // Date cell
       var dateDisp = e.event_date ? e.event_date : '\u2014';
-      var placeDisp = (e.baptism_place && hasExtended) ? '<br><span style="font-size:.75rem;color:var(--warm-gray);">'+esc(e.baptism_place)+'</span>' : '';
+      var placeDisp = (e.baptism_place && hasExtended) ? '<br><span class="reg-sub">'+esc(e.baptism_place)+'</span>' : '';
       // Name cell
       var namePart = '<strong>'+esc(e.name||'\u2014')+'</strong>';
-      if (e.dob) namePart += '<br><span style="font-size:.75rem;color:var(--warm-gray);">b. '+esc(e.dob)+'</span>';
-      if (e.notes) namePart += '<br><span style="font-size:.75rem;color:var(--warm-gray);font-style:italic;">'+esc(e.notes)+'</span>';
+      if (e.dob) namePart += '<br><span class="reg-sub">b. '+esc(e.dob)+'</span>';
+      if (e.notes) namePart += '<br><span class="reg-sub reg-sub-note">'+esc(e.notes)+'</span>';
       // Family cell (extended or simple)
       var familyPart;
       if (hasExtended) {
         var parts = [];
-        if (e.father) parts.push('<span style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.03em;">Father</span> '+esc(e.father));
-        if (e.mother) parts.push('<span style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.03em;">Mother</span> '+esc(e.mother));
-        if (e.sponsors) parts.push('<span style="font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.03em;">Sponsors</span> '+esc(e.sponsors));
+        if (e.father) parts.push('<span class="reg-flabel">Father</span> '+esc(e.father));
+        if (e.mother) parts.push('<span class="reg-flabel">Mother</span> '+esc(e.mother));
+        if (e.sponsors) parts.push('<span class="reg-flabel">Sponsors</span> '+esc(e.sponsors));
         if (!parts.length && e.name2) parts.push(esc(e.name2));
-        familyPart = parts.length ? parts.join('<br>') : '<span style="color:var(--faint);">\u2014</span>';
+        familyPart = parts.length ? parts.join('<br>') : DASH;
       } else {
-        familyPart = e.name2 ? esc(e.name2) : '<span style="color:var(--faint);">\u2014</span>';
+        familyPart = e.name2 ? esc(e.name2) : DASH;
       }
       // Officiant + record_type badge
-      var rtBadge = (e.record_type && hasExtended) ? '<span style="display:inline-block;font-size:.68rem;padding:1px 6px;border-radius:4px;background:var(--linen);color:var(--warm-gray);margin-bottom:3px;">'+esc(e.record_type)+'</span><br>' : '';
-      var officPart = e.officiant ? esc(e.officiant) : '<span style="color:var(--faint);">\u2014</span>';
-      var pdfPart = e.pdf_page ? '<br><span style="font-size:.72rem;color:var(--faint);">p.'+esc(e.pdf_page)+'</span>' : '';
+      var rtBadge = (e.record_type && hasExtended) ? '<span class="reg-rt-badge">'+esc(e.record_type)+'</span><br>' : '';
+      var officPart = e.officiant ? esc(e.officiant) : DASH;
+      var pdfPart = e.pdf_page ? '<br><span class="reg-page">p.'+esc(e.pdf_page)+'</span>' : '';
       return '<tr>'
-        + '<td style="white-space:nowrap;color:var(--warm-gray);width:96px;">'+dateDisp+placeDisp+'</td>'
+        + '<td class="reg-c-date">'+dateDisp+placeDisp+'</td>'
         + '<td>'+namePart+'</td>'
-        + '<td style="font-size:.85rem;">'+familyPart+'</td>'
-        + '<td style="font-size:.85rem;">'+rtBadge+officPart+pdfPart+'</td>'
-        + '<td style="white-space:nowrap;text-align:right;">'
+        + '<td class="reg-c-sm">'+familyPart+'</td>'
+        + '<td class="reg-c-sm">'+rtBadge+officPart+pdfPart+'</td>'
+        + '<td class="reg-c-act">'
         + '<button class="reg-edit-btn require-edit-register" onclick="openRegisterEdit('+e.id+')" title="Edit">Edit</button>'
         + '<button class="reg-del-btn require-edit-register" onclick="deleteRegisterEntry('+e.id+')" title="Delete">Delete</button>'
         + '</td>'
         + '</tr>';
     }).join('');
     var famHeader = hasExtended ? 'Family' : esc(lbl.col2);
-    html += '<div class="reg-year-hdr">'+yr+' <span style="font-weight:400;color:var(--faint);">('+grp.length+')</span></div>'
-      + '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:8px;">'
+    html += '<div class="reg-year-hdr">'+yr+' <span class="reg-yr-count">('+grp.length+')</span></div>'
+      + '<div class="reg-scroll">'
       + '<table class="reg-table">'
       + '<thead><tr><th>Date</th><th>'+esc(lbl.nameLbl)+'</th><th>'+famHeader+'</th><th>Officiant</th><th></th></tr></thead>'
       + '<tbody>'+rows+'</tbody></table>'
       + '</div>';
   });
+  // Say plainly how many of the matches are on screen, and offer the rest. Silently truncating
+  // a register would read as missing records.
+  if (matchCount > entries.length) {
+    var remaining = matchCount - entries.length;
+    html += '<div class="reg-more">'
+      + '<div class="reg-more-txt">Showing the first ' + entries.length + ' of ' + matchCount
+      + ' matching entries. Keep typing in the search box to narrow them down.</div>'
+      + '<button class="btn-secondary" onclick="regShowMore()">Show ' + Math.min(REG_PAGE_SIZE, remaining) + ' more</button>'
+      // "Show all" is only offered below a ceiling. Rendering thousands of rows at once is the
+      // very thing that killed the renderer, so a button promising to do it on a phone would just
+      // hand the crash back — one tap away. Show more still reaches everything, a page at a time.
+      + (matchCount <= REG_SHOW_ALL_MAX
+        ? '<button class="btn-secondary" onclick="regShowAll()">Show all ' + matchCount + '</button>'
+        : '')
+      + '</div>';
+  }
   el.innerHTML = html;
 }
 function saveRegisterEntry() {
@@ -228,17 +281,10 @@ function deleteRegisterEntry(id) {
 }
 function printRegister() {
   var lbl = _regLabels[_regType];
-  var search = (document.getElementById('reg-search') ? document.getElementById('reg-search').value : '').toLowerCase().trim();
-  var year   = document.getElementById('reg-year-filter') ? document.getElementById('reg-year-filter').value : '';
-  var entries = _regEntries.filter(function(e) {
-    if (year && (e.event_date||'').slice(0,4) !== year) return false;
-    if (search) {
-      var hay = ((e.name||'')+' '+(e.name2||'')+' '+(e.officiant||'')).toLowerCase();
-      var tokens = search.split(/\s+/).filter(Boolean);
-      if (!tokens.every(function(t){ return hay.indexOf(t) >= 0; })) return false;
-    }
-    return true;
-  });
+  var year = document.getElementById('reg-year-filter') ? document.getElementById('reg-year-filter').value : '';
+  // Deliberately the FULL match set, not the capped on-screen window — a printed register that
+  // silently stopped at 250 rows would be worse than useless.
+  var entries = regFilteredEntries();
   var hasExtended = entries.some(function(e){ return e.father||e.mother||e.sponsors||e.dob||e.baptism_place; });
   var byYear = {}; var yearOrder = [];
   entries.forEach(function(e) {

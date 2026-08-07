@@ -1067,8 +1067,8 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <!-- Filter toolbar -->
     <div class="reg-toolbar">
-      <input class="reg-search" type="search" id="reg-search" placeholder="Search by name&#8230;" oninput="filterRegister()">
-      <select class="reg-year-select" id="reg-year-filter" onchange="filterRegister()">
+      <input class="reg-search" type="search" id="reg-search" placeholder="Search by name&#8230;" oninput="debounceRegister()">
+      <select class="reg-year-select" id="reg-year-filter" onchange="regFilterChanged()">
         <option value="">All Years</option>
       </select>
       <span class="reg-stat-txt" id="reg-stat-txt"></span>
