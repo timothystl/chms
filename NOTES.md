@@ -24,6 +24,51 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.158.0 — "Paid from another budget" flag on the compensation roster (2026-08-07)
+
+Reported: the Council summary's employer FICA line read $11,319 where the church's own figure is
+$8,186.72 — Jinah $74,516 + Linda $13,000 + Kati $19,500 at 7.65%. Confirmed, and traced by
+arithmetic rather than guesswork: $11,319 / 7.65% implies a FICA base of $147,960.78, which is
+$40,944.78 more than those three, i.e. exactly one more worker. That is Jacinda, MDO staff paid
+from another section. (Cross-check on the same method: pension $28,823 / 11.70% = $246,350 and
+disability $4,311 / 1.75% = $246,343 — the three called workers, to the dollar. So the roster
+already treated her as benefit-ineligible; salary and FICA were what leaked in.)
+
+**The app had no way to express it.** Employer FICA is charged to every roster worker whose
+Self-Employed (SECA) box is unchecked, full stop. And the problem was bigger than the FICA line:
+her salary was also in Cash Salaries and the FY total, so ticking SECA to "fix" FICA would have
+left the headline number overstated while looking corrected.
+
+New per-worker **Paid from another budget** flag (`w.externallyFunded`, on the worker drawer under
+"1 · Set pay"). A flagged worker stays on the roster and stays visible, but is out of **every**
+church figure: salary, pension, health, disability, employer FICA, the FY total, the group health
+contract count, the district-scale and LCMS-median comparisons, the method-comparison totals, Send
+to budget, and the Council report. Their Council row still shows their pay, greyed, with the
+scale/median columns replaced by "Costed in another section — in no total here", and both the
+screen and the printed report name who is excluded and why. Stored on the roster row, so it saves
+with everything else — no endpoint, no migration.
+
+**One thing it deliberately does not touch**: `finCompBaselineCents`, the FY base-year comparison,
+which is read off the church's real payroll accounts rather than off this roster. If the worker
+really is paid from another budget their pay is not in those accounts and nothing needs adjusting;
+if it turns out to be, the honest fix is the account, not a second exclusion rule. The excluded-
+worker note says so in as many words.
+
+**A modelling subtlety the tests surfaced, worth knowing**: dental and vision are quoted as one
+annual figure for the whole group, not per contract. So excluding a worker who is *enrolled in the
+health plan* re-shares that same bill across fewer people rather than shrinking it — the total does
+not simply fall by their own health line. Their medical tier rate does leave. Pinned by its own
+test. It does not arise in the reported case (Jacinda is not on the church plan), but it would if
+an enrolled worker were ever flagged.
+
+**Verified:** `npm test` (1011/1011, 9 new). Checked non-vacuous by stubbing the predicate to
+`false` — 6 of the 9 fail. Two of my own tests initially failed on a wrong premise (assuming the
+total falls by exactly the excluded worker's cost) and were rewritten around the real behaviour
+rather than forced. Also a harness reproducing the reported roster end to end: employer FICA falls
+from $11,319.00 to **$8,186.72**, matching the church's own figure to the cent, with the FY total
+falling $44,077.06 and tag balance holding. **Not verified:** a live browser or a real print dialog.
+
+
 ### v1.157.0 — Council summary: what the benefits & taxes figure is made of (2026-08-07)
 
 Asked for on the Council summary page: a section under the worker table breaking out Pension Cost
