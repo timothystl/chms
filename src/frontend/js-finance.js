@@ -3356,8 +3356,17 @@ function finChurchMonthlyImportFileSelected(inputEl) {
     })
     .then(function(d) {
       _finChurchMonthlyImportPreview = d;
-      statusEl.textContent = 'Parsed "' + d.sheetName + '" — fiscal year ' + d.fiscalYear + ', ' + d.months.length + ' month(s), ' + d.rows.length + ' account/month row(s).'
-        + (d.skipped.length ? ' ' + d.skipped.length + ' line(s) not recognized as accounts (shown below).' : '');
+      // Reads the multi-year shape ({years, monthsByYear}); the single fiscalYear/months pair this
+      // used to read no longer exists, since one file may span many years.
+      var pYears = d.years || [];
+      var pMonths = pYears.reduce(function(n, y) { return n + ((d.monthsByYear || {})[y] || []).length; }, 0);
+      var pSpan = pYears.length
+        ? ' (' + pYears[0] + (pYears.length > 1 ? ' to ' + pYears[pYears.length - 1] : '') + ')'
+        : '';
+      statusEl.textContent = 'Parsed "' + d.sheetName + '" — ' + pYears.length + ' year'
+        + (pYears.length === 1 ? '' : 's') + pSpan + ', ' + pMonths + ' month(s), '
+        + ((d.rows || []).length) + ' account/month row(s).'
+        + ((d.skipped || []).length ? ' ' + d.skipped.length + ' line(s) not recognized as accounts (shown below).' : '');
       previewEl.innerHTML = finChurchRenderMonthlyImportPreview(d);
       confirmBtn.style.display = '';
     })
