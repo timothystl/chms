@@ -1662,6 +1662,20 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   layout — say if it needs to come back. (`src/frontend/js-finance.js`,
   `src/frontend/html-head.js`, `src/frontend/html-tabs.js`,
   `test/finance-compensation-planner.test.js`, `test/finance-input-typing.test.js`)
+- [x] **FIN56** — Council summary gained a "What makes up $X of benefits & taxes" section under the
+  worker table. Asked for as "Pension Cost, Health Plan Cost"; built as all four components
+  (pension, health plan, disability & survivor, employer FICA) because those are exactly what
+  `finCompBenefits` sums, so the breakdown always reconciles to the Benefits & taxes tile directly
+  above it — a partial list that doesn't add up to the number beside it is worse than none. Each
+  line names its rate and how many of the roster it covers (employer FICA covers only the
+  non-ministers, which otherwise reads as a bug), and the ministers' self-paid SECA is stated
+  underneath as explicitly not a church cost and in no total. New pure
+  `finCompBenefitBreakdown(computed)` backs both the screen section and the same table added to the
+  printed Council report, so the two can't diverge. `npm test` (1002/1002, 5 new; verified
+  non-vacuous by dropping the FICA component — 4 of 5 fail, including reconciliation), plus a render
+  of the real Council view against a live-shaped roster with tag-balance asserted, and `node --check`
+  on both bundles. Not verified in a live browser or a real print dialog. Done 2026-08-07
+  (v1.157.0). (`src/frontend/js-finance.js`, `test/finance-compensation-planner.test.js`)
 - [x] **FIN55** — Embedded / non-embedded, from the plan's own definition supplied by the church.
   **The shipped lone-claimant maths was already correct** — verified against all five options
   (embedded resolves to the individual figures, non-embedded to the family figures, deductible and

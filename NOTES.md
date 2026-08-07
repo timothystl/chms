@@ -24,6 +24,31 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.157.0 — Council summary: what the benefits & taxes figure is made of (2026-08-07)
+
+Asked for on the Council summary page: a section under the worker table breaking out Pension Cost
+and Health Plan Cost. Built as the full four-line breakdown rather than the two named, because a
+partial list sitting directly under a $103,445 tile that it doesn't add up to is worse than no
+breakdown — the components are exactly the four `finCompBenefits` sums (pension, health plan,
+disability & survivor, employer FICA), so the parts always reconcile to the total above them.
+
+Each line carries the rate it comes from and how many of the roster it actually covers — a $0 or
+short line reads as a bug unless it says who is on it. Employer FICA is the clearest case: it
+covers only the non-ministers, because a minister pays their own SECA. That self-paid amount is
+stated underneath as explicitly not a church cost and in no figure above, rather than left to look
+like a missing line.
+
+New pure `finCompBenefitBreakdown(computed)` backs both the on-screen section and the same table
+added to the printed Council report, so the screen and the printout can't answer the question
+differently.
+
+**Verified:** `npm test` (1002/1002, 5 new). Checked non-vacuous by dropping the employer-FICA
+component — 4 of the 5 fail, including reconciliation. Also a render of the real Council view
+against a live-shaped roster (parts summed to the tile to the cent; tag balance 31/31 divs, 48/48
+cells; breakdown confirmed to sit after the worker table), and `node --check` on both bundles.
+**Not verified:** a live browser or a real print dialog.
+
+
 ### v1.156.0 — Ivanhoe forecast reports remittable cash, not net income (2026-08-07)
 
 Reported from the Planning tab: the "3277 Ivanhoe forecast" card projected **$43,864 for 2027**
