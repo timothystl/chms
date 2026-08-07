@@ -1627,6 +1627,7 @@ function finDaycareChurchBudgetImport(year) {
   }).then(function(d) {
     if (d && d.error) { finToast(d.error); return; }
     finToast('Imported ' + (d && d.imported || 0) + ' daycare line item(s) from the ' + year + ' Church Budget.');
+    finRefreshImportStatus();
     document.getElementById('fin-dc-cb-preview').innerHTML = '';
     return api('/admin/api/finance/daycare').then(function(d2) {
       _finDaycare = d2.entries || [];
@@ -1677,6 +1678,7 @@ function finDaycareBulkImport() {
   api('/admin/api/finance/daycare/bulk', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
     if (d && d.error) { finToast(d.error); return; }
     finToast('Imported ' + (d && d.imported || 0) + ' row(s).');
+    finRefreshImportStatus();
     document.getElementById('fin-dc-bulk-text').value = '';
     document.getElementById('fin-dc-bulk-preview').innerHTML = '';
     _finDcBulkRows = null;
@@ -3159,6 +3161,7 @@ function finChurchConfirmBalanceImport() {
     finToast('Imported ' + d.imported + ' account row(s) as of ' + _finChurchBalanceImportPreview.asOfDate + '.');
     _finChurchBalancesData = null;
     if (_finChurchMode === 'balances') finLoadChurchBalances();
+    finRefreshImportStatus();
   }).catch(function(err) {
     btn.disabled = false;
     if (err && err.message !== 'Unauthorized') finToast('Import failed: ' + (err.message || 'Unknown error'));
@@ -4236,6 +4239,7 @@ function finPropertyBudgetImportFileSelected(inputEl) {
       if (statusEl) statusEl.textContent = 'Imported ' + d.imported + ' month(s): ' + d.months.map(function(m) { return m.period; }).join(', ') + '.';
       inputEl.value = '';
       finLoadProperty();
+      finRefreshImportStatus();
     })
     .catch(function(err) {
       if (err.message !== 'Unauthorized' && statusEl) statusEl.textContent = 'Error: ' + err.message;
@@ -4261,6 +4265,7 @@ function finPropertyImportMonthlyCsv() {
     .then(function(d) {
       if (d && d.error) { if (statusEl) statusEl.textContent = d.error; return; }
       if (statusEl) statusEl.textContent = 'Imported ' + d.imported + ' month(s): ' + d.periods.join(', ') + '.';
+      finRefreshImportStatus();
       if (textEl) textEl.value = '';
       finLoadProperty();
     })

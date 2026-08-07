@@ -24,6 +24,30 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.151.5 — Half the importers never refreshed the import date (2026-08-07)
+
+**Reported**: the Balance Sheet import runs and the preview looks right, but the date on Data &
+Imports does not change.
+
+**My own incomplete fix.** v1.151.2 made `finRenderDataImports()` always refetch and wired an
+in-place `finRefreshImportStatus()` into the import success handlers — but only into the five that
+happened to call `finRenderChurchReport()`, because that is what the sweep matched on. Ten
+importers call `recordImport()`; five got the refresh. The Balance Sheet importer calls
+`finLoadChurchBalances()` instead, so it was missed, along with four others.
+
+Wired into all five that were missing it: `finChurchConfirmBalanceImport` (church_balance — the
+reported one), `finDaycareChurchBudgetImport`, `finDaycareBulkImport`,
+`finPropertyImportMonthlyCsv`, `finPropertyBudgetImportFileSelected`.
+
+**The import itself was never affected** — `recordImport()` wrote its row correctly every time.
+This is purely the card not re-reading it without a tab switch or reload.
+
+New tests assert the wiring **by function body**, extracted from the built bundle, plus a count
+check against `FINANCE_IMPORTERS.length` so a new importer that forgets the call fails here rather
+than in production. `npm test` (875/875, 7 new); **verified non-vacuous** by removing the
+balance-sheet call, which fails 2. Plus `node --check` on both bundles and div-balance on
+`CHMS_HTML`. **Not verified**: a live browser.
+
 ### v1.151.4 — Balance Sheet importers: surface the real error too (2026-08-07)
 
 **Reported**: "balance sheet isn't importing" — with no error text, so what follows is a

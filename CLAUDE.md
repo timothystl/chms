@@ -557,6 +557,23 @@ the underlying message is safe to show — same reasoning as the column-count er
 try/catch. **Next step is the user retrying and reporting the now-specific message.**
 (`src/api-finance.js`, `test/finance-monthly-import-errors.test.js`)
 
+### FIN59-BUG4 — Half the importers never refreshed the import date (2026-08-07, DONE)
+Reported: the Balance Sheet import runs and previews correctly, but the Data & Imports date does
+not change. **FIN59-BUG2's fix was incomplete, and this is the follow-through.** That change made
+`finRenderDataImports()` always refetch and wired an in-place `finRefreshImportStatus()` into the
+import success handlers — but only the five that happened to call `finRenderChurchReport()`, which
+is what the sweep matched on. Ten importers call `recordImport()`; five got the refresh. The
+Balance Sheet importer calls `finLoadChurchBalances()` instead, so it was missed, along with
+`finDaycareChurchBudgetImport`, `finDaycareBulkImport`, `finPropertyImportMonthlyCsv` and
+`finPropertyBudgetImportFileSelected` — all now wired. The import itself was never affected;
+`recordImport()` wrote its row correctly every time. **Lesson**: a sweep keyed on an incidental
+shared call (`finRenderChurchReport()`) silently defines its own coverage — enumerate from the
+authoritative list (`FINANCE_IMPORTERS`, or the `recordImport()` call sites) instead. New tests
+assert the wiring by extracting each handler's body from the built bundle, plus a count check
+against `FINANCE_IMPORTERS.length` so a new importer that forgets it fails in CI. `npm test`
+(875/875, 7 new); verified non-vacuous by removing the balance-sheet call (2 fail). **Not
+verified**: a live browser. (`src/frontend/js-finance.js`, `test/finance-monthly-import-ui.test.js`)
+
 ### TinyMCE editor-load limit — NOT this app; it's the website repo (2026-08-07)
 A Tiny automated email warned the account hit 50% of its monthly **Editor Load** limit (overage
 charges past 100%). **Connect contributes zero cloud loads and always has** — since v1.64.0 the
