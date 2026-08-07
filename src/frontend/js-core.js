@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.151.5';
+export const DEPLOY_VERSION = '1.152.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -147,6 +147,37 @@ function typeColor(mt) {
   return TYPE_COLORS[(mt||'visitor').toLowerCase()] || 'var(--warm-meta)';
 }
 // Color-coded dot + label — replaces the filled pill badge for member type everywhere.
+// ── SHARED FUND-CODE GROUPING (Giving by Fund report, board fund table, Church Report) ──
+// Funds are named "<code> <label>", and this church deliberately keeps several names under one
+// code: "40085 General Fund", "40085 Lent" and "40085 Retirement Distribution" are all the
+// General Fund as far as the ledger — and the board — is concerned. Every per-fund view combines
+// on that leading code, so the rule lives here once instead of being hand-inlined per view where
+// the copies can drift.
+function fundCodeOf(name) {
+  var m = String(name || '').match(/^(\d+)\s/);
+  return m ? m[1] : null;
+}
+// rows → [{ code, label, rows, total }] in the input's own order (callers sort before calling).
+// A fund whose name carries no numeric code gets its own single-row group rather than being
+// lumped in with every other uncoded fund, so nothing is ever silently merged or dropped. The
+// label is the highest-total member's real name, so a combined line reads "40085 General Fund"
+// rather than a bare code.
+function groupRowsByFundCode(rows, nameOf, totalOf) {
+  var byKey = {}, order = [];
+  (rows || []).forEach(function(r, i) {
+    var code = fundCodeOf(nameOf(r));
+    var key = code ? 'c' + code : 'u' + i;
+    if (!byKey[key]) { byKey[key] = { code: code, label: '', rows: [], total: 0 }; order.push(key); }
+    byKey[key].rows.push(r);
+    byKey[key].total += (totalOf(r) || 0);
+  });
+  return order.map(function(key) {
+    var g = byKey[key];
+    var rep = g.rows.slice().sort(function(a, b) { return (totalOf(b) || 0) - (totalOf(a) || 0); })[0];
+    g.label = nameOf(rep);
+    return g;
+  });
+}
 function mapUrl(addr) {
   return addr ? 'https://maps.apple.com/?q=' + encodeURIComponent(addr) : '';
 }
