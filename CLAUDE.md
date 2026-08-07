@@ -1417,6 +1417,33 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   layout — say if it needs to come back. (`src/frontend/js-finance.js`,
   `src/frontend/html-head.js`, `src/frontend/html-tabs.js`,
   `test/finance-compensation-planner.test.js`, `test/finance-input-typing.test.js`)
+- [x] **FIN54** — Health plan rates table: deductible and out-of-pocket max each split into
+  **single** and **family** columns (was family-only). The single figures already existed in
+  `HEALTH_PLAN_QUOTE_2027` and already drove the lone-claimant maths — they had just never been
+  editable, so a new quote couldn't correct them. Single OOP max was exposed alongside the
+  deductible deliberately: `finHealthPlanEffectiveLoneClaimantTermsCents` reads the two as a pair,
+  so exposing one without the other lets the table go internally inconsistent. **Real bug fixed in
+  the same pass**: `finHealthPlanEffectiveLoneClaimantTermsCents`,
+  `finComputeHealthPlanFamilyBreakevenCents` and the "what the family would actually pay" table all
+  read `HEALTH_PLAN_QUOTE_2027.options[...]` directly, bypassing the override map the rates table
+  writes — so editing a deductible changed only the printed figure and the breakeven analysis kept
+  using the shipped quote. New `finHealthPlanResolvedOption(key)` resolves all four figures through
+  `finCompPlanQuoteField`; every consumer routes through it. `npm test` (856/856, 3 new tests
+  pinning that an edit actually moves each figure — one initially passed vacuously and was
+  retargeted at the plan that is not already OOP-saturated at that spend), `node --check` on both
+  built bundles. Not verified in a live browser. Done 2026-08-06 (v1.151.0).
+  (`src/frontend/js-finance.js`, `test/finance-salary-calculator.test.js`)
+- [ ] **FIN54-OPEN** — Unresolved modelling question, raised with the user, deliberately NOT changed
+  on a guess: the request said an individual deductible must be met separately "in the non-embedded
+  plans," which inverts the standard definition this code implements (embedded = an individual
+  sub-limit exists *within* the family deductible, so a lone claimant stops at the individual
+  figure; non-embedded/aggregate = no sub-limit, so a lone claimant must clear the whole family
+  figure). Flipping `finHealthPlanEffectiveLoneClaimantTermsCents` would change shipped figures that
+  were hand-reconciled with the user (FIN17-FIN19) — e.g. Option A currently "ties Renewal in the
+  single-claimant worst case" at $8,000/$8,000; under the inverted rule it would be $4,000. A third
+  possibility is that the real gap is **self-only (single) coverage**: for a worker on the `self`
+  tier the individual figures always apply regardless of embedding, and no breakeven analysis exists
+  for that case at all — every one is written around a family contract. (noted 2026-08-06)
 - [x] **FIN53** — Four reported Compensation Planner problems, plus one real bug found while fixing
   them. (1) **The "None (flat)" column is no longer editable** — it is the current budget, imported
   from the worker's linked payroll account, and an edit box on an already-correct figure invited
