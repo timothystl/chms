@@ -5883,12 +5883,28 @@ function finComputeHealthPlanSingleClaimantDeltaCents(fromKey, toKey, spendCents
   var rate = HEALTH_PLAN_QUOTE_2027.coinsuranceRate;
   return finComputePlanOOPCents(toTerms.deductibleCents, toTerms.oopMaxCents, rate, spendCents) - finComputePlanOOPCents(fromTerms.deductibleCents, fromTerms.oopMaxCents, rate, spendCents);
 }
+// Pure — no DOM — one plan option with its four deductible/out-of-pocket figures resolved through
+// any admin override typed into the rates table. Every consumer below used to read
+// HEALTH_PLAN_QUOTE_2027 directly, so a corrected deductible changed the displayed figure and
+// nothing else: the breakeven analysis silently kept using the hardcoded quote. Anything that
+// reasons about these numbers must go through here.
+function finHealthPlanResolvedOption(optionKey) {
+  var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
+  if (!opt) return null;
+  return {
+    embedded: opt.embedded,
+    deductibleIndividualCents: finCompPlanQuoteField(optionKey, 'deductibleIndividualCents'),
+    deductibleFamilyCents: finCompPlanQuoteField(optionKey, 'deductibleFamilyCents'),
+    oopMaxIndividualCents: finCompPlanQuoteField(optionKey, 'oopMaxIndividualCents'),
+    oopMaxFamilyCents: finCompPlanQuoteField(optionKey, 'oopMaxFamilyCents')
+  };
+}
 // Pure — no DOM — the deductible/OOP-max that actually applies to ONE family member who alone
 // accounts for all of a family contract's costs: the plan's own individual figures if it's
 // embedded (each person protected separately), or its family figures if not (no individual
 // sub-limit — a lone claimant has to clear the same aggregate threshold as the whole family).
 function finHealthPlanEffectiveLoneClaimantTermsCents(optionKey) {
-  var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
+  var opt = finHealthPlanResolvedOption(optionKey);
   if (!opt) return null;
   return opt.embedded
     ? { deductibleCents: opt.deductibleIndividualCents, oopMaxCents: opt.oopMaxIndividualCents }
@@ -5901,7 +5917,7 @@ function finHealthPlanEffectiveLoneClaimantTermsCents(optionKey) {
 // null if the plan never breaks even even at a very high spend level (e.g. toKey's premium is
 // higher with no compensating deductible/OOP-max improvement at all).
 function finComputeHealthPlanFamilyBreakevenCents(fromKey, toKey, perHouseholdPremiumDiffCents) {
-  var from = HEALTH_PLAN_QUOTE_2027.options[fromKey], to = HEALTH_PLAN_QUOTE_2027.options[toKey];
+  var from = finHealthPlanResolvedOption(fromKey), to = finHealthPlanResolvedOption(toKey);
   if (!from || !to) return null;
   var rate = HEALTH_PLAN_QUOTE_2027.coinsuranceRate;
   function savings(spendCents) {
@@ -6734,8 +6750,8 @@ function finCompRenderHealth(computed, totals) {
       + '<div style="display:flex;align-items:center;gap:8px;"><span class="fin-comp-radio' + (active ? ' active' : '') + '"></span>'
       + '<span style="font-size:.82rem;font-weight:700;color:var(--color-navy);">' + esc(calc.label) + '</span></div>'
       + '<div style="font-size:20px;font-weight:800;color:var(--color-navy);font-variant-numeric:tabular-nums;">' + finCompMoney(calc.totalCents) + '</div>'
-      + '<div style="font-size:.72rem;color:var(--warm-gray);">Family deductible ' + finCompMoney(finCompPlanQuoteField(key, 'deductibleFamilyCents'))
-      + ' &middot; out-of-pocket max ' + finCompMoney(finCompPlanQuoteField(key, 'oopMaxFamilyCents')) + '</div>'
+      + '<div style="font-size:.72rem;color:var(--warm-gray);">Deductible ' + finCompMoney(finCompPlanQuoteField(key, 'deductibleIndividualCents')) + ' single / ' + finCompMoney(finCompPlanQuoteField(key, 'deductibleFamilyCents')) + ' family'
+      + '<br>Out-of-pocket max ' + finCompMoney(finCompPlanQuoteField(key, 'oopMaxIndividualCents')) + ' single / ' + finCompMoney(finCompPlanQuoteField(key, 'oopMaxFamilyCents')) + ' family</div>'
       + '<div style="font-size:.74rem;font-weight:700;color:' + noteColor + ';">' + note + '</div>'
       + '<div style="font-size:.7rem;color:var(--warm-meta);">' + FIN_COMP_PLAN_TAGS[key] + '</div>'
       + '</div>';
@@ -6811,7 +6827,7 @@ function finCompBreakevenHtml() {
   var baseline = finComputeHealthPlanTotalCents('renewal');
   if (!calc || !baseline) return '';
   var perHouseholdDiffCents = finCompPerHouseholdDiffCents('renewal', _finHealthPlanSelectedOption);
-  var renewalOpt = HEALTH_PLAN_QUOTE_2027.options.renewal, selOpt = HEALTH_PLAN_QUOTE_2027.options[_finHealthPlanSelectedOption];
+  var renewalOpt = finHealthPlanResolvedOption('renewal'), selOpt = finHealthPlanResolvedOption(_finHealthPlanSelectedOption);
   var rate = HEALTH_PLAN_QUOTE_2027.coinsuranceRate;
   var renewalLone = finHealthPlanEffectiveLoneClaimantTermsCents('renewal'), selLone = finHealthPlanEffectiveLoneClaimantTermsCents(_finHealthPlanSelectedOption);
   function row(label, a, bb) {
@@ -6945,7 +6961,9 @@ function finCompRenderRates() {
       + tierBoxes
       + '<td class="fin-comp-td num">' + box('dentalCents', 86) + '</td>'
       + '<td class="fin-comp-td num">' + box('visionCents', 86) + '</td>'
+      + '<td class="fin-comp-td num">' + box('deductibleIndividualCents', 82) + '</td>'
       + '<td class="fin-comp-td num">' + box('deductibleFamilyCents', 82) + '</td>'
+      + '<td class="fin-comp-td num">' + box('oopMaxIndividualCents', 82) + '</td>'
       + '<td class="fin-comp-td num">' + box('oopMaxFamilyCents', 82) + '</td>'
       + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoneyCents(calc.monthlyCents) + '</td>'
       + '<td class="fin-comp-td num" style="font-weight:700;">' + finCompMoney(calc.totalCents) + '</td></tr>';
@@ -6960,15 +6978,16 @@ function finCompRenderRates() {
     + '<div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">'
     + '<label class="fin-comp-reflabel">Quote reference<input type="text" id="fin-comp-ref-quoteSource-' + year + '" value="' + esc(finCompRefRow(year).quoteSource || '') + '" placeholder="' + esc(finCompSourceDoc('quoteSource')) + '" oninput="finCompRefTextChange(' + year + ',&quot;quoteSource&quot;,this.value)" style="width:260px;font-weight:400;"></label>'
     + '</div></div>'
-    + '<div style="overflow-x:auto;"><table class="fin-comp-table" style="min-width:1120px;">'
+    + '<div style="overflow-x:auto;"><table class="fin-comp-table" style="min-width:1320px;">'
     + '<thead><tr><th class="fin-comp-th">Plan option</th>'
     + FIN_HEALTH_TIERS.map(function(t) { return '<th class="fin-comp-th num">' + esc(t.label) + ' / mo</th>'; }).join('')
     + '<th class="fin-comp-th num">Dental / yr</th><th class="fin-comp-th num">Vision / yr</th>'
-    + '<th class="fin-comp-th num">Family deductible</th><th class="fin-comp-th num">Out-of-pocket max</th>'
+    + '<th class="fin-comp-th num">Deductible &mdash; single</th><th class="fin-comp-th num">Deductible &mdash; family</th>'
+    + '<th class="fin-comp-th num">Out-of-pocket max &mdash; single</th><th class="fin-comp-th num">Out-of-pocket max &mdash; family</th>'
     + '<th class="fin-comp-th num">Total monthly</th><th class="fin-comp-th num">Total annual</th></tr></thead>'
     + '<tbody>' + quoteRows
     + '<tr class="fin-comp-total-row"><td class="fin-comp-td">Enrolled now</td>' + enrolCells
-    + '<td class="fin-comp-td" colspan="5" style="font-size:.74rem;font-weight:400;color:var(--warm-gray);">Counted from the roster &mdash; change a worker&#39;s tier in step 1. Cash-only workers are below the hours floor and are not contracts.</td>'
+    + '<td class="fin-comp-td" colspan="7" style="font-size:.74rem;font-weight:400;color:var(--warm-gray);">Counted from the roster &mdash; change a worker&#39;s tier in step 1. Cash-only workers are below the hours floor and are not contracts.</td>'
     + '<td class="fin-comp-td num">' + finCompEnrolledCount() + ' contract' + (finCompEnrolledCount() === 1 ? '' : 's') + '</td></tr>'
     + '</tbody></table></div>'
     + '<div class="fin-comp-bar mist"><span style="font-weight:700;color:var(--color-navy);">Plan the church covers in full:</span>'

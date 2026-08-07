@@ -29,7 +29,7 @@ function loadSalaryCalculator() {
     }
     return CHMS_APP_EXT_JS.slice(start, i);
   }
-  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finLcmsHistoricalAvgGrowthPct', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputePensionCents', 'finConcordiaPensionRateFor', 'finConcordiaDisabilityRateFor', 'finHealthTierMonthlyCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
+  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finLcmsHistoricalAvgGrowthPct', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputePensionCents', 'finConcordiaPensionRateFor', 'finConcordiaDisabilityRateFor', 'finHealthTierMonthlyCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finCompPlanQuoteField', 'finHealthPlanResolvedOption', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
   const fnSrcs = fnNames.map(extractFunction);
   const ficaRateM = CHMS_APP_EXT_JS.match(/var LCMS_EMPLOYER_FICA_RATE = [^\n]*\n/);
   if (!ficaRateM) throw new Error('LCMS_EMPLOYER_FICA_RATE not found in built script');
@@ -44,7 +44,7 @@ function loadSalaryCalculator() {
   const tiersM = CHMS_APP_EXT_JS.match(/var FIN_HEALTH_TIERS = [\s\S]*?\n\];\n/);
   if (!tiersM) throw new Error('FIN_HEALTH_TIERS not found in built script');
   // eslint-disable-next-line no-eval
-  return eval(`(function() { ${varSrcs.join('\n')} ${ficaRateM[0]} ${ssaColaM[0]} ${pensionRateM[0]} ${disabilityRateM[0]} ${tiersM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finLcmsHistoricalAvgGrowthPct, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, finComputePensionCents, finConcordiaPensionRateFor, finConcordiaDisabilityRateFor, LCMS_EMPLOYER_FICA_RATE, SSA_COLA_REFERENCE_PCT, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents }; })()`);
+  return eval(`(function() { var _finHealthPlanPremiumOverrides = {}; ${varSrcs.join('\n')} ${ficaRateM[0]} ${ssaColaM[0]} ${pensionRateM[0]} ${disabilityRateM[0]} ${tiersM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finLcmsHistoricalAvgGrowthPct, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, finComputePensionCents, finConcordiaPensionRateFor, finConcordiaDisabilityRateFor, LCMS_EMPLOYER_FICA_RATE, SSA_COLA_REFERENCE_PCT, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents, finHealthPlanEffectiveLoneClaimantTermsCents, setQuoteOverride: function(k, f, cents) { if (!_finHealthPlanPremiumOverrides[k]) _finHealthPlanPremiumOverrides[k] = {}; _finHealthPlanPremiumOverrides[k][f] = cents; }, clearQuoteOverrides: function() { _finHealthPlanPremiumOverrides = {}; } }; })()`);
 }
 
 describe('LCMS Missouri District salary calculator', () => {
@@ -306,5 +306,44 @@ describe('LCMS Missouri District salary calculator', () => {
       expect(familyWorstCase).toBe(100000); // $1,000
       expect(Math.abs(familyWorstCase)).toBeLessThan(Math.abs(perHouseholdDiffCents));
     });
+  });
+});
+
+// The deductible/out-of-pocket figures are now typed on the rates page (Deductible — single /
+// family, Out-of-pocket max — single / family) rather than being hardcoded-only. Before this,
+// every one of these functions read HEALTH_PLAN_QUOTE_2027 directly, so correcting a deductible
+// changed the number printed on screen and nothing else — the breakeven analysis silently kept
+// using the shipped quote. These pin the wiring: an edited figure has to move the maths.
+describe('rates-page edits actually drive the plan maths', () => {
+  it('an edited SINGLE deductible changes the lone-claimant terms on an embedded plan', () => {
+    const c = loadSalaryCalculator();
+    // Renewal is embedded, so one family member alone is capped at the INDIVIDUAL figures.
+    expect(c.finHealthPlanEffectiveLoneClaimantTermsCents('renewal').deductibleCents).toBe(400000);
+    c.setQuoteOverride('renewal', 'deductibleIndividualCents', 450000);
+    expect(c.finHealthPlanEffectiveLoneClaimantTermsCents('renewal').deductibleCents).toBe(450000);
+    c.clearQuoteOverrides();
+  });
+
+  it('an edited FAMILY deductible moves the family-wide breakeven', () => {
+    const c = loadSalaryCalculator();
+    const before = c.finComputeHealthPlanFamilyBreakevenCents('renewal', 'option2', 329640);
+    // Overriding the option's own deductible would prove nothing here: at the breakeven spend it
+    // is already saturated at its out-of-pocket max, so its deductible genuinely cannot move the
+    // answer. Renewal — the plan being compared against — is still on the rising part of the
+    // curve at that spend, so its deductible is the figure that actually binds.
+    c.setQuoteOverride('renewal', 'deductibleFamilyCents', 1000000); // was $8,000, now $10,000
+    const after = c.finComputeHealthPlanFamilyBreakevenCents('renewal', 'option2', 329640);
+    expect(after).not.toBe(before);
+    expect(after).toBeLessThan(before); // a worse Renewal makes the switch pay off sooner
+    c.clearQuoteOverrides();
+  });
+
+  it('an edited SINGLE out-of-pocket max changes the single-claimant worst case', () => {
+    const c = loadSalaryCalculator();
+    const before = c.finComputeHealthPlanSingleClaimantDeltaCents('renewal', 'option2', 100000000);
+    c.setQuoteOverride('renewal', 'oopMaxIndividualCents', 900000); // was $8,000
+    const after = c.finComputeHealthPlanSingleClaimantDeltaCents('renewal', 'option2', 100000000);
+    expect(after).not.toBe(before);
+    c.clearQuoteOverrides();
   });
 });

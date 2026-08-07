@@ -24,6 +24,47 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.151.0 — Compensation: single + family deductible / OOP columns, and they now drive the maths (2026-08-06)
+
+Reported: the health plan rates table needed the deductible split into **single** and **family**
+columns, and (follow-up) "the individual deductible… also changes the math, since you have to meet
+individual separately."
+
+**Columns.** The rates table now carries four figures per option instead of two: `Deductible —
+single`, `Deductible — family`, `Out-of-pocket max — single`, `Out-of-pocket max — family`. The
+single figures already existed in `HEALTH_PLAN_QUOTE_2027` (`deductibleIndividualCents` /
+`oopMaxIndividualCents`) and were already used by the lone-claimant maths — they had simply never
+been exposed, so they could not be corrected when a new quote arrived. Single out-of-pocket max is
+included alongside the deductible because the two are read as a pair by
+`finHealthPlanEffectiveLoneClaimantTermsCents`; exposing one without the other would let the table
+go internally inconsistent. The plan cards now read "Deductible $4,000 single / $8,000 family".
+
+**Real bug fixed — the edits did nothing.** `finHealthPlanEffectiveLoneClaimantTermsCents`,
+`finComputeHealthPlanFamilyBreakevenCents` and the "what the family would actually pay" table all
+read `HEALTH_PLAN_QUOTE_2027.options[...]` **directly**, bypassing the override map that the rates
+table writes to. So editing a deductible changed the number printed on screen and nothing else —
+the breakeven analysis silently kept using the shipped quote figures. New
+`finHealthPlanResolvedOption(key)` resolves all four figures through `finCompPlanQuoteField`, and
+every consumer goes through it. Without this the new single-deductible box would have been a
+control that visibly did nothing, which is a failure mode this codebase has hit before.
+
+**Verified:** `npm test` (856/856). Three new tests pin the wiring specifically — an edited single
+deductible moves the lone-claimant terms, an edited family deductible moves the breakeven, an
+edited single OOP max moves the single-claimant worst case. One of them initially passed
+vacuously: overriding the *option's* family deductible left the breakeven unchanged, correctly,
+because that plan is already saturated at its out-of-pocket max at that spend — retargeted at
+Renewal, the plan actually still on the rising part of the curve. `test/finance-salary-calculator.js`'s
+extraction harness needed the two new functions added to its list and an override map in scope.
+Also `node --check` on both built bundles. **Not verified:** a live browser.
+
+**Open question raised with the user, not yet resolved:** the follow-up said individual deductibles
+must be met separately "in the non-embedded plans," which is the reverse of the standard definition
+this code implements (embedded = an individual sub-limit exists inside the family deductible;
+non-embedded/aggregate = no sub-limit, so a lone claimant must clear the whole family figure).
+Flipping it would change shipped, hand-reconciled figures — e.g. "Option A ties Renewal in the
+single-claimant worst case" — so it was not changed on a guess. See CLAUDE.md FIN54.
+
+
 ### v1.150.0 — Monthly P&L import: read style indentation, accept many years in one file (2026-08-07)
 
 **Asked**: can one Monthly P&L upload carry several years of months? Answered against a real
