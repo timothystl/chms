@@ -1,7 +1,7 @@
 // ── Reports, Engagement, Prayer API handlers ─────────────────────────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedThroughDate, sundaysInYear, nthSundayOfYear, periodAsOfDate, monthElapsedFraction, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, resolveGeneralFundIds, buildBoardCategoryBlock } from './api-utils.js';
+import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedThroughDate, sundaysInYear, nthSundayOfYear, periodAsOfDate, monthElapsedFraction, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, resolveGeneralFundIds, resolveGeneralFundBudget, buildBoardCategoryBlock } from './api-utils.js';
 import { resolveChurchYearPrecedence } from './api-finance.js';
 
 export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
@@ -935,7 +935,7 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   const priorPeriodEnd = nthSundayOfYear(priorYear, sundaysDone);
   const dateExpr = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
 
-  const [monthlyRes, fundRes, hhRes, hhPriorRes, methodRes, churchBudgetRes] = await Promise.all([
+  const [monthlyRes, fundRes, hhRes, hhPriorRes, methodRes, churchBudgetRes, budgetCodeRow] = await Promise.all([
     // Month-by-month sums for current + prior year (chart + budget spread), broken out per fund
     // so a General-Fund-only seasonal shape/projection can be derived in JS alongside the
     // all-funds one, without a second round trip.
@@ -996,7 +996,14 @@ if (seg === 'reports/giving-board' && method === 'GET') {
     // Fund" funds, different title) can back the board's Vs. Budget YTD instead of requiring a
     // separate fund-level budget in Settings.
     db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0`).bind(year).all(),
+    // The admin-pinned budget account code, when the ledger files the offering under a code that
+    // isn't the fund family's own (Finance → Data & Imports → Classification & policy). Blank
+    // falls back to the fund family's leading code, which is the ordinary case.
+    db.prepare('SELECT value FROM chms_config WHERE key=?').bind('finance_cash_policy').first().catch(() => null),
   ]);
+  let generalFundBudgetCode = '';
+  try { generalFundBudgetCode = String((JSON.parse(budgetCodeRow?.value || '{}') || {}).general_fund_budget_code || '').trim(); }
+  catch { generalFundBudgetCode = ''; }
 
   // Which category each fund belongs to (funds.category, migration 0033) — this is what the
   // Reports fund lens switches between. Legacy fallback: on a database where nothing has been
@@ -1071,13 +1078,11 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   // numeric code (e.g. "40085 Sunday Offering"), not a separate fund-level budget in Settings.
   // Falls back to null (not $0) when nothing's been imported/synced for this account yet, same
   // "no data" convention as the fund-level budget path above.
-  let gfBudgetAnnual = null;
-  if (genPrefix) {
-    const churchRows = resolveChurchYearPrecedence(churchBudgetRes.results || []);
-    const matches = churchRows.filter(r => String(r.account_name || '').trim().startsWith(genPrefix));
-    const withBudget = matches.filter(r => r.own_budget_cents != null);
-    if (withBudget.length) gfBudgetAnnual = withBudget.reduce((s, r) => s + (r.own_budget_cents || 0), 0);
-  }
+  const gfBudget = resolveGeneralFundBudget(
+    resolveChurchYearPrecedence(churchBudgetRes.results || []),
+    { prefix: genPrefix, overrideCode: generalFundBudgetCode }
+  );
+  const gfBudgetAnnual = gfBudget.cents;
   const gfBudgetYtd = gfBudgetAnnual != null ? spreadBudgetYtd(gfBudgetAnnual, priorMonthlyGF, throughMonth) : null;
   const gfBudgetVariance = gfBudgetYtd != null ? gfYtdActual - gfBudgetYtd : null;
 

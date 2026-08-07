@@ -24,6 +24,54 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.161.0 — Giving pace finds the uploaded budget; runway is church operations only (2026-08-07)
+
+Two problems reported off one live screenshot of Financial Health.
+
+**1. "No budget is on file for the General Fund accounts" against a budget that IS uploaded** and
+visible on the Planning tab. Two independent ways the lookup could lose a real budget, both fixed:
+
+- The code was read only off a fund literally NAMED "General Fund" (`resolveGeneralFundIds`). Once
+  an admin has categorised funds by hand (Settings → Fund categories) that name need not survive,
+  and a null code silently cost the whole lookup. It now falls back to the leading code the
+  categorised general funds themselves share (most common wins).
+- The ledger side matched the code only against `account_name`. Importers disagree about where the
+  code lands — leaf name for some ("40085 Sunday Offering"), an ancestor path segment for others
+  ("40085 Offerings:Sunday Offering") — so a budget uploaded through one importer read as absent.
+  Both are checked now, with the character after the code required to be a non-digit, so "40085"
+  can never match "400851".
+
+The rule is now one exported function, `resolveGeneralFundBudget` in `api-utils.js`, shared by the
+board report's General Fund card and the Health page's pace chart — the previous inline copy in
+`api-reports.js` is gone, so the two cannot quote different targets.
+
+**The card now says what it searched for.** "No budget is on file" is not something a reader who
+can see the budget on another tab can act on. It names the account code it looked under, says
+whether that code was pinned by an admin, and points at where to pin a different one; when a budget
+IS found it names the ledger accounts the pace line came from, same as the cash card names its
+account. New **General Fund budget account code** field under Data & Imports → Classification &
+policy (`finance_cash_policy.general_fund_budget_code`) for the case where Giving and the ledger
+file the offering under different codes.
+
+**2. Operating cash runway counted daycare expenses in the burn rate.** Per the church: if the
+tuition stops, the wages stop with it — daycare is not a cost the congregation has to carry out of
+reserves. New pure `computeOperatingExpenseSplit()` (`api-finance.js`) splits Expenses using the
+same `MDO_MATCH_RE` the daycare importer and `computeMoneyFlow` already key on, so "daycare" means
+exactly the account set the Daycare Report is built from and the two halves always sum back to
+total expenses. The runway is now the church half only — salaries, property, everything the
+congregation keeps paying. The card says "average month of **church operations**" and names the
+daycare figure it left out, so a reader comparing against the Church Report's total sees the
+difference accounted for rather than assuming one screen is wrong.
+
+`npm test` (1071/1071, 12 new). **Every new test verified non-vacuous** by injecting the exact
+regression it guards — six injections, six correct failures (path matching, digit guard, code
+fallback, pinned code, daycare in the burn rate, the daycare note). Plus `node --check` on both
+built bundles and a div-balance scan of the assembled `CHMS_HTML`. One existing test changed rather
+than the code: it pinned the old "No budget is on file" copy, which was the defect.
+
+**Not verified**: a live browser or real D1. **Follow-up for an admin**: if the pace card still
+draws no line, it now names the code it searched — put the ledger's real offering code in
+*General Fund budget account code* under Data & Imports → Classification & policy.
 ### v1.161.0 — Church Register was read-only on a phone (2026-08-07)
 
 Reported as errors on the register search on a mobile device. **The search filter itself is not

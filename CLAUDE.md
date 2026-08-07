@@ -433,6 +433,35 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### FIN63 — Giving pace found the uploaded budget; runway excludes daycare (2026-08-07, DONE)
+Reported off a live Financial Health screenshot: the General Fund pace card said **"No budget is on
+file"** against a budget that IS uploaded and visible on the Planning tab, and the cash runway
+counted daycare expenses the congregation would never have to carry ("if we don't take in money we
+don't pay out wages").
+- **Two independent ways the budget lookup lost a real budget.** The account code was read only off
+  a fund literally NAMED "General Fund" — but once funds are categorised by hand that name need not
+  survive, and a null code silently cost the whole lookup; it now falls back to the code the
+  categorised general funds share. And the ledger side matched the code only on `account_name`,
+  where importers put it variously on the leaf ("40085 Sunday Offering") or an ancestor path
+  segment ("40085 Offerings:Sunday Offering") — both are checked now, with a non-digit required
+  after the code so "40085" cannot match "400851".
+- **One rule, not two copies**: new `resolveGeneralFundBudget()` in `api-utils.js` replaces the
+  inline block in `api-reports.js`, so the board's General Fund card and the Health pace chart
+  cannot quote different targets. New admin-pinned `general_fund_budget_code` (Data & Imports →
+  Classification & policy) for when Giving and the ledger file the offering under different codes.
+- **The card names what it searched for.** "No budget is on file" is unactionable to a reader
+  looking at that budget on another tab; it now prints the code, says whether it was pinned, and
+  names the ledger accounts a found budget came from.
+- **Runway is church operations only.** New pure `computeOperatingExpenseSplit()` splits Expenses on
+  the same `MDO_MATCH_RE` the daycare importer and `computeMoneyFlow` key on, so "daycare" is
+  exactly the Daycare Report's account set and the halves sum back to total expenses. The card says
+  "average month of church operations" and names the daycare figure left out.
+- `npm test` (1071/1071, 12 new); **every new test verified non-vacuous** by injecting the exact
+  regression it guards (6 injections, 6 correct failures). One existing test was updated rather
+  than the code — it pinned the old copy, which was the defect. Plus `node --check` on both bundles
+  and a div-balance scan of `CHMS_HTML`. **Not verified**: a live browser or real D1.
+  (`src/api-utils.js`, `src/api-finance.js`, `src/api-reports.js`, `src/frontend/js-finance.js`,
+  `test/finance-giving-pace-cash.test.js`)
 ### REG-MOB1 — Church Register was read-only on a phone (2026-08-07, DONE)
 Reported as "errors on the search in the register on mobile device". **The search filter is not the
 bug** — driven through the real built bundle against null names, missing dates, `null`/`undefined`

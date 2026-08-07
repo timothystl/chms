@@ -463,13 +463,65 @@ export function resolveGeneralFundIds(fundRows) {
   const rows = Array.isArray(fundRows) ? fundRows : [];
   const catOf = new Map(rows.map(f => [f.id, normalizeFundCategory(f.category)]));
   const genFundRow = rows.find(f => /general\s*fund/i.test(String(f.name || '')));
-  const prefix = genFundRow ? fundNumericPrefix(genFundRow.name) : null;
+  let prefix = genFundRow ? fundNumericPrefix(genFundRow.name) : null;
   if (![...catOf.values()].includes('general')) {
     for (const f of rows) {
       if (prefix ? fundNumericPrefix(f.name) === prefix : (genFundRow && f.id === genFundRow.id)) catOf.set(f.id, 'general');
     }
   }
+  // The code can only be read off a fund literally NAMED "General Fund" — but once an admin has
+  // categorised funds by hand (Settings → Fund categories) that name need not exist any more, and
+  // a null code silently costs the caller its whole budget lookup ("no budget is on file" against
+  // a budget that is on file). Fall back to the code the categorised general funds themselves
+  // share; most common wins, so one oddly-named member of the family can't hijack it.
+  if (!prefix) {
+    const counts = new Map();
+    for (const f of rows) {
+      if (catOf.get(f.id) !== 'general') continue;
+      const p = fundNumericPrefix(f.name);
+      if (p) counts.set(p, (counts.get(p) || 0) + 1);
+    }
+    for (const [p, n] of counts) if (!prefix || n > counts.get(prefix)) prefix = p;
+  }
   return { catOf, prefix, ids: new Set(rows.filter(f => catOf.get(f.id) === 'general').map(f => f.id)) };
+}
+
+// Does a church-ledger row belong to the account family with this leading code? The code lives on
+// the leaf account name for most importers ("40085 Sunday Offering") but on an ancestor segment
+// for others ("40085 Offerings:Sunday Offering"), so both are checked — a budget uploaded through
+// one importer must not read as absent because a different importer wrote a different shape.
+// The character after the code has to be a non-digit, so "40085" never matches "400851".
+export function accountRowMatchesFundCode(row, code) {
+  const want = String(code || '').trim();
+  if (!want || !row) return false;
+  const segStarts = seg => {
+    const s = String(seg || '').trim();
+    return s.startsWith(want) && !/\d/.test(s.charAt(want.length));
+  };
+  if (segStarts(row.account_name)) return true;
+  return String(row.category_path || '').split(':').some(segStarts);
+}
+
+// The General Fund's own budget, read off the church ledger rather than a per-fund budget in
+// Settings — the council's plan for the offering plate lives in Finance → Church Report (the
+// "40085 Sunday Offering" account). One rule shared by the board report's General Fund card and
+// the Health page's giving-pace chart, so the two cannot quote different targets.
+//
+// `cents` is null, never 0, when nothing matched: a $0 pace line drawn under a real budget reads
+// as "we are wildly ahead", where null draws no line at all. `code`/`accounts` come back so the
+// caller can say what it searched for and what it found — a bare "no budget on file" is not
+// something a reader can act on.
+export function resolveGeneralFundBudget(entries, opts) {
+  const o = opts || {};
+  const code = String(o.overrideCode || '').trim() || String(o.prefix || '').trim();
+  if (!code) return { cents: null, code: '', accounts: [] };
+  const matches = (entries || []).filter(r => accountRowMatchesFundCode(r, code));
+  const withBudget = matches.filter(r => r.own_budget_cents != null);
+  return {
+    cents: withBudget.length ? withBudget.reduce((s, r) => s + (r.own_budget_cents || 0), 0) : null,
+    code,
+    accounts: withBudget.map(r => String(r.account_name || '').trim()).filter(Boolean),
+  };
 }
 
 // One lens's worth of board report: every KPI, the chart arrays, the method mix and the
