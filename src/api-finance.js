@@ -3332,11 +3332,17 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     // The note describes everything now stored, not just this request's slice — the UI commits a
     // multi-year file one year per request, so a per-request note would leave the Data & Imports
     // card claiming only the last year was ever imported.
-    const stored = await db.prepare(
-      `SELECT MIN(fiscal_year) AS lo, MAX(fiscal_year) AS hi FROM finance_church_entries WHERE source='monthly_import' AND period_month BETWEEN 1 AND 12`
-    ).bind().first().catch(() => null);
-    const lo = stored && stored.lo != null ? stored.lo : years[0];
-    const hi = stored && stored.hi != null ? stored.hi : years[years.length - 1];
+    let lo = years[0], hi = years[years.length - 1];
+    // try/catch, not .catch() — a synchronous throw here would escape a promise-tail handler and
+    // take down the whole route AFTER the rows were already written, leaving the data imported but
+    // the log row missing. The note is a nicety; the import it describes has already succeeded.
+    // (Parameterless queries call .first() straight off .prepare() everywhere else in this file.)
+    try {
+      const stored = await db.prepare(
+        `SELECT MIN(fiscal_year) AS lo, MAX(fiscal_year) AS hi FROM finance_church_entries WHERE source='monthly_import' AND period_month BETWEEN 1 AND 12`
+      ).first();
+      if (stored && stored.lo != null) { lo = stored.lo; hi = stored.hi; }
+    } catch { /* fall back to this request's own year range */ }
     await recordImport(db, 'church_monthly_pnl', lo === hi ? `FY${lo}` : `FY${lo}-FY${hi}`);
     return json({ ok: true, years, imported: rows.length });
   }

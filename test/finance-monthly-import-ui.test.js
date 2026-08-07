@@ -123,3 +123,80 @@ describe('finChurchMonthlyImportFileSelected (the handler that receives the prev
     expect(ctx.__store['fin-church-monthly-import-confirm-btn'].style.display).not.toBe('');
   });
 });
+
+// ── Data & Imports staleness card ────────────────────────────────────────────────────────────
+// The card is the whole point of the Data & Imports tab: it shows which feeds have gone stale.
+// _finImportStatus used to be fetched once per page load behind an `if (!_finImportStatus)` guard
+// and never invalidated by any of the ten importers, so a successful import wrote its log row and
+// the card went on rendering the cached "never" until a full page reload. Reported live after a
+// real Monthly P&L upload.
+
+function makeStatusCtx(responses) {
+  const store = {};
+  const el = (id) => ({
+    id, innerHTML: '', textContent: '', value: '', style: {}, dataset: {}, disabled: false,
+    files: [], classList: { add() {}, remove() {}, contains() { return false; } },
+    appendChild() {}, addEventListener() {}, querySelector() { return null; },
+    querySelectorAll() { return []; }, setAttribute() {}, focus() {},
+  });
+  store['fin-imports-card'] = el('fin-imports-card');
+  const calls = [];
+  const ctx = {
+    document: {
+      getElementById(id) { return store[id] || (store[id] = el(id)); },
+      querySelector() { return null; }, querySelectorAll() { return []; },
+      createElement: () => el('x'), addEventListener() {}, body: el('body'), activeElement: null,
+    },
+    console, setTimeout, clearTimeout, Math, JSON, Date, parseFloat, parseInt, isFinite,
+    Number, String, Object, Array, Promise, encodeURIComponent, decodeURIComponent,
+    localStorage: { getItem() { return null; }, setItem() {} },
+    FormData: class { append() {} },
+    navigator: {}, location: { href: '', hash: '' },
+    addEventListener() {}, removeEventListener() {}, scrollTo() {}, requestAnimationFrame() {},
+    matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }),
+    URL: { createObjectURL: () => '', revokeObjectURL() {} },
+    fetch: () => Promise.reject(new Error('no network in tests')),
+  };
+  ctx.window = ctx; ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(CHMS_APP_CORE_JS, ctx, { filename: 'app-core.js' });
+  vm.runInContext(CHMS_APP_EXT_JS, ctx, { filename: 'app-ext.js' });
+  ctx.api = (u) => { calls.push(u); return Promise.resolve(responses.shift()); };
+  ctx.__store = store; ctx.__calls = calls;
+  return ctx;
+}
+
+const statusResp = (when) => ({
+  importers: [{ key: 'church_monthly_pnl', label: 'Monthly P&L', group: 'church', lastImportedAt: when, note: '', derived: false }],
+});
+
+describe('Data & Imports staleness card', () => {
+  it('refetches on every render instead of caching the first answer for the session', async () => {
+    const ctx = makeStatusCtx([statusResp(''), statusResp('2026-08-07T03:00:00Z')]);
+    await ctx.finRefreshImportStatus();
+    expect(ctx._finImportStatus[0].lastImportedAt).toBe('');
+    // Second render — e.g. returning to the tab after running an import.
+    await ctx.finRefreshImportStatus();
+    expect(ctx.__calls).toHaveLength(2);
+    expect(ctx._finImportStatus[0].lastImportedAt).toBe('2026-08-07T03:00:00Z');
+    expect(ctx.__store['fin-imports-card'].innerHTML).not.toMatch(/never/i);
+  });
+
+  it('a successful monthly import refreshes the card in place', async () => {
+    const ctx = makeCtx(MULTI_YEAR_RESPONSE);
+    ctx.document.getElementById('fin-imports-card');
+    const seen = [];
+    ctx.api = (u, o) => {
+      seen.push(u);
+      if (u.indexOf('import-status') !== -1) return Promise.resolve(statusResp('2026-08-07T03:00:00Z'));
+      const b = JSON.parse(o.body);
+      return Promise.resolve({ ok: true, imported: b.rows.length });
+    };
+    ctx.closeModal = () => {}; ctx.finToast = () => {};
+    ctx.finRenderChurchReport = () => {}; ctx.finLoadHealth = () => {};
+    ctx._finChurchMonthlyImportPreview = MULTI_YEAR_RESPONSE;
+    ctx.finChurchConfirmMonthlyImport();
+    await new Promise(r => setTimeout(r, 10));
+    expect(seen.filter(u => u.indexOf('import-status') !== -1)).toHaveLength(1);
+  });
+});
