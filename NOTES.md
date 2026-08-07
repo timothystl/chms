@@ -24,6 +24,83 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.149.0 — Revenue mix read 100% earned: the group key was the classification (2026-08-07)
+
+**Reported**: the Financial Health page's revenue mix bar showed `EARNED $621,462 · 100%` with
+`$0` donor and `$0` passive, above a banner reading "1 account group was classified by name and
+never confirmed (Income)" — and a donor card simultaneously reporting `$0` and `129 giving
+households`. Two follow-ups in the same conversation: a way to classify QuickBooks' own account
+groups once and have it stick month to month, and why every importer on Data & Imports read
+`never`.
+
+**Root cause — one line.** `computeRevenueStreams()` took the account group as
+`category_path.split(':')[0]`. But every parser in `api-finance.js` puts the CLASSIFICATION in
+segment 0 (`path = [classification]` at depth 0 — `parseBudgetVsActualsGrid:630`,
+`parseIncomeStatementMultiYearGrid:812`, `flattenReportTree:519`), so the group a human can
+actually classify is segment 1. Every revenue row therefore collapsed into one group literally
+named `Income`, which matched none of the `REVENUE_STREAM_RULES` regexes and fell to the
+deliberate `earned` default — putting the entire budget in one stream. The test fixtures used
+paths like `'40 Offerings:41 Plate'`, a shape no importer in this repo produces, which is why the
+suite passed while real data failed. New `revenueGroupLabel()` skips a leading classification
+segment (`Income`/`Other Income`/`Revenue`/`Other Revenue`), and the fixtures now carry the prefix
+exactly as written.
+
+**Restricted is now a fourth stream** (user decision, chosen over keeping three): Donor · Earned ·
+Passive · Restricted, matching the four categories `funds.category` already uses on the Giving tab
+(migration 0033), so the two sides of the app finally agree. Rule order is precedence order,
+restricted first; `\brestricted\b` carries word boundaries so it cannot match "Unrestricted", and
+`altar guild`/`designated` moved off the donor rule — a designated gift arrives from a donor but
+is not money the board can redirect. UI: a fourth mix-bar segment and control band, a fourth
+stream card (`Spoken for`, new `.fin-chip-neutral` — navy on blue-mist, since teal at that chip's
+0.74rem bold lands near 3.8:1), a fourth flow ribbon, and a new `.fin-stream-grid` (four columns,
+collapsing on the existing 1100/767 tiers only — no new breakpoint, per MOB3). A stream with no
+money now renders no segment at all, which was previously impossible and would otherwise leave a
+stray 3px control-band tick under the bar.
+
+**One mapping drives both pages** (user decision). The saved classification
+(`chms_config.finance_revenue_streams`, edited on Data & Imports → Classification & policy) always
+persisted and was always re-read on every import — it was only ever useless because the editor had
+exactly one row in it to map. `computeRevenueStreams()` now also returns `map` (every group's
+resolved stream, override or guess), and `finReorganizeChurchTree()` groups the Church Report's
+own account tree from that same map instead of its hardcoded
+`/^(facility rental|fundraisers|mdo)$/` + `/^altar guild$/` regexes. It falls back to the original
+regexes verbatim when no map is loaded, so the four existing tests that pin that behaviour still
+pass unchanged. **This also removes a stated inconsistency (FIN14)**: the old path deleted "Sales"
+from the tree while its dollars still counted in the server-computed Total Revenue. With every
+group classifiable there is no reason to hide it, so the tree and the total now agree.
+
+**Import dates read `never` because nothing backfills the log.** `finance_import_log`
+(migration `0034`) shipped with the Data & Imports tab the day before and only gets a row from
+`recordImport()` on a successful run — so every importer that last ran before that reads `never`
+even though its rows are still in `finance_church_entries` / `finance_church_balances` /
+`finance_property_monthly` / `finance_daycare_entries` and still driving every report. **No
+re-import is needed.** New `deriveImportDates()` reads a best-effort date off the imported rows'
+own `synced_at`/`updated_at`/`created_at`, used only for an importer with no real log row and
+marked `from the data` in the UI so it is never read as a logged run. Two pairs genuinely share
+one timestamp and say so (Statement of Activity + Budget by Year both write
+`source='import_activity'`; both Balance Sheet importers write `source='import'`), and
+`daycare_bulk` is deliberately left as `never` — it inserts with the default `source='manual'`,
+identical to a row typed into the one-at-a-time form, so any date there would be a guess.
+
+**Verification.** `npm test` (849/849, 22 new across `test/finance-health.test.js` and
+`test/finance-church-tree.test.js`). **Every new test verified non-vacuous** by injecting the exact
+regression it guards — reverting the group label to `split(':')[0]` (10 fail), dropping the
+restricted rule (2), putting zero-money groups back into `unmapped` (1), and ignoring the stream
+map (3). Plus `node --check` on `api-finance.js` and both built bundles; a `vm` harness running
+`finRenderRevenueMix`/`finRenderStreamCards`/`finRenderFlow`/`finRenderImportRow` out of the real
+built bundle across four streams, an empty restricted stream, and zero revenue, with div-balance
+asserted on each; and all seven derived-import queries executed against the real schema in
+in-memory SQLite, confirming each returns the right `MAX` and that a `qbo_sync` row is never
+mistaken for a file import. The test harness in `finance-church-tree.test.js` needed
+`FIN_STREAM_GROUP_LABELS` added to its extracted vars, and `finReorganizeChurchTree` uses a
+`typeof` guard on `_finStreamMap` so it stays runnable from an isolated extract (FIN46 convention).
+**Not verified**: a live browser or real D1.
+
+**One thing to do after this deploys**: open Data & Imports → Classification & policy → *Review
+revenue-stream classification*. It will now list the real account groups with a dropdown each.
+Anything still marked `guessed` is the app's own name-matching, not a confirmed answer — and the
+Financial Health page is only as honest as that table.
+
 ### 2026-08-07 — TinyMCE "50% of Editor Load limit" notice: traced, and it is not this app
 
 Investigation only — **no code change in this repo**, because there is nothing here to change.

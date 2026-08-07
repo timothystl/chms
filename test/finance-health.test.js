@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   classifyRevenueStream,
+  revenueGroupLabel,
   computeRevenueStreams,
   computeMoneyFlow,
   computeCashRunway,
@@ -47,23 +48,72 @@ describe('classifyRevenueStream', () => {
   it('ignores an override naming a stream that does not exist', () => {
     expect(classifyRevenueStream('40 Offerings', { '40 Offerings': 'magic' }).stream).toBe('donor');
   });
+
+  it('routes money given for a purpose to restricted, not to donor', () => {
+    // Restricted dollars arrive from donors but cannot be redirected, so counting them as donor
+    // revenue would overstate exactly what this page exists to state honestly.
+    expect(classifyRevenueStream('Altar Guild').stream).toBe('restricted');
+    expect(classifyRevenueStream('Restricted Income').stream).toBe('restricted');
+    expect(classifyRevenueStream('49 Designated Gifts').stream).toBe('restricted');
+  });
+
+  it('does not read "Unrestricted" as restricted', () => {
+    expect(classifyRevenueStream('Unrestricted Offerings').stream).toBe('donor');
+  });
+});
+
+// Every parser in api-finance.js puts the classification in segment 0 of category_path, so the
+// group a human can classify is segment 1. Reading segment 0 collapsed the whole chart of accounts
+// into one group named "Income" and defaulted the entire budget to earned — reported live as a
+// 100%-earned revenue mix with $0 donor revenue.
+describe('revenueGroupLabel', () => {
+  it('skips the classification segment the importers prepend', () => {
+    expect(revenueGroupLabel('Income:40 Offerings:41 Plate')).toBe('40 Offerings');
+    expect(revenueGroupLabel('Other Income:42 Passive Income:Endowment')).toBe('42 Passive Income');
+    expect(revenueGroupLabel('Revenue:Facility Rental')).toBe('Facility Rental');
+  });
+
+  it('leaves a path that does not start with a classification alone', () => {
+    expect(revenueGroupLabel('40 Offerings:41 Plate')).toBe('40 Offerings');
+  });
+
+  it('falls back to the account name when there is no path', () => {
+    expect(revenueGroupLabel('', 'Sunday Offering')).toBe('Sunday Offering');
+    expect(revenueGroupLabel('', '')).toBe('');
+  });
+
+  it('keeps a bare classification row as its own label rather than dropping its money', () => {
+    // The section-header row carries no own amount by construction, but returning '' here would
+    // silently discard any that ever did.
+    expect(revenueGroupLabel('Income')).toBe('Income');
+  });
 });
 
 describe('computeRevenueStreams', () => {
+  // Paths carry the leading classification segment exactly as every importer writes it.
   const entries = [
-    row({ category_path: '40 Offerings:41 Plate', own_actual_cents: 30000000, own_budget_cents: 32000000 }),
-    row({ category_path: '40 Offerings:42 Pledged', own_actual_cents: 13500000, own_budget_cents: 14000000 }),
-    row({ category_path: '57 MDO Tuition', own_actual_cents: 60000000 }),
-    row({ classification: 'Other Income', category_path: '42 Passive Income:Endowment', own_actual_cents: 8000000 }),
-    row({ classification: 'Expenses', category_path: '58 Salaries', own_actual_cents: 40000000 }),
+    row({ category_path: 'Income:40 Offerings:41 Plate', own_actual_cents: 30000000, own_budget_cents: 32000000 }),
+    row({ category_path: 'Income:40 Offerings:42 Pledged', own_actual_cents: 13500000, own_budget_cents: 14000000 }),
+    row({ category_path: 'Income:57 MDO Tuition', own_actual_cents: 60000000 }),
+    row({ classification: 'Other Income', category_path: 'Other Income:42 Passive Income:Endowment', own_actual_cents: 8000000 }),
+    row({ classification: 'Expenses', category_path: 'Expenses:58 Salaries', own_actual_cents: 40000000 }),
   ];
 
-  it('groups by the top level of the account path, not by leaf account', () => {
+  it('groups by the account group under the classification, not by leaf account', () => {
     const { streams } = computeRevenueStreams(entries, {});
     // The two Offerings leaves roll into one group a human can actually classify.
     expect(streams.donor.groups).toHaveLength(1);
     expect(streams.donor.groups[0].label).toBe('40 Offerings');
     expect(streams.donor.cents).toBe(43500000);
+  });
+
+  it('does not collapse the whole chart of accounts into one "Income" group', () => {
+    // The live regression: with every path sharing the classification as segment 0, all revenue
+    // landed in one unrecognised group and defaulted to earned — donor read $0 at 0%.
+    const { streams, map } = computeRevenueStreams(entries, {});
+    expect(Object.keys(map).sort()).toEqual(['40 Offerings', '42 Passive Income', '57 MDO Tuition']);
+    expect(streams.earned.cents, 'earned must not swallow the offerings').toBe(60000000);
+    expect(streams.donor.cents).toBeGreaterThan(0);
   });
 
   it('ignores expense rows entirely', () => {
@@ -96,6 +146,39 @@ describe('computeRevenueStreams', () => {
     const { streams } = computeRevenueStreams(entries, { '57 MDO Tuition': 'passive' });
     expect(streams.earned.cents).toBe(0);
     expect(streams.passive.cents).toBe(60000000 + 8000000);
+  });
+
+  it('keeps restricted income out of donor revenue and out of the total nowhere', () => {
+    const withRestricted = entries.concat([
+      row({ category_path: 'Income:Altar Guild:Flowers', own_actual_cents: 200000 }),
+    ]);
+    const { streams, totalCents } = computeRevenueStreams(withRestricted, {});
+    expect(streams.restricted.cents).toBe(200000);
+    expect(streams.donor.cents, 'a designated gift is not spendable donor revenue').toBe(43500000);
+    expect(totalCents, 'restricted still counts toward total revenue').toBe(43500000 + 60000000 + 8000000 + 200000);
+  });
+
+  it('sums every stream into the total, so no stream can be silently dropped', () => {
+    const { streams, totalCents } = computeRevenueStreams(entries, {});
+    const summed = REVENUE_STREAMS.reduce((s, k) => s + streams[k].cents, 0);
+    expect(summed).toBe(totalCents);
+  });
+
+  it('does not ask for a decision about a group holding no money', () => {
+    // The classification header row (path === the classification alone) carries no own amount and
+    // would otherwise sit in the editor forever as one unconfirmed group named "Income".
+    const withHeader = entries.concat([row({ category_path: 'Income', own_actual_cents: 0 })]);
+    const { unmapped } = computeRevenueStreams(withHeader, {});
+    expect(unmapped.map((u) => u.label)).not.toContain('Income');
+  });
+
+  it('returns a resolved stream for every group, guessed or confirmed', () => {
+    // The Church Report groups its own account tree from this map, so a group missing here would
+    // silently stay ungrouped on that page.
+    const { map } = computeRevenueStreams(entries, { '57 MDO Tuition': 'passive' });
+    expect(map['57 MDO Tuition'], 'an override must win in the map too').toBe('passive');
+    expect(map['40 Offerings']).toBe('donor');
+    expect(map['42 Passive Income']).toBe('passive');
   });
 });
 

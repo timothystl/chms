@@ -11,10 +11,14 @@ function loadChurchTreeHelpers() {
     if (!m) throw new Error(`${name} not found in built script`);
     return m[0];
   });
-  const varMatch = CHMS_APP_EXT_JS.match(/var FIN_CHURCH_CLASS_ORDER = \{[\s\S]*?\};/);
-  if (!varMatch) throw new Error('FIN_CHURCH_CLASS_ORDER not found in built script');
+  const varNames = ['FIN_CHURCH_CLASS_ORDER', 'FIN_STREAM_GROUP_LABELS'];
+  const varSrcs = varNames.map(name => {
+    const m = CHMS_APP_EXT_JS.match(new RegExp(`var ${name} = \\{[\\s\\S]*?\\};`));
+    if (!m) throw new Error(`${name} not found in built script`);
+    return m[0];
+  });
   // eslint-disable-next-line no-eval
-  return eval(`(function() { ${varMatch[0]} ${fnSrcs.join('\n')} return finReorganizeChurchTree; })()`);
+  return eval(`(function() { ${varSrcs.join('\n')} ${fnSrcs.join('\n')} return finReorganizeChurchTree; })()`);
 }
 
 function leaf(path, label, classification, depth, actualCents, budgetCents) {
@@ -85,5 +89,60 @@ describe('finReorganizeChurchTree', () => {
     finReorganizeChurchTree(roots);
     expect(roots[0].label).toBe('Income'); // untouched
     expect(roots[0].children).toHaveLength(1); // Sales still there in the original
+  });
+
+  // The four cases above pin the FALLBACK, used only when no saved classification is available.
+  // With a map, the same grouping is driven by the admin's own choices instead of these regexes,
+  // so one decision on Data & Imports drives both this page and Financial Health.
+  describe('driven by the saved revenue-stream classification', () => {
+    const buildIncome = () => ({
+      path: 'Income', label: 'Income', classification: 'Income', depth: 0, ownActualCents: 0, ownBudgetCents: null, totalActualCents: 0, totalBudgetCents: 0, hasBudgetInfo: false,
+      children: [
+        leaf('Income:Sunday Offering', 'Sunday Offering', 'Income', 1, 500000, 480000),
+        leaf('Income:Facility Rental', 'Facility Rental', 'Income', 1, 100000, 90000),
+        leaf('Income:Altar Guild', 'Altar Guild', 'Income', 1, 12000),
+        leaf('Income:Endowment Draw', 'Endowment Draw', 'Income', 1, 40000),
+        leaf('Income:Sales', 'Sales', 'Income', 1, 30000),
+      ],
+    });
+    const map = {
+      'Sunday Offering': 'donor', 'Facility Rental': 'earned', 'Sales': 'earned',
+      'Altar Guild': 'restricted', 'Endowment Draw': 'passive',
+    };
+
+    it('collects each non-donor stream into its own heading and leaves donor at the top level', () => {
+      const revenue = finReorganizeChurchTree([buildIncome()], map)[0];
+      const byLabel = {};
+      revenue.children.forEach(c => { byLabel[c.label] = c; });
+      expect(Object.keys(byLabel).sort()).toEqual(['Earned Income', 'Passive Income', 'Restricted Income', 'Sunday Offering']);
+      expect(byLabel['Earned Income'].children.map(c => c.label).sort()).toEqual(['Facility Rental', 'Sales']);
+      expect(byLabel['Restricted Income'].children.map(c => c.label)).toEqual(['Altar Guild']);
+      expect(byLabel['Passive Income'].children.map(c => c.label)).toEqual(['Endowment Draw']);
+    });
+
+    it('stops hiding Sales, so the tree and the server-computed revenue total agree', () => {
+      // The fallback drops Sales from the tree while its dollars still count in Total Revenue —
+      // a stated inconsistency (FIN14) that an editable classification removes the need for.
+      const revenue = finReorganizeChurchTree([buildIncome()], map)[0];
+      expect(revenue.totalActualCents).toBe(500000 + 100000 + 12000 + 40000 + 30000);
+    });
+
+    it('does not invent a heading for a stream with no accounts in it', () => {
+      const income = {
+        path: 'Income', label: 'Income', classification: 'Income', depth: 0, ownActualCents: 0, ownBudgetCents: null, totalActualCents: 0, totalBudgetCents: 0, hasBudgetInfo: false,
+        children: [leaf('Income:Sunday Offering', 'Sunday Offering', 'Income', 1, 500000)],
+      };
+      const revenue = finReorganizeChurchTree([income], map)[0];
+      expect(revenue.children.map(c => c.label)).toEqual(['Sunday Offering']);
+    });
+
+    it('leaves a group the map does not mention at the top level rather than dropping it', () => {
+      const revenue = finReorganizeChurchTree([buildIncome()], { 'Facility Rental': 'earned' })[0];
+      const labels = revenue.children.map(c => c.label);
+      expect(labels).toContain('Sunday Offering');
+      expect(labels).toContain('Altar Guild');
+      expect(labels).toContain('Sales');
+      expect(revenue.totalActualCents, 'nothing may vanish from the rollup').toBe(500000 + 100000 + 12000 + 40000 + 30000);
+    });
   });
 });

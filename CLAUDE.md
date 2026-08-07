@@ -433,6 +433,43 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### FIN58 — Revenue mix read 100% earned; four income streams; one shared classification (2026-08-07, DONE)
+Reported live: the Financial Health mix bar showed `EARNED $621,462 · 100%` with `$0` donor and
+`$0` passive, next to a banner naming exactly one unconfirmed group called "Income" — and a donor
+card reading `$0` beside `129 giving households`. **Root cause: `computeRevenueStreams()` took the
+account group as `category_path.split(':')[0]`, but every parser puts the CLASSIFICATION in segment
+0** (`path = [classification]` at depth 0 — `parseBudgetVsActualsGrid`,
+`parseIncomeStatementMultiYearGrid`, `flattenReportTree`), so the group a human can classify is
+segment 1. All revenue collapsed into one group named `Income`, matched no rule, and fell to the
+deliberate `earned` default. The tests passed because their fixtures used `'40 Offerings:41 Plate'`
+— a shape no importer produces. New `revenueGroupLabel()` skips a leading classification segment.
+- **Four streams now** (user decision): Donor · Earned · Passive · **Restricted**, matching
+  `funds.category` on the Giving tab so both sides of the app agree. `\brestricted\b` is word-
+  bounded so it cannot match "Unrestricted"; `altar guild`/`designated` moved off the donor rule.
+  New `.fin-stream-grid` (1100/767 tiers only, no new breakpoint) and `.fin-chip-neutral`.
+- **One mapping drives both pages** (user decision). The saved classification
+  (`chms_config.finance_revenue_streams`, Data & Imports → Classification & policy) always
+  persisted across imports — it was only useless because the editor had one bogus row to map.
+  `computeRevenueStreams()` now returns `map`, and `finReorganizeChurchTree()` groups the Church
+  Report's tree from it instead of its hardcoded regexes (falling back to them verbatim when no map
+  is loaded, so the four tests pinning that behaviour pass unchanged). **Removes FIN14's stated
+  inconsistency**: "Sales" was dropped from the tree while its dollars counted in Total Revenue.
+- **Import dates read `never` because nothing backfills the log.** `finance_import_log`
+  (migration 0034) shipped a day earlier and only records runs after it. **No re-import needed** —
+  the data is still there. New `deriveImportDates()` reads a date off the imported rows'
+  `synced_at`/`updated_at`/`created_at` for any importer with no log row, marked `from the data`.
+  Two pairs share one timestamp and say so; `daycare_bulk` is left as `never` because it inserts
+  with the default `source='manual'`, indistinguishable from hand entry.
+- `npm test` (849/849, 22 new); **every new test verified non-vacuous** by injecting the exact
+  regression it guards (4 injections, 16 correct failures). Plus `node --check` on both bundles, a
+  `vm` harness running all four render paths out of the real built bundle across four streams / an
+  empty restricted stream / zero revenue with div-balance asserted, and all seven derived-import
+  queries run against the real schema in in-memory SQLite. **Not verified**: a live browser or real
+  D1. **Follow-up for an admin**: walk Data & Imports → *Review revenue-stream classification* once
+  — it now lists the real groups, and anything still marked `guessed` is name-matching, not a
+  confirmed answer. (`src/api-finance.js`, `src/frontend/{js-finance,html-head,js-core}.js`,
+  `test/finance-health.test.js`, `test/finance-church-tree.test.js`)
+
 ### TinyMCE editor-load limit — NOT this app; it's the website repo (2026-08-07)
 A Tiny automated email warned the account hit 50% of its monthly **Editor Load** limit (overage
 charges past 100%). **Connect contributes zero cloud loads and always has** — since v1.64.0 the
