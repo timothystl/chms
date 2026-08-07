@@ -1417,6 +1417,30 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   layout — say if it needs to come back. (`src/frontend/js-finance.js`,
   `src/frontend/html-head.js`, `src/frontend/html-tabs.js`,
   `test/finance-compensation-planner.test.js`, `test/finance-input-typing.test.js`)
+- [x] **FIN55** — Embedded / non-embedded, from the plan's own definition supplied by the church.
+  **The shipped lone-claimant maths was already correct** — verified against all five options
+  (embedded resolves to the individual figures, non-embedded to the family figures, deductible and
+  OOP max both), so FIN54-OPEN is closed with no change. Added: an Embedded / Non-embedded badge per
+  rates row, derived from the option's own flag rather than a hand-written string, plus a legend —
+  needed because FIN54's new "Deductible — single" column could otherwise read as a per-person cap
+  inside family coverage on the two non-embedded options, where no such cap exists. New
+  `finComputeFamilyOOPCents(opt, rate, spend, members)` generalises the spread-cost model: each
+  member's contribution toward the family deductible is capped at the individual figure and they
+  flip to coinsurance once past it. It reduces exactly to the old family-only calculation for a
+  non-embedded plan and to the lone-claimant case at one member. **For this quote it changes
+  nothing, deliberately recorded**: the refinement can only bite when (members x single deductible)
+  < family deductible, and every option here sets family at exactly 2x single, so that holds only at
+  one member — the lone-claimant case, already modelled. Verified exhaustively across all options,
+  2-5 members, $1k-$30k of spend; a synthetic 3x-ratio option does differ at two members, which pins
+  the generalisation as real. The family-size control is therefore shown **only when it can matter**
+  (`finHealthFamilySizeMatters`, data-derived) — currently hidden, replaced by a line saying the
+  count makes no difference here and that the two rows bracket the range. Also fixed FIN54's
+  `finHealthPlanResolvedOption` dropping every non-numeric field, which rendered `selOpt.label` as
+  "undefined". `npm test` (862/862, 6 new; three initially failed on a wrong premise of mine and
+  were rewritten around the derived rule rather than forced), `node --check` on both bundles, render
+  check of the callout and all five badges. Not verified in a live browser. Done 2026-08-07
+  (v1.152.0). (`src/frontend/js-finance.js`, `src/frontend/html-head.js`,
+  `test/finance-salary-calculator.test.js`)
 - [x] **FIN54** — Health plan rates table: deductible and out-of-pocket max each split into
   **single** and **family** columns (was family-only). The single figures already existed in
   `HEALTH_PLAN_QUOTE_2027` and already drove the lone-claimant maths — they had just never been
@@ -1433,7 +1457,9 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   retargeted at the plan that is not already OOP-saturated at that spend), `node --check` on both
   built bundles. Not verified in a live browser. Done 2026-08-06 (v1.151.0).
   (`src/frontend/js-finance.js`, `test/finance-salary-calculator.test.js`)
-- [ ] **FIN54-OPEN** — Unresolved modelling question, raised with the user, deliberately NOT changed
+- [x] **FIN54-OPEN** — CLOSED 2026-08-07 by FIN55: the church supplied the plan's own definition and it
+  confirms the standard rule the code already implements. Verified against all five options; no change
+  made. Original note follows. ~~Unresolved modelling question, raised with the user, deliberately NOT changed~~
   on a guess: the request said an individual deductible must be met separately "in the non-embedded
   plans," which inverts the standard definition this code implements (embedded = an individual
   sub-limit exists *within* the family deductible, so a lone claimant stops at the individual

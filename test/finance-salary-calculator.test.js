@@ -29,7 +29,7 @@ function loadSalaryCalculator() {
     }
     return CHMS_APP_EXT_JS.slice(start, i);
   }
-  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finLcmsHistoricalAvgGrowthPct', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputePensionCents', 'finConcordiaPensionRateFor', 'finConcordiaDisabilityRateFor', 'finHealthTierMonthlyCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finCompPlanQuoteField', 'finHealthPlanResolvedOption', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
+  const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finLcmsHistoricalAvgGrowthPct', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputePensionCents', 'finConcordiaPensionRateFor', 'finConcordiaDisabilityRateFor', 'finHealthTierMonthlyCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finCompPlanQuoteField', 'finHealthPlanResolvedOption', 'finComputeFamilyOOPCents', 'finHealthFamilySizeMatters', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
   const fnSrcs = fnNames.map(extractFunction);
   const ficaRateM = CHMS_APP_EXT_JS.match(/var LCMS_EMPLOYER_FICA_RATE = [^\n]*\n/);
   if (!ficaRateM) throw new Error('LCMS_EMPLOYER_FICA_RATE not found in built script');
@@ -44,7 +44,7 @@ function loadSalaryCalculator() {
   const tiersM = CHMS_APP_EXT_JS.match(/var FIN_HEALTH_TIERS = [\s\S]*?\n\];\n/);
   if (!tiersM) throw new Error('FIN_HEALTH_TIERS not found in built script');
   // eslint-disable-next-line no-eval
-  return eval(`(function() { var _finHealthPlanPremiumOverrides = {}; ${varSrcs.join('\n')} ${ficaRateM[0]} ${ssaColaM[0]} ${pensionRateM[0]} ${disabilityRateM[0]} ${tiersM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finLcmsHistoricalAvgGrowthPct, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, finComputePensionCents, finConcordiaPensionRateFor, finConcordiaDisabilityRateFor, LCMS_EMPLOYER_FICA_RATE, SSA_COLA_REFERENCE_PCT, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents, finHealthPlanEffectiveLoneClaimantTermsCents, setQuoteOverride: function(k, f, cents) { if (!_finHealthPlanPremiumOverrides[k]) _finHealthPlanPremiumOverrides[k] = {}; _finHealthPlanPremiumOverrides[k][f] = cents; }, clearQuoteOverrides: function() { _finHealthPlanPremiumOverrides = {}; } }; })()`);
+  return eval(`(function() { var _finHealthPlanPremiumOverrides = {}; var _finHealthFamilySize = 2; ${varSrcs.join('\n')} ${ficaRateM[0]} ${ssaColaM[0]} ${pensionRateM[0]} ${disabilityRateM[0]} ${tiersM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finLcmsHistoricalAvgGrowthPct, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, finComputePensionCents, finConcordiaPensionRateFor, finConcordiaDisabilityRateFor, LCMS_EMPLOYER_FICA_RATE, SSA_COLA_REFERENCE_PCT, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents, finHealthPlanEffectiveLoneClaimantTermsCents, finComputeFamilyOOPCents, finHealthFamilySizeMatters, finHealthPlanResolvedOption, HEALTH_PLAN_QUOTE_2027, setFamilySize: function(n) { _finHealthFamilySize = n; }, setQuoteOverride: function(k, f, cents) { if (!_finHealthPlanPremiumOverrides[k]) _finHealthPlanPremiumOverrides[k] = {}; _finHealthPlanPremiumOverrides[k][f] = cents; }, clearQuoteOverrides: function() { _finHealthPlanPremiumOverrides = {}; } }; })()`);
 }
 
 describe('LCMS Missouri District salary calculator', () => {
@@ -326,15 +326,20 @@ describe('rates-page edits actually drive the plan maths', () => {
 
   it('an edited FAMILY deductible moves the family-wide breakeven', () => {
     const c = loadSalaryCalculator();
-    const before = c.finComputeHealthPlanFamilyBreakevenCents('renewal', 'option2', 329640);
-    // Overriding the option's own deductible would prove nothing here: at the breakeven spend it
-    // is already saturated at its out-of-pocket max, so its deductible genuinely cannot move the
-    // answer. Renewal — the plan being compared against — is still on the rising part of the
-    // curve at that spend, so its deductible is the figure that actually binds.
-    c.setQuoteOverride('renewal', 'deductibleFamilyCents', 1000000); // was $8,000, now $10,000
-    const after = c.finComputeHealthPlanFamilyBreakevenCents('renewal', 'option2', 329640);
+    // Uses two NON-embedded options deliberately. On an embedded plan the family deductible above
+    // twice the single one can never bind — members hit their own limits first — so overriding it
+    // there would correctly change nothing and prove nothing about the wiring.
+    // option1 has the better deductible of the two, so it is the one worth paying up FOR. The
+    // premium gap has to sit below the most these two can ever differ by ($500), or the answer is
+    // legitimately "never breaks even" both before and after and the test proves nothing. The
+    // override lowers option2's deductible so it actually binds at the breakeven spend — raising
+    // it above that spend would correctly change nothing.
+    const before = c.finComputeHealthPlanFamilyBreakevenCents('option2', 'option1', 40000);
+    c.setQuoteOverride('option2', 'deductibleFamilyCents', 300000); // was $6,000, now $3,000
+    const after = c.finComputeHealthPlanFamilyBreakevenCents('option2', 'option1', 40000);
+    expect(before).not.toBeNull();
+    expect(after).not.toBeNull();
     expect(after).not.toBe(before);
-    expect(after).toBeLessThan(before); // a worse Renewal makes the switch pay off sooner
     c.clearQuoteOverrides();
   });
 
@@ -345,5 +350,90 @@ describe('rates-page edits actually drive the plan maths', () => {
     const after = c.finComputeHealthPlanSingleClaimantDeltaCents('renewal', 'option2', 100000000);
     expect(after).not.toBe(before);
     c.clearQuoteOverrides();
+  });
+});
+
+// The plan's own definition, supplied by the church:
+//   Non-embedded — a true family deductible. No individual limits; members pool expenses and one
+//     person can pay the full amount on behalf of the family.
+//   Embedded — each member has their own limit inside the family limit. No member contributes more
+//     than the individual limit toward the family deductible, and once they meet their own
+//     deductible they pay coinsurance even if the family deductible has not been met.
+// The spread-across-the-family model used to apply the family deductible only, which overstates an
+// embedded plan's cost to a household whose costs are shared around.
+describe('family out-of-pocket model follows the embedded / non-embedded rule', () => {
+  const RATE = 0.2;
+
+  it('reduces to the old family-only calculation for a non-embedded plan, at any member count', () => {
+    const c = loadSalaryCalculator();
+    const o = c.finHealthPlanResolvedOption('option1'); // not embedded
+    expect(o.embedded).toBe(false);
+    [1, 2, 5].forEach(n => {
+      expect(c.finComputeFamilyOOPCents(o, RATE, 1200000, n))
+        .toBe(c.finComputePlanOOPCents(o.deductibleFamilyCents, o.oopMaxFamilyCents, RATE, 1200000));
+    });
+  });
+
+  it('reduces to the lone-claimant case at one member, both kinds of plan', () => {
+    const c = loadSalaryCalculator();
+    ['renewal', 'option1'].forEach(k => {
+      const o = c.finHealthPlanResolvedOption(k);
+      const lone = c.finHealthPlanEffectiveLoneClaimantTermsCents(k);
+      expect(c.finComputeFamilyOOPCents(o, RATE, 1200000, 1))
+        .toBe(c.finComputePlanOOPCents(lone.deductibleCents, lone.oopMaxCents, RATE, 1200000));
+    });
+  });
+
+  // The exact condition, derived rather than assumed: the refinement can only change a figure when
+  // (members x single deductible) < family deductible. Below that the members are still inside
+  // their own limits and the pooled family deductible has not bound yet.
+  it('is identical to the family-only model for this quote, at every member count of 2 or more', () => {
+    const c = loadSalaryCalculator();
+    // Every option here sets family at exactly 2x single, so two or more people always reach the
+    // pooled limit together — the refinement provably cannot move these numbers.
+    ['current', 'renewal', 'option1', 'option2', 'option3'].forEach(k => {
+      const o = c.finHealthPlanResolvedOption(k);
+      expect(o.deductibleFamilyCents).toBe(2 * o.deductibleIndividualCents);
+      [2, 3, 5].forEach(n => {
+        for (let spend = 100000; spend <= 3000000; spend += 100000) {
+          expect(c.finComputeFamilyOOPCents(o, RATE, spend, n))
+            .toBe(c.finComputePlanOOPCents(o.deductibleFamilyCents, o.oopMaxFamilyCents, RATE, spend));
+        }
+      });
+    });
+  });
+
+  it('DOES cost less than the family-only model where the family limit is more than twice the single one', () => {
+    const c = loadSalaryCalculator();
+    const synthetic = { embedded: true, deductibleIndividualCents: 400000, deductibleFamilyCents: 1200000,
+                        oopMaxIndividualCents: 800000, oopMaxFamilyCents: 2400000 };
+    // $15,000 of care across 2 members: each clears their own $4,000 deductible, so only $8,000 is
+    // deductible and the rest is coinsurance — the family-only model would charge all $12,000.
+    const shared = c.finComputeFamilyOOPCents(synthetic, RATE, 1500000, 2);
+    const familyOnly = c.finComputePlanOOPCents(synthetic.deductibleFamilyCents, synthetic.oopMaxFamilyCents, RATE, 1500000);
+    expect(shared).toBe(800000 + 700000 * RATE);
+    expect(shared).toBeLessThan(familyOnly);
+    // At 3 members the pooled family deductible binds again and the two agree.
+    expect(c.finComputeFamilyOOPCents(synthetic, RATE, 1500000, 3)).toBe(familyOnly);
+  });
+
+  it('never exceeds the family out-of-pocket max', () => {
+    const c = loadSalaryCalculator();
+    ['current', 'renewal', 'option1', 'option2', 'option3'].forEach(k => {
+      const o = c.finHealthPlanResolvedOption(k);
+      [1, 2, 4].forEach(n => {
+        expect(c.finComputeFamilyOOPCents(o, RATE, 100000000, n)).toBeLessThanOrEqual(o.oopMaxFamilyCents);
+      });
+    });
+  });
+
+  it('flags that the member count is inert for every option in this quote', () => {
+    const c = loadSalaryCalculator();
+    // What the UI uses to decide whether to offer a family-size control at all.
+    ['current', 'renewal', 'option1', 'option2', 'option3'].forEach(k => {
+      expect(c.finHealthFamilySizeMatters(c.finHealthPlanResolvedOption(k))).toBe(false);
+    });
+    expect(c.finHealthFamilySizeMatters({ embedded: true, deductibleIndividualCents: 400000, deductibleFamilyCents: 1200000 })).toBe(true);
+    expect(c.finHealthFamilySizeMatters({ embedded: false, deductibleIndividualCents: 400000, deductibleFamilyCents: 1200000 })).toBe(false);
   });
 });
