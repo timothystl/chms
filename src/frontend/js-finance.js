@@ -2803,6 +2803,15 @@ function finChurchMultiYearLoadRange() {
   for (var y = from; y <= to; y++) years.push(y);
   finLoadChurchMultiYear(years);
 }
+// True when any year in the window carries a non-zero total for this P&L classification. Used to
+// drop an always-empty section (Cost of Goods Sold, for a church with no sales) from the table and
+// the CSV without ever hiding a real figure.
+function finChurchMultiYearClassHasData(d, years, key) {
+  return (years || []).some(function(y) {
+    var c = d && d.byYear && d.byYear[y] && d.byYear[y].classificationTotals[key];
+    return !!(c && c.actualCents);
+  });
+}
 function finRenderChurchMultiYear(d) {
   var el = document.getElementById('fin-church-multiyear-view');
   if (!el) return;
@@ -2820,7 +2829,15 @@ function finRenderChurchMultiYear(d) {
     el.innerHTML = rangePicker + '<p style="font-size:.85rem;color:var(--warm-gray);">No church data for this range. Connect QuickBooks in the Overview tab and click "Sync Now", or widen the year range above if you\'ve imported older data.</p>';
     return;
   }
-  var rowsDef = [{ label: 'Total Revenue', key: 'Income' }, { label: 'Cost of Goods Sold', key: 'Cost of Goods Sold' }, { label: 'Total Expenses', key: 'Expenses' }];
+  // Cost of Goods Sold is a QuickBooks section this church has never posted to — it read $0.00 in
+  // every column, so the row was pure noise. It is hidden when empty rather than deleted: if a
+  // COGS figure ever does exist, the row comes back and the columns still add up to Net Income.
+  // (Same reasoning as FIN58's removal of the "Sales" hide rule — never hide a dollar that a
+  // total on the same screen is still counting.)
+  var rowsDef = [{ label: 'Total Revenue', key: 'Income' }, { label: 'Cost of Goods Sold', key: 'Cost of Goods Sold' }, { label: 'Total Expenses', key: 'Expenses' }]
+    .filter(function(rd) {
+      return rd.key !== 'Cost of Goods Sold' || finChurchMultiYearClassHasData(d, years, rd.key);
+    });
   var theadCells = '<th style="text-align:left;padding:6px 8px;"></th>' + years.map(function(y) { return '<th style="text-align:right;padding:6px 8px;">' + y + '</th>'; }).join('');
   var bodyRows = rowsDef.map(function(rd) {
     var cells = years.map(function(y) {
@@ -2926,14 +2943,23 @@ function finRenderBalanceTreeRows(nodes, html) {
   });
   return html;
 }
-function finLoadChurchBalances(year) {
-  year = year || new Date().getFullYear();
+// The snapshot year and the trend window are both explicit state, not fixed to "now": a church
+// uploading several years of history needs to look at a past year's balance sheet, and the
+// server's default trend window is only the rolling last five years — an older import (2019, say)
+// saves fine but would otherwise never appear on any screen. Same reasoning, and same From/To
+// control, as the Multi-Year income view's range picker.
+var _finChurchBalanceYear = null;
+var _finChurchBalanceYears = null;
+function finLoadChurchBalances(year, explicitYears) {
+  year = year || _finChurchBalanceYear || new Date().getFullYear();
+  _finChurchBalanceYear = year;
+  if (explicitYears) _finChurchBalanceYears = explicitYears;
   var el = document.getElementById('fin-church-balances-view');
   if (!el) return;
   el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
   Promise.all([
     api('/admin/api/finance/church/balances?year=' + year),
-    api('/admin/api/finance/church/balances/multi-year'),
+    api('/admin/api/finance/church/balances/multi-year' + (_finChurchBalanceYears ? '?years=' + _finChurchBalanceYears.join(',') : '')),
   ]).then(function(results) {
     _finChurchBalancesData = results[0];
     _finChurchBalancesMultiYearData = results[1];
@@ -3024,11 +3050,87 @@ function finRenderEquityReclassCard(equityReclass) {
     + unclassifiedHtml
     + '</div>';
 }
+// Snapshot-year + trend-range controls. Rendered ABOVE the "nothing imported for this year" empty
+// state as well as above real data — otherwise a year with no balance sheet is a dead end with no
+// way back to a year that has one, which is the normal state while history is still being loaded.
+function finRenderBalanceRangePicker(d, multiYear) {
+  var curYear = new Date().getFullYear();
+  var years = (multiYear && multiYear.years) || [];
+  var rangeFrom = years.length ? years[0] : (curYear - 4);
+  var rangeTo = years.length ? years[years.length - 1] : curYear;
+  return '<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-size:.8rem;">'
+    + '<label>Balance sheet for <input type="number" id="fin-church-bal-year" value="' + ((d && d.year) || curYear) + '" style="width:80px;"></label>'
+    + '<button class="btn-secondary" style="padding:3px 10px;font-size:.78rem;" onclick="finChurchBalanceLoadYear()">Show Year</button>'
+    + '<span style="color:var(--border);">|</span>'
+    + '<label>Trend from <input type="number" id="fin-church-bal-from" value="' + rangeFrom + '" style="width:80px;"></label>'
+    + '<label>to <input type="number" id="fin-church-bal-to" value="' + rangeTo + '" style="width:80px;"></label>'
+    + '<button class="btn-secondary" style="padding:3px 10px;font-size:.78rem;" onclick="finChurchBalanceLoadRange()">Load Range</button>'
+    + '</div>';
+}
+function finChurchBalanceLoadYear() {
+  var el = document.getElementById('fin-church-bal-year');
+  var year = parseInt(el && el.value, 10);
+  if (!Number.isFinite(year)) { finToast('Enter a valid year.'); return; }
+  finLoadChurchBalances(year);
+}
+function finChurchBalanceLoadRange() {
+  var fromEl = document.getElementById('fin-church-bal-from');
+  var toEl = document.getElementById('fin-church-bal-to');
+  var from = parseInt(fromEl && fromEl.value, 10);
+  var to = parseInt(toEl && toEl.value, 10);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) { finToast('Enter a valid From/To year range.'); return; }
+  if (to - from > 20) { finToast('Please request 20 years or fewer at a time.'); return; }
+  var years = [];
+  for (var y = from; y <= to; y++) years.push(y);
+  finLoadChurchBalances(null, years);
+}
+// ── Balance sheet ↔ P&L tie-out ─────────────────────────────────────────────────────────────
+// Server-computed (computeBalanceVsPnlReconciliation, api-finance.js). Deliberately worded as a
+// difference to explain rather than a failure — a cash-basis balance sheet next to an accrual
+// P&L, or a prior-period adjustment booked to equity, produces a real difference that is not a
+// bad import. The rows that CAN'T be checked are shown too, since "which year still needs
+// uploading?" is the other question this table exists to answer.
+function finBalanceReconStatusHtml(r) {
+  if (r.status === 'ok') return '<span style="color:var(--sage);">✓ Matches</span>';
+  if (r.status === 'off') return '<span style="color:var(--deep-amber);">Difference of $' + finFmtMoney(Math.abs(r.difference_cents) / 100) + '</span>';
+  if (r.status === 'no_prior_balance') return '<span style="color:var(--warm-gray);">No ' + r.prior_year + ' balance sheet — upload it to check this year</span>';
+  return '<span style="color:var(--warm-gray);">No income statement on file for ' + r.year + '</span>';
+}
+function finRenderBalanceReconciliation(multiYear) {
+  var rec = multiYear && multiYear.reconciliation;
+  if (!rec || !rec.rows || !rec.rows.length) return '';
+  var money = function(c) { return c == null ? '—' : '$' + finFmtMoney(c / 100); };
+  var body = rec.rows.map(function(r) {
+    return '<tr><td style="padding:5px 8px;">' + r.year + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + money(r.prior_equity_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + money(r.equity_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + money(r.change_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + money(r.net_income_cents) + '</td>'
+      + '<td style="padding:5px 8px;">' + finBalanceReconStatusHtml(r) + '</td></tr>';
+  }).join('');
+  var th = function(label, right) {
+    return '<th style="text-align:' + (right ? 'right' : 'left') + ';padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">' + label + '</th>';
+  };
+  var summary = rec.checked
+    ? rec.matched + ' of ' + rec.checked + ' year' + (rec.checked === 1 ? '' : 's') + ' tie out exactly.'
+    : 'No year can be checked yet — a year needs both its own balance sheet and the one before it.';
+  return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 4px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Balance Sheet vs. Income Statement</h4>'
+    + '<p style="font-size:.74rem;color:var(--warm-gray);margin:0 0 8px;">The year\'s change in total equity should equal that year\'s net income. ' + esc(summary)
+    + ' A difference is not automatically an error — a cash-basis balance sheet next to an accrual income statement, or an adjustment booked straight to equity, will show up here legitimately.</p>'
+    + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead><tr style="background:var(--warm-surface-header);">' + th('Year') + th('Opening Equity', true) + th('Closing Equity', true)
+    + th('Change', true) + th('Net Income (P&amp;L)', true) + th('Check') + '</tr></thead>'
+    + '<tbody>' + body + '</tbody></table></div></div>';
+}
 function finRenderChurchBalances(d, multiYear) {
   var el = document.getElementById('fin-church-balances-view');
   if (!el) return;
+  var picker = finRenderBalanceRangePicker(d, multiYear);
   if (!d || !d.rows || !d.rows.length) {
-    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No balance sheet imported yet for ' + d.year + '. Click "Import Balance Sheet" above to upload one.</p>';
+    el.innerHTML = picker
+      + '<p style="font-size:.85rem;color:var(--warm-gray);">No balance sheet imported yet for ' + ((d && d.year) || '') + '. Upload one from <b>Data &amp; Imports</b> (Balance Sheet, or Financial Position for a file covering several years), or pick another year above.</p>'
+      + finRenderBalanceMultiYearChart(multiYear)
+      + finRenderBalanceReconciliation(multiYear);
     return;
   }
   var s = d.summary;
@@ -3036,7 +3138,8 @@ function finRenderChurchBalances(d, multiYear) {
   var checkHtml = Math.abs(offCents) < 1
     ? '<span style="color:var(--sage);">✓ Balances (Assets = Liabilities + Equity)</span>'
     : '<span style="color:var(--danger);">⚠ Off by $' + finFmtMoney(Math.abs(offCents) / 100) + ' — check the import for a missing or misclassified account.</span>';
-  var html = '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:12px;">As of ' + esc(d.asOfDate || d.year) + '</div>'
+  var html = picker
+    + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:12px;">As of ' + esc(d.asOfDate || d.year) + '</div>'
     + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;">'
     + '<div style="flex:1;min-width:170px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">'
     + '<div style="font-size:.7rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Assets</div>'
@@ -3056,6 +3159,7 @@ function finRenderChurchBalances(d, multiYear) {
     html += '<div style="margin-bottom:18px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Asset Composition</h4>' + renderPieChart(assetPie, 170) + '</div>';
   }
   html += finRenderBalanceMultiYearChart(multiYear);
+  html += finRenderBalanceReconciliation(multiYear);
   html += finRenderEquityReclassMultiYearTable(multiYear);
   html += '<details open><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail</summary>'
     + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
@@ -3929,7 +4033,9 @@ function finExportChurchCsv() {
     var md = _finChurchMultiYearData;
     var years = md.years || [];
     rows.push(['Category'].concat(years));
-    [['Total Revenue', 'Income'], ['Cost of Goods Sold', 'Cost of Goods Sold'], ['Total Expenses', 'Expenses']].forEach(function(rd) {
+    [['Total Revenue', 'Income'], ['Cost of Goods Sold', 'Cost of Goods Sold'], ['Total Expenses', 'Expenses']]
+      .filter(function(rd) { return rd[1] !== 'Cost of Goods Sold' || finChurchMultiYearClassHasData(md, years, rd[1]); })
+      .forEach(function(rd) {
       rows.push([rd[0]].concat(years.map(function(y) { return ((md.byYear[y].classificationTotals[rd[1]] || { actualCents: 0 }).actualCents / 100).toFixed(2); })));
     });
     rows.push(['Net Income'].concat(years.map(function(y) { return (md.byYear[y].netIncome.actualCents / 100).toFixed(2); })));

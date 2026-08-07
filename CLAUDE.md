@@ -595,6 +595,38 @@ against `FINANCE_IMPORTERS.length` so a new importer that forgets it fails in CI
 (875/875, 7 new); verified non-vacuous by removing the balance-sheet call (2 fail). **Not
 verified**: a live browser. (`src/frontend/js-finance.js`, `test/finance-monthly-import-ui.test.js`)
 
+### FIN60 — Past-year balance sheets + tie-out to the P&L; empty COGS row hidden (2026-08-07, DONE)
+Reported from two screenshots: the Balance Sheet Multi-Year Trend had bars for 2026 only while the
+Church Report table ran back to 2022; asked to upload past years' balance sheets and confirm them
+against those years' P&L, and to drop Cost of Goods Sold ("we dont do sales").
+**The importers already handled past years and were not changed** — Data & Imports carries both
+*Balance Sheet* (single year, read from the file's own "As of" line) and *Financial Position
+(multi-year)*, neither year-restricted. What was missing was everything around them: the snapshot
+was hard-pinned to `new Date().getFullYear()` (so a past year could import fine and never be
+viewable), the trend used the server's rolling five-year default, and nothing compared the two
+reports. Now: a year box + a From/To trend range (both rendered ABOVE the empty state, so a year
+with no data is not a dead end), and a new **Balance Sheet vs. Income Statement** table from
+`computeBalanceVsPnlReconciliation()` — change in total equity vs. net income, with `netIncomeByYear`
+added to `GET finance/church/balances/multi-year`. Three deliberate choices: a difference is worded
+as a difference to explain, never a failure (cash-basis balance sheet vs. accrual P&L, or an
+adjustment booked to equity, is legitimate); **only consecutive years are compared**, so a missing
+2023 makes 2024 unheckable rather than silently charging two years of movement to one year's net
+income; and the endpoint fetches one year BEFORE the range purely for opening equity, so the
+earliest year isn't falsely "no prior balance sheet". A year with no rows can't masquerade as $0
+equity — the check reads `classificationTotals` emptiness, not the zeroed figures.
+**Cost of Goods Sold is hidden when every year is zero, not deleted** (table + CSV): if a real
+figure ever appears the row returns, so visible rows always add to the Net Income beneath them —
+FIN58's lesson (never hide a dollar a total on the same screen still counts). `computeYearSummary()`
+untouched. `npm test` (892/892, 17 new in `test/finance-balance-pnl-recon.test.js` — pure function
+plus the real route against real in-memory SQLite — and `test/finance-balance-recon-ui.test.js`,
+driving the real render functions out of the real built bundle); **every new test verified
+non-vacuous** by injecting the exact regression it guards (6 injections, 6 correct failures). Plus
+`node --check` on both bundles and a div-balance scan of `CHMS_HTML`. **Not verified**: a live
+browser or real D1. **Follow-up for an admin**: upload the past years from Data & Imports, then open
+Church Report → Balance sheet and widen the trend range — the tie-out names any year that doesn't
+reconcile. (`src/api-finance.js`, `src/frontend/js-finance.js`,
+`test/finance-balance-pnl-recon.test.js`, `test/finance-balance-recon-ui.test.js`)
+
 ### TinyMCE editor-load limit — NOT this app; it's the website repo (2026-08-07)
 A Tiny automated email warned the account hit 50% of its monthly **Editor Load** limit (overage
 charges past 100%). **Connect contributes zero cloud loads and always has** — since v1.64.0 the

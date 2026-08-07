@@ -1267,6 +1267,60 @@ export function computeBalanceSummary(rows) {
     liabilitiesPlusEquityCents: liabilities + equity, balancedCents: assets - (liabilities + equity) };
 }
 
+// ── Balance sheet ↔ P&L tie-out ─────────────────────────────────────────────────────────────
+// A balance sheet and an income statement for the same year are two views of one set of books:
+// the year's change in total equity (net assets) should equal that year's net income, because
+// every other equity movement — a transfer between funds, a reclassification — nets to zero
+// within total equity. This is the check that says an imported past year actually belongs to the
+// same books as its P&L, which is exactly what an admin uploading several years of history needs
+// to see. A difference is NOT automatically an error and is never reported as one: a cash-basis
+// balance sheet sitting next to an accrual P&L (this church has at least one such year on file —
+// see the basis flag on the import), a prior-period adjustment booked straight to equity, or an
+// owner-equity-style contribution will all land here legitimately. It is reported as a difference
+// to explain, not a failure.
+//
+// A year can only be checked when its IMMEDIATE predecessor also has a balance sheet — without
+// opening equity there is no change to compare against. Those years are still listed, with the
+// reason, so "which year do I still need to upload?" is answerable from the same table.
+export const BALANCE_PNL_TOLERANCE_CENTS = 100; // $1 — absorbs rounding, nothing more.
+export function computeBalanceVsPnlReconciliation(years, balanceByYear, netIncomeByYear) {
+  const sorted = [...new Set((years || []).filter(Number.isFinite))].sort((a, b) => a - b);
+  const summaryFor = y => (balanceByYear || {})[y] || null;
+  // A year with no imported rows still gets a zeroed summary from computeBalanceSummary(), which
+  // is indistinguishable from a real $0 equity unless the classification map is consulted.
+  const hasBalance = y => {
+    const s = summaryFor(y);
+    return !!(s && s.classificationTotals && Object.keys(s.classificationTotals).length);
+  };
+  const rows = [];
+  for (const year of sorted) {
+    if (!hasBalance(year)) continue;
+    const priorYear = year - 1;
+    const priorKnown = hasBalance(priorYear);
+    const equityCents = summaryFor(year).equityCents;
+    const priorEquityCents = priorKnown ? summaryFor(priorYear).equityCents : null;
+    const changeCents = priorKnown ? equityCents - priorEquityCents : null;
+    const ni = (netIncomeByYear || {})[year];
+    const netIncomeCents = ni == null ? null : ni;
+    let differenceCents = null;
+    let status;
+    if (!priorKnown) status = 'no_prior_balance';
+    else if (netIncomeCents == null) status = 'no_pnl';
+    else {
+      differenceCents = changeCents - netIncomeCents;
+      status = Math.abs(differenceCents) <= BALANCE_PNL_TOLERANCE_CENTS ? 'ok' : 'off';
+    }
+    rows.push({ year, prior_year: priorYear, equity_cents: equityCents, prior_equity_cents: priorEquityCents,
+      change_cents: changeCents, net_income_cents: netIncomeCents, difference_cents: differenceCents, status });
+  }
+  return {
+    rows,
+    checked: rows.filter(r => r.status === 'ok' || r.status === 'off').length,
+    matched: rows.filter(r => r.status === 'ok').length,
+    unexplained: rows.filter(r => r.status === 'off').length,
+  };
+}
+
 // ── Equity reclassification: Donor-Restricted vs. Without Donor Restrictions ────────────────
 // Per Timothy_Equity_Reclassification_Spec.md — replaces QuickBooks' four-way equity split
 // (Unrestricted / Board Restricted / Temp. Restricted / Perm. Restricted) with the real
@@ -3540,16 +3594,34 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       ? yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite)
       : [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
     if (!years.length) return json({ error: 'No valid years requested' }, 400);
-    const placeholders = years.map(() => '?').join(',');
-    const allRows = (await db.prepare(`SELECT * FROM finance_church_balances WHERE fiscal_year IN (${placeholders})`).bind(...years).all()).results || [];
+    // One year BEFORE the requested window is fetched too: the tie-out below needs the opening
+    // equity of the earliest requested year, and without it that year would always report "no
+    // prior balance sheet" purely because of where the range picker happens to start.
+    const openingYear = Math.min(...years) - 1;
+    const balanceYears = years.includes(openingYear) ? years : [...years, openingYear];
+    const placeholders = balanceYears.map(() => '?').join(',');
+    const allRows = (await db.prepare(`SELECT * FROM finance_church_balances WHERE fiscal_year IN (${placeholders})`).bind(...balanceYears).all()).results || [];
     const byYear = {};
     const equityReclassByYear = {};
-    years.forEach(y => {
+    balanceYears.forEach(y => {
       const yearRows = allRows.filter(r => r.fiscal_year === y);
       byYear[y] = computeBalanceSummary(yearRows);
-      equityReclassByYear[y] = yearRows.length ? computeEquityReclassification(yearRows) : null;
+      if (years.includes(y)) equityReclassByYear[y] = yearRows.length ? computeEquityReclassification(yearRows) : null;
     });
-    return json({ years, byYear, equityReclassByYear });
+    // Net income for the same years, from the income-statement table — same precedence resolution
+    // and same period_month=0 filter the Multi-Year income view uses, so the figure quoted in the
+    // tie-out is the identical number that view shows and the two can never disagree.
+    const pnlRows = (await db.prepare(
+      `SELECT * FROM finance_church_entries WHERE fiscal_year IN (${years.map(() => '?').join(',')}) AND period_month=0`
+    ).bind(...years).all()).results || [];
+    const resolvedPnl = resolveChurchYearPrecedence(pnlRows);
+    const netIncomeByYear = {};
+    years.forEach(y => {
+      const yearRows = resolvedPnl.filter(r => r.fiscal_year === y);
+      netIncomeByYear[y] = yearRows.length ? computeYearSummary(yearRows).netIncome.actualCents : null;
+    });
+    return json({ years, byYear, equityReclassByYear, netIncomeByYear,
+      reconciliation: computeBalanceVsPnlReconciliation(years, byYear, netIncomeByYear) });
   }
 
   // ── Church Budget Planning — forward multi-year what-if planning (Property Expenses,
