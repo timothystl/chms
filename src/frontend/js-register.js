@@ -29,7 +29,17 @@ function clearRegForm() {
 function toggleRegForm() {
   var p = document.getElementById('reg-form-panel');
   if (!p) return;
-  p.style.display = p.style.display === 'none' ? '' : 'none';
+  // Toggle a class, not an inline style. On a phone the panel's own rule is display:none, so
+  // clearing an inline style (the old p.style.display='') gives that rule the decision again and
+  // the form never appears — which is why the register was read-only on a phone.
+  var opening = !p.classList.contains('reg-form-open');
+  p.classList.toggle('reg-form-open', opening);
+  if (opening && p.scrollIntoView) p.scrollIntoView({ block: 'nearest' });
+}
+// Collapse the phone form again. No-op on desktop, where the panel is always visible.
+function closeRegFormMobile() {
+  var p = document.getElementById('reg-form-panel');
+  if (p) p.classList.remove('reg-form-open');
 }
 function loadRegister() {
   var el = document.getElementById('reg-list');
@@ -59,7 +69,7 @@ function filterRegister() {
   var filtered = _regEntries.filter(function(e) {
     if (year && (e.event_date||'').slice(0,4) !== year) return false;
     if (search) {
-      var hay = (e.name+' '+(e.name2||'')+' '+(e.officiant||'')).toLowerCase();
+      var hay = ((e.name||'')+' '+(e.name2||'')+' '+(e.officiant||'')).toLowerCase();
       var tokens = search.split(/\s+/).filter(Boolean);
       if (!tokens.every(function(t){ return hay.indexOf(t) >= 0; })) return false;
     }
@@ -166,6 +176,7 @@ function saveRegisterEntry() {
       var ft = document.getElementById('reg-form-title'); if (ft) ft.textContent = 'Add ' + _regLabels[_regType].title.slice(0,-1);
       var sb = document.getElementById('reg-save-btn');   if (sb) sb.textContent = 'Add Entry';
       var cb = document.getElementById('reg-cancel-btn'); if (cb) cb.style.display = 'none';
+      closeRegFormMobile();
       loadRegister();
     } else alert('Error: ' + (r.error||'unknown'));
   });
@@ -188,9 +199,17 @@ function openRegisterEdit(id) {
   var ft = document.getElementById('reg-form-title'); if (ft) ft.textContent = 'Edit Entry';
   var sb = document.getElementById('reg-save-btn');   if (sb) sb.textContent = 'Save Changes';
   var cb = document.getElementById('reg-cancel-btn'); if (cb) cb.style.display = '';
-  // Ensure form is visible (mobile)
-  var fp = document.getElementById('reg-form-panel'); if (fp) fp.style.display = '';
-  document.getElementById('reg-name').focus();
+  // Reveal the form on a phone, where it is collapsed by default. Has to be the class — see
+  // toggleRegForm; the inline style this replaced could not beat the panel's own display:none,
+  // so tapping Edit on a phone silently did nothing.
+  var fp = document.getElementById('reg-form-panel');
+  if (fp) {
+    fp.classList.add('reg-form-open');
+    // On a phone the form stacks ABOVE the list, so an Edit tapped from far down a long list
+    // would otherwise open a form the user never scrolls back up to see.
+    if (fp.scrollIntoView) fp.scrollIntoView({ block: 'nearest' });
+  }
+  var nameEl = document.getElementById('reg-name'); if (nameEl) nameEl.focus();
 }
 function cancelRegisterEdit() {
   _regEditId = null;
@@ -198,6 +217,7 @@ function cancelRegisterEdit() {
   var ft = document.getElementById('reg-form-title'); if (ft) ft.textContent = 'Add ' + _regLabels[_regType].title.slice(0,-1);
   var sb = document.getElementById('reg-save-btn');   if (sb) sb.textContent = 'Add Entry';
   var cb = document.getElementById('reg-cancel-btn'); if (cb) cb.style.display = 'none';
+  closeRegFormMobile();
 }
 function deleteRegisterEntry(id) {
   if (!confirm('Delete this register entry? This cannot be undone.')) return;
@@ -213,7 +233,7 @@ function printRegister() {
   var entries = _regEntries.filter(function(e) {
     if (year && (e.event_date||'').slice(0,4) !== year) return false;
     if (search) {
-      var hay = (e.name+' '+(e.name2||'')+' '+(e.officiant||'')).toLowerCase();
+      var hay = ((e.name||'')+' '+(e.name2||'')+' '+(e.officiant||'')).toLowerCase();
       var tokens = search.split(/\s+/).filter(Boolean);
       if (!tokens.every(function(t){ return hay.indexOf(t) >= 0; })) return false;
     }

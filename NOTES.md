@@ -24,6 +24,57 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.161.0 — Church Register was read-only on a phone (2026-08-07)
+
+Reported as errors on the register search on a mobile device. **The search filter itself is not
+the bug** — it was driven through the real built bundle against null names, missing dates, `null`
+and `undefined` `name2`/`officiant` values and numeric `pdf_page` fields, and never threw; `esc()`
+coerces with `String(s||'')`, so the un-stringified `esc(e.pdf_page)` in the row renderer is safe
+too. What was broken is what happens *after* a search: you find the entry, tap **Edit**, and
+nothing at all happens. Two independent display-state defects, both present since the register
+shipped:
+
+1. **`.reg-add-toggle` was a class selector for an element that only has an id.** The phone
+   stylesheet revealed the "+ Add" button with `.reg-add-toggle{display:inline-flex !important}`,
+   but the button carries `id="reg-add-toggle"` and no class of that name — so the rule matched
+   nothing. With `.reg-form-panel{display:none}` on phones and the button hidden by its own
+   inline `display:none`, **the add/edit form was unreachable on a phone entirely.** Fixed to
+   `#reg-add-toggle`. The `!important` is load-bearing and was already there: an important author
+   declaration outranks a normal inline one, which is what defeats the button's inline
+   `display:none`.
+2. **`style.display = ''` cannot reveal something a stylesheet hides.** `toggleRegForm()` and
+   `openRegisterEdit()` both revealed the panel by clearing an inline style — which hands the
+   decision back to the `display:none` rule rather than overriding it. `openRegisterEdit()` even
+   carried the comment "Ensure form is visible (mobile)" while doing the one thing that cannot
+   make it visible on mobile. Both now toggle a `.reg-form-open` class, with a matching
+   phone-scoped `.reg-form-panel.reg-form-open{display:block}` rule; the panel also goes
+   full-width on a phone instead of keeping its 300px desktop column. Opening scrolls the form
+   into view, because on a phone it stacks *above* the list — an Edit tapped from far down a long
+   register would otherwise open a form the user never scrolls back to. New
+   `closeRegFormMobile()` collapses it again on Cancel and after a successful save.
+
+Also fixed, cross-platform and minor: a register entry with no name (real, in the scanned
+historical import) had its `null` concatenated into the search haystack, so every nameless record
+was findable by searching "null" and any query containing that substring returned them. Now
+`(e.name||'')`, in both `filterRegister()` and `printRegister()`.
+
+**Deliberately not changed:** MOB2's global `.content-area table{display:block;overflow-x:auto}`
+also applies to `.reg-table`, which already has its own `overflow-x:auto` wrapper. That looked
+like a defect (a `display:block` table detaching `<thead>` from `<tbody>`) but is not — consecutive
+internal-table siblings are wrapped in a *single* anonymous table box, so column widths stay
+shared and the header stays aligned. Left alone rather than "fixed" on a wrong mechanism.
+
+`npm test` (1076/1076, 16 new in `test/register-mobile.test.js`, asserting the mechanism — an ID
+selector, a class-driven toggle — rather than literal text, and pinning the premises that made
+the old code wrong). **Every new test verified non-vacuous** by injecting the exact regression it
+guards (4 injections, 8 correct failures). Plus `node --check` on both built bundles, brace
+balance on `app.css`, and a div-balance scan of the assembled `CHMS_HTML` and of the
+`#tab-register` subtree. **A backtick in one of my own new CSS comments closed the outer
+`String.raw` literal and broke the whole stylesheet module** — this project's documented
+SC3-BUG1/FIN15 bug class, caught by the harness rather than by reading the diff. **Not verified**:
+a real phone. (`src/frontend/html-head.js`, `src/frontend/js-register.js`,
+`test/register-mobile.test.js`)
+
 ### v1.160.0 — Ivanhoe: base period, hidden expenses, and the capital default (2026-08-07)
 
 Three problems reported off two live screenshots, all real, all fixed.

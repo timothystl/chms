@@ -433,6 +433,40 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### REG-MOB1 — Church Register was read-only on a phone (2026-08-07, DONE)
+Reported as "errors on the search in the register on mobile device". **The search filter is not the
+bug** — driven through the real built bundle against null names, missing dates, `null`/`undefined`
+`name2`/`officiant` and numeric `pdf_page`, it never throws (and `esc()` coerces via
+`String(s||'')`, so the un-stringified `esc(e.pdf_page)` is safe). What broke is what happens
+*after* a search: find the entry, tap **Edit**, nothing happens. Two display-state defects, both
+present since the register shipped.
+- **A class selector for an element that only has an id.** The phone rule revealed "+ Add" with
+  `.reg-add-toggle`, but the button carries `id="reg-add-toggle"` and no such class, so it matched
+  nothing — and with `.reg-form-panel{display:none}` on phones plus the button's own inline
+  `display:none`, **the add/edit form was unreachable on a phone at all.** Now `#reg-add-toggle`.
+  The `!important` is load-bearing: an important author declaration outranks a normal inline one.
+- **`style.display = ''` cannot reveal what a stylesheet hides** — it hands the decision back to
+  the rule. Both `toggleRegForm()` and `openRegisterEdit()` did this; the latter even carried the
+  comment "Ensure form is visible (mobile)". Both now toggle `.reg-form-open`, with a phone-scoped
+  `.reg-form-panel.reg-form-open{display:block}`, the panel full-width rather than its 300px
+  desktop column, and `scrollIntoView` on open (on a phone the form stacks ABOVE the list, so an
+  Edit tapped from far down would otherwise open a form the user never scrolls back to). New
+  `closeRegFormMobile()` collapses it on Cancel and after a save.
+- Also fixed, minor and cross-platform: a nameless entry (real, from the scanned historical
+  import) concatenated its `null` into the search haystack, so every one was findable by searching
+  "null". Now `(e.name||'')`, in `filterRegister()` and `printRegister()`.
+- **Deliberately NOT changed**: MOB2's `.content-area table{display:block;overflow-x:auto}` also
+  hits `.reg-table`, which already has its own scroll wrapper. That looks like a defect but is not
+  — consecutive internal-table siblings get ONE anonymous table box, so thead/tbody keep shared
+  column widths and the header stays aligned. Don't "fix" it on that wrong mechanism.
+- `npm test` (1076/1076, 16 new in `test/register-mobile.test.js`, asserting the mechanism rather
+  than literal text); **every new test verified non-vacuous** by injecting the regression it guards
+  (4 injections, 8 correct failures). Plus `node --check` on both bundles, `app.css` brace balance,
+  div-balance on `CHMS_HTML` and the `#tab-register` subtree. **A backtick in one of my own new CSS
+  comments closed the outer `String.raw` literal and broke the whole stylesheet module** — the
+  SC3-BUG1/FIN15 class, caught by the harness, not by reading. **Not verified**: a real phone.
+  (`src/frontend/html-head.js`, `src/frontend/js-register.js`, `test/register-mobile.test.js`)
+
 ### FIN62 — Ivanhoe: worksheet back on the Property tab; four units walk down to cash (2026-08-07, DONE)
 Reported: "we lost the valuation formulas and worksheets... now it is just a static number," plus a
 request for a section taking the four actual units and their rents up to annual revenue, then out

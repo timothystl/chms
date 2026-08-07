@@ -301,7 +301,21 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .reg-edit-btn:hover{opacity:1;background:var(--blue-mist);}
 .reg-del-btn{background:none;border:none;color:var(--danger);cursor:pointer;font-size:.78rem;padding:2px 6px;border-radius:4px;opacity:.7;margin-left:2px;}
 .reg-del-btn:hover{opacity:1;background:var(--linen);}
-@media(max-width:767px){.reg-form-panel{display:none;}.reg-body{flex-direction:column;}.reg-add-toggle{display:inline-flex !important;}}
+/* Phone: the add/edit form collapses behind the "+ Add" button in the register's sub-tab bar and
+   is revealed by the .reg-form-open class — NOT by clearing an inline style, which hands the
+   decision straight back to the display:none below (see toggleRegForm in js-register.js).
+
+   The selector below is an ID, not a class. The button carries id="reg-add-toggle" and no class
+   of that name, so the old class selector matched nothing: the button stayed hidden by its
+   own inline display:none while the panel stayed display:none, and the register form was
+   unreachable on a phone. The !important is what beats that inline style — an important author
+   declaration outranks a normal inline one. */
+@media(max-width:767px){
+  .reg-body{flex-direction:column;}
+  .reg-form-panel{display:none;width:auto;border-right:none;border-bottom:1px solid var(--border);}
+  .reg-form-panel.reg-form-open{display:block;}
+  #reg-add-toggle{display:inline-flex !important;}
+}
 /* ── REPORTS ── */
 .report-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-bottom:20px;}
 .report-tile{background:var(--white);border-radius:16px;box-shadow:0 1px 3px rgba(20,20,40,.05);padding:20px;cursor:pointer;transition:box-shadow .15s;}
