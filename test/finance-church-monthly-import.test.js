@@ -79,11 +79,72 @@ describe('parseMonthColTitle', () => {
   });
 });
 
+// A real 2019-2026 export from this church carries NO leading-space indentation at all — the
+// hierarchy lives only in the workbook's cell-style indent metadata, surfaced as colAIndent. This
+// fixture reproduces that exact shape (flush-left labels + a parallel indent array) AND spans two
+// years, which is the combination that silently imported zero rows before.
+function multiYearStyleIndentFixture() {
+  const grid = [
+    ['Timothy Evangelical Lutheran Church', null, null, null, null, null],
+    ['Statement of Activity', null, null, null, null, null],
+    ['January, 2026-February, 2027', null, null, null, null, null],
+    [null, 'Jan 2026', 'Feb 2026', 'Jan 2027', 'Feb 2027', 'Total'],
+    ['Revenue', null, null, null, null, null],
+    ['40 Donor Income', null, null, null, null, null],
+    ['40085 Sunday Offering', 100, 200, 300, 400, 1000],
+    ['Total for 40 Donor Income', 100, 200, 300, 400, 1000],
+    ['Expenditures', null, null, null, null, null],
+    ['50 Program Expenses', 10, 20, 30, 40, 100],
+    ['Total for 50 Program Expenses', 10, 20, 30, 40, 100],
+    ['Net Revenue', 90, 180, 270, 360, 900],
+  ];
+  //            0  1  2  3     4  5  6     7  8  9     10 11
+  const colAIndent = [0, 0, 0, null, 0, 1, 2, 1, 0, 1, 1, 0];
+  return { grid, colAIndent };
+}
+
 describe('parseMonthlyPnLGrid', () => {
-  it('extracts fiscal year and month list from the header row', () => {
-    const { fiscalYear, months } = parseMonthlyPnLGrid(monthlyPnLFixtureGrid());
-    expect(fiscalYear).toBe(2027);
-    expect(months).toEqual([1, 2]);
+  it('extracts the year list and per-year months from the header row', () => {
+    const { years, monthsByYear } = parseMonthlyPnLGrid(monthlyPnLFixtureGrid());
+    expect(years).toEqual([2027]);
+    expect(monthsByYear).toEqual({ 2027: [1, 2] });
+  });
+
+  it('reads hierarchy from cell-style indent metadata when the sheet has no leading spaces', () => {
+    const { grid, colAIndent } = multiYearStyleIndentFixture();
+    const { rows, skipped } = parseMonthlyPnLGrid(grid, colAIndent);
+    // Without the colAIndent fallback every row reads as depth 0 with no children and lands in
+    // `skipped`, producing a successful-looking import of nothing.
+    expect(rows.length).toBeGreaterThan(0);
+    expect(skipped).toEqual([]);
+    const paths = [...new Set(rows.map(r => r.category_path))].sort();
+    expect(paths).toEqual([
+      'Expenses',
+      'Expenses:50 Program Expenses',
+      'Income',
+      'Income:40 Donor Income',
+      'Income:40 Donor Income:40085 Sunday Offering',
+    ]);
+    const offering = rows.find(r => r.category_path === 'Income:40 Donor Income:40085 Sunday Offering'
+      && r.fiscal_year === 2027 && r.period_month === 2);
+    expect(offering.own_actual_cents).toBe(40000);
+    expect(offering.depth).toBe(2);
+  });
+
+  it('carries each column own year onto its rows for a file spanning multiple years', () => {
+    const { grid, colAIndent } = multiYearStyleIndentFixture();
+    const { years, monthsByYear, rows } = parseMonthlyPnLGrid(grid, colAIndent);
+    expect(years).toEqual([2026, 2027]);
+    expect(monthsByYear).toEqual({ 2026: [1, 2], 2027: [1, 2] });
+    const offering = p => rows.find(r =>
+      r.category_path === 'Income:40 Donor Income:40085 Sunday Offering'
+      && r.fiscal_year === p.year && r.period_month === p.month).own_actual_cents;
+    // The four Sunday Offering cells must land on four distinct (year, month) slots — not all
+    // four collapsed onto the first year, which is what the old first-column-wins code did.
+    expect(offering({ year: 2026, month: 1 })).toBe(10000);
+    expect(offering({ year: 2026, month: 2 })).toBe(20000);
+    expect(offering({ year: 2027, month: 1 })).toBe(30000);
+    expect(offering({ year: 2027, month: 2 })).toBe(40000);
   });
 
   it('emits one flat row per (account, month) with the correct depth/path/amount, skipping Total/running-subtotal rows', () => {
@@ -126,8 +187,8 @@ describe('parseMonthlyPnLGrid', () => {
 describe('persistChurchEntriesMonthlyImport + resolveChurchMonthlyYearPrecedence', () => {
   it('persists monthly_import rows and resolves them when no qbo_sync rows exist for that year/month', async () => {
     const db = makeTestDb();
-    const { fiscalYear, rows } = parseMonthlyPnLGrid(monthlyPnLFixtureGrid());
-    await persistChurchEntriesMonthlyImport(db, rows, fiscalYear, '2026-07-23T00:00:00Z');
+    const { rows } = parseMonthlyPnLGrid(monthlyPnLFixtureGrid());
+    await persistChurchEntriesMonthlyImport(db, rows, '2026-07-23T00:00:00Z');
     const stored = allChurchRows(db);
     expect(stored.length).toBe(rows.length);
     expect(stored.every(r => r.source === 'monthly_import')).toBe(true);
@@ -138,11 +199,39 @@ describe('persistChurchEntriesMonthlyImport + resolveChurchMonthlyYearPrecedence
 
   it('re-importing the same fiscal year wholesale-replaces the prior monthly_import rows instead of duplicating', async () => {
     const db = makeTestDb();
-    const { fiscalYear, rows } = parseMonthlyPnLGrid(monthlyPnLFixtureGrid());
-    await persistChurchEntriesMonthlyImport(db, rows, fiscalYear, '2026-07-23T00:00:00Z');
-    await persistChurchEntriesMonthlyImport(db, rows, fiscalYear, '2026-07-23T01:00:00Z');
+    const { rows } = parseMonthlyPnLGrid(monthlyPnLFixtureGrid());
+    await persistChurchEntriesMonthlyImport(db, rows, '2026-07-23T00:00:00Z');
+    await persistChurchEntriesMonthlyImport(db, rows, '2026-07-23T01:00:00Z');
     const stored = allChurchRows(db);
     expect(stored.length).toBe(rows.length);
+  });
+
+  it('stores each row under its own fiscal year, so a multi-year file does not collapse into one', async () => {
+    const db = makeTestDb();
+    const { grid, colAIndent } = multiYearStyleIndentFixture();
+    const { rows } = parseMonthlyPnLGrid(grid, colAIndent);
+    await persistChurchEntriesMonthlyImport(db, rows, '2026-07-23T00:00:00Z');
+    const stored = allChurchRows(db);
+    expect(stored.length).toBe(rows.length);
+    expect([...new Set(stored.map(r => r.fiscal_year))].sort()).toEqual([2026, 2027]);
+    const jan2027 = stored.find(r => r.fiscal_year === 2027 && r.period_month === 1
+      && r.category_path === 'Income:40 Donor Income:40085 Sunday Offering');
+    expect(jan2027.own_actual_cents).toBe(30000);
+  });
+
+  it('committing one year at a time (as the UI does) leaves the other years untouched', async () => {
+    const db = makeTestDb();
+    const { grid, colAIndent } = multiYearStyleIndentFixture();
+    const { rows } = parseMonthlyPnLGrid(grid, colAIndent);
+    await persistChurchEntriesMonthlyImport(db, rows.filter(r => r.fiscal_year === 2026), '2026-07-23T00:00:00Z');
+    await persistChurchEntriesMonthlyImport(db, rows.filter(r => r.fiscal_year === 2027), '2026-07-23T00:01:00Z');
+    const stored = allChurchRows(db);
+    expect(stored.length).toBe(rows.length);
+    // Re-committing just 2027 must not wipe 2026 — the DELETE is scoped to the years present.
+    await persistChurchEntriesMonthlyImport(db, rows.filter(r => r.fiscal_year === 2027), '2026-07-23T00:02:00Z');
+    const after = allChurchRows(db);
+    expect(after.length).toBe(rows.length);
+    expect(after.filter(r => r.fiscal_year === 2026).length).toBe(rows.filter(r => r.fiscal_year === 2026).length);
   });
 
   it('gives qbo_sync priority over monthly_import for the same year, but still resolves other years from monthly_import', () => {

@@ -24,6 +24,58 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.150.0 — Monthly P&L import: read style indentation, accept many years in one file (2026-08-07)
+
+**Asked**: can one Monthly P&L upload carry several years of months? Answered against a real
+uploaded file (`Statement of Activity`, Jan 2019 – Jul 2026, 91 month columns, 177 accounts) rather
+than from the code alone — and running it through the shipped parser showed the honest answer was
+worse than "no": **0 rows parsed, 178 skipped, no error**. A successful-looking import of nothing.
+
+**Two independent bugs, both fixed.**
+
+1. **Depth detection couldn't read this export at all.** `parseMonthlyPnLGrid` measured hierarchy
+   with `indentDepthOf()` (leading spaces only). This file has **zero** leading spaces — the
+   hierarchy is entirely in the workbook's cell-style indent metadata (`alignment indent="2"`),
+   which `parseXlsxAllSheets` already surfaces as `sheet.colAIndent` and was simply never passed in.
+   Every row therefore read as depth 0 with no children and hit the
+   `depth === 0 && !hasChildren` guard. This is the same bug and the same fix as FIN36 applied to
+   `parseActivityMultiYearGrid`: now uses `balanceRowDepth()`/`nextNonBlankRowIndex()`, which try
+   leading spaces first, so the older exports that *do* indent with spaces are unaffected.
+2. **Multi-year files collapsed into one year.** The parser took `fiscalYear = monthCols[0].year`
+   and `persistChurchEntriesMonthlyImport` bound that single year to *every* row, ignoring the
+   `fiscal_year` each row already carried. With the unique key
+   `(fiscal_year, period_month, category_path, source)`, each successive year's January overwrote
+   the last through the `ON CONFLICT DO UPDATE` — eight years silently becoming one. Rows now store
+   under their own year, and the DELETE is scoped to exactly the years present.
+
+**Shape changes.** `parseMonthlyPnLGrid(grid, colAIndent)` returns `{ years, monthsByYear, rows,
+skipped }` (was `{ fiscalYear, months, ... }`). `persistChurchEntriesMonthlyImport(db, rows,
+importedAt)` drops its `fiscalYear` argument. The commit route no longer takes a top-level
+`fiscal_year`; it validates each row's own and derives the year set. Inserts are flushed in chunks
+of 500 — a full multi-year file is ~16,000 statements, far past what one D1 batch should carry.
+The preview route now returns a real error instead of an empty success when nothing parses.
+
+**UI.** The preview leads with a coverage summary (`8 years · Jan 2019 to Jul 2026 · 177 accounts ·
+16,107 rows`) and a per-year table naming which months each year actually contains — 2026 shows
+`Jan, Feb, Mar, Apr, May, Jun, Jul`, not a silent partial. The detail table shows one column per
+month for a single-year file (unchanged) and one column per year, holding that year's total, for a
+multi-year one; 91 month columns is not a table anyone can check by eye. Commit sends **one request
+per year, sequentially**, so each request is the size of the single-year import that was already
+proven, progress is visible, and a failure part-way names which years landed rather than implying
+the whole file failed (nothing is rolled back).
+
+**Verified.** `npm test` (853/853, 4 new); both new tests checked for vacuity by reintroducing the
+exact bug each guards — reverting depth detection failed 3 tests, reverting the year binding failed
+1. Against the real file end to end: 8 years / 16,107 rows / 12-12-12-12-12-12-12-7 months, and
+**every one of 4,702 non-empty account cells reconciles to the source workbook to the cent** (the
+364 unmatched are the four running-subtotal labels — Gross Profit, Net Revenue, Net Operating
+Revenue, Net Other Revenue — which are deliberately never stored and always re-derived). 2019
+Sunday Offering: $422,944.17 in both. Re-importing one year leaves the other seven intact. Plus
+`node --check` on both built bundles, div-balance on the assembled `CHMS_HTML`, and a `vm` harness
+running the real shipped `finChurchRenderMonthlyImportPreview`/`finChurchConfirmMonthlyImport` out
+of the built bundle across both the single-year and multi-year paths (8 requests, one year each,
+2124/2124/2124/2124/2124/2124/2124/1239 rows). **Not verified**: a live browser or real D1.
+
 ### v1.149.0 — Revenue mix read 100% earned: the group key was the classification (2026-08-07)
 
 **Reported**: the Financial Health page's revenue mix bar showed `EARNED $621,462 · 100%` with
