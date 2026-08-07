@@ -709,6 +709,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-chip-info{background:var(--color-light-teal);color:var(--color-teal);}
 .fin-chip-warn{background:var(--chip-warn-bg);color:var(--deep-amber);}
 .fin-chip-negative{background:var(--chip-negative-bg);color:var(--danger);}
+/* Neither good news nor bad — restricted income is simply spoken for. Navy on blue-mist rather
+   than teal, which at this chip's 0.74rem bold would land near 3.8:1 against the same background. */
+.fin-chip-neutral{background:var(--blue-mist);color:var(--color-navy);}
 .fin-card{background:var(--white);border-radius:20px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);padding:22px 24px;}
 .fin-card-title{font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--color-navy);margin:0 0 4px;}
 .fin-card-sub{font-size:.82rem;color:var(--warm-gray);margin:0 0 14px;}
@@ -807,6 +810,11 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-stream-seg-lbl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.85;}
 .fin-stream-seg-val{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
 .fin-stream-card{display:flex;flex-direction:column;gap:13px;border-top:4px solid var(--color-teal);}
+/* Four revenue streams need their own grid: fin-grid-3 is three fixed columns and fin-grid-4 is
+   the compact KPI-tile grid (10px gap, no bottom margin), neither of which fits a column of
+   content cards. Collapses on the existing 1100/767 tiers only — see the breakpoint contract at
+   the top of this file. */
+.fin-stream-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px;align-items:start;}
 .fin-stream-val{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;margin-top:4px;}
 .fin-stream-sub{font-size:12px;color:var(--warm-gray);margin-top:3px;}
 .fin-flow{overflow-x:auto;}
@@ -859,6 +867,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .fin-ratio-divider{display:none;}
   .fin-plan-strip{grid-template-columns:1fr 1fr;}
   .fin-plan-strip-last{border-left:none;padding-left:0;}
+  .fin-stream-grid{grid-template-columns:1fr 1fr;}
 }
 @media(max-width:900px){
   .fin-grid-3{grid-template-columns:1fr 1fr;}
@@ -866,7 +875,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .fin-room-grid{font-size:11.5px;}
 }
 @media(max-width:767px){
-  .fin-grid-2,.fin-grid-2-wide,.fin-grid-3,.fin-grid-4,.fin-grid-hero,.fin-grid-charts,.fin-grid-pace,.fin-grid-mix,.fin-appeal-grid,.fin-ratio-strip,.fin-plan-strip,.fin-hero-split{grid-template-columns:1fr;}
+  .fin-grid-2,.fin-grid-2-wide,.fin-grid-3,.fin-grid-4,.fin-stream-grid,.fin-grid-hero,.fin-grid-charts,.fin-grid-pace,.fin-grid-mix,.fin-appeal-grid,.fin-ratio-strip,.fin-plan-strip,.fin-hero-split{grid-template-columns:1fr;}
   .fin-page-title{font-size:23px;}
   .fin-hero-val{font-size:34px;}
   .fin-stream-bar{height:auto;flex-direction:column;border-radius:10px;}

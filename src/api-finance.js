@@ -1830,17 +1830,35 @@ export function computeIncomeExpenseMonthlyTrend(curYearMonthlyRows, throughMont
 // Unmatched groups default to `earned` deliberately: overstating donor revenue would overstate
 // how much of the budget the board can actually influence, which is the one claim this whole page
 // is built to make honestly.
+// Rule order is precedence order, most specific first. `\brestricted\b` deliberately carries word
+// boundaries so it cannot match "Unrestricted"; "altar guild" and "designated" were moved off the
+// donor rule when restricted became its own stream, since a designated gift is money the board
+// cannot redirect even though a donor gave it.
 const REVENUE_STREAM_RULES = [
+  { stream: 'restricted', re: /\brestricted\b|altar guild|designated/i },
   { stream: 'passive', re: /passive|endowment|investment|interest|dividend|ivanhoe|bequest|trust/i },
   { stream: 'earned', re: /mdo|mother'?s day out|daycare|tuition|rental|rent\b|lease|fundrais|facility|sales|program fee|earned/i },
-  { stream: 'donor', re: /offering|contribution|donor|donation|gift|pledge|tithe|memorial|altar|restricted income/i },
+  { stream: 'donor', re: /offering|contribution|donor|donation|gift|pledge|tithe|memorial/i },
 ];
-export const REVENUE_STREAMS = ['donor', 'earned', 'passive'];
+export const REVENUE_STREAMS = ['donor', 'earned', 'passive', 'restricted'];
 export function classifyRevenueStream(label, overrides) {
   const mapped = overrides && overrides[label];
   if (mapped && REVENUE_STREAMS.includes(mapped)) return { stream: mapped, mapped: true };
   for (const rule of REVENUE_STREAM_RULES) if (rule.re.test(label || '')) return { stream: rule.stream, mapped: false };
   return { stream: 'earned', mapped: false };
+}
+// The account group a revenue row belongs to. Every parser in this file puts the CLASSIFICATION in
+// segment 0 of category_path (`path = [classification]` at depth 0 — see parseBudgetVsActualsGrid,
+// parseIncomeStatementMultiYearGrid and flattenReportTree), so the group a human can actually
+// classify is segment 1, not segment 0. Reading segment 0 collapsed every revenue account in the
+// chart into one group literally named "Income", which matched no rule and so defaulted the whole
+// budget to earned — reported live 2026-08-07 as a 100%-earned revenue mix with $0 donor revenue
+// sitting next to a count of 129 giving households.
+const CLASSIFICATION_PATH_HEADS = new Set(['income', 'other income', 'revenue', 'other revenue']);
+export function revenueGroupLabel(categoryPath, accountName) {
+  const segs = String(categoryPath || accountName || '').split(':').map(s => s.trim()).filter(Boolean);
+  if (segs.length > 1 && CLASSIFICATION_PATH_HEADS.has(segs[0].toLowerCase())) return segs[1];
+  return segs[0] || '';
 }
 // `entries` = a year's precedence-resolved period_month=0 rows. Groups revenue by the top-level
 // segment of each row's category_path (the chart-of-accounts group), because that is the level a
@@ -1851,31 +1869,35 @@ export function computeRevenueStreams(entries, overrides) {
   const groups = new Map();
   for (const r of entries || []) {
     if (r.classification !== 'Income' && r.classification !== 'Other Income') continue;
-    const label = String(r.category_path || r.account_name || '').split(':')[0].trim();
+    const label = revenueGroupLabel(r.category_path, r.account_name);
     if (!label) continue;
     if (!groups.has(label)) groups.set(label, { cents: 0, budgetCents: 0 });
     const g = groups.get(label);
     g.cents += (r.own_actual_cents || 0);
     if (r.own_budget_cents != null) g.budgetCents += r.own_budget_cents;
   }
-  const streams = {
-    donor: { cents: 0, budgetCents: 0, groups: [] },
-    earned: { cents: 0, budgetCents: 0, groups: [] },
-    passive: { cents: 0, budgetCents: 0, groups: [] },
-  };
-  const unmapped = [];
+  const streams = {};
+  for (const s of REVENUE_STREAMS) streams[s] = { cents: 0, budgetCents: 0, groups: [] };
+  const unmapped = [], map = {};
   for (const [label, g] of groups) {
     const { stream, mapped } = classifyRevenueStream(label, overrides);
+    map[label] = stream;
     streams[stream].cents += g.cents;
     streams[stream].budgetCents += g.budgetCents;
     streams[stream].groups.push({ label, cents: g.cents, budgetCents: g.budgetCents });
-    if (!mapped) unmapped.push({ label, cents: g.cents, defaultedTo: stream });
+    // A group carrying no money needs no human decision, so it is not surfaced as something the
+    // page had to guess at. The section-header row (category_path === the classification alone,
+    // which by construction holds no own amount) lands here, and would otherwise permanently read
+    // as one unconfirmed group named "Income" — the exact noise this fix exists to remove.
+    if (!mapped && (g.cents || g.budgetCents)) unmapped.push({ label, cents: g.cents, defaultedTo: stream });
   }
   for (const s of REVENUE_STREAMS) streams[s].groups.sort((a, b) => b.cents - a.cents);
   unmapped.sort((a, b) => b.cents - a.cents);
-  const totalCents = streams.donor.cents + streams.earned.cents + streams.passive.cents;
-  const totalBudgetCents = streams.donor.budgetCents + streams.earned.budgetCents + streams.passive.budgetCents;
-  return { streams, totalCents, totalBudgetCents, unmapped };
+  let totalCents = 0, totalBudgetCents = 0;
+  for (const s of REVENUE_STREAMS) { totalCents += streams[s].cents; totalBudgetCents += streams[s].budgetCents; }
+  // `map` is every income group's resolved stream (override or guess). The Church Report groups
+  // its own account tree from this same map, so one saved classification drives both pages.
+  return { streams, totalCents, totalBudgetCents, unmapped, map };
 }
 // Where the money goes, split the same way the revenue side is: MDO accounts vs. everything else.
 // Uses the same MDO_MATCH_RE the daycare importer already keys on, so the two halves are exactly
@@ -2316,6 +2338,38 @@ export const FINANCE_IMPORTERS = [
   { key: 'daycare_church_budget', label: 'MDO accounts from church budget', group: 'other' },
   { key: 'daycare_bulk', label: 'Daycare bulk paste (past years)', group: 'other' },
 ];
+// finance_import_log only started existing with the Data & Imports tab, and nothing backfills it,
+// so every importer that last ran before that shipped reads "never" even though its data is still
+// in the database and still driving reports. These queries derive a best-effort date from the
+// timestamp the imported rows themselves carry, used ONLY for an importer with no real log row —
+// the moment one actually runs, its recorded date takes over permanently.
+//
+// Two pairs genuinely cannot be told apart and say so rather than implying separate runs:
+// Statement of Activity and Budget by Year both write source='import_activity' (they merge on
+// purpose — see persistChurchEntriesActivityImport), and both Balance Sheet importers write
+// source='import' to finance_church_balances. `daycare_bulk` is deliberately absent: it inserts
+// with the default source='manual', identical to a row typed into the one-at-a-time form, so
+// there is no signal that separates an import from hand entry and a date here would be a guess.
+const DERIVED_IMPORT_SOURCES = [
+  { keys: ['church_budget'], sql: `SELECT MAX(synced_at) AS t FROM finance_church_entries WHERE source='import' AND synced_at != ''`, note: '' },
+  { keys: ['church_monthly_pnl'], sql: `SELECT MAX(synced_at) AS t FROM finance_church_entries WHERE source='monthly_import' AND synced_at != ''`, note: '' },
+  { keys: ['church_activity_multi', 'church_budget_multi'], sql: `SELECT MAX(synced_at) AS t FROM finance_church_entries WHERE source='import_activity' AND synced_at != ''`, note: 'shared with the other multi-year income-statement import' },
+  { keys: ['church_balance', 'church_balance_multi'], sql: `SELECT MAX(synced_at) AS t FROM finance_church_balances WHERE source='import' AND synced_at != ''`, note: 'shared with the other balance-sheet import' },
+  { keys: ['property_budget_xlsx'], sql: `SELECT MAX(updated_at) AS t FROM finance_property_budget_monthly WHERE source='ahra_import'`, note: '' },
+  { keys: ['property_monthly_csv'], sql: `SELECT MAX(updated_at) AS t FROM finance_property_monthly`, note: 'may reflect a month edited by hand rather than imported' },
+  { keys: ['daycare_church_budget'], sql: `SELECT MAX(created_at) AS t FROM finance_daycare_entries WHERE source='church_budget_import'`, note: '' },
+];
+async function deriveImportDates(db, missingKeys) {
+  const out = {};
+  for (const d of DERIVED_IMPORT_SOURCES) {
+    if (!d.keys.some(k => missingKeys.has(k))) continue;
+    let t = null;
+    try { t = (await db.prepare(d.sql).first())?.t || null; } catch { t = null; }
+    if (!t) continue;
+    for (const k of d.keys) if (missingKeys.has(k)) out[k] = { lastImportedAt: t, note: d.note, derived: true };
+  }
+  return out;
+}
 async function recordImport(db, importerKey, note) {
   try {
     await db.prepare(
@@ -2849,8 +2903,10 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/import-status' && method === 'GET') {
     const rows = (await db.prepare('SELECT * FROM finance_import_log').all()).results || [];
     const byKey = {};
-    for (const r of rows) byKey[r.importer_key] = { lastImportedAt: r.last_imported_at, note: r.note || '' };
-    return json({ importers: FINANCE_IMPORTERS.map(i => ({ ...i, ...(byKey[i.key] || { lastImportedAt: '', note: '' }) })) });
+    for (const r of rows) byKey[r.importer_key] = { lastImportedAt: r.last_imported_at, note: r.note || '', derived: false };
+    const missing = new Set(FINANCE_IMPORTERS.map(i => i.key).filter(k => !byKey[k]));
+    Object.assign(byKey, await deriveImportDates(db, missing));
+    return json({ importers: FINANCE_IMPORTERS.map(i => ({ ...i, ...(byKey[i.key] || { lastImportedAt: '', note: '', derived: false }) })) });
   }
 
   // ── Daycare: per-cell Budget override (editable directly in the Daycare Report table) ────

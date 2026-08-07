@@ -256,10 +256,23 @@ var _finImportStatus = null;
 var _finAdjustKind = 'daycare';
 // Mirrors REVENUE_STREAMS in api-finance.js (kept as a duplicate, not a shared import — this file
 // has no module system; see finWeeksElapsedInYear for the same convention).
-var REVENUE_STREAM_KEYS = ['donor', 'earned', 'passive'];
-var REVENUE_STREAM_LABELS = { donor: 'Donor — we set the ask', earned: 'Earned — reported to us', passive: 'Passive — timing only' };
-var REVENUE_STREAM_SHORT = { donor: 'Donor', earned: 'Earned', passive: 'Passive' };
-var REVENUE_STREAM_COLORS = { donor: 'var(--color-teal)', earned: 'var(--color-gold)', passive: 'var(--sage)' };
+var REVENUE_STREAM_KEYS = ['donor', 'earned', 'passive', 'restricted'];
+var REVENUE_STREAM_LABELS = {
+  donor: 'Donor — we set the ask', earned: 'Earned — reported to us',
+  passive: 'Passive — timing only', restricted: 'Restricted — spoken for',
+};
+var REVENUE_STREAM_SHORT = { donor: 'Donor', earned: 'Earned', passive: 'Passive', restricted: 'Restricted' };
+var REVENUE_STREAM_COLORS = { donor: 'var(--color-teal)', earned: 'var(--color-gold)', passive: 'var(--sage)', restricted: 'var(--ice-blue)' };
+// Every income group's resolved stream, as last returned by any endpoint that computes it. The
+// Church Report groups its own account tree from this same map (finReorganizeChurchTree), so the
+// classification saved once on Data & Imports drives both pages instead of the Church Report
+// keeping a second, hardcoded rule of its own.
+var _finStreamMap = null;
+function finRememberStreamMap(d) {
+  var m = d && d.revenueStreams && d.revenueStreams.map;
+  if (m && Object.keys(m).length) _finStreamMap = m;
+  return d;
+}
 function finRenderDataImports() {
   var root = document.getElementById('fin-data-root');
   if (!root) return;
@@ -339,9 +352,19 @@ var FIN_IMPORT_ACTIONS = {
 };
 function finRenderImportRow(imp) {
   var action = FIN_IMPORT_ACTIONS[imp.key];
-  var when = imp.lastImportedAt
-    ? '<span style="color:var(--warm-gray);">' + esc(finFmtTs(imp.lastImportedAt)) + '</span>'
-    : '<span style="color:var(--danger);font-weight:700;">never</span>';
+  // A derived date is read off the imported rows' own timestamps rather than the import log, which
+  // only began recording with this tab. It is marked so nobody reads it as a logged run — and it
+  // carries its own caveat where two importers genuinely share one timestamp.
+  var when;
+  if (imp.lastImportedAt && imp.derived) {
+    when = '<span style="color:var(--warm-gray);">~' + esc(finFmtTs(imp.lastImportedAt))
+      + ' <span style="font-size:.72rem;color:var(--warm-meta);">from the data'
+      + (imp.note ? ', ' + esc(imp.note) : '') + '</span></span>';
+  } else if (imp.lastImportedAt) {
+    when = '<span style="color:var(--warm-gray);">' + esc(finFmtTs(imp.lastImportedAt)) + '</span>';
+  } else {
+    when = '<span style="color:var(--danger);font-weight:700;">never</span>';
+  }
   return '<button type="button" class="fin-import-row"' + (action ? ' onclick="' + action + '()"' : ' disabled') + '>'
     + '<span class="fin-import-row-name">' + esc(imp.label) + '</span>' + when + '</button>';
 }
@@ -355,7 +378,8 @@ function finRenderImportsCard() {
       + '</div>';
   }
   return '<div class="fin-card-title" style="font-size:20px;">File imports</div>'
-    + '<div class="fin-card-sub">Grouped by what they feed, with the last import date — so you can see what is stale without opening a report.</div>'
+    + '<div class="fin-card-sub">Grouped by what they feed, with the last import date — so you can see what is stale without opening a report. '
+    + 'A date marked <i>from the data</i> predates this log and was read off the imported rows themselves; the imported data is still there either way.</div>'
     + '<div class="fin-grid-2">'
       + panel('Feeds Church Report', 'church', '')
       + panel('Feeds Ivanhoe &amp; Daycare', 'other', finRenderDaycareAllocationConfig())
@@ -508,6 +532,13 @@ function finSaveStreamClassification(count) {
       if (d && d.error) { finToast(d.error); return; }
       finToast('Revenue-stream classification saved.');
       _finStreamEditor = null;
+      // The saved map is what every downstream view groups by, so adopt it immediately and drop
+      // the caches built from the previous one — otherwise the Church Report and Planning keep
+      // showing the old grouping until a full reload.
+      if (d && d.map) _finStreamMap = d.map;
+      _finChurchThisYearData = null;
+      _finChurchMultiYearData = null;
+      _finPlanBaseTree = null;
       finLoadStreamEditor();
       finLoadHealth(true);
     }).catch(function(err) { finToast(err && err.message || 'Save failed.'); });
@@ -553,7 +584,7 @@ function finLoadHealth(force) {
   _finHealthLoading = true;
   api('/admin/api/finance/church/this-year?year=' + new Date().getFullYear()).then(function(d) {
     _finHealthLoading = false;
-    _finHealthData = d;
+    _finHealthData = finRememberStreamMap(d);
     finRenderHealth();
   }).catch(function(err) {
     _finHealthLoading = false;
@@ -579,11 +610,16 @@ function finRenderRevenueMix(streams, totalCents) {
     donor: { note: 'We set the ask', border: 'var(--color-navy)', color: 'var(--color-navy)' },
     earned: { note: 'Reported to us', border: 'var(--warm-border)', color: 'var(--warm-meta)' },
     passive: { note: 'Timing only', border: 'var(--deep-amber)', color: 'var(--deep-amber)' },
+    restricted: { note: 'Already spoken for', border: 'var(--color-teal)', color: 'var(--color-teal)' },
   };
   var segs = '', band = '', narrow = [];
   REVENUE_STREAM_KEYS.forEach(function(s) {
     var cents = streams[s].cents;
     var pct = cents / totalCents * 100;
+    // A stream with no money contributes no segment at all — four streams means an empty one is
+    // now normal (a church with no restricted accounts), and a zero-width segment would still
+    // render its 3px control-band rule as a stray tick under the bar.
+    if (!cents) return;
     var wide = pct >= 9;
     if (!wide && cents) narrow.push(REVENUE_STREAM_SHORT[s] + ' ' + finMoney0(cents));
     segs += '<div class="fin-stream-seg" style="width:' + pct.toFixed(1) + '%;background:' + REVENUE_STREAM_COLORS[s] + ';">'
@@ -595,7 +631,7 @@ function finRenderRevenueMix(streams, totalCents) {
   return '<div class="fin-card">'
     + '<div class="fin-card-hdr-split">'
       + '<div><div class="fin-card-title" style="font-size:20px;">The revenue mix</div>'
-      + '<div class="fin-card-sub" style="margin:0;">One bar, three streams. The band under it marks how much say the board actually has.</div></div>'
+      + '<div class="fin-card-sub" style="margin:0;">One bar, one segment per stream. The band under it marks how much say the board actually has.</div></div>'
       + '<div style="text-align:right;"><div class="fin-eyebrow">Total revenue</div>'
       + '<div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;">' + finMoney0(totalCents) + '</div></div>'
     + '</div>'
@@ -619,6 +655,7 @@ function finRenderStreamCards(d) {
   var donor = rs.streams.donor || { cents: 0, groups: [] };
   var earned = rs.streams.earned || { cents: 0, groups: [] };
   var passive = rs.streams.passive || { cents: 0, groups: [] };
+  var restricted = rs.streams.restricted || { cents: 0, groups: [] };
   var split = d.donorSplit || { unrestrictedCents: 0, restrictedCents: 0 };
   var splitTotal = split.unrestrictedCents + split.restrictedCents;
 
@@ -638,7 +675,8 @@ function finRenderStreamCards(d) {
   var earnedCard = '<div class="fin-card fin-stream-card" style="border-top-color:var(--color-gold);">'
     + '<div><div class="fin-card-hdr-split"><span class="fin-eyebrow">Earned income</span><span class="fin-chip fin-chip-warn">Reported, not managed</span></div>'
     + '<div class="fin-stream-val">' + finMoney0(earned.cents) + '</div>'
-    + '<div class="fin-stream-sub">' + pctOf(earned.cents) + '% of revenue' + (earned.cents >= donor.cents && earned.cents >= passive.cents ? ' &middot; our largest single stream' : '') + '</div></div>'
+    + '<div class="fin-stream-sub">' + pctOf(earned.cents) + '% of revenue'
+    + (earned.cents > 0 && REVENUE_STREAM_KEYS.every(function(k) { return earned.cents >= (rs.streams[k] || { cents: 0 }).cents; }) ? ' &middot; our largest single stream' : '') + '</div></div>'
     + '<div style="display:flex;flex-direction:column;gap:9px;">'
     + (earned.groups.length ? subBars(earned.groups, ['var(--color-gold)', 'var(--pale-gold)', 'var(--pale-gold)'])
       : '<div style="font-size:11.5px;color:var(--warm-gray);">No account group is classified as earned income yet.</div>')
@@ -655,7 +693,21 @@ function finRenderStreamCards(d) {
     + '</div>'
     + '<div><button class="btn-secondary" onclick="finNavGo(\'property\')">Commercial Property &rarr;</button></div></div>';
 
-  return '<div class="fin-grid-3 fin-grid-start">' + donorCard + earnedCard + passiveCard + '</div>';
+  // Restricted income is the one stream whose size is bad news when it grows: every dollar here
+  // arrived attached to a purpose the board cannot redirect, so it inflates total revenue without
+  // adding anything the council can decide about. The card says that plainly rather than sitting
+  // as a fourth neutral number.
+  var restrictedCard = '<div class="fin-card fin-stream-card" style="border-top-color:var(--ice-blue);">'
+    + '<div><div class="fin-card-hdr-split"><span class="fin-eyebrow">Restricted income</span><span class="fin-chip fin-chip-neutral">Spoken for</span></div>'
+    + '<div class="fin-stream-val">' + finMoney0(restricted.cents) + '</div>'
+    + '<div class="fin-stream-sub">' + pctOf(restricted.cents) + '% of revenue &middot; cannot cover operating costs</div></div>'
+    + '<div style="display:flex;flex-direction:column;gap:9px;">'
+    + (restricted.groups.length ? subBars(restricted.groups, ['var(--ice-blue)', 'var(--ice-blue)', 'var(--ice-blue)'])
+      : '<div style="font-size:11.5px;color:var(--warm-gray);">No account group is classified as restricted income yet. If designated gifts sit inside another group here, set them on <b>Data &amp; Imports</b>.</div>')
+    + '</div>'
+    + '<div><button class="btn-secondary" onclick="finNavGo(\'data\')">Classification &rarr;</button></div></div>';
+
+  return '<div class="fin-stream-grid fin-grid-start">' + donorCard + earnedCard + passiveCard + restrictedCard + '</div>';
 }
 
 // 1.4 — the flow diagram. Ribbon thickness is recomputed from the real figures every render
@@ -666,10 +718,13 @@ function finRenderFlow(d) {
   var flow = d.flow || { churchOutCents: 0, mdoOutCents: 0, totalOutCents: 0 };
   if (!totalIn) return '';
   var H = 300, top = 50;
-  var order = ['donor', 'earned', 'passive'];
+  var order = REVENUE_STREAM_KEYS;
   var y = top, inbound = '', labels = '';
-  var labelAnchors = { donor: 'The only stream we set', earned: 'Reported to the board, not managed by it', passive: 'A timing decision, not new money' };
-  var labelColors = { donor: 'var(--color-teal)', earned: 'var(--deep-amber)', passive: 'var(--sage-text)' };
+  var labelAnchors = {
+    donor: 'The only stream we set', earned: 'Reported to the board, not managed by it',
+    passive: 'A timing decision, not new money', restricted: 'Given for a purpose we cannot change',
+  };
+  var labelColors = { donor: 'var(--color-teal)', earned: 'var(--deep-amber)', passive: 'var(--sage-text)', restricted: 'var(--color-navy)' };
   order.forEach(function(s) {
     var cents = (rs.streams[s] || { cents: 0 }).cents;
     var h = cents / totalIn * H;
@@ -2216,17 +2271,44 @@ function finRecomputeTreeTotals(nodes) {
 // rather than the two being interleaved.
 var FIN_CHURCH_CLASS_ORDER = { 'Income': 0, 'Other Income': 1, 'Cost of Goods Sold': 2, 'Expenses': 3, 'Other Expenses': 4 };
 var FIN_REVENUE_CLASSES = { 'Income': true, 'Other Income': true };
-function finReorganizeChurchTree(roots) {
+// Groups the revenue side of the account tree by the SAME saved classification the Financial
+// Health page reads (chms_config.finance_revenue_streams, edited on Data & Imports), so one
+// decision drives both pages. Falls back to the original hardcoded regex only when no map has
+// been loaded yet, so a caller with no stream data renders exactly what it always did.
+//
+// Note this deliberately stops hiding "Sales": the old regex dropped that node from the tree while
+// its dollars still counted in the server-computed Total Revenue, a stated inconsistency in FIN14.
+// With every group classifiable it can be shown under whichever stream it belongs to instead.
+var FIN_STREAM_GROUP_LABELS = { earned: 'Earned Income', passive: 'Passive Income', restricted: 'Restricted Income' };
+function finReorganizeChurchTree(roots, streamMap) {
   var cloned = JSON.parse(JSON.stringify(roots || []));
-  finRemoveNodesByLabel(cloned, /^sales$/i);
-  var earnedChildren = finExtractNodesByLabel(cloned, /^(facility rental|fundraisers|mdo)$/i);
-  var restrictedChildren = finExtractNodesByLabel(cloned, /^altar guild$/i);
+  // typeof guard so the function stays runnable from an isolated extract in the test harness,
+  // which evals it without the surrounding file's globals (same convention as FIN46).
+  var map = streamMap || (typeof _finStreamMap !== 'undefined' ? _finStreamMap : null);
   var incomeRoot = cloned.filter(function(n) { return n.classification === 'Income'; })[0];
-  if (incomeRoot) {
-    if (earnedChildren.length) incomeRoot.children.push(finMakeGroupNode('Earned Income', 'Income', earnedChildren));
-    if (restrictedChildren.length) incomeRoot.children.push(finMakeGroupNode('Restricted Income', 'Income', restrictedChildren));
-    incomeRoot.label = 'Revenue';
+  if (map) {
+    // Only donor-stream groups stay at the top level under Revenue; each other stream collects
+    // into one named group. Extraction is by exact label so a node is matched against the same
+    // key the classification editor saved.
+    ['earned', 'passive', 'restricted'].forEach(function(stream) {
+      var labels = Object.keys(map).filter(function(k) { return map[k] === stream; });
+      if (!labels.length || !incomeRoot) return;
+      var picked = [];
+      for (var i = incomeRoot.children.length - 1; i >= 0; i--) {
+        if (labels.indexOf(incomeRoot.children[i].label) !== -1) picked.unshift(incomeRoot.children.splice(i, 1)[0]);
+      }
+      if (picked.length) incomeRoot.children.push(finMakeGroupNode(FIN_STREAM_GROUP_LABELS[stream], 'Income', picked));
+    });
+  } else {
+    finRemoveNodesByLabel(cloned, /^sales$/i);
+    var earnedChildren = finExtractNodesByLabel(cloned, /^(facility rental|fundraisers|mdo)$/i);
+    var restrictedChildren = finExtractNodesByLabel(cloned, /^altar guild$/i);
+    if (incomeRoot) {
+      if (earnedChildren.length) incomeRoot.children.push(finMakeGroupNode('Earned Income', 'Income', earnedChildren));
+      if (restrictedChildren.length) incomeRoot.children.push(finMakeGroupNode('Restricted Income', 'Income', restrictedChildren));
+    }
   }
+  if (incomeRoot) incomeRoot.label = 'Revenue';
   finSetNodeDepth({ depth: -1, children: cloned }, -1);
   finRecomputeTreeTotals(cloned);
   cloned.sort(function(a, b) {
@@ -2395,7 +2477,7 @@ function finLoadChurchThisYear(year) {
   if (!el) return;
   el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
   api('/admin/api/finance/church/this-year?year=' + year).then(function(d) {
-    _finChurchThisYearData = d;
+    _finChurchThisYearData = finRememberStreamMap(d);
     finRenderChurchThisYear(d);
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
@@ -4893,6 +4975,7 @@ function finLoadPlanning() {
     api('/admin/api/finance/planning/base-projection'),
   ]).then(function(results) {
     _finPlanRows = (results[0] && results[0].rows) || [];
+    finRememberStreamMap(results[1]);
     _finPlanBaseTree = finReorganizeChurchTree(finBuildTreeFromFlatRows((results[1] && results[1].entries) || []));
     _finPlanBaseNet = (results[1] && results[1].netIncome) || { actualCents: 0, budgetCents: 0 };
     _finPlanBaseProjOverrides = (results[2] && results[2].overrides) || {};
