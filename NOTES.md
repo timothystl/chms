@@ -24,6 +24,36 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.151.3 — Monthly P&L import: surface the real error, not a bare 500 (2026-08-07)
+
+**Reported**: "now Error: Internal server error. Please try again."
+
+**Not a diagnosis — a visibility fix, and that is the honest description.** The worker's top-level
+`/admin/api/` handler deliberately logs the exception server-side and returns an opaque
+`Internal server error. Please try again.` That is the right default, but it means the only copy of
+the actual message is in Cloudflare's logs, which are not reachable from here — so this report
+could not be diagnosed at all, only guessed at.
+
+**What was ruled out, by running the real route handlers against the real 2019-2026 file:** the
+preview returns 200 with 8 years / 16,107 rows / a 3.89 MB payload; all 8 per-year commits succeed
+(525 KB bodies, max 500 statements per `db.batch()`); `finance_import_log` gets its row; and
+`finance/import-status` reads it back as `FY2019-FY2026`. So the failure is not reproducible with
+that file, which points at either a different file (a reformatted one was mentioned) or a
+real-D1 condition the SQLite harness cannot model — a quota, a batch limit, a constraint.
+
+**Changed**: the commit route now wraps `persistChurchEntriesMonthlyImport` and returns the real
+message plus the scope that failed (`Could not save 2124 rows for FY2019: <db message>`), and the
+preview route gained an outer catch reporting `Could not read this Monthly P&L sheet: <message>`.
+Every *expected* failure still returns its own specific 4xx as before; this only replaces the
+opaque case. Both routes are finance-gated, so returning the underlying message is safe — the same
+reasoning already recorded for the column-count error in `api-import.js`.
+
+`npm test` (866/866, 4 new in `test/finance-monthly-import-errors.test.js`, driving the real route
+handlers with a db whose `batch()` throws). **Verified non-vacuous** by removing the commit-route
+try/catch, which fails 2 of them with the raw exception escaping. Plus the full real-file route
+harness re-run unchanged. **Not verified**: a live browser, real D1, or the actual failing file —
+the next attempt will now name its own cause.
+
 ### v1.151.2 — Data & Imports read "never" after a successful import (2026-08-07)
 
 **Reported**: "I just uploaded a monthly P&L and upload still says never."

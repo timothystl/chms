@@ -540,6 +540,23 @@ parameterless query. `npm test` (862/862, 2 new); the staleness test verified no
 restoring the guard. **Not verified**: a live browser. (`src/frontend/js-finance.js`,
 `src/api-finance.js`, `test/finance-monthly-import-ui.test.js`)
 
+### FIN59-BUG3 — Monthly P&L import 500: made the real error visible (2026-08-07, DONE)
+Reported: "now Error: Internal server error. Please try again." **This entry is a visibility fix,
+not a diagnosis.** The worker's top-level `/admin/api/` catch logs the exception and returns an
+opaque string, so the only copy of the real message lives in Cloudflare's logs — unreachable from
+a session here, making the report undiagnosable rather than merely unfixed. **Ruled out by running
+the real route handlers against the real 2019-2026 file**: preview 200 / 8 years / 16,107 rows /
+3.89 MB payload, all 8 per-year commits succeed, `finance_import_log` written, `import-status`
+reads back `FY2019-FY2026`. So it is either a different file (a reformatted one was mentioned) or
+a real-D1 condition an in-memory SQLite harness cannot model (quota, batch limit, constraint).
+Fixed by wrapping `persistChurchEntriesMonthlyImport` in the commit route (returns
+`Could not save N rows for FY<range>: <db message>`) and adding an outer catch to the preview
+route; every expected failure still returns its own specific 4xx. Both routes are finance-gated so
+the underlying message is safe to show — same reasoning as the column-count error in
+`api-import.js`. `npm test` (866/866, 4 new); verified non-vacuous by removing the commit-route
+try/catch. **Next step is the user retrying and reporting the now-specific message.**
+(`src/api-finance.js`, `test/finance-monthly-import-errors.test.js`)
+
 ### TinyMCE editor-load limit — NOT this app; it's the website repo (2026-08-07)
 A Tiny automated email warned the account hit 50% of its monthly **Editor Load** limit (overage
 charges past 100%). **Connect contributes zero cloud loads and always has** — since v1.64.0 the
