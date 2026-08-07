@@ -4478,49 +4478,258 @@ function finRenderPropertyCharts(d) {
   return revExpChart + occChart + reserveChart;
 }
 
-// ── Cash Flow & Mortgage Payoff Forecast ─────────────────────────────────────────────────────
-// Amortizes the loan forward from its current balance/rate/payment to estimate a payoff date,
-// then projects post-payoff annual cash flow using the trailing-12-month average net income.
-// The "post-payoff" figure ASSUMES the mortgage payment is already being subtracted somewhere
-// in AHRA's reported Net Income — that assumption is stated in the UI rather than hidden,
-// since it wasn't independently confirmed against AHRA's own bookkeeping.
-function finComputeMortgageAmortization(loan) {
+// ── The property cash model (FIN61) ──────────────────────────────────────────────────────────
+// AHRA reports an ACCRUAL net income, and it is NOT the cash the property can remit. Two real
+// outflows are missing from it, both by construction rather than by error:
+//   * Mortgage PRINCIPAL. Interest is an expense and is already inside net income; principal is
+//     a balance-sheet movement, so it never appears on the P&L at all — yet it is roughly
+//     $35,000/yr of cash leaving the building.
+//   * CAPITAL improvements. Capitalized by definition, so they never hit the P&L either, but
+//     they are paid in cash out of the same account (~$34k over the ledger to date).
+// Deliberately NOT deducted here, because each would double-count:
+//   * Property tax — the bill already lands as an expense inside net income (Dec 2025 expenses
+//     were $14,631). The monthly tax reserve is a TIMING mechanism, not an additional cost.
+//   * The flat base-minimum reserve — a one-time floor, already funded, not a recurring drain.
+//   * Church-paid allocated insurance — real, but the church budget already carries it as its
+//     own expense line, so it is shown as a memo beside the forecast, never subtracted here.
+// The projection grows OPERATING income (net income before interest) at the growth rate, since
+// rents grow but a fixed mortgage payment does not, and takes interest and principal from a real
+// per-year amortization schedule. Post-payoff both simply fall to zero, so no add-back fudge is
+// needed — the old code added a flat annual figure back on top of a base it had never taken it
+// out of, which double-counted the whole debt service in every post-payoff year.
+
+// Per-year amortization. Anchored to the lender-CONFIRMED balance date rather than to today, so
+// the schedule does not silently slide forward every time the page is re-rendered.
+function finAmortizationSchedule(loan, opts) {
+  opts = opts || {};
   if (!loan || !loan.balance_cents || !loan.interest_rate_pct || !loan.monthly_payment_cents) return null;
-  var balance = loan.balance_cents, monthlyRate = loan.interest_rate_pct / 12, payment = loan.monthly_payment_cents;
+  var monthlyRate = loan.interest_rate_pct / 12;
+  var payment = loan.monthly_payment_cents;
+  var balance = loan.balance_cents;
+  if (payment <= balance * monthlyRate) return null; // payment doesn't cover interest — no payoff
+  var anchor = opts.asOfDate || loan.balance_as_of_date || null;
+  var y, mo;
+  if (anchor && /^[0-9]{4}-[0-9]{2}/.test(String(anchor))) {
+    y = parseInt(String(anchor).slice(0, 4), 10);
+    mo = parseInt(String(anchor).slice(5, 7), 10) - 1;
+  } else {
+    var now = opts.now ? new Date(opts.now) : new Date();
+    y = now.getFullYear(); mo = now.getMonth();
+  }
+  var startYear = y, startMonth = mo;
+  var byYear = {}, order = [];
   var months = 0, totalInterestCents = 0;
   while (balance > 0 && months < 600) {
     var interest = balance * monthlyRate;
     var principal = payment - interest;
-    if (principal <= 0) return null; // payment doesn't cover interest — can't project a payoff
+    if (principal <= 0) return null;
+    if (principal > balance) principal = balance; // final, partial payment
     balance -= principal;
     totalInterestCents += interest;
+    if (!byYear[y]) { byYear[y] = { year: y, principalCents: 0, interestCents: 0, endingBalanceCents: 0, monthsCovered: 0 }; order.push(y); }
+    byYear[y].principalCents += principal;
+    byYear[y].interestCents += interest;
+    byYear[y].endingBalanceCents = balance;
+    byYear[y].monthsCovered++;
     months++;
+    mo++; if (mo > 11) { mo = 0; y++; }
   }
-  var payoffDate = new Date();
-  payoffDate.setMonth(payoffDate.getMonth() + months);
-  return { months: months, totalInterestCents: Math.round(totalInterestCents), payoffDate: payoffDate };
+  var years = order.map(function(yr) {
+    var row = byYear[yr];
+    row.principalCents = Math.round(row.principalCents);
+    row.interestCents = Math.round(row.interestCents);
+    row.endingBalanceCents = Math.round(row.endingBalanceCents);
+    return row;
+  });
+  return {
+    years: years,
+    byYear: byYear,
+    months: months,
+    totalInterestCents: Math.round(totalInterestCents),
+    annualDebtServiceCents: Math.round(payment * 12),
+    payoffYear: years.length ? years[years.length - 1].year : null,
+    payoffDate: new Date(startYear, startMonth + months, 1),
+    anchoredTo: anchor || null,
+  };
 }
-function finRenderPropertyForecast(d) {
-  var loan = (d.meta && d.meta.loan) || {};
-  var monthly = (d.monthly || []).slice().sort(function(a,b){ return a.period < b.period ? -1 : 1; }).slice(-12);
+// Kept for callers that only want the headline payoff figures. One amortization loop, not two.
+function finComputeMortgageAmortization(loan) {
+  var sched = finAmortizationSchedule(loan);
+  if (!sched) return null;
+  return { months: sched.months, totalInterestCents: sched.totalInterestCents, payoffDate: sched.payoffDate };
+}
+// The trailing-12-month base every property projection starts from. Was hand-inlined in three
+// places that had already drifted; one helper so they cannot disagree again.
+function finComputePropertyTrailingNetIncome(d) {
+  var monthly = ((d && d.monthly) || []).slice().sort(function(a, b) { return a.period < b.period ? -1 : 1; }).slice(-12);
   var withNet = monthly.filter(function(m) { return m.net_income_cents != null || m.net_operating_income_cents != null; });
-  var avgMonthlyCents = withNet.length
+  var avgMonthly = withNet.length
     ? withNet.reduce(function(sum, m) { return sum + (m.net_income_cents != null ? m.net_income_cents : m.net_operating_income_cents); }, 0) / withNet.length
     : 0;
-  var avgAnnualCents = avgMonthlyCents * 12;
-  var amort = finComputeMortgageAmortization(loan);
+  return {
+    annualCents: Math.round(avgMonthly * 12),
+    monthlyCents: Math.round(avgMonthly),
+    months: withNet.length,
+    fromPeriod: withNet.length ? withNet[0].period : null,
+    toPeriod: withNet.length ? withNet[withNet.length - 1].period : null,
+  };
+}
+// Interest already embedded in that trailing net income. Prefers the months' own reported
+// interest_expense_cents, but only when EVERY month in the window carries one — a partial sum
+// would understate it and silently inflate everything downstream. Otherwise falls back to the
+// schedule's own first 12 months, which is at least internally consistent with the balance and
+// rate being amortized.
+function finComputePropertyBaseInterestCents(d, sched) {
+  var monthly = ((d && d.monthly) || []).slice().sort(function(a, b) { return a.period < b.period ? -1 : 1; }).slice(-12);
+  var withNet = monthly.filter(function(m) { return m.net_income_cents != null || m.net_operating_income_cents != null; });
+  var reported = withNet.filter(function(m) { return m.interest_expense_cents != null; });
+  if (withNet.length && reported.length === withNet.length) {
+    return { cents: reported.reduce(function(s, m) { return s + m.interest_expense_cents; }, 0), source: 'reported' };
+  }
+  if (!sched || !sched.years.length) return { cents: 0, source: 'none' };
+  // The FIRST TWELVE SCHEDULED MONTHS, not the first calendar year — the anchor year is normally
+  // a partial one, and averaging a half year against a full one understates interest badly
+  // enough to drag projected net income below the base it grew from.
+  var need = 12, cents = 0;
+  for (var i = 0; i < sched.years.length && need > 0; i++) {
+    var row = sched.years[i];
+    var take = Math.min(need, row.monthsCovered);
+    cents += row.interestCents * (take / row.monthsCovered);
+    need -= take;
+  }
+  return { cents: Math.round(cents), source: 'schedule' };
+}
+// Capital allowance: what the property has actually spent per year, averaged over the span the
+// ledger covers. Derived from the data rather than hardcoded, so it stays honest as entries are
+// added. Never annualizes UP from a sub-year window — three months of spending is not a year's
+// worth, and treating it as one would overstate the deduction fourfold.
+function finComputePropertyCapitalAllowanceCents(d) {
+  var entries = ((d && d.capitalLedger) || []).filter(function(c) { return c.entry_date && c.amount_cents != null; });
+  if (!entries.length) return { cents: 0, totalCents: 0, years: 0, fromDate: null, toDate: null };
+  var dates = entries.map(function(c) { return String(c.entry_date); }).sort();
+  var first = dates[0], last = dates[dates.length - 1];
+  var totalCents = entries.reduce(function(s, c) { return s + (c.amount_cents || 0); }, 0);
+  var months = (parseInt(last.slice(0, 4), 10) - parseInt(first.slice(0, 4), 10)) * 12
+    + (parseInt(last.slice(5, 7), 10) - parseInt(first.slice(5, 7), 10)) + 1;
+  var years = Math.max(months / 12, 1);
+  return { cents: Math.round(totalCents / years), totalCents: totalCents, years: years, fromDate: first, toDate: last };
+}
+// THE model. Every consumer reads its rows rather than re-deriving any component, so the
+// Planning card, the Property tab and the Available-for-Distribution bar cannot drift apart.
+// Each row carries the whole reconciliation, not just the total.
+function finComputeRemittableForecast(d, opts) {
+  opts = opts || {};
+  var growth = opts.growthPct != null ? opts.growthPct : 0.02;
+  var numYears = opts.years != null ? opts.years : 3;
+  var loan = ((d && d.meta) || {}).loan || {};
+  var base = finComputePropertyTrailingNetIncome(d);
+  var sched = finAmortizationSchedule(loan, opts);
+  var baseInterest = finComputePropertyBaseInterestCents(d, sched);
+  var capital = finComputePropertyCapitalAllowanceCents(d);
+  var capitalCents = opts.capitalAllowanceCents != null ? opts.capitalAllowanceCents : capital.cents;
+  // Net income before interest. This is the part that grows with rents; the mortgage does not.
+  var baseOperatingCents = base.annualCents + baseInterest.cents;
+  var nowYear = opts.now ? new Date(opts.now).getFullYear() : new Date().getFullYear();
+  var startYear = opts.startYear != null ? opts.startYear : nowYear + 1;
+  var rows = [];
+  for (var i = 0; i < numYears; i++) {
+    var year = startYear + i;
+    var operatingCents = Math.round(baseOperatingCents * Math.pow(1 + growth, (year - nowYear)));
+    var sy = sched && sched.byYear[year];
+    var interestCents = sy ? sy.interestCents : 0;
+    var principalCents = sy ? sy.principalCents : 0;
+    var netIncomeCents = operatingCents - interestCents;
+    rows.push({
+      year: year,
+      operatingCents: operatingCents,
+      interestCents: interestCents,
+      principalCents: principalCents,
+      netIncomeCents: netIncomeCents,
+      capitalCents: capitalCents,
+      remittableCents: netIncomeCents - principalCents - capitalCents,
+      isPostPayoff: !!(sched && sched.payoffYear && year > sched.payoffYear),
+    });
+  }
+  return {
+    rows: rows,
+    base: base,
+    baseInterestCents: baseInterest.cents,
+    baseInterestSource: baseInterest.source,
+    baseOperatingCents: baseOperatingCents,
+    capital: capital,
+    capitalAllowanceCents: capitalCents,
+    schedule: sched,
+    payoffYear: sched ? sched.payoffYear : null,
+  };
+}
+// The stored loan record contradicts itself, and the contradiction moves real money, so it is
+// surfaced rather than silently resolved. Confirmed with the pastor: monthly_payment_cents
+// ($4,283.03) is principal + interest, which means the field NAMED annual_debt_service_cents
+// ($45,396.36 = $3,783.03 x 12) is actually the principal portion — mislabeled. Separately, the
+// June 2026 report's interest of $952.05/mo implies a balance near $179k, not the confirmed
+// $279,691.13. Nothing here trusts either figure: interest and principal come from amortizing
+// the confirmed balance at the confirmed rate.
+function finPropertyLoanDataWarnings(d) {
+  var loan = ((d && d.meta) || {}).loan || {};
+  var out = [];
+  if (loan.monthly_payment_cents && loan.annual_debt_service_cents
+      && Math.abs(loan.monthly_payment_cents * 12 - loan.annual_debt_service_cents) > 100) {
+    out.push('The stored monthly payment ($' + finFmtMoney(loan.monthly_payment_cents / 100) + '/mo, i.e. $'
+      + finFmtMoney(loan.monthly_payment_cents * 12 / 100) + '/yr) does not match the stored annual figure of $'
+      + finFmtMoney(loan.annual_debt_service_cents / 100) + ', which appears to be the principal portion only. '
+      + 'Figures here amortize the confirmed balance at the confirmed rate instead of trusting either — worth confirming with LCEF.');
+  }
+  var monthly = ((d && d.monthly) || []).slice().sort(function(a, b) { return a.period < b.period ? -1 : 1; });
+  var lastInt = null;
+  for (var i = monthly.length - 1; i >= 0; i--) { if (monthly[i].interest_expense_cents != null) { lastInt = monthly[i]; break; } }
+  if (lastInt && loan.balance_cents && loan.interest_rate_pct) {
+    var implied = lastInt.interest_expense_cents / (loan.interest_rate_pct / 12);
+    if (Math.abs(implied - loan.balance_cents) > loan.balance_cents * 0.2) {
+      out.push('The ' + lastInt.period + ' report\'s interest of $' + finFmtMoney(lastInt.interest_expense_cents / 100)
+        + '/mo implies a loan balance near $' + finFmtMoney(implied / 100) + ', against the confirmed $'
+        + finFmtMoney(loan.balance_cents / 100) + '. One of the two is stale.');
+    }
+  }
+  return out;
+}
+function finRenderPropertyForecast(d) {
+  var f = finComputeRemittableForecast(d, { years: 1 });
+  var sched = f.schedule;
+  var next = f.rows[0];
+  // Post-payoff, interest and principal both simply stop, so what the property clears is its
+  // operating income less the capital allowance. The old figure here added a flat annual debt
+  // service back onto a net income it had never subtracted it from. Read through the same model
+  // rather than hand-rolled, so it cannot drift from the Planning card's own figure.
+  var postPayoffCents = f.payoffYear
+    ? finComputeRemittableForecast(d, { years: 1, startYear: f.payoffYear + 1 }).rows[0].remittableCents
+    : null;
   var statsHtml = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin:10px 0;">'
-    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney(avgAnnualCents/100) + '</div><div class="rpt-stat-lbl">Avg. Annual Net Income (trailing 12mo)</div></div>'
-    + (amort
-      ? '<div class="rpt-stat"><div class="rpt-stat-num">' + amort.payoffDate.toLocaleDateString('en-US', {month:'short', year:'numeric'}) + '</div><div class="rpt-stat-lbl">Projected Mortgage Payoff (~' + amort.months + ' mo)</div></div>'
-        + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney(amort.totalInterestCents/100) + '</div><div class="rpt-stat-lbl">Remaining Interest</div></div>'
-        + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney((avgAnnualCents + (loan.annual_debt_service_cents||0))/100) + '</div><div class="rpt-stat-lbl">Potential Annual Net Income After Payoff</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney(f.base.annualCents/100) + '</div><div class="rpt-stat-lbl">Avg. Annual Net Income (trailing ' + f.base.months + 'mo)</div></div>'
+    + '<div class="rpt-stat"><div class="rpt-stat-num">' + finMoney0Signed(next.remittableCents) + '</div><div class="rpt-stat-lbl">Remittable Cash, ' + next.year + ' (after principal &amp; capital)</div></div>'
+    + (sched
+      ? '<div class="rpt-stat"><div class="rpt-stat-num">' + sched.payoffDate.toLocaleDateString('en-US', {month:'short', year:'numeric'}) + '</div><div class="rpt-stat-lbl">Projected Mortgage Payoff (~' + sched.months + ' mo from the confirmed balance)</div></div>'
+        + '<div class="rpt-stat"><div class="rpt-stat-num">$' + finFmtMoney(sched.totalInterestCents/100) + '</div><div class="rpt-stat-lbl">Remaining Interest</div></div>'
+        + '<div class="rpt-stat"><div class="rpt-stat-num">' + finMoney0Signed(postPayoffCents) + '</div><div class="rpt-stat-lbl">Remittable Cash After Payoff (' + (f.payoffYear + 1) + ')</div></div>'
       : '')
     + '</div>';
-  var note = amort
-    ? '<p style="font-size:.72rem;color:var(--warm-gray);margin:0 0 4px;"><i>"Potential Annual Net Income After Payoff" assumes the current annual debt service ($' + finFmtMoney((loan.annual_debt_service_cents||0)/100) + ') is already being paid out of the reported Net Income above — that hasn’t been independently confirmed against AHRA’s bookkeeping, so treat this as a planning estimate, not a guarantee.</i></p>'
-    : '<p style="font-size:.72rem;color:var(--warm-gray);margin:0 0 4px;">Mortgage payoff can’t be projected — the loan balance, interest rate, or monthly payment isn’t set (or the payment doesn’t cover the interest).</p>';
-  return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Cash Flow &amp; Mortgage Payoff Forecast</h4>' + statsHtml + note;
+  var note = '<p style="font-size:.72rem;color:var(--warm-gray);margin:0 0 4px;"><i>Remittable cash is net income less mortgage <b>principal</b> (which is not an expense, so it is not in net income) and less a capital allowance of $'
+    + finFmtMoney(f.capitalAllowanceCents/100) + '/yr. Property tax is <b>not</b> deducted again — the bill is already an expense inside net income, and the monthly reserve is a timing mechanism. '
+    + (sched ? 'After payoff the mortgage stops entirely, which is where the step up comes from.' : 'Mortgage payoff cannot be projected — the loan balance, interest rate, or monthly payment is not set (or the payment does not cover the interest).')
+    + '</i></p>';
+  return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Cash Flow &amp; Mortgage Payoff Forecast</h4>' + statsHtml + note
+    + finPropertyLoanWarningHtml(d);
+}
+// Signed money, so a negative remittable figure reads as -$4,432 rather than $-4,432.
+function finMoney0Signed(cents) {
+  if (cents == null) return '—';
+  var n = Math.round(cents / 100);
+  return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US');
+}
+function finPropertyLoanWarningHtml(d) {
+  var warnings = finPropertyLoanDataWarnings(d);
+  if (!warnings.length) return '';
+  return '<div class="fin-note-box" style="margin-top:10px;"><b>Loan data needs confirming.</b> '
+    + warnings.join(' ') + '</div>';
 }
 
 // ── Editable Valuation Calculator (income-capitalization method — the same formula and
@@ -4740,8 +4949,10 @@ function finPropertyImportMonthlyCsv() {
 // this year's net income, less what was set aside into reserves and committed to capital
 // projects this year. A computed ESTIMATE for planning purposes — distinct from "Distributions
 // to Church" below, which is the actual historical record of amounts already sent.
-function finComputeAvailableForDistribution(d) {
-  var year = new Date().getFullYear();
+function finComputeAvailableForDistribution(d, opts) {
+  opts = opts || {};
+  var now = opts.now ? new Date(opts.now) : new Date();
+  var year = now.getFullYear();
   var curYear = (d.annualSummary || []).filter(function(y) { return y.year === year; })[0];
   var annualNetCents = curYear ? curYear.net_income_cents : 0;
   var reserveContribCents = 0;
@@ -4754,7 +4965,22 @@ function finComputeAvailableForDistribution(d) {
   (d.capitalLedger || []).forEach(function(c) {
     if (String(c.entry_date || '').slice(0, 4) === String(year)) capitalCents += (c.amount_cents || 0);
   });
-  return { year: year, annualNetCents: annualNetCents, reserveContribCents: reserveContribCents, capitalCents: capitalCents, availableCents: annualNetCents - reserveContribCents - capitalCents };
+  // Mortgage PRINCIPAL, previously missing entirely. It is not an expense, so it is not inside
+  // net income, but it is cash out the door — the single largest omission on this card.
+  // Pro-rated to the months elapsed so it matches the YTD net income it is being taken from.
+  var sched = finAmortizationSchedule(((d.meta || {}).loan) || {}, opts);
+  var principalCents = 0;
+  if (sched && !(sched.payoffYear && year > sched.payoffYear)) {
+    var ref = sched.byYear[year] || sched.years[0];
+    var rate = (ref && ref.monthsCovered) ? ref.principalCents / ref.monthsCovered : 0;
+    var monthsElapsed = (year === now.getFullYear()) ? (now.getMonth() + 1) : 12;
+    principalCents = Math.round(rate * monthsElapsed);
+  }
+  return {
+    year: year, annualNetCents: annualNetCents, reserveContribCents: reserveContribCents,
+    capitalCents: capitalCents, principalCents: principalCents,
+    availableCents: annualNetCents - reserveContribCents - capitalCents - principalCents,
+  };
 }
 // "Amount Dispersed" — this calendar year's actual confirmed distributions already sent to the
 // church (from the Distributions to Church record below), distinct from the estimate above.
@@ -4774,6 +5000,10 @@ function finRenderAvailableForDistributionBar(d) {
   var recon = '';
   if (onHand) recon += 'The &ldquo;Reserves On-Hand&rdquo; tile above ($' + finFmtMoney(onHand/100) + ') is the total reserve <i>balance</i> AHRA is holding, including the flat base-minimum cash cushion carried over from prior years &mdash; not the same thing as the ' + a.year + ' contributions deducted here.';
   if (latestDist) recon += (recon ? ' ' : '') + 'The &ldquo;Distribution Amount&rdquo; tile ($' + finFmtMoney(latestDist.cents/100) + ') is AHRA&rsquo;s own cash-on-hand-minus-reserves figure for ' + latestDist.period + ' alone; this card is a full-year accrual estimate, so the two will not agree.';
+  // Why this card deducts the tax reserve while the multi-year forecast does not — otherwise the
+  // two look like they contradict each other on the same page.
+  recon += (recon ? ' ' : '') + 'Reserve contributions are deducted here because this is a year-to-date view and the ' + a.year
+    + ' tax bill has not been paid yet, so no tax expense sits in the net income above. The multi-year forecast on Planning deliberately does <i>not</i> deduct them, because over a full year the bill itself lands as an expense and counting both would charge the tax twice.';
   return '<div class="fin-navy-card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;margin:18px 0;">'
     + '<div style="max-width:340px;"><div class="fin-card-title" style="font-size:18px;">Available for Distribution</div>'
     + '<div style="font-size:.8rem;color:rgba(255,255,255,.75);">' + a.year + ' net income, less amounts set aside for reserves and committed to capital projects this year. An estimate for planning — see "Distributions to Church" below for the actual record.</div>'
@@ -4782,6 +5012,7 @@ function finRenderAvailableForDistributionBar(d) {
     + '</div>'
     + '<div style="text-align:right;">'
     + '<div style="font-size:.82rem;color:rgba(255,255,255,.75);">Annual Net (' + a.year + ' YTD) &nbsp; $' + finFmtMoney(a.annualNetCents/100) + '</div>'
+    + '<div style="font-size:.82rem;color:var(--negative-on-navy);">&minus; Mortgage principal (' + a.year + ' YTD) &nbsp; $' + finFmtMoney(a.principalCents/100) + '</div>'
     + '<div style="font-size:.82rem;color:var(--negative-on-navy);">&minus; Reserve contributions (' + a.year + ') &nbsp; $' + finFmtMoney(a.reserveContribCents/100) + '</div>'
     + '<div style="font-size:.82rem;color:var(--negative-on-navy);">&minus; Capital spend (' + a.year + ') &nbsp; $' + finFmtMoney(a.capitalCents/100) + '</div>'
     + '<div style="border-top:1px solid rgba(255,255,255,.3);margin:6px 0;"></div>'
@@ -7994,14 +8225,13 @@ function finRenderPropertyMultiYearForecast() {
   var el = document.getElementById('fin-plan-property-mount');
   if (!el) return;
   if (!_finProperty) { el.innerHTML = '<div class="fin-card"><p style="font-size:.85rem;color:var(--warm-gray);margin:0;">Loading property forecast…</p></div>'; return; }
-  var loan = (_finProperty.meta && _finProperty.meta.loan) || {};
-  var monthly = (_finProperty.monthly || []).slice().sort(function(a,b){ return a.period < b.period ? -1 : 1; }).slice(-12);
-  var withNet = monthly.filter(function(m) { return m.net_income_cents != null || m.net_operating_income_cents != null; });
-  var avgAnnualCents = withNet.length
-    ? (withNet.reduce(function(sum, m) { return sum + (m.net_income_cents != null ? m.net_income_cents : m.net_operating_income_cents); }, 0) / withNet.length) * 12
-    : 0;
-  var amort = finComputeMortgageAmortization(loan);
-  var payoffYear = amort ? amort.payoffDate.getFullYear() : null;
+  var f = finComputeRemittableForecast(_finProperty, { years: 3, growthPct: 0.02 });
+  var payoffYear = f.payoffYear;
+  // The first year clear of the mortgage. Read through the same model rather than hand-rolled,
+  // so the "after payoff" claim cannot drift from the year-by-year table below it.
+  var postPayoff = payoffYear
+    ? finComputeRemittableForecast(_finProperty, { years: 1, growthPct: 0.02, startYear: payoffYear + 1 }).rows[0]
+    : null;
 
   // Four tiles first — three forecast years and the payoff year — because that is the whole
   // answer for most readers; the year-by-year table and its assumptions sit behind a disclosure.
@@ -8011,54 +8241,113 @@ function finRenderPropertyMultiYearForecast() {
       + '<div class="fin-eyebrow"' + (positive ? ' style="color:var(--sage-text);"' : '') + '>' + label + '</div>'
       + '<div class="fin-mini-tile-val">' + value + '</div></div>';
   }
-  var tileStart = new Date().getFullYear() + 1;
   var tiles = '';
-  for (var t = 0; t < 3; t++) {
-    var tYear = tileStart + t;
-    var tCents = Math.round(avgAnnualCents * Math.pow(1 + growthForTiles, t + 1))
-      + ((payoffYear && tYear >= payoffYear) ? (loan.annual_debt_service_cents || 0) : 0);
-    tiles += tile(String(tYear), finMoney0(tCents), false);
-  }
+  f.rows.forEach(function(r) { tiles += tile(String(r.year), finMoney0Signed(r.remittableCents), false); });
   tiles += tile('Loan paid off', payoffYear ? String(payoffYear) : '—', true);
+
+  // The reconciliation, on the face of the card rather than behind the disclosure — the whole
+  // reason this card was wrong is that a single number hid what it had and had not taken out.
+  var r0 = f.rows[0];
+  function reconRow(label, cents, negative, strong) {
+    var amount = negative ? '&minus; ' + finMoney0(Math.abs(cents)) : finMoney0Signed(cents);
+    var colored = negative || (strong && cents < 0);
+    return '<div style="display:flex;justify-content:space-between;gap:16px;padding:3px 0;'
+      + (strong ? 'font-weight:700;border-top:1px solid var(--border);margin-top:4px;padding-top:6px;' : '') + '">'
+      + '<span>' + label + '</span>'
+      + '<span style="font-variant-numeric:tabular-nums;' + (colored ? 'color:var(--danger);' : '') + '">' + amount + '</span></div>';
+  }
+  var reconHtml = '<div style="font-size:12.5px;color:var(--warm-ink-label);">'
+    + '<div style="font-weight:700;margin-bottom:4px;">How ' + r0.year + ' gets to that number</div>'
+    + reconRow('Net income (grown ' + (growthForTiles * 100).toFixed(0) + '% from the trailing ' + f.base.months + ' months)', r0.netIncomeCents, false)
+    + reconRow('Mortgage principal &mdash; cash out, but never an expense', r0.principalCents, true)
+    + reconRow('Capital allowance &mdash; capitalized, so never an expense either', r0.capitalCents, true)
+    + reconRow('Remittable to the church', r0.remittableCents, false, true)
+    + '</div>';
+
+  // A negative headline is the finding, not an error — say so in words, so it does not read as
+  // a broken card. The mortgage is the whole story: it is nearly all of what the property earns.
+  var verdictHtml = r0.remittableCents < 0
+    ? '<div class="fin-note-box" style="margin-top:10px;"><b>Read this as: the property does not currently fund a distribution out of its own earnings.</b> '
+      + 'It earns roughly ' + finMoney0(r0.netIncomeCents) + ' a year, but the mortgage alone takes ' + finMoney0(r0.principalCents)
+      + ' of that in principal. Anything sent to the church in the meantime comes out of accumulated cash, not the year&rsquo;s income. '
+      + (postPayoff ? 'That changes once the loan is paid off around ' + payoffYear + ', after which the same building clears roughly '
+        + finMoney0Signed(postPayoff.remittableCents) + ' a year on these assumptions.' : '')
+      + '</div>'
+    : '';
+
+  // Actual distributions, as a reality check against the projection directly above them.
+  var dists = {};
+  (_finProperty.distributions || []).forEach(function(dd) {
+    var yr = String(dd.period || '').slice(0, 4);
+    if (yr) dists[yr] = (dists[yr] || 0) + (dd.amount_cents || 0);
+  });
+  var distYears = Object.keys(dists).sort();
+  var actualHtml = distYears.length
+    ? '<div class="fin-note-box" style="margin-top:12px;"><b>Actually sent to the church:</b> '
+      + distYears.map(function(yr) { return yr + ' ' + finMoney0(dists[yr]); }).join(' &middot; ')
+      + '. A projection that does not land near this range is measuring something other than remittable cash.</div>'
+    : '';
+
+  var insuranceCents = ((_finProperty.meta || {}).insurance || {}).allocated_total_annual_cents || 0;
+  var memoHtml = insuranceCents
+    ? '<p style="font-size:.72rem;color:var(--warm-gray);margin:10px 0 0;"><i>Memo, not deducted above: the church also pays roughly $'
+      + finFmtMoney(insuranceCents / 100) + '/yr of allocated insurance for this building off the master policy. It is left out here because the church budget already carries it as its own expense line.</i></p>'
+    : '';
 
   var inputsHtml = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">'
     + '<label style="font-size:.75rem;color:var(--warm-gray);">Annual Growth Assumption %<br><input type="number" id="fin-pmf-growth" step="0.1" value="2" oninput="finRenderPropertyMultiYearTable()" style="width:100px;"></label>'
     + '<label style="font-size:.75rem;color:var(--warm-gray);">Years to Project<br><input type="number" id="fin-pmf-years" value="10" min="1" max="30" oninput="finRenderPropertyMultiYearTable()" style="width:90px;"></label>'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Capital Allowance $/yr<br><input type="number" id="fin-pmf-capital" step="500" value="' + Math.round(f.capitalAllowanceCents / 100) + '" oninput="finRenderPropertyMultiYearTable()" style="width:120px;"></label>'
     + '</div>'
-    + '<p style="font-size:.72rem;color:var(--warm-gray);margin:0 0 10px;">Starts from the trailing-12-month average annual net income ($' + finFmtMoney(avgAnnualCents/100) + ') and compounds the growth assumption above. ' + (payoffYear ? 'The mortgage is projected to pay off around ' + payoffYear + ' — years from then on add back the current annual debt service ($' + finFmtMoney((loan.annual_debt_service_cents||0)/100) + '), on the same assumption noted in the Commercial Property tab.' : 'No mortgage payoff projection is available, so debt service is not added back in any year.') + '</p>'
+    + '<p style="font-size:.72rem;color:var(--warm-gray);margin:0 0 10px;">Grows operating income (net income before interest, $'
+    + finFmtMoney(f.baseOperatingCents / 100) + '/yr from the trailing ' + f.base.months + ' months) at the rate above, since rents grow but a fixed mortgage payment does not. Interest and principal come from amortizing the confirmed loan balance, so both fall to zero once it is paid off'
+    + (payoffYear ? ' around ' + payoffYear : '') + '. The capital allowance defaults to this property&rsquo;s own average spend ($'
+    + finFmtMoney(f.capital.totalCents / 100) + ' over ' + f.capital.years.toFixed(1) + ' years). Property tax is not deducted &mdash; the bill is already an expense inside net income.</p>'
     + '<div id="fin-pmf-table"></div>';
   el.innerHTML = '<div class="fin-card">'
     + '<div class="fin-card-title" style="font-size:20px;">3277 Ivanhoe forecast</div>'
-    + '<div class="fin-card-sub">What the property can be expected to remit, at ' + (growthForTiles * 100).toFixed(0) + '% growth and current expenses.</div>'
+    + '<div class="fin-card-sub">Cash the property can actually remit &mdash; net income less mortgage principal and capital spending, at ' + (growthForTiles * 100).toFixed(0) + '% growth.</div>'
     + '<div class="fin-grid-4">' + tiles + '</div>'
-    + '<div class="fin-note-box" style="margin-top:14px;">Even growing, the property cannot cover a gap that compounds. Planning has to close it on the revenue side.</div>'
+    + '<div class="fin-note-box" style="margin-top:14px;">' + reconHtml + '</div>'
+    + verdictHtml
+    + actualHtml
+    + finPropertyLoanWarningHtml(_finProperty)
+    + memoHtml
     + '<details style="margin-top:10px;"><summary class="fin-disclosure">Year by year, and the assumptions behind it</summary>'
     + '<div style="margin-top:10px;">' + inputsHtml + '</div></details>'
     + '</div>';
-  window._finPmfAvgAnnualCents = avgAnnualCents;
-  window._finPmfPayoffYear = payoffYear;
-  window._finPmfAnnualDebtServiceCents = loan.annual_debt_service_cents || 0;
   finRenderPropertyMultiYearTable();
 }
+// Reads the same finComputeRemittableForecast rows the tiles do — it used to re-derive the math
+// from three window globals, which is exactly how the table and the card came to disagree.
 function finRenderPropertyMultiYearTable() {
   var tableEl = document.getElementById('fin-pmf-table');
-  if (!tableEl) return;
-  var growthPct = (parseFloat(document.getElementById('fin-pmf-growth').value) || 0) / 100;
-  var numYears = parseInt(document.getElementById('fin-pmf-years').value, 10) || 10;
-  var avgAnnualCents = window._finPmfAvgAnnualCents || 0;
-  var payoffYear = window._finPmfPayoffYear;
-  var debtServiceCents = window._finPmfAnnualDebtServiceCents || 0;
-  var startYear = new Date().getFullYear() + 1;
+  if (!tableEl || !_finProperty) return;
+  var growthEl = document.getElementById('fin-pmf-growth');
+  var yearsEl = document.getElementById('fin-pmf-years');
+  var capEl = document.getElementById('fin-pmf-capital');
+  var growthPct = (parseFloat(growthEl && growthEl.value) || 0) / 100;
+  var numYears = parseInt(yearsEl && yearsEl.value, 10) || 10;
+  var capRaw = capEl ? parseFloat(capEl.value) : NaN;
+  var opts = { years: numYears, growthPct: growthPct };
+  if (isFinite(capRaw)) opts.capitalAllowanceCents = Math.round(capRaw * 100);
+  var f = finComputeRemittableForecast(_finProperty, opts);
   var rows = '';
-  for (var i = 0; i < numYears; i++) {
-    var year = startYear + i;
-    var projectedCents = Math.round(avgAnnualCents * Math.pow(1 + growthPct, i + 1));
-    var afterPayoff = payoffYear && year >= payoffYear;
-    var totalCents = projectedCents + (afterPayoff ? debtServiceCents : 0);
-    rows += '<tr' + (afterPayoff ? ' style="background:var(--linen);"' : '') + '><td style="padding:4px 8px;">' + year + (afterPayoff ? ' <span style="font-size:.68rem;color:var(--warm-gray);">(post-payoff)</span>' : '') + '</td><td style="padding:4px 8px;text-align:right;">$' + finFmtMoney(totalCents/100) + '</td></tr>';
-  }
+  f.rows.forEach(function(r) {
+    rows += '<tr' + (r.isPostPayoff ? ' style="background:var(--linen);"' : '') + '>'
+      + '<td style="padding:4px 8px;">' + r.year + (r.isPostPayoff ? ' <span style="font-size:.68rem;color:var(--warm-gray);">(post-payoff)</span>' : '') + '</td>'
+      + '<td style="padding:4px 8px;text-align:right;">' + finMoney0Signed(r.netIncomeCents) + '</td>'
+      + '<td style="padding:4px 8px;text-align:right;color:var(--warm-gray);">' + (r.principalCents ? '&minus; ' + finMoney0(r.principalCents) : '&mdash;') + '</td>'
+      + '<td style="padding:4px 8px;text-align:right;color:var(--warm-gray);">' + (r.capitalCents ? '&minus; ' + finMoney0(r.capitalCents) : '&mdash;') + '</td>'
+      + '<td style="padding:4px 8px;text-align:right;font-weight:700;' + (r.remittableCents < 0 ? 'color:var(--danger);' : '') + '">' + finMoney0Signed(r.remittableCents) + '</td></tr>';
+  });
   tableEl.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
-    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:4px 8px;">Year</th><th style="text-align:right;padding:4px 8px;">Projected Annual Net Income</th></tr></thead>'
-    + '<tbody>' + rows + '</tbody></table></div>';
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr>'
+    + '<th style="text-align:left;padding:4px 8px;">Year</th>'
+    + '<th style="text-align:right;padding:4px 8px;">Net income</th>'
+    + '<th style="text-align:right;padding:4px 8px;">Principal</th>'
+    + '<th style="text-align:right;padding:4px 8px;">Capital</th>'
+    + '<th style="text-align:right;padding:4px 8px;">Remittable</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 `;

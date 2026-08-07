@@ -627,6 +627,52 @@ Church Report → Balance sheet and widen the trend range — the tie-out names 
 reconcile. (`src/api-finance.js`, `src/frontend/js-finance.js`,
 `test/finance-balance-pnl-recon.test.js`, `test/finance-balance-recon-ui.test.js`)
 
+### FIN61 — Ivanhoe forecast reports remittable cash, not net income (2026-08-07, DONE)
+Reported from the Planning tab: the "3277 Ivanhoe forecast" projected **$43,864 for 2027** as
+"what the property can be expected to remit", and that could not be right with nothing held back
+for taxes and reserves. Confirmed — and wrong for a bigger reason. **$43,003.75 is the trailing-12
+average of AHRA's reported net income, grown 2%, with nothing deducted**; the card's own table
+header read "Projected Annual Net Income" while the title promised remittance. Three defects:
+**(1) mortgage principal was never subtracted** — the old comment assumed debt service sat inside
+net income, but only *interest* is an expense; principal is a balance-sheet movement worth
+~$35,700/yr of cash; **(2) post-payoff years ADDED BACK** `annual_debt_service_cents` on top of a
+base it had never been taken out of; **(3) capital spending (~$15,200/yr) is capitalized**, so it
+never touches the P&L (AHRA's own paint/asphalt/concrete reserve exists but is funded at $0).
+- **Deliberately NOT deducted, each would double-count**: property tax (the bill already lands as
+  an expense inside net income — Dec 2025 expenses were $14,631; the monthly reserve is a *timing*
+  mechanism, not an extra cost), the $4,500 base-minimum reserve (one-time floor, already funded),
+  and the ~$15,263/yr allocated church insurance (the church budget already carries it — memo line
+  only, user decision). **Do not "fix" these by subtracting them later.**
+- **The model** (`finComputeRemittableForecast`, one pure function all three consumers read):
+  `operating income grown at the rate − scheduled interest − scheduled principal − capital
+  allowance`. Growing *operating* income (net income before interest) is the point — rents grow, a
+  fixed mortgage payment does not. Interest/principal come from a real per-year amortization
+  schedule, so both fall to zero at payoff and **no add-back is needed at all**.
+- **2027 = −$5,849**, not +$43,864. Actual distributions were $34,000 (2024) / $8,000 (2025) /
+  $4,000 (2026 YTD) — the right order of magnitude at last; the Available-for-Distribution bar now
+  reads $6,051 for 2026 YTD. The card states in words that the property does not currently fund a
+  distribution from its own earnings, and that this changes at the 2033 payoff (~$54,579/yr after).
+- Also fixed: amortization anchored its payoff clock to `new Date()` instead of the confirmed
+  `balance_as_of_date` (so it slid forward on every render); the year-by-year table re-derived the
+  math from three `window._finPmf*` globals rather than reading the tiles' own rows (which is how
+  they came to disagree); Available-for-Distribution had no principal line.
+- **Two data conflicts surfaced, not silently resolved** (shown on the card, "confirm with LCEF"):
+  the pastor confirmed `monthly_payment_cents` ($4,283.03) is principal + interest, so the field
+  NAMED `annual_debt_service_cents` ($45,396.36) is really the principal portion — **mislabeled**;
+  and June 2026's reported interest of $952.05/mo implies a balance near $179,209 vs. the confirmed
+  $279,691.13. Nothing trusts either constant now.
+- **A bug in my own work caught by the harness, not by reading**: the base-interest fallback
+  averaged the 6-month anchor year against a full year instead of annualizing, dragging projected
+  net income *below* the base it grew from. Now takes the first twelve *scheduled* months.
+- `npm test` (960/960, 23 new); **every new test verified non-vacuous** by injecting the exact
+  regression it guards (5 injections, 5 correct failures). Two existing property tests needed their
+  loaders switched from single-function regex extraction to the `vm`-bundle technique. Plus
+  `node --check` on both bundles, div/table-balance on all four rendered views and on `CHMS_HTML`,
+  and a harness confirming Planning and the Property tab print the identical figure. **Not
+  verified**: a live browser or real D1. (`src/frontend/js-finance.js`,
+  `test/finance-property-remittable.test.js`, `test/finance-property-forecast.test.js`,
+  `test/finance-property-distribution.test.js`)
+
 ### TinyMCE editor-load limit — NOT this app; it's the website repo (2026-08-07)
 A Tiny automated email warned the account hit 50% of its monthly **Editor Load** limit (overage
 charges past 100%). **Connect contributes zero cloud loads and always has** — since v1.64.0 the
