@@ -24,6 +24,54 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### 2026-08-07 — TinyMCE "50% of Editor Load limit" notice: traced, and it is not this app
+
+Investigation only — **no code change in this repo**, because there is nothing here to change.
+A Tiny (TinyMCE) automated email warned the account had reached 50% of its monthly Editor Load
+limit, with overage charges beyond it. The obvious suspect was Connect's giving-letter template
+editor (`initLetterEditor()`, `src/frontend/js-settings.js`). It is not.
+
+**Connect contributes zero cloud editor loads, and always has.** Since v1.64.0 (2026-07-23) this
+app has self-hosted TinyMCE 7 under GPL: the script is fetched same-origin from
+`/admin/vendor/tinymce/tinymce.min.js` (Worker route at `tlc-volunteer-worker.js:243`, proxying
+`vendor/tinymce/` out of this repo), `base_url` points at that same path, and
+`license_key: 'gpl'` is set. Verified rather than assumed — a repo-wide scan for `tiny.cloud`
+outside `vendor/` returns exactly two hits, both prose (this file and the Worker's own comment
+explaining the self-hosting), and the only `tiny.cloud` strings inside the vendored bundle itself
+are documentation URLs baked into warning messages (`/docs/tinymce/7/migration-from-6x/`,
+`/support/#supportedwebbrowsers`, `/license-key/`), not a telemetry or metering endpoint. There is
+no API key anywhere in this repo, and the CSP (`script-src 'self' 'unsafe-inline'`, `src/auth.js`)
+would block a cloud load even if one were added by accident.
+
+**The loads come from the website repo** (`timothystl/website` → `tlc-newsletter-admin` Worker,
+admin.timothystl.org). `admin/db.js:6` builds a `TINYMCE_HEAD` `<script>` pointing at
+`https://cdn.tiny.cloud/1/<api key>/tinymce/7/tinymce.min.js`, and its CSP allowlists
+`cdn.tiny.cloud` accordingly. That head block is injected on the editor screens only (sermons,
+newsletters, news posts, ministry pages/posts, notices, the ministry editor, gym) — not on every
+admin page — so the count is driven by *how many editors each of those screens builds*, not by
+general admin traffic. `tinymceField()` (`admin/helpers.js:940`) emits its own `tinymce.init()`
+per rich-text field, and the newsletter screens (New Newsletter / Edit Newsletter) instantiate six
+before any extra notes: pastor, secondary, Word of Life, LASM, tertiary, quick — plus one more per
+extra note. So a single open of the newsletter editor is on the order of seven editor
+initialisations, and every reload or failed save repeats them.
+
+**Fix, if it is wanted, is in that repo, not this one**: do there what was already done here —
+vendor the needed TinyMCE subset and serve it same-origin off its own Worker. The pattern is
+proven on this exact infrastructure by v1.64.0 and needs no API key and no paid tier (TinyMCE 7 is
+GPL v2+ for self-hosting). One difference to plan for: the website's toolbar asks for
+`image link lists blockquote table code`, and `vendor/tinymce/plugins/` here carries only
+`code/image/link/lists` — a vendored subset over there additionally needs `table` (`blockquote` is
+a core format, not a plugin file, so it needs nothing extra). Cheaper partial mitigation, if a
+full self-host is not wanted immediately: lazy-init each editor on first focus so opening a
+newsletter costs one load instead of seven.
+
+**Also worth an admin's attention, though not itself a bug**: the key at `admin/db.js:5` is
+hardcoded in what is a *public* repository. A Tiny cloud key is inherently public (it ships in
+client-side HTML on every editor page, so anyone viewing source already has it) — the protection
+is Tiny's own approved-domains list, not secrecy. Worth confirming in the Tiny account that the
+approved-domains list is restricted to admin.timothystl.org, so the quota being consumed can only
+be this church's own usage.
+
 ### v1.148.0 — Finance Workspace v3: the tab answers "how are we doing?" (2026-08-06)
 
 Implemented the `design_handoff_finance_workspace` bundle ("Finance overview framing"). The tab
