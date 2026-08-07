@@ -6613,6 +6613,24 @@ var _finHealthPlanPremiumOverrides = {};
 // live roster's counts are passed in by the UI. A legacy medicalCents override (the pre-tier save
 // shape, one annual figure for the whole group) still wins if one is stored, so nothing an admin
 // typed under the old card is silently discarded.
+// Dental and vision are PER COVERED WORKER, confirmed by the church: only someone on the health
+// plan has them at all, and each covered worker carries the full annual figure. They are simply not
+// tier-priced in the packet the way medical is, which is why they sit as one annual number each
+// rather than a rate per coverage tier.
+//
+// This used to treat those figures as a single group bill divided across whoever was enrolled, so
+// a covered worker's dental and vision fell every time a colleague joined, and adding a covered
+// worker added nothing at all to the church's total. At the church's stated figures a family-tier
+// worker costs $24,612.00 medical + $3,046.80 dental + $1,471.68 vision = $29,130.48.
+function finHealthAncillaryPerContractCents(optionKey, premiumOverrides) {
+  var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
+  if (!opt) return { dentalCents: 0, visionCents: 0 };
+  var ov = (premiumOverrides || (typeof _finHealthPlanPremiumOverrides !== 'undefined' ? _finHealthPlanPremiumOverrides : {}))[optionKey] || {};
+  return {
+    dentalCents: ov.dentalCents != null ? ov.dentalCents : opt.dentalCents,
+    visionCents: ov.visionCents != null ? ov.visionCents : opt.visionCents
+  };
+}
 function finComputeHealthPlanTotalCents(optionKey, premiumOverrides, enrollment) {
   var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
   if (!opt) return null;
@@ -6627,8 +6645,10 @@ function finComputeHealthPlanTotalCents(optionKey, premiumOverrides, enrollment)
     contracts += n;
   });
   var medicalCents = ov.medicalCents != null ? ov.medicalCents : monthlyCents * 12;
-  var dentalCents = ov.dentalCents != null ? ov.dentalCents : opt.dentalCents;
-  var visionCents = ov.visionCents != null ? ov.visionCents : opt.visionCents;
+  // Scaled to who is actually covered — see finHealthAncillaryPerContractCents.
+  var perContract = finHealthAncillaryPerContractCents(optionKey, premiumOverrides);
+  var dentalCents = perContract.dentalCents * contracts;
+  var visionCents = perContract.visionCents * contracts;
   var totalCents = medicalCents + dentalCents + visionCents;
   var overridden = ov.medicalCents != null || ov.dentalCents != null || ov.visionCents != null
     || Object.keys(ov.tiersMonthlyCents || {}).length > 0;
@@ -6959,11 +6979,10 @@ function finCompWorkerHealthCents(w) {
   var opt = HEALTH_PLAN_QUOTE_2027.options[_finHealthPlanSelectedOption];
   if (!opt) return 0;
   var rate = finHealthTierMonthlyCents(_finHealthPlanSelectedOption, tier) || 0;
-  var ov = (typeof _finHealthPlanPremiumOverrides !== 'undefined' ? _finHealthPlanPremiumOverrides : {})[_finHealthPlanSelectedOption] || {};
-  var dentalCents = ov.dentalCents != null ? ov.dentalCents : opt.dentalCents;
-  var visionCents = ov.visionCents != null ? ov.visionCents : opt.visionCents;
-  var enrolled = Math.max(1, finCompEnrolledCount());
-  return rate * 12 + Math.round((dentalCents + visionCents) / enrolled);
+  // Their own dental and vision, not a share of a group bill — so this worker's health cost does
+  // not move when a colleague joins or leaves the plan.
+  var perContract = finHealthAncillaryPerContractCents(_finHealthPlanSelectedOption);
+  return rate * 12 + perContract.dentalCents + perContract.visionCents;
 }
 // Full-time equivalent, as a fraction. A 20%-time worker is 0.2. Used to scale the DISTRICT
 // BENCHMARK, never the salary itself — the salary is whatever is really budgeted, but comparing

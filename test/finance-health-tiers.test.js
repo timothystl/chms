@@ -80,7 +80,9 @@ describe('the rates reconstruct the packet', () => {
     expect(ctx.finHealthTierMonthlyCents('renewal', 'family')).toBe(205100);
     expect(c.monthlyCents).toBe(410200);
     expect(c.medicalCents).toBe(4922400);
-    expect(c.totalCents).toBe(5374248); // + dental $3,046.80 + vision $1,471.68
+    // Dental and vision are per covered worker (the church's own figure: a family-tier worker
+    // costs $29,130.48), so at 2 contracts they land twice, not once.
+    expect(c.totalCents).toBe(5826096); // 2 x ($24,612.00 + $3,046.80 + $1,471.68)
   });
 
   it('reproduces every other option the same way', () => {
@@ -103,9 +105,10 @@ describe('a worker is charged their own tier', () => {
   it('prices Self at the Self rate, not a share of the group total', () => {
     ctx.finCompSetHealthTier(1, 'self');
     const [fam, self] = ctx.finCompComputeAll();
-    // Dental + vision ($4,518.48) split across the 2 enrolled = $2,259.24 each.
-    expect(self.benefits.healthCents).toBe(76530 * 12 + 225924);
-    expect(fam.benefits.healthCents).toBe(205100 * 12 + 225924);
+    // Dental + vision are per covered worker ($4,518.48 each), not a share of a group bill — so a
+    // worker's own figure does not move when a colleague joins or leaves the plan.
+    expect(self.benefits.healthCents).toBe(76530 * 12 + 451848);
+    expect(fam.benefits.healthCents).toBe(205100 * 12 + 451848);
     // The whole point: the two are no longer the same figure.
     expect(self.benefits.healthCents).toBeLessThan(fam.benefits.healthCents);
   });

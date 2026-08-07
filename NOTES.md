@@ -24,6 +24,40 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.159.0 — Dental and vision are per covered worker, not a group bill re-shared (2026-08-07)
+
+Correction from the church, with the figure to check against: a family-tier worker's health cost is
+**$29,130.48** — $24,612.00 medical ($2,051.00/mo x 12) plus the full $3,046.80 dental and $1,471.68
+vision. Dental and vision belong to whoever is on the health plan, each carrying the whole annual
+figure. The packet simply does not tier-price them the way it does medical, which is why they appear
+as one annual number each rather than a rate per coverage tier.
+
+**What was wrong.** Those two figures were modelled as a single group bill divided across whoever
+was enrolled (`(dental + vision) / enrolledCount`). Three consequences, all wrong: a covered
+worker's dental and vision fell every time a colleague joined the plan; adding a covered worker
+added nothing at all to the church's total; and a family-tier worker priced at $26,871.24 instead of
+$29,130.48. New `finHealthAncillaryPerContractCents()`; `finCompWorkerHealthCents` adds the figures
+outright and `finComputeHealthPlanTotalCents` multiplies them by the covered count.
+
+**An intermediate attempt is worth recording as a wrong turn**, because it was plausible: reading
+the packet figures as the cost *at the quoted enrolment* (2 contracts) and deriving a per-contract
+half. That keeps each worker's cost constant and scales the group total, so it fixes two of the
+three symptoms — and at the quoted enrolment it reproduces every previously-shipped number exactly,
+which made it look confirmed. It priced a worker at $26,871.24. The church's own $29,130.48 is what
+ruled it out. **Do not re-derive a per-contract figure by dividing these by the quoted enrolment.**
+
+**Figures that changed.** A family-tier worker: $26,871.24 -> $29,130.48. Renewal at the quoted 2
+contracts: $53,742.48 -> $58,260.96. Dinger in the worked example: church cost $147,661 -> $149,921.
+Medical is untouched and still reconciles to the packet's printed Total Monthly $4,102.00 and Total
+Annual $49,224.00. Five existing tests encoded the old group-bill reading and were updated with the
+reasoning; one exclusion test written last version around the re-sharing behaviour is gone, since
+nothing is re-shared now — an excluded worker's health leaves cleanly and moves nobody else's.
+
+**Verified:** `npm test` (1013/1013). A harness against the real shape prices Andrew, Mark and Jinah
+at $29,130.48 each and the group at $87,391.44 for three covered, with an opted-out worker at $0.
+Also `node --check` on both bundles. **Not verified:** a live browser.
+
+
 ### v1.158.0 — "Paid from another budget" flag on the compensation roster (2026-08-07)
 
 Reported: the Council summary's employer FICA line read $11,319 where the church's own figure is

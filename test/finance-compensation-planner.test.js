@@ -128,10 +128,10 @@ describe('§5.12 — the worked example, to the cent', () => {
     const c = ctx.finCompComputeAll()[0];
     expect(c.salaryCents).toBe(10647000);
     expect(c.benefits.pensionCents).toBe(1245699);    // $12,457
-    expect(c.benefits.healthCents).toBe(2687124);     // $26,871 — group quote / 2 contracts
+    expect(c.benefits.healthCents).toBe(2913048);     // $29,130.48 — medical + own dental + vision
     expect(c.benefits.disabilityCents).toBe(186323);  // $1,863
     expect(c.benefits.ficaCents).toBe(0);             // minister
-    expect(c.churchCostCents).toBe(14766146);         // $147,661
+    expect(c.churchCostCents).toBe(14992070);         // $149,921
   });
 
   it('reads him as 99% of district scale and 103% of the LCMS median', () => {
@@ -206,13 +206,13 @@ describe('§10.3 — a rate change moves everything in one render', () => {
 describe('§10.4 — the plan choice only moves enrolled figures', () => {
   it('repricing to Option 1 leaves the opt-out worker untouched', () => {
     const before = ctx.finCompComputeAll();
-    // Family tier: $2,051.00/mo x 12, plus an even share of dental and vision across 2 enrolled.
-    expect(before[0].benefits.healthCents).toBe(2687124);
+    // Family tier: $2,051.00/mo x 12, plus this worker's own dental and vision.
+    expect(before[0].benefits.healthCents).toBe(2913048);
     expect(before[2].benefits.healthCents).toBe(600000);  // opt-out cash
     ctx.finCompPickPlan('option1');
     const after = ctx.finCompComputeAll();
-    expect(after[0].benefits.healthCents).toBe(3091704);  // $2,388.15/mo x 12 + share
-    expect(after[1].benefits.healthCents).toBe(3091704);
+    expect(after[0].benefits.healthCents).toBe(238815 * 12 + 304680 + 147168);
+    expect(after[1].benefits.healthCents).toBe(238815 * 12 + 304680 + 147168);
     expect(after[2].benefits.healthCents).toBe(600000);   // unchanged
   });
 
@@ -640,22 +640,21 @@ describe('workers paid from another budget', () => {
     expect(after.totalCents).toBe(before.totalCents - theirs.churchCostCents);
   });
 
-  it('re-shares the group dental and vision when an ENROLLED worker is excluded', () => {
-    // Dental and vision are quoted as one annual figure for the whole group, not per contract, so
-    // taking a contract off the plan spreads that same bill across fewer people rather than
-    // shrinking it. The church's medical tier rate for that worker does leave. Pinned because it
-    // means the total does NOT simply fall by the excluded worker's own health line, and anyone
-    // reading the figures should know which of the two the model does.
+  it('takes an ENROLLED worker\'s health cost away cleanly, leaving nobody else\'s changed', () => {
+    // Dental and vision are per covered worker, so excluding someone removes their own health cost
+    // and moves nobody else's. (This replaced a re-sharing test written when those two were modelled
+    // as one group bill divided across whoever was enrolled.)
     const before = ctx.finCompTotals(ctx.finCompComputeAll());
+    const beforeRows = ctx.finCompComputeAll();
     const idx = ctx._finSalaryRoster.findIndex(w => w.name === 'Knapp');
-    const theirs = ctx.finCompComputeAll()[idx];
+    const theirs = beforeRows[idx];
     flag('Knapp');
     const after = ctx.finCompTotals(ctx.finCompComputeAll());
-    expect(after.salaryCents).toBe(before.salaryCents - theirs.salaryCents);
-    // The breakdown still reconciles to the tile after the exclusion.
-    expect(ctx.finCompBenefitBreakdown(ctx.finCompComputeAll()).totalCents).toBe(after.benefitsCents);
-    // Health is the exception: the remaining enrollee absorbs the group dental/vision share.
-    expect(after.healthCents).toBeGreaterThan(before.healthCents - theirs.benefits.healthCents);
+    const afterRows = ctx.finCompComputeAll();
+    expect(after.healthCents).toBe(before.healthCents - theirs.benefits.healthCents);
+    expect(after.totalCents).toBe(before.totalCents - theirs.churchCostCents);
+    // The pastor's own health figure is untouched by his colleague leaving the plan.
+    expect(afterRows[0].benefits.healthCents).toBe(beforeRows[0].benefits.healthCents);
   });
 
   it('removes them from every benefit line and from the counted denominator', () => {
