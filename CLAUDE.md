@@ -433,6 +433,43 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### FIN62 — Ivanhoe: worksheet back on the Property tab; four units walk down to cash (2026-08-07, DONE)
+Reported: "we lost the valuation formulas and worksheets... now it is just a static number," plus a
+request for a section taking the four actual units and their rents up to annual revenue, then out
+through mortgage and management fees. **The worksheet was never lost — FIN57 moved it off the
+Property tab onto Data & Imports**, collapsed behind a `<details>`, on the principle that "an upload
+control has no business on a page the council reads from." Right for file uploads, wrong for this:
+the worksheet is not a bulk import, it is the figure the council reads. **If a "we lost X" report
+comes in on Finance, check whether the FIN57 redesign relocated it before concluding anything is
+gone.** Moved back — **moved, not copied**: both tab panels sit in the DOM at once, so a second copy
+duplicates every `fin-val-*` id and `getElementById` silently reads whichever came first, i.e. an
+edit typed on one tab saving the other tab's numbers. The worksheet also now prints its full
+derivation rather than four summary tiles.
+- **One rent roll.** The four units were already stored (`src/db.js`) — what was missing is that
+  their rents only ever produced a cap-rate *value*, never cash. The existing roll was reused, not
+  duplicated (two rolls is the bug where two screens quote different rents and both look right),
+  and gained rent $/mo beside the annual box, $/SF, share, a **vacant** flag at zero rent, totals.
+  Monthly and annual are two views of one stored figure; each rewrites *the other* box only, never
+  the one being typed in (FIN52's controlled-input round-trip).
+- **New pure `finComputePropertyProForma()`**: rent + utility reimbursement − vacancy = EGI;
+  − operating costs − management fee = NOI; − interest − principal − capital allowance = cash to
+  the church. Reuses `finComputePropertyValuation`/`finAmortizationSchedule`/
+  `finComputePropertyCapitalAllowanceCents`/`finComputePropertyTrailingNetIncome`; the treatment
+  below NOI is deliberately identical to `finComputeRemittableForecast` so the two cannot drift.
+- **Property tax is NOT deducted twice** — already an itemized operating cost, and the reserve is a
+  timing mechanism. Said on the page, and a test injects the double-deduction to prove the guard.
+- **Two readings, gap named**: FIN61 works from AHRA's reported net income down, this from the
+  leases up; both printed, the difference stated rather than averaged away. On the real data they
+  agree — 2027 cash is negative either way. DSCR returns `null`, not `Infinity`, after payoff.
+- `npm test` (1036/1036, 25 new in `test/finance-property-proforma.test.js`, running the real built
+  bundle in a `vm`); **every new test verified non-vacuous** by injecting the exact regression it
+  guards (5 injections, 5 correct failures). Plus `node --check` on both bundles, div-balance on
+  `CHMS_HTML`, tag-balance across all five rendered surfaces incl. empty and non-admin states.
+  `finComputePropertyValuation` untouched, so its AHRA reconciliation passes unchanged — NOI
+  $54,905.19 at the seeded 0.08 cap rate gives $686,314.88 vs AHRA's $686,314.86. No schema change,
+  no new endpoint. **Not verified**: a live browser or real D1.
+  (`src/frontend/js-finance.js`, `test/finance-property-proforma.test.js`)
+
 ### G33 — Funds sharing a leading code combine into one line, everywhere (2026-08-07, DONE)
 Asked for from the Church Report's "Giving by fund, per ChMS records" panel: combine funds sharing
 a leading number, so "40085 Retirement Distribution" and "40085 Lent" belong on the General Fund's
