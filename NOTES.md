@@ -24,6 +24,56 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.155.0 — Embedded / non-embedded marked on each plan, and the spread-cost model generalised (2026-08-07)
+
+Follow-up to the single/family deductible split below, working from the plan's own definition
+supplied by the church (non-embedded
+= a true family deductible, no individual limits, one person can pay the whole family amount;
+embedded = each member has their own limit inside the family limit and starts paying coinsurance
+once they meet it, even if the family deductible has not been met).
+
+**First: the existing lone-claimant maths was already right.** Verified against all five options
+rather than assumed — embedded resolves to the individual figures, non-embedded to the family
+figures, deductible and out-of-pocket max both. No change was needed and none was made.
+
+**Badges.** Each row of the rates table now carries an Embedded / Non-embedded badge derived from
+the option's own flag (not a hand-written per-plan string, which could drift from the maths it
+describes), plus a legend. This exists because v1.151.0's new "Deductible — single" column could
+otherwise be misread on the two non-embedded options as a per-person cap inside family coverage —
+it is not; there, that figure is the self-only-contract deductible.
+
+**Spread-cost model generalised.** New `finComputeFamilyOOPCents(opt, rate, spend, members)`
+replaces the family-deductible-only calculation inside the breakeven. It caps each member's
+contribution toward the family deductible at the individual figure and flips them to coinsurance
+once they pass it. It reduces exactly to the old calculation for a non-embedded plan at any member
+count, and to the lone-claimant case at one member.
+
+**The honest result: for this quote it changes nothing, and the reason is worth recording.** The
+refinement can only move a figure when (members x single deductible) < family deductible. Every
+option in this renewal sets the family deductible at exactly 2x the single one, so that holds only
+at one member — which is the lone-claimant case, already modelled separately. Two or more people
+always reach the pooled limit at the same point. Confirmed by exhaustive comparison across all five
+options, member counts 2-5, and spends from $1k to $30k: identical to the previous model in every
+case. A synthetic option with a 3x ratio does differ at two members, which is what pins the
+generalisation as real rather than decorative.
+
+**So the family-size control is shown only when it can matter** (`finHealthFamilySizeMatters`,
+derived from the data). For the current quote it is hidden and replaced by a line explaining that
+the count makes no difference here and that the two rows below — costs shared, versus one member
+alone — bracket the real range. Offering a picker that provably cannot change a number is the
+control-that-does-nothing trap this codebase has hit before. A future quote with a different ratio
+turns it back on by itself.
+
+**Also fixed:** v1.151.0's `finHealthPlanResolvedOption` returned only the four resolved numbers and
+dropped every other field, so `selOpt.label` rendered as "undefined" in the breakeven callout
+heading. It now carries the whole option through.
+
+**Verified:** `npm test` (862/862, 6 new). Three tests initially failed on a wrong premise of mine
+rather than a code fault, and were rewritten around the derived rule instead of being forced. One
+`String.raw` backtick-in-a-comment break (the SC3-BUG1 class) was caught by the suite itself. Also
+`node --check` on both bundles and a render check of the callout and all five badges. **Not
+verified:** a live browser.
+
 ### v1.154.0 — Giving pace is General Fund only; cash runway reads the balance sheet (2026-08-07)
 
 **Reported**, with a screenshot of the Financial Health page: the giving-pace chart should count
