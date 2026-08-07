@@ -232,3 +232,180 @@ describe('register search filter', () => {
     expect(ctx.document.getElementById('reg-list').innerHTML).toContain('p.14');
   });
 });
+
+// ── The crash itself ─────────────────────────────────────────────────────────────────────────
+//
+// The reported symptom was iOS's "A problem repeatedly occurred on .../#register" — the web
+// content process being killed, not a JS exception, which is why nothing ever reached the error
+// banner. Cause: GET /admin/api/register has no LIMIT, and renderRegisterList drew every row it
+// got. Measured against a realistic scanned historical register, at ~1.5KB of markup and ~25
+// elements per row: 2,500 entries was 3.7MB of HTML and 61,620 DOM nodes, 5,000 was 7.4MB and
+// 121,620 — and the search box rebuilt all of it on EVERY KEYSTROKE, undebounced. That is what
+// exhausted the renderer's memory budget.
+
+/** A realistic historical register row: every extended field populated, as the PDF import leaves them. */
+function histEntry(i) {
+  const y = 1890 + (i % 135);
+  return {
+    id: i + 1, type: 'baptism', event_date: y + '-0' + (1 + (i % 9)) + '-1' + (i % 9),
+    name: 'Johann Friedrich Schmidt ' + i, name2: '', officiant: 'Rev. C. F. W. Walther',
+    dob: (y - 1) + '-05-1' + (i % 9), place_of_birth: 'St. Louis, Missouri',
+    baptism_place: 'Timothy Lutheran Church, St. Louis', father: 'Heinrich Schmidt ' + i,
+    mother: 'Maria Katharina Schmidt (nee Bauer) ' + i,
+    sponsors: 'Johann Bauer, Anna Bauer, Wilhelm Schmidt, Elisabeth Schmidt',
+    record_type: 'Infant', notes: 'Recorded in the German-language register, vol. II',
+    pdf_page: 1 + Math.floor(i / 4),
+  };
+}
+
+function withRegister(n) {
+  const ctx = makeCtx();
+  ctx._regEntries = Array.from({ length: n }, (_, i) => histEntry(i));
+  ctx._regType = 'baptism';
+  ctx.regFilterChanged();
+  return ctx;
+}
+
+const listHtml = (ctx) => ctx.document.getElementById('reg-list').innerHTML;
+const rowCount = (ctx) => (listHtml(ctx).match(/<tr><td class="reg-c-date"/g) || []).length;
+
+describe('register render is bounded, so a large register cannot kill the renderer', () => {
+  it('renders a page, not the whole register', () => {
+    const ctx = withRegister(2500);
+    expect(rowCount(ctx)).toBe(ctx.REG_PAGE_SIZE);
+  });
+
+  it('holds peak DOM flat as the register grows — the property that fixes the crash', () => {
+    // Both sides of this comparison sit above the "Show all" ceiling, so they render the same
+    // footer and the only difference is the match count printed in it. Comparing across the
+    // ceiling would compare two different footers, not two register sizes.
+    const small = listHtml(withRegister(1200)).length;
+    const huge = listHtml(withRegister(5000)).length;
+    // Not byte-identical: "5000" is one char longer than "1200". What matters is that it does not
+    // GROW with the register — a 4x bigger register must not produce meaningfully more markup.
+    expect(Math.abs(huge - small)).toBeLessThan(64);
+    // And an order of magnitude below where it was. 5,000 entries used to be ~7.4MB.
+    expect(huge).toBeLessThan(600_000);
+  });
+
+  it('says how many matches are off screen rather than truncating silently', () => {
+    const html = listHtml(withRegister(2500));
+    expect(html).toContain('Showing the first 250 of 2500 matching entries');
+    expect(html).toMatch(/onclick="regShowMore\(\)"/);
+  });
+
+  it('does not offer "Show all" above the ceiling — that button would hand the crash back', () => {
+    // Rendering thousands of rows at once is the exact thing that killed the renderer. Show more
+    // still reaches every entry, a page at a time.
+    expect(listHtml(withRegister(2500))).not.toMatch(/regShowAll/);
+    expect(listHtml(withRegister(400))).toMatch(/onclick="regShowAll\(\)"/);
+  });
+
+  it('shows no footer when everything matched fits', () => {
+    expect(listHtml(withRegister(40))).not.toContain('Showing the first');
+  });
+
+  it('extends the window on "Show more", and drops the footer once caught up', () => {
+    const ctx = withRegister(300);
+    expect(rowCount(ctx)).toBe(250);
+    ctx.regShowMore();
+    expect(rowCount(ctx)).toBe(300);
+    expect(listHtml(ctx)).not.toContain('Showing the first');
+  });
+
+  it('renders everything on an explicit "Show all"', () => {
+    const ctx = withRegister(1200);
+    ctx.regShowAll();
+    expect(rowCount(ctx)).toBe(1200);
+  });
+
+  it('restarts the window when the filter changes, so a new search starts at page one', () => {
+    const ctx = withRegister(2500);
+    ctx.regShowAll();
+    expect(rowCount(ctx)).toBe(2500);
+    ctx.regFilterChanged();
+    expect(rowCount(ctx)).toBe(250);
+  });
+
+  it('keeps the count in the toolbar honest about the full match set', () => {
+    const ctx = withRegister(2500);
+    // 2500 of 2500 match, so it reads as a plain total rather than "n of m".
+    expect(ctx.document.getElementById('reg-stat-txt').textContent).toBe('2500 baptisms');
+    ctx.document.getElementById('reg-search').value = 'Schmidt 7';
+    ctx.regFilterChanged();
+    expect(ctx.document.getElementById('reg-stat-txt').textContent).toMatch(/^\d+ of 2500 shown$/);
+  });
+});
+
+describe('search is debounced, so typing does not re-render per character', () => {
+  it('coalesces a burst of keystrokes into one render', async () => {
+    const ctx = withRegister(600);
+    let renders = 0;
+    const real = ctx.filterRegister;
+    ctx.filterRegister = function () { renders++; return real.apply(this, arguments); };
+    for (const q of ['s', 'sc', 'sch', 'schm', 'schmi']) {
+      ctx.document.getElementById('reg-search').value = q;
+      ctx.debounceRegister();
+    }
+    expect(renders, 'rendered while still typing').toBe(0);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(renders).toBe(1);
+  });
+
+  it('is wired to the search box in the markup', () => {
+    const input = CHMS_HTML.match(/<input[^>]*id="reg-search"[^>]*>/)[0];
+    expect(input).toContain('oninput="debounceRegister()"');
+  });
+});
+
+describe('printing is not capped by the on-screen window', () => {
+  it('prints every match, not just the rendered page', () => {
+    const ctx = withRegister(900);
+    let written = '';
+    ctx.window.open = () => ({ document: { write(h) { written += h; }, close() {} } });
+    ctx.printRegister();
+    expect(written).toContain('900 entries');
+    // One numbered row per entry, plus the year header rows.
+    expect((written.match(/<tr>/g) || []).length).toBeGreaterThan(900);
+  });
+
+  it('shares one filter with the screen, so the two cannot disagree', () => {
+    // regFilteredEntries is the single source; a second hand-rolled copy is how they drift.
+    expect(typeof makeCtx().regFilteredEntries).toBe('function');
+  });
+});
+
+describe('row markup moved from inline styles to classes, carrying the same declarations', () => {
+  // The weight of the repeated inline styles was itself part of the memory problem. These pin the
+  // values so the extraction cannot silently change how a row looks.
+  const EXPECTED = {
+    'reg-c-date': ['white-space:nowrap', 'color:var(--warm-gray)', 'width:96px'],
+    'reg-c-sm': ['font-size:.85rem'],
+    'reg-c-act': ['white-space:nowrap', 'text-align:right'],
+    'reg-sub': ['font-size:.75rem', 'color:var(--warm-gray)'],
+    'reg-sub-note': ['font-style:italic'],
+    'reg-flabel': ['font-size:.72rem', 'color:var(--warm-gray)', 'text-transform:uppercase', 'letter-spacing:.03em'],
+    'reg-dash': ['color:var(--faint)'],
+    'reg-page': ['font-size:.72rem', 'color:var(--faint)'],
+    'reg-yr-count': ['font-weight:400', 'color:var(--faint)'],
+    'reg-rt-badge': ['display:inline-block', 'font-size:.68rem', 'padding:1px 6px', 'border-radius:4px', 'background:var(--linen)', 'color:var(--warm-gray)', 'margin-bottom:3px'],
+    'reg-scroll': ['overflow-x:auto', '-webkit-overflow-scrolling:touch', 'margin-top:8px'],
+  };
+
+  for (const [cls, decls] of Object.entries(EXPECTED)) {
+    it('.' + cls + ' keeps its declarations', () => {
+      // Plain string slicing rather than a built regex — no escaping to get wrong.
+      const at = CHMS_APP_CSS.indexOf('\n.' + cls + '{');
+      expect(at, '.' + cls + ' is not defined').toBeGreaterThan(-1);
+      const body = CHMS_APP_CSS.slice(at + cls.length + 3, CHMS_APP_CSS.indexOf('}', at));
+      for (const d of decls) expect(body, '.' + cls + ' lost ' + d).toContain(d);
+    });
+  }
+
+  it('leaves no inline style attributes on a rendered register row', () => {
+    const rows = listHtml(withRegister(3));
+    const trs = rows.match(/<tr><td[\s\S]*?<\/tr>/g) || [];
+    expect(trs.length).toBe(3);
+    for (const tr of trs) expect(tr).not.toMatch(/style="/);
+  });
+});

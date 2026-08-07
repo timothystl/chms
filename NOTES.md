@@ -72,6 +72,67 @@ than the code: it pinned the old "No budget is on file" copy, which was the defe
 **Not verified**: a live browser or real D1. **Follow-up for an admin**: if the pace card still
 draws no line, it now names the code it searched — put the ledger's real offering code in
 *General Fund budget account code* under Data & Imports → Classification & policy.
+### v1.162.0 — Register crashed the iOS renderer; found from the real error message (2026-08-07)
+
+**Version-number collision worth knowing about:** two sessions merged the same day both labelled
+themselves `v1.161.0` — the register-on-a-phone fix and the Finance Health budget/runway fix. The
+second merge therefore did **not** change `DEPLOY_VERSION`, and that string is the cache-busting
+query param on `/admin/app-core.js`/`/admin/app-ext.js`, so a returning visitor holding the first
+deploy's cached bundle would never have been served the second one. This 1.162.0 bump busts the
+cache and carries both live. Nothing to undo; flagged because concurrent branches bumping to the
+same number is a silent-staleness trap this repo has hit before.
+
+The follow-up screenshot named the actual failure and it was **not** what v1.161.0 fixed: iOS's
+**"A problem repeatedly occurred on https://connect.timothystl.org/#register"** — the web content
+process being killed and re-killed, not a JS exception. That is why the global error banner never
+showed anything and why no amount of reading `filterRegister()` was going to find it.
+
+**Cause: unbounded render, rebuilt per keystroke.** `GET /admin/api/register` is
+`SELECT * FROM church_register` with no `LIMIT`, and `renderRegisterList()` drew every row it was
+handed. Measured against a realistic scanned historical register (every extended field populated,
+as the PDF import leaves them), by running the real shipped renderer out of the built bundle:
+
+| entries | HTML | DOM elements |
+|--------|------|--------------|
+| 200    | 0.33 MB | 6,420 |
+| 1,000  | 1.51 MB | 25,620 |
+| 2,500  | 3.71 MB | 61,620 |
+| 5,000  | 7.38 MB | 121,620 |
+
+...and the search box called `filterRegister()` on **every keystroke with no debounce** (the People
+tab has had `debouncePeople()` at 300ms all along; the register never got one), so each character
+typed rebuilt all of it and left the previous few MB for the collector. An in-app browser's
+content process has a tighter memory ceiling than Safari proper, which is why it died there.
+
+Three changes, in order of effect:
+- **Bounded render window.** `REG_PAGE_SIZE = 250`, with a footer stating *"Showing the first 250
+  of 2500 matching entries"* plus **Show more**. Peak DOM is now **flat at 0.26 MB / 7,624
+  elements regardless of register size** — 28x less markup than 5,000 entries used to produce, and
+  no longer growing. Nothing is silently truncated: a register that quietly stopped at 250 rows
+  would read as missing records.
+- **`Show all` is only offered below `REG_SHOW_ALL_MAX = 1000`.** Offering it unconditionally would
+  put the crash one tap away — the fix would have shipped with its own footgun. **Show more** still
+  reaches every entry, a page at a time.
+- **Debounced search** (`debounceRegister()`, 250ms) and per-row markup moved from repeated inline
+  `style=` attributes to CSS classes (~1.5KB → ~0.9KB per row; declarations carried over verbatim
+  and pinned by test). `regFilteredEntries()` is now the single filter shared by the screen and
+  `printRegister()`, which had a hand-copied duplicate — print deliberately uses the FULL match
+  set, never the capped window.
+
+**Known, not fixed:** the endpoint still returns every row, because client-side search and the
+year filter need them. At ~300 bytes of JSON per row that is far below the DOM cost that was
+actually killing the renderer, but a register that grows into five figures would want a real
+server-side page. Flagged rather than pre-emptively rebuilt.
+
+`npm test` (1101/1101, 41 in `test/register-mobile.test.js`, driving the real renderer out of the
+real built bundle at 200/600/1200/2500/5000 entries). **Every new test verified non-vacuous** by
+injecting the exact regression it guards (9 injections across both rounds, all failing correctly).
+Two of my own assertions were wrong and were corrected rather than forced — one demanded
+byte-identical output across the `Show all` ceiling, i.e. across two different footers. Plus
+`node --check` on both bundles, `app.css` brace balance, div-balance on `CHMS_HTML` and the
+`#tab-register` subtree. **Not verified**: a real phone. (`src/frontend/js-register.js`,
+`src/frontend/html-head.js`, `src/frontend/html-tabs.js`, `test/register-mobile.test.js`)
+
 ### v1.161.0 — Church Register was read-only on a phone (2026-08-07)
 
 Reported as errors on the register search on a mobile device. **The search filter itself is not

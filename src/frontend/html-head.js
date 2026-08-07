@@ -301,6 +301,29 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .reg-edit-btn:hover{opacity:1;background:var(--blue-mist);}
 .reg-del-btn{background:none;border:none;color:var(--danger);cursor:pointer;font-size:.78rem;padding:2px 6px;border-radius:4px;opacity:.7;margin-left:2px;}
 .reg-del-btn:hover{opacity:1;background:var(--linen);}
+/* Row internals. These were inline style attributes repeated on every cell of every row, which
+   made each row of the register ~1.5KB of markup — the historical register is thousands of rows,
+   and that markup weight is what pushed the iOS renderer over its memory limit. Declarations are
+   carried over verbatim from the inline styles they replace; test/register-mobile.test.js pins
+   them so the visual result cannot drift. */
+.reg-c-date{white-space:nowrap;color:var(--warm-gray);width:96px;}
+.reg-c-sm{font-size:.85rem;}
+.reg-c-act{white-space:nowrap;text-align:right;}
+.reg-sub{font-size:.75rem;color:var(--warm-gray);}
+.reg-sub-note{font-style:italic;}
+.reg-flabel{font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.03em;}
+.reg-dash{color:var(--faint);}
+.reg-page{font-size:.72rem;color:var(--faint);}
+.reg-yr-count{font-weight:400;color:var(--faint);}
+.reg-rt-badge{display:inline-block;font-size:.68rem;padding:1px 6px;border-radius:4px;background:var(--linen);color:var(--warm-gray);margin-bottom:3px;}
+.reg-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:8px;}
+.reg-empty{padding:40px 20px;text-align:center;color:var(--warm-gray);}
+.reg-empty-icon{font-size:2rem;margin-bottom:10px;}
+.reg-empty-ttl{font-size:.9rem;font-weight:600;margin-bottom:4px;}
+.reg-empty-sub{font-size:.82rem;}
+/* The "showing the first N of M" footer for a capped render. */
+.reg-more{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:16px 0 28px;}
+.reg-more-txt{font-size:.82rem;color:var(--warm-gray);flex:1 1 100%;}
 /* Phone: the add/edit form collapses behind the "+ Add" button in the register's sub-tab bar and
    is revealed by the .reg-form-open class — NOT by clearing an inline style, which hands the
    decision straight back to the display:none below (see toggleRegForm in js-register.js).
