@@ -3469,7 +3469,15 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     if (!rows.length) return json({ error: 'No rows to import' }, 400);
     const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number' || !Number.isFinite(r.own_balance_cents));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
-    await persistChurchBalancesImport(db, rows, fiscalYear, String(b.as_of_date || ''), new Date().toISOString());
+    // See the Monthly P&L commit route: unguarded, a database failure here reaches the worker's
+    // top-level handler and becomes an opaque "Internal server error", which cannot be diagnosed
+    // from a bug report. This route is finance-gated, so the real message is safe to return.
+    try {
+      await persistChurchBalancesImport(db, rows, fiscalYear, String(b.as_of_date || ''), new Date().toISOString());
+    } catch (e) {
+      return json({ error: 'Could not save ' + rows.length + ' balance rows for FY' + fiscalYear
+        + ': ' + (e && e.message ? e.message : String(e)) }, 500);
+    }
     await recordImport(db, 'church_balance', `FY${fiscalYear}`);
     return json({ ok: true, fiscalYear, imported: rows.length });
   }
@@ -3503,7 +3511,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number'
       || !Number.isInteger(r.fiscal_year) || !Number.isFinite(r.own_balance_cents));
     if (bad) return json({ error: 'Malformed row in import payload' }, 400);
-    await persistChurchBalancesMultiYearImport(db, rows, years, new Date().toISOString());
+    try {
+      await persistChurchBalancesMultiYearImport(db, rows, years, new Date().toISOString());
+    } catch (e) {
+      return json({ error: 'Could not save ' + rows.length + ' balance rows for FY' + years[0]
+        + (years.length > 1 ? '-FY' + years[years.length - 1] : '')
+        + ': ' + (e && e.message ? e.message : String(e)) }, 500);
+    }
     await recordImport(db, 'church_balance_multi', years.join(', '));
     return json({ ok: true, years, imported: rows.length });
   }

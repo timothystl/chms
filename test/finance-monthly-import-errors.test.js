@@ -67,3 +67,35 @@ describe('monthly import preview — unexpected failures', () => {
     expect(d.error).not.toBe('Internal server error. Please try again.');
   });
 });
+
+// Same visibility gap on both Balance Sheet importers: an unguarded persist reached the worker's
+// top-level handler and became an opaque 500.
+function balanceRow(year) {
+  return {
+    fiscal_year: year, classification: 'Assets', category_path: 'Assets:10000 Checking',
+    account_name: '10000 Checking', depth: 1, has_children: 0, own_balance_cents: 500000,
+  };
+}
+
+describe('balance sheet commit — database failures', () => {
+  it('single-year: returns the real database message', async () => {
+    const req = { json: async () => ({ fiscal_year: 2026, as_of_date: '2026-12-31', rows: [balanceRow(2026)] }) };
+    const res = await handleFinanceApi(req, {}, new URL('https://x/b'), 'POST',
+      'finance/church/balances/import', failingDb('D1_ERROR: no such table'), true, true);
+    expect(res.status).toBe(500);
+    const d = await res.json();
+    expect(d.error).toContain('D1_ERROR: no such table');
+    expect(d.error).toContain('FY2026');
+    expect(d.error).not.toBe('Internal server error. Please try again.');
+  });
+
+  it('multi-year: names the full year range it failed on', async () => {
+    const req = { json: async () => ({ years: [2019, 2026], rows: [balanceRow(2019), balanceRow(2026)] }) };
+    const res = await handleFinanceApi(req, {}, new URL('https://x/b'), 'POST',
+      'finance/church/balances/multi-year-import', failingDb('kaboom'), true, true);
+    expect(res.status).toBe(500);
+    const d = await res.json();
+    expect(d.error).toContain('kaboom');
+    expect(d.error).toContain('FY2019-FY2026');
+  });
+});

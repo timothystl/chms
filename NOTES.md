@@ -24,6 +24,25 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.151.4 — Balance Sheet importers: surface the real error too (2026-08-07)
+
+**Reported**: "balance sheet isn't importing" — with no error text, so what follows is a
+visibility fix and a request for detail, not a diagnosis. Nothing was found wrong with either
+Balance Sheet importer by inspection: both routes return a specific 4xx on every expected failure
+(no file, too large, unreadable workbook, no matching sheet, no "As of" date, malformed row), and
+`finChurchBalanceImportFileSelected` reads exactly the shape its route returns — so this is not a
+repeat of the v1.151.1 response-shape mismatch. Neither file is available in this session.
+
+**Changed**: both `persistChurchBalancesImport` and `persistChurchBalancesMultiYearImport` calls
+are now wrapped, returning the real database message plus the year scope that failed
+(`Could not save 412 balance rows for FY2019-FY2026: <db message>`), exactly as v1.151.3 did for
+the Monthly P&L commit. Unguarded, a database failure there reached the worker's top-level handler
+and became an opaque "Internal server error", which is undiagnosable from a report.
+
+`npm test` (868/868, 2 new). **Verified non-vacuous** by bypassing the multi-year try/catch, which
+fails the matching test. **Not verified**: a live browser, real D1, or the actual file — the next
+attempt will name its own cause.
+
 ### v1.151.3 — Monthly P&L import: surface the real error, not a bare 500 (2026-08-07)
 
 **Reported**: "now Error: Internal server error. Please try again."
