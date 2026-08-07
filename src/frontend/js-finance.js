@@ -2682,6 +2682,36 @@ function finDetailStrip(key, title, sub, bodyHtml) {
     + (open ? '<div style="margin-top:14px;">' + bodyHtml + '</div>' : '')
     + '</div>';
 }
+// The giving reference, combined on the leading fund code (groupRowsByFundCode in js-core.js) —
+// "40085 Lent" and "40085 Retirement Distribution" belong on the General Fund's own line, not as
+// their own scattered rows. A code covering more than one fund expands in place to show them.
+function finGivingFundGroupRows(rows) {
+  var groups = groupRowsByFundCode(rows, function(f) { return f.fundName; }, function(f) { return f.cents; });
+  var money = function(c) { return '<td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums;">$' + finFmtMoney(c / 100) + '</td>'; };
+  var gi = 0;
+  return groups.map(function(g) {
+    if (g.rows.length < 2) {
+      return '<tr><td style="padding:3px 8px 3px 0;">' + esc(g.label) + '</td>' + money(g.total) + '</tr>';
+    }
+    var idx = gi++;
+    var out = '<tr style="cursor:pointer;" onclick="finToggleGivingFundGroup(' + idx + ')">'
+      + '<td style="padding:3px 8px 3px 0;"><span id="fin-giv-grp-chevron-' + idx + '">&#9656;</span> ' + esc(g.label)
+      + ' <span style="color:var(--warm-gray);">(' + g.rows.length + ' funds)</span></td>' + money(g.total) + '</tr>';
+    g.rows.forEach(function(f) {
+      out += '<tr class="fin-giv-grp-row" data-grp="' + idx + '" style="display:none;">'
+        + '<td style="padding:3px 8px 3px 18px;color:var(--warm-gray);">' + esc(f.fundName) + '</td>' + money(f.cents) + '</tr>';
+    });
+    return out;
+  }).join('');
+}
+function finToggleGivingFundGroup(idx) {
+  var rows = document.querySelectorAll('tr.fin-giv-grp-row[data-grp="' + idx + '"]');
+  var chevron = document.getElementById('fin-giv-grp-chevron-' + idx);
+  if (!rows.length) return;
+  var expanded = rows[0].style.display !== 'none';
+  rows.forEach(function(r) { r.style.display = expanded ? 'none' : ''; });
+  if (chevron) chevron.innerHTML = expanded ? '&#9656;' : '&#9662;';
+}
 function finRenderChurchThisYear(d) {
   var el = document.getElementById('fin-church-year-view');
   if (!el) return;
@@ -2717,9 +2747,7 @@ function finRenderChurchThisYear(d) {
 
   var fundTable = (d.givingByFund && d.givingByFund.length)
     ? '<table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
-      + d.givingByFund.map(function(f) {
-          return '<tr><td style="padding:3px 8px 3px 0;">' + esc(f.fundName) + '</td><td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums;">$' + finFmtMoney(f.cents / 100) + '</td></tr>';
-        }).join('') + '</table>'
+      + finGivingFundGroupRows(d.givingByFund) + '</table>'
     : '<p style="font-size:.85rem;color:var(--warm-gray);">No giving recorded in ChMS for this year.</p>';
 
   var detailBody = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
@@ -3890,9 +3918,13 @@ function finExportChurchCsv() {
     });
     rows.push([]);
     rows.push(['Giving (ChMS records, reference only)', (d.givingCents / 100).toFixed(2)]);
-    (d.givingByFund || []).forEach(function(f) {
-      rows.push(['  ' + f.fundName, (f.cents / 100).toFixed(2)]);
-    });
+    // Combined on the leading fund code, same as the on-screen table; a code covering more than
+    // one fund keeps its members as indented lines beneath the combined figure.
+    groupRowsByFundCode(d.givingByFund || [], function(f) { return f.fundName; }, function(f) { return f.cents; })
+      .forEach(function(g) {
+        rows.push(['  ' + g.label, (g.total / 100).toFixed(2)]);
+        if (g.rows.length > 1) g.rows.forEach(function(f) { rows.push(['    ' + f.fundName, (f.cents / 100).toFixed(2)]); });
+      });
   } else if (_finChurchMode === 'multiyear' && _finChurchMultiYearData) {
     var md = _finChurchMultiYearData;
     var years = md.years || [];

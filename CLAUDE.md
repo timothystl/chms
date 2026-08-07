@@ -433,6 +433,27 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### G33 — Funds sharing a leading code combine into one line, everywhere (2026-08-07, DONE)
+Asked for from the Church Report's "Giving by fund, per ChMS records" panel: combine funds sharing
+a leading number, so "40085 Retirement Distribution" and "40085 Lent" belong on the General Fund's
+line however their own names read. The rule already existed as **two hand-inlined copies** (Giving
+by Fund report, board fund table — G7/G22) and not at all in the three views that read worst
+without it. Now one place, `groupRowsByFundCode()` in `js-core.js`, called by all five, so they
+cannot print different fund lines for the same money. Church Report's panel gets one line per code,
+labelled with the code's highest-total fund, expanding in place to its members (the CSV follows the
+same shape). The council narrative and the board print summary combine with no member rows — there
+is no expansion on paper. Consolidating also fixed two small latent things: the report keyed every
+uncoded fund to one shared empty-string group (harmless only via a later `key &&` guard) and the
+board keyed them by name; each uncoded fund now gets its own group, which is what both were
+reaching for. **Deliberately not combined**: fund pickers, giving entry tables and the
+reconcile-diagnose tool — data entry and forensics need the exact fund, not the family. `npm test`
+(885/885, 10 new in `test/fund-code-grouping.test.js`, running the real helper and renderers out of
+the built bundle); every new test verified non-vacuous by injecting the exact regression it guards
+(3 injections, 7 correct failures). Plus `node --check` on both bundles and a div-balance scan of
+`CHMS_HTML`. **Not verified**: a live browser or real D1. (`src/frontend/js-core.js`,
+`src/frontend/js-finance.js`, `src/frontend/js-giving.js`, `src/frontend/js-reports.js`,
+`test/fund-code-grouping.test.js`, `test/giving-consolidation-ui.test.js`)
+
 ### FIN58 — Revenue mix read 100% earned; four income streams; one shared classification (2026-08-07, DONE)
 Reported live: the Financial Health mix bar showed `EARNED $621,462 · 100%` with `$0` donor and
 `$0` passive, next to a banner naming exactly one unconfirmed group called "Income" — and a donor

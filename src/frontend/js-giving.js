@@ -1159,25 +1159,17 @@ function boardFundTableHtml(d, g) {
       + '<th>Category</th><th class="num">YTD actual</th><th class="num">YTD budget</th><th class="num">Variance</th><th class="num">Prior year</th>'
       + '</tr></thead><tbody>' + catBody + boardFundTotalRow(g) + '</tbody></table></div>';
   }
-  var groups = {}, order = [];
-  (g.funds || []).forEach(function(f) {
-    var m = (f.name || '').match(/^(\d+)\s/);
-    var key = m ? m[1] : ('_' + f.name);
-    if (!groups[key]) { groups[key] = []; order.push(key); }
-    groups[key].push(f);
-  });
   var body = '', gi = 0;
-  order.forEach(function(key) {
-    var grp = groups[key];
+  groupRowsByFundCode(g.funds || [], function(f) { return f.name; }, function(f) { return f.actual_cents; }).forEach(function(group) {
+    var grp = group.rows;
     if (grp.length > 1) {
       var idx = gi++;
-      var grpActual = grp.reduce(function(s, f) { return s + f.actual_cents; }, 0);
+      var grpActual = group.total;
       var grpPrior = grp.reduce(function(s, f) { return s + f.prior_cents; }, 0);
       var hasBudget = grp.some(function(f) { return f.budget_ytd_cents != null; });
       var grpBudget = hasBudget ? grp.reduce(function(s, f) { return s + (f.budget_ytd_cents || 0); }, 0) : null;
       var grpVar = grpBudget != null ? grpActual - grpBudget : null;
-      var repFund = grp.slice().sort(function(a, b) { return b.actual_cents - a.actual_cents; })[0];
-      body += '<tr class="rpt-group-hdr" style="cursor:pointer;" onclick="boardToggleFundGroup(' + idx + ')"><td><span id="board-grp-chevron-' + idx + '">&#9656;</span> ' + esc(repFund.name) + ' <span style="font-weight:400;text-transform:none;">(' + grp.length + ' funds — click to expand)</span></td>'
+      body += '<tr class="rpt-group-hdr" style="cursor:pointer;" onclick="boardToggleFundGroup(' + idx + ')"><td><span id="board-grp-chevron-' + idx + '">&#9656;</span> ' + esc(group.label) + ' <span style="font-weight:400;text-transform:none;">(' + grp.length + ' funds — click to expand)</span></td>'
         + fundRowCells({ actual_cents: grpActual, budget_ytd_cents: grpBudget, variance_cents: grpVar, prior_cents: grpPrior }) + '</tr>';
       grp.forEach(function(f) {
         body += '<tr class="board-grp-row" data-grp="' + idx + '" style="display:none;"><td style="padding-left:22px;">' + esc(f.name) + '</td>' + fundRowCells(f) + '</tr>';
@@ -1361,10 +1353,18 @@ function boardProjectionBasis(k, method) {
     return '<td style="padding:7px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;color:' + (v < 0 ? '#B85C3A' : (v > 0 ? '#6B8F71' : '#8A8377')) + ';">' + (v > 0 ? '+' : '') + boardMoney(v) + '</td>';
   }
   var th = 'padding:7px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--warm-meta);border-bottom:1.5px solid var(--color-navy);';
-  var fundRows = (k.funds || d.funds).map(function(f) {
-    return '<tr><td style="padding:7px 8px;border-bottom:1px solid var(--linen);">' + esc(f.name) + '</td>'
-      + nvNum(f.actual_cents) + (f.budget_ytd_cents == null ? nvDash() : nvNum(f.budget_ytd_cents)) + nvVar(f.variance_cents) + nvNum(f.prior_cents, '#8A8377') + '</tr>';
-  }).join('');
+  // Combined on the leading fund code, like every other per-fund view. A council page has no
+  // room — and no reason — to split the General Fund into its seasonal sub-names, and there is
+  // no expansion on paper, so this is one line per code with no member rows beneath it.
+  var fundRows = groupRowsByFundCode(k.funds || d.funds || [], function(f) { return f.name; }, function(f) { return f.actual_cents; })
+    .map(function(g) {
+      var actual = g.total;
+      var prior = g.rows.reduce(function(s, f) { return s + (f.prior_cents || 0); }, 0);
+      var hasBudget = g.rows.some(function(f) { return f.budget_ytd_cents != null; });
+      var budget = hasBudget ? g.rows.reduce(function(s, f) { return s + (f.budget_ytd_cents || 0); }, 0) : null;
+      return '<tr><td style="padding:7px 8px;border-bottom:1px solid var(--linen);">' + esc(g.label) + '</td>'
+        + nvNum(actual) + (budget == null ? nvDash() : nvNum(budget)) + nvVar(budget == null ? null : actual - budget) + nvNum(prior, '#8A8377') + '</tr>';
+    }).join('');
   var totVar = k.budget_variance_cents;
   var totRow = '<tr><td style="padding:8px;font-weight:700;">Total</td>'
     + '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(k.given_ytd_cents) + '</td>'
@@ -1416,10 +1416,11 @@ function boardPrintSummaryHtml(d) {
   if (!others.length) return '';
   var blocks = others.map(function(c) {
     var cb = cats[c.key];
-    var rows = (cb.funds || []).map(function(f) {
-      return '<tr><td style="padding:5px 8px;border-bottom:1px solid var(--linen);">' + esc(f.name) + '</td>'
-        + '<td class="num" style="padding:5px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;">' + boardMoney(f.actual_cents) + '</td>'
-        + '<td class="num" style="padding:5px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;color:#8A8377;">' + boardMoney(f.prior_cents) + '</td></tr>';
+    var rows = groupRowsByFundCode(cb.funds || [], function(f) { return f.name; }, function(f) { return f.actual_cents; }).map(function(g) {
+      var prior = g.rows.reduce(function(s, f) { return s + (f.prior_cents || 0); }, 0);
+      return '<tr><td style="padding:5px 8px;border-bottom:1px solid var(--linen);">' + esc(g.label) + '</td>'
+        + '<td class="num" style="padding:5px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;">' + boardMoney(g.total) + '</td>'
+        + '<td class="num" style="padding:5px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;color:#8A8377;">' + boardMoney(prior) + '</td></tr>';
     }).join('') || '<tr><td colspan="3" style="padding:5px 8px;color:#8A8377;">No funds in this category.</td></tr>';
     return '<div style="margin-bottom:18px;"><div class="board-card-label" style="margin-bottom:6px;">' + esc(cb.label)
       + ' &mdash; ' + boardMoney(cb.given_ytd_cents) + ' YTD</div>'

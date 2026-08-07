@@ -24,6 +24,45 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.152.0 — Funds sharing a leading code combine into one line (2026-08-07)
+
+**Asked for**: on the Church Report's "Giving by fund, per ChMS records" panel — and everywhere
+else — combine funds that share a leading number, so "40085 Retirement Distribution" and
+"40085 Lent" sit on the General Fund's line rather than scattered down the list as their own rows.
+
+The rule already existed in two views (the Giving by Fund report and the board fund table, both
+since G7/G22) as two hand-inlined copies, and did not exist at all in the three views that read
+worst without it. It now lives in exactly one place — `groupRowsByFundCode()` in `js-core.js` —
+and all five views call it, so they cannot print different fund lines for the same money.
+
+- **Church Report → giving reference** (the reported view): was a flat list of every fund. Now one
+  line per code, labelled with the code's highest-total fund ("40085 General Fund"), expanding in
+  place to show its members. The CSV export follows the same shape, combined figure then indented
+  members, so the download matches the screen.
+- **Council narrative and the board print summary**: combined, with no member rows — there is no
+  expansion on paper, and a council page has no reason to split the General Fund into its seasonal
+  sub-names.
+- **Giving by Fund report and the board fund table**: unchanged on screen; their inline copies of
+  the rule were replaced by the shared one.
+
+Two small behaviours were fixed by the consolidation rather than deliberately: the report's version
+keyed every uncoded fund to the same empty-string group (harmless only because a later `key &&`
+guard bailed out), and the board's keyed them by name (so two funds could never collide, but for a
+different reason than the report). The shared helper gives each uncoded fund its own group, which
+is what both views were reaching for.
+
+Fund pickers, the giving entry tables and the reconcile-diagnose tool deliberately still list real
+funds — data entry and forensics need the exact fund, not the family.
+
+`npm test` (885/885, 10 new in `test/fund-code-grouping.test.js`, which runs the real helper and
+the real renderers out of the built bundle); every new test verified non-vacuous by injecting the
+exact regression it guards (bare-code labels, uncoded funds merged, the narrative back to a flat
+list — 5, 1 and 1 correct failures). Plus `node --check` on both built bundles and a div-balance
+scan of the assembled `CHMS_HTML`. **Not verified**: a live browser or real D1.
+(`src/frontend/js-core.js`, `src/frontend/js-finance.js`, `src/frontend/js-giving.js`,
+`src/frontend/js-reports.js`, `test/fund-code-grouping.test.js`,
+`test/giving-consolidation-ui.test.js`)
+
 ### v1.151.5 — Half the importers never refreshed the import date (2026-08-07)
 
 **Reported**: the Balance Sheet import runs and the preview looks right, but the date on Data &
