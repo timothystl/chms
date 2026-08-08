@@ -4700,7 +4700,7 @@ function finPropertyLedgerMonthIndex(dateStr) {
   if (!isFinite(m) || m < 1 || m > 12) m = 1;
   return y * 12 + (m - 1);
 }
-function finComputePropertyCapitalAllowanceCents(d) {
+function finComputePropertyCapitalLedgerAverage(d) {
   var entries = ((d && d.capitalLedger) || []).filter(function(c) {
     return c.amount_cents != null && finPropertyLedgerMonthIndex(c.entry_date) != null;
   });
@@ -4716,6 +4716,57 @@ function finComputePropertyCapitalAllowanceCents(d) {
     cents: isFinite(cents) ? cents : 0, totalCents: totalCents, years: years,
     fromDate: first, toDate: last, entries: entries.length,
   };
+}
+// THE capital assumption. Every forward-looking consumer reads this one resolver — the pro forma,
+// the remittable forecast, the Property forecast card, the Planning multi-year table — so the
+// Property tab and Planning cannot quote different cash figures for the same year.
+//
+// Why the ledger average above is only a FALLBACK, not the answer: this property's ledger holds
+// three FINISHED one-time projects (a 2024 apartment renovation, a 2025 HVAC replacement, a
+// washer/dryer hookup). Averaged over their own 19-month span that is ~$15,200/yr, and charging it
+// forever says the church will re-renovate and re-replace every single year. So the average stays
+// available as reference, flagged as history, and the real assumption is entered:
+//   flat     -> a figure somebody chose, in dollars per year
+//   per_sqft -> a reserve rate times the building's leasable area (the commercial convention)
+//   ledger   -> the historical average, with source saying so, so the UI can flag it
+//
+// opts.sqft lets the LIVE rent-roll square footage override the stored one while the roll is being
+// edited; without it, typing a new SF figure would move the valuation and leave this line stale.
+function finComputePropertyCapitalAllowanceCents(d, opts) {
+  opts = opts || {};
+  var ledger = finComputePropertyCapitalLedgerAverage(d);
+  var cap = ((d && d.meta) || {}).capital || {};
+  var sqft = opts.sqft != null
+    ? (Number(opts.sqft) || 0)
+    : finComputePropertyUnits(finPropertyValuationInputsFromMeta((d && d.meta) || {}).rentRoll).totalSqft;
+  var perSqftCents = Number(cap.per_sqft_cents) || 0;
+  function out(over) {
+    return Object.assign({}, ledger, { ledgerCents: ledger.cents, sqft: sqft, perSqftCents: perSqftCents,
+      method: cap.method || 'ledger' }, over);
+  }
+  if (cap.method === 'flat' && cap.annual_allowance_cents != null) {
+    var flat = Math.round(Number(cap.annual_allowance_cents) || 0);
+    return out({ cents: Math.max(0, isFinite(flat) ? flat : 0), source: 'flat' });
+  }
+  if (cap.method === 'per_sqft' && cap.per_sqft_cents != null) {
+    // No square footage recorded would silently resolve to $0 — a real cost quietly deleted from
+    // the cash walk. Fall back to the ledger and name which happened, never a confident zero.
+    if (!sqft) return out({ source: 'per_sqft_no_sqft' });
+    var byArea = Math.round(perSqftCents * sqft);
+    return out({ cents: Math.max(0, isFinite(byArea) ? byArea : 0), source: 'per_sqft' });
+  }
+  return out({ source: 'ledger' });
+}
+// One sentence naming where the capital figure came from, so no card asserts a source it cannot
+// see. Kept beside the resolver because the two must change together.
+function finPropertyCapitalSourceNote(cap) {
+  if (!cap) return '';
+  if (cap.source === 'flat') return 'a set allowance of $' + finFmtMoney(cap.cents / 100) + '/yr';
+  if (cap.source === 'per_sqft') return '$' + (cap.perSqftCents / 100).toFixed(2) + '/SF across ' + (cap.sqft || 0).toLocaleString('en-US') + ' SF of leasable area';
+  if (cap.source === 'per_sqft_no_sqft') return 'the ledger average — a $/SF rate is set, but no unit square footage is recorded to apply it to';
+  if (!cap.entries) return 'nothing — no capital spending has been recorded or assumed';
+  return 'this property\'s own past spend ($' + finFmtMoney(cap.totalCents / 100) + ' over ' + cap.years.toFixed(1)
+    + ' years), which was one-time project work and is probably not a forward assumption';
 }
 // Which period the projection should grow FROM. This is the single biggest lever on the answer
 // and it used to be an invisible, unadjustable trailing-12 average: for this property that window
@@ -4786,13 +4837,14 @@ function finComputeRemittableForecast(d, opts) {
   var base = finComputePropertyTrailingNetIncome(d);
   var sched = finAmortizationSchedule(loan, opts);
   var baseInterest = finComputePropertyBaseInterestCents(d, sched);
+  // Reads the SAVED assumption via the shared resolver rather than defaulting on its own. An
+  // earlier pass defaulted to zero here — right about the ledger average being a poor forecast
+  // (every entry is a finished one-off: apartment renovation, HVAC, washer/dryer), but it left
+  // this card at $0 while the Commercial Property tab fell back to the average, so the two quoted
+  // different cash for the same year. Now there is one answer, whichever it is, and the resolver's
+  // own source field makes an unset assumption visible instead of silent.
   var capital = finComputePropertyCapitalAllowanceCents(d);
-  // Defaults to ZERO, not to the ledger average. Every entry in this property's ledger is a
-  // finished one-off (apartment renovation, HVAC, washer/dryer) — there is no recurring capital
-  // spend — so charging every future year with their average bills completed work forever. The
-  // historical figure is still returned, and shown beside the input, so a real allowance is a
-  // deliberate choice rather than a silent assumption.
-  var capitalCents = opts.capitalAllowanceCents != null ? opts.capitalAllowanceCents : 0;
+  var capitalCents = opts.capitalAllowanceCents != null ? opts.capitalAllowanceCents : capital.cents;
   var baseAnnualCents = opts.baseAnnualCents != null ? opts.baseAnnualCents : base.annualCents;
   // Net income before interest. This is the part that grows with rents; the mortgage does not.
   var baseOperatingCents = baseAnnualCents + baseInterest.cents;
@@ -4881,7 +4933,7 @@ function finRenderPropertyForecast(d) {
       : '')
     + '</div>';
   var note = '<p style="font-size:.72rem;color:var(--warm-gray);margin:0 0 4px;"><i>Remittable cash is net income less mortgage <b>principal</b> (which is not an expense, so it is not in net income) and less a capital allowance of $'
-    + finFmtMoney(f.capitalAllowanceCents/100) + '/yr. Property tax is <b>not</b> deducted again — the bill is already an expense inside net income, and the monthly reserve is a timing mechanism. '
+    + finFmtMoney(f.capitalAllowanceCents/100) + '/yr, from ' + finPropertyCapitalSourceNote(f.capital) + '. Property tax is <b>not</b> deducted again — the bill is already an expense inside net income, and the monthly reserve is a timing mechanism. '
     + (sched ? 'After payoff the mortgage stops entirely, which is where the step up comes from.' : 'Mortgage payoff cannot be projected — the loan balance, interest rate, or monthly payment is not set (or the payment does not cover the interest).')
     + '</i></p>';
   return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Cash Flow &amp; Mortgage Payoff Forecast</h4>' + statsHtml + note
@@ -5019,7 +5071,9 @@ function finComputePropertyProForma(d, opts) {
   var interestCents = sy ? sy.interestCents : 0;
   var principalCents = sy ? sy.principalCents : 0;
   var debtServiceCents = interestCents + principalCents;
-  var capital = finComputePropertyCapitalAllowanceCents(d);
+  // Pass the LIVE roll's square footage, so a $/SF capital assumption tracks an SF edit as it is
+  // typed instead of quoting the last saved figure.
+  var capital = finComputePropertyCapitalAllowanceCents(d, { sqft: roll.totalSqft });
   var capitalCents = opts.capitalAllowanceCents != null ? opts.capitalAllowanceCents : capital.cents;
   var netIncomeCents = v.noiCents - interestCents;
   var cashAfterDebtCents = v.noiCents - debtServiceCents;
@@ -5071,14 +5125,14 @@ function finRenderPropertyIncomeCard(d, isAdminUI) {
     + '<div class="fin-card-sub">' + sub + (val.as_of_date ? ' &middot; worksheet last saved ' + esc(val.as_of_date) : '') + '</div>'
     + finRenderRentRollTable(isAdminUI)
     + (isAdminUI ? '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;margin-top:6px;" onclick="finValAddTenant()">+ Add unit</button>' : '')
-    + '<div id="fin-proforma-out" style="margin-top:16px;">' + finRenderProFormaBody(pf) + '</div>'
+    + '<div id="fin-proforma-out" style="margin-top:16px;">' + finRenderProFormaBody(pf, isAdminUI) + '</div>'
     + '<details style="margin-top:14px;"><summary class="fin-disclosure">Operating costs, assumptions &amp; valuation worksheet</summary>'
       + '<div style="margin-top:10px;">' + finRenderValuationWorksheet(d, isAdminUI) + '</div></details>'
     + '</div>';
 }
 // The cash walk. Every line is signed the way it moves money, and the two lines a reader is most
 // likely to mistake for double-counting say so on their own row.
-function finRenderProFormaBody(pf) {
+function finRenderProFormaBody(pf, isAdminUI) {
   var v = pf.valuation;
   function line(label, cents, opt) {
     opt = opt || {};
@@ -5114,12 +5168,98 @@ function finRenderProFormaBody(pf) {
     + line('Net operating income', v.noiCents, { rule: true })
     + line('Mortgage interest', pf.interestCents, { negative: true, note: 'scheduled for ' + pf.year })
     + line('Mortgage principal', pf.principalCents, { negative: true, note: 'not an expense, but cash out the door' })
-    + line('Capital allowance', pf.capitalCents, { negative: true, note: 'averaged from the capital ledger; capitalized spending never reaches the P&amp;L' })
+    + line('Capital allowance', pf.capitalCents, { negative: true, note: 'from ' + finPropertyCapitalSourceNote(pf.capital) + '; capitalized spending never reaches the P&amp;L' })
     + line('Cash to the church, ' + pf.year, pf.cashToChurchCents, { total: true })
     + '</div>'
     + '<div style="font-size:11.5px;color:var(--warm-gray);margin-top:10px;line-height:1.45;">Debt-service coverage ' + dscrText + '. '
     + 'Property tax is not deducted twice — it is already one of the operating costs above.</div>'
-    + varianceHtml;
+    + varianceHtml
+    + finRenderCapitalAssumptionEditor(pf.capital, isAdminUI);
+}
+// The capital assumption, edited beside the line it drives rather than on a settings screen away
+// from its consequence. Three ways to say the same thing; whichever is picked, the resolver is the
+// only thing that decides, so Planning and this card cannot disagree.
+function finRenderCapitalAssumptionEditor(cap, isAdminUI) {
+  if (!cap) return '';
+  var method = cap.source === 'per_sqft_no_sqft' ? 'per_sqft' : (cap.source === 'flat' || cap.source === 'per_sqft' ? cap.source : 'ledger');
+  var warn = cap.source === 'per_sqft_no_sqft'
+    ? '<div class="fin-note-box" style="margin-top:8px;border-left:3px solid var(--danger);"><b>A $/SF rate is set, but no unit square footage is recorded</b> — so it cannot be applied, and the figure above has fallen back to the ledger average. Enter square footage in the unit table, or switch to a flat figure.</div>'
+    : '';
+  // The historical average is always named, never silently used: it is what somebody would
+  // otherwise assume is a forecast, and for this property it is three finished one-off projects.
+  var history = cap.entries
+    ? 'History: $' + finFmtMoney(cap.totalCents / 100) + ' across ' + cap.entries + ' capital entr'
+      + (cap.entries === 1 ? 'y' : 'ies') + ' over ' + cap.years.toFixed(1) + ' years, i.e. $'
+      + finFmtMoney(cap.ledgerCents / 100) + '/yr averaged. That was one-time project work &mdash; a renovation, an HVAC replacement &mdash; so it is a record of what was spent, not a forecast of what recurs.'
+    : 'No capital entries are recorded for this property, so there is no spending history to base an allowance on.';
+  if (!isAdminUI) {
+    return '<div class="fin-note-box" style="margin-top:12px;"><b>Capital allowance: $' + finFmtMoney(cap.cents / 100)
+      + '/yr</b>, from ' + finPropertyCapitalSourceNote(cap) + '. ' + history + '</div>' + warn;
+  }
+  function opt(val, label) {
+    return '<option value="' + val + '"' + (method === val ? ' selected' : '') + '>' + label + '</option>';
+  }
+  var perSqftPreview = cap.sqft
+    ? '$' + (cap.perSqftCents / 100).toFixed(2) + '/SF &times; ' + cap.sqft.toLocaleString('en-US') + ' SF = $'
+      + finFmtMoney((cap.perSqftCents * cap.sqft) / 100) + '/yr'
+    : 'no square footage recorded in the unit table yet';
+  return '<details style="margin-top:12px;"' + (_finCapAssumptionOpen ? ' open' : '') + '>'
+    + '<summary class="fin-disclosure" onclick="_finCapAssumptionOpen = !_finCapAssumptionOpen;">Capital allowance assumption &mdash; $'
+    + finFmtMoney(cap.cents / 100) + '/yr</summary>'
+    + '<div style="margin-top:10px;">'
+    + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">' + history + '</p>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Basis<br><select id="fin-cap-method" onchange="finCapAssumptionChanged()" style="width:190px;">'
+        + opt('ledger', 'Ledger average (history)')
+        + opt('flat', 'Flat $ per year')
+        + opt('per_sqft', '$ per SF per year')
+      + '</select></label>'
+      + (method === 'flat'
+        ? '<label style="font-size:.75rem;color:var(--warm-gray);">Allowance ($/yr)<br><input type="number" id="fin-cap-flat" step="100" value="' + (cap.source === 'flat' ? cap.cents / 100 : '') + '" placeholder="0" oninput="finCapAssumptionChanged()" style="width:120px;"></label>'
+        : '')
+      + (method === 'per_sqft'
+        ? '<label style="font-size:.75rem;color:var(--warm-gray);">Reserve rate ($/SF/yr)<br><input type="number" id="fin-cap-persqft" step="0.05" value="' + (cap.perSqftCents ? cap.perSqftCents / 100 : '') + '" placeholder="0.20" oninput="finCapAssumptionChanged()" style="width:130px;"></label>'
+          + '<span style="font-size:.72rem;color:var(--warm-gray);padding-bottom:4px;" id="fin-cap-persqft-preview">' + perSqftPreview + '</span>'
+        : '')
+      + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finCapAssumptionSave()">Save assumption</button>'
+      + '<span id="fin-cap-save-msg" style="font-size:.75rem;color:var(--warm-gray);"></span>'
+    + '</div>'
+    + (method === 'per_sqft' ? '<p style="font-size:.72rem;color:var(--warm-gray);margin:8px 0 0;">A commercial reserve is commonly $0.15&ndash;$0.25/SF/yr.</p>' : '')
+    + '</div></details>' + warn;
+}
+var _finCapAssumptionOpen = false;
+// Re-render only, so the picker's own inputs appear/disappear with the chosen basis and the $/SF
+// preview tracks what is typed. The saved figure is untouched until Save is pressed.
+function finCapAssumptionChanged() {
+  if (!_finProperty) return;
+  var mEl = document.getElementById('fin-cap-method');
+  var method = mEl ? mEl.value : 'ledger';
+  var meta = _finProperty.meta || (_finProperty.meta = {});
+  var cap = meta.capital || (meta.capital = {});
+  cap.method = method;
+  var flatEl = document.getElementById('fin-cap-flat');
+  if (flatEl) cap.annual_allowance_cents = Math.round((parseFloat(flatEl.value) || 0) * 100);
+  var psEl = document.getElementById('fin-cap-persqft');
+  if (psEl) cap.per_sqft_cents = Math.round((parseFloat(psEl.value) || 0) * 100);
+  // A basis with no figure entered yet must not resolve as a confident $0.
+  if (method === 'flat' && cap.annual_allowance_cents == null) cap.annual_allowance_cents = 0;
+  if (method === 'per_sqft' && cap.per_sqft_cents == null) cap.per_sqft_cents = 0;
+  _finCapAssumptionOpen = true;
+  finValRecompute();
+}
+function finCapAssumptionSave() {
+  var msgEl = document.getElementById('fin-cap-save-msg');
+  if (!_finProperty) return;
+  var cap = (_finProperty.meta || {}).capital || {};
+  var body = { capital: { method: cap.method || 'ledger',
+    annual_allowance_cents: cap.annual_allowance_cents != null ? cap.annual_allowance_cents : null,
+    per_sqft_cents: cap.per_sqft_cents != null ? cap.per_sqft_cents : null } };
+  if (msgEl) msgEl.textContent = 'Saving…';
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/meta', { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(r) {
+    if (r && r.error) { if (msgEl) msgEl.textContent = r.error; return; }
+    if (msgEl) msgEl.textContent = 'Saved.';
+    finLoadProperty();
+  }).catch(function(err) { if (msgEl) msgEl.textContent = (err && err.message) || 'Save failed.'; });
 }
 function finRenderValuationWorksheet(d, isAdminUI) {
   var val = (d.meta && d.meta.valuation) || {};
@@ -5255,7 +5395,7 @@ function finValRecompute() {
   var valOut = document.getElementById('fin-val-output');
   if (valOut) valOut.innerHTML = finRenderValuationOutputBody(finComputePropertyValuation(inputs));
   var pfOut = document.getElementById('fin-proforma-out');
-  if (pfOut && _finProperty) pfOut.innerHTML = finRenderProFormaBody(finComputePropertyProForma(_finProperty, { inputs: inputs }));
+  if (pfOut && _finProperty) pfOut.innerHTML = finRenderProFormaBody(finComputePropertyProForma(_finProperty, { inputs: inputs }), _userRole === 'admin');
 }
 function finValSave() {
   var msgEl = document.getElementById('fin-val-save-msg');
@@ -8894,14 +9034,14 @@ function finRenderPropertyMultiYearForecast() {
   var chosen = baseOpts.filter(function(b) { return b.key === _finPmfBaseKey; })[0] || baseOpts[0];
   var baseArg = { baseAnnualCents: chosen ? chosen.annualCents : undefined };
   var f = finComputeRemittableForecast(_finProperty, {
-    years: 3, growthPct: 0.02, baseAnnualCents: baseArg.baseAnnualCents, capitalAllowanceCents: _finPmfCapitalCents,
+    years: 3, growthPct: 0.02, baseAnnualCents: baseArg.baseAnnualCents, capitalAllowanceCents: finPmfCapitalCents(),
   });
   var payoffYear = f.payoffYear;
   // The first year clear of the mortgage. Read through the same model rather than hand-rolled,
   // so the "after payoff" claim cannot drift from the year-by-year table below it.
   var postPayoff = payoffYear
     ? finComputeRemittableForecast(_finProperty, { years: 1, growthPct: 0.02, startYear: payoffYear + 1,
-        baseAnnualCents: baseArg.baseAnnualCents, capitalAllowanceCents: _finPmfCapitalCents }).rows[0]
+        baseAnnualCents: baseArg.baseAnnualCents, capitalAllowanceCents: finPmfCapitalCents() }).rows[0]
     : null;
 
   // Four tiles first — three forecast years and the payoff year — because that is the whole
@@ -9003,7 +9143,7 @@ function finRenderPropertyMultiYearForecast() {
   var inputsHtml = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">'
     + '<label style="font-size:.75rem;color:var(--warm-gray);">Annual Growth Assumption %<br><input type="number" id="fin-pmf-growth" step="0.1" value="' + _finPmfGrowthPct + '" oninput="finPmfInputChanged()" style="width:100px;"></label>'
     + '<label style="font-size:.75rem;color:var(--warm-gray);">Years to Project<br><input type="number" id="fin-pmf-years" value="' + _finPmfYears + '" min="1" max="30" oninput="finPmfInputChanged()" style="width:90px;"></label>'
-    + '<label style="font-size:.75rem;color:var(--warm-gray);">Capital Allowance $/yr<br><input type="number" id="fin-pmf-capital" step="500" value="' + Math.round(_finPmfCapitalCents / 100) + '" oninput="finPmfInputChanged()" style="width:120px;"></label>'
+    + '<label style="font-size:.75rem;color:var(--warm-gray);">Capital Allowance $/yr<br><input type="number" id="fin-pmf-capital" step="500" value="' + Math.round(finPmfCapitalCents() / 100) + '" oninput="finPmfInputChanged()" style="width:120px;"></label>'
     + '</div>'
     + '<p style="font-size:.72rem;color:var(--warm-gray);margin:0 0 10px;">Grows operating income (net income before interest, $'
     + finFmtMoney(f.baseOperatingCents / 100) + '/yr from ' + esc(chosen ? chosen.label.toLowerCase() : 'the base period') + ') at the rate above, since rents grow but a fixed mortgage payment does not. Interest and principal come from amortizing the confirmed loan balance, so both fall to zero once it is paid off'
@@ -9030,7 +9170,15 @@ function finRenderPropertyMultiYearForecast() {
 var _finPmfBaseKey = 'trailing12';
 var _finPmfGrowthPct = 2;
 var _finPmfYears = 10;
-var _finPmfCapitalCents = 0;
+// null means "not touched on this screen yet" — resolve to the property's own saved capital
+// assumption instead. A hardcoded 0 here would have this card and the Commercial Property tab
+// quote different cash for the same year, which is the whole reason that assumption is resolved in
+// one place. Once somebody types in the box the typed figure wins, as a live what-if.
+var _finPmfCapitalCents = null;
+function finPmfCapitalCents() {
+  if (_finPmfCapitalCents != null) return _finPmfCapitalCents;
+  return finComputePropertyCapitalAllowanceCents(_finProperty).cents;
+}
 var _finPmfDetailsOpen = false;
 function finPmfSetBase(key) {
   _finPmfBaseKey = key;
@@ -9084,7 +9232,7 @@ function finRenderPropertyMultiYearTable() {
   var f = finComputeRemittableForecast(_finProperty, {
     years: _finPmfYears,
     growthPct: _finPmfGrowthPct / 100,
-    capitalAllowanceCents: _finPmfCapitalCents,
+    capitalAllowanceCents: finPmfCapitalCents(),
     baseAnnualCents: chosen ? chosen.annualCents : undefined,
   });
   var rows = '';

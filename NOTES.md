@@ -24,6 +24,74 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.163.0 — Ivanhoe: the capital allowance becomes an editable assumption (2026-08-07)
+
+Reported off the Commercial Property cash walk: the capital allowance is derived from past spend,
+but those were one-time projects and should not be projected forward ("we won't put HVAC in every
+year"). Correct, and the ledger shows exactly why — a 2024 apartment renovation ($8,273.75), a
+2025 HVAC replacement ($7,787.00) and a washer/dryer hookup ($8,000.00), three finished projects
+totalling $24,060.75 over their own 19-month span, i.e. **~$15,196/yr charged in perpetuity**.
+That single assumption was most of why 2027 read as deeply negative.
+
+**One resolver, because the alternative was already happening.** `finComputePropertyCapitalAllowanceCents`
+is now the single place the assumption is decided, reading `meta.capital`:
+
+| `method` | resolves to |
+|---|---|
+| `flat` | `annual_allowance_cents` |
+| `per_sqft` | `per_sqft_cents` x the rent roll's leasable area (13,535 SF here) |
+| `ledger` (default) | the historical average, with `source` saying so |
+
+The ledger-average maths moved unchanged into `finComputePropertyCapitalLedgerAverage`, keeping
+another session's same-day hardening of the loose `entry_date` parsing (bare `YYYY` used to make
+the month arithmetic NaN).
+
+**A real drift, found by a test and fixed.** A parallel session reached the same conclusion about
+the ledger average and hardcoded `finComputeRemittableForecast`'s default to **$0** — right about
+the diagnosis, but applied in that one function, while the Commercial Property pro forma still fell
+back to the average. Planning and Property would have quoted **different cash for the same year**
+($0 vs $15,196 of capital). Both now read the resolver. Per the church's own decision, an unset
+assumption still falls back to the ledger average — but visibly: the resolver's `source` drives
+copy naming it as one-time project history rather than a forecast, everywhere it prints. The test
+that pinned the old $0 default was rewritten with that reasoning recorded, not deleted.
+
+Planning's `_finPmfCapitalCents` was likewise hardcoded to `0`; it is now a null sentinel resolving
+to the saved assumption, so the box seeds from the real figure and a typed value stays a live
+what-if on top of it.
+
+**Two silent failures deliberately closed.** A `$/SF` rate with no square footage recorded would
+resolve to a confident **$0** — a real cost quietly deleted from the cash walk; it now falls back
+to the ledger and says which happened, with a warning box. And because the rent roll is edited
+live in the same card, `finComputePropertyProForma` passes the LIVE roll's square footage into the
+resolver — otherwise typing a new SF figure would move the valuation and leave the capital line
+stale.
+
+**Where it is edited:** in the cash-walk card beside the line it drives, not on a settings screen
+away from its consequence — a basis picker, the one input that basis needs, a live
+"$0.20/SF x 13,535 SF = $2,707/yr" readout, and the spending history named as history. Admin-only;
+a non-admin sees the figure and its basis with nothing to change it. Backend is one word:
+`'capital'` added to the meta `PATCH` section allowlist. No schema change, no new endpoint.
+
+**Verification.** `npm test` (1122/1122, 10 new). **Every new test verified non-vacuous** by
+injecting the exact regression it guards — `per_sqft` resolving to $0 with no square footage, the
+remittable forecast ignoring the saved assumption, live square footage not plumbed through, a
+deliberate `$0` treated as unset — 4 injections, 4 correct failures, each caught by the test that
+names it. Plus `node --check` on both built bundles and `api-finance.js`, and editor tag-balance
+across all three bases x admin/viewer. Run end to end against the real seeded ledger, 2027 cash:
+
+| assumption | capital | cash to the church |
+|---|---:|---:|
+| ledger average (today) | $15,196.26 | **−$11,687.43** |
+| flat $0/yr | $0.00 | **+$3,508.83** |
+| $0.20/SF/yr | $2,707.00 | **+$801.83** |
+
+Planning and Property agree in every case. **Not verified**: a live browser or real D1.
+
+**One step for an admin:** open Commercial Property, expand *Capital allowance assumption*, and set
+the real figure. Until then the card still shows the flagged ~$15,196 historical average.
+(`src/frontend/js-finance.js`, `src/api-finance.js`, `test/finance-property-proforma.test.js`,
+`test/finance-property-remittable.test.js`)
+
 ### v1.161.0 — Giving pace finds the uploaded budget; runway is church operations only (2026-08-07)
 
 Two problems reported off one live screenshot of Financial Health.
