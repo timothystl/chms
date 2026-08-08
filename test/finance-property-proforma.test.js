@@ -320,3 +320,113 @@ describe('typing into a rent box', () => {
     expect(els['fin-val-rr-2-share'].innerHTML).toContain('vacant');
   });
 });
+
+// The capital allowance used to be derived only — the ledger average, projected forward forever.
+// For this property that is three FINISHED one-time projects (a 2024 apartment renovation, a 2025
+// HVAC replacement, a washer/dryer hookup) charged every year in perpetuity, which is most of why
+// 2027 read as deeply negative. It is now an entered assumption with the average as a flagged
+// fallback.
+describe('capital allowance assumption', () => {
+  function withCapital(capital) {
+    const d = realProperty();
+    d.meta = { ...d.meta, capital };
+    return d;
+  }
+  // $15,000 over 2024-06 .. 2026-04 (23 months, 1.9167 years) = $7,826.09/yr + the 2026 entry.
+  const LEDGER_CENTS = fin.finComputePropertyCapitalAllowanceCents(realProperty()).cents;
+
+  it('falls back to the ledger average, and says that is what it did', () => {
+    const cap = fin.finComputePropertyCapitalAllowanceCents(realProperty());
+    expect(cap.source).toBe('ledger');
+    expect(cap.cents).toBe(LEDGER_CENTS);
+    expect(cap.cents).toBeGreaterThan(0);
+    // The fallback must be flagged as history, not presented as a forecast.
+    expect(fin.finPropertyCapitalSourceNote(cap)).toContain('not a forward assumption');
+  });
+
+  it('honours a flat figure, including a deliberate zero', () => {
+    const flat = fin.finComputePropertyCapitalAllowanceCents(
+      withCapital({ method: 'flat', annual_allowance_cents: 300000 }));
+    expect(flat.source).toBe('flat');
+    expect(flat.cents).toBe(300000);
+    // Zero is a real answer ("we plan no capital"), not a missing value to be overridden.
+    const zero = fin.finComputePropertyCapitalAllowanceCents(
+      withCapital({ method: 'flat', annual_allowance_cents: 0 }));
+    expect(zero.source).toBe('flat');
+    expect(zero.cents).toBe(0);
+  });
+
+  it('multiplies a $/SF rate by the real leasable area', () => {
+    const cap = fin.finComputePropertyCapitalAllowanceCents(
+      withCapital({ method: 'per_sqft', per_sqft_cents: 20 })); // $0.20/SF
+    expect(cap.source).toBe('per_sqft');
+    expect(cap.sqft).toBe(13535);
+    expect(cap.cents).toBe(20 * 13535); // $2,707.00/yr
+    expect(fin.finPropertyCapitalSourceNote(cap)).toContain('13,535 SF');
+  });
+
+  it('never resolves a $/SF rate to a confident $0 when no square footage is recorded', () => {
+    const noSqft = withCapital({ method: 'per_sqft', per_sqft_cents: 20 });
+    noSqft.meta.valuation = { ...REAL_VALUATION, rent_roll: [{ tenant: 'X', sqft: 0, annual_rent_cents: 100000 }] };
+    const cap = fin.finComputePropertyCapitalAllowanceCents(noSqft);
+    expect(cap.source).toBe('per_sqft_no_sqft');
+    expect(cap.cents).toBe(LEDGER_CENTS); // fell back rather than deleting a real cost
+    expect(fin.finPropertyCapitalSourceNote(cap)).toContain('no unit square footage');
+  });
+
+  it('tracks live square footage while the rent roll is being edited', () => {
+    const d = withCapital({ method: 'per_sqft', per_sqft_cents: 20 });
+    const live = fin.finComputePropertyCapitalAllowanceCents(d, { sqft: 20000 });
+    expect(live.cents).toBe(20 * 20000);
+    // ...and the pro forma passes the live roll through, so the card cannot show a stale figure.
+    const edited = fin.finPropertyValuationInputsFromMeta(d.meta);
+    edited.rentRoll[3].sqft = 7519 + 6465; // push the total to 20,000
+    const pf = fin.finComputePropertyProForma(d, { year: 2027, inputs: edited });
+    expect(pf.capital.sqft).toBe(20000);
+    expect(pf.capitalCents).toBe(20 * 20000);
+  });
+
+  it('reaches BOTH the pro forma and the remittable forecast — the drift the resolver prevents', () => {
+    const d = withCapital({ method: 'flat', annual_allowance_cents: 300000 });
+    const pf = fin.finComputePropertyProForma(d, { year: 2027 });
+    const rf = fin.finComputeRemittableForecast(d, { years: 1, startYear: 2027 });
+    expect(pf.capitalCents).toBe(300000);
+    expect(rf.capitalAllowanceCents).toBe(300000);
+    expect(rf.rows[0].capitalCents).toBe(300000);
+  });
+
+  it('moves the bottom line by exactly the change in the assumption', () => {
+    const before = fin.finComputePropertyProForma(realProperty(), { year: 2027 });
+    const after = fin.finComputePropertyProForma(
+      withCapital({ method: 'flat', annual_allowance_cents: 0 }), { year: 2027 });
+    expect(after.cashToChurchCents - before.cashToChurchCents).toBe(LEDGER_CENTS);
+  });
+
+  it('names its source everywhere it prints, rather than asserting the ledger', () => {
+    const flat = withCapital({ method: 'flat', annual_allowance_cents: 300000 });
+    const html = fin.finRenderProFormaBody(fin.finComputePropertyProForma(flat, { year: 2027 }), true);
+    expect(html).toContain('a set allowance of');
+    expect(html).not.toContain('averaged from the capital ledger');
+  });
+
+  it('gives a non-admin the figure and its basis, but nothing to change it with', () => {
+    const cap = fin.finComputePropertyCapitalAllowanceCents(realProperty());
+    const html = fin.finRenderCapitalAssumptionEditor(cap, false);
+    expect(html).toContain('Capital allowance');
+    expect(html).not.toContain('<select');
+    expect(html).not.toContain('Save assumption');
+  });
+
+  it('renders an admin editor whose basis picker and inputs stay tag-balanced', () => {
+    ['ledger', 'flat', 'per_sqft'].forEach((method) => {
+      const cap = fin.finComputePropertyCapitalAllowanceCents(
+        withCapital({ method, annual_allowance_cents: 300000, per_sqft_cents: 20 }));
+      const html = fin.finRenderCapitalAssumptionEditor(cap, true);
+      expect(html).toContain('Save assumption');
+      ['div', 'label', 'select', 'details', 'span'].forEach((t) => {
+        expect((html.match(new RegExp('<' + t + '\\b', 'g')) || []).length)
+          .toBe((html.match(new RegExp('</' + t + '>', 'g')) || []).length);
+      });
+    });
+  });
+});

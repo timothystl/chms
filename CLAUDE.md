@@ -433,6 +433,38 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### FIN63 — Ivanhoe: capital allowance becomes an editable assumption (2026-08-07, DONE)
+Reported: the capital allowance is derived from past spend, but those were one-time projects and
+shouldn't be projected forward ("we won't put HVAC in every year"). Confirmed by the ledger — a 2024
+apartment renovation, a 2025 HVAC replacement and a washer/dryer hookup, $24,060.75 across their own
+19-month span, i.e. **~$15,196/yr charged forever**, which was most of why 2027 read deeply negative.
+- **One resolver.** `finComputePropertyCapitalAllowanceCents` now reads `meta.capital`:
+  `flat` (a $/yr figure) · `per_sqft` (a rate x the rent roll's leasable area, 13,535 SF) · `ledger`
+  (the historical average, default). The averaging maths moved unchanged into
+  `finComputePropertyCapitalLedgerAverage`. Backend is one word: `'capital'` added to the meta
+  `PATCH` allowlist. No schema change, no endpoint.
+- **⚠ A real drift, caught by a test.** A parallel session diagnosed the same problem and hardcoded
+  `finComputeRemittableForecast`'s default to `$0` — but in that one function, while the Property
+  pro forma still fell back to the average, so Planning and Property would quote **different cash
+  for the same year**. Planning's `_finPmfCapitalCents` was hardcoded to `0` too. Both now read the
+  resolver. **If a future pass wants to change the default, change it in the resolver, not in a
+  consumer.**
+- **User decision: an unset assumption still falls back to the ledger average**, but visibly — the
+  resolver's `source` field drives copy (`finPropertyCapitalSourceNote`) naming it as one-time
+  project history rather than a forecast, everywhere it prints. The test pinning the old `$0`
+  default was rewritten with that reasoning recorded, not deleted.
+- **Two silent failures closed**: a `$/SF` rate with no square footage recorded resolved to a
+  confident `$0` (a real cost quietly deleted) — now falls back and says so; and since the rent roll
+  is edited live in the same card, the pro forma passes the LIVE square footage into the resolver so
+  a `$/SF` figure can't go stale mid-edit.
+- Editor sits in the cash-walk card beside the line it drives, admin-only. `npm test` (1122/1122,
+  10 new); **every new test verified non-vacuous** (4 injections, 4 correct failures). Real data,
+  2027 cash: ledger average −$11,687 · flat $0 +$3,509 · $0.20/SF +$802, with Planning and Property
+  agreeing in every case. **Not verified**: a live browser or real D1. **One step for an admin**:
+  Commercial Property → *Capital allowance assumption* → set the real figure.
+  (`src/frontend/js-finance.js`, `src/api-finance.js`, `test/finance-property-proforma.test.js`,
+  `test/finance-property-remittable.test.js`)
+
 ### FIN63 — Giving pace found the uploaded budget; runway excludes daycare (2026-08-07, DONE)
 Reported off a live Financial Health screenshot: the General Fund pace card said **"No budget is on
 file"** against a budget that IS uploaded and visible on the Planning tab, and the cash runway

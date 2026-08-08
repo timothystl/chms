@@ -2430,7 +2430,7 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
     const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(`finance_property_${propertyKey}_meta`).first();
     let meta = {};
     if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
-    for (const section of ['property', 'valuation', 'loan', 'reserves']) {
+    for (const section of ['property', 'valuation', 'loan', 'reserves', 'capital']) {
       if (b[section] && typeof b[section] === 'object') meta[section] = { ...(meta[section] || {}), ...b[section] };
     }
     await db.prepare(

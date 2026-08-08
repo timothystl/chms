@@ -292,12 +292,24 @@ describe('capital allowance defaults and date robustness', () => {
     meta: { loan: REAL_LOAN },
   };
 
-  it('defaults the forecast allowance to ZERO, not the ledger average', () => {
-    // Every ledger entry is a finished one-off, so averaging them bills completed work forever.
+  // This assertion used to pin a hardcoded ZERO default here. The instinct was right — every
+  // ledger entry is a finished one-off, so averaging them bills completed work forever — but the
+  // default was applied in this function ALONE, while the Commercial Property pro forma fell back
+  // to the ledger average, so the two screens quoted different cash for the same year. The
+  // allowance is now an entered assumption resolved in ONE place
+  // (finComputePropertyCapitalAllowanceCents), and by the church's own decision an unset
+  // assumption still falls back to the ledger average — but visibly, with the resolver's source
+  // field driving copy that names it as history rather than a forecast.
+  it('reads the saved assumption, falling back to the flagged ledger average when none is set', () => {
     const f = fin.finComputeRemittableForecast(d, { years: 1, now: '2026-08-07' });
-    expect(f.rows[0].capitalCents).toBe(0);
-    // The historical figure is still computed and reported, for display beside the input.
+    expect(f.capital.source).toBe('ledger');
+    expect(f.rows[0].capitalCents).toBe(f.capital.cents);
     expect(f.capital.cents).toBeGreaterThan(0);
+    // ...and a saved assumption reaches this card without any per-call plumbing.
+    const set = fin.finComputeRemittableForecast(
+      { ...d, meta: { ...d.meta, capital: { method: 'flat', annual_allowance_cents: 250000 } } },
+      { years: 1, now: '2026-08-07' });
+    expect(set.rows[0].capitalCents).toBe(250000);
   });
 
   it('still honours an explicit allowance', () => {
