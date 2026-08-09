@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import vm from 'node:vm';
-import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from '../src/html-chms.js';
 
 // finComputeAvailableForDistribution() lives inside the served (String.raw) frontend script, not
 // as an exported module function. It used to be extractable on its own, but since FIN61 it also
@@ -241,5 +241,76 @@ describe('finComputeLatestDistributionAmount', () => {
   it('returns null when no month has a distribution figure', () => {
     expect(finComputeLatestDistributionAmount({ monthly: [{ period: '2026-06', available_for_distribution_cents: null }] })).toBeNull();
     expect(finComputeLatestDistributionAmount({})).toBeNull();
+  });
+});
+
+// AHRA's "available to distribute" is cash in the bank at the report date. A distribution paid
+// BEFORE that date has already left the account, so deducting it again charges the church twice
+// for the same money — the reported bug: $9,321.77 (a 2026-06 report) less a $4,000 payment made
+// in 2026-04, shown as $5,321.77 "still available".
+describe('finComputeDistributionsAfter', () => {
+  // Both bundles: the hero renderer calls esc(), which lives in the core file. Loading ext alone
+  // would exercise a state the browser never runs in.
+  function loadBundle() {
+    const ctx = { console, document: { getElementById: () => null },
+      Math, JSON, Date, parseFloat, parseInt, isFinite, Number, String, Object, Array,
+      setTimeout, clearTimeout, localStorage: { getItem: () => null, setItem() {} },
+      fetch: () => Promise.reject(new Error('no network in tests')),
+      navigator: {}, location: { href: '', hash: '' },
+      addEventListener() {}, removeEventListener() {},
+      matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }) };
+    ctx.document.querySelectorAll = () => [];
+    ctx.document.querySelector = () => null;
+    ctx.document.addEventListener = () => {};
+    ctx.document.body = { classList: { add() {}, remove() {}, contains() { return false; } } };
+    ctx.window = ctx;
+    ctx.globalThis = ctx;
+    vm.createContext(ctx);
+    vm.runInContext(CHMS_APP_CORE_JS, ctx, { filename: 'app-core.js' });
+    vm.runInContext(CHMS_APP_EXT_JS, ctx, { filename: 'app-ext.js' });
+    return ctx;
+  }
+  const fin = loadBundle();
+  // The real seeded distribution history (src/db.js), with the real 2026 payment.
+  const DISTS = [
+    { period: '2024-05', amount_cents: 700000 },
+    { period: '2025-05', amount_cents: 800000 },
+    { period: '2026-04', amount_cents: 400000 },
+  ];
+
+  it('ignores a distribution paid before the report — it is already out of the cash figure', () => {
+    const out = fin.finComputeDistributionsAfter({ distributions: DISTS }, '2026-06');
+    expect(out.cents).toBe(0);
+    expect(out.periods).toEqual([]);
+  });
+
+  it('ignores a distribution paid in the report month itself', () => {
+    expect(fin.finComputeDistributionsAfter({ distributions: DISTS }, '2026-04').cents).toBe(0);
+  });
+
+  it('still subtracts a distribution paid after the report, which the figure cannot know about', () => {
+    const later = DISTS.concat([{ period: '2026-08', amount_cents: 250000 }]);
+    const out = fin.finComputeDistributionsAfter({ distributions: later }, '2026-06');
+    expect(out.cents).toBe(250000);
+    expect(out.periods).toEqual(['2026-08']);
+  });
+
+  it('handles no distributions and no period without throwing', () => {
+    expect(fin.finComputeDistributionsAfter({}, '2026-06').cents).toBe(0);
+    expect(fin.finComputeDistributionsAfter({ distributions: DISTS }, null).cents).toBe(1900000);
+  });
+
+  it('the hero shows the full AHRA figure as still available, not the double-counted figure', () => {
+    const d = {
+      distributions: DISTS,
+      monthly: [{ period: '2026-06', available_for_distribution_cents: 932177 }],
+      reserves: {}, capitalLedger: [], meta: {}, annualSummary: [],
+    };
+    const html = fin.finRenderPropertyDistributionHero(d, false);
+    expect(html).toContain('$9,321.77');       // AHRA's figure
+    expect(html).toContain('$4,000.00');       // still reported as already taken
+    expect(html).not.toContain('$5,321.77');   // ...but never deducted a second time
+    // And it says so, so a reader is not left to wonder.
+    expect(html).toContain('not deducted again');
   });
 });

@@ -4740,20 +4740,29 @@ function finComputePropertyCapitalAllowanceCents(d, opts) {
     ? (Number(opts.sqft) || 0)
     : finComputePropertyUnits(finPropertyValuationInputsFromMeta((d && d.meta) || {}).rentRoll).totalSqft;
   var perSqftCents = Number(cap.per_sqft_cents) || 0;
+  var flatCents = Math.max(0, Math.round(Number(cap.annual_allowance_cents) || 0));
+  if (!isFinite(flatCents)) flatCents = 0;
+  var byAreaCents = Math.max(0, Math.round(perSqftCents * sqft));
+  if (!isFinite(byAreaCents)) byAreaCents = 0;
   function out(over) {
     return Object.assign({}, ledger, { ledgerCents: ledger.cents, sqft: sqft, perSqftCents: perSqftCents,
-      method: cap.method || 'ledger' }, over);
+      flatCents: flatCents, byAreaCents: byAreaCents, method: cap.method || 'ledger' }, over);
   }
   if (cap.method === 'flat' && cap.annual_allowance_cents != null) {
-    var flat = Math.round(Number(cap.annual_allowance_cents) || 0);
-    return out({ cents: Math.max(0, isFinite(flat) ? flat : 0), source: 'flat' });
+    return out({ cents: flatCents, source: 'flat' });
   }
   if (cap.method === 'per_sqft' && cap.per_sqft_cents != null) {
     // No square footage recorded would silently resolve to $0 — a real cost quietly deleted from
     // the cash walk. Fall back to the ledger and name which happened, never a confident zero.
     if (!sqft) return out({ source: 'per_sqft_no_sqft' });
-    var byArea = Math.round(perSqftCents * sqft);
-    return out({ cents: Math.max(0, isFinite(byArea) ? byArea : 0), source: 'per_sqft' });
+    return out({ cents: byAreaCents, source: 'per_sqft' });
+  }
+  // A flat base plus a per-SF reserve: the flat part covers a known commitment, the rate scales
+  // with the building. Unlike the pure per_sqft case this does NOT fall back when square footage
+  // is missing — the flat part is still a real, entered figure, so the assumption stands and the
+  // editor warns that the rate is contributing nothing.
+  if (cap.method === 'flat_plus_sqft' && (cap.annual_allowance_cents != null || cap.per_sqft_cents != null)) {
+    return out({ cents: flatCents + byAreaCents, source: 'flat_plus_sqft' });
   }
   return out({ source: 'ledger' });
 }
@@ -4763,6 +4772,11 @@ function finPropertyCapitalSourceNote(cap) {
   if (!cap) return '';
   if (cap.source === 'flat') return 'a set allowance of $' + finFmtMoney(cap.cents / 100) + '/yr';
   if (cap.source === 'per_sqft') return '$' + (cap.perSqftCents / 100).toFixed(2) + '/SF across ' + (cap.sqft || 0).toLocaleString('en-US') + ' SF of leasable area';
+  if (cap.source === 'flat_plus_sqft') {
+    return 'a flat $' + finFmtMoney(cap.flatCents / 100) + '/yr plus '
+      + (cap.sqft ? '$' + (cap.perSqftCents / 100).toFixed(2) + '/SF across ' + cap.sqft.toLocaleString('en-US') + ' SF'
+                  : 'a $/SF rate that has no square footage to apply to');
+  }
   if (cap.source === 'per_sqft_no_sqft') return 'the ledger average — a $/SF rate is set, but no unit square footage is recorded to apply it to';
   if (!cap.entries) return 'nothing — no capital spending has been recorded or assumed';
   return 'this property\'s own past spend ($' + finFmtMoney(cap.totalCents / 100) + ' over ' + cap.years.toFixed(1)
@@ -5125,14 +5139,19 @@ function finRenderPropertyIncomeCard(d, isAdminUI) {
     + '<div class="fin-card-sub">' + sub + (val.as_of_date ? ' &middot; worksheet last saved ' + esc(val.as_of_date) : '') + '</div>'
     + finRenderRentRollTable(isAdminUI)
     + (isAdminUI ? '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;margin-top:6px;" onclick="finValAddTenant()">+ Add unit</button>' : '')
-    + '<div id="fin-proforma-out" style="margin-top:16px;">' + finRenderProFormaBody(pf, isAdminUI) + '</div>'
+    // The assumption editor is a SIBLING of the recompute target, never a child of it. Every
+    // keystroke recomputes the walk above, which rewrites #fin-proforma-out wholesale — an input
+    // living inside it would be destroyed and recreated mid-word, which is exactly the one-
+    // character-at-a-time bug FIN52 root-caused and this reintroduced.
+    + '<div id="fin-proforma-out" style="margin-top:16px;">' + finRenderProFormaBody(pf) + '</div>'
+    + '<div id="fin-capital-assumption">' + finRenderCapitalAssumptionEditor(pf.capital, isAdminUI) + '</div>'
     + '<details style="margin-top:14px;"><summary class="fin-disclosure">Operating costs, assumptions &amp; valuation worksheet</summary>'
       + '<div style="margin-top:10px;">' + finRenderValuationWorksheet(d, isAdminUI) + '</div></details>'
     + '</div>';
 }
 // The cash walk. Every line is signed the way it moves money, and the two lines a reader is most
 // likely to mistake for double-counting say so on their own row.
-function finRenderProFormaBody(pf, isAdminUI) {
+function finRenderProFormaBody(pf) {
   var v = pf.valuation;
   function line(label, cents, opt) {
     opt = opt || {};
@@ -5171,20 +5190,25 @@ function finRenderProFormaBody(pf, isAdminUI) {
     + line('Capital allowance', pf.capitalCents, { negative: true, note: 'from ' + finPropertyCapitalSourceNote(pf.capital) + '; capitalized spending never reaches the P&amp;L' })
     + line('Cash to the church, ' + pf.year, pf.cashToChurchCents, { total: true })
     + '</div>'
-    + '<div style="font-size:11.5px;color:var(--warm-gray);margin-top:10px;line-height:1.45;">Debt-service coverage ' + dscrText + '. '
+    + '<div style="font-size:11.5px;color:var(--warm-gray);margin-top:10px;line-height:1.45;">'
+    + 'A forward projection for <b>' + pf.year + '</b>, built from the leases up — so it will not match the cards above, which report ' + (pf.year - 1) + ' as AHRA actually recorded it. '
+    + 'Debt-service coverage ' + dscrText + '. '
     + 'Property tax is not deducted twice — it is already one of the operating costs above.</div>'
-    + varianceHtml
-    + finRenderCapitalAssumptionEditor(pf.capital, isAdminUI);
+    + varianceHtml;
 }
 // The capital assumption, edited beside the line it drives rather than on a settings screen away
 // from its consequence. Three ways to say the same thing; whichever is picked, the resolver is the
 // only thing that decides, so Planning and this card cannot disagree.
 function finRenderCapitalAssumptionEditor(cap, isAdminUI) {
   if (!cap) return '';
-  var method = cap.source === 'per_sqft_no_sqft' ? 'per_sqft' : (cap.source === 'flat' || cap.source === 'per_sqft' ? cap.source : 'ledger');
-  var warn = cap.source === 'per_sqft_no_sqft'
-    ? '<div class="fin-note-box" style="margin-top:8px;border-left:3px solid var(--danger);"><b>A $/SF rate is set, but no unit square footage is recorded</b> — so it cannot be applied, and the figure above has fallen back to the ledger average. Enter square footage in the unit table, or switch to a flat figure.</div>'
-    : '';
+  var method = cap.method === 'flat' || cap.method === 'per_sqft' || cap.method === 'flat_plus_sqft'
+    ? cap.method : 'ledger';
+  var warn = '';
+  if (cap.source === 'per_sqft_no_sqft') {
+    warn = '<div class="fin-note-box" style="margin-top:8px;border-left:3px solid var(--danger);"><b>A $/SF rate is set, but no unit square footage is recorded</b> &mdash; so it cannot be applied, and the figure above has fallen back to the ledger average. Enter square footage in the unit table, or switch to a flat figure.</div>';
+  } else if (cap.source === 'flat_plus_sqft' && cap.perSqftCents && !cap.sqft) {
+    warn = '<div class="fin-note-box" style="margin-top:8px;border-left:3px solid var(--danger);"><b>The $/SF part of this assumption is contributing nothing</b> &mdash; no unit square footage is recorded to apply it to, so only the flat amount is counted. Enter square footage in the unit table.</div>';
+  }
   // The historical average is always named, never silently used: it is what somebody would
   // otherwise assume is a forecast, and for this property it is three finished one-off projects.
   var history = cap.entries
@@ -5199,52 +5223,100 @@ function finRenderCapitalAssumptionEditor(cap, isAdminUI) {
   function opt(val, label) {
     return '<option value="' + val + '"' + (method === val ? ' selected' : '') + '>' + label + '</option>';
   }
-  var perSqftPreview = cap.sqft
-    ? '$' + (cap.perSqftCents / 100).toFixed(2) + '/SF &times; ' + cap.sqft.toLocaleString('en-US') + ' SF = $'
-      + finFmtMoney((cap.perSqftCents * cap.sqft) / 100) + '/yr'
-    : 'no square footage recorded in the unit table yet';
+  var wantsFlat = method === 'flat' || method === 'flat_plus_sqft';
+  var wantsRate = method === 'per_sqft' || method === 'flat_plus_sqft';
   return '<details style="margin-top:12px;"' + (_finCapAssumptionOpen ? ' open' : '') + '>'
-    + '<summary class="fin-disclosure" onclick="_finCapAssumptionOpen = !_finCapAssumptionOpen;">Capital allowance assumption &mdash; $'
-    + finFmtMoney(cap.cents / 100) + '/yr</summary>'
+    + '<summary class="fin-disclosure" onclick="_finCapAssumptionOpen = !_finCapAssumptionOpen;">Capital allowance assumption &mdash; <span id="fin-cap-headline">$'
+    + finFmtMoney(cap.cents / 100) + '/yr</span></summary>'
     + '<div style="margin-top:10px;">'
     + '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">' + history + '</p>'
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
-      + '<label style="font-size:.75rem;color:var(--warm-gray);">Basis<br><select id="fin-cap-method" onchange="finCapAssumptionChanged()" style="width:190px;">'
+      // Only the BASIS picker redraws this editor — it has to, so the right inputs appear. The
+      // number fields below never redraw it; they update the derived readouts in place, because
+      // rebuilding an input while somebody is typing in it is what limits them to one character.
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">Basis<br><select id="fin-cap-method" onchange="finCapBasisChanged()" style="width:210px;">'
         + opt('ledger', 'Ledger average (history)')
         + opt('flat', 'Flat $ per year')
         + opt('per_sqft', '$ per SF per year')
+        + opt('flat_plus_sqft', 'Flat $ plus $ per SF')
       + '</select></label>'
-      + (method === 'flat'
-        ? '<label style="font-size:.75rem;color:var(--warm-gray);">Allowance ($/yr)<br><input type="number" id="fin-cap-flat" step="100" value="' + (cap.source === 'flat' ? cap.cents / 100 : '') + '" placeholder="0" oninput="finCapAssumptionChanged()" style="width:120px;"></label>'
+      + (wantsFlat
+        ? '<label style="font-size:.75rem;color:var(--warm-gray);">' + (method === 'flat_plus_sqft' ? 'Flat base ($/yr)' : 'Allowance ($/yr)')
+          + '<br><input type="number" id="fin-cap-flat" step="100" value="' + (cap.flatCents ? cap.flatCents / 100 : '') + '" placeholder="0" oninput="finCapAssumptionChanged()" style="width:120px;"></label>'
         : '')
-      + (method === 'per_sqft'
-        ? '<label style="font-size:.75rem;color:var(--warm-gray);">Reserve rate ($/SF/yr)<br><input type="number" id="fin-cap-persqft" step="0.05" value="' + (cap.perSqftCents ? cap.perSqftCents / 100 : '') + '" placeholder="0.20" oninput="finCapAssumptionChanged()" style="width:130px;"></label>'
-          + '<span style="font-size:.72rem;color:var(--warm-gray);padding-bottom:4px;" id="fin-cap-persqft-preview">' + perSqftPreview + '</span>'
+      + (wantsRate
+        ? '<label style="font-size:.75rem;color:var(--warm-gray);">' + (method === 'flat_plus_sqft' ? 'Plus rate ($/SF/yr)' : 'Reserve rate ($/SF/yr)')
+          + '<br><input type="number" id="fin-cap-persqft" step="0.05" value="' + (cap.perSqftCents ? cap.perSqftCents / 100 : '') + '" placeholder="0.20" oninput="finCapAssumptionChanged()" style="width:130px;"></label>'
         : '')
       + '<button class="btn-primary" style="font-size:.78rem;padding:5px 12px;" onclick="finCapAssumptionSave()">Save assumption</button>'
       + '<span id="fin-cap-save-msg" style="font-size:.75rem;color:var(--warm-gray);"></span>'
     + '</div>'
-    + (method === 'per_sqft' ? '<p style="font-size:.72rem;color:var(--warm-gray);margin:8px 0 0;">A commercial reserve is commonly $0.15&ndash;$0.25/SF/yr.</p>' : '')
+    + '<p style="font-size:.72rem;color:var(--warm-gray);margin:8px 0 0;" id="fin-cap-preview">' + finCapAssumptionPreviewText(cap) + '</p>'
+    + (wantsRate ? '<p style="font-size:.72rem;color:var(--warm-gray);margin:4px 0 0;">A commercial reserve is commonly $0.15&ndash;$0.25/SF/yr.</p>' : '')
     + '</div></details>' + warn;
 }
+// The derived readout: how the chosen basis arrives at its figure. Its own function so the live
+// update and the first render cannot word it differently.
+function finCapAssumptionPreviewText(cap) {
+  if (!cap) return '';
+  var rate = '$' + (cap.perSqftCents / 100).toFixed(2) + '/SF &times; ' + (cap.sqft || 0).toLocaleString('en-US')
+    + ' SF = $' + finFmtMoney((cap.perSqftCents * (cap.sqft || 0)) / 100) + '/yr';
+  if (cap.method === 'flat_plus_sqft') {
+    return 'Flat $' + finFmtMoney(cap.flatCents / 100) + '/yr + ' + (cap.sqft ? rate : '$0/yr (no square footage recorded)')
+      + ' = <b>$' + finFmtMoney(cap.cents / 100) + '/yr</b>.';
+  }
+  if (cap.method === 'per_sqft') return cap.sqft ? rate + '.' : 'No square footage is recorded in the unit table yet, so this rate cannot be applied.';
+  if (cap.method === 'flat') return 'A flat $' + finFmtMoney(cap.cents / 100) + '/yr, unrelated to the building\'s size or its past spend.';
+  return 'Using the ledger average of $' + finFmtMoney(cap.ledgerCents / 100) + '/yr until an assumption is set.';
+}
 var _finCapAssumptionOpen = false;
-// Re-render only, so the picker's own inputs appear/disappear with the chosen basis and the $/SF
-// preview tracks what is typed. The saved figure is untouched until Save is pressed.
-function finCapAssumptionChanged() {
-  if (!_finProperty) return;
-  var mEl = document.getElementById('fin-cap-method');
-  var method = mEl ? mEl.value : 'ledger';
+// Reads the editor's inputs into module state. Deliberately does NOT re-render the editor.
+function finCapReadAssumptionInputs() {
+  if (!_finProperty) return null;
   var meta = _finProperty.meta || (_finProperty.meta = {});
   var cap = meta.capital || (meta.capital = {});
-  cap.method = method;
+  var mEl = document.getElementById('fin-cap-method');
+  if (mEl) cap.method = mEl.value;
   var flatEl = document.getElementById('fin-cap-flat');
   if (flatEl) cap.annual_allowance_cents = Math.round((parseFloat(flatEl.value) || 0) * 100);
   var psEl = document.getElementById('fin-cap-persqft');
   if (psEl) cap.per_sqft_cents = Math.round((parseFloat(psEl.value) || 0) * 100);
-  // A basis with no figure entered yet must not resolve as a confident $0.
-  if (method === 'flat' && cap.annual_allowance_cents == null) cap.annual_allowance_cents = 0;
-  if (method === 'per_sqft' && cap.per_sqft_cents == null) cap.per_sqft_cents = 0;
+  // A basis with no figure entered yet must resolve as a deliberate 0, not as unset — otherwise
+  // picking "flat" and typing nothing silently falls back to the ledger average.
+  if ((cap.method === 'flat' || cap.method === 'flat_plus_sqft') && cap.annual_allowance_cents == null) cap.annual_allowance_cents = 0;
+  if ((cap.method === 'per_sqft' || cap.method === 'flat_plus_sqft') && cap.per_sqft_cents == null) cap.per_sqft_cents = 0;
+  return cap;
+}
+// Typing. Updates only DERIVED text and the walk above — never the inputs, never this container.
+function finCapAssumptionChanged() {
+  if (!finCapReadAssumptionInputs()) return;
   _finCapAssumptionOpen = true;
+  finCapRefreshDerived();
+  finValRecompute();
+}
+function finCapRefreshDerived() {
+  if (!_finProperty) return;
+  var cap = finComputePropertyCapitalAllowanceCents(_finProperty, { sqft: finCapLiveSqft() });
+  var head = document.getElementById('fin-cap-headline');
+  if (head) head.innerHTML = '$' + finFmtMoney(cap.cents / 100) + '/yr';
+  var prev = document.getElementById('fin-cap-preview');
+  if (prev) prev.innerHTML = finCapAssumptionPreviewText(cap);
+}
+// The rent roll is edited in this same card, so a $/SF assumption has to follow the LIVE square
+// footage rather than the last saved figure.
+function finCapLiveSqft() {
+  return finComputePropertyUnits(_finValRentRoll).totalSqft;
+}
+// Changing the basis must redraw the editor, so the inputs that basis needs appear. A select is
+// not a text field, so there is no caret to lose.
+function finCapBasisChanged() {
+  if (!finCapReadAssumptionInputs()) return;
+  _finCapAssumptionOpen = true;
+  var host = document.getElementById('fin-capital-assumption');
+  if (host) {
+    host.innerHTML = finRenderCapitalAssumptionEditor(
+      finComputePropertyCapitalAllowanceCents(_finProperty, { sqft: finCapLiveSqft() }), _userRole === 'admin');
+  }
   finValRecompute();
 }
 function finCapAssumptionSave() {
@@ -5395,7 +5467,7 @@ function finValRecompute() {
   var valOut = document.getElementById('fin-val-output');
   if (valOut) valOut.innerHTML = finRenderValuationOutputBody(finComputePropertyValuation(inputs));
   var pfOut = document.getElementById('fin-proforma-out');
-  if (pfOut && _finProperty) pfOut.innerHTML = finRenderProFormaBody(finComputePropertyProForma(_finProperty, { inputs: inputs }), _userRole === 'admin');
+  if (pfOut && _finProperty) pfOut.innerHTML = finRenderProFormaBody(finComputePropertyProForma(_finProperty, { inputs: inputs }));
 }
 function finValSave() {
   var msgEl = document.getElementById('fin-val-save-msg');
@@ -5518,40 +5590,24 @@ function finComputeAvailableForDistribution(d, opts) {
 }
 // "Amount Dispersed" — this calendar year's actual confirmed distributions already sent to the
 // church (from the Distributions to Church record below), distinct from the estimate above.
+// Distributions paid AFTER the report a cash figure came from. AHRA's "available to distribute" is
+// cash on hand at the report date, so anything paid on or before that month has already left the
+// account and is inside the figure — subtracting it again double-counts. Anything paid since is
+// genuinely not reflected yet and must come off.
+function finComputeDistributionsAfter(d, period) {
+  var rows = (d && d.distributions || []).filter(function(dd) {
+    return period ? String(dd.period || '') > String(period) : true;
+  });
+  return {
+    cents: rows.reduce(function(s, dd) { return s + (dd.amount_cents || 0); }, 0),
+    periods: rows.map(function(dd) { return dd.period; }),
+  };
+}
 function finComputeDistributedThisYear(d) {
   var year = new Date().getFullYear();
   var cents = (d.distributions || []).filter(function(dd) { return String(dd.period || '').slice(0, 4) === String(year); })
     .reduce(function(sum, dd) { return sum + (dd.amount_cents || 0); }, 0);
   return { year: year, cents: cents };
-}
-function finRenderAvailableForDistributionBar(d) {
-  var a = finComputeAvailableForDistribution(d);
-  var dispersed = finComputeDistributedThisYear(d);
-  // The KPI row above shows two other reserve/distribution figures that intentionally differ from
-  // this one; spell out the relationship here so the page doesn't look like it contradicts itself.
-  var onHand = finComputePropertyReservesOnHandCents(d);
-  var latestDist = finComputeLatestDistributionAmount(d);
-  var recon = '';
-  if (onHand) recon += 'The &ldquo;Reserves On-Hand&rdquo; tile above ($' + finFmtMoney(onHand/100) + ') is the total reserve <i>balance</i> AHRA is holding, including the flat base-minimum cash cushion carried over from prior years &mdash; not the same thing as the ' + a.year + ' contributions deducted here.';
-  if (latestDist) recon += (recon ? ' ' : '') + 'The &ldquo;Distribution Amount&rdquo; tile ($' + finFmtMoney(latestDist.cents/100) + ') is AHRA&rsquo;s own cash-on-hand-minus-reserves figure for ' + latestDist.period + ' alone; this card is a full-year accrual estimate, so the two will not agree.';
-  // Why this card deducts the tax reserve while the multi-year forecast does not — otherwise the
-  // two look like they contradict each other on the same page.
-  recon += (recon ? ' ' : '') + 'Reserve contributions are deducted here because this is a year-to-date view and the ' + a.year
-    + ' tax bill has not been paid yet, so no tax expense sits in the net income above. The multi-year forecast on Planning deliberately does <i>not</i> deduct them, because over a full year the bill itself lands as an expense and counting both would charge the tax twice.';
-  return '<div class="fin-navy-card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;margin:18px 0;">'
-    + '<div style="max-width:340px;"><div class="fin-card-title" style="font-size:18px;">Available for Distribution</div>'
-    + '<div style="font-size:.8rem;color:rgba(255,255,255,.75);">' + a.year + ' net income, less amounts set aside for reserves and committed to capital projects this year. An estimate for planning — see "Distributions to Church" below for the actual record.</div>'
-    + (recon ? '<div style="font-size:.72rem;color:rgba(255,255,255,.6);margin-top:8px;">' + recon + '</div>' : '')
-    + '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.3);"><div style="font-size:.75rem;color:rgba(255,255,255,.75);">Amount Dispersed (' + dispersed.year + ', confirmed)</div><div class="fin-navy-val positive" style="font-size:22px;">$' + finFmtMoney(dispersed.cents/100) + '</div></div>'
-    + '</div>'
-    + '<div style="text-align:right;">'
-    + '<div style="font-size:.82rem;color:rgba(255,255,255,.75);">Annual Net (' + a.year + ' YTD) &nbsp; $' + finFmtMoney(a.annualNetCents/100) + '</div>'
-    + '<div style="font-size:.82rem;color:var(--negative-on-navy);">&minus; Mortgage principal (' + a.year + ' YTD) &nbsp; $' + finFmtMoney(a.principalCents/100) + '</div>'
-    + '<div style="font-size:.82rem;color:var(--negative-on-navy);">&minus; Reserve contributions (' + a.year + ') &nbsp; $' + finFmtMoney(a.reserveContribCents/100) + '</div>'
-    + '<div style="font-size:.82rem;color:var(--negative-on-navy);">&minus; Capital spend (' + a.year + ') &nbsp; $' + finFmtMoney(a.capitalCents/100) + '</div>'
-    + '<div style="border-top:1px solid rgba(255,255,255,.3);margin:6px 0;"></div>'
-    + '<div class="fin-navy-val ' + (a.availableCents >= 0 ? 'positive' : 'negative') + '" style="font-size:30px;">$' + finFmtMoney(a.availableCents/100) + '</div>'
-    + '</div></div>';
 }
 
 // Pure — no DOM — rolls the last lender-CONFIRMED mortgage balance forward using each
@@ -5603,6 +5659,7 @@ function finRenderPropertyFundsItself(d) {
   var year = new Date().getFullYear();
   var cur = (d.annualSummary || []).filter(function(y) { return y.year === year; })[0];
   var a = finComputeAvailableForDistribution(d);
+  var taken = finComputeDistributedThisYear(d);
   if (!cur) {
     return '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">Does it fund itself?</div>'
       + '<p style="font-size:.85rem;color:var(--warm-gray);">No ' + year + ' months recorded yet — add this year\'s AHRA reports from the Data &amp; Imports tab.</p></div>';
@@ -5635,6 +5692,13 @@ function finRenderPropertyFundsItself(d) {
       + '<span style="font-weight:800;color:var(--color-navy);">Net to the church</span>'
       + '<b style="font-variant-numeric:tabular-nums;color:' + (netToChurch >= 0 ? 'var(--color-teal)' : 'var(--danger)') + ';">' + finFmtSigned(netToChurch) + '</b></div>'
     + '</div>'
+    // What this figure is NOT. It is a year's earnings, not money sitting in a bank account, and
+    // part of it has already been paid out — both of which a reader will otherwise assume.
+    + '<div style="font-size:11.5px;color:var(--warm-gray);margin-top:10px;line-height:1.5;">'
+      + 'This is what the property <b>earned</b> across ' + year + ' so far, not cash on hand &mdash; the figure in the navy card is a bank balance on one date, so the two will not match. '
+      + (taken.cents ? 'Of this, ' + finMoney0(taken.cents) + ' has already been distributed to the church in ' + year + '. ' : '')
+      + 'The reserve line above is ' + year + '&rsquo;s contributions only, not the total reserve balance.'
+    + '</div>'
     + '<div class="fin-grid-2" style="margin-top:14px;gap:10px;">' + tile(kpis[0]) + tile(kpis[1]) + '</div>'
     + '</div>';
 }
@@ -5645,20 +5709,35 @@ function finRenderPropertyDistributionHero(d, isAdminUI) {
   var latest = finComputeLatestDistributionAmount(d);
   var taken = finComputeDistributedThisYear(d);
   var onHand = finComputePropertyReservesOnHandCents(d);
-  var still = latest ? latest.cents - taken.cents : null;
+  // Only what was paid AFTER the report. A distribution made before it is already out of the bank
+  // account AHRA counted, so deducting it here would charge the church for the same money twice.
+  var since = latest ? finComputeDistributionsAfter(d, latest.period) : { cents: 0, periods: [] };
+  var still = latest ? latest.cents - since.cents : null;
+  var sinceNote = latest
+    ? (since.cents
+      ? ' Less ' + finMoney0(since.cents) + ' distributed since that report (' + since.periods.map(esc).join(', ') + ').'
+      : ' Any distribution taken on or before that month is already out of this figure, so it is not deducted again.')
+    : '';
   return '<div class="fin-navy-card fin-prop-hero">'
     + '<div>'
       + '<div class="fin-navy-label">Available to distribute today</div>'
       + '<div class="fin-hero-val">' + (latest ? '$' + finFmtMoney(latest.cents / 100) : '—') + '</div>'
       + '<div style="font-size:13px;color:rgba(255,255,255,.78);line-height:1.5;">'
       + (latest
-        ? 'AHRA&rsquo;s own figure: cash on hand, less outstanding bills, less the ' + finMoney0(onHand) + ' total property reserve. ' + esc(latest.period) + ' report.'
+        ? 'AHRA&rsquo;s own figure: <b>cash in the bank</b> at the ' + esc(latest.period) + ' report, less outstanding bills, less the ' + finMoney0(onHand) + ' total property reserve <i>balance</i>.' + sinceNote
         : 'No AHRA report with a distribution figure has been recorded yet.')
       + '</div>'
     + '</div>'
     + '<div class="fin-hero-split">'
-      + '<div><div class="fin-navy-sublabel">Taken so far in ' + taken.year + '</div><div class="fin-hero-sub-val">$' + finFmtMoney(taken.cents / 100) + '</div></div>'
+      + '<div><div class="fin-navy-sublabel">Already taken in ' + taken.year + '</div><div class="fin-hero-sub-val">$' + finFmtMoney(taken.cents / 100) + '</div>'
+        + '<div style="font-size:11px;color:rgba(255,255,255,.6);line-height:1.35;">a record of what has been paid, not a deduction from the figure at left</div></div>'
       + '<div><div class="fin-navy-sublabel">Still available</div><div class="fin-hero-sub-val" style="color:var(--pale-gold);">' + (still != null ? '$' + finFmtMoney(Math.max(0, still) / 100) : '—') + '</div></div>'
+    + '</div>'
+    // FIN44 wrote this reconciliation; FIN57 replaced the card it lived on and left the figures
+    // to look like they contradict each other. It belongs wherever the cash figure is shown.
+    + '<div style="font-size:11.5px;color:rgba(255,255,255,.62);line-height:1.5;border-top:1px solid rgba(255,255,255,.22);padding-top:10px;">'
+      + 'This is a <b>cash balance on a date</b>. The &ldquo;Does it fund itself?&rdquo; card beside it is a <b>full-year flow</b> &mdash; what the property earned across the year after debt and reserves &mdash; so the two measure different things and will not match. '
+      + 'The reserve figure above is the total <i>balance</i> AHRA holds, including the flat base-minimum cushion carried over from prior years; the reserve line on that card is only <i>this year&rsquo;s</i> contributions.'
     + '</div>'
     + (isAdminUI ? '<div><button class="btn-white" onclick="finNavGo(\'data\')">Record a distribution &rarr;</button></div>' : '')
     + '</div>';
