@@ -433,6 +433,38 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### FIN64 — Ivanhoe: capital input, combined basis, and the tab's figures reconciled (2026-08-08, DONE)
+Four items off a live Commercial Property screenshot.
+- **The capital box took one character at a time** — my own FIN63 bug, and a textbook repeat of
+  FIN52. The editor was rendered INSIDE `#fin-proforma-out`, which `finValRecompute()` rewrites on
+  every keystroke, so the field was destroyed and recreated mid-word. Now a **sibling** in
+  `#fin-capital-assumption`, with handlers split: number fields update derived text only; only the
+  basis `<select>` may redraw the editor (no caret to lose). **The rule: the container holding a
+  live input must never be the container a recompute rewrites.** Pinned by a test that walks the
+  div nesting — an earlier version compared string positions and passed against the real bug.
+- **New `flat_plus_sqft` basis** (flat base + $/SF). Deliberately does NOT fall back when square
+  footage is missing, unlike pure `per_sqft` — the flat figure is real, so the assumption stands
+  and the editor warns the rate is contributing nothing.
+- **"Still available" double-counted a distribution.** AHRA's figure is cash in the bank at the
+  **2026-06** report; the $4,000 was paid **2026-04**, so it had already left the account. New
+  `finComputeDistributionsAfter()` subtracts only distributions dated after the report period —
+  which still catches a payment recorded after the latest report, where a flat "never subtract"
+  would not.
+- **⚠ Why the tab read as self-contradictory: FIN57 orphaned FIN44's reconciliation copy.**
+  `finRenderAvailableForDistributionBar` had been **dead code** since FIN57 replaced it with the
+  hero — and FIN44's explanation of why "Reserves On-Hand" (a balance incl. the base-minimum
+  cushion) differs from this year's reserve contributions, and why a one-month cash figure never
+  equals a full-year accrual, died with it. **The figures never started disagreeing; the
+  explanation was deleted.** Rehomed onto the hero and the funds-itself card; dead bar removed.
+  **A redesign must move explanatory copy with the figures it explains.**
+- Every figure now states its basis; funds-itself names how much of its total is already
+  distributed; the cash walk says it is a forward projection for a different year. **No arithmetic
+  changed except the still-available fix** — relabelling a correct number beats changing it.
+- `npm test` (1134/1134, 12 new); every new test verified non-vacuous (5 injections, 5 correct
+  failures), **one of my own tests was vacuous and was rewritten** rather than trusted. **Not
+  verified**: a live browser or a real phone. (`src/frontend/js-finance.js`,
+  `test/finance-property-proforma.test.js`, `test/finance-property-distribution.test.js`)
+
 ### FIN63 — Ivanhoe: capital allowance becomes an editable assumption (2026-08-07, DONE)
 Reported: the capital allowance is derived from past spend, but those were one-time projects and
 shouldn't be projected forward ("we won't put HVAC in every year"). Confirmed by the ledger — a 2024

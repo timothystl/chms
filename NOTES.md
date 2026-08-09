@@ -24,6 +24,58 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.164.0 — Ivanhoe: capital input fixed, combined basis, and the tab's figures reconciled (2026-08-08)
+
+Four things off a live screenshot of the Commercial Property tab at v1.163.0.
+
+**1. The capital assumption box accepted one character at a time — my own bug from the day before,
+and a textbook repeat of FIN52.** `finRenderCapitalAssumptionEditor` was appended INSIDE
+`finRenderProFormaBody`, whose output fills `#fin-proforma-out`, and `finValRecompute()` rewrites
+that container's `innerHTML` on every keystroke — destroying and recreating the field being typed
+in. Fixed by rendering the editor as a **sibling** in its own `#fin-capital-assumption` container,
+and splitting the handlers: the number fields call `finCapAssumptionChanged()`, which updates only
+derived readouts and the walk above; only the basis `<select>` calls `finCapBasisChanged()`, which
+may redraw the editor because a select has no caret to lose. **The rule worth keeping: the
+container holding a live input must never be the container a recompute rewrites.**
+
+**2. Combined basis added** (`flat_plus_sqft`): a flat base plus a $/SF rate. Unlike the pure
+`per_sqft` case it deliberately does NOT fall back when square footage is missing — the flat figure
+is a real entered number, so the assumption stands and the editor warns that the rate is
+contributing nothing.
+
+**3. "Still available" was double-counting a distribution already taken.** The hero showed AHRA's
+$9,321.77 then subtracted the $4,000 taken in 2026, giving $5,321.77. But AHRA's figure is cash in
+the bank **as of the 2026-06 report**, and the $4,000 was paid in **2026-04** — that money had
+already left the account before AHRA counted it. New `finComputeDistributionsAfter()` subtracts
+only distributions dated **after** the report period, so today's figure reads $9,321.77 and a
+payment recorded after the latest report is still correctly deducted. The "already taken" tile
+stays, relabelled so it no longer reads as a deduction.
+
+**4. Root cause behind the tab looking self-contradictory: FIN57 orphaned FIN44's reconciliation
+copy.** `finRenderAvailableForDistributionBar` had been **dead code** — defined, called from
+nowhere — since the FIN57 redesign replaced it with `finRenderPropertyDistributionHero`. FIN44 had
+written explanatory copy on that bar specifically to stop these figures reading as contradictory
+(why "Reserves On-Hand" is a balance including the base-minimum cushion while the funds-itself card
+shows only this year's contributions; why a one-month cash figure never equals a full-year
+accrual). **The figures did not start disagreeing — the explanation was deleted and the figures
+were left to look like they disagree.** That copy is rehomed onto the hero and the funds-itself
+card, each figure now states its own basis, the funds-itself card names how much of its total has
+already been distributed, the cash walk says it is a forward projection for a different year, and
+the dead bar is deleted. **No arithmetic changed except item 3** — these are labelling fixes, and
+changing a correct number to make two cards agree would be the worse bug.
+
+**Verification.** `npm test` (1134/1134, 12 new). **Every new test verified non-vacuous** by
+injecting the exact regression it guards — 5 injections, 5 correct failures. **One of my own tests
+was vacuous and was rewritten**: the structural check that the editor is not nested inside the
+recompute container only compared string positions, which stays true when it IS nested, so it
+passed against the very bug it existed to catch; it now walks the div nesting for real and fails
+correctly. The keystroke path is driven through the real built bundle character by character,
+asserting the field object is never swapped and its value accumulates. Plus `node --check` on both
+bundles, div-balance on `CHMS_HTML` (1080/1080), and tag-balance across all six rendered property
+surfaces in admin and viewer states. **Not verified**: a live browser or a real phone.
+(`src/frontend/js-finance.js`, `test/finance-property-proforma.test.js`,
+`test/finance-property-distribution.test.js`)
+
 ### v1.163.0 — Ivanhoe: the capital allowance becomes an editable assumption (2026-08-07)
 
 Reported off the Commercial Property cash walk: the capital allowance is derived from past spend,
