@@ -1,6 +1,6 @@
 // ── ChMS (People & Giving) API handler ────────────────────────────────────────
 import { json } from './auth.js';
-import { isoWeekKey, handleUtilsApi, getRolePermissions, permissionsForRole } from './api-utils.js';
+import { isoWeekKey, handleUtilsApi, getRolePermissions, permissionsForRole, isAnonSafeGivingSeg } from './api-utils.js';
 import { handleHouseholdsApi } from './api-households.js';
 import { handleImportApi } from './api-import.js';
 import { handleReportsApi } from './api-reports.js';
@@ -13,12 +13,12 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   const db = env.DB;
 
   // ── Role-based access control ────────────────────────────────────
-  // Roles: admin | finance | staff | office | member
+  // Roles: admin | finance | staff | council | member
   //   admin   — always full access, not configurable (can never be locked out)
-  //   finance | staff | office — the finance/staff/register/reports flags below are
-  //             admin-configurable per role (Settings → Role Permissions), defaulting to
-  //             the historical fixed behavior: finance→finance only, staff→staff+register,
-  //             office→register only, reports→finance+staff. See api-utils.js.
+  //   finance | staff | council — every feature item below is admin-configurable per role
+  //             (Settings → Role Permissions). See api-utils.js for the defaults.
+  //   council — the governance tier (renamed from `office`): sees the Finance workspace and
+  //             the Reports tab, and giving only at the 'anon' level — totals, never donors.
   //   member  — GET people filtered to member_type='member' only; a structurally different
   //             read-only view, not part of the configurable matrix
   const isAdmin = role === 'admin';
@@ -31,19 +31,29 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   const canView   = (item) => isAdmin || itemLevel(item) !== 'none';
   const canEditItem = (item) => isAdmin || itemLevel(item) === 'edit';
 
+  // Anonymous giving: 'anon' grants the aggregate giving picture and nothing that names a
+  // donor. It is a level BELOW 'view', so `canView('giving')` is true for it — which is
+  // right for the Giving nav and the fund/method/month totals, and wrong for anything
+  // per-person. So the two are separated here and stay separated all the way down:
+  //   givingAnon        → totals only, allowlisted segments (see the gate below)
+  //   isFinance         → may see an individual's giving (person profile, first-time givers,
+  //                       statements, per-donor reports). Deliberately FALSE for anon.
+  //   canViewGivingSums → may see giving totals at all, anon included.
+  const givingAnon        = !isAdmin && itemLevel('giving') === 'anon';
+  const canViewGivingSums = canView('giving');
   // Legacy flags still threaded into the domain handlers. With central per-item enforcement
   // below, these only need to be permissive enough for READS within an already-gated
   // segment — every write is blocked centrally before dispatch if the item isn't 'edit'.
-  //   isFinance  → giving reads (giving handler + giving data in people/reports)
+  //   isFinance  → individual giving reads (giving handler + giving data in people/reports)
   //   isStaff    → follow-up / audit / attendance reads (people/reports handlers)
   //   canRegister→ register access
-  const isFinance   = canView('giving');
+  const isFinance   = canViewGivingSums && !givingAnon;
   const isStaff     = canView('attendance') || canView('followups') || canView('audit');
   const canRegister = canView('register');
   // People / Households / Tags / Orgs / Funds editing — unchanged blanket flag: every
   // non-member role can edit the baseline directory (the per-item view/edit toggles above
   // are the feature areas layered on top, not the directory itself).
-  const canEdit    = role === 'admin' || role === 'finance' || role === 'staff' || role === 'office';
+  const canEdit    = role === 'admin' || role === 'finance' || role === 'staff' || role === 'council';
 
   // ── Central per-item access gate ──────────────────────────────────────────
   // Each feature segment maps to exactly one configurable item. 'none' → no access at all;
@@ -66,6 +76,12 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       if (!canView(rule.item)) return json({ error: 'Access denied' }, 403);
       if (method !== 'GET' && !canEditItem(rule.item)) {
         return json({ error: 'Access denied: view-only permission for this area' }, 403);
+      }
+      // Anonymous giving: reads only, and only the allowlisted aggregate endpoints. This is
+      // the single chokepoint for it — every giving route reaches its handler through here,
+      // so nothing per-donor can be added later and be reachable by accident.
+      if (rule.item === 'giving' && givingAnon && !isAnonSafeGivingSeg(seg)) {
+        return json({ error: 'Access denied: this role sees giving totals only, not individual donors' }, 403);
       }
       break;
     }
@@ -467,10 +483,12 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       totalPeople, totalHouseholds, memberCount, memberHHCount, confirmedCount, baptizedCount,
       addedThisMonth, addedThisYear, dashMonth,
       typeCounts,
-      // giving data: finance+ only (General Fund = funds starting with '40085')
-      gfYtd:           isFinance ? gfYtd           : undefined,
-      gfLastYearYtd:   isFinance ? gfLastYearYtd   : undefined,
-      gfLastYearTotal: isFinance ? gfLastYearTotal  : undefined,
+      // giving data (General Fund = funds starting with '40085'). The three totals are
+      // congregation-wide sums, so an anon-giving role sees them; firstGivers is a list of
+      // named people and stays behind full giving access.
+      gfYtd:           canViewGivingSums ? gfYtd           : undefined,
+      gfLastYearYtd:   canViewGivingSums ? gfLastYearYtd   : undefined,
+      gfLastYearTotal: canViewGivingSums ? gfLastYearTotal : undefined,
       firstGivers:     isFinance ? firstGivers     : [],
       // pastoral data: staff+ only
       followUpItems:   isStaff  ? followUpItems   : [],
@@ -545,7 +563,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       seg === 'giving/reconcile-orphans' || seg === 'giving/reconcile-diagnose' ||
       seg === 'giving/force-remove-orphans' ||
       (seg.startsWith('people/') && seg.endsWith('/dismiss-first-gift'))) {
-    const result = await handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit);
+    const result = await handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit, givingAnon);
     if (result !== null) return result;
   }
 

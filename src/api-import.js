@@ -516,7 +516,7 @@ if (seg === 'config/letterhead-logo' && method === 'DELETE') {
 
 // ── Role Permissions ──────────────────────────────────────────────
 // Admin-only in both directions (GET included) — this is the actual access-control matrix
-// for the finance/staff/office roles (see api-utils.js), not informational config like
+// for the finance/staff/council roles (see api-utils.js), not informational config like
 // church name, so it isn't exposed to the roles it describes.
 if (seg === 'config/role-permissions' && method === 'GET') {
   if (!isAdmin) return json({ error: 'Access denied' }, 403);
@@ -526,10 +526,12 @@ if (seg === 'config/role-permissions' && method === 'PUT') {
   if (!isAdmin) return json({ error: 'Access denied' }, 403);
   let b = {}; try { b = await req.json(); } catch {}
   const incoming = b.permissions && typeof b.permissions === 'object' ? b.permissions : {};
-  // Validate shape before saving — only known role/item combinations, only the three valid
-  // levels — rather than trusting the request body wholesale into a matrix every ACL check
+  // Validate shape before saving — only known role/item combinations, only known levels —
+  // rather than trusting the request body wholesale into a matrix every ACL check
   // reads. resolveRolePermissions() re-clamps on read (member restrictions, per-item ceiling
-  // for read-only items), so a hand-crafted request still can't over-grant.
+  // for read-only items, 'anon' outside Giving), so a hand-crafted request still can't
+  // over-grant. Writing `cleaned` wholesale is also what finally drops the pre-rename
+  // `office` key, which resolveRolePermissions reads as council's until then.
   const cleaned = {};
   for (const role of ROLE_PERMISSION_ROLES) {
     if (!incoming[role] || typeof incoming[role] !== 'object') continue;

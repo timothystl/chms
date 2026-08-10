@@ -409,3 +409,103 @@ describe('batch deposit panel', () => {
     expect(s.sandbox.givParseMoneyCents('abc')).toBe(null);
   });
 });
+
+// ── Anonymous giving (the Council role) ──────────────────────────────────────
+// giving:'anon' means totals yes, donors never. The server refuses the per-donor endpoints
+// (test/giving-anon-gate.test.js); these cover the UI half — not offering a control whose
+// only possible outcome is a 403, and never parking the role on a panel it cannot see.
+describe('giving:anon — Giving tab', () => {
+  function anonSandbox() {
+    const s = makeSandbox();
+    s.sandbox.permGivingAnon = () => true;
+    s.sandbox.permView = () => true;   // the Giving nav itself stays visible
+    return s;
+  }
+
+  it('sends Offerings and Communications to Reports instead of a hidden panel', () => {
+    for (const view of ['offerings', 'comms']) {
+      const s = anonSandbox();
+      s.sandbox.givSetView(view);
+      expect(s.el('giv-view-reports').style.display, view).toBe('');
+      expect(s.el('giv-view-offerings').style.display, view).toBe('none');
+      expect(s.el('giv-view-comms').style.display, view).toBe('none');
+    }
+  });
+
+  it('sends every retired per-donor deep link to Reports too', () => {
+    for (const old of ['batches', 'transactions', 'deposits', 'letters', 'receipts', 'nudges']) {
+      const s = anonSandbox();
+      s.sandbox.givSetView(old);
+      expect(s.el('giv-view-reports').style.display, old).toBe('');
+    }
+  });
+
+  it('still opens Reports and Analysis normally — the aggregate views are the point', () => {
+    const s = anonSandbox();
+    s.sandbox.givSetView('board');
+    expect(s.el('giv-view-reports').style.display).toBe('');
+    const a = anonSandbox();
+    a.sandbox.givSetView('analysis');
+    expect(a.el('giv-view-reports').style.display).toBe('');
+    expect(a.el('giv-analysis-body').style.display).toBe('');
+  });
+
+  it('leaves a full-giving role on Offerings, unchanged', () => {
+    const s = makeSandbox();
+    s.sandbox.permGivingAnon = () => false;
+    s.sandbox.givSetView('batches');
+    expect(s.el('giv-view-offerings').style.display).toBe('');
+    expect(s.el('giv-pane-batches').style.display).toBe('');
+  });
+});
+
+describe('giving:anon — markup and CSS', () => {
+  // The whole open tag around an attribute — the class can sit either side of the id, so
+  // slicing at the id alone reads only half the tag and passes for the wrong reason.
+  const openTagAround = (attr) => {
+    const i = GIVING_MARKUP.indexOf(attr);
+    expect(i, attr).toBeGreaterThan(-1);
+    return GIVING_MARKUP.slice(GIVING_MARKUP.lastIndexOf('<', i), GIVING_MARKUP.indexOf('>', i) + 1);
+  };
+
+  it('tags every donor-naming surface in the Giving tab', () => {
+    // The sub-nav entries whose panels are per-donor from top to bottom…
+    for (const anchor of ['giv-view-offerings-btn', 'giv-view-comms-btn', 'giv-view-offerings', 'giv-view-comms']) {
+      expect(openTagAround('id="' + anchor + '"'), anchor).toContain('require-giving-named');
+    }
+    // …and the report tiles that list givers by name.
+    for (const tile of ['giving-statement', 'giving-insights', 'giving-yoy', 'letters-moved']) {
+      expect(openTagAround('data-tile-id="' + tile + '"'), tile).toContain('require-giving-named');
+    }
+  });
+
+  it('leaves the aggregate report tiles untagged, so council keeps them', () => {
+    for (const tile of ['giving-by-fund', 'giving-by-method', 'giving-trend', 'giving-vs-attendance']) {
+      expect(openTagAround('data-tile-id="' + tile + '"'), tile).not.toContain('require-giving-named');
+    }
+  });
+
+  it('tags the Plateaus and Bands cards, which list individual givers', () => {
+    const body = GIVING_MARKUP.slice(GIVING_MARKUP.indexOf('id="giv-analysis-body"'));
+    for (const out of ['giv-plat-output', 'giv-bands-output']) {
+      const card = body.slice(0, body.indexOf('id="' + out + '"'));
+      const openTag = card.slice(card.lastIndexOf('<div class="import-card'));
+      expect(openTag, out).toContain('require-giving-named');
+    }
+  });
+
+  it("tags the person profile's Giving tab and its panel", () => {
+    expect(TABS).toContain('class="pv-tab require-finance require-giving-named" data-ptab="giving"');
+    expect(TABS).toContain('<div id="ptab-giving" class="ptab-panel require-giving-named">');
+  });
+
+  it('backs the class with a CSS rule, for anything rendered after the JS pass', () => {
+    const style = HTML_HEAD.slice(0, HTML_HEAD.indexOf('</style>'));
+    expect(style).toContain('body.perm-giving-anon .require-giving-named{display:none!important;}');
+  });
+
+  it('renamed the Office role column to Council', () => {
+    expect(TABS).toContain('>Council</th>');
+    expect(TABS).not.toContain('>Office</th>');
+  });
+});

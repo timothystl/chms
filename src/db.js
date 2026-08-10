@@ -1704,6 +1704,13 @@ async function _doInitDb(db) {
   // Normalize member_type to lowercase so frontend comparisons are consistent
   await db.prepare("UPDATE people SET member_type=LOWER(member_type) WHERE member_type != LOWER(member_type)").run().catch(() => {});
 
+  // The `office` role was renamed to `council`. Existing accounts have to move with it —
+  // `office` is no longer in the valid-role list, so a user left on it would resolve to an
+  // empty permission row and lose access entirely. Idempotent: after the first run there is
+  // nothing left matching. The stored role_permissions_json still keeps its `office` key
+  // until an admin next saves; resolveRolePermissions() reads that key as council's.
+  await db.prepare("UPDATE app_users SET role='council' WHERE role='office'").run().catch(() => {});
+
   // Backfill baptized/confirmed booleans from existing dates (RI2 — earlier Breeze imports
   // wrote the date columns but never set the booleans the sacramental pipeline reads).
   await db.prepare("UPDATE people SET baptized=1 WHERE baptized=0 AND baptism_date != ''").run().catch(() => {});

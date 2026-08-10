@@ -68,7 +68,7 @@ var ROLE_PERM_ITEMS = [
   { key: 'register',   label: 'Register',          editable: true  },
   { key: 'reports',    label: 'Reports tab',       editable: false },
 ];
-var ROLE_PERM_ROLES = ['finance', 'staff', 'office', 'member'];
+var ROLE_PERM_ROLES = ['finance', 'staff', 'council', 'member'];
 // Items a member is even allowed to be granted (view only). Anything else is locked to none.
 var MEMBER_ALLOWED_ITEMS = { reports: true };
 function loadRolePermissions() {
@@ -76,10 +76,16 @@ function loadRolePermissions() {
     renderRolePermTable(d && d.permissions);
   }).catch(function() {});
 }
+// 'anon' sits between No access and View, and only on Giving: aggregate figures with no
+// donor named. Members are never offered it — they get no giving access at all — and it is
+// meaningless on every other item, where the server normalizes it back down to 'none'.
+var ANON_CAPABLE_ITEMS = { giving: true };
 function rolePermLevelOptions(item, role, current) {
   var isMember = (role === 'member');
   var locked = isMember && !MEMBER_ALLOWED_ITEMS[item.key]; // member, non-safe item
-  var opts = [{ v: 'none', t: 'No access' }, { v: 'view', t: 'View only' }];
+  var opts = [{ v: 'none', t: 'No access' }];
+  if (ANON_CAPABLE_ITEMS[item.key] && !isMember) opts.push({ v: 'anon', t: 'Totals only (no names)' });
+  opts.push({ v: 'view', t: 'View only' });
   // Edit is offered only for editable items and never for members.
   if (item.editable && !isMember) opts.push({ v: 'edit', t: 'Edit' });
   var sel = current || 'none';
@@ -143,7 +149,7 @@ function renderUsersList() {
     el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No user accounts yet. Add one below.</p>';
     return;
   }
-  var roleColors = { admin:'#0A3C5C', finance:'#1B4332', staff:'#1E40AF', office:'#8A5A00', member:'#4A1D6B' };
+  var roleColors = { admin:'#0A3C5C', finance:'#1B4332', staff:'#1E40AF', council:'#8A5A00', member:'#4A1D6B' };
   el.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:.87rem;">'
     + '<thead><tr style="border-bottom:1px solid var(--border);">'
     + '<th style="text-align:left;padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Username</th>'
@@ -183,7 +189,7 @@ function openUserForm(userId) {
     + '<div class="field" style="margin-bottom:10px;"><label>Display Name</label><input type="text" id="um-display" placeholder="e.g. Jane Smith" value="'+esc(u?u.display_name:'')+'" style="'+inp+'"></div>'
     + '<div class="field" style="margin-bottom:10px;"><label>Email <span style="color:var(--warm-gray);font-weight:400;">(for password reset)</span></label><input type="email" id="um-email" placeholder="e.g. jane@church.org" autocomplete="off" value="'+esc(u?(u.email||''):'')+'" style="'+inp+'"></div>'
     + '<div class="field" style="margin-bottom:10px;"><label>Role</label><select id="um-role" style="'+inp+'padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:.9rem;">'
-    + ['admin','finance','staff','office','member'].map(function(r){return '<option value="'+r+'"'+(u&&u.role===r?' selected':'')+'>'+r.charAt(0).toUpperCase()+r.slice(1)+'</option>';}).join('')
+    + ['admin','finance','staff','council','member'].map(function(r){return '<option value="'+r+'"'+(u&&u.role===r?' selected':'')+'>'+r.charAt(0).toUpperCase()+r.slice(1)+'</option>';}).join('')
     + '</select></div>'
     + '<div class="field" style="margin-bottom:10px;"><label>'+(u?'New Password (leave blank to keep)':'Password')+'</label><input type="password" id="um-password" placeholder="At least 8 characters" autocomplete="new-password" style="'+inp+'"></div>'
     + (u ? '<div style="margin-bottom:12px;"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem;"><input type="checkbox" id="um-active"'+(u.active?' checked':'')+'>Active</label></div>' : '');

@@ -152,14 +152,14 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 <!-- ═══ GIVING TAB ═══ -->
 <div id="tab-giving" class="tab-panel">
   <div class="fin-subnav" style="margin-bottom:16px;">
-    <button class="fin-subnav-btn active" id="giv-view-offerings-btn" onclick="givSetView('offerings')">Offerings</button>
+    <button class="fin-subnav-btn active require-giving-named" id="giv-view-offerings-btn" onclick="givSetView('offerings')">Offerings</button>
     <button class="fin-subnav-btn require-finance" id="giv-view-reports-btn" onclick="givSetView('reports')">Reports</button>
-    <button class="fin-subnav-btn require-finance" id="giv-view-comms-btn" onclick="givSetView('comms')">Communications</button>
+    <button class="fin-subnav-btn require-finance require-giving-named" id="giv-view-comms-btn" onclick="givSetView('comms')">Communications</button>
     <button class="fin-subnav-btn" id="giv-view-settings-btn" onclick="givSetView('settings')">Settings</button>
   </div>
 
   <!-- ═══ OFFERINGS — count the plate, post the gifts, match the bank deposit ═══ -->
-  <div id="giv-view-offerings">
+  <div id="giv-view-offerings" class="require-giving-named">
     <div class="giv-off-header">
       <div>
         <div class="board-title">Offerings &amp; Deposits</div>
@@ -297,7 +297,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <button class="btn-primary" style="margin-top:8px;font-size:.8rem;padding:5px 12px;" onclick="runGivingByMethod()">Run Report</button>
         </div>
       </div>
-      <div class="report-tile require-finance" data-tile-id="giving-statement">
+      <div class="report-tile require-finance require-giving-named" data-tile-id="giving-statement">
         <div class="tile-icon">&#128196;</div>
         <div class="tile-title">Giving Statement</div>
         <div class="tile-desc">
@@ -331,7 +331,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;" onclick="runGivingTrend()">Run Report</button>
         </div>
       </div>
-      <div class="report-tile require-finance" data-tile-id="giving-insights">
+      <div class="report-tile require-finance require-giving-named" data-tile-id="giving-insights">
         <div class="tile-icon">&#128202;</div>
         <div class="tile-title">Giving Insights</div>
         <div class="tile-desc">
@@ -340,7 +340,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingInsights()">Run Report</button>
         </div>
       </div>
-      <div class="report-tile require-finance" data-tile-id="giving-yoy">
+      <div class="report-tile require-finance require-giving-named" data-tile-id="giving-yoy">
         <div class="tile-icon">&#128200;</div>
         <div class="tile-title">Giving Trends</div>
         <div class="tile-desc">
@@ -359,7 +359,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <button class="btn-primary" style="font-size:.8rem;padding:5px 12px;margin-top:6px;" onclick="runGivingVsAttendance()">Run Report</button>
         </div>
       </div>
-      <div class="report-tile require-finance" data-tile-id="letters-moved" style="cursor:pointer;" onclick="givSetView('letters')">
+      <div class="report-tile require-finance require-giving-named" data-tile-id="letters-moved" style="cursor:pointer;" onclick="givSetView('letters')">
         <div class="tile-icon">&#128140;</div>
         <div class="tile-title">Letters &amp; Statements</div>
         <div class="tile-desc">
@@ -369,7 +369,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
     </div>
     <div id="giv-rpt-output" class="report-output"></div>
-    <div class="import-card require-finance" style="margin-top:18px;">
+    <div class="import-card require-finance require-giving-named" style="margin-top:18px;">
       <h3>&#128201; Giving Plateaus &amp; Nudges</h3>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">Every giver's weekly level = their whole year's giving, every fund, &divide; 52 weeks &mdash; so a weekly regular, a monthly giver, and someone who made one large gift (e.g. a stock or IRA/QCD transfer) all get the same treatment. Offers 3 fixed, familiar round-number increase options. By default this sums <strong>everything a giver gives across every fund</strong> &mdash; General, Tuition Aid, Food Pantry, etc.; no fund is discounted. Pick a specific fund below to analyze just that fund instead (e.g. a designated pass-through fund).</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
@@ -383,7 +383,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div id="giv-plat-output" class="report-output"></div>
     </div>
 
-    <div class="import-card require-finance" style="margin-top:18px;">
+    <div class="import-card require-finance require-giving-named" style="margin-top:18px;">
       <h3>&#128202; Giving by Weekly / Monthly Band</h3>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">How giving households spread across per-week (or per-month) giving levels, and what a small across-the-board step up would add. A household&rsquo;s weekly figure is its giving &divide; weeks in the period, so monthly and lump-sum givers still land in the right band.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
@@ -400,7 +400,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
   </div><!-- /giv-view-reports -->
 
   <!-- ═══ COMMUNICATIONS — letters & receipts behind one tab ═══ -->
-  <div id="giv-view-comms" class="require-finance" style="display:none;">
+  <div id="giv-view-comms" class="require-finance require-giving-named" style="display:none;">
     <div class="batch-filter-pills" style="border-bottom:none;padding:0 0 12px;">
       <button class="pill active" data-gcomm="letters" onclick="givCommsSetPane('letters')">Letters &amp; statements</button>
       <button class="pill" data-gcomm="receipts" onclick="givCommsSetPane('receipts')">Receipts</button>
@@ -802,7 +802,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
             <th style="text-align:left;padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Access</th>
             <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Finance</th>
             <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Staff</th>
-            <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Office</th>
+            <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Council</th>
             <th style="padding:6px 8px;font-size:.72rem;color:var(--warm-gray);font-weight:700;text-transform:uppercase;">Member</th>
           </tr></thead>
           <tbody id="role-perm-tbody"></tbody>
@@ -1346,13 +1346,13 @@ export const HTML_TABS_2 = String.raw`
     </div>
     <div class="pv-tabs">
       <div class="pv-tab active" data-ptab="info" onclick="showPvTab('info')">Information</div>
-      <div class="pv-tab require-finance" data-ptab="giving" onclick="showPvTab('giving')">Giving</div>
+      <div class="pv-tab require-finance require-giving-named" data-ptab="giving" onclick="showPvTab('giving')">Giving</div>
       <div class="pv-tab" data-ptab="attendance" onclick="showPvTab('attendance')">Attendance</div>
     </div>
     <div class="pv-layout">
       <div class="pv-main">
         <div id="ptab-info" class="ptab-panel active"></div>
-        <div id="ptab-giving" class="ptab-panel">
+        <div id="ptab-giving" class="ptab-panel require-giving-named">
           <div style="padding:16px 0 0;" class="require-finance">
             <button class="btn-primary" onclick="togglePvQuickGift()" id="pv-gift-btn">+ Add Gift</button>
             <div id="pv-quick-gift" style="display:none;margin-top:12px;background:var(--linen);border-radius:10px;padding:16px;">

@@ -137,13 +137,13 @@ a.s-item{text-decoration:none;color:inherit;}
 .s-tip{position:static;transform:none;background:transparent;border:none;padding:0;font-size:13px;color:rgba(255,255,255,.7);white-space:nowrap;pointer-events:none;z-index:auto;}
 /* ── ROLE-BASED VISIBILITY ── */
 /* .require-finance/.require-staff/.require-register, plus the Reports sidebar item's
-   office exclusion, are admin-configurable per role (Settings -> Giving -> ... no, wait
+   council exclusion, are admin-configurable per role (Settings -> Giving -> ... no, wait
    actually admin-configurable via applyPermissionUI() in js-core.js, driven by /admin/api/me's
    permissions field (see api-utils.js) -- NOT hardcoded CSS below. Member always gets false
    for all three regardless of config (member is a structurally different, non-configurable
    view), which is why role-member still has its own static rules here as a belt-and-suspenders
    fallback in case JS hasn't run yet. */
-/* .require-edit     = visible for admin + finance + staff + office (not member) -- fixed, not configurable */
+/* .require-edit     = visible for admin + finance + staff + council (not member) -- fixed, not configurable */
 /* .require-admin    = admin only -- fixed, not configurable */
 /* .no-member        = hidden for member role */
 .role-member .require-finance{display:none!important;}
@@ -168,7 +168,11 @@ body.perm-edit-followups .require-edit-followups,
 body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .role-finance .require-admin{display:none!important;}
 .role-staff   .require-admin{display:none!important;}
-.role-office  .require-admin{display:none!important;}
+.role-council .require-admin{display:none!important;}
+/* Anonymous giving (council): the Giving nav and the aggregate reports stay, but any
+   surface that names a donor goes. applyPermissionUI() also hides these inline for the
+   markup present at load; this rule covers anything rendered afterwards. */
+body.perm-giving-anon .require-giving-named{display:none!important;}
 .role-member  .require-admin{display:none!important;}
 /* ── CONTENT AREA ── */
 .content-area{flex:1;display:flex;flex-direction:column;overflow:hidden;margin-left:0;}
@@ -1426,13 +1430,13 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 }
 /* ── ROLE-BASED VISIBILITY ── */
 /* .require-finance/.require-staff/.require-register, plus the Reports sidebar item's
-   office exclusion, are admin-configurable per role (Settings -> Giving -> ... no, wait
+   council exclusion, are admin-configurable per role (Settings -> Giving -> ... no, wait
    actually admin-configurable via applyPermissionUI() in js-core.js, driven by /admin/api/me's
    permissions field (see api-utils.js) -- NOT hardcoded CSS below. Member always gets false
    for all three regardless of config (member is a structurally different, non-configurable
    view), which is why role-member still has its own static rules here as a belt-and-suspenders
    fallback in case JS hasn't run yet. */
-/* .require-edit     = visible for admin + finance + staff + office (not member) -- fixed, not configurable */
+/* .require-edit     = visible for admin + finance + staff + council (not member) -- fixed, not configurable */
 /* .require-admin    = admin only -- fixed, not configurable */
 /* .no-member        = hidden for member role */
 .role-member .require-finance{display:none!important;}
@@ -1457,7 +1461,11 @@ body.perm-edit-followups .require-edit-followups,
 body.perm-edit-register .require-edit-register{display:inline-block!important;}
 .role-finance .require-admin{display:none!important;}
 .role-staff   .require-admin{display:none!important;}
-.role-office  .require-admin{display:none!important;}
+.role-council .require-admin{display:none!important;}
+/* Anonymous giving (council): the Giving nav and the aggregate reports stay, but any
+   surface that names a donor goes. applyPermissionUI() also hides these inline for the
+   markup present at load; this rule covers anything rendered afterwards. */
+body.perm-giving-anon .require-giving-named{display:none!important;}
 .role-member  .require-admin{display:none!important;}
 /* ── PRINT ── */
 @media print{

@@ -24,6 +24,70 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.165.0 — The `office` role becomes `council`, and giving it can see is anonymous (2026-08-10)
+
+Two changes, one role. `office` is renamed **`council`**, and the council tier now sees the
+church's financial picture — the Finance workspace and the Reports tab — with giving readable
+**only in aggregate**. A council member can see what the congregation gave; never who gave it.
+
+**A new permission level, not a new role flag.** `giving` gains **`anon`**, sitting between
+`none` and `view` in the existing tri-state matrix (`api-utils.js`). Making it a level rather
+than a side-car boolean means it flows through the same `resolveRolePermissions` →
+`permissionsForRole` → central `ACCESS_GATE` path everything else already uses, and it shows up
+in Settings → Role Permissions as a third option on the Giving row — *Totals only (no names)* —
+so an admin can move council up to full giving access, or down to none, without a code change.
+`anon` is meaningless on the other seven items and is normalized to `none` there, so a
+hand-crafted config can't create an undefined state.
+
+**Enforcement is an allowlist at one chokepoint, deliberately.** `isAnonSafeGivingSeg()` names
+the eight aggregate endpoints an anon role may call — `giving/stats`, `reports/giving-summary`,
+`-by-method`, `-trend`, `-multiyear`, `-distribution`, `-vs-attendance`, `-board`. Every giving
+route reaches its handler through the gate in `handleChmsApi`, so **a giving endpoint added
+later is unreachable for council until somebody reads it and decides it names nobody**. A
+denylist would have failed the other way round, and the failure mode there is a donor's name.
+Refused accordingly: batches, transactions, deposits, quick entry, letters/nudges/receipts,
+statements, `giving-insights` (top + lapsed givers), `giving-yoy`, `giving-plateaus`,
+`giving-bands`, and reconcile-diagnose. Writes are refused on the allowlisted endpoints too.
+
+**⚠ Individual giving also surfaces outside the giving routes, and that is the easy thing to
+miss.** `isFinance` — threaded into the people, reports and import handlers — used to mean
+"`canView('giving')`", which is *true* for anon. It now means "may see an individual's giving"
+and is false for anon, which is what keeps `giving_12mo` off the person profile and the
+First-Time Givers list off the dashboard. The three General Fund dashboard totals are
+congregation-wide sums and read the separate `canViewGivingSums` instead, so council keeps them.
+The two aggregate reports that self-check (`giving-trend`, `giving-yoy`) take `givingAnon`
+explicitly rather than being loosened.
+
+**Front end mirrors it, but is not the enforcement.** A new `.require-giving-named` class marks
+the twelve donor-naming surfaces — the Offerings and Communications sub-nav entries and panels,
+the Statement/Insights/Trends/Letters tiles, the Plateaus and Bands cards, and the person
+profile's Giving tab — hidden by `applyPermissionUI()` and by a `body.perm-giving-anon` CSS rule
+for anything rendered afterwards. `givSetView()` sends an anon role's Offerings/Communications
+deep links to Reports, so a stale bookmark lands somewhere real instead of on a blank panel.
+
+**Existing accounts move automatically.** `_doInitDb` runs `UPDATE app_users SET role='council'
+WHERE role='office'` (also `migrations/0035_role_office_to_council.sql`) — without it an account
+left on `office` would resolve to an empty permission row and lose access outright.
+`resolveRolePermissions` reads a pre-rename stored `office` config row as council's, so an
+admin's existing configuration survives; the first save after the rename replaces the key.
+
+**Register access is preserved, not re-decided.** Council keeps the register edit the old office
+role had. This is a rename plus an addition — silently narrowing what existing accounts could do
+is a separate decision, and it is one checkbox away in Settings either way.
+
+`npm test` (1164/1164, 30 new across `test/giving-anon-gate.test.js`,
+`test/role-permissions.test.js` and `test/giving-consolidation-ui.test.js`); the gate tests drive
+the real `handleChmsApi` against a mock DB that throws a sentinel on any query past the config
+read, so "this endpoint IS reachable" is proven by the request exploding rather than by the
+absence of a 403. **Every new test verified non-vacuous** by injecting the exact regression it
+guards (eight injections, eight correct failures) — one of them found a real hole: the first pass had
+no coverage of `isFinance` being strict for anon, i.e. the person-profile leak, so the
+recording-DB tests asserting the giving query is never *issued* were added for it. Plus
+`node --check` on both built bundles and a div-balance scan of the assembled `CHMS_HTML`.
+**Not verified**: a live browser or real D1. (`src/api-utils.js`, `src/api-chms.js`,
+`src/api-reports.js`, `src/api-admin.js`, `src/api-import.js`, `src/db.js`,
+`migrations/0035_role_office_to_council.sql`, `src/frontend/{js-core,js-giving,js-settings,js-dashboard,html-head,html-tabs}.js`)
+
 ### v1.164.0 — Ivanhoe: capital input fixed, combined basis, and the tab's figures reconciled (2026-08-08)
 
 Four things off a live screenshot of the Commercial Property tab at v1.163.0.

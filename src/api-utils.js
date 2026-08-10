@@ -3,8 +3,9 @@ import { json, html } from './auth.js';
 
 // ── Configurable role permissions ─────────────────────────────────────────
 // The matrix below is the actual access-control definition threaded through the whole
-// ChMS API. Each configurable role (finance/staff/office/member) gets, per feature ITEM,
-// one of three LEVELS: 'none' (no access), 'view' (read-only) or 'edit' (read + write).
+// ChMS API. Each configurable role (finance/staff/council/member) gets, per feature ITEM,
+// one LEVEL: 'none' (no access), 'anon' (giving only — aggregate figures, no donor named),
+// 'view' (read-only) or 'edit' (read + write).
 // handleChmsApi resolves this once and enforces it centrally (a per-item view+edit gate),
 // so every downstream domain handler automatically respects an admin's changes.
 //
@@ -18,8 +19,12 @@ import { json, html } from './auth.js';
 // People / Households editing is NOT one of these items — it stays governed by the blanket
 // `canEdit` flag (true for every non-member role), exactly as before. These items are the
 // feature areas layered on top of the baseline directory.
-export const ROLE_PERMISSION_ROLES = ['finance', 'staff', 'office', 'member'];
-export const ROLE_PERMISSION_LEVELS = ['none', 'view', 'edit'];
+export const ROLE_PERMISSION_ROLES = ['finance', 'staff', 'council', 'member'];
+export const ROLE_PERMISSION_LEVELS = ['none', 'anon', 'view', 'edit'];
+// 'anon' only means something for `giving` — it is the "totals yes, names never" level the
+// Council role runs on. Offered anywhere else it would read as a weaker 'view' with no
+// defined behavior, so it is normalized down to 'none' on every other item.
+export const ANON_CAPABLE_ITEMS = { giving: true };
 // editable:false items (Reports, Audit Log) are inherently read-only — their max level is
 // 'view'; the UI still lets you pick none/view but never edit.
 export const ROLE_PERMISSION_ITEMS = [
@@ -41,25 +46,32 @@ for (const it of ROLE_PERMISSION_ITEMS) ITEM_MAX_LEVEL[it.key] = it.editable ? '
 const MEMBER_ALLOWED_ITEMS = { reports: 'view' };
 
 export const DEFAULT_ROLE_PERMISSIONS = {
-  // Matches the historical fixed behavior exactly: finance → giving/tuition/finance (edit)
-  // + reports (view); staff → attendance/follow-ups/register (edit) + audit/reports (view);
-  // office → register (edit) only; member → filtered directory, nothing extra.
+  // finance → giving/tuition/finance (edit) + reports (view); staff → attendance/follow-ups/
+  // register (edit) + audit/reports (view); member → filtered directory, nothing extra.
+  //
+  // council (formerly `office`) is the church-governance tier: it keeps the register access
+  // the old office role had, and adds the board-facing financial picture — the Finance
+  // workspace and the Reports tab, but giving at 'anon' only, so a council member sees what
+  // the congregation gave and never who gave it.
   finance: { giving: 'edit', tuitionaid: 'edit', finance: 'edit', attendance: 'none', followups: 'none', audit: 'none', register: 'none', reports: 'view' },
   staff:   { giving: 'none', tuitionaid: 'none', finance: 'none', attendance: 'edit', followups: 'edit', audit: 'view', register: 'edit', reports: 'view' },
-  office:  { giving: 'none', tuitionaid: 'none', finance: 'none', attendance: 'none', followups: 'none', audit: 'none', register: 'edit', reports: 'none' },
+  council: { giving: 'anon', tuitionaid: 'none', finance: 'view', attendance: 'none', followups: 'none', audit: 'none', register: 'edit', reports: 'view' },
   member:  { giving: 'none', tuitionaid: 'none', finance: 'none', attendance: 'none', followups: 'none', audit: 'none', register: 'none', reports: 'none' },
 };
 
 function levelRank(l) { const i = ROLE_PERMISSION_LEVELS.indexOf(l); return i < 0 ? 0 : i; }
-function clampLevel(level, maxLevel) {
+// Clamp a stored level for one item: unknown values and a misplaced 'anon' both fall to
+// 'none' (fail closed), and anything above the item's own ceiling is capped.
+function clampLevel(item, level, maxLevel) {
   if (!ROLE_PERMISSION_LEVELS.includes(level)) return 'none';
+  if (level === 'anon' && !ANON_CAPABLE_ITEMS[item]) return 'none';
   return levelRank(level) > levelRank(maxLevel) ? maxLevel : level;
 }
 function clampMemberRow(row) {
   const out = {};
   for (const item of ROLE_PERMISSION_ITEM_KEYS) {
     const ceil = MEMBER_ALLOWED_ITEMS[item];
-    out[item] = ceil ? clampLevel(row[item], ceil) : 'none';
+    out[item] = ceil ? clampLevel(item, row[item], ceil) : 'none';
   }
   return out;
 }
@@ -84,12 +96,20 @@ function migrateLegacyRow(row) {
 }
 
 // Pure — takes the raw stored JSON string (or null/undefined) and returns the full
-// {finance:{...}, staff:{...}, office:{...}, member:{...}} matrix with every role/item
+// {finance:{...}, staff:{...}, council:{...}, member:{...}} matrix with every role/item
 // defaulted and clamped, so a partially-edited, legacy, or missing config can never leave
 // an item undefined or over-granted.
+//
+// `office` was renamed to `council`. A config saved before the rename still carries an
+// `office` row, so it is read in as council's overrides — losing it would silently reset
+// whatever an admin had configured back to the defaults. An explicit `council` row always
+// wins, so the first save after the rename supersedes the old key for good.
 export function resolveRolePermissions(storedJson) {
   let overrides = {};
   if (storedJson) { try { overrides = JSON.parse(storedJson) || {}; } catch { overrides = {}; } }
+  if (overrides && typeof overrides === 'object' && overrides.office && !overrides.council) {
+    overrides = Object.assign({}, overrides, { council: overrides.office });
+  }
   const result = {};
   for (const role of Object.keys(DEFAULT_ROLE_PERMISSIONS)) {
     const base = Object.assign({}, DEFAULT_ROLE_PERMISSIONS[role]);
@@ -97,7 +117,7 @@ export function resolveRolePermissions(storedJson) {
     if (ov && typeof ov === 'object') {
       const migrated = migrateLegacyRow(ov);
       for (const item of ROLE_PERMISSION_ITEM_KEYS) {
-        if (item in migrated) base[item] = clampLevel(migrated[item], ITEM_MAX_LEVEL[item]);
+        if (item in migrated) base[item] = clampLevel(item, migrated[item], ITEM_MAX_LEVEL[item]);
       }
     }
     result[role] = base;
@@ -125,6 +145,33 @@ export function permissionsForRole(matrix, role) {
     out[item] = ROLE_PERMISSION_LEVELS.includes(row[item]) ? row[item] : 'none';
   }
   return out;
+}
+
+// ── Anonymous giving access ───────────────────────────────────────────────
+// The exact set of giving endpoints a role holding giving:'anon' may call. This is an
+// ALLOWLIST, not a denylist, and deliberately so: a giving endpoint added later is
+// unreachable for an anon role until someone reads it and decides it names nobody. Getting
+// that wrong the other way round leaks donor identity, so the default has to be "no".
+//
+// Every entry below returns fund/method/age-bucket/month aggregates or distribution
+// statistics only — no person id, no name, no email, no envelope number. Notably NOT here:
+// batches, transactions, deposits, quick entry, letters/nudges/receipts, statements,
+// giving-insights (top + lapsed givers by name), giving-yoy (per-person year-over-year),
+// giving-plateaus and giving-bands (per-giver lists), and reconcile-diagnose.
+const ANON_SAFE_GIVING_SEGS = new Set([
+  'giving/stats',
+  'reports/giving-summary',
+  'reports/giving-by-method',
+  'reports/giving-trend',
+  'reports/giving-multiyear',
+  'reports/giving-distribution',
+  'reports/giving-vs-attendance',
+  'reports/giving-board',
+]);
+
+// Is this path segment safe to serve to a role that may see giving totals but never donors?
+export function isAnonSafeGivingSeg(seg) {
+  return ANON_SAFE_GIVING_SEGS.has(String(seg || '').split('?')[0]);
 }
 
 export function randHex(bytes) {

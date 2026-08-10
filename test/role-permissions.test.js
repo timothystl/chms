@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   resolveRolePermissions, permissionsForRole, DEFAULT_ROLE_PERMISSIONS,
   ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS,
+  isAnonSafeGivingSeg,
 } from '../src/api-utils.js';
 
 describe('resolveRolePermissions', () => {
@@ -24,19 +25,22 @@ describe('resolveRolePermissions', () => {
     expect(d.staff.register).toBe('edit');
     expect(d.staff.audit).toBe('view');
     expect(d.staff.giving).toBe('none');
-    // office = register only
-    expect(d.office.register).toBe('edit');
-    expect(d.office.reports).toBe('none');
+    // council = the old office register access, plus the board-facing financial picture:
+    // Finance + Reports to read, and giving only in aggregate.
+    expect(d.council.register).toBe('edit');
+    expect(d.council.finance).toBe('view');
+    expect(d.council.reports).toBe('view');
+    expect(d.council.giving).toBe('anon');
     // member = nothing extra
     expect(d.member.reports).toBe('none');
   });
 
   it('applies a partial override without disturbing other items/roles', () => {
-    const perms = resolveRolePermissions(JSON.stringify({ office: { reports: 'view' } }));
-    expect(perms.office.reports).toBe('view');
-    // untouched office items keep their default
-    expect(perms.office.register).toBe('edit');
-    expect(perms.office.giving).toBe('none');
+    const perms = resolveRolePermissions(JSON.stringify({ council: { reports: 'none' } }));
+    expect(perms.council.reports).toBe('none');
+    // untouched council items keep their default
+    expect(perms.council.register).toBe('edit');
+    expect(perms.council.giving).toBe('anon');
     // other roles unaffected
     expect(perms.finance).toEqual(DEFAULT_ROLE_PERMISSIONS.finance);
     expect(perms.staff).toEqual(DEFAULT_ROLE_PERMISSIONS.staff);
@@ -49,8 +53,8 @@ describe('resolveRolePermissions', () => {
   });
 
   it('coerces an unknown level string to none', () => {
-    const perms = resolveRolePermissions(JSON.stringify({ office: { giving: 'superuser' } }));
-    expect(perms.office.giving).toBe('none');
+    const perms = resolveRolePermissions(JSON.stringify({ council: { giving: 'superuser' } }));
+    expect(perms.council.giving).toBe('none');
   });
 
   it('member can never be granted edit and only the safe reports item is honored', () => {
@@ -72,7 +76,12 @@ describe('resolveRolePermissions', () => {
     const perms = resolveRolePermissions(JSON.stringify(legacy));
     expect(perms.finance).toEqual(DEFAULT_ROLE_PERMISSIONS.finance);
     expect(perms.staff).toEqual(DEFAULT_ROLE_PERMISSIONS.staff);
-    expect(perms.office).toEqual(DEFAULT_ROLE_PERMISSIONS.office);
+    // The legacy row is keyed `office`, the role it configures is now `council`, and its
+    // booleans resolve to register-edit only — so it lands as the pre-rename office grant,
+    // NOT the new council default (which adds finance/reports/anon giving).
+    expect(perms.council.register).toBe('edit');
+    expect(perms.council.giving).toBe('none');
+    expect(perms.council.finance).toBe('none');
   });
 
   it('every role in the defaults has every item defined with a valid level', () => {
@@ -95,10 +104,10 @@ describe('permissionsForRole', () => {
     expect(a.audit).toBe('view');
   });
 
-  it('finance/staff/office/member get their resolved matrix entry', () => {
+  it('finance/staff/council/member get their resolved matrix entry', () => {
     expect(permissionsForRole(perms, 'finance')).toEqual(DEFAULT_ROLE_PERMISSIONS.finance);
     expect(permissionsForRole(perms, 'staff')).toEqual(DEFAULT_ROLE_PERMISSIONS.staff);
-    expect(permissionsForRole(perms, 'office')).toEqual(DEFAULT_ROLE_PERMISSIONS.office);
+    expect(permissionsForRole(perms, 'council')).toEqual(DEFAULT_ROLE_PERMISSIONS.council);
     expect(permissionsForRole(perms, 'member')).toEqual(DEFAULT_ROLE_PERMISSIONS.member);
   });
 
@@ -108,10 +117,75 @@ describe('permissionsForRole', () => {
   });
 
   it('reflects a granted override for a role that did not have it by default', () => {
-    const granted = resolveRolePermissions(JSON.stringify({ office: { attendance: 'view' } }));
-    expect(permissionsForRole(granted, 'office').attendance).toBe('view');
+    const granted = resolveRolePermissions(JSON.stringify({ council: { attendance: 'view' } }));
+    expect(permissionsForRole(granted, 'council').attendance).toBe('view');
     // and edit for an item that was none by default
     const granted2 = resolveRolePermissions(JSON.stringify({ finance: { register: 'edit' } }));
     expect(permissionsForRole(granted2, 'finance').register).toBe('edit');
+  });
+});
+
+// ── Anonymous giving ('anon') ────────────────────────────────────────────────
+// The level the Council role runs on: aggregate giving figures, never a donor's identity.
+describe("giving:'anon'", () => {
+  it('is accepted on giving and normalized to none on every other item', () => {
+    const every = {};
+    for (const item of ROLE_PERMISSION_ITEM_KEYS) every[item] = 'anon';
+    const perms = resolveRolePermissions(JSON.stringify({ staff: every }));
+    expect(perms.staff.giving).toBe('anon');
+    for (const item of ROLE_PERMISSION_ITEM_KEYS) {
+      if (item !== 'giving') expect(perms.staff[item]).toBe('none');
+    }
+  });
+
+  it('is never granted to a member, who gets no giving access at all', () => {
+    const perms = resolveRolePermissions(JSON.stringify({ member: { giving: 'anon' } }));
+    expect(perms.member.giving).toBe('none');
+    expect(permissionsForRole(perms, 'member').giving).toBe('none');
+  });
+
+  it('leaves admin at full access — anon is never something admin resolves to', () => {
+    const perms = resolveRolePermissions(JSON.stringify({ council: { giving: 'anon' } }));
+    expect(permissionsForRole(perms, 'admin').giving).toBe('edit');
+  });
+
+  it('can be upgraded to full giving access by an admin, and back down', () => {
+    const up = resolveRolePermissions(JSON.stringify({ council: { giving: 'view' } }));
+    expect(permissionsForRole(up, 'council').giving).toBe('view');
+    const down = resolveRolePermissions(JSON.stringify({ council: { giving: 'none' } }));
+    expect(permissionsForRole(down, 'council').giving).toBe('none');
+  });
+});
+
+describe('isAnonSafeGivingSeg', () => {
+  it('allows the aggregate giving reports', () => {
+    for (const seg of [
+      'giving/stats', 'reports/giving-summary', 'reports/giving-by-method',
+      'reports/giving-trend', 'reports/giving-multiyear', 'reports/giving-distribution',
+      'reports/giving-vs-attendance', 'reports/giving-board',
+    ]) expect(isAnonSafeGivingSeg(seg)).toBe(true);
+  });
+
+  it('refuses every endpoint that can name a donor', () => {
+    for (const seg of [
+      // per-donor reports
+      'reports/giving-insights', 'reports/giving-yoy', 'reports/giving-plateaus',
+      'reports/giving-bands', 'reports/giving-statement', 'reports/giving-statement-household',
+      // the offerings workflow
+      'giving', 'giving/batches', 'giving/batches/7', 'giving/batches/7/entries',
+      'giving/entries/3', 'giving/transactions', 'giving/quick-entry',
+      'giving/deposits', 'giving/deposits/2', 'giving/unassigned-gifts',
+      'giving/offerings-summary', 'giving/deposit-options', 'giving/deposit-lines',
+      // communications + forensics
+      'giving/letters/status', 'giving/letters/mark', 'giving/nudges/status',
+      'giving/receipts/queue', 'giving/reconcile-diagnose', 'giving/force-remove-orphans',
+    ]) expect(isAnonSafeGivingSeg(seg)).toBe(false);
+  });
+
+  it('is an exact match, so a longer path cannot ride in on an allowed prefix', () => {
+    expect(isAnonSafeGivingSeg('giving/stats/by-person')).toBe(false);
+    expect(isAnonSafeGivingSeg('reports/giving-summary-detail')).toBe(false);
+    expect(isAnonSafeGivingSeg('')).toBe(false);
+    expect(isAnonSafeGivingSeg(undefined)).toBe(false);
   });
 });
