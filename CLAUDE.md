@@ -433,6 +433,27 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### ATT-MOB1 — Attendance entry ran off the side of a phone (2026-08-10, DONE)
+Reported from an iPhone: the 8:00 field filled the screen, 10:45 sat past the right edge, and
+recording a Sunday meant panning the page sideways.
+- **Not the two-column grid.** A `1fr` track is `minmax(auto, 1fr)`, and that `auto` minimum is the
+  item's CONTENT-based minimum. An `<input>` with no `width`/`size` gets that minimum from the HTML
+  default `size` of **20 characters** — and `.att-input` is deliberately `1.65rem` (MOB1 restores
+  it on phones on purpose), so each field demanded ~300px, the card could not shrink, and the PAGE
+  grew instead. `box-sizing:border-box` does not help: this is an intrinsic minimum, not padding.
+- **Fix is `min-width:0`** on the grid children and the input, plus `.att-row2>*`/`.att-row2b>*` so
+  no other card's contents can widen the page the same way. Phone-only padding trim on top.
+- **Deliberately NOT stacked on phones** — that fixes the scroll but pushes Combined and Save
+  Sunday down the page, and one-glance entry is the point of the card. Pinned by a test. Also
+  refused: `overflow-x:auto` on the card, which is the same problem in a smaller box.
+- **A backtick in one of my own new CSS comments closed the outer `String.raw` literal** and broke
+  the whole stylesheet — SC3-BUG1/FIN15 class, caught by the harness, not by reading.
+- `npm test` (1177/1177, 13 new); **every new test verified non-vacuous** (5 injections, 5 correct
+  failures). Plus `node --check` on both bundles, brace balance on the real served
+  `/admin/app.css` (**not** `CHMS_HTML` — the stylesheet has not been inlined there since CR1),
+  div balance on `CHMS_HTML`. **Not verified**: a real phone.
+  (`src/frontend/html-head.js`, `test/attendance-mobile.test.js`)
+
 ### COUNCIL1 — `office` role renamed to `council`; giving it sees is anonymous (2026-08-10, DONE)
 Asked for as "change office to council… they should see finance things but not individual giving
 records. Any giving viewing must be anonymous — planning and reports, just no names."

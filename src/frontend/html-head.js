@@ -465,15 +465,27 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 .att-row2{display:grid;grid-template-columns:404px 1fr;gap:16px;align-items:start;}
 .att-row2b{display:grid;grid-template-columns:1fr 424px;gap:16px;align-items:start;}
 @media(max-width:1100px){.att-row2,.att-row2b{grid-template-columns:1fr;}}
+/* A grid item's min-width:auto is its CONTENT-based minimum, so a track that says 1fr still
+   cannot shrink below what its contents demand — it widens the page instead. Opt every card out
+   of that so a wide child scrolls inside its own card rather than panning the whole UI.
+   (No backticks in this comment: the file is one String.raw literal — see SC3-BUG1/FIN15.) */
+.att-row2>*,.att-row2b>*{min-width:0;}
 /* -- Entry card -- */
 .att-entry-card{display:flex;flex-direction:column;gap:14px;}
 .att-eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--att-text-2);}
 .att-pill-due{font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--att-pill-text);background:var(--att-pill-bg);padding:3px 10px;border-radius:100px;white-space:nowrap;}
 .att-entry-date{font-size:1.9rem;font-weight:700;color:var(--color-navy);letter-spacing:-.01em;font-family:var(--font-head);}
 .att-entry-sub{font-size:.88rem;color:var(--att-text-2);margin-top:2px;}
+/* The two service fields stay side by side at every width — the whole point of this card is
+   entering both and reading Combined without scrolling. What breaks that on a phone is the
+   automatic minimum size above: an input's content-based minimum comes from its default size
+   attribute (20 characters), and .att-input is deliberately 1.65rem, so each field demands ~300px and the
+   pair pushes the card — and with it the page — past a phone's viewport. min-width:0 lets the
+   1fr tracks actually be fractions. */
 .att-input-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.att-input-grid>*{min-width:0;}
 .att-input-label{font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--color-navy);margin-bottom:4px;display:block;}
-.att-input{height:60px;padding:0 14px;border:1.5px solid var(--border);border-radius:12px;background:var(--att-page);font-size:1.65rem;font-weight:700;color:var(--color-navy);font-variant-numeric:tabular-nums;width:100%;font-family:var(--font-body);}
+.att-input{height:60px;padding:0 14px;border:1.5px solid var(--border);border-radius:12px;background:var(--att-page);font-size:1.65rem;font-weight:700;color:var(--color-navy);font-variant-numeric:tabular-nums;width:100%;min-width:0;font-family:var(--font-body);}
 .att-input:focus{border-color:var(--color-navy);background:var(--white);outline:none;}
 .att-combined-strip{padding:12px 15px;background:var(--att-inset);border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
 .att-combined-label{font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--att-text-2);}
@@ -604,6 +616,12 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 .att-inline-form{padding:12px 14px 14px;background:var(--blue-mist);border-top:1px solid var(--ice-blue);border-radius:0 0 12px 12px;}
 .att-edit-hint{font-size:.72rem;color:var(--warm-gray);margin-left:6px;}
 @media(max-width:767px){
+  /* 88px of panel+card padding out of a 320px viewport is a third of the width the two entry
+     fields have to share. Trimmed on phones only; the desktop spacing is unchanged. */
+  .att-panel{padding:16px 12px 24px;}
+  .att-card{padding:16px;}
+  .att-tabbar{padding:0 12px;gap:18px;}
+  .att-input{padding:0 10px;}
   .att-hist-hdr,.att-hist-row{grid-template-columns:84px 1fr 44px 44px 58px;}
   .att-hist-1045{display:none;}
   .att-yoy-hdr,.att-yoy-row{grid-template-columns:40px 1fr 1fr 50px;}
