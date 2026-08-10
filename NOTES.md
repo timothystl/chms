@@ -24,6 +24,45 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.165.1 — Attendance entry no longer runs off the side of a phone (2026-08-10)
+
+Reported with a screenshot from an iPhone: on Attendance → This Week the **8:00 field filled the
+screen, 10:45 sat past the right edge, and recording a Sunday meant panning the whole page
+sideways**. The pulse card below was cut off for the same reason.
+
+**Cause — and it is not the two-column grid.** `.att-input-grid` is `grid-template-columns:1fr 1fr`,
+but a `1fr` track is really `minmax(auto, 1fr)`, and that `auto` minimum is the item's
+**content-based minimum size**. For an `<input>` with no `width`/`size` attribute that minimum comes
+from the HTML default `size` of **20 characters** — and `.att-input` is deliberately `1.65rem`
+(~26px, MOB1 restores it on phones on purpose for thumb-friendly entry). So each field demanded
+roughly 300px, the pair could not fit any phone, the card refused to shrink, and **the page grew
+instead**. `box-sizing:border-box` does not help here: the overflow is an intrinsic minimum, not
+padding arithmetic.
+
+**Fix**: `min-width:0` on the grid children (plus the input itself), which is what lets a fraction
+actually be a fraction. Also applied to `.att-row2 > *` / `.att-row2b > *` so the same class of bug
+cannot widen the page from any other attendance card's contents. Phone-only padding trim on top —
+88px of panel+card chrome out of a 320px viewport was a third of the width the two fields had to
+share; desktop spacing is untouched.
+
+**Deliberately not done**: stacking the fields on phones. That fixes the scroll too, but pushes
+Combined and Save Sunday down the page, and reading both numbers plus the total in one glance is
+the entire point of the card. They stay side by side at every width — a test asserts it. Also not
+done: `overflow-x:auto` on the card, which is the same problem in a smaller box.
+
+**Caught by the harness, not by reading**: the first draft of the CSS comment used backticks
+around `min-width:auto` and `1fr`, which closed the file's outer `String.raw` literal and broke the
+whole stylesheet module — the SC3-BUG1/FIN15 class, recurring exactly as documented.
+
+`npm test` (1177/1177, 13 new in `test/attendance-mobile.test.js`); **every new test verified
+non-vacuous** by injecting the exact regression it guards (5 injections, 5 correct failures —
+removing the fix, stacking instead, a `size` attribute breaking the modeled premise, trimming
+padding globally, and "fixing" it with `overflow-x:auto`). Plus `node --check` on both built
+bundles, a brace-balance scan of the real served `/admin/app.css` (the stylesheet has not been
+inlined in `CHMS_HTML` since CR1 — check the built `CHMS_APP_CSS`, not the page), a div-balance
+scan of `CHMS_HTML`, and confirmation that all five new declarations reach the served CSS.
+**Not verified**: a real phone. (`src/frontend/html-head.js`, `test/attendance-mobile.test.js`)
+
 ### v1.165.0 — The `office` role becomes `council`, and giving it can see is anonymous (2026-08-10)
 
 Two changes, one role. `office` is renamed **`council`**, and the council tier now sees the
