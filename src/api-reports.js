@@ -4,7 +4,11 @@ import { makeBreezeClient } from './breeze.js';
 import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedThroughDate, sundaysInYear, nthSundayOfYear, periodAsOfDate, monthElapsedFraction, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, resolveGeneralFundIds, resolveGeneralFundBudget, buildBoardCategoryBlock } from './api-utils.js';
 import { resolveChurchYearPrecedence } from './api-finance.js';
 
-export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
+// `isFinance` here means "may see an individual's giving". `givingAnon` is the weaker grant
+// held by the Council role: aggregate giving figures only, and only on the segments
+// isAnonSafeGivingSeg() allows — handleChmsApi has already 403'd everything else, so the two
+// aggregate reports that self-check below just need to accept it alongside isFinance.
+export async function handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit, givingAnon = false) {
 
 // ── Reports ──────────────────────────────────────────────────────
 if (seg === 'reports/people-insights' && method === 'GET') {
@@ -1651,7 +1655,8 @@ if (seg === 'giving/force-remove-orphans' && method === 'POST') { try {
 } catch (e) { return json({ error: 'Force-remove error: ' + e.message }, 500); } }
 
 if (seg === 'reports/giving-trend' && method === 'GET') {
-  if (!isFinance) return json({ error: 'Forbidden' }, 403);
+  // Month-by-month totals across years — no donor appears, so anon giving access is enough.
+  if (!isFinance && !givingAnon) return json({ error: 'Forbidden' }, 403);
   const yearsParam = url.searchParams.get('years') || String(new Date().getFullYear());
   const years = yearsParam.split(',').map(y => y.trim()).filter(y => /^\d{4}$/.test(y)).slice(0, 10);
   if (!years.length) return json({ error: 'No valid years' }, 400);

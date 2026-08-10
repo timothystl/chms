@@ -25,9 +25,12 @@ function givSetView(view) {
   if (_GIV_VIEWS.indexOf(view) < 0) view = 'offerings';
   // Reports and Communications are .require-finance: applyPermissionUI() hides them by setting
   // an inline display:none, which the loop below would otherwise cheerfully undo. The server
-  // gates the data either way — this just stops an alias or a stale deep link from parking an
-  // office-level user on an empty panel. Offerings has no such requirement, so it's the fallback.
+  // gates the data either way — this just stops an alias or a stale deep link from parking a
+  // register-only user on an empty panel. Offerings has no such requirement, so it's the fallback.
   if (givViewNeedsFinance(view) && !givCanSeeFinance()) view = 'offerings';
+  // …except for an anon-giving role (council), for whom Offerings and Communications are the
+  // hidden ones — every donor is named in there — and Reports is the one real destination.
+  if (givViewNamesDonors(view) && givAnonGiving()) view = 'reports';
   _givView = view;
   _GIV_VIEWS.forEach(function(v) {
     var btn = document.getElementById('giv-view-' + v + '-btn');
@@ -70,6 +73,12 @@ function givCanSeeFinance() {
   return (typeof permView !== 'function') || permView('giving');
 }
 function givViewNeedsFinance(view) { return view === 'reports' || view === 'comms'; }
+// permGivingAnon lives in js-core.js (concatenated ahead of this module); the typeof guard
+// covers a non-browser harness that loads this file on its own.
+function givAnonGiving() { return (typeof permGivingAnon === 'function') && permGivingAnon(); }
+// Offerings (batches, the flat gift table, deposits) and Communications (letters, receipts,
+// nudges) are per-donor from top to bottom — there is no anonymous reading of them.
+function givViewNamesDonors(view) { return view === 'offerings' || view === 'comms'; }
 
 function givOffSetPane(pane) {
   if (!(pane in _GIV_OFF_PANES)) pane = 'batches';

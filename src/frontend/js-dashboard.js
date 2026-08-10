@@ -332,8 +332,8 @@ function renderDashboard(d) {
   // ── Quick actions ──────────────────────────────────────────────
   var isFinanceRole = _userRole === 'admin' || _userRole === 'finance';
   var isStaffRole   = _userRole === 'admin' || _userRole === 'staff';
-  var canEditRole   = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff' || _userRole === 'office';
-  var canViewReports = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff'; // office has no reporting access
+  var canEditRole   = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff' || _userRole === 'council';
+  var canViewReports = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff'; // council/register-only roles may have no reporting access
   html += '<div style="display:flex;justify-content:flex-end;margin-bottom:4px;">'
     + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;" onclick="openDashCustomize()">&#9881; Customize</button>'
     + '</div>';

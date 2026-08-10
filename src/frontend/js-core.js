@@ -3,7 +3,7 @@
 // app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.164.0';
+export const DEPLOY_VERSION = '1.165.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -545,7 +545,7 @@ function applyRoleUI(role, displayName, permissions) {
   _userPermissions = _userRole === 'admin'
     ? { finance: true, staff: true, register: true, reports: true }
     : (permissions || { finance: false, staff: false, register: false, reports: false });
-  document.body.classList.remove('role-admin','role-finance','role-staff','role-office','role-member');
+  document.body.classList.remove('role-admin','role-finance','role-staff','role-council','role-member');
   document.body.classList.add('role-' + _userRole);
   applyPermissionUI(_userPermissions);
   var badge = document.getElementById('topbar-role');
@@ -564,6 +564,13 @@ function applyRoleUI(role, displayName, permissions) {
 var _perm = {};
 function permView(item) { return _userRole === 'admin' || (!!_perm[item] && _perm[item] !== 'none'); }
 function permEdit(item) { return _userRole === 'admin' || _perm[item] === 'edit'; }
+// Giving at the 'anon' level: totals yes, donors never. permView('giving') is deliberately
+// true for it (the Giving nav and the aggregate reports are the whole point), so anything
+// that names a giver has to ask this instead. Mirrors isAnonSafeGivingSeg on the server —
+// the server is the enforcement; this is what stops the UI offering a guaranteed 403.
+function permGivingAnon() { return _userRole !== 'admin' && _perm.giving === 'anon'; }
+// May this user see an individual person's giving?
+function permGivingNamed() { return permView('giving') && !permGivingAnon(); }
 // Drives feature-tab visibility (by VIEW level) and per-feature edit affordances (by EDIT
 // level) from the resolved permissions — these are the admin-configurable areas
 // (Settings -> Users -> Role Permissions). .require-admin/.no-member/.require-edit stay
@@ -583,6 +590,16 @@ function applyPermissionUI(perms) {
       el.style.display = allowed ? '' : 'none';
     });
   });
+  // Surfaces that name an individual giver — batches, transactions, deposits, letters,
+  // statements, per-donor reports, the profile Giving tab. Hidden for an anon-giving role,
+  // whose requests to them the server refuses anyway. Set inline (not via a body class) so
+  // it composes with the .require-finance pass above, which writes the same property.
+  if (permGivingAnon()) {
+    document.querySelectorAll('.require-giving-named').forEach(function(el) {
+      el.style.display = 'none';
+    });
+  }
+  document.body.classList.toggle('perm-giving-anon', permGivingAnon());
   // The Finance section header shows if ANY of its three items is visible.
   var finHdr = document.getElementById('s-hdr-finance');
   if (finHdr) finHdr.style.display = (permView('giving') || permView('tuitionaid') || permView('finance')) ? '' : 'none';

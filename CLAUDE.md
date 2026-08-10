@@ -46,7 +46,7 @@ The same Worker also serves the **public volunteer signup site**, branded **Serv
 ## Architecture Notes
 
 - **Auth**: Cookie-based HMAC-SHA256. Login checks `app_users` table first (per-user DB accounts), falls back to `ADMIN_PASSWORD` env-var for break-glass admin access only.
-- **Roles**: `admin | finance | staff | office | member` — enforced in `api-chms.js` ACL block. As of 2026-07-27 (v1.85.0) Role Permissions is a **granular per-feature, tri-state matrix** (Settings → Role Permissions): each configurable role (`finance/staff/office/member`) gets, per feature ITEM (`giving`, `tuitionaid`, `finance`, `attendance`, `followups`, `audit`, `register`, `reports`), one LEVEL — `none`/`view`/`edit`. Stored in `chms_config.role_permissions_json`; see `ROLE_PERMISSION_ITEMS`/`DEFAULT_ROLE_PERMISSIONS`/`resolveRolePermissions()`/`permissionsForRole()` in `src/api-utils.js`. The old coarse 4-boolean shape (`finance/staff/register/reports`) is auto-migrated forward on read. Enforcement is a **central per-item view+edit gate** in `api-chms.js` (`ACCESS_GATE`): `none`→403 always, `view`→reads only (any write 403s before dispatch), `edit`→read+write. Domain modules still receive pre-computed `isAdmin/isFinance/isStaff/canEdit/canRegister` flags derived from the matrix (permissive-for-reads within an already-gated segment). Read-only items (`audit`, `reports`) cap at `view`. **People/Households editing is NOT in this matrix** — it stays the blanket `canEdit` flag (every non-member role). admin is always full access (never configurable). member is the filtered, read-only directory view: it can never be granted `edit` and only its safe extra (`reports`) is toggleable — `clampMemberRow()` enforces this regardless of what's stored.
+- **Roles**: `admin | finance | staff | council | member` — enforced in `api-chms.js` ACL block. As of 2026-07-27 (v1.85.0) Role Permissions is a **granular per-feature matrix** (Settings → Role Permissions): each configurable role (`finance/staff/council/member`) gets, per feature ITEM (`giving`, `tuitionaid`, `finance`, `attendance`, `followups`, `audit`, `register`, `reports`), one LEVEL — `none`/`view`/`edit`, plus **`anon` on `giving` only** (aggregate totals, no donor named — the level `council` runs on; see COUNCIL1 under Queued Items). `office` was renamed to `council` in v1.165.0; `app_users.role` is migrated on cold start and a pre-rename `office` key in the stored config is read as council's. Stored in `chms_config.role_permissions_json`; see `ROLE_PERMISSION_ITEMS`/`DEFAULT_ROLE_PERMISSIONS`/`resolveRolePermissions()`/`permissionsForRole()` in `src/api-utils.js`. The old coarse 4-boolean shape (`finance/staff/register/reports`) is auto-migrated forward on read. Enforcement is a **central per-item view+edit gate** in `api-chms.js` (`ACCESS_GATE`): `none`→403 always, `view`→reads only (any write 403s before dispatch), `edit`→read+write. Domain modules still receive pre-computed `isAdmin/isFinance/isStaff/canEdit/canRegister` flags derived from the matrix (permissive-for-reads within an already-gated segment). Read-only items (`audit`, `reports`) cap at `view`. **People/Households editing is NOT in this matrix** — it stays the blanket `canEdit` flag (every non-member role). Enforcement of `anon` is an ALLOWLIST at the same gate (`isAnonSafeGivingSeg()` in `api-utils.js`) — eight aggregate endpoints; everything per-donor 403s, so a giving route added later is unreachable for council until someone deliberately adds it. `isFinance` (threaded into people/reports/import) means "may see an INDIVIDUAL's giving" and is false for anon — that is what keeps `giving_12mo` off the person profile. admin is always full access (never configurable). member is the filtered, read-only directory view: it can never be granted `edit` and only its safe extra (`reports`) is toggleable — `clampMemberRow()` enforces this regardless of what's stored.
 - **Photos**: Stored in R2 bucket `tlc-chms-photos`; served via `/admin/r2photo/` proxy.
 - **Breeze ChMS sync**: `POST /admin/api/import/breeze` (bulk) and `POST /admin/api/import/breeze-sync-person` (per-person). See NOTES.md for field ID quirks.
 - **D1 param limit**: ~100 per statement. Use chunked queries for large IN/NOT IN lists.
@@ -432,6 +432,46 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 ---
 
 ## Queued Items (add new ones here during sessions)
+
+### COUNCIL1 — `office` role renamed to `council`; giving it sees is anonymous (2026-08-10, DONE)
+Asked for as "change office to council… they should see finance things but not individual giving
+records. Any giving viewing must be anonymous — planning and reports, just no names."
+- **A new LEVEL, not a new flag.** `giving` gains **`anon`**, between `none` and `view` in the
+  existing matrix, so it rides the same `resolveRolePermissions` → `permissionsForRole` →
+  `ACCESS_GATE` path as everything else and appears in Settings → Role Permissions as *Totals
+  only (no names)*. An admin can move council up to full giving or down to none without a deploy.
+  `anon` is meaningless on the other seven items and normalizes to `none` there.
+- **Enforcement is an ALLOWLIST at one chokepoint** (`isAnonSafeGivingSeg()`): `giving/stats` and
+  `reports/giving-{summary,by-method,trend,multiyear,distribution,vs-attendance,board}`. **A
+  giving endpoint added later is unreachable for council until somebody reads it and decides it
+  names nobody** — a denylist fails the other way, and that failure is a donor's name. Refused:
+  batches, transactions, deposits, quick entry, letters/nudges/receipts, statements,
+  `giving-insights`, `giving-yoy`, `giving-plateaus`, `giving-bands`, reconcile-diagnose. Writes
+  refused on the allowlisted endpoints too.
+- **⚠ The easy thing to miss: individual giving also surfaces OUTSIDE the giving routes.**
+  `isFinance` used to mean `canView('giving')`, which is TRUE for anon; it now means "may see an
+  individual's giving" and is false for anon — that is what keeps `giving_12mo` off the person
+  profile and First-Time Givers off the dashboard. The three General Fund dashboard totals are
+  congregation-wide and read the separate `canViewGivingSums`, so council keeps them. **Anything
+  new that reads `isFinance` inherits the right behaviour; anything that re-derives it from the
+  matrix must not.**
+- Front end mirrors it via `.require-giving-named` (12 surfaces) + `body.perm-giving-anon`, and
+  `givSetView()` sends an anon role's Offerings/Communications deep links to Reports. **The UI is
+  not the enforcement** — it exists so council is never offered a control that can only 403.
+- **Existing accounts migrate on cold start** (`UPDATE app_users SET role='council' WHERE
+  role='office'`, plus `migrations/0035_*`) — an account left on `office` would resolve to an
+  empty permission row and lose access outright. A pre-rename `office` key in the stored config is
+  read as council's until the next save.
+- **Register edit is preserved, not re-decided.** This is a rename plus an addition; narrowing
+  what existing accounts could already do is a separate call, and it is one checkbox away.
+- `npm test` (1164/1164, 30 new); **every new test verified non-vacuous** by injecting the exact
+  regression it guards (8 injections, 8 correct failures) — one found a real hole, that nothing
+  covered `isFinance` being strict for anon, i.e. the person-profile leak. **Not verified**: a
+  live browser or real D1. (`src/api-utils.js`, `src/api-chms.js`, `src/api-reports.js`,
+  `src/api-admin.js`, `src/api-import.js`, `src/db.js`, `migrations/0035_role_office_to_council.sql`,
+  `src/frontend/{js-core,js-giving,js-settings,js-dashboard,html-head,html-tabs}.js`,
+  `test/giving-anon-gate.test.js`, `test/role-permissions.test.js`,
+  `test/giving-consolidation-ui.test.js`)
 
 ### FIN64 — Ivanhoe: capital input, combined basis, and the tab's figures reconciled (2026-08-08, DONE)
 Four items off a live Commercial Property screenshot.
