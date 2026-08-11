@@ -554,30 +554,91 @@ function renderPeopleMobile(people) {
 // Read a date input that may have a paired "year unknown" checkbox.
 // Returns "0001-MM-DD" when the box is checked so backend math/display can detect it.
 function pmReadDate(inputId, cbId) {
-  var v = document.getElementById(inputId).value;
+  var el = document.getElementById(inputId);
+  if (!el) return '';
+  var v = el.value;
   if (!v) return '';
-  var cb = document.getElementById(cbId);
-  if (cb && cb.checked) {
-    var parts = v.split('-');
-    if (parts.length === 3) return '0001-' + parts[1] + '-' + parts[2];
+  var parts = v.split('-');
+  // Precision select (exact / monthday / year) wins when present; the older paired
+  // "Year unknown" checkbox is still honoured for any field that hasn't got one.
+  var prec = document.getElementById(inputId + '-prec');
+  var mode = prec ? prec.value : '';
+  if (!mode) {
+    var cb = document.getElementById(cbId);
+    mode = (cb && cb.checked) ? 'monthday' : 'exact';
   }
+  if (mode === 'monthday' && parts.length === 3) return '0001-' + parts[1] + '-' + parts[2];
+  if (mode === 'year' && parts.length === 3) return parts[0] + '-00-00';
   return v;
 }
-// When a "Year unknown" checkbox is checked and its date input is empty,
-// drop in today's month/day with a 2000 placeholder year so save has
-// something to work with. User can then adjust the day/month in the picker.
-function pmYearUnknownChanged(cbId, inputId) {
-  var cb = document.getElementById(cbId);
+// Which of the three precisions a stored value represents.
+function pmDatePrecision(val) {
+  if (!val) return 'exact';
+  if (String(val).indexOf('0001-') === 0) return 'monthday';
+  if (/^\d{4}-00-00$/.test(String(val).slice(0, 10))) return 'year';
+  return 'exact';
+}
+// A partial date can't go in a native <input type="date">, which only accepts a real
+// calendar date — so a placeholder is substituted for the unknown part. pmReadDate puts
+// the sentinel back on save, so the placeholder is never what gets stored.
+function pmDateInputValue(val) {
+  if (!val) return '';
+  var prec = pmDatePrecision(val);
+  if (prec === 'monthday') return '2000' + String(val).slice(4, 10);
+  if (prec === 'year') return String(val).slice(0, 4) + '-01-01';
+  return String(val).slice(0, 10);
+}
+// Show/hide the day and month parts as meaningless for the chosen precision, and seed a
+// usable value when switching onto a partial precision from an empty field.
+function pmDatePrecChanged(inputId) {
   var inp = document.getElementById(inputId);
-  if (!cb || !inp) return;
-  if (cb.checked && !inp.value) {
+  var prec = document.getElementById(inputId + '-prec');
+  if (!inp || !prec) return;
+  if (!inp.value) {
     var t = new Date();
     var mm = String(t.getMonth() + 1).padStart(2, '0');
     var dd = String(t.getDate()).padStart(2, '0');
-    inp.value = '2000-' + mm + '-' + dd;
-    inp.focus();
+    if (prec.value === 'monthday') inp.value = '2000-' + mm + '-' + dd;
+    else if (prec.value === 'year') inp.value = t.getFullYear() + '-01-01';
+  }
+  var note = document.getElementById(inputId + '-note');
+  if (note) {
+    note.textContent = prec.value === 'monthday' ? 'Year ignored — month & day only'
+      : prec.value === 'year' ? 'Month & day ignored — year only' : '';
   }
 }
+// Tri-state Yes / No / Not recorded control for baptized & confirmed.
+// A plain checkbox can't say "no" — unchecked has to stand for both "no" and
+// "we don't know", which are different pastoral facts.
+var SACRAMENT_OPTS = [['1', 'Yes'], ['2', 'No'], ['0', 'Not recorded']];
+function pmSacramentSelect(id, label, val, styleAttr) {
+  var cur = String(Number(val) === 1 ? 1 : Number(val) === 2 ? 2 : 0);
+  return '<label for="' + id + '" class="pv-field-card-lbl">' + label + '</label>'
+    + '<select id="' + id + '" name="' + id + '" style="' + (styleAttr || '') + '">'
+    + SACRAMENT_OPTS.map(function (o) {
+        return '<option value="' + o[0] + '"' + (cur === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+      }).join('')
+    + '</select>';
+}
+function pmReadSacrament(id) {
+  var el = document.getElementById(id);
+  if (!el) return 0;
+  var n = Number(el.value);
+  return (n === 1 || n === 2) ? n : 0;
+}
+// How a stored flag + date reads on the profile. A date always implies "yes"; with no
+// date the flag is the only thing that can speak, and "not recorded" stays blank rather
+// than claiming a "no" nobody entered.
+function pmSacramentDisplay(flag, dateStr) {
+  if (dateStr) return fmtDate(dateStr);
+  if (Number(flag) === 1) return 'Yes (date unknown)';
+  if (Number(flag) === 2) return 'No';
+  return '';
+}
+// (The old pmYearUnknownChanged lived here. Every date field now carries a precision
+//  select instead of a "Year unknown" checkbox, so it had no remaining call sites;
+//  pmDatePrecChanged above does the equivalent seeding for all three precisions.
+//  pmReadDate still honours a checkbox if one is ever paired with a field again.)
 // Explicitly clear a date field (and its paired "Year unknown" checkbox, if any).
 // Native <input type="date"> has no obvious "delete" affordance, so this gives
 // staff a reliable way to remove a date — e.g. an erroneous anniversary on a
@@ -586,25 +647,33 @@ function clearDateField(inputId, cbId) {
   var inp = document.getElementById(inputId);
   if (inp) inp.value = '';
   if (cbId) { var cb = document.getElementById(cbId); if (cb) cb.checked = false; }
+  var prec = document.getElementById(inputId + '-prec');
+  if (prec) { prec.value = 'exact'; pmDatePrecChanged(inputId); }
 }
 // Render a field-card date input with paired "Year unknown" checkbox.
 // Used by the inline Demographics editor on the profile page.
 function pedDateField(idBase, label, val) {
-  var noYear = !!(val && val.indexOf('0001-') === 0);
-  var displayVal = noYear ? ('2000' + val.slice(4)) : (val ? val.slice(0,10) : '');
+  var prec = pmDatePrecision(val);
   var inp = 'width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:13px;font-family:inherit;background:var(--white);';
+  var sel = 'font-size:11px;padding:1px 4px;border:1px solid var(--border);border-radius:4px;background:var(--white);font-family:inherit;';
+  var opts = [['exact', 'Exact date'], ['monthday', 'Month & day only'], ['year', 'Year only']];
   return '<div class="pv-field-card"><label for="' + idBase + '" class="pv-field-card-lbl">' + label + '</label>'
-    + '<input type="date" id="' + idBase + '" value="' + esc(displayVal) + '" style="' + inp + '">'
+    + '<input type="date" id="' + idBase + '" value="' + esc(pmDateInputValue(val)) + '" style="' + inp + '">'
     + '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;">'
-    + '<label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--warm-gray);cursor:pointer;">'
-    + '<input type="checkbox" id="' + idBase + '-noyear"' + (noYear ? ' checked' : '') + ' onchange="pmYearUnknownChanged(\'' + idBase + '-noyear\',\'' + idBase + '\')"> Year unknown</label>'
+    + '<select id="' + idBase + '-prec" aria-label="' + esc(label) + ' precision" style="' + sel + '" onchange="pmDatePrecChanged(\'' + idBase + '\')">'
+    + opts.map(function (o) { return '<option value="' + o[0] + '"' + (prec === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('')
+    + '</select>'
     + '<button type="button" class="pv-date-clear" onclick="clearDateField(\'' + idBase + '\',\'' + idBase + '-noyear\')" style="background:none;border:none;color:var(--teal,#2E7EA6);font-size:11px;cursor:pointer;padding:0;text-decoration:underline;">Clear</button>'
+    + '</div>'
+    + '<div id="' + idBase + '-note" style="font-size:10px;color:var(--warm-gray);margin-top:2px;">'
+    + (prec === 'monthday' ? 'Year ignored — month &amp; day only' : prec === 'year' ? 'Month &amp; day ignored — year only' : '')
     + '</div></div>';
 }
 function calcAge(ds) {
   if (!ds) return '';
-  // Year-unknown sentinel — no age computable
-  if (ds.indexOf('0001-') === 0) return '';
+  // Partial dates carry no computable age (year-unknown has no year; year-only has no
+  // month/day, so an age would be off by up to a year in either direction).
+  if (pmDatePrecision(ds) !== 'exact') return '';
   var d = new Date(ds), now = new Date();
   var age = now.getFullYear() - d.getFullYear();
   if (now.getMonth() < d.getMonth() || (now.getMonth() === d.getMonth() && now.getDate() < d.getDate())) age--;
@@ -1231,12 +1300,18 @@ function pvfRenderInfo(p) {
   if (document.getElementById('pv-map-' + p.id)) togglePersonMap(p.id);
 }
 // ── PERSON PROFILE SECTION EDITING ─────────────────────────────────────
+// PUT /people/:id replaces the whole row — every column it writes is taken from the body,
+// so any field missing here is written back as blank. This list must therefore stay in
+// step with that statement's SET clause; middle_name, preferred_name, photo_url,
+// sms_opt_in, baptized and confirmed were absent, which meant editing a person's
+// gender from the profile silently erased their photo, preferred name and SMS opt-in.
 function pvBuildPersonPatch(p, overrides) {
   var full = {};
-  ['first_name','last_name','email','phone','address1','address2','city','state','zip',
+  ['first_name','last_name','middle_name','preferred_name','email','phone','address1','address2','city','state','zip',
    'member_type','family_role','gender','marital_status','household_id',
    'dob','baptism_date','confirmation_date','anniversary_date','death_date',
    'deceased','public_directory','envelope_number','last_seen_date','notes','breeze_id',
+   'photo_url','sms_opt_in','baptized','confirmed',
    'dir_hide_address','dir_hide_phone','dir_hide_email','dir_hide_dob','dir_hide_anniversary'
   ].forEach(function(k){ full[k] = (p[k] !== undefined) ? p[k] : null; });
   Object.assign(full, overrides);
@@ -1355,9 +1430,9 @@ function pvEditDemo() {
     + '<div class="pv-field-card"><label for="ped-ms" class="pv-field-card-lbl">marital status</label><select id="ped-ms" style="'+inp+'">'+msOpts+'</select></div>'
     + pedDateField('ped-dob',  'birthday',          p.dob)
     + pedDateField('ped-bap',  'baptized (date)',   p.baptism_date)
-    + '<div class="pv-field-card" style="display:flex;flex-direction:column;gap:4px;"><label class="pv-field-card-lbl">baptized (no date)</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ped-baptized" name="ped-baptized"'+(p.baptized?' checked':'')+' style="width:16px;height:16px;cursor:pointer;"> Yes, date unknown</label></div>'
+    + '<div class="pv-field-card">' + pmSacramentSelect('ped-baptized', 'baptized?', p.baptized, inp) + '</div>'
     + pedDateField('ped-conf', 'confirmed (date)',  p.confirmation_date)
-    + '<div class="pv-field-card" style="display:flex;flex-direction:column;gap:4px;"><label class="pv-field-card-lbl">confirmed (no date)</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ped-confirmed" name="ped-confirmed"'+(p.confirmed?' checked':'')+' style="width:16px;height:16px;cursor:pointer;"> Yes, date unknown</label></div>'
+    + '<div class="pv-field-card">' + pmSacramentSelect('ped-confirmed', 'confirmed?', p.confirmed, inp) + '</div>'
     + pedDateField('ped-ann',  'anniversary',       p.anniversary_date)
     + '</div>';
   var f = sec.querySelector('select'); if (f) f.focus();
@@ -1367,23 +1442,30 @@ function pvSaveDemo() {
   var p = _currentPvPerson;
   var btn = document.querySelector('#pv-demo-section .btn-primary');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
+  var bapDate = pmReadDate('ped-bap',  'ped-bap-noyear')  || null;
+  var confDate = pmReadDate('ped-conf', 'ped-conf-noyear') || null;
   var patch = pvBuildPersonPatch(p, {
     gender:            (document.getElementById('ped-gender')||{}).value || '',
     marital_status:    (document.getElementById('ped-ms')||{}).value || '',
     dob:               pmReadDate('ped-dob',  'ped-dob-noyear')  || null,
-    baptism_date:      pmReadDate('ped-bap',  'ped-bap-noyear')  || null,
-    baptized:          (document.getElementById('ped-baptized')||{}).checked ? 1 : 0,
-    confirmation_date: pmReadDate('ped-conf', 'ped-conf-noyear') || null,
-    confirmed:         (document.getElementById('ped-confirmed')||{}).checked ? 1 : 0,
+    baptism_date:      bapDate,
+    // A date on file already asserts the sacrament happened; an explicit No still wins.
+    baptized:          (pmReadSacrament('ped-baptized')  === 0 && bapDate)  ? 1 : pmReadSacrament('ped-baptized'),
+    confirmation_date: confDate,
+    confirmed:         (pmReadSacrament('ped-confirmed') === 0 && confDate) ? 1 : pmReadSacrament('ped-confirmed'),
     anniversary_date:  pmReadDate('ped-ann',  'ped-ann-noyear')  || null
   });
   api('/admin/api/people/'+p.id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(patch)})
-    .then(function() {
+    .then(function(r) {
+      // api() only rejects on a 401, so a server-side error arrives here as a resolved
+      // {error} body. Reported as "Save failed" with no reason, that was undiagnosable.
+      if (r && r.error) throw new Error(r.error);
       ['gender','marital_status','dob','baptism_date','baptized','confirmation_date','confirmed','anniversary_date'].forEach(function(k){ _currentPvPerson[k] = patch[k]; });
       pvRenderDemo();
-    }).catch(function() {
+    }).catch(function(err) {
       if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
-      alert('Save failed. Please try again.');
+      var why = err && err.message && err.message !== 'Unauthorized' ? '\n\n' + err.message : '';
+      alert('Save failed. Please try again.' + why);
     });
 }
 function pvRenderDemo() {
@@ -1397,8 +1479,8 @@ function pvRenderDemo() {
     + pvField('gender', p.gender)
     + pvField('marital status', p.marital_status)
     + pvField('birthday', p.dob ? fmtDate(p.dob)+calcAge(p.dob) : '')
-    + pvField('baptized', p.baptism_date ? fmtDate(p.baptism_date) : (p.baptized ? 'Yes (date unknown)' : ''))
-    + pvField('confirmed', p.confirmation_date ? fmtDate(p.confirmation_date) : (p.confirmed ? 'Yes (date unknown)' : ''))
+    + pvField('baptized', pmSacramentDisplay(p.baptized, p.baptism_date))
+    + pvField('confirmed', pmSacramentDisplay(p.confirmed, p.confirmation_date))
     + pvField('anniversary', p.anniversary_date ? fmtDate(p.anniversary_date) : '')
     + pvField('deceased', p.deceased ? (p.death_date ? fmtDate(p.death_date) : 'Yes') : 'No')
     + '</div>';
@@ -2038,10 +2120,16 @@ function applyAddressToHousehold(personId, householdId) {
   });
 }
 // Add-to-household: search for existing person and link them
-var _addToHhId = null, _addToHhPeople = {}, _addToHhTimer = null;
+var _addToHhId = null, _addToHhPeople = {}, _addToHhTimer = null, _addToHhHousehold = null;
 function openAddToHouseholdModal(householdId) {
   _addToHhId = householdId;
   _addToHhPeople = {};
+  // Fetched up front so creating a new member can inherit the household address, and so
+  // the panel can show which address they'll get rather than applying it invisibly.
+  _addToHhHousehold = null;
+  api('/admin/api/households/' + householdId).then(function(h) {
+    if (h && !h.error) { _addToHhHousehold = h; renderAddHhAddressNote(); }
+  }).catch(function() { /* prefill is a convenience — never block adding someone */ });
   var s = document.getElementById('add-hh-search');
   if (s) s.value = '';
   var r = document.getElementById('add-hh-results');
@@ -2053,6 +2141,20 @@ function openAddToHouseholdModal(householdId) {
   var nl = document.getElementById('anh-last');  if (nl) nl.value = '';
   openModal('add-to-hh-modal');
   setTimeout(function(){ if (s) s.focus(); }, 100);
+}
+// States the address a newly-created member will inherit, so the prefill is visible
+// rather than silent — and says plainly when there is nothing to inherit.
+function renderAddHhAddressNote() {
+  var el = document.getElementById('anh-address-note');
+  if (!el) return;
+  var h = _addToHhHousehold;
+  if (!h) { el.textContent = ''; return; }
+  var line = [h.address1, h.address2].filter(Boolean).join(' ');
+  var cityLine = [h.city, [h.state, h.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  var full = [line, cityLine].filter(Boolean).join(', ');
+  el.innerHTML = full
+    ? 'Address will be prefilled from the household: <strong>' + esc(full) + '</strong>'
+    : 'This household has no address on file, so none will be prefilled.';
 }
 function searchAddToHh(q) {
   if (_addToHhTimer) clearTimeout(_addToHhTimer);
@@ -2100,6 +2202,7 @@ function toggleAddHhNew(btn) {
   if (show) {
     var sel = document.getElementById('anh-type');
     if (sel) sel.innerHTML = (_memberTypes || []).map(function(t){ return '<option value="'+esc(t)+'">'+esc(t)+'</option>'; }).join('');
+    renderAddHhAddressNote();
     var f = document.getElementById('anh-first'); if (f) f.focus();
   }
 }
@@ -2110,9 +2213,19 @@ function createAndAddToHh() {
   if (!first || !last) { alert('First and last name are required.'); return; }
   var btn = document.querySelector('#add-hh-new .btn-primary');
   if (btn) { btn.disabled = true; btn.textContent = 'Creating\u2026'; }
+  // Someone added to a household almost always lives at that household's address, and
+  // re-typing it is both tedious and a source of near-miss duplicates. The household row
+  // is the source: it carries its own address, so this doesn't depend on which member
+  // happens to be complete. A blank field on the household simply prefills nothing.
+  var body = { first_name: first, last_name: last, member_type: type || 'Visitor', household_id: _addToHhId, tag_ids: [] };
+  var hh = _addToHhHousehold;
+  if (hh && String(hh.id) === String(_addToHhId)) {
+    ['address1','address2','city','zip'].forEach(function(k){ if (hh[k]) body[k] = hh[k]; });
+    if (hh.state) body.state = hh.state;
+  }
   api('/admin/api/people', {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ first_name: first, last_name: last, member_type: type || 'Visitor', household_id: _addToHhId, tag_ids: [] })
+    body: JSON.stringify(body)
   }).then(function(r) {
     if (btn) { btn.disabled = false; btn.textContent = 'Create & Add to Household'; }
     if (r && r.ok) {
@@ -2506,19 +2619,26 @@ function openPersonEdit(p) {
   document.getElementById('pm-role').value = isNew ? '' : (p.family_role||'');
   document.getElementById('pm-gender').value = isNew ? '' : (p.gender||'');
   document.getElementById('pm-marital').value = isNew ? '' : (p.marital_status||'');
-  // Date pickers can't render year 0001, so when a sentinel value is loaded
-  // we display a 2000-MM-DD placeholder in the picker and tick "Year unknown".
+  // A date picker can't render either partial-date sentinel, so a placeholder stands in
+  // for the unknown part and the precision select records which part that is. pmReadDate
+  // rebuilds the sentinel on save, so the placeholder is never stored.
   function loadPmDate(inputId, cbId, val) {
-    var noYear = !!(val && val.indexOf('0001-') === 0);
-    var displayVal = noYear ? ('2000' + val.slice(4)) : (val || '');
-    document.getElementById(inputId).value = displayVal;
+    document.getElementById(inputId).value = pmDateInputValue(val);
+    var prec = document.getElementById(inputId + '-prec');
+    if (prec) { prec.value = pmDatePrecision(val); pmDatePrecChanged(inputId); }
     var cb = document.getElementById(cbId);
-    if (cb) cb.checked = noYear;
+    if (cb) cb.checked = pmDatePrecision(val) === 'monthday';
   }
   loadPmDate('pm-dob',     'pm-dob-noyear',     isNew ? '' : (p.dob||''));
   loadPmDate('pm-baptism', 'pm-baptism-noyear', isNew ? '' : (p.baptism_date||''));
   loadPmDate('pm-confirm', 'pm-confirm-noyear', isNew ? '' : (p.confirmation_date||''));
   loadPmDate('pm-anniv',   'pm-anniv-noyear',   isNew ? '' : (p.anniversary_date||''));
+  // Sacramental yes/no lives beside the dates: a person can be baptized with no date on
+  // file, and before this the modal had no way to say so at all.
+  var bapSel = document.getElementById('pm-baptized');
+  if (bapSel) bapSel.value = String(isNew ? 0 : (Number(p.baptized) === 1 ? 1 : Number(p.baptized) === 2 ? 2 : 0));
+  var confSel = document.getElementById('pm-confirmed');
+  if (confSel) confSel.value = String(isNew ? 0 : (Number(p.confirmed) === 1 ? 1 : Number(p.confirmed) === 2 ? 2 : 0));
   document.getElementById('pm-death').value = isNew ? '' : (p.death_date||'');
   document.getElementById('pm-deceased').checked = !isNew && !!p.deceased;
   var pubEl = document.getElementById('pm-public');
@@ -2616,6 +2736,11 @@ function savePerson() {
     baptism_date:      pmReadDate('pm-baptism', 'pm-baptism-noyear'),
     confirmation_date: pmReadDate('pm-confirm', 'pm-confirm-noyear'),
     anniversary_date:  pmReadDate('pm-anniv',   'pm-anniv-noyear'),
+    // A date on file already asserts the sacrament happened, so entering one and leaving
+    // the answer on "Not recorded" resolves to Yes. An explicit No is never overridden —
+    // that combination is contradictory and the human's answer wins.
+    baptized:  (pmReadSacrament('pm-baptized')  === 0 && pmReadDate('pm-baptism', 'pm-baptism-noyear')) ? 1 : pmReadSacrament('pm-baptized'),
+    confirmed: (pmReadSacrament('pm-confirmed') === 0 && pmReadDate('pm-confirm', 'pm-confirm-noyear')) ? 1 : pmReadSacrament('pm-confirmed'),
     death_date: document.getElementById('pm-death').value,
     deceased: document.getElementById('pm-deceased').checked ? 1 : 0,
     public_directory: (document.getElementById('pm-public') || {checked:true}).checked ? 1 : 0,

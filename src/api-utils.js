@@ -1,6 +1,55 @@
 // Shared utilities used across multiple api-*.js modules.
 import { json, html } from './auth.js';
 
+// ── Sacramental status (baptized / confirmed) ─────────────────────────────
+// Three states, not two. The column is a plain INTEGER and every row written before
+// this existed is 0, so 0 has to keep meaning "nothing recorded" — an explicit "No"
+// gets its own value instead. That way no existing data is silently reinterpreted as
+// a pastoral assertion nobody made.
+//
+//   0 = not recorded (unknown)   1 = yes   2 = no
+//
+// Consequence worth remembering: a truthiness test (`row.baptized ? …`) reads an
+// explicit NO as a YES. Compare against SACRAMENT_YES, never for truthiness.
+export const SACRAMENT_UNKNOWN = 0;
+export const SACRAMENT_YES = 1;
+export const SACRAMENT_NO = 2;
+export function normalizeSacramentFlag(v) {
+  if (v === true) return SACRAMENT_YES;
+  if (v === false || v === null || v === undefined || v === '') return SACRAMENT_UNKNOWN;
+  const n = Number(v);
+  if (n === SACRAMENT_YES || n === SACRAMENT_NO) return n;
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase();
+    if (s === 'yes' || s === 'y' || s === 'true') return SACRAMENT_YES;
+    if (s === 'no' || s === 'n' || s === 'false') return SACRAMENT_NO;
+  }
+  return SACRAMENT_UNKNOWN;
+}
+
+// ── Partial dates ─────────────────────────────────────────────────────────
+// Historical records routinely carry only part of a date — a baptism known to the year,
+// or a birthday known to the day but not the year. Both are stored in the same TEXT
+// column as a full date, distinguished by an impossible component:
+//
+//   0001-MM-DD   month/day known, year unknown   (pre-existing convention)
+//   YYYY-00-00   year known, month/day unknown   (added alongside it)
+//
+// Storing a partial date as if it were exact is the thing to avoid: it would put a
+// wrong day on a bulletin. SQLite's strftime() returns NULL for both sentinels, so the
+// birthday/anniversary/baptism-anniversary queries skip these rows on their own rather
+// than announcing an invented date.
+export const YEAR_UNKNOWN_PREFIX = '0001-';
+export function isYearUnknownDate(s) {
+  return typeof s === 'string' && s.indexOf(YEAR_UNKNOWN_PREFIX) === 0;
+}
+export function isYearOnlyDate(s) {
+  return typeof s === 'string' && /^\d{4}-00-00$/.test(s.slice(0, 10));
+}
+export function isPartialDate(s) {
+  return isYearUnknownDate(s) || isYearOnlyDate(s);
+}
+
 // ── Configurable role permissions ─────────────────────────────────────────
 // The matrix below is the actual access-control definition threaded through the whole
 // ChMS API. Each configurable role (finance/staff/council/member) gets, per feature ITEM,

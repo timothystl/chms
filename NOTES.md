@@ -24,6 +24,58 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.167.0 — Sacramental yes/no, partial dates, and two data-loss bugs (2026-08-11)
+
+Reported together: baptized/confirmed could no longer be marked yes or no without a date,
+or to only a year, or to only a month/day; saving gender or marital status alerted "Save
+failed"; and a person created inside a household got no address.
+
+**Sacramental status is tri-state.** `baptized`/`confirmed` become `0` not recorded / `1`
+yes / `2` no. Keeping `0` as "not recorded" is the whole point — every row predating this
+is `0`, and repurposing it as an explicit "No" would have handed the entire congregation a
+pastoral assertion nobody made. The consequence to remember: **a truthiness test on these
+columns reads an explicit No as a Yes**, which is exactly how `api-reports.js`'s pipeline
+and the PUT handler would have broken; both compare against `SACRAMENT_YES` now. The
+people-filter clauses moved from `=0` to `!=1` so "not baptized" covers both No and unknown
+while the four existing options keep their meaning for the 0/1 data. `bulk-sacrament` gains
+`'no'`; `'unset'` still clears back to not-recorded, which is what it always meant.
+
+**Partial dates.** Alongside the existing `0001-MM-DD` (month/day known), a year-only
+`YYYY-00-00`. Every date field now carries an Exact date / Month & day only / Year only
+select in place of the "Year unknown" checkbox. SQLite's `strftime()` returns NULL for both
+sentinels, so the birthday and baptism-anniversary queries skip these rows on their own
+rather than printing an invented day on a bulletin; the Breeze reverse-sync skips them too,
+since Breeze cannot express the precision and would store one as exact.
+
+**The Add/Edit Person modal had no yes/no control at all** — only the profile's inline
+editor did, which is likely most of what "I used to be able to" is about. It has one now,
+and `POST /people` records the flags, which it silently dropped before: a person added with
+a baptism date was stored as not baptized.
+
+**Two data-loss bugs, both in the reported save path.** `pvBuildPersonPatch` omitted
+`middle_name`, `preferred_name`, `photo_url` and `sms_opt_in` — and `PUT /people/:id`
+replaces the whole row from the body, so **editing gender from the profile erased that
+person's photo, preferred name and SMS opt-in**. A test now derives the required field list
+from the PUT's own SET clause rather than restating it. Separately, `api()` only rejects on
+a 401, so a server-side error arrived at `pvSaveDemo` as a resolved `{error}` body and was
+reported as a bare "Save failed" with the reason discarded — **the alert now carries the
+server's own message**, which is what a recurrence needs to be diagnosable.
+
+**Household address prefill.** Creating a person from Add Person to Household inherits the
+household row's address (not a member's, so it doesn't depend on which member is complete),
+and the panel names the address that will be applied instead of doing it invisibly.
+
+`npm test` (1230/1230, 32 new in `test/person-sacrament-partial-dates.test.js`, running the
+real shipped bundles in a `vm` and the real handlers against real in-memory SQLite); **every
+new test verified non-vacuous** by injecting the exact regression it guards (6 injections, 6
+correct failures). Plus `node --check` on all three bundles and the touched backend modules,
+`app.css` brace balance, div balance on the shell and on `#person-modal`. **A backtick in
+one of my own new comments closed the outer `String.raw` literal** — the SC3-BUG1/FIN15
+class again, caught by the build, not by reading. Dead `pmYearUnknownChanged` removed (zero
+call sites once the checkboxes went). **Not verified**: a live browser or real D1 — so the
+reported "Save failed" is fixed in the two places it was reproducible (the wiped fields, the
+swallowed reason) but its exact server-side trigger was never observed from here.
+
 ### v1.166.0 — Member sessions get a member-sized bundle (2026-08-11)
 
 Asked while preparing to invite members at scale (TLY1): the member tier only reaches People, so

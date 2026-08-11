@@ -1861,22 +1861,32 @@ export const HTML_TABS_2 = String.raw`
         <div class="field">
           <label>Date of Birth</label>
           <input type="date" id="pm-dob" name="pm-dob">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;"><label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.78rem;color:var(--warm-gray);"><input type="checkbox" id="pm-dob-noyear" onchange="pmYearUnknownChanged('pm-dob-noyear','pm-dob')"> Year unknown (just month/day)</label><button type="button" class="pm-date-clear" onclick="clearDateField('pm-dob','pm-dob-noyear')">Clear</button></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;"><select id="pm-dob-prec" aria-label="Date precision" class="pm-date-prec" onchange="pmDatePrecChanged('pm-dob')"><option value="exact">Exact date</option><option value="monthday">Month &amp; day only</option><option value="year">Year only</option></select><button type="button" class="pm-date-clear" onclick="clearDateField('pm-dob','pm-dob-noyear')">Clear</button></div><div id="pm-dob-note" class="pm-date-note"></div>
+        </div>
+        <div class="field">
+          <label for="pm-baptized">Baptized?</label>
+          <select id="pm-baptized" name="pm-baptized"><option value="1">Yes</option><option value="2">No</option><option value="0">Not recorded</option></select>
+          <div class="pm-date-note">Answer this even when no date is known.</div>
+        </div>
+        <div class="field">
+          <label for="pm-confirmed">Confirmed?</label>
+          <select id="pm-confirmed" name="pm-confirmed"><option value="1">Yes</option><option value="2">No</option><option value="0">Not recorded</option></select>
+          <div class="pm-date-note">Answer this even when no date is known.</div>
         </div>
         <div class="field">
           <label>Baptism</label>
           <input type="date" id="pm-baptism" name="pm-baptism">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;"><label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.78rem;color:var(--warm-gray);"><input type="checkbox" id="pm-baptism-noyear" onchange="pmYearUnknownChanged('pm-baptism-noyear','pm-baptism')"> Year unknown (just month/day)</label><button type="button" class="pm-date-clear" onclick="clearDateField('pm-baptism','pm-baptism-noyear')">Clear</button></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;"><select id="pm-baptism-prec" aria-label="Date precision" class="pm-date-prec" onchange="pmDatePrecChanged('pm-baptism')"><option value="exact">Exact date</option><option value="monthday">Month &amp; day only</option><option value="year">Year only</option></select><button type="button" class="pm-date-clear" onclick="clearDateField('pm-baptism','pm-baptism-noyear')">Clear</button></div><div id="pm-baptism-note" class="pm-date-note"></div>
         </div>
         <div class="field">
           <label>Confirmation</label>
           <input type="date" id="pm-confirm" name="pm-confirm">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;"><label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.78rem;color:var(--warm-gray);"><input type="checkbox" id="pm-confirm-noyear" onchange="pmYearUnknownChanged('pm-confirm-noyear','pm-confirm')"> Year unknown (just month/day)</label><button type="button" class="pm-date-clear" onclick="clearDateField('pm-confirm','pm-confirm-noyear')">Clear</button></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;"><select id="pm-confirm-prec" aria-label="Date precision" class="pm-date-prec" onchange="pmDatePrecChanged('pm-confirm')"><option value="exact">Exact date</option><option value="monthday">Month &amp; day only</option><option value="year">Year only</option></select><button type="button" class="pm-date-clear" onclick="clearDateField('pm-confirm','pm-confirm-noyear')">Clear</button></div><div id="pm-confirm-note" class="pm-date-note"></div>
         </div>
         <div class="field">
           <label>Anniversary</label>
           <input type="date" id="pm-anniv" name="pm-anniv">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;"><label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.78rem;color:var(--warm-gray);"><input type="checkbox" id="pm-anniv-noyear" onchange="pmYearUnknownChanged('pm-anniv-noyear','pm-anniv')"> Year unknown (just month/day)</label><button type="button" class="pm-date-clear" onclick="clearDateField('pm-anniv','pm-anniv-noyear')">Clear</button></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;"><select id="pm-anniv-prec" aria-label="Date precision" class="pm-date-prec" onchange="pmDatePrecChanged('pm-anniv')"><option value="exact">Exact date</option><option value="monthday">Month &amp; day only</option><option value="year">Year only</option></select><button type="button" class="pm-date-clear" onclick="clearDateField('pm-anniv','pm-anniv-noyear')">Clear</button></div><div id="pm-anniv-note" class="pm-date-note"></div>
         </div>
         <div class="field"><label>Death Date</label><input type="date" id="pm-death" name="pm-death"><div style="margin-top:3px;text-align:right;"><button type="button" class="pm-date-clear" onclick="clearDateField('pm-death')">Clear</button></div></div>
       </div>
@@ -2183,6 +2193,7 @@ export const HTML_TABS_2 = String.raw`
           <div class="field" style="margin:0;"><label style="font-size:11px;">Last Name</label><input type="text" id="anh-last" name="anh-last" style="width:100%;box-sizing:border-box;"></div>
         </div>
         <div class="field" style="margin:0 0 10px;"><label style="font-size:11px;">Member Type</label><select id="anh-type" name="anh-type" style="width:100%;"></select></div>
+        <div id="anh-address-note" style="font-size:.76rem;color:var(--warm-gray);margin-bottom:10px;"></div>
         <button class="btn-primary" style="font-size:.82rem;" onclick="createAndAddToHh()">Create &amp; Add to Household</button>
       </div>
     </div>
