@@ -433,6 +433,40 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### SAC1 — Baptized/confirmed become yes/no/unknown; dates gain a precision (2026-08-11, DONE)
+Reported together with two bugs in the same save path.
+- **`baptized`/`confirmed` are tri-state**: `0` not recorded · `1` yes · `2` no. **Keeping 0
+  as "not recorded" is load-bearing** — every pre-existing row is 0, and reading it as an
+  explicit No would give the whole congregation an assertion nobody made. **⚠ A truthiness
+  test on these columns reads an explicit No as a Yes**; compare against `SACRAMENT_YES`
+  (`api-utils.js`). That is precisely what the PUT handler and the reports pipeline did.
+  Filter clauses moved `=0` → `!=1`; `bulk-sacrament` gains `'no'` ( `'unset'` still means
+  "clear back to not recorded", which is what it always meant).
+- **Partial dates**: year-only `YYYY-00-00` joins the existing month/day-only `0001-MM-DD`,
+  behind one Exact / Month & day only / Year only select on every date field. `strftime()`
+  is NULL for both, so birthday and baptism-anniversary queries skip them **rather than
+  printing an invented day on a bulletin** — that is the reason for a sentinel over a real
+  date. Breeze reverse-sync skips them too: Breeze cannot express the precision.
+- **The Add/Edit Person modal never had the yes/no control** (only the profile's inline
+  editor did) and **`POST /people` silently dropped the flags** — someone added with a
+  baptism date was stored as not baptized. Both fixed.
+- **⚠ `PUT /people/:id` replaces the whole row from the body**, and `pvBuildPersonPatch`
+  omitted `middle_name`, `preferred_name`, `photo_url` and `sms_opt_in` — so **editing
+  gender from the profile erased that person's photo, preferred name and SMS opt-in**. A
+  test derives the required list from the PUT's own SET clause, so the two cannot drift.
+- **`api()` only rejects on 401**, so a server error resolves as an `{error}` body — which
+  is why "Save failed" reached the user with the reason discarded. The alert now carries
+  the server's own message. **The exact server-side trigger was never observed** (no live
+  D1 from here); if it recurs, the alert now names it.
+- New-person-in-household inherits the **household row's** address (not a member's, so it
+  doesn't depend on which member is complete), and the panel says which address that is.
+- `npm test` (1230/1230, 32 new); every new test verified non-vacuous (6 injections, 6
+  correct failures). **A backtick in one of my own comments closed the outer `String.raw`
+  literal** — SC3-BUG1/FIN15 class, caught by the build. **Not verified**: a live browser.
+  (`src/api-utils.js`, `src/api-people.js`, `src/api-reports.js`,
+  `src/frontend/{js-core,js-people,html-tabs,html-head}.js`,
+  `test/person-sacrament-partial-dates.test.js`)
+
 ### CR9 — Member sessions download a member-sized app (2026-08-11, DONE)
 Asked while preparing to invite members at scale: does the member tier load faster, since it only
 reaches People? It did not. **Role gating in this app is visibility, not payload** — `applyRoleUI()`

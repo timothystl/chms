@@ -1,7 +1,7 @@
 // ── Reports, Engagement, Prayer API handlers ─────────────────────────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedThroughDate, sundaysInYear, nthSundayOfYear, periodAsOfDate, monthElapsedFraction, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, resolveGeneralFundIds, resolveGeneralFundBudget, buildBoardCategoryBlock } from './api-utils.js';
+import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedThroughDate, sundaysInYear, nthSundayOfYear, periodAsOfDate, monthElapsedFraction, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, resolveGeneralFundIds, resolveGeneralFundBudget, buildBoardCategoryBlock, SACRAMENT_YES } from './api-utils.js';
 import { resolveChurchYearPrecedence } from './api-finance.js';
 
 // `isFinance` here means "may see an individual's giving". `givingAnon` is the weaker grant
@@ -113,7 +113,9 @@ if (seg === 'reports/people-insights' && method === 'GET') {
   // Sacramental pipeline
   const pipeline = { neither: 0, baptized_only: 0, confirmed_only: 0, both: 0 };
   for (const r of pipelineRows) {
-    const b = r.baptized ? 1 : 0, c = r.confirmed ? 1 : 0;
+    // Strict equality, not truthiness: the flags are tri-state (0 unknown / 1 yes / 2 no)
+    // and an explicit "no" must land in `neither`, not be counted as a yes.
+    const b = r.baptized === SACRAMENT_YES ? 1 : 0, c = r.confirmed === SACRAMENT_YES ? 1 : 0;
     if (!b && !c) pipeline.neither += r.n;
     else if (b && !c) pipeline.baptized_only += r.n;
     else if (!b && c) pipeline.confirmed_only += r.n;

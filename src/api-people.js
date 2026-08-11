@@ -1,7 +1,8 @@
 // ── People, Follow-up, Archive, Brevo Sync, Photos API handlers ────────────
 import { json, hashPassword } from './auth.js';
 import { brevoUpsertContact, brevoBulkSync, brevoGetListContacts, brevoContactStatus, brevoRemoveFromList } from './api-emails.js';
-import { disambiguateHHName, normalizePhone, randHex, escLite, authCardPage, archiveEnvelope } from './api-utils.js';
+import { disambiguateHHName, normalizePhone, randHex, escLite, authCardPage, archiveEnvelope,
+         normalizeSacramentFlag, SACRAMENT_YES, SACRAMENT_NO, isPartialDate } from './api-utils.js';
 import { makeBreezeClient } from './breeze.js';
 
 // ── Member-directory view (Connect) ───────────────────────────────────────────
@@ -189,7 +190,9 @@ function buildBreezeDateFields(dateFieldIds, person, changedKeys) {
     const meta = dateFieldIds[spec.key];
     if (!meta || !meta.id) continue; // never learned this field's id — don't guess
     const val = String(person[spec.key] ?? '').slice(0, 10);
-    if (val && val.indexOf('0001-') === 0) continue; // year-unknown sentinel — leave Breeze untouched
+    // Partial dates (year-unknown or year-only) are a local precision Breeze has no way to
+    // express — pushing one would write a date that reads as exact over there.
+    if (val && isPartialDate(val)) continue;
     fields.push({ field_id: meta.id, field_type: meta.type || 'date', response: val });
   }
   return fields;
@@ -347,11 +350,16 @@ if (seg === 'people' && method === 'GET') {
     : '';
   // Baptism & Confirmation status filter
   const sacrament = url.searchParams.get('sacrament') || '';
+  // != 1 rather than = 0 throughout: the flags are tri-state (0 unknown / 1 yes / 2 no),
+  // so "not baptized" has to cover both an explicit No and nothing recorded. The four
+  // original options keep their exact meaning for the 0/1 data that predates that.
   const sacramentClauses = {
     both:            `(p.baptized=1 AND p.confirmed=1)`,
-    baptized_only:   `(p.baptized=1 AND p.confirmed=0)`,
-    confirmed_only:  `(p.baptized=0 AND p.confirmed=1)`,
-    neither:         `(p.baptized=0 AND p.confirmed=0)`,
+    baptized_only:   `(p.baptized=1 AND p.confirmed!=1)`,
+    confirmed_only:  `(p.baptized!=1 AND p.confirmed=1)`,
+    neither:         `(p.baptized!=1 AND p.confirmed!=1)`,
+    baptized_unknown:  `(p.baptized=0)`,
+    confirmed_unknown: `(p.confirmed=0)`,
   };
   if (sacramentClauses[sacrament]) where += ' AND ' + sacramentClauses[sacrament];
   // Paged results.
@@ -442,14 +450,19 @@ if (seg === 'people' && method === 'POST') {
   const r = await db.prepare(
     `INSERT INTO people (first_name,last_name,middle_name,preferred_name,email,phone,address1,address2,city,state,zip,
      member_type,dob,baptism_date,confirmation_date,anniversary_date,death_date,deceased,
-     household_id,family_role,photo_url,notes,breeze_id,gender,marital_status,first_contact_date,sms_opt_in)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+     household_id,family_role,photo_url,notes,breeze_id,gender,marital_status,first_contact_date,sms_opt_in,
+     baptized,confirmed)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(b.first_name||'',b.last_name||'',b.middle_name||'',b.preferred_name||'',b.email||'',normalizePhone(b.phone||''),
          b.address1||'',b.address2||'',b.city||'',b.state||'MO',b.zip||'',
          (b.member_type||'visitor').toLowerCase(),b.dob||'',b.baptism_date||'',
          b.confirmation_date||'',b.anniversary_date||'',b.death_date||'',b.deceased?1:0,
          b.household_id||null,b.family_role||'',b.photo_url||'',b.notes||'',b.breeze_id||'',
-         b.gender||'',b.marital_status||'', firstContactDate||'', b.sms_opt_in?1:0
+         b.gender||'',b.marital_status||'', firstContactDate||'', b.sms_opt_in?1:0,
+         // A date on its own already asserts the sacrament happened, so a person added
+         // with a baptism date is baptized even if the caller sent no explicit flag.
+         b.baptized === undefined && b.baptism_date ? SACRAMENT_YES : normalizeSacramentFlag(b.baptized),
+         b.confirmed === undefined && b.confirmation_date ? SACRAMENT_YES : normalizeSacramentFlag(b.confirmed)
   ).run();
   const personId = r.meta?.last_row_id;
   if (Array.isArray(b.tag_ids) && b.tag_ids.length) {
@@ -513,13 +526,18 @@ if (seg === 'people/bulk-tags' && method === 'POST') {
   return json({ ok: true, people: ids.length, added: add.length, removed: remove.length });
 }
 
-// Bulk-mark baptized / confirmed flags (date-unknown). Body: {ids, baptized: 'set'|'unset', confirmed: 'set'|'unset'}
+// Bulk-mark baptized / confirmed flags (date-unknown).
+// Body: {ids, baptized: 'set'|'no'|'unset', confirmed: 'set'|'no'|'unset'}
+//   set   → yes            no → explicitly not baptized/confirmed
+//   unset → back to "not recorded" (which is what it always meant — it clears the
+//           assertion rather than asserting the negative; 'no' is how you assert that).
+const BULK_SACRAMENT = { set: SACRAMENT_YES, no: SACRAMENT_NO, unset: 0 };
 if (seg === 'people/bulk-sacrament' && method === 'POST') {
   if (!isStaff) return json({ error: 'Insufficient permissions' }, 403);
   let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
   const ids = Array.isArray(b.ids) ? b.ids.map(Number).filter(Boolean) : [];
-  const bap = b.baptized === 'set' ? 1 : b.baptized === 'unset' ? 0 : null;
-  const con = b.confirmed === 'set' ? 1 : b.confirmed === 'unset' ? 0 : null;
+  const bap = b.baptized in BULK_SACRAMENT ? BULK_SACRAMENT[b.baptized] : null;
+  const con = b.confirmed in BULK_SACRAMENT ? BULK_SACRAMENT[b.confirmed] : null;
   if (!ids.length) return json({ error: 'ids required' }, 400);
   if (bap === null && con === null) return json({ error: 'no action selected' }, 400);
   const result = { ids: ids.length, baptized_updated: 0, confirmed_updated: 0 };
@@ -653,7 +671,7 @@ if (pmatch) {
            b.envelope_number||'',envHist,b.last_seen_date||'',b.gender||'',b.marital_status||'',
            b.dir_hide_address?1:0, b.dir_hide_phone?1:0, b.dir_hide_email?1:0,
            b.dir_hide_dob?1:0, b.dir_hide_anniversary?1:0,
-           b.baptized?1:0, b.confirmed?1:0, b.sms_opt_in?1:0, pid
+           normalizeSacramentFlag(b.baptized), normalizeSacramentFlag(b.confirmed), b.sms_opt_in?1:0, pid
     ).run();
     if (Array.isArray(b.tag_ids)) {
       const tagStmts = [db.prepare('DELETE FROM person_tags WHERE person_id=?').bind(pid)];
@@ -730,7 +748,7 @@ if (pmatch) {
       public_directory:'bool', envelope_number:'s', last_seen_date:'s', gender:'s',
       marital_status:'s', dir_hide_address:'bool', dir_hide_phone:'bool',
       dir_hide_email:'bool', dir_hide_dob:'bool', dir_hide_anniversary:'bool',
-      baptized:'bool', confirmed:'bool', sms_opt_in:'bool',
+      baptized:'sacrament', confirmed:'sacrament', sms_opt_in:'bool',
     };
     const sets = [], binds = [];
     for (const [field, kind] of Object.entries(allowed)) {
@@ -740,6 +758,7 @@ if (pmatch) {
       else if (kind === 'lower')     v = String(v ?? '').toLowerCase();
       else if (kind === 'phone')     v = normalizePhone(String(v ?? ''));
       else if (kind === 'bool')      v = v ? 1 : 0;
+      else if (kind === 'sacrament') v = normalizeSacramentFlag(v);
       else if (kind === 'int_or_null') v = (v === null || v === '' || v === undefined) ? null : parseInt(v);
       sets.push(`${field}=?`); binds.push(v);
     }

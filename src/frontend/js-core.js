@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.166.0';
+export const DEPLOY_VERSION = '1.167.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -113,6 +113,8 @@ function fmtMoney(cents) {
 function fmtDate(iso) {
   if (!iso) return '';
   var p = iso.split('-'); if (p.length < 3) return iso;
+  // Year-only sentinel: "YYYY-00-00" displays as just the year, never an invented day
+  if (p[1] === '00' && p[2].slice(0,2) === '00') return p[0];
   // Year-unknown sentinel: "0001-MM-DD" displays as month/day only
   if (p[0] === '0001') {
     var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

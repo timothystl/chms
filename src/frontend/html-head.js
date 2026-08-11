@@ -262,6 +262,11 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 .field input:focus,.field select:focus{outline:none;border-color:var(--steel-anchor);}
 .pm-date-clear{background:none;border:none;color:var(--teal,#2E7EA6);font-size:.72rem;font-weight:600;cursor:pointer;padding:0;text-decoration:underline;text-transform:none;letter-spacing:normal;white-space:nowrap;}
 .pm-date-clear:hover{color:var(--danger,#B85C3A);}
+/* Date-precision picker: exact date / month & day only / year only. Historical records
+   routinely know only part of a date, and storing a partial one as exact puts an invented
+   day on a bulletin. Kept small so it reads as a qualifier on the date input above it. */
+.pm-date-prec{font-size:.72rem;padding:1px 4px;border:1px solid var(--border);border-radius:4px;background:var(--white);font-family:inherit;color:var(--warm-gray);text-transform:none;letter-spacing:normal;}
+.pm-date-note{font-size:.68rem;color:var(--warm-gray);margin-top:2px;min-height:.8rem;}
 .field-person{flex:1;min-width:180px;}
 .field-fund{flex:1;min-width:140px;}
 .field-amount{width:110px;}
