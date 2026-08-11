@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import worker from '../tlc-volunteer-worker.js';
 import { DEPLOY_VERSION } from '../src/frontend/js-core.js';
 
-// 2026-08-04. /admin/app-core.js, /admin/app-ext.js and /admin/app.css are cached for a year as
+// 2026-08-04. /admin/app-member.js, /admin/app-staff.js, /admin/app-ext.js and /admin/app.css are cached for a year as
 // `immutable`, keyed by ?v=DEPLOY_VERSION. Correct once a deploy has fully rolled out — but
 // Cloudflare rolls out per-colo, so mid-rollout there are edges still running the PREVIOUS
 // worker. If one answers a request for the NEW ?v= value, its stale body is pinned under the new
@@ -14,7 +14,7 @@ import { DEPLOY_VERSION } from '../src/frontend/js-core.js';
 //
 // Fix: cache only when the requested version IS this worker's version.
 
-const ASSETS = ['/admin/app-core.js', '/admin/app-ext.js', '/admin/app.css'];
+const ASSETS = ['/admin/app-member.js', '/admin/app-staff.js', '/admin/app-ext.js', '/admin/app.css'];
 
 // initDb runs before routing; a stub DB is enough for these static routes.
 const ENV = {
@@ -78,7 +78,7 @@ describe('versioned assets cache only when the version matches', () => {
 
   it('keeps the right content types', async () => {
     expect((await get('/admin/app.css', DEPLOY_VERSION)).headers.get('Content-Type')).toMatch(/text\/css/);
-    for (const p of ['/admin/app-core.js', '/admin/app-ext.js']) {
+    for (const p of ['/admin/app-member.js', '/admin/app-staff.js', '/admin/app-ext.js']) {
       expect((await get(p, DEPLOY_VERSION)).headers.get('Content-Type'), p).toMatch(/javascript/);
     }
   });

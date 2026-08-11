@@ -433,6 +433,60 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### CR9 — Member sessions download a member-sized app (2026-08-11, DONE)
+Asked while preparing to invite members at scale: does the member tier load faster, since it only
+reaches People? It did not. **Role gating in this app is visibility, not payload** — `applyRoleUI()`
+puts `role-member` on `<body>` and CSS hides the tabs, but the two JS bundles are `immutable` and
+shared across users, so they *cannot* vary by role and every member was served the same ~1.8 MB
+including Finance (645 KB), Giving, Tuition Aid and Settings. That lands on exactly the group most
+likely to be on a phone, on cell data, opening it from the Tithe.ly app tab.
+- **The split runs along the role line, in the shell** — the only per-request, `no-store` surface,
+  which is the whole reason it can decide anything. `app-core.js` becomes **`app-member.js`**
+  (core + people + households) and **`app-staff.js`** (settings + dashboard + register);
+  `app-ext.js` is untouched. A member gets one script; every other role gets all three in the same
+  order, i.e. the same total bytes as before in three files instead of two. **First load: 606 KB
+  for a member vs 1,974 KB, a 69% cut**, and a Finance-only deploy no longer re-downloads
+  Finance to every member.
+- **`_memberTypes`/`loadMemberTypes()`/`refreshMemberTypeSelect()` moved from `js-settings.js` to
+  `js-core.js`.** They were never settings code — `loadMemberTypes()` runs unconditionally in the
+  boot handler for every role, and the People filter chip and person-edit `<select>` both read
+  `_memberTypes`. Left where they were, the member bundle threw at boot. **This was found by a
+  test, not by reading**, and it is the whole failure class the split creates.
+- **Reports is lazy, not missing.** An admin can grant the member role Reports (it is `none` by
+  default), so `showTab('reports')` routes through new `ensureFullAppLoaded()`, which pulls
+  app-staff then app-ext on first open — the same shape as the Scheduler lazy-load. **Both**, not
+  ext alone: `js-reports` calls into `js-attendance` (`_buildAttYoYHtml`, `_chartResizeHandle`,
+  `MONTH_NAMES`), so loading one would swap one ReferenceError for another.
+- **`chmsHtmlForRole()` fails safe, not small** — an unrecognised or null role gets all three
+  bundles. Under-serving scripts to a real account breaks their app; over-serving to a member
+  only costs bytes.
+- **ORDER changed and is load-bearing**: people/households now parse before settings/dashboard/
+  register. Safe only because no module calls another's function at parse time — the sole
+  top-level statements are listener registrations, and boot is inside a `load` handler. Verified,
+  and pinned by a test asserting no global is defined twice across the three bundles.
+- `npm test` (1198/1198, 21 new in `test/member-bundle.test.js`, which runs the real shipped
+  bundles in a `vm`); **every new test verified non-vacuous** by injecting the exact regression it
+  guards (6 injections, 6 correct failures). One of my own tests was weaker than its comment
+  claimed — "evaluates standalone" does not catch a missing global, since that only throws when it
+  runs — so the boot test was rewritten to **extract the boot call list from the shipped source**
+  and run each one, honouring the existing `_userRole !== 'member'` guard on `loadFunds` rather
+  than demanding it. `test/asset-cache-policy.test.js` and `test/service-worker.test.js` hardcoded
+  `/admin/app-core.js` and were updated. Plus `node --check` on all three bundles and the worker,
+  `app.css` brace balance, div balance on both shells. **A backtick in one of my own new comments
+  closed the outer `String.raw` literal** — the SC3-BUG1/FIN15 class again, caught by the build,
+  not by reading. **Not verified**: a live browser, a real phone, or a real member session.
+  (`src/html-chms.js`, `src/frontend/js-core.js`, `src/frontend/js-settings.js`,
+  `tlc-volunteer-worker.js`, `test/member-bundle.test.js`)
+- [ ] **CR9a** — The shell is still ~193 KB for a member and contains every tab's markup, most of
+  it for tabs they cannot open. That is CR1b, and the member tier is now the strongest argument
+  for it: it is the single largest remaining item in a member's first load.
+- [ ] **CR9b** — `html-head.js` ships the 39-line `/* ── ROLE-BASED VISIBILITY ── */` block
+  **twice** (lines ~138-176 and ~1449-1487, byte-identical, found while tracing `role-member`).
+  ~2 KB in `app.css` for every user. Deleting the FIRST copy is the behaviour-preserving fix —
+  the later one currently wins, so keeping it preserves the cascade exactly (the MOB3/v1.121.3
+  lesson: a media query adds no specificity, so relocating a block changes which rule wins).
+  Left alone here rather than bundled into an unrelated change, with no browser to verify in.
+
 ### ATT-MOB1 — Attendance entry ran off the side of a phone (2026-08-10, DONE)
 Reported from an iPhone: the 8:00 field filled the screen, 10:45 sat past the right edge, and
 recording a Sunday meant panning the page sideways.

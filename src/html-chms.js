@@ -21,7 +21,7 @@ export const CHMS_MANIFEST_JSON = '{"name":"Connect","short_name":"Connect","des
 // ── SERVICE WORKER ──────────────────────────────────────────────────
 export const SW_JS = `
 // Cache name is versioned by DEPLOY_VERSION, so every deploy starts a fresh cache and the
-// activate handler below evicts the previous one. That's what keeps a stale app-core.js from
+// activate handler below evicts the previous one. That's what keeps a stale app bundle from
 // outliving its deploy — the ?v= query string already makes each version its own cache key,
 // so without the eviction old versions would accumulate forever.
 const VERSION      = '${DEPLOY_VERSION}';
@@ -48,7 +48,8 @@ function isAppShell(url) {
 // load that registers this worker, so precaching would double the download on a first visit.
 // They get cached on first fetch instead, which costs nothing extra and is just as durable.
 function isVersionedAsset(url) {
-  return url.pathname === '/admin/app-core.js'
+  return url.pathname === '/admin/app-member.js'
+      || url.pathname === '/admin/app-staff.js'
       || url.pathname === '/admin/app-ext.js'
       || url.pathname === '/admin/app.css';
 }
@@ -157,10 +158,36 @@ self.addEventListener('fetch', function(event) {
 // each module's own `<script>`/`</script>` wrapper) — not a functional boundary, kept exactly
 // where it was to minimize risk; both files execute in the same global scope in the same order
 // as before, so no function/variable visibility changes for either half.
-const APP_CORE_JS_RAW = JS_CORE + JS_SETTINGS + JS_DASHBOARD + JS_PEOPLE + JS_REGISTER + JS_HOUSEHOLDS;
+// ── Member split ────────────────────────────────────────────────────────────────────────────
+// The old app-core.js bundled six modules, three of which a member account can never reach.
+// Role gating in this app is VISIBILITY, not payload: applyRoleUI() puts a `role-member` class
+// on <body> and CSS hides the tabs, but the bytes were identical for every role — so a member,
+// who is typically on a phone and can only ever open the directory, downloaded ~1.8MB including
+// Finance, Giving, Tuition Aid and the Scheduler-adjacent code.
+//
+// app-core.js is therefore cut in two along the role line:
+//   app-member.js  core + people + households  — everything a member session can reach
+//   app-staff.js   settings + dashboard + register — the rest of the old app-core
+// A member is served app-member.js alone; every other role is served member + staff + ext, in
+// that order, which is the same total payload as before, just as three files instead of two.
+//
+// ORDER: people/households now parse before settings/dashboard/register, where they used to
+// come after. That is safe because none of the six modules calls another module's function at
+// parse time — the only top-level statements in any of them are listener registrations
+// (js-core's window/modal handlers, js-settings' delegated change listener) and js-core's boot
+// work is inside a 'load' handler, which fires after every script has run. Verified by
+// test/member-bundle.test.js, which also asserts the two halves still add up to app-core.
+const APP_MEMBER_JS_RAW = JS_CORE + JS_PEOPLE + JS_HOUSEHOLDS;
+const APP_STAFF_JS_RAW = JS_SETTINGS + JS_DASHBOARD + JS_REGISTER;
 const APP_EXT_JS_RAW = JS_GIVING + JS_REPORTS + JS_EXPORT_IMPORT + JS_ATTENDANCE + JS_TUITION_AID + JS_FINANCE + JS_VOLUNTEERS;
-export const CHMS_APP_CORE_JS = APP_CORE_JS_RAW.replace(/^<script>\n/, '').replace(/<\/script>\n$/, '');
-export const CHMS_APP_EXT_JS = APP_EXT_JS_RAW.replace(/^<script>\n/, '').replace(/<\/script>\n$/, '');
+const stripScriptTags = (s) => s.replace(/^<script>\n/, '').replace(/<\/script>\n$/, '');
+export const CHMS_APP_MEMBER_JS = stripScriptTags(APP_MEMBER_JS_RAW);
+export const CHMS_APP_STAFF_JS = stripScriptTags(APP_STAFF_JS_RAW);
+export const CHMS_APP_EXT_JS = stripScriptTags(APP_EXT_JS_RAW);
+// Retained as the concatenation of the two halves. Nothing serves this — the worker serves the
+// halves — but the test suite evaluates core+ext in a vm to exercise the real shipped code, and
+// that harness wants one blob in load order.
+export const CHMS_APP_CORE_JS = CHMS_APP_MEMBER_JS + '\n' + CHMS_APP_STAFF_JS;
 
 // ── App CSS, split out of the page for the same reason as the app JS above ─────────────────
 // HTML_HEAD's single <style> block is ~101KB of entirely static app CSS with nothing per-user
@@ -189,12 +216,30 @@ export const CHMS_SCHEDULER_HTML = _schedParts.markup;
 export const CHMS_SCHEDULER_JS = _schedParts.js;
 
 // ── ChMS ADMIN HTML ────────────────────────────────────────────────
-export const CHMS_HTML = HTML_HEAD_LINKED
+// The markup is identical for every role — role visibility is applied client-side from
+// /admin/api/me (see applyRoleUI), and the shell is served no-store, so there is nothing
+// per-user in it. The ONLY thing that varies is which script tags are emitted, which is why
+// this is a function of role rather than a constant: the cached JS assets themselves must stay
+// role-neutral (they are `immutable` and shared across users), so the role decision has to live
+// in the uncached shell.
+const CHMS_SHELL = HTML_HEAD_LINKED
   + HTML_TABS_1
   + '<div id="tab-scheduler" class="tab-panel"></div>\n'
-  + HTML_TABS_2
-  + `<script src="/admin/app-core.js?v=${DEPLOY_VERSION}"></script>\n`
-  + `<script src="/admin/app-ext.js?v=${DEPLOY_VERSION}"></script>\n`;
+  + HTML_TABS_2;
+const scriptTag = (name) => `<script src="/admin/${name}.js?v=${DEPLOY_VERSION}"></script>\n`;
+export function chmsHtmlForRole(role) {
+  // A member gets the directory bundle only. If an admin has granted them the Reports tab,
+  // js-core lazy-loads the other two on first open (ensureFullAppLoaded).
+  //
+  // Fail SAFE, not small: any role this doesn't recognise — including a null/undefined role
+  // from a future caller — gets the full set. Under-serving scripts to a staff account would
+  // break their app; over-serving them to a member only costs bytes.
+  if (role === 'member') return CHMS_SHELL + scriptTag('app-member');
+  return CHMS_SHELL + scriptTag('app-member') + scriptTag('app-staff') + scriptTag('app-ext');
+}
+// Full-access shell. Kept as an export because the test suite and the div-balance scans read it
+// directly; the worker calls chmsHtmlForRole() instead.
+export const CHMS_HTML = chmsHtmlForRole('admin');
 
 // ── Dev Board (Kanban) ──────────────────────────────────────────────
 export const BACKLOG_HTML = `<!DOCTYPE html>
