@@ -1,25 +1,9 @@
-export const JS_SETTINGS = String.raw`// ── MEMBER TYPES ──────────────────────────────────────────────────────
-var _memberTypes = ['Member','Attender','Visitor','Vietnamese Congregation','Other'];
-function loadMemberTypes() {
-  // The .catch is not optional: this runs unconditionally on every page load for every role,
-  // and it was the ONLY one of the three boot calls without one (loadTags/loadFunds both had
-  // it). Any rejection therefore escaped to the global handler and painted a bare
-  // "Access denied" banner over a working page. The defaults in _memberTypes are fine to keep.
-  api('/admin/api/config/member-types').then(function(d) {
-    _memberTypes = d.types || _memberTypes;
-    refreshMemberTypeSelect();
-  }).catch(function(){});
-}
-function refreshMemberTypeSelect() {
-  var sel = document.getElementById('pm-type');
-  if (!sel) return;
-  var cur = sel.value;
-  sel.innerHTML = _memberTypes.map(function(t) {
-    var v = t.toLowerCase().replace(/\s+/g,'-');
-    return '<option value="' + v + '"' + (v===cur?' selected':'') + '>' + esc(t) + '</option>';
-  }).join('');
-  updatePersonNameMode();
-}
+export const JS_SETTINGS = String.raw`// ── MEMBER TYPES (admin editor) ───────────────────────────────────────
+// _memberTypes / loadMemberTypes() / refreshMemberTypeSelect() used to live here, but they are
+// not settings code: they are boot state every role needs (the People filter chips and the
+// person-edit form both read _memberTypes, and loadMemberTypes runs unconditionally in the
+// window 'load' handler). They now live in js-core.js so the member-only bundle — which ships
+// core+people+households and NOT this module — still has them. See html-chms.js.
 function renderMemberTypesList() {
   document.getElementById('member-types-list').innerHTML = _memberTypes.map(function(t, i) {
     return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--linen);">'

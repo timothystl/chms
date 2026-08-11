@@ -1,13 +1,40 @@
 // Single source of truth for the app version — used both for the on-page display below (via
 // interpolation into the served script) and as the cache-busting query param on the external
-// app-core.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a version bump
+// app-member.js/app-staff.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a
+// version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.165.1';
+export const DEPLOY_VERSION = '1.166.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
 var DEPLOY_VERSION = '${DEPLOY_VERSION}';
+// ── MEMBER TYPES ──────────────────────────────────────────────────────
+// Moved here from js-settings.js: this is boot state every role reads (the People filter chip
+// label and the person-edit type <select>), and loadMemberTypes() runs unconditionally in the
+// window 'load' handler below. Leaving it in the settings module meant the member-only bundle
+// (core+people+households, no settings) would throw a ReferenceError before rendering anything.
+var _memberTypes = ['Member','Attender','Visitor','Vietnamese Congregation','Other'];
+function loadMemberTypes() {
+  // The .catch is not optional: this runs unconditionally on every page load for every role,
+  // and it was the ONLY one of the three boot calls without one (loadTags/loadFunds both had
+  // it). Any rejection therefore escaped to the global handler and painted a bare
+  // "Access denied" banner over a working page. The defaults in _memberTypes are fine to keep.
+  api('/admin/api/config/member-types').then(function(d) {
+    _memberTypes = d.types || _memberTypes;
+    refreshMemberTypeSelect();
+  }).catch(function(){});
+}
+function refreshMemberTypeSelect() {
+  var sel = document.getElementById('pm-type');
+  if (!sel) return;
+  var cur = sel.value;
+  sel.innerHTML = _memberTypes.map(function(t) {
+    var v = t.toLowerCase().replace(/\s+/g,'-');
+    return '<option value="' + v + '"' + (v===cur?' selected':'') + '>' + esc(t) + '</option>';
+  }).join('');
+  updatePersonNameMode();
+}
 window.onerror = function(msg, src, line, col, err) {
   // Benign browser quirks — suppress these and don't show the error banner.
   if (msg && String(msg).indexOf('ResizeObserver loop') !== -1) return true;
@@ -330,7 +357,9 @@ function showTab(name, finSection) {
     finRenderSubnavMounts();
     if (typeof finShowSection === 'function') finShowSection(_finActiveNavId);
   }
-  if (name === 'reports') initReports();
+  // ensureFullAppLoaded is a no-op for every role but member — see its definition. A member
+  // granted Reports has the tab markup already (the shell ships all tabs) but not the code.
+  if (name === 'reports') ensureFullAppLoaded(function() { initReports(); });
   if (name === 'attendance') loadAttendance();
   if (name === 'register') loadRegister();
   if (name === 'settings') loadSettings();
@@ -346,6 +375,52 @@ function showTab(name, finSection) {
       }
     });
   }
+}
+// ── Lazy-load the rest of the app (member sessions only) ────────────────────
+// A member session is served ONE script — /admin/app-member.js (core + people + households).
+// Every other role gets that plus app-staff.js and app-ext.js, so for them the code below never
+// runs: the guard is a typeof check on initReports, which for them is already defined.
+//
+// The one member surface that lives outside the member bundle is the Reports tab, which an
+// admin can grant to the member role (DEFAULT_ROLE_PERMISSIONS has it at 'none', so this is the
+// exception, not the common path). Rather than fold ~180KB of reports+attendance code into
+// every member's first load for a permission most of them will never have, fetch it on the
+// first open.
+//
+// Both files are loaded, in the same order the non-member shell emits them, because that is the
+// only combination that has ever been exercised: js-reports calls into js-attendance
+// (_buildAttYoYHtml, _chartResizeHandle, MONTH_NAMES) and reaches for js-settings/js-dashboard
+// helpers in places, so loading ext alone would swap one ReferenceError for another. Loading
+// both lands the member on exactly the bundle set every other role already runs.
+var _fullAppLoadState = 0; // 0 = not loaded, 1 = in flight, 2 = ready
+var _fullAppWaiting = [];
+function loadAppScript(src) {
+  return new Promise(function(resolve, reject) {
+    var s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = function() { reject(new Error('Failed to load ' + src)); };
+    document.body.appendChild(s);
+  });
+}
+function ensureFullAppLoaded(cb) {
+  if (_fullAppLoadState === 2 || typeof initReports === 'function') { cb(); return; }
+  _fullAppWaiting.push(cb);
+  if (_fullAppLoadState === 1) return; // a load is already running; cb rides along
+  _fullAppLoadState = 1;
+  loadAppScript('/admin/app-staff.js?v=' + DEPLOY_VERSION)
+    .then(function() { return loadAppScript('/admin/app-ext.js?v=' + DEPLOY_VERSION); })
+    .then(function() {
+      _fullAppLoadState = 2;
+      var queued = _fullAppWaiting; _fullAppWaiting = [];
+      queued.forEach(function(fn) { try { fn(); } catch (e) { console.error(e); } });
+    })
+    .catch(function(e) {
+      console.error('App bundle load failed:', e);
+      _fullAppLoadState = 0;
+      _fullAppWaiting = [];
+      showErrorBanner('Could not load that section. Check your connection and try again.');
+    });
 }
 // ── Lazy-load the Scheduler embed ───────────────────────────────────────────
 // The Scheduler's markup/CSS/JS is ~321KB and used to be inlined into the page

@@ -129,7 +129,7 @@ describe('service worker — app shell', () => {
 });
 
 describe('service worker — immutable versioned assets', () => {
-  const ASSETS = ['/admin/app-core.js', '/admin/app-ext.js', '/admin/app.css'];
+  const ASSETS = ['/admin/app-member.js', '/admin/app-staff.js', '/admin/app-ext.js', '/admin/app.css'];
 
   it('caches each on first fetch and serves from cache thereafter', async () => {
     for (const path of ASSETS) {
@@ -148,9 +148,9 @@ describe('service worker — immutable versioned assets', () => {
 
   it('treats a different ?v= as a different asset, so a deploy is picked up', async () => {
     const sw = loadWorker();
-    await (await sw.fire('fetch', { request: sw.request('/admin/app-core.js?v=1.119.0') }));
+    await (await sw.fire('fetch', { request: sw.request('/admin/app-member.js?v=1.119.0') }));
     await new Promise((r) => setTimeout(r, 0));
-    await (await sw.fire('fetch', { request: sw.request('/admin/app-core.js?v=1.120.0') }));
+    await (await sw.fire('fetch', { request: sw.request('/admin/app-member.js?v=1.120.0') }));
     expect(sw.fetchLog.length).toBe(2);
   });
 });

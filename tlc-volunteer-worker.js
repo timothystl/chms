@@ -20,7 +20,7 @@ import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPass
 import { handleIntakeApi } from './src/api-intake.js';
 import { handleMemberSetup } from './src/api-people.js';
 import { LOGIN_HTML, PUBLIC_HTML, ADMIN_HTML } from './src/html-templates.js';
-import { CHMS_HTML, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_CORE_JS, CHMS_APP_EXT_JS, CHMS_APP_CSS, CHMS_SCHEDULER_HTML, CHMS_SCHEDULER_JS } from './src/html-chms.js';
+import { chmsHtmlForRole, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_MEMBER_JS, CHMS_APP_STAFF_JS, CHMS_APP_EXT_JS, CHMS_APP_CSS, CHMS_SCHEDULER_HTML, CHMS_SCHEDULER_JS } from './src/html-chms.js';
 import { DEPLOY_VERSION } from './src/frontend/js-core.js';
 import { PRIVACY_HTML, TERMS_HTML } from './src/legal-pages.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts, centralDayOfWeek } from './src/api-emails.js';
@@ -268,7 +268,7 @@ async function _fetch(req, env) {
       if (isChmsHost) {
         const auth = await getAuthInfo(req, env);
         if (!auth) return html(LOGIN_HTML);
-        return html(CHMS_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+        return html(chmsHtmlForRole(auth.role), 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
       }
       return html(PUBLIC_HTML);
     }
@@ -341,7 +341,7 @@ async function _fetch(req, env) {
       if (auth.role === 'member') {
         return new Response(null, { status: 302, headers: { 'Location': 'https://connect.timothystl.org/' } });
       }
-      return html(CHMS_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+      return html(chmsHtmlForRole(auth.role), 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
     }
     if (path === '/chms.webmanifest') {
       return new Response(CHMS_MANIFEST_JSON, {
@@ -375,8 +375,17 @@ async function _fetch(req, env) {
         ? 'public, max-age=31536000, immutable'
         : 'no-store';
 
-    if (path === '/admin/app-core.js') {
-      return new Response(CHMS_APP_CORE_JS, {
+    // app-member.js is what a member session gets on its own; every other role gets it plus
+    // app-staff.js and app-ext.js. Together the first two are the old app-core.js, which no
+    // longer has a route — nothing has ever linked to it but this worker, and the shell that
+    // referenced it is served no-store, so there is no stale page that could still ask for it.
+    if (path === '/admin/app-member.js') {
+      return new Response(CHMS_APP_MEMBER_JS, {
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
+      });
+    }
+    if (path === '/admin/app-staff.js') {
+      return new Response(CHMS_APP_STAFF_JS, {
         headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
       });
     }

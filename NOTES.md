@@ -24,6 +24,69 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.166.0 — Member sessions get a member-sized bundle (2026-08-11)
+
+Asked while preparing to invite members at scale (TLY1): the member tier only reaches People, so
+does it load faster? **No — it never did.** Role gating here is *visibility*, not payload:
+`applyRoleUI()` sets `role-member` on `<body>` and CSS hides the tabs, but `/admin/app-core.js`
+and `/admin/app-ext.js` are `immutable` and shared across every user, so by construction they
+cannot vary by role. A member downloaded the same ~1.8 MB as an admin — `js-finance.js` alone is
+645 KB of it — on what is typically a phone, on cell data, opened from the Tithe.ly app tab.
+
+**The split.** The one per-request, `no-store` surface is the shell, so that is where the role
+decision has to live. `app-core.js` is cut along the role line:
+
+| bundle | modules | size |
+|---|---|---|
+| `app-member.js` | core + people + households | 263 KB |
+| `app-staff.js` | settings + dashboard + register | 124 KB |
+| `app-ext.js` | unchanged | 1,244 KB |
+
+A member is served `app-member.js` alone; every other role gets all three, in that order — the
+same total bytes as before, in three files instead of two. **First load: 606 KB for a member
+against 1,974 KB before.** The ongoing win is arguably bigger: both JS files hang off one
+`?v=DEPLOY_VERSION`, so every Finance deploy used to re-download Finance to every member.
+
+**Three things worth carrying forward:**
+
+1. **`_memberTypes` / `loadMemberTypes()` / `refreshMemberTypeSelect()` moved from
+   `js-settings.js` into `js-core.js`.** They were never settings code — `loadMemberTypes()` runs
+   unconditionally in the boot handler for every role, and the People filter chip and the
+   person-edit `<select>` both read `_memberTypes`. Left in place, the member bundle threw a
+   ReferenceError at boot. Found by a test, not by reading, and it is the entire failure class
+   this split introduces.
+2. **Reports is lazy, not missing.** Member Reports is `none` by default but an admin can grant
+   it, so `showTab('reports')` now goes through `ensureFullAppLoaded()` (same shape as the
+   Scheduler lazy-load), which pulls **both** remaining bundles — `js-reports` calls into
+   `js-attendance` (`_buildAttYoYHtml`, `_chartResizeHandle`, `MONTH_NAMES`), so fetching ext
+   alone would trade one ReferenceError for another.
+3. **`chmsHtmlForRole()` fails safe, not small.** An unrecognised or null role gets all three.
+   Under-serving scripts to a staff account breaks their app; over-serving to a member costs
+   bytes. Pinned by a test.
+
+**Order changed**: people/households now parse before settings/dashboard/register. Safe only
+because no module calls another's function at parse time — the sole top-level statements across
+the six are listener registrations, and js-core's boot work is inside a `load` handler. A test
+also asserts no top-level name is defined twice across the three bundles, since they still share
+one global scope.
+
+`npm test` (1198/1198, 21 new in `test/member-bundle.test.js`, running the real shipped bundles in
+a `vm` with a fake DOM). **Every new test verified non-vacuous** by injecting the exact regression
+it guards — 6 injections, 6 correct failures. One of my own tests was weaker than its own comment:
+"evaluates standalone" cannot catch a missing global, because that only throws when it *runs*, so
+the boot test was rewritten to **extract the boot call list out of the shipped source** and
+execute each one, honouring the existing `_userRole !== 'member'` guard on `loadFunds` rather than
+demanding it be present. `test/asset-cache-policy.test.js` and `test/service-worker.test.js`
+hardcoded `/admin/app-core.js` and were updated to the new names. Plus `node --check` on all three
+bundles and the worker, `app.css` brace balance, div balance on both shells. **A backtick inside
+one of my own new comments closed the outer `String.raw` literal and broke the whole module** —
+the SC3-BUG1/FIN15 class again, caught by the build rather than by reading the diff.
+
+**Not verified**: a live browser, a real phone, or an actual member session. Two follow-ups logged
+in CLAUDE.md: CR9a (the shell is still 193 KB of all-tabs markup — CR1b, for which the member tier
+is now the strongest argument) and CR9b (`html-head.js` ships the role-visibility CSS block twice,
+~2 KB, byte-identical).
+
 ### v1.165.1 — Attendance entry no longer runs off the side of a phone (2026-08-10)
 
 Reported with a screenshot from an iPhone: on Attendance → This Week the **8:00 field filled the
