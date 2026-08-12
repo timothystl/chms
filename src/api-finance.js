@@ -1929,6 +1929,16 @@ const REVENUE_STREAM_RULES = [
   { stream: 'donor', re: /offering|contribution|donor|donation|gift|pledge|tithe|memorial/i },
 ];
 export const REVENUE_STREAMS = ['donor', 'earned', 'passive', 'restricted'];
+// Restricted income is a HALF OF DONOR INCOME, not a peer of earned and passive: it is a gift,
+// given by the same people, and — unlike a 25xxx designated fund — it does pay budgeted expenses,
+// just ones the donor named (Comfort Dog, Tuition Aid). So the four streams are how the money is
+// CLASSIFIED, and these three are how it is DISPLAYED wherever the mix is drawn as a whole: the
+// revenue mix bar, the flow diagram, the five-year chart. Drawing restricted beside donor implies
+// the board has one more independent lever than it really has, and makes donor income read
+// smaller than the giving that produced it. The donor card already reports the two together;
+// these keep every other view telling the same story.
+export const DISPLAY_STREAMS = ['donor', 'earned', 'passive'];
+export function displayStreamOf(stream) { return stream === 'restricted' ? 'donor' : stream; }
 export function classifyRevenueStream(label, overrides) {
   const mapped = overrides && overrides[label];
   if (mapped && REVENUE_STREAMS.includes(mapped)) return { stream: mapped, mapped: true };
@@ -2108,17 +2118,21 @@ export function computeFlowDiagram(entries, opts = {}) {
   const { streamOverrides = {}, expenseOverrides = {} } = opts;
   const { streams } = computeRevenueStreams(entries, streamOverrides);
 
+  // Each restricted group keeps its own source node — the diagram still shows Comfort Dog and
+  // Tuition Aid arriving separately — but the ribbon runs into the DONOR stream node rather than a
+  // fourth one of its own (displayStreamOf). This is what the handoff's own reference figures do:
+  // "Restricted giving" is a donor-stream source there, and its middle column has three nodes.
   const sources = [];
   for (const s of REVENUE_STREAMS) {
     for (const g of streams[s].groups) {
       if (g.cents <= 0) continue;
-      sources.push({ id: `${s}:${g.label}`, label: g.label, stream: s, cents: g.cents });
+      sources.push({ id: `${s}:${g.label}`, label: g.label, stream: displayStreamOf(s), cents: g.cents });
     }
   }
-  // NOTE: donor revenue is deliberately NOT re-split here by the ChMS restricted ratio. Restricted
-  // income became its own stream in the chart-of-accounts classification (see REVENUE_STREAM_RULES),
-  // so it already arrives as its own source node — splitting the donor node again would draw the
-  // same restricted dollars twice and inflate total revenue.
+  // NOTE: donor revenue is deliberately NOT re-split here by the ChMS restricted ratio. The
+  // restricted dollars already arrive as their own source nodes above, so splitting the donor node
+  // again by a giving-records ratio would draw them twice and inflate total revenue. That is the
+  // bug the donor card shipped with until 2026-08-12; do not reintroduce it here.
 
   const byCategory = new Map();
   const unmappedExpenses = [];
@@ -2140,7 +2154,11 @@ export function computeFlowDiagram(entries, opts = {}) {
     .filter(c => c.cents > 0);
   unmappedExpenses.sort((a, b) => b.cents - a.cents);
 
-  const streamTotals = REVENUE_STREAMS.map(s => ({ id: s, cents: streams[s].cents }))
+  // Summed over the DISPLAY streams, so the donor node is exactly as tall as the ribbons feeding
+  // it. Built from `sources` rather than from `streams` directly — the two can only agree if the
+  // node total and the ribbons it receives are derived from the same list.
+  const streamTotals = DISPLAY_STREAMS
+    .map(s => ({ id: s, cents: sources.filter(x => x.stream === s).reduce((sum, x) => sum + x.cents, 0) }))
     .filter(s => s.cents > 0);
   const totalRevenueCents = sources.reduce((sum, s) => sum + s.cents, 0);
   const totalExpenseCents = expenses.reduce((sum, e) => sum + e.cents, 0);

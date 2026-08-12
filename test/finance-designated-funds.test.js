@@ -34,10 +34,15 @@ function loadFinance() {
   const src = ['esc', 'finFmtMoney', 'finMoney0', 'finBar', 'finPctLabel']
     .map((f) => grab(f, 'function')).join('\n')
     + '\nvar REVENUE_STREAM_KEYS = ["donor","earned","passive","restricted"];'
+    + '\nvar FIN_DISPLAY_STREAM_KEYS = ["donor","earned","passive"];'
+    + grab('finDisplayStreams', 'function')
     + '\nfunction finNavGo() {}\nfunction showTab() {}'
+    + '\nvar REVENUE_STREAM_SHORT = { donor: "Donor", earned: "Earned", passive: "Passive", restricted: "Restricted" };'
+    + '\nvar REVENUE_STREAM_COLORS = { donor: "a", earned: "b", passive: "c", restricted: "d" };'
     + grab('finRenderStreamCards', 'function')
+    + grab('finRenderRevenueMix', 'function')
     + grab('finRenderDesignatedFunds', 'function');
-  vm.runInContext(src + '\nglobalThis.__fin = { finRenderStreamCards, finRenderDesignatedFunds };', sandbox);
+  vm.runInContext(src + '\nglobalThis.__fin = { finRenderStreamCards, finRenderDesignatedFunds, finRenderRevenueMix, finDisplayStreams };', sandbox);
   return sandbox.__fin;
 }
 const FIN = loadFinance();
@@ -289,6 +294,75 @@ describe('the designated funds card', () => {
     expect(countTag(html, 'table')).toBe(0);
     expect(countTag(html, 'tr')).toBe(0);
     expect(countTag(html, 'details')).toBe(0);
+  });
+});
+
+describe('the revenue mix bar', () => {
+  const STREAMS = {
+    donor: { cents: 23987577, groups: [{ label: '40 Donor Income (Unrestricted)', cents: 23987577 }] },
+    restricted: { cents: 800000, groups: [{ label: '48 Restricted Income', cents: 800000 }] },
+    earned: { cents: 32192237, groups: [{ label: '47 Mother’s Day Out', cents: 32192237 }] },
+    passive: { cents: 4963400, groups: [{ label: '42 Passive Income', cents: 4963400 }] },
+  };
+  const TOTAL = 23987577 + 800000 + 32192237 + 4963400;
+  const html = FIN.finRenderRevenueMix(STREAMS, TOTAL);
+
+  it('draws three segments, with restricted inside donor', () => {
+    // Drawn beside donor, restricted implies a fourth independent lever the board does not have,
+    // and makes donor income read smaller than the giving that produced it.
+    expect(html.match(/fin-stream-seg"/g)).toHaveLength(3);
+    expect(html).not.toContain('>Restricted<');
+  });
+
+  it('sizes the donor segment as unrestricted plus restricted', () => {
+    const pct = ((23987577 + 800000) / TOTAL * 100).toFixed(1);
+    expect(html).toContain('width:' + pct + '%');
+  });
+
+  it('says how much of donor income is restricted', () => {
+    // Merging must not make the distinction disappear — it is still donor-directed money.
+    expect(html).toContain('$8,000 of restricted gifts');
+  });
+
+  it('segments still sum to the whole bar', () => {
+    const widths = [...html.matchAll(/fin-stream-seg" style="width:([\d.]+)%/g)].map((m) => parseFloat(m[1]));
+    expect(widths.reduce((a, b) => a + b, 0)).toBeCloseTo(100, 0);
+  });
+
+  it('says nothing about restricted when there is none', () => {
+    const noRestricted = FIN.finRenderRevenueMix({ ...STREAMS, restricted: { cents: 0, groups: [] } }, TOTAL - 800000);
+    expect(noRestricted).not.toContain('restricted gifts');
+    expect(noRestricted.match(/fin-stream-seg"/g)).toHaveLength(3);
+  });
+});
+
+describe('finDisplayStreams', () => {
+  it('folds restricted into donor and drops it as a key', () => {
+    const out = FIN.finDisplayStreams({
+      donor: { cents: 100, groups: [{ label: 'a', cents: 100 }] },
+      restricted: { cents: 30, groups: [{ label: 'b', cents: 30 }] },
+      earned: { cents: 50, groups: [] }, passive: { cents: 20, groups: [] },
+    });
+    expect(out.donor.cents).toBe(130);
+    expect(out.donor.groups.map((g) => g.label)).toEqual(['a', 'b']);
+    expect(out.restricted).toBeUndefined();
+  });
+
+  it('preserves the grand total', () => {
+    const raw = { donor: { cents: 100 }, restricted: { cents: 30 }, earned: { cents: 50 }, passive: { cents: 20 } };
+    const out = FIN.finDisplayStreams(raw);
+    const sum = (o) => Object.values(o).reduce((a, s) => a + (s.cents || 0), 0);
+    expect(sum(out)).toBe(sum(raw));
+  });
+
+  it('does not mutate the streams it was given', () => {
+    const raw = {
+      donor: { cents: 100, groups: [{ label: 'a', cents: 100 }] },
+      restricted: { cents: 30, groups: [{ label: 'b', cents: 30 }] },
+    };
+    FIN.finDisplayStreams(raw);
+    expect(raw.donor.cents).toBe(100);
+    expect(raw.donor.groups).toHaveLength(1);
   });
 });
 

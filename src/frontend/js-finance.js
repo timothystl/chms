@@ -263,6 +263,26 @@ var REVENUE_STREAM_LABELS = {
 };
 var REVENUE_STREAM_SHORT = { donor: 'Donor', earned: 'Earned', passive: 'Passive', restricted: 'Restricted' };
 var REVENUE_STREAM_COLORS = { donor: 'var(--color-teal)', earned: 'var(--color-gold)', passive: 'var(--sage)', restricted: 'var(--ice-blue)' };
+// Mirrors DISPLAY_STREAMS / displayStreamOf in api-finance.js. Restricted income is a half of
+// donor income, not a fourth stream: wherever the mix is drawn as a WHOLE — the bar, the flow, the
+// five-year chart — it belongs inside donor. Drawn beside it, the board appears to have one more
+// independent lever than it has, and donor income reads smaller than the giving behind it.
+var FIN_DISPLAY_STREAM_KEYS = ['donor', 'earned', 'passive'];
+// streams (4 classified) → streams (3 displayed), donor absorbing restricted. Returns a fresh
+// object; callers still read the raw streams object when they need the two halves apart.
+function finDisplayStreams(streams) {
+  var out = {};
+  FIN_DISPLAY_STREAM_KEYS.forEach(function(s) {
+    var src = (streams || {})[s] || { cents: 0, groups: [] };
+    out[s] = { cents: src.cents || 0, groups: (src.groups || []).slice() };
+  });
+  var r = (streams || {}).restricted;
+  if (r && r.cents) {
+    out.donor.cents += r.cents;
+    out.donor.groups = out.donor.groups.concat(r.groups || []);
+  }
+  return out;
+}
 // Every income group's resolved stream, as last returned by any endpoint that computes it. The
 // Church Report groups its own account tree from this same map (finReorganizeChurchTree), so the
 // classification saved once on Data & Imports drives both pages instead of the Church Report
@@ -679,11 +699,13 @@ function finRenderRevenueMix(streams, totalCents) {
     donor: { note: 'We set the ask', border: 'var(--color-navy)', color: 'var(--color-navy)' },
     earned: { note: 'Reported to us', border: 'var(--warm-border)', color: 'var(--warm-meta)' },
     passive: { note: 'Timing only', border: 'var(--deep-amber)', color: 'var(--deep-amber)' },
-    restricted: { note: 'Already spoken for', border: 'var(--color-teal)', color: 'var(--color-teal)' },
   };
+  // Three segments: restricted income is drawn INSIDE donor (finDisplayStreams), not beside it.
+  var restrictedCents = ((streams || {}).restricted || { cents: 0 }).cents || 0;
+  var shown = finDisplayStreams(streams);
   var segs = '', band = '', narrow = [];
-  REVENUE_STREAM_KEYS.forEach(function(s) {
-    var cents = (streams[s] || { cents: 0 }).cents;
+  FIN_DISPLAY_STREAM_KEYS.forEach(function(s) {
+    var cents = (shown[s] || { cents: 0 }).cents;
     var pct = cents / totalCents * 100;
     // A stream with no money contributes no segment at all — four streams means an empty one is
     // now normal (a church with no restricted accounts), and a zero-width segment would still
@@ -700,7 +722,9 @@ function finRenderRevenueMix(streams, totalCents) {
   return '<div class="fin-card">'
     + '<div class="fin-card-hdr-split">'
       + '<div><div class="fin-card-title" style="font-size:20px;">The revenue mix</div>'
-      + '<div class="fin-card-sub" style="margin:0;">One bar, one segment per stream. The band under it marks how much say the board actually has.</div></div>'
+      + '<div class="fin-card-sub" style="margin:0;">One bar, one segment per stream. The band under it marks how much say the board actually has.'
+      + (restrictedCents ? ' Donor includes ' + finMoney0(restrictedCents) + ' of restricted gifts — donor-directed, but still funding the budget.' : '')
+      + '</div></div>'
       + '<div style="text-align:right;"><div class="fin-eyebrow">Total revenue</div>'
       + '<div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;">' + finMoney0(totalCents) + '</div></div>'
     + '</div>'
@@ -759,7 +783,9 @@ function finRenderStreamCards(d) {
     + '<div><div class="fin-card-hdr-split"><span class="fin-eyebrow">Earned income</span><span class="fin-chip fin-chip-warn">Reported, not managed</span></div>'
     + '<div class="fin-stream-val">' + finMoney0(earned.cents) + '</div>'
     + '<div class="fin-stream-sub">' + pctOf(earned.cents) + '% of revenue'
-    + (earned.cents > 0 && REVENUE_STREAM_KEYS.every(function(k) { return earned.cents >= (rs.streams[k] || { cents: 0 }).cents; }) ? ' &middot; our largest single stream' : '') + '</div></div>'
+    // Compared against the DISPLAYED streams: measured against the four raw ones, earned could
+    // claim to be largest while the donor card above it printed a bigger number.
+    + (earned.cents > 0 && FIN_DISPLAY_STREAM_KEYS.every(function(k) { return earned.cents >= (finDisplayStreams(rs.streams)[k] || { cents: 0 }).cents; }) ? ' &middot; our largest single stream' : '') + '</div></div>'
     + '<div style="display:flex;flex-direction:column;gap:9px;">'
     + (earned.groups.length ? subBars(earned.groups, ['var(--color-gold)', 'var(--pale-gold)', 'var(--pale-gold)'])
       : '<div style="font-size:11.5px;color:var(--warm-gray);">No account group is classified as earned income yet.</div>')
@@ -862,7 +888,11 @@ var FIN_FLOW_COLORS = {
   total: '#1E2D4A',
   restricted: '#7FB4CC',
   sourceTint: {
-    donor: ['#2E7EA6', '#4E97BC'], earned: ['#C9973A', '#E0BE7C', '#EFD9A8'],
+    // Donor carries the restricted sources now (displayStreamOf), so its ramp absorbs the two
+    // tints that used to belong to the restricted stream — they read as lighter donor blues,
+    // which is exactly the relationship. Without them a third donor source would collide with the
+    // second, since the ramp clamps at its last entry.
+    donor: ['#2E7EA6', '#4E97BC', '#7FB4CC', '#A9CCDD'], earned: ['#C9973A', '#E0BE7C', '#EFD9A8'],
     passive: ['#6B8F71', '#A9C6AC'], restricted: ['#7FB4CC', '#A9CCDD'],
   },
   // Expenses deliberately use one navy ramp: five more hues would compete with the revenue side
@@ -1412,9 +1442,12 @@ function finRenderFiveYearMix() {
   var my = _finChurchMultiYearData;
   if (!my || !my.streamsByYear || !my.years || my.years.length < 2) return '';
   var years = my.years.slice(-5);
+  // Merged to the display streams for the same reason the mix bar is: a restricted band stacked
+  // beside donor makes donor income read smaller than the giving that produced it, and does it
+  // across five years at once.
   var totals = years.map(function(y) {
     var s = my.streamsByYear[y];
-    return { year: y, streams: s ? s.streams : null, total: s ? s.totalCents : 0 };
+    return { year: y, streams: s ? finDisplayStreams(s.streams) : null, total: s ? s.totalCents : 0 };
   });
   var maxTotal = Math.max.apply(null, totals.map(function(t) { return t.total; }).concat([1]));
   var W = 620, base = 164, topY = 30, plotH = base - topY, left = 74, barW = 64;
@@ -1423,7 +1456,7 @@ function finRenderFiveYearMix() {
     if (!t.streams) return '';
     var x = left + slot * i + (slot - barW) / 2;
     var y = base, out = '';
-    REVENUE_STREAM_KEYS.forEach(function(s) {
+    FIN_DISPLAY_STREAM_KEYS.forEach(function(s) {
       var cents = (t.streams[s] || { cents: 0 }).cents;
       var h = cents / maxTotal * plotH;
       if (h <= 0) return;
