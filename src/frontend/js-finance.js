@@ -725,19 +725,33 @@ function finRenderStreamCards(d) {
   var earned = rs.streams.earned || { cents: 0, groups: [] };
   var passive = rs.streams.passive || { cents: 0, groups: [] };
   var restricted = rs.streams.restricted || { cents: 0, groups: [] };
-  var split = d.donorSplit || { unrestrictedCents: 0, restrictedCents: 0 };
-  var splitTotal = split.unrestrictedCents + split.restrictedCents;
 
+  // Donor income is the ledger's unrestricted and restricted income streams TOGETHER, and both
+  // halves come from that one source.
+  //
+  // ⚠ The two bars were previously the ChMS giving split (funds.category='restricted', every fund,
+  // no filter), sitting under a ledger headline. Reported live 2026-08-12: $247,060.56 +
+  // $80,308.17 printed beneath a $239,876 total, i.e. parts visibly larger than the whole, because
+  // those bars summed to all recorded giving — including every 25xxx designated fund, which is a
+  // balance-sheet liability and never income at all. The restricted half is now the ledger's own
+  // restricted income (Comfort Dog, Tuition Aid — donor-directed but spent on this church's own
+  // ministry), designated funds moved to their own card, and the card adds up by construction.
+  var donorTotal = donor.cents + restricted.cents;
+  var donorMax = Math.max(donor.cents, restricted.cents, 1);
   var donorCard = '<div class="fin-card fin-stream-card" style="border-top-color:var(--color-teal);">'
-    + '<div><div class="fin-card-hdr-split"><span class="fin-eyebrow">Donor revenue</span><span class="fin-chip fin-chip-info">Full control</span></div>'
-    + '<div class="fin-stream-val">' + finMoney0(donor.cents) + '</div>'
-    + '<div class="fin-stream-sub">' + pctOf(donor.cents) + '% of revenue &middot; ' + (d.givingHouseholds || 0) + ' giving household' + (d.givingHouseholds === 1 ? '' : 's') + '</div></div>'
+    + '<div><div class="fin-card-hdr-split"><span class="fin-eyebrow">Donor income</span><span class="fin-chip fin-chip-info">Full control</span></div>'
+    + '<div class="fin-stream-val">' + finMoney0(donorTotal) + '</div>'
+    + '<div class="fin-stream-sub">' + pctOf(donorTotal) + '% of revenue &middot; ' + (d.givingHouseholds || 0) + ' giving household' + (d.givingHouseholds === 1 ? '' : 's') + '</div></div>'
     + '<div style="display:flex;flex-direction:column;gap:9px;">'
-    + (splitTotal
-      ? finBar('Unrestricted', '$' + finFmtMoney(split.unrestrictedCents / 100), split.unrestrictedCents / splitTotal * 100, 'var(--color-teal)')
-        + finBar('Restricted', '$' + finFmtMoney(split.restrictedCents / 100), split.restrictedCents / splitTotal * 100, 'var(--ice-blue)')
-        + '<div style="font-size:11.5px;color:var(--warm-gray);">Restricted gifts can&rsquo;t cover operating costs — only ' + finMoney0(split.unrestrictedCents) + ' is truly spendable.</div>'
-      : '<div style="font-size:11.5px;color:var(--warm-gray);">No ChMS giving recorded this year, so the restricted/unrestricted split is not available. Fund categories are set on the Giving tab.</div>')
+    + (donorTotal
+      ? finBar('Unrestricted', '$' + finFmtMoney(donor.cents / 100), donor.cents / donorMax * 100, 'var(--color-teal)')
+        + finBar('Restricted', '$' + finFmtMoney(restricted.cents / 100), restricted.cents / donorMax * 100, 'var(--ice-blue)')
+        + '<div style="font-size:11.5px;color:var(--warm-gray);">'
+        + (restricted.cents
+          ? 'Restricted gifts are donor-directed but spent on our own ministry, so they do fund the budget. '
+          : '')
+        + 'Designated funds are counted separately below — they never pay a budgeted expense.</div>'
+      : '<div style="font-size:11.5px;color:var(--warm-gray);">No account group is classified as donor income yet. Set it on <b>Data &amp; Imports</b>.</div>')
     + '</div>'
     + '<div><button class="btn-primary" onclick="showTab(\'giving\')">Giving detail &rarr;</button></div></div>';
 
@@ -762,21 +776,72 @@ function finRenderStreamCards(d) {
     + '</div>'
     + '<div><button class="btn-secondary" onclick="finNavGo(\'property\')">Commercial Property &rarr;</button></div></div>';
 
-  // Restricted income is the one stream whose size is bad news when it grows: every dollar here
-  // arrived attached to a purpose the board cannot redirect, so it inflates total revenue without
-  // adding anything the council can decide about. The card says that plainly rather than sitting
-  // as a fourth neutral number.
-  var restrictedCard = '<div class="fin-card fin-stream-card" style="border-top-color:var(--ice-blue);">'
-    + '<div><div class="fin-card-hdr-split"><span class="fin-eyebrow">Restricted income</span><span class="fin-chip fin-chip-neutral">Spoken for</span></div>'
-    + '<div class="fin-stream-val">' + finMoney0(restricted.cents) + '</div>'
-    + '<div class="fin-stream-sub">' + pctOf(restricted.cents) + '% of revenue &middot; cannot cover operating costs</div></div>'
-    + '<div style="display:flex;flex-direction:column;gap:9px;">'
-    + (restricted.groups.length ? subBars(restricted.groups, ['var(--ice-blue)', 'var(--ice-blue)', 'var(--ice-blue)'])
-      : '<div style="font-size:11.5px;color:var(--warm-gray);">No account group is classified as restricted income yet. If designated gifts sit inside another group here, set them on <b>Data &amp; Imports</b>.</div>')
-    + '</div>'
-    + '<div><button class="btn-secondary" onclick="finNavGo(\'data\')">Classification &rarr;</button></div></div>';
+  // Three cards, not four: restricted income is a half of donor income (see donorCard above), so
+  // giving it a peer card alongside earned and passive drew the same dollars twice — once inside
+  // the donor total and once beside it.
+  return '<div class="fin-stream-grid fin-grid-start">' + donorCard + earnedCard + passiveCard + '</div>';
+}
 
-  return '<div class="fin-stream-grid fin-grid-start">' + donorCard + earnedCard + passiveCard + restrictedCard + '</div>';
+// 1.3b — designated funds (25xxx). Deliberately NOT a revenue stream and drawn outside the stream
+// grid, because every dollar here is money the church holds and forwards or spends outside the
+// budget: it can never pay a budgeted expense, and adding it to revenue would overstate what the
+// board has to work with. It is still shown in full — the council is accountable for it, and the
+// pastor directs several of these funds — just never mixed into the operating figure.
+//
+// The reconciliation is the reason this card earns its place. Recorded giving and booked donor
+// income measure different things and will never match on their own; subtracting designated
+// giving is what makes them comparable, and a gap that opens up after that means a fund is
+// miscategorised on one side or the other. That check did not exist before.
+function finRenderDesignatedFunds(d) {
+  var g = d.designatedFunds;
+  if (!g || !g.funds || !g.funds.length) return '';
+  var rs = d.revenueStreams || { streams: {} };
+  var ledgerDonorCents = ((rs.streams.donor || {}).cents || 0) + ((rs.streams.restricted || {}).cents || 0);
+  var diff = g.operatingGivenCents - ledgerDonorCents;
+  var hasBal = g.balanceCents != null;
+
+  var rows = g.funds.map(function(f) {
+    return '<tr>'
+      + '<td style="padding:5px 8px;">' + esc(f.label) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;">'
+      + (f.givenCents ? '$' + finFmtMoney(f.givenCents / 100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;">'
+      + (f.balanceCents == null ? '<span style="color:var(--warm-gray);">—</span>' : '$' + finFmtMoney(f.balanceCents / 100)) + '</td>'
+      + '</tr>';
+  }).join('');
+
+  return '<div class="fin-card">'
+    + '<div class="fin-card-hdr-split">'
+      + '<div><div class="fin-card-title" style="font-size:20px;">Designated funds</div>'
+      + '<div class="fin-card-sub" style="margin:0;">Held, not operated on. None of this can pay a budgeted expense, so it is counted apart from revenue.</div></div>'
+      + '<div style="text-align:right;"><div class="fin-eyebrow">Given this year</div>'
+      + '<div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;">' + finMoney0(g.designatedGivenCents) + '</div>'
+      + (hasBal ? '<div style="font-size:11.5px;color:var(--warm-gray);margin-top:3px;">' + finMoney0(g.balanceCents) + ' on hand'
+          + (g.asOfDate ? ' &middot; ' + esc(g.asOfDate) : '') + '</div>' : '')
+    + '</div></div>'
+    + '<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--color-teal);">'
+      + 'Show the ' + g.funds.length + ' fund' + (g.funds.length === 1 ? '' : 's') + '</summary>'
+      + '<div style="overflow-x:auto;margin-top:8px;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;">'
+      + '<thead><tr style="background:var(--linen);">'
+      + '<th style="padding:5px 8px;text-align:left;">Fund</th>'
+      + '<th style="padding:5px 8px;text-align:right;">Given this year</th>'
+      + '<th style="padding:5px 8px;text-align:right;">Balance on hand</th></tr></thead>'
+      + '<tbody>' + rows + '</tbody></table></div>'
+      + '<div style="font-size:11.5px;color:var(--warm-gray);margin-top:8px;">'
+      + '&ldquo;Given this year&rdquo; comes from our giving records; &ldquo;balance on hand&rdquo; from the imported balance sheet, where these funds sit as liabilities. '
+      + (hasBal ? 'A fund can show one without the other — given to but not yet reported on the statement, or holding a balance nobody gave to this year.'
+        : 'No balance sheet is on file, so nothing can be shown on hand yet.')
+      + '</div></details>'
+    + '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--warm-ink-label);">'
+      + '<b>Does this tie out?</b> Recorded giving ' + finMoney0(d.givingCents || 0)
+      + ' &minus; designated ' + finMoney0(g.designatedGivenCents)
+      + ' = <b>' + finMoney0(g.operatingGivenCents) + '</b> that funds the budget, against '
+      + finMoney0(ledgerDonorCents) + ' of donor income booked in the ledger — a difference of '
+      + '<b>' + finMoney0(Math.abs(diff)) + '</b>. '
+      + (Math.abs(diff) > Math.max(Math.round(ledgerDonorCents * 0.02), 500000)
+        ? 'That is wider than timing alone usually explains; a fund is likely classified differently on one side.'
+        : 'Small differences are normal — a gift recorded in one year and booked in the next.')
+    + '</div></div>';
 }
 
 // ── 1.4 "How the money moves" ───────────────────────────────────────────────────────────────
@@ -1618,6 +1683,7 @@ function finRenderHealth() {
     + unmappedNote
     + finRenderRevenueMix(rs.streams, rs.totalCents)
     + finRenderStreamCards(d)
+    + finRenderDesignatedFunds(d)
     + finRenderFlow(d)
     + finRenderEntityCards(d)
     + '<div class="fin-grid-pace">' + finRenderGivingPace(d) + finRenderCashRunway(d) + '</div>'
