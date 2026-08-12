@@ -1987,6 +1987,77 @@ export function computeRevenueStreams(entries, overrides) {
   // its own account tree from this same map, so one saved classification drives both pages.
   return { streams, totalCents, totalBudgetCents, unmapped, map };
 }
+// ── Designated funds (the 25xxx family) ─────────────────────────────────────────────────────
+// Money the church holds but does not operate on. Confirmed with Pastor Dinger 2026-08-12: every
+// 25xxx fund is outside the budget, whatever the reason it leaves — forwarded to a third party
+// (Concordia Children's Services, PNG Mission Society), benevolence (Christ Care, Food Pantry),
+// capital (Building Fund, Extending His Gates, LCEF), or held at pastoral discretion (Memorial,
+// Mission, Music). They differ in WHY the money leaves and not at all in the way that matters to
+// a revenue figure: none of it can pay a budgeted expense.
+//
+// ⚠ This is why a designated gift must never be added to operating revenue. The church's own
+// accounting already says so — 25xxx lives under LIABILITIES ("Liabilities:25000 Funds:25004
+// Building Fund"), never as an income line, so it appears in the Breeze giving import and never
+// in budget-vs-actuals. That asymmetry is the whole reason the Health page's donor card used to
+// disagree with itself: it put a ledger income figure above a giving-records figure that included
+// every one of these funds, so the parts came out larger than the whole they sat under.
+//
+// The rule is the ACCOUNT NUMBER, deliberately, not a name match or a per-fund flag: the
+// bookkeeper's numbering is the one place this judgement is already recorded, a new fund she adds
+// is classified correctly the day it appears, and nobody has to maintain a second list that can
+// drift out of agreement with hers. EQUITY_RECLASS_ACCOUNTS' hand-transcribed 25xxx codes all
+// satisfy this prefix, so the balance sheet and this page cannot disagree about what is
+// designated. '25000 Funds' itself is the group header — a rollup carrying no own balance, and
+// counting it would double every figure below it.
+const DESIGNATED_FUND_CODE_RE = /^(25\d{3}[a-z]?)\b/i;
+export function designatedFundCode(name) {
+  const m = String(name || '').trim().match(DESIGNATED_FUND_CODE_RE);
+  if (!m) return null;
+  const code = m[1].toLowerCase();
+  return code === '25000' ? null : code;
+}
+// Splits a year's ChMS giving into the part that funds the budget and the part that does not, and
+// pairs each designated fund with its balance-sheet balance where one exists. Two independent
+// sources by necessity — what was GIVEN this year can only come from ChMS (there is no income
+// line), and what is ON HAND can only come from the imported balance sheet — so a fund may appear
+// with one and not the other: a fund given to this year with no balance row, or a fund holding a
+// balance nobody gave to this year. Both are real and both are kept, rather than inner-joining
+// one of them away.
+//
+// balanceCents is null (not 0) when no balance sheet has been imported at all, so "no statement on
+// file" can be said in those words instead of being drawn as a church holding nothing.
+export function computeDesignatedFunds(givingByFund, balanceRows) {
+  const byCode = new Map();
+  const ensure = (code, label) => {
+    if (!byCode.has(code)) byCode.set(code, { code, label, givenCents: 0, balanceCents: null });
+    return byCode.get(code);
+  };
+  let designatedGivenCents = 0, operatingGivenCents = 0;
+  for (const g of givingByFund || []) {
+    const cents = g.cents || 0;
+    const code = designatedFundCode(g.fundName);
+    if (!code) { operatingGivenCents += cents; continue; }
+    designatedGivenCents += cents;
+    ensure(code, g.fundName).givenCents += cents;
+  }
+  let balanceCents = null, asOfDate = '';
+  for (const r of balanceRows || []) {
+    // has_children rows are rollups; their own balance is $0 in every real export, but skipping
+    // them explicitly keeps that a stated invariant rather than a lucky one.
+    if (r.has_children) continue;
+    const code = designatedFundCode(r.account_name);
+    if (!code) continue;
+    const cents = r.own_balance_cents || 0;
+    balanceCents = (balanceCents || 0) + cents;
+    if (!asOfDate && r.as_of_date) asOfDate = r.as_of_date;
+    const f = ensure(code, r.account_name);
+    f.balanceCents = (f.balanceCents || 0) + cents;
+  }
+  const funds = [...byCode.values()].sort((a, b) =>
+    (b.givenCents - a.givenCents) || ((b.balanceCents || 0) - (a.balanceCents || 0)) || a.code.localeCompare(b.code));
+  return { funds, designatedGivenCents, operatingGivenCents, balanceCents, asOfDate };
+}
+
 // ── Flow diagram data contract ("How the money moves") ──────────────────────────────────────
 // Expense rows carry their classification as segment 0 of category_path exactly as revenue rows
 // do (see revenueGroupLabel and the live regression it documents), so the group a human can
@@ -3324,17 +3395,25 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const givingByFund = givingByFundRows.map(r => ({ fundName: r.fund_name, cents: r.total || 0 }));
     const givingCents = givingByFund.reduce((sum, r) => sum + r.cents, 0);
 
-    // Donor revenue's restricted/unrestricted split and the giving-household count, both for the
-    // Health page's donor card. Restricted reuses funds.category (migration 0033) rather than a
-    // new flag — the Giving tab's fund lens already asks an admin to categorise every fund, so
-    // there is exactly one place that judgement gets made. Households: a giver with no household
-    // counts as their own, matching how reports/giving-bands scopes a household giver.
-    const donorSplitRow = await db.prepare(
-      `SELECT COALESCE(SUM(CASE WHEN f.category='restricted' THEN ge.amount ELSE 0 END),0) AS restricted_cents,
-              COALESCE(SUM(CASE WHEN f.category='restricted' THEN 0 ELSE ge.amount END),0) AS unrestricted_cents
-       FROM giving_entries ge JOIN funds f ON f.id = ge.fund_id
-       WHERE ge.contribution_date BETWEEN ? AND ?`
-    ).bind(`${year}-01-01`, `${year}-12-31`).first();
+    // Designated funds (25xxx) and the giving-household count, both for the Health page.
+    //
+    // ⚠ This deliberately no longer reads funds.category. That column is the Giving tab's own
+    // lens and an admin sets it by hand, which made the donor card's restricted figure whatever
+    // somebody had last ticked — reported live 2026-08-12 as $80,308 against a real restricted
+    // income of roughly $8,000, because every pass-through fund was sitting in that category. The
+    // account number is the church's own recorded judgement and needs no second maintenance.
+    //
+    // Balances come from the most recent balance sheet at or before this year, matching the cash
+    // card's rule below: a designated fund's money is a liability, so its balance only ever
+    // exists there. Households: a giver with no household counts as their own, matching how
+    // reports/giving-bands scopes a household giver.
+    const desigBalYearRow = await db.prepare(
+      'SELECT MAX(fiscal_year) AS y FROM finance_church_balances WHERE fiscal_year <= ?'
+    ).bind(year).first();
+    const desigBalRows = desigBalYearRow?.y == null ? [] : ((await db.prepare(
+      'SELECT account_name, own_balance_cents, has_children, as_of_date FROM finance_church_balances WHERE fiscal_year=?'
+    ).bind(desigBalYearRow.y).all()).results || []);
+    const designatedFunds = computeDesignatedFunds(givingByFund, desigBalRows);
     const householdsRow = await db.prepare(
       `SELECT COUNT(DISTINCT CASE WHEN p.household_id IS NOT NULL AND p.household_id != 0
                                   THEN 'h:' || p.household_id ELSE 'p:' || p.id END) AS n
@@ -3342,10 +3421,6 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
        WHERE ge.contribution_date BETWEEN ? AND ? AND ge.person_id IS NOT NULL
          AND LOWER(COALESCE(p.member_type,'')) != 'organization'`
     ).bind(`${year}-01-01`, `${year}-12-31`).first();
-    const donorSplit = {
-      restrictedCents: donorSplitRow?.restricted_cents || 0,
-      unrestrictedCents: donorSplitRow?.unrestricted_cents || 0,
-    };
     const givingHouseholds = householdsRow?.n || 0;
 
     // Annual giving bands for the appeal card, so the ask ladder can be read against what
@@ -3527,7 +3602,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       ...summary,
       givingCents,
       givingByFund,
-      donorSplit,
+      designatedFunds,
       givingHouseholds,
       donorBands,
       givingMonthly,
