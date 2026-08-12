@@ -1711,8 +1711,15 @@ async function _doInitDb(db) {
   // until an admin next saves; resolveRolePermissions() reads that key as council's.
   await db.prepare("UPDATE app_users SET role='council' WHERE role='office'").run().catch(() => {});
 
-  // Backfill baptized/confirmed booleans from existing dates (RI2 — earlier Breeze imports
-  // wrote the date columns but never set the booleans the sacramental pipeline reads).
+  // Anyone with a date on file IS baptized/confirmed — the date is the record of it, so a
+  // flag still reading "not recorded" next to one is just a gap in the data (RI2: earlier
+  // Breeze imports wrote the date columns and never set the flags the pipeline reads).
+  //
+  // `=0` and not `!=1` on purpose. 0 is "not recorded", which is what this fills in; 2 is a
+  // human's explicit "No", and a contradictory date is not grounds to overwrite the answer a
+  // person actually gave. Partial dates count — a baptism known only to the year is still a
+  // baptism. This re-runs whenever the schema fingerprint changes, so it also catches rows
+  // an import adds later.
   await db.prepare("UPDATE people SET baptized=1 WHERE baptized=0 AND baptism_date != ''").run().catch(() => {});
   await db.prepare("UPDATE people SET confirmed=1 WHERE confirmed=0 AND confirmation_date != ''").run().catch(() => {});
 

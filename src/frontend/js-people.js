@@ -918,9 +918,29 @@ function pvfDateBlur(id) {
     if (document.getElementById('pvfi-' + id)) pvfCommit(id);
   }, 0);
 }
+// Swap the cell back to its read-only form.
+//
+// ⚠ Replacing the cell's contents removes whatever control is inside it, and if that
+// control still has focus the browser fires blur SYNCHRONOUSLY, part-way through the
+// assignment. That blur handler calls back into pvfCommit -> pvfCancel, which would set
+// innerHTML again while this assignment is still running — and Chrome throws
+// "The node to be removed is no longer a child of this node" out of the outer set.
+//
+// That exception is what surfaced as "Save failed. Please try again." on gender and
+// marital status, AFTER the PATCH had already succeeded: a <select> commits from its
+// onchange and so is still focused here, where a text input commits from onblur and is
+// not. Hence a re-entrancy guard rather than anything to do with the request.
+var _pvfRendering = {};
 function pvfCancel(id) {
+  if (_pvfRendering[id]) return;
   var cell = document.getElementById('pvf-' + id);
-  if (cell) cell.innerHTML = pvfRowHtml(id).replace(/^[\s\S]*?<div class="pv2-fval"[^>]*>/, '').replace(/<\/div>$/, '');
+  if (!cell) return;
+  _pvfRendering[id] = true;
+  try {
+    cell.innerHTML = pvfRowHtml(id).replace(/^[\s\S]*?<div class="pv2-fval"[^>]*>/, '').replace(/<\/div>$/, '');
+  } finally {
+    _pvfRendering[id] = false;
+  }
 }
 // Commit a single field: PATCH just that field, update local record, re-render cell + toast.
 var _pvfCommitting = {};
@@ -939,23 +959,25 @@ function pvfCommit(id) {
   var p = _currentPvPerson;
   api('/admin/api/people/' + p.id, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) })
     .then(function(r) {
-      _pvfCommitting[id] = false;
-      if (r && r.error) { alert('Save failed: ' + r.error); pvfCancel(id); return; }
+      // Cleared only AFTER pvfCancel: the re-render synchronously blurs the control it is
+      // replacing, and that blur re-enters pvfCommit. Clearing first let it through.
+      if (r && r.error) { alert('Save failed: ' + r.error); pvfCancel(id); _pvfCommitting[id] = false; return; }
       _currentPvPerson[id] = newVal;
       pvfCancel(id);
+      _pvfCommitting[id] = false;
       pvfToast();
       // Header-affecting fields: re-render the whole profile header/badges.
       if (['first_name','last_name','preferred_name','member_type','marital_status','family_role'].indexOf(id) >= 0) {
         pvfRefreshHeader();
       }
     }).catch(function(err) {
-      _pvfCommitting[id] = false;
       // Carry whatever reason there is. Reported as a bare "Save failed. Please try again."
       // this was undiagnosable — and it also fires when the save SUCCEEDED but a later step
       // in the .then threw, which reads to the user as data loss that didn't happen.
       var why = err && err.message && err.message !== 'Unauthorized' ? '\n\n' + err.message : '';
       alert('Save failed. Please try again.' + why);
       pvfCancel(id);
+      _pvfCommitting[id] = false;
     });
 }
 var _pvToastTimer = null;

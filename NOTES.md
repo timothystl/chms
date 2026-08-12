@@ -24,6 +24,42 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.169.0 — "Save failed" root-caused: it was a DOM re-entrancy crash (2026-08-12)
+
+The v1.168.0 diagnostic did its job. The alert now reads: *"Failed to set the 'innerHTML'
+property on 'Element': The node to be removed is no longer a child of this node. Perhaps it
+was moved in a 'blur' event handler?"* — **not a server error at all, and the PATCH had
+already succeeded.**
+
+Mechanism: `pvfCancel()` swaps the cell back to read-only by assigning `innerHTML`. That
+removes the control inside it, and if the control still has focus **the browser fires `blur`
+synchronously, part-way through the assignment**. The blur handler calls `pvfCommit` →
+`pvfCancel` → a *nested* `innerHTML` assignment while the outer one is still running, which
+is the DOMException. It then propagated out of the `.then` into the `.catch`, producing
+"Save failed" over a save that worked.
+
+**Why gender and marital status specifically**: they are `<select>`s, which commit from
+`onchange` and so are still focused at that moment. A text input commits from `onblur`,
+by which time focus has already left — so the same code path never tripped there.
+
+Fixed at both levels: a re-entrancy guard inside `pvfCancel` (the invariant that actually
+matters — no nested assignment), and `_pvfCommitting[id]` now cleared *after* the re-render
+rather than before, so the re-entrant `pvfCommit` is turned away at the door.
+
+**Backfill, as requested**: baptized/confirmed set to yes for anyone already carrying a
+date. The statements existed in `_doInitDb` and are now documented and pinned by tests —
+`=0` not `!=1` on purpose, so an explicit "No" is never overwritten by a contradictory date;
+partial dates count. Editing `_doInitDb` changes the schema fingerprint, so this re-runs on
+deploy.
+
+`npm test` (1241/1241, 6 new). **My first version of the re-entrancy test was vacuous** and
+was rewritten: it drove the whole commit, where either guard alone prevents the crash, so
+removing either one still passed. The two guards are now pinned by separate tests that fail
+independently (2 injections, 2 correct failures; 4 more for the backfill and ordering).
+**A backtick in one of my own new comments closed the outer `String.raw` literal** — the
+SC3-BUG1/FIN15 class for the third time in this series, caught by the build. **Not
+verified**: a live browser.
+
 ### v1.168.0 — The same work, on the profile that is actually on screen (2026-08-11)
 
 A screenshot of the real People view showed v1.167.0 had changed nothing there. **I edited the
