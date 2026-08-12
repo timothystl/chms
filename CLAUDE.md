@@ -433,6 +433,30 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### SAC3 — "Save failed" was a DOM re-entrancy crash, not a server error (2026-08-12, DONE)
+SAC2's diagnostic paid off — the alert named it: *"Failed to set the 'innerHTML' property on
+'Element': The node to be removed is no longer a child of this node."* **The PATCH had already
+succeeded.** ⚠ **`pvfCancel()` assigns `innerHTML` to swap the cell back to read-only. That
+removes the control inside it, and if the control still has FOCUS the browser fires `blur`
+SYNCHRONOUSLY mid-assignment** — that handler re-enters `pvfCommit` → `pvfCancel` → a nested
+`innerHTML` assignment inside the running one, which throws, escapes the `.then`, and lands in
+the `.catch` that shows "Save failed".
+- **Only the `<select>` fields were reported (gender, marital status) because a select commits
+  from `onchange` and is still focused there; a text input commits from `onblur` and is not.**
+  Any future control that commits while focused inherits this hazard.
+- Fixed at both levels: a re-entrancy guard (`_pvfRendering`) inside `pvfCancel` — the
+  invariant that matters, no nested assignment — and `_pvfCommitting[id]` cleared AFTER the
+  re-render instead of before, so the re-entrant commit is turned away at the door.
+- **Backfill (asked for directly)**: baptized/confirmed set to yes for anyone with a date. The
+  statements already existed in `_doInitDb`; now documented and test-pinned. **`=0`, not `!=1`**
+  — an explicit No is never overwritten by a contradictory date. Partial dates count. Any edit
+  to `_doInitDb` changes the schema fingerprint, which is what makes it re-run on deploy.
+- `npm test` (1241/1241). **My first re-entrancy test was vacuous**: it drove the whole commit,
+  where either guard alone prevents the crash, so removing either still passed. Each guard now
+  has its own test that fails independently. **A backtick in one of my own comments closed the
+  outer `String.raw` literal** — third time in this series. **Not verified**: a live browser.
+  (`src/frontend/js-people.js`, `src/db.js`, `test/person-sacrament-partial-dates.test.js`)
+
 ### SAC2 — ⚠ The person profile has ONE renderer; the other one was dead (2026-08-11, DONE)
 **Read this before touching the person profile.** SAC1 below shipped its whole sacrament UI
 into a renderer that is not on screen, and a screenshot of the live People view is what caught

@@ -442,6 +442,88 @@ describe('a partial date never claims an elapsed time', () => {
   });
 });
 
+describe('committing a select does not crash re-rendering its own cell', () => {
+  // The reported "Save failed" on gender and marital status was this, and the PATCH had
+  // already succeeded. Replacing the cell removes the still-focused <select>, the browser
+  // fires blur synchronously mid-assignment, that blur re-enters pvfCommit -> pvfCancel,
+  // and the nested innerHTML set throws "The node to be removed is no longer a child of
+  // this node". A <select> commits from onchange so it is still focused; a text input
+  // commits from onblur and is not — which is why only the two selects were reported.
+  // `onReplace` stands in for the browser's synchronous blur: assigning innerHTML removes
+  // the focused control, and the blur handler runs before the assignment finishes.
+  // Throwing on a nested assignment is what a real DOM does here.
+  function cellThatBlursOnRerender(ctx, id, onReplace) {
+    const cell = ctx.__el('pvf-' + id);
+    let depth = 0, maxDepth = 0, raw = '';
+    Object.defineProperty(cell, 'innerHTML', {
+      configurable: true,
+      get() { return raw; },
+      set(v) {
+        depth++; maxDepth = Math.max(maxDepth, depth);
+        if (depth > 1) { depth--; throw new Error('The node to be removed is no longer a child of this node'); }
+        raw = v;
+        try { onReplace(); } finally { depth--; }
+      },
+    });
+    return () => maxDepth;
+  }
+
+  it('pvfCancel refuses to re-enter itself mid-assignment', () => {
+    // Targets the pvfCancel guard on its own. The re-entrant call is what the reported
+    // DOMException came out of, so it must be stopped here and not only upstream.
+    const ctx = makeCtx();
+    seedProfile(ctx);
+    const maxDepth = cellThatBlursOnRerender(ctx, 'gender', () => ctx.pvfCancel('gender'));
+    expect(() => ctx.pvfCancel('gender')).not.toThrow();
+    expect(maxDepth()).toBe(1);
+  });
+
+  it('holds the commit guard up across the re-render', async () => {
+    // Targets the ordering on its own: the guard used to be cleared before pvfCancel, so
+    // the blur that pvfCancel triggers re-entered pvfCommit instead of being turned away.
+    const ctx = makeCtx();
+    seedProfile(ctx);
+    let guardDuringRender = null;
+    cellThatBlursOnRerender(ctx, 'gender', () => { guardDuringRender = ctx._pvfCommitting.gender; });
+    ctx.pvfStart('gender');
+    ctx.__el('pvfi-gender').value = 'Female';
+    ctx.pvfCommit('gender');
+    await new Promise(r => setTimeout(r, 10));
+    expect(guardDuringRender).toBe(true);
+  });
+
+  it('completes the whole commit without alerting', async () => {
+    const ctx = makeCtx();
+    seedProfile(ctx);
+    const maxDepth = cellThatBlursOnRerender(ctx, 'gender', () => ctx.pvfCommit('gender'));
+    ctx.pvfStart('gender');
+    ctx.__el('pvfi-gender').value = 'Female';
+    ctx.pvfCommit('gender');
+    await new Promise(r => setTimeout(r, 10));
+    expect(ctx.__alerts).toEqual([]);
+    expect(maxDepth()).toBe(1);
+    expect(ctx._currentPvPerson.gender).toBe('Female');
+  });
+
+  it('leaves the field committable again afterwards', async () => {
+    // The guard is cleared after the re-render, not before — but it must still be cleared,
+    // or the field would silently refuse every later edit.
+    const ctx = makeCtx();
+    seedProfile(ctx);
+    cellThatBlursOnRerender(ctx, 'gender', () => ctx.pvfCommit('gender'));
+    ctx.pvfStart('gender');
+    ctx.__el('pvfi-gender').value = 'Female';
+    ctx.pvfCommit('gender');
+    await new Promise(r => setTimeout(r, 10));
+
+    ctx.__el('pvfi-gender').value = 'Male';
+    ctx.pvfCommit('gender');
+    await new Promise(r => setTimeout(r, 10));
+    expect(ctx._currentPvPerson.gender).toBe('Male');
+    expect(ctx.__calls.length).toBe(2);
+  });
+});
+
 describe('the inline editor surfaces why a save failed', () => {
   it('includes the reason instead of a bare "Save failed"', async () => {
     const ctx = makeCtx();
@@ -506,5 +588,43 @@ describe('creating a person inside a household', () => {
     ctx._addToHhHousehold = { id: 3 };
     ctx.renderAddHhAddressNote();
     expect(ctx.__store['anh-address-note'].innerHTML).toContain('no address on file');
+  });
+});
+
+describe('cold-start backfill: a date on file means yes', () => {
+  // Requested directly: set baptized/confirmed to yes for anyone who already has a date.
+  // The statements live in _doInitDb; they are run here against the real schema so the
+  // behaviour is pinned rather than assumed.
+  function runBackfill(sqlite) {
+    const src = readFileSync(new URL('../src/db.js', import.meta.url), 'utf8');
+    const stmts = [...src.matchAll(/"(UPDATE people SET (?:baptized|confirmed)=1 WHERE[^"]+)"/g)].map(m => m[1]);
+    expect(stmts.length).toBe(2); // both flags, or this test is only checking half the job
+    for (const s of stmts) sqlite.exec(s);
+  }
+
+  it('fills in yes for every dated row, including partial dates', () => {
+    const sqlite = realSchema();
+    sqlite.exec(`INSERT INTO people (first_name,last_name,member_type,active,baptism_date,confirmation_date,baptized,confirmed) VALUES
+      ('Exact','Date','member',1,'1994-07-31','2006-05-01',0,0),
+      ('Year','Only','member',1,'1978-00-00','',0,0),
+      ('MonthDay','Only','member',1,'0001-04-11','',0,0),
+      ('No','Dates','member',1,'','',0,0)`);
+    runBackfill(sqlite);
+    const rows = Object.fromEntries(sqlite.prepare('SELECT first_name, baptized, confirmed FROM people').all()
+      .map(r => [r.first_name, [r.baptized, r.confirmed]]));
+    expect(rows.Exact).toEqual([SACRAMENT_YES, SACRAMENT_YES]);
+    expect(rows.Year).toEqual([SACRAMENT_YES, SACRAMENT_UNKNOWN]);
+    expect(rows.MonthDay).toEqual([SACRAMENT_YES, SACRAMENT_UNKNOWN]);
+    // Nothing on file stays nothing on file — the backfill reads dates, it doesn't invent them.
+    expect(rows.No).toEqual([SACRAMENT_UNKNOWN, SACRAMENT_UNKNOWN]);
+  });
+
+  it('never overwrites an explicit No, even against a date', () => {
+    // A human answered; a contradictory date is not grounds to overturn it.
+    const sqlite = realSchema();
+    sqlite.exec(`INSERT INTO people (first_name,last_name,member_type,active,baptism_date,baptized) VALUES
+      ('Said','No','member',1,'1994-07-31',2)`);
+    runBackfill(sqlite);
+    expect(sqlite.prepare('SELECT baptized FROM people').get().baptized).toBe(SACRAMENT_NO);
   });
 });
