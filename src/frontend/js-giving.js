@@ -2418,22 +2418,22 @@ function givRenderFundCategories() {
     var opts = _GIV_FUND_CAT_OPTS.map(function(o) {
       return '<option value="' + o.key + '"' + ((f.category || 'restricted') === o.key ? ' selected' : '') + '>' + esc(o.label) + '</option>';
     }).join('');
-    var budget = ((f.budget_annual_cents || 0) / 100).toFixed(2);
     return '<tr' + (f.active ? '' : ' style="opacity:.55;"') + '>'
       + '<td>' + esc(f.name) + (f.active ? '' : ' <span style="font-size:.72rem;color:var(--warm-gray);">(inactive)</span>') + '</td>'
       + '<td><select id="giv-fc-cat-' + f.id + '" style="font-size:.82rem;padding:4px 8px;">' + opts + '</select></td>'
-      + '<td style="text-align:right;">$ <input type="text" inputmode="decimal" id="giv-fc-budget-' + f.id + '" value="' + budget + '" style="width:90px;text-align:right;font-variant-numeric:tabular-nums;font-size:.82rem;padding:4px 6px;"></td>'
       + '</tr>';
   }).join('');
-  root.innerHTML = '<table class="rpt-table"><thead><tr><th>Fund</th><th>Category</th><th style="text-align:right;">Annual budget</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  root.innerHTML = '<table class="rpt-table"><thead><tr><th>Fund</th><th>Category</th></tr></thead><tbody>' + rows + '</tbody></table>';
 }
 function givSaveFundCategories() {
   var status = document.getElementById('giv-fundcat-status');
+  // Category only. ⚠ Sending budget_annual_cents from a screen that no longer collects it would
+  // post 0 for every fund and wipe the budgets the board report compares against; the endpoint
+  // now leaves the column alone when the field is absent, and this is the caller that relies on
+  // that. Fund budgets are edited in Settings → Import/Export → Manage Funds.
   var payload = _givFundCats.map(function(f) {
     var cat = document.getElementById('giv-fc-cat-' + f.id);
-    var bud = document.getElementById('giv-fc-budget-' + f.id);
-    var cents = givParseMoneyCents(bud && bud.value);
-    return { id: f.id, category: cat ? cat.value : (f.category || 'restricted'), budget_annual_cents: cents === null ? 0 : cents };
+    return { id: f.id, category: cat ? cat.value : (f.category || 'restricted') };
   });
   if (status) { status.className = 'import-status'; status.textContent = 'Saving…'; }
   api('/admin/api/funds/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ funds: payload }) })

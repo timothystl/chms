@@ -6,6 +6,7 @@ import {
   defaultFundCategories, buildBoardCategoryBlock,
 } from '../src/api-utils.js';
 import { handleReportsApi } from '../src/api-reports.js';
+import { handleHouseholdsApi } from '../src/api-households.js';
 
 describe('normalizeFundCategory', () => {
   it('accepts every real category key', () => {
@@ -144,6 +145,8 @@ function makeTestDb() {
   for (const f of ['0001_baseline', '0018_finance_church_entries', '0028_fund_budget', '0033_fund_category']) {
     sqlite.exec(readFileSync(new URL(`../migrations/${f}.sql`, import.meta.url), 'utf8'));
   }
+  // Bound statements carry their own run/first/all AND stay awaitable as a batch member, so
+  // db.batch([...]) executes the same statements the route built rather than a stand-in.
   return {
     prepare(sql) {
       return {
@@ -155,6 +158,11 @@ function makeTestDb() {
           };
         },
       };
+    },
+    async batch(stmts) {
+      const out = [];
+      for (const s of stmts) out.push(await s.run());
+      return out;
     },
     _raw: sqlite,
   };
@@ -282,5 +290,58 @@ describe('giving-board fund lens', () => {
     expect(byName['General Fund'].category).toBe('general');
     expect(byName['Rental'].category).toBe('earned');
     expect(b.fund_categories.map(c => c.key)).toEqual(['general', 'earned', 'passive', 'restricted']);
+  });
+});
+
+// The Fund categories screen is a MAPPING function — it no longer carries a budget column, which
+// lives in Manage Funds. That makes one thing load-bearing: the endpoint must leave
+// budget_annual_cents alone when the caller doesn't send it. It used to write it unconditionally,
+// so a screen that stopped collecting it would have posted 0 for every fund on the next save and
+// silently wiped every budget the board report's Vs. Budget column compares against.
+describe('POST funds/categories', () => {
+  async function saveCategories(db, funds) {
+    const res = await handleHouseholdsApi(
+      { json: async () => ({ funds }) }, {}, new URL('https://x/a'), 'POST', 'funds/categories', db, true, true
+    );
+    return res.json();
+  }
+  const budgetOf = (db, id) =>
+    db._raw.prepare('SELECT budget_annual_cents AS b, category AS c FROM funds WHERE id=?').get(id);
+
+  it('leaves an existing budget untouched when none is sent', async () => {
+    const db = makeTestDb();
+    const id = fund(db, '40085 General Fund', 'restricted', 42500000);
+    const r = await saveCategories(db, [{ id, category: 'general' }]);
+    expect(r.ok).toBe(true);
+    expect(budgetOf(db, id)).toEqual({ b: 42500000, c: 'general' });
+  });
+
+  it('still writes a budget when one is sent', async () => {
+    // Manage Funds and any future caller keep working.
+    const db = makeTestDb();
+    const id = fund(db, '40085 General Fund', 'general', 42500000);
+    await saveCategories(db, [{ id, category: 'general', budget_annual_cents: 50000000 }]);
+    expect(budgetOf(db, id).b).toBe(50000000);
+  });
+
+  it('treats an explicit zero as a real value, not as absent', async () => {
+    const db = makeTestDb();
+    const id = fund(db, 'Memorials', 'restricted', 100000);
+    await saveCategories(db, [{ id, category: 'restricted', budget_annual_cents: 0 }]);
+    expect(budgetOf(db, id).b).toBe(0);
+  });
+
+  it('does not wipe budgets across a whole save of many funds', async () => {
+    // The real shape of the hazard: the screen posts every row on every save.
+    const db = makeTestDb();
+    const a = fund(db, '40085 General Fund', 'general', 42500000);
+    const b = fund(db, '49094 Tuition Aid', 'restricted', 1500000);
+    const c = fund(db, '25004 Building Fund', 'restricted', 0);
+    await saveCategories(db, [
+      { id: a, category: 'general' }, { id: b, category: 'restricted' }, { id: c, category: 'restricted' },
+    ]);
+    expect(budgetOf(db, a).b).toBe(42500000);
+    expect(budgetOf(db, b).b).toBe(1500000);
+    expect(budgetOf(db, c).b).toBe(0);
   });
 });

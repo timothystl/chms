@@ -400,11 +400,16 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
     return json({ funds });
   }
 
-  // Bulk save of the Settings → Fund categories table: one category + annual budget per fund,
-  // saved together on an explicit click (this app never silently autosaves). Every submitted row
-  // is written, not just changed ones — but only the two columns this screen owns (category,
-  // budget_annual_cents), so a concurrent name/active edit in Manage Funds is untouched. Widening
-  // this UPDATE to other columns would make that last-writer-wins, so don't.
+  // Bulk save of the Settings → Fund categories table: one category per fund, saved together on
+  // an explicit click (this app never silently autosaves). Every submitted row is written, not
+  // just changed ones — but only the column this screen owns, so a concurrent name/active edit in
+  // Manage Funds is untouched. Widening this UPDATE to other columns would make that
+  // last-writer-wins, so don't.
+  //
+  // ⚠ budget_annual_cents is written ONLY when the caller actually sends it, matching the funds
+  // PUT below. That screen no longer carries a budget column — it is a mapping function, and the
+  // budget lives in Manage Funds — so an unconditional write here would send 0 for every fund on
+  // the next category save and silently wipe every budget the board report compares against.
   if (seg === 'funds/categories' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied' }, 403);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
@@ -415,8 +420,12 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
       const id = parseInt(r.id);
       if (!Number.isInteger(id)) continue;
       const cat = normalizeFundCategory(r.category);
-      const budget = Math.max(0, Math.round(Number(r.budget_annual_cents) || 0));
-      stmts.push(db.prepare('UPDATE funds SET category=?, budget_annual_cents=? WHERE id=?').bind(cat, budget, id));
+      if (r.budget_annual_cents == null) {
+        stmts.push(db.prepare('UPDATE funds SET category=? WHERE id=?').bind(cat, id));
+      } else {
+        const budget = Math.max(0, Math.round(Number(r.budget_annual_cents) || 0));
+        stmts.push(db.prepare('UPDATE funds SET category=?, budget_annual_cents=? WHERE id=?').bind(cat, budget, id));
+      }
     }
     if (!stmts.length) return json({ error: 'No valid fund rows' }, 400);
     await db.batch(stmts);
