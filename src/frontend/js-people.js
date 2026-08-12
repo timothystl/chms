@@ -656,7 +656,7 @@ function pedDateField(idBase, label, val) {
   var prec = pmDatePrecision(val);
   var inp = 'width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:13px;font-family:inherit;background:var(--white);';
   var sel = 'font-size:11px;padding:1px 4px;border:1px solid var(--border);border-radius:4px;background:var(--white);font-family:inherit;';
-  var opts = [['exact', 'Exact date'], ['monthday', 'Month & day only'], ['year', 'Year only']];
+  var opts = [['exact', 'Exact date'], ['monthday', 'Month &amp; day only'], ['year', 'Year only']];
   return '<div class="pv-field-card"><label for="' + idBase + '" class="pv-field-card-lbl">' + label + '</label>'
     + '<input type="date" id="' + idBase + '" value="' + esc(pmDateInputValue(val)) + '" style="' + inp + '">'
     + '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;">'
@@ -795,6 +795,10 @@ var _pvFields = {};
 function pvfCanEdit() { return _userRole !== 'member'; }
 function pvfYearsAgo(v) {
   if (!v) return '';
+  // A month/day-only date parses as a real year 1, which rendered as "2024 years ago"
+  // under a baptism the card had just printed as "Jul 31". Neither partial shape can
+  // support an elapsed-time figure, so neither gets one.
+  if (pmDatePrecision(v) !== 'exact') return '';
   var d = new Date(v); if (isNaN(d)) return '';
   var y = Math.floor((Date.now() - d.getTime()) / (365.25 * 864e5));
   return y > 0 ? y + ' year' + (y === 1 ? '' : 's') + ' ago' : '';
@@ -808,6 +812,9 @@ function pvfBuildRegistry(p) {
   var maritalOpts = [{value:'',label:'—'},{value:'Single',label:'Single'},{value:'Married',label:'Married'},{value:'Divorced',label:'Divorced'},{value:'Widowed',label:'Widowed'}];
   var roleOpts = [{value:'',label:'—'},{value:'head',label:'Head'},{value:'spouse',label:'Spouse'},{value:'child',label:'Child'},{value:'other',label:'Other'}];
   function dateSub(v) { return pvfYearsAgo(v); }
+  // Yes / No / Not recorded. 0 renders through the card's usual grey "Not set", so an
+  // unanswered field never reads as an answered one.
+  var sacramentOpts = [{value:'1',label:'Yes'},{value:'2',label:'No'},{value:'0',label:'Not recorded'}];
   var defs = [
     {id:'family_role', label:'Role in household', type:'select', options:roleOpts},
     {id:'first_name', label:'First name', type:'text'},
@@ -824,8 +831,10 @@ function pvfBuildRegistry(p) {
     {id:'city', label:'City', type:'text'},
     {id:'state', label:'State', type:'text'},
     {id:'zip', label:'ZIP', type:'text'},
-    {id:'baptism_date', label:'Baptism', type:'date', sub:dateSub},
-    {id:'confirmation_date', label:'Confirmation', type:'date', sub:dateSub},
+    {id:'baptized', label:'Baptized', type:'select', options:sacramentOpts, blankVals:['0','']},
+    {id:'baptism_date', label:'Baptism date', type:'date', sub:dateSub},
+    {id:'confirmed', label:'Confirmed', type:'select', options:sacramentOpts, blankVals:['0','']},
+    {id:'confirmation_date', label:'Confirmation date', type:'date', sub:dateSub},
     {id:'anniversary_date', label:'Anniversary', type:'date', sub:dateSub},
   ];
   _pvFields = {};
@@ -837,6 +846,9 @@ function pvfRawVal(id) {
 }
 function pvfDisplay(cfg, val) {
   if (val === '' || val == null) return '';
+  // A select whose "nothing recorded" choice is a real stored value (0, not '') still
+  // has to read as unanswered rather than as an answer.
+  if (cfg.blankVals && cfg.blankVals.indexOf(String(val)) >= 0) return '';
   if (cfg.type === 'select') {
     var o = (cfg.options || []).find(function(x){ return String(x.value) === String(val); });
     return o ? o.label : String(val);
@@ -874,6 +886,18 @@ function pvfStart(id) {
           return '<option value="' + esc(String(o.value)) + '"' + (String(o.value) === String(val) ? ' selected' : '') + '>' + esc(o.label) + '</option>';
         }).join('')
       + '</select>';
+  } else if (cfg.type === 'date') {
+    // A date picker can only hold a complete calendar date, so the precision select beside
+    // it is what lets a record say "1994, month unknown" without inventing a January 1st.
+    var prec = pmDatePrecision(val);
+    html = '<input class="pv2-inp" id="pvfi-' + id + '" type="date" value="' + esc(pmDateInputValue(val)) + '"'
+      + ' onblur="pvfDateBlur(\'' + id + '\')"'
+      + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}else if(event.key===\'Escape\'){pvfCancel(\'' + id + '\');}">'
+      + '<select class="pv2-inp sel pv2-prec" id="pvfi-' + id + '-prec" onchange="pmDatePrecChanged(\'pvfi-' + id + '\')" onblur="pvfDateBlur(\'' + id + '\')">'
+      + [['exact','Exact date'],['monthday','Month &amp; day only'],['year','Year only']].map(function(o){
+          return '<option value="' + o[0] + '"' + (prec === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+        }).join('')
+      + '</select>';
   } else {
     html = '<input class="pv2-inp" id="pvfi-' + id + '" type="' + esc(cfg.type || 'text') + '" value="' + esc(String(val)) + '"'
       + ' placeholder="' + esc(cfg.ph || cfg.label) + '" onblur="pvfCommit(\'' + id + '\')"'
@@ -882,6 +906,17 @@ function pvfStart(id) {
   cell.innerHTML = html;
   var el = document.getElementById('pvfi-' + id);
   if (el) { el.focus(); if (el.select && cfg.type !== 'date') el.select(); }
+}
+// A date cell holds two controls, so tabbing from the picker to the precision select fires
+// blur — and committing there would tear the select out from under the click. Defer one
+// tick and only commit once focus has actually left the cell.
+function pvfDateBlur(id) {
+  setTimeout(function() {
+    var cell = document.getElementById('pvf-' + id);
+    var active = document.activeElement;
+    if (cell && active && cell.contains && cell.contains(active)) return;
+    if (document.getElementById('pvfi-' + id)) pvfCommit(id);
+  }, 0);
 }
 function pvfCancel(id) {
   var cell = document.getElementById('pvf-' + id);
@@ -894,7 +929,9 @@ function pvfCommit(id) {
   if (_pvfCommitting[id]) return; // guard against onchange+onblur double-fire on selects
   var inp = document.getElementById('pvfi-' + id);
   if (!inp) return;
-  var newVal = inp.value;
+  // pmReadDate turns the picker's placeholder date back into the stored sentinel, so a
+  // "year only" edit saves as 1994-00-00 rather than as 1 January 1994.
+  var newVal = cfg.type === 'date' ? pmReadDate('pvfi-' + id, null) : inp.value;
   var oldVal = String(pvfRawVal(id));
   if (String(newVal) === oldVal) { pvfCancel(id); return; }
   _pvfCommitting[id] = true;
@@ -911,9 +948,13 @@ function pvfCommit(id) {
       if (['first_name','last_name','preferred_name','member_type','marital_status','family_role'].indexOf(id) >= 0) {
         pvfRefreshHeader();
       }
-    }).catch(function() {
+    }).catch(function(err) {
       _pvfCommitting[id] = false;
-      alert('Save failed. Please try again.');
+      // Carry whatever reason there is. Reported as a bare "Save failed. Please try again."
+      // this was undiagnosable — and it also fires when the save SUCCEEDED but a later step
+      // in the .then threw, which reads to the user as data loss that didn't happen.
+      var why = err && err.message && err.message !== 'Unauthorized' ? '\n\n' + err.message : '';
+      alert('Save failed. Please try again.' + why);
       pvfCancel(id);
     });
 }
@@ -1264,7 +1305,9 @@ function pvfRenderInfo(p) {
   // on isFinance; these four simply never got the same treatment.
   var isMemberView = _userRole === 'member';
   var demoCard = isMemberView ? '' : pvfCard('church', 'Demographics', { headerBtns: breezeBtn, body:
-    pvfRowHtml('baptism_date') + pvfRowHtml('confirmation_date') + pvfRowHtml('anniversary_date') });
+    pvfRowHtml('baptized') + pvfRowHtml('baptism_date')
+    + pvfRowHtml('confirmed') + pvfRowHtml('confirmation_date')
+    + pvfRowHtml('anniversary_date') });
   var tagsCard = isMemberView ? '' : pvfCard('tags', 'Tags & Groups', { pad:true, body: pvfTagsBody(p) });
   var locationCard = pvfCard('location', 'Location', { pad:true, body: pvfLocationBody(p) });
   var givingCard = isFinance ? pvfCard('giving', 'Giving', { tag:'This year', pad:true, body: pvfGivingBody() }) : '';
@@ -1299,98 +1342,14 @@ function pvfRenderInfo(p) {
   // Auto-embed the map (togglePersonMap opens the hidden container + loads the static map).
   if (document.getElementById('pv-map-' + p.id)) togglePersonMap(p.id);
 }
-// ── PERSON PROFILE SECTION EDITING ─────────────────────────────────────
-// PUT /people/:id replaces the whole row — every column it writes is taken from the body,
-// so any field missing here is written back as blank. This list must therefore stay in
-// step with that statement's SET clause; middle_name, preferred_name, photo_url,
-// sms_opt_in, baptized and confirmed were absent, which meant editing a person's
-// gender from the profile silently erased their photo, preferred name and SMS opt-in.
-function pvBuildPersonPatch(p, overrides) {
-  var full = {};
-  ['first_name','last_name','middle_name','preferred_name','email','phone','address1','address2','city','state','zip',
-   'member_type','family_role','gender','marital_status','household_id',
-   'dob','baptism_date','confirmation_date','anniversary_date','death_date',
-   'deceased','public_directory','envelope_number','last_seen_date','notes','breeze_id',
-   'photo_url','sms_opt_in','baptized','confirmed',
-   'dir_hide_address','dir_hide_phone','dir_hide_email','dir_hide_dob','dir_hide_anniversary'
-  ].forEach(function(k){ full[k] = (p[k] !== undefined) ? p[k] : null; });
-  Object.assign(full, overrides);
-  full.tag_ids = (p.tags || []).map(function(t){ return t.id; });
-  return full;
-}
-// ── Contact section ──────────────────────────────────────────────────
-function pvEditContact() {
-  var sec = document.getElementById('pv-contact-section');
-  if (!sec || sec.dataset.editing === '1') return;
-  sec.dataset.editing = '1';
-  var p = _currentPvPerson;
-  var inp = 'width:100%;box-sizing:border-box;font-size:13px;padding:5px 8px;border:1px solid var(--sky-steel);border-radius:4px;';
-  var dirBadge = p.public_directory === 0 ? '<span style="display:inline-block;font-size:10px;padding:2px 7px;border-radius:99px;background:#f4e8c1;color:#9a7a2b;font-weight:600;margin-left:8px;">Private</span>' : '';
-  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
-    + '<div class="pv-section-title" style="margin:0;">Contact'+dirBadge+'</div>'
-    + '<div style="display:flex;gap:6px;">'
-    + '<button class="btn-primary" style="font-size:.7rem;padding:3px 10px;" onclick="pvSaveContact()">Save</button>'
-    + '<button class="btn-secondary" style="font-size:.7rem;padding:3px 10px;" onclick="pvCancelContact()">Cancel</button>'
-    + '</div></div>'
-    + '<div style="display:grid;gap:8px;">'
-    + '<div><label for="pec-addr1" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Street Address</label><input type="text" id="pec-addr1" value="'+esc(p.address1||'')+'" style="'+inp+'"></div>'
-    + '<div><label for="pec-addr2" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Apt / Unit</label><input type="text" id="pec-addr2" value="'+esc(p.address2||'')+'" style="'+inp+'" placeholder="Apt, Unit, Suite…"></div>'
-    + '<div style="display:grid;grid-template-columns:1fr 60px 90px;gap:6px;">'
-    + '<div><label for="pec-city" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">City</label><input type="text" id="pec-city" value="'+esc(p.city||'')+'" style="'+inp+'"></div>'
-    + '<div><label for="pec-state" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">State</label><input type="text" id="pec-state" value="'+esc(p.state||'')+'" style="'+inp+'" maxlength="2"></div>'
-    + '<div><label for="pec-zip" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">ZIP</label><input type="text" id="pec-zip" value="'+esc(p.zip||'')+'" style="'+inp+'"></div>'
-    + '</div>'
-    + '<div style="margin-top:2px;display:flex;align-items:center;gap:10px;"><button type="button" class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="validateContactAddress()">Validate Address</button><span id="pec-addr-validate-status" style="font-size:.75rem;"></span></div>'
-    + '<div><label for="pec-phone" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Phone</label><input type="tel" id="pec-phone" value="'+esc(p.phone||'')+'" style="'+inp+'"></div>'
-    + '<div><label for="pec-email" style="font-size:11px;color:var(--warm-gray);display:block;margin-bottom:2px;">Email</label><input type="email" id="pec-email" value="'+esc(p.email||'')+'" style="'+inp+'"></div>'
-    + '</div>';
-  var f = sec.querySelector('#pec-addr1'); if (f) f.focus();
-}
-function pvCancelContact() { pvRenderContact(); }
-function pvSaveContact() {
-  var p = _currentPvPerson;
-  var btn = document.querySelector('#pv-contact-section .btn-primary');
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
-  var patch = pvBuildPersonPatch(p, {
-    address1: (document.getElementById('pec-addr1')||{}).value || '',
-    address2: (document.getElementById('pec-addr2')||{}).value || '',
-    city:     (document.getElementById('pec-city')||{}).value || '',
-    state:    (document.getElementById('pec-state')||{}).value || '',
-    zip:      (document.getElementById('pec-zip')||{}).value || '',
-    phone:    (document.getElementById('pec-phone')||{}).value || '',
-    email:    (document.getElementById('pec-email')||{}).value || ''
-  });
-  api('/admin/api/people/'+p.id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(patch)})
-    .then(function() {
-      ['address1','address2','city','state','zip','phone','email'].forEach(function(k){ _currentPvPerson[k] = patch[k]; });
-      pvRenderContact();
-    }).catch(function() {
-      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
-      alert('Save failed. Please try again.');
-    });
-}
-function pvRenderContact() {
-  var sec = document.getElementById('pv-contact-section');
-  if (!sec) return;
-  var p = _currentPvPerson;
-  var addrParts = [p.address1, p.city, ((p.state||'')+(p.zip ? ' '+p.zip : '')).trim()].filter(Boolean);
-  var addrStr = addrParts.map(esc).join(', ');
-  var addrVal = addrStr ? '<a href="https://maps.google.com/?q='+encodeURIComponent(addrParts.join(', '))+'" target="_blank" rel="noopener">'+addrStr+'</a>' : '';
-  var emailVal = p.email ? '<a href="mailto:'+esc(p.email)+'">'+esc(p.email)+'</a>' : '';
-  var phoneVal = p.phone ? '<a href="tel:'+esc(p.phone)+'">'+esc(p.phone)+'</a>' : '';
-  var dirBadge = p.public_directory === 0 ? '<span style="display:inline-block;font-size:10px;padding:2px 7px;border-radius:99px;background:#f4e8c1;color:#9a7a2b;font-weight:600;margin-left:8px;">Private</span>' : '';
-  delete sec.dataset.editing;
-  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Contact'+dirBadge+'</div>'
-    + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditContact()">Edit</button></div>'
-    + pvRow('Address', addrVal)
-    + pvRow('Phone', phoneVal)
-    + pvRow('Email', emailVal)
-    + (p.household_id && (p.address1||'').trim() ? '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">'
-        + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="applyAddressToHousehold('+p.id+','+p.household_id+')">Push address to household members without one</button>'
-        + '<button class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="syncPersonAddrToHousehold('+p.household_id+')">&#8593; Sync to household record</button>'
-        + '</div>' : '');
-}
-
+// ── PERSON PROFILE SECTION EDITING ─────────────────────
+// The old per-section editors (Contact / Demographics / Notes / Tags, each a whole-card
+// Edit-then-Save panel writing a full-row PUT) lived here. The profile is now the pvf*
+// field registry above — click one value, PATCH just that field — and the #pv-*-section
+// containers those editors wrote into no longer exist in the markup, so every one of them
+// was unreachable. They were deleted rather than left in place because their presence is
+// actively misleading: they look like the live profile editor and are the obvious thing to
+// change when the profile needs a new field.
 function syncPersonAddrToHousehold(hhId) {
   var p = _currentPvPerson;
   if (!p || !p.address1) return;
@@ -1400,192 +1359,15 @@ function syncPersonAddrToHousehold(hhId) {
     var updated = Object.assign({}, hh, { address1: p.address1||'', address2: p.address2||'', city: p.city||'', state: p.state||'', zip: p.zip||'' });
     api('/admin/api/households/' + hhId, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(updated) })
       .then(function(r) {
-        if (r && r.ok) { pvRenderContact(); }
+        // Only the household record changed — this person's own address is already what
+        // was just copied from — so the saved-toast is the right feedback here. (This
+        // called the removed pvRenderContact(), which would have thrown.)
+        if (r && r.ok) { pvfToast(); }
         else alert('Failed to update household address: ' + ((r && r.error) || 'unknown error'));
       });
   });
 }
-// ── Demographics section ──────────────────────────────────────────────
-function pvEditDemo() {
-  var sec = document.getElementById('pv-demo-section');
-  if (!sec || sec.dataset.editing === '1') return;
-  sec.dataset.editing = '1';
-  var p = _currentPvPerson;
-  var inp = 'width:100%;box-sizing:border-box;font-size:13px;padding:5px 8px;border:1px solid var(--sky-steel);border-radius:4px;';
-  var gOpts = ['','Male','Female','Other'].map(function(v){
-    return '<option value="'+v+'"'+((p.gender||'')===v&&v?' selected':(!v&&!p.gender?' selected':''))+'>'+(v||'—')+'</option>';
-  }).join('');
-  var msOpts = ['','Single','Married','Divorced','Widowed'].map(function(v){
-    return '<option value="'+v+'"'+((p.marital_status||'')===v&&v?' selected':(!v&&!p.marital_status?' selected':''))+'>'+(v||'—')+'</option>';
-  }).join('');
-  var breezeBtn = '<button class="btn-secondary role-admin role-staff" style="font-size:.7rem;padding:3px 10px;" onclick="pushPersonToBreeze('+p.id+')">&#8679; Push to Breeze</button>';
-  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
-    + '<div class="pv-section-title" style="margin:0;">Demographics / Dates</div>'
-    + '<div style="display:flex;gap:6px;">'+breezeBtn
-    + '<button class="btn-primary" style="font-size:.7rem;padding:3px 10px;" onclick="pvSaveDemo()">Save</button>'
-    + '<button class="btn-secondary" style="font-size:.7rem;padding:3px 10px;" onclick="pvCancelDemo()">Cancel</button>'
-    + '</div></div>'
-    + '<div class="pv-field-grid">'
-    + '<div class="pv-field-card"><label for="ped-gender" class="pv-field-card-lbl">gender</label><select id="ped-gender" style="'+inp+'">'+gOpts+'</select></div>'
-    + '<div class="pv-field-card"><label for="ped-ms" class="pv-field-card-lbl">marital status</label><select id="ped-ms" style="'+inp+'">'+msOpts+'</select></div>'
-    + pedDateField('ped-dob',  'birthday',          p.dob)
-    + pedDateField('ped-bap',  'baptized (date)',   p.baptism_date)
-    + '<div class="pv-field-card">' + pmSacramentSelect('ped-baptized', 'baptized?', p.baptized, inp) + '</div>'
-    + pedDateField('ped-conf', 'confirmed (date)',  p.confirmation_date)
-    + '<div class="pv-field-card">' + pmSacramentSelect('ped-confirmed', 'confirmed?', p.confirmed, inp) + '</div>'
-    + pedDateField('ped-ann',  'anniversary',       p.anniversary_date)
-    + '</div>';
-  var f = sec.querySelector('select'); if (f) f.focus();
-}
-function pvCancelDemo() { pvRenderDemo(); }
-function pvSaveDemo() {
-  var p = _currentPvPerson;
-  var btn = document.querySelector('#pv-demo-section .btn-primary');
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
-  var bapDate = pmReadDate('ped-bap',  'ped-bap-noyear')  || null;
-  var confDate = pmReadDate('ped-conf', 'ped-conf-noyear') || null;
-  var patch = pvBuildPersonPatch(p, {
-    gender:            (document.getElementById('ped-gender')||{}).value || '',
-    marital_status:    (document.getElementById('ped-ms')||{}).value || '',
-    dob:               pmReadDate('ped-dob',  'ped-dob-noyear')  || null,
-    baptism_date:      bapDate,
-    // A date on file already asserts the sacrament happened; an explicit No still wins.
-    baptized:          (pmReadSacrament('ped-baptized')  === 0 && bapDate)  ? 1 : pmReadSacrament('ped-baptized'),
-    confirmation_date: confDate,
-    confirmed:         (pmReadSacrament('ped-confirmed') === 0 && confDate) ? 1 : pmReadSacrament('ped-confirmed'),
-    anniversary_date:  pmReadDate('ped-ann',  'ped-ann-noyear')  || null
-  });
-  api('/admin/api/people/'+p.id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(patch)})
-    .then(function(r) {
-      // api() only rejects on a 401, so a server-side error arrives here as a resolved
-      // {error} body. Reported as "Save failed" with no reason, that was undiagnosable.
-      if (r && r.error) throw new Error(r.error);
-      ['gender','marital_status','dob','baptism_date','baptized','confirmation_date','confirmed','anniversary_date'].forEach(function(k){ _currentPvPerson[k] = patch[k]; });
-      pvRenderDemo();
-    }).catch(function(err) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
-      var why = err && err.message && err.message !== 'Unauthorized' ? '\n\n' + err.message : '';
-      alert('Save failed. Please try again.' + why);
-    });
-}
-function pvRenderDemo() {
-  var sec = document.getElementById('pv-demo-section');
-  if (!sec) return;
-  var p = _currentPvPerson;
-  delete sec.dataset.editing;
-  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Demographics / Dates</div><div style="display:flex;gap:5px;">'
-    + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditDemo()">Edit</button></div></div>'
-    + '<div class="pv-field-grid">'
-    + pvField('gender', p.gender)
-    + pvField('marital status', p.marital_status)
-    + pvField('birthday', p.dob ? fmtDate(p.dob)+calcAge(p.dob) : '')
-    + pvField('baptized', pmSacramentDisplay(p.baptized, p.baptism_date))
-    + pvField('confirmed', pmSacramentDisplay(p.confirmed, p.confirmation_date))
-    + pvField('anniversary', p.anniversary_date ? fmtDate(p.anniversary_date) : '')
-    + pvField('deceased', p.deceased ? (p.death_date ? fmtDate(p.death_date) : 'Yes') : 'No')
-    + '</div>';
-}
-// ── Notes section ────────────────────────────────────────────────────
-function pvEditNotes() {
-  var sec = document.getElementById('pv-notes-section');
-  if (!sec || sec.dataset.editing === '1') return;
-  sec.dataset.editing = '1';
-  var p = _currentPvPerson;
-  var inp = 'width:100%;box-sizing:border-box;font-size:13px;padding:5px 8px;border:1px solid var(--sky-steel);border-radius:4px;';
-  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
-    + '<div class="pv-section-title" style="margin:0;">Notes</div>'
-    + '<div style="display:flex;gap:6px;">'
-    + '<button class="btn-primary" style="font-size:.7rem;padding:3px 10px;" onclick="pvSaveNotes()">Save</button>'
-    + '<button class="btn-secondary" style="font-size:.7rem;padding:3px 10px;" onclick="pvCancelNotes()">Cancel</button>'
-    + '</div></div>'
-    + '<label for="ped-notes" style="display:none;">Notes</label>'
-    + '<textarea id="ped-notes" style="'+inp+';min-height:100px;resize:vertical;display:block;">'+esc(p.notes||'')+'</textarea>';
-  var f = sec.querySelector('textarea'); if (f) f.focus();
-}
-function pvCancelNotes() { pvRenderNotes(); }
-function pvSaveNotes() {
-  var p = _currentPvPerson;
-  var btn = document.querySelector('#pv-notes-section .btn-primary');
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
-  var notes = (document.getElementById('ped-notes')||{}).value || '';
-  var patch = pvBuildPersonPatch(p, {notes: notes});
-  api('/admin/api/people/'+p.id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(patch)})
-    .then(function() {
-      _currentPvPerson.notes = notes;
-      pvRenderNotes();
-    }).catch(function() {
-      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
-      alert('Save failed. Please try again.');
-    });
-}
-function pvRenderNotes() {
-  var sec = document.getElementById('pv-notes-section');
-  if (!sec) return;
-  var p = _currentPvPerson;
-  delete sec.dataset.editing;
-  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Notes</div>'
-    + (_userRole !== 'member' ? '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditNotes()">Edit</button>' : '')
-    + '</div>'
-    + '<div style="font-size:13px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'
-    + (p.notes ? esc(p.notes) : '<span style="color:var(--warm-gray);font-style:italic;">No notes</span>')
-    + '</div>';
-}
-// ── Tags section ─────────────────────────────────────────────────────
-function pvEditTags() {
-  var sec = document.getElementById('pv-tags-section');
-  if (!sec || sec.dataset.editing === '1') return;
-  sec.dataset.editing = '1';
-  var p = _currentPvPerson;
-  var currentTagIds = (p.tags||[]).map(function(t){ return t.id; });
-  var checkboxes = allTags.map(function(t){
-    var checked = currentTagIds.indexOf(t.id) >= 0 ? ' checked' : '';
-    return '<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer;font-size:13px;">'
-      + '<input type="checkbox" name="person-tag" value="'+t.id+'"'+checked+' style="cursor:pointer;">'
-      + '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+esc(t.color||'#ccc')+';flex-shrink:0;"></span>'
-      + esc(t.name)
-      + '</label>';
-  }).join('');
-  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
-    + '<div class="pv-section-title" style="margin:0;">Tags</div>'
-    + '<div style="display:flex;gap:6px;">'
-    + '<button class="btn-primary" style="font-size:.7rem;padding:3px 10px;" onclick="pvSaveTags()">Save</button>'
-    + '<button class="btn-secondary" style="font-size:.7rem;padding:3px 10px;" onclick="pvCancelTags()">Cancel</button>'
-    + '</div></div>'
-    + '<div style="max-height:220px;overflow-y:auto;">'
-    + (checkboxes || '<span style="color:var(--warm-gray);font-size:12px;font-style:italic;">No tags defined</span>')
-    + '</div>';
-}
-function pvCancelTags() { pvRenderTags(); }
-function pvSaveTags() {
-  var p = _currentPvPerson;
-  var btn = document.querySelector('#pv-tags-section .btn-primary');
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
-  var cbs = document.querySelectorAll('#pv-tags-section input[type="checkbox"]');
-  var tagIds = [];
-  cbs.forEach(function(cb){ if (cb.checked) tagIds.push(parseInt(cb.value, 10)); });
-  var patch = pvBuildPersonPatch(p, {});
-  patch.tag_ids = tagIds;
-  api('/admin/api/people/'+p.id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(patch)})
-    .then(function() {
-      _currentPvPerson.tags = allTags.filter(function(t){ return tagIds.indexOf(t.id) >= 0; });
-      pvRenderTags();
-    }).catch(function() {
-      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
-      alert('Save failed. Please try again.');
-    });
-}
-function pvRenderTags() {
-  var sec = document.getElementById('pv-tags-section');
-  if (!sec) return;
-  var p = _currentPvPerson;
-  delete sec.dataset.editing;
-  var tagHtml = (p.tags||[]).map(function(t){
-    return '<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:99px;background:'+esc(t.color)+';color:white;font-size:11px;font-weight:600;margin:2px;">'+esc(t.name)+'</span>';
-  }).join('');
-  sec.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="pv-section-title" style="margin:0;">Tags</div>'
-    + '<button class="btn-secondary require-edit" style="font-size:.7rem;padding:2px 8px;" onclick="pvEditTags()">Edit</button></div>'
-    + '<div style="display:flex;flex-wrap:wrap;gap:6px;">'+(tagHtml||'<span style="color:var(--warm-gray);font-size:12px;font-style:italic;">No tags</span>')+'</div>';
-}
+
 function loadPvFamily(hhId, selfId) {
   var el = document.getElementById('pv-family-members');
   if (!el) return;

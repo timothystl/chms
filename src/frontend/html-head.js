@@ -134,6 +134,9 @@ a.s-item{text-decoration:none;color:inherit;}
 .s-divider{width:28px;height:1px;background:rgba(255,255,255,.15);margin:4px 0;flex-shrink:0;align-self:center;}
 .s-section-hdr{font-family:var(--font-body);font-size:10px;font-weight:500;letter-spacing:.3em;text-transform:uppercase;color:var(--color-gold);padding:10px 14px 4px;white-space:nowrap;}
 .s-bottom{margin-top:auto;display:flex;flex-direction:column;align-items:stretch;gap:4px;}
+/* The topbar also shows the version, but that row is the first thing a narrow screen
+   squeezes — and the sidebar is where someone looks for it. */
+.s-version{padding:6px 14px 2px;font-size:.66rem;letter-spacing:.04em;color:rgba(255,255,255,.38);white-space:nowrap;}
 .s-tip{position:static;transform:none;background:transparent;border:none;padding:0;font-size:13px;color:rgba(255,255,255,.7);white-space:nowrap;pointer-events:none;z-index:auto;}
 /* ── ROLE-BASED VISIBILITY ── */
 /* .require-finance/.require-staff/.require-register, plus the Reports sidebar item's
@@ -1389,6 +1392,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .pv2-ro:hover .pv2-pencil{opacity:1;}
 .pv2-sub{font-size:12.5px;color:var(--faint);margin-top:2px;}
 .pv2-inp{width:100%;max-width:320px;font-size:15px;color:var(--color-navy);background:var(--white);border:1px solid var(--color-teal);border-radius:9px;padding:9px 11px;box-shadow:0 0 0 3px rgba(46,126,166,.15);outline:none;font-family:var(--font-body);}
+/* Date-precision picker inside a profile field editor: sits under the date input, smaller,
+   so it reads as a qualifier on the date rather than a second field of equal weight. */
+.pv2-prec{margin-top:6px;font-size:13px;padding:6px 9px;padding-right:28px;color:var(--warm-gray);box-shadow:none;}
 .pv2-inp.sel{cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238A8377' stroke-width='2.5'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 10px center;padding-right:30px;}
 .pv2-mem{display:flex;align-items:center;gap:13px;padding:9px 8px;border-radius:10px;}
 .pv2-mem:hover{background:var(--warm-surface-header);}
@@ -1825,6 +1831,7 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
   <div class="s-item require-admin" data-tab="scheduler" onclick="showTab('scheduler')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg><span class="s-tip">Scheduler</span></div>
   <div class="s-bottom">
     <div class="s-item require-admin" data-tab="settings" onclick="showTab('settings')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span class="s-tip">Settings</span></div>
+    <div class="s-version" id="deploy-ver-side"></div>
   </div>
 </nav>
 <div class="content-area">
