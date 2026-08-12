@@ -24,6 +24,46 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.168.0 — The same work, on the profile that is actually on screen (2026-08-11)
+
+A screenshot of the real People view showed v1.167.0 had changed nothing there. **I edited the
+wrong renderer.** The profile has two implementations: the legacy per-section editors
+(`pvEditDemo`/`pvSaveDemo` and their Contact/Notes/Tags siblings — a whole-card Edit-then-Save
+panel writing a full-row PUT), and the `pvf*` field registry the card layout actually uses,
+where one value is clicked and PATCHed on its own. The `#pv-*-section` containers the legacy
+editors write into **had already been dropped from the markup**, so all four were dead — and
+last version's sacrament UI went into one of them.
+
+- **The dead editors are deleted** (264 lines), not left alongside. Their presence is what
+  caused this: they look like the live profile editor and are the obvious thing to change.
+  `syncPersonAddrToHousehold` was the one live function tangled in that block and is kept —
+  its success path called the removed `pvRenderContact()` and now shows the saved-toast.
+- **Baptized / Confirmed are now fields in the registry** (Yes · No · Not recorded), sitting
+  above their date rows in Demographics. `0` renders through the card's usual grey "Not set"
+  via a new `blankVals`, so an unanswered field never reads as an answered one.
+- **The inline date editor gained the precision select.** Two controls in one cell means
+  tabbing from the picker to the select fires blur, and committing there would tear the select
+  out from under the click — `pvfDateBlur` defers a tick and only commits once focus has
+  actually left the cell.
+- **Real display bug fixed**: `pvfYearsAgo` parsed the month/day-only sentinel as a real year 1,
+  so a baptism the card printed as "Jul 31" carried "**2024 years ago**" underneath it.
+- **`pvfCommit`'s catch is the alert that was reported** — the live one, where last version I
+  fixed the dead twin. It now carries the reason. Worth knowing: that catch also fires when the
+  save *succeeded* and something later in the `.then` threw, which reads as data loss that
+  didn't happen.
+- **Version number**: `#deploy-ver` is in the topbar, the first row a narrow screen squeezes.
+  Added to the sidebar bottom under Settings, where it is findable.
+- Driving the real shipped bundle over gender / marital status / first name against a 200
+  response produced **no alert**, so the reported failure is a genuine non-JSON response and
+  still not reproducible from here — the message now names it.
+- `npm test` (1235/1235, 37 in the file — the legacy-path tests retargeted at the live one);
+  every test verified non-vacuous by injecting the exact regression it guards (7 injections).
+  **One of my own tests was vacuous and was rewritten**: the blur-guard test asserted "no
+  request sent" while leaving the value unchanged, so `pvfCommit` returned early on its own and
+  the test passed against a deliberately removed guard. A test assertion also caught a bare `&`
+  emitted in an option label; the source was fixed rather than the test. **Not verified**: a
+  live browser.
+
 ### v1.167.0 — Sacramental yes/no, partial dates, and two data-loss bugs (2026-08-11)
 
 Reported together: baptized/confirmed could no longer be marked yes or no without a date,

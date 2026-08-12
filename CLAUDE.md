@@ -433,6 +433,38 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### SAC2 — ⚠ The person profile has ONE renderer; the other one was dead (2026-08-11, DONE)
+**Read this before touching the person profile.** SAC1 below shipped its whole sacrament UI
+into a renderer that is not on screen, and a screenshot of the live People view is what caught
+it. There were two implementations:
+- **Live**: the `pvf*` field registry — `pvfBuildRegistry()` defines every field, `pvfRowHtml()`
+  draws it, clicking one value opens `pvfStart()` and `pvfCommit()` **PATCHes that field alone**.
+  Cards are `pvfCard()`. **To add a field to the profile, add it to the `defs` array.**
+- **Dead, now deleted** (264 lines): `pvEditDemo`/`pvSaveDemo`/`pvRenderDemo` and the Contact /
+  Notes / Tags siblings — whole-card Edit-then-Save panels writing a full-row PUT via
+  `pvBuildPersonPatch`. Their `#pv-*-section` containers were already gone from the markup, so
+  every one was unreachable. Deleted rather than left, because they look exactly like the live
+  editor and are the obvious thing to change.
+- `syncPersonAddrToHousehold` was the one live function inside that block — kept; its success
+  path called the removed `pvRenderContact()` and now calls `pvfToast()`.
+- Now in the registry: **Baptized / Confirmed** as Yes · No · Not recorded, above their date
+  rows. New `blankVals` on a def makes a real stored `0` render as the card's grey "Not set",
+  so an unanswered field never reads as answered.
+- The inline date editor carries the precision select. **Two controls in one cell**: tabbing
+  from picker to select fires blur, and committing there tears the select out from under the
+  click — `pvfDateBlur` defers a tick and checks focus actually left the cell.
+- **`pvfCommit`'s catch is the "Save failed. Please try again." alert people report** (SAC1
+  fixed the dead twin). It now carries the reason — and note it *also* fires when the save
+  SUCCEEDED but something later in the `.then` threw.
+- Fixed: `pvfYearsAgo` read the `0001-` sentinel as a real year 1, printing "2024 years ago"
+  under a baptism shown as "Jul 31".
+- Version number added to the sidebar bottom (`#deploy-ver-side`); the topbar's `#deploy-ver`
+  is the first row a narrow screen squeezes.
+- `npm test` (1235/1235); 7 injections, 7 correct failures. **One of my own tests was vacuous**
+  — it asserted "no request sent" with an unchanged value, so `pvfCommit` returned early on its
+  own and it passed against a removed guard. **Not verified**: a live browser.
+  (`src/frontend/{js-people,js-core,html-head}.js`, `test/person-sacrament-partial-dates.test.js`)
+
 ### SAC1 — Baptized/confirmed become yes/no/unknown; dates gain a precision (2026-08-11, DONE)
 Reported together with two bugs in the same save path.
 - **`baptized`/`confirmed` are tri-state**: `0` not recorded · `1` yes · `2` no. **Keeping 0

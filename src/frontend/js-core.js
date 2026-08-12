@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.167.0';
+export const DEPLOY_VERSION = '1.168.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -564,6 +564,8 @@ window.addEventListener('load', function() {
   }
   var dv = document.getElementById('deploy-ver');
   if (dv) dv.textContent = 'v' + DEPLOY_VERSION;
+  var dvs = document.getElementById('deploy-ver-side');
+  if (dvs) dvs.textContent = 'v' + DEPLOY_VERSION;
   var bsy = document.getElementById('batch-stmt-year');
   if (bsy) bsy.value = y;
   // Fetch role first so UI restrictions apply before content loads

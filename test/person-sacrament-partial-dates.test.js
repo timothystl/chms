@@ -306,81 +306,155 @@ describe('the yes/no control', () => {
   });
 });
 
-describe('pvBuildPersonPatch covers every column PUT overwrites', () => {
-  it('carries the fields whose omission silently blanked them', () => {
-    // PUT replaces the whole row, so a field missing here is written back as ''.
-    // Editing gender from the profile used to erase the photo, preferred name and SMS opt-in.
+// ── The live profile: the pvf* field registry ────────────────────────────
+// The card-based profile edits one field at a time through pvfStart/pvfCommit. An older
+// set of whole-card editors (pvEditDemo & co.) used to sit alongside it writing full-row
+// PUTs; their containers had already been dropped from the markup, so they were dead and
+// have been removed. These tests target the renderer that is actually on screen.
+function seedProfile(ctx, over) {
+  ctx._userRole = 'admin';
+  ctx._currentPvPerson = Object.assign({
+    id: 42, first_name: 'Emma', last_name: 'Taylor', gender: '', marital_status: '',
+    member_type: 'member', family_role: 'head', dob: '', baptism_date: '',
+    confirmation_date: '', anniversary_date: '', baptized: 0, confirmed: 0, tags: [],
+  }, over || {});
+  ctx.pvfBuildRegistry(ctx._currentPvPerson);
+  return ctx._currentPvPerson;
+}
+
+describe('baptized / confirmed are editable on the live profile', () => {
+  it('registers them as yes/no fields — the gap that made them look removed', () => {
     const ctx = makeCtx();
-    const p = {
-      id: 1, first_name: 'A', last_name: 'B', middle_name: 'Q', preferred_name: 'Al',
-      photo_url: 'https://x/p.jpg', sms_opt_in: 1, baptized: 1, confirmed: 2, tags: [],
-    };
-    const patch = ctx.pvBuildPersonPatch(p, { gender: 'Male' });
-    expect(patch.middle_name).toBe('Q');
-    expect(patch.preferred_name).toBe('Al');
-    expect(patch.photo_url).toBe('https://x/p.jpg');
-    expect(patch.sms_opt_in).toBe(1);
-    expect(patch.baptized).toBe(1);
-    expect(patch.confirmed).toBe(2);
-    expect(patch.gender).toBe('Male');
+    seedProfile(ctx);
+    for (const id of ['baptized', 'confirmed']) {
+      expect(ctx._pvFields[id]).toBeTruthy();
+      expect(ctx._pvFields[id].type).toBe('select');
+      expect(ctx._pvFields[id].options.map(o => o.label)).toEqual(['Yes', 'No', 'Not recorded']);
+    }
   });
 
-  it('sends every field the PUT statement writes', () => {
-    // Guards the pairing directly rather than restating a list that could drift.
-    const src = readFileSync(new URL('../src/api-people.js', import.meta.url), 'utf8');
-    const setClause = src.slice(src.indexOf('UPDATE people SET first_name=?'));
-    const written = [...setClause.slice(0, setClause.indexOf('WHERE id=?')).matchAll(/(\w+)=\?/g)]
-      .map(m => m[1])
-      .filter(f => !['envelope_history', 'locally_edited', 'phone'].includes(f));
-    const sent = Object.keys(makeCtx().pvBuildPersonPatch({ tags: [] }, {}));
-    expect(written.filter(f => !sent.includes(f))).toEqual([]);
+  it('shows them in the Demographics card', () => {
+    const ctx = makeCtx();
+    seedProfile(ctx);
+    for (const id of ['baptized', 'confirmed']) {
+      expect(ctx.pvfRowHtml(id)).toContain('pvf-' + id);
+    }
+  });
+
+  it('renders No as No, and "not recorded" as the card\'s usual Not set', () => {
+    const ctx = makeCtx();
+    seedProfile(ctx, { baptized: 2, confirmed: 0 });
+    expect(ctx.pvfRowHtml('baptized')).toContain('>No<');
+    // 0 is a real stored value; without the blankVals guard it would print "Not recorded"
+    // as though someone had answered.
+    expect(ctx.pvfRowHtml('confirmed')).toContain('Not set');
+  });
+
+  it('PATCHes just that field when answered', async () => {
+    const ctx = makeCtx();
+    seedProfile(ctx);
+    ctx.__el('pvf-baptized');
+    ctx.pvfStart('baptized');
+    ctx.__el('pvfi-baptized').value = '2';
+    ctx.pvfCommit('baptized');
+    await new Promise(r => setTimeout(r, 10));
+    const call = ctx.__calls.at(-1);
+    expect(call.opts.method).toBe('PATCH');
+    expect(JSON.parse(call.opts.body)).toEqual({ baptized: '2' });
   });
 });
 
-describe('saving demographics', () => {
-  function openEditor(ctx) {
-    ctx._currentPvPerson = {
-      id: 42, first_name: 'J', last_name: 'D', gender: '', marital_status: '',
-      dob: '', baptism_date: '', confirmation_date: '', anniversary_date: '',
-      baptized: 0, confirmed: 0, tags: [],
-    };
-    ctx.__el('pv-demo-section');
-    ctx.pvEditDemo();
-    for (const id of ['ped-gender', 'ped-ms', 'ped-dob', 'ped-dob-prec', 'ped-bap', 'ped-bap-prec',
-      'ped-baptized', 'ped-conf', 'ped-conf-prec', 'ped-confirmed', 'ped-ann', 'ped-ann-prec']) ctx.__el(id);
-  }
-
-  it('sends an explicit No for baptism with no date', () => {
+describe('the live date editor carries a precision', () => {
+  it('offers all three precisions and preselects the stored one', () => {
     const ctx = makeCtx();
-    openEditor(ctx);
-    ctx.__store['ped-baptized'].value = '2';
-    ctx.pvSaveDemo();
-    const body = JSON.parse(ctx.__calls.at(-1).opts.body);
-    expect(body.baptized).toBe(2);
-    expect(body.baptism_date).toBe(null);
+    seedProfile(ctx, { baptism_date: '1994-00-00' });
+    ctx.__el('pvf-baptism_date');
+    ctx.pvfStart('baptism_date');
+    const html = ctx.__store['pvf-baptism_date'].innerHTML;
+    expect(html).toContain('Month &amp; day only');
+    expect(html).toContain('value="year" selected');
+    // The picker cannot hold 1994-00-00, so a placeholder stands in.
+    expect(html).toContain('value="1994-01-01"');
   });
 
-  it('resolves "not recorded" to yes once a date is entered', () => {
+  it('saves a year-only edit as the sentinel, not as 1 January', async () => {
     const ctx = makeCtx();
-    openEditor(ctx);
-    ctx.__store['ped-bap'].value = '1978-01-01';
-    ctx.__store['ped-bap-prec'].value = 'year';
-    ctx.__store['ped-baptized'].value = '0';
-    ctx.pvSaveDemo();
-    const body = JSON.parse(ctx.__calls.at(-1).opts.body);
-    expect(body.baptism_date).toBe('1978-00-00');
-    expect(body.baptized).toBe(1);
-  });
-
-  it('reports the server\'s own reason instead of a bare "Save failed"', async () => {
-    const ctx = makeCtx();
-    openEditor(ctx);
-    // api() only rejects on 401, so a server error arrives as a resolved {error} body.
-    // Swallowing it made the failure the user reported impossible to diagnose.
-    ctx.fetch = () => Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: 'no such column: whatever' }) });
-    ctx.pvSaveDemo();
+    seedProfile(ctx, { baptism_date: '' });
+    ctx.__el('pvf-baptism_date');
+    ctx.pvfStart('baptism_date');
+    ctx.__el('pvfi-baptism_date').value = '1994-01-01';
+    ctx.__el('pvfi-baptism_date-prec').value = 'year';
+    ctx.pvfCommit('baptism_date');
     await new Promise(r => setTimeout(r, 10));
-    expect(ctx.__alerts.join('')).toContain('no such column: whatever');
+    expect(JSON.parse(ctx.__calls.at(-1).opts.body)).toEqual({ baptism_date: '1994-00-00' });
+  });
+
+  it('saves a month/day-only edit as the year-unknown sentinel', async () => {
+    const ctx = makeCtx();
+    seedProfile(ctx, { baptism_date: '' });
+    ctx.__el('pvf-baptism_date');
+    ctx.pvfStart('baptism_date');
+    ctx.__el('pvfi-baptism_date').value = '2000-07-31';
+    ctx.__el('pvfi-baptism_date-prec').value = 'monthday';
+    ctx.pvfCommit('baptism_date');
+    await new Promise(r => setTimeout(r, 10));
+    expect(JSON.parse(ctx.__calls.at(-1).opts.body)).toEqual({ baptism_date: '0001-07-31' });
+  });
+
+  it('does not commit while focus is still inside the cell', async () => {
+    // The date cell holds two controls; tabbing from picker to precision fires blur, and
+    // committing there would tear the select out from under the click.
+    const ctx = makeCtx();
+    seedProfile(ctx, { baptism_date: '' });
+    const cell = ctx.__el('pvf-baptism_date');
+    ctx.pvfStart('baptism_date');
+    const prec = ctx.__el('pvfi-baptism_date-prec');
+    // A CHANGED value, or pvfCommit would return early on its own and the guard would
+    // never be the reason nothing was sent — which is how the first version of this test
+    // passed against a deliberately removed guard.
+    ctx.__el('pvfi-baptism_date').value = '2000-07-31';
+    prec.value = 'monthday';
+    cell.contains = (n) => n === prec;
+
+    ctx.document.activeElement = prec;
+    ctx.pvfDateBlur('baptism_date');
+    await new Promise(r => setTimeout(r, 10));
+    expect(ctx.__calls.length).toBe(0);
+
+    ctx.document.activeElement = null;
+    ctx.pvfDateBlur('baptism_date');
+    await new Promise(r => setTimeout(r, 10));
+    expect(ctx.__calls.length).toBe(1);
+    expect(JSON.parse(ctx.__calls[0].opts.body)).toEqual({ baptism_date: '0001-07-31' });
+  });
+});
+
+describe('a partial date never claims an elapsed time', () => {
+  it('drops the "years ago" line rather than counting from year 1', () => {
+    // A month/day-only baptism printed "Jul 31" above "2024 years ago".
+    const ctx = makeCtx();
+    seedProfile(ctx, { baptism_date: '0001-07-31' });
+    const html = ctx.pvfRowHtml('baptism_date');
+    expect(html).toContain('Jul 31');
+    expect(html).not.toContain('years ago');
+    expect(ctx.pvfYearsAgo('1994-00-00')).toBe('');
+    expect(ctx.pvfYearsAgo('1994-07-31')).toContain('years ago');
+  });
+});
+
+describe('the inline editor surfaces why a save failed', () => {
+  it('includes the reason instead of a bare "Save failed"', async () => {
+    const ctx = makeCtx();
+    seedProfile(ctx);
+    ctx.__el('pvf-gender');
+    ctx.pvfStart('gender');
+    ctx.__el('pvfi-gender').value = 'Female';
+    // Not JSON — which is exactly the shape that reaches the catch and produced the
+    // reasonless alert that was reported.
+    ctx.fetch = () => Promise.resolve({ ok: false, status: 500, json: () => Promise.reject(new Error('Unexpected token < in JSON')) });
+    ctx.pvfCommit('gender');
+    await new Promise(r => setTimeout(r, 10));
+    expect(ctx.__alerts.join('')).toContain('Unexpected token');
   });
 });
 
