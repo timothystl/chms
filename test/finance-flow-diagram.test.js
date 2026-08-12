@@ -298,16 +298,28 @@ describe('computeFlowDiagram', () => {
     row({ classification: 'Expenses', category_path: 'Expenses:60 Property & Utilities', own_actual_cents: 13400000 }),
   ];
 
-  it('does not re-split donor giving — restricted is its own stream', () => {
-    // Restricted income became its own chart-of-accounts stream upstream. Carving a restricted
-    // slice back out of the donor node as well would draw the same dollars twice and inflate
-    // total revenue, so the diagram takes the GL's classification and nothing more.
+  it('runs restricted giving into the donor node, counted once', () => {
+    // Restricted income is a half of donor income, not a peer of earned and passive: it is a
+    // gift, and unlike a 25xxx designated fund it does pay budgeted expenses — just ones the
+    // donor named. So it keeps its OWN source node (the diagram still shows it arriving
+    // separately) while its ribbon runs into the donor stream, matching the handoff's own
+    // reference, whose middle column has three nodes and carries "Restricted giving" as a
+    // donor-stream source.
+    //
+    // ⚠ What must never come back: carving a restricted slice back out of the donor node ON TOP
+    // of this, which would draw the same dollars twice and inflate total revenue. The last
+    // assertion is the one that catches it.
     const withRestricted = entries.concat([
       row({ category_path: 'Income:Altar Guild:Flowers', own_actual_cents: 200000 }),
     ]);
     const d = computeFlowDiagram(withRestricted, {});
-    expect(d.sources.filter((s) => s.stream === 'donor')).toHaveLength(1);
-    expect(d.sources.find((s) => s.stream === 'restricted').cents).toBe(200000);
+    const donorSources = d.sources.filter((s) => s.stream === 'donor');
+    expect(donorSources).toHaveLength(2);
+    expect(donorSources.find((s) => /altar guild/i.test(s.label)).cents).toBe(200000);
+    expect(d.sources.some((s) => s.stream === 'restricted'), 'no fourth stream').toBe(false);
+    expect(d.streams.map((s) => s.id)).toEqual(['donor', 'earned', 'passive']);
+    // The donor node is exactly as tall as the ribbons feeding it.
+    expect(d.streams.find((s) => s.id === 'donor').cents).toBe(43500000 + 200000);
     expect(d.totalRevenueCents, 'restricted counted once, not twice')
       .toBe(43500000 + 60000000 + 10000000 + 200000);
   });
