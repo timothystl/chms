@@ -479,7 +479,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <!-- Fund Categories Card — the mapping the Reports fund lens depends on -->
     <div class="import-card require-admin" style="margin-bottom:14px;max-width:760px;">
       <h3>&#127991; Fund categories</h3>
-      <p>Every fund gets one category. This is what the Reports lens switches between, and what the council packet summarizes. A fund&rsquo;s annual budget is what the board report&rsquo;s Vs.&nbsp;Budget and variance columns compare against &mdash; leave it at 0 for a fund with no plan.</p>
+      <p>Every fund gets one category. This is what the Reports lens switches between, and what the council packet summarizes. Fund budgets live in <b>Settings &rarr; Import/Export &rarr; Manage Funds</b> &mdash; this screen only maps funds to categories.</p>
       <div id="giv-fundcat-root"><div style="font-size:.85rem;color:var(--warm-gray);">Loading&hellip;</div></div>
       <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
         <button class="btn-primary" onclick="givSaveFundCategories()">Save fund categories</button>
