@@ -549,7 +549,7 @@ export function defaultFundCategories(funds) {
 // Which funds are the General Fund, as one rule shared by every page that needs to answer it.
 // Primary source is funds.category (migration 0033, edited in Settings → Fund categories); the
 // legacy fallback — every fund sharing the leading numeric code of the fund literally named
-// "General Fund" — applies only on a database where nothing has been categorised 'general' yet,
+// "General Fund" — applies only on a database where nothing has been categorized 'general' yet,
 // so the board's headline number doesn't read $0 until someone visits Settings.
 //
 // Extracted from the giving-board handler so the Financial Health page's giving-pace chart asks
@@ -566,9 +566,9 @@ export function resolveGeneralFundIds(fundRows) {
     }
   }
   // The code can only be read off a fund literally NAMED "General Fund" — but once an admin has
-  // categorised funds by hand (Settings → Fund categories) that name need not exist any more, and
+  // categorized funds by hand (Settings → Fund categories) that name need not exist any more, and
   // a null code silently costs the caller its whole budget lookup ("no budget is on file" against
-  // a budget that is on file). Fall back to the code the categorised general funds themselves
+  // a budget that is on file). Fall back to the code the categorized general funds themselves
   // share; most common wins, so one oddly-named member of the family can't hijack it.
   if (!prefix) {
     const counts = new Map();
@@ -841,14 +841,14 @@ export async function fetchGivingPlateauRows(db, { year, scope, fundId }) {
 }
 
 // ── Giving cadence ────────────────────────────────────────────────────────
-// The plateau analysis deliberately normalises everyone to a weekly-equivalent figure, so a
+// The plateau analysis deliberately normalizes everyone to a weekly-equivalent figure, so a
 // weekly regular, a monthly giver and a single annual gift are all comparable. That is right for
 // the ANALYSIS and wrong for the LETTER: telling someone who writes one cheque a month that they
 // "give $43 a week" reads as though we haven't looked at their record. So each giver also carries
 // the rhythm they actually give in, and every figure shown to them is expressed in it.
 //
 // Classified on gifts-per-year annualised from the elapsed window, not raw count, so a giver
-// analysed halfway through a year isn't mistaken for a less frequent one.
+// analyzed halfway through a year isn't mistaken for a less frequent one.
 export const GIVING_CADENCES = [
   { key: 'weekly',    label: 'Weekly',      adverb: 'a week',    periodsPerYear: 52, minAnnualGifts: 30 },
   { key: 'monthly',   label: 'Monthly',     adverb: 'a month',   periodsPerYear: 12, minAnnualGifts: 9 },
@@ -912,7 +912,7 @@ export function computeGivingPlateaus(rows, opts = {}) {
     const cadence = classifyGivingCadence(p.gifts, periodsElapsed);
     // Annualised from the elapsed window so a part-year figure isn't reported as a full year's
     // giving, and taken from the raw total rather than the rounded weekly figure (see
-    // cadenceAmountCents). This is the number the giver themselves would recognise.
+    // cadenceAmountCents). This is the number the giver themselves would recognize.
     const annualisedCents = Math.round(p.total_cents * 52 / periodsElapsed);
     const cadenceNowCents = cadenceAmountCents(annualisedCents, cadence.periodsPerYear);
     const options = computeNudgeOptions(weeklyDollars).map(o => {

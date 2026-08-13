@@ -14,7 +14,7 @@ import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
 //
 // These tests run the REAL sanitizer and the REAL handler out of the built bundle, and model the
 // re-render both ways (with and without the fix) so the failure mode itself is pinned down, not
-// just the fixed behaviour.
+// just the fixed behavior.
 
 function extract(name, kind = 'function') {
   const re = kind === 'function'
@@ -48,7 +48,7 @@ function loadHandlers() {
 }
 
 // Models one keystroke-by-keystroke editing session against a controlled input.
-//   preserveRawValue=false -> the pre-fix behaviour (re-render overwrites the box from state)
+//   preserveRawValue=false -> the pre-fix behavior (re-render overwrites the box from state)
 //   preserveRawValue=true  -> the fix (the focused box keeps the text the user actually typed)
 function typeInto(keys, { preserveRawValue }) {
   const h = loadHandlers();
@@ -130,7 +130,7 @@ describe('Compensation inputs are all typing-safe by construction', () => {
       // Free-text fields legitimately take this.value verbatim: the worker's name and position,
       // the per-year provenance/source lines, and the Concordia range figures + report metadata
       // (hand-copied off a PDF, so "$103,609" / "103609.00" / "103,609" all have to survive —
-      // finConcordiaParseMoneyCents is what normalises those, at read time, not at keystroke time).
+      // finConcordiaParseMoneyCents is what normalizes those, at read time, not at keystroke time).
       .filter(tag => !/id="fin-comp-(name|position|range|cpos|cdate|ref-(district|concordia|quote)Source)/.test(tag));
     expect(offenders).toEqual([]);
   });

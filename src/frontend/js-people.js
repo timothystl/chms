@@ -560,7 +560,7 @@ function pmReadDate(inputId, cbId) {
   if (!v) return '';
   var parts = v.split('-');
   // Precision select (exact / monthday / year) wins when present; the older paired
-  // "Year unknown" checkbox is still honoured for any field that hasn't got one.
+  // "Year unknown" checkbox is still honored for any field that hasn't got one.
   var prec = document.getElementById(inputId + '-prec');
   var mode = prec ? prec.value : '';
   if (!mode) {
@@ -638,7 +638,7 @@ function pmSacramentDisplay(flag, dateStr) {
 // (The old pmYearUnknownChanged lived here. Every date field now carries a precision
 //  select instead of a "Year unknown" checkbox, so it had no remaining call sites;
 //  pmDatePrecChanged above does the equivalent seeding for all three precisions.
-//  pmReadDate still honours a checkbox if one is ever paired with a field again.)
+//  pmReadDate still honors a checkbox if one is ever paired with a field again.)
 // Explicitly clear a date field (and its paired "Year unknown" checkbox, if any).
 // Native <input type="date"> has no obvious "delete" affordance, so this gives
 // staff a reliable way to remove a date — e.g. an erroneous anniversary on a
@@ -812,7 +812,7 @@ function pvfBuildRegistry(p) {
   var maritalOpts = [{value:'',label:'—'},{value:'Single',label:'Single'},{value:'Married',label:'Married'},{value:'Divorced',label:'Divorced'},{value:'Widowed',label:'Widowed'}];
   var roleOpts = [{value:'',label:'—'},{value:'head',label:'Head'},{value:'spouse',label:'Spouse'},{value:'child',label:'Child'},{value:'other',label:'Other'}];
   function dateSub(v) { return pvfYearsAgo(v); }
-  // Yes / No / Not recorded. 0 renders through the card's usual grey "Not set", so an
+  // Yes / No / Not recorded. 0 renders through the card's usual gray "Not set", so an
   // unanswered field never reads as an answered one.
   var sacramentOpts = [{value:'1',label:'Yes'},{value:'2',label:'No'},{value:'0',label:'Not recorded'}];
   var defs = [

@@ -8,10 +8,10 @@ import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from '../src/html-chms.js';
 // only ever right because this church happens to have two Family contracts and nothing else — the
 // moment one worker sits on Self, an even split charges them a Family share.
 //
-// The strongest check available is that the tier rates, multiplied by the real enrolment,
+// The strongest check available is that the tier rates, multiplied by the real enrollment,
 // reconstruct the packet's own printed Total Monthly and Total Annual figures exactly. If a rate
 // were mistyped that reconciliation breaks, so these numbers are transcription cover as well as
-// behaviour cover.
+// behavior cover.
 
 function makeCtx() {
   const store = {};
@@ -74,7 +74,7 @@ beforeEach(() => {
 });
 
 describe('the rates reconstruct the packet', () => {
-  it('reproduces the Renewal column, Total Monthly and Total Annual, at the real enrolment', () => {
+  it('reproduces the Renewal column, Total Monthly and Total Annual, at the real enrollment', () => {
     // Packet, Renewal: Family $2,051.00/mo, 2 contracts -> Total Monthly $4,102.00, annual $49,224.00.
     const c = ctx.finComputeHealthPlanTotalCents('renewal');
     expect(ctx.finHealthTierMonthlyCents('renewal', 'family')).toBe(205100);
@@ -113,7 +113,7 @@ describe('a worker is charged their own tier', () => {
     expect(self.benefits.healthCents).toBeLessThan(fam.benefits.healthCents);
   });
 
-  it('adds up to the group premium at that enrolment', () => {
+  it('adds up to the group premium at that enrollment', () => {
     ctx.finCompSetHealthTier(1, 'selfChild');
     const counts = ctx.finCompEnrollmentCounts();
     expect(counts).toEqual({ self: 0, selfSpouse: 0, selfChild: 1, family: 1 });
@@ -121,7 +121,7 @@ describe('a worker is charged their own tier', () => {
     expect(totals.healthCents).toBe(ctx.finComputeHealthPlanTotalCents('renewal', null, counts).totalCents);
   });
 
-  it('counts enrolment off the roster, and leaves cash-only workers out of it', () => {
+  it('counts enrollment off the roster, and leaves cash-only workers out of it', () => {
     ctx._finSalaryRoster.push(worker('Nursery', { healthTier: 'family', cashOnly: true, ftePct: 20 }));
     expect(ctx.finCompEnrolledCount()).toBe(2);
     expect(ctx.finCompEnrollmentCounts().family).toBe(2);
@@ -220,7 +220,7 @@ describe('how the rates page reads', () => {
     expect(html).toContain('Self &amp; Spouse / mo');
   });
 
-  it('shows the live enrolment rather than asking for it twice', () => {
+  it('shows the live enrollment rather than asking for it twice', () => {
     ctx.finCompSetHealthTier(1, 'self');
     const html = render('rates');
     expect(html).toContain('Enrolled now');

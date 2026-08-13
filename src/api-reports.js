@@ -122,7 +122,7 @@ if (seg === 'reports/people-insights' && method === 'GET') {
     else pipeline.both += r.n;
   }
 
-  // Normalise age groups into ordered array
+  // Normalize age groups into ordered array
   const ageOrder = [
     { key: 'under_18', label: 'Under 18' }, { key: 'a18_29', label: '18–29' },
     { key: 'a30_44',   label: '30–44' },    { key: 'a45_64', label: '45–64' },

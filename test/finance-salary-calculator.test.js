@@ -228,7 +228,7 @@ describe('LCMS Missouri District salary calculator', () => {
   // Medical reconciles to the packet's own printed Total Monthly / Total Annual. Dental and vision
   // are PER COVERED WORKER, confirmed by the church — the packet simply does not tier-price them,
   // so they appear as one annual figure each rather than a rate per coverage tier. These totals are
-  // therefore at the quoted enrolment of 2 family contracts: medical $49,224.00, plus dental and
+  // therefore at the quoted enrollment of 2 family contracts: medical $49,224.00, plus dental and
   // vision twice over. Previously the two ancillary figures were read as a single group bill, which
   // priced a covered worker at $26,871.24 instead of the church's own $29,130.48.
   describe('Health plan renewal quote (2027)', () => {
@@ -254,7 +254,7 @@ describe('LCMS Missouri District salary calculator', () => {
     });
 
     it('reproduces the printed medical totals for Current, Option 1/2/3', () => {
-      // Quoted enrolment is 2 FAMILY contracts, so it is each option's family rate that applies.
+      // Quoted enrollment is 2 FAMILY contracts, so it is each option's family rate that applies.
       expect(finComputeHealthPlanTotalCents('current').medicalCents).toBe(188736 * 2 * 12);
       expect(finComputeHealthPlanTotalCents('option1').medicalCents).toBe(238815 * 2 * 12);
       expect(finComputeHealthPlanTotalCents('option2').medicalCents).toBe(218835 * 2 * 12);

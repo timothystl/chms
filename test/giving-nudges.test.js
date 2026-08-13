@@ -11,7 +11,7 @@ import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from '../src/html-chms.js';
 // the Plateaus & Nudges analysis into sendable mail.
 //
 // The thing most worth protecting here is that a recipient's figures are stated in the rhythm they
-// actually give in. The analysis normalises everyone to a weekly-equivalent figure so a weekly
+// actually give in. The analysis normalizes everyone to a weekly-equivalent figure so a weekly
 // regular and a single annual gift are comparable — correct for the analysis, and wrong for the
 // letter. Someone who gives exactly $200 a month is $46.15/wk; going out through the rounded
 // weekly figure brings them back as "$199 a month", which reads as though nobody looked at their
@@ -62,7 +62,7 @@ function makeDb() {
   return db;
 }
 
-async function analyse(scope = 'household') {
+async function analyze(scope = 'household') {
   const db = makeDb();
   const rows = await fetchGivingPlateauRows(db, { year: 2024, scope, fundId: 0 });
   const res = computeGivingPlateaus(rows, { periodsElapsed: 52, impactStatements: [], lowFrequencyMax: 3 });
@@ -109,11 +109,11 @@ describe('cadenceAmountCents', () => {
   });
 });
 
-describe('a giver is shown the figure they would recognise', () => {
+describe('a giver is shown the figure they would recognize', () => {
   it('tells a $200-a-month giver they give $200 a month, not $199', () => {
     // The bug this pins: $2,400/yr is $46.15/wk, which rounds to $46/wk, which comes back out as
     // $199.33 -> $199 a month if the cadence figure is derived from the rounded weekly one.
-    return analyse().then(({ by }) => {
+    return analyze().then(({ by }) => {
       const bea = by['Brook Household'];
       expect(bea.cadence).toBe('monthly');
       expect(bea.cadence_amount_cents).toBe(20000);
@@ -124,7 +124,7 @@ describe('a giver is shown the figure they would recognise', () => {
   });
 
   it('gives every figure in one letter a shared arithmetic, so none can contradict another', () => {
-    return analyse().then(({ res }) => {
+    return analyze().then(({ res }) => {
       for (const g of res.givers) {
         for (const o of g.options) {
           expect(o.cadence_target_cents - g.cadence_amount_cents).toBe(o.cadence_delta_cents);
@@ -135,7 +135,7 @@ describe('a giver is shown the figure they would recognise', () => {
   });
 
   it('carries a rhythm and its wording for every giver', () => {
-    return analyse().then(({ by }) => {
+    return analyze().then(({ by }) => {
       expect(by['Alder Household'].cadence_adverb).toBe('a week');
       expect(by['Brook Household'].cadence_adverb).toBe('a month');
       expect(by['Cal Cole'].cadence_adverb).toBe('a year');
@@ -153,18 +153,18 @@ describe('a giver is shown the figure they would recognise', () => {
 
 describe('who the nudge list addresses', () => {
   it('combines spouses into one household so a couple gets one letter', () => {
-    return analyse().then(({ by }) => {
+    return analyze().then(({ by }) => {
       expect(by['Alder Household'].total_cents).toBe(48 * 2500);
     });
   });
 
   it('splits them again in person scope', async () => {
-    const { res } = await analyse('person');
+    const { res } = await analyze('person');
     expect(res.givers.length).toBe(4);
   });
 
   it('never writes to an organization record', async () => {
-    const { res } = await analyse();
+    const { res } = await analyze();
     expect(res.givers.map(g => g.name)).not.toContain('Schwab Brokerage');
     expect(res.givers.length).toBe(3);
   });
@@ -172,7 +172,7 @@ describe('who the nudge list addresses', () => {
   it('exposes the flat giver list the letters are addressed from', () => {
     // computeGivingPlateaus originally returned only tiers/distribution/summary; the workspace
     // reads one row per giver, and without this it silently rendered an empty recipient list.
-    return analyse().then(({ res }) => {
+    return analyze().then(({ res }) => {
       expect(Array.isArray(res.givers)).toBe(true);
       expect(res.givers.length).toBeGreaterThan(0);
       expect(res.givers[0]).toHaveProperty('link_kind');
@@ -181,7 +181,7 @@ describe('who the nudge list addresses', () => {
   });
 
   it('flags an occasional giver who has never used an automatic method', () => {
-    return analyse().then(({ by }) => {
+    return analyze().then(({ by }) => {
       expect(by['Cal Cole'].low_frequency).toBe(true);
       expect(by['Cal Cole'].all_manual_methods).toBe(true);
       // Brook gives monthly by ACH — neither flag applies.

@@ -13,18 +13,18 @@ import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from '../src/html-chms.js';
 // sheet's own operating account rather than a name match over connected QuickBooks accounts.
 
 describe('resolveGeneralFundIds', () => {
-  it('uses funds.category when an admin has categorised anything', () => {
+  it('uses funds.category when an admin has categorized anything', () => {
     const { ids } = resolveGeneralFundIds([
       { id: 1, name: '40085 General Fund', category: 'general' },
       { id: 2, name: '40085 Christmas Offering', category: 'restricted' },
       { id: 3, name: '25010 Concordia Children\'s', category: 'restricted' },
     ]);
     // The admin's own answer wins over the name prefix — fund 2 shares the code but was
-    // deliberately categorised restricted.
+    // deliberately categorized restricted.
     expect([...ids]).toEqual([1]);
   });
 
-  it('falls back to the whole numeric-code family before anything is categorised', () => {
+  it('falls back to the whole numeric-code family before anything is categorized', () => {
     const { ids, prefix } = resolveGeneralFundIds([
       { id: 1, name: '40085 General Fund', category: '' },
       { id: 2, name: '40085 Christmas Offering', category: '' },
@@ -174,7 +174,7 @@ describe('GET finance/church/this-year — giving pace scoped to the General Fun
   });
 
   it('finds the code even when no fund is literally named "General Fund"', async () => {
-    // Once an admin categorises funds by hand the name need not survive, and a null code used to
+    // Once an admin categorizes funds by hand the name need not survive, and a null code used to
     // cost the whole budget lookup silently.
     const db = makeTestDb();
     db._raw.exec(`INSERT INTO funds (id,name,category) VALUES (1,'40085 Sunday Offering','general'), (2,'40085 Advent','general')`);

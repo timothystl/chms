@@ -231,7 +231,7 @@ export function chmsHtmlForRole(role) {
   // A member gets the directory bundle only. If an admin has granted them the Reports tab,
   // js-core lazy-loads the other two on first open (ensureFullAppLoaded).
   //
-  // Fail SAFE, not small: any role this doesn't recognise — including a null/undefined role
+  // Fail SAFE, not small: any role this doesn't recognize — including a null/undefined role
   // from a future caller — gets the full set. Under-serving scripts to a staff account would
   // break their app; over-serving them to a member only costs bytes.
   if (role === 'member') return CHMS_SHELL + scriptTag('app-member');

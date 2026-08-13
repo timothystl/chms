@@ -58,7 +58,7 @@ export function makeBreezeClient(env) {
 
     // Single person by Breeze ID — always requests details=1.
     // May return a single object, a wrapped {person:...}, or a one-element array
-    // depending on Breeze API version. Callers normalise the response themselves.
+    // depending on Breeze API version. Callers normalize the response themselves.
     person: (id) => get(`people/${id}?details=1`),
 
     // ── People write ───────────────────────────────────────────────────────

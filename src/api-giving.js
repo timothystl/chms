@@ -427,7 +427,7 @@ if (seg === 'giving/letters/mark' && method === 'POST') {
 // the send ledger so a run is resumable and nobody is asked twice.
 //
 // Each recipient carries their figures in THEIR OWN rhythm (weekly/monthly/quarterly/annual, see
-// classifyGivingCadence) rather than the weekly-equivalent the analysis normalises to — telling a
+// classifyGivingCadence) rather than the weekly-equivalent the analysis normalizes to — telling a
 // monthly giver they give "$43 a week" reads as though nobody looked at their record.
 if (seg === 'giving/nudges/status' && method === 'GET') {
   const year = parseInt(url.searchParams.get('year') || '', 10);

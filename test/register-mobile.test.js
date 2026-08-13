@@ -77,7 +77,7 @@ describe('register on a phone — the "+ Add" button is actually reachable', () 
   });
 });
 
-// ── Behaviour, run out of the real built bundle ──────────────────────────────────────────────
+// ── Behavior, run out of the real built bundle ──────────────────────────────────────────────
 
 function fakeEl(id) {
   const e = {
