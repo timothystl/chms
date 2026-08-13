@@ -99,7 +99,7 @@ describe('computeGivingPlateaus', () => {
 
   it('but states each of them their figure in the rhythm they actually give in', () => {
     // The same two givers the test above proves are analyzed identically must be WRITTEN TO
-    // differently: telling Otto, who wrote one cheque in December, that he gives "$50 a week" is
+    // differently: telling Otto, who wrote one check in December, that he gives "$50 a week" is
     // the failure the cadence fields exist to prevent.
     const r = computeGivingPlateaus([row(1, 'Weekly Wanda', 2600, 52), row(2, 'One-Time Otto', 2600, 1)], { periodsElapsed: 52 });
     const wanda = r.givers.find(g => g.name === 'Weekly Wanda');

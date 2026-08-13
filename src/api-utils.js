@@ -843,7 +843,7 @@ export async function fetchGivingPlateauRows(db, { year, scope, fundId }) {
 // ── Giving cadence ────────────────────────────────────────────────────────
 // The plateau analysis deliberately normalizes everyone to a weekly-equivalent figure, so a
 // weekly regular, a monthly giver and a single annual gift are all comparable. That is right for
-// the ANALYSIS and wrong for the LETTER: telling someone who writes one cheque a month that they
+// the ANALYSIS and wrong for the LETTER: telling someone who writes one check a month that they
 // "give $43 a week" reads as though we haven't looked at their record. So each giver also carries
 // the rhythm they actually give in, and every figure shown to them is expressed in it.
 //

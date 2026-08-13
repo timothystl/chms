@@ -307,7 +307,7 @@ function finRenderDataImports() {
     + '<div class="fin-card">'
       + '<div class="fin-data-card-hdr"><span class="fin-data-card-name">Daycare app</span>'
       + (_finStatus.daycareConfigured ? '<span class="fin-sync-pill">Configured</span>' : '<span class="fin-chip fin-chip-warn">Not connected</span>') + '</div>'
-      + '<p class="fin-data-card-body">Money syncs per period once the daycare app\'s finance API is live. The room-level figures the Daycare Report reads — capacity, average daily enrolled, billed revenue, labour cost, waitlist — still need adding to that API.</p>'
+      + '<p class="fin-data-card-body">Money syncs per period once the daycare app\'s finance API is live. The room-level figures the Daycare Report reads — capacity, average daily enrolled, billed revenue, labor cost, waitlist — still need adding to that API.</p>'
       + '<div id="fin-daycare-sync"></div>'
     + '</div>'
     + '<div class="fin-card">'
@@ -2543,7 +2543,7 @@ function finRenderDaycareRooms() {
   var weakestPct = weakest && weakest.billed_cents ? (weakest.billed_cents - (weakest.labor_cost_cents || 0)) / weakest.billed_cents : null;
   var marginCard = '<div class="fin-card">'
     + '<div class="fin-card-title" style="font-size:20px;">Billed vs. wages by room</div>'
-    + '<div class="fin-card-sub">This month. Wages are the daycare app&rsquo;s labour cost for that room, salaried staff prorated.</div>'
+    + '<div class="fin-card-sub">This month. Wages are the daycare app&rsquo;s labor cost for that room, salaried staff prorated.</div>'
     + '<div class="fin-room-grid">'
     + '<div class="fin-th">Room</div><div class="fin-th" style="text-align:right;">Billed</div><div class="fin-th" style="text-align:right;">Wages</div><div class="fin-th" style="text-align:right;">Margin</div><div class="fin-th" style="text-align:right;">%</div>'
     + marginRows
@@ -2568,7 +2568,7 @@ function finRenderDaycareRooms() {
     + '</div>'
     + '<div class="fin-card" style="border:1px solid var(--warm-border);box-shadow:none;">'
       + '<div class="fin-eyebrow">What this needs from the daycare app</div>'
-      + '<div style="font-size:13px;color:var(--warm-ink-label);line-height:1.6;margin-top:6px;">One monthly endpoint, four fields per room: <b>capacity/day</b>, <b>average daily enrolled</b>, <b>billed revenue</b>, <b>labour cost</b> — plus a waitlist count per room. Everything on this page derives from those. No rosters, schedules or clock records cross the boundary.</div>'
+      + '<div style="font-size:13px;color:var(--warm-ink-label);line-height:1.6;margin-top:6px;">One monthly endpoint, four fields per room: <b>capacity/day</b>, <b>average daily enrolled</b>, <b>billed revenue</b>, <b>labor cost</b> — plus a waitlist count per room. Everything on this page derives from those. No rosters, schedules or clock records cross the boundary.</div>'
     + '</div></div>';
 
   return '<div class="fin-grid-2 fin-grid-start">' + occCard + marginCard + '</div>' + closing;
@@ -2634,7 +2634,7 @@ function finRenderDaycareReport() {
   // says plainly what is missing, rather than the page erroring or quietly showing less.
   var roomsHtml = finRenderDaycareRooms();
   var degradedNote = _finDaycareRoomsAvailable ? '' :
-    '<div class="fin-note-box" style="margin-bottom:16px;">Room-level occupancy and per-room margin are not shown: the daycare app does not yet publish the monthly per-room figures this needs (capacity, average daily enrolled, billed revenue, labour cost, waitlist). Until it does, the year-by-year figures below are what the board receives.</div>';
+    '<div class="fin-note-box" style="margin-bottom:16px;">Room-level occupancy and per-room margin are not shown: the daycare app does not yet publish the monthly per-room figures this needs (capacity, average daily enrolled, billed revenue, labor cost, waitlist). Until it does, the year-by-year figures below are what the board receives.</div>';
 
   el.innerHTML = otherSourceWarning
     + '<div id="fin-daycare-mdo-note"></div>'
@@ -7382,7 +7382,7 @@ function finHealthPlanEffectiveLoneClaimantTermsCents(optionKey) {
     ? { deductibleCents: opt.deductibleIndividualCents, oopMaxCents: opt.oopMaxIndividualCents }
     : { deductibleCents: opt.deductibleFamilyCents, oopMaxCents: opt.oopMaxFamilyCents };
 }
-// How many people a "family" contract is assumed to cover when modelling costs spread across the
+// How many people a "family" contract is assumed to cover when modeling costs spread across the
 // household. Only matters for an EMBEDDED plan, where each member has their own limit inside the
 // family one; a non-embedded plan pools everything and the count makes no difference. Default 2 —
 // every option in this quote sets the family deductible at exactly 2x the individual one.
